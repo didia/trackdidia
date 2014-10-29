@@ -34,6 +34,7 @@ def delete_task(owner, task_id):
 
     
 class Task(ndb.Model):
+    category = ndb.StringProperty()
     name = ndb.StringProperty(required = True)
     description = ndb.TextProperty()
     location = ndb.StringProperty()
