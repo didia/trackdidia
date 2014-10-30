@@ -7,17 +7,15 @@ Created on 2014-10-28
 '''
 from google.appengine.ext import ndb
 import datetime
-import time
-
-
-
+import utils
 
 class Schedule(ndb.Model):
     interval = ndb.FloatProperty(default = 0.5)
     starting_date = ndb.DateTimeProperty()
     ending_date = ndb.DateTimeProperty()
     recurrent = ndb.BooleanProperty(default = True)
-    days = [];
+    _days = None
+    _owner = None
  
     def get_interval(self):
         return self.interval
@@ -28,42 +26,45 @@ class Schedule(ndb.Model):
     def is_recurrent(self):
         return self.recurrent
     
-    def initialize(self):
-        self.set_starting_ending_date()
-        self.initialize_days()
-        
-        pass
+    def get_owner(self):
+        if self._owner is None:
+            self._owner = self.key.parent().get()
+        return self._owner
     
-    def initialize_days(self):
-        interval_usage = int(24/0.5)
-        
-        for i in range(7):
+    def initialize(self):
+        self.starting_date, self.ending_date = utils.get_week_start_and_end()
+        interval_usage = [False for i in range(int(24/self.interval))]
+        number_of_sleep_interval = int(6/self.interval)
+        for i in range(number_of_sleep_interval):
+            interval_usage[i] = True
+        slots = []
+        self._days = []
+        for i in range(1,8):
             day = DayOfWeek(id = i, parent=self.key, interval_usage = interval_usage)
-            self.days[i] = day
+            self._days.append(day)
+                   
+        ndb.put_multi(self._days)
+        self.get_owner()
+        sleep_task = self._owner.create_task(name='Sleep')
         
-        ndb.put_multi(self.days)
+        for day in self._days:
+            slot = Slot(parent=day.key, start_offset = 0, duration = 6, task = sleep_task.key)
+            slots.append(slot)
+        
+        ndb.put_multi(slots)
+    
     
     def get_all_days(self):
-        if self.days is None:
-            self.days = ndb.get_multi([ndb.Key(DayOfWeek, day_id) for day_id in range(7)])
+        if self._days is None:
+            self._days = ndb.get_multi([ndb.Key(DayOfWeek, day_id) for day_id in range(1,8)])
         
-        return self.days
-        
-        
-            
-    def set_starting_ending_date(self, today=None):
-        date = today or datetime.datetime.today()
-        weekday = date.weekday()
-        self.starting_date = date - datetime.timedelta(days=weekday)
-        self.ending_date = date + datetime.timedelta(days=6-weekday)
-    
-    
+        return self._days
+         
 
 class DayOfWeek(ndb.Model):
     interval_usage = ndb.BooleanProperty(repeated = True)
     
-    def get_interval_usage_array(self):
-        return self.interval_usage
+    
     
 class Slot(ndb.Model):
     start_offset = ndb.IntegerProperty(required=True)

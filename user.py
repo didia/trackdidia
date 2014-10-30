@@ -9,10 +9,11 @@ from tracking import Schedule
 from task import Task
 
 def create_user(user_id, email, nickname):
-    user = User(id=user_id, email=email, nickname=nickname)
-    user.initSchedule()
-    user.put()
-    return user;
+    my_user = User(id=user_id, email=email, nickname=nickname)
+    my_user.put()
+    my_user.initSchedule()
+    
+    return my_user;
 
 def get_user(user_id):
     return User.get_by_id(user_id)
@@ -78,7 +79,7 @@ class User(ndb.Model):
     
     def getSchedule(self):
         if self.schedule is None:
-            self.schedule = Schedule.get_by_id('recurrent', self.key)
+            self.schedule = Schedule.get_by_id('recurrent', parent=self.key)
         return self.schedule
 
         

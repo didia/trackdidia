@@ -27,7 +27,14 @@ class TestUser(DatastoreTest):
         self.assertEqual(user_id, same_user.get_id())
         self.assertEqual(email, same_user.get_email())
         self.assertEqual(nickname, same_user.get_nickname())
-        self.assertTrue(type(same_user.getSchedule()) is Schedule)
+        
+        #Test initialization of a schedule with default task for each dayOfWeek
+        schedule = same_user.getSchedule()
+        days = schedule.get_all_days()
+        self.assertEqual(7, len(days))
+        self.assertEqual(12, days[0].interval_usage.count(True))
+        
+        
     
     def test_get_user(self):
         user_id = "189567"
@@ -77,21 +84,21 @@ class TestUser(DatastoreTest):
         name = "GLO_2100"
         description = "Etude Algorithmes et Structure"
         location = "PLT-3920"
-        my_task = self.user.create_task(owner = self.user, name=name, description=description, location=location)
+        my_task = self.user.create_task(name=name, description=description, location=location)
         self.assertEqual(my_task.name, name)
         self.assertEqual(my_task.description, description)
         self.assertEqual(my_task.location, location)
     
     def test_user_get_task(self):
         name = "GLO-2100"
-        my_task = self.create_task(owner = self.user, name = name)
-        self.assertEqual(my_task, self.get_task(owner = self.user, task_id = my_task["id"]))
+        my_task = self.user.create_task(name = name)
+        self.assertEqual(my_task, self.user.get_task(task_id = my_task.key.id()))
 
     def test_delete_task(self):
         name = "GLO-2100"
-        my_task = self.user.create_task(owner = self.user, name = name)
-        self.user.delete_task(owner = self.user, task_id = my_task.key.id)
-        self.assertIsNone(self.user.get_task(owner = self.user, task_id = my_task.key.id))     
+        my_task = self.user.create_task(name = name)
+        self.user.delete_task(task_id = my_task.key.id())
+        self.assertIsNone(self.user.get_task(task_id = my_task.key.id()))     
         
         
    
