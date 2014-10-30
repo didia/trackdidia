@@ -7,31 +7,6 @@ Created on 2014-10-25
 '''
 
 from google.appengine.ext import ndb
-
-def create_task(owner, name, **kargs):
-    task = Task(parent = owner.key, name=name, **kargs)
-    task.put()
-    return task.to_dict()
-
-def get_task(owner, task_id):
-    task = Task.get_by_id(task_id, parent = owner.key)
-    if(not task is None):
-        return task.to_dict()
-    return None
-
-def edit_task(owner, task_id, **kargs):
-    task = Task.get_by_id(task_id, parent = owner.key);
-    if(not task is None):
-        task.populate(**kargs)
-        task.put()
-    return task.to_dict()
-
-def delete_task(owner, task_id):
-    key = ndb.Key(Task, task_id, parent = owner.key)
-    key.delete()
-    
-    
-
     
 class Task(ndb.Model):
     category = ndb.StringProperty()
@@ -50,21 +25,13 @@ class Task(ndb.Model):
             
         
         return a_dict
-     
-     
-    def get_id(self):
-        return self.key.id()
-    def set_name(self, p_name):
-        self.name = p_name
-        
-    def set_description(self, p_description):
-        self.description = p_description
     
-    def set_location(self, p_location):
-        self.location = p_location
-    
-    def set_priority(self, p_priority):
-        self.priority = p_priority
+    def update(self, **kwargs):
+        if not kwargs is None:
+            self.populate(**kwargs)
+            self.put()
+        return self
+     
 
 
 

@@ -13,6 +13,10 @@ from tracking import Schedule
 
 class TestUser(DatastoreTest):
     
+    def setUp(self):
+        super(TestUser, self).setUp()
+        self.user = user.create_user("testeur", "testeur@gmail.com", "TestMan")
+        
     def test_create_user(self):
         user_id = "145861"
         email = "thefuture2092@gmail.com"
@@ -68,7 +72,26 @@ class TestUser(DatastoreTest):
         user.create_user(user_id, email, nickname)
         user.delete_user(user_id)
         self.assertIsNone(user.get_user(user_id))
-        
+    
+    def test_user_create_task(self):
+        name = "GLO_2100"
+        description = "Etude Algorithmes et Structure"
+        location = "PLT-3920"
+        my_task = self.user.create_task(owner = self.user, name=name, description=description, location=location)
+        self.assertEqual(my_task.name, name)
+        self.assertEqual(my_task.description, description)
+        self.assertEqual(my_task.location, location)
+    
+    def test_user_get_task(self):
+        name = "GLO-2100"
+        my_task = self.create_task(owner = self.user, name = name)
+        self.assertEqual(my_task, self.get_task(owner = self.user, task_id = my_task["id"]))
+
+    def test_delete_task(self):
+        name = "GLO-2100"
+        my_task = self.user.create_task(owner = self.user, name = name)
+        self.user.delete_task(owner = self.user, task_id = my_task.key.id)
+        self.assertIsNone(self.user.get_task(owner = self.user, task_id = my_task.key.id))     
         
         
    

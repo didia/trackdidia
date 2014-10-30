@@ -6,6 +6,7 @@ Created on 2014-10-28
 from google.appengine.ext import ndb
 from google.appengine.api.datastore_errors import BadValueError
 from tracking import Schedule
+from task import Task
 
 def create_user(user_id, email, nickname):
     user = User(id=user_id, email=email, nickname=nickname)
@@ -47,6 +48,26 @@ class User(ndb.Model):
         
         self.populate(**updated_values)
         self.put()
+    
+    def create_task(self, name, **kwargs):
+        task = Task(parent = self.key, name=name, **kwargs)
+        task.put()
+        return task
+    
+    def get_task(self, task_id):
+        task = Task.get_by_id(task_id, parent = self.key)
+        if(not task is None):
+            return task
+        return None
+    
+    def update_task(self, task_id, **kwargs):
+        task = Task.get_by_id(task_id, parent = self.key)
+        return task.update(**kwargs)
+        
+    
+    def delete_task(self, task_id):
+        key = ndb.Key(Task, task_id, parent = self.key)
+        key.delete()
     
     def initSchedule(self):
         if self.getSchedule() is None:

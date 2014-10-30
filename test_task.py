@@ -21,36 +21,19 @@ class TestTask(DatastoreTest):
         my_task = Task(parent=self.user.key, name=name)
         key = my_task.put()
         task_dict = my_task.to_dict();
-        self.assertEqual(key.id(), task_dict.get("id"))
+        self.assertEqual(key.integer_id(), task_dict.get("id"))
     
-    def test_create_task(self):
-        name = "GLO_2100"
-        description = "Etude Algorithmes et Structure"
-        location = "PLT-3920"
-        my_task = task.create_task(owner = self.user, name=name, description=description, location=location)
-        self.assertEqual(my_task.get("name"), name)
-        self.assertEqual(my_task.get("description"), description)
-        self.assertEqual(my_task.get("location"), location)
+
     
-    def test_edit_task(self):
+    def test_task_update(self):
         name = "GLO-2100"
         second_name = "GLO-2004"
-        my_task = task.create_task(owner = self.user, name = name)
-        task.edit_task(owner = self.user, task_id = my_task["id"], name=second_name)
-        same_task = task.get_task(owner = self.user, task_id = my_task["id"])
-        self.assertEqual(same_task["name"], second_name)
-    
-    def test_get_task(self):
-        name = "GLO-2100"
-        my_task = task.create_task(owner = self.user, name = name)
-        self.assertEqual(my_task, task.get_task(owner = self.user, task_id = my_task["id"]))
-    
-    def test_delete_task(self):
-        name = "GLO-2100"
-        my_task = task.create_task(owner = self.user, name = name)
-        task.delete_task(owner = self.user, task_id = my_task["id"])
-        self.assertIsNone(task.get_task(owner = self.user, task_id = my_task["id"]))
+        my_task = self.user.create_task(name = name)
+        my_task.update(name = second_name)
         
+        same_task = self.user.get_task(task_id = my_task.key.id())
+        self.assertEqual(same_task.name, second_name)
+         
         
         
     
