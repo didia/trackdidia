@@ -29,7 +29,7 @@ class TestUser(DatastoreTest):
         self.assertEqual(nickname, same_user.get_nickname())
         
         #Test initialization of a schedule with default task for each dayOfWeek
-        schedule = same_user.getSchedule()
+        schedule = same_user.get_schedule()
         days = schedule.get_all_days()
         self.assertEqual(7, len(days))
         self.assertEqual(12, days[0].interval_usage.count(True))

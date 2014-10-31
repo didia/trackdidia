@@ -8,6 +8,7 @@ Created on 2014-10-28
 from google.appengine.ext import ndb
 import datetime
 import utils
+from custom_exceptions import SlotAlreadyUsed, BadArgumentError
 
 class Schedule(ndb.Model):
     interval = ndb.FloatProperty(default = 0.5)
@@ -19,6 +20,9 @@ class Schedule(ndb.Model):
  
     def get_interval(self):
         return self.interval
+    
+    def get_day(self, day_id):
+        return ndb.Key(DayOfWeek, day_id, parent=self.key).get()
     
     def get_interval_usage_array(self):
         return self.interval_usage
@@ -56,13 +60,72 @@ class Schedule(ndb.Model):
     
     def get_all_days(self):
         if self._days is None:
-            self._days = ndb.get_multi([ndb.Key(DayOfWeek, day_id) for day_id in range(1,8)])
+            self._days = ndb.get_multi([ndb.Key(DayOfWeek, day_id, parent=self.key) for day_id in range(1,8)])
         
         return self._days
+    
+    def add_slot(self, task, day_id, start_offset, duration):
+        higher_limit = 24/self.interval
+        if(start_offset < 0 or start_offset >= higher_limit):
+            message = "The start_offset parameter must be a number betwen "
+            message += str(0) + " and "+ str(higher_limit) + ". " + str(start_offset) + " given"
+            
+            raise BadArgumentError(message)
+        
+        if(start_offset + duration > higher_limit):
+            message = "The sum of the start_offset + duration must be less than "
+            message = "the number of available slots, " + str(higher_limit)
+            
+            raise BadArgumentError(message)
+        if(day_id < 1 or day_id > 8):
+            raise BadArgumentError("Invalid value for day id. Must be between 1 and 8 ")
+        
+        day = self.get_day(day_id)
+        day.add_slot(task, start_offset, duration)
+            
+    
+    def add_slots(self):
+        pass
          
 
 class DayOfWeek(ndb.Model):
     interval_usage = ndb.BooleanProperty(repeated = True)
+    _slots = None
+    
+    def add_slot(self, task, start_offset, duration):
+        for i in range(start_offset, start_offset+duration):
+            if(self.interval_usage[i]):
+                message = "Asked to reserve Slot " + str(start_offset)
+                if duration > 1:
+                    message +=" to " +  str(start_offset+duration-1) + " inclusively"
+                message += "\n But Slot " + str(i) + " is already reserved"
+                
+                raise SlotAlreadyUsed(message)
+                
+        slot = Slot(parent=self.key, task=task.key, start_offset = start_offset, duration = duration)
+        slot.put()
+        for i in range(start_offset, start_offset+duration):
+            self.interval_usage[i] = True
+        self.put()
+        return slot
+    
+    def add_slots(self):
+        pass
+    
+    def get_slots(self):
+        if self._slots is None:
+            self._slots = Slot.query(ancestor=self.key).order(Slot.start_offset).fetch()
+        return self._slots
+    
+    def reload_slots(self):
+        self._slots = Slot.query(ancestor=self.key).order(Slot.start_offset).fetch()
+            
+    
+    def to_dict(self):
+        representation = dict()
+        representation['interval_usage'] = self.interval_usage
+        
+        
     
     
     
@@ -76,4 +139,4 @@ class Slot(ndb.Model):
     
     def get_duration(self):
         return self.duration
-    
+
