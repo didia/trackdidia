@@ -3,11 +3,13 @@ Created on 2014-10-28
 
 @author: didia
 '''
-from google.appengine.ext import ndb
 from google.appengine.api.datastore_errors import BadValueError
-from tracking import Schedule
-from task import Task
+from google.appengine.ext import ndb
+
 from custom_exceptions import BadArgumentError
+from task import Task
+from tracking import Schedule
+
 
 def create_user(user_id, email, nickname):
     my_user = User(id=user_id, email=email, nickname=nickname)
@@ -83,13 +85,17 @@ class User(ndb.Model):
             self.schedule = Schedule.get_by_id(schedule_id, parent=self.key)
         return self.schedule
     
-    def add_task_to_schedule(self, task_id, day_id, start_offset, duration, schedule_id = "recurrent"):
+    def schedule_task(self, task_id, day_id, start_offset, duration, schedule_id = "recurrent"):
         schedule = self.get_schedule(schedule_id)
         task = self.get_task(task_id)
         if task is None:
             raise BadArgumentError(" There is no task with id "+ str(task_id) + " found for this user")
         
         schedule.add_slot(task, day_id, start_offset, duration)
+    
+    def unschedule_task(self, schedule_id, day_id, slot_id):
+        schedule = self.get_schedule(schedule_id)
+        schedule.remove_slot(day_id, slot_id)
         
 
         

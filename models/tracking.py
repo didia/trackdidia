@@ -52,7 +52,7 @@ class Schedule(ndb.Model):
         sleep_task = self._owner.create_task(name='Sleep')
         
         for day in self._days:
-            slot = Slot(parent=day.key, start_offset = 0, duration = 6, task = sleep_task.key)
+            slot = Slot(parent=day.key, start_offset = 0, duration = number_of_sleep_interval, task = sleep_task.key)
             slots.append(slot)
         
         ndb.put_multi(slots)
@@ -86,6 +86,11 @@ class Schedule(ndb.Model):
     
     def add_slots(self):
         pass
+    
+    def remove_slot(self, day_id, slot_id):
+        day = self.get_day(day_id)
+        day.remove_slot(day_id)
+        
          
 
 class DayOfWeek(ndb.Model):
@@ -107,18 +112,38 @@ class DayOfWeek(ndb.Model):
         for i in range(start_offset, start_offset+duration):
             self.interval_usage[i] = True
         self.put()
+        
+        self.reload_slots()
         return slot
     
     def add_slots(self):
         pass
     
+    def get_slot(self, slot_id):
+        return Slot.get_by_id(slot_id,self.key)
+    
     def get_slots(self):
         if self._slots is None:
-            self._slots = Slot.query(ancestor=self.key).order(Slot.start_offset).fetch()
+            self.reload_slots()
         return self._slots
     
     def reload_slots(self):
         self._slots = Slot.query(ancestor=self.key).order(Slot.start_offset).fetch()
+        if self._slots is None:
+            self._slots = []
+    
+    def remove_slot(self, slot_id):
+        slot = self.get_slot(slot_id)
+        if slot is None:
+            return
+        
+        for i in range(slot.start_offset, slot.start_offset + slot.duration):
+            self.interval_usage[i] = False
+        
+        slot.key.delete()
+        self.put()
+        self.reload_slots()
+        
             
     
     def to_dict(self):

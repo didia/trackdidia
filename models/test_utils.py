@@ -3,9 +3,11 @@ Created on 2014-10-30
 
 @author: didia
 '''
-import unittest
 import datetime
+import unittest
+
 import utils
+
 
 class TestUtils(unittest.TestCase):
 
