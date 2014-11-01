@@ -143,7 +143,8 @@ class DayOfWeek(ndb.Model):
             self.interval_usage[i] = True
         self.put()
         
-        self.reload_slots()
+        if not self._slots is None:
+            self._slots.append(slot)
         return slot
     
     def add_slots(self):
@@ -170,9 +171,13 @@ class DayOfWeek(ndb.Model):
         for i in range(slot.start_offset, slot.start_offset + slot.duration):
             self.interval_usage[i] = False
         
+        if not self._slots is None:
+            try:
+                self._slots.remove(slot)
+            except ValueError:
+                pass
         slot.key.delete()
         self.put()
-        self.reload_slots()
     
     def set_executed(self, slot_id, executed=True):
 

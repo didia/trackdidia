@@ -7,6 +7,7 @@ Created on 2014-10-25
 '''
 
 from google.appengine.ext import ndb
+from collections import OrderedDict
     
 class Task(ndb.Model):
     category = ndb.StringProperty(default = 'All')
@@ -21,12 +22,16 @@ class Task(ndb.Model):
         Function to get the task as a dict
         return a dict that contains info about the ticket
         """
-        a_dict = self.to_dict(include=['name', 'category', 'description', 'location', 'priority'])
-        a_dict["id"] = self.key.integer_id()
-            
+        representation = OrderedDict()
+        representation["id"] = self.key.integer_id()
+        representation["name"] = self.name
+        representation["description"] = self.description
+        representation["location"] = self.location
+        representation["category"] = self.category
+        representation["priority"] = self.priority
         
-        return a_dict
-    
+        return representation
+            
     def update(self, **kwargs):
         if not kwargs is None:
             self.populate(**kwargs)

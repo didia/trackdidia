@@ -38,7 +38,7 @@ class User(ndb.Model):
     email = ndb.StringProperty(required=True)
     nickname = ndb.StringProperty(required=True)
     schedule = None
-    
+    _tasks = None
     def get_id(self):
         return self.key.id()
     
@@ -61,17 +61,22 @@ class User(ndb.Model):
     
 
     def create_task(self, name, **kwargs):
+        self._tasks = None
         task = Task(parent = self.key, name=name, **kwargs)
         task.put()
         return task
     
     def get_task(self, task_id):
         task = Task.get_by_id(task_id, parent = self.key)
-        if(not task is None):
-            return task
-        return None
+        return task
     
+    def get_all_tasks(self):
+        if self._tasks is None:
+            self._tasks = Task.query(ancestor=self.key).order(Task.name).fetch()
+        return self._tasks
+        
     def update_task(self, task_id, **kwargs):
+        self._tasks = None
         task = Task.get_by_id(task_id, parent = self.key)
         return task.update(**kwargs)
         
