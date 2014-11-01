@@ -10,4 +10,7 @@ indexes:
 # automatically uploaded to the admin console when you next deploy
 # your application using appcfg.py.
 
-
+- kind: Slot
+  ancestor: yes
+  properties:
+  - name: start_offset

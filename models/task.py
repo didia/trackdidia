@@ -9,19 +9,19 @@ Created on 2014-10-25
 from google.appengine.ext import ndb
     
 class Task(ndb.Model):
-    category = ndb.StringProperty()
+    category = ndb.StringProperty(default = 'All')
     name = ndb.StringProperty(required = True)
     description = ndb.TextProperty()
     location = ndb.StringProperty()
     priority = ndb.IntegerProperty(choices=[0,1,2,3,4,5], default=1)
     _owner = None
         
-    def to_dict(self):
+    def get_representation(self):
         """
         Function to get the task as a dict
         return a dict that contains info about the ticket
         """
-        a_dict = super(Task, self).to_dict()
+        a_dict = self.to_dict(include=['name', 'category', 'description', 'location', 'priority'])
         a_dict["id"] = self.key.integer_id()
             
         

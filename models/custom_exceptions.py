@@ -11,3 +11,6 @@ class BadArgumentError(Exception):
 
 class SlotAlreadyUsed(Exception):
     pass
+
+class SlotNotYetReached(Exception):
+    pass

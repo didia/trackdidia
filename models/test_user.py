@@ -92,13 +92,13 @@ class TestUser(DatastoreTest):
     def test_user_get_task(self):
         name = "GLO-2100"
         my_task = self.user.create_task(name = name)
-        self.assertEqual(my_task, self.user.get_task(task_id = my_task.key.id()))
+        self.assertEqual(my_task, self.user.get_task(task_id = my_task.key.integer_id()))
 
     def test_delete_task(self):
         name = "GLO-2100"
         my_task = self.user.create_task(name = name)
-        self.user.delete_task(task_id = my_task.key.id())
-        self.assertIsNone(self.user.get_task(task_id = my_task.key.id()))     
+        self.user.delete_task(task_id = my_task.key.integer_id())
+        self.assertIsNone(self.user.get_task(task_id = my_task.key.integer_id()))     
         
         
    

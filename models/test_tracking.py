@@ -21,7 +21,7 @@ class TestTracking(DatastoreTest):
         i = 1  
         day = self.schedule.get_day(i)
         self.assertIsNotNone(day)
-        self.assertEqual(i, day.key.id())
+        self.assertEqual(i, day.key.integer_id())
     
     def testSchedule_get_slots(self):
         i = 2
@@ -50,7 +50,7 @@ class TestTracking(DatastoreTest):
         i = 3
         day = self.schedule.get_day(i)
         slots = day.get_slots()
-        slot_id = slots[0].key.id()
+        slot_id = slots[0].key.integer_id()
         day.remove_slot(slot_id)
         slots_now = day.get_slots()
         self.assertEqual(0, len(slots_now))

@@ -11,6 +11,7 @@ from task import Task
 from tracking import Schedule
 
 
+
 def create_user(user_id, email, nickname):
     my_user = User(id=user_id, email=email, nickname=nickname)
     my_user.put()
@@ -20,6 +21,11 @@ def create_user(user_id, email, nickname):
 
 def get_user(user_id):
     return User.get_by_id(user_id)
+
+def get_or_create_user(user_id, email, nickname):
+    user = get_user(user_id)
+    return user or create_user(user_id, email, nickname)
+    
 
 def delete_user(user_id):
     key = ndb.Key(User, user_id)
@@ -53,6 +59,7 @@ class User(ndb.Model):
         self.populate(**updated_values)
         self.put()
     
+
     def create_task(self, name, **kwargs):
         task = Task(parent = self.key, name=name, **kwargs)
         task.put()
