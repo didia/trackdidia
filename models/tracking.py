@@ -10,6 +10,7 @@ import datetime
 import utils
 from custom_exceptions import SlotAlreadyUsed, BadArgumentError, SlotNotYetReached
 from collections import OrderedDict
+from models.custom_exceptions import RessourceNotFound
 
 class Schedule(ndb.Model):
     interval = ndb.FloatProperty(default = 0.5)
@@ -78,29 +79,29 @@ class Schedule(ndb.Model):
             message = "the number of available slots, " + str(higher_limit)
             
             raise BadArgumentError(message)
-        if(day_id < 1 or day_id > 8):
-            raise BadArgumentError("Invalid value for day id. Must be between 1 and 8 ")
+        if(day_id < 1 or day_id > 7):
+            raise BadArgumentError("Invalid value for day id. Must be between 1 and 8. " + str(day_id) + " given")
         
         day = self.get_day(day_id)
-        day.add_slot(task, start_offset, duration)
-            
-    
+        return day.add_slot(task, start_offset, duration)
+        
     def add_slots(self):
         pass
     
     def remove_slot(self, day_id, slot_id):
         day = self.get_day(day_id)
-        day.remove_slot(day_id)
+        day.remove_slot(slot_id)
     
     def set_executed(self, day_id, slot_id, executed=True):
         today_id = utils.get_today_id()
+        
         if day_id > today_id:
-            message = "Day id must be before " + str(today_id) + " must be "
-            message += " inferior to today's id " + str(day_id)
+            message = "Day id  " + str(day_id) + " must be "
+            message += " inferior to today's id " + str(today_id)
             raise SlotNotYetReached(message) 
         
         day = self.get_day(day_id)
-        day.set_executed(self, slot_id, executed)
+        day.set_executed(slot_id, executed)
     
     def restart(self):
         days = self.get_all_days()
@@ -193,6 +194,16 @@ class DayOfWeek(ndb.Model):
             slot = self.get_slot(slot_id)
             slot.executed = executed
             slot.put()
+            
+    def update_slot(self, slot_id, **params):
+        slot = self.get_slot(slot_id)
+        # Need review of this code because updating slot offset as insidence
+#         if slot is None:
+#             raise RessourceNotFound('The slot with id : '+ str(slot_id) + 'does not exist')
+#         if len(params) != 0:
+#             slot.update(**params)
+#             slot.put()
+        return slot
     
     def restart(self):
         slots = self.get_slots()

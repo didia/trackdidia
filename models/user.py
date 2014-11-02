@@ -9,6 +9,7 @@ from google.appengine.ext import ndb
 from custom_exceptions import BadArgumentError
 from task import Task
 from tracking import Schedule
+from models.custom_exceptions import RessourceNotFound
 
 
 
@@ -96,18 +97,22 @@ class User(ndb.Model):
         if self.schedule is None:
             self.schedule = Schedule.get_by_id(schedule_id, parent=self.key)
         return self.schedule
+   
+    def update_schedule(self, params, schedule_id="recurrent"):
+        pass
     
-    def schedule_task(self, task_id, day_id, start_offset, duration, schedule_id = "recurrent"):
+    def schedule_task(self, task_id, day_id, offset, duration, schedule_id = "recurrent"):
         schedule = self.get_schedule(schedule_id)
         task = self.get_task(task_id)
         if task is None:
-            raise BadArgumentError(" There is no task with id "+ str(task_id) + " found for this user")
+            raise RessourceNotFound(" There is no task with id "+ str(task_id) + " found for this user")
         
-        schedule.add_slot(task, day_id, start_offset, duration)
+        return schedule.add_slot(task, day_id, offset, duration)
     
-    def unschedule_task(self, schedule_id, day_id, slot_id):
+    def unschedule_task(self, day_id, slot_id, schedule_id = 'recurrent'):
         schedule = self.get_schedule(schedule_id)
         schedule.remove_slot(day_id, slot_id)
+    
         
 
         

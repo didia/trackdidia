@@ -14,3 +14,12 @@ class SlotAlreadyUsed(Exception):
 
 class SlotNotYetReached(Exception):
     pass
+
+class HandlerException(Exception):
+    pass
+
+class RessourceNotFound(HandlerException):
+    pass
+
+class NotImplementedYet(HandlerException, NotImplementedError):
+    pass
