@@ -13,7 +13,7 @@ indexes:
 - kind: Slot
   ancestor: yes
   properties:
-  - name: start_offset
+  - name: offset
 
 - kind: Task
   ancestor: yes
