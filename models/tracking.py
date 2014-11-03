@@ -54,7 +54,7 @@ class Schedule(ndb.Model):
         sleep_task = self._owner.create_task(name='Sleep')
         
         for day in self._days:
-            slot = Slot(parent=day.key, start_offset = 0, duration = number_of_sleep_interval, task = sleep_task.key)
+            slot = Slot(parent=day.key, offset = 0, duration = number_of_sleep_interval, task = sleep_task.key)
             slots.append(slot)
         
         ndb.put_multi(slots)
@@ -66,16 +66,16 @@ class Schedule(ndb.Model):
         
         return self._days
     
-    def add_slot(self, task, day_id, start_offset, duration):
+    def add_slot(self, task, day_id, offset, duration):
         higher_limit = 24/self.interval
-        if(start_offset < 0 or start_offset >= higher_limit):
-            message = "The start_offset parameter must be a number betwen "
-            message += str(0) + " and "+ str(higher_limit) + ". " + str(start_offset) + " given"
+        if(offset < 0 or offset >= higher_limit):
+            message = "The offset parameter must be a number betwen "
+            message += str(0) + " and "+ str(higher_limit) + ". " + str(offset) + " given"
             
             raise BadArgumentError(message)
         
-        if(start_offset + duration > higher_limit):
-            message = "The sum of the start_offset + duration must be less than "
+        if(offset + duration > higher_limit):
+            message = "The sum of the offset + duration must be less than "
             message = "the number of available slots, " + str(higher_limit)
             
             raise BadArgumentError(message)
@@ -83,7 +83,7 @@ class Schedule(ndb.Model):
             raise BadArgumentError("Invalid value for day id. Must be between 1 and 8. " + str(day_id) + " given")
         
         day = self.get_day(day_id)
-        return day.add_slot(task, start_offset, duration)
+        return day.add_slot(task, offset, duration)
         
     def add_slots(self):
         pass
@@ -129,19 +129,19 @@ class DayOfWeek(ndb.Model):
     interval_usage = ndb.BooleanProperty(repeated = True)
     _slots = None
     
-    def add_slot(self, task, start_offset, duration):
-        for i in range(start_offset, start_offset+duration):
+    def add_slot(self, task, offset, duration):
+        for i in range(offset, offset+duration):
             if(self.interval_usage[i]):
-                message = "Asked to reserve Slot " + str(start_offset)
+                message = "Asked to reserve Slot " + str(offset)
                 if duration > 1:
-                    message +=" to " +  str(start_offset+duration-1) + " inclusively"
+                    message +=" to " +  str(offset+duration-1) + " inclusively"
                 message += "\n But Slot " + str(i) + " is already reserved"
                 
                 raise SlotAlreadyUsed(message)
                 
-        slot = Slot(parent=self.key, task=task.key, start_offset = start_offset, duration = duration)
+        slot = Slot(parent=self.key, task=task.key, offset= offset, duration = duration)
         slot.put()
-        for i in range(start_offset, start_offset+duration):
+        for i in range(offset, offset+duration):
             self.interval_usage[i] = True
         self.put()
         
@@ -161,7 +161,7 @@ class DayOfWeek(ndb.Model):
         return self._slots
     
     def reload_slots(self):
-        self._slots = Slot.query(ancestor=self.key).order(Slot.start_offset).fetch()
+        self._slots = Slot.query(ancestor=self.key).order(Slot.offset).fetch()
         if self._slots is None:
             self._slots = []
     
@@ -170,7 +170,7 @@ class DayOfWeek(ndb.Model):
         if slot is None:
             return
         
-        for i in range(slot.start_offset, slot.start_offset + slot.duration):
+        for i in range(slot.offset, slot.offset + slot.duration):
             self.interval_usage[i] = False
         
         if not self._slots is None:
@@ -226,13 +226,13 @@ class DayOfWeek(ndb.Model):
     
     
 class Slot(ndb.Model):
-    start_offset = ndb.IntegerProperty(required=True)
+    offset = ndb.IntegerProperty(required=True)
     duration = ndb.IntegerProperty(required = True)
     task = ndb.KeyProperty(kind='Task')
     executed = ndb.BooleanProperty(default = False)
     
-    def get_start_offset(self):
-        return self.start_offset
+    def get_offset(self):
+        return self.offset
     
     def get_duration(self):
         return self.duration
@@ -240,7 +240,7 @@ class Slot(ndb.Model):
     def get_representation(self):
         representation = OrderedDict()
         representation['slot_id'] = self.key.integer_id()
-        representation['start_offset'] = self.start_offset
+        representation['offset'] = self.offset
         representation['duration'] = self.duration
         representation['executed'] = self.executed
         task = self.task.get()

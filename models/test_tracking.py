@@ -44,7 +44,7 @@ class TestTracking(DatastoreTest):
         self.assertEqual(12+duration, day.interval_usage.count(True))
         slot = slots[1]
         self.assertEqual(duration,slot.duration)
-        self.assertEqual(start_offset, slot.start_offset)
+        self.assertEqual(start_offset, slot.offset)
     
     def testDayOfWeek_remove_slot(self):
         i = 3
