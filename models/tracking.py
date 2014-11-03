@@ -104,6 +104,7 @@ class Schedule(ndb.Model):
         day.set_executed(slot_id, executed)
     
     def restart(self):
+        self.starting_date, self.ending_date = utils.get_week_start_and_end()
         days = self.get_all_days()
         for day in days:
             day.restart()

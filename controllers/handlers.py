@@ -149,13 +149,17 @@ class TaskHandler(BaseHandler):
         self.send_json(response)
           
 class ScheduleHandler(BaseHandler):
-    
+    @webapp2.cached_property
+    def schedule(self):
+        schedule_id = self.request.route_kwargs.get('schedule_id')
+        return self.user.get_schedule(schedule_id)
     def create(self):
         raise NotImplementedYet
     
     def get(self, schedule_id = 'recurrent'):
-        schedule = self.user.get_schedule(schedule_id)
-        self.send_json(schedule.get_representation())
+        if self.schedule is None:
+            raise RessourceNotFound('The schedule with id : ' + self.request.route_kwargs.get('schedule_id') + ' does not exist')
+        self.send_json(self.schedule.get_representation())
     
     def list(self):
         raise NotImplementedYet
@@ -165,25 +169,40 @@ class ScheduleHandler(BaseHandler):
     
     def delete(self, schedule_id):
         raise NotImplementedYet
+    
+    def restart(self, schedule_id):
+        schedule = self.user.get_schedule('recurrent')
+        schedule.restart()
+        self.send_json(self.schedule.get_representation())
 
-class DayHandler(BaseHandler):
+class DayHandler(ScheduleHandler):
+    @webapp2.cached_property
+    def schedule(self):
+        schedule = super(DayHandler, self).schedule
+        if schedule is None:
+            raise RessourceNotFound('The schedule with id : ' + self.request.route_kwargs.get('schedule_id') + ' does not exist')
+        return schedule
+    
+    @webapp2.cached_property
+    def day(self):
+        day_id = self.request.route_kwargs.get('day_id')
+        return self.schedule.get_day(int(day_id))
     
     def get(self, day_id, schedule_id = 'recurrent'):
-        schedule = self.user.get_schedule(schedule_id)
-        if(schedule is None):
-            raise RessourceNotFound('The schedule with id : ' + schedule_id + ' does not exist')
-        
-        day = schedule.get_day(long(day_id))
-        self.send_json(day.get_representation())
+        self.send_json(self.day.get_representation())
     
     def list(self, schedule_id = 'recurrent'):
-        schedule = self.user.get_schedule(schedule_id)
-        days = schedule.get_all_days()
+        days = self.chedule.get_all_days()
         response = [day.get_representation() for day in days]
         self.send_json(response)
     
     
-class SlotHandler(BaseHandler):
+class SlotHandler(DayHandler):
+    
+    @webapp2.cached_property
+    def slot(self):
+        slot_id = self.request.route_kwargs.get('slot_id')
+        return self.day.get_slot(slot_id)
     
     @required_params(['duration', 'offset', 'task_id'])
     def create(self, day_id, schedule_id = 'recurrent'):
@@ -197,13 +216,13 @@ class SlotHandler(BaseHandler):
         self.send_json(slot.get_representation())
     
     def get(self, day_id, slot_id, schedule_id = 'recurrent'): 
-        slot = self._get_slot(schedule_id, long(slot_id), int(day_id))
+        if self.slot is None:
+            raise RessourceNotFound('The slot with id : '+ str(slot_id) + ' does not exist')
         
-        self.send_json(slot.get_representation())
+        self.send_json(self.slot.get_representation())
     
     def list(self, day_id, schedule_id = 'recurrent'):
-        day = self._get_day(schedule_id, day_id)
-        slots = day.get_slots()
+        slots = self.day.get_slots()
         response = [slot.get_representation() for slot in slots]
         
         self.send_json(response)
@@ -222,9 +241,8 @@ class SlotHandler(BaseHandler):
         self.send_json_success()
     
     def set_executed(self, day_id, slot_id, executed, schedule_id = 'recurrent'):
-        schedule = self.user.get_schedule(schedule_id)
         executed = executed == '1'
-        schedule.set_executed(int(day_id), long(slot_id), executed)
+        self.schedule.set_executed(int(day_id), long(slot_id), executed)
         
         self.send_json_success()
     
@@ -233,17 +251,4 @@ class SlotHandler(BaseHandler):
         params = self.cleanPostedData(white_listed_params)
         return params  
     
-    
-    def _get_slot(self, schedule_id, slot_id, day_id):
-        day = self._get_day(schedule_id, day_id)
-        slot = day.get_slot(long(slot_id))
-        if slot is None:
-            raise RessourceNotFound('The slot with id : '+ str(slot_id) + ' does not exist')
-            
-        return slot
-    
-    def _get_day(self, schedule_id, day_id):
-        schedule = self.user.get_schedule(schedule_id)
-        day = schedule.get_day(long(day_id))
-        return day
         

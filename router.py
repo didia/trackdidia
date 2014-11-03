@@ -48,11 +48,14 @@ day_route = routes.PathPrefixRoute('/days', [
                                 
             ])
                                 
-schedule_route = routes.PathPrefixRoute('/schedules', [                                  
+schedule_route = routes.PathPrefixRoute('/schedules', [
+                                                      
                      routes.PathPrefixRoute('/<schedule_id:[\w]+>', [
                          day_route,
+                         webapp2.Route('/restart', handler=handlers.ScheduleHandler, handler_method='restart'), 
                          webapp2.Route('', handler=handlers.ScheduleHandler, handler_method='get')
                      ]),
+                     
                      webapp2.Route('', handler=handlers.ScheduleHandler, handler_method='get')
                  ])
 
