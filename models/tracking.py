@@ -106,8 +106,10 @@ class Schedule(ndb.Model):
     def restart(self):
         self.starting_date, self.ending_date = utils.get_week_start_and_end()
         days = self.get_all_days()
+        self.put_async()
         for day in days:
             day.restart()
+        
     
     def get_representation(self):
         representation = OrderedDict()

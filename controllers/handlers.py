@@ -119,9 +119,9 @@ class MainHandler(BaseHandler):
     
 
 class TaskHandler(BaseHandler):
+    ALLOWED_PARAMS = ['category', 'priority', 'name', 'description', 'location']
     def create(self):
-        white_listed_params = ['category', 'priority', 'name', 'description', 'location']
-        params = self.cleanPostedData(white_listed_params)
+        params = self._get_allowed_params()
         name = params.pop('name')
         task = self.user.create_task(name, **params)
         self.send_json(task.get_representation())
@@ -131,8 +131,7 @@ class TaskHandler(BaseHandler):
         self.send_json(task.get_representation())
     
     def update(self, task_id):
-        white_listed_params = ['category', 'priority', 'name', 'description', 'location']
-        params = self.cleanPostedData(white_listed_params)
+        params = self._get_allowed_params()
         task = self.user.update_task(long(task_id), **params)
         
         self.send_json(task.get_representation())
@@ -147,6 +146,8 @@ class TaskHandler(BaseHandler):
         response['tasks'] = tasks
         
         self.send_json(response)
+    def _get_allowed_params(self):
+        return self.cleanPostedData(TaskHandler.ALLOWED_PARAMS)
           
 class ScheduleHandler(BaseHandler):
     @webapp2.cached_property
@@ -199,19 +200,18 @@ class DayHandler(ScheduleHandler):
     
 class SlotHandler(DayHandler):
     
+    ALLOWED_PARAMS = ['duration', 'offset', 'executed' 'task_id']
     @webapp2.cached_property
     def slot(self):
         slot_id = self.request.route_kwargs.get('slot_id')
         return self.day.get_slot(slot_id)
     
-    @required_params(['duration', 'offset', 'task_id'])
+    @required_params(['duration', 'offset'])
     def create(self, day_id, schedule_id = 'recurrent'):
-        white_listed_params = ['duration', 'offset', 'task_id']
-        params = self.cleanPostedData(white_listed_params)
-        task_id = long(params['task_id'])
-        duration = int(params['duration'])
-        offset = int(params['offset'])
-        slot = self.user.schedule_task(task_id, int(day_id), offset, duration, schedule_id)
+        if (self.request.get('task_id')):
+            slot = self._create_slot(day_id, schedule_id)
+        else:
+            slot = self._create_task_and_slot(day_id, schedule_id)
         
         self.send_json(slot.get_representation())
     
@@ -247,8 +247,22 @@ class SlotHandler(DayHandler):
         self.send_json_success()
     
     def _get_allowed_params(self):
-        white_listed_params = ['duration', 'offset', 'executed' 'task_id']
-        params = self.cleanPostedData(white_listed_params)
+        params = self.cleanPostedData(SlotHandler.ALLOWED_PARAMS)
         return params  
+    
+    def _create_slot(self, day_id, schedule_id):
+        params = self._get_allowed_params()
+        task_id = long(params['task_id'])
+        duration = int(params['duration'])
+        offset = int(params['offset'])
+        slot = self.user.schedule_task(task_id, int(day_id), offset, duration, schedule_id)
+        return slot
+    
+    def _create_task_and_slot(self, day_id, schedule_id):
+        slot_parameters = self._get_allowed_params()
+        task_parameters = self.cleanPostedData(TaskHandler.ALLOWED_PARAMS)
+        if(task_parameters.get('name') is None):
+            raise HandlerException("When the parameter task_id is not provided, the parameter name is required to create a new task")
+        return self.user.create_task_and_slot(day_id, task_parameters, slot_parameters, schedule_id)
     
         
