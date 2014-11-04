@@ -67,6 +67,12 @@ class User(ndb.Model):
         task.put()
         return task
     
+    def create_task_and_slot(self, day_id, task_attributes, slot_attributes, schedule_id= 'recurrent'):
+        name = task_attributes.pop('name')
+        task = self.create_task(name, **task_attributes)
+        return self.schedule_task(task.key.integer_id(), day_id, offset = slot_attributes['offset'], duration = slot_attributes['duration'], schedule_id=schedule_id)
+        
+            
     def get_task(self, task_id):
         task = Task.get_by_id(task_id, parent = self.key)
         return task
@@ -112,6 +118,7 @@ class User(ndb.Model):
     def unschedule_task(self, day_id, slot_id, schedule_id = 'recurrent'):
         schedule = self.get_schedule(schedule_id)
         schedule.remove_slot(day_id, slot_id)
+    
     
         
 

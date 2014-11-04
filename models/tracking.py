@@ -228,7 +228,7 @@ class DayOfWeek(ndb.Model):
 class Slot(ndb.Model):
     offset = ndb.IntegerProperty(required=True)
     duration = ndb.IntegerProperty(required = True)
-    task = ndb.KeyProperty(kind='Task')
+    task = ndb.KeyProperty(kind='Task', required = True)
     executed = ndb.BooleanProperty(default = False)
     
     def get_offset(self):
@@ -236,6 +236,9 @@ class Slot(ndb.Model):
     
     def get_duration(self):
         return self.duration
+    
+    def get_task(self):
+        return self.task.get()
     
     def get_representation(self):
         representation = OrderedDict()

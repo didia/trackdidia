@@ -89,6 +89,17 @@ class TestUser(DatastoreTest):
         self.assertEqual(my_task.description, description)
         self.assertEqual(my_task.location, location)
     
+    def testUser_create_task_and_slot(self):
+        task_attributes = {'name':'GLO-3000', 'description':'Cours inconnu'}
+        slot_attributes = {'duration':6, 'offset':35}
+        name = task_attributes['name']
+        slot = self.user.create_task_and_slot(3,task_attributes, slot_attributes)
+        self.assertIsNotNone(slot)
+        self.assertEquals(slot_attributes['duration'], slot.duration)
+        self.assertEquals(slot_attributes['offset'], slot.offset)
+        task = slot.get_task()
+        self.assertEquals(name, task.name)
+    
     def test_user_get_task(self):
         name = "GLO-2100"
         my_task = self.user.create_task(name = name)
