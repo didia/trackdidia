@@ -1,84 +1,29 @@
 <!doctype html>
 <html>
-<head>
-<meta charset="UTF-8">
-<title>EventBuck Task Management</title>
-<meta name="author" content="Aristote Diasonama">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<!-- Le styles -->
-<link href="/static/css/bootstrap.min.css" rel="stylesheet">
-<link href="/static/css/bootstrap-responsive.min.css"
-	rel="stylesheet">
-<style type="text/css">
+	<head>
+		<meta charset="UTF-8">
+		<title>TrackDidia</title>
+		<meta name="author" content="Aristote Diasonama">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<!-- Le styles -->
+		<link href="/static/css/bootstrap.min.css" rel="stylesheet">
+		<link href="/static/css/bootstrap-theme.min.css" rel="stylesheet">
+		<style type="text/css">
 
-.jumbotron {
-  position: relative;
-  padding: 10px 0;
-  color: #fff;
-  text-align: center;
-  text-shadow: 0 1px 3px rgba(0,0,0,.4), 0 0 30px rgba(0,0,0,.075);
-  background: #020031; /* Old browsers */
-  background-image: linear-gradient(right top, rgb(248,255,41) 31%, rgb(5,136,237) 69%, rgb(87,255,61) 73%);
-  background-image: -o-linear-gradient(right top, rgb(248,255,41) 31%, rgb(5,136,237) 69%, rgb(87,255,61) 73%);
-  background-image: -moz-linear-gradient(right top, rgb(248,255,41) 31%, rgb(5,136,237) 69%, rgb(87,255,61) 73%);
-  background-image: -webkit-linear-gradient(right top, rgb(248,255,41) 31%, rgb(5,136,237) 69%, rgb(87,255,61) 73%);
-  background-image: -ms-linear-gradient(right top, rgb(248,255,41) 31%, rgb(5,136,237) 69%, rgb(87,255,61) 73%);
+		</style>
+	</head>
+	
+	<body>
+		<header>
+			Welcome {{ user}}
+		</header>
+		
+		<div id="app" class="container-fluid">
 
-  background-image: -webkit-gradient(
-	linear,
-	right top,
-	left bottom,
-	color-stop(0.31, rgb(248,255,41)),
-	color-stop(0.69, rgb(5,136,237)),
-	color-stop(0.73, rgb(87,255,61))
-);
-  filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#020031', endColorstr='#6d3353',GradientType=1 ); /* IE6-9 fallback on horizontal gradient */
-  -webkit-box-shadow: inset 0 3px 7px rgba(0,0,0,.2), inset 0 -3px 7px rgba(0,0,0,.2);
-     -moz-box-shadow: inset 0 3px 7px rgba(0,0,0,.2), inset 0 -3px 7px rgba(0,0,0,.2);
-          box-shadow: inset 0 3px 7px rgba(0,0,0,.2), inset 0 -3px 7px rgba(0,0,0,.2);
+		</div>
+			
+        <script src="/static/js/lib/require-setup.js"><</script>
+		<script data-main="/static/js/app" src="/static/js/lib/require.js"></script>
 
-.jumbotron h1 {
-  font-size: 50px;
-  font-weight: bold;
-  letter-spacing: -1px;
-  line-height: 1;
-}
-.jumbotron p {
-  font-size: 24px;
-  font-weight: 300;
-  line-height: 1.25;
-  margin-bottom: 30px;
-}
-
-
-/* Footer
--------------------------------------------------- */
-
-.footer {
-  text-align: center;
-  padding: 30px 0;
-  margin-top: 70px;
-  border-top: 1px solid #e5e5e5;
-  background-color: black;
-}
-.footer p {
-  margin-bottom: 0;
-  color: #777;
-}
-.footer-links {
-  margin: 10px 0;
-}
-.footer-links li {
-  display: inline;
-  padding: 0 2px;
-}
-.footer-links li:first-child {
-  padding-left: 0;
-}
-</style>
-</head>
-
-<body>
-Welcome {{ user}}
-</body>
+	</body>
 </html>
