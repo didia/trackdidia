@@ -106,7 +106,20 @@ class BaseHandler(webapp2.RequestHandler):
     def send_json_success(self):
         self.response.out.write(simplejson.dumps("Operation Successfully executed"))
     
-       
+
+class CronHandler(BaseHandler):
+    def get(self):
+        users = user_module.get_all_users()
+        number_processed = 0
+        for user in users:
+            schedule = user.get_schedule()
+            if schedule:
+                schedule.restart()
+                number_processed += 1
+        
+        self.response.out.write(str(number_processed) + " schedules restarted")
+    
+                
 class MainHandler(BaseHandler):
     
     def get(self):

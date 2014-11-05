@@ -26,6 +26,9 @@ def get_user(user_id):
 def get_or_create_user(user_id, email, nickname):
     user = get_user(user_id)
     return user or create_user(user_id, email, nickname)
+
+def get_all_users():
+    return User.query().fetch()
     
 
 def delete_user(user_id):
