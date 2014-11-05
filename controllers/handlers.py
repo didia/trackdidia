@@ -13,8 +13,9 @@ from models.custom_exceptions import HandlerException, RessourceNotFound,\
     NotImplementedYet
 import traceback
 
+
 jinja_environment = jinja2.Environment(extensions = ['jinja2.ext.autoescape'],
-    loader = jinja2.FileSystemLoader(os.path.dirname(__file__)))
+    loader = jinja2.FileSystemLoader('views'))
 
 
 def required_params(params):
@@ -46,14 +47,15 @@ class BaseHandler(webapp2.RequestHandler):
           The instance of the user model associated to the logged in user.
         """
         user_instance = users.get_current_user()
+        if not user_instance:
+            self.redirect(users.create_login_url(self.request.uri))
         
         return user_module.get_or_create_user(user_instance.user_id(), user_instance.email(), user_instance.nickname())
     
     
     def render_template(self, view_filename, **kwargs):
         context = dict()
-        context['user'] = self.user.user.nickname()
-        context['url_to_create_task'] = webapp2.uri_for('create_task')
+        context['user'] = self.user.nickname
         context.update(kwargs)
         jtemplate = jinja_environment.get_template(view_filename)
         self.response.out.write(jtemplate.render(context))
@@ -123,8 +125,8 @@ class CronHandler(BaseHandler):
 class MainHandler(BaseHandler):
     
     def get(self):
-        schedule = self.user.get_schedule().get_representation()
-        self.send_json(schedule)
+        
+        self.render_template('index.html')
         
     def get_template_context(self):
         context = dict()

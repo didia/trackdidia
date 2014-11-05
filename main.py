@@ -9,15 +9,17 @@ Created on 2014-11-01
 import webapp2
 import os
 from router import applications_routes
+import jinja2
 
-__all__ = ['debug', 'config']
+__all__ = ['debug', 'config', 'jinja_environment']
 
 if os.environ['SERVER_SOFTWARE'].find('Development') == 0:
     debug = True
 else:
     debug = False
 
-
+jinja_environment = jinja2.Environment(extensions = ['jinja2.ext.autoescape'],
+    loader = jinja2.FileSystemLoader(os.path.dirname(__file__)))
 
 
 
