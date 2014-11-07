@@ -66,6 +66,7 @@ crons_route = routes.PathPrefixRoute('/crons', [
 applications_routes = [ webapp2.Route('/', handlers.MainHandler, name='main'),
                         crons_route,
                         routes.PathPrefixRoute('/api', [
+                            webapp2.Route('/enter', handlers.MainHandler, handler_method = 'discover'),
                             task_route,
                             schedule_route
                         ])

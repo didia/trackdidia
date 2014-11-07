@@ -134,6 +134,11 @@ class MainHandler(BaseHandler):
         context = dict()
         return context
     
+    def discover(self):
+        links = {}
+        links['schedule'] = self.uri_for('get_schedule', schedule_id='recurrent')
+        
+        self.send_json({'links':links})
     
 
 class TaskHandler(BaseHandler):
