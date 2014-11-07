@@ -6,8 +6,8 @@ requirejs.config({
     "baseUrl": "/static/js/lib",
     "paths": {
       "app": "../app/build",
-      "components": "../app/components",
-      "models": "../app/models"
+      "components": "../app/build/components",
+      "models": "../app/build/models"
 
     }
 });

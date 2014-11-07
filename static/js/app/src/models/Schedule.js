@@ -3,7 +3,7 @@
  *
  */
 
- define(['entities/Day'], function(Day){
+ define(['models/Day'], function(Day){
    
    function Schedule(schedule_data) {
         this.id = schedule_data.id;
@@ -16,7 +16,7 @@
        construtor : Schedule,
 
        initDays: function(days_data) {
-       		days = []
+       		days = {}
        		days_data.each(function(day_data) {
        			day = new Day(day_data);
        			days[day.id] = day;

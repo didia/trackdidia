@@ -1,10 +1,10 @@
 /** @jsx React.DOM */
 
-var React = require('react');
-
-var ScheduleComponent = require('components/Schedule.js');
-
-React.renderComponent(
-  <ScheduleComponent/>,
-  document.getElementById('app')
-);
+define(["react", "./trackdidia", "components/Schedule"], function(React,trackdidia, ScheduleComponent){
+	
+	trackdidia.initialize();
+/*	React.renderComponent(
+  		<ScheduleComponent/>,
+  		document.getElementById('app')
+	);*/
+})
