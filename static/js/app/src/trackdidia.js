@@ -3,6 +3,8 @@
  *
  */
 
+ "use strict";
+
  define(["jquery", "models/Schedule"], function($, Schedule){
 
  	var schedule = null;
@@ -67,6 +69,10 @@
 
  				}
  			});
+ 		},
+
+ 		getSchedule: function() {
+ 			return schedule;
  		}
  	}
  })

@@ -3,6 +3,8 @@
  *
  */
 
+"use strict";
+
  define(['models/Slot'], function(Slot){
  	function Day(day_data) {
  		this.id = day_data.day_id

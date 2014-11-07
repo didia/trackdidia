@@ -3,6 +3,8 @@
  *
  */
 
+ "use strict";
+
  define(['models/Day'], function(Day){
    
    function Schedule(schedule_data) {

@@ -3,6 +3,8 @@
  *
  */
 
+ "use strict";
+
 define(function(){
 
 	function Slot(slot_data) {

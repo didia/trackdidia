@@ -1,3 +1,11 @@
+ /**
+ * @author Thefuture2092
+ *
+ */
+
+
+"use strict";
+
 define([], function(){
 	
 	function LoginException(message) {

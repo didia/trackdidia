@@ -1,4 +1,7 @@
 /** @jsx React.DOM */
+
+"use strict";
+ 
 define(["app/exceptions"], function(exceptions){
 	
 	return {
