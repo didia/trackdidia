@@ -12,7 +12,9 @@ import models.user as user_module
 from models.custom_exceptions import HandlerException, RessourceNotFound,\
     NotImplementedYet
 import traceback
-
+import response_producer
+from controllers.response_producer import produce_task_response,\
+    produce_schedule_response, produce_day_response
 
 jinja_environment = jinja2.Environment(extensions = ['jinja2.ext.autoescape'],
     loader = jinja2.FileSystemLoader('views'))
@@ -132,37 +134,53 @@ class MainHandler(BaseHandler):
         context = dict()
         return context
     
+    
 
 class TaskHandler(BaseHandler):
     ALLOWED_PARAMS = ['category', 'priority', 'name', 'description', 'location']
+    
     def create(self):
         params = self._get_allowed_params()
         name = params.pop('name')
         task = self.user.create_task(name, **params)
-        self.send_json(task.get_representation())
+        response = response_producer.produce_task_response(self.request, task)
+        self.send_json(self._wrap_response(response))
     
     def get(self, task_id):
         task = self.user.get_task(long(task_id))
-        self.send_json(task.get_representation())
+        
+        response = response_producer.produce_task_response(self.request, task)
+        self.send_json(self._wrap_response(response))
     
     def update(self, task_id):
         params = self._get_allowed_params()
         task = self.user.update_task(long(task_id), **params)
-        
-        self.send_json(task.get_representation())
+        response = response_producer.produce_task_response(self.request, task)
+        self.send_json(self._wrap_response(response))
     
     def delete(self):
         raise NotImplementedYet
     
     def list(self):
-        tasks = [task.get_representation() for task in self.user.get_all_tasks()]
-        response = OrderedDict()
-        response['found'] = len(tasks)
-        response['tasks'] = tasks
-        
-        self.send_json(response)
+        tasks = [response_producer.produce_task_response(self.request, task) for task in self.user.get_all_tasks()]
+        self.send_json(self._wrap_response(tasks))
+    
     def _get_allowed_params(self):
         return self.cleanPostedData(TaskHandler.ALLOWED_PARAMS)
+    
+    def _get_links(self):
+        links = {}
+        links['all_tasks'] = self.uri_for('all_tasks')
+        links['create_task'] = self.uri_for('create_task')
+        
+        return links
+    
+    def _wrap_response(self, response):
+        response = {}
+        response['response'] = response
+        response['links'] = self._get_links()
+        
+        return response
           
 class ScheduleHandler(BaseHandler):
     @webapp2.cached_property
@@ -175,7 +193,8 @@ class ScheduleHandler(BaseHandler):
     def get(self, schedule_id = 'recurrent'):
         if self.schedule is None:
             raise RessourceNotFound('The schedule with id : ' + self.request.route_kwargs.get('schedule_id') + ' does not exist')
-        self.send_json(self.schedule.get_representation())
+        response = response_producer.produce_schedule_response(self.request, self.schedule)
+        self.send_response(response)
     
     def list(self):
         raise NotImplementedYet
@@ -189,7 +208,22 @@ class ScheduleHandler(BaseHandler):
     def restart(self, schedule_id):
         schedule = self.user.get_schedule('recurrent')
         schedule.restart()
-        self.send_json(self.schedule.get_representation())
+        response = produce_schedule_response(self.request, schedule)
+        
+        self.send_response(response)
+    
+    def _get_links(self):
+        links = {}        
+        return links
+    
+    def send_response(self, response):
+        my_response = {}
+        my_response['response'] = response
+        my_response ['links'] = self._get_links()
+        self.send_json(my_response)
+    
+    def send_success(self):
+        self.send_response("Operation Successfully executed")
 
 class DayHandler(ScheduleHandler):
     @webapp2.cached_property
@@ -205,13 +239,21 @@ class DayHandler(ScheduleHandler):
         return self.schedule.get_day(int(day_id))
     
     def get(self, day_id, schedule_id = 'recurrent'):
-        self.send_json(self.day.get_representation())
+        response = response_producer.produce_day_response(self.request, self.day, schedule_id)
+        
+        self.send_response(response)
     
     def list(self, schedule_id = 'recurrent'):
         days = self.chedule.get_all_days()
-        response = [day.get_representation() for day in days]
-        self.send_json(response)
+        response = [response_producer.produce_day_response(self.request, day, schedule_id) for day in days]
+        
+        self.send_response(response)
     
+    def _get_links(self, schedule_id):
+        links = {}
+        links.update(super(DayHandler, self)._get_links(schedule_id))
+        links['all_days'] = self.uri_for('all_days')
+ 
     
 class SlotHandler(DayHandler):
     
@@ -227,20 +269,23 @@ class SlotHandler(DayHandler):
             slot = self._create_slot(day_id, schedule_id)
         else:
             slot = self._create_task_and_slot(day_id, schedule_id)
+        response = response_producer.produce_slot_response(self.request, slot, schedule_id, day_id)
         
-        self.send_json(slot.get_representation())
+        self.send_response(response)
     
     def get(self, day_id, slot_id, schedule_id = 'recurrent'): 
         if self.slot is None:
             raise RessourceNotFound('The slot with id : '+ str(slot_id) + ' does not exist')
         
-        self.send_json(self.slot.get_representation())
+        response = response_producer.produce_slot_response(self.request, self.slot, schedule_id, day_id)
+        
+        self.send_response(response)
     
     def list(self, day_id, schedule_id = 'recurrent'):
         slots = self.day.get_slots()
-        response = [slot.get_representation() for slot in slots]
+        response = [response_producer.produce_slot_response(self.request, slot, schedule_id, day_id) for slot in slots]
         
-        self.send_json(response)
+        self.send_response(response)
     
     
     def update(self, day_id, slot_id, schedule_id = 'recurrent'):
@@ -249,17 +294,18 @@ class SlotHandler(DayHandler):
         day = self._get_day(schedule_id, day_id)
         slot = day.update_slot(len(slot_id), **params)
         
-        self.send_json(slot.get_representation())
+        response = response_producer.produce_slot_response(self.request, slot, schedule_id, day_id)
+        self.send_response(response)
         
     def delete(self, day_id, slot_id, schedule_id = 'recurrent'):
         self.user.unschedule_task(day_id = int(day_id), slot_id = int(slot_id), schedule_id=schedule_id)
-        self.send_json_success()
+        self.send_success()
     
     def set_executed(self, day_id, slot_id, executed, schedule_id = 'recurrent'):
         executed = executed == '1'
         self.schedule.set_executed(int(day_id), long(slot_id), executed)
         
-        self.send_json_success()
+        self.send_success()
     
     def _get_allowed_params(self):
         params = self.cleanPostedData(SlotHandler.ALLOWED_PARAMS)
@@ -279,5 +325,13 @@ class SlotHandler(DayHandler):
         if(task_parameters.get('name') is None):
             raise HandlerException("When the parameter task_id is not provided, the parameter name is required to create a new task")
         return self.user.create_task_and_slot(day_id, task_parameters, slot_parameters, schedule_id)
+    
+    def _get_links(self, schedule_id, day_id, slot_id = None):
+        links = {}
+        links.update(super(SlotHandler, self)._get_links(schedule_id, day_id))
+        links['all_slots'] = self.uri_for('all_slots', schedule_id = schedule_id, day_id = day_id)
+        links['create_slot'] = self.uri_for('create_slot', schedule_id = schedule_id, day_id = day_id)
+
+        return links
     
         

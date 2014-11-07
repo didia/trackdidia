@@ -111,17 +111,6 @@ class Schedule(ndb.Model):
             day.restart()
         
     
-    def get_representation(self):
-        representation = OrderedDict()
-        representation['schedule_id'] = self.key.id()
-        representation['interval'] = self.interval
-        representation['starting_date'] = self.starting_date.strftime("%d/%m/%Y")
-        representation['ending_date'] = self.ending_date.strftime("%d/%m/%Y")
-        days = [day.get_representation() for day in self.get_all_days()]
-        
-        representation['days'] = days
-        
-        return representation
         
         
         
@@ -214,14 +203,6 @@ class DayOfWeek(ndb.Model):
             slot.executed = False
         ndb.put_multi(slots)
     
-    def get_representation(self):
-        representation = OrderedDict()
-        representation['day_id'] = self.key.integer_id()
-        representation['interval_usage'] = self.interval_usage
-        slots = [slot.get_representation() for slot in self.get_slots()]
-        representation['slots'] = slots
-        
-        return representation
     
         
     
@@ -242,21 +223,5 @@ class Slot(ndb.Model):
     def get_task(self):
         return self.task.get()
     
-    def get_representation(self):
-        representation = OrderedDict()
-        representation['slot_id'] = self.key.integer_id()
-        representation['offset'] = self.offset
-        representation['duration'] = self.duration
-        representation['executed'] = self.executed
-        task = self.task.get()
-        
-        representation['task_id'] = task.key.integer_id()
-        representation['task_name'] = task.name
-        representation['task_description'] = task.description
-        representation['category'] = task.category
-        representation['location'] = task.location
-        representation['priority'] = task.priority
-        
-        return representation
     
 

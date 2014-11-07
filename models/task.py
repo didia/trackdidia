@@ -16,21 +16,6 @@ class Task(ndb.Model):
     location = ndb.StringProperty()
     priority = ndb.IntegerProperty(choices=[0,1,2,3,4,5], default=1)
     _owner = None
-        
-    def get_representation(self):
-        """
-        Function to get the task as a dict
-        return a dict that contains info about the ticket
-        """
-        representation = OrderedDict()
-        representation["id"] = self.key.integer_id()
-        representation["name"] = self.name
-        representation["description"] = self.description
-        representation["location"] = self.location
-        representation["category"] = self.category
-        representation["priority"] = self.priority
-        
-        return representation
             
     def update(self, **kwargs):
         if not kwargs is None:
