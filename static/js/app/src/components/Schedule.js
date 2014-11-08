@@ -7,7 +7,7 @@
 
 "use strict";
 
-define(["react", "components/Day"], function(React, DayComponent){
+define(["react", "components/Day", "bootstrap"], function(React, DayComponent){
 
 	var ReactPropTypes = React.PropTypes;
 
@@ -16,7 +16,10 @@ define(["react", "components/Day"], function(React, DayComponent){
 		propTypes : {
 			schedule : ReactPropTypes.object.isRequired
 	    },
-
+	    
+	    getInitialState: function() {
+	    	return null;
+	    },
 		componentDidMount: function() {
 
 		},

@@ -15,5 +15,9 @@ define(function(){
 		this.priority = task_data.priority;
 	};
 
+	Task.prototype = {
+		constructor : Task,
+	}
+
 	return Task;
 })

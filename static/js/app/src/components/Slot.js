@@ -12,7 +12,7 @@ define(["react", "app/trackdidia"], function(React, trackdidia){
 
 	var SlotComponent = React.createClass({
 		getInitialState : function() {
-
+			return null;
 		},
 
 		componentDidMount: function() {

@@ -15,5 +15,9 @@ define(function(){
 		this.task_id = slot_data.task_id;
 	};
 
+	Slot.prototype = {
+		constructor : Slot,
+	};
+
 	return Slot;
 })

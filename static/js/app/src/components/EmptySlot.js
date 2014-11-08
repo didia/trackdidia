@@ -10,7 +10,7 @@ define(["react"], function(React){
 
 	var EmptySlotComponent = React.createClass({
 		getInitialState : function() {
-
+			return null;
 		},
 
 		componentDidMount: function() {
