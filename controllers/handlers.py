@@ -182,11 +182,11 @@ class TaskHandler(BaseHandler):
         return links
     
     def _wrap_response(self, response):
-        response = {}
-        response['response'] = response
-        response['links'] = self._get_links()
+        my_response = {}
+        my_response['response'] = response
+        my_response['links'] = self._get_links()
         
-        return response
+        return my_response
           
 class ScheduleHandler(BaseHandler):
     @webapp2.cached_property
