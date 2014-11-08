@@ -119,11 +119,23 @@
  		},
 
  		getTaskById : function(task_id) {
+ 			console.log(tasks);
  			var task = tasks[task_id]
+ 			console.log(task);
  			if(typeof task === "undefined") {
  				return null;
  			}
  			return task;
+ 		},
+ 		remote : function(url, method, request, callback) {
+ 			var endpoint;
+ 			if(method != null) {
+ 				endpoint = url;
+ 			}
+ 			else {
+ 				endpoint = [url, method];
+ 			}
+ 			callRemote(endpoint, request, callback);
  		}
 
  	}
