@@ -137,7 +137,7 @@ class MainHandler(BaseHandler):
     def discover(self):
         links = {}
         links['schedule'] = self.uri_for('get_schedule', schedule_id='recurrent')
-        links['tasks'] = self.uri_for('get_tasks')
+        links['tasks'] = self.uri_for('all_tasks')
         
         self.send_json({'links':links})
     
