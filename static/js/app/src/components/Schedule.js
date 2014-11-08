@@ -7,30 +7,26 @@
 
 "use strict";
 
-define(["react", "components/Day", "bootstrap"], function(React, DayComponent){
-
-	var ReactPropTypes = React.PropTypes;
+define(["react", "components/Day", "app/event","app/constants", "app/trackdidia", "bootstrap"], function(React, DayComponent, EventProvider, Constants, trackdidia){
 
 	var ScheduleComponent = React.createClass({
-		
-		propTypes : {
-			schedule : ReactPropTypes.object.isRequired
-	    },
 	    
 	    getInitialState: function() {
-	    	return null;
+	    	return trackdidia.getSchedule();
 	    },
 		componentDidMount: function() {
-
+			EventProvider.subscribe(Constants.CHANGE_EVENT, this._onChange);
 		},
 
 		componentWillUnmount: function() {
-
+			EventProvider.clear(Constants.CHANGE_EVENT);
 		},
-
+		_onChange: function() {
+			this.setState(trackdidia.getSchedule);
+		},
 		render: function() {
-			var schedule = this.props.schedule;
-			var allDays = this.props.schedule.days;
+			var schedule = this.state;
+			var allDays = schedule.days;
 			var days = [];
 			
 			for (var i = 1; i<8; i++) {
