@@ -11,13 +11,13 @@
  	function Day(day_data) {
  		this.id = day_data.day_id
  		this.usage = day_data.interval_usage
- 		this.slots = this.initSlots(day_data.slots)
+ 		this.slots = this._initSlots(day_data.slots)
  	}
 
  	Day.prototype = {
  		constructor: Day,
 
- 		initSlots: function(listOfSlots) {
+ 		_initSlots: function(listOfSlots) {
  			var slots = {};
  			listOfSlots.forEach(function(slot_data) {
  				var slot = new Slot(slot_data);
@@ -26,7 +26,27 @@
  			return slots;
 
 
+ 		},
+ 		
+ 		getNumberOfTasks: function() {
+ 			return slots.length;
+ 		},
+
+ 		getNumberOfCompletedTask: function() {
+ 			var completed = 0;
+ 			for(var slot in this.slots) {
+ 				slot.executed?completed += 1:null;
+ 			}
+ 			return completed;
+ 		},
+ 		getStartAndFinishHour: function(offset, duration) {
+ 			var start = 24/this.usage.length * offset;
+ 			var finish = 24/this.usage.length * (offset+duration);
+
+ 			return [start, finish];
+
  		}
+
  	}
 
  	return Day;
