@@ -26,7 +26,7 @@ define(["react", "app/trackdidia"], function(React, trackdidia){
 		render: function() {
 			return (
 				<div className="row">
-
+					From {this.props.start} to {this.props.finish}
 				</div>
 				);
 		}

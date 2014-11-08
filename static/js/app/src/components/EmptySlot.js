@@ -6,9 +6,15 @@
 
 "user strict";
 
-define(["react"], function(React){
-
+define(["react", "bootstrap"], function(React){
+	var ReactPropTypes = React.PropTypes;
 	var EmptySlotComponent = React.createClass({
+
+		propTypes : {
+			offset : ReactPropTypes.number.isRequired,
+			duration: ReactPropTypes.number.isRequired
+
+	    },
 		getInitialState : function() {
 			return null;
 		},
@@ -23,7 +29,8 @@ define(["react"], function(React){
 
 		render: function() {
 			return (
-				<div>
+				<div className = "row">
+					I am an  empty Offset from {this.props.start} to {this.props.finish}
 				</div>
 				);
 		}
