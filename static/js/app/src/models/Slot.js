@@ -13,6 +13,7 @@ define(function(){
 		this.duration = slot_data.duration;
 		this.executed = slot_data.executed;
 		this.task_id = slot_data.task_id;
+		this.links = slot_data.links;
 	};
 
 	Slot.prototype = {

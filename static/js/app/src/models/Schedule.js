@@ -11,7 +11,8 @@
         this.id = schedule_data.id;
         this.starting_date = schedule_data.starting_date;
         this.ending_date = schedule_data.ending_date;
-        this.days = this.initDays(schedule_data.days)
+        this.days = this.initDays(schedule_data.days);
+        this.links = schedule_data.links;
    };
 
    Schedule.prototype = {

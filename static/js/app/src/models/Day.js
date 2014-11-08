@@ -6,12 +6,13 @@
 
 "use strict";
 
- define(['models/Slot'], function(Slot){
+ define(['models/Slot', 'app/trackdidia'], function(Slot, trackdidia){
  	
  	function Day(day_data) {
- 		this.id = day_data.day_id
- 		this.usage = day_data.interval_usage
- 		this.slots = this._initSlots(day_data.slots)
+ 		this.id = day_data.day_id;
+ 		this.usage = day_data.interval_usage;
+ 		this.slots = this._initSlots(day_data.slots);
+ 		this.links = day_data.links;
  	}
 
  	Day.prototype = {
@@ -45,6 +46,13 @@
 
  			return [start, finish];
 
+ 		},
+
+ 		getHourFromOffset : function(offset) {
+ 			return 24/this.usage.length * offset;
+ 		},
+ 		
+ 		scheduleTask : function(request) {
  		}
 
  	}

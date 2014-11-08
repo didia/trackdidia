@@ -31,14 +31,14 @@ define(["react", "components/Slot", "components/EmptySlot", "app/utils", "bootst
 			var startAndFinish = this.props.day.getStartAndFinishHour(offset, duration);
 			var start = Utils.convertToHourString(startAndFinish[0]);
 			var finish = Utils.convertToHourString(startAndFinish[1]);
-			return <EmptySlot key = {offset} start = {start} finish = {finish} offset = {offset} duration = {duration} />;
+			return <EmptySlot day = {this.props.day} key = {offset} start = {start} finish = {finish} offset = {offset} duration = {duration} />;
 		},
 		
 		createSlot: function(slot) {
 			var startAndFinish = this.props.day.getStartAndFinishHour(slot.offset, slot.duration);
 			var start = Utils.convertToHourString(startAndFinish[0]);
 			var finish = Utils.convertToHourString(startAndFinish[1]);
-			return <SlotComponent start = {start} finish = {finish} key = {slot.offset} slot = {slot}/>
+			return <SlotComponent day = {this.props.day} start = {start} finish = {finish} key = {slot.offset} slot = {slot}/>
 		},
 
 		render: function() {

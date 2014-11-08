@@ -24,8 +24,7 @@ define(function(){
  			var minutes = Math.floor((hour %1).toFixed(2) * 60);
 
  			return hour_portion + "h" + (minutes != 0?minutes:"");
-
- 		}
+ 		},
 
 
 
