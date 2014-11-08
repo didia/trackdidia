@@ -5,12 +5,48 @@
 
  "use strict";
 
- define(["jquery", "models/Schedule"], function($, Schedule){
+ define(["jquery", "models/Schedule", "models/Task"], function($, Schedule, Task){
 
+ 	var links = {}
  	var schedule = null;
- 	
- 	function init() {
+ 	var tasks = {}
 
+ 	function initLinks(){
+ 		callRemote({"url":"http://localhost:8080/api/enter"}, null, function(response) {
+ 			if(response[1] == "ok") {
+ 				links = response[0].links;
+
+ 				return true;
+ 			}
+
+ 			return false;
+ 			
+ 		});
+ 	}
+
+ 	function initSchedule() {
+ 		callRemote({"url": links['get_schedule']}, null, function(response){
+ 			if(response[1] == "ok") {
+ 				schedule = response[0].response;
+ 			}
+ 		});
+ 	}
+
+ 	function initTasks(){
+ 		callRemote({"url":links['get_tasks']}, null, function(response){
+ 			if(response[1] == "ok") {
+ 				tasks_data = response[0].response;
+ 				links = $.extend({}, links, response[0].links)
+
+ 				tasks_data.each(function(task_data) {
+ 					task = Task(task_data)
+ 					tasks[task.id] = task
+ 				});
+
+ 				save("tasks", tasks_data);
+
+ 			}
+ 		});
  	}
 
  	function save(key, object) {
@@ -62,17 +98,29 @@
 
  	return {
  		initialize : function() {
- 			callRemote({"url":"http://localhost:8080/api/schedules/recurrent"}, null, function(response) {
- 				if(response[1] == "ok") {
- 					schedule = new Schedule(response[0]);
- 					save(response[0]);
-
- 				}
- 			});
+ 			var success = initLinks(); // take the return value to force others to wait for this event;
+ 			initSchedule();
+ 			initTasks();
+ 			console.log(links);
+ 			console.log(tasks);
+ 			console.log(schedule);
  		},
 
  		getSchedule: function() {
  			return schedule;
+ 		},
+
+ 		getAllTasks : function() {
+ 			return tasks;
+ 		},
+
+ 		getTaskById : function(task_id) {
+ 			var task = tasks[task_id]
+ 			if(typeof task === "undefined") {
+ 				return null;
+ 			}
+ 			return task;
  		}
+
  	}
  })
