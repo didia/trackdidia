@@ -5,41 +5,36 @@
 
  "use strict";
 
- define(["jquery", "models/Schedule", "models/Task"], function($, Schedule, Task){
+ define(["jquery", "models/Schedule", "models/Task", "app/event", "app/constants"], function($, Schedule, Task, EventProvider, Constants){
 
  	var links = {}
  	var schedule = null;
- 	var tasks = {}
+ 	var tasks = {};
 
- 	function initLinks(){
- 		callRemote({"url":"http://localhost:8080/api/enter"}, null, function(response) {
- 			if(response[1] == "ok") {
- 				links = response[0].links;
-
- 				return true;
- 			}
-
- 			return false;
- 			
- 		});
+ 	function log(message) {
+ 		console.log(message);
  	}
 
  	function initSchedule() {
- 		callRemote({"url": links['get_schedule']}, null, function(response){
- 			if(response[1] == "ok") {
- 				schedule = response[0].response;
+ 		callRemote(links['schedule'], null, function(response, status){
+ 			if(status == "ok") {
+ 				var schedule_data = response.response;
+ 				schedule = new Schedule(schedule_data);
+ 				save("schedule", schedule_data);
+ 				EventProvider.fire(Constants.SCHEDULE_LOADED_EVENT);
  			}
  		});
  	}
 
  	function initTasks(){
- 		callRemote({"url":links['get_tasks']}, null, function(response){
- 			if(response[1] == "ok") {
- 				tasks_data = response[0].response;
- 				links = $.extend({}, links, response[0].links)
+ 		callRemote(links['tasks'], null, function(response, status){
+ 			if(status == "ok") {
+ 				var tasks_data = response.response;
+ 				log(tasks_data)
+ 				links = $.extend({}, links, response.links)
 
- 				tasks_data.each(function(task_data) {
- 					task = Task(task_data)
+ 				tasks_data.forEach(function(task_data) {
+ 					var task = new Task(task_data)
  					tasks[task.id] = task
  				});
 
@@ -61,13 +56,16 @@
 		if(typeof request != 'string') {
 	        request = $.param(request);
 		}
+		
+
 		if (typeof endpoint == 'string')
 			method = 'GET';
 		else {
-			endpoint = endpoint.url;
 			method = endpoint.method;
+			endpoint = endpoint.url;
+			
 		}
-	    			 
+	    log("Calling endpoint: " + endpoint + " with method: " + method);	 
 		request = JSON.stringify(request);
 	    if(endpoint[0] != "/")
 	    	endpoint = "/" + endpoint;
@@ -82,7 +80,6 @@
 			//contentType: "application/json; charset=utf-8",
 
 		 	success:function(data){
-				console.log(data);
 				if (cb != null && typeof cb != undefined)
 				    cb.apply(null, [data, "ok"])
 			},
@@ -98,12 +95,19 @@
 
  	return {
  		initialize : function() {
- 			var success = initLinks(); // take the return value to force others to wait for this event;
- 			initSchedule();
- 			initTasks();
- 			console.log(links);
- 			console.log(tasks);
- 			console.log(schedule);
+ 			callRemote("http://localhost:8080/api/enter", null, function(response, status) {
+ 				if(status == "ok") {
+ 					links = response.links;
+ 					initSchedule();
+ 					initTasks();
+ 				}
+ 				else {
+ 					console.log("Cannot enter the api");
+ 				}
+ 			
+ 			});
+
+
  		},
 
  		getSchedule: function() {
