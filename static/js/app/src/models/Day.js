@@ -1,3 +1,4 @@
+
  /**
  * @author Thefuture2092
  *
@@ -19,7 +20,7 @@
  			slots = {};
  			listOfSlots.each(function(slot_data) {
  				slot = new Slot(slot_data);
- 				slots[slot.id] = slot;
+ 				slots[slot.offset] = slot;
  			});
  			return slots;
 
