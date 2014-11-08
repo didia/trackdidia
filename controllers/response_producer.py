@@ -33,7 +33,9 @@ def produce_day_response(request, day, schedule_id):
     slots = [produce_slot_response(request, slot, schedule_id, day_id) for slot in day.get_slots()]
     response['slots'] = slots
     links = {}
-    links['get_day'] = webapp2.uri_for('get_day', _request = request, schedule_id = schedule_id, day_id = day_id)
+    links['get'] = webapp2.uri_for('get_day', _request = request, schedule_id = schedule_id, day_id = day_id)
+    links['all_slots'] = webapp2.uri_for('all_slots', _request = request, schedule_id = schedule_id, day_id = day_id)
+    links['create_slot'] = webapp2.uri_for('create_slot', _request = request, schedule_id = schedule_id, day_id = day_id)
     response['links'] = links
         
     return response
