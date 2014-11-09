@@ -53,28 +53,27 @@
 		if(request == null) {
 			request = {};
 		}
-		if(typeof request != 'string') {
-	        request = $.param(request);
-		}
-		
-
+	
 		if (typeof endpoint == 'string')
+		{
 			method = 'GET';
+		}
 		else {
+			console.log(endpoint);
 			method = endpoint.method;
 			endpoint = endpoint.url;
+
 			
 		}
 	    log("Calling endpoint: " + endpoint + " with method: " + method);	 
-		request = JSON.stringify(request);
 	    if(endpoint[0] != "/")
 	    	endpoint = "/" + endpoint;
 	    //endpoint = this._domain.api + endpoint;
 
 		$.ajax({
 		 	type: method,
-		 	url:endpoint, 
-		 	dataType:"json",
+		 	url:endpoint,
+		 	dataType:"json", 
 		 	async: true,
 		 	data: request, 
 			//contentType: "application/json; charset=utf-8",
@@ -97,7 +96,9 @@
  		initialize : function() {
  			callRemote("http://localhost:8080/api/enter", null, function(response, status) {
  				if(status == "ok") {
+ 					console.log(response);
  					links = response.links;
+ 					console.log(links)
  					initSchedule();
  					initTasks();
  				}
@@ -128,15 +129,16 @@
  			return task;
  		},
  		remote : function(url, method, request, callback) {
+
  			var endpoint;
- 			if(method != null) {
+ 			if(method == null) {
  				endpoint = url;
  			}
  			else {
- 				endpoint = [url, method];
+ 				endpoint = {"url":url, "method":method};
  			}
  			callRemote(endpoint, request, callback);
  		}
 
- 	}
+ 	};
  })

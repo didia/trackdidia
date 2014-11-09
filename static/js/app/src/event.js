@@ -1,7 +1,4 @@
 /** @jsx React.DOM */
-
-"use strict";
- 
 define(["app/exceptions"], function(exceptions){
 	
 	return {
@@ -47,15 +44,25 @@ define(["app/exceptions"], function(exceptions){
             }
         },  
 
-        subscribe: function(name, cb) {
-                    var subs = this.subscribers();
-                    if (!subs[name]) {
-                            subs[name] = [cb];
-                            } 
-                    else {
-                                subs[name].push(cb);
-                            }
-          },
+        _bind : function(toObject, methodName) {
+            return function(){toObject[methodName](Array.prototype.slice.call(arguments))};
+        },
+
+        subscribe: function(name, cb, toObject) {
+
+            var subs = this.subscribers();
+            
+            if(toObject != null && typeof toObject != "undefined") {
+                cb = this._bind(toObject, cb);
+            }
+
+            if (!subs[name]) {
+                subs[name] = [cb];
+            } 
+            else {
+                subs[name].push(cb);
+            }
+        },
 
         subscribers: function() {
 			  
@@ -67,14 +74,17 @@ define(["app/exceptions"], function(exceptions){
 		 
 
 		  
-        unsubscribe: function(name, cb) {
+        unsubscribe: function(name, cb, toObject) {
         	var subs = this.subscribers()[name];
         	console.log(subs);
+            if(toObject != null && typeof toObject != "undefined") {
+                cb = this._bind(toObject, cb);
+            }
         	subs.forEach(function(value, key) {
-        			if (value == cb) {
-        			console.log("Unsubscribing from " + name);
-        			subs[key] = null;
-        			}
+        		if (value == cb) {
+        		  console.log("Unsubscribing from " + name);
+        		  subs[key] = null;
+        		}
         	});
         	}
 		

@@ -6,7 +6,7 @@
 
 "use strict";
 
- define(['models/Slot', 'app/trackdidia'], function(Slot, trackdidia){
+ define(["models/Slot"], function(Slot){
  	
  	function Day(day_data) {
  		this.id = day_data.day_id;
@@ -52,9 +52,6 @@
  			return 24/this.usage.length * offset;
  		},
  		
- 		scheduleTask : function(request) {
- 		}
-
  	}
 
  	return Day;
