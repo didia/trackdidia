@@ -94,7 +94,7 @@
 
  	return {
  		initialize : function() {
- 			callRemote("http://localhost:8080/api/enter", null, function(response, status) {
+ 			callRemote("/api/enter", null, function(response, status) {
  				if(status == "ok") {
  					links = response.links;
  					initSchedule();
