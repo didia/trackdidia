@@ -36,7 +36,22 @@ def required_params(params):
         
         return check_required_params
     return real_decorator
-             
+
+def user_required(handler):
+    """
+    Decorator that checks if there's a user associated with the current session.
+    Will also fail if there's no session present.
+    """
+    def check_login(self, *args, **kargs):
+        user_instance = users.get_current_user()
+        if not user_instance:
+            self.redirect(users.create_login_url(self.request.url))
+        else:
+            return handler(self, *args, **kargs)
+            
+        
+    return check_login
+
 class BaseHandler(webapp2.RequestHandler):
 
     @webapp2.cached_property
@@ -50,9 +65,6 @@ class BaseHandler(webapp2.RequestHandler):
           The instance of the user model associated to the logged in user.
         """
         user_instance = users.get_current_user()
-        if user_instance is None:
-            self.redirect(users.create_login_url(self.request.uri))
-        
         return user_module.get_or_create_user(user_instance.user_id(), user_instance.email(), user_instance.nickname())
     
     
@@ -130,6 +142,7 @@ class CronHandler(BaseHandler):
                 
 class MainHandler(BaseHandler):
     
+    @user_required
     def get(self):
         
         self.render_template('index.html')
