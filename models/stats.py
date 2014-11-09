@@ -13,7 +13,7 @@ def compute_stats_for_schedule(schedule):
     days = schedule.get_all_days();
     total = 0
     result = 0
-    stats = [compute_stats_for_day(day) for day in days]
+    stats = [compute_stats_for_day(day, schedule.interval) for day in days]
     for stat in stats:
         total += stat['total']
         result += stat['result']
@@ -23,14 +23,16 @@ def compute_stats_for_schedule(schedule):
     stat['days'] = stats
     return stat;
     
-def compute_stats_for_day(day):
+def compute_stats_for_day(day, interval):
     stat = {}
     total = 0
     result = 0
     for slot in day.get_slots():
-        total += slot.duration
+        points = slot.duration * interval
+        total += points
         if slot.executed:
-            result += slot.duration 
+            result += points
+    
     stat['result'] = result
     stat['total'] = total;
     return stat
