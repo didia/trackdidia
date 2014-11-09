@@ -16,7 +16,6 @@ handlers:
 
 - url: .*
   script: main.app
-  login: admin
 
 libraries:
 - name: jinja2
