@@ -198,7 +198,9 @@ class ScheduleHandler(BaseHandler):
     
     def get(self, schedule_id = 'recurrent'):
         if self.schedule is None:
-            raise RessourceNotFound('The schedule with id : ' + self.request.route_kwargs.get('schedule_id') + ' does not exist')
+            if schedule_id != 'recurrent':
+                raise RessourceNotFound('The schedule with id : ' + self.request.route_kwargs.get('schedule_id') + ' does not exist')
+            self.user.init_schedule();
         response = response_producer.produce_schedule_response(self.request, self.schedule)
         self.send_response(response)
     
@@ -225,7 +227,6 @@ class ScheduleHandler(BaseHandler):
     def send_response(self, response):
         my_response = {}
         my_response['response'] = response
-        my_response ['links'] = self._get_links()
         self.send_json(my_response)
     
     def send_success(self):
@@ -254,16 +255,11 @@ class DayHandler(ScheduleHandler):
         response = [response_producer.produce_day_response(self.request, day, schedule_id) for day in days]
         
         self.send_response(response)
-    
-    def _get_links(self, schedule_id):
-        links = {}
-        links.update(super(DayHandler, self)._get_links(schedule_id))
-        links['all_days'] = self.uri_for('all_days')
  
     
 class SlotHandler(DayHandler):
     
-    ALLOWED_PARAMS = ['duration', 'offset', 'executed' 'task_id']
+    ALLOWED_PARAMS = ['duration', 'offset', 'executed', 'task_id']
     @webapp2.cached_property
     def slot(self):
         slot_id = self.request.route_kwargs.get('slot_id')
@@ -332,12 +328,5 @@ class SlotHandler(DayHandler):
             raise HandlerException("When the parameter task_id is not provided, the parameter name is required to create a new task")
         return self.user.create_task_and_slot(day_id, task_parameters, slot_parameters, schedule_id)
     
-    def _get_links(self, schedule_id, day_id, slot_id = None):
-        links = {}
-        links.update(super(SlotHandler, self)._get_links(schedule_id, day_id))
-        links['all_slots'] = self.uri_for('all_slots', schedule_id = schedule_id, day_id = day_id)
-        links['create_slot'] = self.uri_for('create_slot', schedule_id = schedule_id, day_id = day_id)
-
-        return links
     
         

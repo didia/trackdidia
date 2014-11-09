@@ -8,21 +8,20 @@
 "use strict";
 
 define(["react", "components/Day", "app/event","app/constants", "app/trackdidia", "bootstrap"], function(React, DayComponent, EventProvider, Constants, trackdidia){
-
 	var ScheduleComponent = React.createClass({
 	    
 	    getInitialState: function() {
 	    	return trackdidia.getSchedule();
 	    },
 		componentDidMount: function() {
-			EventProvider.subscribe(Constants.CHANGE_EVENT, this._onChange);
+			EventProvider.subscribe(Constants.CHANGE_EVENT, "_onChange", this);
 		},
 
 		componentWillUnmount: function() {
 			EventProvider.clear(Constants.CHANGE_EVENT);
 		},
 		_onChange: function() {
-			this.setState(trackdidia.getSchedule);
+			this.setState(trackdidia.getSchedule());
 		},
 		render: function() {
 			var schedule = this.state;

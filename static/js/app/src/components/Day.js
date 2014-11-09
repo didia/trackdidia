@@ -6,7 +6,7 @@
 
 "use strict";
 
-define(["react", "components/Slot", "components/EmptySlot", "app/utils", "bootstrap"], function(React, SlotComponent, EmptySlot, Utils){
+define(["exports", "react", "components/Slot", "components/EmptySlot", "app/utils", "bootstrap"], function(exports, React, SlotComponent, EmptySlot, Utils){
 
 	var ReactPropTypes = React.PropTypes;
 
@@ -101,5 +101,5 @@ define(["react", "components/Slot", "components/EmptySlot", "app/utils", "bootst
 		}
 	});
 
-	return DayComponent;
+	return exports.DayComponent = DayComponent;
 })
