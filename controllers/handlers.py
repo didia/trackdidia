@@ -50,7 +50,7 @@ class BaseHandler(webapp2.RequestHandler):
           The instance of the user model associated to the logged in user.
         """
         user_instance = users.get_current_user()
-        if not user_instance:
+        if user_instance is None:
             self.redirect(users.create_login_url(self.request.uri))
         
         return user_module.get_or_create_user(user_instance.user_id(), user_instance.email(), user_instance.nickname())
