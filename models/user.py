@@ -101,7 +101,7 @@ class User(ndb.Model):
             schedule.initialize()
             schedule.put()
             self.schedule = schedule
-    
+        return schedule
     def get_schedule(self, schedule_id="recurrent"):
         if self.schedule is None:
             self.schedule = Schedule.get_by_id(schedule_id, parent=self.key)

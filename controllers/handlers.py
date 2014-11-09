@@ -217,7 +217,8 @@ class ScheduleHandler(BaseHandler):
         if self.schedule is None:
             if schedule_id != 'recurrent':
                 raise RessourceNotFound('The schedule with id : ' + self.request.route_kwargs.get('schedule_id') + ' does not exist')
-            self.user.init_schedule();
+            self.schedule = self.user.init_schedule();
+            
         response = response_producer.produce_schedule_response(self.request, self.schedule)
         self.send_response(response)
     
