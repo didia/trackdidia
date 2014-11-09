@@ -5,11 +5,11 @@
 
  "use strict";
 
- define(["app/trackdidia", "app/Constants", "app/event", "models/Slot"], function(trackdidia, Constants, EventProvider, Slot) {
+ define(["app/trackdidia", "app/constants", "app/event", "models/Slot"], function(trackdidia, Constants, EventProvider, Slot) {
 
  	return {
  		scheduleTask : function(day, request) {
- 			console.log(day.links);
+ 			
  			var url = day.links["create_slot"];
  			var method = "POST";
 
@@ -28,7 +28,27 @@
  					EventProvider.fire(Constants.CHANGE_EVENT);
 
  				}
+ 				else {
+ 					EventProvider.fire(Constants.CREATE_SLOT_FAILED, response);
+ 				}
  			});
+ 		},
+
+ 		setExecuted: function(slot) {
+ 			var url = slot.links["set_executed"];
+ 			var method = "POST";
+ 			trackdidia.remote(url, method, null, function(response, status){
+ 				if(status == "ok") {
+ 					var slot_data = response.response;
+ 					console.log(slot_data);
+ 					slot.executed = slot_data.executed;
+ 					slot.links = slot_data.links;
+ 					EventProvider.fire(Constants.CHANGE_EVENT);
+ 				}
+ 				else {
+
+ 				}
+ 			})
  		}
  	}
  })

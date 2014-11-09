@@ -35,8 +35,8 @@
 
  		getNumberOfCompletedTask: function() {
  			var completed = 0;
- 			for(var slot in this.slots) {
- 				slot.executed?completed += 1:null;
+ 			for(var key in this.slots) {
+ 				this.slots[key].executed?completed += 1:null;
  			}
  			return completed;
  		},

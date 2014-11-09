@@ -6,7 +6,7 @@
 
 'use strict'
 
-define(["react", "app/trackdidia"], function(React, trackdidia){
+define(["react", "app/trackdidia", "app/TrackdidiaAction"], function(React, trackdidia, TrackdidiaAction){
 
 	var ReactPropTypes = React.PropTypes;
 
@@ -27,15 +27,24 @@ define(["react", "app/trackdidia"], function(React, trackdidia){
 		componentWillUnmount: function() {
 
 		},
+		_setExecuted : function() {
+			TrackdidiaAction.setExecuted(this.props.slot);
+		},
 
 		render: function() {
 			var slot = this.props.slot;
 			var task = trackdidia.getTaskById(slot.task_id);
+			var checked = this.props.slot.executed?"checked":"";
 
 			return (
-				<div className="row text-center">
-					<p> <span>{task.id}<b> {task.name} </b></span> From <b>{this.props.start}</b> to <b>{this.props.finish}</b> </p>
-					{task.description?<p>{task.description}</p>:""}
+				<div className="row well">
+					<div className = "col-sm-10">
+						<p> <span><b> {task.name} </b></span> From <b>{this.props.start}</b> to <b>{this.props.finish}</b> </p>
+						{task.description?<p>{task.description}</p>:""}
+					</div>
+					<div className = "col-sm-2">
+						<input type ="checkbox" checked={checked} onChange = {this._setExecuted}/>
+					</div>
 				</div>
 				);
 		}

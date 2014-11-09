@@ -81,7 +81,7 @@ define(["react", "app/utils", "app/event", "app/constants", "app/TrackdidiaActio
 			return (
 				<form className="form-horizontal" role = "form"  onSubmit={this._handleSubmit} >
 				  {this.state.error?
-				  	<div class="alert alert-danger" role="alert">
+				  	<div className="alert alert-danger" role="alert">
 				  	{ this.state.error}
 				    </div> : ""
 				  }

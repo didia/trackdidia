@@ -305,9 +305,10 @@ class SlotHandler(DayHandler):
     
     def set_executed(self, day_id, slot_id, executed, schedule_id = 'recurrent'):
         executed = executed == '1'
-        self.schedule.set_executed(int(day_id), long(slot_id), executed)
+        slot = self.schedule.set_executed(int(day_id), long(slot_id), executed)
+        response = response_producer.produce_slot_response(self.request, slot, schedule_id, day_id)
         
-        self.send_success()
+        self.send_response(response)
     
     def _get_allowed_params(self):
         params = self.cleanPostedData(SlotHandler.ALLOWED_PARAMS)

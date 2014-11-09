@@ -101,7 +101,8 @@ class Schedule(ndb.Model):
             raise SlotNotYetReached(message) 
         
         day = self.get_day(day_id)
-        day.set_executed(slot_id, executed)
+        return day.set_executed(slot_id, executed)
+        
     
     def restart(self):
         self.starting_date, self.ending_date = utils.get_week_start_and_end()
@@ -181,11 +182,13 @@ class DayOfWeek(ndb.Model):
                 slot.executed = value
                 slots.append(slot)
             ndb.put_multi(slots)
+            return slots
                 
         else:
             slot = self.get_slot(slot_id)
             slot.executed = executed
             slot.put()
+            return slot;
             
     def update_slot(self, slot_id, **params):
         slot = self.get_slot(slot_id)

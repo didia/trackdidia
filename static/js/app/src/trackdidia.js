@@ -96,9 +96,7 @@
  		initialize : function() {
  			callRemote("http://localhost:8080/api/enter", null, function(response, status) {
  				if(status == "ok") {
- 					console.log(response);
  					links = response.links;
- 					console.log(links)
  					initSchedule();
  					initTasks();
  				}
@@ -120,9 +118,7 @@
  		},
 
  		getTaskById : function(task_id) {
- 			console.log(tasks);
  			var task = tasks[task_id]
- 			console.log(task);
  			if(typeof task === "undefined") {
  				return null;
  			}

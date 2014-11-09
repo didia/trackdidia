@@ -45,7 +45,7 @@ define(["react", "components/ScheduleTaskForm", "app/trackdidia", "bootstrap"], 
 
 			}
 			return (
-				<div className = "row text-center">
+				<div className = "row text-center well">
 					{this.state.isEditing?content:
 						<div>
 							<p> Nothing from <b>{this.props.start}</b> to <b>{this.props.finish}</b></p>
