@@ -35,8 +35,8 @@ define(["react", "components/Day", "app/event","app/constants", "app/trackdidia"
 			return (
 				<div>
 
-					<header>
-					   <span>Schedule from {schedule.starting_date} to {schedule.ending_date} </span>
+					<header className = "text-center bg-primary">
+					   <span>Schedule from <b>{schedule.starting_date}</b> to <b>{schedule.ending_date}</b> </span>
 					</header>
 
 					<div id = "schedule" className = "panel-group" role = "tablist" aria-multiselectable = "true">

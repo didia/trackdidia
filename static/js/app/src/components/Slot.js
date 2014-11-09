@@ -38,12 +38,12 @@ define(["react", "app/trackdidia", "app/TrackdidiaAction"], function(React, trac
 
 			return (
 				<div className="row well">
-					<div className = "col-sm-10">
+					<div className = "col-xs-10">
 						<p> <span><b> {task.name} </b></span> From <b>{this.props.start}</b> to <b>{this.props.finish}</b> </p>
 						{task.description?<p>{task.description}</p>:""}
 					</div>
-					<div className = "col-sm-2">
-						<input type ="checkbox" checked={checked} onChange = {this._setExecuted}/>
+					<div className = "col-xs-2">
+						<input className = "input-lg" type ="checkbox" checked={checked} onChange = {this._setExecuted}/>
 					</div>
 				</div>
 				);
