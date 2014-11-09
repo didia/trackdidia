@@ -51,7 +51,8 @@ def produce_schedule_response(request, schedule):
     response['days'] = days
     links = {}
     links['get_schedule'] = webapp2.uri_for('get_schedule', _request = request, schedule_id = schedule_id)
-    links['restart_schedule'] = webapp2.uri_for('restart_schedule', _request = request, schedule_id = schedule_id)
+    links['stat'] = webapp2.uri_for('get_schedule_stat', _request = request, schedule_id = schedule_id)
+    links['restart'] = webapp2.uri_for('restart_schedule', _request = request, schedule_id = schedule_id)
     response['links'] = links
         
     return response

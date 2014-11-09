@@ -15,6 +15,7 @@ import traceback
 import response_producer
 from controllers.response_producer import produce_task_response,\
     produce_schedule_response, produce_day_response
+import models.stats as stat
 
 jinja_environment = jinja2.Environment(extensions = ['jinja2.ext.autoescape'],
     loader = jinja2.FileSystemLoader('views'))
@@ -115,13 +116,16 @@ class CronHandler(BaseHandler):
     def get(self):
         users = user_module.get_all_users()
         number_processed = 0
+        message = ""
         for user in users:
             schedule = user.get_schedule()
+            message += stat.send_stat(user, schedule)
+            message += "\n\n"
             if schedule:
                 schedule.restart()
                 number_processed += 1
-        
-        self.response.out.write(str(number_processed) + " schedules restarted")
+        message = str(number_processed) + " schedules restarted\n\n" + message
+        self.response.out.write(message)
     
                 
 class MainHandler(BaseHandler):
@@ -220,6 +224,10 @@ class ScheduleHandler(BaseHandler):
         
         self.send_response(response)
     
+    def stat(self, schedule_id):
+        schedule = self.user.get_schedule("recurrent")
+        statistic = stat.get_stat(schedule)
+        self.send_response(statistic)
     def _get_links(self):
         links = {}        
         return links

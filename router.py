@@ -52,6 +52,7 @@ schedule_route = routes.PathPrefixRoute('/schedules', [
                                                       
                      routes.PathPrefixRoute('/<schedule_id:[\w]+>', [
                          day_route,
+                         webapp2.Route('/stat', handler=handlers.ScheduleHandler, handler_method = 'stat', name = 'get_schedule_stat'),
                          webapp2.Route('/restart', handler=handlers.ScheduleHandler, handler_method='restart', name='restart_schedule'), 
                          webapp2.Route('', handler=handlers.ScheduleHandler, handler_method='get', name='get_schedule')
                      ]),
