@@ -67,7 +67,7 @@ define(["exports", "react", "components/Slot", "components/EmptySlot", "app/util
 				lastKey = day.slots[key].offset + day.slots[key].duration - 1; 
 		
 			});
-			if(lastKey != this.props.day.usage.length) {
+			if(lastKey != this.props.day.usage.length-1) {
 				var offset = lastKey + 1;
 				var duration = day.usage.length - offset;
 				slots.push(this.createEmptySlot(offset, duration));
