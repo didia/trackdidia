@@ -41,12 +41,27 @@
  				if(status == "ok") {
  					var slot_data = response.response;
  					console.log(slot_data);
- 					slot.executed = slot_data.executed;
- 					slot.links = slot_data.links;
+ 					slot.populate(slot_data);
  					EventProvider.fire(Constants.CHANGE_EVENT);
  				}
  				else {
 
+ 				}
+ 			});
+ 		},
+ 		deleteSlot: function(day, slot) {
+ 			var url = slot.links["delete"];
+ 			var method = "POST";
+ 			trackdidia.remote(url, method, null, function(response, status) {
+ 				if(status == "ok") {
+ 					console.log("Delete task executed succesfully");
+ 					var day_data = response.response;
+ 					day.populate(day_data);
+ 					EventProvider.fire(Constants.CHANGE_EVENT);
+
+ 				}
+ 				else {
+ 					console.log("Delete Slot failed");
  				}
  			})
  		}

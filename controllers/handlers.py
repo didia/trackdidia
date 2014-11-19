@@ -323,7 +323,7 @@ class SlotHandler(DayHandler):
         
     def delete(self, day_id, slot_id, schedule_id = 'recurrent'):
         self.user.unschedule_task(day_id = int(day_id), slot_id = int(slot_id), schedule_id=schedule_id)
-        self.send_success()
+        DayHandler.get(self, day_id, schedule_id);
     
     def set_executed(self, day_id, slot_id, executed, schedule_id = 'recurrent'):
         executed = executed == '1'

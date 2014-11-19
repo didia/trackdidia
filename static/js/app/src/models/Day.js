@@ -9,10 +9,7 @@
  define(["models/Slot"], function(Slot){
  	
  	function Day(day_data) {
- 		this.id = day_data.day_id;
- 		this.usage = day_data.interval_usage;
- 		this.slots = this._initSlots(day_data.slots);
- 		this.links = day_data.links;
+ 		this.populate(day_data);
  	}
 
  	Day.prototype = {
@@ -27,6 +24,13 @@
  			return slots;
 
 
+ 		},
+
+ 		populate: function(day_data) {
+ 			this.id = day_data.day_id;
+ 			this.usage = day_data.interval_usage;
+ 			this.slots = this._initSlots(day_data.slots);
+ 			this.links = day_data.links;
  		},
  		
  		getNumberOfTasks: function() {
