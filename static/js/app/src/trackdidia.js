@@ -18,7 +18,7 @@
  	function initSchedule() {
  		callRemote(links['schedule'], null, function(response, status){
  			if(status == "ok") {
- 				var schedule_data = response.response;
+ 				var schedule_data = response;
  				schedule = new Schedule(schedule_data);
  				save("schedule", schedule_data);
  				EventProvider.fire(Constants.SCHEDULE_LOADED_EVENT);
@@ -29,7 +29,7 @@
  	function initTasks(){
  		callRemote(links['tasks'], null, function(response, status){
  			if(status == "ok") {
- 				var tasks_data = response.response;
+ 				var tasks_data = response.tasks;
  				log(tasks_data)
  				links = $.extend({}, links, response.links)
 
@@ -124,6 +124,13 @@
  			}
  			return task;
  		},
+
+ 		addTask: function(task_data) {
+ 			var task = new Task(task_data);
+ 			tasks[task.id] = task;
+ 			return task;
+ 		},
+
  		remote : function(url, method, request, callback) {
 
  			var endpoint;

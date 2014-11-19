@@ -18,7 +18,18 @@
  			console.log(Constants);
  			trackdidia.remote(url, method, request, function(response, status) {
  				if(status == "ok") {
- 					var slot_data = response.response;
+ 					var task_data;
+ 					var slot_data;
+
+ 					if(response.task) {
+ 						task_data = response.task;
+ 						slot_data = response.slot;
+ 						trackdidia.addTask(task_data);
+ 					} 
+ 					else {
+ 						slot_data = response;
+ 					}
+ 					
  					var slot = new Slot(slot_data);
  					day.slots[slot.offset] = slot;
  					for(var i = slot.offset; i < slot.offset + slot.duration; i++) {
@@ -39,7 +50,7 @@
  			var method = "POST";
  			trackdidia.remote(url, method, null, function(response, status){
  				if(status == "ok") {
- 					var slot_data = response.response;
+ 					var slot_data = response;
  					console.log(slot_data);
  					slot.populate(slot_data);
  					EventProvider.fire(Constants.CHANGE_EVENT);
@@ -55,7 +66,7 @@
  			trackdidia.remote(url, method, null, function(response, status) {
  				if(status == "ok") {
  					console.log("Delete task executed succesfully");
- 					var day_data = response.response;
+ 					var day_data = response;
  					day.populate(day_data);
  					EventProvider.fire(Constants.CHANGE_EVENT);
 

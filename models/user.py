@@ -73,7 +73,7 @@ class User(ndb.Model):
     def create_task_and_slot(self, day_id, task_attributes, slot_attributes, schedule_id= 'recurrent'):
         name = task_attributes.pop('name')
         task = self.create_task(name, **task_attributes)
-        return self.schedule_task(task.key.integer_id(), int(day_id), offset = int(slot_attributes['offset']), duration = int(slot_attributes['duration']), schedule_id=schedule_id)
+        return task, self.schedule_task(task.key.integer_id(), int(day_id), offset = int(slot_attributes['offset']), duration = int(slot_attributes['duration']), schedule_id=schedule_id)
         
             
     def get_task(self, task_id):

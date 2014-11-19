@@ -123,6 +123,12 @@ class BaseHandler(webapp2.RequestHandler):
     def send_json_success(self):
         self.response.out.write(simplejson.dumps("Operation Successfully executed"))
     
+    def send_response(self, response):   
+        self.send_json(response)
+    
+    def send_success(self):
+        self.send_response("Operation Successfully executed")
+    
 
 class CronHandler(BaseHandler):
     def get(self):
@@ -155,6 +161,7 @@ class MainHandler(BaseHandler):
         links = {}
         links['schedule'] = self.uri_for('get_schedule', schedule_id='recurrent')
         links['tasks'] = self.uri_for('all_tasks')
+        links['create_task'] = self.uri_for('create_task')
         
         self.send_json({'links':links})
     
@@ -167,26 +174,30 @@ class TaskHandler(BaseHandler):
         name = params.pop('name')
         task = self.user.create_task(name, **params)
         response = response_producer.produce_task_response(self.request, task)
-        self.send_json(self._wrap_response(response))
+        self.send_response(response)
     
     def get(self, task_id):
         task = self.user.get_task(long(task_id))
         
         response = response_producer.produce_task_response(self.request, task)
-        self.send_json(self._wrap_response(response))
+        self.send_response(response)
     
     def update(self, task_id):
         params = self._get_allowed_params()
         task = self.user.update_task(long(task_id), **params)
         response = response_producer.produce_task_response(self.request, task)
-        self.send_json(self._wrap_response(response))
+        self.send_response(response)
     
     def delete(self):
         raise NotImplementedYet
     
     def list(self):
+        response = OrderedDict();
+         
         tasks = [response_producer.produce_task_response(self.request, task) for task in self.user.get_all_tasks()]
-        self.send_json(self._wrap_response(tasks))
+        response['tasks'] = tasks;
+        response['links'] = self._get_links()
+        self.send_json(response)
     
     def _get_allowed_params(self):
         return self.cleanPostedData(TaskHandler.ALLOWED_PARAMS)
@@ -197,13 +208,7 @@ class TaskHandler(BaseHandler):
         links['create_task'] = self.uri_for('create_task')
         
         return links
-    
-    def _wrap_response(self, response):
-        my_response = {}
-        my_response['response'] = response
-        my_response['links'] = self._get_links()
-        
-        return my_response
+
           
 class ScheduleHandler(BaseHandler):
     @webapp2.cached_property
@@ -245,14 +250,7 @@ class ScheduleHandler(BaseHandler):
     def _get_links(self):
         links = {}        
         return links
-    
-    def send_response(self, response):
-        my_response = {}
-        my_response['response'] = response
-        self.send_json(my_response)
-    
-    def send_success(self):
-        self.send_response("Operation Successfully executed")
+
 
 class DayHandler(ScheduleHandler):
     @webapp2.cached_property
@@ -289,11 +287,14 @@ class SlotHandler(DayHandler):
     
     @required_params(['duration', 'offset'])
     def create(self, day_id, schedule_id = 'recurrent'):
+        response = {}
         if (self.request.get('task_id')):
             slot = self._create_slot(day_id, schedule_id)
+            response = response_producer.produce_slot_response(self.request, slot, schedule_id, day_id)
         else:
-            slot = self._create_task_and_slot(day_id, schedule_id)
-        response = response_producer.produce_slot_response(self.request, slot, schedule_id, day_id)
+            task, slot = self._create_task_and_slot(day_id, schedule_id)
+            response['task'] = response_producer.produce_task_response(self.request, task)
+            response['slot'] = response_producer.produce_slot_response(self.request, slot, schedule_id, day_id)
         
         self.send_response(response)
     
