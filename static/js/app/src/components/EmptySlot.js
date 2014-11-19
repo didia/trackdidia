@@ -36,17 +36,17 @@ define(["react", "components/ScheduleTaskForm", "app/trackdidia", "bootstrap"], 
 		},
 
 		render: function() {
-			var content = '';
+			var scheduleForm = '';
 			if(this.state.isEditing) {
 				var tasks = trackdidia.getAllTasks();
-				content = <ScheduleForm day={this.props.day} offset = {this.props.offset} duration = {this.props.duration} tasks = {tasks} />;
+				scheduleForm = <ScheduleForm day={this.props.day} offset = {this.props.offset} duration = {this.props.duration} tasks = {tasks} />;
 			}
 			else {
 
 			}
 			return (
 				<div className = "row text-center well">
-					{this.state.isEditing?content:
+					{this.state.isEditing?scheduleForm:
 						<div>
 							<p> Nothing from <b>{this.props.start}</b> to <b>{this.props.finish}</b></p>
 							<button className="btn btn-primary" onClick={this._showCreateTaskForm}> Schedule a task </button>

@@ -18,7 +18,8 @@ define(["react", "app/utils", "app/event", "app/constants", "app/TrackdidiaActio
 
 	    },
 		getInitialState : function() {
-			return {'error': null};
+			return {'error': null,
+					'isdisabled': false};
 		},
 
 		componentDidMount: function() {
@@ -30,6 +31,8 @@ define(["react", "app/utils", "app/event", "app/constants", "app/TrackdidiaActio
 		},
 		_handleSubmit : function(e) {
 			e.preventDefault();
+			if(this.state.isdisabled)
+				return;
 			var request = {};
 			var day = this.props.day;
 			var offset = this.refs.offset.getDOMNode().value;
@@ -60,7 +63,10 @@ define(["react", "app/utils", "app/event", "app/constants", "app/TrackdidiaActio
 
 		_submit_failed: function(message){
 			EventProvider.unsubscribe(Constants.CREATE_SLOT_FAILED, "_submit_failed", this);
-			this.setState({'error': message});
+			var state = this.state;
+			state.error = message;
+			state.isdisabled = false;
+			this.setState(state);
 		},
 		
 		render: function() {

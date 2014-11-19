@@ -16,7 +16,7 @@ class Task(ndb.Model):
     location = ndb.StringProperty()
     priority = ndb.IntegerProperty(choices=[0,1,2,3,4,5], default=1)
     _owner = None
-            
+        
     def update(self, **kwargs):
         if not kwargs is None:
             self.populate(**kwargs)
@@ -27,6 +27,9 @@ class Task(ndb.Model):
         if self._owner is None:
             self._owner = self.key.parent().get()
         return self._owner
+    
+
+        
      
 
 

@@ -66,9 +66,14 @@ class User(ndb.Model):
 
     def create_task(self, name, **kwargs):
         self._tasks = None
+        if(self.has_task(name)):
+            raise BadArgumentError("A task with name < " + name + " > already exists")
         task = Task(parent = self.key, name=name, **kwargs)
         task.put()
         return task
+    
+    def has_task(self, task_name):
+        return Task.query(ancestor = self.key).filter(Task.name ==task_name).get() != None;
     
     def create_task_and_slot(self, day_id, task_attributes, slot_attributes, schedule_id= 'recurrent'):
         name = task_attributes.pop('name')
