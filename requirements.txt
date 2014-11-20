@@ -1,1 +1,1 @@
-nosegae=0.2.1
+nosegae==0.2.1
