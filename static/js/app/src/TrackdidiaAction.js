@@ -35,7 +35,7 @@
  					for(var i = slot.offset; i < slot.offset + slot.duration; i++) {
  						day.usage[i] = true;
  					}
-
+ 					EventProvider.fire(Constants.SLOT_CREATED);
  					EventProvider.fire(Constants.CHANGE_EVENT);
 
  				}

@@ -6,7 +6,7 @@
 
 "user strict";
 
-define(["react", "app/utils", "app/event", "app/constants", "app/TrackdidiaAction", "bootstrap"], function(React, Utils, EventProvider, Constants, TrackdidiaActions){
+define(["react", "app/utils", "bootstrap"], function(React, Utils){
 	var ReactPropTypes = React.PropTypes;
 	var ScheduleTaskFormComponent = React.createClass({
 
@@ -18,8 +18,7 @@ define(["react", "app/utils", "app/event", "app/constants", "app/TrackdidiaActio
 
 	    },
 		getInitialState : function() {
-			return {'error': null,
-					'isdisabled': false};
+			return null;
 		},
 
 		componentDidMount: function() {
@@ -31,8 +30,6 @@ define(["react", "app/utils", "app/event", "app/constants", "app/TrackdidiaActio
 		},
 		_handleSubmit : function(e) {
 			e.preventDefault();
-			if(this.state.isdisabled)
-				return;
 			var request = {};
 			var day = this.props.day;
 			var offset = this.refs.offset.getDOMNode().value;
@@ -44,8 +41,6 @@ define(["react", "app/utils", "app/event", "app/constants", "app/TrackdidiaActio
 			request['duration'] = duration;
 			if(task_id != "") {
 				request['task_id'] = task_id
-				
-
 			}
 			else {
 				var name = this.refs.name.getDOMNode().value;
@@ -56,17 +51,8 @@ define(["react", "app/utils", "app/event", "app/constants", "app/TrackdidiaActio
 				description != ""?request['description'] = description:null;
 				location != ""?request['location'] = location:null;
 			}
-			EventProvider.subscribe(Constants.CREATE_SLOT_FAILED, "_submit_failed", this);
-			TrackdidiaActions.scheduleTask(day, request);
+			this.props.submit(request);
 
-		},
-
-		_submit_failed: function(message){
-			EventProvider.unsubscribe(Constants.CREATE_SLOT_FAILED, "_submit_failed", this);
-			var state = this.state;
-			state.error = message;
-			state.isdisabled = false;
-			this.setState(state);
 		},
 		
 		render: function() {
@@ -86,9 +72,9 @@ define(["react", "app/utils", "app/event", "app/constants", "app/TrackdidiaActio
 			}
 			return (
 				<form className="form-horizontal" role = "form"  onSubmit={this._handleSubmit} >
-				  {this.state.error?
+				  {this.props.errorMessage?
 				  	<div className="alert alert-danger" role="alert">
-				  	{ this.state.error}
+				  	{ this.props.errorMessage}
 				    </div> : ""
 				  }
 				  <div className = "form-group">
