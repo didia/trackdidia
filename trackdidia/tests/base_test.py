@@ -5,6 +5,7 @@ Created on 2014-10-25
 '''
 import unittest
 from google.appengine.ext import testbed
+from trackdidia.models import  user
 
 class DatastoreTest(unittest.TestCase):
 
@@ -27,6 +28,10 @@ class NormalTest(unittest.TestCase):
     pass
 
     
-
-
+class TestTracking(DatastoreTest):
+    
+    def setUp(self):
+        super(TestTracking, self).setUp()
+        self.user = user.create_user('TheFuture', 'thefuture2092@gmail.com', 'Aristote')
+        self.schedule = self.user.get_schedule()
 

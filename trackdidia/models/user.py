@@ -7,7 +7,7 @@ from google.appengine.ext import ndb
 
 from .custom_exceptions import BadArgumentError
 from .task import Task
-from .tracking import Schedule
+from .schedule import Schedule
 from .custom_exceptions import RessourceNotFound
 
 
