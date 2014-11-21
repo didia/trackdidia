@@ -3,13 +3,12 @@ Created on 2014-10-28
 
 @author: didia
 '''
-from google.appengine.api.datastore_errors import BadValueError
 from google.appengine.ext import ndb
 
-from custom_exceptions import BadArgumentError
-from task import Task
-from tracking import Schedule
-from models.custom_exceptions import RessourceNotFound
+from .custom_exceptions import BadArgumentError
+from .task import Task
+from .tracking import Schedule
+from .custom_exceptions import RessourceNotFound
 
 
 
@@ -107,6 +106,7 @@ class User(ndb.Model):
             schedule.put()
             self.schedule = schedule
         return schedule
+    
     def get_schedule(self, schedule_id="recurrent"):
         if self.schedule is None:
             self.schedule = Schedule.get_by_id(schedule_id, parent=self.key)

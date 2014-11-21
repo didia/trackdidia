@@ -4,11 +4,9 @@ Created on 2014-10-28
 @author: didia
 '''
 import unittest
-from base_test import DatastoreTest
-import user
-from tracking import Schedule
-import datetime
-from custom_exceptions import SlotAlreadyUsed, BadArgumentError
+from .base_test import DatastoreTest
+from trackdidia.models import  user
+from trackdidia.models.custom_exceptions import SlotAlreadyUsed, BadArgumentError
 
 class TestTracking(DatastoreTest):
     

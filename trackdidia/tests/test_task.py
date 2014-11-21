@@ -4,11 +4,9 @@ Created on 2014-10-25
 @author: didia
 '''
 import unittest
-import user
+from trackdidia.models import user
 
 from base_test import DatastoreTest
-from task import Task
-import task
 
 
 class TestTask(DatastoreTest):

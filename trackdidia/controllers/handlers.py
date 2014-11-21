@@ -3,22 +3,19 @@ from django.utils import simplejson
 from collections import OrderedDict
 import logging
 import webapp2
-import os
 import jinja2
 from google.appengine.api import users
-import datetime
-from google.appengine.ext import ndb
-import models.user as user_module
-from models.custom_exceptions import HandlerException, RessourceNotFound,\
+import trackdidia.models.user as user_module
+from trackdidia.models.custom_exceptions import HandlerException, RessourceNotFound,\
     NotImplementedYet
-import traceback
+
 import response_producer
-from controllers.response_producer import produce_task_response,\
+from trackdidia.controllers.response_producer import produce_task_response,\
     produce_schedule_response, produce_day_response
-import models.stats as stat
+import trackdidia.models.stats as stat
 
 jinja_environment = jinja2.Environment(extensions = ['jinja2.ext.autoescape'],
-    loader = jinja2.FileSystemLoader('views'))
+    loader = jinja2.FileSystemLoader('trackdidia/views'))
 
 
 def required_params(params):

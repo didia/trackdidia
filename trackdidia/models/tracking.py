@@ -6,11 +6,10 @@ Created on 2014-10-28
 @author: didia
 '''
 from google.appengine.ext import ndb
-import datetime
-import utils
-from custom_exceptions import SlotAlreadyUsed, BadArgumentError, SlotNotYetReached
-from collections import OrderedDict
-from models.custom_exceptions import RessourceNotFound
+
+from . import utils
+from .custom_exceptions import SlotAlreadyUsed, BadArgumentError, SlotNotYetReached
+
 
 class Schedule(ndb.Model):
     interval = ndb.FloatProperty(default = 0.5)
