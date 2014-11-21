@@ -13,9 +13,12 @@ import jinja2
 
 __all__ = ['debug', 'config', 'jinja_environment']
 
-if os.environ['SERVER_SOFTWARE'].find('Development') == 0:
-    debug = True
-else:
+try:
+    if os.environ['SERVER_SOFTWARE'].find('Development') == 0:
+        debug = True
+    else:
+        debug = False
+except KeyError:
     debug = False
 
 jinja_environment = jinja2.Environment(extensions = ['jinja2.ext.autoescape'],

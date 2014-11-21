@@ -8,6 +8,11 @@ before_script:
   - export PYTHONPATH=google_appengine:$PYTHONPATH
 
 # command to install dependencies
-install: "pip install -r requirements.txt"
+install: 
+  - pip install -r requirements.txt
+  - pip install coveralls
 # command to run tests
-script: nosetests -v --with-gae --without-sandbox
+script: nosetests -v --with-gae --without-sandbox --with-coverage --cover-package=trackdidia --cover-inclusive
+
+after_success:
+  coveralls
