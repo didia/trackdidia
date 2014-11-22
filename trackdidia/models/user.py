@@ -8,9 +8,6 @@ from google.appengine.ext import ndb
 from .custom_exceptions import BadArgumentError
 from .task import Task
 from .schedule import Schedule
-from .custom_exceptions import RessourceNotFound
-
-
 
 def create_user(user_id, email, nickname):
     my_user = User(id=user_id, email=email, nickname=nickname)
@@ -52,15 +49,14 @@ class User(ndb.Model):
         return self.nickname
     
     def update(self, **kwargs):
-        if kwargs is None:
-            return
-        updated_values = {}
-        for key, value in kwargs.iteritems():
-            if not value is None:
-                updated_values[key] = value
-        
-        self.populate(**updated_values)
-        self.put()
+        if not kwargs is None:
+            updated_values = {}
+            for key, value in kwargs.iteritems():
+                if not value is None:
+                    updated_values[key] = value
+            
+            self.populate(**updated_values)
+            self.put()
     
 
     def create_task(self, name, **kwargs):
@@ -73,13 +69,7 @@ class User(ndb.Model):
     
     def has_task(self, task_name):
         return Task.query(ancestor = self.key).filter(Task.name ==task_name).get() != None;
-    
-    def create_task_and_slot(self, day_id, task_attributes, slot_attributes, schedule_id= 'recurrent'):
-        name = task_attributes.pop('name')
-        task = self.create_task(name, **task_attributes)
-        return task, self.schedule_task(task.key.integer_id(), int(day_id), offset = int(slot_attributes['offset']), duration = int(slot_attributes['duration']), schedule_id=schedule_id)
-        
-            
+                    
     def get_task(self, task_id):
         task = Task.get_by_id(task_id, parent = self.key)
         return task
@@ -115,17 +105,6 @@ class User(ndb.Model):
     def update_schedule(self, params, schedule_id="recurrent"):
         pass
     
-    def schedule_task(self, task_id, day_id, offset, duration, schedule_id = "recurrent"):
-        schedule = self.get_schedule(schedule_id)
-        task = self.get_task(task_id)
-        if task is None:
-            raise RessourceNotFound(" There is no task with id "+ str(task_id) + " found for this user")
-        
-        return schedule.add_slot(task, day_id, offset, duration)
-    
-    def unschedule_task(self, day_id, slot_id, schedule_id = 'recurrent'):
-        schedule = self.get_schedule(schedule_id)
-        schedule.remove_slot(day_id, slot_id)
     
     
         

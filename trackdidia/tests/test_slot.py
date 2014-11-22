@@ -7,10 +7,7 @@ import unittest
 from .base_test import TestTracking
 
 class TestSlot(TestTracking):
-
-
-    def testName(self):
-        pass
+    pass
 
 
 if __name__ == "__main__":

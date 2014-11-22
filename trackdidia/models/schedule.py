@@ -67,31 +67,6 @@ class Schedule(ndb.Model):
         
         return self._days
     
-    def add_slot(self, task, day_id, offset, duration):
-        higher_limit = 24/self.interval
-        if(offset < 0 or offset >= higher_limit):
-            message = "The offset parameter must be a number betwen "
-            message += str(0) + " and "+ str(higher_limit) + ". " + str(offset) + " given"
-            
-            raise BadArgumentError(message)
-        
-        if(offset + duration > higher_limit):
-            message = "The sum of the offset + duration must be less than "
-            message = "the number of available slots, " + str(higher_limit)
-            
-            raise BadArgumentError(message)
-        if(day_id < 1 or day_id > 7):
-            raise BadArgumentError("Invalid value for day id. Must be between 1 and 8. " + str(day_id) + " given")
-        
-        day = self.get_day(day_id)
-        return day.add_slot(task, offset, duration)
-        
-    def add_slots(self):
-        pass
-    
-    def remove_slot(self, day_id, slot_id):
-        day = self.get_day(day_id)
-        day.remove_slot(slot_id)
     
     def set_executed(self, day_id, slot_id, executed=True):
         today_id = utils.get_today_id()

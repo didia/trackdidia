@@ -9,6 +9,7 @@ Created on 2014-10-28
 import unittest
 from base_test import DatastoreTest
 from trackdidia.models import user
+from trackdidia.models.custom_exceptions import BadArgumentError
 
 
 class TestUser(DatastoreTest):
@@ -17,7 +18,7 @@ class TestUser(DatastoreTest):
         super(TestUser, self).setUp()
         self.user = user.create_user("testeur", "testeur@gmail.com", "TestMan")
         
-    def test_create_user(self):
+    def testCreateUser(self):
         user_id = "145861"
         email = "thefuture2092@gmail.com"
         nickname = "TheFuture"
@@ -36,14 +37,28 @@ class TestUser(DatastoreTest):
         
         
     
-    def test_get_user(self):
+    def testGetUser(self):
         user_id = "189567"
         email = "thefuture2092@gmail.com"
         nickname = "TheFuture"
         my_user = user.create_user(user_id, email, nickname)
         self.assertEqual(my_user, user.get_user(user_id))
     
-    def test_user_update(self):
+    def testGetOrCreateUser(self):
+        user_id = "23121992"
+        email = "kevindias@gmail.com"
+        nickname = "Kevin"
+        
+        self.assertIsNone(user.get_user(user_id))
+        my_user = user.get_or_create_user(user_id, email, nickname)
+        self.assertEquals(user_id, my_user.key.id())
+    
+    def testGetAllUsers(self):
+        self.assertEquals(len(user.get_all_users()), 1)
+        user.create_user("23121992", "kevindias@gmail.com", "Kevin")
+        self.assertEquals(len(user.get_all_users()), 2)
+        
+    def testUpdate(self):
         user_id = "19999"
         email = "thefuture2092@gmail.com"
         nickname = "TheFuture"
@@ -52,7 +67,7 @@ class TestUser(DatastoreTest):
         same_user = user.get_user(user_id)
         self.assertEqual("aristodj", same_user.get_nickname())
     
-    def test_user_update_no_parameter(self):
+    def testUpdateNoParameter(self):
         #it should do nothing
         user_id = "19999"
         email = "thefuture2092@gmail.com"
@@ -62,7 +77,7 @@ class TestUser(DatastoreTest):
         same_user = user.get_user(user_id)
         self.assertEqual("TheFuture", same_user.get_nickname())
     
-    def test_user_update_paremeter_none(self):
+    def testUpdateParameterNone(self):
         #it should do nothing
         user_id = "19999"
         email = "thefuture2092@gmail.com"
@@ -72,7 +87,7 @@ class TestUser(DatastoreTest):
         same_user = user.get_user(user_id)
         self.assertEqual("TheFuture", same_user.get_nickname())
         
-    def test_delete_user(self):
+    def testDeleteUser(self):
         user_id = "20000"
         email = "thefuture2092@gmail.com"
         nickname = "TheFuture"
@@ -80,7 +95,7 @@ class TestUser(DatastoreTest):
         user.delete_user(user_id)
         self.assertIsNone(user.get_user(user_id))
     
-    def test_user_create_task(self):
+    def testCreateTask(self):
         name = "GLO_2100"
         description = "Etude Algorithmes et Structure"
         location = "PLT-3920"
@@ -88,36 +103,18 @@ class TestUser(DatastoreTest):
         self.assertEqual(my_task.name, name)
         self.assertEqual(my_task.description, description)
         self.assertEqual(my_task.location, location)
+        self.assertRaises(BadArgumentError, self.user.create_task, name)
     
-    def testUser_create_task_and_slot(self):
-        task_attributes = {'name':'GLO-3000', 'description':'Cours inconnu'}
-        slot_attributes = {'duration':6, 'offset':35}
-        name = task_attributes['name']
-        task, slot = self.user.create_task_and_slot(3,task_attributes, slot_attributes)
-        self.assertIsNotNone(slot)
-        self.assertEquals(slot_attributes['duration'], slot.duration)
-        self.assertEquals(slot_attributes['offset'], slot.offset)
-        self.assertEquals(task.key, slot.task)
-        self.assertEquals(name, task.name)
-    
-    def test_user_get_task(self):
+    def testGetTask(self):
         name = "GLO-2100"
         my_task = self.user.create_task(name = name)
         self.assertEqual(my_task, self.user.get_task(task_id = my_task.key.integer_id()))
 
-    def test_delete_task(self):
+    def testDeleteTask(self):
         name = "GLO-2100"
         my_task = self.user.create_task(name = name)
         self.user.delete_task(task_id = my_task.key.integer_id())
-        self.assertIsNone(self.user.get_task(task_id = my_task.key.integer_id()))     
-        
-        
-   
-        
-        
-    
-        
-        
+        self.assertIsNone(self.user.get_task(task_id = my_task.key.integer_id()))    
         
 
 

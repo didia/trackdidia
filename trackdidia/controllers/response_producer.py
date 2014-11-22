@@ -6,7 +6,7 @@ Created on 2014-11-06
 import webapp2
 from collections import OrderedDict
 
-def produce_slot_response(request, slot, schedule_id, day_id):
+def produce_slot_response(request, slot, day_id, schedule_id):
     response = OrderedDict()
     slot_id = slot.key.integer_id()
     executed = '0' if slot.executed else '1'
@@ -30,7 +30,7 @@ def produce_day_response(request, day, schedule_id):
     day_id = day.key.integer_id()
     response['day_id'] = day.key.integer_id()
     response['interval_usage'] = day.interval_usage
-    slots = [produce_slot_response(request, slot, schedule_id, day_id) for slot in day.get_slots()]
+    slots = [produce_slot_response(request, slot, day_id, schedule_id) for slot in day.get_slots()]
     response['slots'] = slots
     links = {}
     links['get'] = webapp2.uri_for('get_day', _request = request, schedule_id = schedule_id, day_id = day_id)

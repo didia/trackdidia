@@ -15,7 +15,7 @@ class TestTask(DatastoreTest):
         super(TestTask, self).setUp()
         self.user = user.create_user("101010", "thefuture2092@gmail.com", "didia")
         
-    def test_task_update(self):
+    def testUpdate(self):
         name = "GLO-2100"
         second_name = "GLO-2004"
         my_task = self.user.create_task(name=name)

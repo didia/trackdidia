@@ -287,11 +287,11 @@ class SlotHandler(DayHandler):
         response = {}
         if (self.request.get('task_id')):
             slot = self._create_slot(day_id, schedule_id)
-            response = response_producer.produce_slot_response(self.request, slot, schedule_id, day_id)
+            response = response_producer.produce_slot_response(self.request, slot, day_id, schedule_id)
         else:
             task, slot = self._create_task_and_slot(day_id, schedule_id)
             response['task'] = response_producer.produce_task_response(self.request, task)
-            response['slot'] = response_producer.produce_slot_response(self.request, slot, schedule_id, day_id)
+            response['slot'] = response_producer.produce_slot_response(self.request, slot, day_id, schedule_id)
         
         self.send_response(response)
     
@@ -299,13 +299,13 @@ class SlotHandler(DayHandler):
         if self.slot is None:
             raise RessourceNotFound('The slot with id : '+ str(slot_id) + ' does not exist')
         
-        response = response_producer.produce_slot_response(self.request, self.slot, schedule_id, day_id)
+        response = response_producer.produce_slot_response(self.request, self.slot, day_id, schedule_id)
         
         self.send_response(response)
     
     def list(self, day_id, schedule_id = 'recurrent'):
         slots = self.day.get_slots()
-        response = [response_producer.produce_slot_response(self.request, slot, schedule_id, day_id) for slot in slots]
+        response = [response_producer.produce_slot_response(self.request, slot, day_id, schedule_id) for slot in slots]
         
         self.send_response(response)
     
@@ -316,17 +316,17 @@ class SlotHandler(DayHandler):
         day = self._get_day(schedule_id, day_id)
         slot = day.update_slot(len(slot_id), **params)
         
-        response = response_producer.produce_slot_response(self.request, slot, schedule_id, day_id)
+        response = response_producer.produce_slot_response(self.request, slot, day_id, schedule_id)
         self.send_response(response)
         
     def delete(self, day_id, slot_id, schedule_id = 'recurrent'):
-        self.user.unschedule_task(day_id = int(day_id), slot_id = int(slot_id), schedule_id=schedule_id)
+        self.day.remove_slot(slot_id = int(slot_id))
         DayHandler.get(self, day_id, schedule_id);
     
     def set_executed(self, day_id, slot_id, executed, schedule_id = 'recurrent'):
         executed = executed == '1'
         slot = self.schedule.set_executed(int(day_id), long(slot_id), executed)
-        response = response_producer.produce_slot_response(self.request, slot, schedule_id, day_id)
+        response = response_producer.produce_slot_response(self.request, slot, day_id, schedule_id)
         
         self.send_response(response)
     
@@ -339,15 +339,21 @@ class SlotHandler(DayHandler):
         task_id = long(params['task_id'])
         duration = int(params['duration'])
         offset = int(params['offset'])
-        slot = self.user.schedule_task(task_id, int(day_id), offset, duration, schedule_id)
+        
+        task = self.user.get_task(task_id)
+        slot = self.day.add_slot(task, offset, duration)
         return slot
     
     def _create_task_and_slot(self, day_id, schedule_id):
         slot_parameters = self._get_allowed_params()
+        duration = int(slot_parameters['duration'])
+        offset = int(slot_parameters['offset'])
         task_parameters = self.cleanPostedData(TaskHandler.ALLOWED_PARAMS)
         if(task_parameters.get('name') is None):
             raise HandlerException("When the parameter task_id is not provided, the parameter name is required to create a new task")
-        return self.user.create_task_and_slot(day_id, task_parameters, slot_parameters, schedule_id)
+        task = self.user.create_task(**task_parameters)
+        slot = self.day.add_slot(task, offset, duration)
+        return task, slot
     
     
         

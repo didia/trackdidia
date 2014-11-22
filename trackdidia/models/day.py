@@ -5,14 +5,29 @@ Created on 2014-11-20
 '''
 from google.appengine.ext import ndb
 
-from .custom_exceptions import SlotAlreadyUsed
+from .custom_exceptions import SlotAlreadyUsed, BadArgumentError
 from slot import Slot
 
 class DayOfWeek(ndb.Model):
     interval_usage = ndb.BooleanProperty(repeated = True)
     _slots = None
     
+    def _validate_offset_and_duration(self, offset, duration):
+        higher_limit = len(self.interval_usage)
+        if(offset < 0 or offset >= higher_limit):
+            message = "The offset parameter must be a number betwen "
+            message += str(0) + " and "+ str(higher_limit) + ". " + str(offset) + " given"
+            
+            raise BadArgumentError(message)
+        
+        if(offset + duration > higher_limit):
+            message = "The sum of the offset + duration must be less than "
+            message = "the number of available slots, " + str(higher_limit)
+            
+            raise BadArgumentError(message)
+        
     def add_slot(self, task, offset, duration):
+        self._validate_offset_and_duration(offset, duration)
         for i in range(offset, offset+duration):
             if(self.interval_usage[i]):
                 message = "Asked to reserve Slot " + str(offset)

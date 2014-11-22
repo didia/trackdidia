@@ -5,11 +5,11 @@ Created on 2014-11-20
 '''
 import unittest
 from .base_test import TestTracking
-from trackdidia.models.custom_exceptions import SlotAlreadyUsed
+from trackdidia.models.custom_exceptions import SlotAlreadyUsed, BadArgumentError
 class TestDay(TestTracking):
 
 
-    def testDayOfWeek_add_slots(self):
+    def testAddSlot(self):
         i = 2
         duration= 6 # 6 interval . With interval = 0.5h, duration = 3 hours
         start_offset = 18
@@ -25,7 +25,7 @@ class TestDay(TestTracking):
         self.assertEqual(duration,slot.duration)
         self.assertEqual(start_offset, slot.offset)
     
-    def testDayOfWeek_remove_slot(self):
+    def testRemoveSlot(self):
         i = 3
         day = self.schedule.get_day(i)
         slots = day.get_slots()
@@ -35,7 +35,7 @@ class TestDay(TestTracking):
         self.assertEqual(0, len(slots_now))
         self.assertEqual(0, day.interval_usage.count(True))
     
-    def testDayOfWeek_add_slots_bad(self):
+    def testAddSlotBad(self):
         i = 2
         start_offset = 4
         duration = 2
@@ -43,8 +43,21 @@ class TestDay(TestTracking):
         
         day = self.schedule.get_day(i)
         self.assertRaises(SlotAlreadyUsed, day.add_slot, task, start_offset, duration)
-
-
+        
+        #Bad start_slot
+        self.assertRaises(BadArgumentError, day.add_slot, task, 60, 5)
+        self.assertRaises(BadArgumentError, day.add_slot, task, -5, 5)
+        
+        #Bad duration
+        self.assertRaises(BadArgumentError, day.add_slot, task, 43, 15)
+    
+    def testGetSlots(self):
+        i = 2
+        day = self.schedule.get_day(i)
+        slots = day.get_slots()
+        self.assertIsNotNone(slots)
+        self.assertEqual(1, len(slots))
+        
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']
     unittest.main()
