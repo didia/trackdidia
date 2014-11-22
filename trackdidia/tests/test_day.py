@@ -57,7 +57,47 @@ class TestDay(TestTracking):
         slots = day.get_slots()
         self.assertIsNotNone(slots)
         self.assertEqual(1, len(slots))
+    
+    def testRestart(self):
+        task = self.user.create_task("Fifa time")
+        day = self.schedule.get_day(3)
+        day.add_slot(task, 13, 3);
+        day.add_slot(task, 16, 4);
+        slots = day.get_slots();
+        for slot in slots:
+            slot.set_executed(True)
         
+        self.assertTrue(all(x.executed for x in day.get_slots()))
+        day.restart()
+        self.assertFalse(all(x.executed for x in day.get_slots()))
+    
+    def testSetExecuted(self):
+        task = self.user.create_task("Fifa time")
+        day = self.schedule.get_day(4)
+        slots = []
+        slots.append(day.add_slot(task, 14, 7))
+        slots.append(day.add_slot(task, 30, 5))
+        self.assertFalse(all(x.executed for x in slots))
+        day.set_executed(slots[0].key.integer_id(), True)
+        slot_0 = day.get_slot(slots[0].key.integer_id())
+        slot_1 = day.get_slot(slots[1].key.integer_id())
+        self.assertTrue(slot_0.executed)
+        self.assertFalse(slot_1.executed)
+        
+        slots_dict = {}
+        slots_dict[slot_0.key.integer_id()] = False
+        slots_dict[slot_1.key.integer_id()] = True
+        
+        day.set_executed(slots_dict)
+        
+        slot_0 = day.get_slot(slots[0].key.integer_id())
+        slot_1 = day.get_slot(slots[1].key.integer_id())
+        
+        self.assertFalse(slot_0.executed)
+        self.assertTrue(slot_1.executed)
+        
+        
+            
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']
     unittest.main()

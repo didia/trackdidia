@@ -34,6 +34,10 @@ class TestStats(TestTracking):
         stat = stats.get_stat(self.schedule)
         plainMessage = stats.get_plain_message(stat)
         self.assertEquals(-1, plainMessage.find("<html>"))
+    
+    def testSendStat(self):
+        message_body = stats.send_stat(self.user, self.schedule)
+        self.assertNotEquals(-1, message_body.find("Here is your result"))
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']

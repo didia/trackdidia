@@ -10,8 +10,8 @@ from trackdidia.models.custom_exceptions import HandlerException, RessourceNotFo
     NotImplementedYet
 
 import response_producer
-from trackdidia.controllers.response_producer import produce_task_response,\
-    produce_schedule_response, produce_day_response
+
+from trackdidia.models import utils
 import trackdidia.models.stats as stat
 
 jinja_environment = jinja2.Environment(extensions = ['jinja2.ext.autoescape'],
@@ -236,7 +236,7 @@ class ScheduleHandler(BaseHandler):
     def restart(self, schedule_id):
         schedule = self.user.get_schedule('recurrent')
         schedule.restart()
-        response = produce_schedule_response(self.request, schedule)
+        response = response_producer.produce_schedule_response(self.request, schedule)
         
         self.send_response(response)
     
@@ -312,12 +312,6 @@ class SlotHandler(DayHandler):
     
     def update(self, day_id, slot_id, schedule_id = 'recurrent'):
         raise NotImplementedYet
-        params = self._get_allowed_params()
-        day = self._get_day(schedule_id, day_id)
-        slot = day.update_slot(len(slot_id), **params)
-        
-        response = response_producer.produce_slot_response(self.request, slot, day_id, schedule_id)
-        self.send_response(response)
         
     def delete(self, day_id, slot_id, schedule_id = 'recurrent'):
         self.day.remove_slot(slot_id = int(slot_id))
@@ -325,7 +319,13 @@ class SlotHandler(DayHandler):
     
     def set_executed(self, day_id, slot_id, executed, schedule_id = 'recurrent'):
         executed = executed == '1'
-        slot = self.schedule.set_executed(int(day_id), long(slot_id), executed)
+        today_id = utils.get_today_id()
+        if day_id > today_id:
+            message = "Day id  " + str(day_id) + " must be "
+            message += " inferior to today's id " + str(today_id)
+            raise HandlerException(message) 
+        
+        slot = self.slot.set_executed(executed)
         response = response_producer.produce_slot_response(self.request, slot, day_id, schedule_id)
         
         self.send_response(response)

@@ -23,7 +23,10 @@ class TestTask(DatastoreTest):
         
         same_task = self.user.get_task(task_id=my_task.key.id())
         self.assertEqual(same_task.name, second_name)
-         
+    
+    def testGetOwner(self):
+        my_task = self.user.create_task("Manger")
+        self.assertEqual(self.user.key, my_task.get_owner().key)
         
         
     

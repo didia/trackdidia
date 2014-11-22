@@ -12,11 +12,6 @@ class Slot(ndb.Model):
     task = ndb.KeyProperty(kind='Task', required = True)
     executed = ndb.BooleanProperty(default = False)
     
-    def get_offset(self):
-        return self.offset
-    
-    def get_duration(self):
-        return self.duration
-    
-    def get_task(self):
-        return self.task.get()
+    def set_executed(self, executed):
+        self.executed = executed
+        self.put()

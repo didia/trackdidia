@@ -65,22 +65,21 @@ class DayOfWeek(ndb.Model):
     
     def remove_slot(self, slot_id):
         slot = self.get_slot(slot_id)
-        if slot is None:
-            return
-        
-        for i in range(slot.offset, slot.offset + slot.duration):
-            self.interval_usage[i] = False
-        
-        if not self._slots is None:
-            try:
-                self._slots.remove(slot)
-            except ValueError:
-                pass
-        slot.key.delete()
-        self.put()
-    
-    def set_executed(self, slot_id, executed=True):
+        if not slot is None:
+            for i in range(slot.offset, slot.offset + slot.duration):
+                self.interval_usage[i] = False
+            
+            if not self._slots is None:
+                try:
+                    self._slots.remove(slot)
+                except ValueError:
+                    pass
+            slot.key.delete()
+            self.put()
+            
 
+    def set_executed(self, slot_id, executed=True):
+ 
         if(type(slot_id)) is dict:
             slots = []
             for key, value in slot_id.iteritems():
@@ -89,22 +88,12 @@ class DayOfWeek(ndb.Model):
                 slots.append(slot)
             ndb.put_multi(slots)
             return slots
-                
+                 
         else:
             slot = self.get_slot(slot_id)
             slot.executed = executed
             slot.put()
             return slot;
-            
-    def update_slot(self, slot_id, **params):
-        slot = self.get_slot(slot_id)
-        # Need review of this code because updating slot offset as insidence
-#         if slot is None:
-#             raise RessourceNotFound('The slot with id : '+ str(slot_id) + 'does not exist')
-#         if len(params) != 0:
-#             slot.update(**params)
-#             slot.put()
-        return slot
     
     def restart(self):
         slots = self.get_slots()

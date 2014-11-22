@@ -18,17 +18,9 @@ class Schedule(ndb.Model):
     _days = None
     _owner = None
  
-    def get_interval(self):
-        return self.interval
     
     def get_day(self, day_id):
         return ndb.Key(DayOfWeek, day_id, parent=self.key).get()
-    
-    def get_interval_usage_array(self):
-        return self.interval_usage
-    
-    def is_recurrent(self):
-        return self.recurrent
     
     def get_owner(self):
         if self._owner is None:
@@ -67,17 +59,6 @@ class Schedule(ndb.Model):
         
         return self._days
     
-    
-    def set_executed(self, day_id, slot_id, executed=True):
-        today_id = utils.get_today_id()
-        
-        if day_id > today_id:
-            message = "Day id  " + str(day_id) + " must be "
-            message += " inferior to today's id " + str(today_id)
-            raise SlotNotYetReached(message) 
-        
-        day = self.get_day(day_id)
-        return day.set_executed(slot_id, executed)
         
     
     def restart(self):
