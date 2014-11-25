@@ -39,14 +39,7 @@ class User(ndb.Model):
     nickname = ndb.StringProperty(required=True)
     schedule = None
     _tasks = None
-    def get_id(self):
-        return self.key.id()
     
-    def get_email(self):
-        return self.email
-    
-    def get_nickname(self):
-        return self.nickname
     
     def update(self, **kwargs):
         if not kwargs is None:
@@ -82,6 +75,10 @@ class User(ndb.Model):
     def update_task(self, task_id, **kwargs):
         self._tasks = None
         task = Task.get_by_id(task_id, parent = self.key)
+        if(kwargs.get('name') and task.name != kwargs.get('name') and 
+           self.has_task(kwargs.get('name'))):
+            raise BadArgumentError("A task with name < " + kwargs.get('name') + " > already exists")
+            
         return task.update(**kwargs)
         
     

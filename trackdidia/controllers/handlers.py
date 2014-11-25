@@ -7,7 +7,7 @@ import jinja2
 from google.appengine.api import users
 import trackdidia.models.user as user_module
 from trackdidia.models.custom_exceptions import HandlerException, RessourceNotFound,\
-    NotImplementedYet
+    NotImplementedYet, BadArgumentError
 
 import response_producer
 
@@ -166,24 +166,35 @@ class MainHandler(BaseHandler):
 class TaskHandler(BaseHandler):
     ALLOWED_PARAMS = ['category', 'priority', 'name', 'description', 'location']
     
+    @required_params(['name'])
     def create(self):
         params = self._get_allowed_params()
         name = params.pop('name')
-        task = self.user.create_task(name, **params)
-        response = response_producer.produce_task_response(self.request, task)
-        self.send_response(response)
+        try:
+            task = self.user.create_task(name, **params)
+            response = response_producer.produce_task_response(self.request, task)
+            self.send_response(response)
+        except BadArgumentError as e:
+            raise HandlerException(e)
+        
     
     def get(self, task_id):
         task = self.user.get_task(long(task_id))
-        
         response = response_producer.produce_task_response(self.request, task)
         self.send_response(response)
     
     def update(self, task_id):
-        params = self._get_allowed_params()
-        task = self.user.update_task(long(task_id), **params)
-        response = response_producer.produce_task_response(self.request, task)
-        self.send_response(response)
+        
+        try:
+            params = self._get_allowed_params()
+            if len(params) == 0:
+                raise HandlerException("Received an update request with no\
+                parameter. An update must always include new values")
+            task = self.user.update_task(long(task_id), **params)
+            response = response_producer.produce_task_response(self.request, task)
+            self.send_response(response)
+        except BadArgumentError as e:
+            raise HandlerException(e)
     
     def delete(self):
         raise NotImplementedYet

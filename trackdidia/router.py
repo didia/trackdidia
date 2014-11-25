@@ -18,9 +18,11 @@ task_route = routes.PathPrefixRoute('/tasks', [
                  webapp2.Route('/create', handler=handlers.TaskHandler, handler_method='create', name = 'create_task', methods=['POST']),
                  webapp2.Route('/list', handler=handlers.TaskHandler, handler_method='list', name = 'all_tasks'),
                  routes.PathPrefixRoute('/<task_id:[\d]+>', [
-                     webapp2.Route('/update', handler=handlers.TaskHandler, handler_method='update', name = 'update_task', methods=['POST']),
-                     webapp2.Route('/delete', handler=handlers.TaskHandler, handler_method='delete', name = 'delete_task', methods=['POST']),
-                     webapp2.Route('', handler=handlers.TaskHandler, handler_method='get', name='get_task'),
+                     webapp2.Route('/update', handler=handlers.TaskHandler, handler_method='update', name = 'update_task', methods=['POST', 'PUT']),
+                     webapp2.Route('/delete', handler=handlers.TaskHandler, handler_method='delete', name = 'delete_task', methods=['POST', 'DELETE']),
+                     webapp2.Route('', handler=handlers.TaskHandler, handler_method='get', name='get_task' ,methods=['GET', 'POST']),
+                     webapp2.Route('', handler=handlers.TaskHandler, handler_method='update', methods=['PUT']),
+                     webapp2.Route('', handler=handlers.TaskHandler, handler_method='delete', methods = ['DELETE'])
                   ]),
                  webapp2.Route('', handler=handlers.TaskHandler, handler_method='list'),
                             

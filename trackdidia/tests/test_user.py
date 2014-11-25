@@ -25,9 +25,9 @@ class TestUser(DatastoreTest):
         my_user = user.create_user(user_id, email, nickname)
         self.assertIsNotNone(my_user);
         same_user = user.get_user(user_id)
-        self.assertEqual(user_id, same_user.get_id())
-        self.assertEqual(email, same_user.get_email())
-        self.assertEqual(nickname, same_user.get_nickname())
+        self.assertEqual(user_id, same_user.key.id())
+        self.assertEqual(email, same_user.email)
+        self.assertEqual(nickname, same_user.nickname)
         
         #Test initialization of a schedule with default task for each dayOfWeek
         schedule = same_user.get_schedule()
@@ -65,7 +65,7 @@ class TestUser(DatastoreTest):
         my_user = user.create_user(user_id, email, nickname)
         my_user.update(nickname = "aristodj")
         same_user = user.get_user(user_id)
-        self.assertEqual("aristodj", same_user.get_nickname())
+        self.assertEqual("aristodj", same_user.nickname)
     
     def testUpdateNoParameter(self):
         #it should do nothing
@@ -75,7 +75,7 @@ class TestUser(DatastoreTest):
         my_user = user.create_user(user_id, email, nickname)
         my_user.update()
         same_user = user.get_user(user_id)
-        self.assertEqual("TheFuture", same_user.get_nickname())
+        self.assertEqual("TheFuture", same_user.nickname)
     
     def testUpdateParameterNone(self):
         #it should do nothing
@@ -85,7 +85,7 @@ class TestUser(DatastoreTest):
         my_user = user.create_user(user_id, email, nickname)
         my_user.update(nickname=None)
         same_user = user.get_user(user_id)
-        self.assertEqual("TheFuture", same_user.get_nickname())
+        self.assertEqual("TheFuture", same_user.nickname)
         
     def testDeleteUser(self):
         user_id = "20000"
