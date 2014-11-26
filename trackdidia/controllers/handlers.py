@@ -301,7 +301,7 @@ class DayHandler(ScheduleHandler):
     
     @user_required
     def list(self, schedule_id = 'recurrent'):
-        days = self.chedule.get_all_days()
+        days = self.schedule.get_all_days()
         response = [response_producer.produce_day_response(self.request, day, schedule_id) for day in days]
         
         self.send_response(response)

@@ -198,17 +198,33 @@ class TestScheduleHandler(TestApiHandler):
         self.assertEquals(response.status_int, 200)
         
         response_dict = simplejson.loads(response.body)
-        self.assertTrue(self.checkFieldExist(expected_fields, response_dict))
-        
-        
-        
-        
-        
-        
+        self.assertTrue(self.checkFieldExist(expected_fields, response_dict))    
         
 
 class TestDayHandler(TestApiHandler):
-    pass
+    def testGet(self):
+        url = "/api/schedules/recurrent/days/1"
+        expected_fields = {'day_id':[], 'interval_usage':[], 'slots':[], 'links':['get', 'all_slots', 'create_slot']}
+        
+        request = webapp2.Request.blank(url)
+        response = request.get_response(main.app)
+        
+        self.assertEquals(response.status_int, 200)
+        
+        response_dict = simplejson.loads(response.body)
+        self.assertTrue(self.checkFieldExist(expected_fields, response_dict))
+        self.assertEquals(1, response_dict['day_id'])
+    
+    def testList(self):
+        url = "/api/schedules/recurrent/days/list"
+        
+        request = webapp2.Request.blank(url)
+        response = request.get_response(main.app)
+        
+        self.assertEquals(response.status_int, 200)
+        
+        response_list = simplejson.loads(response.body)
+        self.assertEquals(7, len(response_list))
 
 class TestSlotHandler(TestApiHandler):
     pass
