@@ -9,6 +9,7 @@ from base_test import TestTracking
 import trackdidia.main as main
 from django.utils import simplejson
 import os
+from trackdidia.models import utils
 
 class TestHandler(TestTracking):
     def checkFieldExist(self, expected_fields, dict_object):
@@ -227,8 +228,130 @@ class TestDayHandler(TestApiHandler):
         self.assertEquals(7, len(response_list))
 
 class TestSlotHandler(TestApiHandler):
-    pass
+    def testCreate(self):
+        task = self.user.create_task("Fifa Time")
+        url = "/api/schedules/recurrent/days/2/slots/create"
+        expected_fields = {'slot_id':[], 'offset':[], 'duration':[], 'executed':[], 'task_id':[], 
+                           'links':['get','update','delete','set_executed']}
+        
+        #Test with non valid method
+        request = webapp2.Request.blank(url)
+        request.method = "GET"
+        response = request.get_response(main.app)
+        self.assertEquals(405, response.status_int)
+        
+        request.method = "POST"
+        
+        #Test with missing required arguments
+        request.body = "offset=20&task_id="+str(task.key.id())
+        response = request.get_response(main.app)
+        self.assertEquals(400, response.status_int)
+        
+        #Test with missing task_id and missing name
+        request.body = "offset=20&duration=12"
+        response = request.get_response(main.app)
+        self.assertEquals(400, response.status_int)
+        
+        #Test with bad argument
+        request.body = "offset=4&duration=4&name=Work"
+        response = request.get_response(main.app)
+        self.assertEquals(400, response.status_int)
+        
+        #Test create slot with task_id
+        request.body = "offset=20&duration=12&task_id="+str(task.key.id())
+        response = request.get_response(main.app)
+        self.assertEquals(200, response.status_int)
+        response_dict = simplejson.loads(response.body)
+        self.assertTrue(self.checkFieldExist(expected_fields, response_dict))
+        self.assertEquals(task.key.id(), response_dict['task_id'])
+        self.assertEquals(20, response_dict['offset'])
+        self.assertEquals(12, response_dict['duration'])
+        
+        #Test create slot with task_name
+        request.body = "offset=40&duration=4&name=Work"
+        response = request.get_response(main.app)
+        self.assertEquals(200, response.status_int)
+        response_dict = simplejson.loads(response.body)
+        self.assertTrue(self.checkFieldExist(["task", "slot"], response_dict))
+        self.assertEquals(response_dict['task']['id'], response_dict['slot']['task_id'])
+        self.assertTrue(self.checkFieldExist(expected_fields, response_dict['slot']))
+        self.assertEquals("Work", response_dict['task']['name'])
 
+    def testGet(self):
+        task = self.user.create_task("VolleyBall")
+        slot = self.schedule.get_day(1).add_slot(task, 20, 20)
+        url = "/api/schedules/recurrent/days/1/slots/" + str(slot.key.id())
+        
+        request = webapp2.Request.blank(url)
+        response = request.get_response(main.app)
+        self.assertEquals(200, response.status_int)
+        response_dict = simplejson.loads(response.body)
+        self.assertEquals(slot.key.id(), response_dict['slot_id'])
+        
+        #Test with an invalid ID
+        url = "/api/schedules/recurrent/days/1/slots/111111"
+        request = webapp2.Request.blank(url)
+        response = request.get_response(main.app)
+        self.assertEquals(404, response.status_int)
+        
+    def testList(self):
+        url = "/api/schedules/recurrent/days/1/slots/list"
+        
+        request = webapp2.Request.blank(url)
+        response = request.get_response(main.app)
+        self.assertEquals(200, response.status_int)
+        response_list = simplejson.loads(response.body)
+        self.assertEquals(1, len(response_list))
+    
+    def testDelete(self):
+        task = self.user.create_task("VolleyBall")
+        slot = self.schedule.get_day(1).add_slot(task, 20, 20)
+        url = "/api/schedules/recurrent/days/1/slots/" + str(slot.key.id()) + "/delete"
+        
+        request = webapp2.Request.blank(url)
+        request.method = "POST"
+        response = request.get_response(main.app)
+        self.assertEquals(200, response.status_int)
+        response_dict = simplejson.loads(response.body)
+        self.assertEquals(1, response_dict['day_id'])
+        self.assertIsNone(self.schedule.get_day(1).get_slot(slot.key.id()))
+        
+    def testSetExecuted(self):
+        today_id = utils.get_today_id()
+        day = self.schedule.get_day(today_id)
+        task = self.user.create_task("VolleyBall")
+        slot = day.add_slot(task, 20, 20)
+        url = "/api/schedules/recurrent/days/"+str(day.key.id())+"/slots/" + str(slot.key.id()) + "/executed/"
+        
+        self.assertFalse(slot.executed)
+        request = webapp2.Request.blank(url+"1")
+        request.method = "POST"
+        response = request.get_response(main.app)
+        self.assertEquals(200, response.status_int)
+        response_dict = simplejson.loads(response.body)
+        self.assertEquals(True, response_dict['executed'])
+        self.assertTrue(day.get_slot(slot.key.id()).executed)
+        
+        request = webapp2.Request.blank(url+"0")
+        request.method = "POST"
+        response = request.get_response(main.app)
+        self.assertEquals(200, response.status_int)
+        response_dict = simplejson.loads(response.body)
+        self.assertEquals(False, response_dict['executed'])
+        self.assertFalse(day.get_slot(slot.key.id()).executed)
+        
+        # test in case set executed of a task in the future
+        if today_id != 8:
+            day = self.schedule.get_day(today_id + 1)
+            slot = day.add_slot(task, 20, 20)
+            url = "/api/schedules/recurrent/days/"+str(day.key.id())+"/slots/" + str(slot.key.id()) + "/executed/"
+            
+            request = webapp2.Request.blank(url+"1")
+            request.method = "POST"
+            response = request.get_response(main.app)
+            self.assertEquals(400, response.status_int)        
+        
+        
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']

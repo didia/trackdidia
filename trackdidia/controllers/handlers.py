@@ -7,7 +7,7 @@ import jinja2
 from google.appengine.api import users
 import trackdidia.models.user as user_module
 from trackdidia.models.custom_exceptions import HandlerException, RessourceNotFound,\
-    NotImplementedYet, BadArgumentError
+    NotImplementedYet, BadArgumentError, SlotAlreadyUsed
 
 import response_producer
 
@@ -310,25 +310,30 @@ class DayHandler(ScheduleHandler):
 class SlotHandler(DayHandler):
     
     ALLOWED_PARAMS = ['duration', 'offset', 'executed', 'task_id']
+    
     @webapp2.cached_property
     def slot(self):
         slot_id = self.request.route_kwargs.get('slot_id')
-        return self.day.get_slot(slot_id)
+        return self.day.get_slot(long(slot_id))
     
     @user_required
     @required_params(['duration', 'offset'])
     def create(self, day_id, schedule_id = 'recurrent'):
-        response = {}
-        if (self.request.get('task_id')):
-            slot = self._create_slot(day_id, schedule_id)
-            response = response_producer.produce_slot_response(self.request, slot, day_id, schedule_id)
-        else:
-            task, slot = self._create_task_and_slot(day_id, schedule_id)
-            response['task'] = response_producer.produce_task_response(self.request, task)
-            response['slot'] = response_producer.produce_slot_response(self.request, slot, day_id, schedule_id)
+        try:
+            response = {}
+            if (self.request.get('task_id')):
+                slot = self._create_slot(day_id, schedule_id)
+                response = response_producer.produce_slot_response(self.request, slot, day_id, schedule_id)
+            else:
+                
+                task, slot = self._create_task_and_slot(day_id, schedule_id)
+                response['task'] = response_producer.produce_task_response(self.request, task)
+                response['slot'] = response_producer.produce_slot_response(self.request, slot, day_id, schedule_id)
+            
+            self.send_response(response)
+        except SlotAlreadyUsed as e:
+            raise HandlerException(e)
         
-        self.send_response(response)
-    
     @user_required
     def get(self, day_id, slot_id, schedule_id = 'recurrent'): 
         if self.slot is None:
@@ -358,7 +363,7 @@ class SlotHandler(DayHandler):
     def set_executed(self, day_id, slot_id, executed, schedule_id = 'recurrent'):
         executed = executed == '1'
         today_id = utils.get_today_id()
-        if day_id > today_id:
+        if int(day_id) > today_id:
             message = "Day id  " + str(day_id) + " must be "
             message += " inferior to today's id " + str(today_id)
             raise HandlerException(message) 
@@ -386,6 +391,7 @@ class SlotHandler(DayHandler):
         slot_parameters = self._get_allowed_params()
         duration = int(slot_parameters['duration'])
         offset = int(slot_parameters['offset'])
+        self.day.validate_offset_and_duration(offset, duration)
         task_parameters = self.cleanPostedData(TaskHandler.ALLOWED_PARAMS)
         if(task_parameters.get('name') is None):
             raise HandlerException("When the parameter task_id is not provided, the parameter name is required to create a new task")

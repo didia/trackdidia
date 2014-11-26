@@ -12,7 +12,7 @@ class DayOfWeek(ndb.Model):
     interval_usage = ndb.BooleanProperty(repeated = True)
     _slots = None
     
-    def _validate_offset_and_duration(self, offset, duration):
+    def validate_offset_and_duration(self, offset, duration):
         higher_limit = len(self.interval_usage)
         if(offset < 0 or offset >= higher_limit):
             message = "The offset parameter must be a number betwen "
@@ -26,8 +26,6 @@ class DayOfWeek(ndb.Model):
             
             raise BadArgumentError(message)
         
-    def add_slot(self, task, offset, duration):
-        self._validate_offset_and_duration(offset, duration)
         for i in range(offset, offset+duration):
             if(self.interval_usage[i]):
                 message = "Asked to reserve Slot " + str(offset)
@@ -36,6 +34,10 @@ class DayOfWeek(ndb.Model):
                 message += "\n But Slot " + str(i) + " is already reserved"
                 
                 raise SlotAlreadyUsed(message)
+        
+    def add_slot(self, task, offset, duration):
+        self.validate_offset_and_duration(offset, duration)
+        
                 
         slot = Slot(parent=self.key, task=task.key, offset= offset, duration = duration)
         slot.put()
@@ -51,7 +53,7 @@ class DayOfWeek(ndb.Model):
         pass
     
     def get_slot(self, slot_id):
-        return Slot.get_by_id(slot_id,self.key)
+        return Slot.get_by_id(slot_id,parent = self.key)
     
     def get_slots(self):
         if self._slots is None:

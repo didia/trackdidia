@@ -15,3 +15,4 @@ class Slot(ndb.Model):
     def set_executed(self, executed):
         self.executed = executed
         self.put()
+        return self

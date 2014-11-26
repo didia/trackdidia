@@ -35,21 +35,20 @@ class TestDay(TestTracking):
         self.assertEqual(0, len(slots_now))
         self.assertEqual(0, day.interval_usage.count(True))
     
-    def testAddSlotBad(self):
+    def testValidateOffsetAndDuration(self):
         i = 2
         start_offset = 4
         duration = 2
-        task = self.user.create_task("Fifa time")
-        
+    
         day = self.schedule.get_day(i)
-        self.assertRaises(SlotAlreadyUsed, day.add_slot, task, start_offset, duration)
+        self.assertRaises(SlotAlreadyUsed, day.validate_offset_and_duration, start_offset, duration)
         
         #Bad start_slot
-        self.assertRaises(BadArgumentError, day.add_slot, task, 60, 5)
-        self.assertRaises(BadArgumentError, day.add_slot, task, -5, 5)
+        self.assertRaises(BadArgumentError, day.validate_offset_and_duration, 60, 5)
+        self.assertRaises(BadArgumentError, day.validate_offset_and_duration, -5, 5)
         
         #Bad duration
-        self.assertRaises(BadArgumentError, day.add_slot, task, 43, 15)
+        self.assertRaises(BadArgumentError, day.validate_offset_and_duration, 43, 15)
     
     def testGetSlots(self):
         i = 2

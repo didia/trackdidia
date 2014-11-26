@@ -28,7 +28,7 @@ task_route = routes.PathPrefixRoute('/tasks', [
                             
              ])
 slot_route = routes.PathPrefixRoute('/slots', [
-                 webapp2.Route('/create', handler = handlers.SlotHandler, handler_method = 'create', name = 'create_slot'),
+                 webapp2.Route('/create', handler = handlers.SlotHandler, handler_method = 'create', name = 'create_slot', methods=['POST']),
                  webapp2.Route('/list', handler=handlers.SlotHandler, handler_method = 'list', name = 'all_slots'),                                           
                  routes.PathPrefixRoute('/<slot_id:[\d]+>', [
                      webapp2.Route('/update', handler = handlers.SlotHandler, handler_method = 'update', name = 'update_slot', methods=['POST']),
