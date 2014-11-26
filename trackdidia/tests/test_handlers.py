@@ -11,10 +11,6 @@ from django.utils import simplejson
 import os
 
 class TestHandler(TestTracking):
-    def setUp(self):
-        super(TestHandler, self).setUp()
-        os.environ['USER_EMAIL'] = self.user.email
-        os.environ['USER_ID'] = self.user.key.id()
     def checkFieldExist(self, expected_fields, dict_object):
         if type(expected_fields) is dict:
             if not all (x in dict_object for x in expected_fields.keys()):
@@ -25,9 +21,20 @@ class TestHandler(TestTracking):
             return True
         else:
             return all(x in dict_object for x in expected_fields)
-        
+         
 class TestMainHandler(TestHandler):
-
+    def testGet(self):
+        url = "/"
+        
+        request = webapp2.Request.blank(url)
+        response = request.get_response(main.app)
+        self.assertEquals(response.status_int, 302)
+        
+        os.environ['USER_EMAIL'] = self.user.email
+        os.environ['USER_ID'] = self.user.key.id()
+        response = request.get_response(main.app)
+        self.assertEquals(response.status_int, 200)
+        
     def testDiscover(self):
         url = "/api/enter"
         expected_fields = {"links":["schedule", "tasks", "create_task"]}
@@ -38,8 +45,14 @@ class TestMainHandler(TestHandler):
         response_dict = simplejson.loads(response.body)
         self.assertTrue(self.checkFieldExist(expected_fields, response_dict))
         
-
-class TestTaskHandler(TestHandler):
+class TestApiHandler(TestHandler):
+    def setUp(self):
+        super(TestApiHandler, self).setUp()
+        os.environ['USER_EMAIL'] = self.user.email
+        os.environ['USER_ID'] = self.user.key.id()
+                
+                
+class TestTaskHandler(TestApiHandler):
     def setUp(self):
         super(TestTaskHandler, self).setUp()
         self.task = self.user.create_task("Work")
@@ -84,6 +97,12 @@ class TestTaskHandler(TestHandler):
         self.assertEquals(response.status_int, 200)
         response_dict = simplejson.loads(response.body)
         self.assertEquals(self.task.name, response_dict["name"])
+        
+        #test with non existing task
+        url = "/api/tasks/11111111"
+        request = webapp2.Request.blank(url)
+        response = request.get_response(main.app)
+        self.assertEquals(response.status_int, 404)
     
     def testUpdate(self):
         url = "/api/tasks/{}/update".format(self.task.key.id())
@@ -134,13 +153,64 @@ class TestTaskHandler(TestHandler):
         
         
         
-class TestScheduleHandler(TestHandler):
+class TestScheduleHandler(TestApiHandler):
+    
+    def testGet(self):
+        url = "/api/schedules/recurrent"
+        
+        request = webapp2.Request.blank(url)
+        
+        response = request.get_response(main.app)
+        self.assertEquals(response.status_int, 200)
+        response_dict = simplejson.loads(response.body)
+        self.assertEquals(7, len(response_dict["days"]))
+        
+        #Test non existiing schedule
+        url = "/api/schedules/non-existing"
+        request = webapp2.Request.blank(url)
+        response = request.get_response(main.app)
+        self.assertEquals(response.status_int, 404)
+    
+    def testRestart(self):
+        day = self.schedule.get_day(1)
+        day2 = self.schedule.get_day(4)
+        for slot in day.get_slots() + day2.get_slots():
+            slot.set_executed(True)
+        self.assertNotEquals(0, len(day.get_executed_slots()))
+        self.assertNotEquals(0, len(day2.get_executed_slots()))
+        
+        url = "/api/schedules/recurrent/restart"
+        request = webapp2.Request.blank(url)
+        
+        response = request.get_response(main.app)
+        self.assertEquals(response.status_int, 200)
+        
+        self.assertEquals(0, len(day.get_executed_slots()))
+        self.assertEquals(0, len(day2.get_executed_slots()))
+    
+    def testStat(self):
+        url = "/api/schedules/recurrent/stat"
+        expected_fields = ['result', 'total', 'days']
+        
+        request = webapp2.Request.blank(url)
+        response = request.get_response(main.app)
+        
+        self.assertEquals(response.status_int, 200)
+        
+        response_dict = simplejson.loads(response.body)
+        self.assertTrue(self.checkFieldExist(expected_fields, response_dict))
+        
+        
+        
+        
+        
+        
+        
+
+class TestDayHandler(TestApiHandler):
     pass
 
-class TestDayHandler(TestHandler):
-    pass
-
-class TestSlotHandler(TestHandler):
+class TestSlotHandler(TestApiHandler):
     pass
 
 

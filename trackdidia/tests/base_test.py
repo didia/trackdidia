@@ -18,6 +18,9 @@ class DatastoreTest(unittest.TestCase):
         # Next, declare which service stubs you want to use.
         self.testbed.init_datastore_v3_stub()
         self.testbed.init_memcache_stub()
+        self.testbed.init_user_stub()
+
+        
 
 
     def tearDown(self):

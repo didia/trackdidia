@@ -100,4 +100,8 @@ class DayOfWeek(ndb.Model):
         for slot in slots :
             slot.executed = False
         ndb.put_multi(slots)
+        
+    def get_executed_slots(self):
+        return Slot.query(ancestor=self.key).filter(Slot.executed == True).fetch()
+        
     

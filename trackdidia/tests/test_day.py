@@ -95,8 +95,20 @@ class TestDay(TestTracking):
         
         self.assertFalse(slot_0.executed)
         self.assertTrue(slot_1.executed)
-        
-        
+    
+    def testGetAllExecutedSlots(self):
+        task = self.user.create_task("Fifa time")
+        day = self.schedule.get_day(5)
+        slots = []
+        slots.append(day.add_slot(task, 14, 7))
+        slots.append(day.add_slot(task, 30, 5))
+        self.assertEquals(0, len(day.get_executed_slots()))
+        for slot in slots:
+            slot.set_executed(True)
+        executed_slots = day.get_executed_slots()
+        self.assertEquals(2, len(executed_slots))
+        self.assertTrue(all(slot in executed_slots for slot in slots))
+                
             
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']

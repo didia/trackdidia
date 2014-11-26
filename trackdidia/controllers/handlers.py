@@ -166,6 +166,13 @@ class MainHandler(BaseHandler):
 class TaskHandler(BaseHandler):
     ALLOWED_PARAMS = ['category', 'priority', 'name', 'description', 'location']
     
+    @webapp2.cached_property
+    def task(self):
+        task_id = self.request.route_kwargs.get('task_id')
+        if task_id:
+            return self.user.get_task(long(task_id))
+        return None
+    @user_required
     @required_params(['name'])
     def create(self):
         params = self._get_allowed_params()
@@ -177,12 +184,14 @@ class TaskHandler(BaseHandler):
         except BadArgumentError as e:
             raise HandlerException(e)
         
-    
+    @user_required
     def get(self, task_id):
-        task = self.user.get_task(long(task_id))
-        response = response_producer.produce_task_response(self.request, task)
+        if not self.task:
+            raise RessourceNotFound("The task with id < " + str(task_id) + "> does not exist")
+        response = response_producer.produce_task_response(self.request, self.task)
         self.send_response(response)
     
+    @user_required
     def update(self, task_id):
         
         try:
@@ -196,9 +205,11 @@ class TaskHandler(BaseHandler):
         except BadArgumentError as e:
             raise HandlerException(e)
     
+    @user_required
     def delete(self):
         raise NotImplementedYet
     
+    @user_required
     def list(self):
         response = OrderedDict();
          
@@ -223,9 +234,12 @@ class ScheduleHandler(BaseHandler):
     def schedule(self):
         schedule_id = self.request.route_kwargs.get('schedule_id')
         return self.user.get_schedule(schedule_id)
+    
+    @user_required
     def create(self):
         raise NotImplementedYet
     
+    @user_required
     def get(self, schedule_id = 'recurrent'):
         if self.schedule is None:
             if schedule_id != 'recurrent':
@@ -235,15 +249,19 @@ class ScheduleHandler(BaseHandler):
         response = response_producer.produce_schedule_response(self.request, self.schedule)
         self.send_response(response)
     
+    @user_required
     def list(self):
         raise NotImplementedYet
     
+    @user_required 
     def update(self):
         raise NotImplementedYet
     
+    @user_required
     def delete(self, schedule_id):
         raise NotImplementedYet
     
+    @user_required  
     def restart(self, schedule_id):
         schedule = self.user.get_schedule('recurrent')
         schedule.restart()
@@ -251,10 +269,12 @@ class ScheduleHandler(BaseHandler):
         
         self.send_response(response)
     
+    @user_required
     def stat(self, schedule_id):
         schedule = self.user.get_schedule("recurrent")
         statistic = stat.get_stat(schedule)
         self.send_response(statistic)
+        
     def _get_links(self):
         links = {}        
         return links
@@ -273,11 +293,13 @@ class DayHandler(ScheduleHandler):
         day_id = self.request.route_kwargs.get('day_id')
         return self.schedule.get_day(int(day_id))
     
+    @user_required
     def get(self, day_id, schedule_id = 'recurrent'):
         response = response_producer.produce_day_response(self.request, self.day, schedule_id)
         
         self.send_response(response)
     
+    @user_required
     def list(self, schedule_id = 'recurrent'):
         days = self.chedule.get_all_days()
         response = [response_producer.produce_day_response(self.request, day, schedule_id) for day in days]
@@ -293,6 +315,7 @@ class SlotHandler(DayHandler):
         slot_id = self.request.route_kwargs.get('slot_id')
         return self.day.get_slot(slot_id)
     
+    @user_required
     @required_params(['duration', 'offset'])
     def create(self, day_id, schedule_id = 'recurrent'):
         response = {}
@@ -306,6 +329,7 @@ class SlotHandler(DayHandler):
         
         self.send_response(response)
     
+    @user_required
     def get(self, day_id, slot_id, schedule_id = 'recurrent'): 
         if self.slot is None:
             raise RessourceNotFound('The slot with id : '+ str(slot_id) + ' does not exist')
@@ -314,20 +338,23 @@ class SlotHandler(DayHandler):
         
         self.send_response(response)
     
+    @user_required
     def list(self, day_id, schedule_id = 'recurrent'):
         slots = self.day.get_slots()
         response = [response_producer.produce_slot_response(self.request, slot, day_id, schedule_id) for slot in slots]
         
         self.send_response(response)
     
-    
+    @user_required
     def update(self, day_id, slot_id, schedule_id = 'recurrent'):
         raise NotImplementedYet
-        
+    
+    @user_required
     def delete(self, day_id, slot_id, schedule_id = 'recurrent'):
         self.day.remove_slot(slot_id = int(slot_id))
         DayHandler.get(self, day_id, schedule_id);
     
+    @user_required 
     def set_executed(self, day_id, slot_id, executed, schedule_id = 'recurrent'):
         executed = executed == '1'
         today_id = utils.get_today_id()
