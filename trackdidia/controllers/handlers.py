@@ -117,9 +117,6 @@ class BaseHandler(webapp2.RequestHandler):
     def send_json(self, response):
         self.response.out.write(simplejson.dumps(response))
     
-    def send_json_success(self):
-        self.response.out.write(simplejson.dumps("Operation Successfully executed"))
-    
     def send_response(self, response):   
         self.send_json(response)
     

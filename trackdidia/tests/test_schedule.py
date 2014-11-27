@@ -5,6 +5,7 @@ Created on 2014-11-20
 '''
 import unittest
 from .base_test import TestTracking
+from trackdidia.models.day import DayOfWeek
 
 
 class TestSchedule(TestTracking):
@@ -25,6 +26,12 @@ class TestSchedule(TestTracking):
         self.schedule.restart()
         for day in self.schedule.get_all_days():
             self.assertFalse(all(x.executed for x in day.get_slots()))
+    
+    def testGetAllDays(self):
+        days = self.schedule.get_all_days()
+        self.assertEquals(7, len(days))
+        for day in days:
+            self.assertTrue(type(day) == DayOfWeek)
             
 
     

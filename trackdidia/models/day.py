@@ -48,10 +48,7 @@ class DayOfWeek(ndb.Model):
         if not self._slots is None:
             self._slots.append(slot)
         return slot
-    
-    def add_slots(self):
-        pass
-    
+        
     def get_slot(self, slot_id):
         return Slot.get_by_id(slot_id,parent = self.key)
     

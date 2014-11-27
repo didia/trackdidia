@@ -6,7 +6,6 @@ Created on 2014-11-20
 
 from google.appengine.ext import ndb
 from . import utils
-from .custom_exceptions import BadArgumentError, SlotNotYetReached
 
 from day import DayOfWeek
 
@@ -56,7 +55,6 @@ class Schedule(ndb.Model):
     def get_all_days(self):
         if self._days is None:
             self._days = ndb.get_multi([ndb.Key(DayOfWeek, day_id, parent=self.key) for day_id in range(1,8)])
-        
         return self._days
     
         

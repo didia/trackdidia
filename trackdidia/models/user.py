@@ -99,8 +99,6 @@ class User(ndb.Model):
             self.schedule = Schedule.get_by_id(schedule_id, parent=self.key)
         return self.schedule
    
-    def update_schedule(self, params, schedule_id="recurrent"):
-        pass
     
     
     
