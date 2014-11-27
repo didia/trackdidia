@@ -45,6 +45,22 @@ class TestMainHandler(TestHandler):
         self.assertEquals(response.status_int, 200)
         response_dict = simplejson.loads(response.body)
         self.assertTrue(self.checkFieldExist(expected_fields, response_dict))
+
+class TestCronHandler(TestHandler):
+    def testGet(self):
+        url = "/crons/restart/weekly"
+        os.environ['USER_EMAIL'] = self.user.email
+        os.environ['USER_ID'] = self.user.key.id()
+        task = self.user.create_task("Fifa time")
+        day = self.schedule.get_day(1)
+        slot = day.add_slot(task, 30, 5)
+        slot.set_executed(True)
+        self.assertNotEquals(0, len(day.get_executed_slots()))
+        request = webapp2.Request.blank(url)
+        response = request.get_response(main.app)
+        self.assertEquals(response.status_int, 200)
+        day = self.schedule.get_day(1)
+        self.assertEquals(0, len(day.get_executed_slots()))
         
 class TestApiHandler(TestHandler):
     def setUp(self):
@@ -349,7 +365,10 @@ class TestSlotHandler(TestApiHandler):
             request = webapp2.Request.blank(url+"1")
             request.method = "POST"
             response = request.get_response(main.app)
-            self.assertEquals(400, response.status_int)        
+            self.assertEquals(400, response.status_int)   
+    
+
+
         
         
 
