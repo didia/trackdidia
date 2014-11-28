@@ -6,7 +6,7 @@ Created on 2014-11-20
 from google.appengine.ext import ndb
 
 
-class Slot(ndb.Model):
+class ScheduledTask(ndb.Model):
     offset = ndb.IntegerProperty(required=True)
     duration = ndb.IntegerProperty(required = True)
     task = ndb.KeyProperty(kind='Task', required = True)

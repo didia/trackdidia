@@ -27,7 +27,7 @@ def compute_stats_for_day(day, interval):
     stat = {}
     total = 0
     result = 0
-    for slot in day.get_slots():
+    for slot in day.get_scheduled_tasks():
         points = slot.duration * interval
         total += points
         if slot.executed:

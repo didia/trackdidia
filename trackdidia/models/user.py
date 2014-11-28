@@ -7,12 +7,12 @@ from google.appengine.ext import ndb
 
 from .custom_exceptions import BadArgumentError
 from .task import Task
-from .schedule import Schedule
+from trackdidia.models.calendar import Week
 
 def create_user(user_id, email, nickname):
     my_user = User(id=user_id, email=email, nickname=nickname)
     my_user.put()
-    my_user.init_schedule()
+    my_user.init_calendar()
     
     return my_user;
 
@@ -37,7 +37,7 @@ class User(ndb.Model):
     '''
     email = ndb.StringProperty(required=True)
     nickname = ndb.StringProperty(required=True)
-    schedule = None
+    week = None
     _tasks = None
     
     
@@ -86,18 +86,18 @@ class User(ndb.Model):
         key = ndb.Key(Task, task_id, parent = self.key)
         key.delete()
     
-    def init_schedule(self):
-        if self.get_schedule() is None:
-            schedule = Schedule(id='recurrent', parent=self.key)
-            schedule.initialize()
-            schedule.put()
-            self.schedule = schedule
-        return schedule
+    def init_calendar(self):
+        if self.get_week() is None:
+            week = Week(id='recurrent', parent=self.key)
+            week.initialize()
+            week.put()
+            self.week = week
+        return week
     
-    def get_schedule(self, schedule_id="recurrent"):
-        if self.schedule is None:
-            self.schedule = Schedule.get_by_id(schedule_id, parent=self.key)
-        return self.schedule
+    def get_week(self, week_id="recurrent"):
+        if self.week is None:
+            self.week = Week.get_by_id(week_id, parent=self.key)
+        return self.week
    
     
     

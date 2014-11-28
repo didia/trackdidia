@@ -5,10 +5,10 @@
 
  "use strict";
 
- define(["jquery", "models/Schedule", "models/Task", "app/event", "app/constants"], function($, Schedule, Task, EventProvider, Constants){
+ define(["jquery", "models/Week", "models/Task", "app/event", "app/constants"], function($, Week, Task, EventProvider, Constants){
 
  	var links = {}
- 	var schedule = null;
+ 	var week= null;
  	var tasks = {};
 
  	function log(message) {
@@ -16,11 +16,11 @@
  	}
 
  	function initSchedule() {
- 		callRemote(links['schedule'], null, function(response, status){
+ 		callRemote(links['week'], null, function(response, status){
  			if(status == "ok") {
- 				var schedule_data = response;
- 				schedule = new Schedule(schedule_data);
- 				save("schedule", schedule_data);
+ 				var weekData = response;
+ 				week = new Week(weekData);
+ 				save("week", weekData);
  				EventProvider.fire(Constants.SCHEDULE_LOADED_EVENT);
  			}
  		});
@@ -110,7 +110,7 @@
  		},
 
  		getSchedule: function() {
- 			return schedule;
+ 			return week;
  		},
 
  		getAllTasks : function() {

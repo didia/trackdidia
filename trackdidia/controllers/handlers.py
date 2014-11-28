@@ -130,13 +130,13 @@ class CronHandler(BaseHandler):
         number_processed = 0
         message = ""
         for user in users:
-            schedule = user.get_schedule()
-            message += stat.send_stat(user, schedule)
+            week = user.get_week()
+            message += stat.send_stat(user, week)
             message += "\n\n"
-            if schedule:
-                schedule.restart()
+            if week:
+                week.restart()
                 number_processed += 1
-        message = str(number_processed) + " schedules restarted\n\n" + message
+        message = str(number_processed) + " weeks restarted\n\n" + message
         self.response.out.write(message)
     
                 
@@ -153,7 +153,7 @@ class MainHandler(BaseHandler):
     
     def discover(self):
         links = {}
-        links['schedule'] = self.uri_for('get_schedule', schedule_id='recurrent')
+        links['week'] = self.uri_for('get_week', week_id='recurrent')
         links['tasks'] = self.uri_for('all_tasks')
         links['create_task'] = self.uri_for('create_task')
         
@@ -228,22 +228,18 @@ class TaskHandler(BaseHandler):
           
 class ScheduleHandler(BaseHandler):
     @webapp2.cached_property
-    def schedule(self):
-        schedule_id = self.request.route_kwargs.get('schedule_id')
-        return self.user.get_schedule(schedule_id)
+    def week(self):
+        week_id = self.request.route_kwargs.get('week_id')
+        return self.user.get_week(week_id)
     
     @user_required
-    def create(self):
-        raise NotImplementedYet
-    
-    @user_required
-    def get(self, schedule_id = 'recurrent'):
-        if self.schedule is None:
-            if schedule_id != 'recurrent':
-                raise RessourceNotFound('The schedule with id : ' + self.request.route_kwargs.get('schedule_id') + ' does not exist')
-            self.schedule = self.user.init_schedule();
+    def get(self, week_id = 'recurrent'):
+        if self.week is None:
+            if week_id != 'recurrent':
+                raise RessourceNotFound('The schedule with id : ' + self.request.route_kwargs.get('week_id') + ' does not exist')
+            self.week = self.user.init_calendar();
             
-        response = response_producer.produce_schedule_response(self.request, self.schedule)
+        response = response_producer.produce_week_response(self.request, self.week)
         self.send_response(response)
     
     @user_required
@@ -255,21 +251,21 @@ class ScheduleHandler(BaseHandler):
         raise NotImplementedYet
     
     @user_required
-    def delete(self, schedule_id):
+    def delete(self, week_id):
         raise NotImplementedYet
     
     @user_required  
-    def restart(self, schedule_id):
-        schedule = self.user.get_schedule('recurrent')
-        schedule.restart()
-        response = response_producer.produce_schedule_response(self.request, schedule)
+    def restart(self, week_id):
+        week = self.user.get_week('recurrent')
+        week.restart()
+        response = response_producer.produce_week_response(self.request, week)
         
         self.send_response(response)
     
     @user_required
-    def stat(self, schedule_id):
-        schedule = self.user.get_schedule("recurrent")
-        statistic = stat.get_stat(schedule)
+    def stat(self, week_id):
+        week = self.user.get_week("recurrent")
+        statistic = stat.get_stat(week)
         self.send_response(statistic)
         
     def _get_links(self):
@@ -279,85 +275,85 @@ class ScheduleHandler(BaseHandler):
 
 class DayHandler(ScheduleHandler):
     @webapp2.cached_property
-    def schedule(self):
-        schedule = super(DayHandler, self).schedule
-        if schedule is None:
-            raise RessourceNotFound('The schedule with id : ' + self.request.route_kwargs.get('schedule_id') + ' does not exist')
-        return schedule
+    def week(self):
+        week = super(DayHandler, self).week
+        if week is None:
+            raise RessourceNotFound('The schedule with id : ' + self.request.route_kwargs.get('week_id') + ' does not exist')
+        return week
     
     @webapp2.cached_property
     def day(self):
         day_id = self.request.route_kwargs.get('day_id')
-        return self.schedule.get_day(int(day_id))
+        return self.week.get_day(int(day_id))
     
     @user_required
-    def get(self, day_id, schedule_id = 'recurrent'):
-        response = response_producer.produce_day_response(self.request, self.day, schedule_id)
+    def get(self, day_id, week_id = 'recurrent'):
+        response = response_producer.produce_day_response(self.request, self.day, week_id)
         
         self.send_response(response)
     
     @user_required
-    def list(self, schedule_id = 'recurrent'):
-        days = self.schedule.get_all_days()
-        response = [response_producer.produce_day_response(self.request, day, schedule_id) for day in days]
+    def list(self, week_id = 'recurrent'):
+        days = self.week.get_all_days()
+        response = [response_producer.produce_day_response(self.request, day, week_id) for day in days]
         
         self.send_response(response)
  
     
-class SlotHandler(DayHandler):
+class ScheduledTaskHandler(DayHandler):
     
     ALLOWED_PARAMS = ['duration', 'offset', 'executed', 'task_id']
     
     @webapp2.cached_property
-    def slot(self):
-        slot_id = self.request.route_kwargs.get('slot_id')
-        return self.day.get_slot(long(slot_id))
+    def scheduled_task(self):
+        scheduled_task_id = self.request.route_kwargs.get('scheduled_task_id')
+        return self.day.get_scheduled_task(long(scheduled_task_id))
     
     @user_required
     @required_params(['duration', 'offset'])
-    def create(self, day_id, schedule_id = 'recurrent'):
+    def create(self, day_id, week_id = 'recurrent'):
         try:
             response = {}
             if (self.request.get('task_id')):
-                slot = self._create_slot(day_id, schedule_id)
-                response = response_producer.produce_slot_response(self.request, slot, day_id, schedule_id)
+                scheduled_task = self._create_scheduled_task(day_id, week_id)
+                response = response_producer.produce_scheduled_task_response(self.request, scheduled_task, day_id, week_id)
             else:
                 
-                task, slot = self._create_task_and_slot(day_id, schedule_id)
+                task, scheduled_task = self._create_task_and_scheduled_task(day_id, week_id)
                 response['task'] = response_producer.produce_task_response(self.request, task)
-                response['slot'] = response_producer.produce_slot_response(self.request, slot, day_id, schedule_id)
+                response['scheduled_task'] = response_producer.produce_scheduled_task_response(self.request, scheduled_task, day_id, week_id)
             
             self.send_response(response)
         except SlotAlreadyUsed as e:
             raise HandlerException(e)
         
     @user_required
-    def get(self, day_id, slot_id, schedule_id = 'recurrent'): 
-        if self.slot is None:
-            raise RessourceNotFound('The slot with id : '+ str(slot_id) + ' does not exist')
+    def get(self, day_id, scheduled_task_id, week_id = 'recurrent'): 
+        if self.scheduled_task is None:
+            raise RessourceNotFound('The scheduled_task with id : '+ str(scheduled_task_id) + ' does not exist')
         
-        response = response_producer.produce_slot_response(self.request, self.slot, day_id, schedule_id)
-        
-        self.send_response(response)
-    
-    @user_required
-    def list(self, day_id, schedule_id = 'recurrent'):
-        slots = self.day.get_slots()
-        response = [response_producer.produce_slot_response(self.request, slot, day_id, schedule_id) for slot in slots]
+        response = response_producer.produce_scheduled_task_response(self.request, self.scheduled_task, day_id, week_id)
         
         self.send_response(response)
     
     @user_required
-    def update(self, day_id, slot_id, schedule_id = 'recurrent'):
+    def list(self, day_id, week_id = 'recurrent'):
+        scheduled_tasks = self.day.get_scheduled_tasks()
+        response = [response_producer.produce_scheduled_task_response(self.request, scheduled_task, day_id, week_id) for scheduled_task in scheduled_tasks]
+        
+        self.send_response(response)
+    
+    @user_required
+    def update(self, day_id, scheduled_task_id, week_id = 'recurrent'):
         raise NotImplementedYet
     
     @user_required
-    def delete(self, day_id, slot_id, schedule_id = 'recurrent'):
-        self.day.remove_slot(slot_id = int(slot_id))
-        DayHandler.get(self, day_id, schedule_id);
+    def delete(self, day_id, scheduled_task_id, week_id = 'recurrent'):
+        self.day.remove_scheduled_task(scheduled_task_id = int(scheduled_task_id))
+        DayHandler.get(self, day_id, week_id);
     
     @user_required 
-    def set_executed(self, day_id, slot_id, executed, schedule_id = 'recurrent'):
+    def set_executed(self, day_id, scheduled_task_id, executed, week_id = 'recurrent'):
         executed = executed == '1'
         today_id = utils.get_today_id()
         if int(day_id) > today_id:
@@ -365,36 +361,36 @@ class SlotHandler(DayHandler):
             message += " inferior to today's id " + str(today_id)
             raise HandlerException(message) 
         
-        slot = self.slot.set_executed(executed)
-        response = response_producer.produce_slot_response(self.request, slot, day_id, schedule_id)
+        scheduled_task = self.scheduled_task.set_executed(executed)
+        response = response_producer.produce_scheduled_task_response(self.request, scheduled_task, day_id, week_id)
         
         self.send_response(response)
     
     def _get_allowed_params(self):
-        params = self.cleanPostedData(SlotHandler.ALLOWED_PARAMS)
+        params = self.cleanPostedData(ScheduledTaskHandler.ALLOWED_PARAMS)
         return params  
     
-    def _create_slot(self, day_id, schedule_id):
+    def _create_scheduled_task(self, day_id, week_id):
         params = self._get_allowed_params()
         task_id = long(params['task_id'])
         duration = int(params['duration'])
         offset = int(params['offset'])
         
         task = self.user.get_task(task_id)
-        slot = self.day.add_slot(task, offset, duration)
-        return slot
+        scheduled_task = self.day.add_scheduled_task(task, offset, duration)
+        return scheduled_task
     
-    def _create_task_and_slot(self, day_id, schedule_id):
-        slot_parameters = self._get_allowed_params()
-        duration = int(slot_parameters['duration'])
-        offset = int(slot_parameters['offset'])
+    def _create_task_and_scheduled_task(self, day_id, week_id):
+        scheduled_task_parameters = self._get_allowed_params()
+        duration = int(scheduled_task_parameters['duration'])
+        offset = int(scheduled_task_parameters['offset'])
         self.day.validate_offset_and_duration(offset, duration)
         task_parameters = self.cleanPostedData(TaskHandler.ALLOWED_PARAMS)
         if(task_parameters.get('name') is None):
             raise HandlerException("When the parameter task_id is not provided, the parameter name is required to create a new task")
         task = self.user.create_task(**task_parameters)
-        slot = self.day.add_slot(task, offset, duration)
-        return task, slot
+        scheduled_task = self.day.add_scheduled_task(task, offset, duration)
+        return task, scheduled_task
     
     
         

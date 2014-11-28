@@ -49,7 +49,7 @@ define(["exports", "react", "components/Slot", "components/EmptySlot", "app/util
 			var keys = [];
 			var lastKey = -1;
 			
-			for (var key in day.slots){
+			for (var key in day.scheduledTasks){
 				keys.push(key);
 			}
 
@@ -62,9 +62,9 @@ define(["exports", "react", "components/Slot", "components/EmptySlot", "app/util
 					slots.push(that.createEmptySlot(offset, duration));
 				}
 				
-				slots.push(that.createSlot(day.slots[key]));
+				slots.push(that.createSlot(day.scheduledTasks[key]));
 				//last occupied key is offset + duration -1 because we don't count last end of interval is exclusive.
-				lastKey = day.slots[key].offset + day.slots[key].duration - 1; 
+				lastKey = day.scheduledTasks[key].offset + day.scheduledTasks[key].duration - 1; 
 		
 			});
 			if(lastKey != this.props.day.usage.length-1) {

@@ -1,8 +1,10 @@
 eclipse.preferences.version=1
 encoding//trackdidia/main.py=utf-8
+encoding//trackdidia/models/calendar.py=utf-8
 encoding//trackdidia/models/custom_exceptions.py=utf-8
 encoding//trackdidia/models/stats.py=utf-8
 encoding//trackdidia/models/task.py=utf-8
 encoding//trackdidia/models/utils.py=utf-8
 encoding//trackdidia/router.py=utf-8
+encoding//trackdidia/tests/test_calendar.py=utf-8
 encoding//trackdidia/tests/test_user.py=utf-8

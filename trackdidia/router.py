@@ -27,16 +27,16 @@ task_route = routes.PathPrefixRoute('/tasks', [
                  webapp2.Route('', handler=handlers.TaskHandler, handler_method='list'),
                             
              ])
-slot_route = routes.PathPrefixRoute('/slots', [
-                 webapp2.Route('/create', handler = handlers.SlotHandler, handler_method = 'create', name = 'create_slot', methods=['POST']),
-                 webapp2.Route('/list', handler=handlers.SlotHandler, handler_method = 'list', name = 'all_slots'),                                           
-                 routes.PathPrefixRoute('/<slot_id:[\d]+>', [
-                     webapp2.Route('/update', handler = handlers.SlotHandler, handler_method = 'update', name = 'update_slot', methods=['POST']),
-                     webapp2.Route('/delete', handler = handlers.SlotHandler, handler_method = 'delete', name = 'delete_slot',  methods=['POST']),
-                     webapp2.Route('/executed/<executed:[0-1]>', handler=handlers.SlotHandler, handler_method = 'set_executed', name = 'set_executed_slot', methods=['POST']),
-                     webapp2.Route('', handler = handlers.SlotHandler, handler_method = 'get', name='get_slot')
+slot_route = routes.PathPrefixRoute('/scheduled-tasks', [
+                 webapp2.Route('/create', handler = handlers.ScheduledTaskHandler, handler_method = 'create', name = 'create_scheduled_task', methods=['POST']),
+                 webapp2.Route('/list', handler=handlers.ScheduledTaskHandler, handler_method = 'list', name = 'all_scheduled_tasks'),                                           
+                 routes.PathPrefixRoute('/<scheduled_task_id:[\d]+>', [
+                     webapp2.Route('/update', handler = handlers.ScheduledTaskHandler, handler_method = 'update', name = 'update_scheduled_task', methods=['POST']),
+                     webapp2.Route('/delete', handler = handlers.ScheduledTaskHandler, handler_method = 'delete', name = 'delete_scheduled_task',  methods=['POST']),
+                     webapp2.Route('/executed/<executed:[0-1]>', handler=handlers.ScheduledTaskHandler, handler_method = 'set_executed', name = 'set_executed_scheduled_task', methods=['POST']),
+                     webapp2.Route('', handler = handlers.ScheduledTaskHandler, handler_method = 'get', name='get_scheduled_task')
                  ]),
-                 webapp2.Route('', handler=handlers.SlotHandler, handler_method = 'list')
+                 webapp2.Route('', handler=handlers.ScheduledTaskHandler, handler_method = 'list')
                                             
              ])
 
@@ -50,13 +50,13 @@ day_route = routes.PathPrefixRoute('/days', [
                                 
             ])
                                 
-schedule_route = routes.PathPrefixRoute('/schedules', [
+schedule_route = routes.PathPrefixRoute('/weeks', [
                                                       
-                     routes.PathPrefixRoute('/<schedule_id:[\w]+>', [
+                     routes.PathPrefixRoute('/<week_id:[\w]+>', [
                          day_route,
-                         webapp2.Route('/stat', handler=handlers.ScheduleHandler, handler_method = 'stat', name = 'get_schedule_stat'),
-                         webapp2.Route('/restart', handler=handlers.ScheduleHandler, handler_method='restart', name='restart_schedule'), 
-                         webapp2.Route('', handler=handlers.ScheduleHandler, handler_method='get', name='get_schedule')
+                         webapp2.Route('/stat', handler=handlers.ScheduleHandler, handler_method = 'stat', name = 'get_week_stat'),
+                         webapp2.Route('/restart', handler=handlers.ScheduleHandler, handler_method='restart', name='restart_week'), 
+                         webapp2.Route('', handler=handlers.ScheduleHandler, handler_method='get', name='get_week')
                      ]),
                      
                      webapp2.Route('', handler=handlers.ScheduleHandler, handler_method='get')

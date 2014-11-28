@@ -5,12 +5,12 @@
 
  "use strict";
 
- define(["app/trackdidia", "app/constants", "app/event", "models/Slot"], function(trackdidia, Constants, EventProvider, Slot) {
+ define(["app/trackdidia", "app/constants", "app/event", "models/ScheduledTask"], function(trackdidia, Constants, EventProvider, ScheduleTask) {
 
  	return {
  		scheduleTask : function(day, request) {
  			
- 			var url = day.links["create_slot"];
+ 			var url = day.links["create_scheduled_task"];
  			var method = "POST";
 
  			console.log(trackdidia);
@@ -18,21 +18,21 @@
  			console.log(Constants);
  			trackdidia.remote(url, method, request, function(response, status) {
  				if(status == "ok") {
- 					var task_data;
- 					var slot_data;
+ 					var taskData;
+ 					var scheduledTaskData;
 
  					if(response.task) {
- 						task_data = response.task;
- 						slot_data = response.slot;
- 						trackdidia.addTask(task_data);
+ 						taskData = response.task;
+ 						scheduledTaskData = response.scheduled_task;
+ 						trackdidia.addTask(taskData);
  					} 
  					else {
- 						slot_data = response;
+ 						scheduledTaskData = response;
  					}
  					
- 					var slot = new Slot(slot_data);
- 					day.slots[slot.offset] = slot;
- 					for(var i = slot.offset; i < slot.offset + slot.duration; i++) {
+ 					var scheduledTask = new ScheduleTask(scheduledTaskData);
+ 					day.scheduledTasks[scheduledTask.offset] = scheduledTask;
+ 					for(var i = scheduledTask.offset; i < scheduledTask.offset + scheduledTask.duration; i++) {
  						day.usage[i] = true;
  					}
  					EventProvider.fire(Constants.SLOT_CREATED);
@@ -45,14 +45,14 @@
  			});
  		},
 
- 		setExecuted: function(slot) {
- 			var url = slot.links["set_executed"];
+ 		setExecuted: function(scheduledTask) {
+ 			var url = scheduledTask.links["set_executed"];
  			var method = "POST";
  			trackdidia.remote(url, method, null, function(response, status){
  				if(status == "ok") {
- 					var slot_data = response;
- 					console.log(slot_data);
- 					slot.populate(slot_data);
+ 					var slotData = response;
+ 					console.log(slotData);
+ 					scheduledTask.populate(slotData);
  					EventProvider.fire(Constants.CHANGE_EVENT);
  				}
  				else {
@@ -60,19 +60,19 @@
  				}
  			});
  		},
- 		deleteSlot: function(day, slot) {
- 			var url = slot.links["delete"];
+ 		deleteSlot: function(day, scheduledTask) {
+ 			var url = scheduledTask.links["delete"];
  			var method = "POST";
  			trackdidia.remote(url, method, null, function(response, status) {
  				if(status == "ok") {
  					console.log("Delete task executed succesfully");
- 					var day_data = response;
- 					day.populate(day_data);
+ 					var dayData = response;
+ 					day.populate(dayData);
  					EventProvider.fire(Constants.CHANGE_EVENT);
 
  				}
  				else {
- 					console.log("Delete Slot failed");
+ 					console.log("Delete Scheduled Task failed");
  				}
  			})
  		}

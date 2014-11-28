@@ -6,41 +6,41 @@
 
 "use strict";
 
- define(["models/Slot"], function(Slot){
+ define(["models/ScheduledTask"], function(ScheduledTask){
  	
- 	function Day(day_data) {
- 		this.populate(day_data);
+ 	function Day(dayData) {
+ 		this.populate(dayData);
  	}
 
  	Day.prototype = {
  		constructor: Day,
 
- 		_initSlots: function(listOfSlots) {
- 			var slots = {};
- 			listOfSlots.forEach(function(slot_data) {
- 				var slot = new Slot(slot_data);
- 				slots[slot.offset] = slot;
+ 		_initScheduledTasks: function(listOfScheduledTasksData) {
+ 			var scheduledTasks = {};
+ 			listOfScheduledTasksData.forEach(function(scheduledTaskData) {
+ 				var scheduleTask= new ScheduledTask(scheduledTaskData);
+ 				scheduledTasks[scheduleTask.offset] = scheduleTask;
  			});
- 			return slots;
+ 			return scheduledTasks;
 
 
  		},
 
- 		populate: function(day_data) {
- 			this.id = day_data.day_id;
- 			this.usage = day_data.interval_usage;
- 			this.slots = this._initSlots(day_data.slots);
- 			this.links = day_data.links;
+ 		populate: function(dayData) {
+ 			this.id = dayData.id;
+ 			this.usage = dayData.interval_usage;
+ 			this.scheduledTasks = this._initScheduledTasks(dayData.scheduled_tasks);
+ 			this.links = dayData.links;
  		},
  		
  		getNumberOfTasks: function() {
- 			return slots.length;
+ 			return this.scheduledTasks.length;
  		},
 
  		getNumberOfCompletedTask: function() {
  			var completed = 0;
- 			for(var key in this.slots) {
- 				this.slots[key].executed?completed += 1:null;
+ 			for(var key in this.scheduledTasks) {
+ 				this.scheduledTasks[key].executed?completed += 1:null;
  			}
  			return completed;
  		},

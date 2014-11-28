@@ -1,0 +1,386 @@
+{
+	"auto_complete":
+	{
+		"selected_items":
+		[
+			[
+				"uns",
+				"_unsubscribeAll"
+			],
+			[
+				"font",
+				"font-size"
+			],
+			[
+				"margin",
+				"margin-bottom"
+			],
+			[
+				"back",
+				"background-color"
+			],
+			[
+				"N",
+				"NO_PERSONNE"
+			],
+			[
+				"PER",
+				"PERSONNE_IDENTIFIE"
+			],
+			[
+				"NO",
+				"NO_ARTICLE"
+			],
+			[
+				"le",
+				"lettersToAsk"
+			],
+			[
+				"match",
+				"matchedCountries"
+			],
+			[
+				"for",
+				"forEach"
+			],
+			[
+				"C",
+				"COUNTRIES"
+			],
+			[
+				"op",
+				"oppPays"
+			],
+			[
+				"o",
+				"oppCountryLength"
+			],
+			[
+				"prot",
+				"prototype"
+			],
+			[
+				"tr",
+				"True"
+			],
+			[
+				"d",
+				"desc"
+			]
+		]
+	},
+	"buffers":
+	[
+		{
+			"file": "TrackdidiaAction.js",
+			"settings":
+			{
+				"buffer_size": 1964,
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"file": "components/Day.js",
+			"settings":
+			{
+				"buffer_size": 3280,
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"file": "trackdidia.js",
+			"settings":
+			{
+				"buffer_size": 2937,
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"file": "models/ScheduledTask.js",
+			"settings":
+			{
+				"buffer_size": 479,
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"file": "models/Day.js",
+			"settings":
+			{
+				"buffer_size": 1169,
+				"line_ending": "Unix"
+			}
+		}
+	],
+	"build_system": "Packages/Python/Python.sublime-build",
+	"command_palette":
+	{
+		"height": 0.0,
+		"selected_items":
+		[
+		],
+		"width": 0.0
+	},
+	"console":
+	{
+		"height": 139.0
+	},
+	"distraction_free":
+	{
+		"menu_visible": true,
+		"show_minimap": false,
+		"show_open_files": false,
+		"show_tabs": false,
+		"side_bar_visible": false,
+		"status_bar_visible": false
+	},
+	"file_history":
+	[
+		"/Users/didia/Documents/workspace/trackdidia/trackdidia/static/js/app/src/models/Schedule.js",
+		"/Users/didia/Documents/workspace/trackdidia/trackdidia/static/js/app/src/models/Slot.js",
+		"/Users/didia/Documents/workspace/monlift-client/www/js/app/src/components/myInfos.js",
+		"/Users/didia/Documents/workspace/trackdidia/static/js/app/src/constants",
+		"/Users/didia/Documents/workspace/trackdidia/static/js/app/src/Dispatcher.js",
+		"/Users/didia/Documents/workspace/trackdidia/static/js/lib/invariant.js",
+		"/Users/didia/Documents/workspace/monlift-client/www/js/app/src/entities/user.js",
+		"/Users/didia/Documents/workspace/trackdidia/static/js/app/src/trackdidia.js",
+		"/Users/didia/Documents/workspace/trackdidia/static/js/lib/es6-promise.js",
+		"/Users/didia/Documents/workspace/monlift-client/www/js/app/src/components/liftList.js",
+		"/Users/didia/Documents/workspace/trackdidia/static/js/app/src/models/Slot.js",
+		"/Users/didia/Documents/workspace/monlift-client/www/js/app/src/entities/car.js",
+		"/Users/didia/Documents/workspace/monlift-client/www/js/app/src/entities/lift.js",
+		"/Users/didia/Documents/workspace/hackerRank/hackFebruary/Anagram.java;",
+		"/Users/didia/Documents/workspace/hackerRank/hackFebruary/Sherlock.java;",
+		"/Users/didia/Documents/workspace/Country-Guessing-Game/.travis.yaml"
+	],
+	"find":
+	{
+		"height": 35.0
+	},
+	"find_in_files":
+	{
+		"height": 0.0,
+		"where_history":
+		[
+		]
+	},
+	"find_state":
+	{
+		"case_sensitive": false,
+		"find_history":
+		[
+		],
+		"highlight": true,
+		"in_selection": false,
+		"preserve_case": false,
+		"regex": false,
+		"replace_history":
+		[
+		],
+		"reverse": false,
+		"show_context": true,
+		"use_buffer2": true,
+		"whole_word": false,
+		"wrap": true
+	},
+	"groups":
+	[
+		{
+			"selected": 3,
+			"sheets":
+			[
+				{
+					"buffer": 0,
+					"file": "TrackdidiaAction.js",
+					"settings":
+					{
+						"buffer_size": 1964,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								288,
+								288
+							]
+						],
+						"settings":
+						{
+							"syntax": "Packages/JavaScript/JavaScript.tmLanguage"
+						},
+						"translation.x": 0.0,
+						"translation.y": 4.0,
+						"zoom_level": 1.0
+					},
+					"type": "text"
+				},
+				{
+					"buffer": 1,
+					"file": "components/Day.js",
+					"settings":
+					{
+						"buffer_size": 3280,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								0,
+								0
+							]
+						],
+						"settings":
+						{
+							"syntax": "Packages/JavaScript/JavaScript.tmLanguage",
+							"translate_tabs_to_spaces": false
+						},
+						"translation.x": 0.0,
+						"translation.y": 1.0,
+						"zoom_level": 1.0
+					},
+					"type": "text"
+				},
+				{
+					"buffer": 2,
+					"file": "trackdidia.js",
+					"settings":
+					{
+						"buffer_size": 2937,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								520,
+								520
+							]
+						],
+						"settings":
+						{
+							"syntax": "Packages/JavaScript/JavaScript.tmLanguage",
+							"translate_tabs_to_spaces": false
+						},
+						"translation.x": 0.0,
+						"translation.y": 1781.0,
+						"zoom_level": 1.0
+					},
+					"type": "text"
+				},
+				{
+					"buffer": 3,
+					"file": "models/ScheduledTask.js",
+					"settings":
+					{
+						"buffer_size": 479,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								157,
+								157
+							]
+						],
+						"settings":
+						{
+							"syntax": "Packages/JavaScript/JavaScript.tmLanguage",
+							"translate_tabs_to_spaces": false
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"type": "text"
+				},
+				{
+					"buffer": 4,
+					"file": "models/Day.js",
+					"settings":
+					{
+						"buffer_size": 1169,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								526,
+								526
+							]
+						],
+						"settings":
+						{
+							"syntax": "Packages/JavaScript/JavaScript.tmLanguage"
+						},
+						"translation.x": 0.0,
+						"translation.y": 179.0,
+						"zoom_level": 1.0
+					},
+					"type": "text"
+				}
+			]
+		}
+	],
+	"incremental_find":
+	{
+		"height": 0.0
+	},
+	"input":
+	{
+		"height": 0.0
+	},
+	"layout":
+	{
+		"cells":
+		[
+			[
+				0,
+				0,
+				1,
+				1
+			]
+		],
+		"cols":
+		[
+			0.0,
+			1.0
+		],
+		"rows":
+		[
+			0.0,
+			1.0
+		]
+	},
+	"menu_visible": true,
+	"replace":
+	{
+		"height": 0.0
+	},
+	"save_all_on_build": true,
+	"select_file":
+	{
+		"height": 0.0,
+		"selected_items":
+		[
+		],
+		"width": 0.0
+	},
+	"select_project":
+	{
+		"height": 0.0,
+		"selected_items":
+		[
+		],
+		"width": 0.0
+	},
+	"show_minimap": true,
+	"show_open_files": false,
+	"show_tabs": true,
+	"side_bar_visible": true,
+	"side_bar_width": 150.0,
+	"status_bar_visible": true
+}

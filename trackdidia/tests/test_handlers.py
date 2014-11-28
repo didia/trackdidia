@@ -38,7 +38,7 @@ class TestMainHandler(TestHandler):
         
     def testDiscover(self):
         url = "/api/enter"
-        expected_fields = {"links":["schedule", "tasks", "create_task"]}
+        expected_fields = {"links":["week", "tasks", "create_task"]}
         
         request = webapp2.Request.blank(url)
         response = request.get_response(main.app)
@@ -52,14 +52,14 @@ class TestCronHandler(TestHandler):
         os.environ['USER_EMAIL'] = self.user.email
         os.environ['USER_ID'] = self.user.key.id()
         task = self.user.create_task("Fifa time")
-        day = self.schedule.get_day(1)
-        slot = day.add_slot(task, 30, 5)
+        day = self.week.get_day(1)
+        slot = day.add_scheduled_task(task, 30, 5)
         slot.set_executed(True)
         self.assertNotEquals(0, len(day.get_executed_slots()))
         request = webapp2.Request.blank(url)
         response = request.get_response(main.app)
         self.assertEquals(response.status_int, 200)
-        day = self.schedule.get_day(1)
+        day = self.week.get_day(1)
         self.assertEquals(0, len(day.get_executed_slots()))
         
 class TestApiHandler(TestHandler):
@@ -173,7 +173,7 @@ class TestTaskHandler(TestApiHandler):
 class TestScheduleHandler(TestApiHandler):
     
     def testGet(self):
-        url = "/api/schedules/recurrent"
+        url = "/api/weeks/recurrent"
         
         request = webapp2.Request.blank(url)
         
@@ -183,20 +183,20 @@ class TestScheduleHandler(TestApiHandler):
         self.assertEquals(7, len(response_dict["days"]))
         
         #Test non existiing schedule
-        url = "/api/schedules/non-existing"
+        url = "/api/weeks/non-existing"
         request = webapp2.Request.blank(url)
         response = request.get_response(main.app)
         self.assertEquals(response.status_int, 404)
     
     def testRestart(self):
-        day = self.schedule.get_day(1)
-        day2 = self.schedule.get_day(4)
-        for slot in day.get_slots() + day2.get_slots():
+        day = self.week.get_day(1)
+        day2 = self.week.get_day(4)
+        for slot in day.get_scheduled_tasks() + day2.get_scheduled_tasks():
             slot.set_executed(True)
         self.assertNotEquals(0, len(day.get_executed_slots()))
         self.assertNotEquals(0, len(day2.get_executed_slots()))
         
-        url = "/api/schedules/recurrent/restart"
+        url = "/api/weeks/recurrent/restart"
         request = webapp2.Request.blank(url)
         
         response = request.get_response(main.app)
@@ -206,7 +206,7 @@ class TestScheduleHandler(TestApiHandler):
         self.assertEquals(0, len(day2.get_executed_slots()))
     
     def testStat(self):
-        url = "/api/schedules/recurrent/stat"
+        url = "/api/weeks/recurrent/stat"
         expected_fields = ['result', 'total', 'days']
         
         request = webapp2.Request.blank(url)
@@ -220,8 +220,8 @@ class TestScheduleHandler(TestApiHandler):
 
 class TestDayHandler(TestApiHandler):
     def testGet(self):
-        url = "/api/schedules/recurrent/days/1"
-        expected_fields = {'day_id':[], 'interval_usage':[], 'slots':[], 'links':['get', 'all_slots', 'create_slot']}
+        url = "/api/weeks/recurrent/days/1"
+        expected_fields = {'id':[], 'interval_usage':[], 'scheduled_tasks':[], 'links':['get', 'all_scheduled_tasks', 'create_scheduled_task']}
         
         request = webapp2.Request.blank(url)
         response = request.get_response(main.app)
@@ -230,10 +230,10 @@ class TestDayHandler(TestApiHandler):
         
         response_dict = simplejson.loads(response.body)
         self.assertTrue(self.checkFieldExist(expected_fields, response_dict))
-        self.assertEquals(1, response_dict['day_id'])
+        self.assertEquals(1, response_dict['id'])
     
     def testList(self):
-        url = "/api/schedules/recurrent/days/list"
+        url = "/api/weeks/recurrent/days/list"
         
         request = webapp2.Request.blank(url)
         response = request.get_response(main.app)
@@ -246,8 +246,8 @@ class TestDayHandler(TestApiHandler):
 class TestSlotHandler(TestApiHandler):
     def testCreate(self):
         task = self.user.create_task("Fifa Time")
-        url = "/api/schedules/recurrent/days/2/slots/create"
-        expected_fields = {'slot_id':[], 'offset':[], 'duration':[], 'executed':[], 'task_id':[], 
+        url = "/api/weeks/recurrent/days/2/scheduled-tasks/create"
+        expected_fields = {'id':[], 'offset':[], 'duration':[], 'executed':[], 'task_id':[], 
                            'links':['get','update','delete','set_executed']}
         
         #Test with non valid method
@@ -273,7 +273,7 @@ class TestSlotHandler(TestApiHandler):
         response = request.get_response(main.app)
         self.assertEquals(400, response.status_int)
         
-        #Test create slot with task_id
+        #Test create scheduled_task with task_id
         request.body = "offset=20&duration=12&task_id="+str(task.key.id())
         response = request.get_response(main.app)
         self.assertEquals(200, response.status_int)
@@ -283,35 +283,35 @@ class TestSlotHandler(TestApiHandler):
         self.assertEquals(20, response_dict['offset'])
         self.assertEquals(12, response_dict['duration'])
         
-        #Test create slot with task_name
+        #Test create scheduled_task with task_name
         request.body = "offset=40&duration=4&name=Work"
         response = request.get_response(main.app)
         self.assertEquals(200, response.status_int)
         response_dict = simplejson.loads(response.body)
-        self.assertTrue(self.checkFieldExist(["task", "slot"], response_dict))
-        self.assertEquals(response_dict['task']['id'], response_dict['slot']['task_id'])
-        self.assertTrue(self.checkFieldExist(expected_fields, response_dict['slot']))
+        self.assertTrue(self.checkFieldExist(["task", "scheduled_task"], response_dict))
+        self.assertEquals(response_dict['task']['id'], response_dict['scheduled_task']['task_id'])
+        self.assertTrue(self.checkFieldExist(expected_fields, response_dict['scheduled_task']))
         self.assertEquals("Work", response_dict['task']['name'])
 
     def testGet(self):
         task = self.user.create_task("VolleyBall")
-        slot = self.schedule.get_day(1).add_slot(task, 20, 20)
-        url = "/api/schedules/recurrent/days/1/slots/" + str(slot.key.id())
+        scheduled_task = self.week.get_day(1).add_scheduled_task(task, 20, 20)
+        url = "/api/weeks/recurrent/days/1/scheduled-tasks/" + str(scheduled_task.key.id())
         
         request = webapp2.Request.blank(url)
         response = request.get_response(main.app)
         self.assertEquals(200, response.status_int)
         response_dict = simplejson.loads(response.body)
-        self.assertEquals(slot.key.id(), response_dict['slot_id'])
+        self.assertEquals(scheduled_task.key.id(), response_dict['id'])
         
         #Test with an invalid ID
-        url = "/api/schedules/recurrent/days/1/slots/111111"
+        url = "/api/weeks/recurrent/days/1/scheduled-tasks/111111"
         request = webapp2.Request.blank(url)
         response = request.get_response(main.app)
         self.assertEquals(404, response.status_int)
         
     def testList(self):
-        url = "/api/schedules/recurrent/days/1/slots/list"
+        url = "/api/weeks/recurrent/days/1/scheduled-tasks/list"
         
         request = webapp2.Request.blank(url)
         response = request.get_response(main.app)
@@ -321,32 +321,32 @@ class TestSlotHandler(TestApiHandler):
     
     def testDelete(self):
         task = self.user.create_task("VolleyBall")
-        slot = self.schedule.get_day(1).add_slot(task, 20, 20)
-        url = "/api/schedules/recurrent/days/1/slots/" + str(slot.key.id()) + "/delete"
+        scheduled_task = self.week.get_day(1).add_scheduled_task(task, 20, 20)
+        url = "/api/weeks/recurrent/days/1/scheduled-tasks/" + str(scheduled_task.key.id()) + "/delete"
         
         request = webapp2.Request.blank(url)
         request.method = "POST"
         response = request.get_response(main.app)
         self.assertEquals(200, response.status_int)
         response_dict = simplejson.loads(response.body)
-        self.assertEquals(1, response_dict['day_id'])
-        self.assertIsNone(self.schedule.get_day(1).get_slot(slot.key.id()))
+        self.assertEquals(1, response_dict['id'])
+        self.assertIsNone(self.week.get_day(1).get_scheduled_task(scheduled_task.key.id()))
         
     def testSetExecuted(self):
         today_id = utils.get_today_id()
-        day = self.schedule.get_day(today_id)
+        day = self.week.get_day(today_id)
         task = self.user.create_task("VolleyBall")
-        slot = day.add_slot(task, 20, 20)
-        url = "/api/schedules/recurrent/days/"+str(day.key.id())+"/slots/" + str(slot.key.id()) + "/executed/"
+        scheduled_task = day.add_scheduled_task(task, 20, 20)
+        url = "/api/weeks/recurrent/days/"+str(day.key.id())+"/scheduled-tasks/" + str(scheduled_task.key.id()) + "/executed/"
         
-        self.assertFalse(slot.executed)
+        self.assertFalse(scheduled_task.executed)
         request = webapp2.Request.blank(url+"1")
         request.method = "POST"
         response = request.get_response(main.app)
         self.assertEquals(200, response.status_int)
         response_dict = simplejson.loads(response.body)
         self.assertEquals(True, response_dict['executed'])
-        self.assertTrue(day.get_slot(slot.key.id()).executed)
+        self.assertTrue(day.get_scheduled_task(scheduled_task.key.id()).executed)
         
         request = webapp2.Request.blank(url+"0")
         request.method = "POST"
@@ -354,13 +354,13 @@ class TestSlotHandler(TestApiHandler):
         self.assertEquals(200, response.status_int)
         response_dict = simplejson.loads(response.body)
         self.assertEquals(False, response_dict['executed'])
-        self.assertFalse(day.get_slot(slot.key.id()).executed)
+        self.assertFalse(day.get_scheduled_task(scheduled_task.key.id()).executed)
         
         # test in case set executed of a task in the future
         if today_id != 8:
-            day = self.schedule.get_day(today_id + 1)
-            slot = day.add_slot(task, 20, 20)
-            url = "/api/schedules/recurrent/days/"+str(day.key.id())+"/slots/" + str(slot.key.id()) + "/executed/"
+            day = self.week.get_day(today_id + 1)
+            scheduled_task = day.add_scheduled_task(task, 20, 20)
+            url = "/api/weeks/recurrent/days/"+str(day.key.id())+"/scheduled-tasks/" + str(scheduled_task.key.id()) + "/executed/"
             
             request = webapp2.Request.blank(url+"1")
             request.method = "POST"
