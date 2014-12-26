@@ -18,7 +18,7 @@ class TestScheduledTask(TestTracking):
         scheduled_task = day.add_scheduled_task(task, 30, 10)
         self.assertFalse(scheduled_task.executed)
         scheduled_task.set_executed(True)
-        scheduled_task = day.get_scheduled_task(scheduled_task.key.integer_id())
+        scheduled_task = day.get_scheduled_task(scheduled_task.key.id())
         self.assertTrue(scheduled_task.executed)
 
 class TestDay(TestTracking):
@@ -44,7 +44,7 @@ class TestDay(TestTracking):
         i = 3
         day = self.week.get_day(i)
         scheduled_tasks = day.get_scheduled_tasks()
-        slot_id = scheduled_tasks[0].key.integer_id()
+        slot_id = scheduled_tasks[0].key.id()
         day.remove_scheduled_task(slot_id)
         scheduled_tasks_now = day.get_scheduled_tasks()
         self.assertEqual(0, len(scheduled_tasks_now))
@@ -92,20 +92,20 @@ class TestDay(TestTracking):
         scheduled_tasks.append(day.add_scheduled_task(task, 14, 7))
         scheduled_tasks.append(day.add_scheduled_task(task, 30, 5))
         self.assertFalse(all(x.executed for x in scheduled_tasks))
-        day.set_executed(scheduled_tasks[0].key.integer_id(), True)
-        scheduled_task_0 = day.get_scheduled_task(scheduled_tasks[0].key.integer_id())
-        scheduled_task_1 = day.get_scheduled_task(scheduled_tasks[1].key.integer_id())
+        day.set_executed(scheduled_tasks[0].key.id(), True)
+        scheduled_task_0 = day.get_scheduled_task(scheduled_tasks[0].key.id())
+        scheduled_task_1 = day.get_scheduled_task(scheduled_tasks[1].key.id())
         self.assertTrue(scheduled_task_0.executed)
         self.assertFalse(scheduled_task_1.executed)
         
         slots_dict = {}
-        slots_dict[scheduled_task_0.key.integer_id()] = False
-        slots_dict[scheduled_task_1.key.integer_id()] = True
+        slots_dict[scheduled_task_0.key.id()] = False
+        slots_dict[scheduled_task_1.key.id()] = True
         
         day.set_executed(slots_dict)
         
-        scheduled_task_0 = day.get_scheduled_task(scheduled_tasks[0].key.integer_id())
-        scheduled_task_1 = day.get_scheduled_task(scheduled_tasks[1].key.integer_id())
+        scheduled_task_0 = day.get_scheduled_task(scheduled_tasks[0].key.id())
+        scheduled_task_1 = day.get_scheduled_task(scheduled_tasks[1].key.id())
         
         self.assertFalse(scheduled_task_0.executed)
         self.assertTrue(scheduled_task_1.executed)
@@ -125,12 +125,11 @@ class TestDay(TestTracking):
 
 class TestSchedule(TestTracking):
 
-
     def testGetDay(self):
         i = 1  
         day = self.week.get_day(i)
         self.assertIsNotNone(day)
-        self.assertEqual(i, day.key.integer_id())
+        self.assertEqual(i, day.key.id())
     
     def testRestart(self):
         task = self.user.create_task("Test task")

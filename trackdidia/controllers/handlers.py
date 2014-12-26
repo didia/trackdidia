@@ -129,13 +129,16 @@ class CronHandler(BaseHandler):
         users = user_module.get_all_users()
         number_processed = 0
         message = ""
+        last_week_id = utils.get_last_week_id()
+        monday, saturday = utils.get_week_start_and_end()
         for user in users:
-            week = user.get_week()
-            message += stat.send_stat(user, week)
-            message += "\n\n"
-            if week:
-                week.restart()
+            last_week = user.get_week(last_week_id)
+            if last_week:
+                message += stat.send_stat(user, last_week)
+                message += "\n\n"
+                
                 number_processed += 1
+            user.get_or_create_week(monday, saturday)
         message = str(number_processed) + " weeks restarted\n\n" + message
         self.response.out.write(message)
     
@@ -233,7 +236,7 @@ class ScheduleHandler(BaseHandler):
         return self.user.get_week(week_id)
     
     @user_required
-    def get(self, week_id = 'recurrent'):
+    def get(self, week_id = 'current'):
         if self.week is None:
             if week_id != 'recurrent':
                 raise RessourceNotFound('The schedule with id : ' + self.request.route_kwargs.get('week_id') + ' does not exist')
@@ -256,7 +259,7 @@ class ScheduleHandler(BaseHandler):
     
     @user_required  
     def restart(self, week_id):
-        week = self.user.get_week('recurrent')
+        week = self.user.get_week('current')
         week.restart()
         response = response_producer.produce_week_response(self.request, week)
         
@@ -264,7 +267,7 @@ class ScheduleHandler(BaseHandler):
     
     @user_required
     def stat(self, week_id):
-        week = self.user.get_week("recurrent")
+        week = self.user.get_week("current")
         statistic = stat.get_stat(week)
         self.send_response(statistic)
         
@@ -287,13 +290,13 @@ class DayHandler(ScheduleHandler):
         return self.week.get_day(int(day_id))
     
     @user_required
-    def get(self, day_id, week_id = 'recurrent'):
+    def get(self, day_id, week_id = 'current'):
         response = response_producer.produce_day_response(self.request, self.day, week_id)
         
         self.send_response(response)
     
     @user_required
-    def list(self, week_id = 'recurrent'):
+    def list(self, week_id = 'current'):
         days = self.week.get_all_days()
         response = [response_producer.produce_day_response(self.request, day, week_id) for day in days]
         
@@ -302,8 +305,11 @@ class DayHandler(ScheduleHandler):
     
 class ScheduledTaskHandler(DayHandler):
     
-    ALLOWED_PARAMS = ['duration', 'offset', 'executed', 'task_id']
+    ALLOWED_PARAMS = ['duration', 'offset', 'executed', 'task_id', 'recurrence']
     
+    @webapp2.cached_property
+    def params(self):
+        return self.cleanPostedData(ScheduledTaskHandler.ALLOWED_PARAMS)  
     @webapp2.cached_property
     def scheduled_task(self):
         scheduled_task_id = self.request.route_kwargs.get('scheduled_task_id')
@@ -311,7 +317,7 @@ class ScheduledTaskHandler(DayHandler):
     
     @user_required
     @required_params(['duration', 'offset'])
-    def create(self, day_id, week_id = 'recurrent'):
+    def create(self, day_id, week_id = 'current'):
         try:
             response = {}
             if (self.request.get('task_id')):
@@ -323,12 +329,15 @@ class ScheduledTaskHandler(DayHandler):
                 response['task'] = response_producer.produce_task_response(self.request, task)
                 response['scheduled_task'] = response_producer.produce_scheduled_task_response(self.request, scheduled_task, day_id, week_id)
             
+            recurrence = self.params.get('recurrence')
+            if recurrence and recurrence != week_id:
+                pass 
             self.send_response(response)
         except SlotAlreadyUsed as e:
             raise HandlerException(e)
         
     @user_required
-    def get(self, day_id, scheduled_task_id, week_id = 'recurrent'): 
+    def get(self, day_id, scheduled_task_id, week_id = 'current'): 
         if self.scheduled_task is None:
             raise RessourceNotFound('The scheduled_task with id : '+ str(scheduled_task_id) + ' does not exist')
         
@@ -337,18 +346,18 @@ class ScheduledTaskHandler(DayHandler):
         self.send_response(response)
     
     @user_required
-    def list(self, day_id, week_id = 'recurrent'):
+    def list(self, day_id, week_id = 'current'):
         scheduled_tasks = self.day.get_scheduled_tasks()
         response = [response_producer.produce_scheduled_task_response(self.request, scheduled_task, day_id, week_id) for scheduled_task in scheduled_tasks]
         
         self.send_response(response)
     
     @user_required
-    def update(self, day_id, scheduled_task_id, week_id = 'recurrent'):
+    def update(self, day_id, scheduled_task_id, week_id = 'current'):
         raise NotImplementedYet
     
     @user_required
-    def delete(self, day_id, scheduled_task_id, week_id = 'recurrent'):
+    def delete(self, day_id, scheduled_task_id, week_id = 'current'):
         self.day.remove_scheduled_task(scheduled_task_id = int(scheduled_task_id))
         DayHandler.get(self, day_id, week_id);
     

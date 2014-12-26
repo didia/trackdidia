@@ -7,17 +7,34 @@ Created on 2014-10-28
 '''
 
 import unittest
+import datetime
 from base_test import DatastoreTest
 from trackdidia.models import user
 from trackdidia.models.custom_exceptions import BadArgumentError
+from trackdidia.models import utils
+from trackdidia import constants
 
-
-class TestUser(DatastoreTest):
-    
+class TestUser(DatastoreTest): 
     def setUp(self):
         super(TestUser, self).setUp()
         self.user = user.create_user("testeur", "testeur@gmail.com", "TestMan")
+    
+    def testCreateWeek(self):
+        monday, sunday = utils.get_week_start_and_end(today=datetime.date(2014,10,29))
+        schedule = self.user.get_or_create_week(monday, sunday)
+        days = schedule.get_all_days()
         
+        #Test if the expected structure of a week has been respected i.e 7 days
+        # and a default 6 hour sleep scheduled_task
+        self.assertEqual(7, len(days))
+        self.assertEqual(12, days[0].interval_usage.count(True))
+        
+        
+        #Test if the week id is really the expected id monday/saturday
+        self.assertEqual("2014102720141102", schedule.key.id())
+        
+        
+     
     def testCreateUser(self):
         user_id = "145861"
         email = "thefuture2092@gmail.com"
@@ -110,11 +127,25 @@ class TestUser(DatastoreTest):
         my_task = self.user.create_task(name = name)
         self.assertEqual(my_task, self.user.get_task(task_id = my_task.key.integer_id()))
 
+    def testGetTaskByName(self):
+        name = "Sleep"
+        my_task = self.user.get_task_by_name(name)
+        self.assertIsNotNone(my_task)
+
     def testDeleteTask(self):
         name = "GLO-2100"
         my_task = self.user.create_task(name = name)
         self.user.delete_task(task_id = my_task.key.integer_id())
-        self.assertIsNone(self.user.get_task(task_id = my_task.key.integer_id()))    
+        self.assertIsNone(self.user.get_task(task_id = my_task.key.integer_id()))
+    
+    def testGetCurrentWeek(self):
+        week_id = utils.get_week_id()
+        current_week = self.user.get_current_week()
+        self.assertEqual(week_id, current_week.key.id())
+    
+
+        
+      
         
 
 

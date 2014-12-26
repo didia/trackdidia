@@ -4,6 +4,26 @@
 		"selected_items":
 		[
 			[
+				"schedu",
+				"scheduledTask"
+			],
+			[
+				"sched",
+				"scheduledTask"
+			],
+			[
+				"schedule",
+				"scheduledTasks"
+			],
+			[
+				"scheduled",
+				"scheduledTasks"
+			],
+			[
+				"scheduledTa",
+				"scheduledTaskData"
+			],
+			[
 				"uns",
 				"_unsubscribeAll"
 			],
@@ -75,7 +95,7 @@
 			"file": "TrackdidiaAction.js",
 			"settings":
 			{
-				"buffer_size": 1964,
+				"buffer_size": 2141,
 				"line_ending": "Unix"
 			}
 		},
@@ -83,15 +103,24 @@
 			"file": "components/Day.js",
 			"settings":
 			{
-				"buffer_size": 3280,
+				"buffer_size": 3316,
 				"line_ending": "Unix"
+			}
+		},
+		{
+			"file": "/Users/didia/Documents/Mes cours/IFT-2002/input.txt",
+			"settings":
+			{
+				"buffer_size": 16,
+				"line_ending": "Unix",
+				"name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 			}
 		},
 		{
 			"file": "trackdidia.js",
 			"settings":
 			{
-				"buffer_size": 2937,
+				"buffer_size": 2897,
 				"line_ending": "Unix"
 			}
 		},
@@ -99,7 +128,7 @@
 			"file": "models/ScheduledTask.js",
 			"settings":
 			{
-				"buffer_size": 479,
+				"buffer_size": 555,
 				"line_ending": "Unix"
 			}
 		},
@@ -107,7 +136,15 @@
 			"file": "models/Day.js",
 			"settings":
 			{
-				"buffer_size": 1169,
+				"buffer_size": 1350,
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"file": "models/Week.js",
+			"settings":
+			{
+				"buffer_size": 646,
 				"line_ending": "Unix"
 			}
 		}
@@ -115,11 +152,15 @@
 	"build_system": "Packages/Python/Python.sublime-build",
 	"command_palette":
 	{
-		"height": 0.0,
+		"height": 287.0,
 		"selected_items":
 		[
+			[
+				"Package Control: ",
+				"Package Control: Install Package"
+			]
 		],
-		"width": 0.0
+		"width": 451.0
 	},
 	"console":
 	{
@@ -136,6 +177,7 @@
 	},
 	"file_history":
 	[
+		"/Users/didia/Documents/workspace/trackdidia/trackdidia/static/js/app/src/models/Week.js",
 		"/Users/didia/Documents/workspace/trackdidia/trackdidia/static/js/app/src/models/Schedule.js",
 		"/Users/didia/Documents/workspace/trackdidia/trackdidia/static/js/app/src/models/Slot.js",
 		"/Users/didia/Documents/workspace/monlift-client/www/js/app/src/components/myInfos.js",
@@ -186,7 +228,7 @@
 	"groups":
 	[
 		{
-			"selected": 3,
+			"selected": 2,
 			"sheets":
 			[
 				{
@@ -194,15 +236,15 @@
 					"file": "TrackdidiaAction.js",
 					"settings":
 					{
-						"buffer_size": 1964,
+						"buffer_size": 2141,
 						"regions":
 						{
 						},
 						"selection":
 						[
 							[
-								288,
-								288
+								128,
+								128
 							]
 						],
 						"settings":
@@ -210,7 +252,7 @@
 							"syntax": "Packages/JavaScript/JavaScript.tmLanguage"
 						},
 						"translation.x": 0.0,
-						"translation.y": 4.0,
+						"translation.y": 0.0,
 						"zoom_level": 1.0
 					},
 					"type": "text"
@@ -220,15 +262,15 @@
 					"file": "components/Day.js",
 					"settings":
 					{
-						"buffer_size": 3280,
+						"buffer_size": 3316,
 						"regions":
 						{
 						},
 						"selection":
 						[
 							[
-								0,
-								0
+								1461,
+								1461
 							]
 						],
 						"settings":
@@ -236,59 +278,32 @@
 							"syntax": "Packages/JavaScript/JavaScript.tmLanguage",
 							"translate_tabs_to_spaces": false
 						},
-						"translation.x": 0.0,
-						"translation.y": 1.0,
+						"translation.x": 25.0,
+						"translation.y": 0.0,
 						"zoom_level": 1.0
 					},
 					"type": "text"
 				},
 				{
 					"buffer": 2,
-					"file": "trackdidia.js",
+					"file": "/Users/didia/Documents/Mes cours/IFT-2002/input.txt",
 					"settings":
 					{
-						"buffer_size": 2937,
+						"buffer_size": 16,
 						"regions":
 						{
 						},
 						"selection":
 						[
 							[
-								520,
-								520
+								16,
+								16
 							]
 						],
 						"settings":
 						{
-							"syntax": "Packages/JavaScript/JavaScript.tmLanguage",
-							"translate_tabs_to_spaces": false
-						},
-						"translation.x": 0.0,
-						"translation.y": 1781.0,
-						"zoom_level": 1.0
-					},
-					"type": "text"
-				},
-				{
-					"buffer": 3,
-					"file": "models/ScheduledTask.js",
-					"settings":
-					{
-						"buffer_size": 479,
-						"regions":
-						{
-						},
-						"selection":
-						[
-							[
-								157,
-								157
-							]
-						],
-						"settings":
-						{
-							"syntax": "Packages/JavaScript/JavaScript.tmLanguage",
-							"translate_tabs_to_spaces": false
+							"auto_name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+							"syntax": "Packages/Text/Plain text.tmLanguage"
 						},
 						"translation.x": 0.0,
 						"translation.y": 0.0,
@@ -297,27 +312,109 @@
 					"type": "text"
 				},
 				{
-					"buffer": 4,
-					"file": "models/Day.js",
+					"buffer": 3,
+					"file": "trackdidia.js",
 					"settings":
 					{
-						"buffer_size": 1169,
+						"buffer_size": 2897,
 						"regions":
 						{
 						},
 						"selection":
 						[
 							[
-								526,
-								526
+								2311,
+								2311
+							]
+						],
+						"settings":
+						{
+							"syntax": "Packages/JavaScript/JavaScript.tmLanguage",
+							"translate_tabs_to_spaces": false
+						},
+						"translation.x": 0.0,
+						"translation.y": 1713.0,
+						"zoom_level": 1.0
+					},
+					"type": "text"
+				},
+				{
+					"buffer": 4,
+					"file": "models/ScheduledTask.js",
+					"settings":
+					{
+						"buffer_size": 555,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								505,
+								505
+							]
+						],
+						"settings":
+						{
+							"syntax": "Packages/JavaScript/JavaScript.tmLanguage",
+							"translate_tabs_to_spaces": false
+						},
+						"translation.x": 0.0,
+						"translation.y": 35.0,
+						"zoom_level": 1.0
+					},
+					"type": "text"
+				},
+				{
+					"buffer": 5,
+					"file": "models/Day.js",
+					"settings":
+					{
+						"buffer_size": 1350,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								965,
+								965
 							]
 						],
 						"settings":
 						{
 							"syntax": "Packages/JavaScript/JavaScript.tmLanguage"
 						},
+						"translation.x": 3.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"type": "text"
+				},
+				{
+					"buffer": 6,
+					"file": "models/Week.js",
+					"settings":
+					{
+						"buffer_size": 646,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								359,
+								359
+							]
+						],
+						"settings":
+						{
+							"syntax": "Packages/JavaScript/JavaScript.tmLanguage",
+							"tab_size": 2,
+							"translate_tabs_to_spaces": true
+						},
 						"translation.x": 0.0,
-						"translation.y": 179.0,
+						"translation.y": 50.0,
 						"zoom_level": 1.0
 					},
 					"type": "text"

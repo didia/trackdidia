@@ -96,7 +96,7 @@ class Day(ndb.Model):
             scheduled_task = self.get_scheduled_task(scheduled_task_id)
             scheduled_task.executed = executed
             scheduled_task.put()
-            return scheduled_task;
+            return scheduled_task
     
     def restart(self):
         scheduled_tasks = self.get_scheduled_tasks()
@@ -128,25 +128,29 @@ class Week(ndb.Model):
     def initialize(self):
         self.starting_date, self.ending_date = utils.get_week_start_and_end()
         interval_usage = [False for i in range(int(24/self.interval))]
-        number_of_sleep_interval = int(6/self.interval)
-        for i in range(number_of_sleep_interval):
-            interval_usage[i] = True
-        scheduled_tasks = []
+
         self._days = []
         for i in range(1,8):
             day = Day(id = i, parent=self.key, interval_usage = interval_usage)
             self._days.append(day)
                    
         ndb.put_multi(self._days)
+    
+    def add_default_sleep_task(self):
+        days = self.get_all_days()
         self.get_owner()
         sleep_task = self._owner.create_task(name='Sleep')
+        scheduled_tasks = []
+        number_of_sleep_interval = int(6/self.interval)
         
-        for day in self._days:
+        for day in days:
+            for i in range(number_of_sleep_interval):
+                day.interval_usage[i] = True
             scheduled_task = ScheduledTask(parent=day.key, offset = 0, duration = number_of_sleep_interval, task = sleep_task.key)
             scheduled_tasks.append(scheduled_task)
         
         ndb.put_multi(scheduled_tasks)
-    
+        ndb.put_multi(days)   
     def get_all_days(self):
         if self._days is None:
             self._days = ndb.get_multi([ndb.Key(Day, day_id, parent=self.key) for day_id in range(1,8)])

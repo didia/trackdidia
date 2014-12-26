@@ -34,6 +34,6 @@ class TestTracking(DatastoreTest):
     
     def setUp(self):
         super(TestTracking, self).setUp()
-        self.user = user.create_user('TheFuture', 'thefuture2092@gmail.com', 'Aristote')
+        self.user = user.get_or_create_user('TheFuture', 'thefuture2092@gmail.com', 'Aristote')
         self.week = self.user.get_week()
 

@@ -4,7 +4,8 @@ Created on 2014-11-24
 @author: didia
 '''
 import unittest
-import webapp2;
+import webapp2
+import datetime
 from base_test import TestTracking
 import trackdidia.main as main
 from django.utils import simplejson
@@ -51,16 +52,15 @@ class TestCronHandler(TestHandler):
         url = "/crons/restart/weekly"
         os.environ['USER_EMAIL'] = self.user.email
         os.environ['USER_ID'] = self.user.key.id()
-        task = self.user.create_task("Fifa time")
-        day = self.week.get_day(1)
-        slot = day.add_scheduled_task(task, 30, 5)
-        slot.set_executed(True)
-        self.assertNotEquals(0, len(day.get_executed_slots()))
+        utils.today = datetime.date(2014,10,29)
         request = webapp2.Request.blank(url)
         response = request.get_response(main.app)
         self.assertEquals(response.status_int, 200)
-        day = self.week.get_day(1)
-        self.assertEquals(0, len(day.get_executed_slots()))
+        found = response.body.find("Here is your result") != -1 or response.body.find("0 weeks restarted") != -1
+        self.assertTrue(found)
+        current_schedule = self.user.get_week(week_id='current')
+        self.assertEqual("2014102720141102", current_schedule.key.id())
+        
         
 class TestApiHandler(TestHandler):
     def setUp(self):
@@ -173,7 +173,7 @@ class TestTaskHandler(TestApiHandler):
 class TestScheduleHandler(TestApiHandler):
     
     def testGet(self):
-        url = "/api/weeks/recurrent"
+        url = "/api/weeks/current"
         
         request = webapp2.Request.blank(url)
         
@@ -196,7 +196,7 @@ class TestScheduleHandler(TestApiHandler):
         self.assertNotEquals(0, len(day.get_executed_slots()))
         self.assertNotEquals(0, len(day2.get_executed_slots()))
         
-        url = "/api/weeks/recurrent/restart"
+        url = "/api/weeks/current/restart"
         request = webapp2.Request.blank(url)
         
         response = request.get_response(main.app)
@@ -206,7 +206,7 @@ class TestScheduleHandler(TestApiHandler):
         self.assertEquals(0, len(day2.get_executed_slots()))
     
     def testStat(self):
-        url = "/api/weeks/recurrent/stat"
+        url = "/api/weeks/current/stat"
         expected_fields = ['result', 'total', 'days']
         
         request = webapp2.Request.blank(url)
@@ -220,7 +220,7 @@ class TestScheduleHandler(TestApiHandler):
 
 class TestDayHandler(TestApiHandler):
     def testGet(self):
-        url = "/api/weeks/recurrent/days/1"
+        url = "/api/weeks/current/days/1"
         expected_fields = {'id':[], 'interval_usage':[], 'scheduled_tasks':[], 'links':['get', 'all_scheduled_tasks', 'create_scheduled_task']}
         
         request = webapp2.Request.blank(url)
@@ -233,7 +233,7 @@ class TestDayHandler(TestApiHandler):
         self.assertEquals(1, response_dict['id'])
     
     def testList(self):
-        url = "/api/weeks/recurrent/days/list"
+        url = "/api/weeks/current/days/list"
         
         request = webapp2.Request.blank(url)
         response = request.get_response(main.app)
@@ -246,7 +246,7 @@ class TestDayHandler(TestApiHandler):
 class TestSlotHandler(TestApiHandler):
     def testCreate(self):
         task = self.user.create_task("Fifa Time")
-        url = "/api/weeks/recurrent/days/2/scheduled-tasks/create"
+        url = "/api/weeks/current/days/2/scheduled-tasks/create"
         expected_fields = {'id':[], 'offset':[], 'duration':[], 'executed':[], 'task_id':[], 
                            'links':['get','update','delete','set_executed']}
         
@@ -296,7 +296,7 @@ class TestSlotHandler(TestApiHandler):
     def testGet(self):
         task = self.user.create_task("VolleyBall")
         scheduled_task = self.week.get_day(1).add_scheduled_task(task, 20, 20)
-        url = "/api/weeks/recurrent/days/1/scheduled-tasks/" + str(scheduled_task.key.id())
+        url = "/api/weeks/current/days/1/scheduled-tasks/" + str(scheduled_task.key.id())
         
         request = webapp2.Request.blank(url)
         response = request.get_response(main.app)
@@ -305,13 +305,13 @@ class TestSlotHandler(TestApiHandler):
         self.assertEquals(scheduled_task.key.id(), response_dict['id'])
         
         #Test with an invalid ID
-        url = "/api/weeks/recurrent/days/1/scheduled-tasks/111111"
+        url = "/api/weeks/current/days/1/scheduled-tasks/111111"
         request = webapp2.Request.blank(url)
         response = request.get_response(main.app)
         self.assertEquals(404, response.status_int)
         
     def testList(self):
-        url = "/api/weeks/recurrent/days/1/scheduled-tasks/list"
+        url = "/api/weeks/current/days/1/scheduled-tasks/list"
         
         request = webapp2.Request.blank(url)
         response = request.get_response(main.app)
@@ -322,7 +322,7 @@ class TestSlotHandler(TestApiHandler):
     def testDelete(self):
         task = self.user.create_task("VolleyBall")
         scheduled_task = self.week.get_day(1).add_scheduled_task(task, 20, 20)
-        url = "/api/weeks/recurrent/days/1/scheduled-tasks/" + str(scheduled_task.key.id()) + "/delete"
+        url = "/api/weeks/current/days/1/scheduled-tasks/" + str(scheduled_task.key.id()) + "/delete"
         
         request = webapp2.Request.blank(url)
         request.method = "POST"
@@ -337,7 +337,7 @@ class TestSlotHandler(TestApiHandler):
         day = self.week.get_day(today_id)
         task = self.user.create_task("VolleyBall")
         scheduled_task = day.add_scheduled_task(task, 20, 20)
-        url = "/api/weeks/recurrent/days/"+str(day.key.id())+"/scheduled-tasks/" + str(scheduled_task.key.id()) + "/executed/"
+        url = "/api/weeks/current/days/"+str(day.key.id())+"/scheduled-tasks/" + str(scheduled_task.key.id()) + "/executed/"
         
         self.assertFalse(scheduled_task.executed)
         request = webapp2.Request.blank(url+"1")
@@ -360,7 +360,7 @@ class TestSlotHandler(TestApiHandler):
         if today_id != 8:
             day = self.week.get_day(today_id + 1)
             scheduled_task = day.add_scheduled_task(task, 20, 20)
-            url = "/api/weeks/recurrent/days/"+str(day.key.id())+"/scheduled-tasks/" + str(scheduled_task.key.id()) + "/executed/"
+            url = "/api/weeks/current/days/"+str(day.key.id())+"/scheduled-tasks/" + str(scheduled_task.key.id()) + "/executed/"
             
             request = webapp2.Request.blank(url+"1")
             request.method = "POST"
