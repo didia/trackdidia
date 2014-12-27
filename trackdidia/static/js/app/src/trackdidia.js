@@ -10,6 +10,7 @@
  	var links = {}
  	var week= null;
  	var tasks = {};
+ 	var recurrenceTypes = ['weekly', 'daily']
 
  	function log(message) {
  		console.log(message);
@@ -117,6 +118,10 @@
  			return tasks;
  		},
 
+ 		getAllRecurrenceTypes : function() {
+ 			return recurrenceTypes;
+ 		},
+
  		getTaskById : function(task_id) {
  			var task = tasks[task_id]
  			if(typeof task === "undefined") {
@@ -141,6 +146,17 @@
  				endpoint = {"url":url, "method":method};
  			}
  			callRemote(endpoint, request, callback);
+ 		},
+
+ 		updateSchedule : function() {
+ 		callRemote(links['week'], null, function(response, status){
+ 			if(status == "ok") {
+ 				var weekData = response;
+ 				week = new Week(weekData);
+ 				save("week", weekData);
+ 				EventProvider.fire(Constants.CHANGE_EVENT);
+ 			}
+ 		});
  		}
 
  	};

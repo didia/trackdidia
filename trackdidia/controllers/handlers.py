@@ -7,7 +7,7 @@ import jinja2
 from google.appengine.api import users
 import trackdidia.models.user as user_module
 from trackdidia.models.custom_exceptions import HandlerException, RessourceNotFound,\
-    NotImplementedYet, BadArgumentError, SlotAlreadyUsed
+    NotImplementedYet, BadArgumentError, SchedulingConflict
 
 import response_producer
 
@@ -156,7 +156,7 @@ class MainHandler(BaseHandler):
     
     def discover(self):
         links = {}
-        links['week'] = self.uri_for('get_week', week_id='recurrent')
+        links['week'] = self.uri_for('get_week', week_id='current')
         links['tasks'] = self.uri_for('all_tasks')
         links['create_task'] = self.uri_for('create_task')
         
@@ -238,7 +238,7 @@ class ScheduleHandler(BaseHandler):
     @user_required
     def get(self, week_id = 'current'):
         if self.week is None:
-            if week_id != 'recurrent':
+            if week_id != 'current':
                 raise RessourceNotFound('The schedule with id : ' + self.request.route_kwargs.get('week_id') + ' does not exist')
             self.week = self.user.init_calendar();
             
@@ -331,9 +331,11 @@ class ScheduledTaskHandler(DayHandler):
             
             recurrence = self.params.get('recurrence')
             if recurrence and recurrence != week_id:
-                pass 
+                recurrent_week = self.user.get_week('weekly')
+                if recurrent_week : 
+                    recurrent_week.add_recurrence(scheduled_task, recurrence)
             self.send_response(response)
-        except SlotAlreadyUsed as e:
+        except SchedulingConflict as e:
             raise HandlerException(e)
         
     @user_required

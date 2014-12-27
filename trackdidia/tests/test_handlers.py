@@ -52,12 +52,18 @@ class TestCronHandler(TestHandler):
         url = "/crons/restart/weekly"
         os.environ['USER_EMAIL'] = self.user.email
         os.environ['USER_ID'] = self.user.key.id()
+        
+       
+        current_schedule = self.user.get_week(week_id = 'current')
+        self.assertNotEqual("2014102720141102", current_schedule.key.id())
+        
         utils.today = datetime.date(2014,10,29)
         request = webapp2.Request.blank(url)
         response = request.get_response(main.app)
         self.assertEquals(response.status_int, 200)
         found = response.body.find("Here is your result") != -1 or response.body.find("0 weeks restarted") != -1
         self.assertTrue(found)
+        
         current_schedule = self.user.get_week(week_id='current')
         self.assertEqual("2014102720141102", current_schedule.key.id())
         
@@ -163,13 +169,7 @@ class TestTaskHandler(TestApiHandler):
         response_dict = simplejson.loads(response.body)
         self.assertEquals(len(self.user.get_all_tasks()), len(response_dict["tasks"]))
         
-        
-        
-        
-
-        
-        
-        
+               
 class TestScheduleHandler(TestApiHandler):
     
     def testGet(self):
@@ -292,7 +292,48 @@ class TestSlotHandler(TestApiHandler):
         self.assertEquals(response_dict['task']['id'], response_dict['scheduled_task']['task_id'])
         self.assertTrue(self.checkFieldExist(expected_fields, response_dict['scheduled_task']))
         self.assertEquals("Work", response_dict['task']['name'])
+    
+    def testCreateWithWeeklyRecurrence(self):
+        
+        task = self.user.create_task("Fifa Time")
+        url = "/api/weeks/current/days/2/scheduled-tasks/create"
+        request = webapp2.Request.blank(url)
+        request.method = "POST"
+        request.body = "offset=20&duration=12&recurrence=weekly&task_id="+str(task.key.id())
+        response = request.get_response(main.app)
+        self.assertEquals(200, response.status_int)
+        response_dict = simplejson.loads(response.body)
+        scheduled_task_id = response_dict['id']
+        
+        url = "/api/weeks/weekly/days/2/scheduled-tasks/" + str(scheduled_task_id)
+        request = webapp2.Request.blank(url)
+        response = request.get_response(main.app)
+        self.assertEquals(200, response.status_int)
 
+    def testCreateWithDailyRecurrence(self):
+        
+        task = self.user.create_task("Fifa Time")
+        url = "/api/weeks/current/days/2/scheduled-tasks/create"
+        request = webapp2.Request.blank(url)
+        request.method = "POST"
+        request.body = "offset=20&duration=12&recurrence=daily&task_id="+str(task.key.id())
+        response = request.get_response(main.app)
+        self.assertEquals(200, response.status_int)
+        response_dict = simplejson.loads(response.body)
+        scheduled_task_id = response_dict['id']
+        
+        url = "/api/weeks/{}/days/{}/scheduled-tasks/" + str(scheduled_task_id)
+        for i in range(1, 8):
+            request = webapp2.Request.blank(url.format('weekly', i))
+            response = request.get_response(main.app)
+            self.assertEquals(200, response.status_int)
+        
+        
+        for i in range(2, 8):
+            request = webapp2.Request.blank(url.format('current', i))
+            response = request.get_response(main.app)
+            self.assertEquals(200, response.status_int)
+        
     def testGet(self):
         task = self.user.create_task("VolleyBall")
         scheduled_task = self.week.get_day(1).add_scheduled_task(task, 20, 20)

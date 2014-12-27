@@ -66,7 +66,9 @@ define(["react", "components/ScheduleTaskForm", "app/trackdidia", "app/constants
 			var scheduleForm = '';
 			if(this.state.isEditing) {
 				var tasks = trackdidia.getAllTasks();
-				scheduleForm = <ScheduleForm errorMessage={this.state.errorMessage} submit={this._createSlot} day={this.props.day} offset = {this.props.offset} duration = {this.props.duration} tasks = {tasks} />;
+				var recurrenceTypes = trackdidia.getAllRecurrenceTypes();
+				console.log(recurrenceTypes);
+				scheduleForm = <ScheduleForm errorMessage={this.state.errorMessage} submit={this._createSlot} day={this.props.day} offset = {this.props.offset} duration = {this.props.duration} tasks = {tasks}  recurrenceTypes = {recurrenceTypes} />;
 			}
 			else {
 

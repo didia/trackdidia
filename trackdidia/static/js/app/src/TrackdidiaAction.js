@@ -37,6 +37,7 @@
  					}
  					EventProvider.fire(Constants.SLOT_CREATED);
  					EventProvider.fire(Constants.CHANGE_EVENT);
+ 					trackdidia.updateSchedule();
 
  				}
  				else {

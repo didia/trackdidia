@@ -36,9 +36,12 @@ define(["react", "app/utils", "bootstrap"], function(React, Utils){
 			var end = this.refs.end.getDOMNode().value;
 			var duration = end - offset;
 			var task_id = this.refs.task_id.getDOMNode().value;
+			var recurrence = this.refs.recurrence.getDOMNode().value;
 			console.log(task_id);
 			request['offset'] = offset;
 			request['duration'] = duration;
+			recurrence != ""?request['recurrence'] = recurrence:null;
+			console.log(recurrence)
 			if(task_id != "") {
 				request['task_id'] = task_id
 			}
@@ -58,6 +61,7 @@ define(["react", "app/utils", "bootstrap"], function(React, Utils){
 		render: function() {
 			var timeOptions = [];
 			var tasksOptions =[];
+			var recurrenceOptions = [];
 			var day = this.props.day;
 			var endOffset = this.props.offset + this.props.duration;
 			var startDefaultOption = <option value = {this.props.offset}>{Utils.convertToHourString(day.getHourFromOffset(this.props.offset))} </option>
@@ -69,6 +73,11 @@ define(["react", "app/utils", "bootstrap"], function(React, Utils){
 
 			for(var key in this.props.tasks) {
 				tasksOptions.push(<option key = {key} value = {key}> {this.props.tasks[key].name} </option>);
+			}
+			console.log(this.props.recurrenceTypes)
+			for(var i = 0; i< this.props.recurrenceTypes.length ;i++) {
+				var key = this.props.recurrenceTypes[i];
+				recurrenceOptions.push(<option key = {key} value = {key}> {key} </option>);
 			}
 			return (
 				<form className="form-horizontal" role = "form"  onSubmit={this._handleSubmit} >
@@ -125,6 +134,16 @@ define(["react", "app/utils", "bootstrap"], function(React, Utils){
 				    <label className = "control-label col-sm-2" htmlFor = "location-input"> Location </label>
 					<div className = "col-sm-10">
 						<input className = "form-control" ref = "location" name = "location" id = "location-input" />
+					</div>
+				  </div>
+
+				  <div className = "form-group">
+				    <label className = "control-label col-sm-2" htmlFor = "recurrence"> Recurrence type </label>
+					<div className = "col-sm-10">
+						<select className = "form-control" ref = "recurrence" name = "recurrence" id = "recurrence-type">
+							<option value=""> None </option>
+							{recurrenceOptions}
+						</select>
 					</div>
 				  </div>
 

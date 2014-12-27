@@ -8,7 +8,7 @@ Created on 2014-11-28
 import unittest
 from .base_test import TestTracking
 from trackdidia.models.calendar import Day
-from trackdidia.models.custom_exceptions import SlotAlreadyUsed
+from trackdidia.models.custom_exceptions import SchedulingConflict
 from trackdidia.models.custom_exceptions import BadArgumentError
 
 class TestScheduledTask(TestTracking):
@@ -40,6 +40,24 @@ class TestDay(TestTracking):
         self.assertEqual(duration,slot.duration)
         self.assertEqual(start_offset, slot.offset)
     
+    def testCloneScheduledTask(self):
+        i = 2
+        duration= 6 # 6 interval . With interval = 0.5h, duration = 3 hours
+        start_offset = 18
+        task = self.user.create_task("Dinner Time")
+        
+        day = self.week.get_day(i)
+        scheduled_task = day.add_scheduled_task(task, start_offset, duration)
+        
+        self.assertRaises(SchedulingConflict, day.clone_scheduled_task, scheduled_task = scheduled_task)
+        i += 1
+        day = self.week.get_day(i)
+        day.clone_scheduled_task(scheduled_task)
+        same_scheduled_task = day.get_scheduled_task(scheduled_task.key.id())
+        self.assertIsNotNone(same_scheduled_task)
+        self.assertEqual(duration, same_scheduled_task.duration)
+        self.assertEqual(start_offset, same_scheduled_task.offset)
+    
     def testRemoveScheduledTask(self):
         i = 3
         day = self.week.get_day(i)
@@ -56,7 +74,7 @@ class TestDay(TestTracking):
         duration = 2
     
         day = self.week.get_day(i)
-        self.assertRaises(SlotAlreadyUsed, day.validate_offset_and_duration, start_offset, duration)
+        self.assertRaises(SchedulingConflict, day.validate_offset_and_duration, start_offset, duration)
         
         #Bad start_slot
         self.assertRaises(BadArgumentError, day.validate_offset_and_duration, 60, 5)
@@ -146,6 +164,38 @@ class TestSchedule(TestTracking):
         self.assertEquals(7, len(days))
         for day in days:
             self.assertTrue(type(day) == Day)
+    
+    def testAddRecurrence(self):
+        i = 2
+        duration= 6 # 6 interval . With interval = 0.5h, duration = 3 hours
+        start_offset = 18
+        task = self.user.create_task("Dinner Time")
+        
+        day = self.week.get_day(i)
+        scheduled_task = day.add_scheduled_task(task, start_offset, duration)
+        weekly = self.user.get_week("weekly")
+        
+        #Raises an exception if the week used is not a recurrent week
+        self.assertRaises(BadArgumentError, self.week.add_recurrence, scheduled_task =  scheduled_task, recurrence_type = "weekly")
+        
+        # Test weekly recurrence
+        weekly.add_recurrence(scheduled_task, 'weekly')
+        same_scheduled_task = weekly.get_day(i).get_scheduled_task(scheduled_task.key.id())
+        self.assertIsNotNone(same_scheduled_task)
+        
+        #Test daily recurrence
+        start_offset = 30
+        task = self.user.create_task("Super Time")
+        scheduled_task = self.week.get_day(1).add_scheduled_task(task, start_offset, duration)
+        weekly.add_recurrence(scheduled_task, "daily")
+        for i in range(i, 8):
+            same_scheduled_task = weekly.get_day(i).get_scheduled_task(scheduled_task.key.id())
+            self.assertIsNotNone(same_scheduled_task)
+        for i in range(2, 8):
+            same_scheduled_task = self.week.get_day(i).get_scheduled_task(scheduled_task.key.id())
+            self.assertIsNotNone(same_scheduled_task)            
+        
+
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']

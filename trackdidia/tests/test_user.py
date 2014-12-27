@@ -20,7 +20,8 @@ class TestUser(DatastoreTest):
         self.user = user.create_user("testeur", "testeur@gmail.com", "TestMan")
     
     def testCreateWeek(self):
-        monday, sunday = utils.get_week_start_and_end(today=datetime.date(2014,10,29))
+        utils.today = datetime.date(2014,10,29)
+        monday, sunday = utils.get_week_start_and_end()
         schedule = self.user.get_or_create_week(monday, sunday)
         days = schedule.get_all_days()
         

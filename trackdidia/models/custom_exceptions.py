@@ -9,7 +9,7 @@ Created on 2014-10-30
 class BadArgumentError(Exception):
     pass
 
-class SlotAlreadyUsed(Exception):
+class SchedulingConflict(Exception):
     pass
 
 class SlotNotYetReached(Exception):

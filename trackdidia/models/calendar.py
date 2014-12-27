@@ -7,9 +7,10 @@ Created on 2014-11-28
 '''
 from google.appengine.ext import ndb
 from . import utils
-from .custom_exceptions import SlotAlreadyUsed
+from .custom_exceptions import SchedulingConflict
 from .custom_exceptions import BadArgumentError
 from trackdidia.models.scheduled_task import ScheduledTask
+from trackdidia import constants
 
     
 class Day(ndb.Model):
@@ -37,7 +38,7 @@ class Day(ndb.Model):
                     message +=" to " +  str(offset+duration-1) + " inclusively"
                 message += "\n But Slot " + str(i) + " is already reserved"
                 
-                raise SlotAlreadyUsed(message)
+                raise SchedulingConflict(message)
         
     def add_scheduled_task(self, task, offset, duration):
         self.validate_offset_and_duration(offset, duration)
@@ -52,7 +53,13 @@ class Day(ndb.Model):
         if not self._scheduled_tasks is None:
             self._scheduled_tasks.append(scheduled_task)
         return scheduled_task
+    
+    def clone_scheduled_task(self, scheduled_task):
+        self.validate_offset_and_duration(scheduled_task.offset, scheduled_task.duration)
         
+        new_key = ndb.Key(flat=[ScheduledTask, scheduled_task.key.id()], parent = self.key)
+        scheduled_task.key = new_key
+        scheduled_task.put()
     def get_scheduled_task(self, scheduled_task_id):
         return ScheduledTask.get_by_id(scheduled_task_id,parent = self.key)
     
@@ -112,7 +119,7 @@ class Week(ndb.Model):
     interval = ndb.FloatProperty(default = 0.5)
     starting_date = ndb.DateProperty()
     ending_date = ndb.DateProperty()
-    recurrent = ndb.BooleanProperty(default = True)
+    recurrent = ndb.BooleanProperty(default = False)
     _days = None
     _owner = None
  
@@ -162,6 +169,19 @@ class Week(ndb.Model):
         self.put_async()
         for day in days:
             day.restart()
-
-
+    
+    
+    def add_recurrence(self, scheduled_task, recurrence_type):
+        if not self.recurrent:
+            raise BadArgumentError("The week " + self.key.id() + " is not a recurrent week")
+        
+        if recurrence_type == constants.RECURRENCE_TYPES[1]: #daily
+            day_id = scheduled_task.key.parent().id()
+            scheduled_task_week = scheduled_task.key.parent().parent().get()
+            for i in range(day_id + 1, 8):
+                scheduled_task_week.get_day(i).clone_scheduled_task(scheduled_task)
+            for i in range(1, 8):
+                self.get_day(i).clone_scheduled_task(scheduled_task)
+        if recurrence_type == constants.RECURRENCE_TYPES[2] : #weekly
+            self.get_day(scheduled_task.key.parent().id()).clone_scheduled_task(scheduled_task)
 

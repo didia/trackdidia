@@ -119,11 +119,12 @@ class User(ndb.Model):
     def init_calendar(self):
         if self.get_week() is None:
             week = Week(id=constants.RECURRENCE_TYPES[2], parent=self.key)
+            week.recurrent = True
             week.initialize()
             week.add_default_sleep_task()
             week.put()
             self.week = week
-        return week
+        return self.week
     
     def get_week(self, week_id='current'):
         if week_id == 'current':
@@ -134,4 +135,3 @@ class User(ndb.Model):
     
     def get_current_week(self):
         return self.get_week('current')
-       
