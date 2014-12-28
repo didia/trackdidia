@@ -57,7 +57,10 @@ define(["react", "app/utils", "bootstrap"], function(React, Utils){
 			this.props.submit(request);
 
 		},
-		
+		_handleCancel: function(e) {
+			e.preventDefault();
+			this.props.cancel.call();
+		},
 		render: function() {
 			var timeOptions = [];
 			var tasksOptions =[];
@@ -150,6 +153,7 @@ define(["react", "app/utils", "bootstrap"], function(React, Utils){
 				  <div className = "form-group">
 				  	<div className = "col-sm-10">
 				  		<button type = "submit" className = "btn btn-default"> Add </button>
+				  		<button className = "btn btn-default" onClick = {this._handleCancel}> Cancel </button>
 				  	</div>
 				  </div>
 

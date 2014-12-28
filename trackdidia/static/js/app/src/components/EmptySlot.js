@@ -57,18 +57,26 @@ define(["react", "components/ScheduleTaskForm", "app/trackdidia", "app/constants
 			state.errorMessage = null;
 			state.isCreating = false;
 			state.isEditing = false;
+			this.setState(state);
 		},
 		_unsubscribeAll: function() {
 			EventProvider.unsubscribe(Constants.CREATE_SLOT_FAILED, "_createSlotFailed", this);
 			EventProvider.unsubscribe(Constants.SLOT_CREATED, "_createSlotSucceeeded", this);
 		},
+		_cancelEditing: function() {
+			var state = this.state
+			state.errorMessage = null;
+			state.isEditing = false;
+			this.setState(state);
+		},
+
 		render: function() {
 			var scheduleForm = '';
 			if(this.state.isEditing) {
 				var tasks = trackdidia.getAllTasks();
 				var recurrenceTypes = trackdidia.getAllRecurrenceTypes();
 				console.log(recurrenceTypes);
-				scheduleForm = <ScheduleForm errorMessage={this.state.errorMessage} submit={this._createSlot} day={this.props.day} offset = {this.props.offset} duration = {this.props.duration} tasks = {tasks}  recurrenceTypes = {recurrenceTypes} />;
+				scheduleForm = <ScheduleForm errorMessage={this.state.errorMessage} submit={this._createSlot} day={this.props.day} offset = {this.props.offset} duration = {this.props.duration} tasks = {tasks}  recurrenceTypes = {recurrenceTypes} cancel = {this._cancelEditing} />;
 			}
 			else {
 
