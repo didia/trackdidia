@@ -8,7 +8,6 @@ from google.appengine.ext import ndb
 from .custom_exceptions import BadArgumentError
 from .task import Task
 from trackdidia.models.calendar import Week
-from trackdidia.models.calendar import Day
 from trackdidia.models.scheduled_task import ScheduledTask
 from trackdidia import constants
 from trackdidia.models import utils

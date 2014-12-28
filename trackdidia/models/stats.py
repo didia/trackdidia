@@ -6,37 +6,17 @@ Created on 2014-10-31
 @author: didia
 '''
 
-from google.appengine.ext import ndb
 from google.appengine.api import mail
 
 def compute_stats_for_schedule(schedule):
     days = schedule.get_all_days();
-    total = 0
-    result = 0
-    stats = [compute_stats_for_day(day, schedule.interval) for day in days]
-    for stat in stats:
-        total += stat['total']
-        result += stat['result']
+    stats = [{'result':day.get_stat()[0], 'total':day.get_stat()[1]} for day in days]
     stat = {}
-    stat['total'] = total
-    stat['result'] = result
+    stat['total'] = schedule.get_stat()[1]
+    stat['result'] = schedule.get_stat()[0]
     stat['days'] = stats
     return stat;
     
-def compute_stats_for_day(day, interval):
-    stat = {}
-    total = 0
-    result = 0
-    for slot in day.get_scheduled_tasks():
-        points = slot.duration * interval
-        total += points
-        if slot.executed:
-            result += points
-    
-    stat['result'] = result
-    stat['total'] = total;
-    return stat
-
 def send_stat(user, schedule):
     stat = compute_stats_for_schedule(schedule)
     message = {}
@@ -58,8 +38,8 @@ def get_html_message(stat):
     message += "<table><tr><th> Day id </th><th> Result </th> </tr>"
     
     for i in range(7):
-        message += "<tr><td> Day " + str(i+1) + "</td><td><b> "
-        message +=  str(stat["days"][i]["result"]) + " points sur " + str(stat["days"][i]["total"]) + " possible </b>"
+        message += "<tr><td> Day " + str(i + 1) + "</td><td><b> "
+        message += str(stat["days"][i]["result"]) + " points sur " + str(stat["days"][i]["total"]) + " possible </b>"
         message += "</td></tr>"
     message += "</table></body></html>"
     return message
@@ -72,7 +52,7 @@ def get_plain_message(stat):
     """
     by_day_message = ""
     for i in range(7):
-        by_day_message += "Day " + str(i+1) + " : " 
+        by_day_message += "Day " + str(i + 1) + " : " 
         by_day_message += str(stat["days"][i]["result"]) + " points  sur " + str(stat["days"][i]["total"])
         by_day_message += " possible \n"
     
@@ -89,5 +69,5 @@ def send_mail(user, message):
     email.html = message["html"]
     email.send()
 
-    
+
     

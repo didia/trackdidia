@@ -20,14 +20,14 @@ class TestResponseProducer(TestTracking):
         
     def testWeekResponse(self):
         expected_response_attributes = ['id', 'interval', 'starting_date', 'ending_date','days',
-                               'links']
+                               'links', 'stat']
         expected_links = ['get_week', 'stat', 'restart'] 
         response = response_producer.produce_week_response(self.request, self.week)
         self.assertTrue(all(x in response for x in expected_response_attributes))
         self.assertTrue(all(x in response['links'] for x in expected_links))
         
     def testProduceDayResponse(self):
-        expected_response_attributes = ['id', 'interval_usage', 'scheduled_tasks', 'links']
+        expected_response_attributes = ['id', 'interval_usage', 'scheduled_tasks', 'stat', 'links']
         expected_links = ['get', 'create_scheduled_task', 'all_scheduled_tasks'] 
         response = response_producer.produce_day_response(self.request, self.day, self.week.key.id())
         self.assertTrue(all(x in response for x in expected_response_attributes))

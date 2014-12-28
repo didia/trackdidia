@@ -29,6 +29,7 @@
  		populate: function(dayData) {
  			this.id = dayData.id;
  			this.usage = dayData.interval_usage;
+ 			this.stat = dayData.stat;
  			this.scheduledTasks = this._initScheduledTasks(dayData.scheduled_tasks);
  			this.links = dayData.links;
  		},

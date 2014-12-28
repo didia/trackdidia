@@ -12,7 +12,6 @@ from base_test import DatastoreTest
 from trackdidia.models import user
 from trackdidia.models.custom_exceptions import BadArgumentError
 from trackdidia.models import utils
-from trackdidia import constants
 
 class TestUser(DatastoreTest): 
     def setUp(self):

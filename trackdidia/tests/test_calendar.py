@@ -140,6 +140,16 @@ class TestDay(TestTracking):
         executed_scheduled_tasks = day.get_executed_slots()
         self.assertEquals(2, len(executed_scheduled_tasks))
         self.assertTrue(all(scheduled_task in executed_scheduled_tasks for scheduled_task in scheduled_tasks))
+    
+    def testGetStat(self):
+        day = self.week.get_day(2)
+        stat = day.get_stat()
+        self.assertEquals(0, stat[0])
+        task = self.user.create_task("Eating")
+        scheduled_task = day.add_scheduled_task(task, 20, 10);
+        day.set_executed(scheduled_task.key.id())
+        stat = day.get_stat()
+        self.assertEquals(5.0, stat[0])
 
 class TestSchedule(TestTracking):
 
@@ -193,7 +203,22 @@ class TestSchedule(TestTracking):
             self.assertIsNotNone(same_scheduled_task)
         for i in range(2, 8):
             same_scheduled_task = self.week.get_day(i).get_scheduled_task(scheduled_task.key.id())
-            self.assertIsNotNone(same_scheduled_task)            
+            self.assertIsNotNone(same_scheduled_task)     
+    
+    def testGetStat(self):
+        stat = self.week.get_stat()
+        self.assertEquals(0, stat[0])
+        task = self.user.create_task("Eating")
+        day = self.week.get_day(2)
+        scheduled_task = day.add_scheduled_task(task, 20, 10);
+        day.set_executed(scheduled_task.key.integer_id())
+        stat = self.week.get_stat()
+        self.assertEquals(5.0, stat[0])
+        day = self.week.get_day(3)
+        scheduled_task = day.add_scheduled_task(task, 30, 5)
+        day.set_executed(scheduled_task.key.integer_id())
+        stat = self.week.get_stat()
+        self.assertEquals(7.5, stat[0])       
         
 
 

@@ -11,6 +11,7 @@
         this.id = weekData.id;
         this.starting_date = weekData.starting_date;
         this.ending_date = weekData.ending_date;
+        this.stat = weekData.stat;
         this.days = this.initDays(weekData.days);
         this.links = weekData.links;
    };

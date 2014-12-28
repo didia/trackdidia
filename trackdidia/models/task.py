@@ -7,14 +7,13 @@ Created on 2014-10-25
 '''
 
 from google.appengine.ext import ndb
-from collections import OrderedDict
+
     
 class Task(ndb.Model):
     category = ndb.StringProperty(default = 'All')
     name = ndb.StringProperty(required = True)
     description = ndb.TextProperty()
     location = ndb.StringProperty()
-    priority = ndb.IntegerProperty(choices=[0,1,2,3,4,5], default=1)
     _owner = None
         
     def update(self, **kwargs):

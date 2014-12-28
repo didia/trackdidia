@@ -88,6 +88,7 @@ define(["exports", "react", "components/Slot", "components/EmptySlot", "app/util
       					<h4 className="panel-title">
         					<a data-toggle="collapse" data-parent="#schedule" href={"#" + body_id } aria-expanded={expanded? "true": "false"} aria-controls={body_id}>
           						<span> {dayName} </span> | Task : {numberOfTask} | Completed : {numberOfCompletedTask}
+          						<span className="pull-right"> [{this.props.day.stat[0]} / {this.props.day.stat[1]}] </span>
         					</a>
       					</h4>
     				</div>

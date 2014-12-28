@@ -12,10 +12,20 @@ from .custom_exceptions import BadArgumentError
 from trackdidia.models.scheduled_task import ScheduledTask
 from trackdidia import constants
 
+def invalidate_cache(function):
+    def call_invalidate_cache(self, *args, **kwargs):
+        self.invalidate_cache()
+        return function(self, *args, **kwargs)
+    
+    return call_invalidate_cache
+    
+        
+    
     
 class Day(ndb.Model):
     interval_usage = ndb.BooleanProperty(repeated = True)
     _scheduled_tasks = None
+    _stat = None
     
     def validate_offset_and_duration(self, offset, duration):
         higher_limit = len(self.interval_usage)
@@ -39,10 +49,12 @@ class Day(ndb.Model):
                 message += "\n But Slot " + str(i) + " is already reserved"
                 
                 raise SchedulingConflict(message)
-        
+            
+    @invalidate_cache
     def add_scheduled_task(self, task, offset, duration):
         self.validate_offset_and_duration(offset, duration)
         
+        self.invalidate_cache()
                 
         scheduled_task = ScheduledTask(parent=self.key, task=task.key, offset= offset, duration = duration)
         scheduled_task.put()
@@ -54,12 +66,23 @@ class Day(ndb.Model):
             self._scheduled_tasks.append(scheduled_task)
         return scheduled_task
     
+    @invalidate_cache
     def clone_scheduled_task(self, scheduled_task):
         self.validate_offset_and_duration(scheduled_task.offset, scheduled_task.duration)
-        
+        self.invalidate_cache()
         new_key = ndb.Key(flat=[ScheduledTask, scheduled_task.key.id()], parent = self.key)
         scheduled_task.key = new_key
         scheduled_task.put()
+    
+    def get_stat(self):
+        if not self._stat:
+            scheduled_tasks = self.get_scheduled_tasks()
+            interval = 24.0/len(self.interval_usage)
+            self._stat = reduce(lambda x, y:(x[0] + y[0], x[1] + y[1]), map(lambda z: z.get_point(), scheduled_tasks))
+            self._stat = (self._stat[0]*interval, self._stat[1]*interval)
+        return self._stat
+        
+    
     def get_scheduled_task(self, scheduled_task_id):
         return ScheduledTask.get_by_id(scheduled_task_id,parent = self.key)
     
@@ -68,11 +91,13 @@ class Day(ndb.Model):
             self.reload_scheduled_tasks()
         return self._scheduled_tasks
     
+    @invalidate_cache
     def reload_scheduled_tasks(self):
         self._scheduled_tasks = ScheduledTask.query(ancestor=self.key).order(ScheduledTask.offset).fetch()
         if self._scheduled_tasks is None:
             self._scheduled_tasks = []
-    
+            
+    @invalidate_cache
     def remove_scheduled_task(self, scheduled_task_id):
         scheduled_task = self.get_scheduled_task(scheduled_task_id)
         if not scheduled_task is None:
@@ -86,14 +111,16 @@ class Day(ndb.Model):
                     pass
             scheduled_task.key.delete()
             self.put()
+        self.invalidate_cache()
             
+    @invalidate_cache
+    def set_executed(self, scheduled_task_id, executed=True, timespent = None):
 
-    def set_executed(self, scheduled_task_id, executed=True):
- 
         if(type(scheduled_task_id)) is dict:
             scheduled_tasks = []
             for key, value in scheduled_task_id.iteritems():
                 scheduled_task = self.get_scheduled_task(key)
+                scheduled_task.timespent = scheduled_task.duration;
                 scheduled_task.executed = value
                 scheduled_tasks.append(scheduled_task)
             ndb.put_multi(scheduled_tasks)
@@ -101,10 +128,13 @@ class Day(ndb.Model):
                  
         else:
             scheduled_task = self.get_scheduled_task(scheduled_task_id)
+            timespent = timespent or scheduled_task.duration
             scheduled_task.executed = executed
+            scheduled_task.timespent = timespent
             scheduled_task.put()
             return scheduled_task
-    
+        
+    @invalidate_cache
     def restart(self):
         scheduled_tasks = self.get_scheduled_tasks()
         for scheduled_task in scheduled_tasks :
@@ -113,6 +143,10 @@ class Day(ndb.Model):
         
     def get_executed_slots(self):
         return ScheduledTask.query(ancestor=self.key).filter(ScheduledTask.executed == True).fetch()
+    
+    def invalidate_cache(self):
+        self._scheduled_tasks = None
+        self._stat = None
 
  
 class Week(ndb.Model):
@@ -122,6 +156,7 @@ class Week(ndb.Model):
     recurrent = ndb.BooleanProperty(default = False)
     _days = None
     _owner = None
+    
  
     
     def get_day(self, day_id):
@@ -184,4 +219,9 @@ class Week(ndb.Model):
                 self.get_day(i).clone_scheduled_task(scheduled_task)
         if recurrence_type == constants.RECURRENCE_TYPES[2] : #weekly
             self.get_day(scheduled_task.key.parent().id()).clone_scheduled_task(scheduled_task)
+    
+    def get_stat(self):
+        return reduce(lambda x, y:(x[0] + y[0], x[1] + y[1]), map(lambda z: z.get_stat(), self.get_all_days()))
+    
+        
 

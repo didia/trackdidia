@@ -30,8 +30,10 @@ def produce_day_response(request, day, week_id):
     day_id = day.key.integer_id()
     response['id'] = day.key.integer_id()
     response['interval_usage'] = day.interval_usage
+    response['stat'] = day.get_stat()
     scheduled_tasks = [produce_scheduled_task_response(request, slot, day_id, week_id) for slot in day.get_scheduled_tasks()]
     response['scheduled_tasks'] = scheduled_tasks
+    
     links = {}
     links['get'] = webapp2.uri_for('get_day', _request = request, week_id = week_id, day_id = day_id)
     links['all_scheduled_tasks'] = webapp2.uri_for('all_scheduled_tasks', _request = request, week_id = week_id, day_id = day_id)
@@ -47,6 +49,7 @@ def produce_week_response(request, week):
     response['interval'] = week.interval
     response['starting_date'] = week.starting_date.strftime("%d/%m/%Y")
     response['ending_date'] = week.ending_date.strftime("%d/%m/%Y")
+    response['stat'] = week.get_stat()
     days = [produce_day_response(request, day, week_id) for day in week.get_all_days()]
     response['days'] = days
     links = {}
@@ -65,7 +68,7 @@ def produce_task_response(request, task):
     response["description"] = task.description
     response["location"] = task.location
     response["category"] = task.category
-    response["priority"] = task.priority
+
     
     links = {}
     
