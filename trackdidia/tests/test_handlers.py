@@ -10,7 +10,7 @@ from base_test import TestTracking
 import trackdidia.main as main
 from django.utils import simplejson
 import os
-from trackdidia.models import utils
+from trackdidia.utils import utils
 
 class TestHandler(TestTracking):
     def checkFieldExist(self, expected_fields, dict_object):

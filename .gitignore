@@ -9,6 +9,7 @@ __pycache__/
 .Python
 node_modules
 .sass-cache/
+**/css/**/bootstrap
 env/
 build/
 develop-eggs/

@@ -6,7 +6,7 @@ Created on 2014-10-30
 import datetime
 import unittest
 
-from trackdidia.models import utils
+from trackdidia.utils import utils
 
 
 class TestUtils(unittest.TestCase):
