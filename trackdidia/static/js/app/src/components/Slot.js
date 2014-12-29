@@ -55,6 +55,7 @@ define(["react", "app/trackdidia", "app/TrackdidiaAction", "app/event", "app/con
 			var slot = this.props.slot;
 			var task = trackdidia.getTaskById(slot.task_id);
 			var checked = this.props.slot.executed?"checked":"";
+			var disabled = this.props.disabled?"disabled":"";
 			var classNameConfirmDelete = "row alert alert-danger alert-dismissible fade in ";
 			if(!this.state.showConfirmDelete) {
 				classNameConfirmDelete += "hidden";
@@ -77,7 +78,7 @@ define(["react", "app/trackdidia", "app/TrackdidiaAction", "app/event", "app/con
 						</div>
 						<div className = "horizontal-list col-xs-2 text-right">
 							<ul>
-								<li> <input className = "set-executed" type ="checkbox" ref = "executed" checked={checked} onChange = {this._setExecuted}/> </li>
+								<li> <input className = "set-executed" type ="checkbox" ref = "executed" checked={checked} onChange = {this._setExecuted} disabled={disabled}/> </li>
 								<li> <a title = "Delete task" onClick = {this._toggleConfirmDelete} ><span className="glyphicon glyphicon-remove"> </span> </a> </li>
 							</ul>
 						</div>

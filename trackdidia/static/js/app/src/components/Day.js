@@ -38,17 +38,18 @@ define(["exports", "react", "components/Slot", "components/EmptySlot", "app/util
 			var startAndFinish = this.props.day.getStartAndFinishHour(slot.offset, slot.duration);
 			var start = Utils.convertToHourString(startAndFinish[0]);
 			var finish = Utils.convertToHourString(startAndFinish[1]);
-			return <SlotComponent day = {this.props.day} start = {start} finish = {finish} key = {slot.offset} slot = {slot}/>
+			return <SlotComponent day = {this.props.day} start = {start} finish = {finish} key = {slot.offset} slot = {slot} disabled = {!this.props.expanded} />
 		},
 
 		render: function() {
 
 			var day = this.props.day;
 			var day_id = day.id;
+			var today_code = Utils.getTodayCode();
 			var slots = [];
 			var keys = [];
 			var lastKey = -1;
-			
+			this.props.expanded = today_code == day_id;
 			for (var key in day.scheduledTasks){
 				keys.push(key);
 			}
@@ -74,8 +75,10 @@ define(["exports", "react", "components/Slot", "components/EmptySlot", "app/util
 			}
 			var heading_id = "heading-" + day_id;
 			var body_id = "collapse-" + day_id;
-			var today_code = Utils.getTodayCode();
-			var expanded = today_code == day_id;
+			var panelClass = "panel panel-default day ";
+			if(this.props.expanded)
+				panelClass += "today"
+			
 			var dayName = Utils.getDayString(day_id);
 			var numberOfTask = keys.length;
 			var numberOfCompletedTask = day.getNumberOfCompletedTask();
@@ -98,8 +101,8 @@ define(["exports", "react", "components/Slot", "components/EmptySlot", "app/util
 
 			return (
 				
-			 	<div className="panel panel-default day">
-			 		<a data-toggle="collapse" data-parent="#schedule" href={"#" + body_id } aria-expanded={expanded? "true": "false"} aria-controls={body_id}>
+			 	<div className={panelClass}>
+			 		<a data-toggle="collapse" data-parent="#schedule" href={"#" + body_id } aria-expanded={this.props.expanded? "true": "false"} aria-controls={body_id}>
 	    				<div className="panel-heading day-header" role="tab" id={heading_id}>
 	    					<div className = "row">
 	    						<div className = "col-xs-3">
@@ -117,7 +120,7 @@ define(["exports", "react", "components/Slot", "components/EmptySlot", "app/util
 	      					</div>
 	    				</div>
     				</a>
-    				<div id={body_id} className={expanded? "panel-collapse collapse in":"panel-collapse collapse"} role="tabpanel" aria-labelledby={heading_id}>
+    				<div id={body_id} className={this.props.expanded? "panel-collapse collapse in":"panel-collapse collapse"} role="tabpanel" aria-labelledby={heading_id}>
       					<div className="panel-body day-body">
         					{slots}
                         </div>
