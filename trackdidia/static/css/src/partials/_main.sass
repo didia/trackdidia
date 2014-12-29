@@ -1,0 +1,60 @@
+body
+  padding-top : $body-padding-top
+
+input.set-executed
+  font-size : 18px
+  border-radius: 6px
+#schedule
+  a:hover, a:focus 
+    text-decoration: none
+
+.horizontal-list
+  ul
+    -webkit-padding-start: 0px
+  li
+    display : inline
+    padding : 0 2px 0 7px
+    border-right : 2px solid grey
+    list-style : none
+
+    &:last-child
+      padding-right : 0
+      border : none
+
+.panel-heading
+  color: #337ab7 
+  background-color: #f5f5f5  
+  border-color: #ddd
+.progress
+  margin-bottom : 0
+
+.day
+  .day-header
+    .row
+      margin-left : 0px
+      margin-right : 0px
+      div
+        padding-left : 0
+        padding-right : 0
+
+  .day-body
+    padding : 0px
+
+.base-slot
+  padding : 5px
+  vertical-align : middle
+  margin-bottom : 1px
+  .row
+    margin-left : 0px
+    margin-right : 0px
+    div
+      padding-left : 0px
+      padding-right : 0px
+ 
+.emptyslot
+  @extend .base-slot
+
+
+.slot
+  @extend .base-slot
+  background-color : #f8f8f8

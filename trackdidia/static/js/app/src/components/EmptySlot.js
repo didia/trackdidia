@@ -82,11 +82,15 @@ define(["react", "components/ScheduleTaskForm", "app/trackdidia", "app/constants
 
 			}
 			return (
-				<div className = "row text-center well">
+				<div className = "emptyslot">
 					{this.state.isEditing?scheduleForm:
-						<div>
-							<p> Nothing from <b>{this.props.start}</b> to <b>{this.props.finish}</b></p>
-							<button className="btn btn-primary" onClick={this._showCreateTaskForm}> Schedule a task </button>
+						<div className="row">
+							<div className="col-xs-3">
+								<span><b> {this.props.start} - {this.props.finish} </b> </span>
+							</div>
+							<div className="col-xs-9">
+								<button className="btn btn-primary" onClick={this._showCreateTaskForm}> Schedule a task </button>
+							</div>
 						</div>
 					}
 					

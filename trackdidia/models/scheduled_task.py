@@ -27,4 +27,7 @@ class ScheduledTask(ndb.Model):
         if not self.executed:
             return (0, self.duration)
         return (self.timespent*self.priority, self.duration*self.priority)
+    
+    def find(self, week_key = None, day_key = None):
+        pass
 

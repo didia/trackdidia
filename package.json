@@ -1,0 +1,11 @@
+{
+  "name": "trackdidia",
+  "version": "0.1.0",
+  "description": "An app to track my schedule",
+  "author": "Aristote Diasonama <thefuture2092@gmail.com>",
+  "devDependencies": {
+    "gulp-sass": ">= 1.2.4",
+    "gulp-react": "^2.0.0"
+  },
+  "license": "MIT"
+}

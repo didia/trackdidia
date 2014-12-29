@@ -14,6 +14,7 @@ class Task(ndb.Model):
     name = ndb.StringProperty(required = True)
     description = ndb.TextProperty()
     location = ndb.StringProperty()
+    deleted = ndb.BooleanProperty(default = False)
     _owner = None
         
     def update(self, **kwargs):

@@ -10,7 +10,7 @@ from .task import Task
 from trackdidia.models.calendar import Week
 from trackdidia.models.scheduled_task import ScheduledTask
 from trackdidia import constants
-from trackdidia.models import utils
+from trackdidia.utils import utils
 
 def create_user(user_id, email, nickname):
     my_user = User(id=user_id, email=email, nickname=nickname)

@@ -11,7 +11,7 @@ from trackdidia.models.custom_exceptions import HandlerException, RessourceNotFo
 
 import response_producer
 
-from trackdidia.models import utils
+from trackdidia.utils import utils
 import trackdidia.models.stats as stat
 
 jinja_environment = jinja2.Environment(extensions = ['jinja2.ext.autoescape'],

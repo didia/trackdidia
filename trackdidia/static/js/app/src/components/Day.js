@@ -79,21 +79,46 @@ define(["exports", "react", "components/Slot", "components/EmptySlot", "app/util
 			var dayName = Utils.getDayString(day_id);
 			var numberOfTask = keys.length;
 			var numberOfCompletedTask = day.getNumberOfCompletedTask();
+			var percent = Math.round(day.stat[0] * 100 / day.stat[1]);
+			var progressBarColor = "";
+			if(percent < 50){
+				progressBarColor = "progress-bar-danger";
+			}
+			else if(percent < 90) {
+				progressBarColor = "progress-bar-warning";
+			}
+			else {
+				progressBarColor = "progress-bar-success";
+			}
+			var progressBarClass = "progress-bar " + progressBarColor;
+			var style = {
+				width : percent +"%"
+			}
 	
 
 			return (
 				
-			 	<div className="panel panel-default">
-    				<div className="panel-heading" role="tab" id={heading_id}>
-      					<h4 className="panel-title">
-        					<a data-toggle="collapse" data-parent="#schedule" href={"#" + body_id } aria-expanded={expanded? "true": "false"} aria-controls={body_id}>
-          						<span> {dayName} </span> | Task : {numberOfTask} | Completed : {numberOfCompletedTask}
-          						<span className="pull-right"> [{this.props.day.stat[0]} / {this.props.day.stat[1]}] </span>
-        					</a>
-      					</h4>
-    				</div>
+			 	<div className="panel panel-default day">
+			 		<a data-toggle="collapse" data-parent="#schedule" href={"#" + body_id } aria-expanded={expanded? "true": "false"} aria-controls={body_id}>
+	    				<div className="panel-heading day-header" role="tab" id={heading_id}>
+	    					<div className = "row">
+	    						<div className = "col-xs-3">
+		      						<h4 className="panel-title">
+		        						<span> {dayName} </span> 
+		      						</h4>
+	      						</div>
+	      						<div className = "col-xs-9">
+		      						<div className = "progress">
+		      							<div className = {progressBarClass} role="progress-bar" aria-valuenow = {percent} aria-valuemin = "0" aria-valuemax = "100" style={style}>
+		      								{percent}%
+		      							</div>
+		      						</div>
+	      						</div>
+	      					</div>
+	    				</div>
+    				</a>
     				<div id={body_id} className={expanded? "panel-collapse collapse in":"panel-collapse collapse"} role="tabpanel" aria-labelledby={heading_id}>
-      					<div className="panel-body">
+      					<div className="panel-body day-body">
         					{slots}
                         </div>
                     </div>

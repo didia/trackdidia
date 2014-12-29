@@ -57,7 +57,7 @@
  					EventProvider.fire(Constants.CHANGE_EVENT);
  				}
  				else {
-
+ 					EventProvider.fire(Constants.SET_EXECUTED_FAILED, response);
  				}
  			});
  		},

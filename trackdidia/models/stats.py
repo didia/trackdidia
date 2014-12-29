@@ -56,7 +56,7 @@ def get_plain_message(stat):
         by_day_message += str(stat["days"][i]["result"]) + " points  sur " + str(stat["days"][i]["total"])
         by_day_message += " possible \n"
     
-    message.format(stat["result"], stat["total"], by_day_message)
+    message = message.format(stat["result"], stat["total"], by_day_message)
     return message
     
 def send_mail(user, message):

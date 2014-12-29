@@ -6,15 +6,17 @@
 		<meta name="author" content="Aristote Diasonama">
 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
 		<!-- Le styles -->
-		<link href="/static/css/bootstrap.min.css" rel="stylesheet">
-		<link href="/static/css/bootstrap-theme.min.css" rel="stylesheet">
+
+		<link href="/static/css/build/application.css" rel="stylesheet">
 
 	</head>
 	
 	<body>
-		<header class="text-center">
-			<strong> Welcome {{ user}} </strong>
-		</header>
+		<nav class = "navbar navbar-default navbar-fixed-top" id = "header">
+			<div class = "container">
+				<p class = "navbar-text navbar-right"> <strong>{{user}}</strong> </p>
+			</div>
+		</nav>
 		
 		<div id="app" class="container-fluid center-block">
 

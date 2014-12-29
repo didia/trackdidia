@@ -6,7 +6,7 @@ Created on 2014-11-28
 @author: didia
 '''
 from google.appengine.ext import ndb
-from . import utils
+from trackdidia.utils import utils
 from .custom_exceptions import SchedulingConflict
 from .custom_exceptions import BadArgumentError
 from trackdidia.models.scheduled_task import ScheduledTask

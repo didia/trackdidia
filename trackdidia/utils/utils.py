@@ -7,8 +7,8 @@ Created on 2014-10-30
 '''
 import datetime
 from trackdidia import constants
-
-today = datetime.date.today()
+from .timezone import Eastern_tzinfo
+today = datetime.datetime.now(tz = Eastern_tzinfo())
 
 def get_week_start_and_end(date = None):
     '''

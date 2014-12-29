@@ -6,7 +6,7 @@
 
 'use strict'
 
-define(["react", "app/trackdidia", "app/TrackdidiaAction"], function(React, trackdidia, TrackdidiaAction){
+define(["react", "app/trackdidia", "app/TrackdidiaAction", "app/event", "app/constants"], function(React, trackdidia, TrackdidiaAction, EventProvider, Constants){
 
 	var ReactPropTypes = React.PropTypes;
 
@@ -18,7 +18,8 @@ define(["react", "app/trackdidia", "app/TrackdidiaAction"], function(React, trac
 	    },
 		getInitialState : function() {
 			return {
-				showConfirmDelete:false
+				showConfirmDelete:false,
+				errorMessage: null
 			};
 		},
 
@@ -30,7 +31,16 @@ define(["react", "app/trackdidia", "app/TrackdidiaAction"], function(React, trac
 
 		},
 		_setExecuted : function() {
+			this.refs.executed.getDOMNode().checked = true;
+			EventProvider.subscribe(Constants.SET_EXECUTED_FAILED, "_handleSetExecutedFailed", this);
 			TrackdidiaAction.setExecuted(this.props.slot);
+		},
+		_handleSetExecutedFailed : function(message) {
+			var state = this.state;
+			state.errorMessage = message;
+			this.refs.executed.getDOMNode().checked = false;
+			EventProvider.unsubscribe(Constants.SET_EXECUTED_FAILED, "_handleSetExecutedFailed", this);
+			this.setState(state);
 		},
 		_delete: function() {
 			TrackdidiaAction.deleteSlot(this.props.day, this.props.slot);
@@ -51,18 +61,25 @@ define(["react", "app/trackdidia", "app/TrackdidiaAction"], function(React, trac
 			}
 
 			return (
-				<div className="well">
+				<div className="slot">
 					<div className="row">
-
-						<div className = "col-xs-8">
-							<p> <span><b> {task.name} </b></span> From <b>{this.props.start}</b> to <b>{this.props.finish}</b> </p>
+						{this.state.errorMessage?
+				  			<div className="alert alert-danger" role="alert">
+				  				{ this.state.errorMessage}
+				    		</div> : ""
+				  		}
+				  		<div className = "col-xs-3">
+				  			<span><b> {this.props.start} - {this.props.finish} </b> </span>
+				  		</div>
+						<div className = "col-xs-7">
+							<p> <span><b> {task.name} </b></span> </p>
 							{task.description?<p>{task.description}</p>:""}
 						</div>
-						<div className = "col-xs-2">
-							<input className = "input-lg" type ="checkbox" checked={checked} onChange = {this._setExecuted}/>
-						</div>
-						<div className = "col-xs-2">
-							<a title = "Delete task" onClick = {this._toggleConfirmDelete} ><span className="glyphicon glyphicon-remove"> </span> </a>
+						<div className = "horizontal-list col-xs-2 text-right">
+							<ul>
+								<li> <input className = "set-executed" type ="checkbox" ref = "executed" checked={checked} onChange = {this._setExecuted}/> </li>
+								<li> <a title = "Delete task" onClick = {this._toggleConfirmDelete} ><span className="glyphicon glyphicon-remove"> </span> </a> </li>
+							</ul>
 						</div>
 					</div>
 					<div className={classNameConfirmDelete} role="alert">
