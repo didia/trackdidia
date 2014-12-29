@@ -78,18 +78,18 @@ define(["react", "app/trackdidia", "app/TrackdidiaAction", "app/event", "app/con
 						</div>
 						<div className = "horizontal-list col-xs-2 text-right">
 							<ul>
-								<li> <input className = "set-executed" type ="checkbox" ref = "executed" checked={checked} onChange = {this._setExecuted} disabled={disabled}/> </li>
-								<li> <a title = "Delete task" onClick = {this._toggleConfirmDelete} ><span className="glyphicon glyphicon-remove"> </span> </a> </li>
+								<li> <input className = "set-executed" type ="checkbox" ref = "executed" checked={checked} onChange = {this._setExecuted} onTouchEnd = {this._setExecuted} disabled={disabled}/> </li>
+								<li> <a title = "Delete task" onClick = {this._toggleConfirmDelete} onTouchEnd = {this._toggleConfirmDelete} ><span className="glyphicon glyphicon-remove"> </span> </a> </li>
 							</ul>
 						</div>
 					</div>
 					<div className={classNameConfirmDelete} role="alert">
-				      <button type="button" className="close" onClick = {this._toggleConfirmDelete}><span aria-hidden="true">&times;</span><span className="sr-only">Close</span></button>
+				      <button type="button" className="close" onClick = {this._toggleConfirmDelete} onTouchEnd = {this._toggleConfirmDelete} ><span aria-hidden="true">&times;</span><span className="sr-only">Close</span></button>
 				      <h4>Are you sure?</h4>
 				      <p>Are you sure you want to remove this task? This operation cannot be undone.</p>
 				      <p>
-				        <button type="button" onClick = {this._delete} className="btn btn-danger"> Remove this task </button>
-				        <button type="button" onClick = {this._toggleConfirmDelete} className="btn btn-default"> Cancel </button>
+				        <button type="button" onClick = {this._delete} onTouchEnd = {this._delete} className="btn btn-danger"> Remove this task </button>
+				        <button type="button" onClick = {this._toggleConfirmDelete} onTouchEnd = {this._toggleConfirmDelete} className="btn btn-default"> Cancel </button>
 				      </p>
 					</div>
 				</div>
