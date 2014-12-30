@@ -51,12 +51,12 @@ class Day(ndb.Model):
                 raise SchedulingConflict(message)
             
     @invalidate_cache
-    def add_scheduled_task(self, task, offset, duration):
+    def add_scheduled_task(self, task, offset, duration, recurrence = None):
         self.validate_offset_and_duration(offset, duration)
         
         self.invalidate_cache()
                 
-        scheduled_task = ScheduledTask(parent=self.key, task=task.key, offset= offset, duration = duration)
+        scheduled_task = ScheduledTask(parent=self.key, task=task.key, offset= offset, duration = duration, recurrence = recurrence)
         scheduled_task.put()
         for i in range(offset, offset+duration):
             self.interval_usage[i] = True
