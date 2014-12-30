@@ -321,19 +321,14 @@ class ScheduledTaskHandler(DayHandler):
         try:
             response = {}
             if (self.request.get('task_id')):
-                scheduled_task = self._create_scheduled_task(day_id, week_id)
+                scheduled_task = self._create_scheduled_task(int(day_id), week_id)
                 response = response_producer.produce_scheduled_task_response(self.request, scheduled_task, day_id, week_id)
             else:
                 
-                task, scheduled_task = self._create_task_and_scheduled_task(day_id, week_id)
+                task, scheduled_task = self._create_task_and_scheduled_task(int(day_id), week_id)
                 response['task'] = response_producer.produce_task_response(self.request, task)
                 response['scheduled_task'] = response_producer.produce_scheduled_task_response(self.request, scheduled_task, day_id, week_id)
             
-            recurrence = self.params.get('recurrence')
-            if recurrence and recurrence != week_id:
-                recurrent_week = self.user.get_week('weekly')
-                if recurrent_week : 
-                    recurrent_week.add_recurrence(scheduled_task, recurrence)
             self.send_response(response)
         except SchedulingConflict as e:
             raise HandlerException(e)
@@ -360,7 +355,8 @@ class ScheduledTaskHandler(DayHandler):
     
     @user_required
     def delete(self, day_id, scheduled_task_id, week_id = 'current'):
-        self.day.remove_scheduled_task(scheduled_task_id = int(scheduled_task_id))
+        recurrence = self.params.get('recurrence') != None
+        self.week.delete_scheduled_task(int(day_id), self.scheduled_task, recurrence)
         DayHandler.get(self, day_id, week_id);
     
     @user_required 
@@ -384,7 +380,7 @@ class ScheduledTaskHandler(DayHandler):
         recurrence = self.params.get('recurrence')
         
         task = self.user.get_task(task_id)
-        scheduled_task = self.day.add_scheduled_task(task, offset, duration, recurrence)
+        scheduled_task = self.week.add_scheduled_task(day_id, task, offset, duration, recurrence)
         return scheduled_task
     
     def _create_task_and_scheduled_task(self, day_id, week_id):
@@ -397,7 +393,7 @@ class ScheduledTaskHandler(DayHandler):
         if(task_parameters.get('name') is None):
             raise HandlerException("When the parameter task_id is not provided, the parameter name is required to create a new task")
         task = self.user.create_task(**task_parameters)
-        scheduled_task = self.day.add_scheduled_task(task, offset, duration, recurrence)
+        scheduled_task = self.week.add_scheduled_task(day_id, task, offset, duration, recurrence)
         return task, scheduled_task
     
     

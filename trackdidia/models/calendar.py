@@ -55,7 +55,8 @@ class Day(ndb.Model):
         self.validate_offset_and_duration(offset, duration)
         
         self.invalidate_cache()
-                
+        if not recurrence:
+            recurrence = constants.RECURRENCE_TYPES[0]
         scheduled_task = ScheduledTask(parent=self.key, task=task.key, offset= offset, duration = duration, recurrence = recurrence)
         scheduled_task.put()
         for i in range(offset, offset+duration):
@@ -98,8 +99,8 @@ class Day(ndb.Model):
             self._scheduled_tasks = []
             
     @invalidate_cache
-    def remove_scheduled_task(self, scheduled_task_id):
-        scheduled_task = self.get_scheduled_task(scheduled_task_id)
+    def remove_scheduled_task(self, scheduled_task_id = None, scheduled_task = None):
+        scheduled_task = scheduled_task or self.get_scheduled_task(scheduled_task_id)
         if not scheduled_task is None:
             for i in range(scheduled_task.offset, scheduled_task.offset + scheduled_task.duration):
                 self.interval_usage[i] = False
@@ -205,20 +206,48 @@ class Week(ndb.Model):
         for day in days:
             day.restart()
     
+    def add_scheduled_task(self, day_id, task, offset, duration, recurrence = False):
+        day = self.get_day(day_id)
+        scheduled_task = day.add_scheduled_task(task, offset = offset, duration = duration, recurrence = recurrence)
+        if recurrence:
+            weekly = self.get_owner().get_week('weekly')
+            weekly.add_recurrence(scheduled_task)
+           
+            if scheduled_task.recurrence == constants.RECURRENCE_TYPES[1]:     
+                for i in range(day_id + 1, 8):
+                    self.get_day(i).clone_scheduled_task(scheduled_task)  
+                
+        
+        return scheduled_task
     
-    def add_recurrence(self, scheduled_task, recurrence_type):
+    def delete_scheduled_task(self, day_id, scheduled_task, recurrence = False):
+        self.get_day(day_id).remove_scheduled_task(scheduled_task.key.id())
+        if recurrence:
+            weekly = self.get_owner().get_week("weekly")
+            weekly.delete_recurrence(scheduled_task)
+            if scheduled_task.recurrence == constants.RECURRENCE_TYPES[1]:
+                for i in range(day_id+1, 8):
+                    self.get_day(i).remove_scheduled_task(scheduled_task.key.id())               
+    
+    def add_recurrence(self, scheduled_task):
         if not self.recurrent:
             raise BadArgumentError("The week " + self.key.id() + " is not a recurrent week")
         
-        if recurrence_type == constants.RECURRENCE_TYPES[1]: #daily
-            day_id = scheduled_task.key.parent().id()
-            scheduled_task_week = scheduled_task.key.parent().parent().get()
-            for i in range(day_id + 1, 8):
-                scheduled_task_week.get_day(i).clone_scheduled_task(scheduled_task)
+        if scheduled_task.recurrence == constants.RECURRENCE_TYPES[1]: #daily    
             for i in range(1, 8):
                 self.get_day(i).clone_scheduled_task(scheduled_task)
-        if recurrence_type == constants.RECURRENCE_TYPES[2] : #weekly
+        elif scheduled_task.recurrence == constants.RECURRENCE_TYPES[2] : #weekly
             self.get_day(scheduled_task.key.parent().id()).clone_scheduled_task(scheduled_task)
+    
+    def delete_recurrence(self, scheduled_task):
+        if not self.recurrent:
+            raise BadArgumentError("The week " + self.key.id() + "is not a recurrent week")
+        
+        if scheduled_task.recurrence == constants.RECURRENCE_TYPES[1]:
+            for day in self.get_all_days():
+                day.remove_scheduled_task(scheduled_task_id = scheduled_task.key.id())
+        elif scheduled_task.recurrence == constants.RECURRENCE_TYPES[2]:
+            self.get_day(scheduled_task.key.parent().id()).remove_scheduled_task(scheduled_task_id = scheduled_task.key.id())
     
     def get_stat(self):
         return reduce(lambda x, y:(x[0] + y[0], x[1] + y[1]), map(lambda z: z.get_stat(), self.get_all_days()))

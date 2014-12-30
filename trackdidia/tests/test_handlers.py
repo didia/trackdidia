@@ -243,7 +243,7 @@ class TestDayHandler(TestApiHandler):
         response_list = simplejson.loads(response.body)
         self.assertEquals(7, len(response_list))
 
-class TestSlotHandler(TestApiHandler):
+class TestScheduledTaskHandler(TestApiHandler):
     def testCreate(self):
         task = self.user.create_task("Fifa Time")
         url = "/api/weeks/current/days/2/scheduled-tasks/create"
@@ -372,7 +372,74 @@ class TestSlotHandler(TestApiHandler):
         response_dict = simplejson.loads(response.body)
         self.assertEquals(1, response_dict['id'])
         self.assertIsNone(self.week.get_day(1).get_scheduled_task(scheduled_task.key.id()))
+    
+    def testDeleteWithoutRecurrence(self):
+        task = self.user.create_task("VolleyBall")
+        scheduled_task = self.week.add_scheduled_task(1, task, 20, 20, 'daily')
+        url = "/api/weeks/current/days/1/scheduled-tasks/" + str(scheduled_task.key.id()) + "/delete"
         
+        request = webapp2.Request.blank(url)
+        request.method = "POST"
+
+        response = request.get_response(main.app)
+        self.assertEquals(200, response.status_int)
+        
+        url = "/api/weeks/{}/days/{}/scheduled-tasks/" + str(scheduled_task.key.id())
+        request = webapp2.Request.blank(url.format('current', 1))
+        response = request.get_response(main.app)
+        self.assertEquals(404, response.status_int)
+        
+        for i in range(1, 8):
+            request = webapp2.Request.blank(url.format('weekly', i))
+            response = request.get_response(main.app)
+            self.assertEquals(200, response.status_int)
+        
+        
+        for i in range(2, 8):
+            request = webapp2.Request.blank(url.format('current', i))
+            response = request.get_response(main.app)
+            self.assertEquals(200, response.status_int)
+            
+    def testDeleteWithDailyRecurrence(self):
+        task = self.user.create_task("VolleyBall")
+        scheduled_task = self.week.add_scheduled_task(1, task, 20, 20, 'daily')
+        url = "/api/weeks/current/days/1/scheduled-tasks/" + str(scheduled_task.key.id()) + "/delete"
+        
+        request = webapp2.Request.blank(url)
+        request.method = "POST"
+        request.body = "recurrence=true"
+        response = request.get_response(main.app)
+        self.assertEquals(200, response.status_int)
+        
+        url = "/api/weeks/{}/days/{}/scheduled-tasks/" + str(scheduled_task.key.id())
+        for i in range(1, 8):
+            request = webapp2.Request.blank(url.format('weekly', i))
+            response = request.get_response(main.app)
+            self.assertEquals(404, response.status_int)
+        
+        
+        for i in range(2, 8):
+            request = webapp2.Request.blank(url.format('current', i))
+            response = request.get_response(main.app)
+            self.assertEquals(404, response.status_int)
+    
+    def testDeleteWithWeeklyRecurrence(self):
+        task = self.user.create_task("VolleyBall")
+        scheduled_task = self.week.add_scheduled_task(1, task, 20, 20, 'weekly')
+        url = "/api/weeks/current/days/1/scheduled-tasks/" + str(scheduled_task.key.id()) + "/delete"
+        
+        request = webapp2.Request.blank(url)
+        request.method = "POST"
+        request.body = "recurrence=true"
+        response = request.get_response(main.app)
+        self.assertEquals(200, response.status_int)
+        
+        url = "/api/weeks/{}/days/{}/scheduled-tasks/" + str(scheduled_task.key.id())
+       
+        request = webapp2.Request.blank(url.format('weekly', 1))
+        response = request.get_response(main.app)
+        self.assertEquals(404, response.status_int)
+      
     def testSetExecuted(self):
         today_id = utils.get_today_id()
         day = self.week.get_day(today_id)

@@ -8,6 +8,7 @@ Created on 2014-11-28
 import unittest
 from .base_test import TestTracking
 from trackdidia.models.calendar import Day
+from trackdidia.models.calendar import ScheduledTask
 from trackdidia.models.custom_exceptions import SchedulingConflict
 from trackdidia.models.custom_exceptions import BadArgumentError
 
@@ -151,7 +152,7 @@ class TestDay(TestTracking):
         stat = day.get_stat()
         self.assertEquals(5.0, stat[0])
 
-class TestSchedule(TestTracking):
+class TestWeek(TestTracking):
 
     def testGetDay(self):
         i = 1  
@@ -175,36 +176,7 @@ class TestSchedule(TestTracking):
         for day in days:
             self.assertTrue(type(day) == Day)
     
-    def testAddRecurrence(self):
-        i = 2
-        duration= 6 # 6 interval . With interval = 0.5h, duration = 3 hours
-        start_offset = 18
-        task = self.user.create_task("Dinner Time")
-        
-        day = self.week.get_day(i)
-        scheduled_task = day.add_scheduled_task(task, start_offset, duration)
-        weekly = self.user.get_week("weekly")
-        
-        #Raises an exception if the week used is not a recurrent week
-        self.assertRaises(BadArgumentError, self.week.add_recurrence, scheduled_task =  scheduled_task, recurrence_type = "weekly")
-        
-        # Test weekly recurrence
-        weekly.add_recurrence(scheduled_task, 'weekly')
-        same_scheduled_task = weekly.get_day(i).get_scheduled_task(scheduled_task.key.id())
-        self.assertIsNotNone(same_scheduled_task)
-        
-        #Test daily recurrence
-        start_offset = 30
-        task = self.user.create_task("Super Time")
-        scheduled_task = self.week.get_day(1).add_scheduled_task(task, start_offset, duration)
-        weekly.add_recurrence(scheduled_task, "daily")
-        for i in range(i, 8):
-            same_scheduled_task = weekly.get_day(i).get_scheduled_task(scheduled_task.key.id())
-            self.assertIsNotNone(same_scheduled_task)
-        for i in range(2, 8):
-            same_scheduled_task = self.week.get_day(i).get_scheduled_task(scheduled_task.key.id())
-            self.assertIsNotNone(same_scheduled_task)     
-    
+     
     def testGetStat(self):
         stat = self.week.get_stat()
         self.assertEquals(0, stat[0])
@@ -218,7 +190,189 @@ class TestSchedule(TestTracking):
         scheduled_task = day.add_scheduled_task(task, 30, 5)
         day.set_executed(scheduled_task.key.integer_id())
         stat = self.week.get_stat()
-        self.assertEquals(7.5, stat[0])       
+        self.assertEquals(7.5, stat[0])
+
+    def testAddRecurrence(self):
+        i = 2
+        duration= 6 # 6 interval . With interval = 0.5h, duration = 3 hours
+        start_offset = 18
+        task = self.user.create_task("Dinner Time")
+        
+        day = self.week.get_day(i)
+        scheduled_task = day.add_scheduled_task(task, start_offset, duration)
+        weekly = self.user.get_week("weekly")
+        
+        #Raises an exception if the week used is not a recurrent week
+        self.assertRaises(BadArgumentError, self.week.add_recurrence, scheduled_task =  scheduled_task)
+        
+        # Test recurrent week
+        try:
+            weekly.add_recurrence(scheduled_task)
+        except Exception:
+            self.fail("add_recurrence raised an exception when called with a recurrent week")
+    
+    def testDeleteRecurrence(self):
+        i = 2
+        duration= 6 # 6 interval . With interval = 0.5h, duration = 3 hours
+        offset = 18
+        task = self.user.create_task("Dinner Time")
+        
+        scheduled_task = self.week.add_scheduled_task(i, task, offset, duration, 'daily')
+        
+        #Raises an exception if the week used is not a recurrent week
+        self.assertRaises(BadArgumentError, self.week.delete_recurrence, scheduled_task =  scheduled_task)
+
+        # Test recurrent week
+        weekly = self.user.get_week("weekly")
+        try:
+            weekly.delete_recurrence(scheduled_task)
+        except Exception:
+            self.fail("delete_recurrence raised an exception when called with a recurrent week") 
+    
+    def testDeleteWeeklyRecurrence(self):
+        i = 2
+        duration= 6 # 6 interval . With interval = 0.5h, duration = 3 hours
+        offset = 18
+        task = self.user.create_task("Dinner Time")
+        
+        scheduled_task = self.week.add_scheduled_task(i, task, offset, duration, 'weekly')        
+        weekly = self.user.get_week("weekly")
+         
+        weekly.delete_recurrence(scheduled_task)
+         
+        self.assertIsNone(weekly.get_day(i).get_scheduled_task(scheduled_task.key.id()))
+    
+    def testDeleteDailyRecurrence(self):
+        i = 2
+        duration= 6 # 6 interval . With interval = 0.5h, duration = 3 hours
+        offset = 18
+        task = self.user.create_task("Dinner Time")
+        
+        scheduled_task = self.week.add_scheduled_task(i, task, offset, duration, 'daily')        
+        weekly = self.user.get_week("weekly")
+         
+        weekly.delete_recurrence(scheduled_task)
+        
+        for day in weekly.get_all_days():
+            same_scheduled_task = day.get_scheduled_task(scheduled_task.key.id())
+            self.assertIsNone(same_scheduled_task)
+               
+    
+    def testAddScheduledTaskWithoutRecurrence(self):
+        day_id = 2
+        task = self.user.create_task("Fifa Time")
+        duration= 6 # 6 interval . With interval = 0.5h, duration = 3 hours
+        offset = 18
+        current_schedule = self.user.get_week('current')
+        scheduled_task = current_schedule.add_scheduled_task(day_id = day_id, task = task, duration = duration, offset = offset)
+        self.assertIsNotNone(scheduled_task)
+        self.assertEquals(duration, scheduled_task.duration)
+        self.assertEquals(offset, scheduled_task.offset)
+        
+        weekly = self.user.get_week('weekly')
+        same_scheduled_task = weekly.get_day(day_id).get_scheduled_task(scheduled_task.key.id())
+        self.assertIsNone(same_scheduled_task)
+    
+    def testAddScheduleTaskWithWeeklyRecurrence(self):
+        day_id = 2
+        task = self.user.create_task("Fifa Time")
+        duration = 6
+        offset = 18
+        current_schedule = self.user.get_week('current')
+        scheduled_task = current_schedule.add_scheduled_task(day_id = day_id, task = task, duration = duration, offset = offset, recurrence = 'weekly')
+        self.assertIsNotNone(scheduled_task)
+        
+        weekly = self.user.get_week('weekly')
+    
+        same_scheduled_task = weekly.get_day(day_id).get_scheduled_task(scheduled_task.key.id())
+        self.assertIsNotNone(same_scheduled_task)
+        same_scheduled_tasks = []
+        for day in weekly.get_all_days():
+            same_scheduled_task = day.get_scheduled_task(scheduled_task.key.id())
+            if same_scheduled_task :
+                same_scheduled_tasks.append(same_scheduled_task)
+        self.assertEquals(1, len(same_scheduled_tasks))
+    
+    def testAddScheduleTaskWithDailyRecurrence(self):
+        day_id = 2
+        task = self.user.create_task("Fifa Time")
+        duration = 6
+        offset = 18
+        current_schedule = self.user.get_week('current')
+        scheduled_task = current_schedule.add_scheduled_task(day_id = day_id, task = task, duration = duration, offset = offset, recurrence = 'daily')
+        self.assertIsNotNone(scheduled_task)
+        
+        weekly = self.user.get_week('weekly')
+    
+        same_scheduled_task = current_schedule.get_day(1).get_scheduled_task(scheduled_task.key.id())
+        self.assertIsNone(same_scheduled_task)
+        
+        for i in range(day_id, 8):
+            same_scheduled_task = current_schedule.get_day(i).get_scheduled_task(scheduled_task.key.id())
+            self.assertIsNotNone(same_scheduled_task)
+      
+        for day in weekly.get_all_days():
+            same_scheduled_task = day.get_scheduled_task(scheduled_task.key.id())
+            self.assertIsNotNone(same_scheduled_task)
+    
+    def testDeleteScheduledTaskWithoutRecurrence(self):
+        i = 3
+        day = self.week.get_day(i)
+        duration= 6 # 6 interval . With interval = 0.5h, duration = 3 hours
+        offset = 18
+        task = self.user.create_task("Dinner Time")
+       
+        scheduled_task = self.week.add_scheduled_task(i, task, offset, duration, "daily")
+        
+        self.week.delete_scheduled_task(i, scheduled_task)
+        
+        self.assertIsNone(day.get_scheduled_task(scheduled_task.key.id()))
+        weekly = self.user.get_week('weekly')
+        for day in weekly.get_all_days():
+            same_scheduled_task = day.get_scheduled_task(scheduled_task.key.id())
+            self.assertIsNotNone(same_scheduled_task)
+    
+    def testDeleteScheduledTaskWithDailyRecurrence(self):
+        i = 3
+        day = self.week.get_day(i)
+        duration= 6 # 6 interval . With interval = 0.5h, duration = 3 hours
+        offset = 18
+        task = self.user.create_task("Dinner Time")
+       
+        scheduled_task = self.week.add_scheduled_task(i, task, offset, duration, "daily")
+        
+        scheduled_task = day.get_scheduled_task(scheduled_task.key.id())
+        
+        self.week.delete_scheduled_task(i, scheduled_task, True)
+        
+        self.assertIsNone(day.get_scheduled_task(scheduled_task.key.id()))
+        weekly = self.user.get_week('weekly')
+        
+        for k in range(i+1, 8):
+            self.assertIsNone(self.week.get_day(k).get_scheduled_task(scheduled_task.key.id()))
+        
+        for day in weekly.get_all_days():        
+            same_scheduled_task = day.get_scheduled_task(scheduled_task.key.id())
+            self.assertIsNone(same_scheduled_task)
+    
+    def testDeleteScheduledTaskWithWeeklyRecurrence(self):
+        i = 3
+        day = self.week.get_day(i)
+        duration= 6 # 6 interval . With interval = 0.5h, duration = 3 hours
+        offset = 18
+        task = self.user.create_task("Dinner Time")
+       
+        scheduled_task = self.week.add_scheduled_task(i, task, offset, duration, "weekly")
+        
+        self.week.delete_scheduled_task(i, scheduled_task, True)
+        
+        self.assertIsNone(day.get_scheduled_task(scheduled_task.key.id()))
+        weekly = self.user.get_week('weekly')
+       
+        same_scheduled_task = weekly.get_day(i).get_scheduled_task(scheduled_task.key.id())
+        self.assertIsNone(same_scheduled_task)
+        
+            
         
 
 
