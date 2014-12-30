@@ -19,6 +19,7 @@ define(function(){
 			this.duration = scheduledTaskData.duration;
 			this.executed = scheduledTaskData.executed;
 			this.task_id = scheduledTaskData.task_id;
+			this.recurrence = scheduledTaskData.recurrence;
 			this.links = scheduledTaskData.links;
 		}
 	};

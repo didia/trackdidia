@@ -43,7 +43,11 @@ define(["react", "app/trackdidia", "app/TrackdidiaAction", "app/event", "app/con
 			this.setState(state);
 		},
 		_delete: function() {
-			TrackdidiaAction.deleteSlot(this.props.day, this.props.slot);
+			var recurrence = null;
+			if(this.props.slot.recurrence != "None") {
+				recurrence = this.refs.recurrence.getDOMNode().checked;
+			}
+			TrackdidiaAction.deleteSlot(this.props.day, this.props.slot, recurrence);
 		},
 		_toggleConfirmDelete: function() {
 			var state = this.state;
@@ -86,6 +90,7 @@ define(["react", "app/trackdidia", "app/TrackdidiaAction", "app/event", "app/con
 					<div className={classNameConfirmDelete} role="alert">
 				      <button type="button" className="close" onClick = {this._toggleConfirmDelete} onTouchEnd = {this._toggleConfirmDelete} ><span aria-hidden="true">&times;</span><span className="sr-only">Close</span></button>
 				      <h4>Are you sure?</h4>
+				      {this.props.slot.recurrence != "None"?<p><input type = "checkbox" ref = "recurrence" /> Remove {this.props.slot.recurrence} recurrence </p> : ""}
 				      <p>Are you sure you want to remove this task? This operation cannot be undone.</p>
 				      <p>
 				        <button type="button" onClick = {this._delete} onTouchEnd = {this._delete} className="btn btn-danger"> Remove this task </button>

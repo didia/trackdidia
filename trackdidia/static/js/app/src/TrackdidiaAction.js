@@ -61,10 +61,14 @@
  				}
  			});
  		},
- 		deleteSlot: function(day, scheduledTask) {
+ 		deleteSlot: function(day, scheduledTask, recurrence) {
  			var url = scheduledTask.links["delete"];
+            var request = null;
+            if(recurrence){
+                request = {'recurrence' : true}
+            }
  			var method = "POST";
- 			trackdidia.remote(url, method, null, function(response, status) {
+ 			trackdidia.remote(url, method, request, function(response, status) {
  				if(status == "ok") {
  					console.log("Delete task executed succesfully");
  					var dayData = response;

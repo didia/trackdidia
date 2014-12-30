@@ -34,7 +34,7 @@ class TestResponseProducer(TestTracking):
         self.assertTrue(all(x in response['links'] for x in expected_links))
     
     def testSlotResponse(self):
-        expected_response_attributes = ['id', 'offset', 'duration', 'executed', 'task_id', 'links']
+        expected_response_attributes = ['id', 'offset', 'duration', 'executed', 'task_id', 'recurrence', 'links']
         expected_links = ['get', 'update', 'delete', 'set_executed'] 
         response = response_producer.produce_scheduled_task_response(self.request, self.scheduled_task, self.day.key.id(), self.week.key.id())
         self.assertTrue(all(x in response for x in expected_response_attributes))

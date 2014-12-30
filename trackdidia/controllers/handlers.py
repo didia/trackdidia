@@ -376,31 +376,28 @@ class ScheduledTaskHandler(DayHandler):
         response = response_producer.produce_scheduled_task_response(self.request, scheduled_task, day_id, week_id)
         
         self.send_response(response)
-    
-    def _get_allowed_params(self):
-        params = self.cleanPostedData(ScheduledTaskHandler.ALLOWED_PARAMS)
-        return params  
-    
+        
     def _create_scheduled_task(self, day_id, week_id):
-        params = self._get_allowed_params()
-        task_id = long(params['task_id'])
-        duration = int(params['duration'])
-        offset = int(params['offset'])
+        task_id = long(self.params['task_id'])
+        duration = int(self.params['duration'])
+        offset = int(self.params['offset'])
+        recurrence = self.params.get('recurrence')
         
         task = self.user.get_task(task_id)
-        scheduled_task = self.day.add_scheduled_task(task, offset, duration)
+        scheduled_task = self.day.add_scheduled_task(task, offset, duration, recurrence)
         return scheduled_task
     
     def _create_task_and_scheduled_task(self, day_id, week_id):
-        scheduled_task_parameters = self._get_allowed_params()
+        scheduled_task_parameters = self.params
         duration = int(scheduled_task_parameters['duration'])
         offset = int(scheduled_task_parameters['offset'])
+        recurrence = self.params.get('recurrence')
         self.day.validate_offset_and_duration(offset, duration)
         task_parameters = self.cleanPostedData(TaskHandler.ALLOWED_PARAMS)
         if(task_parameters.get('name') is None):
             raise HandlerException("When the parameter task_id is not provided, the parameter name is required to create a new task")
         task = self.user.create_task(**task_parameters)
-        scheduled_task = self.day.add_scheduled_task(task, offset, duration)
+        scheduled_task = self.day.add_scheduled_task(task, offset, duration, recurrence)
         return task, scheduled_task
     
     

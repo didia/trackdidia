@@ -14,7 +14,9 @@ def produce_scheduled_task_response(request, scheduled_task, day_id, week_id):
     response['offset'] = scheduled_task.offset
     response['duration'] = scheduled_task.duration
     response['executed'] = scheduled_task.executed
+    response['recurrence'] = scheduled_task.recurrence
     response['task_id'] = scheduled_task.task.integer_id()
+    
     links = {}
     links['get'] = webapp2.uri_for('get_scheduled_task', _request = request, week_id = week_id, day_id = day_id, scheduled_task_id = scheduled_task_id)
     links['update'] = webapp2.uri_for('update_scheduled_task', _request = request,  week_id = week_id, day_id = day_id, scheduled_task_id = scheduled_task_id)
