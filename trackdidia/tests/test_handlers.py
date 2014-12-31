@@ -170,6 +170,56 @@ class TestTaskHandler(TestApiHandler):
         self.assertEquals(response.status_int, 200)
         response_dict = simplejson.loads(response.body)
         self.assertEquals(len(self.user.get_all_tasks()), len(response_dict["tasks"]))
+    
+    def testDeleteWithoutScheduledTask(self):
+        url_format_delete = "/api/tasks/{}/delete"
+        url_format_get = "/api/tasks/{}"
+        url = url_format_delete.format(self.task.key.id())
+        
+        request = webapp2.Request.blank(url)
+        
+        #fail when executing with a bad method, GET
+        request.method = "GET"
+        response = request.get_response(main.app)
+        self.assertEquals(response.status_int, 405)
+        
+        request.method = "POST"
+        response = request.get_response(main.app)
+        self.assertEquals(response.status_int, 200)
+        
+        #get the task should return 404
+        url = url_format_get.format(self.task.key.id())
+        request = webapp2.Request.blank(url)
+        response = request.get_response(main.app)
+        self.assertEquals(response.status_int, 404)
+    
+    def testDeleteWithScheduledTask(self):
+        today = utils.get_today_id()
+        self.user.get_week('current').add_scheduled_task(today, self.task, duration=6, offset=18, recurrence='daily')
+        url_format_delete = "/api/tasks/{}/delete"
+        url_format_get = "/api/tasks/{}"
+        url = url_format_delete.format(self.task.key.id())
+        
+        request = webapp2.Request.blank(url)
+        
+        #fail when executing with a bad method, GET
+        request.method = "POST"
+        response = request.get_response(main.app)
+        self.assertEquals(response.status_int, 400)
+        
+        request.method = "POST"
+        request.body = "force=true"
+        response = request.get_response(main.app)
+        
+        self.assertEquals(response.status_int, 200)
+        
+        #get the task should return 404
+        url = url_format_get.format(self.task.key.id())
+        request = webapp2.Request.blank(url)
+        response = request.get_response(main.app)
+        self.assertEquals(response.status_int, 404)
+    
+        
         
                
 class TestScheduleHandler(TestApiHandler):

@@ -8,6 +8,7 @@ Created on 2014-10-28
 from google.appengine.ext import ndb
 
 from .custom_exceptions import BadArgumentError
+from .custom_exceptions import DeleteTaskFailed
 from .task import Task
 from trackdidia.models.calendar import Week
 from trackdidia.models.scheduled_task import ScheduledTask
@@ -92,18 +93,24 @@ class User(ndb.Model):
         return task
     
     def has_task(self, task_name):
-        return Task.query(ancestor = self.key).filter(Task.name ==task_name).get() != None;
+        return Task.query(ancestor = self.key).filter(ndb.AND(Task.name ==task_name, Task.deleted == False)).get() != None;
                     
     def get_task(self, task_id):
         task = Task.get_by_id(task_id, parent = self.key)
-        return task
+        if task and not task.deleted:
+            return task
+        return None
     
     def get_task_by_name(self, task_name):
         return Task.query(ancestor = self.key).filter(Task.name ==task_name).get()
     
-    def get_all_tasks(self):
+    def get_all_tasks(self, deleted = False):
         if self._tasks is None:
-            self._tasks = Task.query(ancestor=self.key).order(Task.name).fetch()
+            if deleted is None:
+                self._tasks = Task.query(ancestor = self.key).order(Task.name).fetch()
+            else:
+                self._tasks = Task.query(ancestor=self.key).filter(Task.deleted == deleted).order(Task.name).fetch()
+            
         return self._tasks
         
     def update_task(self, task_id, **kwargs):
@@ -116,9 +123,27 @@ class User(ndb.Model):
         return task.update(**kwargs)
         
     
-    def delete_task(self, task_id):
-        key = ndb.Key(Task, task_id, parent = self.key)
-        key.delete()
+    def delete_task(self, task_id = None, task_key = None, task = None, force = False):
+        if task :
+            pass
+        elif task_key:
+            task = task_key.get()
+        elif task_id:
+            key = ndb.Key(Task, task_id, parent = self.key)
+            task = key.get()
+        else:
+            raise BadArgumentError("No task_id or task_key or task provided")
+        
+        scheduled_tasks = self.get_scheduled_tasks(active_only = True, task_key = task.key, unique=True)
+        if force or len(scheduled_tasks) == 0:
+            task.deleted = True
+            task.put()
+            week = self.get_week('current')
+            today = utils.get_today_id()
+            for sd in scheduled_tasks:
+                week.delete_scheduled_task(today, sd, True)
+        else:  
+            raise DeleteTaskFailed("Task to be deleted has active scheduled tasks") 
     
     def init_calendar(self):
         if self.get_week() is None:

@@ -23,3 +23,6 @@ class RessourceNotFound(HandlerException):
 
 class NotImplementedYet(HandlerException, NotImplementedError):
     pass
+
+class DeleteTaskFailed(Exception):
+    pass

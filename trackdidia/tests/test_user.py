@@ -11,6 +11,7 @@ import datetime
 from base_test import DatastoreTest
 from trackdidia.models import user
 from trackdidia.models.custom_exceptions import BadArgumentError
+from trackdidia.models.custom_exceptions import DeleteTaskFailed
 from trackdidia.utils import utils
 
 class TestUser(DatastoreTest): 
@@ -134,12 +135,46 @@ class TestUser(DatastoreTest):
         my_task = self.user.get_task_by_name(name)
         self.assertIsNotNone(my_task)
 
-    def testDeleteTask(self):
+    def testDeleteTaskWithoutScheduledTask(self):
         name = "GLO-2100"
         my_task = self.user.create_task(name = name)
         self.user.delete_task(task_id = my_task.key.integer_id())
         self.assertIsNone(self.user.get_task(task_id = my_task.key.integer_id()))
+        my_task = self.user.create_task(name = name)
+        self.user.delete_task(task_key = my_task.key)
+        self.assertIsNone(self.user.get_task(task_id = my_task.key.integer_id()))
+        my_task = self.user.create_task(name = name)
+        self.user.delete_task(task = my_task)
+        self.assertIsNone(self.user.get_task(task_id = my_task.key.integer_id()))
+       
+        self.assertRaises(BadArgumentError, self.user.delete_task)
     
+    def testDeleteTaskWithScheduledTaskWithoutForce(self):
+        task = self.user.create_task("Fifa Time")
+        duration= 6 # 6 interval . With interval = 0.5h, duration = 3 hours
+        offset = 18
+        current_schedule = self.user.get_week('current')
+        current_schedule.add_scheduled_task(day_id = 1, task = task, duration = duration, offset = offset, recurrence='daily')
+        self.assertRaises(DeleteTaskFailed, self.user.delete_task, task = task)
+    
+    def testDeleteTaskWithScheduledTaskWithForce(self):
+        task = self.user.create_task("Fifa Time")
+        duration= 6 # 6 interval . With interval = 0.5h, duration = 3 hours
+        offset = 18
+        current_schedule = self.user.get_week('current')
+        current_schedule.add_scheduled_task(day_id = 1, task = task, duration = duration, offset = offset, recurrence = 'daily')
+        current_schedule.add_scheduled_task(day_id = 4, task = task, duration = duration, offset = offset + duration + 1)
+        
+        utils.today = datetime.date(2014,10,29) #it's day 3
+        
+        scheduled_tasks = self.user.get_scheduled_tasks(task_key = task.key)
+        self.assertEquals(15, len(scheduled_tasks))
+        self.user.delete_task(task = task, force = True)
+        
+        scheduled_tasks = self.user.get_scheduled_tasks(task_key =  task.key)
+        
+        self.assertEquals(3, len(scheduled_tasks))
+         
     def testGetCurrentWeek(self):
         week_id = utils.get_week_id()
         current_week = self.user.get_current_week()
@@ -160,6 +195,7 @@ class TestUser(DatastoreTest):
         
         self.assertEquals(2, len(all_scheduled_tasks))
         utils.today = datetime.datetime.now()
+    
         
         
         

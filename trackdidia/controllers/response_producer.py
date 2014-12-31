@@ -76,6 +76,7 @@ def produce_task_response(request, task):
     
     links['get_task'] = webapp2.uri_for('get_task', _request=request, task_id = task_id)
     links['update_task'] = webapp2.uri_for('update_task', _request=request, task_id = task_id)
+    links['delete'] = webapp2.uri_for('delete_task', _request = request, task_id = task_id)
     
     response['links'] = links
     

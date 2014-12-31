@@ -219,7 +219,7 @@ class Week(ndb.Model):
     
     def delete_scheduled_task(self, day_id, scheduled_task, recurrence = False):
         self.get_day(day_id).remove_scheduled_task(scheduled_task.key.id())
-        if recurrence:
+        if recurrence and scheduled_task.recurrence != "None":
             weekly = self.get_owner().get_week("weekly")
             weekly.delete_recurrence(scheduled_task)
             if scheduled_task.recurrence == constants.RECURRENCE_TYPES[1]:

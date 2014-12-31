@@ -8,7 +8,7 @@ from google.appengine.api import users
 import trackdidia.models.user as user_module
 from trackdidia.models.custom_exceptions import HandlerException, RessourceNotFound,\
     NotImplementedYet, BadArgumentError, SchedulingConflict
-
+from trackdidia.models.custom_exceptions import DeleteTaskFailed
 import response_producer
 
 from trackdidia.utils import utils
@@ -64,7 +64,11 @@ class BaseHandler(webapp2.RequestHandler):
         user_instance = users.get_current_user()
         return user_module.get_or_create_user(user_instance.user_id(), user_instance.email(), user_instance.nickname())
     
-    
+    @webapp2.cached_property
+    def params(self):
+        allowed_params =  self.__class__.ALLOWED_PARAMS or []
+        return self.cleanPostedData(allowed_params) 
+     
     def render_template(self, view_filename, **kwargs):
         context = dict()
         context['user'] = self.user.nickname
@@ -169,7 +173,7 @@ class MainHandler(BaseHandler):
     
 
 class TaskHandler(BaseHandler):
-    ALLOWED_PARAMS = ['category', 'priority', 'name', 'description', 'location']
+    ALLOWED_PARAMS = ['category', 'priority', 'name', 'description', 'location', 'force']
     
     @webapp2.cached_property
     def task(self):
@@ -211,14 +215,21 @@ class TaskHandler(BaseHandler):
             raise HandlerException(e)
     
     @user_required
-    def delete(self):
-        raise NotImplementedYet
+    def delete(self, task_id):
+        if not self.task:
+            raise RessourceNotFound("The task with id < " + str(task_id) + "> does not exist")
+        force = self.params.get('force') == "true"
+        try:
+            self.user.delete_task(task = self.task, force = force)
+        except DeleteTaskFailed as e:
+            raise HandlerException(e)
+        self.list()
     
     @user_required
     def list(self):
         response = OrderedDict();
          
-        tasks = [response_producer.produce_task_response(self.request, task) for task in self.user.get_all_tasks()]
+        tasks = [response_producer.produce_task_response(self.request, task) for task in self.user.get_all_tasks(deleted=None)]
         response['tasks'] = tasks;
         response['links'] = self._get_links()
         self.send_json(response)
@@ -312,9 +323,6 @@ class ScheduledTaskHandler(DayHandler):
     
     ALLOWED_PARAMS = ['duration', 'offset', 'executed', 'task_id', 'recurrence']
     
-    @webapp2.cached_property
-    def params(self):
-        return self.cleanPostedData(ScheduledTaskHandler.ALLOWED_PARAMS)  
     @webapp2.cached_property
     def scheduled_task(self):
         scheduled_task_id = self.request.route_kwargs.get('scheduled_task_id')
