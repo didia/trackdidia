@@ -155,12 +155,17 @@ class MainHandler(BaseHandler):
         return context
     
     def discover(self):
+        response = {}
         links = {}
         links['week'] = self.uri_for('get_week', week_id='current')
         links['tasks'] = self.uri_for('all_tasks')
         links['create_task'] = self.uri_for('create_task')
         
-        self.send_json({'links':links, 'me':self.user.nickname})
+        response['links'] = links
+        if self.user:
+            response['me'] = self.user.nickname
+        
+        self.send_json(response)
     
 
 class TaskHandler(BaseHandler):

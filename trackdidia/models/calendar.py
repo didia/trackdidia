@@ -58,11 +58,11 @@ class Day(ndb.Model):
         if not recurrence:
             recurrence = constants.RECURRENCE_TYPES[0]
         scheduled_task = ScheduledTask(parent=self.key, task=task.key, offset= offset, duration = duration, recurrence = recurrence)
-        scheduled_task.put()
+        
         for i in range(offset, offset+duration):
             self.interval_usage[i] = True
-        self.put()
         
+        ndb.put_multi([scheduled_task, self])
         if not self._scheduled_tasks is None:
             self._scheduled_tasks.append(scheduled_task)
         return scheduled_task
@@ -70,11 +70,16 @@ class Day(ndb.Model):
     @invalidate_cache
     def clone_scheduled_task(self, scheduled_task):
         self.validate_offset_and_duration(scheduled_task.offset, scheduled_task.duration)
-        self.invalidate_cache()
-        new_key = ndb.Key(flat=[ScheduledTask, scheduled_task.key.id()], parent = self.key)
-        scheduled_task.key = new_key
-        scheduled_task.put()
-    
+        if scheduled_task.key:
+            new_key = ndb.Key(flat=[ScheduledTask, scheduled_task.key.id()], parent = self.key)
+            scheduled_task.key = new_key
+        else:
+            scheduled_task = ScheduledTask(parent=self.key, task=scheduled_task.task, offset= scheduled_task.offset, duration = scheduled_task.duration, recurrence = scheduled_task.recurrence)
+            
+        for i in range(scheduled_task.offset, scheduled_task.offset+scheduled_task.duration):
+            self.interval_usage[i] = True
+        
+        ndb.put_multi([self, scheduled_task])
     def get_stat(self):
         if not self._stat:
             scheduled_tasks = self.get_scheduled_tasks()
@@ -88,14 +93,14 @@ class Day(ndb.Model):
         return ScheduledTask.get_by_id(scheduled_task_id,parent = self.key)
     
     def get_scheduled_tasks(self):
-        if self._scheduled_tasks is None:
+        if not self._scheduled_tasks:
             self.reload_scheduled_tasks()
         return self._scheduled_tasks
     
     @invalidate_cache
     def reload_scheduled_tasks(self):
         self._scheduled_tasks = ScheduledTask.query(ancestor=self.key).order(ScheduledTask.offset).fetch()
-        if self._scheduled_tasks is None:
+        if not self._scheduled_tasks:
             self._scheduled_tasks = []
             
     @invalidate_cache
@@ -180,20 +185,12 @@ class Week(ndb.Model):
         ndb.put_multi(self._days)
     
     def add_default_sleep_task(self):
-        days = self.get_all_days()
         self.get_owner()
         sleep_task = self._owner.create_task(name='Sleep')
-        scheduled_tasks = []
         number_of_sleep_interval = int(6/self.interval)
-        
-        for day in days:
-            for i in range(number_of_sleep_interval):
-                day.interval_usage[i] = True
-            scheduled_task = ScheduledTask(parent=day.key, offset = 0, duration = number_of_sleep_interval, task = sleep_task.key)
-            scheduled_tasks.append(scheduled_task)
-        
-        ndb.put_multi(scheduled_tasks)
-        ndb.put_multi(days)   
+        scheduled_task = ScheduledTask(offset = 0, duration = number_of_sleep_interval, task = sleep_task.key, recurrence="daily")
+        self.add_recurrence(scheduled_task)
+       
     def get_all_days(self):
         if self._days is None:
             self._days = ndb.get_multi([ndb.Key(Day, day_id, parent=self.key) for day_id in range(1,8)])

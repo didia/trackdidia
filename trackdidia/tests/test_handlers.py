@@ -39,6 +39,8 @@ class TestMainHandler(TestHandler):
         
     def testDiscover(self):
         url = "/api/enter"
+        os.environ['USER_EMAIL'] = self.user.email
+        os.environ['USER_ID'] = self.user.key.id()
         expected_fields = {"links":["week", "tasks", "create_task"]}
         
         request = webapp2.Request.blank(url)

@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 '''
 Created on 2014-10-28
 
@@ -57,13 +59,16 @@ class User(ndb.Model):
     
     def get_or_create_week(self, monday, saturday):
         week_id = monday.strftime(constants.WEEK_ID_FORMAT) + saturday.strftime(constants.WEEK_ID_FORMAT)
+        week = self.get_week(week_id)
+        if week:
+            return week
         week = Week(id = week_id, parent = self.key)
         week.initialize()
         weekly_schedule = self.get_week(constants.RECURRENCE_TYPES[2])
         
         for recurrent_day in weekly_schedule.get_all_days():
             new_scheduled_tasks = []
-            day = week.get_day(recurrent_day.key.integer_id())
+            day = week.get_day(recurrent_day.key.id())
             for scheduled_task in recurrent_day.get_scheduled_tasks():
                 new_key = ndb.Key(flat=[ScheduledTask, scheduled_task.key.id()], parent = day.key)
                 scheduled_task.key = new_key
@@ -134,3 +139,4 @@ class User(ndb.Model):
     
     def get_current_week(self):
         return self.get_week('current')
+    

@@ -27,7 +27,8 @@ class TestUser(DatastoreTest):
         #Test if the expected structure of a week has been respected i.e 7 days
         # and a default 6 hour sleep scheduled_task
         self.assertEqual(7, len(days))
-        self.assertEqual(12, days[0].interval_usage.count(True))
+        for i in range(1, 8):
+            self.assertEqual(12, days[i-1].interval_usage.count(True))
         
         
         #Test if the week id is really the expected id monday/saturday
@@ -50,7 +51,8 @@ class TestUser(DatastoreTest):
         schedule = same_user.get_week()
         days = schedule.get_all_days()
         self.assertEqual(7, len(days))
-        self.assertEqual(12, days[0].interval_usage.count(True))
+        for i in range(1, 8):
+            self.assertEqual(12, days[i-1].interval_usage.count(True))
         
         
     
@@ -143,6 +145,16 @@ class TestUser(DatastoreTest):
         current_week = self.user.get_current_week()
         self.assertEqual(week_id, current_week.key.id())
     
+    def testGetAllScheduledTasks(self):
+        day_id = 2
+        task = self.user.create_task("Fifa Time")
+        duration= 6 # 6 interval . With interval = 0.5h, duration = 3 hours
+        offset = 18
+        current_schedule = self.user.get_week('current')
+        current_schedule.add_scheduled_task(day_id = day_id, task = task, duration = duration, offset = offset)
+        
+        
+        
 
         
       
