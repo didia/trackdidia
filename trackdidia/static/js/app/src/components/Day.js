@@ -101,7 +101,7 @@ define(["exports", "react", "components/Slot", "components/EmptySlot", "app/util
 
 			return (
 				
-			 	<div className={panelClass}>
+			 	<div id={this.props.expanded?"today":null} className={panelClass}>
 			 		<a data-toggle="collapse" data-parent="#schedule" href={"#" + body_id } aria-expanded={this.props.expanded? "true": "false"} aria-controls={body_id}>
 	    				<div className="panel-heading day-header" role="tab" id={heading_id}>
 	    					<div className = "row">

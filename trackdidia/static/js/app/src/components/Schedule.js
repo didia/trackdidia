@@ -33,7 +33,7 @@ define(["react", "components/Day", "app/event","app/constants", "app/trackdidia"
 			}
 
 			return (
-				<div>
+				<div className="container-fluid center-block">
 
 					<header className = "text-center bg-primary">
 					   <span>Schedule from <b>{schedule.starting_date}</b> to <b>{schedule.ending_date}</b> </span>

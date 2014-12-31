@@ -9,6 +9,7 @@
 
  	var links = {}
  	var week= null;
+ 	var me = null;
  	var tasks = {};
  	var recurrenceTypes = ['weekly', 'daily']
 
@@ -97,6 +98,7 @@
  		initialize : function() {
  			callRemote("/api/enter", null, function(response, status) {
  				if(status == "ok") {
+ 					me = response.me;
  					links = response.links;
  					initSchedule();
  					initTasks();
@@ -108,6 +110,10 @@
  			});
 
 
+ 		},
+
+ 		getMe : function() {
+ 			return me;
  		},
 
  		getSchedule: function() {

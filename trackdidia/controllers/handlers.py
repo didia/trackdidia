@@ -160,7 +160,7 @@ class MainHandler(BaseHandler):
         links['tasks'] = self.uri_for('all_tasks')
         links['create_task'] = self.uri_for('create_task')
         
-        self.send_json({'links':links})
+        self.send_json({'links':links, 'me':self.user.nickname})
     
 
 class TaskHandler(BaseHandler):
