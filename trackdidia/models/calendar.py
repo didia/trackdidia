@@ -249,5 +249,7 @@ class Week(ndb.Model):
     def get_stat(self):
         return reduce(lambda x, y:(x[0] + y[0], x[1] + y[1]), map(lambda z: z.get_stat(), self.get_all_days()))
     
+    def get_scheduled_tasks(self, unique = False, active_only = False, task_key = None):
+        return ScheduledTask.find(self.key, unique = unique, active_only = active_only, task_key = task_key)
         
 

@@ -145,13 +145,21 @@ class TestUser(DatastoreTest):
         current_week = self.user.get_current_week()
         self.assertEqual(week_id, current_week.key.id())
     
-    def testGetAllScheduledTasks(self):
+    def testGetScheduledTasks(self):
         day_id = 2
         task = self.user.create_task("Fifa Time")
         duration= 6 # 6 interval . With interval = 0.5h, duration = 3 hours
         offset = 18
         current_schedule = self.user.get_week('current')
+        current_schedule.add_scheduled_task(day_id = 1, task = task, duration = duration, offset = offset, recurrence = 'weekly')
         current_schedule.add_scheduled_task(day_id = day_id, task = task, duration = duration, offset = offset)
+        current_schedule.add_scheduled_task(day_id = 3, task = task, duration = duration, offset = offset)
+        utils.today = datetime.date(2014,10,29) #it's day 3
+        
+        all_scheduled_tasks = self.user.get_scheduled_tasks(task_key = task.key, active_only = True, unique = True)
+        
+        self.assertEquals(2, len(all_scheduled_tasks))
+        utils.today = datetime.datetime.now()
         
         
         

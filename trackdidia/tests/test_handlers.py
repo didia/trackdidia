@@ -55,7 +55,7 @@ class TestCronHandler(TestHandler):
         os.environ['USER_EMAIL'] = self.user.email
         os.environ['USER_ID'] = self.user.key.id()
         
-       
+        
         current_schedule = self.user.get_week(week_id = 'current')
         self.assertNotEqual("2014102720141102", current_schedule.key.id())
         

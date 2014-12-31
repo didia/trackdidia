@@ -6,12 +6,13 @@ Created on 2014-11-28
 @author: didia
 '''
 import unittest
+import datetime
 from .base_test import TestTracking
 from trackdidia.models.calendar import Day
 from trackdidia.models.calendar import ScheduledTask
 from trackdidia.models.custom_exceptions import SchedulingConflict
 from trackdidia.models.custom_exceptions import BadArgumentError
-
+from trackdidia.utils import utils
 class TestScheduledTask(TestTracking):
     def testSetExecuted(self):
         task = self.user.create_task("Manger")
@@ -371,8 +372,60 @@ class TestWeek(TestTracking):
        
         same_scheduled_task = weekly.get_day(i).get_scheduled_task(scheduled_task.key.id())
         self.assertIsNone(same_scheduled_task)
+    
+    def testGetAllScheduledTasks(self):
+        day_id = 2
+        task = self.user.create_task("Fifa Time")
+        duration= 6 # 6 interval . With interval = 0.5h, duration = 3 hours
+        offset = 18
+        current_schedule = self.user.get_week('current')
+        current_schedule.add_scheduled_task(day_id = day_id, task = task, duration = duration, offset = offset)
+        all_scheduled_tasks = current_schedule.get_scheduled_tasks()
+        self.assertEquals(8, len(all_scheduled_tasks))
+    
+    def testGetUniqueScheduledTasks(self):
+        day_id = 2
+        task = self.user.create_task("Fifa Time")
+        duration= 6 # 6 interval . With interval = 0.5h, duration = 3 hours
+        offset = 18
+        current_schedule = self.user.get_week('current')
+        current_schedule.add_scheduled_task(day_id = day_id, task = task, duration = duration, offset = offset)
+        all_scheduled_tasks = current_schedule.get_scheduled_tasks(unique = True)
+        self.assertEquals(2, len(all_scheduled_tasks))
+    
+    def testGetNonExpiredTasks(self):
+        day_id = 2
+        task = self.user.create_task("Fifa Time")
+        duration= 6 # 6 interval . With interval = 0.5h, duration = 3 hours
+        offset = 18
+        current_schedule = self.user.get_week('current')
+        current_schedule.add_scheduled_task(day_id = 1, task = task, duration = duration, offset = offset)
+        current_schedule.add_scheduled_task(day_id = day_id, task = task, duration = duration, offset = offset)
+        current_schedule.add_scheduled_task(day_id = 3, task = task, duration = duration, offset = offset)
+        utils.today = datetime.date(2014,10,29) #it's day 3
         
-            
+        all_scheduled_tasks = current_schedule.get_scheduled_tasks(active_only = False)
+        self.assertEquals(10, len(all_scheduled_tasks)) 
+
+        all_scheduled_tasks = current_schedule.get_scheduled_tasks(active_only = True)
+        self.assertEquals(8, len(all_scheduled_tasks)) 
+        utils.today = datetime.datetime.now()
+    
+    def testGetScheduledTasksByTask(self):
+        day_id = 2
+        task = self.user.create_task("Fifa Time")
+        duration= 6 # 6 interval . With interval = 0.5h, duration = 3 hours
+        offset = 18
+        current_schedule = self.user.get_week('current')
+        current_schedule.add_scheduled_task(day_id = day_id, task = task, duration = duration, offset = offset, recurrence = "daily")
+        
+        all_scheduled_tasks = current_schedule.get_scheduled_tasks(task_key = task.key)
+        
+        self.assertEquals(6, len(all_scheduled_tasks))
+        
+
+                        
+                   
         
 
 

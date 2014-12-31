@@ -140,3 +140,6 @@ class User(ndb.Model):
     def get_current_week(self):
         return self.get_week('current')
     
+    def get_scheduled_tasks(self, unique = False, active_only = False, task_key = None):
+        return ScheduledTask.find(self.key, unique = unique, active_only = active_only, task_key = task_key)
+        
