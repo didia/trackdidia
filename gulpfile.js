@@ -30,4 +30,19 @@ gulp.task('watch', function() {
 	sass_e.on('close', function(code){
 		console.log('SASS exited with code ' + code);
 	});
+
+/*	var autopref_watcher = gulp.watch("trackdidia/static/css/build/application.css");
+	
+	autopref_watcher.on("change", function(){
+		autopref_e = spawn('autoprefixer', [ "trackdidia/static/css/build/application.css"]);
+		
+		autopref_e.stdout.on('data', function(data) {
+			console.log(data.toString());
+		});
+		autopref_e.stderr.on('data', function(data){
+			console.log(data.toString());
+		});
+	
+	});*/
+
 });

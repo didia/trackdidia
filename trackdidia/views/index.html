@@ -8,20 +8,17 @@
 		<!-- Le styles -->
 
 		<link href="/static/css/build/application.css" rel="stylesheet">
+		<link href='http://fonts.googleapis.com/css?family=Prata' rel='stylesheet' type='text/css'>
 
 	</head>
 	
 	<body>
-		<nav class = "navbar navbar-default navbar-fixed-top" id = "header">
-			<div class = "container">
-				<p class = "navbar-text navbar-right"> <strong>{{user}}</strong> </p>
-			</div>
-		</nav>
 		
-		<div id="app" class="container-fluid center-block">
-
+		<div class ="wait-page text-center">
+			<p> Welcome <strong> {{user}} </strong> </p>
+			<p> <span class="glyphicon glyphicon-refresh glyphicon-refresh-animate"></span> </p>
+			<p> Your schedule is loading ... </p>
 		</div>
-		
         <script src="/static/js/lib/require-setup.js"><</script>
 		<script data-main="/static/js/app" src="/static/js/lib/require.js"></script>
 

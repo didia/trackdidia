@@ -63,3 +63,39 @@ input.set-executed
 .slot
   @extend .base-slot
   background-color : #f8f8f8
+
+.wait-page
+  position: fixed
+  top: 50%
+  left: 50%
+  transform: translate(-50%, -50%)
+  
+  p
+    font-size : 1.4em
+    font-family: 'Prata', serif
+
+    &:first-child
+      font-size : 1.8em
+    &:last-child
+      font-size : 1.4em
+
+  .glyphicon-refresh
+    font-size : 2em
+    color : blue
+
+.glyphicon-refresh-animate
+  -animation: spin .7s infinite linear
+  -webkit-animation: spin2 .7s infinite linear
+
+@-webkit-keyframes spin2 
+  from 
+    -webkit-transform: rotate(0deg)
+  to 
+    -webkit-transform: rotate(360deg)
+
+
+@keyframes spin 
+  from 
+    transform: scale(1) rotate(0deg)
+  to
+    transform: scale(1) rotate(360deg)
