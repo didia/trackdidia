@@ -1,5 +1,6 @@
 body
-  padding-top : $body-padding-top
+  @media (min-width : $screen-sm-min)
+    padding-top : $body-padding-top
 
 input.set-executed
   font-size : 18px
@@ -67,6 +68,39 @@ input.set-executed
   @extend .base-slot
   background-color : #f8f8f8
 
+.feature-page
+  @media (min-width : $screen-sm-min)
+    margin-top: 5%
+  margin-bottom : 5%
+
+  .feature-text
+    padding-top: 5%
+    text-align : center
+
+    .subtitle
+      color : #33536d
+      font-size : 30px
+      line-height : 41px
+      margin-bottom : 5%
+    
+    .logo
+      img
+        max-width : 100%
+
+    .login-button
+      a
+        line-height : 2em
+        font-size : 14px
+
+    .try-it-button
+      margin-top : 2%
+  .feature-image
+    text-align : center
+    @media (min-width : $screen-sm-min)
+      text-align : right
+    img
+      max-width : 100%
+      max-height : 500px
 .wait-page
   position: fixed
   top: 50%

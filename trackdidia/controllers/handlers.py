@@ -62,7 +62,10 @@ class BaseHandler(webapp2.RequestHandler):
           The instance of the user model associated to the logged in user.
         """
         user_instance = users.get_current_user()
-        return user_module.get_or_create_user(user_instance.user_id(), user_instance.email(), user_instance.nickname())
+        
+        return user_module.get_or_create_user(user_instance.user_id(), 
+                                              user_instance.email(), 
+                                              user_instance.nickname()) if user_instance else None
     
     @webapp2.cached_property
     def params(self):
@@ -71,7 +74,8 @@ class BaseHandler(webapp2.RequestHandler):
      
     def render_template(self, view_filename, **kwargs):
         context = dict()
-        context['user'] = self.user.nickname
+        context['user'] = self.user.nickname if self.user else None
+        context['login_url'] = users.create_login_url(self.request.url)
         context.update(kwargs)
         jtemplate = jinja_environment.get_template(view_filename)
         self.response.out.write(jtemplate.render(context))
@@ -149,7 +153,7 @@ class CronHandler(BaseHandler):
                 
 class MainHandler(BaseHandler):
     
-    @user_required
+
     def get(self):
         
         self.render_template('index.html')
@@ -158,6 +162,7 @@ class MainHandler(BaseHandler):
         context = dict()
         return context
     
+    @user_required
     def discover(self):
         if self.user.get_week('weekly') is None:
             self.user.init_calendar()
