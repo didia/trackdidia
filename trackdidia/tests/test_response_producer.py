@@ -41,7 +41,7 @@ class TestResponseProducer(TestTracking):
         self.assertTrue(all(x in response['links'] for x in expected_links))
         
     def testProduceTaskResponse(self):
-        expected_response_attributes = ['id', 'name', 'links']
+        expected_response_attributes = ['id', 'name', 'deleted', 'links']
         expected_links = ['get_task', 'update_task', 'delete'] 
         response = response_producer.produce_task_response(self.request, self.task)
         self.assertTrue(all(x in response for x in expected_response_attributes))

@@ -18,7 +18,7 @@ define(["react", "components/Day", "app/event","app/constants", "app/trackdidia"
 		},
 
 		componentWillUnmount: function() {
-			EventProvider.clear(Constants.CHANGE_EVENT);
+			EventProvider.unsubscribe(Constants.CHANGE_EVENT, "_onChange", this);
 		},
 		_onChange: function() {
 			this.setState(trackdidia.getSchedule());
@@ -33,7 +33,7 @@ define(["react", "components/Day", "app/event","app/constants", "app/trackdidia"
 			}
 
 			return (
-				<div className="container-fluid center-block">
+				<div>
 
 					<header className = "text-center bg-primary">
 					   <span>Schedule from <b>{schedule.starting_date}</b> to <b>{schedule.ending_date}</b> </span>

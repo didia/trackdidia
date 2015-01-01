@@ -15,6 +15,12 @@ indexes:
   properties:
   - name: offset
 
+- kind: ScheduledTask
+  ancestor: yes
+  properties:
+  - name: task
+  - name: offset
+
 - kind: Slot
   ancestor: yes
   properties:

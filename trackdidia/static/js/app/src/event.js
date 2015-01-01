@@ -49,7 +49,7 @@ define(["app/exceptions"], function(exceptions){
         },
 
         subscribe: function(name, cb, toObject) {
-
+            console.log("Subscribing to event: " + name);
             var subs = this.subscribers();
             
             if(toObject != null && typeof toObject != "undefined") {
@@ -75,19 +75,23 @@ define(["app/exceptions"], function(exceptions){
 
 		  
         unsubscribe: function(name, cb, toObject) {
+            
         	var subs = this.subscribers()[name];
-        	console.log(subs);
+        	if (typeof(subs) === "undefined")
+                return;
+
+            console.log("Unsubscribing from event: " + name);
+
             if(toObject != null && typeof toObject != "undefined") {
                 cb = this._bind(toObject, cb);
             }
-        	subs.forEach(function(value, key) {
-        		if (value == cb) {
-        		  console.log("Unsubscribing from " + name);
+
+        	for(var key = 0; key < subs.length; key++) {
+        		if (String(subs[key]) === String(cb)) {
         		  subs[key] = null;
         		}
-        	});
         	}
-		
+		}
 			
 	}
 	

@@ -12,6 +12,7 @@ define(function(){
 		CREATE_SLOT_FAILED: 'Creating slot has failed',
 		SLOT_CREATED : 'Slot has been created',
 		UPDATE_SCHEDULE : 'Try updating the schedule',
-		SET_EXECUTED_FAILED : 'Set executed failed'
+		SET_EXECUTED_FAILED : 'Set executed failed',
+		DELETE_TASK_FAILED : 'Delete task failed',
 	}
 })

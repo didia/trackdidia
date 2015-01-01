@@ -11,6 +11,7 @@
  	var week= null;
  	var me = null;
  	var tasks = {};
+ 	var nonDeletedTasks = {};
  	var recurrenceTypes = ['weekly', 'daily']
 
  	function log(message) {
@@ -31,19 +32,26 @@
  	function initTasks(){
  		callRemote(links['tasks'], null, function(response, status){
  			if(status == "ok") {
- 				var tasks_data = response.tasks;
- 				log(tasks_data)
- 				links = $.extend({}, links, response.links)
-
- 				tasks_data.forEach(function(task_data) {
- 					var task = new Task(task_data)
- 					tasks[task.id] = task
- 				});
-
- 				save("tasks", tasks_data);
-
+ 				links = $.extend({}, links, response.links);
+ 				var tasksData = response.tasks;
+ 				populateTasks(tasksData);
  			}
  		});
+ 	}
+
+ 	function populateTasks(tasksData) {
+		tasks = {};
+		nonDeletedTasks = {};
+		tasksData.forEach(function(task_data) {
+			var task = new Task(task_data);
+			if(!task.deleted)
+			{
+				nonDeletedTasks[task.id] = task;
+			}
+			tasks[task.id] = task;
+		});
+
+		save("tasks", tasksData);
  	}
 
  	function save(key, object) {
@@ -121,7 +129,7 @@
  		},
 
  		getAllTasks : function() {
- 			return tasks;
+ 			return nonDeletedTasks;
  		},
 
  		getAllRecurrenceTypes : function() {
@@ -139,6 +147,7 @@
  		addTask: function(task_data) {
  			var task = new Task(task_data);
  			tasks[task.id] = task;
+ 			nonDeletedTasks[task.id] = task;
  			return task;
  		},
 
@@ -155,14 +164,18 @@
  		},
 
  		updateSchedule : function() {
- 		callRemote(links['week'], null, function(response, status){
- 			if(status == "ok") {
- 				var weekData = response;
- 				week = new Week(weekData);
- 				save("week", weekData);
- 				EventProvider.fire(Constants.CHANGE_EVENT);
- 			}
- 		});
+	 		callRemote(links['week'], null, function(response, status){
+	 			if(status == "ok") {
+	 				var weekData = response;
+	 				week = new Week(weekData);
+	 				save("week", weekData);
+	 				EventProvider.fire(Constants.CHANGE_EVENT);
+	 			}
+	 		});
+ 		},
+
+ 		updateTasks : function(tasksData) {
+ 			populateTasks(tasksData);
  		}
 
  	};

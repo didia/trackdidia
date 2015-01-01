@@ -35,9 +35,10 @@
  					for(var i = scheduledTask.offset; i < scheduledTask.offset + scheduledTask.duration; i++) {
  						day.usage[i] = true;
  					}
+                    trackdidia.updateSchedule();
  					EventProvider.fire(Constants.SLOT_CREATED);
  					EventProvider.fire(Constants.CHANGE_EVENT);
- 					trackdidia.updateSchedule();
+ 					
 
  				}
  				else {
@@ -65,12 +66,11 @@
  			var url = scheduledTask.links["delete"];
             var request = null;
             if(recurrence){
-                request = {'recurrence' : true}
+                request = {'recurrence' : true};
             }
  			var method = "POST";
  			trackdidia.remote(url, method, request, function(response, status) {
  				if(status == "ok") {
- 					console.log("Delete task executed succesfully");
  					var dayData = response;
  					day.populate(dayData);
  					EventProvider.fire(Constants.CHANGE_EVENT);
@@ -79,7 +79,27 @@
  				else {
  					console.log("Delete Scheduled Task failed");
  				}
- 			})
- 		}
+ 			});
+ 		},
+        deleteTask: function(task, force){
+            var url = task.links["delete"];
+            var request = null;
+            if(force) {
+                request = {'force':true};
+            }
+            var method = "POST";
+            trackdidia.remote(url, method, request, function(response, status) {
+                if(status == "ok") {
+                    var tasksData = response.tasks;
+                    console.log(tasksData);
+                    trackdidia.updateTasks(tasksData);
+                    EventProvider.fire(Constants.CHANGE_EVENT);
+
+                }
+                else {
+                    EventProvider.fire(Constants.DELETE_TASK_FAILED, response);
+                }
+            });
+        }
  	}
  })

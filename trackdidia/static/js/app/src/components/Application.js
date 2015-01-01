@@ -7,7 +7,7 @@
 
 "use strict";
 
-define(["react", "components/Schedule", "app/event","app/constants", "app/trackdidia", "bootstrap"], function(React, ScheduleComponent, EventProvider, Constants, trackdidia){
+define(["react", "components/Schedule", "components/TaskList", "app/event","app/constants", "app/trackdidia", "bootstrap"], function(React, ScheduleComponent, TaskListComponent,  EventProvider, Constants, trackdidia){
 	var ApplicationComponent = React.createClass({
 	    
 	    getInitialState: function() {
@@ -16,29 +16,75 @@ define(["react", "components/Schedule", "app/event","app/constants", "app/trackd
 	    	};
 	    },
 		componentDidMount: function() {
+			var url = location.href;
 			location.href = "#today";
+			history.replaceState(null, null, url);
 		},
 
 		componentWillUnmount: function() {
 			console.log("Application component will unmount");
 		},
+
+		getPageComponent : function() {
+			if(this.state.page === "tasks") {
+				console.log("Returning TaskListComponent");
+				return <TaskListComponent />;
+			}
+			else{
+				return <ScheduleComponent />;
+			}
+		},
+		goToHomePage : function(e) {
+			e.preventDefault();
+			if(this.state.page !== "schedule") {
+				this._setPage("schedule");
+			}
+		},
+		goToTasksPage : function(e) {
+			e.preventDefault();
+			if (this.state.page !== "tasks"){
+				this._setPage("tasks");
+			}
+			console.log("Set Page has been called");
+		},
+		_setPage : function(page) {
+			var state = this.state;
+			state.page = page;
+			this.setState(state);
+		},
+		isActive : function(page) {
+			return this.state.page === page?"active":"";
+		},
 		
 		render: function() {
+
 			var user = trackdidia.getMe();
+
 			return (
 				<div>
-					<nav className = "navbar navbar-default navbar-fixed-top" id = "header">
-						<div className = "container-fluid center-block">
-							<div className = "navbar-right collapse navbar-collapse">
+
+					<nav className = "navbar navbar-default navbar-static-top" id = "header">
+						<div className = "container">
+							    <div className="navbar-header">
+							      <button type="button" className="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+							        <span className="sr-only">Toggle navigation</span>
+							        <span className="icon-bar"></span>
+							        <span className="icon-bar"></span>
+							        <span className="icon-bar"></span>
+							      </button>
+							    </div>
+							<div className = "navbar-right collapse navbar-collapse" id="navbar-collapse">
 								<ul className = "nav navbar-nav">
-									<li> <a href="#"> Tasks </a> </li>
+									<li className = {this.isActive("schedule")}> <a href = "" onClick={this.goToHomePage} onTouchEnd={this.goToHomePage}> Home </a> </li>
+									<li className = {this.isActive("tasks")}> <a href="" onClick={this.goToTasksPage} onTouchEnd = {this.goToTasksPage}> Tasks </a> </li>
 									<li> <a href="#"> { user } </a> </li>
 								</ul>
 							</div>
 						</div>
 					</nav>
-
-					<ScheduleComponent />
+					<div className="container">
+						{this.getPageComponent()}
+					</div>
 
 				</div>
 			);

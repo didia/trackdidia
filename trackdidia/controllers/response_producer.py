@@ -70,6 +70,7 @@ def produce_task_response(request, task):
     response["description"] = task.description
     response["location"] = task.location
     response["category"] = task.category
+    response["deleted"] = task.deleted
 
     
     links = {}
