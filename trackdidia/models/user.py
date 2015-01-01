@@ -19,8 +19,7 @@ def create_user(user_id, email, nickname):
     my_user = User(id=user_id, email=email, nickname=nickname)
     my_user.put()
     my_user.init_calendar()
-    monday, saturday = utils.get_week_start_and_end()
-    my_user.get_or_create_week(monday, saturday)
+
     return my_user;
 
 def get_user(user_id):
@@ -146,13 +145,14 @@ class User(ndb.Model):
             raise DeleteTaskFailed("Task to be deleted has active scheduled tasks") 
     
     def init_calendar(self):
-        if self.get_week() is None:
+        if self.get_week(constants.RECURRENCE_TYPES[2]) is None:
             week = Week(id=constants.RECURRENCE_TYPES[2], parent=self.key)
             week.recurrent = True
             week.initialize()
             week.add_default_sleep_task()
             week.put()
-            self.week = week
+            monday, saturday = utils.get_week_start_and_end()
+            self.week = self.get_or_create_week(monday, saturday)
         return self.week
     
     def get_week(self, week_id='current'):

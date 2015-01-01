@@ -159,6 +159,8 @@ class MainHandler(BaseHandler):
         return context
     
     def discover(self):
+        if self.user.get_week('weekly') is None:
+            self.user.init_calendar()
         response = {}
         links = {}
         links['week'] = self.uri_for('get_week', week_id='current')

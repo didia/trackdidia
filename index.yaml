@@ -21,11 +21,6 @@ indexes:
   - name: task
   - name: offset
 
-- kind: Slot
-  ancestor: yes
-  properties:
-  - name: offset
-
 - kind: Task
   ancestor: yes
   properties:
