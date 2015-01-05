@@ -30,7 +30,7 @@ class TestMainHandler(TestHandler):
         
         request = webapp2.Request.blank(url)
         response = request.get_response(main.app)
-        self.assertEquals(response.status_int, 302)
+        self.assertEquals(response.status_int, 200)
         
         os.environ['USER_EMAIL'] = self.user.email
         os.environ['USER_ID'] = self.user.key.id()
