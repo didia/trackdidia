@@ -176,6 +176,10 @@
 
  		updateTasks : function(tasksData) {
  			populateTasks(tasksData);
+ 		},
+
+ 		getLinkTo : function(destination) {
+ 			return links[destination];
  		}
 
  	};

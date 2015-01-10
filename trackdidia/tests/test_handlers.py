@@ -11,7 +11,7 @@ import trackdidia.main as main
 from django.utils import simplejson
 import os
 from trackdidia.utils import utils
-
+from trackdidia import constants
 class TestHandler(TestTracking):
     def checkFieldExist(self, expected_fields, dict_object):
         if type(expected_fields) is dict:
@@ -36,18 +36,47 @@ class TestMainHandler(TestHandler):
         os.environ['USER_ID'] = self.user.key.id()
         response = request.get_response(main.app)
         self.assertEquals(response.status_int, 200)
+
+    def testTrial(self):
+        url = "/trial"
+        
+        request = webapp2.Request.blank(url)
+        response =request.get_response(main.app)
+        self.assertEquals(response.status_int, 200)
+        
+        found = response.body.find("Guest") != -1 
+        self.assertTrue(found)
+    
+    def testUntrial(self):
+        os.environ['USER_EMAIL'] = constants.GUEST_EMAIL
+        os.environ['USER_ID'] = constants.GUEST_USER_ID
+        
+        url = "/untrial"
+        
+        request = webapp2.Request.blank(url)
+        response = request.get_response(main.app)
+        self.assertEquals(response.status_int, 302)
+        
+        os.environ['USER_EMAIL'] = self.user.email
+        os.environ['USER_ID'] = self.user.key.id()
+        
+        request = webapp2.Request.blank(url)
+        response = request.get_response(main.app)
+        self.assertEquals(response.status_int, 302)
         
     def testDiscover(self):
         url = "/api/enter"
         os.environ['USER_EMAIL'] = self.user.email
         os.environ['USER_ID'] = self.user.key.id()
-        expected_fields = {"links":["week", "tasks", "create_task"]}
+        expected_fields = {"links":["week", "tasks", "create_task", "login", "untrial"]}
         
         request = webapp2.Request.blank(url)
         response = request.get_response(main.app)
         self.assertEquals(response.status_int, 200)
         response_dict = simplejson.loads(response.body)
         self.assertTrue(self.checkFieldExist(expected_fields, response_dict))
+    
+
 
 class TestCronHandler(TestHandler):
     def testGet(self):
@@ -219,8 +248,7 @@ class TestTaskHandler(TestApiHandler):
         response = request.get_response(main.app)
         self.assertEquals(response.status_int, 404)
     
-        
-        
+             
                
 class TestScheduleHandler(TestApiHandler):
     

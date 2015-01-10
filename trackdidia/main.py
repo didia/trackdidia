@@ -26,21 +26,15 @@ jinja_environment = jinja2.Environment(extensions = ['jinja2.ext.autoescape'],
 
 
 
-
-
-
-
-
-
 config = {
   'webapp2_extras.auth': {
-    'user_model': 'models.user.User',
-    'user_attributes': ['nickname'],
+    'user_model': 'trackdidia.models.user.User',
+    'user_attributes': ['nickname', 'email'],
     #'session_backend': 'datastore'
     'session_backend': 'memcache'
   },
   'webapp2_extras.sessions': {
-    'secret_key': "YOUR APP SECRET",
+    'secret_key': "Dieuachoisi1960",
     'backends':{'datastore': 'webapp2_extras.appengine.sessions_ndb.DatastoreSessionFactory',
                  'memcache': 'webapp2_extras.appengine.sessions_memcache.MemcacheSessionFactory',
                  'securecookie': 'webapp2_extras.sessions.SecureCookieSessionFactory' 

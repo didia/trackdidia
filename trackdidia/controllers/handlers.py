@@ -13,6 +13,9 @@ import response_producer
 
 from trackdidia.utils import utils
 import trackdidia.models.stats as stat
+from trackdidia import constants
+from webapp2_extras import auth
+from webapp2_extras import sessions
 
 jinja_environment = jinja2.Environment(extensions = ['jinja2.ext.autoescape'],
     loader = jinja2.FileSystemLoader('trackdidia/views'))
@@ -40,9 +43,17 @@ def user_required(handler):
     Will also fail if there's no session present.
     """
     def check_login(self, *args, **kargs):
-        user_instance = users.get_current_user()
-        if not user_instance:
-            self.redirect(users.create_login_url(self.request.url))
+        auth = self.auth
+        
+        user = auth.get_user_by_session()
+        if not user:
+            user_instance = users.get_current_user()
+            if not user_instance:
+                self.redirect(users.create_login_url(self.request.url))
+            else:
+                user = user_module.get_or_create_user(user_instance.user_id(), user_instance.email(), user_instance.nickname())
+                self.auth.set_session(self.auth.store.user_to_dict(user), remember=True)
+                return handler(self, *args, **kargs)
         else:
             return handler(self, *args, **kargs)
             
@@ -61,11 +72,71 @@ class BaseHandler(webapp2.RequestHandler):
         :returns
           The instance of the user model associated to the logged in user.
         """
+        u = self.user_info
+        if u:
+            return user_module.get_or_create_user(u['user_id'], u['email'], u['nickname'])
+        
         user_instance = users.get_current_user()
         
         return user_module.get_or_create_user(user_instance.user_id(), 
                                               user_instance.email(), 
                                               user_instance.nickname()) if user_instance else None
+    
+    @webapp2.cached_property
+    def auth(self):
+        """Shortcut to access the auth instance as a property.
+           Also check if a facebook session is in place, if yes, set the session"""
+
+        """
+
+        cookie = facebook.get_user_from_cookie(self.request.cookies,
+                                                   FACEBOOK_APP_ID,
+                                                   FACEBOOK_APP_SECRET)
+        if cookie:
+            logging.info("COOKIE TROUVE")
+            user = self.user_model.get_by_fb_id(cookie["uid"])
+            if user:
+                self.auth.set_session(self.auth.store.user_to_dict(user), remember=False)
+        """
+
+        return auth.get_auth()
+
+    @webapp2.cached_property
+    def user_info(self):
+        """Shortcut to access a subset of the user attributes that are stored
+           in the session.
+
+           The list of attributes to store in the session is specified in
+           config['webapp2_extras.auth']['user_attributes'].
+           :returns
+            A dictionary with most user information
+        """
+        return self.auth.get_user_by_session()
+        
+    @webapp2.cached_property
+    def user_model(self):
+        """Returns the implementation of the user model.
+
+        It is consistent with config['webapp2_extras.auth']['user_model'], if set.
+        """    
+        return self.auth.store.user_model
+
+    @webapp2.cached_property
+    def session(self):
+        """Shortcut to access the current session."""
+        return self.session_store.get_session(backend="datastore")
+    
+    # this is needed for webapp2 sessions to work
+    def dispatch(self):
+        # Get a session store for this request.
+        self.session_store = sessions.get_store(request=self.request)
+
+        try:
+            # Dispatch the request.
+            webapp2.RequestHandler.dispatch(self)
+        finally:
+            # Save all sessions.
+            self.session_store.save_sessions(self.response)
     
     @webapp2.cached_property
     def params(self):
@@ -76,6 +147,7 @@ class BaseHandler(webapp2.RequestHandler):
         context = dict()
         context['user'] = self.user.nickname if self.user else None
         context['login_url'] = users.create_login_url(self.request.url)
+        context['trial_url'] = self.uri_for("trial")
         context.update(kwargs)
         jtemplate = jinja_environment.get_template(view_filename)
         self.response.out.write(jtemplate.render(context))
@@ -156,11 +228,23 @@ class MainHandler(BaseHandler):
 
     def get(self):
         
+        if self.user and self.user.key.id() == constants.GUEST_USER_ID:
+            self.auth.unset_session()
+            self.user = None
         self.render_template('index.html')
-        
-    def get_template_context(self):
-        context = dict()
-        return context
+    
+    def trial(self):
+        user = user_module.get_or_create_user(constants.GUEST_USER_ID, constants.GUEST_EMAIL, constants.GUEST_NICKNAME)
+        self.auth.set_session(self.auth.store.user_to_dict(user), remember=True)
+        self.render_template("index.html")
+    
+    @user_required
+    def untrial(self):
+        if self.user.key.id() == constants.GUEST_USER_ID:
+            self.auth.unset_session()
+            self.redirect(users.create_login_url("/"))
+        else:
+            self.redirect("/")
     
     @user_required
     def discover(self):
@@ -171,13 +255,14 @@ class MainHandler(BaseHandler):
         links['week'] = self.uri_for('get_week', week_id='current')
         links['tasks'] = self.uri_for('all_tasks')
         links['create_task'] = self.uri_for('create_task')
+        links['login'] = users.create_login_url('/')
+        links['untrial'] = self.uri_for('untrial')
         
         response['links'] = links
         if self.user:
             response['me'] = self.user.nickname
-        
         self.send_json(response)
-    
+
 
 class TaskHandler(BaseHandler):
     ALLOWED_PARAMS = ['category', 'priority', 'name', 'description', 'location', 'force']
@@ -415,6 +500,8 @@ class ScheduledTaskHandler(DayHandler):
         task = self.user.create_task(**task_parameters)
         scheduled_task = self.week.add_scheduled_task(day_id, task, offset, duration, recurrence)
         return task, scheduled_task
+
+
     
     
         

@@ -59,6 +59,7 @@ define(["react", "components/Schedule", "components/TaskList", "app/event","app/
 		render: function() {
 
 			var user = trackdidia.getMe();
+			var login = trackdidia.getLinkTo("untrial")
 
 			return (
 				<div>
@@ -83,6 +84,10 @@ define(["react", "components/Schedule", "components/TaskList", "app/event","app/
 						</div>
 					</nav>
 					<div className="container">
+						{user === "Guest"?
+							<div className="alert-trial">
+								You are using a trial account, login with your Google account <a href={login}> here </a>
+							</div>: ""}
 						{this.getPageComponent()}
 					</div>
 

@@ -14,10 +14,13 @@ from trackdidia.models.calendar import Week
 from trackdidia.models.scheduled_task import ScheduledTask
 from trackdidia import constants
 from trackdidia.utils import utils
+import webapp2_extras.appengine.auth.models as model
 
 def create_user(user_id, email, nickname):
-    my_user = User(id=user_id, email=email, nickname=nickname)
-    my_user.put()
+    
+    user_data = User.create_user(user_id, id=user_id, email=email, nickname = nickname)  
+    
+    my_user = user_data[1]
     my_user.init_calendar()
 
     return my_user;
@@ -37,7 +40,7 @@ def delete_user(user_id):
     key = ndb.Key(User, user_id)
     key.delete()
     
-class User(ndb.Model):
+class User(model.User):
     '''
     Stores a user information
     '''
@@ -160,7 +163,7 @@ class User(ndb.Model):
             week_id = utils.get_week_id()
         if self.week is None or self.week.key.id() != week_id:
             self.week = Week.get_by_id(week_id, parent=self.key)
-        return self.week
+        return Week.get_by_id(week_id, parent=self.key)
     
     def get_current_week(self):
         return self.get_week('current')
