@@ -16,7 +16,8 @@ import trackdidia.models.stats as stat
 from trackdidia import constants
 from webapp2_extras import auth
 from webapp2_extras import sessions
-
+import datetime
+from trackdidia.utils.timezone import Eastern_tzinfo
 jinja_environment = jinja2.Environment(extensions = ['jinja2.ext.autoescape'],
     loader = jinja2.FileSystemLoader('trackdidia/views'))
 
@@ -222,7 +223,16 @@ class CronHandler(BaseHandler):
         message = str(number_processed) + " weeks restarted\n\n" + message
         self.response.out.write(message)
     
-                
+    def generate_week_from(self, year, month, day):
+        users = user_module.get_all_users()
+        today = utils.get_today()
+        date = datetime.datetime(int(year), int(month), int(day), tzinfo = Eastern_tzinfo())
+        for user in users:
+            while(date < today):
+                monday, sunday = utils.get_week_start_and_end(date)
+                user.get_or_create_week(monday, sunday)
+                date = date + datetime.timedelta(days = 7)
+            
 class MainHandler(BaseHandler):
     
 
@@ -509,12 +519,31 @@ class StatHandler(BaseHandler):
         current_week_id = utils.get_week_id()
         current_week = self.user.get_week(current_week_id)
         last_week = self.user.get_week(last_week_id)
+        before_last_week_id = utils.get_last_week_id(date = last_week.starting_date) if last_week else None
+        before_last_week = self.user.get_week(before_last_week_id) if before_last_week_id else None
+        
+        current_week_execution_stat = stat.compute_execution_stats_for_week(current_week)
+        last_week_execution_stat = stat.compute_execution_stats_for_week(last_week) if last_week else None
+        before_last_week_execution_stat = stat.compute_execution_stats_for_week(before_last_week) if before_last_week else None
+        stat.compare_week_stats(last_week_execution_stat, current_week_execution_stat)
+        stat.compare_week_stats(before_last_week_execution_stat, last_week_execution_stat) if last_week else None
+        
+        current_week_stress_stat = stat.compute_stress_stats_for_week(current_week)
+        last_week_stress_stat = stat.compute_stress_stats_for_week(last_week) if last_week else None
+        before_last_week_stress_stat = stat.compute_stress_stats_for_week(before_last_week) if before_last_week else None
+        stat.compare_week_stats(last_week_stress_stat, current_week_stress_stat)
+        stat.compare_week_stats(before_last_week_stress_stat, last_week_stress_stat) if last_week else None
         response = {}
-        response['current-week'] = stat.compute_stats_for_schedule(current_week)
-        response['last-week'] = stat.compute_stats_for_schedule(last_week) if last_week else None
+        response['execution'] = {}
+        response['execution']['current-week'] = current_week_execution_stat
+        response['execution']['last-week'] = last_week_execution_stat if last_week else None
+        response['stress'] = {}
+        response['stress']['current-week'] = current_week_stress_stat
+        response['stress']['last-week'] = last_week_stress_stat
+        
         
         self.send_response(response)
-
+    
     
     
         

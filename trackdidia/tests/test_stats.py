@@ -38,6 +38,45 @@ class TestStats(TestTracking):
     def testSendStat(self):
         message_body = stats.send_stat(self.user, self.week)
         self.assertNotEquals(-1, message_body.find("Here is your result"))
+    
+    def testComputeStressStatsForWeek(self):
+        week = self.user.get_week()
+        week_stat = stats.compute_stress_stats_for_week(week)
+        self.assertEquals(24.0 * 7, week_stat['total'])
+        self.assertEquals(6 *7, week_stat['result'])
+        day_id = 2
+        task = self.user.create_task("Fifa Time")
+        duration= 6 # 6 interval . With interval = 0.5h, duration = 3 hours
+        offset = 18
+        current_schedule = self.user.get_week('current')
+        
+        current_schedule.add_scheduled_task(day_id = day_id, task = task, duration = duration, offset = offset, recurrence='daily')
+        
+        week_stat = stats.compute_stress_stats_for_week(week)
+        
+        self.assertEquals(24.0*7, week_stat['total'])
+        self.assertEquals(6*7 + 6*3, week_stat['result'])   
+             
+    def testComputeStressStatsForDay(self):
+        day_id = 2
+        week = self.user.get_week()
+        day = week.get_day(day_id)
+        day_stat = stats.compute_stress_stats_for_day(day)
+        self.assertEquals(24.0, day_stat['total'])
+        self.assertEquals(6, day_stat['result'])
+        
+        task = self.user.create_task("Fifa Time")
+        duration= 6 # 6 interval . With interval = 0.5h, duration = 3 hours
+        offset = 18
+        current_schedule = self.user.get_week('current')
+        
+        current_schedule.add_scheduled_task(day_id = day_id, task = task, duration = duration, offset = offset)
+        
+        day_stat = stats.compute_stress_stats_for_day(day)
+        
+        self.assertEquals(24.0, day_stat['total'])
+        self.assertEquals(6 + 3, day_stat['result'])
+        
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']

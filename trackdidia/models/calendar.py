@@ -26,6 +26,7 @@ class Day(ndb.Model):
     interval_usage = ndb.BooleanProperty(repeated = True)
     _scheduled_tasks = None
     _stat = None
+    _stress = None
     
     def validate_offset_and_duration(self, offset, duration):
         higher_limit = len(self.interval_usage)
@@ -80,6 +81,7 @@ class Day(ndb.Model):
             self.interval_usage[i] = True
         
         ndb.put_multi([self, scheduled_task])
+        
     def get_stat(self):
         if not self._stat:
             scheduled_tasks = self.get_scheduled_tasks()
@@ -87,6 +89,15 @@ class Day(ndb.Model):
             self._stat = reduce(lambda x, y:(x[0] + y[0], x[1] + y[1]), map(lambda z: z.get_point(), scheduled_tasks))
             self._stat = (self._stat[0]*interval, self._stat[1]*interval)
         return self._stat
+    
+    def get_stress(self):
+        if not self._stress:
+            scheduled_tasks = self.get_scheduled_tasks()
+            interval = 24.0/len(self.interval_usage)
+            self._stress = sum([scheduled_task.duration for scheduled_task in scheduled_tasks])
+            self._stress = self._stress * interval
+        return self._stress
+            
         
     
     def get_scheduled_task(self, scheduled_task_id):
@@ -153,6 +164,7 @@ class Day(ndb.Model):
     def invalidate_cache(self):
         self._scheduled_tasks = None
         self._stat = None
+        self._stress = None
 
  
 class Week(ndb.Model):
@@ -248,6 +260,9 @@ class Week(ndb.Model):
     
     def get_stat(self):
         return reduce(lambda x, y:(x[0] + y[0], x[1] + y[1]), map(lambda z: z.get_stat(), self.get_all_days()))
+    
+    def get_stress(self):
+        return sum([day.get_stress() for day in self.get_all_days()])
     
     def get_scheduled_tasks(self, unique = False, active_only = False, task_key = None):
         return ScheduledTask.find(self.key, unique = unique, active_only = active_only, task_key = task_key)

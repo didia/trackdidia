@@ -68,7 +68,8 @@ stat_route = routes.PathPrefixRoute('/stats', [
                                                ])
 
 crons_route = routes.PathPrefixRoute('/crons', [
-                  webapp2.Route('/restart/weekly', handler = handlers.CronHandler)
+                  webapp2.Route('/restart/weekly', handler = handlers.CronHandler),
+                  webapp2.Route('/populate-week/<year>/<month>/<day>', handler = handlers.CronHandler, handler_method='generate_week_from')
               ])
 
 applications_routes = [ webapp2.Route('/', handlers.MainHandler, name='main'),

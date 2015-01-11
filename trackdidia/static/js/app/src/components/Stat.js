@@ -25,31 +25,62 @@ define(["react", "components/WeekStat", "app/event","app/constants", "app/trackd
 		},
 		_getAllWidgets : function() {
 			var widgets = [];
+
+			var widgetExecution = this._getExecutionWidgets();
+			for(var i = 0; i < widgetExecution.length; i++) {
+				widgets.push(widgetExecution[i]);
+			}
+
+			var widgetStress = this._getStressWidgets();
+			for(var i = 0; i < widgetStress.length ; i++) {
+				widgets.push(widgetStress[i]);
+			}
+
+
+			return widgets;
+		},
+		_getStressWidgets : function() {
+			var widgets = [];
 			var stats = this.state;
-			var current_week = stats != null?stats['current-week']:{};
-			var last_week = stats != null?stats['last-week']:{};
+			var current_week = stats != null?stats['stress']['current-week']:{};
+			var last_week = stats != null?stats['stress']['last-week']:{};
 			if (current_week != null) {
-				current_week["title"] = "Current week";
-				widgets.push(<WeekStatComponent key = {current_week.title} data = {current_week} />);
+				current_week["title"] = "Current week stress";
+				widgets.push(<WeekStatComponent enable_color = {false} key = {current_week.title} data = {current_week} />);
 			}
 			if (last_week != null) {
-				last_week["title"] = "Current week";
-				widgets.push(<WeekStatComponent key = {last_week.title} data = {last_week} />);
+				last_week["title"] = "Last week stress";
+				widgets.push(<WeekStatComponent  enable_color = {false} key = {last_week.title} data = {last_week} />);
 			}
 
 			return widgets;
 		},
+		_getExecutionWidgets : function() {
+			var widgets = [];
+			var stats = this.state;
+			var current_week = stats != null?stats['execution']['current-week']:{};
+			var last_week = stats != null?stats['execution']['last-week']:{};
+			if (current_week != null) {
+				current_week["title"] = "Current week execution";
+				widgets.push(<WeekStatComponent enable_color = {true} key = {current_week.title} data = {current_week} />);
+			}
+			if (last_week != null) {
+				last_week["title"] = "Last week execution";
+				widgets.push(<WeekStatComponent enable_color = {true} key = {last_week.title} data = {last_week} />);
+			}
 
+			return widgets;
+		},
 		render: function() {
 			var widgets = this._getAllWidgets();
 			var body = [];
-			
+
 			for(var i = 0; i <widgets.length; i++) {
-				body.push(<div key = {i} className = "col-sm-4"> {widgets[i]} </div>);
+				body.push(<div key = {i} className = "col-md-4"> {widgets[i]} </div>);
 			}
 
 			return (
-				<div className = "row">
+				<div className = "stat-page text-center">
 					{body}
 				</div>
 			);

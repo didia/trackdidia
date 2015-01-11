@@ -41,6 +41,9 @@ def get_last_week_id(date = None):
     
     return get_week_id(date)
 
+def get_today():
+    return datetime.datetime.now(tz = Eastern_tzinfo())
+
 
     
         
