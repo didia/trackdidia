@@ -11,6 +11,7 @@
  	var week= null;
  	var me = null;
  	var tasks = {};
+ 	var stats= null;
  	var nonDeletedTasks = {};
  	var recurrenceTypes = ['weekly', 'daily']
 
@@ -180,6 +181,18 @@
 
  		getLinkTo : function(destination) {
  			return links[destination];
+ 		},
+
+ 		updateStats : function() {
+ 			callRemote(links['stats'], null, function(response, status){
+	 			if(status == "ok") {
+	 				stats = response;
+	 				EventProvider.fire(Constants.CHANGE_EVENT);
+	 			}
+	 		});
+ 		},
+ 		getStats : function() {
+ 			return stats;
  		}
 
  	};

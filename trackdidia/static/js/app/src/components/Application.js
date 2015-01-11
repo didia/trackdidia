@@ -7,7 +7,7 @@
 
 "use strict";
 
-define(["react", "components/Schedule", "components/TaskList", "app/event","app/constants", "app/trackdidia", "bootstrap"], function(React, ScheduleComponent, TaskListComponent,  EventProvider, Constants, trackdidia){
+define(["react", "components/Schedule", "components/TaskList","components/Stat", "app/event","app/constants", "app/trackdidia", "bootstrap"], function(React, ScheduleComponent, TaskListComponent, StatComponent, EventProvider, Constants, trackdidia){
 	var ApplicationComponent = React.createClass({
 	    
 	    getInitialState: function() {
@@ -30,6 +30,9 @@ define(["react", "components/Schedule", "components/TaskList", "app/event","app/
 				console.log("Returning TaskListComponent");
 				return <TaskListComponent />;
 			}
+			else if(this.state.page === "stats") {
+				return <StatComponent />;
+			}
 			else{
 				return <ScheduleComponent />;
 			}
@@ -45,7 +48,14 @@ define(["react", "components/Schedule", "components/TaskList", "app/event","app/
 			if (this.state.page !== "tasks"){
 				this._setPage("tasks");
 			}
-			console.log("Set Page has been called");
+			
+		},
+		goToStatsPage : function(e) {
+			e.preventDefault();
+			trackdidia.updateStats();
+			if(this.state.page !== "stats"){
+				this._setPage("stats");
+			}
 		},
 		_setPage : function(page) {
 			var state = this.state;
@@ -78,6 +88,7 @@ define(["react", "components/Schedule", "components/TaskList", "app/event","app/
 								<ul className = "nav navbar-nav">
 									<li className = {this.isActive("schedule")}> <a href = "" onClick={this.goToHomePage} onTouchEnd={this.goToHomePage}> Home </a> </li>
 									<li className = {this.isActive("tasks")}> <a href="" onClick={this.goToTasksPage} onTouchEnd = {this.goToTasksPage}> Tasks </a> </li>
+									<li className = {this.isActive("stats")}> <a href="" onClick={this.goToStatsPage} onTouchEnd = {this.goToTasksPage}> Stats </a> </li>
 									<li> <a href="#"> { user } </a> </li>
 								</ul>
 							</div>

@@ -26,7 +26,30 @@ define(function(){
  			return hour_portion + "h" + (minutes != 0?minutes:"");
  		},
 
+        toPercent : function(result, total) {
+            return Math.round(result * 100 / total);
+        },
 
+        getPercentColor : function(percent) {
+            var color;
+            if(percent < 50) {
+                color = "danger";
+            }
+            else if(percent < 90) {
+                color = "warning";
+            }
+            else {
+                color = "success";
+            }
+
+            return color;
+        },
+
+        addHexColor : function(c1, c2) {
+            var hexStr = (parseInt(c1, 16) + parseInt(c2, 16)).toString(16);
+            while (hexStr.length < 6) { hexStr = '0' + hexStr; } // Zero pad.
+            return hexStr;
+        },
 
  	}
  })

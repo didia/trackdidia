@@ -555,7 +555,18 @@ class TestScheduledTaskHandler(TestApiHandler):
             response = request.get_response(main.app)
             self.assertEquals(400, response.status_int)   
     
-
+class TestStatHandler(TestApiHandler):
+    def testGet(self):
+        
+        url = "/api/stats/"
+        
+        request = webapp2.Request.blank(url)
+        response = request.get_response(main.app)
+        self.assertEquals(200, response.status_int)
+        response_dict = simplejson.loads(response.body)
+        response_dict_keys = response_dict.keys()
+        self.assertTrue("current-week" in response_dict_keys)
+        self.assertTrue("last-week" in response_dict_keys)
 
         
         

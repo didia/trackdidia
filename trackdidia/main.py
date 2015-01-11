@@ -34,7 +34,7 @@ config = {
     'session_backend': 'memcache'
   },
   'webapp2_extras.sessions': {
-    'secret_key': "Dieuachoisi1960",
+    'secret_key': "YOUR API SECRET",
     'backends':{'datastore': 'webapp2_extras.appengine.sessions_ndb.DatastoreSessionFactory',
                  'memcache': 'webapp2_extras.appengine.sessions_memcache.MemcacheSessionFactory',
                  'securecookie': 'webapp2_extras.sessions.SecureCookieSessionFactory' 

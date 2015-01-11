@@ -257,6 +257,7 @@ class MainHandler(BaseHandler):
         links['create_task'] = self.uri_for('create_task')
         links['login'] = users.create_login_url('/')
         links['untrial'] = self.uri_for('untrial')
+        links['stats'] = self.uri_for('stats')
         
         response['links'] = links
         if self.user:
@@ -501,6 +502,18 @@ class ScheduledTaskHandler(DayHandler):
         scheduled_task = self.week.add_scheduled_task(day_id, task, offset, duration, recurrence)
         return task, scheduled_task
 
+class StatHandler(BaseHandler):
+    @user_required
+    def get(self):
+        last_week_id = utils.get_last_week_id()
+        current_week_id = utils.get_week_id()
+        current_week = self.user.get_week(current_week_id)
+        last_week = self.user.get_week(last_week_id)
+        response = {}
+        response['current-week'] = stat.compute_stats_for_schedule(current_week)
+        response['last-week'] = stat.compute_stats_for_schedule(last_week) if last_week else None
+        
+        self.send_response(response)
 
     
     

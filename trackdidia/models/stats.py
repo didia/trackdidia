@@ -10,8 +10,9 @@ from google.appengine.api import mail
 
 def compute_stats_for_schedule(schedule):
     days = schedule.get_all_days();
-    stats = [{'result':day.get_stat()[0], 'total':day.get_stat()[1]} for day in days]
+    stats = [{'result':day.get_stat()[0], 'total':day.get_stat()[1], 'id':day.key.id()} for day in days]
     stat = {}
+    stat['id'] = schedule.key.id()
     stat['total'] = schedule.get_stat()[1]
     stat['result'] = schedule.get_stat()[0]
     stat['days'] = stats
