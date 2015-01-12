@@ -567,6 +567,10 @@ class TestStatHandler(TestApiHandler):
         response_dict_keys = response_dict.keys()
         self.assertTrue("stress" in response_dict_keys)
         self.assertTrue("execution" in response_dict_keys)
+        
+        response_dict_keys = response['execution'].keys()
+        self.assertTrue("current-week" in response_dict_keys)
+        self.assertTrue("last-week" in response_dict_keys)
 
         
         
