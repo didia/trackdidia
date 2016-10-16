@@ -33,5 +33,3 @@ deploy:
   project: trackdidia
   version: ci
   config: backend/app.yaml
-  on:
-    all_branches: true

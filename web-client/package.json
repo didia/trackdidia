@@ -4,12 +4,12 @@
   "private": true,
   "devDependencies": {
     "react-scripts": "0.6.1",
-    "react-test-renderer": "^15.4.0-rc.3"
+    "react-test-renderer": "^15.3.2"
   },
   "dependencies": {
     "material-ui": "next",
-    "react": "^15.4.0-rc.3",
-    "react-dom": "^15.4.0-rc.3",
+    "react": "^15.3.2",
+    "react-dom": "^15.3.2",
     "react-router": "^2.8.1",
     "react-tap-event-plugin": "^1.0.0"
   },
