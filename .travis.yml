@@ -1,18 +1,37 @@
+sudo: false
 language: python
-python:
-  - "2.7"
-
-before_script:
-  - wget https://storage.googleapis.com/appengine-sdks/featured/google_appengine_1.9.15.zip -nv
-  - unzip -q google_appengine_1.9.15.zip
-  - export PYTHONPATH=google_appengine:$PYTHONPATH
-
-# command to install dependencies
-install: 
-  - pip install -r requirements.txt
-  - pip install coveralls
-# command to run tests
-script: nosetests -v --with-gae --without-sandbox --with-coverage --cover-package=trackdidia
-
+cache:
+  pip: true
+env:
+- GAE_PYTHONPATH=${HOME}/.cache/google_appengine PATH=$PATH:${HOME}/google-cloud-sdk/bin PYTHONPATH=${PYTHONPATH}:${GAE_PYTHONPATH} CLOUDSDK_CORE_DISABLE_PROMPTS=1
+before_install:
+- if [ ! -d "${GAE_PYTHONPATH}" ]; then
+    python scripts/fetch_gae_sdk.py $(dirname "${GAE_PYTHONPATH}");
+  fi
+- openssl aes-256-cbc -K $encrypted_8287de3f952d_key -iv $encrypted_8287de3f952d_iv
+  -in credentials.tar.gz.enc -out credentials.tar.gz -d 
+- if [ ! -d ${HOME}/google-cloud-sdk ]; then
+     curl https://sdk.cloud.google.com | bash;
+  fi
+- tar -xzf credentials.tar.gz
+- mkdir -p lib
+install:
+- . $HOME/.nvm/nvm.sh
+- nvm install stable
+- nvm use stable
+- ./scripts/backend-install.sh
+script:
+- ./scripts/run-tests-and-build.sh
 after_success:
-  coveralls
+- coveralls-lcov -v -n web-client/coverage/lcov.info > web-coverage.json
+- mv backend/.coverage ./
+- coveralls --merge=web-coverage.json
+deploy:
+  provider: gae
+  skip_cleanup: true
+  keyfile: client-secret.json
+  project: trackdidia
+  version: ci
+  config: backend/app.yaml
+  on:
+    all_branches: true
