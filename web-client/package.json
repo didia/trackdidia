@@ -3,8 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "devDependencies": {
-    "react-scripts": "0.6.1",
-    "react-test-renderer": "^15.3.2"
+    "react-scripts": "0.6.1"
   },
   "dependencies": {
     "material-ui": "next",
