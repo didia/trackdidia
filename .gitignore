@@ -58,3 +58,28 @@ target/
 
 #Others
 .DS_Store
+
+# Web client
+# See http://help.github.com/ignore-files/ for more about ignoring files.
+
+# dependencies
+web-client/node_modules
+
+# testing
+web-client/coverage
+
+# production
+web-client/build
+
+# misc
+.DS_Store
+.env
+npm-debug.log
+.idea/
+.noseids/
+.settings/
+
+#credentials
+credentials.tar.gz
+client-secret.json
+api_key.py

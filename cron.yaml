@@ -1,6 +1,0 @@
-
-cron:
-- description: Send weekly stats to user and restart tracking
-  url: /crons/restart/weekly
-  schedule: every monday 00:00
-  timezone: Canada/Eastern

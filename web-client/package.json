@@ -1,0 +1,22 @@
+{
+  "name": "trackdidia",
+  "version": "0.0.1",
+  "private": true,
+  "devDependencies": {
+    "react-scripts": "0.6.1",
+    "react-test-renderer": "^15.4.0-rc.3"
+  },
+  "dependencies": {
+    "material-ui": "next",
+    "react": "^15.4.0-rc.3",
+    "react-dom": "^15.4.0-rc.3",
+    "react-router": "^2.8.1",
+    "react-tap-event-plugin": "^1.0.0"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test --env=jsdom --coverage",
+    "eject": "react-scripts eject"
+  }
+}
