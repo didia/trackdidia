@@ -9,7 +9,7 @@ elixir:
 
 # Make sure PostgreSQL is running
 addons:
-  postgresql: 9.4
+  postgresql: 9.5
 
 # Set global environment variables
 env:
