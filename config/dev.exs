@@ -14,8 +14,8 @@ config :trackdidia, TrackdidiaWeb.Endpoint,
   live_reload: [
     patterns: [
       ~r{priv/static/.*(js|css|png|jpeg|jpg|gif|svg)$},
-      ~r{lib/trackdidia_web/views/.*(ex)$},
-      ~r{lib/trackdidia_web/templates/.*(eex)$}
+      ~r{lib/trackdidia_web/*/.*(ex)$},
+      ~r{lib/trackdidia_web/*/.*(eex)$}
     ]
   ]
 

@@ -1,0 +1,28 @@
+<h2>Listing Resolutions</h2>
+
+<table class="table">
+  <thead>
+    <tr>
+      <th>Title</th>
+      <th>Description</th>
+
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+<%= for resolution <- @resolutions do %>
+    <tr>
+      <td><%= resolution.title %></td>
+      <td><%= resolution.description %></td>
+
+      <td class="text-right">
+        <span><%= link "Show", to: resolutions_path(@conn, :show, resolution), class: "btn btn-default btn-xs" %></span>
+        <span><%= link "Edit", to: resolutions_path(@conn, :edit, resolution), class: "btn btn-default btn-xs" %></span>
+        <span><%= link "Delete", to: resolutions_path(@conn, :delete, resolution), method: :delete, data: [confirm: "Are you sure?"], class: "btn btn-danger btn-xs" %></span>
+      </td>
+    </tr>
+<% end %>
+  </tbody>
+</table>
+
+<span><%= link "New Resolution", to: resolutions_path(@conn, :new) %></span>

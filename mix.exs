@@ -9,7 +9,7 @@ defmodule Trackdidia.Mixfile do
       elixirc_paths: elixirc_paths(Mix.env()),
       test_paths: ["lib"],
       test_pattern: "**/*_test.exs",
-      compilers: [:phoenix] ++ Mix.compilers(),
+      compilers: [:phoenix, :gettext] ++ Mix.compilers(),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps()
@@ -19,7 +19,7 @@ defmodule Trackdidia.Mixfile do
   def application do
     [
       mod: {Trackdidia.Application, []},
-      extra_applications: [:logger, :runtime_tools]
+      extra_applications: [:logger, :runtime_tools, :gettext]
     ]
   end
 
@@ -48,7 +48,10 @@ defmodule Trackdidia.Mixfile do
       {:sentry, "~> 5.0"},
 
       # Linting
-      {:credo, "~> 0.8", only: [:dev, :test]}
+      {:credo, "~> 0.8", only: [:dev, :test]},
+
+      # Translation
+      {:gettext, "~> 0.13"}
     ]
   end
 

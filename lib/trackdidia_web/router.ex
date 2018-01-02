@@ -1,14 +1,24 @@
 defmodule TrackdidiaWeb.Router do
-  use Phoenix.Router
-  use Plug.ErrorHandler
-  use Sentry.Plug
+  use TrackdidiaWeb, :router
+
+  pipeline :browser do
+    plug(:accepts, ["html"])
+    plug(:fetch_session)
+    plug(:fetch_flash)
+    plug(:protect_from_forgery)
+    plug(:put_secure_browser_headers)
+  end
 
   pipeline :api do
     plug(:accepts, ["json"])
   end
 
   scope "/", TrackdidiaWeb do
-    pipe_through(:api)
+    pipe_through(:browser)
+
+    get("/", Home.Controller, :index)
+
+    resources("/resolutions", Resolutions.Controller, as: "resolutions")
 
     get("/health", Health.Controller, :index)
   end

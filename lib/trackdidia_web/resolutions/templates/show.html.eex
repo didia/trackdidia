@@ -1,0 +1,18 @@
+<h2>Show Resolution</h2>
+
+<ul>
+
+  <li>
+    <strong>Title:</strong>
+    <%= @resolution.title %>
+  </li>
+
+  <li>
+    <strong>Description:</strong>
+    <%= @resolution.description %>
+  </li>
+
+</ul>
+
+<span><%= link "Edit", to: resolutions_path(@conn, :edit, @resolution) %></span>
+<span><%= link "Back", to: resolutions_path(@conn, :index) %></span>

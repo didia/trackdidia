@@ -42,7 +42,7 @@ defmodule TrackdidiaWeb.Endpoint do
   plug(
     Plug.Session,
     store: :cookie,
-    key: Application.get_env(:trackdidia, TrackdidiaWeb.Endpoint)[:session_key],
+    key: System.get_env("SESSION_KEY"),
     signing_salt: "G5pYBEen"
   )
 

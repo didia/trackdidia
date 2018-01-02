@@ -1,0 +1,5 @@
+<h2>Edit Resolution</h2>
+
+<%= render "form.html", Map.put(assigns, :action, resolutions_path(@conn, :update, @resolution)) %>
+
+<span><%= link "Back", to: resolutions_path(@conn, :index) %></span>

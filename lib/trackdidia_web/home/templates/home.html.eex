@@ -1,0 +1,3 @@
+<div class="row align-items-center justify-content-center home">
+  <%= link gettext("Ajouter une résolution"), to: resolutions_path(@conn, :new), class: "btn btn-primary", role: "button" %>
+</div>
