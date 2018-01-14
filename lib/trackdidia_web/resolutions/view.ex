@@ -10,7 +10,7 @@ defmodule TrackdidiaWeb.Resolutions.View do
   defp day_option(day_number) do
     day_number
     |> Timex.day_name()
-    |> (fn (day_name) -> {day_name, day_number} end).()
+    |> (fn day_name -> {day_name, day_number} end).()
   end
 
   def day_name(day_number) do

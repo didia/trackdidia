@@ -35,4 +35,3 @@ alias Trackdidia.DummyDataSeeder
 DummyDataSeeder.clear_all_resolutions
 
 (1..20) |> Enum.each( fn order -> DummyDataSeeder.insert_resolution(order) end)
-

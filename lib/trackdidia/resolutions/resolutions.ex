@@ -23,8 +23,8 @@ defmodule Trackdidia.Resolutions do
 
   def list_resolutions(day) when day in 1..7 do
     Resolution
-    |> where([res],  ^day in res.days)
-    |> Repo.all
+    |> where([res], ^day in res.days)
+    |> Repo.all()
   end
 
   @doc """
