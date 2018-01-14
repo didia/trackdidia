@@ -5,7 +5,7 @@ defmodule Trackdidia.Repo.Migrations.CreateResolutions do
     create table(:resolutions) do
       add :title, :string
       add :description, :string
-      add :days, {:array, :string}
+      add :days, {:array, :integer}
 
       timestamps()
     end

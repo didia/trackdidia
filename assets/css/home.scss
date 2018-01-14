@@ -1,0 +1,42 @@
+.day-view {
+  width: 100%;
+
+  .day-view__date {
+    display: flex;
+    flex-direction: column;
+    color: #4285f4;
+  }
+
+  .day-view-date__name {
+    font-size: 12px;
+    line-height: 32px;
+    text-transform: capitalize;
+  }
+
+  .day-view-date__day {
+    font-size: 40px;
+    line-height: 32px;
+  }
+
+  .day-view-resolution__link {
+    color: #212529;
+    text-decoration: none;
+    transition: 0.2s color ease-in-out;
+
+    &:hover,
+    &:focus {
+      color: #007bff;
+    }
+  }
+
+  .day-view-resolution__details {
+    display: flex;
+    flex-direction: column;
+    font-size: 1.4rem;
+  }
+
+  .day-view-resolution__description {
+    padding-left: 0.7rem;
+    font-size: 0.7rem;
+  }
+}

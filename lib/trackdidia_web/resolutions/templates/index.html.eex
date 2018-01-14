@@ -1,10 +1,10 @@
-<h2>Listing Resolutions</h2>
+<h2><%= gettext("Liste des résolutions") %></h2>
 
 <table class="table">
   <thead>
     <tr>
-      <th>Title</th>
-      <th>Description</th>
+      <th><%= gettext("Titre") %></th>
+      <th><%= gettext("Description") %></th>
 
       <th></th>
     </tr>
@@ -14,15 +14,23 @@
     <tr>
       <td><%= resolution.title %></td>
       <td><%= resolution.description %></td>
-
+      <td>
+        <%= if resolution.days do %>
+          <ul>
+            <%= for day <- resolution.days do %>
+            <li><%= day_name(day) %></li>
+            <% end %>
+          </ul>
+        <% end %>
+      </td>
       <td class="text-right">
-        <span><%= link "Show", to: resolutions_path(@conn, :show, resolution), class: "btn btn-default btn-xs" %></span>
-        <span><%= link "Edit", to: resolutions_path(@conn, :edit, resolution), class: "btn btn-default btn-xs" %></span>
-        <span><%= link "Delete", to: resolutions_path(@conn, :delete, resolution), method: :delete, data: [confirm: "Are you sure?"], class: "btn btn-danger btn-xs" %></span>
+        <span><%= link gettext("Montrer"), to: resolutions_path(@conn, :show, resolution), class: "btn btn-default btn-xs" %></span>
+        <span><%= link gettext("Modifier"), to: resolutions_path(@conn, :edit, resolution), class: "btn btn-default btn-xs" %></span>
+        <span><%= link gettext("Supprimer"), to: resolutions_path(@conn, :delete, resolution), method: :delete, data: [confirm: "Are you sure?"], class: "btn btn-danger btn-xs" %></span>
       </td>
     </tr>
 <% end %>
   </tbody>
 </table>
 
-<span><%= link "New Resolution", to: resolutions_path(@conn, :new) %></span>
+<span><%= link gettext("Nouvelle résolution"), to: resolutions_path(@conn, :new) %></span>

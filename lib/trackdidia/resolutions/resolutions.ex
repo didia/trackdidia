@@ -21,6 +21,12 @@ defmodule Trackdidia.Resolutions do
     Repo.all(Resolution)
   end
 
+  def list_resolutions(day) when day in 1..7 do
+    Resolution
+    |> where([res],  ^day in res.days)
+    |> Repo.all
+  end
+
   @doc """
   Gets a single templates.
 

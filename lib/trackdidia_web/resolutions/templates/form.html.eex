@@ -19,7 +19,7 @@
 
   <div class="form-group">
     <%= label f, :days, class: "control-label" %>
-    <%= multiple_select f, :days, @days_options, class: "form-control" %>
+    <%= multiple_select f, :days, days_options(), class: "form-control" %>
     <%= error_tag f, :days %>
   </div>
 

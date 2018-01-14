@@ -1,5 +1,6 @@
 defmodule Trackdidia.Resolutions.Resolution do
-  use Ecto.Schema
+  use TrackdidiaWeb, :model
+  use Timex
 
   import Ecto.Changeset
 
@@ -8,7 +9,7 @@ defmodule Trackdidia.Resolutions.Resolution do
   schema "resolutions" do
     field(:description, :string)
     field(:title, :string)
-    field(:days, {:array, :string})
+    field(:days, {:array, :integer})
 
     timestamps()
   end
@@ -17,7 +18,7 @@ defmodule Trackdidia.Resolutions.Resolution do
   def changeset(%Resolution{} = resolution, attrs) do
     resolution
     |> cast(attrs, [:title, :description, :days])
-    |> validate_subset(:days, ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"])
-    |> validate_required([:title, :description])
+    |> validate_subset(:days, 1..7)
+    |> validate_required([:title, :description, :days])
   end
 end

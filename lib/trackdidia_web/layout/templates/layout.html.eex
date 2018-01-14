@@ -10,8 +10,15 @@
     <link rel="shortcut icon" href="<%= static_path(@conn, "/favicon.ico") %>" type="image/x-icon">
   </head>
 
-  <body class="p-4">
-    <div class="container-fluid">
+  <body>
+    <nav class="navbar sticky-top navbar-light bg-light">
+      <a class="navbar-brand" href="/">
+        <img src="<%= static_path(@conn, "/images/logo.png") %>" height="40" />
+      </a>
+      <%= link gettext("Ajouter une résolution"), to: resolutions_path(@conn, :new), class: "btn btn-primary", role: "button" %>
+    </nav>
+
+    <div class="container-fluid p-4">
       <%= render(@view_module, @view_template, assigns) %>
     </div>
 

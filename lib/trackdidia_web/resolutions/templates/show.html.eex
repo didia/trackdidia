@@ -1,7 +1,6 @@
 <h2>Show Resolution</h2>
 
 <ul>
-
   <li>
     <strong>Title:</strong>
     <%= @resolution.title %>
@@ -10,6 +9,15 @@
   <li>
     <strong>Description:</strong>
     <%= @resolution.description %>
+  </li>
+
+  <li>
+    <strong>Days</strong>
+    <ul>
+      <%= for day <- @resolution.days do %>
+        <li><%= day_name(day) %></li>
+      <% end %>
+    </ul>
   </li>
 
 </ul>

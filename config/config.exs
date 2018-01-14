@@ -24,6 +24,13 @@ config :trackdidia, TrackdidiaWeb.Endpoint,
   render_errors: [view: TrackdidiaWeb.Errors.View, accepts: ~w(html json)],
   pubsub: [name: Trackdidia.PubSub, adapter: Phoenix.PubSub.PG2]
 
+# Configures internationalization
+config :trackdidia, TrackdidiaWeb.Gettext,
+  default_locale: "fr"
+
+config :timex,
+  default_locale: "fr"
+
 # Configures Elixir's Logger
 config :logger, :console,
   format: "$time $metadata[$level] $message\n",

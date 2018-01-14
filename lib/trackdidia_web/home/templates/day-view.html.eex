@@ -1,0 +1,29 @@
+<div class="day-view">
+  <ul class="list-group">
+    <li class="list-group-item day-view__date">
+      <span class="day-view-date__name">
+        <%= current_day_name %>
+      </span>
+
+      <span class="day-view-date__day">
+        <%= current_day %>
+      </span>
+    </li>
+
+    <%= for resolution <- @resolutions do %>
+    <li class="list-group-item day-view-resolution">
+      <%= link to: resolutions_path(@conn, :show, resolution), class: "day-view-resolution__link" do %>
+        <div class="day-view-resolution__details">
+          <span class="day-view-resolution__title">
+            <%= resolution.title %>
+          </span>
+
+          <span class="day-view-resolution__description">
+            <%= resolution.description %>
+          </span>
+        </div>
+      <% end %>
+    </li>
+    <% end %>
+  </ul>
+</div>

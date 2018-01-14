@@ -19,7 +19,7 @@ defmodule Trackdidia.Mixfile do
   def application do
     [
       mod: {Trackdidia.Application, []},
-      extra_applications: [:logger, :runtime_tools, :gettext]
+      extra_applications: [:logger, :runtime_tools, :gettext, :timex]
     ]
   end
 
@@ -51,7 +51,10 @@ defmodule Trackdidia.Mixfile do
       {:credo, "~> 0.8", only: [:dev, :test]},
 
       # Translation
-      {:gettext, "~> 0.13"}
+      {:gettext, "~> 0.13"},
+
+      # Time
+      {:timex, "~> 3.1"}
     ]
   end
 
