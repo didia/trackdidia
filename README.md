@@ -1,47 +1,55 @@
 # Trackdidia
 
-## Executing mix commands
+Application desktop locale pour suivre les routines quotidiennes, les metriques de vie et le respect des principes personnels.
 
-Because the app is modeled with the Twelve-Factor app architecture, all configs are stored in the environment.
+## Stack
 
-When executing mix command, you should always make sure that the required system env are present.
-You can use `source`, [nv](https://github.com/jcouture/nv) or a custom l33t bash script.
+- React + TypeScript + Vite
+- Tauri pour le shell desktop
+- SQLite via le plugin Tauri SQL
+- Vitest + Testing Library
 
-Every following steps assume you have this kind of system.
+## Demarrage
 
-## Running the app
+1. Installer les dependances JavaScript
+2. Installer la toolchain Rust pour lancer Tauri
+3. Lancer le frontend ou l'application desktop
 
-  1. Create your .env and .env.test config file.
-  2. Install dependencies with `mix deps.get`.
-  3. Create and migrate your database with `mix ecto.setup`
-  4. Start Phoenix endpoint with `mix phx.server`
-
-## Environment variables
-
-The application needs the following environment variables:
-
-```
-PORT=
-CANONICAL_HOST=
-
-# Secret key. You can use `mix phx.gen.secret` to get one or use any secret string you want
-SECRET_KEY_BASE=
-SESSION_KEY=
-
-# Url of the database
-DATABASE_URL=
-# Pool size of the DB connections. You may use 20 connections as a starting point.
-DATABASE_POOL_SIZE=
+```bash
+npm install
+npm run dev
 ```
 
-It also supports these optional environment variables:
+Pour lancer l'application Tauri une fois Rust installe :
 
-```
-FORCE_SSL=
-BASIC_AUTH_USERNAME=
-BASIC_AUTH_PASSWORD=
+```bash
+npm run tauri dev
 ```
 
-## Linting
+## Scripts
 
-Use: `mix credo --strict`
+- `npm run dev` : frontend Vite
+- `npm run build` : verification TypeScript + build Vite
+- `npm run test` : tests unitaires et UI
+- `npm run tauri dev` : shell desktop Tauri
+
+## Notes
+
+- Le mode navigateur utilise un repository memoire de previsualisation lorsque le runtime Tauri n'est pas disponible.
+- Le mode desktop reste concu pour persister en SQLite local.
+
+## Donnees locales
+
+- En mode desktop, la base SQLite est ouverte via `sqlite:trackdidia.db`.
+- Sur macOS, avec l'identifiant Tauri actuel `com.trackdidia.desktop`, le fichier se trouve dans `~/Library/Application Support/com.trackdidia.desktop/trackdidia.db`.
+- Les fichiers `trackdidia.db-wal` et `trackdidia.db-shm` a cote sont normaux pour SQLite en mode WAL.
+- Les backups manuels et automatiques sont ecrits dans `~/Library/Application Support/com.trackdidia.desktop/backups/`.
+- Une mise a jour de l'application ne doit pas supprimer ces fichiers tant que l'identifiant Tauri reste le meme et que l'installateur ne nettoie pas le dossier de donnees utilisateur.
+- L'application peut creer un backup manuel a la demande et verifier automatiquement toutes les heures si un nouveau backup est du apres 24h depuis le precedent.
+
+## Politique de migration
+
+- Toute evolution du schema SQLite doit passer par une migration ajoutee a la liste `migrations` dans [src/lib/storage/tauri-sqlite-repository.ts](/Users/didia/workspace/trackdidia/src/lib/storage/tauri-sqlite-repository.ts).
+- A partir de maintenant, pas de modification manuelle hors migration pour la structure de base de donnees.
+- Les migrations doivent etre incrementales et preserve-first: ajout de colonnes, backfill, transformation idempotente, puis lecture du nouveau champ dans le code.
+- La table `schema_migrations` est la source de verite pour savoir quelles migrations ont deja ete appliquees sur une installation existante.

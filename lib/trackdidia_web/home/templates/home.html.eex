@@ -1,1 +1,0 @@
-<%= render "day-view.html", assigns %>
