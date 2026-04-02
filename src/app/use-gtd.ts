@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { CreateTaskInput, Project, Task, TaskContext } from "../domain/types";
 import { useAppContext } from "./app-context";
+import { getTodayDate } from "../lib/date";
 
 export const useGtdWorkspace = () => {
   const { repository } = useAppContext();
@@ -14,6 +15,8 @@ export const useGtdWorkspace = () => {
       setLoading(true);
     }
 
+    await repository.generateDueRecurringTasks(getTodayDate());
+    await repository.generateDailyRelationshipTasks(getTodayDate());
     const [nextTasks, nextProjects, nextContexts] = await Promise.all([
       repository.listTasks({ includeCompleted: false }),
       repository.listProjects(),
@@ -151,6 +154,35 @@ export const useGtdWorkspace = () => {
     [load, repository]
   );
 
+  const saveContext = useCallback(
+    async (context: TaskContext) => {
+      const nextContext = await repository.saveContext(context);
+      await load({ preserveVisibleState: true });
+      return nextContext;
+    },
+    [load, repository]
+  );
+
+  const applyRecurringEditScope = useCallback(
+    async (
+      taskId: string,
+      scope: "occurrence" | "series",
+      changes: {
+        title?: string;
+        notes?: string;
+        bucket?: "next_action" | "scheduled";
+        contextIds?: string[];
+        projectId?: string | null;
+        scheduledFor?: string | null;
+      }
+    ) => {
+      const nextTask = await repository.applyRecurringEditScope(taskId, scope, changes);
+      await load({ preserveVisibleState: true });
+      return nextTask;
+    },
+    [load, repository]
+  );
+
   return {
     tasks,
     projects,
@@ -167,6 +199,8 @@ export const useGtdWorkspace = () => {
     cancelTask,
     cancelTasks,
     clearPastRecurrences,
-    saveProject
+    saveProject,
+    saveContext,
+    applyRecurringEditScope
   };
 };

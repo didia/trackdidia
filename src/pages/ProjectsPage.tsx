@@ -23,6 +23,8 @@ export const ProjectsPage = () => {
     loading,
     saveProject,
     saveTask,
+    saveContext,
+    applyRecurringEditScope,
     completeTask,
     cancelTask,
     clearPastRecurrences
@@ -217,6 +219,8 @@ export const ProjectsPage = () => {
                 tasks={activeTasksByProject.get(project.id) ?? []}
                 onSaveProject={saveProject}
                 onSaveTask={saveTask}
+                onSaveContext={saveContext}
+                onApplyRecurringEditScope={applyRecurringEditScope}
                 onCompleteTask={completeTask}
                 onCancelTask={cancelTask}
                 onClearPastRecurrences={clearPastRecurrences}
@@ -236,6 +240,8 @@ const GtdProjectCard = ({
   tasks,
   onSaveProject,
   onSaveTask,
+  onSaveContext,
+  onApplyRecurringEditScope,
   onCompleteTask,
   onCancelTask,
   onClearPastRecurrences
@@ -246,6 +252,19 @@ const GtdProjectCard = ({
   tasks: Task[];
   onSaveProject: (project: Project) => Promise<Project>;
   onSaveTask: (task: Task) => Promise<unknown>;
+  onSaveContext: (context: TaskContext) => Promise<TaskContext>;
+  onApplyRecurringEditScope: (
+    taskId: string,
+    scope: "occurrence" | "series",
+    changes: {
+      title?: string;
+      notes?: string;
+      bucket?: "next_action" | "scheduled";
+      contextIds?: string[];
+      projectId?: string | null;
+      scheduledFor?: string | null;
+    }
+  ) => Promise<Task>;
   onCompleteTask: (taskId: string) => Promise<unknown>;
   onCancelTask: (taskId: string) => Promise<unknown>;
   onClearPastRecurrences: (taskId: string) => Promise<unknown>;
@@ -421,6 +440,8 @@ const GtdProjectCard = ({
                     onSave={async (nextTask) => {
                       await onSaveTask(nextTask);
                     }}
+                    onSaveContext={onSaveContext}
+                    onApplyRecurringEditScope={onApplyRecurringEditScope}
                     onComplete={async (taskId) => {
                       await onCompleteTask(taskId);
                     }}

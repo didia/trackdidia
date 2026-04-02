@@ -235,6 +235,26 @@ export const buildLifecycleEvents = (previous: Task | null, next: Task): TaskEve
     events.push(eventFor(next.id, "task_completed", (next.completedAt ?? next.updatedAt).slice(0, 10), { bucket: next.bucket }));
   }
 
+  if (
+    next.isRecurringInstance &&
+    previous.recurrenceDueDate !== next.recurrenceDueDate &&
+    next.status === "active" &&
+    next.recurrenceDueDate
+  ) {
+    if (next.bucket === "next_action") {
+      events.push(eventFor(next.id, "task_moved_to_next_action", next.recurrenceDueDate, { recurring: "true" }));
+    }
+
+    if (next.bucket === "scheduled") {
+      events.push(
+        eventFor(next.id, "task_scheduled_for_day", next.recurrenceDueDate, {
+          scheduledFor: next.scheduledFor ?? "",
+          recurring: "true"
+        })
+      );
+    }
+  }
+
   if (previous.bucket !== "next_action" && next.bucket === "next_action" && next.status === "active") {
     events.push(eventFor(next.id, "task_moved_to_next_action", updateEventDate, { from: previous.bucket }));
   }
@@ -308,6 +328,9 @@ export const createTaskFromInput = (input: CreateTaskInput): Task => {
     projectId: input.projectId ?? null,
     parentTaskId: input.parentTaskId ?? null,
     scheduledFor: input.scheduledFor ?? null,
+    recurringTemplateId: input.recurringTemplateId ?? null,
+    recurrenceDueDate: input.recurrenceDueDate ?? null,
+    isRecurringInstance: input.isRecurringInstance ?? false,
     completedAt: null,
     recurrenceGroupId: null,
     pendingPastRecurrences: 0,

@@ -2,10 +2,21 @@ import type {
   AppSettings,
   CreateTaskInput,
   DailyEntry,
+  DailyPomodoroStats,
   DailyTaskStats,
   GtdImportSummary,
+  PomodoroKind,
+  PomodoroSessionDetails,
+  PomodoroState,
+  PomodoroStatus,
+  PomodoroTaskSummary,
   Project,
   ProjectFilters,
+  RecurringEditScope,
+  RecurringPreviewOccurrence,
+  RecurringTaskChanges,
+  RecurringTaskTemplate,
+  RecurringTemplateFilters,
   Task,
   TaskContext,
   TaskFilters
@@ -27,6 +38,12 @@ export interface DailyTaskBreakdown {
   completedTasks: Task[];
 }
 
+export interface PomodoroStartOptions {
+  kind?: PomodoroKind;
+  taskId?: string | null;
+  title?: string | null;
+}
+
 export interface AppRepository {
   initialize(): Promise<void>;
   getDailyEntry(date: string): Promise<DailyEntry | null>;
@@ -42,6 +59,7 @@ export interface AppRepository {
   moveTasksWithScheduledDatesToBucket(bucket: Task["bucket"]): Promise<number>;
   collapseGoogleRecurringTasks(rawJson: unknown): Promise<number>;
   listContexts(): Promise<TaskContext[]>;
+  saveContext(context: TaskContext): Promise<TaskContext>;
   listProjects(filters?: ProjectFilters): Promise<Project[]>;
   saveProject(project: Project): Promise<Project>;
   listTasks(filters?: TaskFilters): Promise<Task[]>;
@@ -52,7 +70,29 @@ export interface AppRepository {
   completeTask(taskId: string, completedAt?: string): Promise<Task>;
   cancelTask(taskId: string): Promise<Task>;
   clearPastRecurrences(taskId: string): Promise<Task>;
+  generateDailyRelationshipTasks(date: string): Promise<number>;
   computeDailyTaskStats(date: string): Promise<DailyTaskStats>;
   getDailyTaskBreakdown(date: string): Promise<DailyTaskBreakdown>;
   applyWeeklyCarryover(weekStartDate: string): Promise<number>;
+  getPomodoroState(): Promise<PomodoroState>;
+  startPomodoro(options?: PomodoroStartOptions): Promise<PomodoroState>;
+  stopPomodoroSession(sessionId: string, status: Extract<PomodoroStatus, "completed" | "cancelled">, at?: string): Promise<PomodoroState>;
+  completeExpiredPomodoroSessions(now?: string): Promise<PomodoroState>;
+  switchPomodoroTask(
+    sessionId: string,
+    taskId: string | null,
+    title?: string | null,
+    changedAt?: string
+  ): Promise<PomodoroState>;
+  listPomodoroSessions(date: string): Promise<PomodoroSessionDetails[]>;
+  listPomodoroTaskSummaries(date: string, now?: string): Promise<PomodoroTaskSummary[]>;
+  computeDailyPomodoroStats(date: string): Promise<DailyPomodoroStats>;
+  listRecurringTaskTemplates(filters?: RecurringTemplateFilters): Promise<RecurringTaskTemplate[]>;
+  saveRecurringTaskTemplate(template: RecurringTaskTemplate): Promise<RecurringTaskTemplate>;
+  pauseRecurringTaskTemplate(id: string): Promise<RecurringTaskTemplate>;
+  resumeRecurringTaskTemplate(id: string): Promise<RecurringTaskTemplate>;
+  cancelRecurringTaskTemplate(id: string): Promise<RecurringTaskTemplate>;
+  generateDueRecurringTasks(date: string, now?: string): Promise<number>;
+  listRecurringPreviewOccurrences(rangeStart: string, rangeEnd: string): Promise<RecurringPreviewOccurrence[]>;
+  applyRecurringEditScope(taskId: string, scope: RecurringEditScope, changes: RecurringTaskChanges): Promise<Task>;
 }

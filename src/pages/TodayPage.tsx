@@ -7,8 +7,9 @@ import { useDailyEntry } from "../app/use-daily-entry";
 import { CoachCard } from "../components/CoachCard";
 import { EntrySummaryStrip } from "../components/EntrySummaryStrip";
 import { SectionCard } from "../components/SectionCard";
-import { formatDateLong, formatDateTimeShort, getTodayDate } from "../lib/date";
+import { formatDateLong, formatDateTimeShort, formatTimerRemaining, getTodayDate } from "../lib/date";
 import { formatTimestamp } from "../lib/format";
+import { getPomodoroKindLabel } from "../lib/pomodoro/engine";
 import type { DailyTaskBreakdown } from "../lib/storage/repository";
 
 const bucketLabels: Record<Task["bucket"], string> = {
@@ -23,7 +24,7 @@ const bucketLabels: Record<Task["bucket"], string> = {
 export const TodayPage = () => {
   const today = getTodayDate();
   const { entry, loading } = useDailyEntry(today);
-  const { repository, settings, coachService, browserPreview } = useAppContext();
+  const { repository, settings, coachService, browserPreview, pomodoro } = useAppContext();
   const [morningCoach, setMorningCoach] = useState<CoachMessage | null>(null);
   const [eveningCoach, setEveningCoach] = useState<CoachMessage | null>(null);
   const [taskBreakdown, setTaskBreakdown] = useState<DailyTaskBreakdown | null>(null);
@@ -87,6 +88,15 @@ export const TodayPage = () => {
       : openTaskPanel === "completed"
         ? taskBreakdown?.completedTasks ?? []
         : [];
+  const hasLivePomodoroSession = Boolean(pomodoro.state.activeSession && pomodoro.remainingMs > 0);
+  const hasLivePomodoroBreak = Boolean(
+    hasLivePomodoroSession &&
+      pomodoro.state.activeSession &&
+      (pomodoro.state.activeSession.kind === "short_break" || pomodoro.state.activeSession.kind === "long_break")
+  );
+  const nextPomodoroStepIsBreak = pomodoro.state.nextSessionKind === "short_break" || pomodoro.state.nextSessionKind === "long_break";
+  const canSkipPomodoroBreak = hasLivePomodoroBreak || (!hasLivePomodoroSession && nextPomodoroStepIsBreak);
+  const pomodoroStartLabel = nextPomodoroStepIsBreak ? "Demarrer la pause" : "Demarrer un focus";
 
   return (
     <div className="page">
@@ -135,6 +145,72 @@ export const TodayPage = () => {
             <span>Mise a jour</span>
             <strong>{formatTimestamp(entry.updatedAt)}</strong>
           </article>
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Pomodoro du jour"
+        subtitle="Le cycle 25 / 5 / 25 est integre a l'app et propose automatiquement le nombre de pomodoris du jour."
+      >
+        <div className="pomodoro-widget">
+          <div className={`pomodoro-widget__clock${hasLivePomodoroSession && pomodoro.state.activeSession ? ` pomodoro-widget__clock--${pomodoro.state.activeSession.kind}` : ""}`}>
+            <span>{hasLivePomodoroSession && pomodoro.state.activeSession ? getPomodoroKindLabel(pomodoro.state.activeSession.kind) : "En attente"}</span>
+            <strong>{hasLivePomodoroSession && pomodoro.state.activeSession ? formatTimerRemaining(pomodoro.remainingMs) : "00:00"}</strong>
+            <small>Session {pomodoro.state.currentCycleIndex}/4</small>
+          </div>
+
+          <div className="pomodoro-widget__summary">
+            <article className="status-card">
+              <span>Tache active</span>
+              <strong>
+                {pomodoro.currentTask?.title ??
+                  pomodoro.currentActivityLabel ??
+                  pomodoro.preferredTask?.title ??
+                  pomodoro.preferredActivityLabel ??
+                  "Sans tache assignee"}
+              </strong>
+            </article>
+            <article className="status-card">
+              <span>Prochaine etape</span>
+              <strong>{getPomodoroKindLabel(pomodoro.state.nextSessionKind)}</strong>
+            </article>
+            <article className="status-card">
+              <span>Pomodoris suggeres</span>
+              <strong>{resolveMetricValue(entry, "pomodoris") ?? 0}</strong>
+            </article>
+          </div>
+        </div>
+
+        <div className="hero__actions">
+          {hasLivePomodoroSession ? (
+            <Link className="button button--primary" to="/pomodoro">
+              Voir la session
+            </Link>
+          ) : (
+            <button
+              className="button button--primary"
+              type="button"
+              onClick={() =>
+                void pomodoro.startPomodoro({
+                  taskId: pomodoro.state.nextSessionKind === "focus" ? pomodoro.preferredTask?.id ?? null : null,
+                  title:
+                    pomodoro.state.nextSessionKind === "focus" && !pomodoro.preferredTask
+                      ? pomodoro.preferredActivityLabel ?? null
+                      : null
+                })
+              }
+            >
+              {pomodoroStartLabel}
+            </button>
+          )}
+          {canSkipPomodoroBreak ? (
+            <button className="button" type="button" onClick={() => void pomodoro.skipBreak()}>
+              Skipper la pause
+            </button>
+          ) : null}
+          <Link className="button" to="/pomodoro">
+            Ouvrir la page Pomodoro
+          </Link>
         </div>
       </SectionCard>
 

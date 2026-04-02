@@ -12,6 +12,8 @@ export const ReferencesPage = () => {
     contexts,
     loading,
     saveTask,
+    saveContext,
+    applyRecurringEditScope,
     completeTask,
     completeTasks,
     cancelTask,
@@ -73,6 +75,8 @@ export const ReferencesPage = () => {
                 onSave={async (nextTask) => {
                   await saveTask(nextTask);
                 }}
+                onSaveContext={saveContext}
+                onApplyRecurringEditScope={applyRecurringEditScope}
                 onComplete={async (taskId) => {
                   await completeTask(taskId);
                 }}

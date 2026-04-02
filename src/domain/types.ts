@@ -60,6 +60,11 @@ export interface AppSettings {
   gtdReferencesMigrationDoneAt: string;
   gtdScheduledNormalizationDoneAt: string;
   gtdRecurringCollapseDoneAt: string;
+  relationshipDrawsEnabled: boolean;
+  relationshipDrawChildrenActivities: string[];
+  relationshipDrawSpouseActivities: string[];
+  relationshipDrawChildrenProcessedDate: string;
+  relationshipDrawSpouseProcessedDate: string;
 }
 
 export interface CoachMessage {
@@ -73,6 +78,11 @@ export interface CoachMessage {
 export type TaskStatus = "active" | "completed" | "cancelled";
 export type TaskBucket = "inbox" | "next_action" | "scheduled" | "waiting_for" | "someday_maybe" | "reference";
 export type ProjectStatus = "active" | "on_hold" | "completed" | "cancelled";
+export type RecurringTargetBucket = Extract<TaskBucket, "next_action" | "scheduled">;
+export type RecurringRuleType = "daily" | "weekly" | "monthly";
+export type RecurringMonthlyMode = "day_of_month" | "nth_weekday";
+export type RecurringTemplateStatus = "active" | "paused" | "cancelled";
+export type RecurringEditScope = "occurrence" | "series";
 export type TaskEventType =
   | "task_created"
   | "task_moved_to_next_action"
@@ -110,6 +120,9 @@ export interface Task {
   projectId: string | null;
   parentTaskId: string | null;
   scheduledFor: string | null;
+  recurringTemplateId: string | null;
+  recurrenceDueDate: string | null;
+  isRecurringInstance: boolean;
   completedAt: string | null;
   recurrenceGroupId: string | null;
   pendingPastRecurrences: number;
@@ -138,6 +151,96 @@ export interface DailyTaskStats {
   tasksRemaining: number;
 }
 
+export interface RecurringTaskTemplate {
+  id: string;
+  title: string;
+  notes: string;
+  targetBucket: RecurringTargetBucket;
+  contextIds: string[];
+  projectId: string | null;
+  ruleType: RecurringRuleType;
+  dailyInterval: number;
+  weeklyInterval: number;
+  weeklyDays: number[];
+  monthlyMode: RecurringMonthlyMode;
+  dayOfMonth: number | null;
+  nthWeek: number | null;
+  weekday: number | null;
+  scheduledTime: string | null;
+  startDate: string;
+  status: RecurringTemplateStatus;
+  lastGeneratedForDate: string | null;
+  pendingMissedOccurrences: number;
+  statusChangedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RecurringPreviewOccurrence {
+  id: string;
+  templateId: string;
+  title: string;
+  notes: string;
+  targetBucket: RecurringTargetBucket;
+  contextIds: string[];
+  projectId: string | null;
+  dueDate: string;
+  scheduledFor: string | null;
+  scheduledTime: string | null;
+  status: "future" | "overdue_preview";
+}
+
+export type PomodoroKind = "focus" | "short_break" | "long_break";
+export type PomodoroStatus = "running" | "completed" | "cancelled";
+
+export interface PomodoroSession {
+  id: string;
+  kind: PomodoroKind;
+  status: PomodoroStatus;
+  startedAt: string;
+  endsAt: string;
+  completedAt: string | null;
+  cancelledAt: string | null;
+  cycleIndex: number;
+  date: string;
+}
+
+export interface PomodoroSegment {
+  id: string;
+  sessionId: string;
+  taskId: string | null;
+  title: string | null;
+  startedAt: string;
+  endedAt: string | null;
+}
+
+export interface PomodoroSessionDetails extends PomodoroSession {
+  segments: PomodoroSegment[];
+  activeTaskId: string | null;
+  activeLabel: string | null;
+  taskIds: string[];
+}
+
+export interface PomodoroState {
+  activeSession: PomodoroSessionDetails | null;
+  nextSessionKind: PomodoroKind;
+  completedFocusCountInCycle: number;
+  nextFocusCycleIndex: number;
+  currentCycleIndex: number;
+}
+
+export interface PomodoroTaskSummary {
+  taskId: string | null;
+  taskTitle: string;
+  totalSeconds: number;
+  sessionCount: number;
+}
+
+export interface DailyPomodoroStats {
+  date: string;
+  completedFocusSessions: number;
+}
+
 export interface TaskFilters {
   bucket?: TaskBucket | TaskBucket[];
   status?: TaskStatus;
@@ -152,6 +255,15 @@ export interface ProjectFilters {
   status?: ProjectStatus;
 }
 
+export interface RecurringTemplateFilters {
+  status?: RecurringTemplateStatus;
+  targetBucket?: RecurringTargetBucket;
+  contextId?: string;
+  projectId?: string;
+  ruleType?: RecurringRuleType;
+  search?: string;
+}
+
 export interface CreateTaskInput {
   title: string;
   notes?: string;
@@ -160,11 +272,23 @@ export interface CreateTaskInput {
   projectId?: string | null;
   parentTaskId?: string | null;
   scheduledFor?: string | null;
+  recurringTemplateId?: string | null;
+  recurrenceDueDate?: string | null;
+  isRecurringInstance?: boolean;
   source?: "manual" | "google_import";
   sourceExternalId?: string | null;
   createdAt?: string;
   updatedAt?: string;
   id?: string;
+}
+
+export interface RecurringTaskChanges {
+  title?: string;
+  notes?: string;
+  bucket?: RecurringTargetBucket;
+  contextIds?: string[];
+  projectId?: string | null;
+  scheduledFor?: string | null;
 }
 
 export interface GtdImportSummary {

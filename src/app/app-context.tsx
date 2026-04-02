@@ -24,6 +24,8 @@ import type { AppRepository } from "../lib/storage/repository";
 import initialGoogleTasksExport from "../../Tasks.json";
 import { buildContextId } from "../lib/gtd/shared";
 import { AUTO_BACKUP_CHECK_INTERVAL_MS, isAutoBackupDue } from "../lib/backup";
+import { usePomodoroController, type PomodoroControllerValue } from "./use-pomodoro-controller";
+import { getTodayDate } from "../lib/date";
 
 export interface AppContextValue {
   repository: AppRepository;
@@ -33,6 +35,7 @@ export interface AppContextValue {
   browserPreview: boolean;
   debugEnabled: boolean;
   setDebugEnabled: (enabled: boolean) => void;
+  pomodoro: PomodoroControllerValue;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -55,6 +58,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   const coachService = useMemo(() => new AiCoachService(new OpenAiProvider()), []);
   const startupStageRef = useRef(startupStage);
   const autoBackupRunningRef = useRef(false);
+  const pomodoro = usePomodoroController(repository);
 
   useEffect(() => {
     installDebugInstrumentation();
@@ -220,6 +224,19 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
           });
         }
 
+        markStage("Generation des recurrences du jour");
+        const generatedCount = await nextRepository.generateDueRecurringTasks(getTodayDate());
+        logDebug("info", "app.bootstrap", "Generation des recurrences terminee", {
+          generatedCount
+        });
+
+        markStage("Generation des activites relationnelles du jour");
+        const generatedRelationshipCount = await nextRepository.generateDailyRelationshipTasks(getTodayDate());
+        nextSettings = await nextRepository.getSettings();
+        logDebug("info", "app.bootstrap", "Generation des activites relationnelles terminee", {
+          generatedRelationshipCount
+        });
+
         markStage("Finalisation du bootstrap");
 
         settled = true;
@@ -288,7 +305,8 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         coachService,
         browserPreview: !isTauriRuntime(),
         debugEnabled,
-        setDebugEnabled
+        setDebugEnabled,
+        pomodoro
       }}
     >
       {startupError ? (

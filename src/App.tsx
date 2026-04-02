@@ -7,6 +7,8 @@ import { InboxPage } from "./pages/InboxPage";
 import { MorningRoutinePage } from "./pages/MorningRoutinePage";
 import { NextActionsPage } from "./pages/NextActionsPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
+import { PomodoroPage } from "./pages/PomodoroPage";
+import { RecurrencesPage } from "./pages/RecurrencesPage";
 import { ReferencesPage } from "./pages/ReferencesPage";
 import { ScheduledPage } from "./pages/ScheduledPage";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -26,6 +28,8 @@ export const App = () => (
           <Route path="inbox" element={<InboxPage />} />
           <Route path="next-actions" element={<NextActionsPage />} />
           <Route path="projects" element={<ProjectsPage />} />
+          <Route path="pomodoro" element={<PomodoroPage />} />
+          <Route path="recurrences" element={<RecurrencesPage />} />
           <Route path="references" element={<ReferencesPage />} />
           <Route path="scheduled" element={<ScheduledPage />} />
           <Route path="waiting-for" element={<WaitingForPage />} />

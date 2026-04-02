@@ -16,6 +16,8 @@ export const SettingsPage = () => {
   const [gtdMessage, setGtdMessage] = useState("");
   const [backupMessage, setBackupMessage] = useState("");
   const [creatingBackup, setCreatingBackup] = useState(false);
+  const [savingRelationshipSettings, setSavingRelationshipSettings] = useState(false);
+  const [relationshipMessage, setRelationshipMessage] = useState("");
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
   const [gtdOverview, setGtdOverview] = useState<{ taskCount: number; projectCount: number; contextCount: number } | null>(
     null
@@ -163,6 +165,88 @@ export const SettingsPage = () => {
             </button>
           </div>
         </form>
+      </SectionCard>
+
+      <SectionCard
+        title="Activites relationnelles quotidiennes"
+        subtitle="Chaque matin, Trackdidia peut tirer au hasard une activite avec les enfants et une autre avec ton epouse."
+      >
+        {relationshipMessage ? <div className="banner">{relationshipMessage}</div> : null}
+
+        <div className="settings-form">
+          <label className="switch-row">
+            <input
+              type="checkbox"
+              checked={draftSettings.relationshipDrawsEnabled}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  relationshipDrawsEnabled: event.target.checked
+                }))
+              }
+            />
+            <span>Activer le tirage quotidien relationnel</span>
+          </label>
+
+          <label className="stacked-field">
+            <span>Activites avec enfants (une par ligne)</span>
+            <textarea
+              rows={10}
+              value={draftSettings.relationshipDrawChildrenActivities.join("\n")}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  relationshipDrawChildrenActivities: event.target.value
+                    .split("\n")
+                    .map((line) => line.trim())
+                    .filter(Boolean)
+                }))
+              }
+            />
+          </label>
+
+          <label className="stacked-field">
+            <span>Activites avec ton epouse (une par ligne)</span>
+            <textarea
+              rows={10}
+              value={draftSettings.relationshipDrawSpouseActivities.join("\n")}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  relationshipDrawSpouseActivities: event.target.value
+                    .split("\n")
+                    .map((line) => line.trim())
+                    .filter(Boolean)
+                }))
+              }
+            />
+          </label>
+        </div>
+
+        <div className="form-actions">
+          <button
+            className="button button--primary"
+            type="button"
+            disabled={savingRelationshipSettings}
+            onClick={async () => {
+              setSavingRelationshipSettings(true);
+              setRelationshipMessage("");
+
+              try {
+                await saveSettings(draftSettings);
+                setRelationshipMessage("Configuration des activites relationnelles enregistree.");
+              } catch (error) {
+                setRelationshipMessage(
+                  error instanceof Error ? error.message : "Echec de l'enregistrement des activites relationnelles."
+                );
+              } finally {
+                setSavingRelationshipSettings(false);
+              }
+            }}
+          >
+            {savingRelationshipSettings ? "Enregistrement..." : "Enregistrer les activites relationnelles"}
+          </button>
+        </div>
       </SectionCard>
 
       <SectionCard

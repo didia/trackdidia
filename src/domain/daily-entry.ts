@@ -1,6 +1,7 @@
 import { metricDefinitions, principleDefinitions } from "./definitions";
 import type {
   AppSettings,
+  DailyPomodoroStats,
   DailyEntry,
   DailyTaskStats,
   DailyMetrics,
@@ -9,8 +10,10 @@ import type {
   PrincipleChecks,
   PrincipleKey
 } from "./types";
+import { defaultChildrenActivities, defaultSpouseActivities } from "../lib/relationship-draws";
 
 export const gtdMetricKeys = ["tachesDebut", "tachesFin", "tachesAjoutes", "tachesRealises"] as const;
+export const autoSuggestedMetricKeys = [...gtdMetricKeys, "pomodoris"] as const;
 
 const emptyMetrics = (): DailyMetrics => ({
   course: null,
@@ -57,7 +60,12 @@ export const defaultAppSettings = (): AppSettings => ({
   gtdImportDoneAt: "",
   gtdReferencesMigrationDoneAt: "",
   gtdScheduledNormalizationDoneAt: "",
-  gtdRecurringCollapseDoneAt: ""
+  gtdRecurringCollapseDoneAt: "",
+  relationshipDrawsEnabled: true,
+  relationshipDrawChildrenActivities: [...defaultChildrenActivities],
+  relationshipDrawSpouseActivities: [...defaultSpouseActivities],
+  relationshipDrawChildrenProcessedDate: "",
+  relationshipDrawSpouseProcessedDate: ""
 });
 
 export const createEmptyDailyEntry = (date: string): DailyEntry => ({
@@ -184,6 +192,14 @@ export const applyDailyTaskStats = (entry: DailyEntry, stats: DailyTaskStats): D
     tachesAjoutes: stats.tasksAdded,
     tachesRealises: stats.tasksCompleted,
     tachesFin: stats.tasksRemaining
+  }
+});
+
+export const applyDailyPomodoroStats = (entry: DailyEntry, stats: DailyPomodoroStats): DailyEntry => ({
+  ...cloneEntry(entry),
+  suggestedMetrics: {
+    ...(entry.suggestedMetrics ?? {}),
+    pomodoris: stats.completedFocusSessions
   }
 });
 

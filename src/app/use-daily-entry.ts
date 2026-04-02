@@ -1,29 +1,36 @@
 import { useCallback, useEffect, useState } from "react";
-import { applyDailyTaskStats, createEmptyDailyEntry } from "../domain/daily-entry";
-import type { DailyEntry, DailyTaskStats } from "../domain/types";
+import { applyDailyPomodoroStats, applyDailyTaskStats, createEmptyDailyEntry } from "../domain/daily-entry";
+import type { DailyEntry, DailyPomodoroStats, DailyTaskStats } from "../domain/types";
+import { getTodayDate } from "../lib/date";
 import { useAppContext } from "./app-context";
 
 export const useDailyEntry = (date: string) => {
   const { repository } = useAppContext();
   const [entry, setEntry] = useState<DailyEntry | null>(null);
   const [taskStats, setTaskStats] = useState<DailyTaskStats | null>(null);
+  const [pomodoroStats, setPomodoroStats] = useState<DailyPomodoroStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [existing, stats] = await Promise.all([
+    if (date === getTodayDate()) {
+      await repository.generateDailyRelationshipTasks(date);
+    }
+    const [existing, stats, nextPomodoroStats] = await Promise.all([
       repository.getDailyEntry(date),
-      repository.computeDailyTaskStats(date)
+      repository.computeDailyTaskStats(date),
+      repository.computeDailyPomodoroStats(date)
     ]);
     setTaskStats(stats);
+    setPomodoroStats(nextPomodoroStats);
 
     if (existing) {
-      setEntry(applyDailyTaskStats(existing, stats));
+      setEntry(applyDailyPomodoroStats(applyDailyTaskStats(existing, stats), nextPomodoroStats));
       setLoading(false);
       return;
     }
 
-    setEntry(applyDailyTaskStats(createEmptyDailyEntry(date), stats));
+    setEntry(applyDailyPomodoroStats(applyDailyTaskStats(createEmptyDailyEntry(date), stats), nextPomodoroStats));
     setLoading(false);
   }, [date, repository]);
 
@@ -34,12 +41,21 @@ export const useDailyEntry = (date: string) => {
   const save = useCallback(
     async (nextEntry: DailyEntry) => {
       await repository.saveDailyEntry(nextEntry);
-      const [persisted, stats] = await Promise.all([
+      if (nextEntry.date === getTodayDate()) {
+        await repository.generateDailyRelationshipTasks(nextEntry.date);
+      }
+      const [persisted, stats, nextPomodoroStats] = await Promise.all([
         repository.getDailyEntry(nextEntry.date),
-        repository.computeDailyTaskStats(nextEntry.date)
+        repository.computeDailyTaskStats(nextEntry.date),
+        repository.computeDailyPomodoroStats(nextEntry.date)
       ]);
       setTaskStats(stats);
-      setEntry(persisted ? applyDailyTaskStats(persisted, stats) : applyDailyTaskStats(nextEntry, stats));
+      setPomodoroStats(nextPomodoroStats);
+      setEntry(
+        persisted
+          ? applyDailyPomodoroStats(applyDailyTaskStats(persisted, stats), nextPomodoroStats)
+          : applyDailyPomodoroStats(applyDailyTaskStats(nextEntry, stats), nextPomodoroStats)
+      );
     },
     [repository]
   );
@@ -49,6 +65,7 @@ export const useDailyEntry = (date: string) => {
     loading,
     reload: load,
     save,
-    taskStats
+    taskStats,
+    pomodoroStats
   };
 };

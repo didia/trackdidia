@@ -21,7 +21,7 @@ export const MetricGrid = ({ entry, keys, suggestedValues, suggestionKeys = [], 
           <span className="field-card__label">{definition.label}</span>
           <span className="field-card__helper">
             {definition.helper}
-            {suggestionSet.has(definition.key) ? " Suggestion GTD auto, modifiable si besoin." : ""}
+            {suggestionSet.has(definition.key) ? " Suggestion auto, modifiable si besoin." : ""}
           </span>
           <div className="field-card__control">
             <input

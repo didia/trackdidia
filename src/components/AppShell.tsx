@@ -8,6 +8,8 @@ const navigation = [
   { to: "/inbox", label: "Inbox GTD" },
   { to: "/next-actions", label: "Next Actions" },
   { to: "/projects", label: "Projects" },
+  { to: "/pomodoro", label: "Pomodoro" },
+  { to: "/recurrences", label: "Recurrences" },
   { to: "/references", label: "References" },
   { to: "/scheduled", label: "Scheduled" },
   { to: "/waiting-for", label: "Waiting For" },

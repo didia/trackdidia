@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
 import type { Project, Task, TaskContext } from "../domain/types";
-import { formatDateTimeShort, isPastDueDateTime } from "../lib/date";
+import {
+  buildIsoFromLocalDateAndTime,
+  formatDateTimeShort,
+  isPastDueDateTime,
+  toLocalDateInputValue,
+  toLocalTimeInputValue
+} from "../lib/date";
+import { buildContextId, nowIso } from "../lib/gtd/shared";
 
 const bucketLabels: Record<Task["bucket"], string> = {
   inbox: "Inbox",
@@ -18,6 +25,19 @@ interface GtdTaskCardProps {
   selected?: boolean;
   onToggleSelected?: (taskId: string) => void;
   onSave: (task: Task) => Promise<void>;
+  onSaveContext: (context: TaskContext) => Promise<TaskContext>;
+  onApplyRecurringEditScope?: (
+    taskId: string,
+    scope: "occurrence" | "series",
+    changes: {
+      title?: string;
+      notes?: string;
+      bucket?: "next_action" | "scheduled";
+      contextIds?: string[];
+      projectId?: string | null;
+      scheduledFor?: string | null;
+    }
+  ) => Promise<Task>;
   onComplete: (taskId: string) => Promise<void>;
   onCancel: (taskId: string) => Promise<void>;
   onClearPastRecurrences: (taskId: string) => Promise<void>;
@@ -30,6 +50,8 @@ export const GtdTaskCard = ({
   selected = false,
   onToggleSelected,
   onSave,
+  onSaveContext,
+  onApplyRecurringEditScope,
   onComplete,
   onCancel,
   onClearPastRecurrences
@@ -37,11 +59,24 @@ export const GtdTaskCard = ({
   const [draft, setDraft] = useState<Task>(task);
   const [saving, setSaving] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [contextEditorOpen, setContextEditorOpen] = useState(false);
+  const [newContextName, setNewContextName] = useState("");
+  const [contextDrafts, setContextDrafts] = useState<Record<string, string>>({});
+  const [contextSavingId, setContextSavingId] = useState<string | null>(null);
+  const [contextError, setContextError] = useState("");
+  const [recurringEditScope, setRecurringEditScope] = useState<"occurrence" | "series">("occurrence");
 
   useEffect(() => {
     setDraft(task);
     setExpanded(false);
+    setRecurringEditScope("occurrence");
   }, [task]);
+
+  useEffect(() => {
+    setContextDrafts(
+      Object.fromEntries(contexts.map((context) => [context.id, context.name]))
+    );
+  }, [contexts]);
 
   const toggleContext = (contextId: string) => {
     setDraft((current) => ({
@@ -55,8 +90,82 @@ export const GtdTaskCard = ({
   const contextNames = draft.contextIds
     .map((contextId) => contexts.find((context) => context.id === contextId)?.name ?? contextId)
     .sort((left, right) => left.localeCompare(right));
+  const availableBuckets = draft.isRecurringInstance
+    ? (Object.entries(bucketLabels).filter(([value]) => value === "next_action" || value === "scheduled") as Array<
+        [Task["bucket"], string]
+      >)
+    : (Object.entries(bucketLabels) as Array<[Task["bucket"], string]>);
   const isPastDue =
     task.status === "active" && task.scheduledFor ? isPastDueDateTime(task.scheduledFor) : false;
+  const scheduledDateValue = toLocalDateInputValue(draft.scheduledFor);
+  const scheduledTimeValue = toLocalTimeInputValue(draft.scheduledFor);
+
+  const saveExistingContext = async (context: TaskContext) => {
+    setContextSavingId(context.id);
+    setContextError("");
+
+    try {
+      await onSaveContext({
+        ...context,
+        name: (contextDrafts[context.id] ?? context.name).trim(),
+        updatedAt: nowIso()
+      });
+    } catch (error) {
+      setContextError(error instanceof Error ? error.message : "Impossible d'enregistrer le contexte.");
+    } finally {
+      setContextSavingId(null);
+    }
+  };
+
+  const createNewContext = async () => {
+    const nextName = newContextName.trim();
+
+    if (!nextName) {
+      return;
+    }
+
+    const existingContext = contexts.find(
+      (context) => context.name.trim().toLocaleLowerCase() === nextName.toLocaleLowerCase()
+    );
+
+    if (existingContext) {
+      setDraft((current) => ({
+        ...current,
+        contextIds: current.contextIds.includes(existingContext.id)
+          ? current.contextIds
+          : [...current.contextIds, existingContext.id]
+      }));
+      setNewContextName("");
+      setContextError("");
+      return;
+    }
+
+    const contextId = buildContextId(nextName);
+    const timestamp = nowIso();
+    setContextSavingId(contextId);
+    setContextError("");
+
+    try {
+      const savedContext = await onSaveContext({
+        id: contextId,
+        name: nextName,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      });
+      setDraft((current) => ({
+        ...current,
+        contextIds: current.contextIds.includes(savedContext.id)
+          ? current.contextIds
+          : [...current.contextIds, savedContext.id]
+      }));
+      setNewContextName("");
+      setContextEditorOpen(true);
+    } catch (error) {
+      setContextError(error instanceof Error ? error.message : "Impossible de creer le contexte.");
+    } finally {
+      setContextSavingId(null);
+    }
+  };
 
   return (
     <article className="task-card">
@@ -98,6 +207,7 @@ export const GtdTaskCard = ({
                 {task.pendingPastRecurrences > 1 ? "s" : ""}
               </span>
             ) : null}
+            {task.isRecurringInstance ? <span className="task-card__recurrence-pill">Recurrente</span> : null}
           </span>
         </button>
 
@@ -147,7 +257,7 @@ export const GtdTaskCard = ({
                   }))
                 }
               >
-                {Object.entries(bucketLabels).map(([value, label]) => (
+                {availableBuckets.map(([value, label]) => (
                   <option key={value} value={value}>
                     {label}
                   </option>
@@ -177,17 +287,39 @@ export const GtdTaskCard = ({
 
             <label className="stacked-field">
               <span>Date planifiee</span>
-              <input
-                type="datetime-local"
-                value={draft.scheduledFor ? draft.scheduledFor.slice(0, 16) : ""}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    bucket: event.target.value ? "scheduled" : current.bucket,
-                    scheduledFor: event.target.value ? new Date(event.target.value).toISOString() : null
-                  }))
-                }
-              />
+              <div className="task-card__datetime-grid">
+                <input
+                  type="date"
+                  value={scheduledDateValue}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      bucket: event.target.value ? "scheduled" : current.bucket,
+                      scheduledFor: buildIsoFromLocalDateAndTime(
+                        event.target.value,
+                        toLocalTimeInputValue(current.scheduledFor),
+                        current.scheduledFor
+                      )
+                    }))
+                  }
+                />
+                <input
+                  type="time"
+                  value={scheduledTimeValue}
+                  disabled={!scheduledDateValue}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      bucket: scheduledDateValue ? "scheduled" : current.bucket,
+                      scheduledFor: buildIsoFromLocalDateAndTime(
+                        toLocalDateInputValue(current.scheduledFor),
+                        event.target.value,
+                        current.scheduledFor
+                      )
+                    }))
+                  }
+                />
+              </div>
             </label>
           </div>
 
@@ -204,7 +336,75 @@ export const GtdTaskCard = ({
             ))}
           </div>
 
+          <div className="task-card__context-tools">
+            <div className="task-card__context-create">
+              <input
+                type="text"
+                value={newContextName}
+                onChange={(event) => setNewContextName(event.target.value)}
+                placeholder="Nouveau contexte"
+              />
+              <button
+                className="button"
+                type="button"
+                disabled={!newContextName.trim() || Boolean(contextSavingId)}
+                onClick={() => void createNewContext()}
+              >
+                Ajouter le contexte
+              </button>
+            </div>
+
+            <button
+              className="button button--ghost"
+              type="button"
+              onClick={() => setContextEditorOpen((current) => !current)}
+            >
+              {contextEditorOpen ? "Refermer l'edition des contextes" : "Editer les contextes"}
+            </button>
+          </div>
+
+          {contextError ? <p className="task-card__context-error">{contextError}</p> : null}
+
+          {contextEditorOpen ? (
+            <div className="task-card__context-editor">
+              {contexts.map((context) => (
+                <div key={context.id} className="task-card__context-row">
+                  <input
+                    type="text"
+                    value={contextDrafts[context.id] ?? context.name}
+                    onChange={(event) =>
+                      setContextDrafts((current) => ({
+                        ...current,
+                        [context.id]: event.target.value
+                      }))
+                    }
+                  />
+                  <button
+                    className="button"
+                    type="button"
+                    disabled={contextSavingId === context.id || !(contextDrafts[context.id] ?? context.name).trim()}
+                    onClick={() => void saveExistingContext(context)}
+                  >
+                    {contextSavingId === context.id ? "Enregistrement..." : "Renommer"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
           <div className="task-card__actions">
+            {draft.isRecurringInstance && draft.recurringTemplateId ? (
+              <label className="stacked-field">
+                <span>Portee de l'edition</span>
+                <select
+                  value={recurringEditScope}
+                  onChange={(event) => setRecurringEditScope(event.target.value as "occurrence" | "series")}
+                >
+                  <option value="occurrence">Cette occurrence seulement</option>
+                  <option value="series">Toute la serie</option>
+                </select>
+              </label>
+            ) : null}
             {draft.pendingPastRecurrences > 0 ? (
               <button
                 className="button"
@@ -220,7 +420,18 @@ export const GtdTaskCard = ({
               disabled={saving || !draft.title.trim()}
               onClick={async () => {
                 setSaving(true);
-                await onSave(draft);
+                if (draft.isRecurringInstance && draft.recurringTemplateId && onApplyRecurringEditScope) {
+                  await onApplyRecurringEditScope(draft.id, recurringEditScope, {
+                    title: draft.title,
+                    notes: draft.notes,
+                    bucket: draft.bucket === "scheduled" ? "scheduled" : "next_action",
+                    contextIds: draft.contextIds,
+                    projectId: draft.projectId,
+                    scheduledFor: draft.scheduledFor
+                  });
+                } else {
+                  await onSave(draft);
+                }
                 setSaving(false);
               }}
             >

@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import {
+  autoSuggestedMetricKeys,
   applyRoutineTransition,
-  gtdMetricKeys,
   updateMetric,
   updateNote,
   updatePrinciple
@@ -38,7 +38,7 @@ export const EveningClosurePage = () => {
       <SectionCard title="Metriques du jour" subtitle="Complete les chiffres qui rendent la journee lisible.">
         <MetricGrid
           entry={entry}
-          suggestionKeys={[...gtdMetricKeys]}
+          suggestionKeys={[...autoSuggestedMetricKeys]}
           suggestedValues={entry.suggestedMetrics}
           onChange={(key, value) => void save(updateMetric(entry, key, value))}
         />

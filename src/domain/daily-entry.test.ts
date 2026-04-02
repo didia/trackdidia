@@ -1,4 +1,5 @@
 import {
+  applyDailyPomodoroStats,
   applyDailyTaskStats,
   applyRoutineTransition,
   computeCompletionPercent,
@@ -55,5 +56,17 @@ describe("daily entry domain", () => {
     expect(entry.metrics.tachesAjoutes).toBe(7);
     expect(entry.suggestedMetrics?.tachesAjoutes).toBe(2);
     expect(entry.suggestedMetrics?.tachesDebut).toBe(3);
+  });
+
+  it("keeps manual pomodoro override while exposing automatic pomodoro suggestion", () => {
+    let entry = createEmptyDailyEntry("2026-03-31");
+    entry = updateMetric(entry, "pomodoris", 6);
+    entry = applyDailyPomodoroStats(entry, {
+      date: "2026-03-31",
+      completedFocusSessions: 4
+    });
+
+    expect(entry.metrics.pomodoris).toBe(6);
+    expect(entry.suggestedMetrics?.pomodoris).toBe(4);
   });
 });

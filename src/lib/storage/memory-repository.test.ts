@@ -72,6 +72,96 @@ describe("MemoryRepository", () => {
     expect(contexts.map((context) => context.name)).toEqual(expect.arrayContaining(["Perso", "RDC Etudes"]));
   });
 
+  it("creates and renames task contexts dynamically", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    const created = await repository.saveContext({
+      id: "context:deep-work",
+      name: "Deep Work",
+      createdAt: "2026-04-01T10:00:00.000Z",
+      updatedAt: "2026-04-01T10:00:00.000Z"
+    });
+
+    const renamed = await repository.saveContext({
+      ...created,
+      name: "Travail profond"
+    });
+
+    await expect(repository.listContexts()).resolves.toEqual([
+      expect.objectContaining({
+        id: "context:deep-work",
+        name: "Travail profond"
+      })
+    ]);
+
+    expect(renamed.name).toBe("Travail profond");
+  });
+
+  it("generates one daily relationship task per category and keeps them in next actions", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    const settings = await repository.getSettings();
+    await repository.saveSettings({
+      ...settings,
+      relationshipDrawChildrenActivities: ["Lire une histoire ensemble"],
+      relationshipDrawSpouseActivities: ["Boire un the ensemble"]
+    });
+
+    const generatedCount = await repository.generateDailyRelationshipTasks("2026-04-01");
+    const tasks = await repository.listTasks({ includeCompleted: true });
+
+    expect(generatedCount).toBe(2);
+    expect(tasks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "Avec enfants: Lire une histoire ensemble",
+          bucket: "next_action",
+          contextIds: expect.arrayContaining(["context:personnel"]),
+          sourceExternalId: "relationship-draw:children:2026-04-01"
+        }),
+        expect.objectContaining({
+          title: "Avec mon epouse: Boire un the ensemble",
+          bucket: "next_action",
+          contextIds: expect.arrayContaining(["context:personnel"]),
+          sourceExternalId: "relationship-draw:spouse:2026-04-01"
+        })
+      ])
+    );
+  });
+
+  it("does not generate a new relationship task while a previous one stays active", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    const settings = await repository.getSettings();
+    await repository.saveSettings({
+      ...settings,
+      relationshipDrawChildrenActivities: ["Lire une histoire ensemble"],
+      relationshipDrawSpouseActivities: ["Boire un the ensemble"]
+    });
+
+    await repository.generateDailyRelationshipTasks("2026-04-01");
+    const firstDayTasks = await repository.listTasks({ includeCompleted: true });
+    const spouseTask = firstDayTasks.find((task) => task.sourceExternalId === "relationship-draw:spouse:2026-04-01");
+    if (!spouseTask) {
+      throw new Error("Tache epouse manquante");
+    }
+
+    await repository.completeTask(spouseTask.id, "2026-04-01T21:00:00.000Z");
+    const generatedCount = await repository.generateDailyRelationshipTasks("2026-04-02");
+    const tasks = await repository.listTasks({ includeCompleted: true });
+
+    expect(generatedCount).toBe(1);
+    expect(
+      tasks.filter((task) => task.sourceExternalId?.startsWith("relationship-draw:children:"))
+    ).toHaveLength(1);
+    expect(
+      tasks.filter((task) => task.sourceExternalId?.startsWith("relationship-draw:spouse:"))
+    ).toHaveLength(2);
+  });
+
   it("moves reading tasks into the References bucket", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -235,13 +325,15 @@ describe("MemoryRepository", () => {
       tasksRemaining: 2
     });
 
-    await expect(repository.getDailyTaskBreakdown(today)).resolves.toMatchObject({
-      addedTasks: [
-        expect.objectContaining({ id: "task-scheduled" }),
-        expect.objectContaining({ id: "task-move" })
-      ],
-      completedTasks: [expect.objectContaining({ id: "task-start" })]
-    });
+    await expect(repository.getDailyTaskBreakdown(today)).resolves.toEqual(
+      expect.objectContaining({
+        addedTasks: expect.arrayContaining([
+          expect.objectContaining({ id: "task-scheduled" }),
+          expect.objectContaining({ id: "task-move" })
+        ]),
+        completedTasks: expect.arrayContaining([expect.objectContaining({ id: "task-start" })])
+      })
+    );
   });
 
   it("tracks project status duration from the last status change", async () => {
@@ -274,5 +366,149 @@ describe("MemoryRepository", () => {
     });
 
     expect(afterStatusChange.statusChangedAt).not.toBe(createdProject.statusChangedAt);
+  });
+
+  it("persists pomodoro sessions, free-form titles, task switches and daily stats", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    await repository.createTask({
+      id: "task-focus",
+      title: "Rediger le plan",
+      bucket: "next_action"
+    });
+
+    const startedState = await repository.startPomodoro({
+      taskId: "task-focus"
+    });
+
+    expect(startedState.activeSession).toMatchObject({
+      kind: "focus",
+      activeTaskId: "task-focus"
+    });
+
+    const activeSession = startedState.activeSession;
+    if (!activeSession) {
+      throw new Error("Session Pomodoro manquante");
+    }
+
+    const sessionId = activeSession.id;
+    const startedAtMs = new Date(activeSession.startedAt).getTime();
+    const switchAt = new Date(startedAtMs + 10 * 60 * 1000).toISOString();
+    const completeAt = new Date(startedAtMs + 25 * 60 * 1000).toISOString();
+
+    await repository.switchPomodoroTask(sessionId, null, "Inbox zero", switchAt);
+    await repository.stopPomodoroSession(sessionId, "completed", completeAt);
+
+    const today = new Date().toISOString().slice(0, 10);
+    const summaries = await repository.listPomodoroTaskSummaries(today, completeAt);
+    const stats = await repository.computeDailyPomodoroStats(today);
+
+    expect(summaries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          taskId: "task-focus",
+          sessionCount: 1
+        }),
+        expect.objectContaining({
+          taskId: null,
+          taskTitle: "Inbox zero",
+          sessionCount: 1
+        })
+      ])
+    );
+    expect(stats.completedFocusSessions).toBe(1);
+  });
+
+  it("generates recurring tasks once per due day and exposes previews", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    await repository.saveRecurringTaskTemplate({
+      id: "recurring-template:weekly-review",
+      title: "Weekly review",
+      notes: "",
+      targetBucket: "next_action",
+      contextIds: [],
+      projectId: null,
+      ruleType: "daily",
+      dailyInterval: 1,
+      weeklyInterval: 1,
+      weeklyDays: [0],
+      monthlyMode: "day_of_month",
+      dayOfMonth: 1,
+      nthWeek: 1,
+      weekday: 6,
+      scheduledTime: null,
+      startDate: "2026-04-01",
+      status: "active",
+      lastGeneratedForDate: null,
+      pendingMissedOccurrences: 0,
+      statusChangedAt: "2026-04-01T00:00:00.000Z",
+      createdAt: "2026-04-01T00:00:00.000Z",
+      updatedAt: "2026-04-01T00:00:00.000Z"
+    });
+
+    await repository.generateDueRecurringTasks("2026-04-01");
+    await repository.generateDueRecurringTasks("2026-04-01");
+
+    const tasks = await repository.listTasks({ includeCompleted: true });
+    const previews = await repository.listRecurringPreviewOccurrences("2026-04-01", "2026-04-04");
+
+    expect(tasks.filter((task) => task.recurringTemplateId === "recurring-template:weekly-review")).toHaveLength(1);
+    expect(tasks[0]).toMatchObject({
+      isRecurringInstance: true,
+      recurrenceDueDate: "2026-04-01"
+    });
+    expect(previews.map((preview) => preview.dueDate)).toEqual(["2026-04-02", "2026-04-03", "2026-04-04"]);
+  });
+
+  it("increments missed recurring occurrences and lets a task edit apply to the whole series", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    await repository.saveRecurringTaskTemplate({
+      id: "recurring-template:monthly-plan",
+      title: "Planification mensuelle",
+      notes: "",
+      targetBucket: "scheduled",
+      contextIds: [],
+      projectId: null,
+      ruleType: "monthly",
+      dailyInterval: 1,
+      weeklyInterval: 1,
+      weeklyDays: [6],
+      monthlyMode: "nth_weekday",
+      dayOfMonth: null,
+      nthWeek: 1,
+      weekday: 6,
+      scheduledTime: "09:00",
+      startDate: "2026-04-01",
+      status: "active",
+      lastGeneratedForDate: null,
+      pendingMissedOccurrences: 0,
+      statusChangedAt: "2026-04-01T00:00:00.000Z",
+      createdAt: "2026-04-01T00:00:00.000Z",
+      updatedAt: "2026-04-01T00:00:00.000Z"
+    });
+
+    await repository.generateDueRecurringTasks("2026-04-04");
+    await repository.generateDueRecurringTasks("2026-05-02");
+
+    let tasks = await repository.listTasks({ includeCompleted: true });
+    expect(tasks[0]).toMatchObject({
+      recurrenceDueDate: "2026-05-02",
+      pendingPastRecurrences: 1
+    });
+
+    await repository.applyRecurringEditScope(tasks[0].id, "series", {
+      title: "Planification mensuelle revue"
+    });
+
+    const templates = await repository.listRecurringTaskTemplates();
+    tasks = await repository.listTasks({ includeCompleted: true });
+
+    expect(templates[0].title).toBe("Planification mensuelle revue");
+    expect(tasks[0].title).toBe("Planification mensuelle revue");
   });
 });

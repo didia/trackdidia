@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import {
+  autoSuggestedMetricKeys,
   applyRoutineTransition,
-  gtdMetricKeys,
   resolveMetricValue,
   updateMetric,
   updateNote,
@@ -19,7 +19,7 @@ const morningMetricKeys = ["pomodoris"] as const;
 
 export const MorningRoutinePage = () => {
   const navigate = useNavigate();
-  const { entry, loading, save, taskStats } = useDailyEntry(getTodayDate());
+  const { entry, loading, save, taskStats, pomodoroStats } = useDailyEntry(getTodayDate());
 
   if (loading || !entry) {
     return <div className="page"><p>Chargement de la routine du matin...</p></div>;
@@ -63,6 +63,10 @@ export const MorningRoutinePage = () => {
         <MetricGrid
           entry={entry}
           keys={[...morningMetricKeys]}
+          suggestionKeys={["pomodoris"]}
+          suggestedValues={{
+            pomodoris: pomodoroStats?.completedFocusSessions ?? resolveMetricValue(entry, "pomodoris")
+          }}
           onChange={(key, value) => void save(updateMetric(entry, key, value))}
         />
       </SectionCard>
@@ -74,7 +78,7 @@ export const MorningRoutinePage = () => {
         <MetricGrid
           entry={entry}
           keys={["tachesDebut", "tachesAjoutes"]}
-          suggestionKeys={[...gtdMetricKeys]}
+          suggestionKeys={[...autoSuggestedMetricKeys]}
           suggestedValues={{
             tachesDebut: taskStats?.tasksAtStart ?? resolveMetricValue(entry, "tachesDebut"),
             tachesAjoutes: taskStats?.tasksAdded ?? resolveMetricValue(entry, "tachesAjoutes")

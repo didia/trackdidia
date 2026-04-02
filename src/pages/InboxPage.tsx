@@ -13,6 +13,8 @@ export const InboxPage = () => {
     loading,
     createTask,
     saveTask,
+    saveContext,
+    applyRecurringEditScope,
     completeTask,
     completeTasks,
     cancelTask,
@@ -101,6 +103,8 @@ export const InboxPage = () => {
                 onSave={async (nextTask) => {
                   await saveTask(nextTask);
                 }}
+                onSaveContext={saveContext}
+                onApplyRecurringEditScope={applyRecurringEditScope}
                 onComplete={async (taskId) => {
                   await completeTask(taskId);
                 }}

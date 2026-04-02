@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import {
+  applyDailyPomodoroStats,
   applyRoutineTransition,
   applyDailyTaskStats,
   createEmptyDailyEntry,
-  gtdMetricKeys,
+  autoSuggestedMetricKeys,
   updateMetric,
   updateNote,
   updatePrinciple
@@ -33,11 +34,16 @@ export const HistoryPage = () => {
     }
 
     setSelectedDate(date);
-    const [existing, stats] = await Promise.all([
+    const [existing, stats, pomodoroStats] = await Promise.all([
       repository.getDailyEntry(date),
-      repository.computeDailyTaskStats(date)
+      repository.computeDailyTaskStats(date),
+      repository.computeDailyPomodoroStats(date)
     ]);
-    setSelectedEntry(existing ? applyDailyTaskStats(existing, stats) : applyDailyTaskStats(createEmptyDailyEntry(date), stats));
+    setSelectedEntry(
+      existing
+        ? applyDailyPomodoroStats(applyDailyTaskStats(existing, stats), pomodoroStats)
+        : applyDailyPomodoroStats(applyDailyTaskStats(createEmptyDailyEntry(date), stats), pomodoroStats)
+    );
   };
 
   useEffect(() => {
@@ -130,7 +136,7 @@ export const HistoryPage = () => {
       <SectionCard title="Metriques" subtitle="Toutes les metriques du suivi quotidien.">
         <MetricGrid
           entry={selectedEntry}
-          suggestionKeys={[...gtdMetricKeys]}
+          suggestionKeys={[...autoSuggestedMetricKeys]}
           suggestedValues={selectedEntry.suggestedMetrics}
           onChange={(key, value) => setSelectedEntry(updateMetric(selectedEntry, key, value))}
         />
