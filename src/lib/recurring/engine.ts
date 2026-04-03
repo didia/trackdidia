@@ -263,6 +263,7 @@ export const buildTaskFromRecurringTemplate = (
   projectId: template.projectId,
   parentTaskId: null,
   scheduledFor: template.targetBucket === "scheduled" ? buildScheduledFor(dueDate, template.scheduledTime) : null,
+  deadline: null,
   recurringTemplateId: template.id,
   recurrenceDueDate: dueDate,
   isRecurringInstance: true,

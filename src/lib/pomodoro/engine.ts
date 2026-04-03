@@ -15,6 +15,7 @@ export const POMODORO_DURATIONS_MS: Record<PomodoroKind, number> = {
   short_break: 5 * 60 * 1000,
   long_break: 25 * 60 * 1000
 };
+const POMODORO_CYCLE_RESET_IDLE_MS = 25 * 60 * 1000;
 
 export const clonePomodoroSession = (session: PomodoroSession): PomodoroSession => ({ ...session });
 
@@ -92,8 +93,51 @@ const findLatestCompletedSession = (sessions: PomodoroSession[]): PomodoroSessio
   return completed.length > 0 ? completed[completed.length - 1] : null;
 };
 
-export const buildPomodoroState = (sessions: PomodoroSession[], segments: PomodoroSegment[]): PomodoroState => {
-  const details = buildPomodoroSessionDetails(sessions, segments);
+/** Sessions still marked running but past endsAt are treated as completed at endsAt so idle/reset logic applies. */
+const normalizePomodoroSessionsForState = (sessions: PomodoroSession[], nowIso: string): PomodoroSession[] => {
+  const nowMs = new Date(nowIso).getTime();
+  return sessions.map((session) => {
+    if (session.status !== "running") {
+      return session;
+    }
+    if (new Date(session.endsAt).getTime() > nowMs) {
+      return session;
+    }
+    return {
+      ...session,
+      status: "completed" as const,
+      completedAt: session.endsAt,
+      cancelledAt: null
+    };
+  });
+};
+
+const findLastSessionActivityAt = (sessions: PomodoroSession[]): string | null => {
+  const terminalSessions = sessions.filter((session) => session.status !== "running");
+  if (terminalSessions.length === 0) {
+    return null;
+  }
+
+  let maxMs = -Infinity;
+  let maxIso: string | null = null;
+  for (const session of terminalSessions) {
+    const endIso = session.completedAt ?? session.cancelledAt ?? session.endsAt ?? session.startedAt;
+    const endMs = new Date(endIso).getTime();
+    if (Number.isFinite(endMs) && endMs >= maxMs) {
+      maxMs = endMs;
+      maxIso = endIso;
+    }
+  }
+  return maxIso;
+};
+
+export const buildPomodoroState = (
+  sessions: PomodoroSession[],
+  segments: PomodoroSegment[],
+  now = new Date().toISOString()
+): PomodoroState => {
+  const normalizedSessions = normalizePomodoroSessionsForState(sessions, now);
+  const details = buildPomodoroSessionDetails(normalizedSessions, segments);
   const activeSession = details.find((session) => session.status === "running") ?? null;
 
   if (activeSession) {
@@ -116,9 +160,12 @@ export const buildPomodoroState = (sessions: PomodoroSession[], segments: Pomodo
     };
   }
 
-  const latestCompleted = findLatestCompletedSession(sessions);
+  const latestCompleted = findLatestCompletedSession(normalizedSessions);
+  const lastSessionActivityAt = findLastSessionActivityAt(normalizedSessions);
+  const shouldResetCycle =
+    lastSessionActivityAt !== null && new Date(now).getTime() - new Date(lastSessionActivityAt).getTime() > POMODORO_CYCLE_RESET_IDLE_MS;
 
-  if (!latestCompleted) {
+  if (!latestCompleted || shouldResetCycle) {
     return {
       activeSession: null,
       nextSessionKind: "focus",

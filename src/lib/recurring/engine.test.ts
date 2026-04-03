@@ -57,6 +57,7 @@ describe("recurring engine", () => {
         projectId: null,
         parentTaskId: null,
         scheduledFor: null,
+        deadline: null,
         recurringTemplateId: "recurring-template:1",
         recurrenceDueDate: "2026-04-01",
         isRecurringInstance: true,

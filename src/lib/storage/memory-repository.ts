@@ -418,6 +418,7 @@ export class MemoryRepository implements AppRepository {
     contextIds?: string[];
     projectId?: string | null;
     scheduledFor?: string | null;
+    deadline?: string | null;
   }) {
     const task = this.getExistingTask(taskId);
     if (!task.recurringTemplateId) {
@@ -435,7 +436,8 @@ export class MemoryRepository implements AppRepository {
         bucket: changes.bucket ?? task.bucket,
         contextIds: changes.contextIds ?? task.contextIds,
         projectId: changes.projectId === undefined ? task.projectId : changes.projectId,
-        scheduledFor: changes.scheduledFor === undefined ? task.scheduledFor : changes.scheduledFor
+        scheduledFor: changes.scheduledFor === undefined ? task.scheduledFor : changes.scheduledFor,
+        deadline: changes.deadline === undefined ? task.deadline : changes.deadline
       });
     }
 

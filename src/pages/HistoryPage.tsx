@@ -5,6 +5,7 @@ import {
   applyDailyTaskStats,
   createEmptyDailyEntry,
   autoSuggestedMetricKeys,
+  deriveStatusLabel,
   updateMetric,
   updateNote,
   updatePrinciple
@@ -95,7 +96,7 @@ export const HistoryPage = () => {
                 onClick={() => void loadEntry(entry.date)}
               >
                 <strong>{formatDateShort(entry.date)}</strong>
-                <span>{entry.status}</span>
+                <span>{deriveStatusLabel(entry.status)}</span>
               </button>
             ))
           )}

@@ -142,6 +142,7 @@ const buildTaskFromGoogleTask = (
     projectId: null,
     parentTaskId: task.parent ? `google-task:${task.parent}` : null,
     scheduledFor,
+    deadline: null,
     recurringTemplateId: null,
     recurrenceDueDate: null,
     isRecurringInstance: false,

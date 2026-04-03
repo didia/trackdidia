@@ -174,6 +174,7 @@ export const useGtdWorkspace = () => {
         contextIds?: string[];
         projectId?: string | null;
         scheduledFor?: string | null;
+        deadline?: string | null;
       }
     ) => {
       const nextTask = await repository.applyRecurringEditScope(taskId, scope, changes);

@@ -328,6 +328,7 @@ export const createTaskFromInput = (input: CreateTaskInput): Task => {
     projectId: input.projectId ?? null,
     parentTaskId: input.parentTaskId ?? null,
     scheduledFor: input.scheduledFor ?? null,
+    deadline: input.deadline ?? null,
     recurringTemplateId: input.recurringTemplateId ?? null,
     recurrenceDueDate: input.recurrenceDueDate ?? null,
     isRecurringInstance: input.isRecurringInstance ?? false,

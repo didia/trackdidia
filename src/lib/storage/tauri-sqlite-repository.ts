@@ -114,6 +114,7 @@ interface TaskRow {
   project_id: string | null;
   parent_task_id: string | null;
   scheduled_for: string | null;
+  deadline: string | null;
   recurring_template_id: string | null;
   recurrence_due_date: string | null;
   is_recurring_instance: number;
@@ -381,6 +382,13 @@ const migrations: Migration[] = [
     sql: `
       ALTER TABLE pomodoro_segments ADD COLUMN title TEXT;
     `
+  },
+  {
+    id: 15,
+    name: "add_deadline_to_gtd_tasks",
+    sql: `
+      ALTER TABLE gtd_tasks ADD COLUMN deadline TEXT;
+    `
   }
 ];
 
@@ -585,9 +593,9 @@ export class TauriSqliteRepository implements AppRepository {
       await db.execute(
         `INSERT INTO gtd_tasks (
           id, title, notes, status, bucket, context_ids_json, project_id, parent_task_id, scheduled_for,
-          recurring_template_id, recurrence_due_date, is_recurring_instance, completed_at, recurrence_group_id,
+          deadline, recurring_template_id, recurrence_due_date, is_recurring_instance, completed_at, recurrence_group_id,
           pending_past_recurrences, source, source_external_id, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
         ON CONFLICT(id) DO NOTHING`,
         [
           task.id,
@@ -599,6 +607,7 @@ export class TauriSqliteRepository implements AppRepository {
           task.projectId,
           task.parentTaskId,
           task.scheduledFor,
+          task.deadline,
           task.recurringTemplateId,
           task.recurrenceDueDate,
           task.isRecurringInstance ? 1 : 0,
@@ -944,6 +953,7 @@ export class TauriSqliteRepository implements AppRepository {
     contextIds?: string[];
     projectId?: string | null;
     scheduledFor?: string | null;
+    deadline?: string | null;
   }) {
     const task = await this.requireTask(taskId);
     if (!task.recurringTemplateId) {
@@ -961,7 +971,8 @@ export class TauriSqliteRepository implements AppRepository {
         bucket: changes.bucket ?? task.bucket,
         contextIds: changes.contextIds ?? task.contextIds,
         projectId: changes.projectId === undefined ? task.projectId : changes.projectId,
-        scheduledFor: changes.scheduledFor === undefined ? task.scheduledFor : changes.scheduledFor
+        scheduledFor: changes.scheduledFor === undefined ? task.scheduledFor : changes.scheduledFor,
+        deadline: changes.deadline === undefined ? task.deadline : changes.deadline
       });
     }
 
@@ -1320,6 +1331,7 @@ export class TauriSqliteRepository implements AppRepository {
       projectId: row.project_id,
       parentTaskId: row.parent_task_id,
       scheduledFor: row.scheduled_for,
+      deadline: row.deadline,
       recurringTemplateId: row.recurring_template_id,
       recurrenceDueDate: row.recurrence_due_date,
       isRecurringInstance: Boolean(row.is_recurring_instance),
@@ -1411,7 +1423,7 @@ export class TauriSqliteRepository implements AppRepository {
     const rows = await db.select<TaskRow[]>(
       `SELECT
         id, title, notes, status, bucket, context_ids_json, project_id, parent_task_id,
-        scheduled_for, recurring_template_id, recurrence_due_date, is_recurring_instance,
+        scheduled_for, deadline, recurring_template_id, recurrence_due_date, is_recurring_instance,
         completed_at, recurrence_group_id, pending_past_recurrences, source, source_external_id, created_at, updated_at
       FROM gtd_tasks`
     );
@@ -1466,7 +1478,7 @@ export class TauriSqliteRepository implements AppRepository {
     const rows = await db.select<TaskRow[]>(
       `SELECT
         id, title, notes, status, bucket, context_ids_json, project_id, parent_task_id,
-        scheduled_for, recurring_template_id, recurrence_due_date, is_recurring_instance,
+        scheduled_for, deadline, recurring_template_id, recurrence_due_date, is_recurring_instance,
         completed_at, recurrence_group_id, pending_past_recurrences, source, source_external_id, created_at, updated_at
       FROM gtd_tasks
       WHERE id = $1`,
@@ -1606,9 +1618,9 @@ export class TauriSqliteRepository implements AppRepository {
     await db.execute(
       `INSERT INTO gtd_tasks (
         id, title, notes, status, bucket, context_ids_json, project_id, parent_task_id, scheduled_for,
-        recurring_template_id, recurrence_due_date, is_recurring_instance, completed_at, recurrence_group_id,
+        deadline, recurring_template_id, recurrence_due_date, is_recurring_instance, completed_at, recurrence_group_id,
         pending_past_recurrences, source, source_external_id, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         notes = excluded.notes,
@@ -1618,6 +1630,7 @@ export class TauriSqliteRepository implements AppRepository {
         project_id = excluded.project_id,
         parent_task_id = excluded.parent_task_id,
         scheduled_for = excluded.scheduled_for,
+        deadline = excluded.deadline,
         recurring_template_id = excluded.recurring_template_id,
         recurrence_due_date = excluded.recurrence_due_date,
         is_recurring_instance = excluded.is_recurring_instance,
@@ -1637,6 +1650,7 @@ export class TauriSqliteRepository implements AppRepository {
         task.projectId,
         task.parentTaskId,
         task.scheduledFor,
+        task.deadline,
         task.recurringTemplateId,
         task.recurrenceDueDate,
         task.isRecurringInstance ? 1 : 0,

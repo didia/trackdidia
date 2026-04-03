@@ -1,5 +1,34 @@
 let audioContext: AudioContext | null = null;
-let fallbackAudio: HTMLAudioElement | null = null;
+let unlockPrimerAudio: HTMLAudioElement | null = null;
+let chimeDataUri: string | null = null;
+let silentWavDataUri: string | null = null;
+let audioLifecycleHandlersRegistered = false;
+
+const getChimeDataUri = (): string => {
+  chimeDataUri ??= buildChimeDataUri();
+  return chimeDataUri;
+};
+
+const registerAudioLifecycleHandlers = (): void => {
+  if (typeof window === "undefined" || typeof document === "undefined" || audioLifecycleHandlersRegistered) {
+    return;
+  }
+  audioLifecycleHandlersRegistered = true;
+
+  const resumeContextIfSuspended = (): void => {
+    const context = audioContext;
+    if (context && context.state === "suspended") {
+      void context.resume().catch(() => {});
+    }
+  };
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      resumeContextIfSuspended();
+    }
+  });
+  window.addEventListener("focus", resumeContextIfSuspended);
+};
 
 const CHIME_SAMPLE_RATE = 44_100;
 const CHIME_NOTES = [
@@ -18,6 +47,44 @@ const encodeBase64 = (bytes: Uint8Array): string => {
   }
 
   return Buffer.from(bytes).toString("base64");
+};
+
+const buildWavDataUriFromPcm16Mono = (pcmBytes: Uint8Array, sampleRate: number): string => {
+  const bytesPerSample = 2;
+  const header = new Uint8Array(44);
+  const view = new DataView(header.buffer);
+  const writeAscii = (start: number, value: string) => {
+    for (let index = 0; index < value.length; index += 1) {
+      header[start + index] = value.charCodeAt(index);
+    }
+  };
+
+  writeAscii(0, "RIFF");
+  view.setUint32(4, 36 + pcmBytes.length, true);
+  writeAscii(8, "WAVE");
+  writeAscii(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * bytesPerSample, true);
+  view.setUint16(32, bytesPerSample, true);
+  view.setUint16(34, 16, true);
+  writeAscii(36, "data");
+  view.setUint32(40, pcmBytes.length, true);
+
+  const wavBytes = new Uint8Array(header.length + pcmBytes.length);
+  wavBytes.set(header, 0);
+  wavBytes.set(pcmBytes, header.length);
+  return `data:audio/wav;base64,${encodeBase64(wavBytes)}`;
+};
+
+const getSilentWavDataUri = (): string => {
+  silentWavDataUri ??= buildWavDataUriFromPcm16Mono(
+    new Uint8Array(Math.floor(CHIME_SAMPLE_RATE * 0.05) * 2),
+    CHIME_SAMPLE_RATE
+  );
+  return silentWavDataUri;
 };
 
 const buildChimeDataUri = (): string => {
@@ -50,45 +117,21 @@ const buildChimeDataUri = (): string => {
     pcmBytes[offset + 1] = (int16 >> 8) & 0xff;
   }
 
-  const header = new Uint8Array(44);
-  const view = new DataView(header.buffer);
-  const writeAscii = (start: number, value: string) => {
-    for (let index = 0; index < value.length; index += 1) {
-      header[start + index] = value.charCodeAt(index);
-    }
-  };
-
-  writeAscii(0, "RIFF");
-  view.setUint32(4, 36 + pcmBytes.length, true);
-  writeAscii(8, "WAVE");
-  writeAscii(12, "fmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, 1, true);
-  view.setUint32(24, CHIME_SAMPLE_RATE, true);
-  view.setUint32(28, CHIME_SAMPLE_RATE * bytesPerSample, true);
-  view.setUint16(32, bytesPerSample, true);
-  view.setUint16(34, 16, true);
-  writeAscii(36, "data");
-  view.setUint32(40, pcmBytes.length, true);
-
-  const wavBytes = new Uint8Array(header.length + pcmBytes.length);
-  wavBytes.set(header, 0);
-  wavBytes.set(pcmBytes, header.length);
-  return `data:audio/wav;base64,${encodeBase64(wavBytes)}`;
+  return buildWavDataUriFromPcm16Mono(pcmBytes, CHIME_SAMPLE_RATE);
 };
 
-const getFallbackAudio = (): HTMLAudioElement | null => {
+const getUnlockPrimerAudio = (): HTMLAudioElement | null => {
   if (typeof window === "undefined" || typeof Audio === "undefined") {
     return null;
   }
 
-  if (!fallbackAudio) {
-    fallbackAudio = new Audio(buildChimeDataUri());
-    fallbackAudio.preload = "auto";
+  if (!unlockPrimerAudio) {
+    unlockPrimerAudio = new Audio(getSilentWavDataUri());
+    unlockPrimerAudio.preload = "auto";
+    unlockPrimerAudio.volume = 0;
   }
 
-  return fallbackAudio;
+  return unlockPrimerAudio;
 };
 
 const getAudioContext = (): AudioContext | null => {
@@ -102,6 +145,7 @@ const getAudioContext = (): AudioContext | null => {
   }
 
   audioContext ??= new AudioContextCtor();
+  registerAudioLifecycleHandlers();
   return audioContext;
 };
 
@@ -111,17 +155,16 @@ export const unlockPomodoroSound = async (): Promise<void> => {
     await context.resume();
   }
 
-  const audio = getFallbackAudio();
-  if (audio) {
+  const primer = getUnlockPrimerAudio();
+  if (primer) {
     try {
-      audio.muted = true;
-      audio.currentTime = 0;
-      await audio.play();
-      audio.pause();
-      audio.currentTime = 0;
-      audio.muted = false;
+      primer.volume = 0;
+      primer.currentTime = 0;
+      await primer.play();
+      primer.pause();
+      primer.currentTime = 0;
     } catch {
-      audio.muted = false;
+      // HTMLAudio unlock is best-effort; Web Audio resume above is the main path.
     }
   }
 
@@ -134,49 +177,58 @@ export const unlockPomodoroSound = async (): Promise<void> => {
   }
 };
 
-export const playPomodoroChime = async (): Promise<boolean> => {
-  const context = getAudioContext();
-  try {
-    if (context) {
-    if (context.state === "suspended") {
-      await context.resume();
-    }
-
-    const startAt = context.currentTime;
-      CHIME_NOTES.forEach((note) => {
-        const oscillator = context.createOscillator();
-        const gain = context.createGain();
-        oscillator.type = "sine";
-        oscillator.frequency.setValueAtTime(note.frequency, startAt + note.offsetSeconds);
-        gain.gain.setValueAtTime(0.0001, startAt + note.offsetSeconds);
-        gain.gain.exponentialRampToValueAtTime(0.16, startAt + note.offsetSeconds + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, startAt + note.offsetSeconds + note.durationSeconds);
-        oscillator.connect(gain);
-        gain.connect(context.destination);
-        oscillator.start(startAt + note.offsetSeconds);
-        oscillator.stop(startAt + note.offsetSeconds + note.durationSeconds);
-      });
-
-      return true;
-    }
-  } catch {
-    // Fall through to HTML audio fallback below.
-  }
-
-  const audio = getFallbackAudio();
-  if (!audio) {
+const playChimeViaHtmlAudio = async (): Promise<boolean> => {
+  if (typeof window === "undefined" || typeof Audio === "undefined") {
     return false;
   }
 
   try {
-    audio.pause();
-    audio.muted = false;
-    audio.currentTime = 0;
+    const audio = new Audio(getChimeDataUri());
+    audio.preload = "auto";
+    if ("playsInline" in audio) {
+      (audio as HTMLAudioElement & { playsInline?: boolean }).playsInline = true;
+    }
     await audio.play();
     return true;
   } catch {
     return false;
   }
+};
+
+export const playPomodoroChime = async (): Promise<boolean> => {
+  registerAudioLifecycleHandlers();
+  const context = getAudioContext();
+
+  try {
+    if (context && context.state !== "closed") {
+      if (context.state !== "running") {
+        await context.resume();
+      }
+
+      if (context.state === "running") {
+        const startAt = context.currentTime;
+        CHIME_NOTES.forEach((note) => {
+          const oscillator = context.createOscillator();
+          const gain = context.createGain();
+          oscillator.type = "sine";
+          oscillator.frequency.setValueAtTime(note.frequency, startAt + note.offsetSeconds);
+          gain.gain.setValueAtTime(0.0001, startAt + note.offsetSeconds);
+          gain.gain.exponentialRampToValueAtTime(0.16, startAt + note.offsetSeconds + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.0001, startAt + note.offsetSeconds + note.durationSeconds);
+          oscillator.connect(gain);
+          gain.connect(context.destination);
+          oscillator.start(startAt + note.offsetSeconds);
+          oscillator.stop(startAt + note.offsetSeconds + note.durationSeconds);
+        });
+
+        return true;
+      }
+    }
+  } catch {
+    // Fall through to HTML audio fallback below.
+  }
+
+  return playChimeViaHtmlAudio();
 };
 
 export const notifyPomodoroCompletion = (title: string, body: string): boolean => {

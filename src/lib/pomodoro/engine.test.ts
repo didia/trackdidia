@@ -55,7 +55,7 @@ describe("pomodoro engine", () => {
       }
     ];
 
-    const state = buildPomodoroState(sessions, []);
+    const state = buildPomodoroState(sessions, [], "2026-04-01T10:56:00.000Z");
 
     expect(state.activeSession).toBeNull();
     expect(state.nextSessionKind).toBe("long_break");
@@ -75,6 +75,35 @@ describe("pomodoro engine", () => {
     expect(details[0].activeTaskId).toBe("task-2");
     expect(details[0].activeLabel).toBeNull();
     expect(details[0].taskIds).toEqual(["task-1", "task-2"]);
+  });
+
+  it("resets the cycle after more than 25 minutes of inactivity", () => {
+    const sessions = [
+      {
+        ...createPomodoroSession("focus", "2026-04-01T09:00:00.000Z", 2),
+        status: "completed" as const,
+        completedAt: "2026-04-01T09:25:00.000Z",
+        endsAt: "2026-04-01T09:25:00.000Z"
+      }
+    ];
+
+    const state = buildPomodoroState(sessions, [], "2026-04-01T09:51:00.000Z");
+
+    expect(state.activeSession).toBeNull();
+    expect(state.nextSessionKind).toBe("focus");
+    expect(state.currentCycleIndex).toBe(1);
+    expect(state.nextFocusCycleIndex).toBe(1);
+    expect(state.completedFocusCountInCycle).toBe(0);
+  });
+
+  it("treats an expired running session as finished for cycle reset (stale DB row)", () => {
+    const staleRunning = createPomodoroSession("focus", "2026-04-01T09:00:00.000Z", 2);
+    expect(staleRunning.status).toBe("running");
+
+    const state = buildPomodoroState([staleRunning], [], "2026-04-01T10:00:00.000Z");
+
+    expect(state.activeSession).toBeNull();
+    expect(state.currentCycleIndex).toBe(1);
   });
 
   it("tracks a free-form title inside a running focus session", () => {
@@ -105,6 +134,7 @@ describe("pomodoro engine", () => {
         projectId: null,
         parentTaskId: null,
         scheduledFor: null,
+        deadline: null,
         recurringTemplateId: null,
         recurrenceDueDate: null,
         isRecurringInstance: false,

@@ -263,6 +263,7 @@ const GtdProjectCard = ({
       contextIds?: string[];
       projectId?: string | null;
       scheduledFor?: string | null;
+      deadline?: string | null;
     }
   ) => Promise<Task>;
   onCompleteTask: (taskId: string) => Promise<unknown>;

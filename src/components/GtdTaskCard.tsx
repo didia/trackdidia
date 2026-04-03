@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Project, Task, TaskContext } from "../domain/types";
 import {
   buildIsoFromLocalDateAndTime,
+  formatDateShort,
   formatDateTimeShort,
   isPastDueDateTime,
   toLocalDateInputValue,
@@ -36,6 +37,7 @@ interface GtdTaskCardProps {
       contextIds?: string[];
       projectId?: string | null;
       scheduledFor?: string | null;
+      deadline?: string | null;
     }
   ) => Promise<Task>;
   onComplete: (taskId: string) => Promise<void>;
@@ -97,6 +99,8 @@ export const GtdTaskCard = ({
     : (Object.entries(bucketLabels) as Array<[Task["bucket"], string]>);
   const isPastDue =
     task.status === "active" && task.scheduledFor ? isPastDueDateTime(task.scheduledFor) : false;
+  const isDeadlineMissed =
+    task.status === "active" && task.deadline ? new Date(`${task.deadline}T23:59:59`).getTime() < Date.now() : false;
   const scheduledDateValue = toLocalDateInputValue(draft.scheduledFor);
   const scheduledTimeValue = toLocalTimeInputValue(draft.scheduledFor);
 
@@ -199,6 +203,11 @@ export const GtdTaskCard = ({
             {task.scheduledFor ? (
               <span className={`task-card__date-pill${isPastDue ? " task-card__date-pill--overdue" : ""}`}>
                 {formatDateTimeShort(task.scheduledFor)}
+              </span>
+            ) : null}
+            {task.deadline ? (
+              <span className={`task-card__date-pill${isDeadlineMissed ? " task-card__date-pill--overdue" : ""}`}>
+                Deadline: {formatDateShort(task.deadline)}
               </span>
             ) : null}
             {task.pendingPastRecurrences > 0 ? (
@@ -321,6 +330,20 @@ export const GtdTaskCard = ({
                 />
               </div>
             </label>
+
+            <label className="stacked-field">
+              <span>Deadline (date limite)</span>
+              <input
+                type="date"
+                value={draft.deadline ?? ""}
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    deadline: event.target.value || null
+                  }))
+                }
+              />
+            </label>
           </div>
 
           <div className="task-card__contexts">
@@ -427,7 +450,8 @@ export const GtdTaskCard = ({
                     bucket: draft.bucket === "scheduled" ? "scheduled" : "next_action",
                     contextIds: draft.contextIds,
                     projectId: draft.projectId,
-                    scheduledFor: draft.scheduledFor
+                    scheduledFor: draft.scheduledFor,
+                    deadline: draft.deadline
                   });
                 } else {
                   await onSave(draft);

@@ -120,6 +120,7 @@ export interface Task {
   projectId: string | null;
   parentTaskId: string | null;
   scheduledFor: string | null;
+  deadline: string | null;
   recurringTemplateId: string | null;
   recurrenceDueDate: string | null;
   isRecurringInstance: boolean;
@@ -272,6 +273,7 @@ export interface CreateTaskInput {
   projectId?: string | null;
   parentTaskId?: string | null;
   scheduledFor?: string | null;
+  deadline?: string | null;
   recurringTemplateId?: string | null;
   recurrenceDueDate?: string | null;
   isRecurringInstance?: boolean;
@@ -289,6 +291,7 @@ export interface RecurringTaskChanges {
   contextIds?: string[];
   projectId?: string | null;
   scheduledFor?: string | null;
+  deadline?: string | null;
 }
 
 export interface GtdImportSummary {

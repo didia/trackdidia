@@ -606,6 +606,28 @@ textarea {
   gap: 16px;
 }
 
+.schedule-day-split {
+  display: grid;
+  gap: 14px;
+}
+
+.schedule-section {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.38);
+}
+
+.schedule-section__title {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 .schedule-day-group {
   display: grid;
   gap: 14px;

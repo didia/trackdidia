@@ -24,15 +24,45 @@ export const NextActionsPage = () => {
   } = useGtdWorkspace();
   const [selectedContextId, setSelectedContextId] = useState("all");
   const [title, setTitle] = useState("");
+  const [deadlineFilter, setDeadlineFilter] = useState<"all" | "with" | "without" | "today" | "overdue">("all");
+  const [sortMode, setSortMode] = useState<"updated" | "deadline_asc" | "deadline_desc">("deadline_asc");
 
   const nextActionTasks = useMemo(() => {
-    const base = tasks.filter((task) => task.bucket === "next_action");
-    if (selectedContextId === "all") {
-      return base;
-    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
-    return base.filter((task) => task.contextIds.includes(selectedContextId));
-  }, [selectedContextId, tasks]);
+    const base = tasks
+      .filter((task) => task.bucket === "next_action")
+      .filter((task) => (selectedContextId === "all" ? true : task.contextIds.includes(selectedContextId)))
+      .filter((task) => {
+        if (deadlineFilter === "all") {
+          return true;
+        }
+        if (deadlineFilter === "with") {
+          return Boolean(task.deadline);
+        }
+        if (deadlineFilter === "without") {
+          return !task.deadline;
+        }
+        if (!task.deadline) {
+          return false;
+        }
+        if (deadlineFilter === "today") {
+          return task.deadline === todayDate;
+        }
+        return new Date(`${task.deadline}T23:59:59`).getTime() < Date.now();
+      });
+
+    return [...base].sort((left, right) => {
+      if (sortMode === "updated") {
+        return right.updatedAt.localeCompare(left.updatedAt);
+      }
+      const leftKey = left.deadline ?? (sortMode === "deadline_asc" ? "9999-12-31" : "0000-01-01");
+      const rightKey = right.deadline ?? (sortMode === "deadline_asc" ? "9999-12-31" : "0000-01-01");
+      return sortMode === "deadline_asc" ? leftKey.localeCompare(rightKey) : rightKey.localeCompare(leftKey);
+    });
+  }, [deadlineFilter, selectedContextId, sortMode, tasks]);
   const selection = useTaskSelection(nextActionTasks.map((task) => task.id));
 
   return (
@@ -87,6 +117,29 @@ export const NextActionsPage = () => {
               {context.name}
             </button>
           ))}
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Deadlines" subtitle="Filtre et tri rapide par date limite.">
+        <div className="task-card__grid">
+          <label className="stacked-field">
+            <span>Filtre deadline</span>
+            <select value={deadlineFilter} onChange={(event) => setDeadlineFilter(event.target.value as typeof deadlineFilter)}>
+              <option value="all">Toutes</option>
+              <option value="with">Avec deadline</option>
+              <option value="without">Sans deadline</option>
+              <option value="today">Deadline aujourd'hui</option>
+              <option value="overdue">Deadline depassee</option>
+            </select>
+          </label>
+          <label className="stacked-field">
+            <span>Trier par</span>
+            <select value={sortMode} onChange={(event) => setSortMode(event.target.value as typeof sortMode)}>
+              <option value="deadline_asc">Deadline (proche d'abord)</option>
+              <option value="deadline_desc">Deadline (loin d'abord)</option>
+              <option value="updated">Derniere mise a jour</option>
+            </select>
+          </label>
         </div>
       </SectionCard>
 
