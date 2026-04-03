@@ -4,7 +4,8 @@ import {
   buildPomodoroTaskSummaries,
   computeDailyPomodoroStats,
   createPomodoroSegment,
-  createPomodoroSession
+  createPomodoroSession,
+  getPomodoroRunningBreakSessionIdsToAutoCompleteWhenReset
 } from "./engine";
 import type { Task } from "../../domain/types";
 
@@ -104,6 +105,25 @@ describe("pomodoro engine", () => {
 
     expect(state.activeSession).toBeNull();
     expect(state.currentCycleIndex).toBe(1);
+  });
+
+  it("resets during an in-progress break when idle already exceeded before that break", () => {
+    const focusDone = {
+      ...createPomodoroSession("focus", "2026-04-01T06:00:00.000Z", 2),
+      status: "completed" as const,
+      completedAt: "2026-04-01T06:25:00.000Z",
+      endsAt: "2026-04-01T06:25:00.000Z"
+    };
+    const liveBreak = createPomodoroSession("short_break", "2026-04-01T08:50:00.000Z", 2);
+    const sessions = [focusDone, liveBreak];
+    const now = "2026-04-01T08:52:00.000Z";
+
+    const state = buildPomodoroState(sessions, [], now);
+    expect(state.activeSession).toBeNull();
+    expect(state.currentCycleIndex).toBe(1);
+    expect(state.nextSessionKind).toBe("focus");
+
+    expect(getPomodoroRunningBreakSessionIdsToAutoCompleteWhenReset(sessions, now)).toEqual([liveBreak.id]);
   });
 
   it("tracks a free-form title inside a running focus session", () => {

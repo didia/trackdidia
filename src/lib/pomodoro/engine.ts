@@ -131,12 +131,77 @@ const findLastSessionActivityAt = (sessions: PomodoroSession[]): string | null =
   return maxIso;
 };
 
+/**
+ * True when the focus cycle should restart at 1/4: no live focus, and either no completed history
+ * or more than 25 minutes since the last ended session if we ignore any still-running break.
+ */
+const shouldResetPomodoroCycleAfterIdle = (sessions: PomodoroSession[], nowIso: string): boolean => {
+  const normalized = normalizePomodoroSessionsForState(sessions, nowIso);
+  const nowMs = new Date(nowIso).getTime();
+
+  const hasLiveFocus = normalized.some(
+    (session) =>
+      session.status === "running" &&
+      session.kind === "focus" &&
+      new Date(session.endsAt).getTime() > nowMs
+  );
+  if (hasLiveFocus) {
+    return false;
+  }
+
+  const withoutLiveBreaks = normalized.filter(
+    (session) =>
+      !(
+        session.status === "running" &&
+        (session.kind === "short_break" || session.kind === "long_break") &&
+        new Date(session.endsAt).getTime() > nowMs
+      )
+  );
+
+  const latestCompleted = findLatestCompletedSession(withoutLiveBreaks);
+  const lastSessionActivityAt = findLastSessionActivityAt(withoutLiveBreaks);
+  const idleResets =
+    lastSessionActivityAt !== null &&
+    nowMs - new Date(lastSessionActivityAt).getTime() > POMODORO_CYCLE_RESET_IDLE_MS;
+
+  return !latestCompleted || idleResets;
+};
+
+/** Running breaks to close in storage when {@link shouldResetPomodoroCycleAfterIdle} applies. */
+export const getPomodoroRunningBreakSessionIdsToAutoCompleteWhenReset = (
+  sessions: PomodoroSession[],
+  nowIso = new Date().toISOString()
+): string[] => {
+  if (!shouldResetPomodoroCycleAfterIdle(sessions, nowIso)) {
+    return [];
+  }
+
+  return sessions
+    .filter(
+      (session) =>
+        session.status === "running" &&
+        (session.kind === "short_break" || session.kind === "long_break")
+    )
+    .map((session) => session.id);
+};
+
 export const buildPomodoroState = (
   sessions: PomodoroSession[],
   segments: PomodoroSegment[],
   now = new Date().toISOString()
 ): PomodoroState => {
   const normalizedSessions = normalizePomodoroSessionsForState(sessions, now);
+
+  if (shouldResetPomodoroCycleAfterIdle(sessions, now)) {
+    return {
+      activeSession: null,
+      nextSessionKind: "focus",
+      completedFocusCountInCycle: 0,
+      nextFocusCycleIndex: 1,
+      currentCycleIndex: 1
+    };
+  }
+
   const details = buildPomodoroSessionDetails(normalizedSessions, segments);
   const activeSession = details.find((session) => session.status === "running") ?? null;
 
@@ -161,11 +226,8 @@ export const buildPomodoroState = (
   }
 
   const latestCompleted = findLatestCompletedSession(normalizedSessions);
-  const lastSessionActivityAt = findLastSessionActivityAt(normalizedSessions);
-  const shouldResetCycle =
-    lastSessionActivityAt !== null && new Date(now).getTime() - new Date(lastSessionActivityAt).getTime() > POMODORO_CYCLE_RESET_IDLE_MS;
 
-  if (!latestCompleted || shouldResetCycle) {
+  if (!latestCompleted) {
     return {
       activeSession: null,
       nextSessionKind: "focus",

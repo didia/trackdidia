@@ -13,6 +13,7 @@ import {
 import type { DailyEntry } from "../domain/types";
 import { useAppContext } from "../app/app-context";
 import { EntrySummaryStrip } from "../components/EntrySummaryStrip";
+import { PersistedTextarea } from "../components/PersistedTextarea";
 import { MetricGrid } from "../components/MetricGrid";
 import { PrincipleChecklist } from "../components/PrincipleChecklist";
 import { SectionCard } from "../components/SectionCard";
@@ -109,26 +110,38 @@ export const HistoryPage = () => {
         <div className="journal-grid">
           <label className="stacked-field">
             <span>Intention du matin</span>
-            <textarea
+            <PersistedTextarea
+              key={`${selectedEntry.date}-morningIntention`}
               rows={3}
-              value={selectedEntry.morningIntention}
-              onChange={(event) => setSelectedEntry(updateNote(selectedEntry, "morningIntention", event.target.value))}
+              debounceMs={0}
+              savedValue={selectedEntry.morningIntention}
+              onPersist={(value) =>
+                setSelectedEntry((current) => (current ? updateNote(current, "morningIntention", value) : current))
+              }
             />
           </label>
           <label className="stacked-field">
             <span>Reflection du soir</span>
-            <textarea
+            <PersistedTextarea
+              key={`${selectedEntry.date}-nightReflection`}
               rows={3}
-              value={selectedEntry.nightReflection}
-              onChange={(event) => setSelectedEntry(updateNote(selectedEntry, "nightReflection", event.target.value))}
+              debounceMs={0}
+              savedValue={selectedEntry.nightReflection}
+              onPersist={(value) =>
+                setSelectedEntry((current) => (current ? updateNote(current, "nightReflection", value) : current))
+              }
             />
           </label>
           <label className="stacked-field">
             <span>Focus de demain</span>
-            <textarea
+            <PersistedTextarea
+              key={`${selectedEntry.date}-tomorrowFocus`}
               rows={3}
-              value={selectedEntry.tomorrowFocus}
-              onChange={(event) => setSelectedEntry(updateNote(selectedEntry, "tomorrowFocus", event.target.value))}
+              debounceMs={0}
+              savedValue={selectedEntry.tomorrowFocus}
+              onPersist={(value) =>
+                setSelectedEntry((current) => (current ? updateNote(current, "tomorrowFocus", value) : current))
+              }
             />
           </label>
         </div>

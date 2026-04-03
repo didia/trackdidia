@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   autoSuggestedMetricKeys,
@@ -11,6 +11,7 @@ import {
 import { morningPrincipleKeys } from "../domain/definitions";
 import { useDailyEntry } from "../app/use-daily-entry";
 import { EntrySummaryStrip } from "../components/EntrySummaryStrip";
+import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
 import { MetricGrid } from "../components/MetricGrid";
 import { PrincipleChecklist } from "../components/PrincipleChecklist";
 import { SectionCard } from "../components/SectionCard";
@@ -19,49 +20,13 @@ import { getTodayDate, formatDateLong } from "../lib/date";
 export const MorningRoutinePage = () => {
   const navigate = useNavigate();
   const { entry, loading, save, taskStats} = useDailyEntry(getTodayDate());
-  const [intentionDraft, setIntentionDraft] = useState("");
-  const intentionSaveTimeoutRef = useRef<number | null>(null);
-  const intentionDirtyRef = useRef(false);
   const latestEntryRef = useRef(entry);
-  const lastSavedIntentionRef = useRef("");
-
+  const intentionRef = useRef<PersistedTextareaHandle>(null);
   latestEntryRef.current = entry;
-
-  useEffect(() => {
-    if (!entry) {
-      return;
-    }
-    lastSavedIntentionRef.current = entry.morningIntention;
-    if (!intentionDirtyRef.current) {
-      setIntentionDraft(entry.morningIntention);
-    }
-  }, [entry]);
-
-  useEffect(() => {
-    return () => {
-      if (intentionSaveTimeoutRef.current !== null) {
-        window.clearTimeout(intentionSaveTimeoutRef.current);
-      }
-    };
-  }, []);
 
   if (loading || !entry) {
     return <div className="page"><p>Chargement de la routine du matin...</p></div>;
   }
-
-  const persistIntention = (nextValue: string) => {
-    const currentEntry = latestEntryRef.current;
-    if (!currentEntry) {
-      return;
-    }
-    if (nextValue === lastSavedIntentionRef.current) {
-      intentionDirtyRef.current = false;
-      return;
-    }
-    lastSavedIntentionRef.current = nextValue;
-    intentionDirtyRef.current = false;
-    void save(updateNote(currentEntry, "morningIntention", nextValue));
-  };
 
   return (
     <div className="page">
@@ -80,27 +45,16 @@ export const MorningRoutinePage = () => {
       <SectionCard title="Intention du jour" subtitle="Une phrase suffit. Cherche le ton juste, pas la perfection.">
         <label className="stacked-field">
           <span>Intention</span>
-          <textarea
+          <PersistedTextarea
+            ref={intentionRef}
             rows={4}
-            value={intentionDraft}
-            onChange={(event) => {
-              const nextValue = event.target.value;
-              intentionDirtyRef.current = true;
-              setIntentionDraft(nextValue);
-              if (intentionSaveTimeoutRef.current !== null) {
-                window.clearTimeout(intentionSaveTimeoutRef.current);
+            savedValue={entry.morningIntention}
+            onPersist={(nextValue) => {
+              const currentEntry = latestEntryRef.current;
+              if (!currentEntry) {
+                return;
               }
-              intentionSaveTimeoutRef.current = window.setTimeout(() => {
-                persistIntention(nextValue);
-                intentionSaveTimeoutRef.current = null;
-              }, 450);
-            }}
-            onBlur={() => {
-              if (intentionSaveTimeoutRef.current !== null) {
-                window.clearTimeout(intentionSaveTimeoutRef.current);
-                intentionSaveTimeoutRef.current = null;
-              }
-              persistIntention(intentionDraft);
+              void save(updateNote(currentEntry, "morningIntention", nextValue));
             }}
             placeholder="Quelle posture veux-tu garder aujourd'hui ?"
           />
@@ -136,7 +90,13 @@ export const MorningRoutinePage = () => {
           className="button button--primary"
           type="button"
           onClick={async () => {
-            await save(applyRoutineTransition(entry, "complete_morning"));
+            const current = latestEntryRef.current;
+            if (!current) {
+              return;
+            }
+            intentionRef.current?.flush();
+            const intention = intentionRef.current?.getDraft() ?? current.morningIntention;
+            await save(applyRoutineTransition(updateNote(current, "morningIntention", intention), "complete_morning"));
             navigate("/");
           }}
         >

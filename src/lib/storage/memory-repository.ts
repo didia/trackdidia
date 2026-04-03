@@ -43,7 +43,8 @@ import {
   buildPomodoroTaskSummaries,
   computeDailyPomodoroStats,
   createPomodoroSegment,
-  createPomodoroSession
+  createPomodoroSession,
+  getPomodoroRunningBreakSessionIdsToAutoCompleteWhenReset
 } from "../pomodoro/engine";
 import {
   applySeriesChangesToTemplate,
@@ -499,8 +500,13 @@ export class MemoryRepository implements AppRepository {
     });
     if (current.recurringTemplateId) {
       const template = this.getExistingRecurringTemplate(current.recurringTemplateId);
+      const nextLastGeneratedForDate =
+        current.recurrenceDueDate && (!template.lastGeneratedForDate || current.recurrenceDueDate > template.lastGeneratedForDate)
+          ? current.recurrenceDueDate
+          : template.lastGeneratedForDate;
       this.recurringTemplates.set(current.recurringTemplateId, {
         ...cloneRecurringTemplate(template),
+        lastGeneratedForDate: nextLastGeneratedForDate,
         pendingMissedOccurrences: 0,
         updatedAt: nowIso()
       });
@@ -682,6 +688,11 @@ export class MemoryRepository implements AppRepository {
 
     for (const session of expiredRunningSessions) {
       await this.stopPomodoroSession(session.id, "completed", session.endsAt);
+    }
+
+    const afterExpiry = [...this.pomodoroSessions.values()];
+    for (const sessionId of getPomodoroRunningBreakSessionIdsToAutoCompleteWhenReset(afterExpiry, now)) {
+      await this.stopPomodoroSession(sessionId, "completed", now);
     }
 
     return this.getPomodoroState();

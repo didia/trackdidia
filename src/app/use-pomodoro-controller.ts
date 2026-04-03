@@ -70,6 +70,7 @@ export const usePomodoroController = (repository: AppRepository | null): Pomodor
       }
 
       const today = getTodayDate();
+      await repository.generateDueRecurringTasks(today);
       const nextState = await repository.completeExpiredPomodoroSessions();
       const [nextSessions, nextSummaries, nextTasks] = await Promise.all([
         repository.listPomodoroSessions(today),

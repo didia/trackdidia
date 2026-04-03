@@ -34,7 +34,8 @@ import {
   buildPomodoroTaskSummaries,
   computeDailyPomodoroStats,
   createPomodoroSegment,
-  createPomodoroSession
+  createPomodoroSession,
+  getPomodoroRunningBreakSessionIdsToAutoCompleteWhenReset
 } from "../pomodoro/engine";
 import {
   applySeriesChangesToTemplate,
@@ -1031,8 +1032,13 @@ export class TauriSqliteRepository implements AppRepository {
     });
     if (current.recurringTemplateId) {
       const template = await this.requireRecurringTemplate(current.recurringTemplateId);
+      const nextLastGeneratedForDate =
+        current.recurrenceDueDate && (!template.lastGeneratedForDate || current.recurrenceDueDate > template.lastGeneratedForDate)
+          ? current.recurrenceDueDate
+          : template.lastGeneratedForDate;
       await this.persistRecurringTemplate({
         ...cloneRecurringTemplate(template),
+        lastGeneratedForDate: nextLastGeneratedForDate,
         pendingMissedOccurrences: 0,
         updatedAt: nowIso()
       });
@@ -1208,13 +1214,18 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async completeExpiredPomodoroSessions(now = nowIso()) {
-    const sessions = await this.getAllPomodoroSessions();
+    let sessions = await this.getAllPomodoroSessions();
     const expiredRunningSessions = sessions.filter(
       (session) => session.status === "running" && new Date(session.endsAt).getTime() <= new Date(now).getTime()
     );
 
     for (const session of expiredRunningSessions) {
       await this.stopPomodoroSession(session.id, "completed", session.endsAt);
+    }
+
+    sessions = await this.getAllPomodoroSessions();
+    for (const sessionId of getPomodoroRunningBreakSessionIdsToAutoCompleteWhenReset(sessions, now)) {
+      await this.stopPomodoroSession(sessionId, "completed", now);
     }
 
     return this.getPomodoroState();
