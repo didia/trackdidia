@@ -1,3 +1,5 @@
+import { logDebug } from "../debug";
+
 let audioContext: AudioContext | null = null;
 let unlockPrimerAudio: HTMLAudioElement | null = null;
 let chimeDataUri: string | null = null;
@@ -224,8 +226,8 @@ export const playPomodoroChime = async (): Promise<boolean> => {
         return true;
       }
     }
-  } catch {
-    // Fall through to HTML audio fallback below.
+  } catch (error) {
+    logDebug("error", "pomodoro.sound", "Web Audio chime failed, fallback to HTML audio", error);
   }
 
   return playChimeViaHtmlAudio();

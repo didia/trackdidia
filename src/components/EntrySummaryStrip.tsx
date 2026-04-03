@@ -16,10 +16,9 @@ export const EntrySummaryStrip = ({ entry }: { entry: DailyEntry }) => {
         <strong>{formatPercent(summary.disciplineScore)}</strong>
       </article>
       <article className="summary-pill">
-        <span>Completion</span>
-        <strong>{formatPercent(summary.completionPercent)}</strong>
+        <span>Taches completees</span>
+        <strong>{formatPercent(summary.taskCompletionPercent)}</strong>
       </article>
     </div>
   );
 };
-

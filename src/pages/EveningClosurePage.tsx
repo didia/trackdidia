@@ -50,7 +50,7 @@ export const EveningClosurePage = () => {
         />
       </SectionCard>
 
-      <SectionCard title="Principes de vie" subtitle="Oui, non ou plus tard pour chaque principe.">
+      <SectionCard title="Principes de vie" subtitle="Oui ou non pour chaque principe.">
         <PrincipleChecklist
           entry={entry}
           onChange={(key, value) => void save(updatePrinciple(entry, key, value))}

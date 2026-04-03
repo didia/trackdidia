@@ -4,7 +4,7 @@ import type { DailyEntry, PrincipleKey } from "../domain/types";
 interface PrincipleChecklistProps {
   entry: DailyEntry;
   keys?: PrincipleKey[];
-  onChange: (key: PrincipleKey, value: boolean | null) => void;
+  onChange: (key: PrincipleKey, value: boolean) => void;
 }
 
 export const PrincipleChecklist = ({ entry, keys, onChange }: PrincipleChecklistProps) => {
@@ -35,13 +35,6 @@ export const PrincipleChecklist = ({ entry, keys, onChange }: PrincipleChecklist
               >
                 Non
               </button>
-              <button
-                type="button"
-                className={value === null ? "toggle toggle--ghost toggle--active" : "toggle toggle--ghost"}
-                onClick={() => onChange(definition.key, null)}
-              >
-                Plus tard
-              </button>
             </div>
           </div>
         );
@@ -49,4 +42,3 @@ export const PrincipleChecklist = ({ entry, keys, onChange }: PrincipleChecklist
     </div>
   );
 };
-

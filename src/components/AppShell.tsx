@@ -1,3 +1,5 @@
+import { useAppContext } from "../app/app-context";
+import { FloatingPomodoroTimer } from "./FloatingPomodoroTimer";
 import { NavLink, Outlet } from "react-router-dom";
 
 const navigation = [
@@ -17,34 +19,41 @@ const navigation = [
   { to: "/parametres", label: "Parametres" }
 ];
 
-export const AppShell = () => (
-  <div className="layout">
-    <aside className="sidebar">
-      <div className="brand-block">
-        <p className="eyebrow">Trackdidia</p>
-        <h1>Une journee bien tenue a la fois.</h1>
-        <p className="sidebar__copy">
-          Suivi quotidien, rituels du matin et du soir, discipline visible, et moteur GTD local-first sans
-          bruit inutile.
-        </p>
-      </div>
+export const AppShell = () => {
+  const { pomodoro } = useAppContext();
+  const hasFloatingPomodoro = Boolean(pomodoro.state.activeSession && pomodoro.remainingMs > 0);
 
-      <nav className="nav">
-        {navigation.map((item) => (
-          <NavLink
-            key={item.to}
-            end={item.end}
-            to={item.to}
-            className={({ isActive }) => `nav__link${isActive ? " nav__link--active" : ""}`}
-          >
-            {item.label}
-          </NavLink>
-        ))}
-      </nav>
-    </aside>
+  return (
+    <div className="layout">
+      <aside className="sidebar">
+        <div className="brand-block">
+          <p className="eyebrow">Trackdidia</p>
+          <h1>Une journee bien tenue a la fois.</h1>
+          <p className="sidebar__copy">
+            Suivi quotidien, rituels du matin et du soir, discipline visible, et moteur GTD local-first sans
+            bruit inutile.
+          </p>
+        </div>
 
-    <main className="content">
-      <Outlet />
-    </main>
-  </div>
-);
+        <nav className="nav">
+          {navigation.map((item) => (
+            <NavLink
+              key={item.to}
+              end={item.end}
+              to={item.to}
+              className={({ isActive }) => `nav__link${isActive ? " nav__link--active" : ""}`}
+            >
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
+      </aside>
+
+      <main className={`content${hasFloatingPomodoro ? " content--with-floating-pomodoro" : ""}`}>
+        <Outlet />
+      </main>
+
+      <FloatingPomodoroTimer />
+    </div>
+  );
+};

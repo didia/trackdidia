@@ -4,20 +4,22 @@ import {
   applyRoutineTransition,
   computeCompletionPercent,
   computeDisciplineScore,
+  computeTaskCompletionPercent,
   createEmptyDailyEntry,
   updateMetric,
   updateNote,
   updatePrinciple
 } from "./daily-entry";
+import { principleDefinitions } from "./definitions";
 
 describe("daily entry domain", () => {
-  it("computes discipline score from answered principles only", () => {
+  it("computes discipline score from completed principles only", () => {
     let entry = createEmptyDailyEntry("2026-03-31");
     entry = updatePrinciple(entry, "priereDuMatin", true);
     entry = updatePrinciple(entry, "oxytocineDuMatin", false);
     entry = updatePrinciple(entry, "respectReveil", true);
 
-    expect(computeDisciplineScore(entry)).toBeCloseTo(2 / 3);
+    expect(computeDisciplineScore(entry)).toBeCloseTo(2 / principleDefinitions.length);
   });
 
   it("computes completion percent across metrics, principles and notes", () => {
@@ -27,6 +29,24 @@ describe("daily entry domain", () => {
     entry = updateNote(entry, "morningIntention", "Rester net.");
 
     expect(computeCompletionPercent(entry)).toBeCloseTo(3 / 28);
+  });
+
+  it("computes daily task completion percent from completed over added tasks", () => {
+    let entry = createEmptyDailyEntry("2026-03-31");
+    entry = applyDailyTaskStats(entry, {
+      date: "2026-03-31",
+      tasksAtStart: 3,
+      tasksAdded: 8,
+      tasksCompleted: 2,
+      tasksRemaining: 9
+    });
+
+    expect(computeTaskCompletionPercent(entry)).toBeCloseTo(2 / 8);
+
+    entry = updateMetric(entry, "tachesAjoutes", 10);
+    entry = updateMetric(entry, "tachesRealises", 4);
+
+    expect(computeTaskCompletionPercent(entry)).toBeCloseTo(4 / 10);
   });
 
   it("supports morning completion, closure and reopening", () => {

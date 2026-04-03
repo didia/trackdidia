@@ -115,16 +115,12 @@ export const updateNote = (
 });
 
 export const computeDisciplineScore = (entry: DailyEntry): number => {
-  const values = principleDefinitions
-    .map(({ key }) => entry.principleChecks[key])
-    .filter((value): value is boolean => value !== null);
-
-  if (values.length === 0) {
+  if (principleDefinitions.length === 0) {
     return 0;
   }
 
-  const completed = values.filter(Boolean).length;
-  return completed / values.length;
+  const completed = principleDefinitions.filter(({ key }) => entry.principleChecks[key] === true).length;
+  return completed / principleDefinitions.length;
 };
 
 export const computeCompletionPercent = (entry: DailyEntry): number => {
@@ -139,6 +135,17 @@ export const computeCompletionPercent = (entry: DailyEntry): number => {
   ).length;
 
   return (completedMetrics + completedPrinciples + completedNotes) / (metricCount + principleCount + noteCount);
+};
+
+export const computeTaskCompletionPercent = (entry: DailyEntry): number => {
+  const tasksAdded = resolveMetricValue(entry, "tachesAjoutes") ?? 0;
+  const tasksCompleted = resolveMetricValue(entry, "tachesRealises") ?? 0;
+
+  if (tasksAdded <= 0) {
+    return 0;
+  }
+
+  return tasksCompleted / tasksAdded;
 };
 
 export const deriveStatusLabel = (status: DailyStatus): string => {
@@ -181,7 +188,7 @@ export const applyRoutineTransition = (
 
 export const buildEntrySummary = (entry: DailyEntry) => ({
   disciplineScore: computeDisciplineScore(entry),
-  completionPercent: computeCompletionPercent(entry)
+  taskCompletionPercent: computeTaskCompletionPercent(entry)
 });
 
 export const applyDailyTaskStats = (entry: DailyEntry, stats: DailyTaskStats): DailyEntry => ({

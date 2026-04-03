@@ -7,9 +7,8 @@ import { useDailyEntry } from "../app/use-daily-entry";
 import { CoachCard } from "../components/CoachCard";
 import { EntrySummaryStrip } from "../components/EntrySummaryStrip";
 import { SectionCard } from "../components/SectionCard";
-import { formatDateLong, formatDateTimeShort, formatTimerRemaining, getTodayDate } from "../lib/date";
+import { formatDateLong, formatDateTimeShort, getTodayDate } from "../lib/date";
 import { formatTimestamp } from "../lib/format";
-import { getPomodoroKindLabel } from "../lib/pomodoro/engine";
 import type { DailyTaskBreakdown } from "../lib/storage/repository";
 
 const bucketLabels: Record<Task["bucket"], string> = {
@@ -88,15 +87,14 @@ export const TodayPage = () => {
       : openTaskPanel === "completed"
         ? taskBreakdown?.completedTasks ?? []
         : [];
-  const hasLivePomodoroSession = Boolean(pomodoro.state.activeSession && pomodoro.remainingMs > 0);
-  const hasLivePomodoroBreak = Boolean(
-    hasLivePomodoroSession &&
-      pomodoro.state.activeSession &&
-      (pomodoro.state.activeSession.kind === "short_break" || pomodoro.state.activeSession.kind === "long_break")
+  const completedPomodoroCount = pomodoro.sessions.filter(
+    (session) => session.kind === "focus" && session.status === "completed"
+  ).length;
+  const totalFocusedSeconds = pomodoro.taskSummaries.reduce((sum, summary) => sum + summary.totalSeconds, 0);
+  const totalFocusedHours = (totalFocusedSeconds / 3600).toFixed(1);
+  const completedPomodoroTasks = (taskBreakdown?.completedTasks ?? []).filter((task) =>
+    pomodoro.taskSummaries.some((summary) => summary.taskId === task.id)
   );
-  const nextPomodoroStepIsBreak = pomodoro.state.nextSessionKind === "short_break" || pomodoro.state.nextSessionKind === "long_break";
-  const canSkipPomodoroBreak = hasLivePomodoroBreak || (!hasLivePomodoroSession && nextPomodoroStepIsBreak);
-  const pomodoroStartLabel = nextPomodoroStepIsBreak ? "Demarrer la pause" : "Demarrer un focus";
 
   return (
     <div className="page">
@@ -150,64 +148,44 @@ export const TodayPage = () => {
 
       <SectionCard
         title="Pomodoro du jour"
-        subtitle="Le cycle 25 / 5 / 25 est integre a l'app et propose automatiquement le nombre de pomodoris du jour."
+        subtitle="Resume simple de ce qui a ete produit en focus aujourd'hui."
       >
-        <div className="pomodoro-widget">
-          <div className={`pomodoro-widget__clock${hasLivePomodoroSession && pomodoro.state.activeSession ? ` pomodoro-widget__clock--${pomodoro.state.activeSession.kind}` : ""}`}>
-            <span>{hasLivePomodoroSession && pomodoro.state.activeSession ? getPomodoroKindLabel(pomodoro.state.activeSession.kind) : "En attente"}</span>
-            <strong>{hasLivePomodoroSession && pomodoro.state.activeSession ? formatTimerRemaining(pomodoro.remainingMs) : "00:00"}</strong>
-            <small>Session {pomodoro.state.currentCycleIndex}/4</small>
-          </div>
-
-          <div className="pomodoro-widget__summary">
-            <article className="status-card">
-              <span>Tache active</span>
-              <strong>
-                {pomodoro.currentTask?.title ??
-                  pomodoro.currentActivityLabel ??
-                  pomodoro.preferredTask?.title ??
-                  pomodoro.preferredActivityLabel ??
-                  "Sans tache assignee"}
-              </strong>
-            </article>
-            <article className="status-card">
-              <span>Prochaine etape</span>
-              <strong>{getPomodoroKindLabel(pomodoro.state.nextSessionKind)}</strong>
-            </article>
-            <article className="status-card">
-              <span>Pomodoris suggeres</span>
-              <strong>{resolveMetricValue(entry, "pomodoris") ?? 0}</strong>
-            </article>
-          </div>
+        <div className="pomodoro-widget__summary">
+          <article className="status-card">
+            <span>Pomodoris completes</span>
+            <strong>{completedPomodoroCount}</strong>
+          </article>
+          <article className="status-card">
+            <span>Heures focused</span>
+            <strong>{totalFocusedHours} h</strong>
+          </article>
+          <article className="status-card">
+            <span>Taches completees en pomodoro</span>
+            <strong>{completedPomodoroTasks.length}</strong>
+          </article>
         </div>
 
-        <div className="hero__actions">
-          {hasLivePomodoroSession ? (
-            <Link className="button button--primary" to="/pomodoro">
-              Voir la session
-            </Link>
+        <div className="daily-task-panel">
+          <div className="daily-task-panel__header">
+            <div>
+              <strong>Taches completees pendant une journee avec focus</strong>
+              <p>Liste des taches terminees aujourd'hui qui ont recu du temps de pomodoro.</p>
+            </div>
+          </div>
+          {completedPomodoroTasks.length === 0 ? (
+            <p className="empty-copy">Aucune tache completee via le flux pomodoro aujourd'hui.</p>
           ) : (
-            <button
-              className="button button--primary"
-              type="button"
-              onClick={() =>
-                void pomodoro.startPomodoro({
-                  taskId: pomodoro.state.nextSessionKind === "focus" ? pomodoro.preferredTask?.id ?? null : null,
-                  title:
-                    pomodoro.state.nextSessionKind === "focus" && !pomodoro.preferredTask
-                      ? pomodoro.preferredActivityLabel ?? null
-                      : null
-                })
-              }
-            >
-              {pomodoroStartLabel}
-            </button>
+            <div className="pomodoro-history__segments">
+              {completedPomodoroTasks.map((task) => (
+                <span key={task.id} className="tag-chip">
+                  {task.title}
+                </span>
+              ))}
+            </div>
           )}
-          {canSkipPomodoroBreak ? (
-            <button className="button" type="button" onClick={() => void pomodoro.skipBreak()}>
-              Skipper la pause
-            </button>
-          ) : null}
+        </div>
+
+        <div className="section-actions">
           <Link className="button" to="/pomodoro">
             Ouvrir la page Pomodoro
           </Link>
@@ -276,7 +254,7 @@ export const TodayPage = () => {
           </div>
         ) : null}
 
-        <div className="hero__actions">
+        <div className="section-actions">
           <Link className="button" to="/inbox">
             Ouvrir l'inbox
           </Link>

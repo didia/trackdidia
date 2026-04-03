@@ -118,6 +118,10 @@ a {
   padding: 28px;
 }
 
+.content--with-floating-pomodoro {
+  padding-bottom: 240px;
+}
+
 .page {
   display: grid;
   gap: 22px;
@@ -144,6 +148,13 @@ a {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.section-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 18px;
 }
 
 .button {
@@ -994,6 +1005,90 @@ textarea {
   flex-wrap: wrap;
 }
 
+.floating-pomodoro {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  width: min(380px, calc(100vw - 48px));
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border-radius: 24px;
+  border: 1px solid rgba(42, 32, 20, 0.14);
+  background: rgba(255, 250, 242, 0.96);
+  box-shadow: 0 24px 60px rgba(87, 54, 18, 0.18);
+  backdrop-filter: blur(16px);
+  z-index: 950;
+}
+
+.floating-pomodoro--with-debug {
+  bottom: 108px;
+}
+
+.floating-pomodoro--focus {
+  box-shadow:
+    inset 0 0 0 1px rgba(164, 79, 45, 0.18),
+    0 24px 60px rgba(87, 54, 18, 0.18);
+}
+
+.floating-pomodoro--short_break {
+  box-shadow:
+    inset 0 0 0 1px rgba(45, 106, 79, 0.18),
+    0 24px 60px rgba(87, 54, 18, 0.18);
+}
+
+.floating-pomodoro--long_break {
+  box-shadow:
+    inset 0 0 0 1px rgba(91, 122, 155, 0.2),
+    0 24px 60px rgba(87, 54, 18, 0.18);
+}
+
+.floating-pomodoro__header,
+.floating-pomodoro__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.floating-pomodoro__cycle,
+.floating-pomodoro__summary span,
+.floating-pomodoro__kind {
+  color: var(--muted);
+}
+
+.floating-pomodoro__body {
+  display: grid;
+  grid-template-columns: minmax(120px, 150px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+}
+
+.floating-pomodoro__clock {
+  display: grid;
+  gap: 6px;
+  text-align: center;
+  padding: 16px 14px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(42, 32, 20, 0.08);
+}
+
+.floating-pomodoro__clock strong {
+  font-size: clamp(2rem, 4vw, 2.8rem);
+  line-height: 1;
+}
+
+.floating-pomodoro__summary {
+  display: grid;
+  gap: 4px;
+}
+
+.floating-pomodoro__summary strong {
+  min-width: 0;
+}
+
 @media (max-width: 1024px) {
   .layout {
     grid-template-columns: 1fr;
@@ -1012,6 +1107,10 @@ textarea {
     padding: 18px;
   }
 
+  .content--with-floating-pomodoro {
+    padding-bottom: 270px;
+  }
+
   .hero,
   .panel__header,
   .principle-item {
@@ -1024,7 +1123,8 @@ textarea {
   .status-grid,
   .journal-grid,
   .pomodoro-widget,
-  .pomodoro-panel {
+  .pomodoro-panel,
+  .floating-pomodoro__body {
     grid-template-columns: 1fr;
   }
 
@@ -1041,5 +1141,20 @@ textarea {
   .bulk-toolbar,
   .task-card__quick-actions {
     justify-content: start;
+  }
+
+  .floating-pomodoro {
+    right: 18px;
+    bottom: 18px;
+    width: calc(100vw - 36px);
+    padding: 16px;
+  }
+
+  .floating-pomodoro--with-debug {
+    bottom: 96px;
+  }
+
+  .floating-pomodoro__clock {
+    text-align: left;
   }
 }
