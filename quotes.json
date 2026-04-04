@@ -1,0 +1,578 @@
+[
+    {
+      "quote": "Focus on being productive instead of busy.",
+      "author": "Tim Ferriss",
+      "language": "en",
+      "category": "focus"
+    },
+    {
+      "quote": "Ce qui est important est rarement urgent et ce qui est urgent est rarement important.",
+      "author": "Dwight D. Eisenhower",
+      "language": "fr",
+      "category": "time_management"
+    },
+    {
+      "quote": "Amateurs sit and wait for inspiration, the rest of us just get up and go to work.",
+      "author": "Stephen King",
+      "language": "en",
+      "category": "execution"
+    },
+    {
+      "quote": "La discipline est le pont entre les objectifs et l'accomplissement.",
+      "author": "Jim Rohn",
+      "language": "fr",
+      "category": "discipline"
+    },
+    {
+      "quote": "Done is better than perfect.",
+      "author": "Sheryl Sandberg",
+      "language": "en",
+      "category": "execution"
+    },
+    {
+      "quote": "Le succès est la somme de petits efforts répétés jour après jour.",
+      "author": "Robert Collier",
+      "language": "fr",
+      "category": "consistency"
+    },
+    {
+      "quote": "You don't need more time, you just need to decide.",
+      "author": "Seth Godin",
+      "language": "en",
+      "category": "focus"
+    },
+    {
+      "quote": "La simplicité est la sophistication suprême.",
+      "author": "Leonardo da Vinci",
+      "language": "fr",
+      "category": "focus"
+    },
+    {
+      "quote": "Action is the foundational key to all success.",
+      "author": "Pablo Picasso",
+      "language": "en",
+      "category": "execution"
+    },
+    {
+      "quote": "La constance bat le talent quand le talent n'est pas constant.",
+      "author": "Inconnu",
+      "language": "fr",
+      "category": "consistency"
+    },
+    {
+      "quote": "What gets measured gets managed.",
+      "author": "Peter Drucker",
+      "language": "en",
+      "category": "execution"
+    },
+    {
+      "quote": "La motivation vous fait commencer. L'habitude vous fait continuer.",
+      "author": "Jim Ryun",
+      "language": "fr",
+      "category": "consistency"
+    },
+    {
+      "quote": "The way to get started is to quit talking and begin doing.",
+      "author": "Walt Disney",
+      "language": "en",
+      "category": "execution"
+    },
+    {
+      "quote": "Il n'y a pas de substitut au travail acharné.",
+      "author": "Thomas Edison",
+      "language": "fr",
+      "category": "discipline"
+    },
+    {
+      "quote": "Simplicity boils down to two steps: Identify the essential. Eliminate the rest.",
+      "author": "Leo Babauta",
+      "language": "en",
+      "category": "focus"
+    },
+    {
+      "quote": "La meilleure façon de prédire l'avenir est de le créer.",
+      "author": "Peter Drucker",
+      "language": "fr",
+      "category": "execution"
+    },
+    {
+      "quote": "Until we can manage time, we can manage nothing else.",
+      "author": "Peter Drucker",
+      "language": "en",
+      "category": "time_management"
+    },
+    {
+      "quote": "L'action exprime les priorités.",
+      "author": "Mahatma Gandhi",
+      "language": "fr",
+      "category": "focus"
+    },
+    {
+      "quote": "Start where you are. Use what you have. Do what you can.",
+      "author": "Arthur Ashe",
+      "language": "en",
+      "category": "execution"
+    },
+    {
+      "quote": "Petit à petit, l'oiseau fait son nid.",
+      "author": "Proverbe français",
+      "language": "fr",
+      "category": "consistency"
+    },
+    {
+      "quote": "The key is not to prioritize what's on your schedule, but to schedule your priorities.",
+      "author": "Stephen Covey",
+      "language": "en",
+      "category": "time_management"
+    },
+    {
+      "quote": "La perfection est l'ennemie du bien.",
+      "author": "Voltaire",
+      "language": "fr",
+      "category": "execution"
+    },
+    {
+      "quote": "The secret of getting ahead is getting started.",
+      "author": "Mark Twain",
+      "language": "en",
+      "category": "execution"
+    },
+    {
+      "quote": "Chaque minute que vous consacrez à la planification vous épargne dix minutes d'exécution.",
+      "author": "Brian Tracy",
+      "language": "fr",
+      "category": "time_management"
+    },
+    {
+      "quote": "Either you run the day or the day runs you.",
+      "author": "Jim Rohn",
+      "language": "en",
+      "category": "time_management"
+    },
+    {
+      "quote": "Ne remettez jamais à demain ce que vous pouvez faire aujourd'hui.",
+      "author": "Thomas Jefferson",
+      "language": "fr",
+      "category": "time_management"
+    },
+    {
+      "quote": "Work expands to fill the time available for its completion.",
+      "author": "Cyril Northcote Parkinson",
+      "language": "en",
+      "category": "time_management"
+    },
+    {
+      "quote": "Un objectif sans plan n'est qu'un souhait.",
+      "author": "Antoine de Saint-Exupéry",
+      "language": "fr",
+      "category": "execution"
+    },
+    {
+      "quote": "The difference between successful people and really successful people is that really successful people say no to almost everything.",
+      "author": "Warren Buffett",
+      "language": "en",
+      "category": "focus"
+    },
+    {
+      "quote": "Les obstacles sont ces choses effrayantes que l'on voit quand on détourne les yeux de son objectif.",
+      "author": "Henry Ford",
+      "language": "fr",
+      "category": "focus"
+    },
+    {
+      "quote": "You do not rise to the level of your goals. You fall to the level of your systems.",
+      "author": "James Clear",
+      "language": "en",
+      "category": "execution"
+    },
+    {
+      "quote": "Rien ne sert de courir, il faut partir à point.",
+      "author": "Jean de La Fontaine",
+      "language": "fr",
+      "category": "time_management"
+    },
+    {
+      "quote": "Efficiency is doing things right; effectiveness is doing the right things.",
+      "author": "Peter Drucker",
+      "language": "en",
+      "category": "execution"
+    },
+    {
+      "quote": "Le travail éloigne de nous trois grands maux : l'ennui, le vice et le besoin.",
+      "author": "Voltaire",
+      "language": "fr",
+      "category": "discipline"
+    },
+    {
+      "quote": "Your mind is for having ideas, not holding them.",
+      "author": "David Allen",
+      "language": "en",
+      "category": "execution"
+    },
+    {
+      "quote": "La meilleure préparation pour demain est de faire de son mieux aujourd'hui.",
+      "author": "H. Jackson Brown Jr.",
+      "language": "fr",
+      "category": "consistency"
+    },
+    {
+      "quote": "Stop managing your time. Start managing your focus.",
+      "author": "Robin Sharma",
+      "language": "en",
+      "category": "focus"
+    },
+    {
+      "quote": "Le courage, c'est de commencer.",
+      "author": "Anonyme",
+      "language": "fr",
+      "category": "execution"
+    },
+    {
+      "quote": "Procrastination is the thief of time.",
+      "author": "Edward Young",
+      "language": "en",
+      "category": "time_management"
+    },
+    {
+      "quote": "Celui qui déplace des montagnes commence par enlever de petites pierres.",
+      "author": "Confucius",
+      "language": "fr",
+      "category": "consistency"
+    },
+    {
+      "quote": "If you spend too much time thinking about a thing, you'll never get it done.",
+      "author": "Bruce Lee",
+      "language": "en",
+      "category": "execution"
+    },
+    {
+      "quote": "Vouloir, c'est pouvoir.",
+      "author": "Proverbe français",
+      "language": "fr",
+      "category": "discipline"
+    },
+    {
+      "quote": "Nothing is particularly hard if you divide it into small jobs.",
+      "author": "Henry Ford",
+      "language": "en",
+      "category": "execution"
+    },
+    {
+      "quote": "Prenez soin des minutes et les heures prendront soin d'elles-mêmes.",
+      "author": "Lord Chesterfield",
+      "language": "fr",
+      "category": "time_management"
+    },
+    {
+      "quote": "If you really want to do something, you'll find a way. If you don't, you'll find an excuse.",
+      "author": "Jim Rohn",
+      "language": "en",
+      "category": "discipline"
+    },
+    {
+      "quote": "Le vrai changement vient de l'habitude, pas de la motivation.",
+      "author": "Anonyme",
+      "language": "fr",
+      "category": "consistency"
+    },
+    {
+      "quote": "Your time is limited, so don't waste it living someone else's life.",
+      "author": "Steve Jobs",
+      "language": "en",
+      "category": "focus"
+    },
+    {
+      "quote": "L'excellence n'est pas une aptitude. C'est une attitude.",
+      "author": "Ralph Marston",
+      "language": "fr",
+      "category": "discipline"
+    },
+    {
+      "quote": "Perseverance is not a long race; it is many short races one after the other.",
+      "author": "Walter Elliot",
+      "language": "en",
+      "category": "consistency"
+    },
+    {
+      "quote": "Fais de chaque jour ton chef-d'œuvre.",
+      "author": "John Wooden",
+      "language": "fr",
+      "category": "consistency"
+    },
+    {
+      "quote": "The man who moves a mountain begins by carrying away small stones.",
+      "author": "Confucius",
+      "language": "en",
+      "category": "consistency"
+    },
+    {
+      "quote": "La clé du succès est la constance dans l'effort.",
+      "author": "Benjamin Disraeli",
+      "language": "fr",
+      "category": "consistency"
+    },
+    {
+      "quote": "Success usually comes to those who are too busy to be looking for it.",
+      "author": "Henry David Thoreau",
+      "language": "en",
+      "category": "discipline"
+    },
+    {
+      "quote": "On ne gère pas son temps, on gère ses priorités.",
+      "author": "Inconnu",
+      "language": "fr",
+      "category": "focus"
+    },
+    {
+      "quote": "You've got to get up every morning with determination if you're going to go to bed with satisfaction.",
+      "author": "George Lorimer",
+      "language": "en",
+      "category": "discipline"
+    },
+    {
+      "quote": "Le résultat de votre vie est la somme de vos habitudes.",
+      "author": "Anonyme",
+      "language": "fr",
+      "category": "consistency"
+    },
+    {
+      "quote": "Beware the barrenness of a busy life.",
+      "author": "Socrates",
+      "language": "en",
+      "category": "focus"
+    },
+    {
+      "quote": "Il n'est jamais trop tard pour devenir ce que vous auriez pu être.",
+      "author": "George Eliot",
+      "language": "fr",
+      "category": "execution"
+    },
+    {
+      "quote": "Don't count the days, make the days count.",
+      "author": "Muhammad Ali",
+      "language": "en",
+      "category": "execution"
+    },
+    {
+      "quote": "Faites ce que vous faites si bien que les gens voudront vous voir le refaire.",
+      "author": "Walt Disney",
+      "language": "fr",
+      "category": "discipline"
+    },
+    {
+      "quote": "Concentrate all your thoughts upon the work in hand. The sun's rays do not burn until brought to a focus.",
+      "author": "Alexander Graham Bell",
+      "language": "en",
+      "category": "focus"
+    },
+    {
+      "quote": "Chaque action que tu poses aujourd'hui est un investissement dans ton futur.",
+      "author": "Anonyme",
+      "language": "fr",
+      "category": "execution"
+    },
+    {
+      "quote": "It's not always that we need to do more but rather that we need to focus on less.",
+      "author": "Nathan W. Morris",
+      "language": "en",
+      "category": "focus"
+    },
+    {
+      "quote": "Le progrès est impossible sans changement.",
+      "author": "George Bernard Shaw",
+      "language": "fr",
+      "category": "execution"
+    },
+    {
+      "quote": "Routine, in an intelligent man, is a sign of ambition.",
+      "author": "W.H. Auden",
+      "language": "en",
+      "category": "consistency"
+    },
+    {
+      "quote": "L'art de la productivité est l'art de choisir ce qu'on ne fera pas.",
+      "author": "Inconnu",
+      "language": "fr",
+      "category": "focus"
+    },
+    {
+      "quote": "One day or day one. You decide.",
+      "author": "Paulo Coelho",
+      "language": "en",
+      "category": "execution"
+    },
+    {
+      "quote": "Ne cherchez pas le temps libre, créez-le.",
+      "author": "Anonyme",
+      "language": "fr",
+      "category": "time_management"
+    },
+    {
+      "quote": "The art of being wise is the art of knowing what to overlook.",
+      "author": "William James",
+      "language": "en",
+      "category": "focus"
+    },
+    {
+      "quote": "Seul on va plus vite, ensemble on va plus loin.",
+      "author": "Proverbe africain",
+      "language": "fr",
+      "category": "execution"
+    },
+    {
+      "quote": "Plans are nothing; planning is everything.",
+      "author": "Dwight D. Eisenhower",
+      "language": "en",
+      "category": "execution"
+    },
+    {
+      "quote": "L'attention est la forme la plus rare et la plus pure de la générosité.",
+      "author": "Simone Weil",
+      "language": "fr",
+      "category": "focus"
+    },
+    {
+      "quote": "Time is what we want most, but what we use worst.",
+      "author": "William Penn",
+      "language": "en",
+      "category": "time_management"
+    },
+    {
+      "quote": "Le succès appartient à ceux qui se lèvent tôt.",
+      "author": "Proverbe français",
+      "language": "fr",
+      "category": "discipline"
+    },
+    {
+      "quote": "Productivity is never an accident. It is always the result of a commitment to excellence, intelligent planning, and focused effort.",
+      "author": "Paul J. Meyer",
+      "language": "en",
+      "category": "execution"
+    },
+    {
+      "quote": "Travaillez comme si quelqu'un travaillait 24 heures par jour pour vous dépasser.",
+      "author": "Inconnu",
+      "language": "fr",
+      "category": "discipline"
+    },
+    {
+      "quote": "You don't have to be great to start, but you have to start to be great.",
+      "author": "Zig Ziglar",
+      "language": "en",
+      "category": "execution"
+    },
+    {
+      "quote": "Il n'y a qu'une façon d'apprendre : par l'action.",
+      "author": "Paulo Coelho",
+      "language": "fr",
+      "category": "execution"
+    },
+    {
+      "quote": "Success is not final; failure is not fatal: it is the courage to continue that counts.",
+      "author": "Winston Churchill",
+      "language": "en",
+      "category": "consistency"
+    },
+    {
+      "quote": "Mieux vaut faire et se repentir que ne pas faire et se repentir.",
+      "author": "Niccolò Machiavelli",
+      "language": "fr",
+      "category": "execution"
+    },
+    {
+      "quote": "The scariest moment is always just before you start.",
+      "author": "Stephen King",
+      "language": "en",
+      "category": "execution"
+    },
+    {
+      "quote": "Les grandes réalisations sont toujours précédées de grandes pensées.",
+      "author": "Og Mandino",
+      "language": "fr",
+      "category": "execution"
+    },
+    {
+      "quote": "If you want something done, ask a busy person to do it.",
+      "author": "Lucille Ball",
+      "language": "en",
+      "category": "execution"
+    },
+    {
+      "quote": "Soyez le changement que vous souhaitez voir dans le monde.",
+      "author": "Mahatma Gandhi",
+      "language": "fr",
+      "category": "discipline"
+    },
+    {
+      "quote": "Absorb what is useful, discard what is useless and add what is specifically your own.",
+      "author": "Bruce Lee",
+      "language": "en",
+      "category": "focus"
+    },
+    {
+      "quote": "La priorité est de faire une chose à la fois.",
+      "author": "Anonyme",
+      "language": "fr",
+      "category": "focus"
+    },
+    {
+      "quote": "Eat a live frog first thing in the morning and nothing worse will happen to you the rest of the day.",
+      "author": "Mark Twain",
+      "language": "en",
+      "category": "execution"
+    },
+    {
+      "quote": "L'organisation n'est pas une fin en soi, c'est un moyen d'atteindre ses buts.",
+      "author": "Inconnu",
+      "language": "fr",
+      "category": "execution"
+    },
+    {
+      "quote": "The road to success and the road to failure are almost exactly the same.",
+      "author": "Colin R. Davis",
+      "language": "en",
+      "category": "discipline"
+    },
+    {
+      "quote": "La procrastination est le voleur du temps.",
+      "author": "Edward Young",
+      "language": "fr",
+      "category": "time_management"
+    },
+    {
+      "quote": "Motivation is what gets you started. Habit is what keeps you going.",
+      "author": "Jim Ryun",
+      "language": "en",
+      "category": "consistency"
+    },
+    {
+      "quote": "La vie est trop courte pour être petite.",
+      "author": "Benjamin Disraeli",
+      "language": "fr",
+      "category": "focus"
+    },
+    {
+      "quote": "Don't watch the clock; do what it does. Keep going.",
+      "author": "Sam Levenson",
+      "language": "en",
+      "category": "consistency"
+    },
+    {
+      "quote": "Décidez ce que vous voulez. Croyez que vous pouvez l'avoir. Agissez.",
+      "author": "Jack Canfield",
+      "language": "fr",
+      "category": "focus"
+    },
+    {
+      "quote": "The only way to do great work is to love what you do.",
+      "author": "Steve Jobs",
+      "language": "en",
+      "category": "discipline"
+    },
+    {
+      "quote": "Ce n'est pas le temps qui manque, c'est la priorité que l'on donne aux choses.",
+      "author": "Inconnu",
+      "language": "fr",
+      "category": "time_management"
+    }
+  ]

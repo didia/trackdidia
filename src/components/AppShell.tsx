@@ -1,6 +1,7 @@
 import { useAppContext } from "../app/app-context";
 import { FloatingPomodoroTimer } from "./FloatingPomodoroTimer";
 import { NavLink, Outlet } from "react-router-dom";
+import { getQuoteOfTheDay } from "../lib/quote-of-the-day";
 
 const navigation = [
   { to: "/", label: "Aujourd'hui", end: true },
@@ -22,17 +23,15 @@ const navigation = [
 export const AppShell = () => {
   const { pomodoro } = useAppContext();
   const hasFloatingPomodoro = Boolean(pomodoro.state.activeSession && pomodoro.remainingMs > 0);
+  const quoteOfTheDay = getQuoteOfTheDay();
 
   return (
     <div className="layout">
       <aside className="sidebar">
         <div className="brand-block">
           <p className="eyebrow">Trackdidia</p>
-          <h1>Une journee bien tenue a la fois.</h1>
-          <p className="sidebar__copy">
-            Suivi quotidien, rituels du matin et du soir, discipline visible, et moteur GTD local-first sans
-            bruit inutile.
-          </p>
+          <h1>{quoteOfTheDay.quote}</h1>
+          <p className="sidebar__copy">Auteur: {quoteOfTheDay.author}</p>
         </div>
 
         <nav className="nav">
