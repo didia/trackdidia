@@ -45,6 +45,175 @@ export interface DailyEntry {
   updatedAt: string;
 }
 
+export type WeeklyReviewStatus = "draft" | "closed";
+
+export type WeeklyRitualSectionKey =
+  | "bilan"
+  | "budget"
+  | "tempsEtPlan"
+  | "collecte"
+  | "calendrier"
+  | "gtd"
+  | "alignement"
+  | "dimanche";
+
+export type WeeklyRitualChecklist = Record<WeeklyRitualSectionKey, boolean>;
+export type WeeklyReviewNotes = Record<WeeklyRitualSectionKey, string>;
+
+export interface WeeklyReview {
+  weekStartDate: string;
+  weekEndDate: string;
+  status: WeeklyReviewStatus;
+  notes: WeeklyReviewNotes;
+  ritualChecklist: WeeklyRitualChecklist;
+  updatedAt: string;
+}
+
+export interface WeeklyReviewDaySummary {
+  date: string;
+  status: DailyStatus;
+  sleepQuality: number | null;
+  trcRespected: boolean;
+  screenTimeMinutes: number;
+  pomodoris: number;
+  disciplineScore: number;
+  tasksAdded: number;
+  tasksCompleted: number;
+}
+
+export interface WeeklyReviewSummary {
+  weekStartDate: string;
+  weekEndDate: string;
+  sleepAverage: number;
+  sleepQuality: number;
+  trcDaysRespected: number;
+  respectTrc: number;
+  screenTimeTotalMinutes: number;
+  phoneScreenTime: number;
+  pomodorisTotal: number;
+  pomodoris: number;
+  disciplineAverage: number;
+  discipline: number;
+  tasksAddedTotal: number;
+  tasksCompletedTotal: number;
+  tasksCompletionRate: number;
+  weeklyScore: number;
+  days: WeeklyReviewDaySummary[];
+}
+
+export type MonthlyReviewStatus = "draft" | "closed";
+
+export type MonthlyReviewSectionKey =
+  | "bilan"
+  | "journaux"
+  | "finances"
+  | "temps"
+  | "progressionObjectifs"
+  | "missionObjectifs"
+  | "nettoyageListes"
+  | "calendrier"
+  | "grosProjets"
+  | "developpement";
+
+export type MonthlyReviewChecklist = Record<MonthlyReviewSectionKey, boolean>;
+export type MonthlyReviewNotes = Record<MonthlyReviewSectionKey, string>;
+
+export interface MonthlyReview {
+  monthKey: string;
+  monthStartDate: string;
+  monthEndDate: string;
+  status: MonthlyReviewStatus;
+  notes: MonthlyReviewNotes;
+  ritualChecklist: MonthlyReviewChecklist;
+  updatedAt: string;
+}
+
+export interface MonthlyReviewWeekSummary {
+  weekStartDate: string;
+  weekEndDate: string;
+  weeklyScore: number;
+  reviewStatus: WeeklyReviewStatus | "missing";
+  noteCount: number;
+}
+
+export interface MonthlyReviewSummary {
+  monthKey: string;
+  monthStartDate: string;
+  monthEndDate: string;
+  daysTracked: number;
+  weeksCovered: number;
+  weeklyReviewsCompleted: number;
+  sleepAverage: number;
+  trcRate: number;
+  screenTimeTotalMinutes: number;
+  pomodorisTotal: number;
+  disciplineAverage: number;
+  tasksCompletionRate: number;
+  weeklyScoreAverage: number;
+  weeks: MonthlyReviewWeekSummary[];
+}
+
+export type AnnualGoalDimension = "physique" | "spirituelle" | "sociale" | "intellectuelle" | "global";
+export type AnnualGoalTrend = "up" | "steady" | "down";
+export type AnnualGoalSourceType = "weekly_summary" | "daily_metric" | "daily_principle" | "manual";
+
+export type AnnualGoalSourceId =
+  | "weekly_sleep_average"
+  | "weekly_respect_trc"
+  | "weekly_weekly_score"
+  | "weekly_discipline"
+  | "weekly_tasks_completion_rate"
+  | "daily_depense_calorique_avg"
+  | "daily_qualite_sommeil_avg"
+  | "daily_temps_ecran_avg"
+  | "daily_pomodoris_sum"
+  | "daily_pomodoris_avg"
+  | "daily_respect_trc_rate"
+  | "daily_respect_reveil_rate"
+  | "daily_priere_du_matin_rate"
+  | "daily_priere_du_soir_rate"
+  | "daily_objectifs_atteints_rate";
+
+export interface AnnualGoalEvaluation {
+  monthKey: string;
+  score: number | null;
+  trend: AnnualGoalTrend | null;
+  notes: string;
+  blockers: string;
+}
+
+export type AnnualGoalEvaluations = Record<string, AnnualGoalEvaluation>;
+
+export interface AnnualGoal {
+  id: string;
+  title: string;
+  dimension: AnnualGoalDimension;
+  description: string;
+  targetValue: number | null;
+  unit: string;
+  sourceId: AnnualGoalSourceId | null;
+  manualCurrentValue: number | null;
+  evaluations: AnnualGoalEvaluations;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AnnualGoalProgressPoint {
+  monthKey: string;
+  value: number | null;
+}
+
+export interface AnnualGoalSnapshot {
+  goal: AnnualGoal;
+  sourceType: AnnualGoalSourceType;
+  sourceLabel: string | null;
+  currentValue: number | null;
+  progressRatio: number | null;
+  monthlyProgress: AnnualGoalProgressPoint[];
+  linkedWeeklyMetricLabels: string[];
+  linkedDailyHabitLabels: string[];
+}
+
 export interface AppSettings {
   language: "fr";
   storageMode: "sqlite";

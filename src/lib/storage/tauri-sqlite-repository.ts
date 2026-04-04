@@ -4,19 +4,40 @@ import {
   applyDailyPomodoroStats,
   applyDailyTaskStats,
   cloneEntry,
+  createEmptyDailyEntry,
   defaultAppSettings
 } from "../../domain/daily-entry";
+import {
+  buildAnnualGoalSnapshots,
+  cloneAnnualGoal,
+  createEmptyAnnualGoal
+} from "../../domain/annual-goals";
+import {
+  buildMonthlyReviewSummary,
+  cloneMonthlyReview,
+  getMonthKey,
+  listWeekStartsForMonth
+} from "../../domain/monthly-review";
+import {
+  buildWeeklyReviewSummary,
+  buildWeekDates,
+  cloneWeeklyReview,
+  listWeekDates
+} from "../../domain/weekly-review";
 import type {
+  AnnualGoal,
   AppSettings,
   DailyEntry,
   GtdImportSummary,
+  MonthlyReview,
   PomodoroSegment,
   PomodoroSession,
   Project,
   RecurringTaskTemplate,
   Task,
   TaskContext,
-  TaskEvent
+  TaskEvent,
+  WeeklyReview
 } from "../../domain/types";
 import {
   buildDailyTaskBreakdown,
@@ -47,7 +68,7 @@ import {
   listDueDatesBetween,
   syncTemplateStatusChange
 } from "../recurring/engine";
-import { cloneProject, cloneTask, createEntityId, nowIso } from "../gtd/shared";
+import { addDays, cloneProject, cloneTask, createEntityId, nowIso } from "../gtd/shared";
 import { buildBackupFileName } from "../backup";
 import { formatUnknownError, logDebug } from "../debug";
 import {
@@ -83,6 +104,39 @@ interface DailyEntryRow {
 
 interface SettingsRow {
   value: string;
+}
+
+interface WeeklyReviewRow {
+  week_start_date: string;
+  week_end_date: string;
+  status: WeeklyReview["status"];
+  notes_json: string;
+  ritual_checklist_json: string;
+  updated_at: string;
+}
+
+interface MonthlyReviewRow {
+  month_key: string;
+  month_start_date: string;
+  month_end_date: string;
+  status: MonthlyReview["status"];
+  notes_json: string;
+  ritual_checklist_json: string;
+  updated_at: string;
+}
+
+interface AnnualGoalRow {
+  id: string;
+  title: string;
+  dimension: AnnualGoal["dimension"];
+  description: string;
+  target_value: number | null;
+  unit: string;
+  source_id: AnnualGoal["sourceId"];
+  manual_current_value: number | null;
+  evaluations_json: string;
+  created_at: string;
+  updated_at: string;
 }
 
 interface ContextRow {
@@ -390,6 +444,54 @@ const migrations: Migration[] = [
     sql: `
       ALTER TABLE gtd_tasks ADD COLUMN deadline TEXT;
     `
+  },
+  {
+    id: 16,
+    name: "create_weekly_reviews",
+    sql: `
+      CREATE TABLE IF NOT EXISTS weekly_reviews (
+        week_start_date TEXT PRIMARY KEY,
+        week_end_date TEXT NOT NULL,
+        status TEXT NOT NULL,
+        notes_json TEXT NOT NULL,
+        ritual_checklist_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `
+  },
+  {
+    id: 17,
+    name: "create_monthly_reviews",
+    sql: `
+      CREATE TABLE IF NOT EXISTS monthly_reviews (
+        month_key TEXT PRIMARY KEY,
+        month_start_date TEXT NOT NULL,
+        month_end_date TEXT NOT NULL,
+        status TEXT NOT NULL,
+        notes_json TEXT NOT NULL,
+        ritual_checklist_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `
+  },
+  {
+    id: 18,
+    name: "create_annual_goals",
+    sql: `
+      CREATE TABLE IF NOT EXISTS annual_goals (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        dimension TEXT NOT NULL,
+        description TEXT NOT NULL,
+        target_value REAL,
+        unit TEXT NOT NULL,
+        source_id TEXT,
+        manual_current_value REAL,
+        evaluations_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `
   }
 ];
 
@@ -508,6 +610,253 @@ export class TauriSqliteRepository implements AppRepository {
     );
 
     return Promise.all(rows.map((row) => this.decorateEntry(this.deserializeEntry(row))));
+  }
+
+  async getWeeklyReview(weekStartDate: string): Promise<WeeklyReview | null> {
+    const db = await this.getDb();
+    const normalized = buildWeekDates(weekStartDate);
+    const rows = await db.select<WeeklyReviewRow[]>(
+      `SELECT
+        week_start_date,
+        week_end_date,
+        status,
+        notes_json,
+        ritual_checklist_json,
+        updated_at
+      FROM weekly_reviews
+      WHERE week_start_date = $1`,
+      [normalized]
+    );
+
+    return rows[0] ? this.deserializeWeeklyReview(rows[0]) : null;
+  }
+
+  async saveWeeklyReview(review: WeeklyReview): Promise<void> {
+    const db = await this.getDb();
+    const normalized = buildWeekDates(review.weekStartDate);
+    const nextReview = {
+      ...cloneWeeklyReview(review),
+      weekStartDate: normalized,
+      weekEndDate: addDays(normalized, 6)
+    };
+
+    await db.execute(
+      `INSERT INTO weekly_reviews (
+        week_start_date,
+        week_end_date,
+        status,
+        notes_json,
+        ritual_checklist_json,
+        updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6)
+      ON CONFLICT(week_start_date) DO UPDATE SET
+        week_end_date = excluded.week_end_date,
+        status = excluded.status,
+        notes_json = excluded.notes_json,
+        ritual_checklist_json = excluded.ritual_checklist_json,
+        updated_at = excluded.updated_at`,
+      [
+        nextReview.weekStartDate,
+        nextReview.weekEndDate,
+        nextReview.status,
+        JSON.stringify(nextReview.notes),
+        JSON.stringify(nextReview.ritualChecklist),
+        nextReview.updatedAt
+      ]
+    );
+  }
+
+  async listWeeklyReviews(limit = 12): Promise<WeeklyReview[]> {
+    const db = await this.getDb();
+    const rows = await db.select<WeeklyReviewRow[]>(
+      `SELECT
+        week_start_date,
+        week_end_date,
+        status,
+        notes_json,
+        ritual_checklist_json,
+        updated_at
+      FROM weekly_reviews
+      ORDER BY week_start_date DESC
+      LIMIT $1`,
+      [limit]
+    );
+
+    return rows.map((row) => this.deserializeWeeklyReview(row));
+  }
+
+  async getMonthlyReview(monthKey: string): Promise<MonthlyReview | null> {
+    const db = await this.getDb();
+    const normalized = getMonthKey(`${monthKey}-01`);
+    const rows = await db.select<MonthlyReviewRow[]>(
+      `SELECT
+        month_key,
+        month_start_date,
+        month_end_date,
+        status,
+        notes_json,
+        ritual_checklist_json,
+        updated_at
+      FROM monthly_reviews
+      WHERE month_key = $1`,
+      [normalized]
+    );
+
+    return rows[0] ? this.deserializeMonthlyReview(rows[0]) : null;
+  }
+
+  async saveMonthlyReview(review: MonthlyReview): Promise<void> {
+    const db = await this.getDb();
+    const normalized = getMonthKey(`${review.monthKey}-01`);
+    const nextReview = {
+      ...cloneMonthlyReview(review),
+      monthKey: normalized
+    };
+
+    await db.execute(
+      `INSERT INTO monthly_reviews (
+        month_key,
+        month_start_date,
+        month_end_date,
+        status,
+        notes_json,
+        ritual_checklist_json,
+        updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT(month_key) DO UPDATE SET
+        month_start_date = excluded.month_start_date,
+        month_end_date = excluded.month_end_date,
+        status = excluded.status,
+        notes_json = excluded.notes_json,
+        ritual_checklist_json = excluded.ritual_checklist_json,
+        updated_at = excluded.updated_at`,
+      [
+        nextReview.monthKey,
+        nextReview.monthStartDate,
+        nextReview.monthEndDate,
+        nextReview.status,
+        JSON.stringify(nextReview.notes),
+        JSON.stringify(nextReview.ritualChecklist),
+        nextReview.updatedAt
+      ]
+    );
+  }
+
+  async listMonthlyReviews(limit = 12): Promise<MonthlyReview[]> {
+    const db = await this.getDb();
+    const rows = await db.select<MonthlyReviewRow[]>(
+      `SELECT
+        month_key,
+        month_start_date,
+        month_end_date,
+        status,
+        notes_json,
+        ritual_checklist_json,
+        updated_at
+      FROM monthly_reviews
+      ORDER BY month_key DESC
+      LIMIT $1`,
+      [limit]
+    );
+
+    return rows.map((row) => this.deserializeMonthlyReview(row));
+  }
+
+  async computeMonthlyReviewSummary(monthKey: string) {
+    const normalized = getMonthKey(`${monthKey}-01`);
+    const entries = (await Promise.all(
+      (await this.listDailyEntries(5000)).filter((entry) => getMonthKey(entry.date) === normalized).map((entry) => this.decorateEntry(entry))
+    )).sort((left, right) => left.date.localeCompare(right.date));
+    const weekStarts = listWeekStartsForMonth(normalized);
+    const weeklySummaries = await Promise.all(weekStarts.map((weekStartDate) => this.computeWeeklyReviewSummary(weekStartDate)));
+    const weeklyReviews = (await Promise.all(weekStarts.map((weekStartDate) => this.getWeeklyReview(weekStartDate))))
+      .filter((review): review is WeeklyReview => Boolean(review));
+
+    return buildMonthlyReviewSummary(normalized, entries, weeklyReviews, weeklySummaries);
+  }
+
+  async listAnnualGoals(): Promise<AnnualGoal[]> {
+    const db = await this.getDb();
+    const rows = await db.select<AnnualGoalRow[]>(
+      `SELECT
+        id, title, dimension, description, target_value, unit, source_id, manual_current_value,
+        evaluations_json, created_at, updated_at
+      FROM annual_goals
+      ORDER BY title ASC`
+    );
+
+    return rows.map((row) => this.deserializeAnnualGoal(row));
+  }
+
+  async saveAnnualGoal(goal: AnnualGoal): Promise<AnnualGoal> {
+    const db = await this.getDb();
+    const timestamp = nowIso();
+    const nextGoal = createEmptyAnnualGoal({
+      ...cloneAnnualGoal(goal),
+      id: goal.id || createEntityId("annual-goal"),
+      title: goal.title.trim(),
+      description: goal.description.trim(),
+      unit: goal.unit.trim(),
+      createdAt: goal.createdAt || timestamp,
+      updatedAt: timestamp
+    });
+
+    await db.execute(
+      `INSERT INTO annual_goals (
+        id, title, dimension, description, target_value, unit, source_id, manual_current_value,
+        evaluations_json, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      ON CONFLICT(id) DO UPDATE SET
+        title = excluded.title,
+        dimension = excluded.dimension,
+        description = excluded.description,
+        target_value = excluded.target_value,
+        unit = excluded.unit,
+        source_id = excluded.source_id,
+        manual_current_value = excluded.manual_current_value,
+        evaluations_json = excluded.evaluations_json,
+        updated_at = excluded.updated_at`,
+      [
+        nextGoal.id,
+        nextGoal.title,
+        nextGoal.dimension,
+        nextGoal.description,
+        nextGoal.targetValue,
+        nextGoal.unit,
+        nextGoal.sourceId,
+        nextGoal.manualCurrentValue,
+        JSON.stringify(nextGoal.evaluations),
+        nextGoal.createdAt,
+        nextGoal.updatedAt
+      ]
+    );
+
+    return cloneAnnualGoal(nextGoal);
+  }
+
+  async deleteAnnualGoal(goalId: string): Promise<void> {
+    const db = await this.getDb();
+    await db.execute("DELETE FROM annual_goals WHERE id = $1", [goalId]);
+  }
+
+  async computeAnnualGoalSnapshots(year: number) {
+    const goals = await this.listAnnualGoals();
+    const entries = (await this.listDailyEntries(5000)).filter((entry) => entry.date.startsWith(`${year}-`));
+    const weekStarts = [...new Set(entries.map((entry) => buildWeekDates(entry.date)))].sort();
+    const weeklySummaries = await Promise.all(weekStarts.map((weekStartDate) => this.computeWeeklyReviewSummary(weekStartDate)));
+    return buildAnnualGoalSnapshots(goals, year, entries, weeklySummaries);
+  }
+
+  async computeWeeklyReviewSummary(weekStartDate: string) {
+    const normalized = buildWeekDates(weekStartDate);
+    const entries = await Promise.all(
+      listWeekDates(normalized).map(async (date) => {
+        const existing = await this.getDailyEntry(date);
+        return existing ?? this.decorateEntry(createEmptyDailyEntry(date));
+      })
+    );
+
+    return buildWeeklyReviewSummary(normalized, entries);
   }
 
   async getSettings(): Promise<AppSettings> {
@@ -1303,6 +1652,45 @@ export class TauriSqliteRepository implements AppRepository {
       morningIntention: row.morning_intention ?? "",
       nightReflection: row.night_reflection ?? "",
       tomorrowFocus: row.tomorrow_focus ?? "",
+      updatedAt: row.updated_at
+    };
+  }
+
+  private deserializeWeeklyReview(row: WeeklyReviewRow): WeeklyReview {
+    return {
+      weekStartDate: row.week_start_date,
+      weekEndDate: row.week_end_date,
+      status: row.status,
+      notes: JSON.parse(row.notes_json),
+      ritualChecklist: JSON.parse(row.ritual_checklist_json),
+      updatedAt: row.updated_at
+    };
+  }
+
+  private deserializeMonthlyReview(row: MonthlyReviewRow): MonthlyReview {
+    return {
+      monthKey: row.month_key,
+      monthStartDate: row.month_start_date,
+      monthEndDate: row.month_end_date,
+      status: row.status,
+      notes: JSON.parse(row.notes_json),
+      ritualChecklist: JSON.parse(row.ritual_checklist_json),
+      updatedAt: row.updated_at
+    };
+  }
+
+  private deserializeAnnualGoal(row: AnnualGoalRow): AnnualGoal {
+    return {
+      id: row.id,
+      title: row.title,
+      dimension: row.dimension,
+      description: row.description,
+      targetValue: row.target_value === null ? null : Number(row.target_value),
+      unit: row.unit,
+      sourceId: row.source_id,
+      manualCurrentValue: row.manual_current_value === null ? null : Number(row.manual_current_value),
+      evaluations: JSON.parse(row.evaluations_json),
+      createdAt: row.created_at,
       updatedAt: row.updated_at
     };
   }

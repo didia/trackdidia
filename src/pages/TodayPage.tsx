@@ -10,6 +10,8 @@ import { SectionCard } from "../components/SectionCard";
 import { formatDateLong, formatDateTimeShort, getTodayDate } from "../lib/date";
 import { formatTimestamp } from "../lib/format";
 import type { DailyTaskBreakdown } from "../lib/storage/repository";
+import { isSunday } from "../lib/gtd/shared";
+import { isFirstSaturdayOfMonth } from "../domain/monthly-review";
 
 const bucketLabels: Record<Task["bucket"], string> = {
   inbox: "Inbox",
@@ -123,6 +125,41 @@ export const TodayPage = () => {
       ) : null}
 
       <EntrySummaryStrip entry={entry} />
+
+      {isSunday(entry.date) ? (
+        <SectionCard
+          title="Rituel du dimanche"
+          subtitle="Cloture la semaine passee, note les apprentissages et prepare la suivante."
+        >
+          <p className="empty-copy">
+            La revue hebdomadaire consolide sommeil, TRC, temps d'ecran, pomodoris, discipline et taches avant ton rituel de reset.
+          </p>
+          <div className="section-actions">
+            <Link className="button button--primary" to="/semaine">
+              Ouvrir la revue hebdomadaire
+            </Link>
+          </div>
+        </SectionCard>
+      ) : null}
+
+      {isFirstSaturdayOfMonth(entry.date) ? (
+        <SectionCard
+          title="Cloture mensuelle"
+          subtitle="Premier samedi du mois: il est temps de relire le mois passe et recalibrer les objectifs."
+        >
+          <p className="empty-copy">
+            La revue mensuelle relie tes semaines, tes journaux et tes objectifs annuels pour voir ce qui nourrit vraiment le prochain mois.
+          </p>
+          <div className="section-actions">
+            <Link className="button button--primary" to="/mois">
+              Ouvrir la revue mensuelle
+            </Link>
+            <Link className="button" to="/objectifs-annuels">
+              Ouvrir les objectifs annuels
+            </Link>
+          </div>
+        </SectionCard>
+      ) : null}
 
       <div className="two-column">
         <CoachCard message={morningCoach} />

@@ -618,6 +618,111 @@ textarea {
   gap: 16px;
 }
 
+.weekly-overview-grid,
+.weekly-day-grid,
+.weekly-ritual-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.weekly-overview-grid,
+.weekly-day-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.weekly-day-card__metrics {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.weekly-ritual-grid {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.weekly-ritual-card {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.weekly-ritual-card__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: start;
+}
+
+.weekly-ritual-card h3 {
+  margin: 0;
+}
+
+.weekly-ritual-card p {
+  margin: 6px 0 0;
+}
+
+.goal-list {
+  display: grid;
+  gap: 18px;
+}
+
+.goal-card {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.goal-card__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: start;
+}
+
+.goal-card__header p {
+  margin: 6px 0 0;
+}
+
+.goal-card__tags,
+.goal-card__progress {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.goal-progress-pill {
+  display: grid;
+  gap: 4px;
+  min-width: 66px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.72);
+  text-align: center;
+}
+
+.goal-progress-pill--active {
+  background: var(--accent-soft);
+  border-color: rgba(164, 79, 45, 0.22);
+}
+
+.goal-progress-pill span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.goal-card__evaluation {
+  display: grid;
+  gap: 12px;
+}
+
 .schedule-day-split {
   display: grid;
   gap: 14px;
@@ -1122,6 +1227,9 @@ textarea {
   .two-column,
   .status-grid,
   .journal-grid,
+  .weekly-overview-grid,
+  .weekly-day-grid,
+  .weekly-ritual-grid,
   .pomodoro-widget,
   .pomodoro-panel,
   .floating-pomodoro__body {

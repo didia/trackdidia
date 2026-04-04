@@ -19,7 +19,13 @@ import type {
   RecurringTemplateFilters,
   Task,
   TaskContext,
-  TaskFilters
+  TaskFilters,
+  MonthlyReview,
+  MonthlyReviewSummary,
+  AnnualGoal,
+  AnnualGoalSnapshot,
+  WeeklyReview,
+  WeeklyReviewSummary
 } from "../../domain/types";
 
 export interface StorageInfo {
@@ -49,6 +55,18 @@ export interface AppRepository {
   getDailyEntry(date: string): Promise<DailyEntry | null>;
   saveDailyEntry(entry: DailyEntry): Promise<void>;
   listDailyEntries(limit?: number): Promise<DailyEntry[]>;
+  getWeeklyReview(weekStartDate: string): Promise<WeeklyReview | null>;
+  saveWeeklyReview(review: WeeklyReview): Promise<void>;
+  listWeeklyReviews(limit?: number): Promise<WeeklyReview[]>;
+  computeWeeklyReviewSummary(weekStartDate: string): Promise<WeeklyReviewSummary>;
+  getMonthlyReview(monthKey: string): Promise<MonthlyReview | null>;
+  saveMonthlyReview(review: MonthlyReview): Promise<void>;
+  listMonthlyReviews(limit?: number): Promise<MonthlyReview[]>;
+  computeMonthlyReviewSummary(monthKey: string): Promise<MonthlyReviewSummary>;
+  listAnnualGoals(): Promise<AnnualGoal[]>;
+  saveAnnualGoal(goal: AnnualGoal): Promise<AnnualGoal>;
+  deleteAnnualGoal(goalId: string): Promise<void>;
+  computeAnnualGoalSnapshots(year: number): Promise<AnnualGoalSnapshot[]>;
   getSettings(): Promise<AppSettings>;
   saveSettings(settings: AppSettings): Promise<void>;
   getStorageInfo(): Promise<StorageInfo | null>;

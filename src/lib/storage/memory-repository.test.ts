@@ -458,9 +458,9 @@ describe("MemoryRepository", () => {
     expect(tasks.filter((task) => task.recurringTemplateId === "recurring-template:weekly-review")).toHaveLength(1);
     expect(tasks[0]).toMatchObject({
       isRecurringInstance: true,
-      recurrenceDueDate: "2026-04-01"
+      recurrenceDueDate: "2026-04-04"
     });
-    expect(previews.map((preview) => preview.dueDate)).toEqual(["2026-04-02", "2026-04-03", "2026-04-04"]);
+    expect(previews.map((preview) => preview.dueDate)).toEqual(["2026-04-01", "2026-04-02", "2026-04-03"]);
   });
 
   it("increments missed recurring occurrences and lets a task edit apply to the whole series", async () => {
@@ -510,5 +510,172 @@ describe("MemoryRepository", () => {
 
     expect(templates[0].title).toBe("Planification mensuelle revue");
     expect(tasks[0].title).toBe("Planification mensuelle revue");
+  });
+
+  it("persists weekly reviews and computes weekly summaries from daily entries", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    const weekDates = [
+      "2026-03-29",
+      "2026-03-30",
+      "2026-03-31",
+      "2026-04-01",
+      "2026-04-02",
+      "2026-04-03",
+      "2026-04-04"
+    ];
+
+    for (const date of weekDates) {
+      const entry = createEmptyDailyEntry(date);
+      entry.metrics.qualiteSommeil = 80;
+      entry.metrics.tempsEcranTelephone = 90;
+      entry.metrics.pomodoris = 5;
+      entry.metrics.tachesAjoutes = 4;
+      entry.metrics.tachesRealises = 3;
+      entry.principleChecks.priereDuMatin = true;
+      entry.principleChecks.respectTrc = true;
+      await repository.saveDailyEntry(entry);
+    }
+
+    await repository.saveWeeklyReview({
+      weekStartDate: "2026-03-29",
+      weekEndDate: "2026-04-04",
+      status: "closed",
+      notes: {
+        bilan: "Bonne semaine",
+        budget: "",
+        tempsEtPlan: "",
+        collecte: "",
+        calendrier: "",
+        gtd: "",
+        alignement: "",
+        dimanche: ""
+      },
+      ritualChecklist: {
+        bilan: true,
+        budget: false,
+        tempsEtPlan: false,
+        collecte: false,
+        calendrier: false,
+        gtd: false,
+        alignement: false,
+        dimanche: true
+      },
+      updatedAt: "2026-04-04T18:00:00.000Z"
+    });
+
+    await expect(repository.getWeeklyReview("2026-03-29")).resolves.toMatchObject({
+      status: "closed",
+      notes: expect.objectContaining({
+        bilan: "Bonne semaine"
+      }),
+      ritualChecklist: expect.objectContaining({
+        dimanche: true
+      })
+    });
+
+    await expect(repository.computeWeeklyReviewSummary("2026-03-29")).resolves.toMatchObject({
+      sleepAverage: 80,
+      trcDaysRespected: 7,
+      screenTimeTotalMinutes: 630,
+      pomodorisTotal: 35,
+      tasksAddedTotal: 28,
+      tasksCompletedTotal: 21
+    });
+  });
+
+  it("persists monthly reviews and annual goals with linked snapshots", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    for (const date of ["2026-04-01", "2026-04-02", "2026-04-03"]) {
+      const entry = createEmptyDailyEntry(date);
+      entry.metrics.qualiteSommeil = 81;
+      entry.metrics.tempsEcranTelephone = 90;
+      entry.metrics.pomodoris = 5;
+      entry.metrics.tachesAjoutes = 4;
+      entry.metrics.tachesRealises = 3;
+      entry.principleChecks.priereDuMatin = true;
+      entry.principleChecks.respectTrc = true;
+      await repository.saveDailyEntry(entry);
+    }
+
+    await repository.saveMonthlyReview({
+      monthKey: "2026-04",
+      monthStartDate: "2026-04-01",
+      monthEndDate: "2026-04-30",
+      status: "draft",
+      notes: {
+        bilan: "Cap clair",
+        journaux: "",
+        finances: "",
+        temps: "",
+        progressionObjectifs: "",
+        missionObjectifs: "",
+        nettoyageListes: "",
+        calendrier: "",
+        grosProjets: "",
+        developpement: ""
+      },
+      ritualChecklist: {
+        bilan: true,
+        journaux: false,
+        finances: false,
+        temps: false,
+        progressionObjectifs: false,
+        missionObjectifs: false,
+        nettoyageListes: false,
+        calendrier: false,
+        grosProjets: false,
+        developpement: false
+      },
+      updatedAt: "2026-05-02T18:00:00.000Z"
+    });
+
+    await repository.saveAnnualGoal({
+      id: "",
+      title: "Sommeil annuel",
+      dimension: "physique",
+      description: "",
+      targetValue: 80,
+      unit: "/100",
+      sourceId: "weekly_sleep_average",
+      manualCurrentValue: null,
+      evaluations: {
+        "2026-04": {
+          monthKey: "2026-04",
+          score: 75,
+          trend: "up",
+          notes: "Bon rythme",
+          blockers: ""
+        }
+      },
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z"
+    });
+
+    await expect(repository.getMonthlyReview("2026-04")).resolves.toMatchObject({
+      notes: expect.objectContaining({
+        bilan: "Cap clair"
+      })
+    });
+
+    await expect(repository.computeMonthlyReviewSummary("2026-04")).resolves.toMatchObject({
+      daysTracked: 3,
+      sleepAverage: 81,
+      pomodorisTotal: 15
+    });
+
+    await expect(repository.computeAnnualGoalSnapshots(2026)).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          goal: expect.objectContaining({
+            title: "Sommeil annuel"
+          }),
+          sourceLabel: "Sommeil moyen hebdo"
+        })
+      ])
+    );
   });
 });

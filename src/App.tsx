@@ -15,6 +15,9 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { SomedayMaybePage } from "./pages/SomedayMaybePage";
 import { TodayPage } from "./pages/TodayPage";
 import { WaitingForPage } from "./pages/WaitingForPage";
+import { WeeklyReviewPage } from "./pages/WeeklyReviewPage";
+import { MonthlyReviewPage } from "./pages/MonthlyReviewPage";
+import { AnnualGoalsPage } from "./pages/AnnualGoalsPage";
 
 export const App = () => (
   <BrowserRouter>
@@ -24,6 +27,9 @@ export const App = () => (
           <Route index element={<TodayPage />} />
           <Route path="routine-matin" element={<MorningRoutinePage />} />
           <Route path="fermeture-soir" element={<EveningClosurePage />} />
+          <Route path="semaine" element={<WeeklyReviewPage />} />
+          <Route path="mois" element={<MonthlyReviewPage />} />
+          <Route path="objectifs-annuels" element={<AnnualGoalsPage />} />
           <Route path="historique" element={<HistoryPage />} />
           <Route path="inbox" element={<InboxPage />} />
           <Route path="next-actions" element={<NextActionsPage />} />

@@ -5,13 +5,34 @@ import {
   createEmptyDailyEntry,
   defaultAppSettings
 } from "../../domain/daily-entry";
+import {
+  buildAnnualGoalSnapshots,
+  cloneAnnualGoal,
+  createEmptyAnnualGoal
+} from "../../domain/annual-goals";
+import {
+  applyMonthlyReviewTransition,
+  buildMonthlyReviewSummary,
+  cloneMonthlyReview,
+  createEmptyMonthlyReview,
+  getMonthKey,
+  listWeekStartsForMonth
+} from "../../domain/monthly-review";
+import {
+  buildWeeklyReviewSummary,
+  buildWeekDates,
+  cloneWeeklyReview,
+  listWeekDates
+} from "../../domain/weekly-review";
 import { getTodayDate } from "../date";
 import type {
+  AnnualGoal,
   AppSettings,
   CreateTaskInput,
   DailyEntry,
   DailyTaskStats,
   GtdImportSummary,
+  MonthlyReview,
   PomodoroSegment,
   PomodoroSession,
   PomodoroState,
@@ -22,7 +43,8 @@ import type {
   Task,
   TaskContext,
   TaskEvent,
-  TaskFilters
+  TaskFilters,
+  WeeklyReview
 } from "../../domain/types";
 import {
   buildDailyTaskBreakdown,
@@ -57,7 +79,7 @@ import {
   listDueDatesBetween,
   syncTemplateStatusChange
 } from "../recurring/engine";
-import { buildContextId, cloneProject, cloneTask, createEntityId, nowIso } from "../gtd/shared";
+import { addDays, buildContextId, cloneProject, cloneTask, createEntityId, nowIso } from "../gtd/shared";
 import {
   buildRelationshipDrawTaskTitle,
   findActiveRelationshipDrawTask,
@@ -73,6 +95,9 @@ import type { AppRepository, PomodoroStartOptions } from "./repository";
 
 export class MemoryRepository implements AppRepository {
   private entries = new Map<string, DailyEntry>();
+  private weeklyReviews = new Map<string, WeeklyReview>();
+  private monthlyReviews = new Map<string, MonthlyReview>();
+  private annualGoals = new Map<string, AnnualGoal>();
   private settings: AppSettings = defaultAppSettings();
   private tasks = new Map<string, Task>();
   private projects = new Map<string, Project>();
@@ -101,6 +126,121 @@ export class MemoryRepository implements AppRepository {
       .slice(0, limit);
 
     return Promise.all(sorted.map((entry) => this.decorateEntry(entry)));
+  }
+
+  async getWeeklyReview(weekStartDate: string): Promise<WeeklyReview | null> {
+    const normalized = buildWeekDates(weekStartDate);
+    const existing = this.weeklyReviews.get(normalized);
+    return existing ? cloneWeeklyReview(existing) : null;
+  }
+
+  async saveWeeklyReview(review: WeeklyReview): Promise<void> {
+    const normalized = buildWeekDates(review.weekStartDate);
+    const nextReview = {
+      ...cloneWeeklyReview(review),
+      weekStartDate: normalized,
+      weekEndDate: addDays(normalized, 6)
+    };
+    this.weeklyReviews.set(normalized, nextReview);
+  }
+
+  async listWeeklyReviews(limit = 12): Promise<WeeklyReview[]> {
+    return [...this.weeklyReviews.values()]
+      .sort((left, right) => right.weekStartDate.localeCompare(left.weekStartDate))
+      .slice(0, limit)
+      .map((review) => cloneWeeklyReview(review));
+  }
+
+  async computeWeeklyReviewSummary(weekStartDate: string) {
+    const normalized = buildWeekDates(weekStartDate);
+    const entries = await Promise.all(
+      listWeekDates(normalized).map(async (date) => {
+        const existing = this.entries.get(date);
+        return this.decorateEntry(existing ?? createEmptyDailyEntry(date));
+      })
+    );
+
+    return buildWeeklyReviewSummary(normalized, entries);
+  }
+
+  async getMonthlyReview(monthKey: string): Promise<MonthlyReview | null> {
+    const normalized = getMonthKey(`${monthKey}-01`);
+    const existing = this.monthlyReviews.get(normalized);
+    return existing ? cloneMonthlyReview(existing) : null;
+  }
+
+  async saveMonthlyReview(review: MonthlyReview): Promise<void> {
+    const normalized = getMonthKey(`${review.monthKey}-01`);
+    this.monthlyReviews.set(normalized, {
+      ...cloneMonthlyReview(review),
+      monthKey: normalized
+    });
+  }
+
+  async listMonthlyReviews(limit = 12): Promise<MonthlyReview[]> {
+    return [...this.monthlyReviews.values()]
+      .sort((left, right) => right.monthKey.localeCompare(left.monthKey))
+      .slice(0, limit)
+      .map((review) => cloneMonthlyReview(review));
+  }
+
+  async computeMonthlyReviewSummary(monthKey: string) {
+    const normalized = getMonthKey(`${monthKey}-01`);
+    const entries = (await Promise.all(
+      [...this.entries.values()]
+        .filter((entry) => getMonthKey(entry.date) === normalized)
+        .map((entry) => this.decorateEntry(entry))
+    )).sort((left, right) => left.date.localeCompare(right.date));
+    const weekStarts = listWeekStartsForMonth(normalized);
+    const weeklySummaries = await Promise.all(weekStarts.map((weekStartDate) => this.computeWeeklyReviewSummary(weekStartDate)));
+    const weeklyReviews = weekStarts
+      .map((weekStartDate) => this.weeklyReviews.get(weekStartDate))
+      .filter((review): review is WeeklyReview => Boolean(review))
+      .map((review) => cloneWeeklyReview(review));
+
+    return buildMonthlyReviewSummary(normalized, entries, weeklyReviews, weeklySummaries);
+  }
+
+  async listAnnualGoals(): Promise<AnnualGoal[]> {
+    return [...this.annualGoals.values()]
+      .sort((left, right) => left.title.localeCompare(right.title))
+      .map((goal) => cloneAnnualGoal(goal));
+  }
+
+  async saveAnnualGoal(goal: AnnualGoal): Promise<AnnualGoal> {
+    const timestamp = nowIso();
+    const nextGoal = createEmptyAnnualGoal({
+      ...cloneAnnualGoal(goal),
+      id: goal.id || createEntityId("annual-goal"),
+      title: goal.title.trim(),
+      description: goal.description.trim(),
+      unit: goal.unit.trim(),
+      createdAt: goal.createdAt || timestamp,
+      updatedAt: timestamp
+    });
+
+    this.annualGoals.set(nextGoal.id, cloneAnnualGoal(nextGoal));
+    return cloneAnnualGoal(nextGoal);
+  }
+
+  async deleteAnnualGoal(goalId: string): Promise<void> {
+    this.annualGoals.delete(goalId);
+  }
+
+  async computeAnnualGoalSnapshots(year: number) {
+    const entries = await Promise.all(
+      [...this.entries.values()]
+        .filter((entry) => entry.date.startsWith(`${year}-`))
+        .map((entry) => this.decorateEntry(entry))
+    );
+    const weekStarts = [...new Set(entries.map((entry) => buildWeekDates(entry.date)))].sort();
+    const weeklySummaries = await Promise.all(weekStarts.map((weekStartDate) => this.computeWeeklyReviewSummary(weekStartDate)));
+    return buildAnnualGoalSnapshots(
+      [...this.annualGoals.values()].map((goal) => cloneAnnualGoal(goal)),
+      year,
+      entries,
+      weeklySummaries
+    );
   }
 
   async getSettings(): Promise<AppSettings> {
