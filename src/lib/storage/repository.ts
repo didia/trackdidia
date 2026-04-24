@@ -95,6 +95,8 @@ export interface AppRepository {
   getPomodoroState(): Promise<PomodoroState>;
   startPomodoro(options?: PomodoroStartOptions): Promise<PomodoroState>;
   stopPomodoroSession(sessionId: string, status: Extract<PomodoroStatus, "completed" | "cancelled">, at?: string): Promise<PomodoroState>;
+  pausePomodoroSession(sessionId: string, at?: string): Promise<PomodoroState>;
+  resumePomodoroSession(sessionId: string, at?: string): Promise<PomodoroState>;
   completeExpiredPomodoroSessions(now?: string): Promise<PomodoroState>;
   switchPomodoroTask(
     sessionId: string,

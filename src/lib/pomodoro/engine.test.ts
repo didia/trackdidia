@@ -78,6 +78,25 @@ describe("pomodoro engine", () => {
     expect(details[0].taskIds).toEqual(["task-1", "task-2"]);
   });
 
+  it("keeps a paused focus session active with its last task", () => {
+    const session = {
+      ...createPomodoroSession("focus", "2026-04-01T11:00:00.000Z", 2),
+      status: "paused" as const,
+      pausedRemainingMs: 8 * 60 * 1000
+    };
+    const segment = {
+      ...createPomodoroSegment(session.id, "2026-04-01T11:00:00.000Z", "task-2"),
+      endedAt: "2026-04-01T11:17:00.000Z"
+    };
+
+    const details = buildPomodoroSessionDetails([session], [segment]);
+    const state = buildPomodoroState([session], [segment], "2026-04-01T12:00:00.000Z");
+
+    expect(details[0].activeTaskId).toBe("task-2");
+    expect(state.activeSession?.status).toBe("paused");
+    expect(state.nextSessionKind).toBe("short_break");
+  });
+
   it("resets the cycle after more than 25 minutes of inactivity", () => {
     const sessions = [
       {

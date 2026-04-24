@@ -361,7 +361,7 @@ export interface RecurringPreviewOccurrence {
 }
 
 export type PomodoroKind = "focus" | "short_break" | "long_break";
-export type PomodoroStatus = "running" | "completed" | "cancelled";
+export type PomodoroStatus = "running" | "paused" | "completed" | "cancelled";
 
 export interface PomodoroSession {
   id: string;
@@ -369,6 +369,7 @@ export interface PomodoroSession {
   status: PomodoroStatus;
   startedAt: string;
   endsAt: string;
+  pausedRemainingMs: number | null;
   completedAt: string | null;
   cancelledAt: string | null;
   cycleIndex: number;

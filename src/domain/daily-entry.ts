@@ -1,3 +1,4 @@
+import { addDays, getWeekStartSunday } from "../lib/gtd/shared";
 import { metricDefinitions, principleDefinitions } from "./definitions";
 import type {
   AppSettings,
@@ -137,15 +138,28 @@ export const computeCompletionPercent = (entry: DailyEntry): number => {
   return (completedMetrics + completedPrinciples + completedNotes) / (metricCount + principleCount + noteCount);
 };
 
+const daysRemainingInWeekInclusive = (date: string): number => {
+  const weekStart = getWeekStartSunday(date);
+  const weekEnd = addDays(weekStart, 6);
+  const startMs = new Date(`${date}T12:00:00`).getTime();
+  const endMs = new Date(`${weekEnd}T12:00:00`).getTime();
+  return Math.round((endMs - startMs) / 86400000) + 1;
+};
+
 export const computeTaskCompletionPercent = (entry: DailyEntry): number => {
+  const tasksAtStart = resolveMetricValue(entry, "tachesDebut") ?? 0;
   const tasksAdded = resolveMetricValue(entry, "tachesAjoutes") ?? 0;
   const tasksCompleted = resolveMetricValue(entry, "tachesRealises") ?? 0;
 
-  if (tasksAdded <= 0) {
+  const totalAtRisk = tasksAtStart + tasksAdded;
+  if (totalAtRisk <= 0) {
     return 0;
   }
 
-  return tasksCompleted / tasksAdded;
+  const daysRemaining = daysRemainingInWeekInclusive(entry.date);
+  const expectedPerDay = totalAtRisk / Math.max(1, daysRemaining);
+
+  return tasksCompleted / expectedPerDay;
 };
 
 export const deriveStatusLabel = (status: DailyStatus): string => {

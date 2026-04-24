@@ -224,6 +224,7 @@ interface PomodoroSessionRow {
   status: PomodoroSession["status"];
   started_at: string;
   ends_at: string;
+  paused_remaining_ms: number | null;
   completed_at: string | null;
   cancelled_at: string | null;
   cycle_index: number;
@@ -491,6 +492,13 @@ const migrations: Migration[] = [
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+    `
+  },
+  {
+    id: 19,
+    name: "add_paused_remaining_ms_to_pomodoro_sessions",
+    sql: `
+      ALTER TABLE pomodoro_sessions ADD COLUMN paused_remaining_ms INTEGER;
     `
   }
 ];
@@ -1537,16 +1545,19 @@ export class TauriSqliteRepository implements AppRepository {
       throw new Error(`Session Pomodoro ${sessionId} introuvable`);
     }
 
-    if (session.status !== "running") {
+    if (session.status !== "running" && session.status !== "paused") {
       return this.getPomodoroState();
     }
 
     const closedAt =
-      status === "completed" && new Date(at).getTime() >= new Date(session.endsAt).getTime() ? session.endsAt : at;
+      status === "completed" && session.status === "running" && new Date(at).getTime() >= new Date(session.endsAt).getTime()
+        ? session.endsAt
+        : at;
 
     await this.persistPomodoroSession({
       ...session,
       status,
+      pausedRemainingMs: null,
       completedAt: status === "completed" ? closedAt : null,
       cancelledAt: status === "cancelled" ? closedAt : null
     });
@@ -1557,6 +1568,73 @@ export class TauriSqliteRepository implements AppRepository {
         ...segment,
         endedAt: closedAt
       });
+    }
+
+    return this.getPomodoroState();
+  }
+
+  async pausePomodoroSession(sessionId: string, at = nowIso()) {
+    const session = await this.getPomodoroSessionById(sessionId);
+
+    if (!session) {
+      throw new Error(`Session Pomodoro ${sessionId} introuvable`);
+    }
+
+    if (session.status !== "running") {
+      return this.getPomodoroState();
+    }
+
+    const remainingMs = Math.max(0, new Date(session.endsAt).getTime() - new Date(at).getTime());
+
+    await this.persistPomodoroSession({
+      ...session,
+      status: "paused",
+      pausedRemainingMs: remainingMs
+    });
+
+    const openSegments = await this.getOpenPomodoroSegments(sessionId);
+    for (const segment of openSegments) {
+      await this.persistPomodoroSegment({
+        ...segment,
+        endedAt: at
+      });
+    }
+
+    return this.getPomodoroState();
+  }
+
+  async resumePomodoroSession(sessionId: string, at = nowIso()) {
+    const session = await this.getPomodoroSessionById(sessionId);
+
+    if (!session) {
+      throw new Error(`Session Pomodoro ${sessionId} introuvable`);
+    }
+
+    if (session.status !== "paused") {
+      return this.getPomodoroState();
+    }
+
+    const remainingMs = session.pausedRemainingMs ?? Math.max(0, new Date(session.endsAt).getTime() - new Date(at).getTime());
+    const nextEndsAt = new Date(new Date(at).getTime() + remainingMs).toISOString();
+
+    await this.persistPomodoroSession({
+      ...session,
+      status: "running",
+      endsAt: nextEndsAt,
+      pausedRemainingMs: null
+    });
+
+    if (session.kind === "focus") {
+      const latestSegment = (await this.getAllPomodoroSegments())
+        .filter((segment) => segment.sessionId === sessionId)
+        .sort((left, right) => left.startedAt.localeCompare(right.startedAt))
+        .at(-1);
+
+      if (latestSegment) {
+        await this.persistPomodoroSegment(
+          createPomodoroSegment(sessionId, at, latestSegment.taskId, latestSegment.title)
+        );
+      }
     }
 
     return this.getPomodoroState();
@@ -1764,6 +1842,7 @@ export class TauriSqliteRepository implements AppRepository {
       status: row.status,
       startedAt: row.started_at,
       endsAt: row.ends_at,
+      pausedRemainingMs: row.paused_remaining_ms === null ? null : Number(row.paused_remaining_ms),
       completedAt: row.completed_at,
       cancelledAt: row.cancelled_at,
       cycleIndex: Number(row.cycle_index),
@@ -1843,7 +1922,7 @@ export class TauriSqliteRepository implements AppRepository {
     const db = await this.getDb();
     const rows = await db.select<PomodoroSessionRow[]>(
       `SELECT
-        id, kind, status, started_at, ends_at, completed_at, cancelled_at, cycle_index, date
+        id, kind, status, started_at, ends_at, paused_remaining_ms, completed_at, cancelled_at, cycle_index, date
       FROM pomodoro_sessions`
     );
     return rows.map((row) => this.deserializePomodoroSession(row));
@@ -1919,7 +1998,7 @@ export class TauriSqliteRepository implements AppRepository {
     const db = await this.getDb();
     const rows = await db.select<PomodoroSessionRow[]>(
       `SELECT
-        id, kind, status, started_at, ends_at, completed_at, cancelled_at, cycle_index, date
+        id, kind, status, started_at, ends_at, paused_remaining_ms, completed_at, cancelled_at, cycle_index, date
       FROM pomodoro_sessions
       WHERE id = $1`,
       [sessionId]
@@ -2125,13 +2204,14 @@ export class TauriSqliteRepository implements AppRepository {
     const db = await this.getDb();
     await db.execute(
       `INSERT INTO pomodoro_sessions (
-        id, kind, status, started_at, ends_at, completed_at, cancelled_at, cycle_index, date
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        id, kind, status, started_at, ends_at, paused_remaining_ms, completed_at, cancelled_at, cycle_index, date
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       ON CONFLICT(id) DO UPDATE SET
         kind = excluded.kind,
         status = excluded.status,
         started_at = excluded.started_at,
         ends_at = excluded.ends_at,
+        paused_remaining_ms = excluded.paused_remaining_ms,
         completed_at = excluded.completed_at,
         cancelled_at = excluded.cancelled_at,
         cycle_index = excluded.cycle_index,
@@ -2142,6 +2222,7 @@ export class TauriSqliteRepository implements AppRepository {
         session.status,
         session.startedAt,
         session.endsAt,
+        session.pausedRemainingMs,
         session.completedAt,
         session.cancelledAt,
         session.cycleIndex,

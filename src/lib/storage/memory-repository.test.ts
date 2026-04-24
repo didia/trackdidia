@@ -289,21 +289,21 @@ describe("MemoryRepository", () => {
   it("computes daily task stats from GTD events", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = "2026-04-08";
     const yesterday = addDays(today, -1);
 
     await repository.createTask({
       id: "task-start",
       title: "Action deja la",
       bucket: "next_action",
-      createdAt: `${yesterday}T08:00:00.000Z`
+      createdAt: `${yesterday}T08:00:00`
     });
 
     await repository.createTask({
       id: "task-move",
       title: "Inbox a clarifier",
       bucket: "inbox",
-      createdAt: `${yesterday}T08:00:00.000Z`
+      createdAt: `${yesterday}T08:00:00`
     });
 
     await repository.moveTask("task-move", "next_action", []);
@@ -312,11 +312,11 @@ describe("MemoryRepository", () => {
       id: "task-scheduled",
       title: "Call planifie",
       bucket: "scheduled",
-      scheduledFor: `${today}T15:30:00.000Z`,
-      createdAt: `${today}T09:00:00.000Z`
+      scheduledFor: `${today}T15:30:00`,
+      createdAt: `${today}T09:00:00`
     });
 
-    await repository.completeTask("task-start", `${today}T18:00:00.000Z`);
+    await repository.completeTask("task-start", `${today}T18:00:00`);
 
     await expect(repository.computeDailyTaskStats(today)).resolves.toMatchObject({
       tasksAtStart: 1,
@@ -418,6 +418,41 @@ describe("MemoryRepository", () => {
       ])
     );
     expect(stats.completedFocusSessions).toBe(1);
+  });
+
+  it("pauses and resumes a pomodoro session while preserving remaining time and task context", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    await repository.createTask({
+      id: "task-focus",
+      title: "Rediger le plan",
+      bucket: "next_action"
+    });
+
+    const startedState = await repository.startPomodoro({
+      taskId: "task-focus"
+    });
+    const activeSession = startedState.activeSession;
+    if (!activeSession) {
+      throw new Error("Session Pomodoro manquante");
+    }
+
+    const pauseAt = new Date(new Date(activeSession.startedAt).getTime() + 5 * 60 * 1000).toISOString();
+    await repository.pausePomodoroSession(activeSession.id, pauseAt);
+
+    const pausedState = await repository.getPomodoroState();
+    expect(pausedState.activeSession?.status).toBe("paused");
+    expect(pausedState.activeSession?.pausedRemainingMs).toBe(20 * 60 * 1000);
+    expect(pausedState.activeSession?.activeTaskId).toBe("task-focus");
+
+    const resumeAt = new Date(new Date(pauseAt).getTime() + 12 * 60 * 1000).toISOString();
+    await repository.resumePomodoroSession(activeSession.id, resumeAt);
+
+    const resumedState = await repository.getPomodoroState();
+    expect(resumedState.activeSession?.status).toBe("running");
+    expect(resumedState.activeSession?.activeTaskId).toBe("task-focus");
+    expect(resumedState.activeSession?.endsAt).toBe(new Date(new Date(resumeAt).getTime() + 20 * 60 * 1000).toISOString());
   });
 
   it("generates recurring tasks once per due day and exposes previews", async () => {

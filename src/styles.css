@@ -1094,6 +1094,11 @@ textarea {
   color: var(--accent-deep);
 }
 
+.pomodoro-history__status--paused {
+  background: rgba(91, 122, 155, 0.14);
+  color: #38536c;
+}
+
 .pomodoro-history__status--completed {
   background: rgba(45, 106, 79, 0.12);
   color: var(--success);

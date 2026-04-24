@@ -20,6 +20,8 @@ export interface PomodoroControllerValue {
   loading: boolean;
   reload: () => Promise<void>;
   startPomodoro: (options?: PomodoroStartOptions) => Promise<void>;
+  pauseCurrent: () => Promise<void>;
+  resumeCurrent: () => Promise<void>;
   skipBreak: () => Promise<void>;
   completeCurrentTask: () => Promise<void>;
   completeNow: () => Promise<void>;
@@ -144,13 +146,36 @@ export const usePomodoroController = (repository: AppRepository | null): Pomodor
     [load, repository]
   );
 
+  const pauseCurrent = useCallback(async () => {
+    const activeSession = stateRef.current.activeSession;
+    if (!repository || !activeSession || activeSession.status !== "running") {
+      return;
+    }
+
+    await repository.pausePomodoroSession(activeSession.id);
+    await load({ preserveVisibleState: true });
+  }, [load, repository]);
+
+  const resumeCurrent = useCallback(async () => {
+    const activeSession = stateRef.current.activeSession;
+    if (!repository || !activeSession || activeSession.status !== "paused") {
+      return;
+    }
+
+    await unlockPomodoroSound();
+    await repository.resumePomodoroSession(activeSession.id);
+    await load({ preserveVisibleState: true });
+  }, [load, repository]);
+
   const completeNow = useCallback(async () => {
     const activeSession = stateRef.current.activeSession;
     if (!repository || !activeSession) {
       return;
     }
 
-    const elapsedMs = Date.now() - new Date(activeSession.startedAt).getTime();
+    const elapsedMs =
+      getPomodoroDurationMs(activeSession.kind) -
+      (activeSession.pausedRemainingMs ?? Math.max(0, new Date(activeSession.endsAt).getTime() - Date.now()));
     if (activeSession.kind === "focus" && elapsedMs < getPomodoroDurationMs("focus") / 2) {
       return;
     }
@@ -164,7 +189,7 @@ export const usePomodoroController = (repository: AppRepository | null): Pomodor
     const activeSession = stateRef.current.activeSession;
     const currentTaskId = activeSession?.activeTaskId;
 
-    if (!repository || !activeSession || activeSession.kind !== "focus" || !currentTaskId) {
+    if (!repository || !activeSession || activeSession.status !== "running" || activeSession.kind !== "focus" || !currentTaskId) {
       return;
     }
 
@@ -264,7 +289,11 @@ export const usePomodoroController = (repository: AppRepository | null): Pomodor
       return false;
     }
 
-    const elapsedMs = nowMs - new Date(state.activeSession.startedAt).getTime();
+    const elapsedMs =
+      getPomodoroDurationMs("focus") -
+      (state.activeSession.status === "paused"
+        ? (state.activeSession.pausedRemainingMs ?? 0)
+        : Math.max(0, new Date(state.activeSession.endsAt).getTime() - nowMs));
     return elapsedMs >= getPomodoroDurationMs("focus") / 2;
   }, [nowMs, state.activeSession]);
 
@@ -279,11 +308,17 @@ export const usePomodoroController = (repository: AppRepository | null): Pomodor
     currentActivityLabel,
     preferredTask: preferredSelection.task,
     preferredActivityLabel: preferredSelection.label,
-    remainingMs: state.activeSession ? Math.max(0, new Date(state.activeSession.endsAt).getTime() - nowMs) : 0,
+    remainingMs: state.activeSession
+      ? state.activeSession.status === "paused"
+        ? (state.activeSession.pausedRemainingMs ?? 0)
+        : Math.max(0, new Date(state.activeSession.endsAt).getTime() - nowMs)
+      : 0,
     canCompleteNow,
     loading,
     reload: async () => load({ preserveVisibleState: true }),
     startPomodoro,
+    pauseCurrent,
+    resumeCurrent,
     skipBreak,
     completeCurrentTask,
     completeNow,

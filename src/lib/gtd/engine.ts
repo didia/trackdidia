@@ -18,7 +18,8 @@ import {
   isSameLocalDate,
   isSunday,
   isTaskActionableForDate,
-  nowIso
+  nowIso,
+  toLocalDateString
 } from "./shared";
 
 const eventFor = (
@@ -106,7 +107,15 @@ export const filterProjects = (projects: Project[], filters: ProjectFilters = {}
 
 export const buildDailyTaskStats = (tasks: Task[], events: TaskEvent[], date: string): DailyTaskStats => {
   const { startMs } = getDayRange(date);
-  const taskEventsToday = events.filter((event) => event.eventDate === date);
+  const tasksById = new Map(tasks.map((task) => [task.id, task] as const));
+  const taskEventsToday = events.filter((event) => {
+    if (event.type !== "task_completed") {
+      return event.eventDate === date;
+    }
+
+    const completedAt = tasksById.get(event.taskId)?.completedAt;
+    return completedAt ? toLocalDateString(completedAt) === date : event.eventDate === date;
+  });
 
   const addedToday = new Set(
     taskEventsToday
@@ -188,7 +197,14 @@ export const buildDailyTaskBreakdown = (
   date: string
 ): { date: string; addedTasks: Task[]; completedTasks: Task[] } => {
   const tasksById = new Map(tasks.map((task) => [task.id, task] as const));
-  const taskEventsToday = events.filter((event) => event.eventDate === date);
+  const taskEventsToday = events.filter((event) => {
+    if (event.type !== "task_completed") {
+      return event.eventDate === date;
+    }
+
+    const completedAt = tasksById.get(event.taskId)?.completedAt;
+    return completedAt ? toLocalDateString(completedAt) === date : event.eventDate === date;
+  });
 
   const addedTaskIds = collectTaskIdsByEventType(taskEventsToday, [
     "task_moved_to_next_action",

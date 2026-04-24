@@ -48,6 +48,8 @@ export const renderWithApp = async (
       loading: false,
       reload: async () => undefined,
       startPomodoro: async () => undefined,
+      pauseCurrent: async () => undefined,
+      resumeCurrent: async () => undefined,
       skipBreak: async () => undefined,
       completeCurrentTask: async () => undefined,
       completeNow: async () => undefined,

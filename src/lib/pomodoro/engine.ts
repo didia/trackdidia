@@ -33,6 +33,7 @@ export const createPomodoroSession = (
   status: "running",
   startedAt,
   endsAt: new Date(new Date(startedAt).getTime() + getPomodoroDurationMs(kind)).toISOString(),
+  pausedRemainingMs: null,
   completedAt: null,
   cancelledAt: null,
   cycleIndex,
@@ -74,7 +75,12 @@ export const buildPomodoroSessionDetails = (
   return sortSessions(sessions)
     .map((session) => {
       const sessionSegments = segmentsBySession.get(session.id) ?? [];
-      const activeSegment = [...sessionSegments].reverse().find((segment) => segment.endedAt === null) ?? null;
+      const activeSegment =
+        session.status === "running"
+          ? [...sessionSegments].reverse().find((segment) => segment.endedAt === null) ?? null
+          : session.status === "paused"
+            ? sessionSegments.at(-1) ?? null
+            : null;
       const taskIds = [...new Set(sessionSegments.map((segment) => segment.taskId).filter(Boolean))] as string[];
 
       return {
@@ -136,6 +142,10 @@ const findLastSessionActivityAt = (sessions: PomodoroSession[]): string | null =
  * or more than 25 minutes since the last ended session if we ignore any still-running break.
  */
 const shouldResetPomodoroCycleAfterIdle = (sessions: PomodoroSession[], nowIso: string): boolean => {
+  if (sessions.some((session) => session.status === "paused")) {
+    return false;
+  }
+
   const normalized = normalizePomodoroSessionsForState(sessions, nowIso);
   const nowMs = new Date(nowIso).getTime();
 
@@ -203,7 +213,7 @@ export const buildPomodoroState = (
   }
 
   const details = buildPomodoroSessionDetails(normalizedSessions, segments);
-  const activeSession = details.find((session) => session.status === "running") ?? null;
+  const activeSession = details.find((session) => session.status === "running" || session.status === "paused") ?? null;
 
   if (activeSession) {
     if (activeSession.kind === "focus") {

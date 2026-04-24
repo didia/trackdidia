@@ -45,15 +45,19 @@ export const PomodoroPage = () => {
   ]);
 
   const activeSession = pomodoro.state.activeSession;
-  const hasLiveSession = Boolean(activeSession && pomodoro.remainingMs > 0);
-  const hasLiveFocusSession = Boolean(hasLiveSession && activeSession?.kind === "focus");
+  const hasActiveSession = Boolean(activeSession && pomodoro.remainingMs > 0);
+  const hasRunningSession = Boolean(hasActiveSession && activeSession?.status === "running");
+  const hasPausedSession = Boolean(hasActiveSession && activeSession?.status === "paused");
+  const hasLiveFocusSession = Boolean(hasRunningSession && activeSession?.kind === "focus");
+  const hasPausedFocusSession = Boolean(hasPausedSession && activeSession?.kind === "focus");
   const nextSessionIsBreak = pomodoro.state.nextSessionKind === "short_break" || pomodoro.state.nextSessionKind === "long_break";
-  const hasLiveBreakSession = Boolean(hasLiveSession && activeSession && (activeSession.kind === "short_break" || activeSession.kind === "long_break"));
-  const canSkipBreak = hasLiveBreakSession || (!hasLiveSession && nextSessionIsBreak);
-  const canEditManualTitle = !selectedTaskId && (!hasLiveSession || activeSession?.kind === "focus");
-  const canStartNextSession = !hasLiveSession;
+  const hasLiveBreakSession = Boolean(hasRunningSession && activeSession && (activeSession.kind === "short_break" || activeSession.kind === "long_break"));
+  const hasPausedBreakSession = Boolean(hasPausedSession && activeSession && (activeSession.kind === "short_break" || activeSession.kind === "long_break"));
+  const canSkipBreak = hasLiveBreakSession || hasPausedBreakSession || (!hasActiveSession && nextSessionIsBreak);
+  const canEditManualTitle = !selectedTaskId && (!hasActiveSession || (activeSession?.kind === "focus" && activeSession.status === "running"));
+  const canStartNextSession = !hasActiveSession;
   const nextActionLabel = pomodoro.state.nextSessionKind === "focus" ? "Demarrer un focus" : "Demarrer la pause";
-  const sessionLabel = hasLiveSession && activeSession ? getPomodoroKindLabel(activeSession.kind) : getPomodoroKindLabel(pomodoro.state.nextSessionKind);
+  const sessionLabel = hasActiveSession && activeSession ? getPomodoroKindLabel(activeSession.kind) : getPomodoroKindLabel(pomodoro.state.nextSessionKind);
   const taskLookup = useMemo(
     () => new Map(pomodoro.taskOptions.map((task) => [task.id, task.title] as const)),
     [pomodoro.taskOptions]
@@ -77,8 +81,10 @@ export const PomodoroPage = () => {
         <div className="pomodoro-panel">
           <div className={`pomodoro-clock${activeSession ? ` pomodoro-clock--${activeSession.kind}` : ""}`}>
             <span className="pomodoro-clock__label">{sessionLabel}</span>
-            <strong>{hasLiveSession && activeSession ? formatTimerRemaining(pomodoro.remainingMs) : "00:00"}</strong>
-            <span className="pomodoro-clock__cycle">Session {pomodoro.state.currentCycleIndex}/4</span>
+            <strong>{hasActiveSession && activeSession ? formatTimerRemaining(pomodoro.remainingMs) : "00:00"}</strong>
+            <span className="pomodoro-clock__cycle">
+              Session {pomodoro.state.currentCycleIndex}/4{hasPausedSession ? " • En pause" : ""}
+            </span>
           </div>
 
           <div className="pomodoro-panel__controls">
@@ -107,7 +113,7 @@ export const PomodoroPage = () => {
               <span>Tache liee au focus</span>
               <select
                 value={selectedTaskId}
-                disabled={Boolean(hasLiveSession && activeSession?.kind !== "focus")}
+                disabled={Boolean(hasActiveSession && (activeSession?.kind !== "focus" || activeSession.status !== "running"))}
                 onChange={async (event) => {
                   const nextTaskId = event.target.value;
                   setSelectedTaskId(nextTaskId);
@@ -115,7 +121,7 @@ export const PomodoroPage = () => {
                     setManualTitle("");
                   }
 
-                  if (hasLiveSession && activeSession?.kind === "focus") {
+                  if (hasRunningSession && activeSession?.kind === "focus") {
                     await pomodoro.switchTask(nextTaskId || null, nextTaskId ? null : (manualTitle.trim() || null));
                   }
                 }}
@@ -175,6 +181,18 @@ export const PomodoroPage = () => {
                 </button>
               ) : null}
 
+              {hasRunningSession ? (
+                <button className="button" type="button" onClick={() => void pomodoro.pauseCurrent()}>
+                  Mettre en pause
+                </button>
+              ) : null}
+
+              {hasPausedSession ? (
+                <button className="button button--primary" type="button" onClick={() => void pomodoro.resumeCurrent()}>
+                  Reprendre
+                </button>
+              ) : null}
+
               {canSkipBreak ? (
                 <button className="button" type="button" onClick={() => void pomodoro.skipBreak()}>
                   Skipper la pause
@@ -187,7 +205,7 @@ export const PomodoroPage = () => {
                 </button>
               ) : null}
 
-              {hasLiveFocusSession && pomodoro.canCompleteNow ? (
+              {(hasLiveFocusSession || hasPausedFocusSession) && pomodoro.canCompleteNow ? (
                 <>
                   <button className="button" type="button" onClick={() => void pomodoro.completeNow()}>
                     Terminer maintenant
@@ -198,26 +216,28 @@ export const PomodoroPage = () => {
                 </>
               ) : null}
 
-              {hasLiveFocusSession && !pomodoro.canCompleteNow ? (
+              {(hasLiveFocusSession || hasPausedFocusSession) && !pomodoro.canCompleteNow ? (
                 <button className="button button--ghost" type="button" onClick={() => void pomodoro.cancelCurrent()}>
                   Annuler la session
                 </button>
               ) : null}
 
-              {hasLiveBreakSession ? (
+              {(hasLiveBreakSession || hasPausedBreakSession) ? (
                 <button className="button button--ghost" type="button" onClick={() => void pomodoro.cancelCurrent()}>
                   Annuler la session
                 </button>
               ) : null}
             </div>
 
-            {hasLiveSession ? (
+            {hasActiveSession ? (
               <p className="field-card__helper">
-                {hasLiveFocusSession
-                  ? pomodoro.canCompleteNow
-                    ? "Terminer maintenant cloture cette session comme completee et fait avancer le cycle. Annuler la session l'arrete sans la compter comme accomplie."
-                    : "Pendant la premiere moitie du focus, tu peux seulement annuler la session. Terminer maintenant apparait apres la moitie du pomodoro."
-                  : "Skipper la pause cloture la pause tout de suite et relance le cycle. Annuler la session l'arrete sans la compter."}
+                {hasPausedSession
+                  ? "La session est en pause. Reprendre relance le chrono la ou il s'est arrete."
+                  : hasLiveFocusSession
+                    ? pomodoro.canCompleteNow
+                      ? "Terminer maintenant cloture cette session comme completee et fait avancer le cycle. Annuler la session l'arrete sans la compter comme accomplie."
+                      : "Pendant la premiere moitie du focus, tu peux mettre en pause ou annuler la session. Terminer maintenant apparait apres la moitie du pomodoro."
+                    : "Skipper la pause cloture la pause tout de suite et relance le cycle. Annuler la session l'arrete sans la compter."}
               </p>
             ) : null}
           </div>
@@ -238,7 +258,13 @@ export const PomodoroPage = () => {
                   </span>
                 </div>
                 <span className={`pomodoro-history__status pomodoro-history__status--${session.status}`}>
-                  {session.status === "running" ? "En cours" : session.status === "completed" ? "Completee" : "Annulee"}
+                  {session.status === "running"
+                    ? "En cours"
+                    : session.status === "paused"
+                      ? "En pause"
+                      : session.status === "completed"
+                        ? "Completee"
+                        : "Annulee"}
                 </span>
                 <div className="pomodoro-history__segments">
                   {session.segments.length === 0 ? (

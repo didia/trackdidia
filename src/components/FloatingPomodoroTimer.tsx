@@ -22,6 +22,7 @@ export const FloatingPomodoroTimer = () => {
     pomodoro.preferredActivityLabel ??
     "Sans tache assignee";
   const hasBreakSession = isBreakSession(activeSession.kind);
+  const isPaused = activeSession.status === "paused";
 
   return (
     <aside
@@ -30,7 +31,9 @@ export const FloatingPomodoroTimer = () => {
     >
       <div className="floating-pomodoro__header">
         <span className="eyebrow">Pomodoro actif</span>
-        <span className="floating-pomodoro__cycle">Session {pomodoro.state.currentCycleIndex}/4</span>
+        <span className="floating-pomodoro__cycle">
+          Session {pomodoro.state.currentCycleIndex}/4{isPaused ? " • En pause" : ""}
+        </span>
       </div>
 
       <div className="floating-pomodoro__body">
@@ -52,7 +55,11 @@ export const FloatingPomodoroTimer = () => {
           Ouvrir
         </Link>
 
-        {hasBreakSession ? (
+        {isPaused ? (
+          <button className="button" type="button" onClick={() => void pomodoro.resumeCurrent()}>
+            Reprendre
+          </button>
+        ) : hasBreakSession ? (
           <button className="button" type="button" onClick={() => void pomodoro.skipBreak()}>
             Skipper
           </button>
@@ -60,7 +67,11 @@ export const FloatingPomodoroTimer = () => {
           <button className="button" type="button" onClick={() => void pomodoro.completeNow()}>
             Terminer
           </button>
-        ) : null}
+        ) : (
+          <button className="button" type="button" onClick={() => void pomodoro.pauseCurrent()}>
+            Pause
+          </button>
+        )}
 
         <button className="button button--ghost" type="button" onClick={() => void pomodoro.cancelCurrent()}>
           Annuler

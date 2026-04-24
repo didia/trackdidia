@@ -31,7 +31,7 @@ describe("daily entry domain", () => {
     expect(computeCompletionPercent(entry)).toBeCloseTo(3 / 28);
   });
 
-  it("computes daily task completion percent from completed over added tasks", () => {
+  it("computes daily task completion vs weekly pace (start + added over days left)", () => {
     let entry = createEmptyDailyEntry("2026-03-31");
     entry = applyDailyTaskStats(entry, {
       date: "2026-03-31",
@@ -41,12 +41,15 @@ describe("daily entry domain", () => {
       tasksRemaining: 9
     });
 
-    expect(computeTaskCompletionPercent(entry)).toBeCloseTo(2 / 8);
+    // Week Sun 2026-03-29 .. Sat 2026-04-04; Tue 03-31 => 5 days left inclusive
+    // pace = (3 + 8) / 5; score = 2 / pace = 10/11
+    expect(computeTaskCompletionPercent(entry)).toBeCloseTo(10 / 11);
 
     entry = updateMetric(entry, "tachesAjoutes", 10);
     entry = updateMetric(entry, "tachesRealises", 4);
 
-    expect(computeTaskCompletionPercent(entry)).toBeCloseTo(4 / 10);
+    // (3 + 10) / 5 = 13/5; 4 / (13/5) = 20/13
+    expect(computeTaskCompletionPercent(entry)).toBeCloseTo(20 / 13);
   });
 
   it("supports morning completion, closure and reopening", () => {
