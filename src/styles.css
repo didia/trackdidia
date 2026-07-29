@@ -238,6 +238,16 @@ a {
   color: rgba(246, 239, 231, 0.72);
 }
 
+.debug-panel__tools {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.debug-panel__tools strong {
+  font-size: 0.9rem;
+}
+
 .debug-log-list {
   max-height: 42vh;
   overflow: auto;
@@ -464,7 +474,7 @@ a {
   gap: 8px;
 }
 
-input,
+input:not([type="checkbox"]):not([type="radio"]),
 textarea,
 select {
   width: 100%;
@@ -473,6 +483,13 @@ select {
   background: rgba(255, 255, 255, 0.9);
   padding: 12px 14px;
   color: var(--ink);
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  width: auto;
+  margin: 0;
+  flex-shrink: 0;
 }
 
 textarea {

@@ -255,6 +255,18 @@ export const SettingsPage = () => {
       >
         <div className="status-grid">
           <article className="status-card">
+            <span>Environnement</span>
+            <strong>
+              {storageInfo?.environment === "development"
+                ? "Developpement"
+                : storageInfo?.environment === "production"
+                  ? "Production"
+                  : browserPreview
+                    ? "Mode preview"
+                    : "..."}
+            </strong>
+          </article>
+          <article className="status-card">
             <span>Base SQLite</span>
             <strong>{storageInfo?.databasePath ?? (browserPreview ? "Mode preview" : "...")}</strong>
           </article>

@@ -40,10 +40,10 @@ npm run tauri dev
 
 ## Donnees locales
 
-- En mode desktop, la base SQLite est ouverte via `sqlite:trackdidia.db`.
-- Sur macOS, avec l'identifiant Tauri actuel `com.trackdidia.desktop`, le fichier se trouve dans `~/Library/Application Support/com.trackdidia.desktop/trackdidia.db`.
+- En mode desktop, la base SQLite est ouverte via `sqlite:trackdidia.db` en production et `sqlite:trackdidia.dev.db` en developpement (`tauri dev` / build debug).
+- Sur macOS, avec l'identifiant Tauri actuel `com.trackdidia.desktop`, le fichier se trouve dans `~/Library/Application Support/com.trackdidia.desktop/trackdidia.db` (production) ou `trackdidia.dev.db` (developpement).
 - Les fichiers `trackdidia.db-wal` et `trackdidia.db-shm` a cote sont normaux pour SQLite en mode WAL.
-- Les backups manuels et automatiques sont ecrits dans `~/Library/Application Support/com.trackdidia.desktop/backups/`.
+- Les backups manuels et automatiques sont ecrits dans `~/Library/Application Support/com.trackdidia.desktop/backups/` (production) ou `backups-dev/` (developpement).
 - Une mise a jour de l'application ne doit pas supprimer ces fichiers tant que l'identifiant Tauri reste le meme et que l'installateur ne nettoie pas le dossier de donnees utilisateur.
 - L'application peut creer un backup manuel a la demande et verifier automatiquement toutes les heures si un nouveau backup est du apres 24h depuis le precedent.
 

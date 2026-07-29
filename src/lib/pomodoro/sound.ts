@@ -1,14 +1,58 @@
+import {
+  isPermissionGranted,
+  requestPermission,
+  sendNotification
+} from "@tauri-apps/plugin-notification";
 import { logDebug } from "../debug";
+import { isTauriRuntime } from "../storage/factory";
 
 let audioContext: AudioContext | null = null;
 let unlockPrimerAudio: HTMLAudioElement | null = null;
-let chimeDataUri: string | null = null;
 let silentWavDataUri: string | null = null;
 let audioLifecycleHandlersRegistered = false;
 
-const getChimeDataUri = (): string => {
-  chimeDataUri ??= buildChimeDataUri();
-  return chimeDataUri;
+export type PomodoroChimeVariant = "session" | "cycle";
+
+let chimeDataUris: Partial<Record<PomodoroChimeVariant, string>> = {};
+
+type ChimeNote = {
+  frequency: number;
+  offsetSeconds: number;
+  durationSeconds: number;
+};
+
+const CHIME_SAMPLE_RATE = 44_100;
+const CHIME_DURATION_SECONDS: Record<PomodoroChimeVariant, number> = {
+  session: 3,
+  cycle: 5.5
+};
+
+/** Short ascending chime for a single focus or break end. */
+const SESSION_CHIME_NOTES: readonly ChimeNote[] = [
+  { frequency: 784, offsetSeconds: 0, durationSeconds: 0.16 },
+  { frequency: 988, offsetSeconds: 0.2, durationSeconds: 0.16 },
+  { frequency: 1175, offsetSeconds: 0.4, durationSeconds: 0.22 }
+];
+
+/** Fuller rising fanfare for completing a 4-focus cycle. */
+const CYCLE_CHIME_NOTES: readonly ChimeNote[] = [
+  { frequency: 523, offsetSeconds: 0, durationSeconds: 0.18 },
+  { frequency: 659, offsetSeconds: 0.2, durationSeconds: 0.18 },
+  { frequency: 784, offsetSeconds: 0.4, durationSeconds: 0.18 },
+  { frequency: 1047, offsetSeconds: 0.62, durationSeconds: 0.3 }
+];
+
+const CHIME_NOTES_BY_VARIANT: Record<PomodoroChimeVariant, readonly ChimeNote[]> = {
+  session: SESSION_CHIME_NOTES,
+  cycle: CYCLE_CHIME_NOTES
+};
+
+const getChimePatternDurationSeconds = (notes: readonly ChimeNote[]): number =>
+  Math.max(...notes.map((note) => note.offsetSeconds + note.durationSeconds)) + 0.18;
+
+const getChimeDataUri = (variant: PomodoroChimeVariant): string => {
+  chimeDataUris[variant] ??= buildChimeDataUri(variant);
+  return chimeDataUris[variant]!;
 };
 
 const registerAudioLifecycleHandlers = (): void => {
@@ -31,13 +75,6 @@ const registerAudioLifecycleHandlers = (): void => {
   });
   window.addEventListener("focus", resumeContextIfSuspended);
 };
-
-const CHIME_SAMPLE_RATE = 44_100;
-const CHIME_NOTES = [
-  { frequency: 784, offsetSeconds: 0, durationSeconds: 0.16 },
-  { frequency: 988, offsetSeconds: 0.2, durationSeconds: 0.16 },
-  { frequency: 1175, offsetSeconds: 0.4, durationSeconds: 0.22 }
-] as const;
 
 const encodeBase64 = (bytes: Uint8Array): string => {
   if (typeof btoa === "function") {
@@ -89,9 +126,11 @@ const getSilentWavDataUri = (): string => {
   return silentWavDataUri;
 };
 
-const buildChimeDataUri = (): string => {
-  const totalDurationSeconds = 0.72;
-  const sampleCount = Math.floor(CHIME_SAMPLE_RATE * totalDurationSeconds);
+const buildChimeDataUri = (variant: PomodoroChimeVariant): string => {
+  const notes = CHIME_NOTES_BY_VARIANT[variant];
+  const loopDurationSeconds = CHIME_DURATION_SECONDS[variant];
+  const patternDurationSeconds = getChimePatternDurationSeconds(notes);
+  const sampleCount = Math.floor(CHIME_SAMPLE_RATE * loopDurationSeconds);
   const bytesPerSample = 2;
   const pcmBytes = new Uint8Array(sampleCount * bytesPerSample);
   const fadeSeconds = 0.02;
@@ -100,16 +139,22 @@ const buildChimeDataUri = (): string => {
     const currentTimeSeconds = sampleIndex / CHIME_SAMPLE_RATE;
     let sampleValue = 0;
 
-    for (const note of CHIME_NOTES) {
-      const relativeTime = currentTimeSeconds - note.offsetSeconds;
-      if (relativeTime < 0 || relativeTime > note.durationSeconds) {
-        continue;
-      }
+    for (
+      let patternOffsetSeconds = 0;
+      patternOffsetSeconds < loopDurationSeconds;
+      patternOffsetSeconds += patternDurationSeconds
+    ) {
+      for (const note of notes) {
+        const relativeTime = currentTimeSeconds - patternOffsetSeconds - note.offsetSeconds;
+        if (relativeTime < 0 || relativeTime > note.durationSeconds) {
+          continue;
+        }
 
-      const fadeIn = Math.min(1, relativeTime / fadeSeconds);
-      const fadeOut = Math.min(1, (note.durationSeconds - relativeTime) / fadeSeconds);
-      const envelope = Math.max(0, Math.min(fadeIn, fadeOut));
-      sampleValue += Math.sin(2 * Math.PI * note.frequency * relativeTime) * envelope * 0.22;
+        const fadeIn = Math.min(1, relativeTime / fadeSeconds);
+        const fadeOut = Math.min(1, (note.durationSeconds - relativeTime) / fadeSeconds);
+        const envelope = Math.max(0, Math.min(fadeIn, fadeOut));
+        sampleValue += Math.sin(2 * Math.PI * note.frequency * relativeTime) * envelope * 0.22;
+      }
     }
 
     const clamped = Math.max(-1, Math.min(1, sampleValue));
@@ -151,6 +196,38 @@ const getAudioContext = (): AudioContext | null => {
   return audioContext;
 };
 
+const ensureNotificationPermission = async (): Promise<boolean> => {
+  if (isTauriRuntime()) {
+    try {
+      let granted = await isPermissionGranted();
+      if (!granted) {
+        granted = (await requestPermission()) === "granted";
+      }
+      return granted;
+    } catch {
+      return false;
+    }
+  }
+
+  if (typeof window === "undefined" || !("Notification" in window)) {
+    return false;
+  }
+
+  if (Notification.permission === "granted") {
+    return true;
+  }
+
+  if (Notification.permission !== "default") {
+    return false;
+  }
+
+  try {
+    return (await Notification.requestPermission()) === "granted";
+  } catch {
+    return false;
+  }
+};
+
 export const unlockPomodoroSound = async (): Promise<void> => {
   const context = getAudioContext();
   if (context && context.state === "suspended") {
@@ -170,22 +247,20 @@ export const unlockPomodoroSound = async (): Promise<void> => {
     }
   }
 
-  if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
-    try {
-      await Notification.requestPermission();
-    } catch {
-      // Ignore notification permission failures; sound still works when available.
-    }
+  try {
+    await ensureNotificationPermission();
+  } catch {
+    // Ignore notification permission failures; sound still works when available.
   }
 };
 
-const playChimeViaHtmlAudio = async (): Promise<boolean> => {
+const playChimeViaHtmlAudio = async (variant: PomodoroChimeVariant): Promise<boolean> => {
   if (typeof window === "undefined" || typeof Audio === "undefined") {
     return false;
   }
 
   try {
-    const audio = new Audio(getChimeDataUri());
+    const audio = new Audio(getChimeDataUri(variant));
     audio.preload = "auto";
     if ("playsInline" in audio) {
       (audio as HTMLAudioElement & { playsInline?: boolean }).playsInline = true;
@@ -197,9 +272,48 @@ const playChimeViaHtmlAudio = async (): Promise<boolean> => {
   }
 };
 
-export const playPomodoroChime = async (): Promise<boolean> => {
+const scheduleChimeNotes = (
+  context: AudioContext,
+  notes: readonly ChimeNote[],
+  loopDurationSeconds: number
+): void => {
+  const startAt = context.currentTime;
+  const endAt = startAt + loopDurationSeconds;
+  const patternDurationSeconds = getChimePatternDurationSeconds(notes);
+
+  for (
+    let patternOffsetSeconds = 0;
+    patternOffsetSeconds < loopDurationSeconds;
+    patternOffsetSeconds += patternDurationSeconds
+  ) {
+    notes.forEach((note) => {
+      const noteStart = startAt + patternOffsetSeconds + note.offsetSeconds;
+      const noteEnd = noteStart + note.durationSeconds;
+      if (noteStart >= endAt) {
+        return;
+      }
+
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      const effectiveEnd = Math.min(noteEnd, endAt);
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(note.frequency, noteStart);
+      gain.gain.setValueAtTime(0.0001, noteStart);
+      gain.gain.exponentialRampToValueAtTime(0.16, noteStart + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, effectiveEnd);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(noteStart);
+      oscillator.stop(effectiveEnd);
+    });
+  }
+};
+
+export const playPomodoroChime = async (variant: PomodoroChimeVariant = "session"): Promise<boolean> => {
   registerAudioLifecycleHandlers();
   const context = getAudioContext();
+  const notes = CHIME_NOTES_BY_VARIANT[variant];
+  const loopDurationSeconds = CHIME_DURATION_SECONDS[variant];
 
   try {
     if (context && context.state !== "closed") {
@@ -208,21 +322,7 @@ export const playPomodoroChime = async (): Promise<boolean> => {
       }
 
       if (context.state === "running") {
-        const startAt = context.currentTime;
-        CHIME_NOTES.forEach((note) => {
-          const oscillator = context.createOscillator();
-          const gain = context.createGain();
-          oscillator.type = "sine";
-          oscillator.frequency.setValueAtTime(note.frequency, startAt + note.offsetSeconds);
-          gain.gain.setValueAtTime(0.0001, startAt + note.offsetSeconds);
-          gain.gain.exponentialRampToValueAtTime(0.16, startAt + note.offsetSeconds + 0.02);
-          gain.gain.exponentialRampToValueAtTime(0.0001, startAt + note.offsetSeconds + note.durationSeconds);
-          oscillator.connect(gain);
-          gain.connect(context.destination);
-          oscillator.start(startAt + note.offsetSeconds);
-          oscillator.stop(startAt + note.offsetSeconds + note.durationSeconds);
-        });
-
+        scheduleChimeNotes(context, notes, loopDurationSeconds);
         return true;
       }
     }
@@ -230,11 +330,30 @@ export const playPomodoroChime = async (): Promise<boolean> => {
     logDebug("error", "pomodoro.sound", "Web Audio chime failed, fallback to HTML audio", error);
   }
 
-  return playChimeViaHtmlAudio();
+  return playChimeViaHtmlAudio(variant);
 };
 
-export const notifyPomodoroCompletion = (title: string, body: string): boolean => {
-  if (typeof window === "undefined" || !("Notification" in window) || Notification.permission !== "granted") {
+export const resolvePomodoroChimeVariant = (
+  kind: "focus" | "short_break" | "long_break",
+  cycleIndex: number
+): PomodoroChimeVariant => (kind === "focus" && cycleIndex >= 4 ? "cycle" : "session");
+
+export const notifyPomodoroCompletion = async (title: string, body: string): Promise<boolean> => {
+  const granted = await ensureNotificationPermission();
+  if (!granted) {
+    return false;
+  }
+
+  if (isTauriRuntime()) {
+    try {
+      sendNotification({ title, body, sound: "Ping" });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  if (typeof window === "undefined" || !("Notification" in window)) {
     return false;
   }
 
@@ -245,4 +364,26 @@ export const notifyPomodoroCompletion = (title: string, body: string): boolean =
   } catch {
     return false;
   }
+};
+
+export interface PomodoroCompletionTestResult {
+  played: boolean;
+  notified: boolean;
+  variant: PomodoroChimeVariant;
+}
+
+export const testPomodoroChime = async (variant: PomodoroChimeVariant = "session"): Promise<boolean> => {
+  await unlockPomodoroSound();
+  return playPomodoroChime(variant);
+};
+
+export const testPomodoroNotification = async (): Promise<boolean> =>
+  notifyPomodoroCompletion("Session Pomodoro terminee (test)", "Focus terminee.");
+
+export const testPomodoroCompletionAnnouncement = async (
+  variant: PomodoroChimeVariant = "session"
+): Promise<PomodoroCompletionTestResult> => {
+  const played = await testPomodoroChime(variant);
+  const notified = await notifyPomodoroCompletion("Session Pomodoro terminee (test)", "Focus terminee.");
+  return { played, notified, variant };
 };

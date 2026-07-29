@@ -3,7 +3,12 @@ import type { PomodoroSessionDetails, PomodoroState, PomodoroTaskSummary, Task }
 import { getTodayDate } from "../lib/date";
 import { logDebug } from "../lib/debug";
 import { getPomodoroDurationMs, getPomodoroKindLabel } from "../lib/pomodoro/engine";
-import { notifyPomodoroCompletion, playPomodoroChime, unlockPomodoroSound } from "../lib/pomodoro/sound";
+import {
+  notifyPomodoroCompletion,
+  playPomodoroChime,
+  resolvePomodoroChimeVariant,
+  unlockPomodoroSound
+} from "../lib/pomodoro/sound";
 import type { AppRepository, PomodoroStartOptions } from "../lib/storage/repository";
 
 export interface PomodoroControllerValue {
@@ -50,15 +55,17 @@ export const usePomodoroController = (repository: AppRepository | null): Pomodor
   const stateRef = useRef<PomodoroState>(buildIdleState());
   const refreshRunningRef = useRef(false);
 
-  const announceCompletion = useCallback(async (kind: PomodoroSessionDetails["kind"]) => {
-    const played = await playPomodoroChime();
-    if (!played) {
-      notifyPomodoroCompletion("Session Pomodoro terminee", `${getPomodoroKindLabel(kind)} terminee.`);
-      return;
-    }
-
-    notifyPomodoroCompletion("Session Pomodoro terminee", `${getPomodoroKindLabel(kind)} terminee.`);
-  }, []);
+  const announceCompletion = useCallback(
+    async (session: Pick<PomodoroSessionDetails, "kind" | "cycleIndex">) => {
+      const variant = resolvePomodoroChimeVariant(session.kind, session.cycleIndex);
+      await playPomodoroChime(variant);
+      await notifyPomodoroCompletion(
+        "Session Pomodoro terminee",
+        `${getPomodoroKindLabel(session.kind)} terminee.`
+      );
+    },
+    []
+  );
 
   const load = useCallback(
     async (options?: { preserveVisibleState?: boolean }) => {
@@ -121,7 +128,7 @@ export const usePomodoroController = (repository: AppRepository | null): Pomodor
     const complete = async () => {
       try {
         await repository.completeExpiredPomodoroSessions();
-        await announceCompletion(expiringSession.kind);
+        await announceCompletion(expiringSession);
         await load({ preserveVisibleState: true });
       } catch (error) {
         logDebug("error", "pomodoro", "Echec de completion automatique d'une session", error);
@@ -181,7 +188,7 @@ export const usePomodoroController = (repository: AppRepository | null): Pomodor
     }
 
     await repository.stopPomodoroSession(activeSession.id, "completed");
-    await announceCompletion(activeSession.kind);
+    await announceCompletion(activeSession);
     await load({ preserveVisibleState: true });
   }, [announceCompletion, load, repository]);
 
@@ -207,6 +214,7 @@ export const usePomodoroController = (repository: AppRepository | null): Pomodor
 
     if (activeSession?.kind === "short_break" || activeSession?.kind === "long_break") {
       await repository.stopPomodoroSession(activeSession.id, "completed");
+      await announceCompletion(activeSession);
       await load({ preserveVisibleState: true });
       return;
     }
@@ -219,11 +227,12 @@ export const usePomodoroController = (repository: AppRepository | null): Pomodor
 
       if (startedBreak) {
         await repository.stopPomodoroSession(startedBreak.id, "completed");
+        await announceCompletion(startedBreak);
       }
 
       await load({ preserveVisibleState: true });
     }
-  }, [load, repository]);
+  }, [announceCompletion, load, repository]);
 
   const cancelCurrent = useCallback(async () => {
     const activeSession = stateRef.current.activeSession;

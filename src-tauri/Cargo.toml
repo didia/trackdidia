@@ -12,4 +12,5 @@ tauri-build = { version = "2.5.6", features = [] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tauri = { version = "2.10.3", features = [] }
+tauri-plugin-notification = "2"
 tauri-plugin-sql = { version = "2.3.2", features = ["sqlite"] }

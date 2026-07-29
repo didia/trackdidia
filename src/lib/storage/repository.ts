@@ -31,6 +31,8 @@ import type {
 export interface StorageInfo {
   databasePath: string;
   backupDir: string;
+  connectionString: string;
+  environment: "development" | "production";
 }
 
 export interface BackupResult {
