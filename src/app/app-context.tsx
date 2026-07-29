@@ -11,7 +11,7 @@ import { defaultAppSettings } from "../domain/daily-entry";
 import type { AppSettings } from "../domain/types";
 import { AiCoachService } from "../lib/ai/coach-service";
 import { DebugPanel } from "../components/DebugPanel";
-import { OpenAiProvider } from "../lib/ai/openai-provider";
+import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
 import {
   getDebugEnabled,
   installDebugInstrumentation,
@@ -55,7 +55,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   const [startupError, setStartupError] = useState<string | null>(null);
   const [startupStage, setStartupStage] = useState("Demarrage du bootstrap");
   const [debugEnabled, setDebugEnabledState] = useState(getDebugEnabled());
-  const coachService = useMemo(() => new AiCoachService(new OpenAiProvider()), []);
+  const coachService = useMemo(() => new AiCoachService(new OpenRouterProvider()), []);
   const startupStageRef = useRef(startupStage);
   const autoBackupRunningRef = useRef(false);
   const pomodoro = usePomodoroController(repository);

@@ -75,7 +75,7 @@ export const SettingsPage = () => {
 
       <SectionCard
         title="Parametres IA"
-        subtitle="Tu peux garder un coach local seulement, ou activer l'IA avec ta propre cle."
+        subtitle="Coach local par defaut, ou OpenRouter avec ta cle API pour router vers le modele de ton choix."
       >
         <form
           className="settings-form"
@@ -110,7 +110,7 @@ export const SettingsPage = () => {
           </label>
 
           <label>
-            <span>URL de base</span>
+            <span>URL de base OpenRouter</span>
             <input
               type="url"
               value={draftSettings.aiBaseUrl}
@@ -120,11 +120,12 @@ export const SettingsPage = () => {
                   aiBaseUrl: event.target.value
                 }))
               }
+              placeholder="https://openrouter.ai/api/v1"
             />
           </label>
 
           <label>
-            <span>Modele</span>
+            <span>Modele OpenRouter</span>
             <input
               type="text"
               value={draftSettings.aiModel}
@@ -134,11 +135,12 @@ export const SettingsPage = () => {
                   aiModel: event.target.value
                 }))
               }
+              placeholder="moonshotai/kimi-k2.6"
             />
           </label>
 
           <label>
-            <span>Cle API</span>
+            <span>Cle API OpenRouter</span>
             <input
               type="password"
               value={draftSettings.aiApiKey}
@@ -148,7 +150,7 @@ export const SettingsPage = () => {
                   aiApiKey: event.target.value
                 }))
               }
-              placeholder="sk-..."
+              placeholder="sk-or-..."
             />
           </label>
 

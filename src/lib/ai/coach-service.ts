@@ -1,5 +1,12 @@
 import { computeCompletionPercent, computeDisciplineScore } from "../../domain/daily-entry";
 import type { AppSettings, CoachMessage, DailyEntry } from "../../domain/types";
+import {
+  buildCoachCacheKey,
+  getCoachInputText,
+  getLocalTimeZone,
+  resolveCoachCachePartOfDay,
+  resolvePartOfDay
+} from "./coach-input";
 import type { AiProvider } from "./provider";
 
 const averageDiscipline = (entries: DailyEntry[]): number => {
@@ -41,6 +48,8 @@ const buildLocalEveningMessage = (entry: DailyEntry, recentEntries: DailyEntry[]
 };
 
 export class AiCoachService {
+  private readonly cache = new Map<string, CoachMessage>();
+
   constructor(private readonly provider: AiProvider) {}
 
   async buildMessage(
@@ -50,33 +59,53 @@ export class AiCoachService {
     settings: AppSettings
   ): Promise<CoachMessage> {
     const title = kind === "morning" ? "Coach du matin" : "Coach du soir";
+    const partOfDay = resolveCoachCachePartOfDay(kind);
+    const inputContent = getCoachInputText(entry, partOfDay);
     const localBody =
       kind === "morning"
         ? buildLocalMorningMessage(entry, recentEntries)
         : buildLocalEveningMessage(entry, recentEntries);
 
+    const localMessage = (): CoachMessage => ({
+      kind,
+      title,
+      body: localBody,
+      source: "local"
+    });
+
+    if (!inputContent) {
+      return localMessage();
+    }
+
+    const cacheKey = buildCoachCacheKey(entry.date, partOfDay, inputContent);
+    const cached = this.cache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     if (!settings.aiEnabled || !settings.aiApiKey.trim()) {
-      return {
-        kind,
-        title,
-        body: localBody,
-        source: "local"
-      };
+      return localMessage();
     }
 
     try {
       const body = await this.provider.generate(kind, {
         entry,
         recentEntries,
-        settings
+        settings,
+        timeZone: getLocalTimeZone(),
+        partOfDay,
+        currentPartOfDay: resolvePartOfDay(),
+        inputContent
       });
 
-      return {
+      const message: CoachMessage = {
         kind,
         title,
         body,
         source: "ai"
       };
+      this.cache.set(cacheKey, message);
+      return message;
     } catch (error) {
       return {
         kind,
@@ -88,4 +117,3 @@ export class AiCoachService {
     }
   }
 }
-

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { CoachMessage, Task } from "../domain/types";
 import { resolveMetricValue } from "../domain/daily-entry";
@@ -7,6 +7,7 @@ import { useDailyEntry } from "../app/use-daily-entry";
 import { CoachCard } from "../components/CoachCard";
 import { EntrySummaryStrip } from "../components/EntrySummaryStrip";
 import { SectionCard } from "../components/SectionCard";
+import { buildCoachCacheKey, getCoachInputText, resolveCoachCachePartOfDay } from "../lib/ai/coach-input";
 import { formatDateLong, formatDateTimeShort, getTodayDate } from "../lib/date";
 import { formatTimestamp } from "../lib/format";
 import type { DailyTaskBreakdown } from "../lib/storage/repository";
@@ -30,33 +31,89 @@ export const TodayPage = () => {
   const [eveningCoach, setEveningCoach] = useState<CoachMessage | null>(null);
   const [taskBreakdown, setTaskBreakdown] = useState<DailyTaskBreakdown | null>(null);
   const [openTaskPanel, setOpenTaskPanel] = useState<"added" | "completed" | null>(null);
+  const entryRef = useRef(entry);
+  entryRef.current = entry;
+
+  const morningCoachKey = useMemo(() => {
+    if (!entry) {
+      return null;
+    }
+
+    const partOfDay = resolveCoachCachePartOfDay("morning");
+    return buildCoachCacheKey(entry.date, partOfDay, getCoachInputText(entry, partOfDay));
+  }, [entry?.date, entry?.morningIntention]);
+  const eveningCoachKey = useMemo(() => {
+    if (!entry) {
+      return null;
+    }
+
+    const partOfDay = resolveCoachCachePartOfDay("evening");
+    return buildCoachCacheKey(entry.date, partOfDay, getCoachInputText(entry, partOfDay));
+  }, [entry?.date, entry?.nightReflection, entry?.tomorrowFocus]);
 
   useEffect(() => {
-    if (!entry) {
+    if (!morningCoachKey) {
       return;
     }
 
     let cancelled = false;
 
-    const loadCoach = async () => {
-      const recentEntries = await repository.listDailyEntries(7);
-      const [morning, evening] = await Promise.all([
-        coachService.buildMessage("morning", entry, recentEntries, settings),
-        coachService.buildMessage("evening", entry, recentEntries, settings)
-      ]);
+    const loadMorningCoach = async () => {
+      const currentEntry = entryRef.current;
+      if (!currentEntry) {
+        return;
+      }
 
+      const recentEntries = await repository.listDailyEntries(7);
+      const morning = await coachService.buildMessage(
+        "morning",
+        currentEntry,
+        recentEntries,
+        settings
+      );
       if (!cancelled) {
         setMorningCoach(morning);
-        setEveningCoach(evening);
       }
     };
 
-    void loadCoach();
+    void loadMorningCoach();
 
     return () => {
       cancelled = true;
     };
-  }, [coachService, entry, repository, settings]);
+  }, [coachService, morningCoachKey, repository, settings]);
+
+  useEffect(() => {
+    if (!eveningCoachKey) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadEveningCoach = async () => {
+      const currentEntry = entryRef.current;
+      if (!currentEntry) {
+        return;
+      }
+
+      const recentEntries = await repository.listDailyEntries(7);
+      const evening = await coachService.buildMessage(
+        "evening",
+        currentEntry,
+        recentEntries,
+        settings
+      );
+      if (!cancelled) {
+        setEveningCoach(evening);
+      }
+    };
+
+    void loadEveningCoach();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [coachService, eveningCoachKey, repository, settings]);
 
   useEffect(() => {
     if (!entry) {
