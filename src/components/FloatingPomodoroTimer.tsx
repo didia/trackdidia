@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { useAppContext } from "../app/app-context";
+import { usePomodoroTiming } from "../app/use-pomodoro-timing";
 import { formatTimerRemaining } from "../lib/date";
 import { getPomodoroKindLabel } from "../lib/pomodoro/engine";
 
@@ -9,9 +10,10 @@ const isBreakSession = (kind: "focus" | "short_break" | "long_break") =>
 export const FloatingPomodoroTimer = () => {
   const { pomodoro, debugEnabled } = useAppContext();
   const activeSession = pomodoro.state.activeSession;
-  const hasLiveSession = Boolean(activeSession && pomodoro.remainingMs > 0);
+  const timing = usePomodoroTiming(activeSession);
+  const hasActiveSession = Boolean(activeSession);
 
-  if (!hasLiveSession || !activeSession) {
+  if (!hasActiveSession || !activeSession) {
     return null;
   }
 
@@ -39,7 +41,7 @@ export const FloatingPomodoroTimer = () => {
       <div className="floating-pomodoro__body">
         <div className="floating-pomodoro__clock">
           <span className="floating-pomodoro__kind">{getPomodoroKindLabel(activeSession.kind)}</span>
-          <strong>{formatTimerRemaining(pomodoro.remainingMs)}</strong>
+          <strong>{timing.valid ? formatTimerRemaining(timing.remainingMs) : "--:--"}</strong>
         </div>
 
         <div className="floating-pomodoro__summary">
@@ -63,7 +65,7 @@ export const FloatingPomodoroTimer = () => {
           <button className="button" type="button" onClick={() => void pomodoro.skipBreak()}>
             Skipper
           </button>
-        ) : pomodoro.canCompleteNow ? (
+        ) : timing.canCompleteNow ? (
           <button className="button" type="button" onClick={() => void pomodoro.completeNow()}>
             Terminer
           </button>

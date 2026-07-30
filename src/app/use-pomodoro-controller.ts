@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PomodoroSessionDetails, PomodoroState, PomodoroTaskSummary, Task } from "../domain/types";
 import { getTodayDate } from "../lib/date";
 import { logDebug } from "../lib/debug";
-import { getPomodoroDurationMs, getPomodoroKindLabel } from "../lib/pomodoro/engine";
+import { getPomodoroTiming, getPomodoroKindLabel } from "../lib/pomodoro/engine";
 import {
   notifyPomodoroCompletion,
   playPomodoroChime,
@@ -20,8 +20,6 @@ export interface PomodoroControllerValue {
   currentActivityLabel: string | null;
   preferredTask: Task | null;
   preferredActivityLabel: string | null;
-  remainingMs: number;
-  canCompleteNow: boolean;
   loading: boolean;
   reload: () => Promise<void>;
   startPomodoro: (options?: PomodoroStartOptions) => Promise<void>;
@@ -45,273 +43,434 @@ const buildIdleState = (): PomodoroState => ({
   currentCycleIndex: 1
 });
 
+const isBreak = (kind: PomodoroSessionDetails["kind"]): boolean => kind === "short_break" || kind === "long_break";
+
+/** Shared timer state and serialized persistence orchestration for the application shell. */
 export const usePomodoroController = (repository: AppRepository | null): PomodoroControllerValue => {
   const [state, setState] = useState<PomodoroState>(buildIdleState());
   const [sessions, setSessions] = useState<PomodoroSessionDetails[]>([]);
   const [taskSummaries, setTaskSummaries] = useState<PomodoroTaskSummary[]>([]);
   const [allTasks, setAllTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
-  const [nowMs, setNowMs] = useState(Date.now());
   const stateRef = useRef<PomodoroState>(buildIdleState());
-  const refreshRunningRef = useRef(false);
+  const repositoryRef = useRef<AppRepository | null>(repository);
+  const mountedRef = useRef(false);
+  const queueRef = useRef<Promise<void>>(Promise.resolve());
+  const snapshotTokenRef = useRef(0);
+  const announcedCompletionIdsRef = useRef(new Set<string>());
+  const invalidDeadlineKeysRef = useRef(new Set<string>());
 
-  const announceCompletion = useCallback(
-    async (session: Pick<PomodoroSessionDetails, "kind" | "cycleIndex">) => {
-      const variant = resolvePomodoroChimeVariant(session.kind, session.cycleIndex);
-      await playPomodoroChime(variant);
-      await notifyPomodoroCompletion(
-        "Session Pomodoro terminee",
-        `${getPomodoroKindLabel(session.kind)} terminee.`
-      );
-    },
-    []
-  );
-
-  const load = useCallback(
-    async (options?: { preserveVisibleState?: boolean }) => {
-      if (!repository) {
-        setLoading(false);
-        return;
-      }
-
-      if (!options?.preserveVisibleState) {
-        setLoading(true);
-      }
-
-      const today = getTodayDate();
-      await repository.generateDueRecurringTasks(today);
-      const nextState = await repository.completeExpiredPomodoroSessions();
-      const [nextSessions, nextSummaries, nextTasks] = await Promise.all([
-        repository.listPomodoroSessions(today),
-        repository.listPomodoroTaskSummaries(today),
-        repository.listTasks({ includeCompleted: true })
-      ]);
-
-      stateRef.current = nextState;
-      setState(nextState);
-      setSessions(nextSessions);
-      setTaskSummaries(nextSummaries);
-      setAllTasks(nextTasks);
-      setLoading(false);
-      setNowMs(Date.now());
-    },
-    [repository]
-  );
+  repositoryRef.current = repository;
 
   useEffect(() => {
-    void load();
-  }, [load]);
-
-  useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      setNowMs(Date.now());
-    }, 1000);
-
+    mountedRef.current = true;
     return () => {
-      window.clearInterval(intervalId);
+      mountedRef.current = false;
+      snapshotTokenRef.current += 1;
     };
   }, []);
 
   useEffect(() => {
-    const activeSession = state.activeSession;
+    snapshotTokenRef.current += 1;
+    announcedCompletionIdsRef.current = new Set();
+    invalidDeadlineKeysRef.current = new Set();
+  }, [repository]);
 
+  const isCurrentRepository = useCallback((candidate: AppRepository) =>
+    mountedRef.current && repositoryRef.current === candidate, []);
+
+  const announceCompletion = useCallback(async (session: Pick<PomodoroSessionDetails, "kind" | "cycleIndex">) => {
+    const variant = resolvePomodoroChimeVariant(session.kind, session.cycleIndex);
+    await playPomodoroChime(variant);
+    await notifyPomodoroCompletion(
+      "Session Pomodoro terminee",
+      `${getPomodoroKindLabel(session.kind)} terminee.`
+    );
+  }, []);
+
+  const enqueue = useCallback(<T,>(operation: () => Promise<T>): Promise<T> => {
+    const run = queueRef.current.then(operation);
+    // Keep later work runnable even if a caller observes (or ignores) a rejected action.
+    queueRef.current = run.then(() => undefined, () => undefined);
+    return run;
+  }, []);
+
+  const runQueued = useCallback(async (label: string, operation: () => Promise<void>) => {
+    try {
+      await enqueue(operation);
+    } catch (error) {
+      logDebug("error", "pomodoro", `Echec de ${label}`, error);
+    }
+  }, [enqueue]);
+
+  const applyState = useCallback((candidate: AppRepository, nextState: PomodoroState) => {
+    if (!isCurrentRepository(candidate)) {
+      return;
+    }
+    stateRef.current = nextState;
+    setState(nextState);
+  }, [isCurrentRepository]);
+
+  const refreshPomodoro = useCallback(async (candidate: AppRepository, nextState?: PomodoroState) => {
+    const token = ++snapshotTokenRef.current;
+    if (nextState) {
+      applyState(candidate, nextState);
+    }
+
+    const today = getTodayDate();
+    const [nextSessions, nextSummaries] = await Promise.all([
+      candidate.listPomodoroSessions(today),
+      candidate.listPomodoroTaskSummaries(today)
+    ]);
+
+    if (!isCurrentRepository(candidate) || token !== snapshotTokenRef.current) {
+      return;
+    }
+    setSessions(nextSessions);
+    setTaskSummaries(nextSummaries);
+    setLoading(false);
+  }, [applyState, isCurrentRepository]);
+
+  const refreshEverything = useCallback(async (candidate: AppRepository, showLoading: boolean) => {
+    const token = ++snapshotTokenRef.current;
+    if (showLoading && isCurrentRepository(candidate)) {
+      setLoading(true);
+    }
+
+    const today = getTodayDate();
+    await candidate.generateDueRecurringTasks(today);
+    const nextState = await candidate.completeExpiredPomodoroSessions();
+    applyState(candidate, nextState);
+    const [nextSessions, nextSummaries, nextTasks] = await Promise.all([
+      candidate.listPomodoroSessions(today),
+      candidate.listPomodoroTaskSummaries(today),
+      candidate.listTasks({ includeCompleted: true })
+    ]);
+
+    if (!isCurrentRepository(candidate) || token !== snapshotTokenRef.current) {
+      return;
+    }
+    setSessions(nextSessions);
+    setTaskSummaries(nextSummaries);
+    setAllTasks(nextTasks);
+    setLoading(false);
+  }, [applyState, isCurrentRepository]);
+
+  useEffect(() => {
+    if (!repository) {
+      setLoading(false);
+      return;
+    }
+    void runQueued("chargement Pomodoro", async () => refreshEverything(repository, true));
+  }, [refreshEverything, repository, runQueued]);
+
+  const completeExpiredSessionIfCurrent = useCallback(async (
+    candidate: AppRepository,
+    captured: PomodoroSessionDetails
+  ): Promise<boolean> => {
+    if (!isCurrentRepository(candidate)) {
+      return false;
+    }
+    const activeSession = stateRef.current.activeSession;
+    if (
+      !activeSession ||
+      activeSession.id !== captured.id ||
+      activeSession.status !== "running" ||
+      activeSession.endsAt !== captured.endsAt
+    ) {
+      return false;
+    }
+    const timing = getPomodoroTiming(activeSession, Date.now());
+    if (!timing.valid || timing.remainingMs > 0) {
+      return false;
+    }
+
+    const nextState = await candidate.completeExpiredPomodoroSessions();
+    // Verify the exact persisted local-date record before publishing a null state. If this
+    // read fails, stateRef remains running and the next reconciliation can safely retry.
+    const persistedSessions = await candidate.listPomodoroSessions(captured.date);
+    const persisted = persistedSessions.find((session) => session.id === captured.id);
+    if (persisted?.status !== "completed") {
+      logDebug("error", "pomodoro", "Session expiree non verifiee apres persistance", {
+        sessionId: captured.id,
+        date: captured.date
+      });
+      return true;
+    }
+
+    applyState(candidate, nextState);
+    if (!announcedCompletionIdsRef.current.has(captured.id)) {
+      announcedCompletionIdsRef.current.add(captured.id);
+      await announceCompletion(captured);
+    }
+    await refreshPomodoro(candidate);
+    return true;
+  }, [announceCompletion, applyState, isCurrentRepository, refreshPomodoro]);
+
+  const reconcileExpiredActiveSession = useCallback(async (candidate: AppRepository): Promise<boolean> => {
+    const activeSession = stateRef.current.activeSession;
+    return activeSession?.status === "running"
+      ? completeExpiredSessionIfCurrent(candidate, activeSession)
+      : false;
+  }, [completeExpiredSessionIfCurrent]);
+
+  const processExpiry = useCallback((candidate: AppRepository, captured: PomodoroSessionDetails) =>
+    runQueued("completion automatique d'une session", async () => {
+      await completeExpiredSessionIfCurrent(candidate, captured);
+    }),
+  [completeExpiredSessionIfCurrent, runQueued]);
+
+  useEffect(() => {
+    const activeSession = state.activeSession;
     if (!repository || !activeSession || activeSession.status !== "running") {
       return;
     }
 
-    const expiringSession = activeSession;
-    const sessionEndsAtMs = new Date(expiringSession.endsAt).getTime();
-
-    if (nowMs < sessionEndsAtMs || refreshRunningRef.current) {
+    const timing = getPomodoroTiming(activeSession, Date.now());
+    if (!timing.valid) {
+      const key = `${activeSession.id}:${activeSession.endsAt}`;
+      if (!invalidDeadlineKeysRef.current.has(key)) {
+        invalidDeadlineKeysRef.current.add(key);
+        logDebug("error", "pomodoro", "Deadline Pomodoro invalide; aucun planificateur active", {
+          sessionId: activeSession.id,
+          endsAt: activeSession.endsAt
+        });
+      }
       return;
     }
 
-    refreshRunningRef.current = true;
-
-    const complete = async () => {
-      try {
-        await repository.completeExpiredPomodoroSessions();
-        await announceCompletion(expiringSession);
-        await load({ preserveVisibleState: true });
-      } catch (error) {
-        logDebug("error", "pomodoro", "Echec de completion automatique d'une session", error);
-      } finally {
-        refreshRunningRef.current = false;
+    let timeoutId: number | undefined;
+    const reconcile = () => {
+      const current = stateRef.current.activeSession;
+      if (!current || current.id !== activeSession.id || current.status !== "running") {
+        return;
+      }
+      const currentTiming = getPomodoroTiming(current, Date.now());
+      if (!currentTiming.valid) {
+        return;
+      }
+      const deadlineRemainingMs = new Date(current.endsAt).getTime() - Date.now();
+      if (deadlineRemainingMs <= 0) {
+        void processExpiry(repository, current);
+        return;
+      }
+      window.clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(reconcile, Math.min(deadlineRemainingMs, 2_147_483_647));
+    };
+    const reconcileWhenVisible = () => {
+      if (document.visibilityState === "visible") {
+        reconcile();
       }
     };
 
-    void complete();
-  }, [announceCompletion, load, nowMs, repository, state.activeSession]);
+    reconcile();
+    const intervalId = window.setInterval(reconcile, 30_000);
+    window.addEventListener("focus", reconcile);
+    document.addEventListener("visibilitychange", reconcileWhenVisible);
+    return () => {
+      window.clearTimeout(timeoutId);
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", reconcile);
+      document.removeEventListener("visibilitychange", reconcileWhenVisible);
+    };
+  }, [
+    processExpiry,
+    repository,
+    state.activeSession?.endsAt,
+    state.activeSession?.id,
+    state.activeSession?.status
+  ]);
 
-  const startPomodoro = useCallback(
-    async (options: PomodoroStartOptions = {}) => {
-      if (!repository) {
+  const startPomodoro = useCallback(async (options: PomodoroStartOptions = {}) => {
+    if (!repository) {
+      return;
+    }
+    await unlockPomodoroSound();
+    await runQueued("demarrage Pomodoro", async () => {
+      if (await reconcileExpiredActiveSession(repository)) {
         return;
       }
-
-      await unlockPomodoroSound();
-      await repository.startPomodoro(options);
-      await load({ preserveVisibleState: true });
-    },
-    [load, repository]
-  );
+      if (!isCurrentRepository(repository) || stateRef.current.activeSession) {
+        return;
+      }
+      const nextState = await repository.startPomodoro(options);
+      await refreshPomodoro(repository, nextState);
+    });
+  }, [isCurrentRepository, reconcileExpiredActiveSession, refreshPomodoro, repository, runQueued]);
 
   const pauseCurrent = useCallback(async () => {
-    const activeSession = stateRef.current.activeSession;
-    if (!repository || !activeSession || activeSession.status !== "running") {
+    if (!repository) {
       return;
     }
-
-    await repository.pausePomodoroSession(activeSession.id);
-    await load({ preserveVisibleState: true });
-  }, [load, repository]);
+    await runQueued("mise en pause Pomodoro", async () => {
+      if (await reconcileExpiredActiveSession(repository)) {
+        return;
+      }
+      const activeSession = stateRef.current.activeSession;
+      if (!isCurrentRepository(repository) || !activeSession || activeSession.status !== "running") {
+        return;
+      }
+      const nextState = await repository.pausePomodoroSession(activeSession.id);
+      await refreshPomodoro(repository, nextState);
+    });
+  }, [isCurrentRepository, reconcileExpiredActiveSession, refreshPomodoro, repository, runQueued]);
 
   const resumeCurrent = useCallback(async () => {
-    const activeSession = stateRef.current.activeSession;
-    if (!repository || !activeSession || activeSession.status !== "paused") {
+    if (!repository) {
       return;
     }
-
     await unlockPomodoroSound();
-    await repository.resumePomodoroSession(activeSession.id);
-    await load({ preserveVisibleState: true });
-  }, [load, repository]);
+    await runQueued("reprise Pomodoro", async () => {
+      const activeSession = stateRef.current.activeSession;
+      if (!isCurrentRepository(repository) || !activeSession || activeSession.status !== "paused") {
+        return;
+      }
+      const nextState = await repository.resumePomodoroSession(activeSession.id);
+      await refreshPomodoro(repository, nextState);
+    });
+  }, [isCurrentRepository, refreshPomodoro, repository, runQueued]);
 
   const completeNow = useCallback(async () => {
-    const activeSession = stateRef.current.activeSession;
-    if (!repository || !activeSession) {
+    if (!repository) {
       return;
     }
-
-    const elapsedMs =
-      getPomodoroDurationMs(activeSession.kind) -
-      (activeSession.pausedRemainingMs ?? Math.max(0, new Date(activeSession.endsAt).getTime() - Date.now()));
-    if (activeSession.kind === "focus" && elapsedMs < getPomodoroDurationMs("focus") / 2) {
-      return;
-    }
-
-    await repository.stopPomodoroSession(activeSession.id, "completed");
-    await announceCompletion(activeSession);
-    await load({ preserveVisibleState: true });
-  }, [announceCompletion, load, repository]);
+    await runQueued("completion manuelle Pomodoro", async () => {
+      if (await reconcileExpiredActiveSession(repository)) {
+        return;
+      }
+      const activeSession = stateRef.current.activeSession;
+      if (!isCurrentRepository(repository) || !activeSession || !getPomodoroTiming(activeSession, Date.now()).canCompleteNow) {
+        return;
+      }
+      const nextState = await repository.stopPomodoroSession(activeSession.id, "completed");
+      applyState(repository, nextState);
+      await announceCompletion(activeSession);
+      await refreshPomodoro(repository, nextState);
+    });
+  }, [announceCompletion, applyState, isCurrentRepository, reconcileExpiredActiveSession, refreshPomodoro, repository, runQueued]);
 
   const completeCurrentTask = useCallback(async () => {
-    const activeSession = stateRef.current.activeSession;
-    const currentTaskId = activeSession?.activeTaskId;
-
-    if (!repository || !activeSession || activeSession.status !== "running" || activeSession.kind !== "focus" || !currentTaskId) {
+    if (!repository) {
       return;
     }
-
-    await repository.completeTask(currentTaskId);
-    await repository.switchPomodoroTask(activeSession.id, null, null);
-    await load({ preserveVisibleState: true });
-  }, [load, repository]);
+    await runQueued("completion de la tache Pomodoro", async () => {
+      if (await reconcileExpiredActiveSession(repository)) {
+        return;
+      }
+      const activeSession = stateRef.current.activeSession;
+      const currentTaskId = activeSession?.activeTaskId;
+      if (!isCurrentRepository(repository) || !activeSession || activeSession.status !== "running" || activeSession.kind !== "focus" || !currentTaskId) {
+        return;
+      }
+      await repository.completeTask(currentTaskId);
+      const nextState = await repository.switchPomodoroTask(activeSession.id, null, null);
+      applyState(repository, nextState);
+      await refreshEverything(repository, false);
+    });
+  }, [applyState, isCurrentRepository, reconcileExpiredActiveSession, refreshEverything, repository, runQueued]);
 
   const skipBreak = useCallback(async () => {
     if (!repository) {
       return;
     }
-
-    const activeSession = stateRef.current.activeSession;
-
-    if (activeSession?.kind === "short_break" || activeSession?.kind === "long_break") {
-      await repository.stopPomodoroSession(activeSession.id, "completed");
-      await announceCompletion(activeSession);
-      await load({ preserveVisibleState: true });
-      return;
-    }
-
-    if (stateRef.current.nextSessionKind === "short_break" || stateRef.current.nextSessionKind === "long_break") {
-      const startedState = await repository.startPomodoro({
-        kind: stateRef.current.nextSessionKind
-      });
-      const startedBreak = startedState.activeSession;
-
-      if (startedBreak) {
-        await repository.stopPomodoroSession(startedBreak.id, "completed");
-        await announceCompletion(startedBreak);
-      }
-
-      await load({ preserveVisibleState: true });
-    }
-  }, [announceCompletion, load, repository]);
-
-  const cancelCurrent = useCallback(async () => {
-    const activeSession = stateRef.current.activeSession;
-    if (!repository || !activeSession) {
-      return;
-    }
-
-    await repository.stopPomodoroSession(activeSession.id, "cancelled");
-    await load({ preserveVisibleState: true });
-  }, [load, repository]);
-
-  const switchTask = useCallback(
-    async (taskId: string | null, title: string | null = null) => {
-      const activeSession = stateRef.current.activeSession;
-      if (!repository || !activeSession) {
+    await runQueued("saut de pause Pomodoro", async () => {
+      if (!isCurrentRepository(repository)) {
         return;
       }
+      if (await reconcileExpiredActiveSession(repository)) {
+        return;
+      }
+      const activeSession = stateRef.current.activeSession;
+      if (activeSession && isBreak(activeSession.kind)) {
+        const nextState = await repository.stopPomodoroSession(activeSession.id, "completed");
+        applyState(repository, nextState);
+        await announceCompletion(activeSession);
+        await refreshPomodoro(repository, nextState);
+        return;
+      }
+      if (activeSession || !isBreak(stateRef.current.nextSessionKind)) {
+        return;
+      }
+      const startedState = await repository.startPomodoro({ kind: stateRef.current.nextSessionKind });
+      applyState(repository, startedState);
+      const startedBreak = startedState.activeSession;
+      if (!startedBreak) {
+        await refreshPomodoro(repository, startedState);
+        return;
+      }
+      const nextState = await repository.stopPomodoroSession(startedBreak.id, "completed");
+      applyState(repository, nextState);
+      await announceCompletion(startedBreak);
+      await refreshPomodoro(repository, nextState);
+    });
+  }, [announceCompletion, applyState, isCurrentRepository, reconcileExpiredActiveSession, refreshPomodoro, repository, runQueued]);
 
-      await repository.switchPomodoroTask(activeSession.id, taskId, title);
-      await load({ preserveVisibleState: true });
-    },
-    [load, repository]
-  );
+  const cancelCurrent = useCallback(async () => {
+    if (!repository) {
+      return;
+    }
+    await runQueued("annulation Pomodoro", async () => {
+      if (await reconcileExpiredActiveSession(repository)) {
+        return;
+      }
+      const activeSession = stateRef.current.activeSession;
+      if (!isCurrentRepository(repository) || !activeSession) {
+        return;
+      }
+      const nextState = await repository.stopPomodoroSession(activeSession.id, "cancelled");
+      await refreshPomodoro(repository, nextState);
+    });
+  }, [isCurrentRepository, reconcileExpiredActiveSession, refreshPomodoro, repository, runQueued]);
+
+  const switchTask = useCallback(async (taskId: string | null, title: string | null = null) => {
+    if (!repository) {
+      return;
+    }
+    await runQueued("changement de tache Pomodoro", async () => {
+      if (await reconcileExpiredActiveSession(repository)) {
+        return;
+      }
+      const activeSession = stateRef.current.activeSession;
+      if (!isCurrentRepository(repository) || !activeSession) {
+        return;
+      }
+      const nextState = await repository.switchPomodoroTask(activeSession.id, taskId, title);
+      await refreshPomodoro(repository, nextState);
+    });
+  }, [isCurrentRepository, reconcileExpiredActiveSession, refreshPomodoro, repository, runQueued]);
+
+  const reload = useCallback(async () => {
+    if (!repository) {
+      return;
+    }
+    await runQueued("rechargement Pomodoro", async () => refreshEverything(repository, false));
+  }, [refreshEverything, repository, runQueued]);
 
   const currentActivityLabel = state.activeSession?.activeTaskId ? null : state.activeSession?.activeLabel ?? null;
-
   const currentTask = useMemo(() => {
     const taskId = state.activeSession?.activeTaskId;
-    if (!taskId) {
-      return null;
-    }
-
-    return allTasks.find((task) => task.id === taskId) ?? null;
+    return taskId ? allTasks.find((task) => task.id === taskId) ?? null : null;
   }, [allTasks, state.activeSession?.activeTaskId]);
-
-  const latestFocusSession = useMemo(
-    () => sessions.find((session) => session.kind === "focus"),
-    [sessions]
-  );
-
+  const latestFocusSession = useMemo(() => sessions.find((session) => session.kind === "focus"), [sessions]);
   const preferredSelection = useMemo(() => {
     if (currentTask || currentActivityLabel) {
       return { task: currentTask, label: currentActivityLabel };
     }
-
     const latestSegment = latestFocusSession?.segments.at(-1) ?? null;
     if (!latestSegment) {
       return { task: null, label: null };
     }
-
     if (latestSegment.taskId) {
-      const preferredTask = allTasks.find(
-        (task) => task.id === latestSegment.taskId && isPomodoroTaskEligible(task)
-      ) ?? null;
-      return { task: preferredTask, label: null };
+      return {
+        task: allTasks.find((task) => task.id === latestSegment.taskId && isPomodoroTaskEligible(task)) ?? null,
+        label: null
+      };
     }
-
     return { task: null, label: latestSegment.title ?? null };
   }, [allTasks, currentActivityLabel, currentTask, latestFocusSession]);
-
-  const canCompleteNow = useMemo(() => {
-    if (!state.activeSession || state.activeSession.kind !== "focus") {
-      return false;
-    }
-
-    const elapsedMs =
-      getPomodoroDurationMs("focus") -
-      (state.activeSession.status === "paused"
-        ? (state.activeSession.pausedRemainingMs ?? 0)
-        : Math.max(0, new Date(state.activeSession.endsAt).getTime() - nowMs));
-    return elapsedMs >= getPomodoroDurationMs("focus") / 2;
-  }, [nowMs, state.activeSession]);
-
   const taskOptions = useMemo(() => allTasks.filter(isPomodoroTaskEligible), [allTasks]);
 
-  return {
+  return useMemo(() => ({
     state,
     sessions,
     taskSummaries,
@@ -320,14 +479,8 @@ export const usePomodoroController = (repository: AppRepository | null): Pomodor
     currentActivityLabel,
     preferredTask: preferredSelection.task,
     preferredActivityLabel: preferredSelection.label,
-    remainingMs: state.activeSession
-      ? state.activeSession.status === "paused"
-        ? (state.activeSession.pausedRemainingMs ?? 0)
-        : Math.max(0, new Date(state.activeSession.endsAt).getTime() - nowMs)
-      : 0,
-    canCompleteNow,
     loading,
-    reload: async () => load({ preserveVisibleState: true }),
+    reload,
     startPomodoro,
     pauseCurrent,
     resumeCurrent,
@@ -336,5 +489,23 @@ export const usePomodoroController = (repository: AppRepository | null): Pomodor
     completeNow,
     cancelCurrent,
     switchTask
-  };
+  }), [
+    cancelCurrent,
+    completeCurrentTask,
+    completeNow,
+    currentActivityLabel,
+    currentTask,
+    loading,
+    pauseCurrent,
+    preferredSelection,
+    reload,
+    resumeCurrent,
+    sessions,
+    skipBreak,
+    startPomodoro,
+    state,
+    switchTask,
+    taskOptions,
+    taskSummaries
+  ]);
 };
