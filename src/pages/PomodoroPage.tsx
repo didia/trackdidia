@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppContext } from "../app/app-context";
+import { usePomodoroTiming } from "../app/use-pomodoro-timing";
 import { SectionCard } from "../components/SectionCard";
 import { formatDateLong, formatDateTimeShort, formatSecondsCompact, formatTimerRemaining, getTodayDate } from "../lib/date";
 import { getPomodoroKindLabel } from "../lib/pomodoro/engine";
@@ -45,7 +46,8 @@ export const PomodoroPage = () => {
   ]);
 
   const activeSession = pomodoro.state.activeSession;
-  const hasActiveSession = Boolean(activeSession && pomodoro.remainingMs > 0);
+  const timing = usePomodoroTiming(activeSession);
+  const hasActiveSession = Boolean(activeSession);
   const hasRunningSession = Boolean(hasActiveSession && activeSession?.status === "running");
   const hasPausedSession = Boolean(hasActiveSession && activeSession?.status === "paused");
   const hasLiveFocusSession = Boolean(hasRunningSession && activeSession?.kind === "focus");
@@ -81,7 +83,7 @@ export const PomodoroPage = () => {
         <div className="pomodoro-panel">
           <div className={`pomodoro-clock${activeSession ? ` pomodoro-clock--${activeSession.kind}` : ""}`}>
             <span className="pomodoro-clock__label">{sessionLabel}</span>
-            <strong>{hasActiveSession && activeSession ? formatTimerRemaining(pomodoro.remainingMs) : "00:00"}</strong>
+            <strong>{hasActiveSession && activeSession ? timing.valid ? formatTimerRemaining(timing.remainingMs) : "--:--" : "00:00"}</strong>
             <span className="pomodoro-clock__cycle">
               Session {pomodoro.state.currentCycleIndex}/4{hasPausedSession ? " • En pause" : ""}
             </span>
@@ -205,21 +207,15 @@ export const PomodoroPage = () => {
                 </button>
               ) : null}
 
-              {(hasLiveFocusSession || hasPausedFocusSession) && pomodoro.canCompleteNow ? (
+              {(hasLiveFocusSession || hasPausedFocusSession) ? (
                 <>
-                  <button className="button" type="button" onClick={() => void pomodoro.completeNow()}>
+                  <button className="button" type="button" disabled={!timing.canCompleteNow} onClick={() => void pomodoro.completeNow()}>
                     Terminer maintenant
                   </button>
                   <button className="button button--ghost" type="button" onClick={() => void pomodoro.cancelCurrent()}>
                     Annuler la session
                   </button>
                 </>
-              ) : null}
-
-              {(hasLiveFocusSession || hasPausedFocusSession) && !pomodoro.canCompleteNow ? (
-                <button className="button button--ghost" type="button" onClick={() => void pomodoro.cancelCurrent()}>
-                  Annuler la session
-                </button>
               ) : null}
 
               {(hasLiveBreakSession || hasPausedBreakSession) ? (
@@ -234,9 +230,9 @@ export const PomodoroPage = () => {
                 {hasPausedSession
                   ? "La session est en pause. Reprendre relance le chrono la ou il s'est arrete."
                   : hasLiveFocusSession
-                    ? pomodoro.canCompleteNow
+                    ? timing.canCompleteNow
                       ? "Terminer maintenant cloture cette session comme completee et fait avancer le cycle. Annuler la session l'arrete sans la compter comme accomplie."
-                      : "Pendant la premiere moitie du focus, tu peux mettre en pause ou annuler la session. Terminer maintenant apparait apres la moitie du pomodoro."
+                      : "Pendant la premiere moitie du focus, tu peux mettre en pause ou annuler la session. Terminer maintenant est active apres la moitie du pomodoro."
                     : "Skipper la pause cloture la pause tout de suite et relance le cycle. Annuler la session l'arrete sans la compter."}
               </p>
             ) : null}

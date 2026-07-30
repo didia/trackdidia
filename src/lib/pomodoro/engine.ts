@@ -23,6 +23,49 @@ export const clonePomodoroSegment = (segment: PomodoroSegment): PomodoroSegment 
 
 export const getPomodoroDurationMs = (kind: PomodoroKind): number => POMODORO_DURATIONS_MS[kind];
 
+export interface PomodoroTiming {
+  remainingMs: number;
+  canCompleteNow: boolean;
+  valid: boolean;
+}
+
+/**
+ * Calculates display/action timing without mutating a session. Paused sessions deliberately
+ * use their persisted remaining duration only, so opening a screen cannot advance a pause.
+ */
+export const getPomodoroTiming = (
+  session: Pick<PomodoroSession, "kind" | "status" | "endsAt" | "pausedRemainingMs"> | null,
+  nowMs: number
+): PomodoroTiming => {
+  if (!session) {
+    return { remainingMs: 0, canCompleteNow: false, valid: false };
+  }
+
+  const durationMs = getPomodoroDurationMs(session.kind);
+  let remainingMs: number;
+
+  if (session.status === "running") {
+    const endsAtMs = new Date(session.endsAt).getTime();
+    if (!Number.isFinite(endsAtMs) || !Number.isFinite(nowMs)) {
+      return { remainingMs: 0, canCompleteNow: false, valid: false };
+    }
+    remainingMs = Math.max(0, Math.min(durationMs, endsAtMs - nowMs));
+  } else if (session.status === "paused") {
+    if (!Number.isFinite(session.pausedRemainingMs) || (session.pausedRemainingMs ?? -1) < 0) {
+      return { remainingMs: 0, canCompleteNow: false, valid: false };
+    }
+    remainingMs = Math.min(durationMs, session.pausedRemainingMs as number);
+  } else {
+    return { remainingMs: 0, canCompleteNow: false, valid: false };
+  }
+
+  return {
+    remainingMs,
+    canCompleteNow: session.kind === "focus" && durationMs - remainingMs >= durationMs / 2,
+    valid: true
+  };
+};
+
 export const createPomodoroSession = (
   kind: PomodoroKind,
   startedAt: string,
@@ -99,14 +142,15 @@ const findLatestCompletedSession = (sessions: PomodoroSession[]): PomodoroSessio
   return completed.length > 0 ? completed[completed.length - 1] : null;
 };
 
-/** Sessions still marked running but past endsAt are treated as completed at endsAt so idle/reset logic applies. */
+/** Sessions still marked running with a valid, past endsAt are treated as completed at endsAt so idle/reset logic applies. */
 const normalizePomodoroSessionsForState = (sessions: PomodoroSession[], nowIso: string): PomodoroSession[] => {
   const nowMs = new Date(nowIso).getTime();
   return sessions.map((session) => {
     if (session.status !== "running") {
       return session;
     }
-    if (new Date(session.endsAt).getTime() > nowMs) {
+    const endsAtMs = new Date(session.endsAt).getTime();
+    if (!Number.isFinite(endsAtMs) || !Number.isFinite(nowMs) || endsAtMs > nowMs) {
       return session;
     }
     return {
@@ -143,6 +187,13 @@ const findLastSessionActivityAt = (sessions: PomodoroSession[]): string | null =
  */
 const shouldResetPomodoroCycleAfterIdle = (sessions: PomodoroSession[], nowIso: string): boolean => {
   if (sessions.some((session) => session.status === "paused")) {
+    return false;
+  }
+
+  // A malformed running deadline must stay visible so the controller can offer recovery
+  // actions. Treating it as an expired completion here would only change memory, leaving
+  // the persisted row running.
+  if (sessions.some((session) => session.status === "running" && !Number.isFinite(new Date(session.endsAt).getTime()))) {
     return false;
   }
 

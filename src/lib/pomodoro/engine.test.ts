@@ -5,11 +5,63 @@ import {
   computeDailyPomodoroStats,
   createPomodoroSegment,
   createPomodoroSession,
+  getPomodoroTiming,
   getPomodoroRunningBreakSessionIdsToAutoCompleteWhenReset
 } from "./engine";
 import type { Task } from "../../domain/types";
 
 describe("pomodoro engine", () => {
+  it("calculates running and paused timing at the focus completion boundary", () => {
+    const running = createPomodoroSession("focus", "2026-04-01T09:00:00.000Z", 1);
+    const halfway = new Date("2026-04-01T09:12:30.000Z").getTime();
+
+    expect(getPomodoroTiming(running, halfway)).toEqual({
+      remainingMs: 12 * 60 * 1000 + 30 * 1000,
+      canCompleteNow: true,
+      valid: true
+    });
+    expect(getPomodoroTiming({ ...running, status: "paused", pausedRemainingMs: 30 * 60 * 1000 }, halfway + 999_999)).toEqual({
+      remainingMs: 25 * 60 * 1000,
+      canCompleteNow: false,
+      valid: true
+    });
+  });
+
+  it("rejects corrupt timing data and never permits break completion", () => {
+    const breakSession = createPomodoroSession("short_break", "2026-04-01T09:00:00.000Z", 1);
+
+    expect(getPomodoroTiming({ ...breakSession, endsAt: "not-a-date" }, Date.now())).toEqual({
+      remainingMs: 0,
+      canCompleteNow: false,
+      valid: false
+    });
+    expect(getPomodoroTiming({ ...breakSession, status: "paused", pausedRemainingMs: -1 }, Date.now())).toEqual({
+      remainingMs: 0,
+      canCompleteNow: false,
+      valid: false
+    });
+    expect(getPomodoroTiming(breakSession, new Date(breakSession.endsAt).getTime())).toEqual({
+      remainingMs: 0,
+      canCompleteNow: false,
+      valid: true
+    });
+  });
+
+  it("keeps a running session with a malformed deadline active for recovery", () => {
+    const corruptRunning = {
+      ...createPomodoroSession("focus", "2026-04-01T09:00:00.000Z", 1),
+      endsAt: "not-a-date"
+    };
+
+    const state = buildPomodoroState([corruptRunning], [], "2026-04-01T10:00:00.000Z");
+
+    expect(state.activeSession).toMatchObject({
+      id: corruptRunning.id,
+      status: "running",
+      endsAt: "not-a-date"
+    });
+  });
+
   it("chains focus sessions toward a long break after the fourth focus", () => {
     const sessions = [
       {
