@@ -22,13 +22,15 @@ describe("AnnualGoalsPage", () => {
     expect(await screen.findByText("Discipline annuelle")).toBeInTheDocument();
 
     const scoreInput = screen.getByLabelText(/score \d{4}-\d{2}/i);
+    const evaluationMonthInput = screen.getByLabelText(/mois d'evaluation/i) as HTMLInputElement;
+    const evaluationMonthKey = evaluationMonthInput.value;
     await user.clear(scoreInput);
     await user.type(scoreInput, "72");
     await user.tab();
 
     await waitFor(async () => {
       const goals = await repository.listAnnualGoals();
-      expect(goals[0].evaluations["2026-04"]).toMatchObject({
+      expect(goals[0].evaluations[evaluationMonthKey]).toMatchObject({
         score: 72
       });
     });

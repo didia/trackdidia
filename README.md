@@ -2,6 +2,12 @@
 
 Application desktop locale pour suivre les routines quotidiennes, les metriques de vie et le respect des principes personnels.
 
+## Documentation
+
+La documentation complete et maintenue de l'application commence dans
+[`docs/index.md`](docs/index.md). Les instructions de contribution et les contrats
+d'architecture se trouvent dans [`AGENTS.md`](AGENTS.md).
+
 ## Stack
 
 - React + TypeScript + Vite
@@ -49,7 +55,7 @@ npm run tauri dev
 
 ## Politique de migration
 
-- Toute evolution du schema SQLite doit passer par une migration ajoutee a la liste `migrations` dans [src/lib/storage/tauri-sqlite-repository.ts](/Users/didia/workspace/trackdidia/src/lib/storage/tauri-sqlite-repository.ts).
+- Toute evolution du schema SQLite doit passer par une migration ajoutee a la liste `migrations` dans [src/lib/storage/tauri-sqlite-repository.ts](src/lib/storage/tauri-sqlite-repository.ts).
 - A partir de maintenant, pas de modification manuelle hors migration pour la structure de base de donnees.
 - Les migrations doivent etre incrementales et preserve-first: ajout de colonnes, backfill, transformation idempotente, puis lecture du nouveau champ dans le code.
 - La table `schema_migrations` est la source de verite pour savoir quelles migrations ont deja ete appliquees sur une installation existante.

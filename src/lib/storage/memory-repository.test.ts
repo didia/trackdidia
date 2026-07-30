@@ -1,8 +1,13 @@
 import { createEmptyDailyEntry, defaultAppSettings } from "../../domain/daily-entry";
+import { afterEach, vi } from "vitest";
 import { addDays } from "../gtd/shared";
 import { MemoryRepository } from "./memory-repository";
 
 describe("MemoryRepository", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("persists daily entries in memory", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -287,6 +292,9 @@ describe("MemoryRepository", () => {
   });
 
   it("computes daily task stats from GTD events", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-08T12:00:00.000Z"));
+
     const repository = new MemoryRepository();
     await repository.initialize();
     const today = "2026-04-08";
@@ -456,6 +464,9 @@ describe("MemoryRepository", () => {
   });
 
   it("generates recurring tasks once per due day and exposes previews", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-01T12:00:00.000Z"));
+
     const repository = new MemoryRepository();
     await repository.initialize();
 
@@ -493,12 +504,15 @@ describe("MemoryRepository", () => {
     expect(tasks.filter((task) => task.recurringTemplateId === "recurring-template:weekly-review")).toHaveLength(1);
     expect(tasks[0]).toMatchObject({
       isRecurringInstance: true,
-      recurrenceDueDate: "2026-04-04"
+      recurrenceDueDate: "2026-04-01"
     });
-    expect(previews.map((preview) => preview.dueDate)).toEqual(["2026-04-01", "2026-04-02", "2026-04-03"]);
+    expect(previews.map((preview) => preview.dueDate)).toEqual(["2026-04-02", "2026-04-03", "2026-04-04"]);
   });
 
   it("increments missed recurring occurrences and lets a task edit apply to the whole series", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-02T12:00:00.000Z"));
+
     const repository = new MemoryRepository();
     await repository.initialize();
 

@@ -1,0 +1,243 @@
+# Reviews and Annual Goals
+
+TrackDidia turns daily evidence into three higher-level loops:
+
+- Sunday-to-Saturday weekly reviews;
+- calendar-month reviews;
+- annual goal snapshots with monthly evaluations.
+
+Review records store ritual notes/checklists and open/closed state. Numeric summaries
+are computed on demand and are not persisted.
+
+## Weekly review (`/semaine`)
+
+### Calendar model
+
+The business week always begins Sunday and ends Saturday. Any selected date is
+normalized to its Sunday with `getWeekStartSunday()`.
+
+When a weekly summary is requested, the repository constructs all seven days.
+Missing days become empty daily entries for that calculation. This means weekly
+averages and rates intentionally include zero-valued empty days in several axes.
+
+### Stored review
+
+`WeeklyReview` contains:
+
+- `weekStartDate`;
+- `weekEndDate`;
+- `status`: `draft` or `closed`;
+- eight note fields;
+- eight completion booleans;
+- `updatedAt`.
+
+The eight ritual sections are:
+
+1. Bilan
+2. Budget
+3. Temps et plan
+4. Collecte
+5. Calendrier
+6. GTD
+7. Alignement
+8. Dimanche
+
+Notes and checklist changes persist immediately. Closing does not require all
+sections to be checked.
+
+### Daily inputs
+
+Each day contributes:
+
+- sleep quality;
+- whether TRC is exactly `true`;
+- phone screen minutes;
+- Pomodoro count;
+- discipline fraction;
+- tasks added;
+- tasks completed.
+
+Explicit daily metrics override suggested GTD/Pomodoro values.
+
+### Weekly aggregate formulas
+
+| Output | Formula |
+|---|---|
+| Sleep average | Average of non-null sleep values |
+| TRC | `true` days / 7 |
+| Screen time | Sum of daily minutes |
+| Pomodoris | Sum of daily sessions |
+| Discipline | Average of seven daily discipline fractions |
+| Tasks added/completed | Sum of daily values |
+| Task completion rate | Completed / added; zero when added is zero |
+
+The automatic score has six axes:
+
+1. Sleep quality against 100.
+2. TRC percentage against 100.
+3. Phone screen axis, where 840 weekly minutes is 100, zero minutes is 200, and
+   1,680 minutes is zero (lower-clamped, not upper-clamped).
+4. Pomodoro axis, where 56 weekly sessions is 100.
+5. Discipline percentage against 100.
+6. Task completion percentage against 100.
+
+Each axis is passed through `scoreAgainstTarget(value, 100)`. Values through the
+target scale linearly from zero to one; above-target performance continues at half
+the rate. `weeklyScore` is the mean of those six normalized axis values and can
+therefore exceed `1` (100%).
+
+## Monthly review (`/mois`)
+
+### Calendar model
+
+Monthly reviews use a `YYYY-MM` key and the calendar month's first/last day.
+The Today screen prompts on the first Saturday of a month and the Monthly screen
+initially selects the previous month on that day; otherwise it selects the current
+month.
+
+Weeks are included when their Sunday start is on or before the month end, beginning
+with the Sunday containing the first day. Therefore a month covers four to six
+Sunday-start weeks, including boundary weeks.
+
+### Stored review
+
+`MonthlyReview` stores:
+
+- month key/start/end;
+- `draft` or `closed` status;
+- ten note fields;
+- ten completion booleans;
+- update timestamp.
+
+The sections are:
+
+1. Bilan
+2. Journaux
+3. Finances
+4. Temps
+5. Progression des objectifs
+6. Mission et objectifs
+7. Nettoyage des listes
+8. Calendrier
+9. Gros projets
+10. Développement personnel
+
+### Monthly summary
+
+Daily aggregates use only saved entries whose date is inside the selected month.
+Unlike weekly summaries, missing dates are not synthesized for the monthly daily
+average.
+
+The summary reports:
+
+- days tracked;
+- overlapping weeks covered;
+- closed weekly reviews;
+- sleep average over non-null values;
+- TRC true days / tracked days;
+- total screen minutes;
+- total Pomodoris;
+- average daily discipline;
+- completed / added tasks;
+- average weekly score across every overlapping week summary;
+- per-week review status and number of non-empty note sections.
+
+Because overlapping weekly summaries synthesize missing days, `weeklyScoreAverage`
+may include boundary days and empty days outside the month. This is current behavior.
+
+The screen also loads annual goal snapshots for the selected year and displays the
+selected month's point for each goal.
+
+## Annual goals (`/objectifs-annuels`)
+
+### Goal model
+
+An annual goal contains:
+
+- title and description;
+- dimension: physical, spiritual, social, intellectual, or global;
+- optional numeric target and unit;
+- optional automatic source ID;
+- optional manual current value;
+- monthly evaluations keyed by `YYYY-MM`;
+- created/updated timestamps.
+
+Deleting a goal is a hard delete in the current local database.
+
+### Progress
+
+For an automatic goal:
+
+```text
+currentValue = source calculation over selected year
+progressRatio = currentValue / targetValue
+```
+
+The ratio is `null` when the target is absent/non-positive or current value is
+missing. It is not capped at 100%.
+
+For a manual goal, `manualCurrentValue` supplies the current value. Manual goals do
+not automatically populate the 12 monthly progress points.
+
+### Automatic source registry
+
+| Source ID | Current/month calculation |
+|---|---|
+| `weekly_sleep_average` | Mean weekly sleep average |
+| `weekly_respect_trc` | Mean weekly TRC percentage |
+| `weekly_weekly_score` | Mean weekly score converted to percent |
+| `weekly_discipline` | Mean weekly discipline percent |
+| `weekly_tasks_completion_rate` | Mean weekly task completion percent |
+| `daily_depense_calorique_avg` | Mean daily calorie expenditure |
+| `daily_qualite_sommeil_avg` | Mean daily sleep quality |
+| `daily_temps_ecran_avg` | Mean daily phone screen minutes |
+| `daily_pomodoris_sum` | Sum of daily Pomodoris |
+| `daily_pomodoris_avg` | Mean daily Pomodoris |
+| `daily_respect_trc_rate` | TRC true entries / saved entries |
+| `daily_respect_reveil_rate` | Wake-time true entries / saved entries |
+| `daily_priere_du_matin_rate` | Morning-prayer true entries / saved entries |
+| `daily_priere_du_soir_rate` | Evening-prayer true entries / saved entries |
+| `daily_objectifs_atteints_rate` | Goals-achieved true entries / saved entries |
+
+Daily principle rates use all saved entries in the selected period as the
+denominator; `false` and `null` are both not respected.
+
+Weekly sources include a week in a month when its start or end is in that month, or
+when it spans the first day. Annual snapshots include weeks whose start or end is in
+the selected year.
+
+### Monthly evaluations
+
+Evaluations are qualitative/manual and separate from the automatic progress series:
+
+- numeric score (unbounded by the domain model);
+- trend: up, steady, or down;
+- notes;
+- blockers.
+
+Changing an evaluation rewrites the goal's `evaluations_json` and update timestamp.
+
+## Cross-domain dependencies
+
+```text
+Daily metrics/principles
+  -> weekly summaries
+       -> monthly weekly overview
+       -> weekly-sourced annual goals
+  -> monthly daily overview
+  -> daily-sourced annual goals
+
+Weekly/monthly review notes
+  -> ritual history only
+  -> do not change numeric goal progress
+```
+
+When modifying a formula, update pure domain tests and document whether historical
+views will recalculate differently. There are no stored summary snapshots to
+preserve the old formula.
+
+## Related documentation
+
+- [Daily routines](daily-routines.md)
+- [GTD](gtd.md)
+- [Storage and backups](storage-and-backups.md)

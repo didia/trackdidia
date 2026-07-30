@@ -29,4 +29,28 @@ describe("HistoryPage", () => {
     const saved = await repository.getDailyEntry("2026-03-29");
     expect(saved?.morningIntention).toBe("Version corrigee");
   });
+
+  it("auto-saves note fields on blur", async () => {
+    const user = userEvent.setup();
+    const seeded = createEmptyDailyEntry("2026-03-29");
+    seeded.nightReflection = "Reflexion initiale";
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveDailyEntry(seeded);
+
+    await renderWithApp(<HistoryPage />, { repository });
+
+    const dateInput = await screen.findByLabelText(/date a ouvrir/i);
+    await user.clear(dateInput);
+    await user.type(dateInput, "2026-03-29");
+    await user.click(screen.getByRole("button", { name: /charger la date/i }));
+
+    const field = await screen.findByDisplayValue("Reflexion initiale");
+    await user.clear(field);
+    await user.type(field, "Reflexion mise a jour");
+    await user.tab();
+
+    const saved = await repository.getDailyEntry("2026-03-29");
+    expect(saved?.nightReflection).toBe("Reflexion mise a jour");
+  });
 });

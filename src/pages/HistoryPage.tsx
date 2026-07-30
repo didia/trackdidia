@@ -19,6 +19,8 @@ import { PrincipleChecklist } from "../components/PrincipleChecklist";
 import { SectionCard } from "../components/SectionCard";
 import { formatDateLong, formatDateShort, getTodayDate } from "../lib/date";
 
+type DailyNoteKey = "morningIntention" | "nightReflection" | "tomorrowFocus";
+
 export const HistoryPage = () => {
   const { repository } = useAppContext();
   const [entries, setEntries] = useState<DailyEntry[]>([]);
@@ -46,6 +48,22 @@ export const HistoryPage = () => {
         ? applyDailyPomodoroStats(applyDailyTaskStats(existing, stats), pomodoroStats)
         : applyDailyPomodoroStats(applyDailyTaskStats(createEmptyDailyEntry(date), stats), pomodoroStats)
     );
+  };
+
+  const persistNoteDraft = (key: DailyNoteKey, value: string) => {
+    setSelectedEntry((current) => (current ? updateNote(current, key, value) : current));
+  };
+
+  const saveNoteOnBlur = async (key: DailyNoteKey, value: string) => {
+    const current = selectedEntry;
+    if (!current) {
+      return;
+    }
+
+    const next = updateNote(current, key, value);
+    setSelectedEntry(next);
+    await repository.saveDailyEntry(next);
+    await loadEntries();
   };
 
   useEffect(() => {
@@ -115,9 +133,10 @@ export const HistoryPage = () => {
               rows={3}
               debounceMs={0}
               savedValue={selectedEntry.morningIntention}
-              onPersist={(value) =>
-                setSelectedEntry((current) => (current ? updateNote(current, "morningIntention", value) : current))
-              }
+              onPersist={(value) => persistNoteDraft("morningIntention", value)}
+              onBlur={(event) => {
+                void saveNoteOnBlur("morningIntention", event.currentTarget.value);
+              }}
             />
           </label>
           <label className="stacked-field">
@@ -127,9 +146,10 @@ export const HistoryPage = () => {
               rows={3}
               debounceMs={0}
               savedValue={selectedEntry.nightReflection}
-              onPersist={(value) =>
-                setSelectedEntry((current) => (current ? updateNote(current, "nightReflection", value) : current))
-              }
+              onPersist={(value) => persistNoteDraft("nightReflection", value)}
+              onBlur={(event) => {
+                void saveNoteOnBlur("nightReflection", event.currentTarget.value);
+              }}
             />
           </label>
           <label className="stacked-field">
@@ -139,9 +159,10 @@ export const HistoryPage = () => {
               rows={3}
               debounceMs={0}
               savedValue={selectedEntry.tomorrowFocus}
-              onPersist={(value) =>
-                setSelectedEntry((current) => (current ? updateNote(current, "tomorrowFocus", value) : current))
-              }
+              onPersist={(value) => persistNoteDraft("tomorrowFocus", value)}
+              onBlur={(event) => {
+                void saveNoteOnBlur("tomorrowFocus", event.currentTarget.value);
+              }}
             />
           </label>
         </div>
