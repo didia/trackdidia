@@ -113,13 +113,16 @@ export const usePomodoroController = (repository: AppRepository | null): Pomodor
   }, []);
 
   useEffect(() => {
-    if (!repository || !state.activeSession || state.activeSession.status !== "running") {
+    const activeSession = state.activeSession;
+
+    if (!repository || !activeSession || activeSession.status !== "running") {
       return;
     }
 
-    const expiringSession = state.activeSession;
+    const expiringSession = activeSession;
+    const sessionEndsAtMs = new Date(expiringSession.endsAt).getTime();
 
-    if (Date.now() < new Date(expiringSession.endsAt).getTime() || refreshRunningRef.current) {
+    if (nowMs < sessionEndsAtMs || refreshRunningRef.current) {
       return;
     }
 
@@ -138,7 +141,7 @@ export const usePomodoroController = (repository: AppRepository | null): Pomodor
     };
 
     void complete();
-  }, [announceCompletion, load, repository, state]);
+  }, [announceCompletion, load, nowMs, repository, state.activeSession]);
 
   const startPomodoro = useCallback(
     async (options: PomodoroStartOptions = {}) => {
