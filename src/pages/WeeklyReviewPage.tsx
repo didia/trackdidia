@@ -9,12 +9,18 @@ import {
   updateWeeklyReviewChecklist,
   updateWeeklyReviewNote
 } from "../domain/weekly-review";
-import type { WeeklyReview, WeeklyReviewSummary, WeeklyRitualSectionKey } from "../domain/types";
+import type {
+  WeeklyReview,
+  WeeklyReviewSummary,
+  WeeklyRitualSectionKey
+} from "../domain/types";
+import type { RescueTimeGoalsSnapshot } from "../domain/rescuetime-goals";
 import { PersistedTextarea } from "../components/PersistedTextarea";
 import { SectionCard } from "../components/SectionCard";
 import { formatDateLong, formatDateShort, getTodayDate } from "../lib/date";
 import { formatPercent, formatTimestamp } from "../lib/format";
 import { addDays } from "../lib/gtd/shared";
+import { RescueTimeGoalsService } from "../lib/rescuetime/rescuetime-goals-service";
 
 interface RitualSectionDefinition {
   key: WeeklyRitualSectionKey;
@@ -88,16 +94,54 @@ const ritualSections: RitualSectionDefinition[] = [
 
 const formatWholePercent = (value: number): string => `${Math.round(value)}%`;
 
+const formatHours = (hours: number | null): string =>
+  hours === null ? "—" : `${hours.toFixed(2)} h`;
+
+const formatObjectiveScore = (score: number | null): string =>
+  score === null ? "—" : formatPercent(score);
+
 const deriveWeeklyStatusLabel = (status: WeeklyReview["status"]): string =>
   status === "closed" ? "Revue cloturee" : "Brouillon";
 
 export const WeeklyReviewPage = () => {
-  const { repository } = useAppContext();
+  const { repository, settings } = useAppContext();
+  const goalsService = useMemo(() => new RescueTimeGoalsService(repository), [repository]);
   const [selectedWeekStart, setSelectedWeekStart] = useState(buildWeekDates(getTodayDate()));
   const [review, setReview] = useState<WeeklyReview | null>(null);
   const [summary, setSummary] = useState<WeeklyReviewSummary | null>(null);
+  const [goalsSnapshot, setGoalsSnapshot] = useState<RescueTimeGoalsSnapshot | null>(null);
+  const [goalsLoading, setGoalsLoading] = useState(true);
+  const [goalsRefreshing, setGoalsRefreshing] = useState(false);
+  const [goalsMessage, setGoalsMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const latestReviewRef = useRef<WeeklyReview | null>(null);
+
+  const loadGoalsSnapshot = useCallback(
+    async (requestedWeekStart: string) => {
+      setGoalsLoading(true);
+      setGoalsMessage("");
+      const snapshot = await goalsService.computeGoalsSnapshot(requestedWeekStart);
+      setGoalsSnapshot(snapshot);
+      setGoalsLoading(false);
+    },
+    [goalsService]
+  );
+
+  const refreshGoalsSnapshot = useCallback(
+    async (requestedWeekStart: string) => {
+      setGoalsRefreshing(true);
+      setGoalsMessage("");
+      try {
+        const snapshot = await goalsService.computeGoalsSnapshot(requestedWeekStart);
+        setGoalsSnapshot(snapshot);
+      } catch (error) {
+        setGoalsMessage(error instanceof Error ? error.message : "Echec du rafraichissement RescueTime.");
+      } finally {
+        setGoalsRefreshing(false);
+      }
+    },
+    [goalsService]
+  );
 
   const loadWeek = useCallback(
     async (requestedWeekStart: string) => {
@@ -113,8 +157,9 @@ export const WeeklyReviewPage = () => {
       setReview(nextReview);
       setSummary(computedSummary);
       setLoading(false);
+      void loadGoalsSnapshot(normalized);
     },
-    [repository]
+    [loadGoalsSnapshot, repository]
   );
 
   useEffect(() => {
@@ -138,6 +183,20 @@ export const WeeklyReviewPage = () => {
     () => (hasValidSelectedWeek ? addDays(selectedWeekStart, 6) : ""),
     [hasValidSelectedWeek, selectedWeekStart]
   );
+
+  const previousRescuetimeApiKeyRef = useRef(settings.rescuetimeApiKey);
+
+  useEffect(() => {
+    if (previousRescuetimeApiKeyRef.current === settings.rescuetimeApiKey) {
+      return;
+    }
+
+    previousRescuetimeApiKeyRef.current = settings.rescuetimeApiKey;
+
+    if (hasValidSelectedWeek) {
+      void loadGoalsSnapshot(selectedWeekStart);
+    }
+  }, [settings.rescuetimeApiKey, hasValidSelectedWeek, loadGoalsSnapshot, selectedWeekStart]);
 
   if (loading || !review || !summary) {
     return <div className="page"><p>Chargement de la revue hebdomadaire...</p></div>;
@@ -262,6 +321,76 @@ export const WeeklyReviewPage = () => {
             </strong>
           </article>
         </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Objectifs de la semaine"
+        subtitle="Score base sur tes RescueTime Goals: chaque objectif vaut au plus 1 point, avec scoring fractionnel sur le temps."
+      >
+        {goalsMessage ? <div className="banner">{goalsMessage}</div> : null}
+        {!settings.rescuetimeApiKey.trim() ? (
+          <div className="banner">
+            Cle RescueTime manquante. Configure-la dans{" "}
+            <Link to="/parametres">Parametres</Link> pour charger tes goals RescueTime.
+          </div>
+        ) : null}
+        {goalsSnapshot?.fetchError ? <div className="banner">{goalsSnapshot.fetchError}</div> : null}
+
+        <div className="weekly-overview-grid">
+          <article className="status-card">
+            <span>Score objectifs</span>
+            <strong>{goalsLoading || !goalsSnapshot ? "..." : formatObjectiveScore(goalsSnapshot.score)}</strong>
+          </article>
+          <article className="status-card">
+            <span>Points obtenus</span>
+            <strong>
+              {goalsLoading || !goalsSnapshot
+                ? "..."
+                : goalsSnapshot.items.length === 0
+                  ? "—"
+                  : `${goalsSnapshot.totalAchievement.toFixed(2)} / ${goalsSnapshot.items.length}`}
+            </strong>
+          </article>
+          <article className="status-card">
+            <span>Source</span>
+            <strong>{settings.rescuetimeApiKey.trim() ? "RescueTime Goals" : "Cle manquante"}</strong>
+          </article>
+        </div>
+
+        <div className="form-actions">
+          <button
+            className="button"
+            type="button"
+            disabled={goalsRefreshing || goalsLoading || !settings.rescuetimeApiKey.trim()}
+            onClick={() => void refreshGoalsSnapshot(selectedWeekStart)}
+          >
+            {goalsRefreshing ? "Rafraichissement..." : "Rafraichir RescueTime Goals"}
+          </button>
+        </div>
+
+        {goalsLoading || !goalsSnapshot ? (
+          <p className="empty-copy">Chargement des objectifs RescueTime...</p>
+        ) : goalsSnapshot.items.length === 0 ? (
+          <p className="empty-copy">Aucun goal RescueTime actif trouve pour ce compte.</p>
+        ) : (
+          <div className="weekly-day-grid">
+            {goalsSnapshot.items.map((item) => (
+              <article key={item.goalId} className="schedule-day-group">
+                <div className="schedule-day-group__header">
+                  <h3>{item.title}</h3>
+                  <span>{item.achievement.toFixed(2)}/1</span>
+                </div>
+                <div className="weekly-day-card__metrics">
+                  <span>{item.isMore ? "Plus de temps" : "Moins de temps"}</span>
+                  <span>
+                    Temps: {formatHours(item.actualHours)} / {formatHours(item.weeklyTargetHours)} (cible hebdo)
+                  </span>
+                  <span>Horaire: {item.scheduleLabel}</span>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
       </SectionCard>
 
       <SectionCard title="Axes automatiques" subtitle="Scores derives des metriques quotidiennes de la semaine.">

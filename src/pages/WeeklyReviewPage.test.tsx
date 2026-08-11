@@ -6,6 +6,12 @@ import { renderWithApp } from "../test/test-utils";
 import { WeeklyReviewPage } from "./WeeklyReviewPage";
 
 describe("WeeklyReviewPage", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
   it("loads a week summary and saves ritual notes and checklist", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -56,6 +62,59 @@ describe("WeeklyReviewPage", () => {
           bilan: "Semaine solide."
         })
       });
+    });
+  });
+
+  it("renders RescueTime goals score", async () => {
+    globalThis.fetch = vi.fn(async (input) => {
+      const url = String(input);
+
+      if (url.includes("/api/resource/goals")) {
+        return Response.json([
+          {
+            id: 1,
+            display_name: "more than 2h on Personal (24x7)",
+            amount_seconds: 7200,
+            is_more: true,
+            enabled: true,
+            taxon_id: 15,
+            taxonomy_name: "overview",
+            schedule_name: "24x7",
+            overview: { name: "Personal" }
+          }
+        ]);
+      }
+
+      if (url.includes("restrict_kind=overview")) {
+        return Response.json({
+          row_headers: ["Rank", "Time Spent (seconds)", "Category"],
+          rows: [[1, 12600, "Personal"]]
+        });
+      }
+
+      return Response.json({ project_times: [] });
+    }) as typeof fetch;
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveSettings({
+      ...(await repository.getSettings()),
+      rescuetimeApiKey: "rt-test-key"
+    });
+
+    const user = userEvent.setup();
+    await renderWithApp(<WeeklyReviewPage />, { repository, route: "/semaine" });
+
+    const dateInput = await screen.findByLabelText(/debut de semaine/i);
+    await user.clear(dateInput);
+    await user.type(dateInput, "2026-08-02");
+    await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
+
+    expect(await screen.findByText("Objectifs de la semaine")).toBeInTheDocument();
+    expect(await screen.findByText("more than 2h on Personal (24x7)")).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByText("0.25/1")).toBeInTheDocument();
     });
   });
 });

@@ -214,6 +214,55 @@ export interface AnnualGoalSnapshot {
   linkedDailyHabitLabels: string[];
 }
 
+export type WeeklyObjectiveKind = "time" | "manual";
+
+export type RescueTimeTaxonomy = "overview" | "category" | "activity" | "productivity";
+
+export interface WeeklyObjective {
+  id: string;
+  title: string;
+  kind: WeeklyObjectiveKind;
+  targetHours: number | null;
+  rescuetimeKind: RescueTimeTaxonomy | null;
+  rescuetimeThing: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WeeklyObjectiveResult {
+  weekStartDate: string;
+  objectiveId: string;
+  achieved: boolean;
+  updatedAt: string;
+}
+
+export type WeeklyObjectiveItemSource = "rescuetime" | "manual" | "missing";
+
+export interface WeeklyObjectiveItemSnapshot {
+  objective: WeeklyObjective;
+  actualHours: number | null;
+  achievement: number;
+  source: WeeklyObjectiveItemSource;
+  error?: string;
+}
+
+export interface WeeklyObjectivesSnapshot {
+  weekStartDate: string;
+  weekEndDate: string;
+  items: WeeklyObjectiveItemSnapshot[];
+  totalAchievement: number;
+  score: number | null;
+  rescuetimeConfigured: boolean;
+  fetchError?: string;
+}
+
+export interface RescueTimeTaxonomyEntry {
+  name: string;
+  seconds: number;
+  hours: number;
+}
+
 export interface AppSettings {
   language: "fr";
   storageMode: "sqlite";
@@ -221,6 +270,7 @@ export interface AppSettings {
   aiApiKey: string;
   aiBaseUrl: string;
   aiModel: string;
+  rescuetimeApiKey: string;
   autoBackupEnabled: boolean;
   autoBackupIntervalHours: number;
   lastBackupAt: string;

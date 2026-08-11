@@ -37,8 +37,14 @@ import type {
   Task,
   TaskContext,
   TaskEvent,
+  WeeklyObjective,
+  WeeklyObjectiveResult,
   WeeklyReview
 } from "../../domain/types";
+import {
+  cloneWeeklyObjective,
+  createEmptyWeeklyObjective
+} from "../../domain/weekly-objectives";
 import {
   buildDailyTaskBreakdown,
   buildCarryoverEvents,
@@ -112,6 +118,25 @@ interface WeeklyReviewRow {
   status: WeeklyReview["status"];
   notes_json: string;
   ritual_checklist_json: string;
+  updated_at: string;
+}
+
+interface WeeklyObjectiveRow {
+  id: string;
+  title: string;
+  kind: WeeklyObjective["kind"];
+  target_hours: number | null;
+  rescuetime_kind: WeeklyObjective["rescuetimeKind"];
+  rescuetime_thing: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface WeeklyObjectiveResultRow {
+  week_start_date: string;
+  objective_id: string;
+  achieved: number;
   updated_at: string;
 }
 
@@ -500,6 +525,32 @@ const migrations: Migration[] = [
     sql: `
       ALTER TABLE pomodoro_sessions ADD COLUMN paused_remaining_ms INTEGER;
     `
+  },
+  {
+    id: 20,
+    name: "create_weekly_objectives",
+    sql: `
+      CREATE TABLE IF NOT EXISTS weekly_objectives (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        target_hours REAL,
+        rescuetime_kind TEXT,
+        rescuetime_thing TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS weekly_objective_results (
+        week_start_date TEXT NOT NULL,
+        objective_id TEXT NOT NULL,
+        achieved INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (week_start_date, objective_id),
+        FOREIGN KEY (objective_id) REFERENCES weekly_objectives(id) ON DELETE CASCADE
+      );
+    `
   }
 ];
 
@@ -865,6 +916,97 @@ export class TauriSqliteRepository implements AppRepository {
     );
 
     return buildWeeklyReviewSummary(normalized, entries);
+  }
+
+  async listWeeklyObjectives(): Promise<WeeklyObjective[]> {
+    const db = await this.getDb();
+    const rows = await db.select<WeeklyObjectiveRow[]>(
+      `SELECT
+        id, title, kind, target_hours, rescuetime_kind, rescuetime_thing, sort_order, created_at, updated_at
+      FROM weekly_objectives
+      ORDER BY sort_order ASC, title ASC`
+    );
+
+    return rows.map((row) => this.deserializeWeeklyObjective(row));
+  }
+
+  async saveWeeklyObjective(objective: WeeklyObjective): Promise<WeeklyObjective> {
+    const db = await this.getDb();
+    const timestamp = nowIso();
+    const nextObjective = createEmptyWeeklyObjective({
+      ...cloneWeeklyObjective(objective),
+      id: objective.id || createEntityId("weekly-objective"),
+      title: objective.title.trim(),
+      createdAt: objective.createdAt || timestamp,
+      updatedAt: timestamp
+    });
+
+    await db.execute(
+      `INSERT INTO weekly_objectives (
+        id, title, kind, target_hours, rescuetime_kind, rescuetime_thing, sort_order, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      ON CONFLICT(id) DO UPDATE SET
+        title = excluded.title,
+        kind = excluded.kind,
+        target_hours = excluded.target_hours,
+        rescuetime_kind = excluded.rescuetime_kind,
+        rescuetime_thing = excluded.rescuetime_thing,
+        sort_order = excluded.sort_order,
+        updated_at = excluded.updated_at`,
+      [
+        nextObjective.id,
+        nextObjective.title,
+        nextObjective.kind,
+        nextObjective.targetHours,
+        nextObjective.rescuetimeKind,
+        nextObjective.rescuetimeThing,
+        nextObjective.sortOrder,
+        nextObjective.createdAt,
+        nextObjective.updatedAt
+      ]
+    );
+
+    return cloneWeeklyObjective(nextObjective);
+  }
+
+  async deleteWeeklyObjective(objectiveId: string): Promise<void> {
+    const db = await this.getDb();
+    await db.execute("DELETE FROM weekly_objective_results WHERE objective_id = $1", [objectiveId]);
+    await db.execute("DELETE FROM weekly_objectives WHERE id = $1", [objectiveId]);
+  }
+
+  async getWeeklyObjectiveResults(weekStartDate: string): Promise<WeeklyObjectiveResult[]> {
+    const db = await this.getDb();
+    const normalized = buildWeekDates(weekStartDate);
+    const rows = await db.select<WeeklyObjectiveResultRow[]>(
+      `SELECT week_start_date, objective_id, achieved, updated_at
+       FROM weekly_objective_results
+       WHERE week_start_date = $1`,
+      [normalized]
+    );
+
+    return rows.map((row) => this.deserializeWeeklyObjectiveResult(row));
+  }
+
+  async saveWeeklyObjectiveResult(result: WeeklyObjectiveResult): Promise<void> {
+    const db = await this.getDb();
+    const normalized = buildWeekDates(result.weekStartDate);
+    const timestamp = nowIso();
+    const nextResult: WeeklyObjectiveResult = {
+      weekStartDate: normalized,
+      objectiveId: result.objectiveId,
+      achieved: result.achieved,
+      updatedAt: timestamp
+    };
+
+    await db.execute(
+      `INSERT INTO weekly_objective_results (week_start_date, objective_id, achieved, updated_at)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT(week_start_date, objective_id) DO UPDATE SET
+         achieved = excluded.achieved,
+         updated_at = excluded.updated_at`,
+      [nextResult.weekStartDate, nextResult.objectiveId, nextResult.achieved ? 1 : 0, nextResult.updatedAt]
+    );
   }
 
   async getSettings(): Promise<AppSettings> {
@@ -1741,6 +1883,29 @@ export class TauriSqliteRepository implements AppRepository {
       status: row.status,
       notes: JSON.parse(row.notes_json),
       ritualChecklist: JSON.parse(row.ritual_checklist_json),
+      updatedAt: row.updated_at
+    };
+  }
+
+  private deserializeWeeklyObjective(row: WeeklyObjectiveRow): WeeklyObjective {
+    return {
+      id: row.id,
+      title: row.title,
+      kind: row.kind,
+      targetHours: row.target_hours === null ? null : Number(row.target_hours),
+      rescuetimeKind: row.rescuetime_kind,
+      rescuetimeThing: row.rescuetime_thing,
+      sortOrder: Number(row.sort_order),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    };
+  }
+
+  private deserializeWeeklyObjectiveResult(row: WeeklyObjectiveResultRow): WeeklyObjectiveResult {
+    return {
+      weekStartDate: row.week_start_date,
+      objectiveId: row.objective_id,
+      achieved: row.achieved === 1,
       updatedAt: row.updated_at
     };
   }

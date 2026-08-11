@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { defaultAppSettings } from "../domain/daily-entry";
 import type { AppSettings } from "../domain/types";
 import { useAppContext } from "../app/app-context";
@@ -6,11 +6,16 @@ import { SectionCard } from "../components/SectionCard";
 import initialGoogleTasksExport from "../../Tasks.json";
 import { formatDateTimeShort } from "../lib/date";
 import type { StorageInfo } from "../lib/storage/repository";
+import { RescueTimeGoalsService } from "../lib/rescuetime/rescuetime-goals-service";
 
 export const SettingsPage = () => {
   const { repository, settings, saveSettings, debugEnabled, setDebugEnabled, browserPreview } = useAppContext();
+  const goalsService = useMemo(() => new RescueTimeGoalsService(repository), [repository]);
   const [draftSettings, setDraftSettings] = useState<AppSettings>(settings);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [savingRescuetimeSettings, setSavingRescuetimeSettings] = useState(false);
+  const [rescuetimeMessage, setRescuetimeMessage] = useState("");
+  const [testingRescuetime, setTestingRescuetime] = useState(false);
   const [savingBackupSettings, setSavingBackupSettings] = useState(false);
   const [importingGtd, setImportingGtd] = useState(false);
   const [gtdMessage, setGtdMessage] = useState("");
@@ -164,6 +169,77 @@ export const SettingsPage = () => {
               onClick={() => setDraftSettings(defaultAppSettings())}
             >
               Reinitialiser
+            </button>
+          </div>
+        </form>
+      </SectionCard>
+
+      <SectionCard
+        title="RescueTime"
+        subtitle="Cle API stockee localement dans SQLite. Utilise-la pour charger tes goals RescueTime dans la revue hebdomadaire — modifiable a tout moment, y compris dans l'app bundlee."
+      >
+        {rescuetimeMessage ? <div className="banner">{rescuetimeMessage}</div> : null}
+
+        <form
+          className="settings-form"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            setSavingRescuetimeSettings(true);
+            setRescuetimeMessage("");
+
+            try {
+              await saveSettings(draftSettings);
+              setRescuetimeMessage("Cle RescueTime enregistree.");
+            } catch (error) {
+              setRescuetimeMessage(error instanceof Error ? error.message : "Echec de l'enregistrement RescueTime.");
+            } finally {
+              setSavingRescuetimeSettings(false);
+            }
+          }}
+        >
+          <label>
+            <span>Cle API RescueTime</span>
+            <input
+              type="password"
+              value={draftSettings.rescuetimeApiKey}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  rescuetimeApiKey: event.target.value
+                }))
+              }
+              placeholder="Bearer token RescueTime"
+            />
+          </label>
+
+          <div className="form-actions">
+            <button className="button button--primary" type="submit" disabled={savingRescuetimeSettings}>
+              {savingRescuetimeSettings ? "Enregistrement..." : "Enregistrer la cle RescueTime"}
+            </button>
+            <button
+              className="button"
+              type="button"
+              disabled={testingRescuetime || !draftSettings.rescuetimeApiKey.trim()}
+              onClick={async () => {
+                setTestingRescuetime(true);
+                setRescuetimeMessage("");
+
+                try {
+                  await saveSettings(draftSettings);
+                  const result = await goalsService.testConnection(draftSettings.rescuetimeApiKey);
+                  setRescuetimeMessage(
+                    result.goalCount > 0
+                      ? `Connexion OK. ${result.goalCount} goal(s) actif(s). Exemple: ${result.sampleGoal}.`
+                      : "Connexion OK, mais aucun goal RescueTime actif trouve."
+                  );
+                } catch (error) {
+                  setRescuetimeMessage(error instanceof Error ? error.message : "Echec du test RescueTime.");
+                } finally {
+                  setTestingRescuetime(false);
+                }
+              }}
+            >
+              {testingRescuetime ? "Test en cours..." : "Tester la connexion"}
             </button>
           </div>
         </form>
