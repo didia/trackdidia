@@ -14,17 +14,28 @@ import type { AppRepository } from "../storage/repository";
 import {
   aggregateProjectTimes,
   defaultRescueTimeGoalsClient,
+  goalScheduleId,
+  matchRankRowSeconds,
   parseProductivityRows,
+  parseRankRows,
   productivitySecondsForGoal,
+  resolveAnalyticKind,
   type RescueTimeGoalsClient
 } from "./goals-client";
-import { parseRankRows } from "./parse-analytic-data";
 
-interface FetchCaches {
-  productivity?: ReturnType<typeof parseProductivityRows>;
-  overview?: ReturnType<typeof import("./parse-analytic-data").parseRankRows>;
-  projectTimes?: ReturnType<typeof aggregateProjectTimes>;
+interface AnalyticCache {
+  productivity: Map<number, ReturnType<typeof parseProductivityRows>>;
+  overview: Map<number, ReturnType<typeof parseRankRows>>;
+  category: Map<number, ReturnType<typeof parseRankRows>>;
+  activity: Map<number, ReturnType<typeof parseRankRows>>;
 }
+
+const createAnalyticCache = (): AnalyticCache => ({
+  productivity: new Map(),
+  overview: new Map(),
+  category: new Map(),
+  activity: new Map()
+});
 
 export class RescueTimeGoalsService {
   constructor(
@@ -45,14 +56,28 @@ export class RescueTimeGoalsService {
 
     try {
       const goals = await this.client.listGoals(apiKey);
-      const caches: FetchCaches = {};
+      const caches = createAnalyticCache();
+      let projectTimesCache: ReturnType<typeof aggregateProjectTimes> | undefined;
       const items: RescueTimeGoalItemSnapshot[] = [];
 
       for (const goal of goals) {
         const scheduleLabel = goal.schedule?.name ?? goal.schedule_name ?? "24x7";
         const days = scheduleDaysInWeek(scheduleLabel);
         const weeklyTargetSeconds = Number(goal.amount_seconds ?? 0) * days;
-        const actualSeconds = await this.resolveActualSeconds(apiKey, goal, normalized, weekEndDate, caches);
+        const actualSeconds = await this.resolveActualSeconds(
+          apiKey,
+          goal,
+          normalized,
+          weekEndDate,
+          caches,
+          async () => {
+            if (!projectTimesCache) {
+              const payload = await this.client.fetchProjectTimes(apiKey, normalized, weekEndDate);
+              projectTimesCache = aggregateProjectTimes(payload);
+            }
+            return projectTimesCache;
+          }
+        );
         const achievement = goal.is_more
           ? scoreMoreGoal(actualSeconds, weeklyTargetSeconds)
           : scoreLessGoal(actualSeconds, weeklyTargetSeconds);
@@ -78,22 +103,61 @@ export class RescueTimeGoalsService {
     }
   }
 
+  private async loadProductivityRows(
+    apiKey: string,
+    weekStart: string,
+    weekEnd: string,
+    scheduleId: number,
+    caches: AnalyticCache
+  ) {
+    if (!caches.productivity.has(scheduleId)) {
+      const payload = await this.client.fetchAnalyticData(apiKey, {
+        kind: "productivity",
+        begin: weekStart,
+        end: weekEnd,
+        scheduleId
+      });
+      caches.productivity.set(scheduleId, parseProductivityRows(payload));
+    }
+    return caches.productivity.get(scheduleId)!;
+  }
+
+  private async loadRankRows(
+    apiKey: string,
+    kind: "overview" | "category" | "activity",
+    weekStart: string,
+    weekEnd: string,
+    scheduleId: number,
+    caches: AnalyticCache
+  ) {
+    const cacheMap = caches[kind];
+    if (!cacheMap.has(scheduleId)) {
+      const payload = await this.client.fetchAnalyticData(apiKey, {
+        kind,
+        begin: weekStart,
+        end: weekEnd,
+        scheduleId
+      });
+      cacheMap.set(scheduleId, parseRankRows(payload));
+    }
+    return cacheMap.get(scheduleId)!;
+  }
+
   private async resolveActualSeconds(
     apiKey: string,
     goal: RescueTimeGoalRecord,
     weekStart: string,
     weekEnd: string,
-    caches: FetchCaches
+    caches: AnalyticCache,
+    ensureProjectTimesCache: () => Promise<ReturnType<typeof aggregateProjectTimes>>
   ): Promise<number> {
     const taxonomy = goal.taxonomy?.search_name ?? goal.taxonomy_name ?? "";
+    const scheduleId = goalScheduleId(goal);
 
     if (taxonomy === "projects" || goal.v2project) {
-      if (!caches.projectTimes) {
-        const payload = await this.client.fetchProjectTimes(apiKey, weekStart, weekEnd);
-        caches.projectTimes = aggregateProjectTimes(payload);
-      }
+      const projectTimes = await ensureProjectTimesCache();
       const label = goal.v2project?.name ?? goal.taxon_display_name ?? "";
-      for (const [name, seconds] of caches.projectTimes.byName) {
+      for (const [name, seconds] of projectTimes.byName) {
         if (rescueTimeLabelsMatch(name, label)) {
           return seconds;
         }
@@ -102,34 +166,19 @@ export class RescueTimeGoalsService {
     }
 
     if (taxonomy === "clients") {
-      if (!caches.projectTimes) {
-        const payload = await this.client.fetchProjectTimes(apiKey, weekStart, weekEnd);
-        caches.projectTimes = aggregateProjectTimes(payload);
-      }
-      return caches.projectTimes.byClientId.get(goal.taxon_id) ?? 0;
+      const projectTimes = await ensureProjectTimesCache();
+      return projectTimes.byClientId.get(goal.taxon_id) ?? 0;
     }
 
-    if (taxonomy === "productivity") {
-      if (!caches.productivity) {
-        const payload = await this.client.fetchAnalyticData(apiKey, "productivity", weekStart, weekEnd);
-        caches.productivity = parseProductivityRows(payload);
-      }
-      return productivitySecondsForGoal(caches.productivity, goal);
+    const analyticKind = resolveAnalyticKind(goal);
+    if (analyticKind === "productivity") {
+      const rows = await this.loadProductivityRows(apiKey, weekStart, weekEnd, scheduleId, caches);
+      return productivitySecondsForGoal(rows, goal);
     }
 
-    if (taxonomy === "category" || taxonomy === "overviews" || taxonomy === "overview" || goal.overview) {
-      if (!caches.overview) {
-        const payload = await this.client.fetchAnalyticData(apiKey, "overview", weekStart, weekEnd);
-        caches.overview = parseRankRows(payload);
-      }
-      const needle = (goal.overview?.name ?? goal.taxon_display_name ?? "").toLowerCase();
-      const row = caches.overview.find(
-        (item) => item.name.toLowerCase() === needle || item.name.toLowerCase().includes(needle)
-      );
-      return row?.seconds ?? 0;
-    }
-
-    return 0;
+    const rankKind = analyticKind as "overview" | "category" | "activity";
+    const rows = await this.loadRankRows(apiKey, rankKind, weekStart, weekEnd, scheduleId, caches);
+    return matchRankRowSeconds(rows, goal, rankKind);
   }
 
   async testConnection(apiKey: string): Promise<{ goalCount: number; sampleGoal?: string }> {

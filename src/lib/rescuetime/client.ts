@@ -1,10 +1,12 @@
 import type { RescueTimeTaxonomy } from "../../domain/types";
 import type { RescueTimeAnalyticPayload } from "./parse-analytic-data";
+import { fetchRescueTimeJson } from "./http-transport";
 
 export interface RescueTimeFetchOptions {
   kind: RescueTimeTaxonomy;
   begin: string;
   end: string;
+  scheduleId?: number;
 }
 
 export interface RescueTimeClient {
@@ -19,19 +21,11 @@ export class HttpRescueTimeClient implements RescueTimeClient {
     url.searchParams.set("restrict_kind", options.kind);
     url.searchParams.set("restrict_begin", options.begin);
     url.searchParams.set("restrict_end", options.end);
-
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${apiKey}`
-      }
-    });
-
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`RescueTime API ${response.status}: ${body.slice(0, 200)}`);
+    if (options.scheduleId !== undefined && options.scheduleId > 0) {
+      url.searchParams.set("restrict_schedule_id", String(options.scheduleId));
     }
 
-    return response.json() as Promise<RescueTimeAnalyticPayload>;
+    return fetchRescueTimeJson<RescueTimeAnalyticPayload>(url.toString(), apiKey);
   }
 }
 
