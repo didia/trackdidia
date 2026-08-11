@@ -115,29 +115,48 @@ export const WeeklyReviewPage = () => {
   const [goalsMessage, setGoalsMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const latestReviewRef = useRef<WeeklyReview | null>(null);
+  const goalsRequestSeqRef = useRef(0);
 
   const loadGoalsSnapshot = useCallback(
     async (requestedWeekStart: string) => {
+      const requestId = ++goalsRequestSeqRef.current;
       setGoalsLoading(true);
       setGoalsMessage("");
-      const snapshot = await goalsService.computeGoalsSnapshot(requestedWeekStart);
-      setGoalsSnapshot(snapshot);
-      setGoalsLoading(false);
+      try {
+        const snapshot = await goalsService.computeGoalsSnapshot(requestedWeekStart);
+        if (requestId !== goalsRequestSeqRef.current) {
+          return;
+        }
+        setGoalsSnapshot(snapshot);
+      } finally {
+        if (requestId === goalsRequestSeqRef.current) {
+          setGoalsLoading(false);
+        }
+      }
     },
     [goalsService]
   );
 
   const refreshGoalsSnapshot = useCallback(
     async (requestedWeekStart: string) => {
+      const requestId = ++goalsRequestSeqRef.current;
       setGoalsRefreshing(true);
       setGoalsMessage("");
       try {
         const snapshot = await goalsService.computeGoalsSnapshot(requestedWeekStart);
+        if (requestId !== goalsRequestSeqRef.current) {
+          return;
+        }
         setGoalsSnapshot(snapshot);
       } catch (error) {
+        if (requestId !== goalsRequestSeqRef.current) {
+          return;
+        }
         setGoalsMessage(error instanceof Error ? error.message : "Echec du rafraichissement RescueTime.");
       } finally {
-        setGoalsRefreshing(false);
+        if (requestId === goalsRequestSeqRef.current) {
+          setGoalsRefreshing(false);
+        }
       }
     },
     [goalsService]
@@ -362,7 +381,7 @@ export const WeeklyReviewPage = () => {
             className="button"
             type="button"
             disabled={goalsRefreshing || goalsLoading || !settings.rescuetimeApiKey.trim()}
-            onClick={() => void refreshGoalsSnapshot(selectedWeekStart)}
+            onClick={() => void refreshGoalsSnapshot(summary.weekStartDate)}
           >
             {goalsRefreshing ? "Rafraichissement..." : "Rafraichir RescueTime Goals"}
           </button>

@@ -45,11 +45,12 @@ const addDays = (dateText, days) => {
 
 const scheduleDaysInWeek = (scheduleName) => {
   const normalized = (scheduleName ?? "").toLowerCase();
-  if (normalized.includes("working") || normalized.includes("weekday")) {
+  if (
+    normalized.includes("working") ||
+    normalized.includes("weekday") ||
+    normalized.includes("work hour")
+  ) {
     return 5;
-  }
-  if (normalized.includes("evening")) {
-    return 7;
   }
   return 7;
 };
@@ -113,34 +114,50 @@ class RescueTimeGoalsClient {
     return goals.filter((goal) => goal.enabled !== false);
   }
 
-  async fetchAnalyticRank(kind, begin, end) {
+  async fetchAnalyticRank(kind, begin, end, scheduleId = 0) {
     const url = new URL("https://www.rescuetime.com/anapi/data");
     url.searchParams.set("format", "json");
     url.searchParams.set("perspective", "rank");
     url.searchParams.set("restrict_kind", kind);
     url.searchParams.set("restrict_begin", begin);
     url.searchParams.set("restrict_end", end);
+    if (scheduleId > 0) {
+      url.searchParams.set("restrict_schedule_id", String(scheduleId));
+    }
     return this.fetchJson(url);
   }
 
   async fetchProjectTimesByName(begin, end) {
-    const url = new URL("https://www.rescuetime.com/api/resource/labeled_time_project_times");
-    url.searchParams.set("start_date", begin);
-    url.searchParams.set("end_date", end);
-    const payload = await this.fetchJson(url);
     const byName = new Map();
     const byClientId = new Map();
-    for (const entry of payload.project_times ?? []) {
-      const projectName = normalizeLabel(entry.project?.name ?? "");
-      const clientId = entry.project?.timesheets_client_id;
-      const duration = Number(entry.duration ?? 0);
-      if (projectName) {
-        byName.set(projectName, (byName.get(projectName) ?? 0) + duration);
-      }
-      if (clientId) {
-        byClientId.set(clientId, (byClientId.get(clientId) ?? 0) + duration);
+
+    for (let cursor = begin; cursor <= end; cursor = addDays(cursor, 1)) {
+      const url = new URL("https://www.rescuetime.com/api/resource/labeled_time_project_times");
+      url.searchParams.set("date", cursor);
+
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        const payload = await this.fetchJson(url);
+        if (payload.is_complete !== false) {
+          for (const entry of payload.project_times ?? []) {
+            const projectName = normalizeLabel(entry.project?.name ?? "");
+            const clientId = entry.project?.timesheets_client_id;
+            const duration = Number(entry.duration ?? 0);
+            if (projectName) {
+              byName.set(projectName, (byName.get(projectName) ?? 0) + duration);
+            }
+            if (clientId) {
+              byClientId.set(clientId, (byClientId.get(clientId) ?? 0) + duration);
+            }
+          }
+          break;
+        }
+        if (attempt === 11) {
+          throw new Error(`RescueTime project times query did not complete for ${cursor}.`);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500));
       }
     }
+
     return { byName, byClientId };
   }
 }
@@ -161,16 +178,42 @@ const labelsMatch = (left, right) => {
 };
 
 const productivitySecondsForGoal = (rows, goal) => {
-  const productivityId = goal.productivity?.id ?? goal.taxon_id;
+  const productivity = goal.productivity;
+  const productivityId = productivity?.id ?? goal.taxon_id;
+
   if (productivityId === 7) {
     return rows.filter((row) => row.productivity < 0).reduce((sum, row) => sum + row.seconds, 0);
   }
   if (productivityId === 10) {
     return rows.reduce((sum, row) => sum + row.seconds, 0);
   }
-  const needle = productivityNameForGoal(goal);
-  const row = rows.find((item) => item.name.includes(needle) || needle.includes(item.name));
-  return row?.seconds ?? 0;
+
+  const sqlEquals = (productivity?.sql_score_equals ?? "").toLowerCase();
+  if (sqlEquals.includes("< 0")) {
+    return rows.filter((row) => row.productivity < 0).reduce((sum, row) => sum + row.seconds, 0);
+  }
+  if (sqlEquals.includes("between -2 and 2")) {
+    return rows.reduce((sum, row) => sum + row.seconds, 0);
+  }
+
+  const name = (productivity?.name ?? productivity?.display_name ?? "").toLowerCase();
+  if (name.includes("very productive") || name.includes("focus work")) {
+    return rows.filter((row) => row.productivity === 2).reduce((sum, row) => sum + row.seconds, 0);
+  }
+  if (name.includes("other work") || (name.includes("productive") && !name.includes("distracting"))) {
+    return rows.filter((row) => row.productivity === 1).reduce((sum, row) => sum + row.seconds, 0);
+  }
+  if (name.includes("neutral")) {
+    return rows.filter((row) => row.productivity === 0).reduce((sum, row) => sum + row.seconds, 0);
+  }
+  if (name.includes("very distracting")) {
+    return rows.filter((row) => row.productivity === -2).reduce((sum, row) => sum + row.seconds, 0);
+  }
+  if (name.includes("personal") || name.includes("distracting")) {
+    return rows.filter((row) => row.productivity === -1).reduce((sum, row) => sum + row.seconds, 0);
+  }
+
+  return rows.filter((row) => row.productivity === productivityId).reduce((sum, row) => sum + row.seconds, 0);
 };
 
 const overviewNameForGoal = (goal) => (goal.overview?.name ?? goal.taxon_display_name ?? "").toLowerCase();

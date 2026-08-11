@@ -225,11 +225,10 @@ export const SettingsPage = () => {
                 setRescuetimeMessage("");
 
                 try {
-                  await saveSettings(draftSettings);
                   const result = await goalsService.testConnection(draftSettings.rescuetimeApiKey);
                   setRescuetimeMessage(
                     result.goalCount > 0
-                      ? `Connexion OK. ${result.goalCount} goal(s) actif(s). Exemple: ${result.sampleGoal}.`
+                      ? `Connexion OK. ${result.goalCount} goal(s) actif(s). Exemple: ${result.sampleGoal}. Enregistre la cle pour l'utiliser dans l'app.`
                       : "Connexion OK, mais aucun goal RescueTime actif trouve."
                   );
                 } catch (error) {
