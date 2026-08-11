@@ -98,6 +98,7 @@ Never renumber or rewrite a released migration. Add the next ID.
 | 17 | `create_monthly_reviews` | Monthly ritual state |
 | 18 | `create_annual_goals` | Goals and monthly evaluations |
 | 19 | `add_paused_remaining_ms_to_pomodoro_sessions` | Durable paused timer state |
+| 20 | `create_weekly_objectives` | Standing weekly objectives and per-week manual results |
 
 ## Table reference
 
@@ -215,6 +216,8 @@ Each row is one contiguous activity slice within a session: `session_id`, option
 ### Review and goal tables
 
 - `weekly_reviews`: Sunday start, Saturday end, status, notes JSON, checklist JSON.
+- `weekly_objectives`: standing objective definitions (`kind`, optional RescueTime mapping, target hours, sort order).
+- `weekly_objective_results`: per-week manual achievement (`achieved` 0/1) keyed by `(week_start_date, objective_id)` with `ON DELETE CASCADE` from objectives.
 - `monthly_reviews`: month key/start/end, status, notes JSON, checklist JSON.
 - `annual_goals`: target/source/manual value plus evaluations JSON keyed by month.
 
@@ -262,7 +265,7 @@ code task.
 
 - The database contains personal journals, principles, goals, tasks, and AI
   configuration.
-- `app_settings.value` may contain the OpenRouter API key in plaintext.
+- `app_settings.value` may contain the OpenRouter API key and the RescueTime API key in plaintext.
 - Backups contain the same sensitive data as the source database.
 - `Tasks.json` may contain personal Google Tasks data and is intentionally
   gitignored.

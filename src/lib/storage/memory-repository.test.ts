@@ -727,4 +727,46 @@ describe("MemoryRepository", () => {
       ])
     );
   });
+
+  it("persists weekly objectives and per-week manual results", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    const saved = await repository.saveWeeklyObjective({
+      id: "",
+      title: "Software Development",
+      kind: "time",
+      targetHours: 2,
+      rescuetimeKind: "category",
+      rescuetimeThing: "Software Development",
+      sortOrder: 0,
+      createdAt: "",
+      updatedAt: ""
+    });
+
+    await repository.saveWeeklyObjectiveResult({
+      weekStartDate: "2026-08-03",
+      objectiveId: saved.id,
+      achieved: false,
+      updatedAt: ""
+    });
+
+    await expect(repository.listWeeklyObjectives()).resolves.toEqual([
+      expect.objectContaining({
+        id: saved.id,
+        title: "Software Development"
+      })
+    ]);
+
+    await expect(repository.getWeeklyObjectiveResults("2026-08-03")).resolves.toEqual([
+      expect.objectContaining({
+        objectiveId: saved.id,
+        achieved: false
+      })
+    ]);
+
+    await repository.deleteWeeklyObjective(saved.id);
+    await expect(repository.listWeeklyObjectives()).resolves.toEqual([]);
+    await expect(repository.getWeeklyObjectiveResults("2026-08-03")).resolves.toEqual([]);
+  });
 });

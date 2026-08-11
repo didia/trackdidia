@@ -25,7 +25,9 @@ import type {
   AnnualGoal,
   AnnualGoalSnapshot,
   WeeklyReview,
-  WeeklyReviewSummary
+  WeeklyReviewSummary,
+  WeeklyObjective,
+  WeeklyObjectiveResult
 } from "../../domain/types";
 
 export interface StorageInfo {
@@ -61,6 +63,11 @@ export interface AppRepository {
   saveWeeklyReview(review: WeeklyReview): Promise<void>;
   listWeeklyReviews(limit?: number): Promise<WeeklyReview[]>;
   computeWeeklyReviewSummary(weekStartDate: string): Promise<WeeklyReviewSummary>;
+  listWeeklyObjectives(): Promise<WeeklyObjective[]>;
+  saveWeeklyObjective(objective: WeeklyObjective): Promise<WeeklyObjective>;
+  deleteWeeklyObjective(objectiveId: string): Promise<void>;
+  getWeeklyObjectiveResults(weekStartDate: string): Promise<WeeklyObjectiveResult[]>;
+  saveWeeklyObjectiveResult(result: WeeklyObjectiveResult): Promise<void>;
   getMonthlyReview(monthKey: string): Promise<MonthlyReview | null>;
   saveMonthlyReview(review: MonthlyReview): Promise<void>;
   listMonthlyReviews(limit?: number): Promise<MonthlyReview[]>;
