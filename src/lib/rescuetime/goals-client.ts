@@ -1,4 +1,4 @@
-import type { RescueTimeGoalRecord } from "../../domain/rescuetime-goals";
+import { normalizeRescueTimeLabel, type RescueTimeGoalRecord } from "../../domain/rescuetime-goals";
 import { addDays } from "../gtd/shared";
 import type { RescueTimeAnalyticPayload } from "./parse-analytic-data";
 import { parseRankRows } from "./parse-analytic-data";
@@ -138,25 +138,45 @@ export const matchRankRowSeconds = (
   goal: RescueTimeGoalRecord,
   kind: string
 ): number => {
-  const needle = (
+  const needle = normalizeRescueTimeLabel(
     goal.taxon_display_name ??
-    goal.overview?.name ??
-    goal.v2project?.name ??
-    goal.productivity?.display_name ??
-    goal.productivity?.name ??
-    ""
-  ).toLowerCase();
+      goal.overview?.name ??
+      goal.v2project?.name ??
+      goal.productivity?.display_name ??
+      goal.productivity?.name ??
+      ""
+  );
 
   if (!needle) {
     return 0;
   }
 
-  const row = rows.find((item) => {
-    const name = item.name.toLowerCase();
-    return name === needle || name.includes(needle) || needle.includes(name);
-  });
+  for (const item of rows) {
+    const normalizedName = normalizeRescueTimeLabel(item.name);
+    if (normalizedName === needle) {
+      return item.seconds;
+    }
+  }
 
-  return row?.seconds ?? 0;
+  let bestMatch: { seconds: number; nameLength: number } | null = null;
+
+  for (const item of rows) {
+    const normalizedName = normalizeRescueTimeLabel(item.name);
+    if (!normalizedName) {
+      continue;
+    }
+
+    const isPartialMatch = normalizedName.includes(needle) || needle.includes(normalizedName);
+    if (!isPartialMatch) {
+      continue;
+    }
+
+    if (!bestMatch || normalizedName.length > bestMatch.nameLength) {
+      bestMatch = { seconds: item.seconds, nameLength: normalizedName.length };
+    }
+  }
+
+  return bestMatch?.seconds ?? 0;
 };
 
 export const goalScheduleId = (goal: RescueTimeGoalRecord): number =>

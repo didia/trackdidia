@@ -101,7 +101,12 @@ The weekly review loads **RescueTime Goals** when a non-empty `rescuetimeApiKey`
 is stored in app settings. The bundled desktop app reads this key **only** from
 SQLite settings (`Parametres → RescueTime`); it never reads a repo-root `.env` file.
 
-Requests use browser `fetch()` from the webview layer (same pattern as OpenRouter):
+RescueTime HTTP uses dual transport via `fetchRescueTimeJson`:
+
+- **Tauri desktop:** native `rescuetime_http_get` (Rust host) to avoid webview CORS limits.
+- **Browser preview / non-Tauri:** browser `fetch()` with `Authorization: Bearer` (same pattern as OpenRouter).
+
+Both paths call the same RescueTime endpoints:
 
 ```text
 GET https://www.rescuetime.com/api/resource/goals

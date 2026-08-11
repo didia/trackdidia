@@ -6,6 +6,7 @@ the top of the table.
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
 | 2026-08-12 | Retry Pomodoro history/summary snapshots after a transient list-read failure so the page cannot stay on pre-action history after the active session already updated | `docs/recurrences-and-pomodoro.md` | `src/app/use-pomodoro-controller.ts`, Pomodoro controller tests |
+| 2026-08-11 | Documented RescueTime dual transport (Tauri native HTTP vs browser fetch fallback) | `docs/ai-settings-and-privacy.md` | `fetchRescueTimeJson`, `rescuetime_http_get` |
 | 2026-08-11 | Clarified RescueTime API key is app settings only at runtime; Settings test uses Goals API; weekly review reloads on key change | `docs/ai-settings-and-privacy.md`, `docs/reviews-and-goals.md` | Settings page, `RescueTimeGoalsService.testConnection`, weekly review effect |
 | 2026-08-11 | Added standing weekly objectives with RescueTime time scoring, migration 20, settings key, and `/semaine` UI | `docs/reviews-and-goals.md`, `docs/ai-settings-and-privacy.md`, `docs/storage-and-backups.md` | Migration 20, `src/domain/weekly-objectives.ts`, `src/lib/rescuetime/*`, weekly review page |
 | 2026-07-30 | Hardened Pomodoro expiry against malformed deadlines, action/deadline races, and transient post-expiry refresh failures | `docs/recurrences-and-pomodoro.md` | `src/lib/pomodoro/engine.ts`, `src/app/use-pomodoro-controller.ts`, Pomodoro tests |
