@@ -1,8 +1,15 @@
 import type { RescueTimeGoalRecord } from "../../domain/rescuetime-goals";
+import { addDays } from "../gtd/shared";
 import type { RescueTimeAnalyticPayload } from "./parse-analytic-data";
 import { parseRankRows } from "./parse-analytic-data";
+import { fetchRescueTimeJson } from "./http-transport";
+import { productivitySecondsForGoal, type ParsedProductivityRow } from "./productivity-mapping";
+
+export { parseRankRows };
 
 export interface RescueTimeProjectTimesPayload {
+  is_complete?: boolean;
+  job_id?: string | number | null;
   project_times?: Array<{
     duration?: number;
     project?: {
@@ -13,65 +20,73 @@ export interface RescueTimeProjectTimesPayload {
   }>;
 }
 
+export interface RescueTimeAnalyticQuery {
+  kind: string;
+  begin: string;
+  end: string;
+  scheduleId?: number;
+}
+
 export interface RescueTimeGoalsClient {
   listGoals(apiKey: string): Promise<RescueTimeGoalRecord[]>;
-  fetchAnalyticData(apiKey: string, kind: string, begin: string, end: string): Promise<RescueTimeAnalyticPayload>;
+  fetchAnalyticData(apiKey: string, query: RescueTimeAnalyticQuery): Promise<RescueTimeAnalyticPayload>;
   fetchProjectTimes(apiKey: string, begin: string, end: string): Promise<RescueTimeProjectTimesPayload>;
 }
 
+const sleep = (milliseconds: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
+
 export class HttpRescueTimeGoalsClient implements RescueTimeGoalsClient {
-  private async fetchJson<T>(apiKey: string, url: string): Promise<T> {
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${apiKey}`
-      }
-    });
-
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`RescueTime API ${response.status}: ${body.slice(0, 200)}`);
-    }
-
-    return response.json() as Promise<T>;
-  }
-
   async listGoals(apiKey: string): Promise<RescueTimeGoalRecord[]> {
-    const goals = await this.fetchJson<RescueTimeGoalRecord[]>(
-      apiKey,
-      "https://www.rescuetime.com/api/resource/goals"
+    const goals = await fetchRescueTimeJson<RescueTimeGoalRecord[]>(
+      "https://www.rescuetime.com/api/resource/goals",
+      apiKey
     );
     return goals.filter((goal) => goal.enabled !== false);
   }
 
-  async fetchAnalyticData(
-    apiKey: string,
-    kind: string,
-    begin: string,
-    end: string
-  ): Promise<RescueTimeAnalyticPayload> {
+  async fetchAnalyticData(apiKey: string, query: RescueTimeAnalyticQuery): Promise<RescueTimeAnalyticPayload> {
     const url = new URL("https://www.rescuetime.com/anapi/data");
     url.searchParams.set("format", "json");
     url.searchParams.set("perspective", "rank");
-    url.searchParams.set("restrict_kind", kind);
-    url.searchParams.set("restrict_begin", begin);
-    url.searchParams.set("restrict_end", end);
-    return this.fetchJson(apiKey, url.toString());
+    url.searchParams.set("restrict_kind", query.kind);
+    url.searchParams.set("restrict_begin", query.begin);
+    url.searchParams.set("restrict_end", query.end);
+    if (query.scheduleId !== undefined && query.scheduleId > 0) {
+      url.searchParams.set("restrict_schedule_id", String(query.scheduleId));
+    }
+    return fetchRescueTimeJson<RescueTimeAnalyticPayload>(url.toString(), apiKey);
   }
 
   async fetchProjectTimes(apiKey: string, begin: string, end: string): Promise<RescueTimeProjectTimesPayload> {
-    const url = new URL("https://www.rescuetime.com/api/resource/labeled_time_project_times");
-    url.searchParams.set("start_date", begin);
-    url.searchParams.set("end_date", end);
-    return this.fetchJson(apiKey, url.toString());
+    const projectTimes: NonNullable<RescueTimeProjectTimesPayload["project_times"]> = [];
+
+    for (let cursor = begin; cursor <= end; cursor = addDays(cursor, 1)) {
+      const url = new URL("https://www.rescuetime.com/api/resource/labeled_time_project_times");
+      url.searchParams.set("date", cursor);
+
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        const payload = await fetchRescueTimeJson<RescueTimeProjectTimesPayload>(url.toString(), apiKey);
+        if (payload.is_complete !== false) {
+          projectTimes.push(...(payload.project_times ?? []));
+          break;
+        }
+        if (attempt === 11) {
+          throw new Error(`RescueTime project times query did not complete for ${cursor}.`);
+        }
+        await sleep(500);
+      }
+    }
+
+    return { is_complete: true, project_times: projectTimes };
   }
 }
 
 export const defaultRescueTimeGoalsClient = new HttpRescueTimeGoalsClient();
 
-export interface ParsedProductivityRow {
-  productivity: number;
-  seconds: number;
-}
+export { productivitySecondsForGoal, type ParsedProductivityRow };
 
 export const parseProductivityRows = (payload: RescueTimeAnalyticPayload): ParsedProductivityRow[] => {
   const headers = payload.row_headers ?? [];
@@ -82,17 +97,6 @@ export const parseProductivityRows = (payload: RescueTimeAnalyticPayload): Parse
     productivity: Number(row[productivityIndex] ?? 0),
     seconds: Number(row[secondsIndex] ?? 0)
   }));
-};
-
-export const productivitySecondsForGoal = (rows: ParsedProductivityRow[], goal: RescueTimeGoalRecord): number => {
-  const productivityId = goal.productivity?.id ?? goal.taxon_id;
-  if (productivityId === 7) {
-    return rows.filter((row) => row.productivity < 0).reduce((sum, row) => sum + row.seconds, 0);
-  }
-  if (productivityId === 10) {
-    return rows.reduce((sum, row) => sum + row.seconds, 0);
-  }
-  return 0;
 };
 
 export const aggregateProjectTimes = (payload: RescueTimeProjectTimesPayload) => {
@@ -115,12 +119,45 @@ export const aggregateProjectTimes = (payload: RescueTimeProjectTimesPayload) =>
   return { byName, byClientId };
 };
 
-export const overviewSecondsForGoal = (
-  payload: RescueTimeAnalyticPayload,
-  goal: RescueTimeGoalRecord
+export const resolveAnalyticKind = (goal: RescueTimeGoalRecord): string => {
+  const taxonomy = goal.taxonomy?.search_name ?? goal.taxonomy_name ?? "";
+  if (taxonomy === "productivity") {
+    return "productivity";
+  }
+  if (taxonomy === "category") {
+    return "category";
+  }
+  if (taxonomy === "activity") {
+    return "activity";
+  }
+  return "overview";
+};
+
+export const matchRankRowSeconds = (
+  rows: ReturnType<typeof parseRankRows>,
+  goal: RescueTimeGoalRecord,
+  kind: string
 ): number => {
-  const rows = parseRankRows(payload);
-  const needle = (goal.overview?.name ?? goal.taxon_display_name ?? "").toLowerCase();
-  const row = rows.find((item) => item.name.toLowerCase() === needle || item.name.toLowerCase().includes(needle));
+  const needle = (
+    goal.taxon_display_name ??
+    goal.overview?.name ??
+    goal.v2project?.name ??
+    goal.productivity?.display_name ??
+    goal.productivity?.name ??
+    ""
+  ).toLowerCase();
+
+  if (!needle) {
+    return 0;
+  }
+
+  const row = rows.find((item) => {
+    const name = item.name.toLowerCase();
+    return name === needle || name.includes(needle) || needle.includes(name);
+  });
+
   return row?.seconds ?? 0;
 };
+
+export const goalScheduleId = (goal: RescueTimeGoalRecord): number =>
+  Number(goal.schedule_id ?? goal.schedule?.id ?? 0);

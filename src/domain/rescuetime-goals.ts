@@ -7,10 +7,16 @@ export interface RescueTimeGoalRecord {
   enabled?: boolean;
   taxonomy_name?: string;
   schedule_name?: string;
-  schedule?: { name?: string };
+  schedule_id?: number;
+  schedule?: { id?: number; name?: string };
   taxon_id: number;
   taxonomy?: { search_name?: string };
-  productivity?: { id?: number; display_name?: string; name?: string };
+  productivity?: {
+    id?: number;
+    display_name?: string;
+    name?: string;
+    sql_score_equals?: string;
+  };
   overview?: { name?: string };
   v2project?: { name?: string };
 }
@@ -37,7 +43,11 @@ export interface RescueTimeGoalsSnapshot {
 
 export const scheduleDaysInWeek = (scheduleName: string | undefined): number => {
   const normalized = (scheduleName ?? "").toLowerCase();
-  if (normalized.includes("working") || normalized.includes("weekday")) {
+  if (
+    normalized.includes("working") ||
+    normalized.includes("weekday") ||
+    normalized.includes("work hour")
+  ) {
     return 5;
   }
   return 7;
