@@ -115,6 +115,7 @@ export const WeeklyReviewPage = () => {
   const [goalsMessage, setGoalsMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const latestReviewRef = useRef<WeeklyReview | null>(null);
+  const weekRequestSeqRef = useRef(0);
   const goalsRequestSeqRef = useRef(0);
 
   const loadGoalsSnapshot = useCallback(
@@ -164,19 +165,28 @@ export const WeeklyReviewPage = () => {
 
   const loadWeek = useCallback(
     async (requestedWeekStart: string) => {
+      const requestId = ++weekRequestSeqRef.current;
       const normalized = buildWeekDates(requestedWeekStart);
       setLoading(true);
-      const [existingReview, computedSummary] = await Promise.all([
-        repository.getWeeklyReview(normalized),
-        repository.computeWeeklyReviewSummary(normalized)
-      ]);
-      const nextReview = existingReview ?? createEmptyWeeklyReview(normalized);
-      latestReviewRef.current = nextReview;
-      setSelectedWeekStart(normalized);
-      setReview(nextReview);
-      setSummary(computedSummary);
-      setLoading(false);
-      void loadGoalsSnapshot(normalized);
+      try {
+        const [existingReview, computedSummary] = await Promise.all([
+          repository.getWeeklyReview(normalized),
+          repository.computeWeeklyReviewSummary(normalized)
+        ]);
+        if (requestId !== weekRequestSeqRef.current) {
+          return;
+        }
+        const nextReview = existingReview ?? createEmptyWeeklyReview(normalized);
+        latestReviewRef.current = nextReview;
+        setSelectedWeekStart(normalized);
+        setReview(nextReview);
+        setSummary(computedSummary);
+        void loadGoalsSnapshot(normalized);
+      } finally {
+        if (requestId === weekRequestSeqRef.current) {
+          setLoading(false);
+        }
+      }
     },
     [loadGoalsSnapshot, repository]
   );
@@ -389,7 +399,7 @@ export const WeeklyReviewPage = () => {
 
         {goalsLoading || !goalsSnapshot ? (
           <p className="empty-copy">Chargement des objectifs RescueTime...</p>
-        ) : goalsSnapshot.items.length === 0 ? (
+        ) : goalsSnapshot.fetchError ? null : goalsSnapshot.items.length === 0 ? (
           <p className="empty-copy">Aucun goal RescueTime actif trouve pour ce compte.</p>
         ) : (
           <div className="weekly-day-grid">
