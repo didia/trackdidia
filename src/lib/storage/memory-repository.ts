@@ -24,6 +24,10 @@ import {
   cloneWeeklyReview,
   listWeekDates
 } from "../../domain/weekly-review";
+import {
+  cloneWeeklyObjective,
+  createEmptyWeeklyObjective
+} from "../../domain/weekly-objectives";
 import { getTodayDate } from "../date";
 import type {
   AnnualGoal,
@@ -44,6 +48,8 @@ import type {
   TaskContext,
   TaskEvent,
   TaskFilters,
+  WeeklyObjective,
+  WeeklyObjectiveResult,
   WeeklyReview
 } from "../../domain/types";
 import {
@@ -96,6 +102,8 @@ import type { AppRepository, PomodoroStartOptions } from "./repository";
 export class MemoryRepository implements AppRepository {
   private entries = new Map<string, DailyEntry>();
   private weeklyReviews = new Map<string, WeeklyReview>();
+  private weeklyObjectives = new Map<string, WeeklyObjective>();
+  private weeklyObjectiveResults = new Map<string, WeeklyObjectiveResult>();
   private monthlyReviews = new Map<string, MonthlyReview>();
   private annualGoals = new Map<string, AnnualGoal>();
   private settings: AppSettings = defaultAppSettings();
@@ -161,6 +169,53 @@ export class MemoryRepository implements AppRepository {
     );
 
     return buildWeeklyReviewSummary(normalized, entries);
+  }
+
+  async listWeeklyObjectives(): Promise<WeeklyObjective[]> {
+    return [...this.weeklyObjectives.values()]
+      .sort((left, right) => left.sortOrder - right.sortOrder || left.title.localeCompare(right.title))
+      .map((objective) => cloneWeeklyObjective(objective));
+  }
+
+  async saveWeeklyObjective(objective: WeeklyObjective): Promise<WeeklyObjective> {
+    const timestamp = nowIso();
+    const nextObjective = createEmptyWeeklyObjective({
+      ...cloneWeeklyObjective(objective),
+      id: objective.id || createEntityId("weekly-objective"),
+      title: objective.title.trim(),
+      createdAt: objective.createdAt || timestamp,
+      updatedAt: timestamp
+    });
+    this.weeklyObjectives.set(nextObjective.id, nextObjective);
+    return cloneWeeklyObjective(nextObjective);
+  }
+
+  async deleteWeeklyObjective(objectiveId: string): Promise<void> {
+    this.weeklyObjectives.delete(objectiveId);
+    for (const [key, result] of this.weeklyObjectiveResults) {
+      if (result.objectiveId === objectiveId) {
+        this.weeklyObjectiveResults.delete(key);
+      }
+    }
+  }
+
+  async getWeeklyObjectiveResults(weekStartDate: string): Promise<WeeklyObjectiveResult[]> {
+    const normalized = buildWeekDates(weekStartDate);
+    return [...this.weeklyObjectiveResults.values()]
+      .filter((result) => result.weekStartDate === normalized)
+      .map((result) => ({ ...result }));
+  }
+
+  async saveWeeklyObjectiveResult(result: WeeklyObjectiveResult): Promise<void> {
+    const normalized = buildWeekDates(result.weekStartDate);
+    const timestamp = nowIso();
+    const nextResult: WeeklyObjectiveResult = {
+      weekStartDate: normalized,
+      objectiveId: result.objectiveId,
+      achieved: result.achieved,
+      updatedAt: timestamp
+    };
+    this.weeklyObjectiveResults.set(`${normalized}:${result.objectiveId}`, nextResult);
   }
 
   async getMonthlyReview(monthKey: string): Promise<MonthlyReview | null> {

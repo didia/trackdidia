@@ -18,6 +18,7 @@ Default highlights:
 | AI enabled | No |
 | AI base URL | `https://openrouter.ai/api/v1` |
 | AI model | `moonshotai/kimi-k2.6` |
+| RescueTime API key | Empty |
 | Automatic backup | Enabled, 24 hours |
 | Relationship draws | Enabled |
 
@@ -93,6 +94,35 @@ Headers include the bearer API key, `HTTP-Referer: https://trackdidia.app`, and
 Only `choices[0].message.content` string responses are supported. HTTP/provider
 errors produce a fallback local message plus a visible warning; they do not block
 the daily workflow.
+
+## RescueTime request
+
+The weekly review loads **RescueTime Goals** when a non-empty `rescuetimeApiKey`
+is stored in app settings. The bundled desktop app reads this key **only** from
+SQLite settings (`Parametres → RescueTime`); it never reads a repo-root `.env` file.
+
+Requests use browser `fetch()` from the webview layer (same pattern as OpenRouter):
+
+```text
+GET https://www.rescuetime.com/api/resource/goals
+Authorization: Bearer {rescuetimeApiKey}
+
+GET https://www.rescuetime.com/anapi/data
+  ?format=json
+  &perspective=rank
+  &restrict_kind={overview|productivity|...}
+  &restrict_begin={weekStartDate}
+  &restrict_end={weekEndDate}
+Authorization: Bearer {rescuetimeApiKey}
+```
+
+The key is stored locally in the singleton `app_settings` row, merged with defaults
+on read, and included in SQLite backups. It is never logged by the app. You can
+change it at any time while the app is running; the weekly review reloads goals
+when the saved key changes.
+
+Repo-root `.env` with `RESCUETIME_API_KEY` is optional and supported **only** for
+local CLI scripts such as `scripts/rescuetime-goals-score.mjs`.
 
 ## Privacy implications
 

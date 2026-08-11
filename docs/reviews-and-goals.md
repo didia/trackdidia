@@ -86,6 +86,35 @@ target scale linearly from zero to one; above-target performance continues at ha
 the rate. `weeklyScore` is the mean of those six normalized axis values and can
 therefore exceed `1` (100%).
 
+### Weekly objectives (RescueTime Goals)
+
+The `/semaine` screen loads **enabled RescueTime Goals** from the Resource API and
+scores them for the selected Sunday–Saturday week. This score is separate from the
+six-axis `weeklyScore` above.
+
+Each goal is worth at most **1 point**:
+
+| Direction | Achievement |
+|---|---|
+| More time | `min(actualHours / weeklyTargetHours, 1)` |
+| Less time | `1` when under the weekly cap; otherwise `weeklyTargetHours / actualHours` |
+
+Weekly target hours come from the goal's daily `amount_seconds` multiplied by the
+number of days implied by the goal schedule (`7` for 24x7, `5` for working/weekday
+schedules).
+
+```text
+score = sum(achievement) / count(goals)
+```
+
+When there are no enabled goals, the score displays `—` (null), not `0%`.
+
+Goals are read-only in TrackDidia — manage them in RescueTime. Configure the API key
+under **Parametres → RescueTime** (stored in SQLite, same as OpenRouter). Time data
+comes from the Analytic Data API and labeled project times (projects and clients).
+Schedule windows such as “Evening family time” are not filtered yet; v1 uses full-week
+totals with a documented approximation.
+
 ## Monthly review (`/mois`)
 
 ### Calendar model
