@@ -45,6 +45,25 @@ const buildIdleState = (): PomodoroState => ({
 
 const isBreak = (kind: PomodoroSessionDetails["kind"]): boolean => kind === "short_break" || kind === "long_break";
 
+const POMODORO_LIST_RETRY_DELAY_MS = 1_000;
+
+const withTransientRetry = async <T,>(label: string, operation: () => Promise<T>): Promise<T> => {
+  try {
+    return await operation();
+  } catch (error) {
+    logDebug("error", "pomodoro", `Echec transitoire de ${label}`, error);
+    return operation();
+  }
+};
+
+const readTodayPomodoroLists = (candidate: AppRepository) => {
+  const today = getTodayDate();
+  return Promise.all([
+    candidate.listPomodoroSessions(today),
+    candidate.listPomodoroTaskSummaries(today)
+  ]);
+};
+
 /** Shared timer state and serialized persistence orchestration for the application shell. */
 export const usePomodoroController = (repository: AppRepository | null): PomodoroControllerValue => {
   const [state, setState] = useState<PomodoroState>(buildIdleState());
@@ -59,22 +78,42 @@ export const usePomodoroController = (repository: AppRepository | null): Pomodor
   const snapshotTokenRef = useRef(0);
   const announcedCompletionIdsRef = useRef(new Set<string>());
   const invalidDeadlineKeysRef = useRef(new Set<string>());
+  const listRetryTimeoutRef = useRef<number | undefined>(undefined);
+  const refreshPomodoroRef = useRef<(
+    candidate: AppRepository,
+    nextState?: PomodoroState,
+    options?: { scheduleRetry?: boolean }
+  ) => Promise<void>>(async () => undefined);
+  const refreshEverythingRef = useRef<(
+    candidate: AppRepository,
+    showLoading: boolean,
+    options?: { scheduleRetry?: boolean }
+  ) => Promise<void>>(async () => undefined);
 
   repositoryRef.current = repository;
+
+  const clearListRetryTimeout = useCallback(() => {
+    if (listRetryTimeoutRef.current !== undefined) {
+      window.clearTimeout(listRetryTimeoutRef.current);
+      listRetryTimeoutRef.current = undefined;
+    }
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       snapshotTokenRef.current += 1;
+      clearListRetryTimeout();
     };
-  }, []);
+  }, [clearListRetryTimeout]);
 
   useEffect(() => {
     snapshotTokenRef.current += 1;
     announcedCompletionIdsRef.current = new Set();
     invalidDeadlineKeysRef.current = new Set();
-  }, [repository]);
+    clearListRetryTimeout();
+  }, [clearListRetryTimeout, repository]);
 
   const isCurrentRepository = useCallback((candidate: AppRepository) =>
     mountedRef.current && repositoryRef.current === candidate, []);
@@ -111,17 +150,49 @@ export const usePomodoroController = (repository: AppRepository | null): Pomodor
     setState(nextState);
   }, [isCurrentRepository]);
 
-  const refreshPomodoro = useCallback(async (candidate: AppRepository, nextState?: PomodoroState) => {
+  const scheduleSnapshotRetry = useCallback((
+    candidate: AppRepository,
+    token: number,
+    retry: (candidate: AppRepository) => Promise<void>
+  ) => {
+    if (!isCurrentRepository(candidate) || token !== snapshotTokenRef.current) {
+      return;
+    }
+    clearListRetryTimeout();
+    listRetryTimeoutRef.current = window.setTimeout(() => {
+      listRetryTimeoutRef.current = undefined;
+      void runQueued("rafraichissement des listes Pomodoro", async () => {
+        await retry(candidate);
+      });
+    }, POMODORO_LIST_RETRY_DELAY_MS);
+  }, [clearListRetryTimeout, isCurrentRepository, runQueued]);
+
+  const refreshPomodoro = useCallback(async (
+    candidate: AppRepository,
+    nextState?: PomodoroState,
+    options?: { scheduleRetry?: boolean }
+  ) => {
     const token = ++snapshotTokenRef.current;
+    clearListRetryTimeout();
     if (nextState) {
       applyState(candidate, nextState);
     }
 
-    const today = getTodayDate();
-    const [nextSessions, nextSummaries] = await Promise.all([
-      candidate.listPomodoroSessions(today),
-      candidate.listPomodoroTaskSummaries(today)
-    ]);
+    let nextSessions: PomodoroSessionDetails[];
+    let nextSummaries: PomodoroTaskSummary[];
+    try {
+      [nextSessions, nextSummaries] = await withTransientRetry(
+        "rafraichissement des listes Pomodoro",
+        () => readTodayPomodoroLists(candidate)
+      );
+    } catch (error) {
+      if (options?.scheduleRetry ?? true) {
+        scheduleSnapshotRetry(candidate, token, (nextCandidate) =>
+          refreshPomodoroRef.current(nextCandidate, undefined, { scheduleRetry: false })
+        );
+      }
+      throw error;
+    }
 
     if (!isCurrentRepository(candidate) || token !== snapshotTokenRef.current) {
       return;
@@ -129,10 +200,15 @@ export const usePomodoroController = (repository: AppRepository | null): Pomodor
     setSessions(nextSessions);
     setTaskSummaries(nextSummaries);
     setLoading(false);
-  }, [applyState, isCurrentRepository]);
+  }, [applyState, clearListRetryTimeout, isCurrentRepository, scheduleSnapshotRetry]);
 
-  const refreshEverything = useCallback(async (candidate: AppRepository, showLoading: boolean) => {
+  const refreshEverything = useCallback(async (
+    candidate: AppRepository,
+    showLoading: boolean,
+    options?: { scheduleRetry?: boolean }
+  ) => {
     const token = ++snapshotTokenRef.current;
+    clearListRetryTimeout();
     if (showLoading && isCurrentRepository(candidate)) {
       setLoading(true);
     }
@@ -141,11 +217,26 @@ export const usePomodoroController = (repository: AppRepository | null): Pomodor
     await candidate.generateDueRecurringTasks(today);
     const nextState = await candidate.completeExpiredPomodoroSessions();
     applyState(candidate, nextState);
-    const [nextSessions, nextSummaries, nextTasks] = await Promise.all([
-      candidate.listPomodoroSessions(today),
-      candidate.listPomodoroTaskSummaries(today),
-      candidate.listTasks({ includeCompleted: true })
-    ]);
+    let nextSessions: PomodoroSessionDetails[];
+    let nextSummaries: PomodoroTaskSummary[];
+    let nextTasks: Task[];
+    try {
+      [nextSessions, nextSummaries, nextTasks] = await withTransientRetry(
+        "rafraichissement Pomodoro",
+        () => Promise.all([
+          candidate.listPomodoroSessions(today),
+          candidate.listPomodoroTaskSummaries(today),
+          candidate.listTasks({ includeCompleted: true })
+        ])
+      );
+    } catch (error) {
+      if (options?.scheduleRetry ?? true) {
+        scheduleSnapshotRetry(candidate, token, (nextCandidate) =>
+          refreshEverythingRef.current(nextCandidate, false, { scheduleRetry: false })
+        );
+      }
+      throw error;
+    }
 
     if (!isCurrentRepository(candidate) || token !== snapshotTokenRef.current) {
       return;
@@ -154,7 +245,10 @@ export const usePomodoroController = (repository: AppRepository | null): Pomodor
     setTaskSummaries(nextSummaries);
     setAllTasks(nextTasks);
     setLoading(false);
-  }, [applyState, isCurrentRepository]);
+  }, [applyState, clearListRetryTimeout, isCurrentRepository, scheduleSnapshotRetry]);
+
+  refreshPomodoroRef.current = refreshPomodoro;
+  refreshEverythingRef.current = refreshEverything;
 
   useEffect(() => {
     if (!repository) {

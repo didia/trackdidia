@@ -179,6 +179,11 @@ Pomodoro page share state.
   refresh only Pomodoro collections. Each ordinary action first reconciles a valid
   expired running session, so it cannot pause or alter an already elapsed timer.
   Snapshot commits ignore stale repository or unmounted-controller work.
+- After a persisted timer change, the controller publishes the new active session
+  immediately so the deadline scheduler stays aligned with SQLite. Session history
+  and task-summary snapshots load afterward. A transient list-read failure is
+  retried immediately and, if it still fails, once more after a short delay so
+  the Pomodoro page cannot keep showing pre-action history indefinitely.
 - Corrupt active timing data displays `--:--`; recovery controls remain available,
   while early completion is disabled.
 - An automatic completion is verified from the persisted local-date session list

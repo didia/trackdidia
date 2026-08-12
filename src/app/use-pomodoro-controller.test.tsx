@@ -146,12 +146,12 @@ describe("usePomodoroController", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-01T09:00:00.000Z"));
     const repository = await createRunningRepository();
+    const originalListPomodoroSessions = repository.listPomodoroSessions.bind(repository);
     const listPomodoroSessions = vi.spyOn(repository, "listPomodoroSessions");
     const { result } = renderHook(() => usePomodoroController(repository));
 
     await flushControllerQueue();
     listPomodoroSessions.mockClear();
-    const originalListPomodoroSessions = repository.listPomodoroSessions.bind(repository);
     listPomodoroSessions
       .mockImplementationOnce((date) => originalListPomodoroSessions(date))
       .mockRejectedValueOnce(new Error("temporary refresh failure"));
@@ -161,7 +161,57 @@ describe("usePomodoroController", () => {
     await flushControllerQueue();
 
     expect(result.current.state.activeSession).toBeNull();
+    expect(result.current.sessions[0]?.status).toBe("completed");
     expect((await originalListPomodoroSessions("2026-04-01"))[0]?.status).toBe("completed");
     expect(announceCompletion).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps session history aligned after a timer action whose list refresh fails once", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-01T09:00:00.000Z"));
+    const repository = await createRunningRepository();
+    const listPomodoroSessions = vi.spyOn(repository, "listPomodoroSessions");
+    const { result } = renderHook(() => usePomodoroController(repository));
+
+    await flushControllerQueue();
+    expect(result.current.sessions[0]?.status).toBe("running");
+    listPomodoroSessions.mockClear();
+    listPomodoroSessions.mockRejectedValueOnce(new Error("temporary refresh failure"));
+
+    await act(async () => {
+      await result.current.pauseCurrent();
+    });
+
+    expect(result.current.state.activeSession?.status).toBe("paused");
+    expect(result.current.sessions[0]?.status).toBe("paused");
+  });
+
+  it("retries a stale history snapshot after repeated list refresh failures", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-01T09:00:00.000Z"));
+    const repository = await createRunningRepository();
+    const listPomodoroSessions = vi.spyOn(repository, "listPomodoroSessions");
+    const { result } = renderHook(() => usePomodoroController(repository));
+
+    await flushControllerQueue();
+    expect(result.current.sessions[0]?.status).toBe("running");
+    listPomodoroSessions.mockClear();
+    listPomodoroSessions
+      .mockRejectedValueOnce(new Error("temporary refresh failure"))
+      .mockRejectedValueOnce(new Error("temporary refresh failure"));
+
+    await act(async () => {
+      await result.current.pauseCurrent();
+    });
+
+    expect(result.current.state.activeSession?.status).toBe("paused");
+    expect(result.current.sessions[0]?.status).toBe("running");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    await flushControllerQueue();
+
+    expect(result.current.sessions[0]?.status).toBe("paused");
   });
 });
