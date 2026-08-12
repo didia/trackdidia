@@ -62,6 +62,10 @@ describe("monthly review domain", () => {
         tasksAddedTotal: 16,
         tasksCompletedTotal: 12,
         tasksCompletionRate: 75,
+        calorieAverage: 0,
+        physicalActivity: 0,
+        productivityPulse: null,
+        rescueTimeGoalsScore: null,
         weeklyScore: 0.6,
         days: []
       }

@@ -45,6 +45,10 @@ describe("annual goals domain", () => {
         tasksAddedTotal: 0,
         tasksCompletedTotal: 0,
         tasksCompletionRate: 0,
+        calorieAverage: 0,
+        physicalActivity: 0,
+        productivityPulse: null,
+        rescueTimeGoalsScore: null,
         weeklyScore: 0.5,
         days: []
       },
@@ -64,6 +68,10 @@ describe("annual goals domain", () => {
         tasksAddedTotal: 0,
         tasksCompletedTotal: 0,
         tasksCompletionRate: 0,
+        calorieAverage: 0,
+        physicalActivity: 0,
+        productivityPulse: null,
+        rescueTimeGoalsScore: null,
         weeklyScore: 0.55,
         days: []
       }

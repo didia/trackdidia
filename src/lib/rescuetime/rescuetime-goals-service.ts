@@ -22,6 +22,7 @@ import {
   resolveAnalyticKind,
   type RescueTimeGoalsClient
 } from "./goals-client";
+import { computeProductivityPulse } from "./productivity-mapping";
 
 interface AnalyticCache {
   productivity: Map<number, ReturnType<typeof parseProductivityRows>>;
@@ -36,6 +37,14 @@ const createAnalyticCache = (): AnalyticCache => ({
   category: new Map(),
   activity: new Map()
 });
+
+export interface RescueTimeProductivityPulseSnapshot {
+  weekStartDate: string;
+  weekEndDate: string;
+  pulse: number | null;
+  rescuetimeConfigured: boolean;
+  fetchError?: string;
+}
 
 export class RescueTimeGoalsService {
   constructor(
@@ -179,6 +188,50 @@ export class RescueTimeGoalsService {
     const rankKind = analyticKind as "overview" | "category" | "activity";
     const rows = await this.loadRankRows(apiKey, rankKind, weekStart, weekEnd, scheduleId, caches);
     return matchRankRowSeconds(rows, goal, rankKind);
+  }
+
+  async computeProductivityPulse(weekStartDate: string): Promise<RescueTimeProductivityPulseSnapshot> {
+    const normalized = buildWeekDates(weekStartDate);
+    const weekEndDate = addDays(normalized, 6);
+    const settings = await this.repository.getSettings();
+    const apiKey = settings.rescuetimeApiKey.trim();
+    const rescuetimeConfigured = apiKey.length > 0;
+
+    if (!rescuetimeConfigured) {
+      return {
+        weekStartDate: normalized,
+        weekEndDate,
+        pulse: null,
+        rescuetimeConfigured
+      };
+    }
+
+    try {
+      const payload = await this.client.fetchAnalyticData(apiKey, {
+        kind: "productivity",
+        begin: normalized,
+        end: weekEndDate
+      });
+      const rows = parseProductivityRows(payload);
+      const pulse = computeProductivityPulse(rows);
+
+      return {
+        weekStartDate: normalized,
+        weekEndDate,
+        pulse,
+        rescuetimeConfigured
+      };
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Echec de la requete RescueTime productivity.";
+      return {
+        weekStartDate: normalized,
+        weekEndDate,
+        pulse: null,
+        rescuetimeConfigured,
+        fetchError: message
+      };
+    }
   }
 
   async testConnection(apiKey: string): Promise<{ goalCount: number; sampleGoal?: string }> {
