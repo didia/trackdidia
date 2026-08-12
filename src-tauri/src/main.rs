@@ -47,7 +47,10 @@ fn resolve_storage_paths(app: tauri::AppHandle) -> Result<StoragePaths, String> 
 
 #[tauri::command]
 async fn rescuetime_http_get(url: String, api_key: String) -> Result<String, String> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|error| format!("RescueTime HTTP client failed: {error}"))?;
     let response = client
         .get(&url)
         .header("Authorization", format!("Bearer {api_key}"))

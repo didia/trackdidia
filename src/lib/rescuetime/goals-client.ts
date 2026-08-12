@@ -25,6 +25,7 @@ export interface RescueTimeAnalyticQuery {
   begin: string;
   end: string;
   scheduleId?: number;
+  sourceType?: string;
 }
 
 export interface RescueTimeGoalsClient {
@@ -56,6 +57,9 @@ export class HttpRescueTimeGoalsClient implements RescueTimeGoalsClient {
     url.searchParams.set("restrict_end", query.end);
     if (query.scheduleId !== undefined && query.scheduleId > 0) {
       url.searchParams.set("restrict_schedule_id", String(query.scheduleId));
+    }
+    if (query.sourceType) {
+      url.searchParams.set("restrict_source_type", query.sourceType);
     }
     return fetchRescueTimeJson<RescueTimeAnalyticPayload>(url.toString(), apiKey);
   }

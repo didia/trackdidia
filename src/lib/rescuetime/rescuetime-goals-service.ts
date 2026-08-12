@@ -210,7 +210,8 @@ export class RescueTimeGoalsService {
       const payload = await this.client.fetchAnalyticData(apiKey, {
         kind: "productivity",
         begin: normalized,
-        end: weekEndDate
+        end: weekEndDate,
+        sourceType: "computers"
       });
       const rows = parseProductivityRows(payload);
       const pulse = computeProductivityPulse(rows);

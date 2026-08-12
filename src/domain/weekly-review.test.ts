@@ -168,16 +168,39 @@ describe("weekly review domain", () => {
       createEmptyDailyEntry("2026-04-04")
     ]);
 
-    const localScore = summary.weeklyScore;
-    const withRescueTime = applyWeeklyScoreExternalAxes(summary, {
+    const localAxes = localWeeklyScoreAxes(summary);
+    const withBoth = applyWeeklyScoreExternalAxes(summary, {
       rescueTimeGoalsScore: 0.5,
       productivityPulse: 80
     });
+    const withGoalsOnly = applyWeeklyScoreExternalAxes(summary, {
+      rescueTimeGoalsScore: 0.5,
+      productivityPulse: null
+    });
+    const withPulseOnly = applyWeeklyScoreExternalAxes(summary, {
+      rescueTimeGoalsScore: null,
+      productivityPulse: 80
+    });
+    const withGoalsZero = applyWeeklyScoreExternalAxes(summary, {
+      rescueTimeGoalsScore: 0,
+      productivityPulse: null
+    });
 
-    expect(withRescueTime.rescueTimeGoalsScore).toBe(0.5);
-    expect(withRescueTime.productivityPulse).toBe(80);
-    expect(withRescueTime.weeklyScore).toBeGreaterThan(localScore);
-    expect(localWeeklyScoreAxes(withRescueTime)).toHaveLength(7);
+    expect(localAxes).toHaveLength(7);
+    expect(withBoth.weeklyScore).toBeCloseTo(
+      (localAxes.reduce((sum, value) => sum + value, 0) + 0.5 + 0.8) / 9
+    );
+    expect(withGoalsOnly.weeklyScore).toBeCloseTo(
+      (localAxes.reduce((sum, value) => sum + value, 0) + 0.5) / 8
+    );
+    expect(withPulseOnly.weeklyScore).toBeCloseTo(
+      (localAxes.reduce((sum, value) => sum + value, 0) + 0.8) / 8
+    );
+    expect(withGoalsZero.weeklyScore).toBeCloseTo(
+      (localAxes.reduce((sum, value) => sum + value, 0) + 0) / 8
+    );
+    expect(withBoth.rescueTimeGoalsScore).toBe(0.5);
+    expect(withBoth.productivityPulse).toBe(80);
   });
 
   it("ignores RescueTime fields already on summary when computing local axes", () => {
