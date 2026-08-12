@@ -121,6 +121,10 @@ GET https://www.rescuetime.com/anapi/data
 Authorization: Bearer {rescuetimeApiKey}
 ```
 
+The weekly review also fetches a **productivity pulse** with
+`restrict_kind=productivity` and no `restrict_schedule_id` (full-week computer
+time, Sunday–Saturday).
+
 The key is stored locally in the singleton `app_settings` row, merged with defaults
 on read, and included in SQLite backups. It is never logged by the app. You can
 change it at any time while the app is running; the weekly review reloads goals

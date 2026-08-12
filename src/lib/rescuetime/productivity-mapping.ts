@@ -77,3 +77,25 @@ export const productivitySecondsForGoal = (
     .filter((row) => row.productivity === productivityId)
     .reduce((sum, row) => sum + row.seconds, 0);
 };
+
+export const computeProductivityPulse = (rows: ParsedProductivityRow[]): number | null => {
+  let weightedSum = 0;
+  let totalSeconds = 0;
+
+  for (const row of rows) {
+    if (!Number.isFinite(row.seconds) || !Number.isFinite(row.productivity)) {
+      continue;
+    }
+
+    weightedSum += row.productivity * row.seconds;
+    totalSeconds += row.seconds;
+  }
+
+  if (totalSeconds <= 0) {
+    return null;
+  }
+
+  const mean = weightedSum / totalSeconds;
+  const pulse = ((mean + 2) / 4) * 100;
+  return Math.min(100, Math.max(0, pulse));
+};

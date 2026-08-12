@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { productivitySecondsForGoal } from "./productivity-mapping";
+import { computeProductivityPulse, productivitySecondsForGoal } from "./productivity-mapping";
 
 describe("productivitySecondsForGoal", () => {
   const rows = [
@@ -47,5 +47,36 @@ describe("productivitySecondsForGoal", () => {
         productivity: { id: 2, name: "very productive", display_name: "Focus Work" }
       })
     ).toBe(3600);
+  });
+});
+
+describe("computeProductivityPulse", () => {
+  it("returns a time-weighted pulse on a 0-100 scale", () => {
+    expect(
+      computeProductivityPulse([
+        { productivity: 2, seconds: 3600 },
+        { productivity: 0, seconds: 3600 }
+      ])
+    ).toBe(75);
+  });
+
+  it("returns null when no tracked seconds remain", () => {
+    expect(computeProductivityPulse([])).toBeNull();
+    expect(computeProductivityPulse([{ productivity: 1, seconds: 0 }])).toBeNull();
+  });
+
+  it("skips rows with non-finite values", () => {
+    expect(
+      computeProductivityPulse([
+        { productivity: Number.NaN, seconds: 3600 },
+        { productivity: 2, seconds: Number.POSITIVE_INFINITY },
+        { productivity: 1, seconds: 1800 }
+      ])
+    ).toBe(75);
+  });
+
+  it("clamps pulse to 0-100", () => {
+    expect(computeProductivityPulse([{ productivity: 2, seconds: 3600 }])).toBe(100);
+    expect(computeProductivityPulse([{ productivity: -2, seconds: 3600 }])).toBe(0);
   });
 });
