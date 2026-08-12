@@ -74,7 +74,15 @@ const sourceDefinitions: AnnualGoalSourceDefinition[] = [
     label: "Score hebdo moyen",
     type: "weekly_summary",
     weeklyMetricLabels: ["Score hebdo"],
-    dailyHabitLabels: ["Sommeil", "TRC", "Temps d'ecran", "Pomodoris", "Discipline", "Taches"],
+    dailyHabitLabels: [
+      "Sommeil",
+      "TRC",
+      "Temps d'ecran",
+      "Temps focus",
+      "Discipline",
+      "Taches",
+      "Depense calorique"
+    ],
     computeCurrent: (_entries, weeklySummaries) => {
       const value = weeklyAverage(weeklySummaries, (summary) => summary.weeklyScore);
       return value === null ? null : value * 100;

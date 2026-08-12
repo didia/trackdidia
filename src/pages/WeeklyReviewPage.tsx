@@ -4,6 +4,7 @@ import { useAppContext } from "../app/app-context";
 import { deriveStatusLabel } from "../domain/daily-entry";
 import {
   applyWeeklyReviewTransition,
+  applyWeeklyScoreExternalAxes,
   buildWeekDates,
   createEmptyWeeklyReview,
   updateWeeklyReviewChecklist,
@@ -20,7 +21,7 @@ import { SectionCard } from "../components/SectionCard";
 import { formatDateLong, formatDateShort, getTodayDate } from "../lib/date";
 import { formatPercent, formatTimestamp } from "../lib/format";
 import { addDays } from "../lib/gtd/shared";
-import { RescueTimeGoalsService } from "../lib/rescuetime/rescuetime-goals-service";
+import { RescueTimeGoalsService, type RescueTimeProductivityPulseSnapshot } from "../lib/rescuetime/rescuetime-goals-service";
 
 interface RitualSectionDefinition {
   key: WeeklyRitualSectionKey;
@@ -100,6 +101,9 @@ const formatHours = (hours: number | null): string =>
 const formatObjectiveScore = (score: number | null): string =>
   score === null ? "—" : formatPercent(score);
 
+const formatPulse = (value: number | null): string =>
+  value === null ? "—" : `${Math.round(value)} / 100`;
+
 const deriveWeeklyStatusLabel = (status: WeeklyReview["status"]): string =>
   status === "closed" ? "Revue cloturee" : "Brouillon";
 
@@ -110,53 +114,64 @@ export const WeeklyReviewPage = () => {
   const [review, setReview] = useState<WeeklyReview | null>(null);
   const [summary, setSummary] = useState<WeeklyReviewSummary | null>(null);
   const [goalsSnapshot, setGoalsSnapshot] = useState<RescueTimeGoalsSnapshot | null>(null);
-  const [goalsLoading, setGoalsLoading] = useState(true);
-  const [goalsRefreshing, setGoalsRefreshing] = useState(false);
-  const [goalsMessage, setGoalsMessage] = useState("");
+  const [pulseSnapshot, setPulseSnapshot] = useState<RescueTimeProductivityPulseSnapshot | null>(null);
+  const [rescueTimeLoading, setRescueTimeLoading] = useState(true);
+  const [rescueTimeRefreshing, setRescueTimeRefreshing] = useState(false);
+  const [rescueTimeMessage, setRescueTimeMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const latestReviewRef = useRef<WeeklyReview | null>(null);
   const weekRequestSeqRef = useRef(0);
-  const goalsRequestSeqRef = useRef(0);
+  const rescueTimeRequestSeqRef = useRef(0);
 
-  const loadGoalsSnapshot = useCallback(
+  const loadRescueTimeData = useCallback(
     async (requestedWeekStart: string) => {
-      const requestId = ++goalsRequestSeqRef.current;
-      setGoalsLoading(true);
-      setGoalsMessage("");
+      const requestId = ++rescueTimeRequestSeqRef.current;
+      setRescueTimeLoading(true);
+      setRescueTimeMessage("");
       try {
-        const snapshot = await goalsService.computeGoalsSnapshot(requestedWeekStart);
-        if (requestId !== goalsRequestSeqRef.current) {
+        const [goals, pulse] = await Promise.all([
+          goalsService.computeGoalsSnapshot(requestedWeekStart),
+          goalsService.computeProductivityPulse(requestedWeekStart)
+        ]);
+        if (requestId !== rescueTimeRequestSeqRef.current) {
           return;
         }
-        setGoalsSnapshot(snapshot);
+        setGoalsSnapshot(goals);
+        setPulseSnapshot(pulse);
       } finally {
-        if (requestId === goalsRequestSeqRef.current) {
-          setGoalsLoading(false);
+        if (requestId === rescueTimeRequestSeqRef.current) {
+          setRescueTimeLoading(false);
         }
       }
     },
     [goalsService]
   );
 
-  const refreshGoalsSnapshot = useCallback(
+  const refreshRescueTimeData = useCallback(
     async (requestedWeekStart: string) => {
-      const requestId = ++goalsRequestSeqRef.current;
-      setGoalsRefreshing(true);
-      setGoalsMessage("");
+      const requestId = ++rescueTimeRequestSeqRef.current;
+      setRescueTimeRefreshing(true);
+      setRescueTimeMessage("");
       try {
-        const snapshot = await goalsService.computeGoalsSnapshot(requestedWeekStart);
-        if (requestId !== goalsRequestSeqRef.current) {
+        const [goals, pulse] = await Promise.all([
+          goalsService.computeGoalsSnapshot(requestedWeekStart),
+          goalsService.computeProductivityPulse(requestedWeekStart)
+        ]);
+        if (requestId !== rescueTimeRequestSeqRef.current) {
           return;
         }
-        setGoalsSnapshot(snapshot);
+        setGoalsSnapshot(goals);
+        setPulseSnapshot(pulse);
       } catch (error) {
-        if (requestId !== goalsRequestSeqRef.current) {
+        if (requestId !== rescueTimeRequestSeqRef.current) {
           return;
         }
-        setGoalsMessage(error instanceof Error ? error.message : "Echec du rafraichissement RescueTime.");
+        setRescueTimeMessage(
+          error instanceof Error ? error.message : "Echec du rafraichissement RescueTime."
+        );
       } finally {
-        if (requestId === goalsRequestSeqRef.current) {
-          setGoalsRefreshing(false);
+        if (requestId === rescueTimeRequestSeqRef.current) {
+          setRescueTimeRefreshing(false);
         }
       }
     },
@@ -181,14 +196,14 @@ export const WeeklyReviewPage = () => {
         setSelectedWeekStart(normalized);
         setReview(nextReview);
         setSummary(computedSummary);
-        void loadGoalsSnapshot(normalized);
+        void loadRescueTimeData(normalized);
       } finally {
         if (requestId === weekRequestSeqRef.current) {
           setLoading(false);
         }
       }
     },
-    [loadGoalsSnapshot, repository]
+    [loadRescueTimeData, repository]
   );
 
   useEffect(() => {
@@ -223,11 +238,27 @@ export const WeeklyReviewPage = () => {
     previousRescuetimeApiKeyRef.current = settings.rescuetimeApiKey;
 
     if (hasValidSelectedWeek) {
-      void loadGoalsSnapshot(selectedWeekStart);
+      void loadRescueTimeData(selectedWeekStart);
     }
-  }, [settings.rescuetimeApiKey, hasValidSelectedWeek, loadGoalsSnapshot, selectedWeekStart]);
+  }, [settings.rescuetimeApiKey, hasValidSelectedWeek, loadRescueTimeData, selectedWeekStart]);
 
-  if (loading || !review || !summary) {
+  const displayedSummary = useMemo(() => {
+    if (!summary) {
+      return null;
+    }
+
+    const rescueTimeGoalsScore =
+      goalsSnapshot?.weekStartDate === summary.weekStartDate ? goalsSnapshot.score : null;
+    const productivityPulse =
+      pulseSnapshot?.weekStartDate === summary.weekStartDate ? pulseSnapshot.pulse : null;
+
+    return applyWeeklyScoreExternalAxes(summary, {
+      rescueTimeGoalsScore,
+      productivityPulse
+    });
+  }, [goalsSnapshot, pulseSnapshot, summary]);
+
+  if (loading || !review || !summary || !displayedSummary) {
     return <div className="page"><p>Chargement de la revue hebdomadaire...</p></div>;
   }
 
@@ -321,7 +352,7 @@ export const WeeklyReviewPage = () => {
           </article>
           <article className="status-card">
             <span>Score hebdo</span>
-            <strong>{formatPercent(summary.weeklyScore)}</strong>
+            <strong>{formatPercent(displayedSummary.weeklyScore)}</strong>
           </article>
           <article className="status-card">
             <span>Sommeil moyen</span>
@@ -340,6 +371,16 @@ export const WeeklyReviewPage = () => {
             <strong>{summary.pomodorisTotal}</strong>
           </article>
           <article className="status-card">
+            <span>Depense calorique moyenne</span>
+            <strong>{Math.round(summary.calorieAverage)} kcal</strong>
+          </article>
+          <article className="status-card">
+            <span>Productivite ordinateur</span>
+            <strong>
+              {rescueTimeLoading || !pulseSnapshot ? "..." : formatPulse(displayedSummary.productivityPulse)}
+            </strong>
+          </article>
+          <article className="status-card">
             <span>Discipline moyenne</span>
             <strong>{formatWholePercent(summary.disciplineAverage * 100)}</strong>
           </article>
@@ -356,7 +397,7 @@ export const WeeklyReviewPage = () => {
         title="Objectifs de la semaine"
         subtitle="Score base sur tes RescueTime Goals: chaque objectif vaut au plus 1 point, avec scoring fractionnel sur le temps."
       >
-        {goalsMessage ? <div className="banner">{goalsMessage}</div> : null}
+        {rescueTimeMessage ? <div className="banner">{rescueTimeMessage}</div> : null}
         {!settings.rescuetimeApiKey.trim() ? (
           <div className="banner">
             Cle RescueTime manquante. Configure-la dans{" "}
@@ -364,20 +405,27 @@ export const WeeklyReviewPage = () => {
           </div>
         ) : null}
         {goalsSnapshot?.fetchError ? <div className="banner">{goalsSnapshot.fetchError}</div> : null}
+        {pulseSnapshot?.fetchError ? <div className="banner">{pulseSnapshot.fetchError}</div> : null}
 
         <div className="weekly-overview-grid">
           <article className="status-card">
             <span>Score objectifs</span>
-            <strong>{goalsLoading || !goalsSnapshot ? "..." : formatObjectiveScore(goalsSnapshot.score)}</strong>
+            <strong>{rescueTimeLoading || !goalsSnapshot ? "..." : formatObjectiveScore(goalsSnapshot.score)}</strong>
           </article>
           <article className="status-card">
             <span>Points obtenus</span>
             <strong>
-              {goalsLoading || !goalsSnapshot
+              {rescueTimeLoading || !goalsSnapshot
                 ? "..."
                 : goalsSnapshot.items.length === 0
                   ? "—"
                   : `${goalsSnapshot.totalAchievement.toFixed(2)} / ${goalsSnapshot.items.length}`}
+            </strong>
+          </article>
+          <article className="status-card">
+            <span>Productivite ordinateur</span>
+            <strong>
+              {rescueTimeLoading || !pulseSnapshot ? "..." : formatPulse(displayedSummary.productivityPulse)}
             </strong>
           </article>
           <article className="status-card">
@@ -390,14 +438,14 @@ export const WeeklyReviewPage = () => {
           <button
             className="button"
             type="button"
-            disabled={goalsRefreshing || goalsLoading || !settings.rescuetimeApiKey.trim()}
-            onClick={() => void refreshGoalsSnapshot(summary.weekStartDate)}
+            disabled={rescueTimeRefreshing || rescueTimeLoading || !settings.rescuetimeApiKey.trim()}
+            onClick={() => void refreshRescueTimeData(summary.weekStartDate)}
           >
-            {goalsRefreshing ? "Rafraichissement..." : "Rafraichir RescueTime Goals"}
+            {rescueTimeRefreshing ? "Rafraichissement..." : "Rafraichir RescueTime"}
           </button>
         </div>
 
-        {goalsLoading || !goalsSnapshot ? (
+        {rescueTimeLoading || !goalsSnapshot ? (
           <p className="empty-copy">Chargement des objectifs RescueTime...</p>
         ) : goalsSnapshot.fetchError ? null : goalsSnapshot.items.length === 0 ? (
           <p className="empty-copy">Aucun goal RescueTime actif trouve pour ce compte.</p>
@@ -437,8 +485,12 @@ export const WeeklyReviewPage = () => {
             <strong>{formatWholePercent(summary.phoneScreenTime)}</strong>
           </article>
           <article className="status-card">
-            <span>Score pomodoris</span>
+            <span>Score temps focus</span>
             <strong>{formatWholePercent(summary.pomodoris)}</strong>
+          </article>
+          <article className="status-card">
+            <span>Activite physique</span>
+            <strong>{formatWholePercent(summary.physicalActivity)}</strong>
           </article>
           <article className="status-card">
             <span>Score discipline</span>
@@ -447,6 +499,18 @@ export const WeeklyReviewPage = () => {
           <article className="status-card">
             <span>Taux de completion</span>
             <strong>{formatWholePercent(summary.tasksCompletionRate)}</strong>
+          </article>
+          <article className="status-card">
+            <span>Productivite ordinateur</span>
+            <strong>
+              {rescueTimeLoading || !pulseSnapshot ? "..." : formatPulse(displayedSummary.productivityPulse)}
+            </strong>
+          </article>
+          <article className="status-card">
+            <span>Score objectifs RescueTime</span>
+            <strong>
+              {rescueTimeLoading || !goalsSnapshot ? "..." : formatObjectiveScore(displayedSummary.rescueTimeGoalsScore)}
+            </strong>
           </article>
         </div>
       </SectionCard>
@@ -464,6 +528,7 @@ export const WeeklyReviewPage = () => {
                 <span>TRC: {day.trcRespected ? "Oui" : "Non"}</span>
                 <span>Ecran: {day.screenTimeMinutes} min</span>
                 <span>Pomodoris: {day.pomodoris}</span>
+                <span>Kcal: {day.calorieExpenditure}</span>
                 <span>Discipline: {formatWholePercent(day.disciplineScore * 100)}</span>
                 <span>
                   Taches: {day.tasksCompleted}/{day.tasksAdded}

@@ -13,6 +13,7 @@ import type {
 
 const phoneScreenTargetMinutes = 840;
 const pomodoroTarget = 56;
+const calorieTargetDaily = 3800;
 
 const emptyWeeklyNotes = (): WeeklyReviewNotes => ({
   bilan: "",
@@ -59,6 +60,9 @@ const toPhoneScreenAxisValue = (totalMinutes: number): number =>
 
 const toPomodoroAxisValue = (pomodorisTotal: number): number =>
   pomodoroTarget > 0 ? clampAtZero((pomodorisTotal * 100) / pomodoroTarget) : 0;
+
+const toPhysicalActivityAxisValue = (calorieAverage: number): number =>
+  calorieTargetDaily > 0 ? clampAtZero((calorieAverage * 100) / calorieTargetDaily) : 0;
 
 export const buildWeekDates = (weekStartDate: string): string => {
   const normalized = getWeekStartSunday(weekStartDate);
@@ -131,10 +135,46 @@ const buildDaySummary = (entry: DailyEntry): WeeklyReviewDaySummary => ({
   trcRespected: entry.principleChecks.respectTrc === true,
   screenTimeMinutes: resolveMetricValue(entry, "tempsEcranTelephone") ?? 0,
   pomodoris: resolveMetricValue(entry, "pomodoris") ?? 0,
+  calorieExpenditure: resolveMetricValue(entry, "depenseCalorique") ?? 0,
   disciplineScore: computeDisciplineScore(entry),
   tasksAdded: resolveMetricValue(entry, "tachesAjoutes") ?? 0,
   tasksCompleted: resolveMetricValue(entry, "tachesRealises") ?? 0
 });
+
+export const localWeeklyScoreAxes = (summary: WeeklyReviewSummary): number[] => [
+  scoreAgainstTarget(summary.sleepQuality, 100),
+  scoreAgainstTarget(summary.respectTrc, 100),
+  scoreAgainstTarget(summary.phoneScreenTime, 100),
+  scoreAgainstTarget(summary.pomodoris, 100),
+  scoreAgainstTarget(summary.discipline, 100),
+  scoreAgainstTarget(summary.tasksCompletionRate, 100),
+  scoreAgainstTarget(summary.physicalActivity, 100)
+];
+
+export const applyWeeklyScoreExternalAxes = (
+  summary: WeeklyReviewSummary,
+  external: {
+    rescueTimeGoalsScore: number | null;
+    productivityPulse: number | null;
+  }
+): WeeklyReviewSummary => {
+  const axisScores = [...localWeeklyScoreAxes(summary)];
+
+  if (external.rescueTimeGoalsScore !== null) {
+    axisScores.push(scoreAgainstTarget(external.rescueTimeGoalsScore * 100, 100));
+  }
+
+  if (external.productivityPulse !== null) {
+    axisScores.push(scoreAgainstTarget(external.productivityPulse, 100));
+  }
+
+  return {
+    ...summary,
+    rescueTimeGoalsScore: external.rescueTimeGoalsScore,
+    productivityPulse: external.productivityPulse,
+    weeklyScore: average(axisScores)
+  };
+};
 
 export const buildWeeklyReviewSummary = (
   weekStartDate: string,
@@ -150,6 +190,7 @@ export const buildWeeklyReviewSummary = (
   const trcDaysRespected = daySummaries.filter((day) => day.trcRespected).length;
   const screenTimeTotalMinutes = daySummaries.reduce((sum, day) => sum + day.screenTimeMinutes, 0);
   const pomodorisTotal = daySummaries.reduce((sum, day) => sum + day.pomodoris, 0);
+  const calorieAverage = average(daySummaries.map((day) => day.calorieExpenditure));
   const disciplineAverage = average(daySummaries.map((day) => day.disciplineScore));
   const tasksAddedTotal = daySummaries.reduce((sum, day) => sum + day.tasksAdded, 0);
   const tasksCompletedTotal = daySummaries.reduce((sum, day) => sum + day.tasksCompleted, 0);
@@ -157,19 +198,12 @@ export const buildWeeklyReviewSummary = (
   const respectTrc = (trcDaysRespected / 7) * 100;
   const phoneScreenTime = toPhoneScreenAxisValue(screenTimeTotalMinutes);
   const pomodoris = toPomodoroAxisValue(pomodorisTotal);
+  const physicalActivity = toPhysicalActivityAxisValue(calorieAverage);
   const discipline = disciplineAverage * 100;
   const tasksCompletionRate =
     tasksAddedTotal > 0 ? (tasksCompletedTotal / tasksAddedTotal) * 100 : 0;
-  const weeklyScore = average([
-    scoreAgainstTarget(sleepQuality, 100),
-    scoreAgainstTarget(respectTrc, 100),
-    scoreAgainstTarget(phoneScreenTime, 100),
-    scoreAgainstTarget(pomodoris, 100),
-    scoreAgainstTarget(discipline, 100),
-    scoreAgainstTarget(tasksCompletionRate, 100)
-  ]);
 
-  return {
+  const baseSummary: WeeklyReviewSummary = {
     weekStartDate: normalized,
     weekEndDate: addDays(normalized, 6),
     sleepAverage,
@@ -185,7 +219,16 @@ export const buildWeeklyReviewSummary = (
     tasksAddedTotal,
     tasksCompletedTotal,
     tasksCompletionRate,
-    weeklyScore,
+    calorieAverage,
+    physicalActivity,
+    productivityPulse: null,
+    rescueTimeGoalsScore: null,
+    weeklyScore: 0,
     days: daySummaries
+  };
+
+  return {
+    ...baseSummary,
+    weeklyScore: average(localWeeklyScoreAxes(baseSummary))
   };
 };

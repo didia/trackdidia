@@ -5,7 +5,14 @@ import {
   updateMetric,
   updatePrinciple
 } from "./daily-entry";
-import { buildWeeklyReviewSummary, createEmptyWeeklyReview, updateWeeklyReviewChecklist, updateWeeklyReviewNote } from "./weekly-review";
+import {
+  applyWeeklyScoreExternalAxes,
+  buildWeeklyReviewSummary,
+  createEmptyWeeklyReview,
+  localWeeklyScoreAxes,
+  updateWeeklyReviewChecklist,
+  updateWeeklyReviewNote
+} from "./weekly-review";
 
 describe("weekly review domain", () => {
   it("builds weekly aggregates from seven daily entries", () => {
@@ -56,6 +63,10 @@ describe("weekly review domain", () => {
     expect(summary.tasksCompletedTotal).toBe(21);
     expect(summary.tasksCompletionRate).toBeCloseTo(75);
     expect(summary.disciplineAverage).toBeGreaterThan(0);
+    expect(summary.calorieAverage).toBe(0);
+    expect(summary.physicalActivity).toBe(0);
+    expect(summary.productivityPulse).toBeNull();
+    expect(summary.rescueTimeGoalsScore).toBeNull();
     expect(summary.weeklyScore).toBeGreaterThan(0);
     expect(summary.days).toHaveLength(7);
   });
@@ -120,5 +131,80 @@ describe("weekly review domain", () => {
     expect(review.notes.bilan).toBe("");
     expect(withNote.notes.bilan).toBe("Semaine dense.");
     expect(withCheck.ritualChecklist.dimanche).toBe(true);
+  });
+
+  it("includes calorie expenditure in weekly and daily summaries", () => {
+    const weekDates = [
+      "2026-03-29",
+      "2026-03-30",
+      "2026-03-31",
+      "2026-04-01",
+      "2026-04-02",
+      "2026-04-03",
+      "2026-04-04"
+    ];
+
+    const entries = weekDates.map((date, index) => {
+      let entry = createEmptyDailyEntry(date);
+      entry = updateMetric(entry, "depenseCalorique", 3800 + index * 100);
+      return entry;
+    });
+
+    const summary = buildWeeklyReviewSummary("2026-03-29", entries);
+
+    expect(summary.calorieAverage).toBeCloseTo(4100);
+    expect(summary.physicalActivity).toBeCloseTo((4100 * 100) / 3800);
+    expect(summary.days.every((day) => day.calorieExpenditure > 0)).toBe(true);
+  });
+
+  it("recomputes weekly score with RescueTime axes when provided", () => {
+    const summary = buildWeeklyReviewSummary("2026-03-29", [
+      createEmptyDailyEntry("2026-03-29"),
+      createEmptyDailyEntry("2026-03-30"),
+      createEmptyDailyEntry("2026-03-31"),
+      createEmptyDailyEntry("2026-04-01"),
+      createEmptyDailyEntry("2026-04-02"),
+      createEmptyDailyEntry("2026-04-03"),
+      createEmptyDailyEntry("2026-04-04")
+    ]);
+
+    const localScore = summary.weeklyScore;
+    const withRescueTime = applyWeeklyScoreExternalAxes(summary, {
+      rescueTimeGoalsScore: 0.5,
+      productivityPulse: 80
+    });
+
+    expect(withRescueTime.rescueTimeGoalsScore).toBe(0.5);
+    expect(withRescueTime.productivityPulse).toBe(80);
+    expect(withRescueTime.weeklyScore).toBeGreaterThan(localScore);
+    expect(localWeeklyScoreAxes(withRescueTime)).toHaveLength(7);
+  });
+
+  it("ignores RescueTime fields already on summary when computing local axes", () => {
+    const summary = applyWeeklyScoreExternalAxes(
+      buildWeeklyReviewSummary("2026-03-29", [
+        createEmptyDailyEntry("2026-03-29"),
+        createEmptyDailyEntry("2026-03-30"),
+        createEmptyDailyEntry("2026-03-31"),
+        createEmptyDailyEntry("2026-04-01"),
+        createEmptyDailyEntry("2026-04-02"),
+        createEmptyDailyEntry("2026-04-03"),
+        createEmptyDailyEntry("2026-04-04")
+      ]),
+      {
+        rescueTimeGoalsScore: 1,
+        productivityPulse: 100
+      }
+    );
+
+    const reapplied = applyWeeklyScoreExternalAxes(summary, {
+      rescueTimeGoalsScore: null,
+      productivityPulse: null
+    });
+
+    expect(reapplied.rescueTimeGoalsScore).toBeNull();
+    expect(reapplied.productivityPulse).toBeNull();
+    expect(reapplied.weeklyScore).toBeLessThan(summary.weeklyScore);
+    expect(localWeeklyScoreAxes(summary)).toEqual(localWeeklyScoreAxes(reapplied));
   });
 });

@@ -76,6 +76,7 @@ export interface WeeklyReviewDaySummary {
   trcRespected: boolean;
   screenTimeMinutes: number;
   pomodoris: number;
+  calorieExpenditure: number;
   disciplineScore: number;
   tasksAdded: number;
   tasksCompleted: number;
@@ -97,6 +98,10 @@ export interface WeeklyReviewSummary {
   tasksAddedTotal: number;
   tasksCompletedTotal: number;
   tasksCompletionRate: number;
+  calorieAverage: number;
+  physicalActivity: number;
+  productivityPulse: number | null;
+  rescueTimeGoalsScore: number | null;
   weeklyScore: number;
   days: WeeklyReviewDaySummary[];
 }

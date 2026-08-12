@@ -53,6 +53,7 @@ Each day contributes:
 - whether TRC is exactly `true`;
 - phone screen minutes;
 - Pomodoro count;
+- calorie expenditure;
 - discipline fraction;
 - tasks added;
 - tasks completed.
@@ -70,27 +71,43 @@ Explicit daily metrics override suggested GTD/Pomodoro values.
 | Discipline | Average of seven daily discipline fractions |
 | Tasks added/completed | Sum of daily values |
 | Task completion rate | Completed / added; zero when added is zero |
+| Calorie average | Mean of seven daily values (null → 0) |
+| Physical activity axis | `(calorieAverage * 100) / 3800`, lower-clamped |
 
-The automatic score has six axes:
+The automatic score has **seven local axes** (used by monthly and annual summaries):
 
 1. Sleep quality against 100.
 2. TRC percentage against 100.
 3. Phone screen axis, where 840 weekly minutes is 100, zero minutes is 200, and
    1,680 minutes is zero (lower-clamped, not upper-clamped).
-4. Pomodoro axis, where 56 weekly sessions is 100.
+4. Focus time (Pomodoro) axis, where 56 weekly sessions is 100.
 5. Discipline percentage against 100.
 6. Task completion percentage against 100.
+7. Physical activity axis against 3,800 kcal/day average.
 
 Each axis is passed through `scoreAgainstTarget(value, 100)`. Values through the
 target scale linearly from zero to one; above-target performance continues at half
-the rate. `weeklyScore` is the mean of those six normalized axis values and can
-therefore exceed `1` (100%).
+the rate. Repository `weeklyScore` is the mean of those seven normalized axis values
+and can therefore exceed `1` (100%).
+
+On `/semaine`, two optional **RescueTime axes** overlay the score when data is
+available (non-null):
+
+8. RescueTime Goals score (`0–1` from enabled goals).
+9. Computer productivity pulse (`0–100`, time-weighted from Analytic Data).
+
+`applyWeeklyScoreExternalAxes()` recomputes the displayed weekly score as the mean
+of the seven local axes plus each non-null RescueTime axis. Stale RescueTime
+snapshots from a different week are ignored until the matching week loads. Monthly
+`weeklyScoreAverage` and annual `weekly_weekly_score` use the seven-axis local score
+only (calories included; RescueTime excluded).
 
 ### Weekly objectives (RescueTime Goals)
 
-The `/semaine` screen loads **enabled RescueTime Goals** from the Resource API and
-scores them for the selected Sunday–Saturday week. This score is separate from the
-six-axis `weeklyScore` above.
+The `/semaine` screen loads **enabled RescueTime Goals** and a **productivity pulse**
+from the Analytic Data API for the selected Sunday–Saturday week. These scores feed
+the optional RescueTime axes above; they are not persisted and are not part of the
+repository weekly summary.
 
 Each goal is worth at most **1 point**:
 
@@ -108,6 +125,26 @@ score = sum(achievement) / count(goals)
 ```
 
 When there are no enabled goals, the score displays `—` (null), not `0%`.
+
+### Computer productivity pulse
+
+The weekly pulse uses Analytic Data with `restrict_kind=productivity` (no
+`restrict_schedule_id`):
+
+```text
+GET anapi/data?format=json&perspective=rank&restrict_kind=productivity
+  &restrict_begin={Sunday}&restrict_end={Saturday}
+```
+
+RescueTime productivity levels (`-2`..`+2`) are time-weighted:
+
+```text
+mean = sum(productivityLevel * seconds) / sum(seconds)
+pulse = ((mean + 2) / 4) * 100
+```
+
+When there is no tracked computer time (`sum(seconds) === 0`), the pulse is `null`
+and excluded from the displayed weekly score. A real `0` pulse is included.
 
 Goals are read-only in TrackDidia — manage them in RescueTime. Configure the API key
 under **Parametres → RescueTime** (stored in SQLite, same as OpenRouter). Time data
