@@ -167,9 +167,29 @@ Eligible GTD tasks are active Next Actions and Scheduled tasks.
 `usePomodoroController` is mounted once in `AppProvider`, so the floating timer and
 Pomodoro page share state.
 
-- UI countdown state updates once per second.
-- Repository state is reloaded after every action.
-- Expired running sessions complete at their planned `endsAt`.
+- The shared controller does not run a global display clock. The floating timer and
+  Pomodoro page each use a local one-second display clock only while rendering a
+  valid running session; each tick calculates from the persisted deadline rather
+  than decrementing a counter. Paused sessions use their persisted remaining time.
+- A deadline scheduler, focus/visibility reconciliation, and a 30-second safety
+  reconciliation complete valid running sessions at `endsAt`. It is cleaned up on
+  session/repository changes and does not loop for malformed deadlines.
+- Timer actions, expiry, and explicit reloads are serialized. Full refreshes also
+  generate due recurrences and normalize expired sessions; ordinary timer actions
+  refresh only Pomodoro collections. Each ordinary action first reconciles a valid
+  expired running session, so it cannot pause or alter an already elapsed timer.
+  Snapshot commits ignore stale repository or unmounted-controller work.
+- After a persisted timer change, the controller publishes the new active session
+  immediately so the deadline scheduler stays aligned with SQLite. Session history
+  and task-summary snapshots load afterward. A transient list-read failure is
+  retried immediately and, if it still fails, once more after a short delay so
+  the Pomodoro page cannot keep showing pre-action history indefinitely.
+- Corrupt active timing data displays `--:--`; recovery controls remain available,
+  while early completion is disabled.
+- An automatic completion is verified from the persisted local-date session list
+  before the controller publishes its completed state, then chimes/notifies at
+  most once per repository lifetime in the mounted controller. A transient
+  ordinary-refresh failure therefore cannot suppress a verified notice.
 - Completing a focus or break through the controller plays a chime and requests a
   native/browser notification.
 - Starting/resuming tries to unlock audio from the user interaction first.

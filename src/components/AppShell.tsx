@@ -25,7 +25,7 @@ const navigation = [
 
 export const AppShell = () => {
   const { pomodoro } = useAppContext();
-  const hasFloatingPomodoro = Boolean(pomodoro.state.activeSession && pomodoro.remainingMs > 0);
+  const hasFloatingPomodoro = Boolean(pomodoro.state.activeSession);
   const quoteOfTheDay = getQuoteOfTheDay();
 
   return (

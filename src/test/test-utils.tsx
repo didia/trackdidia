@@ -43,8 +43,6 @@ export const renderWithApp = async (
       currentActivityLabel: null,
       preferredTask: null,
       preferredActivityLabel: null,
-      remainingMs: 0,
-      canCompleteNow: false,
       loading: false,
       reload: async () => undefined,
       startPomodoro: async () => undefined,
