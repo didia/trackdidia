@@ -81,7 +81,8 @@ describe("RescueTimeGoalsService", () => {
       expect.objectContaining({
         kind: "productivity",
         begin: "2026-08-02",
-        end: "2026-08-08"
+        end: "2026-08-08",
+        sourceType: "computers"
       })
     );
     expect(snapshot.weekStartDate).toBe("2026-08-02");

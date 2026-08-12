@@ -1,6 +1,10 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createEmptyDailyEntry } from "../domain/daily-entry";
+import {
+  applyWeeklyScoreExternalAxes,
+  localWeeklyScoreAxes
+} from "../domain/weekly-review";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { formatPercent } from "../lib/format";
 import { RescueTimeGoalsService } from "../lib/rescuetime/rescuetime-goals-service";
@@ -14,6 +18,7 @@ describe("WeeklyReviewPage", () => {
     globalThis.fetch = originalFetch;
     vi.restoreAllMocks();
   });
+
   it("loads a week summary and saves ritual notes and checklist", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -190,12 +195,96 @@ describe("WeeklyReviewPage", () => {
     await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
 
     const localSummary = await repository.computeWeeklyReviewSummary(weekStart);
+    const expected = applyWeeklyScoreExternalAxes(localSummary, {
+      rescueTimeGoalsScore: 1,
+      productivityPulse: 100
+    });
+    const localAxesSum = localWeeklyScoreAxes(localSummary).reduce((sum, value) => sum + value, 0);
+    expect(expected.weeklyScore).toBeCloseTo((localAxesSum + 1 + 1) / 9);
 
     await waitFor(() => {
       const scoreCard = screen.getAllByText("Score hebdo")[0].closest("article");
-      expect(scoreCard?.querySelector("strong")?.textContent).not.toBe(formatPercent(localSummary.weeklyScore));
+      expect(scoreCard?.querySelector("strong")?.textContent).toBe(formatPercent(expected.weeklyScore));
+    });
+  });
+
+  it("shows Goals results while the pulse request is still pending", async () => {
+    const weekStart = "2026-08-02";
+    type PulseSnapshot = {
+      weekStartDate: string;
+      weekEndDate: string;
+      pulse: number | null;
+      rescuetimeConfigured: boolean;
+    };
+    let resolvePulse: ((value: PulseSnapshot) => void) | undefined;
+
+    vi.spyOn(RescueTimeGoalsService.prototype, "computeGoalsSnapshot").mockResolvedValue({
+      weekStartDate: weekStart,
+      weekEndDate: "2026-08-08",
+      score: 0.5,
+      totalAchievement: 0.5,
+      items: [
+        {
+          goalId: 1,
+          title: "pending-pulse goal",
+          isMore: true,
+          actualHours: 1,
+          weeklyTargetHours: 2,
+          achievement: 0.5,
+          scheduleLabel: "24x7"
+        }
+      ],
+      rescuetimeConfigured: true
+    });
+    vi.spyOn(RescueTimeGoalsService.prototype, "computeProductivityPulse").mockImplementation(
+      () =>
+        new Promise<PulseSnapshot>((resolve) => {
+          resolvePulse = resolve;
+        })
+    );
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveSettings({
+      ...(await repository.getSettings()),
+      rescuetimeApiKey: "rt-test-key"
     });
 
-    expect(localSummary.weeklyScore).toBeLessThan(0.5);
+    const user = userEvent.setup();
+    await renderWithApp(<WeeklyReviewPage />, {
+      repository,
+      route: "/semaine",
+      contextOverrides: {
+        settings: {
+          ...(await repository.getSettings()),
+          rescuetimeApiKey: "rt-test-key"
+        }
+      }
+    });
+
+    const dateInput = await screen.findByLabelText(/debut de semaine/i);
+    await user.clear(dateInput);
+    await user.type(dateInput, weekStart);
+    await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("pending-pulse goal")).toBeInTheDocument();
+      expect(screen.getByText("0.50/1")).toBeInTheDocument();
+    });
+
+    const refreshButton = screen.getByRole("button", { name: /rafraichir rescuetime/i });
+    expect(refreshButton).not.toBeDisabled();
+
+    expect(resolvePulse).toBeDefined();
+    resolvePulse!({
+      weekStartDate: weekStart,
+      weekEndDate: "2026-08-08",
+      pulse: 90,
+      rescuetimeConfigured: true
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByText("90 / 100").length).toBeGreaterThan(0);
+    });
   });
 });

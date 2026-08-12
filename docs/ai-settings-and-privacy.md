@@ -122,8 +122,9 @@ Authorization: Bearer {rescuetimeApiKey}
 ```
 
 The weekly review also fetches a **productivity pulse** with
-`restrict_kind=productivity` and no `restrict_schedule_id` (full-week computer
-time, Sunday–Saturday).
+`restrict_kind=productivity`, `restrict_source_type=computers`, and no
+`restrict_schedule_id` (full-week computer time only, Sunday–Saturday). Browser and
+native RescueTime requests use a 20-second abortable timeout.
 
 The key is stored locally in the singleton `app_settings` row, merged with defaults
 on read, and included in SQLite backups. It is never logged by the app. You can
