@@ -132,6 +132,7 @@ npm run dev
 npm run tauri dev
 npm run test
 npm run build
+npm run mac-install
 ```
 
 Before reporting a code or documentation task complete, run:

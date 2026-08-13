@@ -5,6 +5,7 @@ the top of the table.
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-08-13 | Added `npm run mac-install` to copy the release `Trackdidia.app` into `/Applications` | `docs/desktop-builds.md` | `scripts/mac-install.sh`, `package.json` |
 | 2026-08-12 | Weekly score: seven local axes (calories at 3800 kcal/day), optional RescueTime Goals + productivity pulse overlay on `/semaine` | `docs/reviews-and-goals.md`, `docs/ai-settings-and-privacy.md` | `src/domain/weekly-review.ts`, `src/lib/rescuetime/rescuetime-goals-service.ts`, weekly review page |
 | 2026-08-12 | Retry Pomodoro history/summary snapshots after a transient list-read failure so the page cannot stay on pre-action history after the active session already updated | `docs/recurrences-and-pomodoro.md` | `src/app/use-pomodoro-controller.ts`, Pomodoro controller tests |
 | 2026-08-11 | Documented RescueTime dual transport (Tauri native HTTP vs browser fetch fallback) | `docs/ai-settings-and-privacy.md` | `fetchRescueTimeJson`, `rescuetime_http_get` |

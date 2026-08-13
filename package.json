@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "mac-install": "bash scripts/mac-install.sh"
   },
   "dependencies": {
     "@tauri-apps/api": "2.10.1",

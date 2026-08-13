@@ -94,6 +94,27 @@ Release builds use:
 The Rust crate version and Tauri configuration version should stay aligned when
 preparing a release.
 
+## Install the macOS app locally
+
+After a native production bundle exists, copy it into `/Applications`:
+
+```bash
+npm run tauri build
+npm run mac-install
+```
+
+`npm run mac-install` runs `scripts/mac-install.sh`. That script:
+
+- locates `Trackdidia.app` in `src-tauri/target/release/bundle/macos/`, or in
+  `$CARGO_TARGET_DIR` / an explicit path argument when those are set;
+- quits a running Trackdidia process if present;
+- replaces `/Applications/Trackdidia.app`;
+- clears quarantine attributes with `xattr -cr`.
+
+It does not build the app, delete user data, or touch the production SQLite
+database. The installed app continues to use
+`~/Library/Application Support/com.trackdidia.desktop/`.
+
 ## Native plugins and permissions
 
 The Rust host registers:

@@ -38,6 +38,7 @@ npm run tauri dev
 - `npm run build` : verification TypeScript + build Vite
 - `npm run test` : tests unitaires et UI
 - `npm run tauri dev` : shell desktop Tauri
+- `npm run mac-install` : copie le bundle macOS release dans `/Applications`
 
 ## Notes
 
