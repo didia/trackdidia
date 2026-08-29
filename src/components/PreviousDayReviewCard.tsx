@@ -71,40 +71,42 @@ export const PreviousDayReviewCard = ({ date }: PreviousDayReviewCardProps) => {
       title="Finaliser hier"
       subtitle={`${formatDateLong(date)} - complete ce qui n'a pas encore ete rempli hier soir.`}
     >
-      {missing.metricKeys.length > 0 ? (
-        <MetricGrid
-          entry={draft}
-          keys={missing.metricKeys}
-          suggestionKeys={[...autoSuggestedMetricKeys]}
-          suggestedValues={draft.suggestedMetrics}
-          onChange={(key, value) => setDraft(updateMetric(draft, key, value))}
-        />
-      ) : null}
-
-      {missing.principleKeys.length > 0 ? (
-        <PrincipleChecklist
-          entry={draft}
-          keys={missing.principleKeys}
-          onChange={(key, value) => setDraft(updatePrinciple(draft, key, value))}
-        />
-      ) : null}
-
-      {missing.nightReflection ? (
-        <label className="stacked-field">
-          <span>Reflection du soir</span>
-          <PersistedTextarea
-            rows={4}
-            debounceMs={0}
-            savedValue={draft.nightReflection}
-            onPersist={(value) => setDraft(updateNote(draft, "nightReflection", value))}
+      <div className="section-stack">
+        {missing.metricKeys.length > 0 ? (
+          <MetricGrid
+            entry={draft}
+            keys={missing.metricKeys}
+            suggestionKeys={[...autoSuggestedMetricKeys]}
+            suggestedValues={draft.suggestedMetrics}
+            onChange={(key, value) => setDraft(updateMetric(draft, key, value))}
           />
-        </label>
-      ) : null}
+        ) : null}
 
-      <div className="form-actions">
-        <button className="button button--primary" type="button" onClick={() => void handleSave()}>
-          Enregistrer hier
-        </button>
+        {missing.principleKeys.length > 0 ? (
+          <PrincipleChecklist
+            entry={draft}
+            keys={missing.principleKeys}
+            onChange={(key, value) => setDraft(updatePrinciple(draft, key, value))}
+          />
+        ) : null}
+
+        {missing.nightReflection ? (
+          <label className="stacked-field">
+            <span>Reflection du soir</span>
+            <PersistedTextarea
+              rows={4}
+              debounceMs={0}
+              savedValue={draft.nightReflection}
+              onPersist={(value) => setDraft(updateNote(draft, "nightReflection", value))}
+            />
+          </label>
+        ) : null}
+
+        <div className="form-actions">
+          <button className="button button--primary" type="button" onClick={() => void handleSave()}>
+            Enregistrer hier
+          </button>
+        </div>
       </div>
     </SectionCard>
   );

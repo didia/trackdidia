@@ -986,6 +986,11 @@ textarea {
   flex-wrap: wrap;
 }
 
+.section-stack {
+  display: grid;
+  gap: 22px;
+}
+
 .history-list {
   display: flex;
   gap: 10px;
