@@ -1,12 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { defaultAppSettings } from "../domain/daily-entry";
-import type { AppSettings } from "../domain/types";
+import type { AiPayloadScope, AppSettings } from "../domain/types";
 import { useAppContext } from "../app/app-context";
 import { SectionCard } from "../components/SectionCard";
 import initialGoogleTasksExport from "../../Tasks.json";
-import { formatDateTimeShort } from "../lib/date";
+import { formatDateTimeShort, getTodayDate } from "../lib/date";
 import type { StorageInfo } from "../lib/storage/repository";
 import { RescueTimeGoalsService } from "../lib/rescuetime/rescuetime-goals-service";
+import { previewPayload, resolveProductivityPulse } from "../lib/ai/context/preview";
+
+const payloadScopes: Array<{ value: AiPayloadScope; label: string }> = [
+  { value: "metrics", label: "metrics" },
+  { value: "metrics_and_structure", label: "metrics_and_structure" },
+  { value: "full", label: "full" }
+];
 
 export const SettingsPage = () => {
   const { repository, settings, saveSettings, debugEnabled, setDebugEnabled, browserPreview } = useAppContext();
@@ -27,6 +34,10 @@ export const SettingsPage = () => {
   const [gtdOverview, setGtdOverview] = useState<{ taskCount: number; projectCount: number; contextCount: number } | null>(
     null
   );
+  const [payloadPreviews, setPayloadPreviews] = useState<Record<AiPayloadScope, string> | null>(null);
+  const [loadingPayloadPreviews, setLoadingPayloadPreviews] = useState(false);
+  const [payloadPreviewError, setPayloadPreviewError] = useState("");
+  const [payloadPreviewPulseWarning, setPayloadPreviewPulseWarning] = useState("");
 
   useEffect(() => {
     setDraftSettings(settings);
@@ -159,6 +170,25 @@ export const SettingsPage = () => {
             />
           </label>
 
+          <label>
+            <span>Portee du payload envoye a l&apos;IA</span>
+            <select
+              value={draftSettings.aiPayloadScope}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  aiPayloadScope: event.target.value as AiPayloadScope
+                }))
+              }
+            >
+              {payloadScopes.map((scope) => (
+                <option key={scope.value} value={scope.value}>
+                  {scope.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <div className="form-actions">
             <button className="button button--primary" type="submit" disabled={savingSettings}>
               {savingSettings ? "Enregistrement..." : "Enregistrer les parametres"}
@@ -173,6 +203,65 @@ export const SettingsPage = () => {
           </div>
         </form>
       </SectionCard>
+
+      {debugEnabled ? (
+        <SectionCard
+          title="Apercu du payload IA (debug)"
+          subtitle="Rendu exact du contexte quotidien envoye a l'IA pour chaque portee, construit a partir des donnees reelles."
+        >
+          {payloadPreviewError ? <div className="banner">{payloadPreviewError}</div> : null}
+          {payloadPreviewPulseWarning ? <div className="banner">{payloadPreviewPulseWarning}</div> : null}
+
+          <div className="form-actions">
+            <button
+              className="button button--primary"
+              type="button"
+              disabled={loadingPayloadPreviews}
+              onClick={async () => {
+                setLoadingPayloadPreviews(true);
+                setPayloadPreviewError("");
+                setPayloadPreviewPulseWarning("");
+
+                try {
+                  const date = getTodayDate();
+                  const productivityPulse = await resolveProductivityPulse(repository, date);
+                  if (productivityPulse.fetchError) {
+                    setPayloadPreviewPulseWarning(
+                      `Pulse RescueTime indisponible pour cet apercu (${productivityPulse.fetchError}). L'apercu ci-dessous affichera "pas de donnee" a la place.`
+                    );
+                  }
+                  const entries = await Promise.all(
+                    payloadScopes.map(async (scope) => {
+                      const snapshot = await previewPayload(repository, scope.value, { date, productivityPulse });
+                      return [scope.value, JSON.stringify(snapshot, null, 2)] as const;
+                    })
+                  );
+                  setPayloadPreviews(Object.fromEntries(entries) as Record<AiPayloadScope, string>);
+                } catch (error) {
+                  setPayloadPreviewError(
+                    error instanceof Error ? error.message : "Echec du calcul de l'apercu du payload IA."
+                  );
+                } finally {
+                  setLoadingPayloadPreviews(false);
+                }
+              }}
+            >
+              {loadingPayloadPreviews ? "Calcul en cours..." : "Calculer l'apercu pour les 3 portees"}
+            </button>
+          </div>
+
+          {payloadPreviews ? (
+            <div className="payload-preview">
+              {payloadScopes.map((scope) => (
+                <details key={scope.value}>
+                  <summary>{scope.label}</summary>
+                  <pre>{payloadPreviews[scope.value]}</pre>
+                </details>
+              ))}
+            </div>
+          ) : null}
+        </SectionCard>
+      ) : null}
 
       <SectionCard
         title="RescueTime"

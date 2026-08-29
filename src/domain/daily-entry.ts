@@ -54,6 +54,7 @@ export const defaultAppSettings = (): AppSettings => ({
   aiApiKey: "",
   aiBaseUrl: "https://openrouter.ai/api/v1",
   aiModel: "moonshotai/kimi-k2.6",
+  aiPayloadScope: "full",
   rescuetimeApiKey: "",
   autoBackupEnabled: true,
   autoBackupIntervalHours: 24,

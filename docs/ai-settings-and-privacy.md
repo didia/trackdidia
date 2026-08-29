@@ -19,6 +19,7 @@ Default highlights:
 | AI base URL | `https://openrouter.ai/api/v1` |
 | AI model | `moonshotai/kimi-k2.6` |
 | RescueTime API key | Empty |
+| AI payload scope | `full` |
 | Automatic backup | Enabled, 24 hours |
 | Relationship draws | Enabled |
 
@@ -213,6 +214,24 @@ Debug is always enabled in Vite development. In other builds it can be persisted
 
 Logs are not persisted to SQLite. Even so, avoid passing sensitive values to
 `logDebug`; console output can be copied or captured externally.
+
+### AI payload preview
+
+Settings has an `aiPayloadScope` control (`metrics`, `metrics_and_structure`, or
+`full`; default `full`) that governs how much detail the daily AI context
+snapshot includes — `metrics` redacts free-text notes and task/project titles,
+`metrics_and_structure` adds titles back, and `full` includes everything.
+
+When debug mode is enabled, Settings also shows a payload-preview panel with a
+button that renders the exact typed daily snapshot (`buildDailySnapshot`) that
+would be sent to the model, one collapsible block per scope, built from the
+real repository data for today. This is a debug-only affordance for inspecting
+what each scope actually sends; it is hidden when debug mode is off. A single
+preview action resolves the RescueTime productivity pulse once (when configured)
+and reuses it across all three scopes, rather than issuing a live RescueTime
+request per scope. If that resolution fails, the panel shows a non-blocking
+warning banner with the error message, and the preview itself still renders
+(with no pulse data) rather than failing outright.
 
 ## Related documentation
 
