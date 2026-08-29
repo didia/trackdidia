@@ -29,12 +29,14 @@ import {
   createEmptyWeeklyObjective
 } from "../../domain/weekly-objectives";
 import { getTodayDate } from "../date";
+import { monthKeyToLocalRange } from "../ai/analytics/month-range";
 import type {
   AiMemory,
   AiMemoryFilters,
   AiMessage,
   AiProposal,
   AiSurface,
+  AiUsageSummary,
   AnnualGoal,
   AppSettings,
   CreateTaskInput,
@@ -392,11 +394,45 @@ export class MemoryRepository implements AppRepository {
       .map((message) => ({ ...message }));
   }
 
+  async listAiMessagesSince(sinceIso: string, limit = 10_000): Promise<AiMessage[]> {
+    return [...this.aiMessages.values()]
+      .filter((message) => message.createdAt >= sinceIso)
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .slice(0, limit)
+      .map((message) => ({ ...message }));
+  }
+
   async listAiProposals(messageId: string): Promise<AiProposal[]> {
     return [...this.aiProposals.values()]
       .filter((proposal) => proposal.messageId === messageId)
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
       .map((proposal) => ({ ...proposal }));
+  }
+
+  async listAiProposalsSince(sinceIso: string): Promise<AiProposal[]> {
+    return [...this.aiProposals.values()]
+      .filter((proposal) => proposal.createdAt >= sinceIso)
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .map((proposal) => ({ ...proposal }));
+  }
+
+  async computeAiUsageForMonth(monthKey: string): Promise<AiUsageSummary> {
+    const { startIso, endIso } = monthKeyToLocalRange(monthKey);
+    const messages = [...this.aiMessages.values()].filter(
+      (message) => message.createdAt >= startIso && message.createdAt < endIso
+    );
+
+    const tokensPrompt = messages.reduce((total, message) => total + (message.tokensPrompt ?? 0), 0);
+    const tokensCompletion = messages.reduce((total, message) => total + (message.tokensCompletion ?? 0), 0);
+
+    return {
+      monthKey,
+      callCount: messages.length,
+      tokensPrompt,
+      tokensCompletion,
+      tokensTotal: tokensPrompt + tokensCompletion,
+      estimatedCostUsd: 0
+    };
   }
 
   async saveAiProposal(proposal: AiProposal): Promise<AiProposal> {

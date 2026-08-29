@@ -1,7 +1,8 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SettingsPage } from "./SettingsPage";
 import { renderWithApp } from "../test/test-utils";
+import { MemoryRepository } from "../lib/storage/memory-repository";
 
 describe("SettingsPage AI payload preview", () => {
   it("hides the debug payload preview when debug mode is off", async () => {
@@ -44,5 +45,42 @@ describe("SettingsPage AI payload preview", () => {
     const fullSummary = await findSummary("full");
     const fullPre = fullSummary.parentElement?.querySelector("pre");
     expect(fullPre?.textContent).toContain("\"notes\"");
+  });
+});
+
+describe("SettingsPage AI cost and analytics", () => {
+  it("renders the monthly cost dashboard and coach analytics sections", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    await repository.saveAiMessage({
+      id: "settings-usage-msg",
+      surface: "coach_pulse",
+      scopeKey: "2026-08-29",
+      stance: "open",
+      kind: "open",
+      inputHash: "settings-usage",
+      promptVersion: "coach_pulse.v1",
+      model: "test",
+      status: "ok",
+      bodyJson: null,
+      bodyText: null,
+      deltaClass: null,
+      notified: false,
+      tokensPrompt: 200,
+      tokensCompletion: 100,
+      latencyMs: null,
+      createdAt: new Date().toISOString()
+    });
+
+    await renderWithApp(<SettingsPage />, { repository });
+
+    expect(screen.getByText("Cout IA (mois en cours)")).toBeInTheDocument();
+    expect(screen.getByText("Analytique coach")).toBeInTheDocument();
+    expect(screen.getByText("Versions de prompt actives")).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByText("Appels enregistres")).toBeInTheDocument();
+    });
   });
 });

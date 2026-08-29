@@ -1,7 +1,7 @@
 # Spec — AI Integration v2
 
-**Status:** proposal / not shipped.
-**Scope boundary:** this file is roadmap, not documentation of current behavior.
+**Status:** phases 0–6 implemented (see `docs/ai-settings-and-privacy.md` and `docs/log.md`).
+**Scope boundary:** this file is roadmap/history, not the live behavior catalog.
 Per [`AGENTS.md`](../AGENTS.md), `docs/` describes shipped behavior only. Move facts
 into the relevant `docs/` page **as each phase ships**, and append to
 [`docs/log.md`](../docs/log.md) at that point — not before.

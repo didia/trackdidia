@@ -118,7 +118,11 @@ export const mergeAppSettingsWithDefaults = (settings: Partial<AppSettings>, def
   aiPulseFirstOpenAt:
     settings.aiPulseFirstOpenAt && typeof settings.aiPulseFirstOpenAt === "object"
       ? settings.aiPulseFirstOpenAt
-      : defaults.aiPulseFirstOpenAt
+      : defaults.aiPulseFirstOpenAt,
+  aiCostPerMillionTokens:
+    typeof settings.aiCostPerMillionTokens === "number" && settings.aiCostPerMillionTokens >= 0
+      ? settings.aiCostPerMillionTokens
+      : defaults.aiCostPerMillionTokens
 });
 
 export const getRelationshipDrawActivities = (

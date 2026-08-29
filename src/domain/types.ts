@@ -405,6 +405,16 @@ export interface AiProposal {
   createdAt: string;
 }
 
+export interface AiUsageSummary {
+  monthKey: string;
+  callCount: number;
+  tokensPrompt: number;
+  tokensCompletion: number;
+  tokensTotal: number;
+  /** Approximate USD; actual OpenRouter pricing varies by model. */
+  estimatedCostUsd: number;
+}
+
 export interface CoachPulseResult {
   message: AiMessage;
   pulse: CoachPulseResponse;
@@ -507,6 +517,8 @@ export interface AppSettings {
   aiPulseNotifyEnabled: boolean;
   aiPulseNotifyDays: number[];
   aiPulseMaxNotificationsPerDay: number;
+  /** Rough USD estimate per 1M tokens (prompt + completion combined). OpenRouter pricing varies by model. */
+  aiCostPerMillionTokens: number;
   /** ISO timestamps keyed by local YYYY-MM-DD for first app open anchoring. */
   aiPulseFirstOpenAt: Record<string, string>;
   rescuetimeApiKey: string;

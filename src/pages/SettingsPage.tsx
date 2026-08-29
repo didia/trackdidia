@@ -4,6 +4,8 @@ import type { AiPayloadScope, AppSettings } from "../domain/types";
 import { useAppContext } from "../app/app-context";
 import { SectionCard } from "../components/SectionCard";
 import { AiMemoryProfileSection } from "../components/AiMemoryProfileSection";
+import { AiCostDashboardSection } from "../components/AiCostDashboardSection";
+import { AiCoachAnalyticsSection } from "../components/AiCoachAnalyticsSection";
 import initialGoogleTasksExport from "../../Tasks.json";
 import { formatDateTimeShort, getTodayDate } from "../lib/date";
 import type { StorageInfo } from "../lib/storage/repository";
@@ -288,6 +290,22 @@ export const SettingsPage = () => {
             />
           </label>
 
+          <label>
+            <span>Tarif approximatif IA (USD / million de jetons)</span>
+            <input
+              type="number"
+              min={0}
+              step={0.1}
+              value={draftSettings.aiCostPerMillionTokens}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  aiCostPerMillionTokens: Math.max(0, Number(event.target.value || 0))
+                }))
+              }
+            />
+          </label>
+
           <div className="form-actions">
             <button className="button button--primary" type="submit" disabled={savingSettings}>
               {savingSettings ? "Enregistrement..." : "Enregistrer les parametres"}
@@ -307,6 +325,10 @@ export const SettingsPage = () => {
           </div>
         </form>
       </SectionCard>
+
+      <AiCostDashboardSection repository={repository} settings={draftSettings} />
+
+      <AiCoachAnalyticsSection repository={repository} />
 
       <AiMemoryProfileSection repository={repository} memoryEnabled={draftSettings.aiMemoryEnabled} />
 

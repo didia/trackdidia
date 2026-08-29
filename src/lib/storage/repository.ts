@@ -29,6 +29,7 @@ import type {
   AiProposal,
   AiMessage,
   AiSurface,
+  AiUsageSummary,
   WeeklyReview,
   WeeklyReviewSummary,
   WeeklyObjective,
@@ -91,7 +92,10 @@ export interface AppRepository {
   saveCoachPulseEpisode(message: AiMessage, proposals: AiProposal[]): Promise<{ message: AiMessage; proposals: AiProposal[] }>;
   listAiMessages(surface?: AiSurface, limit?: number): Promise<AiMessage[]>;
   listAiMessagesForDate(date: string): Promise<AiMessage[]>;
+  listAiMessagesSince(sinceIso: string, limit?: number): Promise<AiMessage[]>;
   listAiProposals(messageId: string): Promise<AiProposal[]>;
+  listAiProposalsSince(sinceIso: string): Promise<AiProposal[]>;
+  computeAiUsageForMonth(monthKey: string): Promise<AiUsageSummary>;
   saveAiProposal(proposal: AiProposal): Promise<AiProposal>;
   clearPendingAiProposals(messageId: string): Promise<void>;
   decideAiProposal(

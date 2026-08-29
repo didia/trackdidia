@@ -24,12 +24,14 @@ import {
   cloneWeeklyReview,
   listWeekDates
 } from "../../domain/weekly-review";
+import { monthKeyToLocalRange } from "../ai/analytics/month-range";
 import type {
   AiMemory,
   AiMemoryFilters,
   AiMessage,
   AiProposal,
   AiSurface,
+  AiUsageSummary,
   AnnualGoal,
   AppSettings,
   CoachPulseStance,
@@ -1425,6 +1427,22 @@ export class TauriSqliteRepository implements AppRepository {
     return rows.map((row) => this.deserializeAiMessage(row));
   }
 
+  async listAiMessagesSince(sinceIso: string, limit = 10_000): Promise<AiMessage[]> {
+    const db = await this.getDb();
+    const rows = await db.select<AiMessageRow[]>(
+      `SELECT id, surface, scope_key, stance, kind, input_hash, prompt_version, model,
+              status, body_json, body_text, delta_class, notified,
+              tokens_prompt, tokens_completion, latency_ms, created_at
+       FROM ai_messages
+       WHERE created_at >= $1
+       ORDER BY created_at ASC
+       LIMIT $2`,
+      [sinceIso, limit]
+    );
+
+    return rows.map((row) => this.deserializeAiMessage(row));
+  }
+
   async listAiProposals(messageId: string): Promise<AiProposal[]> {
     const db = await this.getDb();
     const rows = await db.select<AiProposalRow[]>(
@@ -1436,6 +1454,47 @@ export class TauriSqliteRepository implements AppRepository {
     );
 
     return rows.map((row) => this.deserializeAiProposal(row));
+  }
+
+  async listAiProposalsSince(sinceIso: string): Promise<AiProposal[]> {
+    const db = await this.getDb();
+    const rows = await db.select<AiProposalRow[]>(
+      `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
+       FROM ai_proposals
+       WHERE created_at >= $1
+       ORDER BY created_at ASC`,
+      [sinceIso]
+    );
+
+    return rows.map((row) => this.deserializeAiProposal(row));
+  }
+
+  async computeAiUsageForMonth(monthKey: string): Promise<AiUsageSummary> {
+    const { startIso, endIso } = monthKeyToLocalRange(monthKey);
+    const db = await this.getDb();
+    const rows = await db.select<
+      Array<{ call_count: number; tokens_prompt: number | null; tokens_completion: number | null }>
+    >(
+      `SELECT COUNT(*) AS call_count,
+              COALESCE(SUM(tokens_prompt), 0) AS tokens_prompt,
+              COALESCE(SUM(tokens_completion), 0) AS tokens_completion
+       FROM ai_messages
+       WHERE created_at >= $1 AND created_at < $2`,
+      [startIso, endIso]
+    );
+
+    const aggregate = rows[0] ?? { call_count: 0, tokens_prompt: 0, tokens_completion: 0 };
+    const tokensPrompt = aggregate.tokens_prompt ?? 0;
+    const tokensCompletion = aggregate.tokens_completion ?? 0;
+
+    return {
+      monthKey,
+      callCount: aggregate.call_count,
+      tokensPrompt,
+      tokensCompletion,
+      tokensTotal: tokensPrompt + tokensCompletion,
+      estimatedCostUsd: 0
+    };
   }
 
   async saveAiProposal(proposal: AiProposal): Promise<AiProposal> {
