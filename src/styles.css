@@ -296,6 +296,23 @@ a {
   overflow-wrap: anywhere;
 }
 
+.payload-preview {
+  display: grid;
+  gap: 10px;
+}
+
+.payload-preview pre {
+  margin: 8px 0 0;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.25);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  max-height: 360px;
+  overflow: auto;
+}
+
 .summary-strip {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

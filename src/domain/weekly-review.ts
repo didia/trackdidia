@@ -11,9 +11,9 @@ import type {
   WeeklyRitualSectionKey
 } from "./types";
 
-const phoneScreenTargetMinutes = 840;
-const pomodoroTarget = 56;
-const calorieTargetDaily = 3800;
+export const phoneScreenTargetMinutes = 840;
+export const pomodoroTarget = 56;
+export const calorieTargetDaily = 3800;
 
 const emptyWeeklyNotes = (): WeeklyReviewNotes => ({
   bilan: "",

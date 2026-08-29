@@ -268,6 +268,8 @@ export interface RescueTimeTaxonomyEntry {
   hours: number;
 }
 
+export type AiPayloadScope = "metrics" | "metrics_and_structure" | "full";
+
 export interface AppSettings {
   language: "fr";
   storageMode: "sqlite";
@@ -275,6 +277,7 @@ export interface AppSettings {
   aiApiKey: string;
   aiBaseUrl: string;
   aiModel: string;
+  aiPayloadScope: AiPayloadScope;
   rescuetimeApiKey: string;
   autoBackupEnabled: boolean;
   autoBackupIntervalHours: number;
