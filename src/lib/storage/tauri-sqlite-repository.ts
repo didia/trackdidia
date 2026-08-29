@@ -25,6 +25,8 @@ import {
   listWeekDates
 } from "../../domain/weekly-review";
 import type {
+  AiMemory,
+  AiMemoryFilters,
   AiMessage,
   AiProposal,
   AiSurface,
@@ -298,6 +300,22 @@ interface AiProposalRow {
   applied_entity_id: string | null;
   decided_at: string | null;
   created_at: string;
+}
+
+interface AiMemoryRow {
+  id: string;
+  kind: string;
+  statement: string;
+  detail: string;
+  confidence: number;
+  source: string;
+  status: string;
+  evidence_from: string | null;
+  evidence_to: string | null;
+  created_at: string;
+  last_confirmed_at: string;
+  expires_at: string | null;
+  pinned: number;
 }
 
 const migrations: Migration[] = [
@@ -679,6 +697,35 @@ const migrations: Migration[] = [
       CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_proposals_message_type
         ON ai_proposals (message_id, type)
         WHERE status = 'pending';
+    `
+  },
+  {
+    id: 24,
+    name: "create_ai_memories",
+    sql: `
+      CREATE TABLE IF NOT EXISTS ai_memories (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        statement TEXT NOT NULL,
+        detail TEXT NOT NULL DEFAULT '',
+        confidence REAL NOT NULL,
+        source TEXT NOT NULL,
+        status TEXT NOT NULL,
+        evidence_from TEXT,
+        evidence_to TEXT,
+        created_at TEXT NOT NULL,
+        last_confirmed_at TEXT NOT NULL,
+        expires_at TEXT,
+        pinned INTEGER NOT NULL DEFAULT 0
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_ai_memories_status_kind ON ai_memories (status, kind);
+      CREATE INDEX IF NOT EXISTS idx_ai_memories_expires_at ON ai_memories (expires_at);
+
+      DROP INDEX IF EXISTS idx_ai_proposals_message_type;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_proposals_message_type
+        ON ai_proposals (message_id, type)
+        WHERE status = 'pending' AND type != 'memory';
     `
   }
 ];
@@ -1380,6 +1427,128 @@ export class TauriSqliteRepository implements AppRepository {
     }
 
     return this.deserializeAiProposal(rows[0]);
+  }
+
+  async listAiMemories(filters: AiMemoryFilters = {}): Promise<AiMemory[]> {
+    const db = await this.getDb();
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+
+    if (filters.status) {
+      const statuses = Array.isArray(filters.status) ? filters.status : [filters.status];
+      clauses.push(`status IN (${statuses.map((_, index) => `$${params.length + index + 1}`).join(", ")})`);
+      params.push(...statuses);
+    }
+
+    if (filters.kind) {
+      const kinds = Array.isArray(filters.kind) ? filters.kind : [filters.kind];
+      clauses.push(`kind IN (${kinds.map((_, index) => `$${params.length + index + 1}`).join(", ")})`);
+      params.push(...kinds);
+    }
+
+    if (typeof filters.pinned === "boolean") {
+      clauses.push(`pinned = $${params.length + 1}`);
+      params.push(filters.pinned ? 1 : 0);
+    }
+
+    if (filters.activeOnDate) {
+      clauses.push(
+        `(expires_at IS NULL OR expires_at >= $${params.length + 1})`
+      );
+      params.push(filters.activeOnDate);
+    }
+
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = await db.select<AiMemoryRow[]>(
+      `SELECT id, kind, statement, detail, confidence, source, status,
+              evidence_from, evidence_to, created_at, last_confirmed_at, expires_at, pinned
+       FROM ai_memories
+       ${where}
+       ORDER BY created_at DESC`,
+      params
+    );
+
+    return rows.map((row) => this.deserializeAiMemory(row));
+  }
+
+  async saveAiMemory(memory: AiMemory): Promise<AiMemory> {
+    const db = await this.getDb();
+    await db.execute(
+      `INSERT INTO ai_memories (
+        id, kind, statement, detail, confidence, source, status,
+        evidence_from, evidence_to, created_at, last_confirmed_at, expires_at, pinned
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      ON CONFLICT(id) DO UPDATE SET
+        kind = excluded.kind,
+        statement = excluded.statement,
+        detail = excluded.detail,
+        confidence = excluded.confidence,
+        source = excluded.source,
+        status = excluded.status,
+        evidence_from = excluded.evidence_from,
+        evidence_to = excluded.evidence_to,
+        last_confirmed_at = excluded.last_confirmed_at,
+        expires_at = excluded.expires_at,
+        pinned = excluded.pinned`,
+      [
+        memory.id,
+        memory.kind,
+        memory.statement,
+        memory.detail,
+        memory.confidence,
+        memory.source,
+        memory.status,
+        memory.evidenceFrom,
+        memory.evidenceTo,
+        memory.createdAt,
+        memory.lastConfirmedAt,
+        memory.expiresAt,
+        memory.pinned ? 1 : 0
+      ]
+    );
+
+    const rows = await db.select<AiMemoryRow[]>(
+      `SELECT id, kind, statement, detail, confidence, source, status,
+              evidence_from, evidence_to, created_at, last_confirmed_at, expires_at, pinned
+       FROM ai_memories
+       WHERE id = $1`,
+      [memory.id]
+    );
+
+    if (rows.length === 0) {
+      throw new Error("AI memory upsert failed");
+    }
+
+    return this.deserializeAiMemory(rows[0]);
+  }
+
+  async archiveAiMemory(id: string, reason: "expired" | "contradicted" | "resolved"): Promise<void> {
+    const db = await this.getDb();
+    const rows = await db.select<AiMemoryRow[]>(
+      `SELECT id, kind, statement, detail, confidence, source, status,
+              evidence_from, evidence_to, created_at, last_confirmed_at, expires_at, pinned
+       FROM ai_memories
+       WHERE id = $1`,
+      [id]
+    );
+
+    if (rows.length === 0) {
+      throw new Error(`AI memory not found: ${id}`);
+    }
+
+    const existing = this.deserializeAiMemory(rows[0]);
+    const status = reason === "contradicted" ? "contradicted" : "archived";
+    const detailSuffix = `[archive:${reason}]`;
+    const detail = existing.detail.includes(detailSuffix)
+      ? existing.detail
+      : `${existing.detail}${existing.detail ? " " : ""}${detailSuffix}`.trim();
+
+    await db.execute(
+      `UPDATE ai_memories
+       SET status = $1, detail = $2, last_confirmed_at = $3
+       WHERE id = $4`,
+      [status, detail, nowIso(), id]
+    );
   }
 
   async getStorageInfo(): Promise<StorageInfo> {
@@ -2237,6 +2406,24 @@ export class TauriSqliteRepository implements AppRepository {
       appliedEntityId: row.applied_entity_id,
       decidedAt: row.decided_at,
       createdAt: row.created_at
+    };
+  }
+
+  private deserializeAiMemory(row: AiMemoryRow): AiMemory {
+    return {
+      id: row.id,
+      kind: row.kind as AiMemory["kind"],
+      statement: row.statement,
+      detail: row.detail,
+      confidence: row.confidence,
+      source: row.source as AiMemory["source"],
+      status: row.status as AiMemory["status"],
+      evidenceFrom: row.evidence_from,
+      evidenceTo: row.evidence_to,
+      createdAt: row.created_at,
+      lastConfirmedAt: row.last_confirmed_at,
+      expiresAt: row.expires_at,
+      pinned: row.pinned === 1
     };
   }
 

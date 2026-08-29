@@ -3,6 +3,7 @@ import { defaultAppSettings } from "../domain/daily-entry";
 import type { AiPayloadScope, AppSettings } from "../domain/types";
 import { useAppContext } from "../app/app-context";
 import { SectionCard } from "../components/SectionCard";
+import { AiMemoryProfileSection } from "../components/AiMemoryProfileSection";
 import initialGoogleTasksExport from "../../Tasks.json";
 import { formatDateTimeShort, getTodayDate } from "../lib/date";
 import type { StorageInfo } from "../lib/storage/repository";
@@ -207,6 +208,20 @@ export const SettingsPage = () => {
           <label className="switch-row">
             <input
               type="checkbox"
+              checked={draftSettings.aiMemoryEnabled}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  aiMemoryEnabled: event.target.checked
+                }))
+              }
+            />
+            <span>Activer la memoire IA (continuite entre les pulses)</span>
+          </label>
+
+          <label className="switch-row">
+            <input
+              type="checkbox"
               checked={draftSettings.aiPulseEnabled}
               onChange={(event) =>
                 setDraftSettings((current) => ({
@@ -288,6 +303,8 @@ export const SettingsPage = () => {
           </div>
         </form>
       </SectionCard>
+
+      <AiMemoryProfileSection repository={repository} memoryEnabled={draftSettings.aiMemoryEnabled} />
 
       {debugEnabled ? (
         <SectionCard

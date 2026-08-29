@@ -102,6 +102,7 @@ Never renumber or rewrite a released migration. Add the next ID.
 | 21 | `create_ai_messages` | Persisted AI coach outputs, usage, and input-hash cache |
 | 22 | `create_ai_proposals` | Accept-step proposals linked to AI messages |
 | 23 | `ai_messages_append_only` | Drop `(surface, scope_key, input_hash)` uniqueness so regenerations append episodes; pending proposal uniqueness per message |
+| 24 | `create_ai_memories` | Semantic coach memory (patterns, profile, commitments); pending uniqueness excludes `memory` so weekly distill can store multiple candidates |
 
 ## Table reference
 
@@ -237,6 +238,10 @@ VACUUM INTO '<absolute backup path>'
 
 This creates a self-contained SQLite snapshot without copying live WAL files.
 Filenames contain the backup kind (`manual` or `auto`) and a sanitized timestamp.
+
+Backups include all AI tables (`ai_messages`, `ai_proposals`, `ai_memories`) plus
+settings JSON (OpenRouter and RescueTime keys). Distilled personal statements in
+`ai_memories` are therefore part of every backup copy.
 
 Automatic backups:
 

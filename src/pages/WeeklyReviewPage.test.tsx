@@ -1,11 +1,14 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createEmptyDailyEntry } from "../domain/daily-entry";
+import { createEmptyDailyEntry, updatePrinciple } from "../domain/daily-entry";
+import { principleDefinitions } from "../domain/definitions";
 import {
   applyWeeklyScoreExternalAxes,
+  createEmptyWeeklyReview,
   localWeeklyScoreAxes
 } from "../domain/weekly-review";
 import { MemoryRepository } from "../lib/storage/memory-repository";
+import { createWeeklyMemoryProposals } from "../lib/ai/memory/weekly-distillation";
 import { formatPercent } from "../lib/format";
 import { RescueTimeGoalsService } from "../lib/rescuetime/rescuetime-goals-service";
 import { renderWithApp } from "../test/test-utils";
@@ -285,6 +288,49 @@ describe("WeeklyReviewPage", () => {
 
     await waitFor(() => {
       expect(screen.getAllByText("90 / 100").length).toBeGreaterThan(0);
+    });
+  });
+
+  it("accepts weekly memory proposals into ai_memories after closing the review", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const weekStartDate = "2026-08-02";
+    const historyEntries = [];
+
+    for (let index = 0; index < 12; index += 1) {
+      const date = `2026-08-${String(index + 1).padStart(2, "0")}`;
+      let entry = createEmptyDailyEntry(date);
+      const priereTrue = index % 2 === 0;
+      for (const { key } of principleDefinitions) {
+        entry = updatePrinciple(entry, key, priereTrue);
+      }
+      historyEntries.push(entry);
+      await repository.saveDailyEntry(entry);
+    }
+
+    const proposals = await createWeeklyMemoryProposals(repository, weekStartDate, historyEntries);
+    expect(proposals.length).toBeGreaterThan(0);
+
+    await repository.saveWeeklyReview({
+      ...createEmptyWeeklyReview(weekStartDate),
+      status: "closed",
+      updatedAt: new Date().toISOString()
+    });
+
+    const user = userEvent.setup();
+    await renderWithApp(<WeeklyReviewPage />, { repository, route: "/semaine" });
+
+    const dateInput = await screen.findByLabelText(/debut de semaine/i);
+    await user.clear(dateInput);
+    await user.type(dateInput, weekStartDate);
+    await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
+
+    expect(await screen.findByText("Memoires candidates")).toBeInTheDocument();
+    await user.click(screen.getAllByRole("button", { name: /^accepter$/i })[0]);
+
+    await waitFor(async () => {
+      const memories = await repository.listAiMemories({ status: "active", kind: "pattern" });
+      expect(memories.length).toBeGreaterThan(0);
     });
   });
 });

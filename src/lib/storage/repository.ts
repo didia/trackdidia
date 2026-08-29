@@ -24,6 +24,8 @@ import type {
   MonthlyReviewSummary,
   AnnualGoal,
   AnnualGoalSnapshot,
+  AiMemory,
+  AiMemoryFilters,
   AiProposal,
   AiMessage,
   AiSurface,
@@ -94,6 +96,9 @@ export interface AppRepository {
     status: "accepted" | "dismissed",
     appliedEntityId?: string
   ): Promise<AiProposal>;
+  listAiMemories(filters?: AiMemoryFilters): Promise<AiMemory[]>;
+  saveAiMemory(memory: AiMemory): Promise<AiMemory>;
+  archiveAiMemory(id: string, reason: "expired" | "contradicted" | "resolved"): Promise<void>;
   getStorageInfo(): Promise<StorageInfo | null>;
   createBackup(kind?: "manual" | "auto"): Promise<BackupResult>;
   importGoogleTasksExport(rawJson: unknown): Promise<GtdImportSummary>;

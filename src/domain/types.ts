@@ -280,7 +280,39 @@ export type AiDeltaClass = "progress" | "stall" | "unknown" | "idle";
 
 export type MemoryKind = "pattern" | "preference" | "context" | "commitment" | "principle";
 
-export type AiProposalType = "intention_draft" | "tomorrow_focus_draft";
+export type AiProposalType =
+  | "intention_draft"
+  | "tomorrow_focus_draft"
+  | "memory"
+  | "commitment";
+
+export type AiMemoryStatus = "active" | "archived" | "contradicted";
+
+export type AiMemorySource = "ai_extracted" | "user_pinned" | "derived";
+
+export interface AiMemory {
+  id: string;
+  kind: MemoryKind;
+  statement: string;
+  detail: string;
+  confidence: number;
+  source: AiMemorySource;
+  status: AiMemoryStatus;
+  evidenceFrom: string | null;
+  evidenceTo: string | null;
+  createdAt: string;
+  lastConfirmedAt: string;
+  expiresAt: string | null;
+  pinned: boolean;
+}
+
+export interface AiMemoryFilters {
+  status?: AiMemoryStatus | AiMemoryStatus[];
+  kind?: MemoryKind | MemoryKind[];
+  pinned?: boolean;
+  /** Include active commitments expiring on or after this local date. */
+  activeOnDate?: string;
+}
 
 export type AiProposalStatus = "pending" | "accepted" | "dismissed" | "expired";
 
@@ -386,6 +418,7 @@ export interface AppSettings {
   aiSurfaceModels: Partial<Record<AiSurface, string>>;
   aiMaxTokens: number;
   aiTimeoutMs: number;
+  aiMemoryEnabled: boolean;
   aiPulseEnabled: boolean;
   aiPulseSlots: number[];
   aiPulseNotifyEnabled: boolean;

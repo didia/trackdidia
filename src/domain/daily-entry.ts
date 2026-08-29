@@ -58,6 +58,7 @@ export const defaultAppSettings = (): AppSettings => ({
   aiSurfaceModels: {},
   aiMaxTokens: 700,
   aiTimeoutMs: 20_000,
+  aiMemoryEnabled: true,
   aiPulseEnabled: true,
   aiPulseSlots: [5, 13, 20],
   aiPulseNotifyEnabled: true,

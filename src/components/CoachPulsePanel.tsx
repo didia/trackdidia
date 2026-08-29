@@ -10,7 +10,9 @@ const sourceLabels: Record<CoachPulseResult["source"], string> = {
 
 const proposalLabels: Record<AiProposal["type"], string> = {
   intention_draft: "Intention du matin",
-  tomorrow_focus_draft: "Focus de demain"
+  tomorrow_focus_draft: "Focus de demain",
+  commitment: "Engagement pour demain",
+  memory: "Memoire candidate"
 };
 
 const principleLabel = (key: PrincipleKey | null | undefined): string | null => {
@@ -138,11 +140,17 @@ export const CoachPulsePanel = ({
         <div className="coach-pulse__proposals">
           <strong>Suggestions</strong>
           {pendingProposals.map((proposal) => {
-            const payload = JSON.parse(proposal.payloadJson) as { text?: string };
+            const payload = JSON.parse(proposal.payloadJson) as { text?: string; statement?: string; kind?: string };
+            const preview =
+              proposal.type === "memory"
+                ? `[${payload.kind ?? "memoire"}] ${payload.statement ?? ""}`
+                : proposal.type === "commitment"
+                  ? payload.statement ?? ""
+                  : payload.text ?? "";
             return (
               <article key={proposal.id} className="coach-pulse__proposal">
                 <span>{proposalLabels[proposal.type]}</span>
-                <p>{payload.text ?? ""}</p>
+                <p>{preview}</p>
                 <div className="section-actions">
                   <button className="button button--primary" type="button" onClick={() => onAcceptProposal(proposal)}>
                     Accepter

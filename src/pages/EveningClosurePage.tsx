@@ -11,6 +11,7 @@ import type { AiProposal, CoachPulseResult } from "../domain/types";
 import { useAppContext } from "../app/app-context";
 import { useDailyEntry } from "../app/use-daily-entry";
 import { CoachPulsePanel } from "../components/CoachPulsePanel";
+import { applyCoachProposal } from "../lib/ai/proposals/apply-proposal";
 import { EntrySummaryStrip } from "../components/EntrySummaryStrip";
 import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
 import { MetricGrid } from "../components/MetricGrid";
@@ -70,16 +71,19 @@ export const EveningClosurePage = () => {
       return;
     }
 
-    const payload = JSON.parse(proposal.payloadJson) as { text?: string };
-    const text = payload.text ?? "";
-
     try {
-      if (proposal.type === "tomorrow_focus_draft") {
-        await save(updateNote(currentEntry, "tomorrowFocus", text));
-        tomorrowFocusRef.current?.setDraft(text);
+      const applied = await applyCoachProposal(repository, proposal, currentEntry.date);
+
+      if (proposal.type === "tomorrow_focus_draft" && applied.text !== undefined) {
+        await save(updateNote(currentEntry, "tomorrowFocus", applied.text));
+        tomorrowFocusRef.current?.setDraft(applied.text);
       }
 
-      await repository.decideAiProposal(proposal.id, "accepted", currentEntry.date);
+      await repository.decideAiProposal(
+        proposal.id,
+        "accepted",
+        applied.memoryId ?? currentEntry.date
+      );
       setCoachResult((current) =>
         current
           ? {
