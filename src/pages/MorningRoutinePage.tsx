@@ -13,8 +13,10 @@ import { useDailyEntry } from "../app/use-daily-entry";
 import { EntrySummaryStrip } from "../components/EntrySummaryStrip";
 import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
 import { MetricGrid } from "../components/MetricGrid";
+import { PreviousDayReviewCard } from "../components/PreviousDayReviewCard";
 import { PrincipleChecklist } from "../components/PrincipleChecklist";
 import { SectionCard } from "../components/SectionCard";
+import { addDays } from "../lib/gtd/shared";
 import { getTodayDate, formatDateLong } from "../lib/date";
 
 export const MorningRoutinePage = () => {
@@ -41,6 +43,8 @@ export const MorningRoutinePage = () => {
       </header>
 
       <EntrySummaryStrip entry={entry} />
+
+      <PreviousDayReviewCard date={addDays(getTodayDate(), -1)} />
 
       <SectionCard title="Intention du jour" subtitle="Une phrase suffit. Cherche le ton juste, pas la perfection.">
         <label className="stacked-field">

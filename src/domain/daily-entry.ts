@@ -67,7 +67,8 @@ export const defaultAppSettings = (): AppSettings => ({
   relationshipDrawChildrenActivities: [...defaultChildrenActivities],
   relationshipDrawSpouseActivities: [...defaultSpouseActivities],
   relationshipDrawChildrenProcessedDate: "",
-  relationshipDrawSpouseProcessedDate: ""
+  relationshipDrawSpouseProcessedDate: "",
+  previousDayReviewDoneDate: ""
 });
 
 export const createEmptyDailyEntry = (date: string): DailyEntry => ({
@@ -227,3 +228,13 @@ export const applyDailyPomodoroStats = (entry: DailyEntry, stats: DailyPomodoroS
 
 export const resolveMetricValue = (entry: DailyEntry, key: MetricKey): number | null =>
   entry.metrics[key] ?? entry.suggestedMetrics?.[key] ?? null;
+
+export const findMissingMetricKeys = (entry: DailyEntry): MetricKey[] =>
+  metricDefinitions
+    .filter(({ key }) => resolveMetricValue(entry, key) === null)
+    .map(({ key }) => key);
+
+export const findUnansweredPrincipleKeys = (entry: DailyEntry): PrincipleKey[] =>
+  principleDefinitions
+    .filter(({ key }) => entry.principleChecks[key] === null)
+    .map(({ key }) => key);
