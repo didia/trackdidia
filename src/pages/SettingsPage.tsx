@@ -9,7 +9,9 @@ import { formatDateTimeShort, getTodayDate } from "../lib/date";
 import type { StorageInfo } from "../lib/storage/repository";
 import { RescueTimeGoalsService } from "../lib/rescuetime/rescuetime-goals-service";
 import { previewPayload, resolveProductivityPulse } from "../lib/ai/context/preview";
+import type { Surface } from "../lib/ai/context/types";
 import { formatPulseSlotHours, parsePulseSlotHours } from "../lib/ai/pulse/slot-hours";
+import { buildWeekDates } from "../domain/weekly-review";
 
 const payloadScopes: Array<{ value: AiPayloadScope; label: string }> = [
   { value: "metrics", label: "metrics" },
@@ -39,6 +41,8 @@ export const SettingsPage = () => {
     null
   );
   const [payloadPreviews, setPayloadPreviews] = useState<Record<AiPayloadScope, string> | null>(null);
+  const [payloadPreviewSurface, setPayloadPreviewSurface] = useState<Surface>("daily");
+  const [payloadPreviewDate, setPayloadPreviewDate] = useState(getTodayDate());
   const [loadingPayloadPreviews, setLoadingPayloadPreviews] = useState(false);
   const [payloadPreviewError, setPayloadPreviewError] = useState("");
   const [payloadPreviewPulseWarning, setPayloadPreviewPulseWarning] = useState("");
@@ -309,10 +313,33 @@ export const SettingsPage = () => {
       {debugEnabled ? (
         <SectionCard
           title="Apercu du payload IA (debug)"
-          subtitle="Rendu exact du contexte quotidien envoye a l'IA pour chaque portee, construit a partir des donnees reelles."
+          subtitle="Rendu exact du snapshot envoye a l'IA pour chaque portee (quotidien ou hebdomadaire), construit a partir des donnees reelles."
         >
           {payloadPreviewError ? <div className="banner">{payloadPreviewError}</div> : null}
           {payloadPreviewPulseWarning ? <div className="banner">{payloadPreviewPulseWarning}</div> : null}
+
+          <div className="history-toolbar">
+            <label className="stacked-field">
+              <span>Surface</span>
+              <select
+                aria-label="Surface apercu payload IA"
+                value={payloadPreviewSurface}
+                onChange={(event) => setPayloadPreviewSurface(event.target.value as Surface)}
+              >
+                <option value="daily">Quotidien (coach_pulse)</option>
+                <option value="weekly">Hebdomadaire (weekly_synthesis)</option>
+              </select>
+            </label>
+            <label className="stacked-field">
+              <span>{payloadPreviewSurface === "weekly" ? "Dimanche de la semaine" : "Date"}</span>
+              <input
+                aria-label="Date apercu payload IA"
+                type="date"
+                value={payloadPreviewSurface === "weekly" ? buildWeekDates(payloadPreviewDate) : payloadPreviewDate}
+                onChange={(event) => setPayloadPreviewDate(event.target.value)}
+              />
+            </label>
+          </div>
 
           <div className="form-actions">
             <button
@@ -325,7 +352,10 @@ export const SettingsPage = () => {
                 setPayloadPreviewPulseWarning("");
 
                 try {
-                  const date = getTodayDate();
+                  const date =
+                    payloadPreviewSurface === "weekly"
+                      ? buildWeekDates(payloadPreviewDate)
+                      : payloadPreviewDate;
                   const productivityPulse = await resolveProductivityPulse(repository, date);
                   if (productivityPulse.fetchError) {
                     setPayloadPreviewPulseWarning(
@@ -334,7 +364,11 @@ export const SettingsPage = () => {
                   }
                   const entries = await Promise.all(
                     payloadScopes.map(async (scope) => {
-                      const snapshot = await previewPayload(repository, scope.value, { date, productivityPulse });
+                      const snapshot = await previewPayload(repository, scope.value, {
+                        surface: payloadPreviewSurface,
+                        date,
+                        productivityPulse
+                      });
                       return [scope.value, JSON.stringify(snapshot, null, 2)] as const;
                     })
                   );

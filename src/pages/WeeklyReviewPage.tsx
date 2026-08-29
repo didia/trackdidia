@@ -14,17 +14,23 @@ import type {
   AiProposal,
   WeeklyReview,
   WeeklyReviewSummary,
-  WeeklyRitualSectionKey
+  WeeklyRitualSectionKey,
+  WeeklySynthesisResult
 } from "../domain/types";
 import type { RescueTimeGoalsSnapshot } from "../domain/rescuetime-goals";
-import { PersistedTextarea } from "../components/PersistedTextarea";
+import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
 import { SectionCard } from "../components/SectionCard";
+import { WeeklySynthesisPanel } from "../components/WeeklySynthesisPanel";
 import { formatDateLong, formatDateShort, getTodayDate } from "../lib/date";
 import { formatPercent, formatTimestamp } from "../lib/format";
 import { addDays } from "../lib/gtd/shared";
 import { RescueTimeGoalsService, type RescueTimeProductivityPulseSnapshot } from "../lib/rescuetime/rescuetime-goals-service";
 import { createWeeklyMemoryProposals, loadWeeklyMemoryProposals } from "../lib/ai/memory/weekly-distillation";
 import { applyCoachProposal, proposalPreviewText } from "../lib/ai/proposals/apply-proposal";
+import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
+import { resolveWeeklySnapshotInputs } from "../lib/ai/context/weekly-snapshot";
+import { loadLatestWeeklySynthesis } from "../lib/ai/weekly-synthesis-loader";
+import { WeeklySynthesisService } from "../lib/ai/weekly-synthesis-service";
 
 interface RitualSectionDefinition {
   key: WeeklyRitualSectionKey;
@@ -113,6 +119,7 @@ const deriveWeeklyStatusLabel = (status: WeeklyReview["status"]): string =>
 export const WeeklyReviewPage = () => {
   const { repository, settings } = useAppContext();
   const goalsService = useMemo(() => new RescueTimeGoalsService(repository), [repository]);
+  const synthesisService = useMemo(() => new WeeklySynthesisService(new OpenRouterProvider()), []);
   const [selectedWeekStart, setSelectedWeekStart] = useState(buildWeekDates(getTodayDate()));
   const [review, setReview] = useState<WeeklyReview | null>(null);
   const [summary, setSummary] = useState<WeeklyReviewSummary | null>(null);
@@ -125,10 +132,14 @@ export const WeeklyReviewPage = () => {
   const [rescueTimeMessage, setRescueTimeMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [weeklyMemoryProposals, setWeeklyMemoryProposals] = useState<AiProposal[]>([]);
+  const [synthesisResult, setSynthesisResult] = useState<WeeklySynthesisResult | null>(null);
+  const [synthesisLoading, setSynthesisLoading] = useState(false);
   const latestReviewRef = useRef<WeeklyReview | null>(null);
+  const noteRefs = useRef<Partial<Record<WeeklyRitualSectionKey, PersistedTextareaHandle | null>>>({});
   const weekRequestSeqRef = useRef(0);
   const goalsRequestSeqRef = useRef(0);
   const pulseRequestSeqRef = useRef(0);
+  const synthesisRequestSeqRef = useRef(0);
 
   const loadGoalsSnapshot = useCallback(
     async (requestedWeekStart: string, options?: { refreshing?: boolean }) => {
@@ -265,6 +276,97 @@ export const WeeklyReviewPage = () => {
     },
     [repository]
   );
+
+  const runSynthesis = useCallback(
+    async (options: { weekStartDate: string; trigger: "auto" | "explicit"; bypassCache?: boolean }) => {
+      const requestId = ++synthesisRequestSeqRef.current;
+      setSynthesisLoading(true);
+      try {
+        const goals =
+          goalsSnapshot?.weekStartDate === options.weekStartDate ? goalsSnapshot : null;
+        const pulse =
+          pulseSnapshot?.weekStartDate === options.weekStartDate ? pulseSnapshot : null;
+        const snapshotInputs = await resolveWeeklySnapshotInputs(repository, options.weekStartDate, {
+          productivityPulse: pulse?.pulse ?? null,
+          rescueTimeGoalsScore: goals?.score ?? null,
+          rescuetimeConfigured: Boolean(settings.rescuetimeApiKey.trim())
+        });
+        const result = await synthesisService.buildSynthesis(repository, {
+          weekStartDate: options.weekStartDate,
+          settings,
+          snapshotInputs,
+          trigger: options.trigger,
+          bypassCache: options.bypassCache
+        });
+        if (requestId !== synthesisRequestSeqRef.current) {
+          return;
+        }
+        setSynthesisResult(result);
+      } finally {
+        if (requestId === synthesisRequestSeqRef.current) {
+          setSynthesisLoading(false);
+        }
+      }
+    },
+    [goalsSnapshot, pulseSnapshot, repository, settings, synthesisService]
+  );
+
+  useEffect(() => {
+    if (!summary || loading || goalsLoading || pulseLoading) {
+      return;
+    }
+
+    void (async () => {
+      const stored = await loadLatestWeeklySynthesis(repository, synthesisService, summary.weekStartDate);
+      if (stored) {
+        setSynthesisResult(stored);
+      }
+      await runSynthesis({ weekStartDate: summary.weekStartDate, trigger: "auto" });
+    })();
+  }, [summary?.weekStartDate, loading, goalsLoading, pulseLoading, repository, runSynthesis, synthesisService]);
+
+  const handleAcceptSynthesisProposal = async (proposal: AiProposal) => {
+    const weekStartDate = latestReviewRef.current?.weekStartDate ?? selectedWeekStart;
+    const applied = await applyCoachProposal(repository, proposal, weekStartDate);
+
+    if (proposal.type === "gtd_action" && !applied.taskId) {
+      return;
+    }
+
+    if (proposal.type === "review_section_draft" && applied.sectionKey && applied.text !== undefined) {
+      noteRefs.current[applied.sectionKey]?.setDraft(applied.text);
+    }
+
+    await repository.decideAiProposal(
+      proposal.id,
+      "accepted",
+      applied.objectiveId ?? applied.taskId ?? applied.memoryId ?? weekStartDate
+    );
+    setSynthesisResult((current) =>
+      current
+        ? {
+            ...current,
+            proposals: current.proposals.map((item) =>
+              item.id === proposal.id ? { ...item, status: "accepted", decidedAt: new Date().toISOString() } : item
+            )
+          }
+        : current
+    );
+  };
+
+  const handleDismissSynthesisProposal = async (proposal: AiProposal) => {
+    await repository.decideAiProposal(proposal.id, "dismissed");
+    setSynthesisResult((current) =>
+      current
+        ? {
+            ...current,
+            proposals: current.proposals.map((item) =>
+              item.id === proposal.id ? { ...item, status: "dismissed", decidedAt: new Date().toISOString() } : item
+            )
+          }
+        : current
+    );
+  };
 
   const refreshWeeklyMemoryProposals = useCallback(
     async (weekStartDate: string) => {
@@ -425,6 +527,28 @@ export const WeeklyReviewPage = () => {
             ? `Fenetre courante: ${formatDateShort(selectedWeekStart)} -> ${formatDateShort(weekEndDate)}.`
             : "Saisis un dimanche pour charger une semaine."}
         </p>
+      </SectionCard>
+
+      <SectionCard title="Coach hebdomadaire" subtitle="Synthese de la semaine, brouillons de sections et actions proposees.">
+        <WeeklySynthesisPanel
+          result={synthesisResult}
+          loading={synthesisLoading}
+          settings={settings}
+          onRequestCoach={() => {
+            if (!summary) {
+              return;
+            }
+            void runSynthesis({ weekStartDate: summary.weekStartDate, trigger: "explicit" });
+          }}
+          onRegenerate={() => {
+            if (!summary) {
+              return;
+            }
+            void runSynthesis({ weekStartDate: summary.weekStartDate, trigger: "explicit", bypassCache: true });
+          }}
+          onAcceptProposal={(proposal) => void handleAcceptSynthesisProposal(proposal)}
+          onDismissProposal={(proposal) => void handleDismissSynthesisProposal(proposal)}
+        />
       </SectionCard>
 
       <SectionCard title="Vue d'ensemble" subtitle="Le coeur quantifie de la semaine, calcule a partir du quotidien.">
@@ -670,6 +794,9 @@ export const WeeklyReviewPage = () => {
                 <span>{`Notes ${section.title}`}</span>
                 <PersistedTextarea
                   key={`${review.weekStartDate}-${section.key}`}
+                  ref={(handle) => {
+                    noteRefs.current[section.key] = handle;
+                  }}
                   rows={4}
                   debounceMs={0}
                   savedValue={review.notes[section.key]}

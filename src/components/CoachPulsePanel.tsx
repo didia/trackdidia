@@ -8,11 +8,14 @@ const sourceLabels: Record<CoachPulseResult["source"], string> = {
   fallback: "Fallback local"
 };
 
-const proposalLabels: Record<AiProposal["type"], string> = {
+const proposalLabels: Partial<Record<AiProposal["type"], string>> = {
   intention_draft: "Intention du matin",
   tomorrow_focus_draft: "Focus de demain",
   commitment: "Engagement pour demain",
-  memory: "Memoire candidate"
+  memory: "Memoire candidate",
+  review_section_draft: "Brouillon de section",
+  weekly_objective: "Objectif hebdomadaire",
+  gtd_action: "Action GTD"
 };
 
 const principleLabel = (key: PrincipleKey | null | undefined): string | null => {
@@ -149,7 +152,7 @@ export const CoachPulsePanel = ({
                   : payload.text ?? "";
             return (
               <article key={proposal.id} className="coach-pulse__proposal">
-                <span>{proposalLabels[proposal.type]}</span>
+                <span>{proposalLabels[proposal.type] ?? "Suggestion"}</span>
                 <p>{preview}</p>
                 <div className="section-actions">
                   <button className="button button--primary" type="button" onClick={() => onAcceptProposal(proposal)}>

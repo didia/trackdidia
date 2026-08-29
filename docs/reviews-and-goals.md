@@ -152,6 +152,22 @@ comes from the Analytic Data API and labeled project times (projects and clients
 Schedule windows such as “Evening family time” are not filtered yet; v1 uses full-week
 totals with a documented approximation.
 
+### Weekly coach synthesis
+
+Opening `/semaine` triggers the `weekly_synthesis` AI surface for the selected week
+(Sunday start). The coach panel shows a headline, score explanation, strongest/weakest
+axes, and accept-step proposals:
+
+- section note drafts for the eight ritual blocks;
+- up to five suggested standing objectives for next week;
+- GTD actions (`schedule`, `defer`, `delegate`, `drop`) on specific tasks.
+
+Accepting a section draft **prefills** the textarea only — it does not auto-save the
+review. Accepting an objective creates a row in `weekly_objectives`. Results are cached
+in `ai_messages` keyed by `(surface, weekStartDate, input_hash)`.
+
+When AI is off, the local deterministic brief still renders from weekly insight findings.
+
 ## Monthly review (`/mois`)
 
 ### Calendar model

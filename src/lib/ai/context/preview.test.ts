@@ -1,6 +1,7 @@
 import { createEmptyDailyEntry, updateNote } from "../../../domain/daily-entry";
 import { MemoryRepository } from "../../storage/memory-repository";
 import { previewPayload, resolveProductivityPulse } from "./preview";
+import type { DailySnapshot } from "./daily-snapshot";
 
 describe("previewPayload", () => {
   it("renders the exact snapshot that would be sent for a given scope, from real repository data", async () => {
@@ -24,8 +25,8 @@ describe("previewPayload", () => {
       updatedAt: new Date().toISOString()
     });
 
-    const metricsSnapshot = await previewPayload(repository, "metrics", { date });
-    const fullSnapshot = await previewPayload(repository, "full", { date });
+    const metricsSnapshot = await previewPayload(repository, "metrics", { date }) as DailySnapshot;
+    const fullSnapshot = await previewPayload(repository, "full", { date }) as DailySnapshot;
 
     expect(metricsSnapshot.notes).toBeUndefined();
     expect(fullSnapshot.notes?.morningIntention).toBe("Texte libre du jour.");
@@ -33,13 +34,25 @@ describe("previewPayload", () => {
     expect(metricsSnapshot.rescueTime.configured).toBe(false);
   });
 
-  it("rejects an unsupported surface", async () => {
+  it("renders weekly preview snapshots", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
 
-    await expect(
-      previewPayload(repository, "full", { surface: "weekly" as never })
-    ).rejects.toThrow();
+    const weekStart = "2026-08-02";
+    await repository.saveDailyEntry(createEmptyDailyEntry(weekStart));
+
+    const metricsSnapshot = await previewPayload(repository, "metrics", {
+      surface: "weekly",
+      date: weekStart
+    });
+    const fullSnapshot = await previewPayload(repository, "full", {
+      surface: "weekly",
+      date: weekStart
+    });
+
+    expect(metricsSnapshot.surface).toBe("weekly");
+    expect(fullSnapshot.surface).toBe("weekly");
+    expect(fullSnapshot.notes).toBeUndefined();
   });
 });
 

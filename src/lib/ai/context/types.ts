@@ -4,4 +4,4 @@
  * union so a later phase can extend it without a breaking change to callers that already
  * match on `Surface`.
  */
-export type Surface = "daily";
+export type Surface = "daily" | "weekly";

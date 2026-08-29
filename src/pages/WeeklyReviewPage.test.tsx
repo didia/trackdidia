@@ -1,6 +1,7 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createEmptyDailyEntry, updatePrinciple } from "../domain/daily-entry";
+import { addDays } from "../lib/gtd/shared";
 import { principleDefinitions } from "../domain/definitions";
 import {
   applyWeeklyScoreExternalAxes,
@@ -9,13 +10,66 @@ import {
 } from "../domain/weekly-review";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { createWeeklyMemoryProposals } from "../lib/ai/memory/weekly-distillation";
+import { WeeklySynthesisService } from "../lib/ai/weekly-synthesis-service";
 import { formatPercent } from "../lib/format";
+import * as dateModule from "../lib/date";
 import { RescueTimeGoalsService } from "../lib/rescuetime/rescuetime-goals-service";
 import { renderWithApp } from "../test/test-utils";
 import { WeeklyReviewPage } from "./WeeklyReviewPage";
 
+vi.mock("../lib/ai/weekly-synthesis-loader", () => ({
+  loadLatestWeeklySynthesis: vi.fn(async () => null)
+}));
+
 describe("WeeklyReviewPage", () => {
   const originalFetch = globalThis.fetch;
+
+  const mockEmptySynthesis = () => {
+    vi.spyOn(WeeklySynthesisService.prototype, "buildSynthesis").mockResolvedValue({
+      message: {
+        id: "ai-message-empty",
+        surface: "weekly_synthesis",
+        scopeKey: "ignored",
+        stance: null,
+        kind: "weekly",
+        inputHash: "hash",
+        promptVersion: "weekly_synthesis.v1",
+        model: "local",
+        status: "skipped",
+        bodyJson: JSON.stringify({
+          headline: "Semaine",
+          scoreExplanation: "Score",
+          strongestAxis: "Discipline",
+          weakestAxes: ["Sommeil", "Pomodoris"],
+          sectionDrafts: {},
+          nextWeekObjectives: [],
+          gtdActions: []
+        }),
+        bodyText: "Semaine",
+        deltaClass: null,
+        notified: false,
+        tokensPrompt: null,
+        tokensCompletion: null,
+        latencyMs: null,
+        createdAt: new Date().toISOString()
+      },
+      synthesis: {
+        headline: "Semaine",
+        scoreExplanation: "Score",
+        strongestAxis: "Discipline",
+        weakestAxes: ["Sommeil", "Pomodoris"],
+        sectionDrafts: {},
+        nextWeekObjectives: [],
+        gtdActions: []
+      },
+      proposals: [],
+      source: "local"
+    });
+  };
+
+  beforeEach(() => {
+    mockEmptySynthesis();
+  });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
@@ -331,6 +385,369 @@ describe("WeeklyReviewPage", () => {
     await waitFor(async () => {
       const memories = await repository.listAiMemories({ status: "active", kind: "pattern" });
       expect(memories.length).toBeGreaterThan(0);
+    });
+  });
+
+  it("prefills a section draft without saving the review", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const weekStartDate = "2026-08-02";
+
+    for (let index = 0; index < 7; index += 1) {
+      const date = addDays(weekStartDate, index);
+      await repository.saveDailyEntry(createEmptyDailyEntry(date));
+    }
+
+    const message = {
+      id: "ai-message-weekly",
+      surface: "weekly_synthesis" as const,
+      scopeKey: weekStartDate,
+      stance: null,
+      kind: "weekly",
+      inputHash: "hash",
+      promptVersion: "weekly_synthesis.v1",
+      model: "local",
+      status: "skipped" as const,
+      bodyJson: JSON.stringify({
+        headline: "Semaine",
+        scoreExplanation: "Score",
+        strongestAxis: "Discipline",
+        weakestAxes: ["Sommeil", "Pomodoris"],
+        sectionDrafts: { bilan: "Brouillon coach" },
+        nextWeekObjectives: [],
+        gtdActions: []
+      }),
+      bodyText: "Local",
+      deltaClass: null,
+      notified: false,
+      tokensPrompt: null,
+      tokensCompletion: null,
+      latencyMs: null,
+      createdAt: new Date().toISOString()
+    };
+    const proposal = {
+      id: "proposal-section",
+      messageId: message.id,
+      type: "review_section_draft" as const,
+      payloadJson: JSON.stringify({ sectionKey: "bilan", text: "Brouillon coach" }),
+      status: "pending" as const,
+      appliedEntityId: null,
+      decidedAt: null,
+      createdAt: new Date().toISOString()
+    };
+    await repository.saveAiMessage(message);
+    await repository.saveAiProposal(proposal);
+
+    vi.spyOn(WeeklySynthesisService.prototype, "buildSynthesis").mockResolvedValue({
+      message,
+      synthesis: {
+        headline: "Semaine",
+        scoreExplanation: "Score",
+        strongestAxis: "Discipline",
+        weakestAxes: ["Sommeil", "Pomodoris"],
+        sectionDrafts: { bilan: "Brouillon coach" },
+        nextWeekObjectives: [],
+        gtdActions: []
+      },
+      proposals: [proposal],
+      source: "local"
+    });
+
+    const user = userEvent.setup();
+    await renderWithApp(<WeeklyReviewPage />, { repository, route: "/semaine" });
+
+    const dateInput = await screen.findByLabelText(/debut de semaine/i);
+    await user.clear(dateInput);
+    await user.type(dateInput, weekStartDate);
+    await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
+
+    expect(await screen.findByRole("heading", { name: /coach hebdomadaire/i })).toBeInTheDocument();
+    const acceptButtons = await screen.findAllByRole("button", { name: /^accepter$/i });
+    await user.click(acceptButtons[0]);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/notes bilan/i)).toHaveValue("Brouillon coach");
+    });
+
+    await expect(repository.getWeeklyReview(weekStartDate)).resolves.toBeNull();
+  });
+
+  it("accepting a weekly objective proposal creates a row", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const weekStartDate = "2026-08-02";
+
+    for (let index = 0; index < 7; index += 1) {
+      const date = addDays(weekStartDate, index);
+      await repository.saveDailyEntry(createEmptyDailyEntry(date));
+    }
+
+    const message = {
+      id: "ai-message-weekly-objective",
+      surface: "weekly_synthesis" as const,
+      scopeKey: weekStartDate,
+      stance: null,
+      kind: "weekly",
+      inputHash: "hash",
+      promptVersion: "weekly_synthesis.v1",
+      model: "local",
+      status: "skipped" as const,
+      bodyJson: JSON.stringify({
+        headline: "Semaine",
+        scoreExplanation: "Score",
+        strongestAxis: "Discipline",
+        weakestAxes: ["Sommeil", "Pomodoris"],
+        sectionDrafts: { bilan: "Brouillon coach" },
+        nextWeekObjectives: [],
+        gtdActions: []
+      }),
+      bodyText: "Local",
+      deltaClass: null,
+      notified: false,
+      tokensPrompt: null,
+      tokensCompletion: null,
+      latencyMs: null,
+      createdAt: new Date().toISOString()
+    };
+    const proposal = {
+      id: "proposal-objective",
+      messageId: message.id,
+      type: "weekly_objective" as const,
+      payloadJson: JSON.stringify({
+        title: "Lire 2h",
+        kind: "manual",
+        targetHours: null,
+        rescuetimeKind: null,
+        rescuetimeThing: null
+      }),
+      status: "pending" as const,
+      appliedEntityId: null,
+      decidedAt: null,
+      createdAt: new Date().toISOString()
+    };
+    await repository.saveAiMessage(message);
+    await repository.saveAiProposal(proposal);
+
+    vi.spyOn(WeeklySynthesisService.prototype, "buildSynthesis").mockResolvedValue({
+      message,
+      synthesis: {
+        headline: "Semaine",
+        scoreExplanation: "Score",
+        strongestAxis: "Discipline",
+        weakestAxes: ["Sommeil", "Pomodoris"],
+        sectionDrafts: {},
+        nextWeekObjectives: [
+          {
+            title: "Lire 2h",
+            kind: "manual",
+            targetHours: null,
+            rescuetimeKind: null,
+            rescuetimeThing: null
+          }
+        ],
+        gtdActions: []
+      },
+      proposals: [proposal],
+      source: "local"
+    });
+
+    const user = userEvent.setup();
+    await renderWithApp(<WeeklyReviewPage />, { repository, route: "/semaine" });
+
+    const dateInput = await screen.findByLabelText(/debut de semaine/i);
+    await user.clear(dateInput);
+    await user.type(dateInput, weekStartDate);
+    await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
+
+    const acceptButtons = await screen.findAllByRole("button", { name: /^accepter$/i });
+    await user.click(acceptButtons[0]);
+
+    await waitFor(async () => {
+      const objectives = await repository.listWeeklyObjectives();
+      expect(objectives).toEqual(
+        expect.arrayContaining([expect.objectContaining({ title: "Lire 2h", kind: "manual" })])
+      );
+    });
+  });
+
+  it("accepts a gtd_action schedule proposal for today", async () => {
+    vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-08-29");
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const weekStartDate = "2026-08-02";
+    const timestamp = new Date().toISOString();
+
+    for (let index = 0; index < 7; index += 1) {
+      await repository.saveDailyEntry(createEmptyDailyEntry(addDays(weekStartDate, index)));
+    }
+
+    await repository.saveTask({
+      id: "task-gtd-schedule",
+      title: "Clarifier inbox",
+      notes: "",
+      status: "active",
+      bucket: "next_action",
+      contextIds: [],
+      projectId: null,
+      parentTaskId: null,
+      scheduledFor: null,
+      deadline: null,
+      recurringTemplateId: null,
+      recurrenceDueDate: null,
+      isRecurringInstance: false,
+      completedAt: null,
+      recurrenceGroupId: null,
+      pendingPastRecurrences: 0,
+      source: "manual",
+      sourceExternalId: null,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    });
+
+    const message = {
+      id: "ai-message-gtd",
+      surface: "weekly_synthesis" as const,
+      scopeKey: weekStartDate,
+      stance: null,
+      kind: "weekly",
+      inputHash: "hash-gtd",
+      promptVersion: "weekly_synthesis.v1",
+      model: "local",
+      status: "skipped" as const,
+      bodyJson: JSON.stringify({
+        headline: "Semaine",
+        scoreExplanation: "Score",
+        strongestAxis: "Discipline",
+        weakestAxes: ["Sommeil", "Pomodoris"],
+        sectionDrafts: {},
+        nextWeekObjectives: [],
+        gtdActions: [{ taskId: "task-gtd-schedule", action: "schedule", reason: "Planifier" }]
+      }),
+      bodyText: "Semaine",
+      deltaClass: null,
+      notified: false,
+      tokensPrompt: null,
+      tokensCompletion: null,
+      latencyMs: null,
+      createdAt: timestamp
+    };
+    const proposal = {
+      id: "proposal-gtd",
+      messageId: message.id,
+      type: "gtd_action" as const,
+      payloadJson: JSON.stringify({
+        taskId: "task-gtd-schedule",
+        action: "schedule",
+        reason: "Planifier"
+      }),
+      status: "pending" as const,
+      appliedEntityId: null,
+      decidedAt: null,
+      createdAt: timestamp
+    };
+    await repository.saveAiMessage(message);
+    await repository.saveAiProposal(proposal);
+
+    vi.spyOn(WeeklySynthesisService.prototype, "buildSynthesis").mockResolvedValue({
+      message,
+      synthesis: {
+        headline: "Semaine",
+        scoreExplanation: "Score",
+        strongestAxis: "Discipline",
+        weakestAxes: ["Sommeil", "Pomodoris"],
+        sectionDrafts: {},
+        nextWeekObjectives: [],
+        gtdActions: [{ taskId: "task-gtd-schedule", action: "schedule", reason: "Planifier" }]
+      },
+      proposals: [proposal],
+      source: "local"
+    });
+
+    const user = userEvent.setup();
+    await renderWithApp(<WeeklyReviewPage />, { repository, route: "/semaine" });
+
+    const dateInput = await screen.findByLabelText(/debut de semaine/i);
+    await user.clear(dateInput);
+    await user.type(dateInput, weekStartDate);
+    await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
+
+    await user.click(await screen.findByRole("button", { name: /^accepter$/i }));
+
+    await waitFor(async () => {
+      const tasks = await repository.listTasks({ includeCompleted: true });
+      expect(tasks.find((task) => task.id === "task-gtd-schedule")?.scheduledFor).toBe("2026-08-29");
+      const updated = await repository.listAiProposals(message.id);
+      expect(updated[0]?.status).toBe("accepted");
+    });
+  });
+});
+
+describe("WeeklyReviewPage local synthesis integration", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  it("persists and accepts a local section draft when AI is off", async () => {
+    vi.spyOn(RescueTimeGoalsService.prototype, "computeGoalsSnapshot").mockResolvedValue({
+      weekStartDate: "2026-08-02",
+      weekEndDate: "2026-08-08",
+      score: null,
+      totalAchievement: 0,
+      items: [],
+      rescuetimeConfigured: false
+    });
+    vi.spyOn(RescueTimeGoalsService.prototype, "computeProductivityPulse").mockResolvedValue({
+      weekStartDate: "2026-08-02",
+      weekEndDate: "2026-08-08",
+      pulse: null,
+      rescuetimeConfigured: false
+    });
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const weekStartDate = "2026-08-02";
+
+    for (let index = 0; index < 7; index += 1) {
+      await repository.saveDailyEntry(createEmptyDailyEntry(addDays(weekStartDate, index)));
+    }
+
+    const disabledSettings = {
+      ...(await repository.getSettings()),
+      aiEnabled: false,
+      aiApiKey: ""
+    };
+    await repository.saveSettings(disabledSettings);
+
+    const user = userEvent.setup();
+    await renderWithApp(<WeeklyReviewPage />, {
+      repository,
+      route: "/semaine",
+      contextOverrides: { settings: disabledSettings }
+    });
+
+    const dateInput = await screen.findByLabelText(/debut de semaine/i);
+    await user.clear(dateInput);
+    await user.type(dateInput, weekStartDate);
+    await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
+
+    expect(await screen.findByText("Guide local")).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("button", { name: /^accepter$/i }).length).toBeGreaterThan(0);
+    });
+
+    const acceptButtons = screen.getAllByRole("button", { name: /^accepter$/i });
+    await user.click(acceptButtons[0]);
+
+    await waitFor(async () => {
+      const messages = await repository.listAiMessages("weekly_synthesis");
+      expect(messages.length).toBeGreaterThan(0);
+      const proposals = await repository.listAiProposals(messages[0].id);
+      expect(proposals.some((item) => item.status === "accepted")).toBe(true);
     });
   });
 });

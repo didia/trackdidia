@@ -125,6 +125,22 @@ Proposals are stored in `ai_proposals` with `pending | accepted | dismissed | ex
 status. Draft accepts (`intention_draft`, `tomorrow_focus_draft`) save the journal
 field first, then record the proposal decision separately.
 
+### Weekly synthesis (`weekly_synthesis`)
+
+The `/semaine` screen runs the S2 `weekly_synthesis` surface when the review page
+opens (event trigger) and on explicit **« Demander au coach »** / **« Régénérer »**.
+The service builds a typed weekly snapshot via `buildWeeklySnapshot`, retrieves
+memories with weekly-specific kind priority, validates JSON, and persists proposals.
+
+| Type | Accept applies |
+|---|---|
+| `review_section_draft` | Prefills the ritual note textarea for that section key (editable; saved only when the user saves the review) |
+| `weekly_objective` | Creates a standing `WeeklyObjective` row |
+| `gtd_action` | `scheduleTask`, `moveTask` (`someday_maybe` / `waiting_for`), or `cancelTask` per action |
+
+When AI is disabled, the deterministic local brief still renders from insight findings.
+The **« Demander au coach »** button is disabled with an explanatory label.
+
 ### Semantic memory (`ai_memories`)
 
 Migration 24 adds durable, human-readable coach memory:
@@ -170,8 +186,9 @@ in addition to the OpenRouter API key already stored in settings.
 ### Context and redaction
 
 Before any model call, `CoachPulseService` builds a typed daily snapshot via
-`buildDailySnapshot` and applies `aiPayloadScope` redaction centrally. Settings
-can preview the exact payload per scope when debug mode is enabled.
+`buildDailySnapshot` and `WeeklySynthesisService` builds a weekly snapshot via
+`buildWeeklySnapshot`. Both apply `aiPayloadScope` redaction centrally. Settings
+can preview the exact payload per scope when debug mode is enabled (see below).
 
 ### Persistence (`ai_messages`, `ai_proposals`, `ai_memories`)
 
@@ -341,19 +358,18 @@ Logs are not persisted to SQLite. Even so, avoid passing sensitive values to
 ### AI payload preview
 
 Settings has an `aiPayloadScope` control (`metrics`, `metrics_and_structure`, or
-`full`; default `full`) that governs how much detail the daily AI context
-snapshot includes — `metrics` redacts free-text notes and task/project titles,
-`metrics_and_structure` adds titles back, and `full` includes everything.
+`full`; default `full`) that governs how much detail AI context snapshots include —
+`metrics` redacts free-text notes and task/project titles, `metrics_and_structure`
+adds titles back, and `full` includes everything.
 
-When debug mode is enabled, Settings also shows a payload-preview panel with a
-button that renders the exact typed daily snapshot (`buildDailySnapshot`) that
-would be sent to the model, one collapsible block per scope, built from the
-real repository data for today. This is a debug-only affordance for inspecting
-what each scope actually sends; it is hidden when debug mode is off. A single
-preview action resolves the RescueTime productivity pulse once (when configured)
-and reuses it across all three scopes, rather than issuing a live RescueTime
-request per scope. If that resolution fails, the panel shows a non-blocking
-warning banner with the error message, and the preview itself still renders
+When debug mode is enabled, Settings also shows a payload-preview panel with controls
+for **surface** (`daily` coach snapshot or `weekly` synthesis snapshot), a reference
+date (week start normalizes to Sunday for weekly), and a button that renders the exact
+typed snapshot that would be sent to the model — one collapsible block per scope,
+built from real repository data. This is a debug-only affordance; it is hidden when
+debug mode is off. A single preview action resolves the RescueTime productivity pulse
+once (when configured) and reuses it across all three scopes. If that resolution
+fails, the panel shows a non-blocking warning banner and the preview still renders
 (with no pulse data) rather than failing outright.
 
 ## Related documentation

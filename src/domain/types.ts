@@ -270,7 +270,7 @@ export interface RescueTimeTaxonomyEntry {
 
 export type AiPayloadScope = "metrics" | "metrics_and_structure" | "full";
 
-export type AiSurface = "coach_pulse";
+export type AiSurface = "coach_pulse" | "weekly_synthesis";
 
 export type CoachPulseStance = "open" | "steer" | "wind_down" | "close";
 
@@ -284,7 +284,12 @@ export type AiProposalType =
   | "intention_draft"
   | "tomorrow_focus_draft"
   | "memory"
-  | "commitment";
+  | "commitment"
+  | "review_section_draft"
+  | "weekly_objective"
+  | "gtd_action";
+
+export type WeeklySynthesisGtdAction = "schedule" | "defer" | "delegate" | "drop";
 
 export type AiMemoryStatus = "active" | "archived" | "contradicted";
 
@@ -402,6 +407,38 @@ export interface AiProposal {
 export interface CoachPulseResult {
   message: AiMessage;
   pulse: CoachPulseResponse;
+  proposals: AiProposal[];
+  source: "ai" | "local" | "fallback" | "cache";
+  warning?: string;
+}
+
+export interface WeeklySynthesisObjectiveDraft {
+  title: string;
+  kind: WeeklyObjectiveKind;
+  targetHours: number | null;
+  rescuetimeKind: RescueTimeTaxonomy | null;
+  rescuetimeThing: string | null;
+}
+
+export interface WeeklySynthesisGtdActionDraft {
+  taskId: string;
+  action: WeeklySynthesisGtdAction;
+  reason: string;
+}
+
+export interface WeeklySynthesisResponse {
+  headline: string;
+  scoreExplanation: string;
+  strongestAxis: string;
+  weakestAxes: string[];
+  sectionDrafts: Partial<Record<WeeklyRitualSectionKey, string>>;
+  nextWeekObjectives: WeeklySynthesisObjectiveDraft[];
+  gtdActions: WeeklySynthesisGtdActionDraft[];
+}
+
+export interface WeeklySynthesisResult {
+  message: AiMessage;
+  synthesis: WeeklySynthesisResponse;
   proposals: AiProposal[];
   source: "ai" | "local" | "fallback" | "cache";
   warning?: string;

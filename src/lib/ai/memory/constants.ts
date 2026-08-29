@@ -18,3 +18,11 @@ export const KIND_PRIORITY_BY_STANCE: Record<CoachPulseStance, MemoryKind[]> = {
   wind_down: ["commitment", "context", "pattern", "preference", "principle"],
   close: ["pattern", "preference", "context", "principle", "commitment"]
 };
+
+export const KIND_PRIORITY_WEEKLY: MemoryKind[] = [
+  "pattern",
+  "preference",
+  "principle",
+  "context",
+  "commitment"
+];

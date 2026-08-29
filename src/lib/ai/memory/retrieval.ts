@@ -1,7 +1,7 @@
 import type { AiMemory, AppSettings, CoachPulseStance } from "../../../domain/types";
 import { effectiveConfidence } from "./decay";
 import { formatMemoryBlock } from "./format";
-import { KIND_PRIORITY_BY_STANCE, MEMORY_RETRIEVAL_CAP } from "./constants";
+import { KIND_PRIORITY_BY_STANCE, KIND_PRIORITY_WEEKLY, MEMORY_RETRIEVAL_CAP } from "./constants";
 
 export interface RetrieveMemoriesOptions {
   stance: CoachPulseStance;
@@ -63,6 +63,54 @@ export const retrieveMemories = (
   const nowIso = options.nowIso ?? new Date().toISOString();
   const active = memories.filter((memory) => memory.status === "active");
   const selected = selectMemoriesForPrompt(active, options.stance, nowIso);
+
+  return {
+    selected,
+    block: formatMemoryBlock(selected, nowIso)
+  };
+};
+
+const kindRankWeekly = (kind: AiMemory["kind"]): number => {
+  const index = KIND_PRIORITY_WEEKLY.indexOf(kind);
+  return index === -1 ? KIND_PRIORITY_WEEKLY.length : index;
+};
+
+export const rankMemoriesForWeekly = (memories: AiMemory[], nowIso: string): AiMemory[] =>
+  [...memories].sort((left, right) => {
+    if (left.pinned !== right.pinned) {
+      return left.pinned ? -1 : 1;
+    }
+
+    const leftKind = kindRankWeekly(left.kind);
+    const rightKind = kindRankWeekly(right.kind);
+    if (leftKind !== rightKind) {
+      return leftKind - rightKind;
+    }
+
+    const leftConfidence = effectiveConfidence(left, nowIso);
+    const rightConfidence = effectiveConfidence(right, nowIso);
+    if (leftConfidence !== rightConfidence) {
+      return rightConfidence - leftConfidence;
+    }
+
+    return right.lastConfirmedAt.localeCompare(left.lastConfirmedAt);
+  });
+
+export const retrieveMemoriesForWeekly = (
+  memories: AiMemory[],
+  settings: AppSettings,
+  options: { nowIso?: string } = {}
+): { selected: AiMemory[]; block: string } => {
+  if (!settings.aiMemoryEnabled) {
+    return { selected: [], block: "" };
+  }
+
+  const nowIso = options.nowIso ?? new Date().toISOString();
+  const active = memories.filter((memory) => memory.status === "active");
+  const ranked = rankMemoriesForWeekly(active, nowIso);
+  const pinned = ranked.filter((memory) => memory.pinned);
+  const nonPinned = ranked.filter((memory) => !memory.pinned).slice(0, MEMORY_RETRIEVAL_CAP);
+  const selected = [...pinned, ...nonPinned];
 
   return {
     selected,

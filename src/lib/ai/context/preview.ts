@@ -2,9 +2,11 @@ import { createEmptyDailyEntry } from "../../../domain/daily-entry";
 import type { AiPayloadScope } from "../../../domain/types";
 import { getTodayDate } from "../../date";
 import { getWeekStartSunday } from "../../gtd/shared";
+import { buildWeekDates } from "../../../domain/weekly-review";
 import { RescueTimeGoalsService } from "../../rescuetime/rescuetime-goals-service";
 import type { AppRepository } from "../../storage/repository";
 import { buildDailySnapshot, type DailySnapshot } from "./daily-snapshot";
+import { buildWeeklySnapshot, resolveWeeklySnapshotInputs } from "./weekly-snapshot";
 import type { Surface } from "./types";
 
 /**
@@ -111,6 +113,8 @@ export const resolveDailySnapshotInputs = async (
   };
 };
 
+export type PreviewSnapshot = DailySnapshot | import("./weekly-snapshot").WeeklySnapshot;
+
 /**
  * Renders the exact snapshot that would be sent to the model for a given scope, built from
  * real repository data (spec `ai-integration-v2.md` §5). Exposed in Settings behind the
@@ -120,14 +124,26 @@ export const previewPayload = async (
   repository: AppRepository,
   scope: AiPayloadScope,
   options: PreviewPayloadOptions = {}
-): Promise<DailySnapshot> => {
+): Promise<PreviewSnapshot> => {
   const surface = options.surface ?? "daily";
+  const now = options.now ?? new Date().toISOString();
+
+  if (surface === "weekly") {
+    const weekStartDate = buildWeekDates(options.date ?? getTodayDate());
+    const productivityPulse = options.productivityPulse ?? (await resolveProductivityPulse(repository, weekStartDate));
+    const inputs = await resolveWeeklySnapshotInputs(repository, weekStartDate, {
+      now,
+      productivityPulse: productivityPulse.pulseWeekToDate,
+      rescuetimeConfigured: productivityPulse.configured
+    });
+    return buildWeeklySnapshot(inputs, scope);
+  }
+
   if (surface !== "daily") {
     throw new Error(`Surface non supportee pour l'aperçu IA: ${surface}`);
   }
 
   const date = options.date ?? getTodayDate();
-  const now = options.now ?? new Date().toISOString();
   const inputs = await resolveDailySnapshotInputs(repository, date, now, options.productivityPulse);
 
   return buildDailySnapshot(inputs, scope);
