@@ -32,6 +32,19 @@ describe("trends insight module", () => {
     expect(computeMetricTrendFindings([])).toEqual([]);
   });
 
+  it("does not report a false down trend when the trailing 7-day window has no observations", () => {
+    // 14 days at 30/day, then a 7-day gap in tracking (no entries for the trailing week).
+    const entries = buildEntries("2026-01-01", Array.from({ length: 14 }, () => 30));
+
+    const finding = computeMetricTrendFindings(entries, "2026-01-21").find((item) => item.metricKey === "course");
+
+    expect(finding?.shortSampleSize).toBe(0);
+    expect(finding?.average7d).toBe(0);
+    expect(finding?.average28d).toBeCloseTo(30);
+    expect(finding?.delta).toBe(0);
+    expect(finding?.direction).toBe("flat");
+  });
+
   it("computes the weekly-score trajectory against prior weeks", () => {
     const points = [
       { weekStartDate: "2026-01-04", weeklyScore: 50 },

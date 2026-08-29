@@ -6,7 +6,15 @@ import type { Finding } from "./types";
 
 export interface StreakFinding extends Finding {
   principleKey: PrincipleKey;
-  /** Consecutive `true` days ending at the reference date (0 when the most recent answered day is false/unanswered). */
+  /**
+   * Consecutive `true` days counted back from the most recent *answered* day at or before the
+   * reference date — any number of trailing unanswered (`null`) days right at the reference end
+   * are skipped over rather than breaking the streak, since they represent "not logged yet", not
+   * "failed". The streak still breaks on an explicit `false` or on an actual calendar gap between
+   * two `true` days. This means `currentStreak` can lag `daysSinceLastTrue`: e.g. 3 `true` days
+   * followed by 5 unanswered days reports `currentStreak: 3` and `daysSinceLastTrue: 5` — that's
+   * intended, not a bug.
+   */
   currentStreak: number;
   /** Longest run of consecutive `true` days across the whole provided history. */
   longestStreak: number;
@@ -37,8 +45,21 @@ export const computeStreakFindings = (entries: DailyEntry[], referenceDate?: str
     let currentStreakPreviousDate: string | null = null;
     for (let index = upToReference.length - 1; index >= 0; index -= 1) {
       const entry = upToReference[index];
-      if (entry.principleChecks[key] !== true) {
+      const checkValue = entry.principleChecks[key];
+      if (checkValue === false) {
         break;
+      }
+      if (checkValue === null) {
+        // An unanswered day (as opposed to an explicit `false`) doesn't end the streak — skip
+        // past it to find the most recent *answered* day, per this field's own docstring. It
+        // doesn't count towards `currentStreak` itself. This skip only helps a *trailing* run of
+        // unanswered days right at the reference end, where `currentStreakPreviousDate` hasn't
+        // been set yet. Once an answered day has been found and `currentStreakPreviousDate` is
+        // set, an unanswered day *between* two `true` days does not get bridged: the
+        // date-contiguity check below still compares the older `true` directly against the more
+        // recent one's date, so `true, null, true` correctly breaks the streak (currentStreak: 1),
+        // rather than counting both.
+        continue;
       }
       if (currentStreakPreviousDate !== null && daysBetweenDates(entry.date, currentStreakPreviousDate) !== 1) {
         break;

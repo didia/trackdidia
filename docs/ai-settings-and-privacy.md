@@ -229,7 +229,9 @@ real repository data for today. This is a debug-only affordance for inspecting
 what each scope actually sends; it is hidden when debug mode is off. A single
 preview action resolves the RescueTime productivity pulse once (when configured)
 and reuses it across all three scopes, rather than issuing a live RescueTime
-request per scope.
+request per scope. If that resolution fails, the panel shows a non-blocking
+warning banner with the error message, and the preview itself still renders
+(with no pulse data) rather than failing outright.
 
 ## Related documentation
 

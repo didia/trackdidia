@@ -7,6 +7,16 @@ import type { AppRepository } from "../../storage/repository";
 import { buildDailySnapshot, type DailySnapshot } from "./daily-snapshot";
 import type { Surface } from "./types";
 
+/**
+ * How much daily-entry history to load for the insight engine. `computeStreakFindings`'s
+ * `longestStreak`/`daysSinceLastTrue` and `computeCorrelationFindings` are documented as
+ * covering "the whole provided history" — a small cap silently truncates that history and
+ * makes "long ago" indistinguishable from "never" (e.g. `daysSinceLastTrue: null`). These are
+ * local SQLite reads, so loading half a year of entries is cheap; 180 comfortably covers a
+ * year of quarterly review cycles without being unbounded.
+ */
+const INSIGHT_HISTORY_LOOKBACK_DAYS = 180;
+
 export interface PreviewPayloadOptions {
   surface?: Surface;
   /** Local `YYYY-MM-DD` date to build the snapshot for. Defaults to today. */
@@ -23,6 +33,8 @@ export interface PreviewPayloadOptions {
 export interface ResolvedProductivityPulse {
   configured: boolean;
   pulseWeekToDate: number | null;
+  /** Set when RescueTime is configured but the request failed (bad key, expired key, no connectivity) — distinguishes a fetch failure from "no data this week" (`pulseWeekToDate: null` with no error). */
+  fetchError?: string;
 }
 
 /**
@@ -43,7 +55,7 @@ export const resolveProductivityPulse = async (
 
   const goalsService = new RescueTimeGoalsService(repository);
   const pulseSnapshot = await goalsService.computeProductivityPulse(getWeekStartSunday(date));
-  return { configured, pulseWeekToDate: pulseSnapshot.pulse };
+  return { configured, pulseWeekToDate: pulseSnapshot.pulse, fetchError: pulseSnapshot.fetchError };
 };
 
 /**
@@ -67,7 +79,7 @@ export const previewPayload = async (
   const [entry, historyEntries, tasks, projects, pomodoroTaskSummaries, dailyPomodoroStats, resolvedPulse] =
     await Promise.all([
       repository.getDailyEntry(date),
-      repository.listDailyEntries(28),
+      repository.listDailyEntries(INSIGHT_HISTORY_LOOKBACK_DAYS),
       repository.listTasks({ includeCompleted: true }),
       repository.listProjects(),
       repository.listPomodoroTaskSummaries(date, now),

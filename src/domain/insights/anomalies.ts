@@ -1,6 +1,6 @@
 import { getWeekStartSunday } from "../../lib/gtd/shared";
-import { computeDisciplineScore, resolveMetricValue } from "../daily-entry";
-import { metricDefinitions } from "../definitions";
+import { resolveMetricValue } from "../daily-entry";
+import { metricDefinitions, principleDefinitions } from "../definitions";
 import type { DailyEntry, MetricKey } from "../types";
 import { MIN_SAMPLE_DAYS } from "./constants";
 import { average, buildEvidenceWindow, latestEntryDate, sortEntriesByDate } from "./shared";
@@ -17,8 +17,30 @@ export interface AnomalyFinding extends Finding {
   delta: number;
 }
 
+/**
+ * Discipline score for one day, computed over only the principles that have actually been
+ * answered (`true` or `false`) rather than over every principle (contrast with the
+ * all-principles denominator `computeDisciplineScore` uses elsewhere, e.g. for the day's
+ * completion percentage). An in-progress day — say, this morning, with only the
+ * morning/anytime principles logged so far — otherwise looks identical to a day where every
+ * still-unanswered principle was explicitly failed, and a partially-answered day is then
+ * structurally guaranteed to look like a collapse next to a baseline of fully-answered days,
+ * no matter how the "is this day far enough along" threshold is set. Scoring over the
+ * answered subset means a perfect partial day still scores `1.00`, and a day with nothing
+ * answered yet naturally drops out (`null`, filtered by callers) instead of scoring `0`.
+ */
+const computeAnsweredDisciplineScore = (entry: DailyEntry): number | null => {
+  const answered = principleDefinitions.filter(({ key }) => entry.principleChecks[key] !== null);
+  if (answered.length === 0) {
+    return null;
+  }
+
+  const trueCount = answered.filter(({ key }) => entry.principleChecks[key] === true).length;
+  return trueCount / answered.length;
+};
+
 const resolveSubjectValue = (entry: DailyEntry, subject: AnomalySubject): number | null =>
-  subject === "discipline" ? computeDisciplineScore(entry) : resolveMetricValue(entry, subject);
+  subject === "discipline" ? computeAnsweredDisciplineScore(entry) : resolveMetricValue(entry, subject);
 
 const anomalySeverity = (delta: number, baselineMean: number): AnomalyFinding["severity"] => {
   const denominator = Math.abs(baselineMean) > 0.0001 ? Math.abs(baselineMean) : 1;

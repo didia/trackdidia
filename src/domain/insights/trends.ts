@@ -22,6 +22,8 @@ export interface MetricTrendFinding extends Finding {
   metricKey: MetricKey;
   average7d: number;
   average28d: number;
+  /** Number of observations backing `average7d`. `0` means the trailing 7-day window has no data — `direction` is forced to `"flat"` and `delta` to `0` in that case, since there is nothing to compare against the 28-day average. */
+  shortSampleSize: number;
   delta: number;
   direction: TrendDirection;
 }
@@ -51,10 +53,14 @@ export const computeMetricTrendFindings = (entries: DailyEntry[], referenceDate?
       .map((entry) => resolveMetricValue(entry, key))
       .filter((value): value is number => value !== null);
 
+    const shortSampleSize = shortValues.length;
     const average7d = average(shortValues);
     const average28d = average(longValues);
-    const delta = average7d - average28d;
-    const direction = resolveDirection(delta, average28d);
+    // With no observations in the trailing 7-day window, `average7d` is a meaningless 0 (not
+    // "the metric collapsed to zero"), so the comparison against the 28-day average is suppressed
+    // rather than reported as a `"down"` trend.
+    const delta = shortSampleSize > 0 ? average7d - average28d : 0;
+    const direction = shortSampleSize > 0 ? resolveDirection(delta, average28d) : "flat";
 
     return {
       id: `trend:${key}:${reference}`,
@@ -62,10 +68,14 @@ export const computeMetricTrendFindings = (entries: DailyEntry[], referenceDate?
       evidenceWindow,
       sampleSize: longValues.length,
       value: average7d,
-      label: `Moyenne 7j de ${key}: ${average7d.toFixed(1)} (moyenne 28j: ${average28d.toFixed(1)}, tendance ${direction}).`,
+      label:
+        shortSampleSize > 0
+          ? `Moyenne 7j de ${key}: ${average7d.toFixed(1)} (moyenne 28j: ${average28d.toFixed(1)}, tendance ${direction}).`
+          : `Pas de donnee pour ${key} sur les 7 derniers jours (moyenne 28j: ${average28d.toFixed(1)}).`,
       metricKey: key,
       average7d,
       average28d,
+      shortSampleSize,
       delta,
       direction
     };

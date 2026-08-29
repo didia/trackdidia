@@ -45,7 +45,8 @@ export interface DailySnapshotMetric {
   unit: string | null;
   target: number | null;
   todayValue: number | null;
-  average7d: number;
+  /** `null` when the trailing 7-day window has no observations for this metric — never a fake `0`. */
+  average7d: number | null;
   average28d: number;
   delta: number;
   direction: TrendDirection;
@@ -148,6 +149,32 @@ const projectTitleById = (projects: Project[]): Map<string, string> =>
   new Map(projects.map((project) => [project.id, project.title]));
 
 /**
+ * Strips finding fields that are safe to *compute* but not safe to *expose* below
+ * `metrics_and_structure` scope, mirroring the `projectsWithoutNextActionSample` id/title
+ * gate below. `findings` is a heterogeneous array of concrete finding subtypes spread in
+ * verbatim; the declared `Finding` shape (`id, severity, evidenceWindow, sampleSize, value,
+ * label`) plus module-specific scalars (e.g. `direction`, `principleKey`) are fixed,
+ * predefined-enum values and carry no user data. `gtd-health.ts` findings are the exception:
+ * they carry raw `taskIds`/`projectIds` arrays (every matching task/project id, unbounded),
+ * which are real user-created identifiers and must not survive at the restrictive `metrics`
+ * scope. Any future finding type that adds its own identifier array must extend this
+ * function so `findings` stays leak-free by construction rather than by every caller
+ * remembering to redact.
+ */
+const sanitizeFindingForScope = (finding: Finding, includeStructure: boolean): Finding => {
+  if (includeStructure) {
+    return finding;
+  }
+
+  const { taskIds: _taskIds, projectIds: _projectIds, ...rest } = finding as Finding & {
+    taskIds?: string[];
+    projectIds?: string[];
+  };
+
+  return rest as Finding;
+};
+
+/**
  * Builds the typed, labelled, compact daily snapshot (spec `ai-integration-v2.md` §5) from
  * already-fetched repository data and insight findings. Redaction is applied centrally here
  * based on `scope`, so no caller can leak a field by forgetting to redact.
@@ -178,7 +205,7 @@ export const buildDailySnapshot = (inputs: DailySnapshotInputs, scope: AiPayload
       unit: definition.unit ?? null,
       target: metricDailyTargets[definition.key] ?? null,
       todayValue: resolveMetricValue(inputs.entry, definition.key),
-      average7d: trend?.average7d ?? 0,
+      average7d: trend && trend.shortSampleSize > 0 ? trend.average7d : null,
       average28d: trend?.average28d ?? 0,
       delta: trend?.delta ?? 0,
       direction: trend?.direction ?? "flat"
@@ -267,7 +294,7 @@ export const buildDailySnapshot = (inputs: DailySnapshotInputs, scope: AiPayload
     ...gtdHealthFindings,
     ...focusFindings,
     ...(weeklyScoreTrend ? [weeklyScoreTrend] : [])
-  ];
+  ].map((finding) => sanitizeFindingForScope(finding, includeStructure));
 
   return {
     surface: "daily",

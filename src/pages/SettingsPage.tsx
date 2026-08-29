@@ -37,6 +37,7 @@ export const SettingsPage = () => {
   const [payloadPreviews, setPayloadPreviews] = useState<Record<AiPayloadScope, string> | null>(null);
   const [loadingPayloadPreviews, setLoadingPayloadPreviews] = useState(false);
   const [payloadPreviewError, setPayloadPreviewError] = useState("");
+  const [payloadPreviewPulseWarning, setPayloadPreviewPulseWarning] = useState("");
 
   useEffect(() => {
     setDraftSettings(settings);
@@ -209,6 +210,7 @@ export const SettingsPage = () => {
           subtitle="Rendu exact du contexte quotidien envoye a l'IA pour chaque portee, construit a partir des donnees reelles."
         >
           {payloadPreviewError ? <div className="banner">{payloadPreviewError}</div> : null}
+          {payloadPreviewPulseWarning ? <div className="banner">{payloadPreviewPulseWarning}</div> : null}
 
           <div className="form-actions">
             <button
@@ -218,10 +220,16 @@ export const SettingsPage = () => {
               onClick={async () => {
                 setLoadingPayloadPreviews(true);
                 setPayloadPreviewError("");
+                setPayloadPreviewPulseWarning("");
 
                 try {
                   const date = getTodayDate();
                   const productivityPulse = await resolveProductivityPulse(repository, date);
+                  if (productivityPulse.fetchError) {
+                    setPayloadPreviewPulseWarning(
+                      `Pulse RescueTime indisponible pour cet apercu (${productivityPulse.fetchError}). L'apercu ci-dessous affichera "pas de donnee" a la place.`
+                    );
+                  }
                   const entries = await Promise.all(
                     payloadScopes.map(async (scope) => {
                       const snapshot = await previewPayload(repository, scope.value, { date, productivityPulse });

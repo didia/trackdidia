@@ -99,6 +99,69 @@ describe("daily snapshot context builder", () => {
     expect("title" in json.pomodoro.topTask).toBe(false);
   });
 
+  it("never leaks raw task/project identifiers through findings at the metrics scope", () => {
+    // Isolated from `buildInputs()` on purpose: `projectsWithoutNextActionSample`/`pomodoro.topTask`
+    // already expose a capped, always-present raw id at every scope (only their `title` is scope-gated,
+    // by existing design) — this fixture avoids both so the only remaining source of a "task:"/"project:"
+    // substring is the raw `taskIds`/`projectIds` carried by `gtd-health.ts` findings.
+    const entry = buildEntry();
+    const projectWithNextAction = buildProject({ id: "project:with-next-action" });
+    const tasks: Task[] = [
+      buildTask({ id: "task:next-action", bucket: "next_action", projectId: projectWithNextAction.id }),
+      buildTask({ id: "task:scheduled", bucket: "scheduled" }),
+      buildTask({ id: "task:completed", status: "completed", bucket: "next_action", completedAt: now })
+    ];
+    const inputs: DailySnapshotInputs = {
+      date: "2026-02-01",
+      entry,
+      historyEntries: [entry],
+      tasks,
+      projects: [projectWithNextAction],
+      pomodoroTaskSummaries: [],
+      completedFocusSessionCount: 5,
+      productivityPulseWeekToDate: 70,
+      rescuetimeConfigured: true,
+      now
+    };
+
+    const snapshot = buildDailySnapshot(inputs, "metrics");
+    const json = JSON.stringify(snapshot);
+
+    expect(json).not.toContain("task:");
+    expect(json).not.toContain("project:");
+    // Sanity check: the scheduled-vs-completed finding that normally carries these ids is actually
+    // present with a non-empty population, so the assertion above exercises the redaction rather
+    // than an empty findings array.
+    const ratioFinding = snapshot.findings.find((finding) => finding.id.startsWith("gtd_health:scheduled_vs_completed_ratio"));
+    expect(ratioFinding).toBeDefined();
+    expect(ratioFinding?.sampleSize).toBeGreaterThan(0);
+  });
+
+  it("keeps raw task identifiers in findings at the metrics_and_structure scope", () => {
+    const entry = buildEntry();
+    const tasks: Task[] = [
+      buildTask({ id: "task:scheduled", bucket: "scheduled" }),
+      buildTask({ id: "task:completed", status: "completed", bucket: "next_action", completedAt: now })
+    ];
+    const inputs: DailySnapshotInputs = {
+      date: "2026-02-01",
+      entry,
+      historyEntries: [entry],
+      tasks,
+      projects: [],
+      pomodoroTaskSummaries: [],
+      completedFocusSessionCount: 5,
+      productivityPulseWeekToDate: 70,
+      rescuetimeConfigured: true,
+      now
+    };
+
+    const snapshot = buildDailySnapshot(inputs, "metrics_and_structure");
+    const json = JSON.stringify(snapshot);
+
+    expect(json).toContain("task:");
+  });
+
   it("includes task titles and project names at the metrics_and_structure scope, but not free text", () => {
     const snapshot = buildDailySnapshot(buildInputs(), "metrics_and_structure");
     const json = JSON.parse(JSON.stringify(snapshot));

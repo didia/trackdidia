@@ -48,6 +48,18 @@ describe("streaks insight module", () => {
     expect(finding?.rate28d).toBeCloseTo(1);
   });
 
+  it("skips past an unanswered reference day to find the last answered day for currentStreak", () => {
+    const trueEntries = buildEntries("2026-01-01", Array.from({ length: 10 }, () => true), "priereDuMatin");
+    const unansweredToday = createEmptyDailyEntry("2026-01-11");
+    const entries = [...trueEntries, unansweredToday];
+
+    const finding = computeStreakFindings(entries).find((item) => item.principleKey === "priereDuMatin");
+
+    expect(finding?.currentStreak).toBe(10);
+    expect(finding?.longestStreak).toBe(10);
+    expect(finding?.daysSinceLastTrue).toBe(1);
+  });
+
   it("does not bridge a streak across a calendar-date gap between entries", () => {
     const entries = [
       updatePrinciple(createEmptyDailyEntry("2026-01-01"), "priereDuMatin", true),
