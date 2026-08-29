@@ -466,6 +466,14 @@ a {
   font-size: 1.05rem;
 }
 
+.coach-pulse__stance {
+  margin: 0 0 4px;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
 .coach-pulse__body {
   display: grid;
   gap: 12px;

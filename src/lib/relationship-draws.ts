@@ -102,7 +102,23 @@ export const mergeAppSettingsWithDefaults = (settings: Partial<AppSettings>, def
   relationshipDrawSpouseActivities:
     Array.isArray(settings.relationshipDrawSpouseActivities)
       ? settings.relationshipDrawSpouseActivities
-      : defaults.relationshipDrawSpouseActivities
+      : defaults.relationshipDrawSpouseActivities,
+  aiPulseSlots:
+    Array.isArray(settings.aiPulseSlots) && settings.aiPulseSlots.length > 0
+      ? settings.aiPulseSlots
+      : defaults.aiPulseSlots,
+  aiPulseNotifyDays:
+    Array.isArray(settings.aiPulseNotifyDays) && settings.aiPulseNotifyDays.length > 0
+      ? settings.aiPulseNotifyDays
+      : defaults.aiPulseNotifyDays,
+  aiPulseMaxNotificationsPerDay:
+    typeof settings.aiPulseMaxNotificationsPerDay === "number" && settings.aiPulseMaxNotificationsPerDay >= 0
+      ? settings.aiPulseMaxNotificationsPerDay
+      : defaults.aiPulseMaxNotificationsPerDay,
+  aiPulseFirstOpenAt:
+    settings.aiPulseFirstOpenAt && typeof settings.aiPulseFirstOpenAt === "object"
+      ? settings.aiPulseFirstOpenAt
+      : defaults.aiPulseFirstOpenAt
 });
 
 export const getRelationshipDrawActivities = (

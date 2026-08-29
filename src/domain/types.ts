@@ -386,6 +386,13 @@ export interface AppSettings {
   aiSurfaceModels: Partial<Record<AiSurface, string>>;
   aiMaxTokens: number;
   aiTimeoutMs: number;
+  aiPulseEnabled: boolean;
+  aiPulseSlots: number[];
+  aiPulseNotifyEnabled: boolean;
+  aiPulseNotifyDays: number[];
+  aiPulseMaxNotificationsPerDay: number;
+  /** ISO timestamps keyed by local YYYY-MM-DD for first app open anchoring. */
+  aiPulseFirstOpenAt: Record<string, string>;
   rescuetimeApiKey: string;
   autoBackupEnabled: boolean;
   autoBackupIntervalHours: number;

@@ -22,6 +22,9 @@ Default highlights:
 | AI max tokens | `700` |
 | AI timeout | `20000` ms |
 | AI surface models | `{}` (falls back to `aiModel`) |
+| Pulse enabled | Yes |
+| Pulse slots (local hours) | `5`, `13`, `20` |
+| Pulse OS notifications | Yes (weekdays Mon–Fri, max 2/day, second consecutive stall only) |
 | RescueTime API key | Empty |
 | Automatic backup | Enabled, 24 hours |
 | Relationship draws | Enabled |
@@ -29,17 +32,45 @@ Default highlights:
 The settings object also holds internal timestamps for GTD bootstrap normalizations,
 the last backup, and per-category relationship processing.
 
-## Coach modes (Phase 1 — `coach_pulse`)
+## Coach modes (`coach_pulse`)
 
-TrackDidia now uses a unified **`coach_pulse`** surface with stance-aware structured
-JSON output instead of two separate free-text morning/evening coaches.
+TrackDidia uses a unified **`coach_pulse`** surface with stance-aware structured
+JSON output.
 
-| Stance | When (Phase 1) | Page |
+| Stance | When | Page |
 |---|---|---|
-| `open` | Today page load (local brief) + explicit request | `/` |
+| `open` | First pulse of the day (anchored to first app open) | `/` |
+| `steer` | Midday catch-up slot (default 13:00 local) | `/` |
+| `wind_down` | Evening catch-up slot (default 20:00 local) | `/` |
 | `close` | Evening closure page opens + explicit request | `/fermeture-soir` |
 
-Pulse scheduling (`steer`, `wind_down`, catch-up slots) is **not** shipped in Phase 1.
+Pulse scheduling is **catch-up, not cron**: evaluated on app startup and every
+five minutes while the app is open. Missed slots are recorded as skipped
+(`delta_class = idle`) and never backfilled; opening late coalesces to the
+latest due slot only.
+
+### Delta gate (before any model call)
+
+Since the previous pulse, a deterministic window classifies movement:
+
+| Class | Meaning | Model call |
+|---|---|---|
+| `progress` | At least one focus session or completed task | Yes |
+| `stall` | No movement, app open ≥ 30 continuous minutes | Yes |
+| `unknown` | No movement, app open &lt; 30 minutes | No — local question |
+| `idle` | No meaningful app-open time, or weekend no-movement | No |
+
+On **Saturday and Sunday**, no-movement windows downgrade to `idle` (no model
+call). Pulses still run and update the Today panel silently.
+
+### Notifications
+
+Pulses are **silent by default** (panel update only). An OS notification fires
+only on the **second consecutive weekday `stall`**, respects
+`aiPulseMaxNotificationsPerDay`, never fires during an active Pomodoro focus
+session, and never fires on weekends.
+
+Settings → Parametres IA exposes pulse toggles, slot hours, and notification cap.
 
 ### Local coach
 
@@ -49,18 +80,21 @@ this renders immediately on page load without waiting for RescueTime or OpenRout
 
 When AI is disabled or the API key is empty:
 
-- only the local brief renders;
+- only the local brief renders, from a persisted pulse or the deterministic fallback;
 - **Regenerer** stays disabled with an explanatory label.
 
 ### Auto-load trigger (Today)
 
 When AI is configured, Today auto-loads the coach on page open:
 
-1. a fast local brief from snapshot inputs that skip the live RescueTime fetch;
-2. then an AI call (cache-first) once the full snapshot is ready.
+1. if a pulse for today is already persisted, that thread is shown;
+2. otherwise a fast local brief from snapshot inputs that skip the live RescueTime fetch;
+3. then an AI call (cache-first) once the full snapshot is ready.
 
-Evening closure still auto-runs the `close` stance on page open. **Regenerer**
-bypasses the `ai_messages` input-hash cache deliberately.
+Scheduled pulses (`open`/`steer`/`wind_down`) also call the model when the window
+classifies as `progress` or `stall`. Evening closure still auto-runs the `close`
+stance on page open. **Regenerer** bypasses the `ai_messages` input-hash cache
+deliberately.
 
 There is **no** gate requiring the user to write journal text first, and no
 **Demander au coach** button on Today while auto-load is active.

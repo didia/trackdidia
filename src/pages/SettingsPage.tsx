@@ -189,6 +189,68 @@ export const SettingsPage = () => {
             </select>
           </label>
 
+          <label className="switch-row">
+            <input
+              type="checkbox"
+              checked={draftSettings.aiPulseEnabled}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  aiPulseEnabled: event.target.checked
+                }))
+              }
+            />
+            <span>Activer le pulse coach (open / steer / wind_down)</span>
+          </label>
+
+          <label className="switch-row">
+            <input
+              type="checkbox"
+              checked={draftSettings.aiPulseNotifyEnabled}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  aiPulseNotifyEnabled: event.target.checked
+                }))
+              }
+            />
+            <span>Notifications OS sur deuxieme stall consecutif (jours ouvrables)</span>
+          </label>
+
+          <label>
+            <span>Heures de pulse (local, separees par des virgules)</span>
+            <input
+              type="text"
+              value={draftSettings.aiPulseSlots.join(", ")}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  aiPulseSlots: event.target.value
+                    .split(",")
+                    .map((part) => Number(part.trim()))
+                    .filter((hour) => Number.isFinite(hour) && hour >= 0 && hour <= 23)
+                }))
+              }
+              placeholder="5, 13, 20"
+            />
+          </label>
+
+          <label>
+            <span>Notifications max par jour</span>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={draftSettings.aiPulseMaxNotificationsPerDay}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  aiPulseMaxNotificationsPerDay: Math.max(0, Number(event.target.value || 0))
+                }))
+              }
+            />
+          </label>
+
           <div className="form-actions">
             <button className="button button--primary" type="submit" disabled={savingSettings}>
               {savingSettings ? "Enregistrement..." : "Enregistrer les parametres"}

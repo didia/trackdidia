@@ -64,6 +64,7 @@ export const renderWithApp = async (
       cancelCurrent: async () => undefined,
       switchTask: async () => undefined
     },
+    pulseRevision: 0,
     ...options.contextOverrides
   };
 
