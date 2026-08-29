@@ -1,10 +1,129 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { TodayPage } from "./TodayPage";
+import { defaultAppSettings } from "../domain/daily-entry";
+import type { AiProposal, CoachPulseResult } from "../domain/types";
+import { CoachPulseService } from "../lib/ai/coach-pulse-service";
 import { getTodayDate } from "../lib/date";
 import { addDays } from "../lib/gtd/shared";
 import { renderWithApp } from "../test/test-utils";
 import { MemoryRepository } from "../lib/storage/memory-repository";
+import { TodayPage } from "./TodayPage";
+
+const buildCoachResult = (proposal: AiProposal): CoachPulseResult => ({
+  message: {
+    id: "ai-message:test",
+    surface: "coach_pulse",
+    scopeKey: getTodayDate(),
+    stance: "open",
+    kind: "open",
+    inputHash: "hash",
+    promptVersion: "coach_pulse.v1",
+    model: "local",
+    status: "skipped",
+    bodyJson: JSON.stringify({
+      stance: "open",
+      headline: "Coach",
+      read: "Lecture",
+      move: null
+    }),
+    bodyText: "Coach",
+    deltaClass: null,
+    notified: false,
+    tokensPrompt: null,
+    tokensCompletion: null,
+    latencyMs: null,
+    createdAt: "2026-08-29T08:00:00.000Z"
+  },
+  pulse: {
+    stance: "open",
+    headline: "Coach",
+    read: "Lecture",
+    move: null
+  },
+  proposals: [proposal],
+  source: "local"
+});
+
+describe("TodayPage coach proposals", () => {
+  it("prefills morning intention on accept without saving the daily entry", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    const proposal: AiProposal = {
+      id: "ai-proposal:intention",
+      messageId: "ai-message:test",
+      type: "intention_draft",
+      payloadJson: JSON.stringify({ text: "Focus profond" }),
+      status: "pending",
+      appliedEntityId: null,
+      decidedAt: null,
+      createdAt: "2026-08-29T08:00:00.000Z"
+    };
+
+    const coachService = {
+      buildPulse: vi.fn(async () => buildCoachResult(proposal))
+    } as unknown as CoachPulseService;
+
+    await repository.saveAiProposal(proposal);
+    const saveDailyEntry = vi.spyOn(repository, "saveDailyEntry");
+    const decideAiProposal = vi.spyOn(repository, "decideAiProposal");
+
+    const user = userEvent.setup();
+    await renderWithApp(<TodayPage />, {
+      repository,
+      contextOverrides: { coachService, settings: defaultAppSettings() }
+    });
+
+    await screen.findByText("Focus profond");
+    saveDailyEntry.mockClear();
+
+    await user.click(screen.getByRole("button", { name: /accepter/i }));
+
+    expect(await screen.findByDisplayValue("Focus profond")).toBeInTheDocument();
+    expect(decideAiProposal).toHaveBeenCalledWith("ai-proposal:intention", "accepted", getTodayDate());
+    expect(saveDailyEntry).not.toHaveBeenCalled();
+  });
+
+  it("records dismissed proposals without saving the daily entry", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    const proposal: AiProposal = {
+      id: "ai-proposal:intention",
+      messageId: "ai-message:test",
+      type: "intention_draft",
+      payloadJson: JSON.stringify({ text: "Focus profond" }),
+      status: "pending",
+      appliedEntityId: null,
+      decidedAt: null,
+      createdAt: "2026-08-29T08:00:00.000Z"
+    };
+
+    const coachService = {
+      buildPulse: vi.fn(async () => buildCoachResult(proposal))
+    } as unknown as CoachPulseService;
+
+    await repository.saveAiProposal(proposal);
+    const saveDailyEntry = vi.spyOn(repository, "saveDailyEntry");
+    const decideAiProposal = vi.spyOn(repository, "decideAiProposal");
+
+    const user = userEvent.setup();
+    await renderWithApp(<TodayPage />, {
+      repository,
+      contextOverrides: { coachService, settings: defaultAppSettings() }
+    });
+
+    await screen.findByText("Focus profond");
+    saveDailyEntry.mockClear();
+
+    await user.click(screen.getByRole("button", { name: /ignorer/i }));
+
+    await waitFor(() => {
+      expect(decideAiProposal).toHaveBeenCalledWith("ai-proposal:intention", "dismissed");
+    });
+    expect(saveDailyEntry).not.toHaveBeenCalled();
+  });
+});
 
 describe("TodayPage", () => {
   it("shows added and completed tasks when clicking GTD counters", async () => {
@@ -28,8 +147,40 @@ describe("TodayPage", () => {
     });
     await repository.completeTask("task-completed", `${today}T18:00:00.000Z`);
 
+    const coachService = {
+      buildPulse: vi.fn(async () => ({
+        message: {
+          id: "ai-message:local",
+          surface: "coach_pulse" as const,
+          scopeKey: today,
+          stance: "open" as const,
+          kind: "open",
+          inputHash: "local",
+          promptVersion: "coach_pulse.v1",
+          model: "local",
+          status: "skipped" as const,
+          bodyJson: null,
+          bodyText: null,
+          deltaClass: null,
+          notified: false,
+          tokensPrompt: null,
+          tokensCompletion: null,
+          latencyMs: null,
+          createdAt: "2026-08-29T08:00:00.000Z"
+        },
+        pulse: {
+          stance: "open" as const,
+          headline: "Local",
+          read: "Brief local",
+          move: null
+        },
+        proposals: [],
+        source: "local" as const
+      }))
+    } as unknown as CoachPulseService;
+
     const user = userEvent.setup();
-    await renderWithApp(<TodayPage />, { repository, route: "/" });
+    await renderWithApp(<TodayPage />, { repository, route: "/", contextOverrides: { coachService } });
 
     await user.click(await screen.findByRole("button", { name: /ajoutees/i }));
     expect(await screen.findByText("Nouvelle action du jour")).toBeInTheDocument();

@@ -12,6 +12,8 @@ export type PersistedTextareaHandle = {
   flush: () => void;
   /** Current text in the field (use before a submit that must include unsaved edits). */
   getDraft: () => string;
+  /** Sets the visible draft without persisting (e.g. coach proposal prefill). */
+  setDraft: (value: string) => void;
 };
 
 type PersistedTextareaProps = Omit<
@@ -86,7 +88,16 @@ export const PersistedTextarea = forwardRef<PersistedTextareaHandle, PersistedTe
         }
         flushPersist(draftRef.current);
       },
-      getDraft: () => draftRef.current
+      getDraft: () => draftRef.current,
+      setDraft: (value: string) => {
+        if (timeoutRef.current !== null) {
+          window.clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
+        dirtyRef.current = true;
+        draftRef.current = value;
+        setDraft(value);
+      }
     }));
 
     return (

@@ -50,7 +50,7 @@ const buildLocalEveningMessage = (entry: DailyEntry, recentEntries: DailyEntry[]
 export class AiCoachService {
   private readonly cache = new Map<string, CoachMessage>();
 
-  constructor(private readonly provider: AiProvider) {}
+  constructor(private readonly provider: Pick<AiProvider, "generate">) {}
 
   async buildMessage(
     kind: CoachMessage["kind"],
@@ -73,17 +73,13 @@ export class AiCoachService {
       source: "local"
     });
 
-    if (!inputContent) {
-      return localMessage();
-    }
-
     const cacheKey = buildCoachCacheKey(entry.date, partOfDay, inputContent);
     const cached = this.cache.get(cacheKey);
     if (cached) {
       return cached;
     }
 
-    if (!settings.aiEnabled || !settings.aiApiKey.trim()) {
+    if (!settings.aiEnabled || !settings.aiApiKey.trim() || !this.provider.generate) {
       return localMessage();
     }
 

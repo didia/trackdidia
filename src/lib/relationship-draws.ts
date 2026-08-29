@@ -83,6 +83,18 @@ export const relationshipDrawDefinitions: RelationshipDrawDefinition[] = [
 export const mergeAppSettingsWithDefaults = (settings: Partial<AppSettings>, defaults: AppSettings): AppSettings => ({
   ...defaults,
   ...settings,
+  aiSurfaceModels:
+    settings.aiSurfaceModels && typeof settings.aiSurfaceModels === "object"
+      ? settings.aiSurfaceModels
+      : defaults.aiSurfaceModels,
+  aiMaxTokens:
+    typeof settings.aiMaxTokens === "number" && settings.aiMaxTokens > 0
+      ? settings.aiMaxTokens
+      : defaults.aiMaxTokens,
+  aiTimeoutMs:
+    typeof settings.aiTimeoutMs === "number" && settings.aiTimeoutMs > 0
+      ? settings.aiTimeoutMs
+      : defaults.aiTimeoutMs,
   relationshipDrawChildrenActivities:
     Array.isArray(settings.relationshipDrawChildrenActivities)
       ? settings.relationshipDrawChildrenActivities

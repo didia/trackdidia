@@ -457,6 +457,54 @@ a {
 
 .coach-card__label small,
 .coach-card__warning,
+.coach-pulse__move small {
+  color: var(--muted);
+}
+
+.coach-pulse__headline {
+  margin: 0 0 8px;
+  font-size: 1.05rem;
+}
+
+.coach-pulse__body {
+  display: grid;
+  gap: 12px;
+}
+
+.coach-pulse__move {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(164, 79, 45, 0.14);
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.coach-pulse__priorities ul,
+.coach-pulse__wins ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.coach-pulse__proposals {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.coach-pulse__proposal {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.coach-pulse__actions {
+  margin-top: 16px;
+}
+
 .field-card__helper,
 .empty-copy {
   color: var(--muted);

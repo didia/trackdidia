@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import type { CoachMessage, Task } from "../domain/types";
-import { resolveMetricValue } from "../domain/daily-entry";
+import type { AiProposal, CoachPulseResult, Task } from "../domain/types";
+import { resolveMetricValue, updateNote } from "../domain/daily-entry";
 import { useAppContext } from "../app/app-context";
 import { useDailyEntry } from "../app/use-daily-entry";
-import { CoachCard } from "../components/CoachCard";
+import { CoachPulsePanel } from "../components/CoachPulsePanel";
 import { EntrySummaryStrip } from "../components/EntrySummaryStrip";
+import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
 import { SectionCard } from "../components/SectionCard";
-import { buildCoachCacheKey, getCoachInputText, resolveCoachCachePartOfDay } from "../lib/ai/coach-input";
+import { resolveDailySnapshotInputs } from "../lib/ai/context/preview";
 import { formatDateLong, formatDateTimeShort, getTodayDate } from "../lib/date";
 import { formatTimestamp } from "../lib/format";
 import type { DailyTaskBreakdown } from "../lib/storage/repository";
@@ -25,95 +26,49 @@ const bucketLabels: Record<Task["bucket"], string> = {
 
 export const TodayPage = () => {
   const today = getTodayDate();
-  const { entry, loading } = useDailyEntry(today);
+  const { entry, loading, save } = useDailyEntry(today);
   const { repository, settings, coachService, browserPreview, pomodoro } = useAppContext();
-  const [morningCoach, setMorningCoach] = useState<CoachMessage | null>(null);
-  const [eveningCoach, setEveningCoach] = useState<CoachMessage | null>(null);
+  const [coachResult, setCoachResult] = useState<CoachPulseResult | null>(null);
+  const [coachLoading, setCoachLoading] = useState(true);
   const [taskBreakdown, setTaskBreakdown] = useState<DailyTaskBreakdown | null>(null);
   const [openTaskPanel, setOpenTaskPanel] = useState<"added" | "completed" | null>(null);
   const entryRef = useRef(entry);
+  const morningIntentionRef = useRef<PersistedTextareaHandle>(null);
   entryRef.current = entry;
 
-  const morningCoachKey = useMemo(() => {
-    if (!entry) {
-      return null;
-    }
-
-    const partOfDay = resolveCoachCachePartOfDay("morning");
-    return buildCoachCacheKey(entry.date, partOfDay, getCoachInputText(entry, partOfDay));
-  }, [entry?.date, entry?.morningIntention]);
-  const eveningCoachKey = useMemo(() => {
-    if (!entry) {
-      return null;
-    }
-
-    const partOfDay = resolveCoachCachePartOfDay("evening");
-    return buildCoachCacheKey(entry.date, partOfDay, getCoachInputText(entry, partOfDay));
-  }, [entry?.date, entry?.nightReflection, entry?.tomorrowFocus]);
-
-  useEffect(() => {
-    if (!morningCoachKey) {
-      return;
-    }
-
-    let cancelled = false;
-
-    const loadMorningCoach = async () => {
+  const loadCoach = useCallback(
+    async (options: { trigger: "auto" | "explicit"; bypassCache?: boolean }) => {
       const currentEntry = entryRef.current;
       if (!currentEntry) {
         return;
       }
 
-      const recentEntries = await repository.listDailyEntries(7);
-      const morning = await coachService.buildMessage(
-        "morning",
-        currentEntry,
-        recentEntries,
-        settings
-      );
-      if (!cancelled) {
-        setMorningCoach(morning);
+      setCoachLoading(true);
+      try {
+        const snapshotInputs = await resolveDailySnapshotInputs(repository, currentEntry.date);
+        const result = await coachService.buildPulse(repository, {
+          stance: "open",
+          entry: currentEntry,
+          settings,
+          snapshotInputs,
+          trigger: options.trigger,
+          bypassCache: options.bypassCache ?? false
+        });
+        setCoachResult(result);
+      } finally {
+        setCoachLoading(false);
       }
-    };
-
-    void loadMorningCoach();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [coachService, morningCoachKey, repository, settings]);
+    },
+    [coachService, repository, settings]
+  );
 
   useEffect(() => {
-    if (!eveningCoachKey) {
+    if (!entry) {
       return;
     }
 
-    let cancelled = false;
-
-    const loadEveningCoach = async () => {
-      const currentEntry = entryRef.current;
-      if (!currentEntry) {
-        return;
-      }
-
-      const recentEntries = await repository.listDailyEntries(7);
-      const evening = await coachService.buildMessage(
-        "evening",
-        currentEntry,
-        recentEntries,
-        settings
-      );
-      if (!cancelled) {
-        setEveningCoach(evening);
-      }
-    };
-
-    void loadEveningCoach();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [coachService, eveningCoachKey, repository, settings]);
+    void loadCoach({ trigger: "auto" });
+  }, [entry?.date, loadCoach]);
 
   useEffect(() => {
     if (!entry) {
@@ -135,6 +90,46 @@ export const TodayPage = () => {
       cancelled = true;
     };
   }, [entry, repository]);
+
+  const handleAcceptProposal = async (proposal: AiProposal) => {
+    const currentEntry = entryRef.current;
+    if (!currentEntry) {
+      return;
+    }
+
+    const payload = JSON.parse(proposal.payloadJson) as { text?: string };
+    const text = payload.text ?? "";
+
+    if (proposal.type === "intention_draft") {
+      morningIntentionRef.current?.setDraft(text);
+    }
+
+    await repository.decideAiProposal(proposal.id, "accepted", currentEntry.date);
+    setCoachResult((current) =>
+      current
+        ? {
+            ...current,
+            proposals: current.proposals.map((item) =>
+              item.id === proposal.id ? { ...item, status: "accepted", decidedAt: new Date().toISOString() } : item
+            )
+          }
+        : current
+    );
+  };
+
+  const handleDismissProposal = async (proposal: AiProposal) => {
+    await repository.decideAiProposal(proposal.id, "dismissed");
+    setCoachResult((current) =>
+      current
+        ? {
+            ...current,
+            proposals: current.proposals.map((item) =>
+              item.id === proposal.id ? { ...item, status: "dismissed", decidedAt: new Date().toISOString() } : item
+            )
+          }
+        : current
+    );
+  };
 
   if (loading || !entry) {
     return <div className="page"><p>Chargement de la journee...</p></div>;
@@ -218,17 +213,37 @@ export const TodayPage = () => {
         </SectionCard>
       ) : null}
 
-      <div className="two-column">
-        <CoachCard message={morningCoach} />
-        <CoachCard message={eveningCoach} />
-      </div>
+      <CoachPulsePanel
+        title="Coach du jour"
+        result={coachResult}
+        loading={coachLoading}
+        settings={settings}
+        onRequestCoach={() => void loadCoach({ trigger: "explicit" })}
+        onRegenerate={() => void loadCoach({ trigger: "explicit", bypassCache: true })}
+        onAcceptProposal={(proposal) => void handleAcceptProposal(proposal)}
+        onDismissProposal={(proposal) => void handleDismissProposal(proposal)}
+      />
 
       <SectionCard title="Etat de la journee" subtitle="Point de repere avant de replonger dans la routine.">
-        <div className="status-grid">
-          <article className="status-card">
+        <div className="journal-grid">
+          <label className="stacked-field">
             <span>Intention du matin</span>
-            <strong>{entry.morningIntention || "Pas encore definie"}</strong>
-          </article>
+            <PersistedTextarea
+              ref={morningIntentionRef}
+              rows={4}
+              savedValue={entry.morningIntention}
+              onPersist={(nextValue) => {
+                const current = entryRef.current;
+                if (!current) {
+                  return;
+                }
+                void save(updateNote(current, "morningIntention", nextValue));
+              }}
+              placeholder="Quelle est ton intention pour aujourd'hui ?"
+            />
+          </label>
+        </div>
+        <div className="status-grid">
           <article className="status-card">
             <span>Reflection du soir</span>
             <strong>{entry.nightReflection || "Pas encore ecrite"}</strong>

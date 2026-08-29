@@ -1,15 +1,25 @@
 import { MemoryRouter } from "react-router-dom";
 import { act, render } from "@testing-library/react";
 import { defaultAppSettings } from "../domain/daily-entry";
-import { AiCoachService } from "../lib/ai/coach-service";
+import { CoachPulseService } from "../lib/ai/coach-pulse-service";
 import { AppContext, type AppContextValue } from "../app/app-context";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import type { PropsWithChildren, ReactElement } from "react";
 import { buildPomodoroSessionDetails, buildPomodoroState } from "../lib/pomodoro/engine";
+import type { AiProvider } from "../lib/ai/provider";
 
-class FakeProvider {
-  async generate(): Promise<string> {
-    return "Message test";
+class FakeProvider implements AiProvider {
+  async generateStructured() {
+    return {
+      text: JSON.stringify({
+        stance: "open",
+        headline: "Message test",
+        read: "Lecture test",
+        move: null
+      }),
+      model: "test",
+      usage: { tokensPrompt: 0, tokensCompletion: 0, latencyMs: 0 }
+    };
   }
 }
 
@@ -30,7 +40,7 @@ export const renderWithApp = async (
     repository,
     settings: defaultAppSettings(),
     saveSettings: async () => undefined,
-    coachService: new AiCoachService(new FakeProvider()),
+    coachService: new CoachPulseService(new FakeProvider()),
     browserPreview: true,
     debugEnabled: false,
     setDebugEnabled: () => undefined,

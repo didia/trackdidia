@@ -270,6 +270,111 @@ export interface RescueTimeTaxonomyEntry {
 
 export type AiPayloadScope = "metrics" | "metrics_and_structure" | "full";
 
+export type AiSurface = "coach_pulse";
+
+export type CoachPulseStance = "open" | "steer" | "wind_down" | "close";
+
+export type AiMessageStatus = "ok" | "fallback" | "error" | "skipped";
+
+export type AiDeltaClass = "progress" | "stall" | "unknown" | "idle";
+
+export type MemoryKind = "pattern" | "preference" | "context" | "commitment" | "principle";
+
+export type AiProposalType = "intention_draft" | "tomorrow_focus_draft";
+
+export type AiProposalStatus = "pending" | "accepted" | "dismissed" | "expired";
+
+export interface CoachPulseMove {
+  what: string;
+  why: string;
+  horizon: "now" | "today" | "tomorrow";
+}
+
+export interface CoachPulsePriority {
+  taskId: string | null;
+  title: string;
+  why: string;
+}
+
+export interface CoachPulseCommitmentCheck {
+  commitment: string;
+  progress: string;
+  question: string;
+}
+
+export interface CoachPulseFrictionPoint {
+  what: string;
+  why: string;
+  adjustment: string;
+}
+
+export interface CoachPulseCommitment {
+  statement: string;
+  metricKey: MetricKey | null;
+  target: number | null;
+}
+
+export interface CoachPulseMemoryCandidate {
+  kind: MemoryKind;
+  statement: string;
+  confidence: number;
+}
+
+export interface CoachPulseResponse {
+  stance: CoachPulseStance;
+  headline: string;
+  read: string;
+  move: CoachPulseMove | null;
+  priorities?: CoachPulsePriority[];
+  intentionDraft?: string;
+  commitmentCheck?: CoachPulseCommitmentCheck | null;
+  wins?: string[];
+  frictionPoint?: CoachPulseFrictionPoint;
+  principleToRecover?: PrincipleKey | null;
+  tomorrowFocusDraft?: string;
+  commitment?: CoachPulseCommitment | null;
+  memoryCandidates?: CoachPulseMemoryCandidate[];
+}
+
+export interface AiMessage {
+  id: string;
+  surface: AiSurface;
+  scopeKey: string;
+  stance: CoachPulseStance | null;
+  kind: string;
+  inputHash: string;
+  promptVersion: string;
+  model: string;
+  status: AiMessageStatus;
+  bodyJson: string | null;
+  bodyText: string | null;
+  deltaClass: AiDeltaClass | null;
+  notified: boolean;
+  tokensPrompt: number | null;
+  tokensCompletion: number | null;
+  latencyMs: number | null;
+  createdAt: string;
+}
+
+export interface AiProposal {
+  id: string;
+  messageId: string;
+  type: AiProposalType;
+  payloadJson: string;
+  status: AiProposalStatus;
+  appliedEntityId: string | null;
+  decidedAt: string | null;
+  createdAt: string;
+}
+
+export interface CoachPulseResult {
+  message: AiMessage;
+  pulse: CoachPulseResponse;
+  proposals: AiProposal[];
+  source: "ai" | "local" | "fallback" | "cache";
+  warning?: string;
+}
+
 export interface AppSettings {
   language: "fr";
   storageMode: "sqlite";
@@ -278,6 +383,9 @@ export interface AppSettings {
   aiBaseUrl: string;
   aiModel: string;
   aiPayloadScope: AiPayloadScope;
+  aiSurfaceModels: Partial<Record<AiSurface, string>>;
+  aiMaxTokens: number;
+  aiTimeoutMs: number;
   rescuetimeApiKey: string;
   autoBackupEnabled: boolean;
   autoBackupIntervalHours: number;

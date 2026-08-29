@@ -54,9 +54,9 @@ describe("AiCoachService", () => {
     expect(provider.generate).not.toHaveBeenCalled();
   });
 
-  it("does not call the provider when coach input is empty", async () => {
+  it("calls the provider even when coach input is empty", async () => {
     const provider = {
-      generate: vi.fn(async () => "should not run")
+      generate: vi.fn(async () => "Conseil sans texte")
     };
     const service = new AiCoachService(provider);
     const settings = defaultAppSettings();
@@ -70,8 +70,8 @@ describe("AiCoachService", () => {
       settings
     );
 
-    expect(result.source).toBe("local");
-    expect(provider.generate).not.toHaveBeenCalled();
+    expect(result.source).toBe("ai");
+    expect(provider.generate).toHaveBeenCalledOnce();
   });
 
   it("caches AI responses for the same date, part of day, and input", async () => {

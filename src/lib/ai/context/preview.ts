@@ -58,6 +58,42 @@ export const resolveProductivityPulse = async (
   return { configured, pulseWeekToDate: pulseSnapshot.pulse, fetchError: pulseSnapshot.fetchError };
 };
 
+export const resolveDailySnapshotInputs = async (
+  repository: AppRepository,
+  date: string,
+  now = new Date().toISOString(),
+  productivityPulse?: ResolvedProductivityPulse
+) => {
+  const [entry, historyEntries, tasks, projects, pomodoroTaskSummaries, dailyPomodoroStats, resolvedPulse] =
+    await Promise.all([
+      repository.getDailyEntry(date),
+      repository.listDailyEntries(INSIGHT_HISTORY_LOOKBACK_DAYS),
+      repository.listTasks({ includeCompleted: true }),
+      repository.listProjects(),
+      repository.listPomodoroTaskSummaries(date, now),
+      repository.computeDailyPomodoroStats(date),
+      productivityPulse ?? resolveProductivityPulse(repository, date)
+    ]);
+
+  const resolvedEntry = entry ?? createEmptyDailyEntry(date);
+  const historyEntriesWithToday = historyEntries.some((item) => item.date === date)
+    ? historyEntries
+    : [...historyEntries, resolvedEntry];
+
+  return {
+    date,
+    entry: resolvedEntry,
+    historyEntries: historyEntriesWithToday,
+    tasks,
+    projects,
+    pomodoroTaskSummaries,
+    completedFocusSessionCount: dailyPomodoroStats.completedFocusSessions,
+    productivityPulseWeekToDate: resolvedPulse.pulseWeekToDate,
+    rescuetimeConfigured: resolvedPulse.configured,
+    now
+  };
+};
+
 /**
  * Renders the exact snapshot that would be sent to the model for a given scope, built from
  * real repository data (spec `ai-integration-v2.md` §5). Exposed in Settings behind the
@@ -75,36 +111,8 @@ export const previewPayload = async (
 
   const date = options.date ?? getTodayDate();
   const now = options.now ?? new Date().toISOString();
+  const inputs = await resolveDailySnapshotInputs(repository, date, now, options.productivityPulse);
 
-  const [entry, historyEntries, tasks, projects, pomodoroTaskSummaries, dailyPomodoroStats, resolvedPulse] =
-    await Promise.all([
-      repository.getDailyEntry(date),
-      repository.listDailyEntries(INSIGHT_HISTORY_LOOKBACK_DAYS),
-      repository.listTasks({ includeCompleted: true }),
-      repository.listProjects(),
-      repository.listPomodoroTaskSummaries(date, now),
-      repository.computeDailyPomodoroStats(date),
-      options.productivityPulse ?? resolveProductivityPulse(repository, date)
-    ]);
-
-  const resolvedEntry = entry ?? createEmptyDailyEntry(date);
-  const historyEntriesWithToday = historyEntries.some((item) => item.date === date)
-    ? historyEntries
-    : [...historyEntries, resolvedEntry];
-
-  return buildDailySnapshot(
-    {
-      date,
-      entry: resolvedEntry,
-      historyEntries: historyEntriesWithToday,
-      tasks,
-      projects,
-      pomodoroTaskSummaries,
-      completedFocusSessionCount: dailyPomodoroStats.completedFocusSessions,
-      productivityPulseWeekToDate: resolvedPulse.pulseWeekToDate,
-      rescuetimeConfigured: resolvedPulse.configured,
-      now
-    },
-    scope
-  );
+  return buildDailySnapshot(inputs, scope);
 };
+
