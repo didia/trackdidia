@@ -62,6 +62,40 @@ Morning/anytime principles:
 
 Principle values are tri-state: `true`, `false`, or `null` (not answered).
 
+### Finalizing yesterday from the morning screen
+
+The morning screen also renders a `PreviousDayReviewCard` above the intention
+section. It targets strictly `addDays(getTodayDate(), -1)` (yesterday), not the
+last day with data, and never changes yesterday's `DailyStatus`.
+
+The card shows only what is still missing for yesterday:
+
+- manual metrics where `resolveMetricValue` is `null` (`findMissingMetricKeys`);
+  auto-suggested metrics (`tachesDebut/Fin/Ajoutes/Realises`, `pomodoris`) are
+  never "missing" since they always resolve from `suggestedMetrics`;
+- principles still `null` (`findUnansweredPrincipleKeys`); an explicit `false` is
+  a real answer and is not re-asked;
+- the night reflection, if empty.
+
+The set of missing fields is frozen on first load of yesterday's entry, so a
+field does not disappear mid-edit as soon as the user answers it. The card
+reuses `useDailyEntry`, `MetricGrid`, `PrincipleChecklist`, and
+`PersistedTextarea` (`debounceMs={0}`) exactly as the other daily screens do,
+edited as a local draft like `HistoryPage`.
+
+A single "Enregistrer hier" button saves everything at once:
+
+- yesterday's entry is only saved (`useDailyEntry.save`) if at least one missing
+  field actually changed, to avoid creating an empty `daily_entries` row for a
+  day that was never opened;
+- `AppSettings.previousDayReviewDoneDate` is always set to yesterday's date,
+  even when nothing changed, so the card does not resurface for that day.
+
+The card hides itself (renders nothing) when `previousDayReviewDoneDate` already
+equals yesterday, while loading, or when nothing is missing (auto-hide). No
+SQLite migration was needed for the new settings field: `app_settings` is a
+JSON blob merged with `defaultAppSettings()` on read.
+
 ## Evening closure (`/fermeture-soir`)
 
 The evening screen exposes:

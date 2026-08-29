@@ -6,6 +6,8 @@ import {
   computeDisciplineScore,
   computeTaskCompletionPercent,
   createEmptyDailyEntry,
+  findMissingMetricKeys,
+  findUnansweredPrincipleKeys,
   updateMetric,
   updateNote,
   updatePrinciple
@@ -91,5 +93,46 @@ describe("daily entry domain", () => {
 
     expect(entry.metrics.pomodoris).toBe(6);
     expect(entry.suggestedMetrics?.pomodoris).toBe(4);
+  });
+
+  it("finds missing manual metrics but ignores auto-suggested ones", () => {
+    let entry = createEmptyDailyEntry("2026-03-31");
+    entry = updateMetric(entry, "marche", 8000);
+    entry = applyDailyTaskStats(entry, {
+      date: "2026-03-31",
+      tasksAtStart: 3,
+      tasksAdded: 2,
+      tasksCompleted: 1,
+      tasksRemaining: 4
+    });
+    entry = applyDailyPomodoroStats(entry, {
+      date: "2026-03-31",
+      completedFocusSessions: 4
+    });
+
+    const missing = findMissingMetricKeys(entry);
+
+    expect(missing).toContain("course");
+    expect(missing).toContain("depenseCalorique");
+    expect(missing).toContain("qualiteSommeil");
+    expect(missing).not.toContain("marche");
+    expect(missing).not.toContain("tachesDebut");
+    expect(missing).not.toContain("tachesAjoutes");
+    expect(missing).not.toContain("tachesFin");
+    expect(missing).not.toContain("tachesRealises");
+    expect(missing).not.toContain("pomodoris");
+  });
+
+  it("finds unanswered principles but not explicit false answers", () => {
+    let entry = createEmptyDailyEntry("2026-03-31");
+    entry = updatePrinciple(entry, "priereDuSoir", false);
+    entry = updatePrinciple(entry, "retroJournalier", true);
+
+    const unanswered = findUnansweredPrincipleKeys(entry);
+
+    expect(unanswered).not.toContain("priereDuSoir");
+    expect(unanswered).not.toContain("retroJournalier");
+    expect(unanswered).toContain("attentionAMonEpouse");
+    expect(unanswered).toHaveLength(principleDefinitions.length - 2);
   });
 });

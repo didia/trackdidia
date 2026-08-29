@@ -289,6 +289,7 @@ export interface AppSettings {
   relationshipDrawSpouseActivities: string[];
   relationshipDrawChildrenProcessedDate: string;
   relationshipDrawSpouseProcessedDate: string;
+  previousDayReviewDoneDate: string;
 }
 
 export interface CoachMessage {
