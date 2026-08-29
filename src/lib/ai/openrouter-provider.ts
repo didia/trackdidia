@@ -116,6 +116,20 @@ const buildSystemPrompt = (request: AiStructuredRequest, repairHint?: string): s
     return repairHint ? `${base}\n\nCorrection demandee: ${repairHint}` : base;
   }
 
+  if (request.surface === "monthly_synthesis") {
+    const instruction =
+      "Tu es un coach de revue mensuelle. Reponds en francais avec un JSON strict conforme au schema monthly_synthesis (S3).";
+    const base = `${instruction}${memorySection}`;
+    return repairHint ? `${base}\n\nCorrection demandee: ${repairHint}` : base;
+  }
+
+  if (request.surface === "goal_pacing") {
+    const instruction =
+      "Tu es un coach de pilotage d'objectifs annuels. Reponds en francais avec un JSON strict conforme au schema goal_pacing (S4).";
+    const base = `${instruction}${memorySection}`;
+    return repairHint ? `${base}\n\nCorrection demandee: ${repairHint}` : base;
+  }
+
   const stanceInstruction =
     request.stance === "open"
       ? "Tu es un coach de discipline pour l'ouverture de journee. Reponds en francais avec un JSON strict conforme au schema coach_pulse."

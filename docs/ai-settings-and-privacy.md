@@ -150,6 +150,27 @@ Weekly synthesis cache policy: only `ok` results (and `skipped` while AI remains
 sticky cache hits. Persisted `fallback`/`error` episodes are shown as last-resort local
 briefs but do not block retries when AI is configured.
 
+### Monthly synthesis (`monthly_synthesis`)
+
+The `/mois` screen runs the S3 `monthly_synthesis` surface when the review page
+opens (event trigger) and on explicit **« Demander au coach »** / **« Régénérer »**.
+The service builds a typed monthly snapshot via `buildMonthlySnapshot`, retrieves
+memories with monthly-specific kind priority, validates JSON, and persists proposals.
+
+| Type | Accept applies |
+|---|---|
+| `review_section_draft` | Prefills the monthly ritual note textarea for that section key |
+| `goal_evaluation` | Writes an `AnnualGoalEvaluation` for the month on the linked annual goal |
+
+When AI is disabled, the deterministic local brief still renders from month aggregates.
+
+### Goal pacing (`goal_pacing`)
+
+The `/objectifs-annuels` screen runs S4 `goal_pacing` on page open and on explicit
+**« Demander au coach »** / **« Régénérer »**. Output is display-only (no proposals).
+The snapshot reuses annual goal domain calculations (`progressRatio`,
+`computeYearProgressFraction`, `isAnnualGoalOnPace`).
+
 ### Semantic memory (`ai_memories`)
 
 Migration 24 adds durable, human-readable coach memory:
@@ -195,8 +216,10 @@ in addition to the OpenRouter API key already stored in settings.
 ### Context and redaction
 
 Before any model call, `CoachPulseService` builds a typed daily snapshot via
-`buildDailySnapshot` and `WeeklySynthesisService` builds a weekly snapshot via
-`buildWeeklySnapshot`. Both apply `aiPayloadScope` redaction centrally. Settings
+`buildDailySnapshot`, `WeeklySynthesisService` builds a weekly snapshot via
+`buildWeeklySnapshot`, `MonthlySynthesisService` builds a monthly snapshot via
+`buildMonthlySnapshot`, and `GoalPacingService` builds an annual snapshot via
+`buildGoalPacingSnapshot`. All apply `aiPayloadScope` redaction centrally. Settings
 can preview the exact payload per scope when debug mode is enabled (see below).
 
 ### Persistence (`ai_messages`, `ai_proposals`, `ai_memories`)
@@ -373,15 +396,18 @@ Settings has an `aiPayloadScope` control (`metrics`, `metrics_and_structure`, or
 adds titles back, and `full` includes everything.
 
 When debug mode is enabled, Settings also shows a payload-preview panel with controls
-for **surface** (`daily` coach snapshot or `weekly` synthesis snapshot), a reference
-date (week start normalizes to Sunday for weekly), and a button that renders the exact
-typed snapshot that would be sent to the model — one collapsible block per scope,
-built from real repository data. This is a debug-only affordance; it is hidden when
-debug mode is off. A single preview action resolves RescueTime once per surface: weekly
-previews fetch productivity pulse and Goals score together via `resolveWeeklyRescueTimeInputs`
-and reuse the result across all three scopes; daily previews fetch the week-to-date pulse only.
-If either weekly resolution fails, the panel shows a non-blocking warning banner and the preview
-still renders (with missing RescueTime data) rather than failing outright.
+for **surface** (`daily` coach snapshot, `weekly` synthesis snapshot, `monthly`
+synthesis snapshot, or `annual` goal-pacing snapshot), a reference date or month
+(week start normalizes to Sunday for weekly; month uses `YYYY-MM`), and a button
+that renders the exact typed snapshot that would be sent to the model — one
+collapsible block per scope, built from real repository data. This is a debug-only
+affordance; it is hidden when debug mode is off. A single preview action resolves
+RescueTime once per surface: weekly previews fetch productivity pulse and Goals score
+together via `resolveWeeklyRescueTimeInputs` and reuse the result across all three
+scopes; daily previews fetch the week-to-date pulse only. Monthly and annual previews
+skip RescueTime. If either weekly resolution fails, the panel shows a non-blocking
+warning banner and the preview still renders (with missing RescueTime data) rather
+than failing outright.
 
 ## Related documentation
 

@@ -1,5 +1,13 @@
 import { createEmptyWeeklyObjective } from "../../../domain/weekly-objectives";
-import type { AiProposal, RescueTimeTaxonomy, Task, WeeklyRitualSectionKey } from "../../../domain/types";
+import { updateAnnualGoalEvaluation } from "../../../domain/annual-goals";
+import type {
+  AiProposal,
+  AnnualGoalTrend,
+  MonthlyReviewSectionKey,
+  RescueTimeTaxonomy,
+  Task,
+  WeeklyRitualSectionKey
+} from "../../../domain/types";
 import { getTodayDate } from "../../date";
 import type { AppRepository } from "../../storage/repository";
 import { applyAcceptedProposal } from "../memory/apply-proposal";
@@ -8,9 +16,11 @@ export interface ProposalApplyResult {
   text?: string;
   memoryId?: string;
   proposalDecided?: boolean;
-  sectionKey?: WeeklyRitualSectionKey;
+  sectionKey?: WeeklyRitualSectionKey | MonthlyReviewSectionKey;
   objectiveId?: string;
   taskId?: string;
+  goalId?: string;
+  monthKey?: string;
 }
 
 export const applyCoachProposal = async (
@@ -24,7 +34,10 @@ export const applyCoachProposal = async (
   }
 
   if (proposal.type === "review_section_draft") {
-    const payload = JSON.parse(proposal.payloadJson) as { sectionKey?: WeeklyRitualSectionKey; text?: string };
+    const payload = JSON.parse(proposal.payloadJson) as {
+      sectionKey?: WeeklyRitualSectionKey | MonthlyReviewSectionKey;
+      text?: string;
+    };
     return {
       sectionKey: payload.sectionKey,
       text: payload.text ?? ""
@@ -89,6 +102,38 @@ export const applyCoachProposal = async (
     return { taskId: payload.taskId };
   }
 
+  if (proposal.type === "goal_evaluation") {
+    const payload = JSON.parse(proposal.payloadJson) as {
+      goalId?: string;
+      monthKey?: string;
+      score?: number | null;
+      trend?: AnnualGoalTrend | null;
+      notes?: string;
+      blockers?: string;
+    };
+
+    if (!payload.goalId || !payload.monthKey) {
+      return {};
+    }
+
+    const goals = await repository.listAnnualGoals();
+    const goal = goals.find((item) => item.id === payload.goalId);
+    if (!goal) {
+      return {};
+    }
+
+    const saved = await repository.saveAnnualGoal(
+      updateAnnualGoalEvaluation(goal, payload.monthKey, {
+        score: payload.score ?? null,
+        trend: payload.trend ?? null,
+        notes: payload.notes ?? "",
+        blockers: payload.blockers ?? ""
+      })
+    );
+
+    return { goalId: saved.id, monthKey: payload.monthKey };
+  }
+
   if (proposal.type === "memory" || proposal.type === "commitment") {
     const memory = await applyAcceptedProposal(repository, proposal, acceptedDate);
     return { memoryId: memory?.id, proposalDecided: true };
@@ -122,6 +167,15 @@ export const proposalPreviewText = (proposal: AiProposal): string => {
 
   if (proposal.type === "gtd_action") {
     return `${payload.action ?? "action"} — ${payload.reason ?? ""}`;
+  }
+
+  if (proposal.type === "goal_evaluation") {
+    const evaluationPayload = JSON.parse(proposal.payloadJson) as {
+      goalId?: string;
+      score?: number | null;
+      notes?: string;
+    };
+    return `[${evaluationPayload.goalId ?? "objectif"}] score ${evaluationPayload.score ?? "—"} — ${evaluationPayload.notes ?? ""}`;
   }
 
   if (proposal.type === "commitment") {

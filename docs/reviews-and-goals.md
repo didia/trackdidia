@@ -186,6 +186,26 @@ a new message episode.
 
 When AI is off, the local deterministic brief still renders from weekly insight findings.
 
+### Monthly coach synthesis
+
+Opening `/mois` triggers the `monthly_synthesis` AI surface for the selected month.
+The coach panel shows a headline, a week-pattern read, and accept-step proposals:
+
+- section note drafts for the ten ritual blocks;
+- `goal_evaluation` rows that write an `AnnualGoalEvaluation` for the month when accepted.
+
+Accepting a section draft **prefills** the textarea only. Results are cached in
+`ai_messages` keyed by `(surface, monthKey, input_hash)`.
+
+### Annual goal pacing
+
+Opening `/objectifs-annuels` triggers the S4 `goal_pacing` surface for the selected year.
+The panel is **informational only** — it compares each goal's progress ratio to the
+expected year-to-date fraction (from `computeYearProgressFraction`) and surfaces gap,
+required weekly behaviour, risk level, and recommendations. No accept-step.
+
+Results are cached in `ai_messages` keyed by `(surface, year, input_hash)`.
+
 ## Monthly review (`/mois`)
 
 ### Calendar model

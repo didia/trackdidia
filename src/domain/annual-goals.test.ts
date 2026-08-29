@@ -1,5 +1,5 @@
 import { createEmptyDailyEntry, updateMetric, updatePrinciple } from "./daily-entry";
-import { buildAnnualGoalSnapshots, createEmptyAnnualGoal, updateAnnualGoalEvaluation } from "./annual-goals";
+import { buildAnnualGoalSnapshots, computeYearProgressFraction, createEmptyAnnualGoal, isAnnualGoalOnPace, updateAnnualGoalEvaluation } from "./annual-goals";
 import type { WeeklyReviewSummary } from "./types";
 
 describe("annual goals domain", () => {
@@ -100,5 +100,13 @@ describe("annual goals domain", () => {
       score: 80,
       notes: "Bon mois"
     });
+  });
+
+  it("computes year progress fraction and on-pace status", () => {
+    const midYear = computeYearProgressFraction(2026, "2026-07-01");
+    expect(midYear).toBeGreaterThan(0.4);
+    expect(midYear).toBeLessThan(0.6);
+    expect(isAnnualGoalOnPace(0.55, midYear)).toBe(true);
+    expect(isAnnualGoalOnPace(0.2, midYear)).toBe(false);
   });
 });

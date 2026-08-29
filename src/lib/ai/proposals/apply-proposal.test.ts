@@ -1,4 +1,5 @@
 import type { AiProposal, Task } from "../../../domain/types";
+import { createEmptyAnnualGoal } from "../../../domain/annual-goals";
 import { MemoryRepository } from "../../storage/memory-repository";
 import * as dateModule from "../../date";
 import { applyCoachProposal } from "./apply-proposal";
@@ -113,5 +114,46 @@ describe("applyCoachProposal gtd_action", () => {
     expect(applied.taskId).toBeUndefined();
     const tasks = await repository.listTasks({ includeCompleted: true });
     expect(tasks.find((task) => task.id === "task-completed")?.status).toBe("completed");
+  });
+});
+
+describe("applyCoachProposal goal_evaluation", () => {
+  it("writes an annual goal evaluation for the month", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveAnnualGoal(createEmptyAnnualGoal({ id: "goal-annual", title: "Test goal" }));
+
+    const goals = await repository.listAnnualGoals();
+    const goal = goals[0];
+
+    const proposal: AiProposal = {
+      id: "proposal-goal-eval",
+      messageId: "message-monthly",
+      type: "goal_evaluation",
+      payloadJson: JSON.stringify({
+        goalId: goal.id,
+        monthKey: "2026-04",
+        score: 82,
+        trend: "up",
+        notes: "Bon mois",
+        blockers: "Fatigue en fin de mois"
+      }),
+      status: "pending",
+      appliedEntityId: null,
+      decidedAt: null,
+      createdAt: now
+    };
+
+    const applied = await applyCoachProposal(repository, proposal, "2026-04");
+
+    expect(applied.goalId).toBe(goal.id);
+    expect(applied.monthKey).toBe("2026-04");
+    const saved = (await repository.listAnnualGoals()).find((item) => item.id === goal.id);
+    expect(saved?.evaluations["2026-04"]).toMatchObject({
+      score: 82,
+      trend: "up",
+      notes: "Bon mois",
+      blockers: "Fatigue en fin de mois"
+    });
   });
 });

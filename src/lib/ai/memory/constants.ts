@@ -26,3 +26,19 @@ export const KIND_PRIORITY_WEEKLY: MemoryKind[] = [
   "context",
   "commitment"
 ];
+
+export const KIND_PRIORITY_MONTHLY: MemoryKind[] = [
+  "pattern",
+  "context",
+  "preference",
+  "principle",
+  "commitment"
+];
+
+export const KIND_PRIORITY_GOAL: MemoryKind[] = [
+  "principle",
+  "pattern",
+  "context",
+  "preference",
+  "commitment"
+];

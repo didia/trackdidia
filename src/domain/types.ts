@@ -270,7 +270,7 @@ export interface RescueTimeTaxonomyEntry {
 
 export type AiPayloadScope = "metrics" | "metrics_and_structure" | "full";
 
-export type AiSurface = "coach_pulse" | "weekly_synthesis";
+export type AiSurface = "coach_pulse" | "weekly_synthesis" | "monthly_synthesis" | "goal_pacing";
 
 export type CoachPulseStance = "open" | "steer" | "wind_down" | "close";
 
@@ -287,7 +287,8 @@ export type AiProposalType =
   | "commitment"
   | "review_section_draft"
   | "weekly_objective"
-  | "gtd_action";
+  | "gtd_action"
+  | "goal_evaluation";
 
 export type WeeklySynthesisGtdAction = "schedule" | "defer" | "delegate" | "drop";
 
@@ -440,6 +441,51 @@ export interface WeeklySynthesisResult {
   message: AiMessage;
   synthesis: WeeklySynthesisResponse;
   proposals: AiProposal[];
+  source: "ai" | "local" | "fallback" | "cache";
+  warning?: string;
+}
+
+export interface MonthlySynthesisGoalEvaluationDraft {
+  goalId: string;
+  score: number | null;
+  trend: AnnualGoalTrend | null;
+  notes: string;
+  blockers: string;
+}
+
+export interface MonthlySynthesisResponse {
+  headline: string;
+  weekPattern: string;
+  sectionDrafts: Partial<Record<MonthlyReviewSectionKey, string>>;
+  goalEvaluationDrafts: MonthlySynthesisGoalEvaluationDraft[];
+}
+
+export interface MonthlySynthesisResult {
+  message: AiMessage;
+  synthesis: MonthlySynthesisResponse;
+  proposals: AiProposal[];
+  source: "ai" | "local" | "fallback" | "cache";
+  warning?: string;
+}
+
+export type GoalPacingRiskLevel = "low" | "medium" | "high";
+
+export interface GoalPacingItem {
+  goalId: string;
+  onPace: boolean;
+  gap: string;
+  requiredWeeklyBehaviour: string;
+  riskLevel: GoalPacingRiskLevel;
+  recommendation: string;
+}
+
+export interface GoalPacingResponse {
+  goals: GoalPacingItem[];
+}
+
+export interface GoalPacingResult {
+  message: AiMessage;
+  pacing: GoalPacingResponse;
   source: "ai" | "local" | "fallback" | "cache";
   warning?: string;
 }

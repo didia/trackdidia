@@ -6,8 +6,11 @@ import { buildWeekDates } from "../../../domain/weekly-review";
 import { RescueTimeGoalsService } from "../../rescuetime/rescuetime-goals-service";
 import type { AppRepository } from "../../storage/repository";
 import { buildDailySnapshot, type DailySnapshot } from "./daily-snapshot";
+import { buildGoalPacingSnapshot, resolveGoalPacingSnapshotInputs } from "./goal-pacing-snapshot";
+import { buildMonthlySnapshot, resolveMonthlySnapshotInputs } from "./monthly-snapshot";
 import { buildWeeklySnapshot, resolveWeeklySnapshotInputs } from "./weekly-snapshot";
 import type { Surface } from "./types";
+import { getMonthKey } from "../../../domain/monthly-review";
 
 /**
  * How much daily-entry history to load for the insight engine. `computeStreakFindings`'s
@@ -158,7 +161,11 @@ export const resolveDailySnapshotInputs = async (
   };
 };
 
-export type PreviewSnapshot = DailySnapshot | import("./weekly-snapshot").WeeklySnapshot;
+export type PreviewSnapshot =
+  | DailySnapshot
+  | import("./weekly-snapshot").WeeklySnapshot
+  | import("./monthly-snapshot").MonthlySnapshot
+  | import("./goal-pacing-snapshot").GoalPacingSnapshot;
 
 /**
  * Renders the exact snapshot that would be sent to the model for a given scope, built from
@@ -184,6 +191,22 @@ export const previewPayload = async (
       rescuetimeConfigured: rescueTime.configured
     });
     return buildWeeklySnapshot(inputs, scope);
+  }
+
+  if (surface === "monthly") {
+    const monthKey = getMonthKey(options.date ?? getTodayDate());
+    const inputs = await resolveMonthlySnapshotInputs(repository, monthKey);
+    return buildMonthlySnapshot(inputs, scope);
+  }
+
+  if (surface === "annual") {
+    const asOfDate = options.date ?? getTodayDate();
+    const year = Number(asOfDate.slice(0, 4));
+    const inputs = await resolveGoalPacingSnapshotInputs(repository, year, {
+      asOfDate,
+      evaluationMonthKey: getMonthKey(asOfDate)
+    });
+    return buildGoalPacingSnapshot(inputs, scope);
   }
 
   if (surface !== "daily") {

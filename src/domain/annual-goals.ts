@@ -280,6 +280,51 @@ export const getAnnualGoalSourceDefinition = (
 ): AnnualGoalSourceDefinition | null =>
   sourceId ? sourceDefinitions.find((definition) => definition.id === sourceId) ?? null : null;
 
+/** Fraction of the calendar year elapsed on a local date (0–1). */
+export const computeYearProgressFraction = (year: number, asOfDate: string): number => {
+  const yearPrefix = `${year}-`;
+  if (!asOfDate.startsWith(yearPrefix)) {
+    if (asOfDate.slice(0, 4) < String(year)) {
+      return 0;
+    }
+    if (asOfDate.slice(0, 4) > String(year)) {
+      return 1;
+    }
+  }
+
+  const start = new Date(`${year}-01-01T12:00:00`);
+  const end = new Date(`${year}-12-31T12:00:00`);
+  const asOf = new Date(`${asOfDate}T12:00:00`);
+
+  if (asOf <= start) {
+    return 0;
+  }
+
+  if (asOf >= end) {
+    return 1;
+  }
+
+  const totalMs = end.getTime() - start.getTime();
+  const elapsedMs = asOf.getTime() - start.getTime();
+  return elapsedMs / totalMs;
+};
+
+export const isAnnualGoalOnPace = (
+  progressRatio: number | null,
+  expectedFraction: number,
+  tolerance = 0.1
+): boolean => {
+  if (progressRatio === null) {
+    return false;
+  }
+
+  if (expectedFraction <= 0) {
+    return progressRatio >= 1;
+  }
+
+  return progressRatio >= expectedFraction - tolerance;
+};
+
 export const buildAnnualGoalSnapshots = (
   goals: AnnualGoal[],
   year: number,

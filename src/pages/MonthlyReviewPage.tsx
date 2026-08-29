@@ -12,12 +12,25 @@ import {
   updateMonthlyReviewChecklist,
   updateMonthlyReviewNote
 } from "../domain/monthly-review";
-import type { AnnualGoalSnapshot, MonthlyReview, MonthlyReviewSectionKey, MonthlyReviewSummary } from "../domain/types";
-import { PersistedTextarea } from "../components/PersistedTextarea";
+import type {
+  AiProposal,
+  AnnualGoalSnapshot,
+  MonthlyReview,
+  MonthlyReviewSectionKey,
+  MonthlyReviewSummary,
+  MonthlySynthesisResult
+} from "../domain/types";
+import { MonthlySynthesisPanel } from "../components/MonthlySynthesisPanel";
+import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
 import { SectionCard } from "../components/SectionCard";
 import { formatDateLong, getTodayDate } from "../lib/date";
 import { formatPercent } from "../lib/format";
 import { formatTimestamp } from "../lib/format";
+import { resolveMonthlySnapshotInputs } from "../lib/ai/context/monthly-snapshot";
+import { loadLatestMonthlySynthesis } from "../lib/ai/monthly-synthesis-loader";
+import { MonthlySynthesisService } from "../lib/ai/monthly-synthesis-service";
+import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
+import { applyCoachProposal } from "../lib/ai/proposals/apply-proposal";
 
 interface MonthlySectionDefinition {
   key: MonthlyReviewSectionKey;
@@ -105,7 +118,8 @@ const deriveMonthlyStatusLabel = (status: MonthlyReview["status"]): string =>
   status === "closed" ? "Revue cloturee" : "Brouillon";
 
 export const MonthlyReviewPage = () => {
-  const { repository } = useAppContext();
+  const { repository, settings } = useAppContext();
+  const synthesisService = useMemo(() => new MonthlySynthesisService(new OpenRouterProvider()), []);
   const today = getTodayDate();
   const initialMonth = isFirstSaturdayOfMonth(today) ? getPreviousMonthKey(today) : getMonthKey(today);
   const [selectedMonthKey, setSelectedMonthKey] = useState(initialMonth);
@@ -113,7 +127,11 @@ export const MonthlyReviewPage = () => {
   const [summary, setSummary] = useState<MonthlyReviewSummary | null>(null);
   const [goalSnapshots, setGoalSnapshots] = useState<AnnualGoalSnapshot[]>([]);
   const [loading, setLoading] = useState(true);
+  const [synthesisResult, setSynthesisResult] = useState<MonthlySynthesisResult | null>(null);
+  const [synthesisLoading, setSynthesisLoading] = useState(false);
   const latestReviewRef = useRef<MonthlyReview | null>(null);
+  const noteRefs = useRef<Partial<Record<MonthlyReviewSectionKey, PersistedTextareaHandle | null>>>({});
+  const synthesisRequestSeqRef = useRef(0);
 
   const loadMonth = useCallback(
     async (requestedMonthKey: string) => {
@@ -121,6 +139,8 @@ export const MonthlyReviewPage = () => {
         return;
       }
 
+      synthesisRequestSeqRef.current += 1;
+      setSynthesisResult(null);
       setLoading(true);
       const [existingReview, computedSummary, annualSnapshots] = await Promise.all([
         repository.getMonthlyReview(requestedMonthKey),
@@ -141,6 +161,108 @@ export const MonthlyReviewPage = () => {
   useEffect(() => {
     void loadMonth(selectedMonthKey);
   }, [loadMonth]);
+
+  const runSynthesis = useCallback(
+    async (options: { monthKey: string; trigger: "auto" | "explicit"; bypassCache?: boolean }) => {
+      const requestId = ++synthesisRequestSeqRef.current;
+      setSynthesisLoading(true);
+      try {
+        const snapshotInputs = await resolveMonthlySnapshotInputs(repository, options.monthKey);
+        const result = await synthesisService.buildSynthesis(repository, {
+          monthKey: options.monthKey,
+          settings,
+          snapshotInputs,
+          trigger: options.trigger,
+          bypassCache: options.bypassCache
+        });
+        if (requestId !== synthesisRequestSeqRef.current) {
+          return;
+        }
+        setSynthesisResult(result);
+      } finally {
+        if (requestId === synthesisRequestSeqRef.current) {
+          setSynthesisLoading(false);
+        }
+      }
+    },
+    [repository, settings, synthesisService]
+  );
+
+  useEffect(() => {
+    if (!summary || loading) {
+      return;
+    }
+
+    setSynthesisResult(null);
+
+    void (async () => {
+      const stored = await loadLatestMonthlySynthesis(repository, synthesisService, summary.monthKey);
+      if (stored && stored.message.scopeKey === summary.monthKey) {
+        setSynthesisResult(stored);
+      }
+      await runSynthesis({ monthKey: summary.monthKey, trigger: "auto" });
+    })();
+  }, [summary?.monthKey, loading, repository, runSynthesis, synthesisService]);
+
+  const handleAcceptSynthesisProposal = async (proposal: AiProposal) => {
+    const monthKey = latestReviewRef.current?.monthKey ?? selectedMonthKey;
+
+    if (synthesisResult?.message.scopeKey !== monthKey) {
+      return;
+    }
+
+    if (proposal.type === "goal_evaluation") {
+      const payload = JSON.parse(proposal.payloadJson) as { monthKey?: string };
+      if (payload.monthKey !== monthKey) {
+        return;
+      }
+    }
+
+    const applied = await applyCoachProposal(repository, proposal, monthKey);
+
+    if (proposal.type === "goal_evaluation" && !applied.goalId) {
+      return;
+    }
+
+    if (proposal.type === "review_section_draft" && applied.sectionKey && applied.text !== undefined) {
+      noteRefs.current[applied.sectionKey as MonthlyReviewSectionKey]?.setDraft(applied.text);
+    }
+
+    if (proposal.type === "goal_evaluation" && applied.goalId) {
+      const annualSnapshots = await repository.computeAnnualGoalSnapshots(Number(monthKey.slice(0, 4)));
+      setGoalSnapshots(annualSnapshots);
+    }
+
+    await repository.decideAiProposal(
+      proposal.id,
+      "accepted",
+      applied.goalId ?? applied.objectiveId ?? applied.taskId ?? applied.memoryId ?? monthKey
+    );
+    setSynthesisResult((current) =>
+      current
+        ? {
+            ...current,
+            proposals: current.proposals.map((item) =>
+              item.id === proposal.id ? { ...item, status: "accepted", decidedAt: new Date().toISOString() } : item
+            )
+          }
+        : current
+    );
+  };
+
+  const handleDismissSynthesisProposal = async (proposal: AiProposal) => {
+    await repository.decideAiProposal(proposal.id, "dismissed");
+    setSynthesisResult((current) =>
+      current
+        ? {
+            ...current,
+            proposals: current.proposals.map((item) =>
+              item.id === proposal.id ? { ...item, status: "dismissed", decidedAt: new Date().toISOString() } : item
+            )
+          }
+        : current
+    );
+  };
 
   const saveReview = useCallback(
     async (nextReview: MonthlyReview) => {
@@ -251,6 +373,28 @@ export const MonthlyReviewPage = () => {
         </div>
       </SectionCard>
 
+      <SectionCard title="Coach mensuel" subtitle="Synthese du mois, brouillons de sections et evaluations d'objectifs proposees.">
+        <MonthlySynthesisPanel
+          result={synthesisResult}
+          loading={synthesisLoading}
+          settings={settings}
+          onRequestCoach={() => {
+            if (!summary) {
+              return;
+            }
+            void runSynthesis({ monthKey: summary.monthKey, trigger: "explicit" });
+          }}
+          onRegenerate={() => {
+            if (!summary) {
+              return;
+            }
+            void runSynthesis({ monthKey: summary.monthKey, trigger: "explicit", bypassCache: true });
+          }}
+          onAcceptProposal={(proposal) => void handleAcceptSynthesisProposal(proposal)}
+          onDismissProposal={(proposal) => void handleDismissSynthesisProposal(proposal)}
+        />
+      </SectionCard>
+
       <SectionCard title="Semaines du mois" subtitle="Relis les semaines pour reconnecter les notes hebdo au tableau d'ensemble.">
         <div className="weekly-day-grid">
           {summary.weeks.map((week) => (
@@ -341,6 +485,9 @@ export const MonthlyReviewPage = () => {
               <label className="stacked-field">
                 <span>{`Notes ${section.title}`}</span>
                 <PersistedTextarea
+                  ref={(handle) => {
+                    noteRefs.current[section.key] = handle;
+                  }}
                   key={`${review.monthKey}-${section.key}`}
                   rows={4}
                   debounceMs={0}

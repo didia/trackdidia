@@ -19,7 +19,7 @@ describe("AnnualGoalsPage", () => {
     await user.selectOptions(screen.getByLabelText(/^source$/i), "weekly_discipline");
     await user.click(screen.getByRole("button", { name: /ajouter l'objectif/i }));
 
-    expect(await screen.findByText("Discipline annuelle")).toBeInTheDocument();
+    expect((await screen.findAllByText("Discipline annuelle")).length).toBeGreaterThanOrEqual(1);
 
     const scoreInput = screen.getByLabelText(/score \d{4}-\d{2}/i);
     const evaluationMonthInput = screen.getByLabelText(/mois d'evaluation/i) as HTMLInputElement;
