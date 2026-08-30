@@ -1,4 +1,5 @@
 import type { Finding } from "../../../domain/insights/types";
+import { MIN_SAMPLE_DAYS } from "../../../domain/insights/constants";
 import type { CoachPulseResponse, CoachPulseStance } from "../../../domain/types";
 
 const severityRank: Record<Finding["severity"], number> = {
@@ -7,12 +8,15 @@ const severityRank: Record<Finding["severity"], number> = {
   positive: 1
 };
 
+export const hasMeaningfulEvidence = (finding: Finding): boolean => finding.sampleSize >= MIN_SAMPLE_DAYS;
+
 export const pickTopFinding = (findings: Finding[]): Finding | null => {
-  if (findings.length === 0) {
+  const eligible = findings.filter(hasMeaningfulEvidence);
+  if (eligible.length === 0) {
     return null;
   }
 
-  return [...findings].sort((left, right) => {
+  return [...eligible].sort((left, right) => {
     const severityDelta = severityRank[right.severity] - severityRank[left.severity];
     if (severityDelta !== 0) {
       return severityDelta;

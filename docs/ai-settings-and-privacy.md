@@ -44,21 +44,26 @@ Pulse scheduling (`steer`, `wind_down`, catch-up slots) is **not** shipped in Ph
 ### Local coach
 
 `CoachPulseService` always prepares a deterministic local brief from the insight
-engine's top finding (`buildLocalCoachPulse`). On Today, this renders immediately on
-page load without a network call.
+engine's top finding with meaningful sample size (`buildLocalCoachPulse`). On Today,
+this renders immediately on page load without waiting for RescueTime or OpenRouter.
 
 When AI is disabled or the API key is empty:
 
-- the **« Demander au coach »** button is disabled with an explanatory label;
-- the local brief still renders.
+- only the local brief renders;
+- **Regenerer** stays disabled with an explanatory label.
 
-### Explicit trigger
+### Auto-load trigger (Today)
 
-AI is called only when the user clicks **« Demander au coach »** on Today or when
-the evening closure page opens (event-triggered `close` stance). **« Régénérer »**
+When AI is configured, Today auto-loads the coach on page open:
+
+1. a fast local brief from snapshot inputs that skip the live RescueTime fetch;
+2. then an AI call (cache-first) once the full snapshot is ready.
+
+Evening closure still auto-runs the `close` stance on page open. **Regenerer**
 bypasses the `ai_messages` input-hash cache deliberately.
 
-There is **no** gate requiring the user to write journal text first.
+There is **no** gate requiring the user to write journal text first, and no
+**Demander au coach** button on Today while auto-load is active.
 
 ### Structured output and accept-step
 
@@ -69,11 +74,11 @@ Phase 1 proposal types:
 
 | Type | Accept applies |
 |---|---|
-| `intention_draft` | Prefills `morningIntention` (editable; saved only when the user saves the daily entry) |
-| `tomorrow_focus_draft` | Prefills `tomorrowFocus` |
+| `intention_draft` | Saves `morningIntention` immediately, then marks the proposal accepted |
+| `tomorrow_focus_draft` | Saves `tomorrowFocus` immediately, then marks the proposal accepted |
 
 Proposals are stored in `ai_proposals` with `pending | accepted | dismissed | expired`
-status. Nothing auto-saves until the user clicks **Accepter**.
+status. Accept persists the daily entry field before recording the decision.
 
 ### Context and redaction
 
@@ -83,11 +88,12 @@ can preview the exact payload per scope when debug mode is enabled.
 
 ### Persistence (`ai_messages`)
 
-Every coach result is persisted in SQLite (migrations 21–22):
+Every coach result is persisted in SQLite (migrations 21–23):
 
 - `ai_messages` stores the structured body, usage (`tokens_prompt`,
-  `tokens_completion`, `latency_ms`), model, stance, and an input-hash cache key
-  (`UNIQUE (surface, scope_key, input_hash)`).
+  `tokens_completion`, `latency_ms`), model, stance, and an input-hash cache key.
+  Regenerations append a new row (migration 23); cache lookup returns the latest
+  `status = ok` row for a given hash.
 - `ai_proposals` stores accept-step rows linked to a message.
 
 Browser preview uses `MemoryRepository` with the same methods. The old in-memory

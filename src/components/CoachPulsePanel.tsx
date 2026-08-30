@@ -1,4 +1,5 @@
-import type { AiProposal, AppSettings, CoachPulseResult } from "../domain/types";
+import { principleDefinitions } from "../domain/definitions";
+import type { AiProposal, AppSettings, CoachPulseResult, PrincipleKey } from "../domain/types";
 
 const sourceLabels: Record<CoachPulseResult["source"], string> = {
   ai: "IA active",
@@ -12,12 +13,22 @@ const proposalLabels: Record<AiProposal["type"], string> = {
   tomorrow_focus_draft: "Focus de demain"
 };
 
+const principleLabel = (key: PrincipleKey | null | undefined): string | null => {
+  if (!key) {
+    return null;
+  }
+
+  return principleDefinitions.find((definition) => definition.key === key)?.label ?? key;
+};
+
 interface CoachPulsePanelProps {
   title: string;
   result: CoachPulseResult | null;
   loading: boolean;
   settings: AppSettings;
-  onRequestCoach: () => void;
+  /** When true, hide the explicit request button because the page auto-loads AI. */
+  autoloadAi?: boolean;
+  onRequestCoach?: () => void;
   onRegenerate: () => void;
   onAcceptProposal: (proposal: AiProposal) => void;
   onDismissProposal: (proposal: AiProposal) => void;
@@ -28,6 +39,7 @@ export const CoachPulsePanel = ({
   result,
   loading,
   settings,
+  autoloadAi = false,
   onRequestCoach,
   onRegenerate,
   onAcceptProposal,
@@ -46,6 +58,7 @@ export const CoachPulsePanel = ({
 
   const pulse = result?.pulse;
   const pendingProposals = result?.proposals.filter((proposal) => proposal.status === "pending") ?? [];
+  const principleRecovery = principleLabel(pulse?.principleToRecover);
 
   return (
     <section className="coach-card coach-pulse">
@@ -91,6 +104,23 @@ export const CoachPulsePanel = ({
               </ul>
             </div>
           ) : null}
+
+          {pulse.frictionPoint ? (
+            <article className="coach-pulse__friction">
+              <strong>Point de friction</strong>
+              <p>{pulse.frictionPoint.what}</p>
+              <p>{pulse.frictionPoint.why}</p>
+              <p>
+                <em>Ajustement:</em> {pulse.frictionPoint.adjustment}
+              </p>
+            </article>
+          ) : null}
+
+          {principleRecovery ? (
+            <p className="coach-pulse__principle">
+              <strong>Principe a retrouver:</strong> {principleRecovery}
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -120,15 +150,17 @@ export const CoachPulsePanel = ({
       ) : null}
 
       <div className="section-actions coach-pulse__actions">
-        <button
-          className="button button--primary"
-          type="button"
-          disabled={!aiAvailable || loading}
-          title={disabledReason ?? undefined}
-          onClick={onRequestCoach}
-        >
-          {disabledReason ?? "Demander au coach"}
-        </button>
+        {!autoloadAi && onRequestCoach ? (
+          <button
+            className="button button--primary"
+            type="button"
+            disabled={!aiAvailable || loading}
+            title={disabledReason ?? undefined}
+            onClick={onRequestCoach}
+          >
+            {disabledReason ?? "Demander au coach"}
+          </button>
+        ) : null}
         <button
           className="button"
           type="button"
@@ -136,7 +168,7 @@ export const CoachPulsePanel = ({
           title={disabledReason ?? undefined}
           onClick={onRegenerate}
         >
-          Régénérer
+          Regenerer
         </button>
       </div>
     </section>

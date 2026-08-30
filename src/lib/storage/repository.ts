@@ -83,6 +83,7 @@ export interface AppRepository {
   saveSettings(settings: AppSettings): Promise<void>;
   getAiMessage(surface: AiSurface, scopeKey: string, inputHash: string): Promise<AiMessage | null>;
   saveAiMessage(message: AiMessage): Promise<AiMessage>;
+  saveCoachPulseEpisode(message: AiMessage, proposals: AiProposal[]): Promise<{ message: AiMessage; proposals: AiProposal[] }>;
   listAiMessages(surface?: AiSurface, limit?: number): Promise<AiMessage[]>;
   listAiMessagesForDate(date: string): Promise<AiMessage[]>;
   listAiProposals(messageId: string): Promise<AiProposal[]>;

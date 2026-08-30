@@ -312,20 +312,44 @@ export class MemoryRepository implements AppRepository {
   }
 
   async getAiMessage(surface: AiSurface, scopeKey: string, inputHash: string): Promise<AiMessage | null> {
-    for (const message of this.aiMessages.values()) {
-      if (message.surface === surface && message.scopeKey === scopeKey && message.inputHash === inputHash) {
-        return { ...message };
-      }
-    }
-    return null;
+    const matches = [...this.aiMessages.values()]
+      .filter(
+        (message) =>
+          message.surface === surface &&
+          message.scopeKey === scopeKey &&
+          message.inputHash === inputHash &&
+          message.status === "ok"
+      )
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+
+    return matches[0] ? { ...matches[0] } : null;
   }
 
   async saveAiMessage(message: AiMessage): Promise<AiMessage> {
-    const key = `${message.surface}|${message.scopeKey}|${message.inputHash}`;
-    const existing = this.aiMessages.get(key);
-    const persisted: AiMessage = existing ? { ...existing, ...message, id: existing.id } : { ...message };
-    this.aiMessages.set(key, persisted);
+    const persisted = { ...message };
+    this.aiMessages.set(message.id, persisted);
     return { ...persisted };
+  }
+
+  async saveCoachPulseEpisode(
+    message: AiMessage,
+    proposals: AiProposal[]
+  ): Promise<{ message: AiMessage; proposals: AiProposal[] }> {
+    const savedMessage = await this.saveAiMessage(message);
+    for (const [id, proposal] of this.aiProposals.entries()) {
+      if (proposal.messageId === savedMessage.id && proposal.status === "pending") {
+        this.aiProposals.delete(id);
+      }
+    }
+
+    const savedProposals: AiProposal[] = [];
+    for (const proposal of proposals) {
+      const persisted = { ...proposal, messageId: savedMessage.id };
+      this.aiProposals.set(persisted.id, persisted);
+      savedProposals.push({ ...persisted });
+    }
+
+    return { message: savedMessage, proposals: savedProposals };
   }
 
   async listAiMessages(surface?: AiSurface, limit = 50): Promise<AiMessage[]> {

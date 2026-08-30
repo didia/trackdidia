@@ -45,7 +45,7 @@ const buildCoachResult = (proposal: AiProposal): CoachPulseResult => ({
 });
 
 describe("TodayPage coach proposals", () => {
-  it("prefills morning intention on accept without saving the daily entry", async () => {
+  it("prefills and saves morning intention on accept", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
 
@@ -81,7 +81,7 @@ describe("TodayPage coach proposals", () => {
 
     expect(await screen.findByDisplayValue("Focus profond")).toBeInTheDocument();
     expect(decideAiProposal).toHaveBeenCalledWith("ai-proposal:intention", "accepted", getTodayDate());
-    expect(saveDailyEntry).not.toHaveBeenCalled();
+    expect(saveDailyEntry).toHaveBeenCalled();
   });
 
   it("records dismissed proposals without saving the daily entry", async () => {

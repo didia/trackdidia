@@ -73,21 +73,26 @@ export const EveningClosurePage = () => {
     const payload = JSON.parse(proposal.payloadJson) as { text?: string };
     const text = payload.text ?? "";
 
-    if (proposal.type === "tomorrow_focus_draft") {
-      tomorrowFocusRef.current?.setDraft(text);
-    }
+    try {
+      if (proposal.type === "tomorrow_focus_draft") {
+        await save(updateNote(currentEntry, "tomorrowFocus", text));
+        tomorrowFocusRef.current?.setDraft(text);
+      }
 
-    await repository.decideAiProposal(proposal.id, "accepted", currentEntry.date);
-    setCoachResult((current) =>
-      current
-        ? {
-            ...current,
-            proposals: current.proposals.map((item) =>
-              item.id === proposal.id ? { ...item, status: "accepted", decidedAt: new Date().toISOString() } : item
-            )
-          }
-        : current
-    );
+      await repository.decideAiProposal(proposal.id, "accepted", currentEntry.date);
+      setCoachResult((current) =>
+        current
+          ? {
+              ...current,
+              proposals: current.proposals.map((item) =>
+                item.id === proposal.id ? { ...item, status: "accepted", decidedAt: new Date().toISOString() } : item
+              )
+            }
+          : current
+      );
+    } catch (error) {
+      console.error("Failed to accept coach proposal", error);
+    }
   };
 
   const handleDismissProposal = async (proposal: AiProposal) => {

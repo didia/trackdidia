@@ -12,6 +12,7 @@ import { createEntityId, nowIso } from "../gtd/shared";
 import type { AppRepository } from "../storage/repository";
 import { buildDailySnapshot, type DailySnapshotInputs } from "./context/daily-snapshot";
 import { buildAiInputHash } from "./input-hash";
+import { normalizeAiBaseUrl } from "./openrouter-provider";
 import { buildLocalCoachPulse } from "./proposals/coach-pulse-fallback";
 import { parseCoachPulseJson } from "./proposals/coach-pulse-validator";
 import type { AiProvider } from "./provider";
@@ -24,12 +25,19 @@ export interface CoachPulseRequest {
   settings: AppSettings;
   snapshotInputs: DailySnapshotInputs;
   bypassCache?: boolean;
-  /** `auto` checks cache then local fallback; `explicit` may call the provider. */
+  /** `auto` loads cache then may call the provider when AI is configured; `explicit` always may. */
   trigger?: "auto" | "explicit";
+  /** When true, never call the provider and return an ephemeral local brief without proposals. */
+  localOnly?: boolean;
 }
 
 const buildScopeKey = (date: string, stance: CoachPulseStance): string =>
   stance === "open" ? date : `${date}#${stance}`;
+
+const buildConfigFingerprint = (settings: AppSettings): Record<string, string> => ({
+  model: settings.aiSurfaceModels.coach_pulse?.trim() || settings.aiModel,
+  baseUrl: normalizeAiBaseUrl(settings.aiBaseUrl)
+});
 
 const pulseToBodyText = (pulse: CoachPulseResponse): string =>
   [pulse.headline, pulse.read, pulse.move ? `${pulse.move.what} — ${pulse.move.why}` : null]
@@ -68,6 +76,17 @@ const buildProposals = (messageId: string, pulse: CoachPulseResponse, createdAt:
   return proposals;
 };
 
+const expectedProposalCount = (pulse: CoachPulseResponse): number => {
+  let count = 0;
+  if (pulse.stance === "open" && pulse.intentionDraft?.trim()) {
+    count += 1;
+  }
+  if (pulse.stance === "close" && pulse.tomorrowFocusDraft?.trim()) {
+    count += 1;
+  }
+  return count;
+};
+
 const cachedResult = async (
   repository: AppRepository,
   message: AiMessage
@@ -79,6 +98,11 @@ const cachedResult = async (
   try {
     const pulse = JSON.parse(message.bodyJson) as CoachPulseResponse;
     const proposals = await repository.listAiProposals(message.id);
+
+    if (proposals.length < expectedProposalCount(pulse)) {
+      return null;
+    }
+
     return {
       message,
       pulse,
@@ -95,18 +119,13 @@ const persistResult = async (
   message: AiMessage,
   pulse: CoachPulseResponse
 ): Promise<CoachPulseResult> => {
-  const savedMessage = await repository.saveAiMessage(message);
-  await repository.clearPendingAiProposals(savedMessage.id);
-  const proposals = buildProposals(savedMessage.id, pulse, savedMessage.createdAt);
-
-  for (const proposal of proposals) {
-    await repository.saveAiProposal(proposal);
-  }
+  const proposals = buildProposals(message.id, pulse, message.createdAt);
+  const saved = await repository.saveCoachPulseEpisode(message, proposals);
 
   return {
-    message: savedMessage,
+    message: saved.message,
     pulse,
-    proposals,
+    proposals: saved.proposals,
     source: message.status === "ok" ? "ai" : message.status === "fallback" ? "fallback" : "local"
   };
 };
@@ -118,14 +137,15 @@ export class CoachPulseService {
     repository: AppRepository,
     request: CoachPulseRequest
   ): Promise<CoachPulseResult> {
-    const { stance, entry, settings, snapshotInputs, bypassCache = false, trigger = "auto" } = request;
+    const { stance, entry, settings, snapshotInputs, bypassCache = false, trigger = "auto", localOnly = false } = request;
     const snapshot = buildDailySnapshot(snapshotInputs, settings.aiPayloadScope);
     const scopeKey = buildScopeKey(entry.date, stance);
     const inputHash = buildAiInputHash({
       promptVersion: COACH_PULSE_PROMPT_VERSION,
       stance,
       scope: settings.aiPayloadScope,
-      snapshot
+      snapshot,
+      config: buildConfigFingerprint(settings)
     });
 
     if (!bypassCache) {
@@ -141,9 +161,11 @@ export class CoachPulseService {
     const findings = snapshot.findings as Finding[];
     const localPulse = buildLocalCoachPulse(stance, findings);
     const createdAt = nowIso();
-    const existingMessage = await repository.getAiMessage("coach_pulse", scopeKey, inputHash);
+    const aiConfigured = settings.aiEnabled && settings.aiApiKey.trim().length > 0;
+    const shouldCallProvider = !localOnly && aiConfigured && (trigger === "explicit" || trigger === "auto");
+
     const baseMessage = (): AiMessage => ({
-      id: existingMessage?.id ?? createEntityId("ai-message"),
+      id: createEntityId("ai-message"),
       surface: "coach_pulse",
       scopeKey,
       stance,
@@ -162,23 +184,23 @@ export class CoachPulseService {
       createdAt
     });
 
-    if (!settings.aiEnabled || !settings.aiApiKey.trim() || trigger === "auto") {
-      const ephemeralMessage = {
+    if (!shouldCallProvider) {
+      const skippedMessage = {
         ...baseMessage(),
         status: "skipped" as const,
         model: "local"
       };
 
-      if (trigger === "auto") {
-        return {
-          message: ephemeralMessage,
-          pulse: localPulse,
-          proposals: buildProposals(ephemeralMessage.id, localPulse, createdAt),
-          source: "local"
-        };
+      if (trigger === "explicit") {
+        return persistResult(repository, skippedMessage, localPulse);
       }
 
-      return persistResult(repository, ephemeralMessage, localPulse);
+      return {
+        message: skippedMessage,
+        pulse: localPulse,
+        proposals: [],
+        source: "local"
+      };
     }
 
     try {

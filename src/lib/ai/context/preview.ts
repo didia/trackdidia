@@ -58,12 +58,29 @@ export const resolveProductivityPulse = async (
   return { configured, pulseWeekToDate: pulseSnapshot.pulse, fetchError: pulseSnapshot.fetchError };
 };
 
+export interface ResolveDailySnapshotInputsOptions {
+  /** When true, skip the live RescueTime request and leave pulse null. */
+  skipRescueTimeFetch?: boolean;
+}
+
 export const resolveDailySnapshotInputs = async (
   repository: AppRepository,
   date: string,
   now = new Date().toISOString(),
-  productivityPulse?: ResolvedProductivityPulse
+  productivityPulse?: ResolvedProductivityPulse,
+  options: ResolveDailySnapshotInputsOptions = {}
 ) => {
+  const settings = await repository.getSettings();
+  const rescuetimeConfigured = settings.rescuetimeApiKey.trim().length > 0;
+  const resolvedPulsePromise =
+    productivityPulse ??
+    (options.skipRescueTimeFetch
+      ? Promise.resolve<ResolvedProductivityPulse>({
+          configured: rescuetimeConfigured,
+          pulseWeekToDate: null
+        })
+      : resolveProductivityPulse(repository, date));
+
   const [entry, historyEntries, tasks, projects, pomodoroTaskSummaries, dailyPomodoroStats, resolvedPulse] =
     await Promise.all([
       repository.getDailyEntry(date),
@@ -72,7 +89,7 @@ export const resolveDailySnapshotInputs = async (
       repository.listProjects(),
       repository.listPomodoroTaskSummaries(date, now),
       repository.computeDailyPomodoroStats(date),
-      productivityPulse ?? resolveProductivityPulse(repository, date)
+      resolvedPulsePromise
     ]);
 
   const resolvedEntry = entry ?? createEmptyDailyEntry(date);

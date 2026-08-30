@@ -632,6 +632,54 @@ const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_ai_proposals_message_id ON ai_proposals (message_id);
       CREATE INDEX IF NOT EXISTS idx_ai_proposals_status ON ai_proposals (status);
     `
+  },
+  {
+    id: 23,
+    name: "ai_messages_append_only",
+    sql: `
+      CREATE TABLE ai_messages_v23 (
+        id TEXT PRIMARY KEY,
+        surface TEXT NOT NULL,
+        scope_key TEXT NOT NULL,
+        stance TEXT,
+        kind TEXT NOT NULL,
+        input_hash TEXT NOT NULL,
+        prompt_version TEXT NOT NULL,
+        model TEXT NOT NULL,
+        status TEXT NOT NULL,
+        body_json TEXT,
+        body_text TEXT,
+        delta_class TEXT,
+        notified INTEGER NOT NULL DEFAULT 0,
+        tokens_prompt INTEGER,
+        tokens_completion INTEGER,
+        latency_ms INTEGER,
+        created_at TEXT NOT NULL
+      );
+
+      INSERT INTO ai_messages_v23 (
+        id, surface, scope_key, stance, kind, input_hash, prompt_version, model,
+        status, body_json, body_text, delta_class, notified,
+        tokens_prompt, tokens_completion, latency_ms, created_at
+      )
+      SELECT
+        id, surface, scope_key, stance, kind, input_hash, prompt_version, model,
+        status, body_json, body_text, delta_class, notified,
+        tokens_prompt, tokens_completion, latency_ms, created_at
+      FROM ai_messages;
+
+      DROP TABLE ai_messages;
+      ALTER TABLE ai_messages_v23 RENAME TO ai_messages;
+
+      CREATE INDEX IF NOT EXISTS idx_ai_messages_cache
+        ON ai_messages (surface, scope_key, input_hash, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_ai_messages_scope_date
+        ON ai_messages (scope_key, created_at ASC);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_proposals_message_type
+        ON ai_proposals (message_id, type)
+        WHERE status = 'pending';
+    `
   }
 ];
 
@@ -1119,7 +1167,9 @@ export class TauriSqliteRepository implements AppRepository {
               status, body_json, body_text, delta_class, notified,
               tokens_prompt, tokens_completion, latency_ms, created_at
        FROM ai_messages
-       WHERE surface = $1 AND scope_key = $2 AND input_hash = $3`,
+       WHERE surface = $1 AND scope_key = $2 AND input_hash = $3 AND status = 'ok'
+       ORDER BY created_at DESC
+       LIMIT 1`,
       [surface, scopeKey, inputHash]
     );
 
@@ -1137,21 +1187,7 @@ export class TauriSqliteRepository implements AppRepository {
         id, surface, scope_key, stance, kind, input_hash, prompt_version, model,
         status, body_json, body_text, delta_class, notified,
         tokens_prompt, tokens_completion, latency_ms, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-      ON CONFLICT(surface, scope_key, input_hash) DO UPDATE SET
-        stance = excluded.stance,
-        kind = excluded.kind,
-        prompt_version = excluded.prompt_version,
-        model = excluded.model,
-        status = excluded.status,
-        body_json = excluded.body_json,
-        body_text = excluded.body_text,
-        delta_class = excluded.delta_class,
-        notified = excluded.notified,
-        tokens_prompt = excluded.tokens_prompt,
-        tokens_completion = excluded.tokens_completion,
-        latency_ms = excluded.latency_ms,
-        created_at = excluded.created_at`,
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
       [
         message.id,
         message.surface,
@@ -1178,15 +1214,58 @@ export class TauriSqliteRepository implements AppRepository {
               status, body_json, body_text, delta_class, notified,
               tokens_prompt, tokens_completion, latency_ms, created_at
        FROM ai_messages
-       WHERE surface = $1 AND scope_key = $2 AND input_hash = $3`,
-      [message.surface, message.scopeKey, message.inputHash]
+       WHERE id = $1`,
+      [message.id]
     );
 
     if (rows.length === 0) {
-      throw new Error("AI message upsert failed");
+      throw new Error("AI message insert failed");
     }
 
     return this.deserializeAiMessage(rows[0]);
+  }
+
+  async saveCoachPulseEpisode(
+    message: AiMessage,
+    proposals: AiProposal[]
+  ): Promise<{ message: AiMessage; proposals: AiProposal[] }> {
+    const db = await this.getDb();
+    await db.execute("BEGIN IMMEDIATE");
+
+    try {
+      const savedMessage = await this.saveAiMessage(message);
+      await db.execute(
+        `DELETE FROM ai_proposals
+         WHERE message_id = $1 AND status = 'pending'`,
+        [savedMessage.id]
+      );
+
+      const savedProposals: AiProposal[] = [];
+      for (const proposal of proposals) {
+        await db.execute(
+          `INSERT INTO ai_proposals (
+            id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [
+            proposal.id,
+            savedMessage.id,
+            proposal.type,
+            proposal.payloadJson,
+            proposal.status,
+            proposal.appliedEntityId,
+            proposal.decidedAt,
+            proposal.createdAt
+          ]
+        );
+        savedProposals.push({ ...proposal, messageId: savedMessage.id });
+      }
+
+      await db.execute("COMMIT");
+      return { message: savedMessage, proposals: savedProposals };
+    } catch (error) {
+      await db.execute("ROLLBACK");
+      throw error;
+    }
   }
 
   async listAiMessages(surface?: AiSurface, limit = 50): Promise<AiMessage[]> {

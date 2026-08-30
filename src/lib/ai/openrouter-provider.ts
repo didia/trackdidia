@@ -1,6 +1,7 @@
 import type { AppSettings, AiSurface } from "../../domain/types";
 import type { CoachMessage } from "../../domain/types";
 import type { AiPromptContext, AiProvider, AiStructuredRequest, AiStructuredResult } from "./provider";
+import { buildCoachPulseSchemaPrompt } from "./proposals/coach-pulse-schema-prompt";
 
 export const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 export const DEFAULT_OPENROUTER_MODEL = "moonshotai/kimi-k2.6";
@@ -109,11 +110,14 @@ const buildSystemPrompt = (stance: AiStructuredRequest["stance"], repairHint?: s
         ? "Tu es un coach de discipline pour la cloture de journee. Reponds en francais avec un JSON strict conforme au schema coach_pulse."
         : "Tu es un coach de discipline. Reponds en francais avec un JSON strict conforme au schema coach_pulse.";
 
+  const schemaBlock = buildCoachPulseSchemaPrompt(stance);
+  const base = `${stanceInstruction}\n\nSchema coach_pulse:\n${schemaBlock}`;
+
   if (!repairHint) {
-    return stanceInstruction;
+    return base;
   }
 
-  return `${stanceInstruction}\n\nCorrection demandee: ${repairHint}`;
+  return `${base}\n\nCorrection demandee: ${repairHint}`;
 };
 
 export class OpenRouterProvider implements AiProvider {

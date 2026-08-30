@@ -88,6 +88,9 @@ describe("OpenRouterProvider", () => {
       response_format: { type: "json_object" }
     });
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer sk-or-test");
+    const systemPrompt = body.messages[0].content as string;
+    expect(systemPrompt).toContain("Schema coach_pulse");
+    expect(systemPrompt).toContain("intentionDraft");
   });
 
   it("retries once on 429 responses", async () => {

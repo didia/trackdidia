@@ -37,7 +37,7 @@ export const TodayPage = () => {
   entryRef.current = entry;
 
   const loadCoach = useCallback(
-    async (options: { trigger: "auto" | "explicit"; bypassCache?: boolean }) => {
+    async (options: { trigger: "auto" | "explicit"; bypassCache?: boolean; skipRescueTimeFetch?: boolean }) => {
       const currentEntry = entryRef.current;
       if (!currentEntry) {
         return;
@@ -45,7 +45,13 @@ export const TodayPage = () => {
 
       setCoachLoading(true);
       try {
-        const snapshotInputs = await resolveDailySnapshotInputs(repository, currentEntry.date);
+        const snapshotInputs = await resolveDailySnapshotInputs(
+          repository,
+          currentEntry.date,
+          new Date().toISOString(),
+          undefined,
+          { skipRescueTimeFetch: options.skipRescueTimeFetch ?? false }
+        );
         const result = await coachService.buildPulse(repository, {
           stance: "open",
           entry: currentEntry,
@@ -67,8 +73,68 @@ export const TodayPage = () => {
       return;
     }
 
-    void loadCoach({ trigger: "auto" });
-  }, [entry?.date, loadCoach]);
+    let cancelled = false;
+
+    const run = async () => {
+      const currentEntry = entryRef.current;
+      if (!currentEntry) {
+        return;
+      }
+
+      setCoachLoading(true);
+      try {
+        const fastInputs = await resolveDailySnapshotInputs(
+          repository,
+          currentEntry.date,
+          new Date().toISOString(),
+          undefined,
+          { skipRescueTimeFetch: true }
+        );
+        const localResult = await coachService.buildPulse(repository, {
+          stance: "open",
+          entry: currentEntry,
+          settings,
+          snapshotInputs: fastInputs,
+          trigger: "auto",
+          localOnly: true
+        });
+
+        if (!cancelled) {
+          setCoachResult(localResult);
+        }
+
+        if (!settings.aiEnabled || !settings.aiApiKey.trim()) {
+          if (!cancelled) {
+            setCoachLoading(false);
+          }
+          return;
+        }
+
+        const fullInputs = await resolveDailySnapshotInputs(repository, currentEntry.date);
+        const aiResult = await coachService.buildPulse(repository, {
+          stance: "open",
+          entry: currentEntry,
+          settings,
+          snapshotInputs: fullInputs,
+          trigger: "auto"
+        });
+
+        if (!cancelled) {
+          setCoachResult(aiResult);
+        }
+      } finally {
+        if (!cancelled) {
+          setCoachLoading(false);
+        }
+      }
+    };
+
+    void run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [coachService, entry?.date, repository, settings]);
 
   useEffect(() => {
     if (!entry) {
@@ -100,21 +166,26 @@ export const TodayPage = () => {
     const payload = JSON.parse(proposal.payloadJson) as { text?: string };
     const text = payload.text ?? "";
 
-    if (proposal.type === "intention_draft") {
-      morningIntentionRef.current?.setDraft(text);
-    }
+    try {
+      if (proposal.type === "intention_draft") {
+        await save(updateNote(currentEntry, "morningIntention", text));
+        morningIntentionRef.current?.setDraft(text);
+      }
 
-    await repository.decideAiProposal(proposal.id, "accepted", currentEntry.date);
-    setCoachResult((current) =>
-      current
-        ? {
-            ...current,
-            proposals: current.proposals.map((item) =>
-              item.id === proposal.id ? { ...item, status: "accepted", decidedAt: new Date().toISOString() } : item
-            )
-          }
-        : current
-    );
+      await repository.decideAiProposal(proposal.id, "accepted", currentEntry.date);
+      setCoachResult((current) =>
+        current
+          ? {
+              ...current,
+              proposals: current.proposals.map((item) =>
+                item.id === proposal.id ? { ...item, status: "accepted", decidedAt: new Date().toISOString() } : item
+              )
+            }
+          : current
+      );
+    } catch (error) {
+      console.error("Failed to accept coach proposal", error);
+    }
   };
 
   const handleDismissProposal = async (proposal: AiProposal) => {
@@ -218,7 +289,7 @@ export const TodayPage = () => {
         result={coachResult}
         loading={coachLoading}
         settings={settings}
-        onRequestCoach={() => void loadCoach({ trigger: "explicit" })}
+        autoloadAi
         onRegenerate={() => void loadCoach({ trigger: "explicit", bypassCache: true })}
         onAcceptProposal={(proposal) => void handleAcceptProposal(proposal)}
         onDismissProposal={(proposal) => void handleDismissProposal(proposal)}

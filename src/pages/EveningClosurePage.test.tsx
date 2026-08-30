@@ -46,7 +46,7 @@ const buildCoachResult = (proposal: AiProposal): CoachPulseResult => ({
 });
 
 describe("EveningClosurePage coach proposals", () => {
-  it("prefills tomorrow focus on accept without saving the daily entry", async () => {
+  it("prefills and saves tomorrow focus on accept", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
 
@@ -83,7 +83,7 @@ describe("EveningClosurePage coach proposals", () => {
 
     expect(await screen.findByDisplayValue("Preparer la presentation")).toBeInTheDocument();
     expect(decideAiProposal).toHaveBeenCalledWith("ai-proposal:tomorrow", "accepted", getTodayDate());
-    expect(saveDailyEntry).not.toHaveBeenCalled();
+    expect(saveDailyEntry).toHaveBeenCalled();
   });
 
   it("records dismissed proposals without saving the daily entry", async () => {
