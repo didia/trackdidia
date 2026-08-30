@@ -275,7 +275,9 @@ export class CoachPulseService {
       if (cached) {
         const result = await cachedResult(repository, cached);
         if (result) {
-          return result;
+          return stance === "close"
+            ? finalizeClosePulse(repository, result, entry, createdAt)
+            : result;
         }
       }
     }

@@ -468,6 +468,88 @@ describe("CoachPulseService", () => {
     expect(provider.generateStructured).toHaveBeenCalledOnce();
   });
 
+  it("finalizes due commitments when a cached close pulse is reused", async () => {
+    const provider: AiProvider = {
+      generateStructured: vi.fn(async () => ({
+        text: JSON.stringify({
+          stance: "close",
+          headline: "Cloture",
+          read: "Bilan",
+          move: null,
+          tomorrowFocusDraft: "Demain"
+        }),
+        model: "test-model",
+        usage: { tokensPrompt: 1, tokensCompletion: 1, latencyMs: 1 }
+      }))
+    };
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const service = new CoachPulseService(provider);
+    const settings = defaultAppSettings();
+    settings.aiEnabled = true;
+    settings.aiApiKey = "secret";
+
+    const entry = updateMetric(createEmptyDailyEntry("2026-08-29"), "pomodoris", 6);
+    const commitmentDetail = stringifyCommitmentDetail({ metricKey: "pomodoris", target: 8 });
+    await repository.saveAiMemory({
+      id: "ai-memory:commitment-retry",
+      kind: "commitment",
+      statement: "8 pomodoros",
+      detail: commitmentDetail,
+      confidence: 1,
+      source: "ai_extracted",
+      status: "active",
+      evidenceFrom: null,
+      evidenceTo: null,
+      createdAt: "2026-08-28T20:00:00.000Z",
+      lastConfirmedAt: "2026-08-28T20:00:00.000Z",
+      expiresAt: "2026-08-29",
+      pinned: false
+    });
+
+    const snapshotInputs = buildSnapshotInputs(entry);
+    const seeded = await service.buildPulse(repository, {
+      stance: "close",
+      entry,
+      settings,
+      snapshotInputs,
+      trigger: "explicit"
+    });
+    expect(seeded.source).toBe("ai");
+
+    await repository.saveAiMemory({
+      id: "ai-memory:commitment-retry",
+      kind: "commitment",
+      statement: "8 pomodoros",
+      detail: commitmentDetail,
+      confidence: 1,
+      source: "ai_extracted",
+      status: "active",
+      evidenceFrom: null,
+      evidenceTo: null,
+      createdAt: "2026-08-28T20:00:00.000Z",
+      lastConfirmedAt: "2026-08-28T20:00:00.000Z",
+      expiresAt: "2026-08-29",
+      pinned: false
+    });
+
+    const cached = await service.buildPulse(repository, {
+      stance: "close",
+      entry,
+      settings,
+      snapshotInputs,
+      trigger: "explicit"
+    });
+
+    expect(cached.source).toBe("cache");
+    expect(provider.generateStructured).toHaveBeenCalledOnce();
+
+    const archived = await repository.listAiMemories({ status: "archived", kind: "commitment" });
+    expect(archived).toHaveLength(1);
+    expect(archived[0]?.detail).toContain("[resolved:");
+    expect(archived[0]?.detail.match(/\[resolved:/g)).toHaveLength(1);
+  });
+
   it("cache misses when a pinned memory is added after the first pulse", async () => {
     const provider: AiProvider = {
       generateStructured: vi.fn(async () => ({

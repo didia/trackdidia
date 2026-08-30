@@ -74,7 +74,15 @@ export const runMemoryLifecycle = async (
               lastConfirmedAt: nowIso,
               evidenceTo: date
             });
+            continue;
           }
+
+          await repository.saveAiMemory({
+            ...memory,
+            lastConfirmedAt: nowIso,
+            evidenceTo: date
+          });
+          continue;
         }
       }
     }
@@ -108,9 +116,13 @@ export const resolveDueCommitmentsOnClose = async (
 
     const resolution = resolveCommitment(memory, entry);
     const outcome = resolution.met === true ? "atteint" : resolution.met === false ? "non atteint" : "inconnu";
+    const resolvedSuffix = `[resolved:${outcome};${resolution.progressLabel}]`;
+    const detail = memory.detail.includes("[resolved:")
+      ? memory.detail
+      : `${memory.detail} ${resolvedSuffix}`.trim();
     await repository.saveAiMemory({
       ...memory,
-      detail: `${memory.detail} [resolved:${outcome};${resolution.progressLabel}]`.trim(),
+      detail,
       lastConfirmedAt: nowIso
     });
     await repository.archiveAiMemory(memory.id, "resolved");

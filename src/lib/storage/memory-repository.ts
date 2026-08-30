@@ -328,6 +328,19 @@ export class MemoryRepository implements AppRepository {
     return matches[0] ? { ...matches[0] } : null;
   }
 
+  async getAiMessageRecord(surface: AiSurface, scopeKey: string, inputHash: string): Promise<AiMessage | null> {
+    const matches = [...this.aiMessages.values()]
+      .filter(
+        (message) =>
+          message.surface === surface &&
+          message.scopeKey === scopeKey &&
+          message.inputHash === inputHash
+      )
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+
+    return matches[0] ? { ...matches[0] } : null;
+  }
+
   async saveAiMessage(message: AiMessage): Promise<AiMessage> {
     const persisted = { ...message };
     this.aiMessages.set(message.id, persisted);
@@ -408,6 +421,45 @@ export class MemoryRepository implements AppRepository {
     };
     this.aiProposals.set(id, updated);
     return { ...updated };
+  }
+
+  async acceptAiMemoryProposal(
+    proposal: AiProposal,
+    memory: AiMemory
+  ): Promise<{ memory: AiMemory; proposal: AiProposal }> {
+    const existingProposal = this.aiProposals.get(proposal.id);
+    if (!existingProposal) {
+      throw new Error(`AI proposal not found: ${proposal.id}`);
+    }
+
+    if (existingProposal.status === "accepted") {
+      const memoryId = existingProposal.appliedEntityId ?? memory.id;
+      const existingMemory = this.aiMemories.get(memoryId);
+      if (!existingMemory) {
+        throw new Error(`AI memory not found: ${memoryId}`);
+      }
+
+      return {
+        memory: { ...existingMemory },
+        proposal: { ...existingProposal }
+      };
+    }
+
+    const existingMemory = this.aiMemories.get(memory.id);
+    const savedMemory = existingMemory ? { ...existingMemory } : await this.saveAiMemory(memory);
+    const decidedAt = nowIso();
+    const updatedProposal: AiProposal = {
+      ...existingProposal,
+      status: "accepted",
+      appliedEntityId: savedMemory.id,
+      decidedAt
+    };
+    this.aiProposals.set(proposal.id, updatedProposal);
+
+    return {
+      memory: savedMemory,
+      proposal: { ...updatedProposal }
+    };
   }
 
   async listAiMemories(filters: AiMemoryFilters = {}): Promise<AiMemory[]> {

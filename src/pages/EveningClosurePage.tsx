@@ -79,11 +79,13 @@ export const EveningClosurePage = () => {
         tomorrowFocusRef.current?.setDraft(applied.text);
       }
 
-      await repository.decideAiProposal(
-        proposal.id,
-        "accepted",
-        applied.memoryId ?? currentEntry.date
-      );
+      if (!applied.proposalDecided) {
+        await repository.decideAiProposal(
+          proposal.id,
+          "accepted",
+          applied.memoryId ?? currentEntry.date
+        );
+      }
       setCoachResult((current) =>
         current
           ? {

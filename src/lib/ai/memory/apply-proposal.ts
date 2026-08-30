@@ -22,13 +22,17 @@ export interface CommitmentProposalPayload {
   target?: number | null;
 }
 
+export const memoryIdFromProposal = (proposalId: string): string =>
+  proposalId.replace(/^ai-proposal:/, "ai-memory:");
+
 export const createMemoryFromProposal = (
   payload: MemoryProposalPayload,
-  acceptedDate: string
+  acceptedDate: string,
+  memoryId?: string
 ): AiMemory => {
   const timestamp = nowIso();
   return {
-    id: createEntityId("ai-memory"),
+    id: memoryId ?? createEntityId("ai-memory"),
     kind: payload.kind,
     statement: payload.statement.trim(),
     detail: payload.detail ?? "",
@@ -46,20 +50,20 @@ export const createMemoryFromProposal = (
   };
 };
 
-export const applyAcceptedProposal = async (
-  repository: AppRepository,
+export const buildMemoryFromProposal = (
   proposal: AiProposal,
   acceptedDate: string
-): Promise<AiMemory | null> => {
+): AiMemory | null => {
+  const memoryId = memoryIdFromProposal(proposal.id);
+
   if (proposal.type === "memory") {
     const payload = JSON.parse(proposal.payloadJson) as MemoryProposalPayload;
-    const memory = createMemoryFromProposal(payload, acceptedDate);
-    return repository.saveAiMemory(memory);
+    return createMemoryFromProposal(payload, acceptedDate, memoryId);
   }
 
   if (proposal.type === "commitment") {
     const payload = JSON.parse(proposal.payloadJson) as CommitmentProposalPayload;
-    const memory = createMemoryFromProposal(
+    return createMemoryFromProposal(
       {
         kind: "commitment",
         statement: payload.statement,
@@ -70,12 +74,26 @@ export const applyAcceptedProposal = async (
         }),
         source: "ai_extracted"
       },
-      acceptedDate
+      acceptedDate,
+      memoryId
     );
-    return repository.saveAiMemory(memory);
   }
 
   return null;
+};
+
+export const applyAcceptedProposal = async (
+  repository: AppRepository,
+  proposal: AiProposal,
+  acceptedDate: string
+): Promise<AiMemory | null> => {
+  const memory = buildMemoryFromProposal(proposal, acceptedDate);
+  if (!memory) {
+    return null;
+  }
+
+  const accepted = await repository.acceptAiMemoryProposal(proposal, memory);
+  return accepted.memory;
 };
 
 export const buildPatternMemoryPayload = (

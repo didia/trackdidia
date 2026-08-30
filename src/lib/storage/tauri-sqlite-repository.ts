@@ -1227,6 +1227,26 @@ export class TauriSqliteRepository implements AppRepository {
     return this.deserializeAiMessage(rows[0]);
   }
 
+  async getAiMessageRecord(surface: AiSurface, scopeKey: string, inputHash: string): Promise<AiMessage | null> {
+    const db = await this.getDb();
+    const rows = await db.select<AiMessageRow[]>(
+      `SELECT id, surface, scope_key, stance, kind, input_hash, prompt_version, model,
+              status, body_json, body_text, delta_class, notified,
+              tokens_prompt, tokens_completion, latency_ms, created_at
+       FROM ai_messages
+       WHERE surface = $1 AND scope_key = $2 AND input_hash = $3
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [surface, scopeKey, inputHash]
+    );
+
+    if (rows.length === 0) {
+      return null;
+    }
+
+    return this.deserializeAiMessage(rows[0]);
+  }
+
   async saveAiMessage(message: AiMessage): Promise<AiMessage> {
     const db = await this.getDb();
     await db.execute(
@@ -1427,6 +1447,86 @@ export class TauriSqliteRepository implements AppRepository {
     }
 
     return this.deserializeAiProposal(rows[0]);
+  }
+
+  async acceptAiMemoryProposal(
+    proposal: AiProposal,
+    memory: AiMemory
+  ): Promise<{ memory: AiMemory; proposal: AiProposal }> {
+    const db = await this.getDb();
+    await db.execute("BEGIN IMMEDIATE");
+
+    try {
+      const proposalRows = await db.select<AiProposalRow[]>(
+        `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
+         FROM ai_proposals
+         WHERE id = $1`,
+        [proposal.id]
+      );
+
+      if (proposalRows.length === 0) {
+        throw new Error(`AI proposal not found: ${proposal.id}`);
+      }
+
+      const existingProposal = this.deserializeAiProposal(proposalRows[0]);
+      if (existingProposal.status === "accepted") {
+        const memoryId = existingProposal.appliedEntityId ?? memory.id;
+        const memoryRows = await db.select<AiMemoryRow[]>(
+          `SELECT id, kind, statement, detail, confidence, source, status,
+                  evidence_from, evidence_to, created_at, last_confirmed_at, expires_at, pinned
+           FROM ai_memories
+           WHERE id = $1`,
+          [memoryId]
+        );
+
+        if (memoryRows.length === 0) {
+          throw new Error(`AI memory not found: ${memoryId}`);
+        }
+
+        await db.execute("COMMIT");
+        return {
+          memory: this.deserializeAiMemory(memoryRows[0]),
+          proposal: existingProposal
+        };
+      }
+
+      const memoryRows = await db.select<AiMemoryRow[]>(
+        `SELECT id, kind, statement, detail, confidence, source, status,
+                evidence_from, evidence_to, created_at, last_confirmed_at, expires_at, pinned
+         FROM ai_memories
+         WHERE id = $1`,
+        [memory.id]
+      );
+
+      const savedMemory =
+        memoryRows.length > 0
+          ? this.deserializeAiMemory(memoryRows[0])
+          : await this.saveAiMemory(memory);
+
+      const decidedAt = nowIso();
+      await db.execute(
+        `UPDATE ai_proposals
+         SET status = 'accepted', applied_entity_id = $1, decided_at = $2
+         WHERE id = $3`,
+        [savedMemory.id, decidedAt, proposal.id]
+      );
+
+      const updatedRows = await db.select<AiProposalRow[]>(
+        `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
+         FROM ai_proposals
+         WHERE id = $1`,
+        [proposal.id]
+      );
+
+      await db.execute("COMMIT");
+      return {
+        memory: savedMemory,
+        proposal: this.deserializeAiProposal(updatedRows[0])
+      };
+    } catch (error) {
+      await db.execute("ROLLBACK");
+      throw error;
+    }
   }
 
   async listAiMemories(filters: AiMemoryFilters = {}): Promise<AiMemory[]> {

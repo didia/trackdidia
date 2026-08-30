@@ -117,8 +117,13 @@ Phase 3 proposal types:
 | `commitment` | Creates an `ai_memories` row (`kind=commitment`, expires next local day) |
 | `memory` | Creates an `ai_memories` row from a distillation candidate |
 
+Accepting `memory` or `commitment` persists the memory row and proposal decision
+atomically via `acceptAiMemoryProposal`, using a stable memory id derived from the
+proposal id so retries reconcile instead of duplicating.
+
 Proposals are stored in `ai_proposals` with `pending | accepted | dismissed | expired`
-status. Accept persists the daily entry field before recording the decision.
+status. Draft accepts (`intention_draft`, `tomorrow_focus_draft`) save the journal
+field first, then record the proposal decision separately.
 
 ### Semantic memory (`ai_memories`)
 
@@ -142,12 +147,18 @@ Lifecycle is deterministic (no model):
 - confidence decays with age; below-threshold rows archive;
 - `context` rows archive after `expiresAt`;
 - `pattern` rows re-test against `correlations.ts` and may become `contradicted`;
+- when fresh correlation evidence supports the same sign and similar magnitude
+  (|Δdiff| ≤ 0.2), `lastConfirmedAt` and `evidenceTo` refresh without changing
+  confidence; material drift updates detail and bumps confidence;
 - commitments resolve on the evening **close** pulse when `expiresAt` matches today,
   using metric/principle values from SQLite (the model is told the outcome, not asked
-  to judge).
+  to judge). Cached close results still run this finalizer idempotently on replay.
 
 **Distillation cadence (Phase 3 start):** weekly review close proposes up to three
-derived `pattern` memories from correlation findings; evening **close** pulses may
+derived `pattern` memories from correlation findings; the marker message and candidate
+proposals persist atomically via `saveCoachPulseEpisode`, with deterministic ids and
+rebuild when a partial set is detected. Lookup uses `getAiMessageRecord` (any status);
+coach-pulse cache lookup remains `status = ok` only. Evening **close** pulses may
 propose `memoryCandidates` from the model. Commitments are daily via the accept-step.
 
 Settings → **Profil coach** manages pinned `principle` memories (mission, coaching style,
@@ -169,7 +180,8 @@ Every coach result is persisted in SQLite (migrations 21–24):
 - `ai_messages` stores the structured body, usage (`tokens_prompt`,
   `tokens_completion`, `latency_ms`), model, stance, and an input-hash cache key.
   Regenerations append a new row (migration 23); cache lookup returns the latest
-  `status = ok` row for a given hash.
+  `status = ok` row for a given hash. Non-ok markers (e.g. weekly distill) use
+  `getAiMessageRecord` instead.
 - `ai_proposals` stores accept-step rows linked to a message.
 - `ai_memories` stores semantic memory rows (`active | archived | contradicted`).
 

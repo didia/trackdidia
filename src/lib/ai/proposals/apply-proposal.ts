@@ -5,6 +5,7 @@ import { applyAcceptedProposal } from "../memory/apply-proposal";
 export interface ProposalApplyResult {
   text?: string;
   memoryId?: string;
+  proposalDecided?: boolean;
 }
 
 export const applyCoachProposal = async (
@@ -19,7 +20,7 @@ export const applyCoachProposal = async (
 
   if (proposal.type === "memory" || proposal.type === "commitment") {
     const memory = await applyAcceptedProposal(repository, proposal, acceptedDate);
-    return { memoryId: memory?.id };
+    return { memoryId: memory?.id, proposalDecided: true };
   }
 
   return {};

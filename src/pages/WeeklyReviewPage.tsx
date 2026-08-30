@@ -285,8 +285,7 @@ export const WeeklyReviewPage = () => {
 
   const handleAcceptWeeklyMemoryProposal = async (proposal: AiProposal) => {
     const weekStartDate = latestReviewRef.current?.weekStartDate ?? selectedWeekStart;
-    const applied = await applyCoachProposal(repository, proposal, weekStartDate);
-    await repository.decideAiProposal(proposal.id, "accepted", applied.memoryId ?? weekStartDate);
+    await applyCoachProposal(repository, proposal, weekStartDate);
     setWeeklyMemoryProposals((current) => current.filter((item) => item.id !== proposal.id));
   };
 
