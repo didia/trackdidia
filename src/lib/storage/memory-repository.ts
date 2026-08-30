@@ -144,6 +144,15 @@ export class MemoryRepository implements AppRepository {
     return Promise.all(sorted.map((entry) => this.decorateEntry(entry)));
   }
 
+  async listDailyEntriesOnOrBefore(endDate: string, limit = 180): Promise<DailyEntry[]> {
+    const sorted = [...this.entries.values()]
+      .filter((entry) => entry.date <= endDate)
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, limit);
+
+    return Promise.all(sorted.map((entry) => this.decorateEntry(entry)));
+  }
+
   async getWeeklyReview(weekStartDate: string): Promise<WeeklyReview | null> {
     const normalized = buildWeekDates(weekStartDate);
     const existing = this.weeklyReviews.get(normalized);
@@ -458,6 +467,132 @@ export class MemoryRepository implements AppRepository {
 
     return {
       memory: savedMemory,
+      proposal: { ...updatedProposal }
+    };
+  }
+
+  async acceptAiWeeklyObjectiveProposal(
+    proposal: AiProposal,
+    objective: WeeklyObjective
+  ): Promise<{ objective: WeeklyObjective; proposal: AiProposal }> {
+    const existingProposal = this.aiProposals.get(proposal.id);
+    if (!existingProposal) {
+      throw new Error(`AI proposal not found: ${proposal.id}`);
+    }
+
+    if (existingProposal.status === "accepted") {
+      const objectiveId = existingProposal.appliedEntityId ?? objective.id;
+      const existingObjective = [...this.weeklyObjectives.values()].find((item) => item.id === objectiveId);
+      if (!existingObjective) {
+        throw new Error(`Weekly objective not found: ${objectiveId}`);
+      }
+
+      return {
+        objective: cloneWeeklyObjective(existingObjective),
+        proposal: { ...existingProposal }
+      };
+    }
+
+    const savedObjective = await this.saveWeeklyObjective(objective);
+    const decidedAt = nowIso();
+    const updatedProposal: AiProposal = {
+      ...existingProposal,
+      status: "accepted",
+      appliedEntityId: savedObjective.id,
+      decidedAt
+    };
+    this.aiProposals.set(proposal.id, updatedProposal);
+
+    return {
+      objective: savedObjective,
+      proposal: { ...updatedProposal }
+    };
+  }
+
+  async acceptAiReviewSectionDraftProposal(
+    proposal: AiProposal,
+    review: WeeklyReview
+  ): Promise<{ review: WeeklyReview; proposal: AiProposal }> {
+    const existingProposal = this.aiProposals.get(proposal.id);
+    if (!existingProposal) {
+      throw new Error(`AI proposal not found: ${proposal.id}`);
+    }
+
+    if (existingProposal.status === "accepted") {
+      const savedReview = await this.getWeeklyReview(review.weekStartDate);
+      return {
+        review: savedReview ?? review,
+        proposal: { ...existingProposal }
+      };
+    }
+
+    await this.saveWeeklyReview(review);
+    const decidedAt = nowIso();
+    const updatedProposal: AiProposal = {
+      ...existingProposal,
+      status: "accepted",
+      appliedEntityId: review.weekStartDate,
+      decidedAt
+    };
+    this.aiProposals.set(proposal.id, updatedProposal);
+
+    return {
+      review,
+      proposal: { ...updatedProposal }
+    };
+  }
+
+  async acceptAiGtdActionProposal(
+    proposal: AiProposal,
+    scheduledDate: string
+  ): Promise<{ taskId: string | null; proposal: AiProposal }> {
+    const existingProposal = this.aiProposals.get(proposal.id);
+    if (!existingProposal) {
+      throw new Error(`AI proposal not found: ${proposal.id}`);
+    }
+
+    if (existingProposal.status === "accepted") {
+      return {
+        taskId: existingProposal.appliedEntityId,
+        proposal: { ...existingProposal }
+      };
+    }
+
+    const payload = JSON.parse(proposal.payloadJson) as {
+      taskId?: string;
+      action?: "schedule" | "defer" | "delegate" | "drop";
+    };
+
+    if (!payload.taskId || !payload.action) {
+      return { taskId: null, proposal: { ...existingProposal } };
+    }
+
+    const task = [...this.tasks.values()].find((item) => item.id === payload.taskId);
+    if (!task || task.status !== "active") {
+      return { taskId: null, proposal: { ...existingProposal } };
+    }
+
+    if (payload.action === "schedule") {
+      await this.scheduleTask(payload.taskId, scheduledDate);
+    } else if (payload.action === "defer") {
+      await this.moveTask(payload.taskId, "someday_maybe", task.contextIds, task.projectId);
+    } else if (payload.action === "delegate") {
+      await this.moveTask(payload.taskId, "waiting_for", task.contextIds, task.projectId);
+    } else if (payload.action === "drop") {
+      await this.cancelTask(payload.taskId);
+    }
+
+    const decidedAt = nowIso();
+    const updatedProposal: AiProposal = {
+      ...existingProposal,
+      status: "accepted",
+      appliedEntityId: payload.taskId,
+      decidedAt
+    };
+    this.aiProposals.set(proposal.id, updatedProposal);
+
+    return {
+      taskId: payload.taskId,
       proposal: { ...updatedProposal }
     };
   }

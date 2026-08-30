@@ -1,5 +1,6 @@
 import type { AppSettings, AiSurface, CoachMessage, CoachPulseStance, DailyEntry } from "../../domain/types";
 import type { DailySnapshot } from "./context/daily-snapshot";
+import type { WeeklySnapshot } from "./context/weekly-snapshot";
 
 export interface AiPromptContext {
   entry: DailyEntry;
@@ -17,19 +18,29 @@ export interface AiUsage {
   latencyMs: number;
 }
 
-export interface AiStructuredRequest {
-  surface: AiSurface;
-  stance: CoachPulseStance;
+interface AiStructuredRequestBase {
   settings: AppSettings;
-  snapshot: DailySnapshot;
   repairHint?: string;
   memoryBlock?: string;
+}
+
+export interface CoachPulseStructuredRequest extends AiStructuredRequestBase {
+  surface: "coach_pulse";
+  stance: CoachPulseStance;
+  snapshot: DailySnapshot;
   commitmentResolution?: {
     statement: string;
     progressLabel: string;
     met: boolean | null;
   } | null;
 }
+
+export interface WeeklySynthesisStructuredRequest extends AiStructuredRequestBase {
+  surface: "weekly_synthesis";
+  snapshot: WeeklySnapshot;
+}
+
+export type AiStructuredRequest = CoachPulseStructuredRequest | WeeklySynthesisStructuredRequest;
 
 export interface AiStructuredResult {
   text: string;
@@ -42,3 +53,5 @@ export interface AiProvider {
   /** @deprecated Legacy morning/evening coach transport. */
   generate?(kind: CoachMessage["kind"], context: AiPromptContext): Promise<string>;
 }
+
+export type { AiSurface };

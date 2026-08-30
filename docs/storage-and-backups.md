@@ -54,7 +54,11 @@ It groups:
 - settings and backup operations;
 - GTD contexts, projects, tasks, and task events;
 - recurrence templates and generated work;
-- Pomodoro sessions and segments.
+- Pomodoro sessions and segments;
+- AI messages, proposals, and memories;
+- standing weekly objectives and per-week manual results.
+
+Repository helpers include `listDailyEntriesOnOrBefore(endDate, limit)` for bounded history ending at a calendar date, and atomic accept methods for weekly synthesis proposals (`acceptAiWeeklyObjectiveProposal`, `acceptAiReviewSectionDraftProposal`, `acceptAiGtdActionProposal`).
 
 The SQLite and memory implementations must remain behaviorally aligned, except for
 native-only storage information and backup creation.
@@ -103,6 +107,7 @@ Never renumber or rewrite a released migration. Add the next ID.
 | 22 | `create_ai_proposals` | Accept-step proposals linked to AI messages |
 | 23 | `ai_messages_append_only` | Drop `(surface, scope_key, input_hash)` uniqueness so regenerations append episodes; pending proposal uniqueness per message |
 | 24 | `create_ai_memories` | Semantic coach memory (patterns, profile, commitments); pending uniqueness excludes `memory` so weekly distill can store multiple candidates |
+| 25 | `ai_proposals_repeatable_weekly_types` | Pending proposal uniqueness excludes repeatable weekly types (`review_section_draft`, `weekly_objective`, `gtd_action`) in addition to `memory` |
 
 ## Table reference
 

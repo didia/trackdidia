@@ -769,4 +769,149 @@ describe("MemoryRepository", () => {
     await expect(repository.listWeeklyObjectives()).resolves.toEqual([]);
     await expect(repository.getWeeklyObjectiveResults("2026-08-03")).resolves.toEqual([]);
   });
+
+  it("persists two review_section_draft proposals atomically in one episode", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const message = {
+      id: "ai-message:episode",
+      surface: "weekly_synthesis" as const,
+      scopeKey: "2026-08-02",
+      stance: null,
+      kind: "weekly",
+      inputHash: "hash",
+      promptVersion: "weekly_synthesis.v1",
+      model: "local",
+      status: "skipped" as const,
+      bodyJson: "{}",
+      bodyText: "Local",
+      deltaClass: null,
+      notified: false,
+      tokensPrompt: null,
+      tokensCompletion: null,
+      latencyMs: null,
+      createdAt: "2026-08-29T08:00:00.000Z"
+    };
+
+    const saved = await repository.saveCoachPulseEpisode(message, [
+      {
+        id: "ai-proposal:draft-1",
+        messageId: message.id,
+        type: "review_section_draft",
+        payloadJson: JSON.stringify({ sectionKey: "tempsEtPlan", text: "Plan" }),
+        status: "pending",
+        appliedEntityId: null,
+        decidedAt: null,
+        createdAt: "2026-08-29T08:00:00.000Z"
+      },
+      {
+        id: "ai-proposal:draft-2",
+        messageId: message.id,
+        type: "review_section_draft",
+        payloadJson: JSON.stringify({ sectionKey: "dimanche", text: "Dimanche" }),
+        status: "pending",
+        appliedEntityId: null,
+        decidedAt: null,
+        createdAt: "2026-08-29T08:00:00.000Z"
+      }
+    ]);
+
+    expect(saved.proposals).toHaveLength(2);
+    expect(saved.proposals.every((proposal) => proposal.type === "review_section_draft")).toBe(true);
+  });
+
+  it("acceptAiWeeklyObjectiveProposal is idempotent", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const proposal = {
+      id: "ai-proposal:objective",
+      messageId: "ai-message:weekly",
+      type: "weekly_objective" as const,
+      payloadJson: JSON.stringify({
+        title: "Lire 2h",
+        kind: "manual",
+        targetHours: null,
+        rescuetimeKind: null,
+        rescuetimeThing: null
+      }),
+      status: "pending" as const,
+      appliedEntityId: null,
+      decidedAt: null,
+      createdAt: "2026-08-29T08:00:00.000Z"
+    };
+    await repository.saveAiProposal(proposal);
+    const objective = {
+      id: "weekly-objective:objective",
+      title: "Lire 2h",
+      kind: "manual" as const,
+      targetHours: null,
+      rescuetimeKind: null,
+      rescuetimeThing: null,
+      sortOrder: 0,
+      createdAt: "2026-08-29T08:00:00.000Z",
+      updatedAt: "2026-08-29T08:00:00.000Z"
+    };
+
+    const first = await repository.acceptAiWeeklyObjectiveProposal(proposal, objective);
+    const second = await repository.acceptAiWeeklyObjectiveProposal(proposal, objective);
+
+    expect(first.objective.id).toBe(second.objective.id);
+    expect(await repository.listWeeklyObjectives()).toHaveLength(1);
+  });
+
+  it("acceptAiGtdActionProposal skips completed tasks", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const timestamp = "2026-08-29T12:00:00.000Z";
+    await repository.saveTask({
+      id: "task:done",
+      title: "Done",
+      notes: "",
+      status: "completed",
+      bucket: "next_action",
+      contextIds: [],
+      projectId: null,
+      parentTaskId: null,
+      scheduledFor: null,
+      deadline: null,
+      recurringTemplateId: null,
+      recurrenceDueDate: null,
+      isRecurringInstance: false,
+      completedAt: timestamp,
+      recurrenceGroupId: null,
+      pendingPastRecurrences: 0,
+      source: "manual",
+      sourceExternalId: null,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    });
+
+    const proposal = {
+      id: "ai-proposal:gtd",
+      messageId: "ai-message:gtd",
+      type: "gtd_action" as const,
+      payloadJson: JSON.stringify({ taskId: "task:done", action: "drop", reason: "Stale" }),
+      status: "pending" as const,
+      appliedEntityId: null,
+      decidedAt: null,
+      createdAt: timestamp
+    };
+    await repository.saveAiProposal(proposal);
+
+    const result = await repository.acceptAiGtdActionProposal(proposal, "2026-08-29");
+    expect(result.taskId).toBeNull();
+    expect(result.proposal.status).toBe("pending");
+  });
+
+  it("listDailyEntriesOnOrBefore returns history ending at the requested date", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    for (const date of ["2026-01-01", "2026-06-01", "2026-12-01"]) {
+      await repository.saveDailyEntry(createEmptyDailyEntry(date));
+    }
+
+    const entries = await repository.listDailyEntriesOnOrBefore("2026-06-01", 10);
+    expect(entries.map((entry) => entry.date)).toEqual(["2026-06-01", "2026-01-01"]);
+  });
 });

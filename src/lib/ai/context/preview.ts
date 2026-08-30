@@ -2,9 +2,11 @@ import { createEmptyDailyEntry } from "../../../domain/daily-entry";
 import type { AiPayloadScope } from "../../../domain/types";
 import { getTodayDate } from "../../date";
 import { getWeekStartSunday } from "../../gtd/shared";
+import { buildWeekDates } from "../../../domain/weekly-review";
 import { RescueTimeGoalsService } from "../../rescuetime/rescuetime-goals-service";
 import type { AppRepository } from "../../storage/repository";
 import { buildDailySnapshot, type DailySnapshot } from "./daily-snapshot";
+import { buildWeeklySnapshot, resolveWeeklySnapshotInputs } from "./weekly-snapshot";
 import type { Surface } from "./types";
 
 /**
@@ -24,8 +26,12 @@ export interface PreviewPayloadOptions {
   /** ISO instant used as "now". Defaults to the current time. */
   now?: string;
   /**
-   * Pre-resolved RescueTime pulse to reuse across multiple `previewPayload` calls (e.g. one per
-   * scope) instead of each call independently fetching it. Defaults to resolving it internally.
+   * Pre-resolved weekly RescueTime pulse + Goals score to reuse across multiple
+   * `previewPayload` calls (Settings weekly preview). Daily preview uses `productivityPulse`.
+   */
+  weeklyRescueTime?: ResolvedWeeklyRescueTime;
+  /**
+   * Pre-resolved RescueTime pulse to reuse across multiple daily `previewPayload` calls.
    */
   productivityPulse?: ResolvedProductivityPulse;
 }
@@ -36,6 +42,47 @@ export interface ResolvedProductivityPulse {
   /** Set when RescueTime is configured but the request failed (bad key, expired key, no connectivity) — distinguishes a fetch failure from "no data this week" (`pulseWeekToDate: null` with no error). */
   fetchError?: string;
 }
+
+export interface ResolvedWeeklyRescueTime {
+  configured: boolean;
+  productivityPulse: number | null;
+  rescueTimeGoalsScore: number | null;
+  pulseFetchError?: string;
+  goalsFetchError?: string;
+}
+
+/**
+ * Resolves RescueTime Goals and productivity pulse once for a weekly preview or synthesis input.
+ */
+export const resolveWeeklyRescueTimeInputs = async (
+  repository: AppRepository,
+  weekStartDate: string
+): Promise<ResolvedWeeklyRescueTime> => {
+  const settings = await repository.getSettings();
+  const configured = settings.rescuetimeApiKey.trim().length > 0;
+
+  if (!configured) {
+    return {
+      configured,
+      productivityPulse: null,
+      rescueTimeGoalsScore: null
+    };
+  }
+
+  const goalsService = new RescueTimeGoalsService(repository);
+  const [pulseSnapshot, goalsSnapshot] = await Promise.all([
+    goalsService.computeProductivityPulse(weekStartDate),
+    goalsService.computeGoalsSnapshot(weekStartDate)
+  ]);
+
+  return {
+    configured,
+    productivityPulse: pulseSnapshot.pulse,
+    rescueTimeGoalsScore: goalsSnapshot.score,
+    pulseFetchError: pulseSnapshot.fetchError,
+    goalsFetchError: goalsSnapshot.fetchError
+  };
+};
 
 /**
  * Resolves the RescueTime week-to-date productivity pulse (or `null` when RescueTime isn't
@@ -111,6 +158,8 @@ export const resolveDailySnapshotInputs = async (
   };
 };
 
+export type PreviewSnapshot = DailySnapshot | import("./weekly-snapshot").WeeklySnapshot;
+
 /**
  * Renders the exact snapshot that would be sent to the model for a given scope, built from
  * real repository data (spec `ai-integration-v2.md` §5). Exposed in Settings behind the
@@ -120,14 +169,28 @@ export const previewPayload = async (
   repository: AppRepository,
   scope: AiPayloadScope,
   options: PreviewPayloadOptions = {}
-): Promise<DailySnapshot> => {
+): Promise<PreviewSnapshot> => {
   const surface = options.surface ?? "daily";
+  const now = options.now ?? new Date().toISOString();
+
+  if (surface === "weekly") {
+    const weekStartDate = buildWeekDates(options.date ?? getTodayDate());
+    const rescueTime =
+      options.weeklyRescueTime ?? (await resolveWeeklyRescueTimeInputs(repository, weekStartDate));
+    const inputs = await resolveWeeklySnapshotInputs(repository, weekStartDate, {
+      now,
+      productivityPulse: rescueTime.productivityPulse,
+      rescueTimeGoalsScore: rescueTime.rescueTimeGoalsScore,
+      rescuetimeConfigured: rescueTime.configured
+    });
+    return buildWeeklySnapshot(inputs, scope);
+  }
+
   if (surface !== "daily") {
     throw new Error(`Surface non supportee pour l'aperçu IA: ${surface}`);
   }
 
   const date = options.date ?? getTodayDate();
-  const now = options.now ?? new Date().toISOString();
   const inputs = await resolveDailySnapshotInputs(repository, date, now, options.productivityPulse);
 
   return buildDailySnapshot(inputs, scope);

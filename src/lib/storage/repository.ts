@@ -64,6 +64,7 @@ export interface AppRepository {
   getDailyEntry(date: string): Promise<DailyEntry | null>;
   saveDailyEntry(entry: DailyEntry): Promise<void>;
   listDailyEntries(limit?: number): Promise<DailyEntry[]>;
+  listDailyEntriesOnOrBefore(endDate: string, limit?: number): Promise<DailyEntry[]>;
   getWeeklyReview(weekStartDate: string): Promise<WeeklyReview | null>;
   saveWeeklyReview(review: WeeklyReview): Promise<void>;
   listWeeklyReviews(limit?: number): Promise<WeeklyReview[]>;
@@ -99,6 +100,18 @@ export interface AppRepository {
     appliedEntityId?: string
   ): Promise<AiProposal>;
   acceptAiMemoryProposal(proposal: AiProposal, memory: AiMemory): Promise<{ memory: AiMemory; proposal: AiProposal }>;
+  acceptAiWeeklyObjectiveProposal(
+    proposal: AiProposal,
+    objective: WeeklyObjective
+  ): Promise<{ objective: WeeklyObjective; proposal: AiProposal }>;
+  acceptAiReviewSectionDraftProposal(
+    proposal: AiProposal,
+    review: WeeklyReview
+  ): Promise<{ review: WeeklyReview; proposal: AiProposal }>;
+  acceptAiGtdActionProposal(
+    proposal: AiProposal,
+    scheduledDate: string
+  ): Promise<{ taskId: string | null; proposal: AiProposal }>;
   listAiMemories(filters?: AiMemoryFilters): Promise<AiMemory[]>;
   saveAiMemory(memory: AiMemory): Promise<AiMemory>;
   archiveAiMemory(id: string, reason: "expired" | "contradicted" | "resolved"): Promise<void>;

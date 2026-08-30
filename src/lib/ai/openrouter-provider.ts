@@ -2,6 +2,7 @@ import type { AppSettings, AiSurface } from "../../domain/types";
 import type { CoachMessage } from "../../domain/types";
 import type { AiPromptContext, AiProvider, AiStructuredRequest, AiStructuredResult } from "./provider";
 import { buildCoachPulseSchemaPrompt } from "./proposals/coach-pulse-schema-prompt";
+import { buildWeeklySynthesisSchemaPrompt } from "./proposals/weekly-synthesis-schema-prompt";
 
 export const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 export const DEFAULT_OPENROUTER_MODEL = "moonshotai/kimi-k2.6";
@@ -102,33 +103,33 @@ const shouldRetryStatus = (status: number): boolean => status === 429 || status 
 const resolveModel = (settings: AppSettings, surface: AiSurface): string =>
   settings.aiSurfaceModels[surface]?.trim() || settings.aiModel;
 
-const buildSystemPrompt = (
-  stance: AiStructuredRequest["stance"],
-  memoryBlock?: string,
-  repairHint?: string
-): string => {
+const buildSystemPrompt = (request: AiStructuredRequest, repairHint?: string): string => {
+  const memorySection = request.memoryBlock?.trim()
+    ? `\n\nContexte memoire durable:\n${request.memoryBlock.trim()}`
+    : "";
+
+  if (request.surface === "weekly_synthesis") {
+    const instruction =
+      "Tu es un coach de revue hebdomadaire pour le rituel du dimanche. Reponds en francais avec un JSON strict conforme au schema weekly_synthesis (S2).";
+    const schemaBlock = buildWeeklySynthesisSchemaPrompt();
+    const base = `${instruction}\n\nSchema weekly_synthesis:\n${schemaBlock}${memorySection}`;
+    return repairHint ? `${base}\n\nCorrection demandee: ${repairHint}` : base;
+  }
+
   const stanceInstruction =
-    stance === "open"
+    request.stance === "open"
       ? "Tu es un coach de discipline pour l'ouverture de journee. Reponds en francais avec un JSON strict conforme au schema coach_pulse."
-      : stance === "steer"
+      : request.stance === "steer"
         ? "Tu es un coach de discipline pour un ajustement de mi-journee. Reponds en francais avec un JSON strict conforme au schema coach_pulse."
-        : stance === "wind_down"
+        : request.stance === "wind_down"
           ? "Tu es un coach de discipline pour la fin de journee active. Reponds en francais avec un JSON strict conforme au schema coach_pulse."
-          : stance === "close"
+          : request.stance === "close"
             ? "Tu es un coach de discipline pour la cloture de journee. Reponds en francais avec un JSON strict conforme au schema coach_pulse."
             : "Tu es un coach de discipline. Reponds en francais avec un JSON strict conforme au schema coach_pulse.";
 
-  const schemaBlock = buildCoachPulseSchemaPrompt(stance);
-  const memorySection = memoryBlock?.trim()
-    ? `\n\nContexte memoire durable:\n${memoryBlock.trim()}`
-    : "";
+  const schemaBlock = buildCoachPulseSchemaPrompt(request.stance);
   const base = `${stanceInstruction}\n\nSchema coach_pulse:\n${schemaBlock}${memorySection}`;
-
-  if (!repairHint) {
-    return base;
-  }
-
-  return `${base}\n\nCorrection demandee: ${repairHint}`;
+  return repairHint ? `${base}\n\nCorrection demandee: ${repairHint}` : base;
 };
 
 export class OpenRouterProvider implements AiProvider {
@@ -202,16 +203,23 @@ export class OpenRouterProvider implements AiProvider {
       messages: [
         {
           role: "system",
-          content: buildSystemPrompt(request.stance, request.memoryBlock, request.repairHint)
+          content: buildSystemPrompt(request, request.repairHint)
         },
         {
           role: "user",
-          content: JSON.stringify({
-            surface: request.surface,
-            stance: request.stance,
-            snapshot: request.snapshot,
-            commitmentResolution: request.commitmentResolution ?? null
-          })
+          content: JSON.stringify(
+            request.surface === "coach_pulse"
+              ? {
+                  surface: request.surface,
+                  stance: request.stance,
+                  snapshot: request.snapshot,
+                  commitmentResolution: request.commitmentResolution ?? null
+                }
+              : {
+                  surface: request.surface,
+                  snapshot: request.snapshot
+                }
+          )
         }
       ]
     };
