@@ -19,7 +19,7 @@ export const resolvePartOfDay = (now: Date = new Date()): CoachPartOfDay => {
 export const getLocalTimeZone = (): string =>
   Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
-/** Text the user has written for this coach slot. Empty means do not call the AI. */
+/** Text the user has written for a coach slot (informational; no longer gates AI calls). */
 export const getCoachInputText = (entry: DailyEntry, partOfDay: CoachPartOfDay): string => {
   if (partOfDay === "morning" || partOfDay === "afternoon") {
     return entry.morningIntention.trim();

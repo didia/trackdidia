@@ -30,6 +30,9 @@ import {
 } from "../../domain/weekly-objectives";
 import { getTodayDate } from "../date";
 import type {
+  AiMessage,
+  AiProposal,
+  AiSurface,
   AnnualGoal,
   AppSettings,
   CreateTaskInput,
@@ -114,6 +117,8 @@ export class MemoryRepository implements AppRepository {
   private pomodoroSessions = new Map<string, PomodoroSession>();
   private pomodoroSegments = new Map<string, PomodoroSegment>();
   private recurringTemplates = new Map<string, RecurringTaskTemplate>();
+  private aiMessages = new Map<string, AiMessage>();
+  private aiProposals = new Map<string, AiProposal>();
 
   async initialize(): Promise<void> {
     return Promise.resolve();
@@ -304,6 +309,102 @@ export class MemoryRepository implements AppRepository {
 
   async saveSettings(settings: AppSettings): Promise<void> {
     this.settings = mergeAppSettingsWithDefaults(settings, defaultAppSettings());
+  }
+
+  async getAiMessage(surface: AiSurface, scopeKey: string, inputHash: string): Promise<AiMessage | null> {
+    const matches = [...this.aiMessages.values()]
+      .filter(
+        (message) =>
+          message.surface === surface &&
+          message.scopeKey === scopeKey &&
+          message.inputHash === inputHash &&
+          message.status === "ok"
+      )
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+
+    return matches[0] ? { ...matches[0] } : null;
+  }
+
+  async saveAiMessage(message: AiMessage): Promise<AiMessage> {
+    const persisted = { ...message };
+    this.aiMessages.set(message.id, persisted);
+    return { ...persisted };
+  }
+
+  async saveCoachPulseEpisode(
+    message: AiMessage,
+    proposals: AiProposal[]
+  ): Promise<{ message: AiMessage; proposals: AiProposal[] }> {
+    const savedMessage = await this.saveAiMessage(message);
+    for (const [id, proposal] of this.aiProposals.entries()) {
+      if (proposal.messageId === savedMessage.id && proposal.status === "pending") {
+        this.aiProposals.delete(id);
+      }
+    }
+
+    const savedProposals: AiProposal[] = [];
+    for (const proposal of proposals) {
+      const persisted = { ...proposal, messageId: savedMessage.id };
+      this.aiProposals.set(persisted.id, persisted);
+      savedProposals.push({ ...persisted });
+    }
+
+    return { message: savedMessage, proposals: savedProposals };
+  }
+
+  async listAiMessages(surface?: AiSurface, limit = 50): Promise<AiMessage[]> {
+    const messages = [...this.aiMessages.values()]
+      .filter((message) => !surface || message.surface === surface)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .slice(0, limit);
+    return messages.map((message) => ({ ...message }));
+  }
+
+  async listAiMessagesForDate(date: string): Promise<AiMessage[]> {
+    return [...this.aiMessages.values()]
+      .filter((message) => message.scopeKey === date || message.scopeKey.startsWith(`${date}#`))
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .map((message) => ({ ...message }));
+  }
+
+  async listAiProposals(messageId: string): Promise<AiProposal[]> {
+    return [...this.aiProposals.values()]
+      .filter((proposal) => proposal.messageId === messageId)
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .map((proposal) => ({ ...proposal }));
+  }
+
+  async saveAiProposal(proposal: AiProposal): Promise<AiProposal> {
+    this.aiProposals.set(proposal.id, { ...proposal });
+    return { ...proposal };
+  }
+
+  async clearPendingAiProposals(messageId: string): Promise<void> {
+    for (const [id, proposal] of this.aiProposals.entries()) {
+      if (proposal.messageId === messageId && proposal.status === "pending") {
+        this.aiProposals.delete(id);
+      }
+    }
+  }
+
+  async decideAiProposal(
+    id: string,
+    status: "accepted" | "dismissed",
+    appliedEntityId?: string
+  ): Promise<AiProposal> {
+    const existing = this.aiProposals.get(id);
+    if (!existing) {
+      throw new Error(`AI proposal not found: ${id}`);
+    }
+
+    const updated: AiProposal = {
+      ...existing,
+      status,
+      appliedEntityId: appliedEntityId ?? null,
+      decidedAt: nowIso()
+    };
+    this.aiProposals.set(id, updated);
+    return { ...updated };
   }
 
   async getStorageInfo() {

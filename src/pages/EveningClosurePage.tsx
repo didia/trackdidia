@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   autoSuggestedMetricKeys,
@@ -7,21 +7,107 @@ import {
   updateNote,
   updatePrinciple
 } from "../domain/daily-entry";
+import type { AiProposal, CoachPulseResult } from "../domain/types";
+import { useAppContext } from "../app/app-context";
 import { useDailyEntry } from "../app/use-daily-entry";
+import { CoachPulsePanel } from "../components/CoachPulsePanel";
 import { EntrySummaryStrip } from "../components/EntrySummaryStrip";
 import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
 import { MetricGrid } from "../components/MetricGrid";
 import { PrincipleChecklist } from "../components/PrincipleChecklist";
 import { SectionCard } from "../components/SectionCard";
+import { resolveDailySnapshotInputs } from "../lib/ai/context/preview";
 import { getTodayDate, formatDateLong } from "../lib/date";
 
 export const EveningClosurePage = () => {
   const navigate = useNavigate();
+  const { repository, settings, coachService } = useAppContext();
   const { entry, loading, save } = useDailyEntry(getTodayDate());
+  const [coachResult, setCoachResult] = useState<CoachPulseResult | null>(null);
+  const [coachLoading, setCoachLoading] = useState(true);
   const latestEntryRef = useRef(entry);
   const nightReflectionRef = useRef<PersistedTextareaHandle>(null);
   const tomorrowFocusRef = useRef<PersistedTextareaHandle>(null);
   latestEntryRef.current = entry;
+
+  const loadCoach = useCallback(
+    async (options: { trigger: "auto" | "explicit"; bypassCache?: boolean }) => {
+      const currentEntry = latestEntryRef.current;
+      if (!currentEntry) {
+        return;
+      }
+
+      setCoachLoading(true);
+      try {
+        const snapshotInputs = await resolveDailySnapshotInputs(repository, currentEntry.date);
+        const result = await coachService.buildPulse(repository, {
+          stance: "close",
+          entry: currentEntry,
+          settings,
+          snapshotInputs,
+          trigger: options.trigger,
+          bypassCache: options.bypassCache ?? false
+        });
+        setCoachResult(result);
+      } finally {
+        setCoachLoading(false);
+      }
+    },
+    [coachService, repository, settings]
+  );
+
+  useEffect(() => {
+    if (!entry) {
+      return;
+    }
+
+    void loadCoach({ trigger: "explicit" });
+  }, [entry?.date, loadCoach]);
+
+  const handleAcceptProposal = async (proposal: AiProposal) => {
+    const currentEntry = latestEntryRef.current;
+    if (!currentEntry) {
+      return;
+    }
+
+    const payload = JSON.parse(proposal.payloadJson) as { text?: string };
+    const text = payload.text ?? "";
+
+    try {
+      if (proposal.type === "tomorrow_focus_draft") {
+        await save(updateNote(currentEntry, "tomorrowFocus", text));
+        tomorrowFocusRef.current?.setDraft(text);
+      }
+
+      await repository.decideAiProposal(proposal.id, "accepted", currentEntry.date);
+      setCoachResult((current) =>
+        current
+          ? {
+              ...current,
+              proposals: current.proposals.map((item) =>
+                item.id === proposal.id ? { ...item, status: "accepted", decidedAt: new Date().toISOString() } : item
+              )
+            }
+          : current
+      );
+    } catch (error) {
+      console.error("Failed to accept coach proposal", error);
+    }
+  };
+
+  const handleDismissProposal = async (proposal: AiProposal) => {
+    await repository.decideAiProposal(proposal.id, "dismissed");
+    setCoachResult((current) =>
+      current
+        ? {
+            ...current,
+            proposals: current.proposals.map((item) =>
+              item.id === proposal.id ? { ...item, status: "dismissed", decidedAt: new Date().toISOString() } : item
+            )
+          }
+        : current
+    );
+  };
 
   if (loading || !entry) {
     return <div className="page"><p>Chargement de la fermeture du soir...</p></div>;
@@ -40,6 +126,17 @@ export const EveningClosurePage = () => {
       </header>
 
       <EntrySummaryStrip entry={entry} />
+
+      <CoachPulsePanel
+        title="Coach de cloture"
+        result={coachResult}
+        loading={coachLoading}
+        settings={settings}
+        onRequestCoach={() => void loadCoach({ trigger: "explicit" })}
+        onRegenerate={() => void loadCoach({ trigger: "explicit", bypassCache: true })}
+        onAcceptProposal={(proposal) => void handleAcceptProposal(proposal)}
+        onDismissProposal={(proposal) => void handleDismissProposal(proposal)}
+      />
 
       <SectionCard title="Metriques du jour" subtitle="Complete les chiffres qui rendent la journee lisible.">
         <MetricGrid

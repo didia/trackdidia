@@ -18,57 +18,86 @@ Default highlights:
 | AI enabled | No |
 | AI base URL | `https://openrouter.ai/api/v1` |
 | AI model | `moonshotai/kimi-k2.6` |
-| RescueTime API key | Empty |
 | AI payload scope | `full` |
+| AI max tokens | `700` |
+| AI timeout | `20000` ms |
+| AI surface models | `{}` (falls back to `aiModel`) |
+| RescueTime API key | Empty |
 | Automatic backup | Enabled, 24 hours |
 | Relationship draws | Enabled |
 
 The settings object also holds internal timestamps for GTD bootstrap normalizations,
 the last backup, and per-category relationship processing.
 
-## Coach modes
+## Coach modes (Phase 1 — `coach_pulse`)
 
-`AiCoachService` always prepares a local message. It only calls the configured
-provider when:
+TrackDidia now uses a unified **`coach_pulse`** surface with stance-aware structured
+JSON output instead of two separate free-text morning/evening coaches.
 
-- the relevant journal input is non-empty;
-- AI is enabled;
-- the API key is non-empty.
+| Stance | When (Phase 1) | Page |
+|---|---|---|
+| `open` | Today page load (local brief) + explicit request | `/` |
+| `close` | Evening closure page opens + explicit request | `/fermeture-soir` |
+
+Pulse scheduling (`steer`, `wind_down`, catch-up slots) is **not** shipped in Phase 1.
 
 ### Local coach
 
-Morning messages use:
+`CoachPulseService` always prepares a deterministic local brief from the insight
+engine's top finding with meaningful sample size (`buildLocalCoachPulse`). On Today,
+this renders immediately on page load without waiting for RescueTime or OpenRouter.
 
-- the current entry's completion;
-- average discipline across up to seven recent entries.
+When AI is disabled or the API key is empty:
 
-Evening messages use:
+- only the local brief renders;
+- **Regenerer** stays disabled with an explanatory label.
 
-- current-day discipline;
-- recent average discipline.
+### Auto-load trigger (Today)
 
-These are deterministic short French messages and do not require a network.
+When AI is configured, Today auto-loads the coach on page open:
 
-### Relevant coach input
+1. a fast local brief from snapshot inputs that skip the live RescueTime fetch;
+2. then an AI call (cache-first) once the full snapshot is ready.
 
-| Coach slot | Text required |
+Evening closure still auto-runs the `close` stance on page open. **Regenerer**
+bypasses the `ai_messages` input-hash cache deliberately.
+
+There is **no** gate requiring the user to write journal text first, and no
+**Demander au coach** button on Today while auto-load is active.
+
+### Structured output and accept-step
+
+The model returns JSON validated against the S1 `coach_pulse` schema (stance-aware).
+On invalid JSON: one repair retry, then deterministic local fallback.
+
+Phase 1 proposal types:
+
+| Type | Accept applies |
 |---|---|
-| Morning/afternoon | `morningIntention` |
-| Evening | Non-empty `nightReflection` and/or `tomorrowFocus` |
+| `intention_draft` | Saves `morningIntention` immediately, then marks the proposal accepted |
+| `tomorrow_focus_draft` | Saves `tomorrowFocus` immediately, then marks the proposal accepted |
 
-If the relevant text is empty, the service returns local coaching even when AI is
-enabled.
+Proposals are stored in `ai_proposals` with `pending | accepted | dismissed | expired`
+status. Accept persists the daily entry field before recording the decision.
 
-### Cache
+### Context and redaction
 
-AI messages are cached only in the `AiCoachService` in-memory map. The key is:
+Before any model call, `CoachPulseService` builds a typed daily snapshot via
+`buildDailySnapshot` and applies `aiPayloadScope` redaction centrally. Settings
+can preview the exact payload per scope when debug mode is enabled.
 
-```text
-date | coach part of day | relevant input text
-```
+### Persistence (`ai_messages`)
 
-Settings/model changes alone do not invalidate an existing in-memory result with
-the same key. The cache disappears when the app reloads.
+Every coach result is persisted in SQLite (migrations 21–23):
+
+- `ai_messages` stores the structured body, usage (`tokens_prompt`,
+  `tokens_completion`, `latency_ms`), model, stance, and an input-hash cache key.
+  Regenerations append a new row (migration 23); cache lookup returns the latest
+  `status = ok` row for a given hash.
+- `ai_proposals` stores accept-step rows linked to a message.
+
+Browser preview uses `MemoryRepository` with the same methods. The old in-memory
+`AiCoachService` cache is replaced by this durable store on desktop.
 
 ## OpenRouter request
 
@@ -79,22 +108,27 @@ The base URL is normalized by removing trailing slashes and accidental
 <baseUrl>/chat/completions
 ```
 
-The request includes:
+Structured `coach_pulse` requests include:
 
-- configured model;
-- a French system prompt;
-- local IANA time zone;
-- coach slot and current part of day;
-- relevant input text;
-- the complete current `DailyEntry`;
-- up to seven recent complete `DailyEntry` objects.
+- per-surface model: `settings.aiSurfaceModels[surface] ?? settings.aiModel`;
+- `max_tokens` from `settings.aiMaxTokens` (default 700);
+- `temperature` 0.4;
+- `response_format: { type: "json_object" }`;
+- a French system prompt with stance context;
+- the redacted daily snapshot (not a raw `DailyEntry` dump).
+
+Transport hardening:
+
+- abortable timeout via `settings.aiTimeoutMs` (default 20 s), mirroring RescueTime;
+- one retry with 500 ms backoff on HTTP 429 and 5xx;
+- no retry on other 4xx responses;
+- usage extracted from the OpenRouter `usage` block and stored on the message row.
 
 Headers include the bearer API key, `HTTP-Referer: https://trackdidia.app`, and
-`X-Title: Trackdidia`.
+`X-Title: Trackdidia`. The key and request payloads are never logged.
 
-Only `choices[0].message.content` string responses are supported. HTTP/provider
-errors produce a fallback local message plus a visible warning; they do not block
-the daily workflow.
+HTTP/provider errors produce a fallback local message plus a visible warning; they do
+not block the daily workflow.
 
 ## RescueTime request
 
@@ -139,11 +173,11 @@ local CLI scripts such as `scripts/rescuetime-goals-score.mjs`.
 
 Enabling AI can transmit highly personal information:
 
-- intentions and reflections;
+- intentions and reflections (when scope is `full`);
 - principle responses;
 - life metrics;
 - task-derived and Pomodoro-derived suggested values;
-- up to seven recent entries.
+- insight findings assembled from local history.
 
 The user should treat the configured endpoint/model provider as a data processor.
 Changing the base URL may send data and the bearer key to a different service.
@@ -152,7 +186,7 @@ Current secret handling:
 
 - the API key is stored in plaintext inside the local SQLite settings JSON;
 - the Settings UI masks the field visually but this is not encryption;
-- backups contain the key;
+- backups contain the key and persisted AI messages/proposals;
 - no OS keychain integration exists.
 
 Never add the key or request payloads to debug logs, tests, screenshots, docs, or

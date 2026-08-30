@@ -25,8 +25,12 @@ import {
   listWeekDates
 } from "../../domain/weekly-review";
 import type {
+  AiMessage,
+  AiProposal,
+  AiSurface,
   AnnualGoal,
   AppSettings,
+  CoachPulseStance,
   DailyEntry,
   GtdImportSummary,
   MonthlyReview,
@@ -263,6 +267,37 @@ interface PomodoroSegmentRow {
   title: string | null;
   started_at: string;
   ended_at: string | null;
+}
+
+interface AiMessageRow {
+  id: string;
+  surface: string;
+  scope_key: string;
+  stance: string | null;
+  kind: string;
+  input_hash: string;
+  prompt_version: string;
+  model: string;
+  status: string;
+  body_json: string | null;
+  body_text: string | null;
+  delta_class: string | null;
+  notified: number;
+  tokens_prompt: number | null;
+  tokens_completion: number | null;
+  latency_ms: number | null;
+  created_at: string;
+}
+
+interface AiProposalRow {
+  id: string;
+  message_id: string;
+  type: string;
+  payload_json: string;
+  status: string;
+  applied_entity_id: string | null;
+  decided_at: string | null;
+  created_at: string;
 }
 
 const migrations: Migration[] = [
@@ -550,6 +585,100 @@ const migrations: Migration[] = [
         PRIMARY KEY (week_start_date, objective_id),
         FOREIGN KEY (objective_id) REFERENCES weekly_objectives(id) ON DELETE CASCADE
       );
+    `
+  },
+  {
+    id: 21,
+    name: "create_ai_messages",
+    sql: `
+      CREATE TABLE IF NOT EXISTS ai_messages (
+        id TEXT PRIMARY KEY,
+        surface TEXT NOT NULL,
+        scope_key TEXT NOT NULL,
+        stance TEXT,
+        kind TEXT NOT NULL,
+        input_hash TEXT NOT NULL,
+        prompt_version TEXT NOT NULL,
+        model TEXT NOT NULL,
+        status TEXT NOT NULL,
+        body_json TEXT,
+        body_text TEXT,
+        delta_class TEXT,
+        notified INTEGER NOT NULL DEFAULT 0,
+        tokens_prompt INTEGER,
+        tokens_completion INTEGER,
+        latency_ms INTEGER,
+        created_at TEXT NOT NULL,
+        UNIQUE (surface, scope_key, input_hash)
+      );
+    `
+  },
+  {
+    id: 22,
+    name: "create_ai_proposals",
+    sql: `
+      CREATE TABLE IF NOT EXISTS ai_proposals (
+        id TEXT PRIMARY KEY,
+        message_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        applied_entity_id TEXT,
+        decided_at TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (message_id) REFERENCES ai_messages(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_ai_proposals_message_id ON ai_proposals (message_id);
+      CREATE INDEX IF NOT EXISTS idx_ai_proposals_status ON ai_proposals (status);
+    `
+  },
+  {
+    id: 23,
+    name: "ai_messages_append_only",
+    sql: `
+      CREATE TABLE ai_messages_v23 (
+        id TEXT PRIMARY KEY,
+        surface TEXT NOT NULL,
+        scope_key TEXT NOT NULL,
+        stance TEXT,
+        kind TEXT NOT NULL,
+        input_hash TEXT NOT NULL,
+        prompt_version TEXT NOT NULL,
+        model TEXT NOT NULL,
+        status TEXT NOT NULL,
+        body_json TEXT,
+        body_text TEXT,
+        delta_class TEXT,
+        notified INTEGER NOT NULL DEFAULT 0,
+        tokens_prompt INTEGER,
+        tokens_completion INTEGER,
+        latency_ms INTEGER,
+        created_at TEXT NOT NULL
+      );
+
+      INSERT INTO ai_messages_v23 (
+        id, surface, scope_key, stance, kind, input_hash, prompt_version, model,
+        status, body_json, body_text, delta_class, notified,
+        tokens_prompt, tokens_completion, latency_ms, created_at
+      )
+      SELECT
+        id, surface, scope_key, stance, kind, input_hash, prompt_version, model,
+        status, body_json, body_text, delta_class, notified,
+        tokens_prompt, tokens_completion, latency_ms, created_at
+      FROM ai_messages;
+
+      DROP TABLE ai_messages;
+      ALTER TABLE ai_messages_v23 RENAME TO ai_messages;
+
+      CREATE INDEX IF NOT EXISTS idx_ai_messages_cache
+        ON ai_messages (surface, scope_key, input_hash, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_ai_messages_scope_date
+        ON ai_messages (scope_key, created_at ASC);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_proposals_message_type
+        ON ai_proposals (message_id, type)
+        WHERE status = 'pending';
     `
   }
 ];
@@ -1029,6 +1158,228 @@ export class TauriSqliteRepository implements AppRepository {
        ON CONFLICT(id) DO UPDATE SET value = excluded.value`,
       [JSON.stringify(normalized)]
     );
+  }
+
+  async getAiMessage(surface: AiSurface, scopeKey: string, inputHash: string): Promise<AiMessage | null> {
+    const db = await this.getDb();
+    const rows = await db.select<AiMessageRow[]>(
+      `SELECT id, surface, scope_key, stance, kind, input_hash, prompt_version, model,
+              status, body_json, body_text, delta_class, notified,
+              tokens_prompt, tokens_completion, latency_ms, created_at
+       FROM ai_messages
+       WHERE surface = $1 AND scope_key = $2 AND input_hash = $3 AND status = 'ok'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [surface, scopeKey, inputHash]
+    );
+
+    if (rows.length === 0) {
+      return null;
+    }
+
+    return this.deserializeAiMessage(rows[0]);
+  }
+
+  async saveAiMessage(message: AiMessage): Promise<AiMessage> {
+    const db = await this.getDb();
+    await db.execute(
+      `INSERT INTO ai_messages (
+        id, surface, scope_key, stance, kind, input_hash, prompt_version, model,
+        status, body_json, body_text, delta_class, notified,
+        tokens_prompt, tokens_completion, latency_ms, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+      [
+        message.id,
+        message.surface,
+        message.scopeKey,
+        message.stance,
+        message.kind,
+        message.inputHash,
+        message.promptVersion,
+        message.model,
+        message.status,
+        message.bodyJson,
+        message.bodyText,
+        message.deltaClass,
+        message.notified ? 1 : 0,
+        message.tokensPrompt,
+        message.tokensCompletion,
+        message.latencyMs,
+        message.createdAt
+      ]
+    );
+
+    const rows = await db.select<AiMessageRow[]>(
+      `SELECT id, surface, scope_key, stance, kind, input_hash, prompt_version, model,
+              status, body_json, body_text, delta_class, notified,
+              tokens_prompt, tokens_completion, latency_ms, created_at
+       FROM ai_messages
+       WHERE id = $1`,
+      [message.id]
+    );
+
+    if (rows.length === 0) {
+      throw new Error("AI message insert failed");
+    }
+
+    return this.deserializeAiMessage(rows[0]);
+  }
+
+  async saveCoachPulseEpisode(
+    message: AiMessage,
+    proposals: AiProposal[]
+  ): Promise<{ message: AiMessage; proposals: AiProposal[] }> {
+    const db = await this.getDb();
+    await db.execute("BEGIN IMMEDIATE");
+
+    try {
+      const savedMessage = await this.saveAiMessage(message);
+      await db.execute(
+        `DELETE FROM ai_proposals
+         WHERE message_id = $1 AND status = 'pending'`,
+        [savedMessage.id]
+      );
+
+      const savedProposals: AiProposal[] = [];
+      for (const proposal of proposals) {
+        await db.execute(
+          `INSERT INTO ai_proposals (
+            id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [
+            proposal.id,
+            savedMessage.id,
+            proposal.type,
+            proposal.payloadJson,
+            proposal.status,
+            proposal.appliedEntityId,
+            proposal.decidedAt,
+            proposal.createdAt
+          ]
+        );
+        savedProposals.push({ ...proposal, messageId: savedMessage.id });
+      }
+
+      await db.execute("COMMIT");
+      return { message: savedMessage, proposals: savedProposals };
+    } catch (error) {
+      await db.execute("ROLLBACK");
+      throw error;
+    }
+  }
+
+  async listAiMessages(surface?: AiSurface, limit = 50): Promise<AiMessage[]> {
+    const db = await this.getDb();
+    const rows = surface
+      ? await db.select<AiMessageRow[]>(
+          `SELECT id, surface, scope_key, stance, kind, input_hash, prompt_version, model,
+                  status, body_json, body_text, delta_class, notified,
+                  tokens_prompt, tokens_completion, latency_ms, created_at
+           FROM ai_messages
+           WHERE surface = $1
+           ORDER BY created_at DESC
+           LIMIT $2`,
+          [surface, limit]
+        )
+      : await db.select<AiMessageRow[]>(
+          `SELECT id, surface, scope_key, stance, kind, input_hash, prompt_version, model,
+                  status, body_json, body_text, delta_class, notified,
+                  tokens_prompt, tokens_completion, latency_ms, created_at
+           FROM ai_messages
+           ORDER BY created_at DESC
+           LIMIT $1`,
+          [limit]
+        );
+
+    return rows.map((row) => this.deserializeAiMessage(row));
+  }
+
+  async listAiMessagesForDate(date: string): Promise<AiMessage[]> {
+    const db = await this.getDb();
+    const rows = await db.select<AiMessageRow[]>(
+      `SELECT id, surface, scope_key, stance, kind, input_hash, prompt_version, model,
+              status, body_json, body_text, delta_class, notified,
+              tokens_prompt, tokens_completion, latency_ms, created_at
+       FROM ai_messages
+       WHERE scope_key = $1 OR scope_key LIKE $2
+       ORDER BY created_at ASC`,
+      [date, `${date}#%`]
+    );
+
+    return rows.map((row) => this.deserializeAiMessage(row));
+  }
+
+  async listAiProposals(messageId: string): Promise<AiProposal[]> {
+    const db = await this.getDb();
+    const rows = await db.select<AiProposalRow[]>(
+      `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
+       FROM ai_proposals
+       WHERE message_id = $1
+       ORDER BY created_at ASC`,
+      [messageId]
+    );
+
+    return rows.map((row) => this.deserializeAiProposal(row));
+  }
+
+  async saveAiProposal(proposal: AiProposal): Promise<AiProposal> {
+    const db = await this.getDb();
+    await db.execute(
+      `INSERT INTO ai_proposals (
+        id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      ON CONFLICT(id) DO UPDATE SET
+        type = excluded.type,
+        payload_json = excluded.payload_json,
+        status = excluded.status,
+        applied_entity_id = excluded.applied_entity_id,
+        decided_at = excluded.decided_at`,
+      [
+        proposal.id,
+        proposal.messageId,
+        proposal.type,
+        proposal.payloadJson,
+        proposal.status,
+        proposal.appliedEntityId,
+        proposal.decidedAt,
+        proposal.createdAt
+      ]
+    );
+
+    return proposal;
+  }
+
+  async clearPendingAiProposals(messageId: string): Promise<void> {
+    const db = await this.getDb();
+    await db.execute("DELETE FROM ai_proposals WHERE message_id = $1 AND status = 'pending'", [messageId]);
+  }
+
+  async decideAiProposal(
+    id: string,
+    status: "accepted" | "dismissed",
+    appliedEntityId?: string
+  ): Promise<AiProposal> {
+    const db = await this.getDb();
+    const decidedAt = nowIso();
+    await db.execute(
+      `UPDATE ai_proposals
+       SET status = $1, applied_entity_id = $2, decided_at = $3
+       WHERE id = $4`,
+      [status, appliedEntityId ?? null, decidedAt, id]
+    );
+
+    const rows = await db.select<AiProposalRow[]>(
+      `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
+       FROM ai_proposals
+       WHERE id = $1`,
+      [id]
+    );
+
+    if (rows.length === 0) {
+      throw new Error(`AI proposal not found: ${id}`);
+    }
+
+    return this.deserializeAiProposal(rows[0]);
   }
 
   async getStorageInfo(): Promise<StorageInfo> {
@@ -1852,6 +2203,41 @@ export class TauriSqliteRepository implements AppRepository {
     await this.completeExpiredPomodoroSessions();
     const sessions = await this.getAllPomodoroSessions();
     return computeDailyPomodoroStats(sessions, date);
+  }
+
+  private deserializeAiMessage(row: AiMessageRow): AiMessage {
+    return {
+      id: row.id,
+      surface: row.surface as AiSurface,
+      scopeKey: row.scope_key,
+      stance: row.stance as CoachPulseStance | null,
+      kind: row.kind,
+      inputHash: row.input_hash,
+      promptVersion: row.prompt_version,
+      model: row.model,
+      status: row.status as AiMessage["status"],
+      bodyJson: row.body_json,
+      bodyText: row.body_text,
+      deltaClass: row.delta_class as AiMessage["deltaClass"],
+      notified: row.notified === 1,
+      tokensPrompt: row.tokens_prompt,
+      tokensCompletion: row.tokens_completion,
+      latencyMs: row.latency_ms,
+      createdAt: row.created_at
+    };
+  }
+
+  private deserializeAiProposal(row: AiProposalRow): AiProposal {
+    return {
+      id: row.id,
+      messageId: row.message_id,
+      type: row.type as AiProposal["type"],
+      payloadJson: row.payload_json,
+      status: row.status as AiProposal["status"],
+      appliedEntityId: row.applied_entity_id,
+      decidedAt: row.decided_at,
+      createdAt: row.created_at
+    };
   }
 
   private async getDb(): Promise<Database> {

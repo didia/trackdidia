@@ -99,6 +99,9 @@ Never renumber or rewrite a released migration. Add the next ID.
 | 18 | `create_annual_goals` | Goals and monthly evaluations |
 | 19 | `add_paused_remaining_ms_to_pomodoro_sessions` | Durable paused timer state |
 | 20 | `create_weekly_objectives` | Standing weekly objectives and per-week manual results |
+| 21 | `create_ai_messages` | Persisted AI coach outputs, usage, and input-hash cache |
+| 22 | `create_ai_proposals` | Accept-step proposals linked to AI messages |
+| 23 | `ai_messages_append_only` | Drop `(surface, scope_key, input_hash)` uniqueness so regenerations append episodes; pending proposal uniqueness per message |
 
 ## Table reference
 

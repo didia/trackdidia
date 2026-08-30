@@ -24,6 +24,9 @@ import type {
   MonthlyReviewSummary,
   AnnualGoal,
   AnnualGoalSnapshot,
+  AiProposal,
+  AiMessage,
+  AiSurface,
   WeeklyReview,
   WeeklyReviewSummary,
   WeeklyObjective,
@@ -78,6 +81,19 @@ export interface AppRepository {
   computeAnnualGoalSnapshots(year: number): Promise<AnnualGoalSnapshot[]>;
   getSettings(): Promise<AppSettings>;
   saveSettings(settings: AppSettings): Promise<void>;
+  getAiMessage(surface: AiSurface, scopeKey: string, inputHash: string): Promise<AiMessage | null>;
+  saveAiMessage(message: AiMessage): Promise<AiMessage>;
+  saveCoachPulseEpisode(message: AiMessage, proposals: AiProposal[]): Promise<{ message: AiMessage; proposals: AiProposal[] }>;
+  listAiMessages(surface?: AiSurface, limit?: number): Promise<AiMessage[]>;
+  listAiMessagesForDate(date: string): Promise<AiMessage[]>;
+  listAiProposals(messageId: string): Promise<AiProposal[]>;
+  saveAiProposal(proposal: AiProposal): Promise<AiProposal>;
+  clearPendingAiProposals(messageId: string): Promise<void>;
+  decideAiProposal(
+    id: string,
+    status: "accepted" | "dismissed",
+    appliedEntityId?: string
+  ): Promise<AiProposal>;
   getStorageInfo(): Promise<StorageInfo | null>;
   createBackup(kind?: "manual" | "auto"): Promise<BackupResult>;
   importGoogleTasksExport(rawJson: unknown): Promise<GtdImportSummary>;
