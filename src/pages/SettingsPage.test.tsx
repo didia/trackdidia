@@ -10,6 +10,18 @@ describe("SettingsPage AI payload preview", () => {
     expect(screen.queryByText("Apercu du payload IA (debug)")).not.toBeInTheDocument();
   });
 
+  it("shows validation feedback for invalid pulse slot hours on blur", async () => {
+    const user = userEvent.setup();
+    await renderWithApp(<SettingsPage />, { contextOverrides: { debugEnabled: false } });
+
+    const input = screen.getByPlaceholderText("5, 13, 20");
+    await user.clear(input);
+    await user.type(input, "5, 13");
+    await user.tab();
+
+    expect(screen.getByText("Entrez exactement trois heures locales (open, steer, wind_down).")).toBeInTheDocument();
+  });
+
   it("renders the three scoped payload previews when debug mode is on, redacting free text at the metrics scope", async () => {
     const user = userEvent.setup();
     await renderWithApp(<SettingsPage />, { contextOverrides: { debugEnabled: true } });

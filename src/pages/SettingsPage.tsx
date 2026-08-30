@@ -8,6 +8,7 @@ import { formatDateTimeShort, getTodayDate } from "../lib/date";
 import type { StorageInfo } from "../lib/storage/repository";
 import { RescueTimeGoalsService } from "../lib/rescuetime/rescuetime-goals-service";
 import { previewPayload, resolveProductivityPulse } from "../lib/ai/context/preview";
+import { formatPulseSlotHours, parsePulseSlotHours } from "../lib/ai/pulse/slot-hours";
 
 const payloadScopes: Array<{ value: AiPayloadScope; label: string }> = [
   { value: "metrics", label: "metrics" },
@@ -19,6 +20,8 @@ export const SettingsPage = () => {
   const { repository, settings, saveSettings, debugEnabled, setDebugEnabled, browserPreview } = useAppContext();
   const goalsService = useMemo(() => new RescueTimeGoalsService(repository), [repository]);
   const [draftSettings, setDraftSettings] = useState<AppSettings>(settings);
+  const [pulseSlotsDraft, setPulseSlotsDraft] = useState(() => formatPulseSlotHours(settings.aiPulseSlots));
+  const [pulseSlotsError, setPulseSlotsError] = useState("");
   const [savingSettings, setSavingSettings] = useState(false);
   const [savingRescuetimeSettings, setSavingRescuetimeSettings] = useState(false);
   const [rescuetimeMessage, setRescuetimeMessage] = useState("");
@@ -41,6 +44,8 @@ export const SettingsPage = () => {
 
   useEffect(() => {
     setDraftSettings(settings);
+    setPulseSlotsDraft(formatPulseSlotHours(settings.aiPulseSlots));
+    setPulseSlotsError("");
   }, [settings]);
 
   useEffect(() => {
@@ -97,8 +102,18 @@ export const SettingsPage = () => {
           className="settings-form"
           onSubmit={async (event) => {
             event.preventDefault();
+            const parsedSlots = parsePulseSlotHours(pulseSlotsDraft);
+            if (!parsedSlots.ok) {
+              setPulseSlotsError(parsedSlots.error);
+              return;
+            }
+
+            setPulseSlotsError("");
             setSavingSettings(true);
-            await saveSettings(draftSettings);
+            await saveSettings({
+              ...draftSettings,
+              aiPulseSlots: parsedSlots.hours
+            });
             setSavingSettings(false);
           }}
         >
@@ -218,21 +233,24 @@ export const SettingsPage = () => {
           </label>
 
           <label>
-            <span>Heures de pulse (local, separees par des virgules)</span>
+            <span>Heures de pulse (local, trois heures uniques 0–23, separees par des virgules)</span>
             <input
               type="text"
-              value={draftSettings.aiPulseSlots.join(", ")}
-              onChange={(event) =>
-                setDraftSettings((current) => ({
-                  ...current,
-                  aiPulseSlots: event.target.value
-                    .split(",")
-                    .map((part) => Number(part.trim()))
-                    .filter((hour) => Number.isFinite(hour) && hour >= 0 && hour <= 23)
-                }))
-              }
+              value={pulseSlotsDraft}
+              onChange={(event) => {
+                setPulseSlotsDraft(event.target.value);
+                if (pulseSlotsError) {
+                  setPulseSlotsError("");
+                }
+              }}
+              onBlur={() => {
+                const parsed = parsePulseSlotHours(pulseSlotsDraft);
+                setPulseSlotsError(parsed.ok ? "" : parsed.error);
+              }}
               placeholder="5, 13, 20"
+              aria-invalid={pulseSlotsError.length > 0}
             />
+            {pulseSlotsError ? <span className="field-error">{pulseSlotsError}</span> : null}
           </label>
 
           <label>
@@ -258,7 +276,12 @@ export const SettingsPage = () => {
             <button
               className="button button--ghost"
               type="button"
-              onClick={() => setDraftSettings(defaultAppSettings())}
+              onClick={() => {
+                const defaults = defaultAppSettings();
+                setDraftSettings(defaults);
+                setPulseSlotsDraft(formatPulseSlotHours(defaults.aiPulseSlots));
+                setPulseSlotsError("");
+              }}
             >
               Reinitialiser
             </button>

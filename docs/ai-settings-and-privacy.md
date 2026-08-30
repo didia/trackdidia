@@ -71,6 +71,9 @@ only on the **second consecutive weekday `stall`**, respects
 session, and never fires on weekends.
 
 Settings → Parametres IA exposes pulse toggles, slot hours, and notification cap.
+Pulse slot hours must be **exactly three unique local hours (0–23)**, saved sorted;
+invalid input is rejected on save with inline feedback. Extra hours in legacy stored
+settings are capped to the first three unique sorted values at scheduling time.
 
 ### Local coach
 

@@ -628,6 +628,11 @@ textarea {
   gap: 14px;
 }
 
+.field-error {
+  color: #b42318;
+  font-size: 0.875rem;
+}
+
 .inline-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

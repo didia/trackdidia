@@ -60,4 +60,21 @@ describe("slot-resolution", () => {
     expect(buildPulseScopeKey(date, "steer", 13)).toBe(`${date}#13`);
     expect(buildPulseScopeKey(date, "wind_down", 20)).toBe(`${date}#20`);
   });
+
+  it("uses only the first three unique stored hours when more are persisted", () => {
+    const result = resolvePulseSlots({
+      date,
+      nowIso: "2026-08-29T21:00:00",
+      slotHours: [5, 13, 20, 21],
+      firstOpenAtIso: "2026-08-29T06:00:00",
+      processedScopeKeys: new Set([date, `${date}#13`])
+    });
+
+    expect(result.dueSlot).toEqual({
+      stance: "wind_down",
+      hour: 20,
+      scopeKey: `${date}#20`
+    });
+    expect(result.missedSlots).toEqual([]);
+  });
 });

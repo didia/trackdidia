@@ -1,5 +1,6 @@
 import type { CoachPulseStance } from "../../../domain/types";
-import { DEFAULT_PULSE_SLOT_HOURS, type PulseScheduledStance } from "./constants";
+import type { PulseScheduledStance } from "./constants";
+import { normalizeStoredSlotHours } from "./slot-hours";
 
 export interface ResolvedPulseSlot {
   stance: PulseScheduledStance;
@@ -33,11 +34,6 @@ const stanceForIndex = (index: number): PulseScheduledStance => {
 export const buildPulseScopeKey = (date: string, stance: CoachPulseStance, hour: number): string =>
   stance === "open" ? date : `${date}#${hour}`;
 
-const normalizeSlotHours = (slotHours: number[]): number[] => {
-  const hours = slotHours.length > 0 ? [...slotHours] : [...DEFAULT_PULSE_SLOT_HOURS];
-  return hours.sort((left, right) => left - right);
-};
-
 const localMinutesSinceMidnight = (iso: string): number => {
   const date = new Date(iso);
   return date.getHours() * 60 + date.getMinutes();
@@ -56,7 +52,7 @@ const buildSlot = (date: string, stance: PulseScheduledStance, hour: number): Re
  * Coalesces to the latest passed unprocessed slot; earlier passed slots are missed.
  */
 export const resolvePulseSlots = (input: SlotResolutionInput): SlotResolutionResult => {
-  const hours = normalizeSlotHours(input.slotHours);
+  const hours = normalizeStoredSlotHours(input.slotHours);
   const nowMinutes = localMinutesSinceMidnight(input.nowIso);
 
   const slots = hours.map((hour, index) => buildSlot(input.date, stanceForIndex(index), hour));

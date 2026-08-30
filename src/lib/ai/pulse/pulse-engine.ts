@@ -156,11 +156,18 @@ export const runPulseEngine = async (context: PulseEngineContext): Promise<Pulse
     processedScopeKeys
   });
 
+  let recordedMissed = 0;
   for (const missed of missedSlots) {
     if (!processedScopeKeys.has(missed.scopeKey)) {
       await recordMissedSlot(context.repository, missed, atIso);
       processedScopeKeys.add(missed.scopeKey);
+      recordedMissed += 1;
     }
+  }
+
+  let messagesForNotification = todayMessages;
+  if (recordedMissed > 0) {
+    messagesForNotification = await context.repository.listAiMessagesForDate(date);
   }
 
   if (!dueSlot) {
@@ -171,7 +178,7 @@ export const runPulseEngine = async (context: PulseEngineContext): Promise<Pulse
   const sinceIso = lastPulseTimestamp(todayMessages, date);
   const [focusSessions, tasks] = await Promise.all([
     context.repository.listPomodoroSessions(date),
-    context.repository.listTasks()
+    context.repository.listTasks({ includeCompleted: true })
   ]);
 
   const window = classifyPulseWindow({
@@ -182,8 +189,6 @@ export const runPulseEngine = async (context: PulseEngineContext): Promise<Pulse
     appOpenIntervals: context.appOpenIntervals,
     dayOfWeek
   });
-
-  const snapshotInputs = await resolveDailySnapshotInputs(context.repository, date);
 
   if (window.deltaClass === "idle" || window.deltaClass === "unknown") {
     const localPulse =
@@ -203,6 +208,8 @@ export const runPulseEngine = async (context: PulseEngineContext): Promise<Pulse
     return { ranSlot: dueSlot, result, recordedMissed: missedSlots.length };
   }
 
+  const snapshotInputs = await resolveDailySnapshotInputs(context.repository, date);
+
   const result = await context.coachService.buildPulse(context.repository, {
     stance: dueSlot.stance as CoachPulseStance,
     entry,
@@ -218,7 +225,7 @@ export const runPulseEngine = async (context: PulseEngineContext): Promise<Pulse
     deltaClass: window.deltaClass,
     nowIso: atIso,
     dayOfWeek,
-    todayMessages,
+    todayMessages: messagesForNotification,
     focusSessionActive: context.focusSessionActive
   });
 

@@ -5,6 +5,7 @@ the top of the table.
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-08-30 | Phase 2 pulse review fixes: completed tasks count as progress, idle/unknown skip RescueTime fetch, missed slots break stall notification chain, pulse slot hours require exactly three unique local hours | `docs/ai-settings-and-privacy.md` | `src/lib/ai/pulse/pulse-engine.ts`, `slot-hours.ts`, `SettingsPage.tsx` |
 | 2026-08-30 | Phase 1 PR review fixes: Today auto-loads AI, accept auto-saves journal fields, append-only `ai_messages` (migration 23), coach schema in prompts, ephemeral local proposals suppressed, RescueTime skipped for fast local brief | `docs/ai-settings-and-privacy.md`, `docs/storage-and-backups.md` | Migration 23, `CoachPulseService`, `CoachPulsePanel`, `TodayPage`, `EveningClosurePage` |
 | 2026-08-29 | Shipped AI Integration v2 Phase 2: catch-up pulse engine (`open`/`steer`/`wind_down`), delta gate, weekday stall notifications, pulse settings, and Today panel thread | `docs/ai-settings-and-privacy.md` | `src/lib/ai/pulse/`, `app-context.tsx`, `TodayPage.tsx`, `SettingsPage.tsx` |
 | 2026-08-29 | Shipped AI Integration v2 Phase 1: structured `coach_pulse` (`open`/`close`), provider hardening, `ai_messages`/`ai_proposals` persistence, explicit coach trigger, and accept-step prefills | `docs/ai-settings-and-privacy.md`, `docs/storage-and-backups.md` | Migrations 21–22, `CoachPulseService`, `OpenRouterProvider`, `TodayPage`, `EveningClosurePage` |
