@@ -1,5 +1,6 @@
 import type { Finding } from "../../domain/insights/types";
 import type {
+  AiDeltaClass,
   AiMessage,
   AiProposal,
   AppSettings,
@@ -29,10 +30,22 @@ export interface CoachPulseRequest {
   trigger?: "auto" | "explicit";
   /** When true, never call the provider and return an ephemeral local brief without proposals. */
   localOnly?: boolean;
+  deltaClass?: AiDeltaClass | null;
+  /** Local hour for steer/wind_down scope keys (`YYYY-MM-DD#13`). */
+  slotHour?: number;
 }
 
-const buildScopeKey = (date: string, stance: CoachPulseStance): string =>
-  stance === "open" ? date : `${date}#${stance}`;
+const buildScopeKey = (date: string, stance: CoachPulseStance, slotHour?: number): string => {
+  if (stance === "open") {
+    return date;
+  }
+
+  if (stance === "close") {
+    return `${date}#close`;
+  }
+
+  return `${date}#${slotHour ?? (stance === "steer" ? 13 : 20)}`;
+};
 
 const buildConfigFingerprint = (settings: AppSettings): Record<string, string> => ({
   model: settings.aiSurfaceModels.coach_pulse?.trim() || settings.aiModel,
@@ -133,13 +146,27 @@ const persistResult = async (
 export class CoachPulseService {
   constructor(private readonly provider: AiProvider) {}
 
+  async resultFromMessage(repository: AppRepository, message: AiMessage): Promise<CoachPulseResult | null> {
+    return cachedResult(repository, message);
+  }
+
   async buildPulse(
     repository: AppRepository,
     request: CoachPulseRequest
   ): Promise<CoachPulseResult> {
-    const { stance, entry, settings, snapshotInputs, bypassCache = false, trigger = "auto", localOnly = false } = request;
+    const {
+      stance,
+      entry,
+      settings,
+      snapshotInputs,
+      bypassCache = false,
+      trigger = "auto",
+      localOnly = false,
+      deltaClass = null,
+      slotHour
+    } = request;
     const snapshot = buildDailySnapshot(snapshotInputs, settings.aiPayloadScope);
-    const scopeKey = buildScopeKey(entry.date, stance);
+    const scopeKey = buildScopeKey(entry.date, stance, slotHour);
     const inputHash = buildAiInputHash({
       promptVersion: COACH_PULSE_PROMPT_VERSION,
       stance,
@@ -159,10 +186,12 @@ export class CoachPulseService {
     }
 
     const findings = snapshot.findings as Finding[];
-    const localPulse = buildLocalCoachPulse(stance, findings);
+    const localPulse = buildLocalCoachPulse(stance, findings, deltaClass ?? undefined);
     const createdAt = nowIso();
     const aiConfigured = settings.aiEnabled && settings.aiApiKey.trim().length > 0;
-    const shouldCallProvider = !localOnly && aiConfigured && (trigger === "explicit" || trigger === "auto");
+    const autoMayCallProvider =
+      trigger === "auto" && (deltaClass === null || deltaClass === "progress" || deltaClass === "stall");
+    const shouldCallProvider = !localOnly && aiConfigured && (trigger === "explicit" || autoMayCallProvider);
 
     const baseMessage = (): AiMessage => ({
       id: createEntityId("ai-message"),
@@ -176,7 +205,7 @@ export class CoachPulseService {
       status: "ok",
       bodyJson: JSON.stringify(localPulse),
       bodyText: pulseToBodyText(localPulse),
-      deltaClass: null,
+      deltaClass,
       notified: false,
       tokensPrompt: null,
       tokensCompletion: null,
@@ -191,7 +220,7 @@ export class CoachPulseService {
         model: "local"
       };
 
-      if (trigger === "explicit") {
+      if (trigger === "explicit" || deltaClass !== null) {
         return persistResult(repository, skippedMessage, localPulse);
       }
 

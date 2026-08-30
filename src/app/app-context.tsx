@@ -24,6 +24,9 @@ import type { AppRepository } from "../lib/storage/repository";
 import initialGoogleTasksExport from "../../Tasks.json";
 import { buildContextId } from "../lib/gtd/shared";
 import { AUTO_BACKUP_CHECK_INTERVAL_MS, isAutoBackupDue } from "../lib/backup";
+import { PULSE_CHECK_INTERVAL_MS } from "../lib/ai/pulse/constants";
+import { runPulseEngine } from "../lib/ai/pulse/pulse-engine";
+import type { AppOpenInterval } from "../domain/insights/movement";
 import { usePomodoroController, type PomodoroControllerValue } from "./use-pomodoro-controller";
 import { getTodayDate } from "../lib/date";
 
@@ -36,6 +39,8 @@ export interface AppContextValue {
   debugEnabled: boolean;
   setDebugEnabled: (enabled: boolean) => void;
   pomodoro: PomodoroControllerValue;
+  /** Increments when the pulse engine persists a new coach message for today. */
+  pulseRevision: number;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -58,6 +63,10 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   const coachService = useMemo(() => new CoachPulseService(new OpenRouterProvider()), []);
   const startupStageRef = useRef(startupStage);
   const autoBackupRunningRef = useRef(false);
+  const pulseRunningRef = useRef(false);
+  const appOpenStartedAtRef = useRef<string | null>(null);
+  const appOpenIntervalsRef = useRef<AppOpenInterval[]>([]);
+  const [pulseRevision, setPulseRevision] = useState(0);
   const pomodoro = usePomodoroController(repository);
 
   useEffect(() => {
@@ -128,6 +137,110 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       window.clearInterval(intervalId);
     };
   }, [repository, settings]);
+
+  useEffect(() => {
+    if (!repository) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const closeOpenInterval = () => {
+      const startedAt = appOpenStartedAtRef.current;
+      if (!startedAt) {
+        return;
+      }
+
+      appOpenIntervalsRef.current.push({
+        startedAt,
+        endedAt: new Date().toISOString()
+      });
+      appOpenStartedAtRef.current = null;
+    };
+
+    const markAppOpen = () => {
+      if (document.visibilityState !== "visible" || appOpenStartedAtRef.current) {
+        return;
+      }
+
+      appOpenStartedAtRef.current = new Date().toISOString();
+    };
+
+    const runPulseEvaluation = async (trigger: "startup" | "interval") => {
+      if (pulseRunningRef.current || cancelled) {
+        return;
+      }
+
+      pulseRunningRef.current = true;
+      logDebug("info", "ai.pulse", "Evaluation pulse", { trigger });
+
+      try {
+        const focusSessionActive =
+          pomodoro.state.activeSession?.kind === "focus" &&
+          pomodoro.state.activeSession.status === "running";
+
+        const openIntervals = [...appOpenIntervalsRef.current];
+        if (appOpenStartedAtRef.current) {
+          openIntervals.push({
+            startedAt: appOpenStartedAtRef.current,
+            endedAt: new Date().toISOString()
+          });
+        }
+
+        const result = await runPulseEngine({
+          repository,
+          coachService,
+          settings,
+          saveSettings: async (nextSettings) => {
+            await repository.saveSettings(nextSettings);
+            if (!cancelled) {
+              setSettings(nextSettings);
+            }
+          },
+          appOpenIntervals: openIntervals,
+          focusSessionActive
+        });
+
+        if ((result.result || result.recordedMissed > 0) && !cancelled) {
+          setPulseRevision((current) => current + 1);
+        }
+
+        logDebug("info", "ai.pulse", "Evaluation pulse terminee", {
+          ranSlot: result.ranSlot?.scopeKey ?? null,
+          recordedMissed: result.recordedMissed
+        });
+      } catch (error) {
+        logDebug("error", "ai.pulse", "Echec evaluation pulse", error);
+      } finally {
+        pulseRunningRef.current = false;
+      }
+    };
+
+    markAppOpen();
+    void runPulseEvaluation("startup");
+
+    const intervalId = window.setInterval(() => {
+      void runPulseEvaluation("interval");
+    }, PULSE_CHECK_INTERVAL_MS);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        closeOpenInterval();
+        return;
+      }
+
+      markAppOpen();
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      closeOpenInterval();
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [repository, settings, coachService, pomodoro.state.activeSession]);
 
   useEffect(() => {
     let cancelled = false;
@@ -306,7 +419,8 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         browserPreview: !isTauriRuntime(),
         debugEnabled,
         setDebugEnabled,
-        pomodoro
+        pomodoro,
+        pulseRevision
       }}
     >
       {startupError ? (

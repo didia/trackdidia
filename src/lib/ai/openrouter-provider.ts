@@ -106,9 +106,13 @@ const buildSystemPrompt = (stance: AiStructuredRequest["stance"], repairHint?: s
   const stanceInstruction =
     stance === "open"
       ? "Tu es un coach de discipline pour l'ouverture de journee. Reponds en francais avec un JSON strict conforme au schema coach_pulse."
-      : stance === "close"
-        ? "Tu es un coach de discipline pour la cloture de journee. Reponds en francais avec un JSON strict conforme au schema coach_pulse."
-        : "Tu es un coach de discipline. Reponds en francais avec un JSON strict conforme au schema coach_pulse.";
+      : stance === "steer"
+        ? "Tu es un coach de discipline pour un ajustement de mi-journee. Reponds en francais avec un JSON strict conforme au schema coach_pulse."
+        : stance === "wind_down"
+          ? "Tu es un coach de discipline pour la fin de journee active. Reponds en francais avec un JSON strict conforme au schema coach_pulse."
+          : stance === "close"
+            ? "Tu es un coach de discipline pour la cloture de journee. Reponds en francais avec un JSON strict conforme au schema coach_pulse."
+            : "Tu es un coach de discipline. Reponds en francais avec un JSON strict conforme au schema coach_pulse.";
 
   const schemaBlock = buildCoachPulseSchemaPrompt(stance);
   const base = `${stanceInstruction}\n\nSchema coach_pulse:\n${schemaBlock}`;

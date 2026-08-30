@@ -141,6 +141,40 @@ describe("CoachPulseService", () => {
     expect(provider.generateStructured).toHaveBeenCalledOnce();
   });
 
+  it("calls the provider on auto trigger for stall delta class", async () => {
+    const provider: AiProvider = {
+      generateStructured: vi.fn(async () => ({
+        text: JSON.stringify({
+          stance: "steer",
+          headline: "Relance",
+          read: "Signal",
+          move: null
+        }),
+        model: "test-model",
+        usage: { tokensPrompt: 1, tokensCompletion: 1, latencyMs: 1 }
+      }))
+    };
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const service = new CoachPulseService(provider);
+    const settings = defaultAppSettings();
+    settings.aiEnabled = true;
+    settings.aiApiKey = "secret";
+
+    const result = await service.buildPulse(repository, {
+      stance: "steer",
+      entry: createEmptyDailyEntry("2026-08-29"),
+      settings,
+      snapshotInputs: buildSnapshotInputs(),
+      trigger: "auto",
+      deltaClass: "stall",
+      slotHour: 13
+    });
+
+    expect(result.source).toBe("ai");
+    expect(provider.generateStructured).toHaveBeenCalledOnce();
+  });
+
   it("returns ephemeral local auto results without proposals", async () => {
     const provider: AiProvider = {
       generateStructured: vi.fn()

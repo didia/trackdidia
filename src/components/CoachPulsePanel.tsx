@@ -21,6 +21,13 @@ const principleLabel = (key: PrincipleKey | null | undefined): string | null => 
   return principleDefinitions.find((definition) => definition.key === key)?.label ?? key;
 };
 
+const stanceLabels: Record<CoachPulseResult["pulse"]["stance"], string> = {
+  open: "Ouverture",
+  steer: "Mi-journee",
+  wind_down: "Fin de journee",
+  close: "Cloture"
+};
+
 interface CoachPulsePanelProps {
   title: string;
   result: CoachPulseResult | null;
@@ -71,6 +78,7 @@ export const CoachPulsePanel = ({
 
       {pulse ? (
         <div className="coach-pulse__body">
+          <p className="coach-pulse__stance">{stanceLabels[pulse.stance]}</p>
           <h3 className="coach-pulse__headline">{pulse.headline}</h3>
           <p>{pulse.read}</p>
           {pulse.move ? (

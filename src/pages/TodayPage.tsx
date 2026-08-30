@@ -9,6 +9,7 @@ import { EntrySummaryStrip } from "../components/EntrySummaryStrip";
 import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
 import { SectionCard } from "../components/SectionCard";
 import { resolveDailySnapshotInputs } from "../lib/ai/context/preview";
+import { loadLatestCoachPulseForDate } from "../lib/ai/coach-pulse-loader";
 import { formatDateLong, formatDateTimeShort, getTodayDate } from "../lib/date";
 import { formatTimestamp } from "../lib/format";
 import type { DailyTaskBreakdown } from "../lib/storage/repository";
@@ -27,7 +28,7 @@ const bucketLabels: Record<Task["bucket"], string> = {
 export const TodayPage = () => {
   const today = getTodayDate();
   const { entry, loading, save } = useDailyEntry(today);
-  const { repository, settings, coachService, browserPreview, pomodoro } = useAppContext();
+  const { repository, settings, coachService, browserPreview, pomodoro, pulseRevision } = useAppContext();
   const [coachResult, setCoachResult] = useState<CoachPulseResult | null>(null);
   const [coachLoading, setCoachLoading] = useState(true);
   const [taskBreakdown, setTaskBreakdown] = useState<DailyTaskBreakdown | null>(null);
@@ -36,8 +37,63 @@ export const TodayPage = () => {
   const morningIntentionRef = useRef<PersistedTextareaHandle>(null);
   entryRef.current = entry;
 
+  const loadCoachFromStore = useCallback(async () => {
+    const currentEntry = entryRef.current;
+    if (!currentEntry) {
+      return;
+    }
+
+    setCoachLoading(true);
+    try {
+      const stored = await loadLatestCoachPulseForDate(repository, coachService, currentEntry.date);
+      if (stored) {
+        setCoachResult(stored);
+        return;
+      }
+
+      const fastInputs = await resolveDailySnapshotInputs(
+        repository,
+        currentEntry.date,
+        new Date().toISOString(),
+        undefined,
+        { skipRescueTimeFetch: true }
+      );
+      const localResult = await coachService.buildPulse(repository, {
+        stance: "open",
+        entry: currentEntry,
+        settings,
+        snapshotInputs: fastInputs,
+        trigger: "auto",
+        localOnly: true
+      });
+      setCoachResult(localResult);
+
+      if (!settings.aiEnabled || !settings.aiApiKey.trim()) {
+        return;
+      }
+
+      const fullInputs = await resolveDailySnapshotInputs(repository, currentEntry.date);
+      const aiResult = await coachService.buildPulse(repository, {
+        stance: "open",
+        entry: currentEntry,
+        settings,
+        snapshotInputs: fullInputs,
+        trigger: "auto"
+      });
+      setCoachResult(aiResult);
+    } finally {
+      setCoachLoading(false);
+    }
+  }, [coachService, repository, settings]);
+
   const loadCoach = useCallback(
-    async (options: { trigger: "auto" | "explicit"; bypassCache?: boolean; skipRescueTimeFetch?: boolean }) => {
+    async (options: {
+      trigger: "auto" | "explicit";
+      bypassCache?: boolean;
+      skipRescueTimeFetch?: boolean;
+      stance?: CoachPulseResult["pulse"]["stance"];
+      slotHour?: number;
+    }) => {
       const currentEntry = entryRef.current;
       if (!currentEntry) {
         return;
@@ -52,13 +108,22 @@ export const TodayPage = () => {
           undefined,
           { skipRescueTimeFetch: options.skipRescueTimeFetch ?? false }
         );
+        const latest = await loadLatestCoachPulseForDate(repository, coachService, currentEntry.date);
+        const stance = options.stance ?? latest?.pulse.stance ?? "open";
+        const slotHour =
+          options.slotHour ??
+          (latest?.message.scopeKey.includes("#")
+            ? Number(latest.message.scopeKey.split("#")[1])
+            : undefined);
+
         const result = await coachService.buildPulse(repository, {
-          stance: "open",
+          stance,
           entry: currentEntry,
           settings,
           snapshotInputs,
           trigger: options.trigger,
-          bypassCache: options.bypassCache ?? false
+          bypassCache: options.bypassCache ?? false,
+          slotHour: Number.isFinite(slotHour) ? slotHour : undefined
         });
         setCoachResult(result);
       } finally {
@@ -73,68 +138,8 @@ export const TodayPage = () => {
       return;
     }
 
-    let cancelled = false;
-
-    const run = async () => {
-      const currentEntry = entryRef.current;
-      if (!currentEntry) {
-        return;
-      }
-
-      setCoachLoading(true);
-      try {
-        const fastInputs = await resolveDailySnapshotInputs(
-          repository,
-          currentEntry.date,
-          new Date().toISOString(),
-          undefined,
-          { skipRescueTimeFetch: true }
-        );
-        const localResult = await coachService.buildPulse(repository, {
-          stance: "open",
-          entry: currentEntry,
-          settings,
-          snapshotInputs: fastInputs,
-          trigger: "auto",
-          localOnly: true
-        });
-
-        if (!cancelled) {
-          setCoachResult(localResult);
-        }
-
-        if (!settings.aiEnabled || !settings.aiApiKey.trim()) {
-          if (!cancelled) {
-            setCoachLoading(false);
-          }
-          return;
-        }
-
-        const fullInputs = await resolveDailySnapshotInputs(repository, currentEntry.date);
-        const aiResult = await coachService.buildPulse(repository, {
-          stance: "open",
-          entry: currentEntry,
-          settings,
-          snapshotInputs: fullInputs,
-          trigger: "auto"
-        });
-
-        if (!cancelled) {
-          setCoachResult(aiResult);
-        }
-      } finally {
-        if (!cancelled) {
-          setCoachLoading(false);
-        }
-      }
-    };
-
-    void run();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [coachService, entry?.date, repository, settings]);
+    void loadCoachFromStore();
+  }, [entry?.date, loadCoachFromStore, pulseRevision]);
 
   useEffect(() => {
     if (!entry) {

@@ -61,9 +61,11 @@ describe("TodayPage coach proposals", () => {
     };
 
     const coachService = {
+      resultFromMessage: vi.fn(async () => buildCoachResult(proposal)),
       buildPulse: vi.fn(async () => buildCoachResult(proposal))
     } as unknown as CoachPulseService;
 
+    await repository.saveAiMessage(buildCoachResult(proposal).message);
     await repository.saveAiProposal(proposal);
     const saveDailyEntry = vi.spyOn(repository, "saveDailyEntry");
     const decideAiProposal = vi.spyOn(repository, "decideAiProposal");
@@ -100,9 +102,11 @@ describe("TodayPage coach proposals", () => {
     };
 
     const coachService = {
+      resultFromMessage: vi.fn(async () => buildCoachResult(proposal)),
       buildPulse: vi.fn(async () => buildCoachResult(proposal))
     } as unknown as CoachPulseService;
 
+    await repository.saveAiMessage(buildCoachResult(proposal).message);
     await repository.saveAiProposal(proposal);
     const saveDailyEntry = vi.spyOn(repository, "saveDailyEntry");
     const decideAiProposal = vi.spyOn(repository, "decideAiProposal");
