@@ -24,6 +24,8 @@ import type {
   MonthlyReviewSummary,
   AnnualGoal,
   AnnualGoalSnapshot,
+  AiMemory,
+  AiMemoryFilters,
   AiProposal,
   AiMessage,
   AiSurface,
@@ -82,6 +84,8 @@ export interface AppRepository {
   getSettings(): Promise<AppSettings>;
   saveSettings(settings: AppSettings): Promise<void>;
   getAiMessage(surface: AiSurface, scopeKey: string, inputHash: string): Promise<AiMessage | null>;
+  /** Latest row for surface/scope/hash regardless of status (e.g. weekly distill markers). */
+  getAiMessageRecord(surface: AiSurface, scopeKey: string, inputHash: string): Promise<AiMessage | null>;
   saveAiMessage(message: AiMessage): Promise<AiMessage>;
   saveCoachPulseEpisode(message: AiMessage, proposals: AiProposal[]): Promise<{ message: AiMessage; proposals: AiProposal[] }>;
   listAiMessages(surface?: AiSurface, limit?: number): Promise<AiMessage[]>;
@@ -94,6 +98,10 @@ export interface AppRepository {
     status: "accepted" | "dismissed",
     appliedEntityId?: string
   ): Promise<AiProposal>;
+  acceptAiMemoryProposal(proposal: AiProposal, memory: AiMemory): Promise<{ memory: AiMemory; proposal: AiProposal }>;
+  listAiMemories(filters?: AiMemoryFilters): Promise<AiMemory[]>;
+  saveAiMemory(memory: AiMemory): Promise<AiMemory>;
+  archiveAiMemory(id: string, reason: "expired" | "contradicted" | "resolved"): Promise<void>;
   getStorageInfo(): Promise<StorageInfo | null>;
   createBackup(kind?: "manual" | "auto"): Promise<BackupResult>;
   importGoogleTasksExport(rawJson: unknown): Promise<GtdImportSummary>;

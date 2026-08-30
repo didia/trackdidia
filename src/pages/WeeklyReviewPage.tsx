@@ -11,6 +11,7 @@ import {
   updateWeeklyReviewNote
 } from "../domain/weekly-review";
 import type {
+  AiProposal,
   WeeklyReview,
   WeeklyReviewSummary,
   WeeklyRitualSectionKey
@@ -22,6 +23,8 @@ import { formatDateLong, formatDateShort, getTodayDate } from "../lib/date";
 import { formatPercent, formatTimestamp } from "../lib/format";
 import { addDays } from "../lib/gtd/shared";
 import { RescueTimeGoalsService, type RescueTimeProductivityPulseSnapshot } from "../lib/rescuetime/rescuetime-goals-service";
+import { createWeeklyMemoryProposals, loadWeeklyMemoryProposals } from "../lib/ai/memory/weekly-distillation";
+import { applyCoachProposal, proposalPreviewText } from "../lib/ai/proposals/apply-proposal";
 
 interface RitualSectionDefinition {
   key: WeeklyRitualSectionKey;
@@ -121,6 +124,7 @@ export const WeeklyReviewPage = () => {
   const [pulseRefreshing, setPulseRefreshing] = useState(false);
   const [rescueTimeMessage, setRescueTimeMessage] = useState("");
   const [loading, setLoading] = useState(true);
+  const [weeklyMemoryProposals, setWeeklyMemoryProposals] = useState<AiProposal[]>([]);
   const latestReviewRef = useRef<WeeklyReview | null>(null);
   const weekRequestSeqRef = useRef(0);
   const goalsRequestSeqRef = useRef(0);
@@ -261,6 +265,34 @@ export const WeeklyReviewPage = () => {
     },
     [repository]
   );
+
+  const refreshWeeklyMemoryProposals = useCallback(
+    async (weekStartDate: string) => {
+      const proposals = await loadWeeklyMemoryProposals(repository, weekStartDate);
+      setWeeklyMemoryProposals(proposals);
+    },
+    [repository]
+  );
+
+  useEffect(() => {
+    if (review?.status !== "closed") {
+      setWeeklyMemoryProposals([]);
+      return;
+    }
+
+    void refreshWeeklyMemoryProposals(review.weekStartDate);
+  }, [review?.status, review?.weekStartDate, refreshWeeklyMemoryProposals]);
+
+  const handleAcceptWeeklyMemoryProposal = async (proposal: AiProposal) => {
+    const weekStartDate = latestReviewRef.current?.weekStartDate ?? selectedWeekStart;
+    await applyCoachProposal(repository, proposal, weekStartDate);
+    setWeeklyMemoryProposals((current) => current.filter((item) => item.id !== proposal.id));
+  };
+
+  const handleDismissWeeklyMemoryProposal = async (proposal: AiProposal) => {
+    await repository.decideAiProposal(proposal.id, "dismissed");
+    setWeeklyMemoryProposals((current) => current.filter((item) => item.id !== proposal.id));
+  };
 
   const hasValidSelectedWeek = useMemo(
     () => /^\d{4}-\d{2}-\d{2}$/.test(selectedWeekStart),
@@ -680,6 +712,38 @@ export const WeeklyReviewPage = () => {
         </div>
       </SectionCard>
 
+      {weeklyMemoryProposals.length > 0 ? (
+        <SectionCard
+          title="Memoires candidates"
+          subtitle="Observations derivees de la semaine. Accepte ou ignore chaque proposition avant qu'elle devienne durable."
+        >
+          <div className="coach-pulse__proposals">
+            {weeklyMemoryProposals.map((proposal) => (
+              <article key={proposal.id} className="coach-pulse__proposal">
+                <span>Memoire candidate</span>
+                <p>{proposalPreviewText(proposal)}</p>
+                <div className="section-actions">
+                  <button
+                    className="button button--primary"
+                    type="button"
+                    onClick={() => void handleAcceptWeeklyMemoryProposal(proposal)}
+                  >
+                    Accepter
+                  </button>
+                  <button
+                    className="button button--ghost"
+                    type="button"
+                    onClick={() => void handleDismissWeeklyMemoryProposal(proposal)}
+                  >
+                    Ignorer
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </SectionCard>
+      ) : null}
+
       <div className="form-actions">
         <button
           className="button button--primary"
@@ -689,7 +753,17 @@ export const WeeklyReviewPage = () => {
             if (!currentReview) {
               return;
             }
-            void saveReview(applyWeeklyReviewTransition(currentReview, "closed"));
+            void (async () => {
+              const closedReview = applyWeeklyReviewTransition(currentReview, "closed");
+              const historyEntries = await repository.listDailyEntries(120);
+              const proposals = await createWeeklyMemoryProposals(
+                repository,
+                closedReview.weekStartDate,
+                historyEntries
+              );
+              setWeeklyMemoryProposals(proposals);
+              await saveReview(closedReview);
+            })();
           }}
         >
           Cloturer la revue

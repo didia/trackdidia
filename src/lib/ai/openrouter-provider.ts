@@ -102,7 +102,11 @@ const shouldRetryStatus = (status: number): boolean => status === 429 || status 
 const resolveModel = (settings: AppSettings, surface: AiSurface): string =>
   settings.aiSurfaceModels[surface]?.trim() || settings.aiModel;
 
-const buildSystemPrompt = (stance: AiStructuredRequest["stance"], repairHint?: string): string => {
+const buildSystemPrompt = (
+  stance: AiStructuredRequest["stance"],
+  memoryBlock?: string,
+  repairHint?: string
+): string => {
   const stanceInstruction =
     stance === "open"
       ? "Tu es un coach de discipline pour l'ouverture de journee. Reponds en francais avec un JSON strict conforme au schema coach_pulse."
@@ -115,7 +119,10 @@ const buildSystemPrompt = (stance: AiStructuredRequest["stance"], repairHint?: s
             : "Tu es un coach de discipline. Reponds en francais avec un JSON strict conforme au schema coach_pulse.";
 
   const schemaBlock = buildCoachPulseSchemaPrompt(stance);
-  const base = `${stanceInstruction}\n\nSchema coach_pulse:\n${schemaBlock}`;
+  const memorySection = memoryBlock?.trim()
+    ? `\n\nContexte memoire durable:\n${memoryBlock.trim()}`
+    : "";
+  const base = `${stanceInstruction}\n\nSchema coach_pulse:\n${schemaBlock}${memorySection}`;
 
   if (!repairHint) {
     return base;
@@ -195,14 +202,15 @@ export class OpenRouterProvider implements AiProvider {
       messages: [
         {
           role: "system",
-          content: buildSystemPrompt(request.stance, request.repairHint)
+          content: buildSystemPrompt(request.stance, request.memoryBlock, request.repairHint)
         },
         {
           role: "user",
           content: JSON.stringify({
             surface: request.surface,
             stance: request.stance,
-            snapshot: request.snapshot
+            snapshot: request.snapshot,
+            commitmentResolution: request.commitmentResolution ?? null
           })
         }
       ]

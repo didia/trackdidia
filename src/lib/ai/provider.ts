@@ -23,6 +23,12 @@ export interface AiStructuredRequest {
   settings: AppSettings;
   snapshot: DailySnapshot;
   repairHint?: string;
+  memoryBlock?: string;
+  commitmentResolution?: {
+    statement: string;
+    progressLabel: string;
+    met: boolean | null;
+  } | null;
 }
 
 export interface AiStructuredResult {

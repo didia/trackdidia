@@ -30,6 +30,8 @@ import {
 } from "../../domain/weekly-objectives";
 import { getTodayDate } from "../date";
 import type {
+  AiMemory,
+  AiMemoryFilters,
   AiMessage,
   AiProposal,
   AiSurface,
@@ -119,6 +121,7 @@ export class MemoryRepository implements AppRepository {
   private recurringTemplates = new Map<string, RecurringTaskTemplate>();
   private aiMessages = new Map<string, AiMessage>();
   private aiProposals = new Map<string, AiProposal>();
+  private aiMemories = new Map<string, AiMemory>();
 
   async initialize(): Promise<void> {
     return Promise.resolve();
@@ -325,6 +328,19 @@ export class MemoryRepository implements AppRepository {
     return matches[0] ? { ...matches[0] } : null;
   }
 
+  async getAiMessageRecord(surface: AiSurface, scopeKey: string, inputHash: string): Promise<AiMessage | null> {
+    const matches = [...this.aiMessages.values()]
+      .filter(
+        (message) =>
+          message.surface === surface &&
+          message.scopeKey === scopeKey &&
+          message.inputHash === inputHash
+      )
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+
+    return matches[0] ? { ...matches[0] } : null;
+  }
+
   async saveAiMessage(message: AiMessage): Promise<AiMessage> {
     const persisted = { ...message };
     this.aiMessages.set(message.id, persisted);
@@ -405,6 +421,98 @@ export class MemoryRepository implements AppRepository {
     };
     this.aiProposals.set(id, updated);
     return { ...updated };
+  }
+
+  async acceptAiMemoryProposal(
+    proposal: AiProposal,
+    memory: AiMemory
+  ): Promise<{ memory: AiMemory; proposal: AiProposal }> {
+    const existingProposal = this.aiProposals.get(proposal.id);
+    if (!existingProposal) {
+      throw new Error(`AI proposal not found: ${proposal.id}`);
+    }
+
+    if (existingProposal.status === "accepted") {
+      const memoryId = existingProposal.appliedEntityId ?? memory.id;
+      const existingMemory = this.aiMemories.get(memoryId);
+      if (!existingMemory) {
+        throw new Error(`AI memory not found: ${memoryId}`);
+      }
+
+      return {
+        memory: { ...existingMemory },
+        proposal: { ...existingProposal }
+      };
+    }
+
+    const existingMemory = this.aiMemories.get(memory.id);
+    const savedMemory = existingMemory ? { ...existingMemory } : await this.saveAiMemory(memory);
+    const decidedAt = nowIso();
+    const updatedProposal: AiProposal = {
+      ...existingProposal,
+      status: "accepted",
+      appliedEntityId: savedMemory.id,
+      decidedAt
+    };
+    this.aiProposals.set(proposal.id, updatedProposal);
+
+    return {
+      memory: savedMemory,
+      proposal: { ...updatedProposal }
+    };
+  }
+
+  async listAiMemories(filters: AiMemoryFilters = {}): Promise<AiMemory[]> {
+    let memories = [...this.aiMemories.values()];
+
+    if (filters.status) {
+      const statuses = Array.isArray(filters.status) ? filters.status : [filters.status];
+      memories = memories.filter((memory) => statuses.includes(memory.status));
+    }
+
+    if (filters.kind) {
+      const kinds = Array.isArray(filters.kind) ? filters.kind : [filters.kind];
+      memories = memories.filter((memory) => kinds.includes(memory.kind));
+    }
+
+    if (typeof filters.pinned === "boolean") {
+      memories = memories.filter((memory) => memory.pinned === filters.pinned);
+    }
+
+    if (filters.activeOnDate) {
+      memories = memories.filter(
+        (memory) => !memory.expiresAt || memory.expiresAt >= filters.activeOnDate!
+      );
+    }
+
+    return memories
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .map((memory) => ({ ...memory }));
+  }
+
+  async saveAiMemory(memory: AiMemory): Promise<AiMemory> {
+    const persisted = { ...memory };
+    this.aiMemories.set(persisted.id, persisted);
+    return { ...persisted };
+  }
+
+  async archiveAiMemory(id: string, reason: "expired" | "contradicted" | "resolved"): Promise<void> {
+    const existing = this.aiMemories.get(id);
+    if (!existing) {
+      throw new Error(`AI memory not found: ${id}`);
+    }
+
+    const detailSuffix = `[archive:${reason}]`;
+    const detail = existing.detail.includes(detailSuffix)
+      ? existing.detail
+      : `${existing.detail}${existing.detail ? " " : ""}${detailSuffix}`.trim();
+
+    this.aiMemories.set(id, {
+      ...existing,
+      status: reason === "contradicted" ? "contradicted" : "archived",
+      detail,
+      lastConfirmedAt: nowIso()
+    });
   }
 
   async getStorageInfo() {

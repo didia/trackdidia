@@ -21,6 +21,7 @@ Default highlights:
 | AI payload scope | `full` |
 | AI max tokens | `700` |
 | AI timeout | `20000` ms |
+| AI memory enabled | Yes |
 | AI surface models | `{}` (falls back to `aiModel`) |
 | Pulse enabled | Yes |
 | Pulse slots (local hours) | `5`, `13`, `20` |
@@ -107,15 +108,64 @@ There is **no** gate requiring the user to write journal text first, and no
 The model returns JSON validated against the S1 `coach_pulse` schema (stance-aware).
 On invalid JSON: one repair retry, then deterministic local fallback.
 
-Phase 1 proposal types:
+Phase 3 proposal types:
 
 | Type | Accept applies |
 |---|---|
 | `intention_draft` | Saves `morningIntention` immediately, then marks the proposal accepted |
 | `tomorrow_focus_draft` | Saves `tomorrowFocus` immediately, then marks the proposal accepted |
+| `commitment` | Creates an `ai_memories` row (`kind=commitment`, expires next local day) |
+| `memory` | Creates an `ai_memories` row from a distillation candidate |
+
+Accepting `memory` or `commitment` persists the memory row and proposal decision
+atomically via `acceptAiMemoryProposal`, using a stable memory id derived from the
+proposal id so retries reconcile instead of duplicating.
 
 Proposals are stored in `ai_proposals` with `pending | accepted | dismissed | expired`
-status. Accept persists the daily entry field before recording the decision.
+status. Draft accepts (`intention_draft`, `tomorrow_focus_draft`) save the journal
+field first, then record the proposal decision separately.
+
+### Semantic memory (`ai_memories`)
+
+Migration 24 adds durable, human-readable coach memory:
+
+| `kind` | Example | Lifetime |
+|---|---|---|
+| `pattern` | Correlation distilled from history | Long, decays |
+| `preference` | Coaching style preference | Long, decays |
+| `context` | Temporary life/work context | `expiresAt` |
+| `commitment` | Evening pledge for tomorrow | Resolved on next close |
+| `principle` | User-pinned profile in Settings | Permanent until edited |
+
+Retrieval (`src/lib/ai/memory/`) ranks active memories by **pinned → kind relevance →
+confidence (with decay) → recency**, caps non-pinned rows at **8** plus all pinned rows,
+and injects a compact French block into the `coach_pulse` system prompt when
+`aiMemoryEnabled` is true.
+
+Lifecycle is deterministic (no model):
+
+- confidence decays with age; below-threshold rows archive;
+- `context` rows archive after `expiresAt`;
+- `pattern` rows re-test against `correlations.ts` and may become `contradicted`;
+- when fresh correlation evidence supports the same sign and similar magnitude
+  (|Δdiff| ≤ 0.2), `lastConfirmedAt` and `evidenceTo` refresh without changing
+  confidence; material drift updates detail and bumps confidence;
+- commitments resolve on the evening **close** pulse when `expiresAt` matches today,
+  using metric/principle values from SQLite (the model is told the outcome, not asked
+  to judge). Cached close results still run this finalizer idempotently on replay.
+
+**Distillation cadence (Phase 3 start):** weekly review close proposes up to three
+derived `pattern` memories from correlation findings; the marker message and candidate
+proposals persist atomically via `saveCoachPulseEpisode`, with deterministic ids and
+rebuild when a partial set is detected. Lookup uses `getAiMessageRecord` (any status);
+coach-pulse cache lookup remains `status = ok` only. Evening **close** pulses may
+propose `memoryCandidates` from the model. Commitments are daily via the accept-step.
+
+Settings → **Profil coach** manages pinned `principle` memories (mission, coaching style,
+season of life). These are always retrieved when memory is enabled.
+
+**Privacy:** SQLite backups now include distilled personal statements in `ai_memories`
+in addition to the OpenRouter API key already stored in settings.
 
 ### Context and redaction
 
@@ -123,15 +173,17 @@ Before any model call, `CoachPulseService` builds a typed daily snapshot via
 `buildDailySnapshot` and applies `aiPayloadScope` redaction centrally. Settings
 can preview the exact payload per scope when debug mode is enabled.
 
-### Persistence (`ai_messages`)
+### Persistence (`ai_messages`, `ai_proposals`, `ai_memories`)
 
-Every coach result is persisted in SQLite (migrations 21–23):
+Every coach result is persisted in SQLite (migrations 21–24):
 
 - `ai_messages` stores the structured body, usage (`tokens_prompt`,
   `tokens_completion`, `latency_ms`), model, stance, and an input-hash cache key.
   Regenerations append a new row (migration 23); cache lookup returns the latest
-  `status = ok` row for a given hash.
+  `status = ok` row for a given hash. Non-ok markers (e.g. weekly distill) use
+  `getAiMessageRecord` instead.
 - `ai_proposals` stores accept-step rows linked to a message.
+- `ai_memories` stores semantic memory rows (`active | archived | contradicted`).
 
 Browser preview uses `MemoryRepository` with the same methods. The old in-memory
 `AiCoachService` cache is replaced by this durable store on desktop.
@@ -151,8 +203,8 @@ Structured `coach_pulse` requests include:
 - `max_tokens` from `settings.aiMaxTokens` (default 700);
 - `temperature` 0.4;
 - `response_format: { type: "json_object" }`;
-- a French system prompt with stance context;
-- the redacted daily snapshot (not a raw `DailyEntry` dump).
+- a French system prompt with stance context and optional memory block;
+- the redacted daily snapshot plus deterministic commitment resolution when applicable.
 
 Transport hardening:
 
