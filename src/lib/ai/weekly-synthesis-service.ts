@@ -160,11 +160,15 @@ export class WeeklySynthesisService {
     });
 
     if (!bypassCache) {
-      const cached = await repository.getAiMessage("weekly_synthesis", scopeKey, inputHash);
+      const cached = await repository.getAiMessageRecord("weekly_synthesis", scopeKey, inputHash);
       if (cached) {
-        const result = await cachedResult(repository, cached);
-        if (result) {
-          return result;
+        const aiConfigured = settings.aiEnabled && settings.aiApiKey.trim().length > 0;
+        const skippedBlocksProvider = cached.status === "skipped" && aiConfigured;
+        if (!skippedBlocksProvider) {
+          const result = await cachedResult(repository, cached);
+          if (result) {
+            return result;
+          }
         }
       }
     }
