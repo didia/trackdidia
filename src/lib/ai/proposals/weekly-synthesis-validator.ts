@@ -3,7 +3,8 @@ import type {
   WeeklyObjectiveKind,
   WeeklyRitualSectionKey,
   WeeklySynthesisGtdAction,
-  WeeklySynthesisResponse
+  WeeklySynthesisResponse,
+  WeeklySynthesisObjectiveDraft
 } from "../../../domain/types";
 
 const ritualSectionKeys = new Set<WeeklyRitualSectionKey>([
@@ -46,6 +47,71 @@ const validateSectionDrafts = (value: unknown): string | null => {
   return null;
 };
 
+const isFinitePositiveNumber = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value) && value > 0;
+
+const normalizeObjective = (objective: Record<string, unknown>): WeeklySynthesisObjectiveDraft | null => {
+  if (!isNonEmptyString(objective.title) || !objectiveKinds.has(String(objective.kind) as WeeklyObjectiveKind)) {
+    return null;
+  }
+
+  const kind = String(objective.kind) as WeeklyObjectiveKind;
+
+  if (kind === "time") {
+    if (!isFinitePositiveNumber(objective.targetHours)) {
+      return null;
+    }
+
+    if (
+      objective.rescuetimeKind === null ||
+      objective.rescuetimeKind === undefined ||
+      !rescuetimeKinds.has(String(objective.rescuetimeKind) as RescueTimeTaxonomy)
+    ) {
+      return null;
+    }
+
+    if (!isNonEmptyString(objective.rescuetimeThing)) {
+      return null;
+    }
+
+    return {
+      title: objective.title.trim(),
+      kind,
+      targetHours: objective.targetHours,
+      rescuetimeKind: String(objective.rescuetimeKind) as RescueTimeTaxonomy,
+      rescuetimeThing: objective.rescuetimeThing.trim()
+    };
+  }
+
+  if (
+    objective.targetHours !== null &&
+    objective.targetHours !== undefined &&
+    typeof objective.targetHours !== "number"
+  ) {
+    return null;
+  }
+
+  if (
+    objective.rescuetimeKind !== null &&
+    objective.rescuetimeKind !== undefined &&
+    !rescuetimeKinds.has(String(objective.rescuetimeKind) as RescueTimeTaxonomy)
+  ) {
+    return null;
+  }
+
+  if (objective.rescuetimeThing !== null && objective.rescuetimeThing !== undefined && typeof objective.rescuetimeThing !== "string") {
+    return null;
+  }
+
+  return {
+    title: objective.title.trim(),
+    kind,
+    targetHours: null,
+    rescuetimeKind: null,
+    rescuetimeThing: null
+  };
+};
+
 const validateNextWeekObjectives = (value: unknown): string | null => {
   if (value === undefined) {
     return "nextWeekObjectives is required";
@@ -64,25 +130,8 @@ const validateNextWeekObjectives = (value: unknown): string | null => {
       return "each nextWeekObjective must be an object";
     }
 
-    const item = objective as Record<string, unknown>;
-    if (!isNonEmptyString(item.title) || !objectiveKinds.has(String(item.kind) as WeeklyObjectiveKind)) {
-      return "nextWeekObjective requires title and kind";
-    }
-
-    if (item.targetHours !== null && item.targetHours !== undefined && typeof item.targetHours !== "number") {
-      return "nextWeekObjective targetHours must be a number or null";
-    }
-
-    if (
-      item.rescuetimeKind !== null &&
-      item.rescuetimeKind !== undefined &&
-      !rescuetimeKinds.has(String(item.rescuetimeKind) as RescueTimeTaxonomy)
-    ) {
-      return "nextWeekObjective rescuetimeKind is invalid";
-    }
-
-    if (item.rescuetimeThing !== null && item.rescuetimeThing !== undefined && typeof item.rescuetimeThing !== "string") {
-      return "nextWeekObjective rescuetimeThing must be a string or null";
+    if (!normalizeObjective(objective as Record<string, unknown>)) {
+      return "nextWeekObjective requires valid title, kind, and kind-specific fields";
     }
   }
 
@@ -156,7 +205,20 @@ export const validateWeeklySynthesisResponse = (
     return { ok: false, error: gtdActionsError };
   }
 
-  return { ok: true, value: record as unknown as WeeklySynthesisResponse };
+  const normalizedObjectives = (record.nextWeekObjectives as Record<string, unknown>[]).map((objective) =>
+    normalizeObjective(objective)
+  );
+  if (normalizedObjectives.some((objective) => objective === null)) {
+    return { ok: false, error: "nextWeekObjective requires valid title, kind, and kind-specific fields" };
+  }
+
+  return {
+    ok: true,
+    value: {
+      ...(record as unknown as WeeklySynthesisResponse),
+      nextWeekObjectives: normalizedObjectives as WeeklySynthesisObjectiveDraft[]
+    }
+  };
 };
 
 export const parseWeeklySynthesisJson = (

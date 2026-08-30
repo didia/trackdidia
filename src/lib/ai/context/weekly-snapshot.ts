@@ -4,7 +4,7 @@ import { computeGtdHealthFindings } from "../../../domain/insights/gtd-health";
 import { computeStreakFindings } from "../../../domain/insights/streaks";
 import type { Finding } from "../../../domain/insights/types";
 import { metricDefinitions, principleDefinitions } from "../../../domain/definitions";
-import { resolveMetricValue } from "../../../domain/daily-entry";
+import { resolveMetricValue, createEmptyDailyEntry } from "../../../domain/daily-entry";
 import {
   applyWeeklyScoreExternalAxes,
   buildWeekDates,
@@ -312,16 +312,19 @@ export const resolveWeeklySnapshotInputs = async (
 ): Promise<WeeklySnapshotInputs> => {
   const normalized = buildWeekDates(weekStartDate);
   const weekDates = listWeekDates(normalized);
+  const weekEndDate = weekDates[weekDates.length - 1];
   const now = options.now ?? new Date().toISOString();
 
-  const [summary, review, historyEntries, tasks, projects] = await Promise.all([
+  const [summary, review, historyEntries, tasks, projects, ...weekEntryRows] = await Promise.all([
     repository.computeWeeklyReviewSummary(normalized),
     repository.getWeeklyReview(normalized),
-    repository.listDailyEntries(180),
+    repository.listDailyEntriesOnOrBefore(weekEndDate, 180),
     repository.listTasks({ includeCompleted: true }),
-    repository.listProjects()
+    repository.listProjects(),
+    ...weekDates.map((date) => repository.getDailyEntry(date))
   ]);
 
+  const weekEntries = weekDates.map((date, index) => weekEntryRows[index] ?? createEmptyDailyEntry(date));
   const pomodoroSummariesByDay: PomodoroTaskSummary[][] = [];
   let completedFocusSessionCount = 0;
 
@@ -334,7 +337,6 @@ export const resolveWeeklySnapshotInputs = async (
     completedFocusSessionCount += stats.completedFocusSessions;
   }
 
-  const weekEntries = historyEntries.filter((entry) => weekDates.includes(entry.date));
   const pomodoroTaskSummaries = aggregatePomodoroSummaries(pomodoroSummariesByDay);
 
   return {

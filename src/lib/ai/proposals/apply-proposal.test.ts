@@ -86,4 +86,32 @@ describe("applyCoachProposal gtd_action", () => {
 
     expect(applied.taskId).toBeUndefined();
   });
+
+  it("does not mutate completed tasks", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveTask(
+      buildTask({ id: "task-completed", status: "completed", completedAt: now, bucket: "next_action" })
+    );
+
+    const proposal: AiProposal = {
+      id: "proposal-gtd-completed",
+      messageId: "message-gtd",
+      type: "gtd_action",
+      payloadJson: JSON.stringify({
+        taskId: "task-completed",
+        action: "drop",
+        reason: "Stale"
+      }),
+      status: "pending",
+      appliedEntityId: null,
+      decidedAt: null,
+      createdAt: now
+    };
+
+    const applied = await applyCoachProposal(repository, proposal, "2026-08-02");
+    expect(applied.taskId).toBeUndefined();
+    const tasks = await repository.listTasks({ includeCompleted: true });
+    expect(tasks.find((task) => task.id === "task-completed")?.status).toBe("completed");
+  });
 });

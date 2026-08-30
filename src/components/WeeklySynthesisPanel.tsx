@@ -21,6 +21,7 @@ interface WeeklySynthesisPanelProps {
   result: WeeklySynthesisResult | null;
   loading: boolean;
   settings: AppSettings;
+  applyingProposalIds?: string[];
   onRequestCoach: () => void;
   onRegenerate: () => void;
   onAcceptProposal: (proposal: AiProposal) => void;
@@ -31,6 +32,7 @@ export const WeeklySynthesisPanel = ({
   result,
   loading,
   settings,
+  applyingProposalIds = [],
   onRequestCoach,
   onRegenerate,
   onAcceptProposal,
@@ -78,6 +80,7 @@ export const WeeklySynthesisPanel = ({
         <div className="coach-pulse__proposals">
           <strong>Suggestions</strong>
           {pendingProposals.map((proposal) => {
+            const isApplying = applyingProposalIds.includes(proposal.id);
             const payload = JSON.parse(proposal.payloadJson) as {
               text?: string;
               title?: string;
@@ -98,10 +101,20 @@ export const WeeklySynthesisPanel = ({
                 <span>{proposalLabels[proposal.type]}</span>
                 <p>{preview}</p>
                 <div className="section-actions">
-                  <button className="button button--primary" type="button" onClick={() => onAcceptProposal(proposal)}>
-                    Accepter
+                  <button
+                    className="button button--primary"
+                    type="button"
+                    disabled={isApplying}
+                    onClick={() => onAcceptProposal(proposal)}
+                  >
+                    {isApplying ? "Application..." : "Accepter"}
                   </button>
-                  <button className="button button--ghost" type="button" onClick={() => onDismissProposal(proposal)}>
+                  <button
+                    className="button button--ghost"
+                    type="button"
+                    disabled={isApplying}
+                    onClick={() => onDismissProposal(proposal)}
+                  >
                     Ignorer
                   </button>
                 </div>

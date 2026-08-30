@@ -26,8 +26,12 @@ export interface PreviewPayloadOptions {
   /** ISO instant used as "now". Defaults to the current time. */
   now?: string;
   /**
-   * Pre-resolved RescueTime pulse to reuse across multiple `previewPayload` calls (e.g. one per
-   * scope) instead of each call independently fetching it. Defaults to resolving it internally.
+   * Pre-resolved weekly RescueTime pulse + Goals score to reuse across multiple
+   * `previewPayload` calls (Settings weekly preview). Daily preview uses `productivityPulse`.
+   */
+  weeklyRescueTime?: ResolvedWeeklyRescueTime;
+  /**
+   * Pre-resolved RescueTime pulse to reuse across multiple daily `previewPayload` calls.
    */
   productivityPulse?: ResolvedProductivityPulse;
 }
@@ -38,6 +42,47 @@ export interface ResolvedProductivityPulse {
   /** Set when RescueTime is configured but the request failed (bad key, expired key, no connectivity) — distinguishes a fetch failure from "no data this week" (`pulseWeekToDate: null` with no error). */
   fetchError?: string;
 }
+
+export interface ResolvedWeeklyRescueTime {
+  configured: boolean;
+  productivityPulse: number | null;
+  rescueTimeGoalsScore: number | null;
+  pulseFetchError?: string;
+  goalsFetchError?: string;
+}
+
+/**
+ * Resolves RescueTime Goals and productivity pulse once for a weekly preview or synthesis input.
+ */
+export const resolveWeeklyRescueTimeInputs = async (
+  repository: AppRepository,
+  weekStartDate: string
+): Promise<ResolvedWeeklyRescueTime> => {
+  const settings = await repository.getSettings();
+  const configured = settings.rescuetimeApiKey.trim().length > 0;
+
+  if (!configured) {
+    return {
+      configured,
+      productivityPulse: null,
+      rescueTimeGoalsScore: null
+    };
+  }
+
+  const goalsService = new RescueTimeGoalsService(repository);
+  const [pulseSnapshot, goalsSnapshot] = await Promise.all([
+    goalsService.computeProductivityPulse(weekStartDate),
+    goalsService.computeGoalsSnapshot(weekStartDate)
+  ]);
+
+  return {
+    configured,
+    productivityPulse: pulseSnapshot.pulse,
+    rescueTimeGoalsScore: goalsSnapshot.score,
+    pulseFetchError: pulseSnapshot.fetchError,
+    goalsFetchError: goalsSnapshot.fetchError
+  };
+};
 
 /**
  * Resolves the RescueTime week-to-date productivity pulse (or `null` when RescueTime isn't
@@ -130,11 +175,13 @@ export const previewPayload = async (
 
   if (surface === "weekly") {
     const weekStartDate = buildWeekDates(options.date ?? getTodayDate());
-    const productivityPulse = options.productivityPulse ?? (await resolveProductivityPulse(repository, weekStartDate));
+    const rescueTime =
+      options.weeklyRescueTime ?? (await resolveWeeklyRescueTimeInputs(repository, weekStartDate));
     const inputs = await resolveWeeklySnapshotInputs(repository, weekStartDate, {
       now,
-      productivityPulse: productivityPulse.pulseWeekToDate,
-      rescuetimeConfigured: productivityPulse.configured
+      productivityPulse: rescueTime.productivityPulse,
+      rescueTimeGoalsScore: rescueTime.rescueTimeGoalsScore,
+      rescuetimeConfigured: rescueTime.configured
     });
     return buildWeeklySnapshot(inputs, scope);
   }

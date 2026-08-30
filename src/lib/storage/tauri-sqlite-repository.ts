@@ -318,7 +318,7 @@ interface AiMemoryRow {
   pinned: number;
 }
 
-const migrations: Migration[] = [
+export const migrations: Migration[] = [
   {
     id: 1,
     name: "create_schema_migrations",
@@ -727,6 +727,17 @@ const migrations: Migration[] = [
         ON ai_proposals (message_id, type)
         WHERE status = 'pending' AND type != 'memory';
     `
+  },
+  {
+    id: 25,
+    name: "ai_proposals_repeatable_weekly_types",
+    sql: `
+      DROP INDEX IF EXISTS idx_ai_proposals_message_type;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_proposals_message_type
+        ON ai_proposals (message_id, type)
+        WHERE status = 'pending'
+          AND type NOT IN ('memory', 'review_section_draft', 'weekly_objective', 'gtd_action');
+    `
   }
 ];
 
@@ -842,6 +853,28 @@ export class TauriSqliteRepository implements AppRepository {
       ORDER BY date DESC
       LIMIT $1`,
       [limit]
+    );
+
+    return Promise.all(rows.map((row) => this.decorateEntry(this.deserializeEntry(row))));
+  }
+
+  async listDailyEntriesOnOrBefore(endDate: string, limit = 180): Promise<DailyEntry[]> {
+    const db = await this.getDb();
+    const rows = await db.select<DailyEntryRow[]>(
+      `SELECT
+        date,
+        status,
+        metrics_json,
+        principles_json,
+        morning_intention,
+        night_reflection,
+        tomorrow_focus,
+        updated_at
+      FROM daily_entries
+      WHERE date <= $1
+      ORDER BY date DESC
+      LIMIT $2`,
+      [endDate, limit]
     );
 
     return Promise.all(rows.map((row) => this.decorateEntry(this.deserializeEntry(row))));
@@ -1521,6 +1554,229 @@ export class TauriSqliteRepository implements AppRepository {
       await db.execute("COMMIT");
       return {
         memory: savedMemory,
+        proposal: this.deserializeAiProposal(updatedRows[0])
+      };
+    } catch (error) {
+      await db.execute("ROLLBACK");
+      throw error;
+    }
+  }
+
+  async acceptAiWeeklyObjectiveProposal(
+    proposal: AiProposal,
+    objective: WeeklyObjective
+  ): Promise<{ objective: WeeklyObjective; proposal: AiProposal }> {
+    const db = await this.getDb();
+    await db.execute("BEGIN IMMEDIATE");
+
+    try {
+      const proposalRows = await db.select<AiProposalRow[]>(
+        `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
+         FROM ai_proposals
+         WHERE id = $1`,
+        [proposal.id]
+      );
+
+      if (proposalRows.length === 0) {
+        throw new Error(`AI proposal not found: ${proposal.id}`);
+      }
+
+      const existingProposal = this.deserializeAiProposal(proposalRows[0]);
+      if (existingProposal.status === "accepted") {
+        const objectiveId = existingProposal.appliedEntityId ?? objective.id;
+        const objectiveRows = await db.select<WeeklyObjectiveRow[]>(
+          `SELECT id, title, kind, target_hours, rescuetime_kind, rescuetime_thing, sort_order, created_at, updated_at
+           FROM weekly_objectives
+           WHERE id = $1`,
+          [objectiveId]
+        );
+
+        if (objectiveRows.length === 0) {
+          throw new Error(`Weekly objective not found: ${objectiveId}`);
+        }
+
+        await db.execute("COMMIT");
+        return {
+          objective: this.deserializeWeeklyObjective(objectiveRows[0]),
+          proposal: existingProposal
+        };
+      }
+
+      const savedObjective = await this.saveWeeklyObjective(objective);
+      const decidedAt = nowIso();
+      await db.execute(
+        `UPDATE ai_proposals
+         SET status = 'accepted', applied_entity_id = $1, decided_at = $2
+         WHERE id = $3`,
+        [savedObjective.id, decidedAt, proposal.id]
+      );
+
+      const updatedRows = await db.select<AiProposalRow[]>(
+        `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
+         FROM ai_proposals
+         WHERE id = $1`,
+        [proposal.id]
+      );
+
+      await db.execute("COMMIT");
+      return {
+        objective: savedObjective,
+        proposal: this.deserializeAiProposal(updatedRows[0])
+      };
+    } catch (error) {
+      await db.execute("ROLLBACK");
+      throw error;
+    }
+  }
+
+  async acceptAiReviewSectionDraftProposal(
+    proposal: AiProposal,
+    review: WeeklyReview
+  ): Promise<{ review: WeeklyReview; proposal: AiProposal }> {
+    const db = await this.getDb();
+    await db.execute("BEGIN IMMEDIATE");
+
+    try {
+      const proposalRows = await db.select<AiProposalRow[]>(
+        `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
+         FROM ai_proposals
+         WHERE id = $1`,
+        [proposal.id]
+      );
+
+      if (proposalRows.length === 0) {
+        throw new Error(`AI proposal not found: ${proposal.id}`);
+      }
+
+      const existingProposal = this.deserializeAiProposal(proposalRows[0]);
+      if (existingProposal.status === "accepted") {
+        const savedReview = await this.getWeeklyReview(review.weekStartDate);
+        await db.execute("COMMIT");
+        return {
+          review: savedReview ?? review,
+          proposal: existingProposal
+        };
+      }
+
+      await this.saveWeeklyReview(review);
+      const decidedAt = nowIso();
+      await db.execute(
+        `UPDATE ai_proposals
+         SET status = 'accepted', applied_entity_id = $1, decided_at = $2
+         WHERE id = $3`,
+        [review.weekStartDate, decidedAt, proposal.id]
+      );
+
+      const updatedRows = await db.select<AiProposalRow[]>(
+        `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
+         FROM ai_proposals
+         WHERE id = $1`,
+        [proposal.id]
+      );
+
+      await db.execute("COMMIT");
+      return {
+        review,
+        proposal: this.deserializeAiProposal(updatedRows[0])
+      };
+    } catch (error) {
+      await db.execute("ROLLBACK");
+      throw error;
+    }
+  }
+
+  async acceptAiGtdActionProposal(
+    proposal: AiProposal,
+    scheduledDate: string
+  ): Promise<{ taskId: string | null; proposal: AiProposal }> {
+    const proposalRows = await this.listAiProposals(proposal.messageId);
+    const existing = proposalRows.find((item) => item.id === proposal.id) ?? proposal;
+
+    if (existing.status === "accepted") {
+      return {
+        taskId: existing.appliedEntityId,
+        proposal: existing
+      };
+    }
+
+    const payload = JSON.parse(proposal.payloadJson) as {
+      taskId?: string;
+      action?: "schedule" | "defer" | "delegate" | "drop";
+    };
+
+    if (!payload.taskId || !payload.action) {
+      return { taskId: null, proposal: existing };
+    }
+
+    let task: Task;
+    try {
+      task = await this.requireTask(payload.taskId);
+    } catch {
+      return { taskId: null, proposal: existing };
+    }
+
+    if (task.status !== "active") {
+      return { taskId: null, proposal: existing };
+    }
+
+    const db = await this.getDb();
+    await db.execute("BEGIN IMMEDIATE");
+
+    try {
+      const lockedProposalRows = await db.select<AiProposalRow[]>(
+        `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
+         FROM ai_proposals
+         WHERE id = $1`,
+        [proposal.id]
+      );
+
+      if (lockedProposalRows.length === 0) {
+        throw new Error(`AI proposal not found: ${proposal.id}`);
+      }
+
+      const lockedProposal = this.deserializeAiProposal(lockedProposalRows[0]);
+      if (lockedProposal.status === "accepted") {
+        await db.execute("COMMIT");
+        return {
+          taskId: lockedProposal.appliedEntityId,
+          proposal: lockedProposal
+        };
+      }
+
+      const currentTask = await this.requireTask(payload.taskId);
+      if (currentTask.status !== "active") {
+        await db.execute("ROLLBACK");
+        return { taskId: null, proposal: lockedProposal };
+      }
+
+      if (payload.action === "schedule") {
+        await this.scheduleTask(payload.taskId, scheduledDate);
+      } else if (payload.action === "defer") {
+        await this.moveTask(payload.taskId, "someday_maybe", currentTask.contextIds, currentTask.projectId);
+      } else if (payload.action === "delegate") {
+        await this.moveTask(payload.taskId, "waiting_for", currentTask.contextIds, currentTask.projectId);
+      } else if (payload.action === "drop") {
+        await this.cancelTask(payload.taskId);
+      }
+
+      const decidedAt = nowIso();
+      await db.execute(
+        `UPDATE ai_proposals
+         SET status = 'accepted', applied_entity_id = $1, decided_at = $2
+         WHERE id = $3`,
+        [payload.taskId, decidedAt, proposal.id]
+      );
+
+      const updatedRows = await db.select<AiProposalRow[]>(
+        `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
+         FROM ai_proposals
+         WHERE id = $1`,
+        [proposal.id]
+      );
+
+      await db.execute("COMMIT");
+      return {
+        taskId: payload.taskId,
         proposal: this.deserializeAiProposal(updatedRows[0])
       };
     } catch (error) {

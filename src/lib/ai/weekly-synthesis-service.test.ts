@@ -185,4 +185,132 @@ describe("WeeklySynthesisService", () => {
     expect(second.source).toBe("cache");
     expect(provider.generateStructured).toHaveBeenCalledOnce();
   });
+
+  it("allocates a fresh message id when bypassing cache after an ok result", async () => {
+    const provider: AiProvider = {
+      generateStructured: vi.fn(async () => ({
+        text: JSON.stringify({
+          headline: "IA",
+          scoreExplanation: "Score",
+          strongestAxis: "Discipline",
+          weakestAxes: ["Sommeil", "Pomodoris"],
+          sectionDrafts: {},
+          nextWeekObjectives: [],
+          gtdActions: []
+        }),
+        model: "test-model",
+        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 }
+      }))
+    };
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const service = new WeeklySynthesisService(provider);
+    const settings = defaultAppSettings();
+    settings.aiEnabled = true;
+    settings.aiApiKey = "secret";
+    const snapshotInputs = buildWeeklyInputs();
+
+    const first = await service.buildSynthesis(repository, {
+      weekStartDate: "2026-08-02",
+      settings,
+      snapshotInputs,
+      trigger: "explicit"
+    });
+    const regenerated = await service.buildSynthesis(repository, {
+      weekStartDate: "2026-08-02",
+      settings,
+      snapshotInputs,
+      trigger: "explicit",
+      bypassCache: true
+    });
+
+    expect(regenerated.message.id).not.toBe(first.message.id);
+    const episodes = await repository.listAiMessages("weekly_synthesis");
+    expect(episodes.some((message) => message.id === first.message.id)).toBe(true);
+    expect(episodes.some((message) => message.id === regenerated.message.id)).toBe(true);
+  });
+
+  it("retries after a persisted fallback instead of treating it as cache", async () => {
+    const provider: AiProvider = {
+      generateStructured: vi.fn(async () => ({
+        text: JSON.stringify({
+          headline: "IA",
+          scoreExplanation: "Score",
+          strongestAxis: "Discipline",
+          weakestAxes: ["Sommeil", "Pomodoris"],
+          sectionDrafts: {},
+          nextWeekObjectives: [],
+          gtdActions: []
+        }),
+        model: "test-model",
+        usage: { tokensPrompt: 1, tokensCompletion: 2, latencyMs: 3 }
+      }))
+    };
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const service = new WeeklySynthesisService(provider);
+    const settings = defaultAppSettings();
+    settings.aiEnabled = true;
+    settings.aiApiKey = "secret";
+    const snapshotInputs = buildWeeklyInputs();
+
+    await repository.saveAiMessage({
+      id: "ai-message:fallback",
+      surface: "weekly_synthesis",
+      scopeKey: "2026-08-02",
+      stance: null,
+      kind: "weekly",
+      inputHash: "ignored",
+      promptVersion: "weekly_synthesis.v1",
+      model: "test-model",
+      status: "fallback",
+      bodyJson: JSON.stringify({
+        headline: "Fallback",
+        scoreExplanation: "Local",
+        strongestAxis: "Discipline",
+        weakestAxes: ["Sommeil", "Pomodoris"],
+        sectionDrafts: { bilan: "Old" },
+        nextWeekObjectives: [],
+        gtdActions: []
+      }),
+      bodyText: "Fallback",
+      deltaClass: null,
+      notified: false,
+      tokensPrompt: null,
+      tokensCompletion: null,
+      latencyMs: null,
+      createdAt: "2026-08-08T12:00:00.000Z"
+    });
+
+    const result = await service.buildSynthesis(repository, {
+      weekStartDate: "2026-08-02",
+      settings,
+      snapshotInputs,
+      trigger: "auto"
+    });
+
+    expect(result.source).toBe("ai");
+    expect(provider.generateStructured).toHaveBeenCalledOnce();
+  });
+
+  it("persists multiple section drafts through saveCoachPulseEpisode", async () => {
+    const provider: AiProvider = {
+      generateStructured: vi.fn()
+    };
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const service = new WeeklySynthesisService(provider);
+    const settings = defaultAppSettings();
+    const snapshotInputs = buildWeeklyInputs();
+
+    const result = await service.buildSynthesis(repository, {
+      weekStartDate: "2026-08-02",
+      settings,
+      snapshotInputs,
+      trigger: "auto"
+    });
+
+    const sectionDrafts = result.proposals.filter((proposal) => proposal.type === "review_section_draft");
+    expect(sectionDrafts.length).toBeGreaterThanOrEqual(2);
+  });
 });

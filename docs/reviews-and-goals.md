@@ -102,7 +102,16 @@ snapshots from a different week are ignored until the matching week loads. Month
 `weeklyScoreAverage` and annual `weekly_weekly_score` use the seven-axis local score
 only (calories included; RescueTime excluded).
 
-### Weekly objectives (RescueTime Goals)
+### Weekly objectives
+
+The `/semaine` screen tracks **two distinct objective systems**:
+
+1. **RescueTime Goals** (read-only): enabled goals from the RescueTime API feed optional RescueTime score axes on the weekly overview. Manage goals in RescueTime; configure the API key under **Parametres → RescueTime**.
+2. **Standing objectives** (`weekly_objectives`): durable TrackDidia objectives the coach can propose via `weekly_objective` accept-step. The page lists them with a per-week score, lets you toggle manual achievement (`saveWeeklyObjectiveResult`), and delete objectives. Time-based objectives score against RescueTime Analytic Data when configured.
+
+RescueTime Goals remain the optional weekly-score axis described below. Standing objectives use `WeeklyObjectivesService.computeWeeklyObjectivesSnapshot()` and are separate from RescueTime Goals.
+
+### RescueTime Goals (weekly score axis)
 
 The `/semaine` screen loads **enabled RescueTime Goals** and a **productivity pulse**
 from the Analytic Data API for the selected Sunday–Saturday week. These scores feed
@@ -160,11 +169,20 @@ axes, and accept-step proposals:
 
 - section note drafts for the eight ritual blocks;
 - up to five suggested standing objectives for next week;
-- GTD actions (`schedule`, `defer`, `delegate`, `drop`) on specific tasks.
+- GTD actions (`schedule`, `defer`, `delegate`, `drop`) on **active** tasks only.
 
-Accepting a section draft **prefills** the textarea only — it does not auto-save the
-review. Accepting an objective creates a row in `weekly_objectives`. Results are cached
-in `ai_messages` keyed by `(surface, weekStartDate, input_hash)`.
+Synthesis loading and acceptance are **week-scoped**: changing the selected week
+invalidates in-flight loads, hides mismatched results, and rejects accept/dismiss when
+the proposal message `scopeKey` does not match the displayed week.
+
+Accepting a section draft **persists the note** on the weekly review immediately (the
+textarea is also prefilled). Accepting an objective creates a row in `weekly_objectives`
+via an idempotent atomic accept. GTD accepts are atomic and skip terminal tasks.
+
+Successful AI results (`status = ok`) cache on `(surface, weekStartDate, input_hash)`.
+`skipped` rows cache while AI is off. `fallback` and `error` rows are retryable and
+are not treated as sticky cache hits when AI is configured. Regenerating always appends
+a new message episode.
 
 When AI is off, the local deterministic brief still renders from weekly insight findings.
 

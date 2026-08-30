@@ -42,4 +42,62 @@ describe("validateWeeklySynthesisResponse", () => {
 
     expect(validateWeeklySynthesisResponse({ ...validPayload, nextWeekObjectives: objectives }).ok).toBe(false);
   });
+
+  it("rejects invalid time objectives", () => {
+    expect(
+      validateWeeklySynthesisResponse({
+        ...validPayload,
+        nextWeekObjectives: [
+          {
+            title: "Bad time",
+            kind: "time",
+            targetHours: 0,
+            rescuetimeKind: "category",
+            rescuetimeThing: "Work"
+          }
+        ]
+      }).ok
+    ).toBe(false);
+
+    expect(
+      validateWeeklySynthesisResponse({
+        ...validPayload,
+        nextWeekObjectives: [
+          {
+            title: "Bad time",
+            kind: "time",
+            targetHours: 2,
+            rescuetimeKind: null,
+            rescuetimeThing: null
+          }
+        ]
+      }).ok
+    ).toBe(false);
+  });
+
+  it("normalizes manual objectives to null RescueTime fields", () => {
+    const result = validateWeeklySynthesisResponse({
+      ...validPayload,
+      nextWeekObjectives: [
+        {
+          title: "Budget review",
+          kind: "manual",
+          targetHours: 3,
+          rescuetimeKind: "category",
+          rescuetimeThing: "Work"
+        }
+      ]
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.nextWeekObjectives[0]).toEqual({
+        title: "Budget review",
+        kind: "manual",
+        targetHours: null,
+        rescuetimeKind: null,
+        rescuetimeThing: null
+      });
+    }
+  });
 });

@@ -134,12 +134,21 @@ memories with weekly-specific kind priority, validates JSON, and persists propos
 
 | Type | Accept applies |
 |---|---|
-| `review_section_draft` | Prefills the ritual note textarea for that section key (editable; saved only when the user saves the review) |
-| `weekly_objective` | Creates a standing `WeeklyObjective` row |
-| `gtd_action` | `scheduleTask`, `moveTask` (`someday_maybe` / `waiting_for`), or `cancelTask` per action |
+| `review_section_draft` | Persists the ritual note on the weekly review, then marks the proposal accepted |
+| `weekly_objective` | Creates a standing `WeeklyObjective` row (idempotent atomic accept) |
+| `gtd_action` | `scheduleTask`, `moveTask` (`someday_maybe` / `waiting_for`), or `cancelTask` on active tasks only (atomic accept) |
 
-When AI is disabled, the deterministic local brief still renders from insight findings.
-The **« Demander au coach »** button is disabled with an explanatory label.
+Weekly synthesis messages and proposals persist atomically via `saveCoachPulseEpisode`.
+The OpenRouter system prompt includes the full S2 schema (`buildWeeklySynthesisSchemaPrompt`).
+
+When AI is disabled or the API key is empty:
+
+- the deterministic local brief still renders from insight findings;
+- the **« Demander au coach »** button is disabled with an explanatory label.
+
+Weekly synthesis cache policy: only `ok` results (and `skipped` while AI remains off) are
+sticky cache hits. Persisted `fallback`/`error` episodes are shown as last-resort local
+briefs but do not block retries when AI is configured.
 
 ### Semantic memory (`ai_memories`)
 
@@ -196,9 +205,10 @@ Every coach result is persisted in SQLite (migrations 21–24):
 
 - `ai_messages` stores the structured body, usage (`tokens_prompt`,
   `tokens_completion`, `latency_ms`), model, stance, and an input-hash cache key.
-  Regenerations append a new row (migration 23); cache lookup returns the latest
-  `status = ok` row for a given hash. Non-ok markers (e.g. weekly distill) use
-  `getAiMessageRecord` instead.
+  Regenerations append a new row (migration 23). Cache lookup for coach pulse and weekly
+  synthesis returns the latest `status = ok` row for a given hash when AI is configured;
+  weekly synthesis also caches `skipped` when AI is off. Non-ok markers (e.g. weekly distill,
+  retryable fallback) use `getAiMessageRecord` for display but not as sticky AI cache hits.
 - `ai_proposals` stores accept-step rows linked to a message.
 - `ai_memories` stores semantic memory rows (`active | archived | contradicted`).
 
@@ -367,10 +377,11 @@ for **surface** (`daily` coach snapshot or `weekly` synthesis snapshot), a refer
 date (week start normalizes to Sunday for weekly), and a button that renders the exact
 typed snapshot that would be sent to the model — one collapsible block per scope,
 built from real repository data. This is a debug-only affordance; it is hidden when
-debug mode is off. A single preview action resolves the RescueTime productivity pulse
-once (when configured) and reuses it across all three scopes. If that resolution
-fails, the panel shows a non-blocking warning banner and the preview still renders
-(with no pulse data) rather than failing outright.
+debug mode is off. A single preview action resolves RescueTime once per surface: weekly
+previews fetch productivity pulse and Goals score together via `resolveWeeklyRescueTimeInputs`
+and reuse the result across all three scopes; daily previews fetch the week-to-date pulse only.
+If either weekly resolution fails, the panel shows a non-blocking warning banner and the preview
+still renders (with missing RescueTime data) rather than failing outright.
 
 ## Related documentation
 

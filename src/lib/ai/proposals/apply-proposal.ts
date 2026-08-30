@@ -1,5 +1,5 @@
 import { createEmptyWeeklyObjective } from "../../../domain/weekly-objectives";
-import type { AiProposal, RescueTimeTaxonomy, WeeklyRitualSectionKey } from "../../../domain/types";
+import type { AiProposal, RescueTimeTaxonomy, Task, WeeklyRitualSectionKey } from "../../../domain/types";
 import { getTodayDate } from "../../date";
 import type { AppRepository } from "../../storage/repository";
 import { applyAcceptedProposal } from "../memory/apply-proposal";
@@ -64,9 +64,15 @@ export const applyCoachProposal = async (
       return {};
     }
 
-    const tasks = await repository.listTasks({ includeCompleted: true });
-    const task = tasks.find((item) => item.id === payload.taskId);
-    if (!task) {
+    let task: Task | undefined;
+    try {
+      const tasks = await repository.listTasks({ includeCompleted: true });
+      task = tasks.find((item) => item.id === payload.taskId);
+    } catch {
+      return {};
+    }
+
+    if (!task || task.status !== "active") {
       return {};
     }
 

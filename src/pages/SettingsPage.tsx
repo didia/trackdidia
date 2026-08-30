@@ -8,7 +8,7 @@ import initialGoogleTasksExport from "../../Tasks.json";
 import { formatDateTimeShort, getTodayDate } from "../lib/date";
 import type { StorageInfo } from "../lib/storage/repository";
 import { RescueTimeGoalsService } from "../lib/rescuetime/rescuetime-goals-service";
-import { previewPayload, resolveProductivityPulse } from "../lib/ai/context/preview";
+import { previewPayload, resolveProductivityPulse, resolveWeeklyRescueTimeInputs } from "../lib/ai/context/preview";
 import type { Surface } from "../lib/ai/context/types";
 import { formatPulseSlotHours, parsePulseSlotHours } from "../lib/ai/pulse/slot-hours";
 import { buildWeekDates } from "../domain/weekly-review";
@@ -356,6 +356,38 @@ export const SettingsPage = () => {
                     payloadPreviewSurface === "weekly"
                       ? buildWeekDates(payloadPreviewDate)
                       : payloadPreviewDate;
+
+                  if (payloadPreviewSurface === "weekly") {
+                    const weeklyRescueTime = await resolveWeeklyRescueTimeInputs(repository, date);
+                    const warnings: string[] = [];
+                    if (weeklyRescueTime.pulseFetchError) {
+                      warnings.push(
+                        `Pulse RescueTime indisponible pour cet apercu (${weeklyRescueTime.pulseFetchError}). L'apercu affichera "pas de donnee" a la place.`
+                      );
+                    }
+                    if (weeklyRescueTime.goalsFetchError) {
+                      warnings.push(
+                        `Goals RescueTime indisponibles pour cet apercu (${weeklyRescueTime.goalsFetchError}). L'apercu affichera "pas de donnee" a la place.`
+                      );
+                    }
+                    if (warnings.length > 0) {
+                      setPayloadPreviewPulseWarning(warnings.join(" "));
+                    }
+
+                    const entries = await Promise.all(
+                      payloadScopes.map(async (scope) => {
+                        const snapshot = await previewPayload(repository, scope.value, {
+                          surface: payloadPreviewSurface,
+                          date,
+                          weeklyRescueTime
+                        });
+                        return [scope.value, JSON.stringify(snapshot, null, 2)] as const;
+                      })
+                    );
+                    setPayloadPreviews(Object.fromEntries(entries) as Record<AiPayloadScope, string>);
+                    return;
+                  }
+
                   const productivityPulse = await resolveProductivityPulse(repository, date);
                   if (productivityPulse.fetchError) {
                     setPayloadPreviewPulseWarning(

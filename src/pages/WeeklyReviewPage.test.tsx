@@ -181,8 +181,6 @@ describe("WeeklyReviewPage", () => {
     await user.type(dateInput, "2026-08-02");
     await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
 
-    expect(await screen.findByText("Objectifs de la semaine")).toBeInTheDocument();
-
     await waitFor(() => {
       expect(screen.getByText("more than 2h on Personal (24x7)")).toBeInTheDocument();
       expect(screen.getByText("0.25/1")).toBeInTheDocument();
@@ -388,7 +386,7 @@ describe("WeeklyReviewPage", () => {
     });
   });
 
-  it("prefills a section draft without saving the review", async () => {
+  it("persists a section draft into the weekly review on accept", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
     const weekStartDate = "2026-08-02";
@@ -469,10 +467,16 @@ describe("WeeklyReviewPage", () => {
       expect(screen.getByLabelText(/notes bilan/i)).toHaveValue("Brouillon coach");
     });
 
-    await expect(repository.getWeeklyReview(weekStartDate)).resolves.toBeNull();
+    await waitFor(async () => {
+      await expect(repository.getWeeklyReview(weekStartDate)).resolves.toMatchObject({
+        notes: expect.objectContaining({
+          bilan: "Brouillon coach"
+        })
+      });
+    });
   });
 
-  it("accepting a weekly objective proposal creates a row", async () => {
+  it("accepting a weekly objective proposal shows it in standing objectives", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
     const weekStartDate = "2026-08-02";
@@ -562,11 +566,9 @@ describe("WeeklyReviewPage", () => {
     const acceptButtons = await screen.findAllByRole("button", { name: /^accepter$/i });
     await user.click(acceptButtons[0]);
 
-    await waitFor(async () => {
-      const objectives = await repository.listWeeklyObjectives();
-      expect(objectives).toEqual(
-        expect.arrayContaining([expect.objectContaining({ title: "Lire 2h", kind: "manual" })])
-      );
+    await waitFor(() => {
+      expect(screen.getByText("Lire 2h")).toBeInTheDocument();
+      expect(screen.getByText("Objectifs permanents")).toBeInTheDocument();
     });
   });
 
@@ -680,6 +682,95 @@ describe("WeeklyReviewPage", () => {
       const updated = await repository.listAiProposals(message.id);
       expect(updated[0]?.status).toBe("accepted");
     });
+  });
+
+  it("does not apply proposals from a different week", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const weekA = "2026-08-02";
+    const weekB = "2026-08-09";
+
+    for (const weekStart of [weekA, weekB]) {
+      for (let index = 0; index < 7; index += 1) {
+        await repository.saveDailyEntry(createEmptyDailyEntry(addDays(weekStart, index)));
+      }
+    }
+
+    const message = {
+      id: "ai-message-week-a",
+      surface: "weekly_synthesis" as const,
+      scopeKey: weekA,
+      stance: null,
+      kind: "weekly",
+      inputHash: "hash-a",
+      promptVersion: "weekly_synthesis.v1",
+      model: "local",
+      status: "skipped" as const,
+      bodyJson: JSON.stringify({
+        headline: "Semaine A",
+        scoreExplanation: "Score",
+        strongestAxis: "Discipline",
+        weakestAxes: ["Sommeil", "Pomodoris"],
+        sectionDrafts: { bilan: "Semaine A" },
+        nextWeekObjectives: [],
+        gtdActions: []
+      }),
+      bodyText: "Semaine A",
+      deltaClass: null,
+      notified: false,
+      tokensPrompt: null,
+      tokensCompletion: null,
+      latencyMs: null,
+      createdAt: new Date().toISOString()
+    };
+    const proposal = {
+      id: "proposal-week-a",
+      messageId: message.id,
+      type: "review_section_draft" as const,
+      payloadJson: JSON.stringify({ sectionKey: "bilan", text: "Semaine A" }),
+      status: "pending" as const,
+      appliedEntityId: null,
+      decidedAt: null,
+      createdAt: new Date().toISOString()
+    };
+    await repository.saveAiMessage(message);
+    await repository.saveAiProposal(proposal);
+
+    vi.spyOn(WeeklySynthesisService.prototype, "buildSynthesis").mockImplementation(async (_repo, request) => ({
+      message: { ...message, scopeKey: request.weekStartDate, inputHash: `hash-${request.weekStartDate}` },
+      synthesis: {
+        headline: request.weekStartDate === weekA ? "Semaine A" : "Semaine B",
+        scoreExplanation: "Score",
+        strongestAxis: "Discipline",
+        weakestAxes: ["Sommeil", "Pomodoris"],
+        sectionDrafts: {},
+        nextWeekObjectives: [],
+        gtdActions: []
+      },
+      proposals: request.weekStartDate === weekA ? [proposal] : [],
+      source: "local" as const
+    }));
+
+    const user = userEvent.setup();
+    await renderWithApp(<WeeklyReviewPage />, { repository, route: "/semaine" });
+
+    const dateInput = await screen.findByLabelText(/debut de semaine/i);
+    await user.clear(dateInput);
+    await user.type(dateInput, weekB);
+    await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
+
+    expect(await screen.findByRole("heading", { name: /coach hebdomadaire/i })).toBeInTheDocument();
+    expect(screen.queryByText("Semaine A")).not.toBeInTheDocument();
+
+    const acceptButtons = screen.queryAllByRole("button", { name: /^accepter$/i });
+    if (acceptButtons.length > 0) {
+      await user.click(acceptButtons[0]);
+    }
+
+    await expect(repository.getWeeklyReview(weekB)).resolves.toBeNull();
+    await expect(repository.listAiProposals(message.id)).resolves.toEqual([
+      expect.objectContaining({ status: "pending" })
+    ]);
   });
 });
 

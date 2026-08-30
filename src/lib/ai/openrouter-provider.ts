@@ -2,6 +2,7 @@ import type { AppSettings, AiSurface } from "../../domain/types";
 import type { CoachMessage } from "../../domain/types";
 import type { AiPromptContext, AiProvider, AiStructuredRequest, AiStructuredResult } from "./provider";
 import { buildCoachPulseSchemaPrompt } from "./proposals/coach-pulse-schema-prompt";
+import { buildWeeklySynthesisSchemaPrompt } from "./proposals/weekly-synthesis-schema-prompt";
 
 export const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 export const DEFAULT_OPENROUTER_MODEL = "moonshotai/kimi-k2.6";
@@ -110,7 +111,8 @@ const buildSystemPrompt = (request: AiStructuredRequest, repairHint?: string): s
   if (request.surface === "weekly_synthesis") {
     const instruction =
       "Tu es un coach de revue hebdomadaire pour le rituel du dimanche. Reponds en francais avec un JSON strict conforme au schema weekly_synthesis (S2).";
-    const base = `${instruction}${memorySection}`;
+    const schemaBlock = buildWeeklySynthesisSchemaPrompt();
+    const base = `${instruction}\n\nSchema weekly_synthesis:\n${schemaBlock}${memorySection}`;
     return repairHint ? `${base}\n\nCorrection demandee: ${repairHint}` : base;
   }
 

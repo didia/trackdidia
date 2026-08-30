@@ -85,6 +85,18 @@ const buildProposals = (messageId: string, synthesis: WeeklySynthesisResponse, c
   return proposals;
 };
 
+const resultSourceFromMessage = (message: AiMessage): WeeklySynthesisResult["source"] => {
+  if (message.status === "ok") {
+    return "cache";
+  }
+
+  if (message.status === "fallback") {
+    return "fallback";
+  }
+
+  return "local";
+};
+
 const cachedResult = async (
   repository: AppRepository,
   message: AiMessage
@@ -103,7 +115,7 @@ const cachedResult = async (
     message,
     synthesis: parsed.value,
     proposals,
-    source: "cache"
+    source: resultSourceFromMessage(message)
   };
 };
 
@@ -112,18 +124,13 @@ const persistResult = async (
   message: AiMessage,
   synthesis: WeeklySynthesisResponse
 ): Promise<WeeklySynthesisResult> => {
-  const savedMessage = await repository.saveAiMessage(message);
-  await repository.clearPendingAiProposals(savedMessage.id);
-  const proposals = buildProposals(savedMessage.id, synthesis, savedMessage.createdAt);
-
-  for (const proposal of proposals) {
-    await repository.saveAiProposal(proposal);
-  }
+  const proposals = buildProposals(message.id, synthesis, message.createdAt);
+  const saved = await repository.saveCoachPulseEpisode(message, proposals);
 
   return {
-    message: savedMessage,
+    message: saved.message,
     synthesis,
-    proposals,
+    proposals: saved.proposals,
     source: message.status === "ok" ? "ai" : message.status === "fallback" ? "fallback" : "local"
   };
 };
@@ -143,6 +150,7 @@ export class WeeklySynthesisService {
     const snapshot = buildWeeklySnapshot(snapshotInputs, settings.aiPayloadScope);
     const scopeKey = weekStartDate;
     const createdAt = nowIso();
+    const aiConfigured = settings.aiEnabled && settings.aiApiKey.trim().length > 0;
 
     const activeMemories = await repository.listAiMemories({
       status: "active",
@@ -160,23 +168,28 @@ export class WeeklySynthesisService {
     });
 
     if (!bypassCache) {
-      const cached = await repository.getAiMessageRecord("weekly_synthesis", scopeKey, inputHash);
-      if (cached) {
-        const aiConfigured = settings.aiEnabled && settings.aiApiKey.trim().length > 0;
-        const skippedBlocksProvider = cached.status === "skipped" && aiConfigured;
-        if (!skippedBlocksProvider) {
+      if (aiConfigured) {
+        const cached = await repository.getAiMessage("weekly_synthesis", scopeKey, inputHash);
+        if (cached) {
           const result = await cachedResult(repository, cached);
           if (result) {
-            return result;
+            return { ...result, source: "cache" };
+          }
+        }
+      } else {
+        const skipped = await repository.getAiMessageRecord("weekly_synthesis", scopeKey, inputHash);
+        if (skipped?.status === "skipped") {
+          const result = await cachedResult(repository, skipped);
+          if (result) {
+            return { ...result, source: "cache" };
           }
         }
       }
     }
 
     const localSynthesis = buildLocalWeeklySynthesis(snapshot);
-    const existingMessage = await repository.getAiMessage("weekly_synthesis", scopeKey, inputHash);
     const baseMessage = (): AiMessage => ({
-      id: existingMessage?.id ?? createEntityId("ai-message"),
+      id: createEntityId("ai-message"),
       surface: "weekly_synthesis",
       scopeKey,
       stance: null,
@@ -194,8 +207,6 @@ export class WeeklySynthesisService {
       latencyMs: null,
       createdAt
     });
-
-    const aiConfigured = settings.aiEnabled && settings.aiApiKey.trim().length > 0;
 
     if (!aiConfigured) {
       const skippedMessage = {

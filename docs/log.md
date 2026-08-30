@@ -5,6 +5,8 @@ the top of the table.
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-08-30 | Weekly Settings preview passes Goals+pulse via `weeklyRescueTime` (fixes null Goals on injected path) | `docs/ai-settings-and-privacy.md` | `SettingsPage.tsx`, `preview.ts` |
+| 2026-08-30 | Phase 4 PR #58 review: atomic weekly synthesis persist/accept, standing objectives UI, week-scoped synthesis, migration 25 index, S2 schema prompt, preview Goals parity, fallback retry policy | `docs/reviews-and-goals.md`, `docs/ai-settings-and-privacy.md`, `docs/storage-and-backups.md` | Migration 25, `WeeklyReviewPage`, `WeeklySynthesisService`, `acceptAi*Proposal`, `listDailyEntriesOnOrBefore` |
 | 2026-08-30 | Phase 3 PR review fixes: atomic memory accept, weekly distill rebuild, close-cache commitment finalization, stable pattern confirmation refresh | `docs/ai-settings-and-privacy.md` | `acceptAiMemoryProposal`, `weekly-distillation.ts`, `CoachPulseService`, `lifecycle.ts` |
 | 2026-08-30 | Phase 2 pulse review fixes: completed tasks count as progress, idle/unknown skip RescueTime fetch, missed slots break stall notification chain, pulse slot hours require exactly three unique local hours | `docs/ai-settings-and-privacy.md` | `src/lib/ai/pulse/pulse-engine.ts`, `slot-hours.ts`, `SettingsPage.tsx` |
 | 2026-08-30 | Phase 1 PR review fixes: Today auto-loads AI, accept auto-saves journal fields, append-only `ai_messages` (migration 23), coach schema in prompts, ephemeral local proposals suppressed, RescueTime skipped for fast local brief | `docs/ai-settings-and-privacy.md`, `docs/storage-and-backups.md` | Migration 23, `CoachPulseService`, `CoachPulsePanel`, `TodayPage`, `EveningClosurePage` |

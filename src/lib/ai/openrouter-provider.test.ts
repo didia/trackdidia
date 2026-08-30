@@ -93,6 +93,62 @@ describe("OpenRouterProvider", () => {
     expect(systemPrompt).toContain("intentionDraft");
   });
 
+  it("includes weekly synthesis schema fields in the system prompt", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        choices: [{ message: { content: '{"headline":"Semaine","scoreExplanation":"ok","strongestAxis":"Discipline","weakestAxes":["A","B"],"nextWeekObjectives":[],"gtdActions":[]}' } }],
+        usage: { prompt_tokens: 1, completion_tokens: 2 }
+      })
+    );
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const provider = new OpenRouterProvider();
+    const settings = defaultAppSettings();
+    settings.aiApiKey = "sk-or-test";
+
+    await provider.generateStructured({
+      surface: "weekly_synthesis",
+      settings,
+      snapshot: {
+        surface: "weekly",
+        scope: "full",
+        weekStartDate: "2026-08-02",
+        weekEndDate: "2026-08-08",
+        reviewStatus: "draft",
+        weeklyScore: 0.5,
+        axes: [],
+        metrics: [],
+        principles: [],
+        gtd: {
+          inboxBacklog: 0,
+          projectsWithoutNextAction: 0,
+          projectsWithoutNextActionSample: [],
+          staleNextActions: 0,
+          agingWaitingFor: 0,
+          overdueDeadlines: 0,
+          scheduledVsCompletedRatio: 0
+        },
+        focus: {
+          completedFocusSessionCount: 0,
+          totalFocusMinutes: 0,
+          taskConcentration: null,
+          topTask: null,
+          productivityPulse: null,
+          rescueTimeConfigured: false
+        },
+        findings: []
+      }
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    const systemPrompt = body.messages[0].content as string;
+    expect(systemPrompt).toContain("Schema weekly_synthesis");
+    expect(systemPrompt).toContain("weakestAxes");
+    expect(systemPrompt).toContain("nextWeekObjectives");
+    expect(systemPrompt).toContain("gtdActions");
+  });
+
   it("retries once on 429 responses", async () => {
     vi.useFakeTimers();
     const fetchMock = vi
