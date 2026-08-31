@@ -14,4 +14,18 @@ serde_json = "1.0"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 tauri = { version = "2.10.3", features = [] }
 tauri-plugin-notification = "2"
-tauri-plugin-sql = { version = "2.3.2", features = ["sqlite"] }
+# Rust-side sqlite pool pinned to a single physical connection that never gets reaped
+# (max_connections(1) + min_connections(1) + idle_timeout(None) + max_lifetime(None), see
+# db::build_pool_options), replacing tauri-plugin-sql: that plugin's pool has no options hook
+# (bare Pool::connect(conn_url) in its wrapper.rs), so it cannot be pinned to one connection,
+# which meant a BEGIN IMMEDIATE and its later COMMIT could land on different connections under
+# concurrent db.select() calls. max_connections(1) alone would not fully fix that either: sqlx
+# returns the connection to its idle queue after every statement and can close it there (its
+# default max_lifetime/idle_timeout reapers), silently rolling back an open-but-idle transaction
+# before the later COMMIT runs. See src/db.rs for the custom db_connect/db_execute/db_select
+# commands that replace it.
+sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runtime-tokio"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time"] }
+tempfile = "3"

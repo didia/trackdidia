@@ -119,15 +119,15 @@ database. The installed app continues to use
 
 The Rust host registers:
 
-- `tauri-plugin-sql`;
 - `tauri-plugin-notification`;
-- the custom `resolve_storage_paths` command.
+- the custom `resolve_storage_paths` command;
+- the custom `rescuetime_http_get` command;
+- the custom `db_connect`, `db_execute`, and `db_select` commands (`src-tauri/src/db.rs`),
+  a hand-rolled single-connection sqlx pool that replaces `tauri-plugin-sql`.
 
 The default main-window capability grants:
 
 - `core:default`;
-- `sql:default`;
-- `sql:allow-execute`;
 - `notification:default`.
 
 New native APIs require both plugin initialization and capability review.
