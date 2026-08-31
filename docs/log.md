@@ -5,6 +5,8 @@ the top of the table.
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-08-31 | Morning anchors list trimmed to six principles in ritual order | `docs/daily-routines.md` | `morningPrincipleKeys`, `PrincipleChecklist` |
+| 2026-08-31 | Weekly/monthly ritual notes survive leaving the page: textarea flush on unmount, serialized latest-wins review saves | `docs/reviews-and-goals.md`, `docs/conventions.md` | `PersistedTextarea`, `WeeklyReviewPage`, `MonthlyReviewPage` |
 | 2026-08-31 | Phase 6 PR #60 review: analytics error state, cost rate without refetch, `AiUsageTotals` vs UI cost estimate, newest-under-cap messages, 30-day dismissal table, analytics CSS | `docs/ai-settings-and-privacy.md` | `AiCoachAnalyticsSection`, `AiCostDashboardSection`, `SettingsPage`, `listAiMessagesSince`, `computeAiUsageForMonth` |
 | 2026-08-30 | Phase 5 PR #59 second-pass: atomic monthly section-draft accept, month-scoped synthesis, aligned goal-pacing risk tolerance | `docs/ai-settings-and-privacy.md`, `docs/reviews-and-goals.md`, `docs/storage-and-backups.md` | `acceptAiMonthlyReviewSectionDraftProposal`, `MonthlyReviewPage`, `ANNUAL_GOAL_PACE_TOLERANCE`, `goal-pacing-fallback` |
 | 2026-08-30 | Phase 5 PR #59 review: S3/S4 schema prompts, monthly/goal-pacing cache parity with weekly, annual year/month gating, unknown goal dismiss, score 0–100 validation | `docs/ai-settings-and-privacy.md`, `docs/reviews-and-goals.md` | `OpenRouterProvider`, `MonthlySynthesisService`, `GoalPacingService`, `AnnualGoalsPage`, `MonthlyReviewPage` |

@@ -145,6 +145,7 @@ export const WeeklyReviewPage = () => {
   const [synthesisLoading, setSynthesisLoading] = useState(false);
   const [applyingProposalIds, setApplyingProposalIds] = useState<string[]>([]);
   const latestReviewRef = useRef<WeeklyReview | null>(null);
+  const saveChainRef = useRef(Promise.resolve());
   const noteRefs = useRef<Partial<Record<WeeklyRitualSectionKey, PersistedTextareaHandle | null>>>({});
   const weekRequestSeqRef = useRef(0);
   const goalsRequestSeqRef = useRef(0);
@@ -301,10 +302,19 @@ export const WeeklyReviewPage = () => {
   }, [loadWeek]);
 
   const saveReview = useCallback(
-    async (nextReview: WeeklyReview) => {
+    (nextReview: WeeklyReview) => {
       latestReviewRef.current = nextReview;
       setReview(nextReview);
-      await repository.saveWeeklyReview(nextReview);
+      saveChainRef.current = saveChainRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          const snapshot = latestReviewRef.current;
+          if (!snapshot) {
+            return;
+          }
+          await repository.saveWeeklyReview(snapshot);
+        });
+      return saveChainRef.current;
     },
     [repository]
   );

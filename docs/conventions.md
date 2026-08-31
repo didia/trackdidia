@@ -49,7 +49,9 @@ implementations.
 - Keep global runtime behavior in `AppProvider` or a focused shared hook.
 - Keep temporary form state local to the screen/component.
 - `PersistedTextarea` debounces persistence by 450 ms unless `debounceMs={0}` is
-  supplied; actions that navigate immediately must flush the draft first.
+  supplied. It also flushes the pending draft on unmount. Weekly and monthly
+  reviews serialize those saves so an earlier in-flight snapshot cannot overwrite
+  later notes.
 
 ## Repository changes
 
