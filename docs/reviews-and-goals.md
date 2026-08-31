@@ -42,8 +42,9 @@ The eight ritual sections are:
 7. Alignement
 8. Dimanche
 
-Notes and checklist changes persist immediately. Closing does not require all
-sections to be checked.
+Notes and checklist changes persist immediately, including when leaving the
+page. Saves are serialized so the latest draft wins if several writes overlap.
+Closing does not require all sections to be checked.
 
 ### Daily inputs
 

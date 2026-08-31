@@ -37,8 +37,10 @@ export const PersistedTextarea = forwardRef<PersistedTextareaHandle, PersistedTe
     const timeoutRef = useRef<number | null>(null);
     const lastSavedRef = useRef(savedValue);
     const draftRef = useRef(draft);
+    const onPersistRef = useRef(onPersist);
 
     draftRef.current = draft;
+    onPersistRef.current = onPersist;
 
     useEffect(() => {
       lastSavedRef.current = savedValue;
@@ -48,14 +50,6 @@ export const PersistedTextarea = forwardRef<PersistedTextareaHandle, PersistedTe
       }
     }, [savedValue]);
 
-    useEffect(() => {
-      return () => {
-        if (timeoutRef.current !== null) {
-          window.clearTimeout(timeoutRef.current);
-        }
-      };
-    }, []);
-
     const flushPersist = (nextValue: string) => {
       if (nextValue === lastSavedRef.current) {
         dirtyRef.current = false;
@@ -63,8 +57,23 @@ export const PersistedTextarea = forwardRef<PersistedTextareaHandle, PersistedTe
       }
       lastSavedRef.current = nextValue;
       dirtyRef.current = false;
-      onPersist(nextValue);
+      onPersistRef.current(nextValue);
     };
+
+    useEffect(() => {
+      return () => {
+        if (timeoutRef.current !== null) {
+          window.clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
+        const pending = draftRef.current;
+        if (pending !== lastSavedRef.current) {
+          lastSavedRef.current = pending;
+          dirtyRef.current = false;
+          onPersistRef.current(pending);
+        }
+      };
+    }, []);
 
     const schedulePersist = (nextValue: string) => {
       if (debounceMs <= 0) {
