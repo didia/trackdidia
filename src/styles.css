@@ -360,6 +360,64 @@ a {
   overflow-wrap: anywhere;
 }
 
+.muted-copy {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.analytics-table-block {
+  margin-top: 22px;
+  display: grid;
+  gap: 10px;
+}
+
+.analytics-table-block h4 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.analytics-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--panel-strong);
+  box-shadow: var(--shadow);
+}
+
+.analytics-table th,
+.analytics-table td {
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+
+.analytics-table th {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.analytics-table tr:last-child td {
+  border-bottom: none;
+}
+
+.analytics-signals {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 10px;
+  color: var(--ink);
+}
+
+.analytics-signals li {
+  line-height: 1.45;
+}
+
 .panel {
   padding: 22px;
   border: 1px solid var(--line);
@@ -1354,6 +1412,14 @@ textarea {
   .bulk-toolbar,
   .task-card__quick-actions {
     justify-content: start;
+  }
+
+  .analytics-table-block {
+    overflow-x: auto;
+  }
+
+  .analytics-table {
+    min-width: 520px;
   }
 
   .floating-pomodoro {

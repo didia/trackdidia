@@ -76,8 +76,7 @@ describe("MemoryRepository AI usage aggregation", () => {
       callCount: 1,
       tokensPrompt: 100,
       tokensCompletion: 40,
-      tokensTotal: 140,
-      estimatedCostUsd: 0
+      tokensTotal: 140
     });
   });
 
@@ -120,5 +119,38 @@ describe("MemoryRepository AI usage aggregation", () => {
     await expect(repository.listAiMessagesSince("2026-08-29T00:00:00.000Z")).resolves.toHaveLength(1);
     await expect(repository.listAiProposalsSince("2026-08-29T00:00:00.000Z")).resolves.toHaveLength(1);
     await expect(repository.listAiProposalsSince("2026-08-30T00:00:00.000Z")).resolves.toHaveLength(0);
+  });
+
+  it("retains the newest messages when the cap binds", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    const buildMessageAt = (id: string, createdAt: string) => ({
+      id,
+      surface: "coach_pulse" as const,
+      scopeKey: "2026-08-29",
+      stance: "open" as const,
+      kind: "open",
+      inputHash: id,
+      promptVersion: "coach_pulse.v1",
+      model: "test",
+      status: "ok" as const,
+      bodyJson: null,
+      bodyText: null,
+      deltaClass: null,
+      notified: false,
+      tokensPrompt: 1,
+      tokensCompletion: 1,
+      latencyMs: null,
+      createdAt
+    });
+
+    await repository.saveAiMessage(buildMessageAt("msg-old", "2026-08-29T10:00:00.000Z"));
+    await repository.saveAiMessage(buildMessageAt("msg-mid", "2026-08-29T11:00:00.000Z"));
+    await repository.saveAiMessage(buildMessageAt("msg-new", "2026-08-29T12:00:00.000Z"));
+
+    const retained = await repository.listAiMessagesSince("2026-08-29T00:00:00.000Z", 2);
+
+    expect(retained.map((message) => message.id)).toEqual(["msg-mid", "msg-new"]);
   });
 });

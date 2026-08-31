@@ -29,7 +29,7 @@ import type {
   AiProposal,
   AiMessage,
   AiSurface,
-  AiUsageSummary,
+  AiUsageTotals,
   WeeklyReview,
   WeeklyReviewSummary,
   WeeklyObjective,
@@ -95,7 +95,7 @@ export interface AppRepository {
   listAiMessagesSince(sinceIso: string, limit?: number): Promise<AiMessage[]>;
   listAiProposals(messageId: string): Promise<AiProposal[]>;
   listAiProposalsSince(sinceIso: string): Promise<AiProposal[]>;
-  computeAiUsageForMonth(monthKey: string): Promise<AiUsageSummary>;
+  computeAiUsageForMonth(monthKey: string): Promise<AiUsageTotals>;
   saveAiProposal(proposal: AiProposal): Promise<AiProposal>;
   clearPendingAiProposals(messageId: string): Promise<void>;
   decideAiProposal(

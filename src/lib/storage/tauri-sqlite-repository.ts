@@ -31,7 +31,7 @@ import type {
   AiMessage,
   AiProposal,
   AiSurface,
-  AiUsageSummary,
+  AiUsageTotals,
   AnnualGoal,
   AppSettings,
   CoachPulseStance,
@@ -1435,12 +1435,12 @@ export class TauriSqliteRepository implements AppRepository {
               tokens_prompt, tokens_completion, latency_ms, created_at
        FROM ai_messages
        WHERE created_at >= $1
-       ORDER BY created_at ASC
+       ORDER BY created_at DESC
        LIMIT $2`,
       [sinceIso, limit]
     );
 
-    return rows.map((row) => this.deserializeAiMessage(row));
+    return rows.reverse().map((row) => this.deserializeAiMessage(row));
   }
 
   async listAiProposals(messageId: string): Promise<AiProposal[]> {
@@ -1469,7 +1469,7 @@ export class TauriSqliteRepository implements AppRepository {
     return rows.map((row) => this.deserializeAiProposal(row));
   }
 
-  async computeAiUsageForMonth(monthKey: string): Promise<AiUsageSummary> {
+  async computeAiUsageForMonth(monthKey: string): Promise<AiUsageTotals> {
     const { startIso, endIso } = monthKeyToLocalRange(monthKey);
     const db = await this.getDb();
     const rows = await db.select<
@@ -1492,8 +1492,7 @@ export class TauriSqliteRepository implements AppRepository {
       callCount: aggregate.call_count,
       tokensPrompt,
       tokensCompletion,
-      tokensTotal: tokensPrompt + tokensCompletion,
-      estimatedCostUsd: 0
+      tokensTotal: tokensPrompt + tokensCompletion
     };
   }
 

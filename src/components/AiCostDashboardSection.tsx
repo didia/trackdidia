@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import type { AppSettings, AiUsageSummary } from "../domain/types";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { AiUsageSummary, AiUsageTotals } from "../domain/types";
 import { applyCostEstimate } from "../lib/ai/analytics/cost";
 import { getCurrentMonthKey } from "../lib/ai/analytics/month-range";
 import type { AppRepository } from "../lib/storage/repository";
@@ -7,7 +7,8 @@ import { SectionCard } from "./SectionCard";
 
 interface AiCostDashboardSectionProps {
   repository: AppRepository;
-  settings: AppSettings;
+  /** Null when the rate draft is empty — cost estimate is omitted instead of showing $0.00. */
+  costPerMillionTokens: number | null;
 }
 
 const formatInteger = (value: number): string => new Intl.NumberFormat("fr-CA").format(value);
@@ -20,24 +21,37 @@ const formatUsd = (value: number): string =>
     maximumFractionDigits: 4
   }).format(value);
 
-export const AiCostDashboardSection = ({ repository, settings }: AiCostDashboardSectionProps) => {
-  const [usage, setUsage] = useState<AiUsageSummary | null>(null);
+export const AiCostDashboardSection = ({ repository, costPerMillionTokens }: AiCostDashboardSectionProps) => {
+  const [totals, setTotals] = useState<AiUsageTotals | null>(null);
   const [loading, setLoading] = useState(true);
   const monthKey = getCurrentMonthKey();
 
   const loadUsage = useCallback(async () => {
     setLoading(true);
     try {
-      const summary = await repository.computeAiUsageForMonth(monthKey);
-      setUsage(applyCostEstimate(summary, settings.aiCostPerMillionTokens));
+      setTotals(await repository.computeAiUsageForMonth(monthKey));
     } finally {
       setLoading(false);
     }
-  }, [repository, monthKey, settings.aiCostPerMillionTokens]);
+  }, [repository, monthKey]);
 
   useEffect(() => {
     void loadUsage();
   }, [loadUsage]);
+
+  const usage = useMemo((): AiUsageSummary | null => {
+    if (!totals || costPerMillionTokens === null) {
+      return null;
+    }
+    return applyCostEstimate(totals, costPerMillionTokens);
+  }, [totals, costPerMillionTokens]);
+
+  const costLabel =
+    loading || !totals
+      ? "..."
+      : costPerMillionTokens === null
+        ? "—"
+        : formatUsd(usage!.estimatedCostUsd);
 
   return (
     <SectionCard
@@ -51,25 +65,31 @@ export const AiCostDashboardSection = ({ repository, settings }: AiCostDashboard
         </article>
         <article className="status-card">
           <span>Appels enregistres</span>
-          <strong>{loading || !usage ? "..." : formatInteger(usage.callCount)}</strong>
+          <strong>{loading || !totals ? "..." : formatInteger(totals.callCount)}</strong>
         </article>
         <article className="status-card">
           <span>Jetons entree</span>
-          <strong>{loading || !usage ? "..." : formatInteger(usage.tokensPrompt)}</strong>
+          <strong>{loading || !totals ? "..." : formatInteger(totals.tokensPrompt)}</strong>
         </article>
         <article className="status-card">
           <span>Jetons sortie</span>
-          <strong>{loading || !usage ? "..." : formatInteger(usage.tokensCompletion)}</strong>
+          <strong>{loading || !totals ? "..." : formatInteger(totals.tokensCompletion)}</strong>
         </article>
         <article className="status-card">
           <span>Cout estime</span>
-          <strong>{loading || !usage ? "..." : formatUsd(usage.estimatedCostUsd)}</strong>
+          <strong>{costLabel}</strong>
         </article>
       </div>
 
       <p className="muted-copy">
-        Cout calcule avec le tarif {settings.aiCostPerMillionTokens} USD / million de jetons (prompt + completion).
-        Les tarifs OpenRouter varient selon le modele — ajuste le tarif dans Parametres IA.
+        {costPerMillionTokens === null ? (
+          <>Entrez un tarif approximatif dans Parametres IA pour estimer le cout.</>
+        ) : (
+          <>
+            Cout calcule avec le tarif {costPerMillionTokens} USD / million de jetons (prompt + completion). Les
+            tarifs OpenRouter varient selon le modele — ajuste le tarif dans Parametres IA.
+          </>
+        )}
       </p>
     </SectionCard>
   );

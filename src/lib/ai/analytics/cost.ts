@@ -1,4 +1,4 @@
-import type { AiUsageSummary } from "../../../domain/types";
+import type { AiUsageSummary, AiUsageTotals } from "../../../domain/types";
 
 /** Static rough rate table (USD per 1M tokens). OpenRouter pricing varies by model. */
 export const DEFAULT_COST_PER_MILLION_TOKENS = 1;
@@ -7,7 +7,7 @@ export const estimateTokenCostUsd = (tokensTotal: number, costPerMillionTokens: 
   (tokensTotal / 1_000_000) * costPerMillionTokens;
 
 export const applyCostEstimate = (
-  summary: AiUsageSummary,
+  summary: AiUsageTotals,
   costPerMillionTokens: number
 ): AiUsageSummary => ({
   ...summary,

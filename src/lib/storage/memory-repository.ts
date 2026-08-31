@@ -36,7 +36,7 @@ import type {
   AiMessage,
   AiProposal,
   AiSurface,
-  AiUsageSummary,
+  AiUsageTotals,
   AnnualGoal,
   AppSettings,
   CreateTaskInput,
@@ -397,8 +397,9 @@ export class MemoryRepository implements AppRepository {
   async listAiMessagesSince(sinceIso: string, limit = 10_000): Promise<AiMessage[]> {
     return [...this.aiMessages.values()]
       .filter((message) => message.createdAt >= sinceIso)
-      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
       .slice(0, limit)
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
       .map((message) => ({ ...message }));
   }
 
@@ -416,7 +417,7 @@ export class MemoryRepository implements AppRepository {
       .map((proposal) => ({ ...proposal }));
   }
 
-  async computeAiUsageForMonth(monthKey: string): Promise<AiUsageSummary> {
+  async computeAiUsageForMonth(monthKey: string): Promise<AiUsageTotals> {
     const { startIso, endIso } = monthKeyToLocalRange(monthKey);
     const messages = [...this.aiMessages.values()].filter(
       (message) => message.createdAt >= startIso && message.createdAt < endIso
@@ -430,8 +431,7 @@ export class MemoryRepository implements AppRepository {
       callCount: messages.length,
       tokensPrompt,
       tokensCompletion,
-      tokensTotal: tokensPrompt + tokensCompletion,
-      estimatedCostUsd: 0
+      tokensTotal: tokensPrompt + tokensCompletion
     };
   }
 

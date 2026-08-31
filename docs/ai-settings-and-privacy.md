@@ -267,13 +267,15 @@ calendar month (`created_at` boundaries in local time):
 |---|---|
 | Appels enregistres | Row count in the month |
 | Jetons entree / sortie | Sum of `tokens_prompt` / `tokens_completion` (null → 0) |
-| Cout estime | `(prompt + completion) / 1_000_000 × aiCostPerMillionTokens` |
+| Cout estime | `(prompt + completion) / 1_000_000 × aiCostPerMillionTokens` (computed in UI via `applyCostEstimate`, not in the repository) |
 
 `aiCostPerMillionTokens` defaults to **1.0** USD per million tokens (prompt +
 completion combined). This is a **rough static estimate** — OpenRouter pricing varies
 by model. Adjust the rate under **Parametres IA**; nothing calls external pricing APIs.
+Clearing the rate field in the draft hides the estimate instead of showing **0,00 $ US**.
 
-Repository method: `computeAiUsageForMonth(monthKey)`.
+Repository method: `computeAiUsageForMonth(monthKey)` returns token totals only
+(`AiUsageTotals` — no `estimatedCostUsd`).
 
 ### Coach analytics (Settings)
 
@@ -285,12 +287,16 @@ joined with parent `ai_messages`:
 | Par surface | Acceptance rate by `coach_pulse`, `weekly_synthesis`, etc. |
 | Par type | Acceptance rate by proposal type |
 | Par posture | Acceptance rate by pulse stance (`open`, `steer`, …) |
-| Tendance de rejet | Dismissal rate over the last 30 local days |
+| Tendance de rejet | Dismissal rate over the last 30 local days (all days with at least one decision) |
 | Signaux de revision | Surfaces/types/stances below 35% acceptance (≥ 3 decisions) flagged as **Candidat de revision de prompt** |
 
 Pure functions live in `src/lib/ai/analytics/`. No automatic prompt changes — human-readable signals only.
 
 Repository helpers: `listAiProposalsSince(sinceIso)`, `listAiMessagesSince(sinceIso, limit?)`.
+When the message cap binds, the **newest** rows are retained (oldest dropped).
+
+Load failures in the analytics section show a visible French error banner; the card
+stays mounted.
 
 ### Prompt version registry
 

@@ -47,19 +47,48 @@ const BucketTable = ({ title, buckets }: { title: string; buckets: AcceptanceRat
 export const AiCoachAnalyticsSection = ({ repository }: AiCoachAnalyticsSectionProps) => {
   const [analytics, setAnalytics] = useState<CoachAnalyticsSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const loadAnalytics = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       setAnalytics(await loadCoachAnalytics(repository));
+    } catch {
+      setAnalytics(null);
+      setError("Impossible de charger l'analytique coach. Reessayez plus tard.");
     } finally {
       setLoading(false);
     }
   }, [repository]);
 
   useEffect(() => {
-    void loadAnalytics();
-  }, [loadAnalytics]);
+    let cancelled = false;
+
+    void (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const result = await loadCoachAnalytics(repository);
+        if (!cancelled) {
+          setAnalytics(result);
+        }
+      } catch {
+        if (!cancelled) {
+          setAnalytics(null);
+          setError("Impossible de charger l'analytique coach. Reessayez plus tard.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [repository]);
 
   if (loading) {
     return (
@@ -69,11 +98,34 @@ export const AiCoachAnalyticsSection = ({ repository }: AiCoachAnalyticsSectionP
     );
   }
 
-  if (!analytics) {
-    return null;
+  if (error) {
+    return (
+      <SectionCard
+        title="Analytique coach"
+        subtitle="Taux d'acceptation des propositions IA (lecture seule)."
+      >
+        <div className="banner">{error}</div>
+        <div className="form-actions">
+          <button className="button button--ghost" type="button" onClick={() => void loadAnalytics()}>
+            Reessayer
+          </button>
+        </div>
+      </SectionCard>
+    );
   }
 
-  const recentDismissals = analytics.dismissalTrend.filter((point) => point.decided > 0).slice(-7);
+  if (!analytics) {
+    return (
+      <SectionCard
+        title="Analytique coach"
+        subtitle="Taux d'acceptation des propositions IA (lecture seule)."
+      >
+        <p className="muted-copy">Aucune donnee disponible.</p>
+      </SectionCard>
+    );
+  }
+
+  const dismissalTrend = analytics.dismissalTrend.filter((point) => point.decided > 0);
 
   return (
     <SectionCard
@@ -86,7 +138,7 @@ export const AiCoachAnalyticsSection = ({ repository }: AiCoachAnalyticsSectionP
 
       <div className="analytics-table-block">
         <h4>Tendance de rejet (30 derniers jours)</h4>
-        {recentDismissals.length === 0 ? (
+        {dismissalTrend.length === 0 ? (
           <p className="muted-copy">Aucune decision enregistree sur la periode.</p>
         ) : (
           <table className="analytics-table">
@@ -99,7 +151,7 @@ export const AiCoachAnalyticsSection = ({ repository }: AiCoachAnalyticsSectionP
               </tr>
             </thead>
             <tbody>
-              {recentDismissals.map((point) => (
+              {dismissalTrend.map((point) => (
                 <tr key={point.date}>
                   <td>{point.date}</td>
                   <td>{point.decided}</td>

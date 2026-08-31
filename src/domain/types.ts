@@ -405,12 +405,15 @@ export interface AiProposal {
   createdAt: string;
 }
 
-export interface AiUsageSummary {
+export interface AiUsageTotals {
   monthKey: string;
   callCount: number;
   tokensPrompt: number;
   tokensCompletion: number;
   tokensTotal: number;
+}
+
+export interface AiUsageSummary extends AiUsageTotals {
   /** Approximate USD; actual OpenRouter pricing varies by model. */
   estimatedCostUsd: number;
 }

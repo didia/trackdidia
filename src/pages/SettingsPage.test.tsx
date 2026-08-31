@@ -1,5 +1,6 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { vi } from "vitest";
 import { SettingsPage } from "./SettingsPage";
 import { renderWithApp } from "../test/test-utils";
 import { MemoryRepository } from "../lib/storage/memory-repository";
@@ -49,10 +50,7 @@ describe("SettingsPage AI payload preview", () => {
 });
 
 describe("SettingsPage AI cost and analytics", () => {
-  it("renders the monthly cost dashboard and coach analytics sections", async () => {
-    const repository = new MemoryRepository();
-    await repository.initialize();
-
+  const seedUsageMessage = async (repository: MemoryRepository) => {
     await repository.saveAiMessage({
       id: "settings-usage-msg",
       surface: "coach_pulse",
@@ -72,6 +70,12 @@ describe("SettingsPage AI cost and analytics", () => {
       latencyMs: null,
       createdAt: new Date().toISOString()
     });
+  };
+
+  it("renders the monthly cost dashboard and coach analytics sections with loaded totals", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await seedUsageMessage(repository);
 
     await renderWithApp(<SettingsPage />, { repository });
 
@@ -80,7 +84,49 @@ describe("SettingsPage AI cost and analytics", () => {
     expect(screen.getByText("Versions de prompt actives")).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(screen.getByText("Appels enregistres")).toBeInTheDocument();
+      expect(screen.getByText("Jetons entree").parentElement).toHaveTextContent("200");
     });
+    expect(screen.getByText("Jetons sortie").parentElement).toHaveTextContent("100");
+    expect(screen.getByText("Appels enregistres").parentElement).toHaveTextContent("1");
+  });
+
+  it("does not re-fetch usage when editing the approximate rate", async () => {
+    const user = userEvent.setup();
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await seedUsageMessage(repository);
+
+    const computeSpy = vi.spyOn(repository, "computeAiUsageForMonth");
+
+    await renderWithApp(<SettingsPage />, { repository });
+
+    await waitFor(() => {
+      expect(screen.getByText("Jetons entree").parentElement).toHaveTextContent("200");
+    });
+
+    const initialCalls = computeSpy.mock.calls.length;
+
+    const rateInput = screen.getByLabelText("Tarif approximatif IA (USD / million de jetons)");
+    await user.clear(rateInput);
+    await user.type(rateInput, "2");
+
+    await waitFor(() => {
+      expect(screen.getByText("Cout estime").parentElement).toHaveTextContent("0,0006");
+    });
+
+    expect(computeSpy.mock.calls.length).toBe(initialCalls);
+  });
+
+  it("shows an analytics error banner instead of hiding the section", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    vi.spyOn(repository, "listAiMessagesSince").mockRejectedValue(new Error("db unavailable"));
+
+    await renderWithApp(<SettingsPage />, { repository });
+
+    expect(await screen.findByText("Analytique coach")).toBeInTheDocument();
+    expect(
+      screen.getByText("Impossible de charger l'analytique coach. Reessayez plus tard.")
+    ).toBeInTheDocument();
   });
 });
