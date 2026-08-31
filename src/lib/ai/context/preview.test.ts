@@ -3,6 +3,7 @@ import { MemoryRepository } from "../../storage/memory-repository";
 import { RescueTimeGoalsService } from "../../rescuetime/rescuetime-goals-service";
 import { previewPayload, resolveProductivityPulse } from "./preview";
 import type { DailySnapshot } from "./daily-snapshot";
+import type { MonthlySnapshot } from "./monthly-snapshot";
 import type { WeeklySnapshot } from "./weekly-snapshot";
 
 describe("previewPayload", () => {
@@ -51,10 +52,10 @@ describe("previewPayload", () => {
       surface: "weekly",
       date: weekStart
     });
-    const fullSnapshot = await previewPayload(repository, "full", {
+    const fullSnapshot = (await previewPayload(repository, "full", {
       surface: "weekly",
       date: weekStart
-    });
+    })) as import("./weekly-snapshot").WeeklySnapshot;
 
     expect(metricsSnapshot.surface).toBe("weekly");
     expect(fullSnapshot.surface).toBe("weekly");
@@ -112,6 +113,20 @@ describe("previewPayload", () => {
     expect(snapshot.axes.some((axis) => axis.key === "rescueTimeGoalsScore")).toBe(true);
     expect(snapshot.axes.some((axis) => axis.key === "productivityPulse")).toBe(true);
     expect(snapshot.weeklyScore).toBeGreaterThan(0);
+  });
+
+  it("renders monthly preview snapshots", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveDailyEntry(createEmptyDailyEntry("2026-04-01"));
+
+    const snapshot = (await previewPayload(repository, "metrics", {
+      surface: "monthly",
+      date: "2026-04-01"
+    })) as MonthlySnapshot;
+
+    expect(snapshot.surface).toBe("monthly");
+    expect(snapshot.monthKey).toBe("2026-04");
   });
 });
 

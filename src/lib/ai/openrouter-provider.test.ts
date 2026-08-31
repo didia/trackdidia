@@ -149,6 +149,121 @@ describe("OpenRouterProvider", () => {
     expect(systemPrompt).toContain("gtdActions");
   });
 
+  it("includes monthly synthesis schema fields in the system prompt", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              headline: "Mois solide",
+              weekPattern: "Stable",
+              goalEvaluationDrafts: [{ goalId: "goal-1", score: 75, trend: "up", notes: "", blockers: "" }]
+            })
+          }
+        }],
+        usage: { prompt_tokens: 1, completion_tokens: 2 }
+      })
+    );
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const provider = new OpenRouterProvider();
+    const settings = defaultAppSettings();
+    settings.aiApiKey = "sk-or-test";
+
+    await provider.generateStructured({
+      surface: "monthly_synthesis",
+      settings,
+      snapshot: {
+        surface: "monthly",
+        scope: "full",
+        monthKey: "2026-04",
+        monthStartDate: "2026-04-01",
+        monthEndDate: "2026-04-30",
+        reviewStatus: "draft",
+        daysTracked: 10,
+        weeksCovered: 4,
+        weeklyReviewsCompleted: 2,
+        sleepAverage: 80,
+        trcRate: 70,
+        screenTimeTotalMinutes: 1200,
+        pomodorisTotal: 40,
+        disciplineAverage: 0.75,
+        tasksCompletionRate: 80,
+        weeklyScoreAverage: 0.72,
+        weeks: [],
+        goals: [{ goalId: "goal-1", title: "Sommeil", dimension: "global", currentValue: 70, targetValue: 100, unit: "%", progressRatio: 0.7, monthValue: 75, evaluationScore: null, evaluationTrend: null }]
+      }
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    const systemPrompt = body.messages[0].content as string;
+    expect(systemPrompt).toContain("Schema monthly_synthesis");
+    expect(systemPrompt).toContain("goalEvaluationDrafts");
+    expect(systemPrompt).toContain("goal-1");
+    expect(systemPrompt).toContain("0 et 100");
+  });
+
+  it("includes goal pacing schema fields in the system prompt", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              goals: [{
+                goalId: "goal-1",
+                onPace: true,
+                gap: "Proche",
+                requiredWeeklyBehaviour: "Focus",
+                riskLevel: "low",
+                recommendation: "Continuer"
+              }]
+            })
+          }
+        }],
+        usage: { prompt_tokens: 1, completion_tokens: 2 }
+      })
+    );
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const provider = new OpenRouterProvider();
+    const settings = defaultAppSettings();
+    settings.aiApiKey = "sk-or-test";
+
+    await provider.generateStructured({
+      surface: "goal_pacing",
+      settings,
+      snapshot: {
+        surface: "annual",
+        scope: "full",
+        year: 2026,
+        asOfDate: "2026-08-29",
+        expectedProgressRatio: 0.66,
+        goals: [{
+          goalId: "goal-1",
+          title: "Discipline",
+          dimension: "global",
+          currentValue: 60,
+          targetValue: 100,
+          unit: "%",
+          progressRatio: 0.6,
+          onPace: true,
+          monthlyProgress: [],
+          evaluationScore: null,
+          evaluationTrend: null
+        }]
+      }
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    const systemPrompt = body.messages[0].content as string;
+    expect(systemPrompt).toContain("Schema goal_pacing");
+    expect(systemPrompt).toContain("onPace");
+    expect(systemPrompt).toContain("riskLevel");
+    expect(systemPrompt).toContain("requiredWeeklyBehaviour");
+  });
+
   it("retries once on 429 responses", async () => {
     vi.useFakeTimers();
     const fetchMock = vi

@@ -1701,6 +1701,62 @@ export class TauriSqliteRepository implements AppRepository {
     }
   }
 
+  async acceptAiMonthlyReviewSectionDraftProposal(
+    proposal: AiProposal,
+    review: MonthlyReview
+  ): Promise<{ review: MonthlyReview; proposal: AiProposal }> {
+    const db = await this.getDb();
+    await db.execute("BEGIN IMMEDIATE");
+
+    try {
+      const proposalRows = await db.select<AiProposalRow[]>(
+        `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
+         FROM ai_proposals
+         WHERE id = $1`,
+        [proposal.id]
+      );
+
+      if (proposalRows.length === 0) {
+        throw new Error(`AI proposal not found: ${proposal.id}`);
+      }
+
+      const existingProposal = this.deserializeAiProposal(proposalRows[0]);
+      if (existingProposal.status === "accepted") {
+        const savedReview = await this.getMonthlyReview(review.monthKey);
+        await db.execute("COMMIT");
+        return {
+          review: savedReview ?? review,
+          proposal: existingProposal
+        };
+      }
+
+      await this.saveMonthlyReview(review);
+      const decidedAt = nowIso();
+      await db.execute(
+        `UPDATE ai_proposals
+         SET status = 'accepted', applied_entity_id = $1, decided_at = $2
+         WHERE id = $3`,
+        [review.monthKey, decidedAt, proposal.id]
+      );
+
+      const updatedRows = await db.select<AiProposalRow[]>(
+        `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
+         FROM ai_proposals
+         WHERE id = $1`,
+        [proposal.id]
+      );
+
+      await db.execute("COMMIT");
+      return {
+        review,
+        proposal: this.deserializeAiProposal(updatedRows[0])
+      };
+    } catch (error) {
+      await db.execute("ROLLBACK");
+      throw error;
+    }
+  }
+
   async acceptAiGtdActionProposal(
     proposal: AiProposal,
     scheduledDate: string

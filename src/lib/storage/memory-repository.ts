@@ -542,6 +542,39 @@ export class MemoryRepository implements AppRepository {
     };
   }
 
+  async acceptAiMonthlyReviewSectionDraftProposal(
+    proposal: AiProposal,
+    review: MonthlyReview
+  ): Promise<{ review: MonthlyReview; proposal: AiProposal }> {
+    const existingProposal = this.aiProposals.get(proposal.id);
+    if (!existingProposal) {
+      throw new Error(`AI proposal not found: ${proposal.id}`);
+    }
+
+    if (existingProposal.status === "accepted") {
+      const savedReview = await this.getMonthlyReview(review.monthKey);
+      return {
+        review: savedReview ?? review,
+        proposal: { ...existingProposal }
+      };
+    }
+
+    await this.saveMonthlyReview(review);
+    const decidedAt = nowIso();
+    const updatedProposal: AiProposal = {
+      ...existingProposal,
+      status: "accepted",
+      appliedEntityId: review.monthKey,
+      decidedAt
+    };
+    this.aiProposals.set(proposal.id, updatedProposal);
+
+    return {
+      review,
+      proposal: { ...updatedProposal }
+    };
+  }
+
   async acceptAiGtdActionProposal(
     proposal: AiProposal,
     scheduledDate: string

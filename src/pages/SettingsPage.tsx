@@ -313,7 +313,7 @@ export const SettingsPage = () => {
       {debugEnabled ? (
         <SectionCard
           title="Apercu du payload IA (debug)"
-          subtitle="Rendu exact du snapshot envoye a l'IA pour chaque portee (quotidien ou hebdomadaire), construit a partir des donnees reelles."
+          subtitle="Rendu exact du snapshot envoye a l'IA pour chaque portee (quotidien, hebdomadaire ou mensuel), construit a partir des donnees reelles."
         >
           {payloadPreviewError ? <div className="banner">{payloadPreviewError}</div> : null}
           {payloadPreviewPulseWarning ? <div className="banner">{payloadPreviewPulseWarning}</div> : null}
@@ -328,15 +328,37 @@ export const SettingsPage = () => {
               >
                 <option value="daily">Quotidien (coach_pulse)</option>
                 <option value="weekly">Hebdomadaire (weekly_synthesis)</option>
+                <option value="monthly">Mensuel (monthly_synthesis)</option>
+                <option value="annual">Annuel (goal_pacing)</option>
               </select>
             </label>
             <label className="stacked-field">
-              <span>{payloadPreviewSurface === "weekly" ? "Dimanche de la semaine" : "Date"}</span>
+              <span>
+                {payloadPreviewSurface === "weekly"
+                  ? "Dimanche de la semaine"
+                  : payloadPreviewSurface === "monthly"
+                    ? "Mois"
+                    : payloadPreviewSurface === "annual"
+                      ? "Date de reference"
+                      : "Date"}
+              </span>
               <input
                 aria-label="Date apercu payload IA"
-                type="date"
-                value={payloadPreviewSurface === "weekly" ? buildWeekDates(payloadPreviewDate) : payloadPreviewDate}
-                onChange={(event) => setPayloadPreviewDate(event.target.value)}
+                type={payloadPreviewSurface === "monthly" ? "month" : "date"}
+                value={
+                  payloadPreviewSurface === "weekly"
+                    ? buildWeekDates(payloadPreviewDate)
+                    : payloadPreviewSurface === "monthly"
+                      ? payloadPreviewDate.slice(0, 7)
+                      : payloadPreviewDate
+                }
+                onChange={(event) => {
+                  if (payloadPreviewSurface === "monthly") {
+                    setPayloadPreviewDate(`${event.target.value}-01`);
+                    return;
+                  }
+                  setPayloadPreviewDate(event.target.value);
+                }}
               />
             </label>
           </div>
@@ -355,7 +377,9 @@ export const SettingsPage = () => {
                   const date =
                     payloadPreviewSurface === "weekly"
                       ? buildWeekDates(payloadPreviewDate)
-                      : payloadPreviewDate;
+                      : payloadPreviewSurface === "monthly"
+                        ? `${payloadPreviewDate.slice(0, 7)}-01`
+                        : payloadPreviewDate;
 
                   if (payloadPreviewSurface === "weekly") {
                     const weeklyRescueTime = await resolveWeeklyRescueTimeInputs(repository, date);
@@ -388,18 +412,32 @@ export const SettingsPage = () => {
                     return;
                   }
 
-                  const productivityPulse = await resolveProductivityPulse(repository, date);
-                  if (productivityPulse.fetchError) {
-                    setPayloadPreviewPulseWarning(
-                      `Pulse RescueTime indisponible pour cet apercu (${productivityPulse.fetchError}). L'apercu ci-dessous affichera "pas de donnee" a la place.`
+                  if (payloadPreviewSurface === "daily") {
+                    const productivityPulse = await resolveProductivityPulse(repository, date);
+                    if (productivityPulse.fetchError) {
+                      setPayloadPreviewPulseWarning(
+                        `Pulse RescueTime indisponible pour cet apercu (${productivityPulse.fetchError}). L'apercu ci-dessous affichera "pas de donnee" a la place.`
+                      );
+                    }
+                    const entries = await Promise.all(
+                      payloadScopes.map(async (scope) => {
+                        const snapshot = await previewPayload(repository, scope.value, {
+                          surface: payloadPreviewSurface,
+                          date,
+                          productivityPulse
+                        });
+                        return [scope.value, JSON.stringify(snapshot, null, 2)] as const;
+                      })
                     );
+                    setPayloadPreviews(Object.fromEntries(entries) as Record<AiPayloadScope, string>);
+                    return;
                   }
+
                   const entries = await Promise.all(
                     payloadScopes.map(async (scope) => {
                       const snapshot = await previewPayload(repository, scope.value, {
                         surface: payloadPreviewSurface,
-                        date,
-                        productivityPulse
+                        date
                       });
                       return [scope.value, JSON.stringify(snapshot, null, 2)] as const;
                     })

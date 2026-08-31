@@ -1,6 +1,6 @@
-import type { AiProposal, AppSettings, WeeklySynthesisResult } from "../domain/types";
+import type { AiProposal, AppSettings, MonthlySynthesisResult } from "../domain/types";
 
-const sourceLabels: Record<WeeklySynthesisResult["source"], string> = {
+const sourceLabels: Record<MonthlySynthesisResult["source"], string> = {
   ai: "IA active",
   cache: "IA en cache",
   local: "Guide local",
@@ -18,27 +18,27 @@ const proposalLabels: Record<AiProposal["type"], string> = {
   goal_evaluation: "Evaluation objectif"
 };
 
-interface WeeklySynthesisPanelProps {
-  result: WeeklySynthesisResult | null;
+interface MonthlySynthesisPanelProps {
+  result: MonthlySynthesisResult | null;
   loading: boolean;
+  notice?: string | null;
   settings: AppSettings;
-  applyingProposalIds?: string[];
   onRequestCoach: () => void;
   onRegenerate: () => void;
   onAcceptProposal: (proposal: AiProposal) => void;
   onDismissProposal: (proposal: AiProposal) => void;
 }
 
-export const WeeklySynthesisPanel = ({
+export const MonthlySynthesisPanel = ({
   result,
   loading,
+  notice,
   settings,
-  applyingProposalIds = [],
   onRequestCoach,
   onRegenerate,
   onAcceptProposal,
   onDismissProposal
-}: WeeklySynthesisPanelProps) => {
+}: MonthlySynthesisPanelProps) => {
   const aiAvailable = settings.aiEnabled && settings.aiApiKey.trim().length > 0;
   const disabledReason = !settings.aiEnabled
     ? "Active l'IA dans les parametres"
@@ -56,7 +56,7 @@ export const WeeklySynthesisPanel = ({
   return (
     <section className="coach-card coach-pulse">
       <div className="coach-card__label">
-        <span>Coach hebdomadaire</span>
+        <span>Coach mensuel</span>
         <small>{result ? sourceLabels[result.source] : "Chargement..."}</small>
       </div>
 
@@ -65,57 +65,40 @@ export const WeeklySynthesisPanel = ({
       {synthesis ? (
         <div className="coach-pulse__body">
           <h3 className="coach-pulse__headline">{synthesis.headline}</h3>
-          <p>{synthesis.scoreExplanation}</p>
-          <p>
-            <strong>Axe le plus solide:</strong> {synthesis.strongestAxis}
-          </p>
-          <p>
-            <strong>Axes a surveiller:</strong> {(synthesis.weakestAxes ?? []).join(", ")}
-          </p>
+          <p>{synthesis.weekPattern}</p>
         </div>
       ) : null}
 
       {result?.warning ? <small className="coach-card__warning">Fallback local: {result.warning}</small> : null}
 
+      {notice ? <small className="coach-card__warning">{notice}</small> : null}
+
       {pendingProposals.length > 0 ? (
         <div className="coach-pulse__proposals">
           <strong>Suggestions</strong>
           {pendingProposals.map((proposal) => {
-            const isApplying = applyingProposalIds.includes(proposal.id);
             const payload = JSON.parse(proposal.payloadJson) as {
               text?: string;
-              title?: string;
               sectionKey?: string;
-              action?: string;
-              reason?: string;
+              goalId?: string;
+              score?: number | null;
+              notes?: string;
             };
             const preview =
               proposal.type === "review_section_draft"
                 ? `[${payload.sectionKey ?? "section"}] ${payload.text ?? ""}`
-                : proposal.type === "weekly_objective"
-                  ? payload.title ?? "Objectif"
-                  : proposal.type === "gtd_action"
-                    ? `${payload.action ?? "action"} — ${payload.reason ?? ""}`
-                    : payload.text ?? "";
+                : proposal.type === "goal_evaluation"
+                  ? `[${payload.goalId ?? "objectif"}] ${payload.score ?? "—"}/100 — ${payload.notes ?? ""}`
+                  : payload.text ?? "";
             return (
               <article key={proposal.id} className="coach-pulse__proposal">
                 <span>{proposalLabels[proposal.type]}</span>
                 <p>{preview}</p>
                 <div className="section-actions">
-                  <button
-                    className="button button--primary"
-                    type="button"
-                    disabled={isApplying}
-                    onClick={() => onAcceptProposal(proposal)}
-                  >
-                    {isApplying ? "Application..." : "Accepter"}
+                  <button className="button button--primary" type="button" onClick={() => onAcceptProposal(proposal)}>
+                    Accepter
                   </button>
-                  <button
-                    className="button button--ghost"
-                    type="button"
-                    disabled={isApplying}
-                    onClick={() => onDismissProposal(proposal)}
-                  >
+                  <button className="button button--ghost" type="button" onClick={() => onDismissProposal(proposal)}>
                     Ignorer
                   </button>
                 </div>

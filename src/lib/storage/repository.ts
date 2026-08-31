@@ -108,6 +108,10 @@ export interface AppRepository {
     proposal: AiProposal,
     review: WeeklyReview
   ): Promise<{ review: WeeklyReview; proposal: AiProposal }>;
+  acceptAiMonthlyReviewSectionDraftProposal(
+    proposal: AiProposal,
+    review: MonthlyReview
+  ): Promise<{ review: MonthlyReview; proposal: AiProposal }>;
   acceptAiGtdActionProposal(
     proposal: AiProposal,
     scheduledDate: string

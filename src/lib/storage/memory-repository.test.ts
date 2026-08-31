@@ -859,6 +859,63 @@ describe("MemoryRepository", () => {
     expect(await repository.listWeeklyObjectives()).toHaveLength(1);
   });
 
+  it("acceptAiMonthlyReviewSectionDraftProposal is idempotent", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const proposal = {
+      id: "ai-proposal:monthly-section",
+      messageId: "ai-message:monthly",
+      type: "review_section_draft" as const,
+      payloadJson: JSON.stringify({ sectionKey: "bilan", text: "Note mensuelle" }),
+      status: "pending" as const,
+      appliedEntityId: null,
+      decidedAt: null,
+      createdAt: "2026-08-29T08:00:00.000Z"
+    };
+    await repository.saveAiProposal(proposal);
+    const review = {
+      monthKey: "2026-04",
+      monthStartDate: "2026-04-01",
+      monthEndDate: "2026-04-30",
+      status: "draft" as const,
+      notes: {
+        bilan: "Note mensuelle",
+        journaux: "",
+        finances: "",
+        temps: "",
+        progressionObjectifs: "",
+        missionObjectifs: "",
+        nettoyageListes: "",
+        calendrier: "",
+        grosProjets: "",
+        developpement: ""
+      },
+      ritualChecklist: {
+        bilan: false,
+        journaux: false,
+        finances: false,
+        temps: false,
+        progressionObjectifs: false,
+        missionObjectifs: false,
+        nettoyageListes: false,
+        calendrier: false,
+        grosProjets: false,
+        developpement: false
+      },
+      updatedAt: "2026-08-29T08:00:00.000Z"
+    };
+
+    const first = await repository.acceptAiMonthlyReviewSectionDraftProposal(proposal, review);
+    const second = await repository.acceptAiMonthlyReviewSectionDraftProposal(proposal, review);
+
+    expect(first.review.monthKey).toBe(second.review.monthKey);
+    expect(first.proposal.status).toBe("accepted");
+    expect(second.proposal.status).toBe("accepted");
+    await expect(repository.getMonthlyReview("2026-04")).resolves.toMatchObject({
+      notes: expect.objectContaining({ bilan: "Note mensuelle" })
+    });
+  });
+
   it("acceptAiGtdActionProposal skips completed tasks", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();

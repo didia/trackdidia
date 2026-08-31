@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   annualGoalDimensions,
   annualGoalSourceOptions,
@@ -6,12 +6,17 @@ import {
   createEmptyAnnualGoal,
   updateAnnualGoalEvaluation
 } from "../domain/annual-goals";
-import type { AnnualGoal, AnnualGoalSnapshot } from "../domain/types";
+import type { AnnualGoal, AnnualGoalSnapshot, GoalPacingResult } from "../domain/types";
 import { useAppContext } from "../app/app-context";
+import { GoalPacingPanel } from "../components/GoalPacingPanel";
 import { PersistedTextarea } from "../components/PersistedTextarea";
 import { SectionCard } from "../components/SectionCard";
 import { getMonthKey } from "../domain/monthly-review";
 import { getTodayDate } from "../lib/date";
+import { resolveGoalPacingSnapshotInputs } from "../lib/ai/context/goal-pacing-snapshot";
+import { loadLatestGoalPacing } from "../lib/ai/goal-pacing-loader";
+import { GoalPacingService } from "../lib/ai/goal-pacing-service";
+import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
 
 const formatMaybeNumber = (value: number | null, unit: string): string =>
   value === null ? "—" : `${Math.round(value)} ${unit}`.trim();
@@ -246,13 +251,25 @@ const AnnualGoalCard = ({
 };
 
 export const AnnualGoalsPage = () => {
-  const { repository } = useAppContext();
+  const { repository, settings } = useAppContext();
+  const pacingService = useMemo(() => new GoalPacingService(new OpenRouterProvider()), []);
   const currentYear = Number(getTodayDate().slice(0, 4));
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [evaluationMonthKey, setEvaluationMonthKey] = useState(getMonthKey(getTodayDate()));
   const [goals, setGoals] = useState<AnnualGoal[]>([]);
   const [snapshots, setSnapshots] = useState<AnnualGoalSnapshot[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pacingResult, setPacingResult] = useState<GoalPacingResult | null>(null);
+  const [pacingLoading, setPacingLoading] = useState(false);
+  const pacingRequestSeqRef = useRef(0);
+  const hasValidSelectedYear = useMemo(
+    () => Number.isInteger(selectedYear) && selectedYear >= 2000 && selectedYear <= 2100,
+    [selectedYear]
+  );
+  const hasValidEvaluationMonth = useMemo(
+    () => /^\d{4}-\d{2}$/.test(evaluationMonthKey),
+    [evaluationMonthKey]
+  );
   const [draftGoal, setDraftGoal] = useState<AnnualGoal>(
     createEmptyAnnualGoal({
       dimension: "global"
@@ -274,10 +291,68 @@ export const AnnualGoalsPage = () => {
     void load();
   }, [load]);
 
+  const runPacing = useCallback(
+    async (options: { year: number; trigger: "auto" | "explicit"; bypassCache?: boolean }) => {
+      const requestId = ++pacingRequestSeqRef.current;
+      setPacingLoading(true);
+      try {
+        const snapshotInputs = await resolveGoalPacingSnapshotInputs(repository, options.year, {
+          asOfDate: getTodayDate(),
+          evaluationMonthKey
+        });
+        const result = await pacingService.buildPacing(repository, {
+          year: options.year,
+          settings,
+          snapshotInputs,
+          trigger: options.trigger,
+          bypassCache: options.bypassCache
+        });
+        if (requestId !== pacingRequestSeqRef.current) {
+          return;
+        }
+        setPacingResult(result);
+      } finally {
+        if (requestId === pacingRequestSeqRef.current) {
+          setPacingLoading(false);
+        }
+      }
+    },
+    [evaluationMonthKey, pacingService, repository, settings]
+  );
+
+  useEffect(() => {
+    setPacingResult(null);
+  }, [selectedYear]);
+
+  useEffect(() => {
+    if (loading || !hasValidSelectedYear || !hasValidEvaluationMonth) {
+      return;
+    }
+
+    void (async () => {
+      const stored = await loadLatestGoalPacing(repository, pacingService, selectedYear);
+      if (stored && stored.message.scopeKey === String(selectedYear)) {
+        setPacingResult(stored);
+      }
+      await runPacing({ year: selectedYear, trigger: "auto" });
+    })();
+  }, [
+    evaluationMonthKey,
+    hasValidEvaluationMonth,
+    hasValidSelectedYear,
+    loading,
+    pacingService,
+    repository,
+    runPacing,
+    selectedYear
+  ]);
+
   const snapshotMap = useMemo(
     () => new Map(snapshots.map((snapshot) => [snapshot.goal.id, snapshot])),
     [snapshots]
   );
+
+  const goalTitlesById = useMemo(() => new Map(goals.map((goal) => [goal.id, goal.title])), [goals]);
 
   const saveGoal = useCallback(
     async (goal: AnnualGoal) => {
@@ -338,6 +413,19 @@ export const AnnualGoalsPage = () => {
             />
           </label>
         </div>
+      </SectionCard>
+
+      <SectionCard title="Pilotage annuel" subtitle="Lecture du rythme vs la cible annuelle — informatif, sans accept-step.">
+        <GoalPacingPanel
+          result={
+            pacingResult?.message.scopeKey === String(selectedYear) ? pacingResult : null
+          }
+          loading={pacingLoading}
+          settings={settings}
+          goalTitlesById={goalTitlesById}
+          onRequestCoach={() => void runPacing({ year: selectedYear, trigger: "explicit" })}
+          onRegenerate={() => void runPacing({ year: selectedYear, trigger: "explicit", bypassCache: true })}
+        />
       </SectionCard>
 
       <SectionCard title="Ajouter un objectif" subtitle="Structure par dimension, cible et source de donnees.">

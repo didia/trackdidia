@@ -1,5 +1,7 @@
 import type { AppSettings, AiSurface, CoachMessage, CoachPulseStance, DailyEntry } from "../../domain/types";
 import type { DailySnapshot } from "./context/daily-snapshot";
+import type { GoalPacingSnapshot } from "./context/goal-pacing-snapshot";
+import type { MonthlySnapshot } from "./context/monthly-snapshot";
 import type { WeeklySnapshot } from "./context/weekly-snapshot";
 
 export interface AiPromptContext {
@@ -40,7 +42,21 @@ export interface WeeklySynthesisStructuredRequest extends AiStructuredRequestBas
   snapshot: WeeklySnapshot;
 }
 
-export type AiStructuredRequest = CoachPulseStructuredRequest | WeeklySynthesisStructuredRequest;
+export interface MonthlySynthesisStructuredRequest extends AiStructuredRequestBase {
+  surface: "monthly_synthesis";
+  snapshot: MonthlySnapshot;
+}
+
+export interface GoalPacingStructuredRequest extends AiStructuredRequestBase {
+  surface: "goal_pacing";
+  snapshot: GoalPacingSnapshot;
+}
+
+export type AiStructuredRequest =
+  | CoachPulseStructuredRequest
+  | WeeklySynthesisStructuredRequest
+  | MonthlySynthesisStructuredRequest
+  | GoalPacingStructuredRequest;
 
 export interface AiStructuredResult {
   text: string;
