@@ -71,7 +71,9 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   const pomodoro = usePomodoroController(repository);
 
   const enqueueStartupWork = (work: () => Promise<void>) => {
-    startupWorkQueueRef.current = startupWorkQueueRef.current.then(work).catch(() => undefined);
+    startupWorkQueueRef.current = startupWorkQueueRef.current.then(work).catch((error) => {
+      logDebug("error", "app.bootstrap", "Echec tache de demarrage en file", error);
+    });
     return startupWorkQueueRef.current;
   };
 
@@ -167,7 +169,9 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     });
 
     const intervalId = window.setInterval(() => {
-      void runPulseEvaluation("interval");
+      runPulseEvaluation("interval").catch((error) => {
+        logDebug("error", "ai.pulse", "Echec inattendu evaluation pulse (interval)", error);
+      });
     }, PULSE_CHECK_INTERVAL_MS);
 
     const handleVisibilityChange = () => {
@@ -241,7 +245,9 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
 
     void enqueueStartupWork(() => runAutoBackupIfDue("startup"));
     const intervalId = window.setInterval(() => {
-      void runAutoBackupIfDue("interval");
+      runAutoBackupIfDue("interval").catch((error) => {
+        logDebug("error", "storage.backup", "Echec inattendu backup automatique (interval)", error);
+      });
     }, AUTO_BACKUP_CHECK_INTERVAL_MS);
 
     return () => {
@@ -377,12 +383,16 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     };
 
     const timeoutId = window.setTimeout(() => {
-      void activateFallback(
+      activateFallback(
         `Timeout de demarrage apres 8 secondes. Etape en cours: ${startupStageRef.current}`
-      );
+      ).catch((error) => {
+        logDebug("error", "app.bootstrap", "Echec inattendu du fallback (timeout)", error);
+      });
     }, 8_000);
 
-    void bootstrap();
+    bootstrap().catch((error) => {
+      logDebug("error", "app.bootstrap", "Echec inattendu du bootstrap (non intercepte)", error);
+    });
 
     return () => {
       cancelled = true;

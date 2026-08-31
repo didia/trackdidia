@@ -1,4 +1,3 @@
-import Database from "@tauri-apps/plugin-sql";
 import { invoke } from "@tauri-apps/api/core";
 import {
   applyDailyPomodoroStats,
@@ -99,6 +98,28 @@ import {
 import type { AppRepository, BackupResult, PomodoroStartOptions, StorageInfo } from "./repository";
 import { DbSerialQueue } from "./db-serial-queue";
 import { getTodayDate } from "../date";
+
+/** Thin wrapper around the Rust `db_connect` / `db_execute` / `db_select` commands. */
+class Database {
+  private constructor(private readonly path: string) {}
+
+  static async load(path: string): Promise<Database> {
+    await invoke<void>("db_connect", { db: path });
+    return new Database(path);
+  }
+
+  async execute(query: string, bindValues: unknown[] = []): Promise<{ rowsAffected: number; lastInsertId?: number }> {
+    const [rowsAffected, lastInsertId] = await invoke<[number, number]>("db_execute", {
+      query,
+      values: bindValues
+    });
+    return { rowsAffected, lastInsertId };
+  }
+
+  async select<T>(query: string, bindValues: unknown[] = []): Promise<T> {
+    return invoke<T>("db_select", { query, values: bindValues });
+  }
+}
 
 interface Migration {
   id: number;
@@ -759,6 +780,11 @@ export class TauriSqliteRepository implements AppRepository {
 
     try {
       const db = await this.getDb();
+
+      const journalModeRows = await db.select<{ journal_mode: string }[]>("PRAGMA journal_mode=WAL");
+      logDebug("info", "storage.sqlite", "Mode journal SQLite", journalModeRows[0]?.journal_mode ?? "inconnu");
+      await db.execute("PRAGMA busy_timeout = 5000");
+
       await db.execute(migrations[0].sql);
 
       const applied = await db.select<{ id: number }[]>("SELECT id FROM schema_migrations");
@@ -1380,7 +1406,7 @@ export class TauriSqliteRepository implements AppRepository {
         await db.execute("COMMIT");
         return { message: savedMessage, proposals: savedProposals };
       } catch (error) {
-        await db.execute("ROLLBACK");
+        await this.rollbackQuietly(db);
         throw error;
       }
     });
@@ -1556,14 +1582,22 @@ export class TauriSqliteRepository implements AppRepository {
     return this.deserializeAiProposal(rows[0]);
   }
 
+  /** Best-effort ROLLBACK; a secondary "no transaction" error must not mask the original failure. */
+  private async rollbackQuietly(db: Database): Promise<void> {
+    try {
+      await db.execute("ROLLBACK");
+    } catch (rollbackError) {
+      logDebug("error", "storage.sqlite", "Echec ROLLBACK (ignore)", rollbackError);
+    }
+  }
+
   async acceptAiMemoryProposal(
     proposal: AiProposal,
     memory: AiMemory
   ): Promise<{ memory: AiMemory; proposal: AiProposal }> {
-    const db = await this.getDb();
-    await db.execute("BEGIN IMMEDIATE");
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
 
-    try {
       const proposalRows = await db.select<AiProposalRow[]>(
         `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
          FROM ai_proposals
@@ -1590,7 +1624,6 @@ export class TauriSqliteRepository implements AppRepository {
           throw new Error(`AI memory not found: ${memoryId}`);
         }
 
-        await db.execute("COMMIT");
         return {
           memory: this.deserializeAiMemory(memoryRows[0]),
           proposal: existingProposal
@@ -1604,46 +1637,38 @@ export class TauriSqliteRepository implements AppRepository {
          WHERE id = $1`,
         [memory.id]
       );
+      const existingMemory = memoryRows.length > 0 ? this.deserializeAiMemory(memoryRows[0]) : null;
 
-      const savedMemory =
-        memoryRows.length > 0
-          ? this.deserializeAiMemory(memoryRows[0])
-          : await this.saveAiMemory(memory);
+      await db.execute("BEGIN IMMEDIATE");
+      try {
+        const savedMemory = existingMemory ?? (await this.saveAiMemory(memory));
+        const decidedAt = nowIso();
+        await db.execute(
+          `UPDATE ai_proposals
+           SET status = 'accepted', applied_entity_id = $1, decided_at = $2
+           WHERE id = $3`,
+          [savedMemory.id, decidedAt, proposal.id]
+        );
 
-      const decidedAt = nowIso();
-      await db.execute(
-        `UPDATE ai_proposals
-         SET status = 'accepted', applied_entity_id = $1, decided_at = $2
-         WHERE id = $3`,
-        [savedMemory.id, decidedAt, proposal.id]
-      );
-
-      const updatedRows = await db.select<AiProposalRow[]>(
-        `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
-         FROM ai_proposals
-         WHERE id = $1`,
-        [proposal.id]
-      );
-
-      await db.execute("COMMIT");
-      return {
-        memory: savedMemory,
-        proposal: this.deserializeAiProposal(updatedRows[0])
-      };
-    } catch (error) {
-      await db.execute("ROLLBACK");
-      throw error;
-    }
+        await db.execute("COMMIT");
+        return {
+          memory: savedMemory,
+          proposal: { ...existingProposal, status: "accepted", appliedEntityId: savedMemory.id, decidedAt }
+        };
+      } catch (error) {
+        await this.rollbackQuietly(db);
+        throw error;
+      }
+    });
   }
 
   async acceptAiWeeklyObjectiveProposal(
     proposal: AiProposal,
     objective: WeeklyObjective
   ): Promise<{ objective: WeeklyObjective; proposal: AiProposal }> {
-    const db = await this.getDb();
-    await db.execute("BEGIN IMMEDIATE");
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
 
-    try {
       const proposalRows = await db.select<AiProposalRow[]>(
         `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
          FROM ai_proposals
@@ -1669,48 +1694,42 @@ export class TauriSqliteRepository implements AppRepository {
           throw new Error(`Weekly objective not found: ${objectiveId}`);
         }
 
-        await db.execute("COMMIT");
         return {
           objective: this.deserializeWeeklyObjective(objectiveRows[0]),
           proposal: existingProposal
         };
       }
 
-      const savedObjective = await this.saveWeeklyObjective(objective);
-      const decidedAt = nowIso();
-      await db.execute(
-        `UPDATE ai_proposals
-         SET status = 'accepted', applied_entity_id = $1, decided_at = $2
-         WHERE id = $3`,
-        [savedObjective.id, decidedAt, proposal.id]
-      );
+      await db.execute("BEGIN IMMEDIATE");
+      try {
+        const savedObjective = await this.saveWeeklyObjective(objective);
+        const decidedAt = nowIso();
+        await db.execute(
+          `UPDATE ai_proposals
+           SET status = 'accepted', applied_entity_id = $1, decided_at = $2
+           WHERE id = $3`,
+          [savedObjective.id, decidedAt, proposal.id]
+        );
 
-      const updatedRows = await db.select<AiProposalRow[]>(
-        `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
-         FROM ai_proposals
-         WHERE id = $1`,
-        [proposal.id]
-      );
-
-      await db.execute("COMMIT");
-      return {
-        objective: savedObjective,
-        proposal: this.deserializeAiProposal(updatedRows[0])
-      };
-    } catch (error) {
-      await db.execute("ROLLBACK");
-      throw error;
-    }
+        await db.execute("COMMIT");
+        return {
+          objective: savedObjective,
+          proposal: { ...existingProposal, status: "accepted", appliedEntityId: savedObjective.id, decidedAt }
+        };
+      } catch (error) {
+        await this.rollbackQuietly(db);
+        throw error;
+      }
+    });
   }
 
   async acceptAiReviewSectionDraftProposal(
     proposal: AiProposal,
     review: WeeklyReview
   ): Promise<{ review: WeeklyReview; proposal: AiProposal }> {
-    const db = await this.getDb();
-    await db.execute("BEGIN IMMEDIATE");
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
 
-    try {
       const proposalRows = await db.select<AiProposalRow[]>(
         `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
          FROM ai_proposals
@@ -1725,48 +1744,47 @@ export class TauriSqliteRepository implements AppRepository {
       const existingProposal = this.deserializeAiProposal(proposalRows[0]);
       if (existingProposal.status === "accepted") {
         const savedReview = await this.getWeeklyReview(review.weekStartDate);
-        await db.execute("COMMIT");
         return {
           review: savedReview ?? review,
           proposal: existingProposal
         };
       }
 
-      await this.saveWeeklyReview(review);
-      const decidedAt = nowIso();
-      await db.execute(
-        `UPDATE ai_proposals
-         SET status = 'accepted', applied_entity_id = $1, decided_at = $2
-         WHERE id = $3`,
-        [review.weekStartDate, decidedAt, proposal.id]
-      );
+      await db.execute("BEGIN IMMEDIATE");
+      try {
+        await this.saveWeeklyReview(review);
+        const decidedAt = nowIso();
+        await db.execute(
+          `UPDATE ai_proposals
+           SET status = 'accepted', applied_entity_id = $1, decided_at = $2
+           WHERE id = $3`,
+          [review.weekStartDate, decidedAt, proposal.id]
+        );
 
-      const updatedRows = await db.select<AiProposalRow[]>(
-        `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
-         FROM ai_proposals
-         WHERE id = $1`,
-        [proposal.id]
-      );
-
-      await db.execute("COMMIT");
-      return {
-        review,
-        proposal: this.deserializeAiProposal(updatedRows[0])
-      };
-    } catch (error) {
-      await db.execute("ROLLBACK");
-      throw error;
-    }
+        await db.execute("COMMIT");
+        return {
+          review,
+          proposal: {
+            ...existingProposal,
+            status: "accepted",
+            appliedEntityId: review.weekStartDate,
+            decidedAt
+          }
+        };
+      } catch (error) {
+        await this.rollbackQuietly(db);
+        throw error;
+      }
+    });
   }
 
   async acceptAiMonthlyReviewSectionDraftProposal(
     proposal: AiProposal,
     review: MonthlyReview
   ): Promise<{ review: MonthlyReview; proposal: AiProposal }> {
-    const db = await this.getDb();
-    await db.execute("BEGIN IMMEDIATE");
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
 
-    try {
       const proposalRows = await db.select<AiProposalRow[]>(
         `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
          FROM ai_proposals
@@ -1781,138 +1799,106 @@ export class TauriSqliteRepository implements AppRepository {
       const existingProposal = this.deserializeAiProposal(proposalRows[0]);
       if (existingProposal.status === "accepted") {
         const savedReview = await this.getMonthlyReview(review.monthKey);
-        await db.execute("COMMIT");
         return {
           review: savedReview ?? review,
           proposal: existingProposal
         };
       }
 
-      await this.saveMonthlyReview(review);
-      const decidedAt = nowIso();
-      await db.execute(
-        `UPDATE ai_proposals
-         SET status = 'accepted', applied_entity_id = $1, decided_at = $2
-         WHERE id = $3`,
-        [review.monthKey, decidedAt, proposal.id]
-      );
+      await db.execute("BEGIN IMMEDIATE");
+      try {
+        await this.saveMonthlyReview(review);
+        const decidedAt = nowIso();
+        await db.execute(
+          `UPDATE ai_proposals
+           SET status = 'accepted', applied_entity_id = $1, decided_at = $2
+           WHERE id = $3`,
+          [review.monthKey, decidedAt, proposal.id]
+        );
 
-      const updatedRows = await db.select<AiProposalRow[]>(
-        `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
-         FROM ai_proposals
-         WHERE id = $1`,
-        [proposal.id]
-      );
-
-      await db.execute("COMMIT");
-      return {
-        review,
-        proposal: this.deserializeAiProposal(updatedRows[0])
-      };
-    } catch (error) {
-      await db.execute("ROLLBACK");
-      throw error;
-    }
+        await db.execute("COMMIT");
+        return {
+          review,
+          proposal: { ...existingProposal, status: "accepted", appliedEntityId: review.monthKey, decidedAt }
+        };
+      } catch (error) {
+        await this.rollbackQuietly(db);
+        throw error;
+      }
+    });
   }
 
   async acceptAiGtdActionProposal(
     proposal: AiProposal,
     scheduledDate: string
   ): Promise<{ taskId: string | null; proposal: AiProposal }> {
-    const proposalRows = await this.listAiProposals(proposal.messageId);
-    const existing = proposalRows.find((item) => item.id === proposal.id) ?? proposal;
+    return this.runExclusive(async () => {
+      const proposalRows = await this.listAiProposals(proposal.messageId);
+      const existing = proposalRows.find((item) => item.id === proposal.id);
 
-    if (existing.status === "accepted") {
-      return {
-        taskId: existing.appliedEntityId,
-        proposal: existing
-      };
-    }
-
-    const payload = JSON.parse(proposal.payloadJson) as {
-      taskId?: string;
-      action?: "schedule" | "defer" | "delegate" | "drop";
-    };
-
-    if (!payload.taskId || !payload.action) {
-      return { taskId: null, proposal: existing };
-    }
-
-    let task: Task;
-    try {
-      task = await this.requireTask(payload.taskId);
-    } catch {
-      return { taskId: null, proposal: existing };
-    }
-
-    if (task.status !== "active") {
-      return { taskId: null, proposal: existing };
-    }
-
-    const db = await this.getDb();
-    await db.execute("BEGIN IMMEDIATE");
-
-    try {
-      const lockedProposalRows = await db.select<AiProposalRow[]>(
-        `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
-         FROM ai_proposals
-         WHERE id = $1`,
-        [proposal.id]
-      );
-
-      if (lockedProposalRows.length === 0) {
+      if (!existing) {
         throw new Error(`AI proposal not found: ${proposal.id}`);
       }
 
-      const lockedProposal = this.deserializeAiProposal(lockedProposalRows[0]);
-      if (lockedProposal.status === "accepted") {
-        await db.execute("COMMIT");
+      if (existing.status === "accepted") {
         return {
-          taskId: lockedProposal.appliedEntityId,
-          proposal: lockedProposal
+          taskId: existing.appliedEntityId,
+          proposal: existing
         };
       }
 
-      const currentTask = await this.requireTask(payload.taskId);
-      if (currentTask.status !== "active") {
-        await db.execute("ROLLBACK");
-        return { taskId: null, proposal: lockedProposal };
-      }
-
-      if (payload.action === "schedule") {
-        await this.scheduleTask(payload.taskId, scheduledDate);
-      } else if (payload.action === "defer") {
-        await this.moveTask(payload.taskId, "someday_maybe", currentTask.contextIds, currentTask.projectId);
-      } else if (payload.action === "delegate") {
-        await this.moveTask(payload.taskId, "waiting_for", currentTask.contextIds, currentTask.projectId);
-      } else if (payload.action === "drop") {
-        await this.cancelTask(payload.taskId);
-      }
-
-      const decidedAt = nowIso();
-      await db.execute(
-        `UPDATE ai_proposals
-         SET status = 'accepted', applied_entity_id = $1, decided_at = $2
-         WHERE id = $3`,
-        [payload.taskId, decidedAt, proposal.id]
-      );
-
-      const updatedRows = await db.select<AiProposalRow[]>(
-        `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
-         FROM ai_proposals
-         WHERE id = $1`,
-        [proposal.id]
-      );
-
-      await db.execute("COMMIT");
-      return {
-        taskId: payload.taskId,
-        proposal: this.deserializeAiProposal(updatedRows[0])
+      const payload = JSON.parse(proposal.payloadJson) as {
+        taskId?: string;
+        action?: "schedule" | "defer" | "delegate" | "drop";
       };
-    } catch (error) {
-      await db.execute("ROLLBACK");
-      throw error;
-    }
+
+      if (!payload.taskId || !payload.action) {
+        return { taskId: null, proposal: existing };
+      }
+
+      let task: Task;
+      try {
+        task = await this.requireTask(payload.taskId);
+      } catch {
+        return { taskId: null, proposal: existing };
+      }
+
+      if (task.status !== "active") {
+        return { taskId: null, proposal: existing };
+      }
+
+      const db = await this.getDb();
+      await db.execute("BEGIN IMMEDIATE");
+
+      try {
+        if (payload.action === "schedule") {
+          await this.scheduleTask(payload.taskId, scheduledDate);
+        } else if (payload.action === "defer") {
+          await this.moveTask(payload.taskId, "someday_maybe", task.contextIds, task.projectId);
+        } else if (payload.action === "delegate") {
+          await this.moveTask(payload.taskId, "waiting_for", task.contextIds, task.projectId);
+        } else if (payload.action === "drop") {
+          await this.cancelTask(payload.taskId);
+        }
+
+        const decidedAt = nowIso();
+        await db.execute(
+          `UPDATE ai_proposals
+           SET status = 'accepted', applied_entity_id = $1, decided_at = $2
+           WHERE id = $3`,
+          [payload.taskId, decidedAt, proposal.id]
+        );
+
+        await db.execute("COMMIT");
+        return {
+          taskId: payload.taskId,
+          proposal: { ...existing, status: "accepted", appliedEntityId: payload.taskId, decidedAt }
+        };
+      } catch (error) {
+        await this.rollbackQuietly(db);
+        throw error;
+      }
+    });
   }
 
   async listAiMemories(filters: AiMemoryFilters = {}): Promise<AiMemory[]> {
@@ -2065,72 +2051,82 @@ export class TauriSqliteRepository implements AppRepository {
 
   async importGoogleTasksExport(rawJson: unknown): Promise<GtdImportSummary> {
     const payload = buildGoogleTasksImport(rawJson);
-    const db = await this.getDb();
 
-    for (const context of payload.contexts) {
-      await db.execute(
-        `INSERT INTO gtd_contexts (id, name, created_at, updated_at)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT(id) DO NOTHING`,
-        [context.id, context.name, context.createdAt, context.updatedAt]
-      );
-    }
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      await db.execute("BEGIN IMMEDIATE");
 
-    for (const project of payload.projects) {
-      await db.execute(
-        `INSERT INTO gtd_projects (
-          id, title, status, status_changed_at, notes, context_ids_json, source, source_external_id, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        ON CONFLICT(id) DO NOTHING`,
-        [
-          project.id,
-          project.title,
-          project.status,
-          project.statusChangedAt,
-          project.notes,
-          JSON.stringify(project.contextIds),
-          project.source,
-          project.sourceExternalId,
-          project.createdAt,
-          project.updatedAt
-        ]
-      );
-    }
+      try {
+        for (const context of payload.contexts) {
+          await db.execute(
+            `INSERT INTO gtd_contexts (id, name, created_at, updated_at)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT(id) DO NOTHING`,
+            [context.id, context.name, context.createdAt, context.updatedAt]
+          );
+        }
 
-    for (const task of payload.tasks) {
-      await db.execute(
-        `INSERT INTO gtd_tasks (
-          id, title, notes, status, bucket, context_ids_json, project_id, parent_task_id, scheduled_for,
-          deadline, recurring_template_id, recurrence_due_date, is_recurring_instance, completed_at, recurrence_group_id,
-          pending_past_recurrences, source, source_external_id, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-        ON CONFLICT(id) DO NOTHING`,
-        [
-          task.id,
-          task.title,
-          task.notes,
-          task.status,
-          task.bucket,
-          JSON.stringify(task.contextIds),
-          task.projectId,
-          task.parentTaskId,
-          task.scheduledFor,
-          task.deadline,
-          task.recurringTemplateId,
-          task.recurrenceDueDate,
-          task.isRecurringInstance ? 1 : 0,
-          task.completedAt,
-          task.recurrenceGroupId,
-          task.pendingPastRecurrences,
-          task.source,
-          task.sourceExternalId,
-          task.createdAt,
-          task.updatedAt
-        ]
-      );
-    }
+        for (const project of payload.projects) {
+          await db.execute(
+            `INSERT INTO gtd_projects (
+              id, title, status, status_changed_at, notes, context_ids_json, source, source_external_id, created_at, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            ON CONFLICT(id) DO NOTHING`,
+            [
+              project.id,
+              project.title,
+              project.status,
+              project.statusChangedAt,
+              project.notes,
+              JSON.stringify(project.contextIds),
+              project.source,
+              project.sourceExternalId,
+              project.createdAt,
+              project.updatedAt
+            ]
+          );
+        }
 
-    return payload.summary;
+        for (const task of payload.tasks) {
+          await db.execute(
+            `INSERT INTO gtd_tasks (
+              id, title, notes, status, bucket, context_ids_json, project_id, parent_task_id, scheduled_for,
+              deadline, recurring_template_id, recurrence_due_date, is_recurring_instance, completed_at, recurrence_group_id,
+              pending_past_recurrences, source, source_external_id, created_at, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+            ON CONFLICT(id) DO NOTHING`,
+            [
+              task.id,
+              task.title,
+              task.notes,
+              task.status,
+              task.bucket,
+              JSON.stringify(task.contextIds),
+              task.projectId,
+              task.parentTaskId,
+              task.scheduledFor,
+              task.deadline,
+              task.recurringTemplateId,
+              task.recurrenceDueDate,
+              task.isRecurringInstance ? 1 : 0,
+              task.completedAt,
+              task.recurrenceGroupId,
+              task.pendingPastRecurrences,
+              task.source,
+              task.sourceExternalId,
+              task.createdAt,
+              task.updatedAt
+            ]
+          );
+        }
+
+        await db.execute("COMMIT");
+        return payload.summary;
+      } catch (error) {
+        await this.rollbackQuietly(db);
+        throw error;
+      }
+    });
   }
 
   async getGtdOverview(): Promise<{ taskCount: number; projectCount: number; contextCount: number }> {

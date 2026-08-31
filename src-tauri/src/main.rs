@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod db;
+
 use serde::Serialize;
 use std::fs;
 use tauri::Manager;
@@ -78,8 +80,14 @@ async fn rescuetime_http_get(url: String, api_key: String) -> Result<String, Str
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_sql::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![resolve_storage_paths, rescuetime_http_get])
+        .manage(db::DbState::default())
+        .invoke_handler(tauri::generate_handler![
+            resolve_storage_paths,
+            rescuetime_http_get,
+            db::db_connect,
+            db::db_execute,
+            db::db_select
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Trackdidia");
 }

@@ -5,6 +5,7 @@ the top of the table.
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-08-31 | Custom single-connection sqlx pool (`db_connect`/`db_execute`/`db_select`) replaces `tauri-plugin-sql`; WAL + busy_timeout; reapers disabled so JS `BEGIN`/`COMMIT` stay on one connection | `docs/storage-and-backups.md`, `docs/architecture.md`, `docs/desktop-builds.md` | `src-tauri/src/db.rs`, `TauriSqliteRepository` |
 | 2026-08-31 | Morning anchors list trimmed to six principles in ritual order | `docs/daily-routines.md` | `morningPrincipleKeys`, `PrincipleChecklist` |
 | 2026-08-31 | Weekly/monthly ritual notes survive leaving the page: textarea flush on unmount, serialized latest-wins review saves | `docs/reviews-and-goals.md`, `docs/conventions.md` | `PersistedTextarea`, `WeeklyReviewPage`, `MonthlyReviewPage` |
 | 2026-08-31 | Phase 6 PR #60 review: analytics error state, cost rate without refetch, `AiUsageTotals` vs UI cost estimate, newest-under-cap messages, 30-day dismissal table, analytics CSS | `docs/ai-settings-and-privacy.md` | `AiCoachAnalyticsSection`, `AiCostDashboardSection`, `SettingsPage`, `listAiMessagesSince`, `computeAiUsageForMonth` |

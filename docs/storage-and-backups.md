@@ -33,12 +33,30 @@ On macOS these resolve beneath:
 ~/Library/Application Support/com.trackdidia.desktop/
 ```
 
-The SQL plugin opens a relative connection string (`sqlite:trackdidia.dev.db` or
-`sqlite:trackdidia.db`), while the native command also returns the absolute database
-and backup paths for display and backup creation.
+`TauriSqliteRepository` opens a relative connection string (`sqlite:trackdidia.dev.db`
+or `sqlite:trackdidia.db`) through the host `db_connect` command, which resolves it
+under `app_data_dir`. `resolve_storage_paths` also returns the absolute database and
+backup paths for display and backup creation.
 
 SQLite may create neighboring `-wal` and `-shm` files. They are normal SQLite WAL
 artifacts and must not be treated as disposable while the database is open.
+
+## SQLite connection
+
+The desktop host owns a single-connection sqlx pool (`src-tauri/src/db.rs`) and
+exposes it as `db_connect` / `db_execute` / `db_select`. TypeScript still owns
+queries and migrations; it does not use `tauri-plugin-sql`.
+
+The pool uses `max_connections(1)`, `min_connections(1)`, `idle_timeout(None)`,
+and `max_lifetime(None)`. JS issues `BEGIN IMMEDIATE` / `COMMIT` as separate
+commands, so one physical connection must stay open for the process lifetime.
+Capping `max_connections` alone is not enough: sqlx can still close that
+connection between statements via its idle-timeout or max-lifetime reapers.
+
+Startup also sets `PRAGMA journal_mode=WAL` and `PRAGMA busy_timeout = 5000`.
+WAL lets readers proceed during a write. Multi-statement transactions go through
+`runExclusive` so concurrent JS callers do not interleave statements on the
+shared connection.
 
 Changing the Tauri identifier changes the app-data location from the operating
 system's perspective. Do not change it without a deliberate user-data migration.

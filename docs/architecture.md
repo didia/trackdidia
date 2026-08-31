@@ -19,7 +19,7 @@ The only optional network call is the OpenRouter coach.
 | Routing | React Router 6 |
 | Web tooling | Vite 5 |
 | Desktop host | Tauri 2 + Rust |
-| Durable storage | SQLite through `@tauri-apps/plugin-sql` |
+| Durable storage | SQLite through a custom single-connection sqlx pool (`src-tauri/src/db.rs`), exposed to the frontend as the `db_connect`/`db_execute`/`db_select` Tauri commands |
 | Native notifications | `@tauri-apps/plugin-notification` |
 | Tests | Vitest 2 + Testing Library + jsdom |
 | Optional AI | OpenRouter chat-completions-compatible endpoint |
@@ -52,7 +52,8 @@ framework or external state-management library.
       storage/                  repository API, memory and SQLite adapters
   src-tauri/
     src/main.rs                 native app and storage-path command
-    capabilities/default.json   SQL/notification permissions
+    src/db.rs                   single-connection sqlx pool and db_connect/db_execute/db_select commands
+    capabilities/default.json   core/notification permissions
     tauri.conf.json             window/build/bundle configuration
 ```
 
@@ -187,13 +188,15 @@ the selected task changes.
 
 The Rust host is intentionally small:
 
-- initialize the SQL and notification plugins;
+- initialize the notification plugin;
 - resolve/create the application data and backup directories;
 - choose development versus production database filenames;
 - expose `resolve_storage_paths` to the frontend.
 
-SQLite queries and migrations remain in TypeScript. The Tauri capability grants the
-main window default core access, SQL execute access, and notifications.
+SQLite queries and migrations remain in TypeScript, sent to a single-connection sqlx
+pool through the app's own `db_connect`/`db_execute`/`db_select` commands (`src/db.rs`)
+rather than a capability-gated SQL plugin. The Tauri capability grants the main window
+default core access and notifications only.
 
 ## Current limitations
 
