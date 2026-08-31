@@ -2,6 +2,8 @@ import type { AppSettings, AiSurface } from "../../domain/types";
 import type { CoachMessage } from "../../domain/types";
 import type { AiPromptContext, AiProvider, AiStructuredRequest, AiStructuredResult } from "./provider";
 import { buildCoachPulseSchemaPrompt } from "./proposals/coach-pulse-schema-prompt";
+import { buildGoalPacingSchemaPrompt } from "./proposals/goal-pacing-schema-prompt";
+import { buildMonthlySynthesisSchemaPrompt } from "./proposals/monthly-synthesis-schema-prompt";
 import { buildWeeklySynthesisSchemaPrompt } from "./proposals/weekly-synthesis-schema-prompt";
 
 export const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
@@ -119,14 +121,18 @@ const buildSystemPrompt = (request: AiStructuredRequest, repairHint?: string): s
   if (request.surface === "monthly_synthesis") {
     const instruction =
       "Tu es un coach de revue mensuelle. Reponds en francais avec un JSON strict conforme au schema monthly_synthesis (S3).";
-    const base = `${instruction}${memorySection}`;
+    const goalIds = request.snapshot.goals.map((goal) => goal.goalId);
+    const schemaBlock = buildMonthlySynthesisSchemaPrompt(goalIds);
+    const base = `${instruction}\n\nSchema monthly_synthesis:\n${schemaBlock}${memorySection}`;
     return repairHint ? `${base}\n\nCorrection demandee: ${repairHint}` : base;
   }
 
   if (request.surface === "goal_pacing") {
     const instruction =
       "Tu es un coach de pilotage d'objectifs annuels. Reponds en francais avec un JSON strict conforme au schema goal_pacing (S4).";
-    const base = `${instruction}${memorySection}`;
+    const goalIds = request.snapshot.goals.map((goal) => goal.goalId);
+    const schemaBlock = buildGoalPacingSchemaPrompt(goalIds);
+    const base = `${instruction}\n\nSchema goal_pacing:\n${schemaBlock}${memorySection}`;
     return repairHint ? `${base}\n\nCorrection demandee: ${repairHint}` : base;
   }
 

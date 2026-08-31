@@ -21,6 +21,7 @@ const proposalLabels: Record<AiProposal["type"], string> = {
 interface MonthlySynthesisPanelProps {
   result: MonthlySynthesisResult | null;
   loading: boolean;
+  notice?: string | null;
   settings: AppSettings;
   onRequestCoach: () => void;
   onRegenerate: () => void;
@@ -31,6 +32,7 @@ interface MonthlySynthesisPanelProps {
 export const MonthlySynthesisPanel = ({
   result,
   loading,
+  notice,
   settings,
   onRequestCoach,
   onRegenerate,
@@ -68,6 +70,8 @@ export const MonthlySynthesisPanel = ({
       ) : null}
 
       {result?.warning ? <small className="coach-card__warning">Fallback local: {result.warning}</small> : null}
+
+      {notice ? <small className="coach-card__warning">{notice}</small> : null}
 
       {pendingProposals.length > 0 ? (
         <div className="coach-pulse__proposals">

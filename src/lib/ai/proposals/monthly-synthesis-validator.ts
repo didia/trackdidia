@@ -63,8 +63,14 @@ const validateGoalEvaluationDrafts = (value: unknown): string | null => {
       return "goalEvaluationDraft requires goalId";
     }
 
-    if (item.score !== null && item.score !== undefined && typeof item.score !== "number") {
-      return "goalEvaluationDraft score must be a number or null";
+    if (item.score !== null && item.score !== undefined) {
+      if (typeof item.score !== "number") {
+        return "goalEvaluationDraft score must be a number or null";
+      }
+
+      if (item.score < 0 || item.score > 100) {
+        return "goalEvaluationDraft score must be between 0 and 100";
+      }
     }
 
     if (

@@ -32,7 +32,8 @@ const buildProposals = (
   messageId: string,
   monthKey: string,
   synthesis: MonthlySynthesisResponse,
-  createdAt: string
+  createdAt: string,
+  knownGoalIds: Set<string>
 ): AiProposal[] => {
   const proposals: AiProposal[] = [];
 
@@ -54,7 +55,7 @@ const buildProposals = (
   }
 
   for (const evaluation of synthesis.goalEvaluationDrafts ?? []) {
-    if (!evaluation.goalId?.trim()) {
+    if (!evaluation.goalId?.trim() || !knownGoalIds.has(evaluation.goalId)) {
       continue;
     }
 
@@ -71,6 +72,18 @@ const buildProposals = (
   }
 
   return proposals;
+};
+
+const resultSourceFromMessage = (message: AiMessage): MonthlySynthesisResult["source"] => {
+  if (message.status === "ok") {
+    return "cache";
+  }
+
+  if (message.status === "fallback") {
+    return "fallback";
+  }
+
+  return "local";
 };
 
 const cachedResult = async (
@@ -91,7 +104,7 @@ const cachedResult = async (
     message,
     synthesis: parsed.value,
     proposals,
-    source: "cache"
+    source: resultSourceFromMessage(message)
   };
 };
 
@@ -99,20 +112,16 @@ const persistResult = async (
   repository: AppRepository,
   message: AiMessage,
   monthKey: string,
-  synthesis: MonthlySynthesisResponse
+  synthesis: MonthlySynthesisResponse,
+  knownGoalIds: Set<string>
 ): Promise<MonthlySynthesisResult> => {
-  const savedMessage = await repository.saveAiMessage(message);
-  await repository.clearPendingAiProposals(savedMessage.id);
-  const proposals = buildProposals(savedMessage.id, monthKey, synthesis, savedMessage.createdAt);
-
-  for (const proposal of proposals) {
-    await repository.saveAiProposal(proposal);
-  }
+  const proposals = buildProposals(message.id, monthKey, synthesis, message.createdAt, knownGoalIds);
+  const saved = await repository.saveCoachPulseEpisode(message, proposals);
 
   return {
-    message: savedMessage,
+    message: saved.message,
     synthesis,
-    proposals,
+    proposals: saved.proposals,
     source: message.status === "ok" ? "ai" : message.status === "fallback" ? "fallback" : "local"
   };
 };
@@ -130,8 +139,10 @@ export class MonthlySynthesisService {
   ): Promise<MonthlySynthesisResult> {
     const { monthKey, settings, snapshotInputs, bypassCache = false } = request;
     const snapshot = buildMonthlySnapshot(snapshotInputs, settings.aiPayloadScope);
+    const knownGoalIds = new Set(snapshot.goals.map((goal) => goal.goalId));
     const scopeKey = monthKey;
     const createdAt = nowIso();
+    const aiConfigured = settings.aiEnabled && settings.aiApiKey.trim().length > 0;
 
     const activeMemories = await repository.listAiMemories({
       status: "active",
@@ -149,17 +160,27 @@ export class MonthlySynthesisService {
     });
 
     if (!bypassCache) {
-      const cached = await repository.getAiMessage("monthly_synthesis", scopeKey, inputHash);
-      if (cached) {
-        const result = await cachedResult(repository, cached);
-        if (result) {
-          return result;
+      if (aiConfigured) {
+        const cached = await repository.getAiMessage("monthly_synthesis", scopeKey, inputHash);
+        if (cached) {
+          const result = await cachedResult(repository, cached);
+          if (result) {
+            return { ...result, source: "cache" };
+          }
+        }
+      } else {
+        const skipped = await repository.getAiMessageRecord("monthly_synthesis", scopeKey, inputHash);
+        if (skipped?.status === "skipped") {
+          const result = await cachedResult(repository, skipped);
+          if (result) {
+            return { ...result, source: "cache" };
+          }
         }
       }
     }
 
     const localSynthesis = buildLocalMonthlySynthesis(snapshot);
-    const existingMessage = await repository.getAiMessage("monthly_synthesis", scopeKey, inputHash);
+    const existingMessage = await repository.getAiMessageRecord("monthly_synthesis", scopeKey, inputHash);
     const baseMessage = (): AiMessage => ({
       id: existingMessage?.id ?? createEntityId("ai-message"),
       surface: "monthly_synthesis",
@@ -180,8 +201,6 @@ export class MonthlySynthesisService {
       createdAt
     });
 
-    const aiConfigured = settings.aiEnabled && settings.aiApiKey.trim().length > 0;
-
     if (!aiConfigured) {
       const skippedMessage = {
         ...baseMessage(),
@@ -189,7 +208,7 @@ export class MonthlySynthesisService {
         model: "local"
       };
 
-      return persistResult(repository, skippedMessage, monthKey, localSynthesis);
+      return persistResult(repository, skippedMessage, monthKey, localSynthesis, knownGoalIds);
     }
 
     try {
@@ -235,7 +254,7 @@ export class MonthlySynthesisService {
           latencyMs: usage.latencyMs
         };
 
-        const result = await persistResult(repository, message, monthKey, localSynthesis);
+        const result = await persistResult(repository, message, monthKey, localSynthesis, knownGoalIds);
         return {
           ...result,
           source: "fallback",
@@ -254,7 +273,7 @@ export class MonthlySynthesisService {
         latencyMs: usage.latencyMs
       };
 
-      const result = await persistResult(repository, message, monthKey, parsed.value);
+      const result = await persistResult(repository, message, monthKey, parsed.value, knownGoalIds);
       return {
         ...result,
         source: "ai"
@@ -267,7 +286,7 @@ export class MonthlySynthesisService {
         bodyText: synthesisToBodyText(localSynthesis)
       };
 
-      const result = await persistResult(repository, message, monthKey, localSynthesis);
+      const result = await persistResult(repository, message, monthKey, localSynthesis, knownGoalIds);
       return {
         ...result,
         source: "fallback",

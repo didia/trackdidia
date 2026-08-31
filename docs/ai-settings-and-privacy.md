@@ -162,14 +162,29 @@ memories with monthly-specific kind priority, validates JSON, and persists propo
 | `review_section_draft` | Prefills the monthly ritual note textarea for that section key |
 | `goal_evaluation` | Writes an `AnnualGoalEvaluation` for the month on the linked annual goal |
 
+Monthly synthesis messages and proposals persist atomically via `saveCoachPulseEpisode`.
+The OpenRouter system prompt includes the full S3 schema (`buildMonthlySynthesisSchemaPrompt`),
+including allowed section keys, snapshot goal ids, and `score` on a 0–100 scale.
+
 When AI is disabled, the deterministic local brief still renders from month aggregates.
+
+Monthly synthesis cache policy matches weekly: only `ok` results (and `skipped` while AI
+remains off) are sticky cache hits. Proposals for unknown `goalId`s are dropped at persist
+time. Accepting a `goal_evaluation` for a missing goal dismisses the proposal and shows
+**Objectif introuvable, suggestion ignoree.**
 
 ### Goal pacing (`goal_pacing`)
 
 The `/objectifs-annuels` screen runs S4 `goal_pacing` on page open and on explicit
 **« Demander au coach »** / **« Régénérer »**. Output is display-only (no proposals).
 The snapshot reuses annual goal domain calculations (`progressRatio`,
-`computeYearProgressFraction`, `isAnnualGoalOnPace`).
+`computeYearProgressFraction`, `isAnnualGoalOnPace`). `asOfDate` uses local `getTodayDate()`.
+
+The OpenRouter system prompt includes the full S4 schema (`buildGoalPacingSchemaPrompt`).
+
+Pacing auto-runs only when the year is between 2000 and 2100 and the evaluation month
+matches `YYYY-MM`. Changing the year clears the on-screen pacing panel until the new
+year's result loads.
 
 ### Semantic memory (`ai_memories`)
 

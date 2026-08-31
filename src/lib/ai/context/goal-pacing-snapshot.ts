@@ -7,6 +7,7 @@ import type {
   AnnualGoalProgressPoint,
   AnnualGoalSnapshot
 } from "../../../domain/types";
+import { getTodayDate } from "../../date";
 import type { Surface } from "./types";
 
 export interface GoalPacingSnapshotGoal {
@@ -83,7 +84,7 @@ export const resolveGoalPacingSnapshotInputs = async (
   year: number,
   options: { asOfDate?: string; evaluationMonthKey?: string } = {}
 ): Promise<GoalPacingSnapshotInputs> => {
-  const asOfDate = options.asOfDate ?? new Date().toISOString().slice(0, 10);
+  const asOfDate = options.asOfDate ?? getTodayDate();
   const evaluationMonthKey = options.evaluationMonthKey ?? asOfDate.slice(0, 7);
   const goalSnapshots = await repository.computeAnnualGoalSnapshots(year);
 

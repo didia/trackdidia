@@ -89,4 +89,55 @@ describe("MonthlyReviewPage", () => {
       expect(Object.keys(goal?.evaluations ?? {})).toEqual(["2026-04"]);
     });
   });
+
+  it("dismisses a goal evaluation proposal when the goal no longer exists", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveAnnualGoal(
+      createEmptyAnnualGoal({
+        id: "goal-monthly",
+        title: "Discipline",
+        targetValue: 100,
+        manualCurrentValue: 75,
+        unit: "%"
+      })
+    );
+
+    for (const date of ["2026-04-01", "2026-04-02"]) {
+      const entry = createEmptyDailyEntry(date);
+      entry.metrics.pomodoris = 4;
+      await repository.saveDailyEntry(entry);
+    }
+
+    const user = userEvent.setup();
+    await renderWithApp(<MonthlyReviewPage />, {
+      repository,
+      route: "/mois",
+      contextOverrides: { settings: { ...defaultAppSettings(), aiEnabled: false } }
+    });
+
+    const monthInput = await screen.findByLabelText(/mois a relire/i);
+    await user.clear(monthInput);
+    await user.type(monthInput, "2026-04");
+    await user.click(screen.getByRole("button", { name: /charger le mois/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/\[goal-monthly\]/i)).toBeInTheDocument();
+    });
+
+    await repository.deleteAnnualGoal("goal-monthly");
+
+    const proposalText = screen.getByText(/\[goal-monthly\]/i);
+    const proposal = proposalText.closest("article");
+    expect(proposal).not.toBeNull();
+    await user.click(within(proposal!).getByRole("button", { name: /accepter/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/objectif introuvable, suggestion ignoree/i)).toBeInTheDocument();
+    });
+
+    const messages = await repository.listAiMessages("monthly_synthesis");
+    const proposals = await repository.listAiProposals(messages[0].id);
+    expect(proposals.find((item) => item.type === "goal_evaluation")?.status).toBe("dismissed");
+  });
 });

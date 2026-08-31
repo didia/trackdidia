@@ -1,5 +1,8 @@
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { defaultAppSettings } from "../domain/daily-entry";
+import { createEmptyAnnualGoal } from "../domain/annual-goals";
+import { GoalPacingService } from "../lib/ai/goal-pacing-service";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { renderWithApp } from "../test/test-utils";
 import { AnnualGoalsPage } from "./AnnualGoalsPage";
@@ -33,6 +36,69 @@ describe("AnnualGoalsPage", () => {
       expect(goals[0].evaluations[evaluationMonthKey]).toMatchObject({
         score: 72
       });
+    });
+  });
+
+  it("does not run pacing while the year field is an incomplete value", async () => {
+    const buildPacingSpy = vi.spyOn(GoalPacingService.prototype, "buildPacing");
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    await renderWithApp(<AnnualGoalsPage />, {
+      repository,
+      route: "/objectifs-annuels",
+      contextOverrides: {
+        settings: {
+          ...defaultAppSettings(),
+          aiEnabled: false
+        }
+      }
+    });
+
+    await screen.findByLabelText(/^annee$/i);
+    await waitFor(() => {
+      expect(buildPacingSpy).toHaveBeenCalledTimes(1);
+    });
+    const initialCalls = buildPacingSpy.mock.calls.length;
+
+    const yearInput = screen.getByLabelText(/^annee$/i);
+    fireEvent.change(yearInput, { target: { value: "202" } });
+
+    await waitFor(() => {
+      expect(buildPacingSpy.mock.calls.length).toBe(initialCalls);
+    });
+
+    buildPacingSpy.mockRestore();
+  });
+
+  it("clears pacing from the previous year when the year changes", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveAnnualGoal(
+      createEmptyAnnualGoal({
+        id: "goal-2026",
+        title: "Objectif 2026",
+        targetValue: 100,
+        manualCurrentValue: 80,
+        unit: "%"
+      })
+    );
+
+    await renderWithApp(<AnnualGoalsPage />, {
+      repository,
+      route: "/objectifs-annuels",
+      contextOverrides: { settings: { ...defaultAppSettings(), aiEnabled: false } }
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/dans les clous|hors rythme/i)).toBeInTheDocument();
+    });
+
+    const yearInput = screen.getByLabelText(/^annee$/i);
+    fireEvent.change(yearInput, { target: { value: "2025" } });
+
+    await waitFor(() => {
+      expect(screen.queryByText(/dans les clous|hors rythme/i)).not.toBeInTheDocument();
     });
   });
 });

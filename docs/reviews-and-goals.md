@@ -194,12 +194,15 @@ The coach panel shows a headline, a week-pattern read, and accept-step proposals
 - section note drafts for the ten ritual blocks;
 - `goal_evaluation` rows that write an `AnnualGoalEvaluation` for the month when accepted.
 
-Accepting a section draft **prefills** the textarea only. Results are cached in
-`ai_messages` keyed by `(surface, monthKey, input_hash)`.
+Accepting a section draft **prefills** the textarea only. Accepting a `goal_evaluation`
+for a goal that no longer exists dismisses the proposal with a short notice. Results are
+cached in `ai_messages` keyed by `(surface, monthKey, input_hash)`.
 
 ### Annual goal pacing
 
-Opening `/objectifs-annuels` triggers the S4 `goal_pacing` surface for the selected year.
+Opening `/objectifs-annuels` triggers the S4 `goal_pacing` surface for the selected year
+when the year is between 2000 and 2100 and the evaluation month is a valid `YYYY-MM`
+value. Changing the year clears the pacing panel until the new year's result loads.
 The panel is **informational only** — it compares each goal's progress ratio to the
 expected year-to-date fraction (from `computeYearProgressFraction`) and surfaces gap,
 required weekly behaviour, risk level, and recommendations. No accept-step.

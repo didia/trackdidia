@@ -262,6 +262,14 @@ export const AnnualGoalsPage = () => {
   const [pacingResult, setPacingResult] = useState<GoalPacingResult | null>(null);
   const [pacingLoading, setPacingLoading] = useState(false);
   const pacingRequestSeqRef = useRef(0);
+  const hasValidSelectedYear = useMemo(
+    () => Number.isInteger(selectedYear) && selectedYear >= 2000 && selectedYear <= 2100,
+    [selectedYear]
+  );
+  const hasValidEvaluationMonth = useMemo(
+    () => /^\d{4}-\d{2}$/.test(evaluationMonthKey),
+    [evaluationMonthKey]
+  );
   const [draftGoal, setDraftGoal] = useState<AnnualGoal>(
     createEmptyAnnualGoal({
       dimension: "global"
@@ -313,18 +321,31 @@ export const AnnualGoalsPage = () => {
   );
 
   useEffect(() => {
-    if (loading) {
+    setPacingResult(null);
+  }, [selectedYear]);
+
+  useEffect(() => {
+    if (loading || !hasValidSelectedYear || !hasValidEvaluationMonth) {
       return;
     }
 
     void (async () => {
       const stored = await loadLatestGoalPacing(repository, pacingService, selectedYear);
-      if (stored) {
+      if (stored && stored.message.scopeKey === String(selectedYear)) {
         setPacingResult(stored);
       }
       await runPacing({ year: selectedYear, trigger: "auto" });
     })();
-  }, [loading, pacingService, repository, runPacing, selectedYear]);
+  }, [
+    evaluationMonthKey,
+    hasValidEvaluationMonth,
+    hasValidSelectedYear,
+    loading,
+    pacingService,
+    repository,
+    runPacing,
+    selectedYear
+  ]);
 
   const snapshotMap = useMemo(
     () => new Map(snapshots.map((snapshot) => [snapshot.goal.id, snapshot])),
@@ -396,7 +417,9 @@ export const AnnualGoalsPage = () => {
 
       <SectionCard title="Pilotage annuel" subtitle="Lecture du rythme vs la cible annuelle — informatif, sans accept-step.">
         <GoalPacingPanel
-          result={pacingResult}
+          result={
+            pacingResult?.message.scopeKey === String(selectedYear) ? pacingResult : null
+          }
           loading={pacingLoading}
           settings={settings}
           goalTitlesById={goalTitlesById}

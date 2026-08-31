@@ -129,6 +129,7 @@ export const MonthlyReviewPage = () => {
   const [loading, setLoading] = useState(true);
   const [synthesisResult, setSynthesisResult] = useState<MonthlySynthesisResult | null>(null);
   const [synthesisLoading, setSynthesisLoading] = useState(false);
+  const [synthesisNotice, setSynthesisNotice] = useState<string | null>(null);
   const latestReviewRef = useRef<MonthlyReview | null>(null);
   const noteRefs = useRef<Partial<Record<MonthlyReviewSectionKey, PersistedTextareaHandle | null>>>({});
   const synthesisRequestSeqRef = useRef(0);
@@ -221,6 +222,18 @@ export const MonthlyReviewPage = () => {
     const applied = await applyCoachProposal(repository, proposal, monthKey);
 
     if (proposal.type === "goal_evaluation" && !applied.goalId) {
+      await repository.decideAiProposal(proposal.id, "dismissed");
+      setSynthesisNotice("Objectif introuvable, suggestion ignoree.");
+      setSynthesisResult((current) =>
+        current
+          ? {
+              ...current,
+              proposals: current.proposals.map((item) =>
+                item.id === proposal.id ? { ...item, status: "dismissed", decidedAt: new Date().toISOString() } : item
+              )
+            }
+          : current
+      );
       return;
     }
 
@@ -377,6 +390,7 @@ export const MonthlyReviewPage = () => {
         <MonthlySynthesisPanel
           result={synthesisResult}
           loading={synthesisLoading}
+          notice={synthesisNotice}
           settings={settings}
           onRequestCoach={() => {
             if (!summary) {

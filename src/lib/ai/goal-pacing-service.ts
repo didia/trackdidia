@@ -24,6 +24,18 @@ const pacingToBodyText = (pacing: GoalPacingResponse): string =>
     .map((goal) => `${goal.onPace ? "Sur la bonne voie" : "A surveiller"} — ${goal.gap}`)
     .join("\n");
 
+const resultSourceFromMessage = (message: AiMessage): GoalPacingResult["source"] => {
+  if (message.status === "ok") {
+    return "cache";
+  }
+
+  if (message.status === "fallback") {
+    return "fallback";
+  }
+
+  return "local";
+};
+
 const cachedResult = async (repository: AppRepository, message: AiMessage): Promise<GoalPacingResult | null> => {
   if (!message.bodyJson) {
     return null;
@@ -37,7 +49,7 @@ const cachedResult = async (repository: AppRepository, message: AiMessage): Prom
   return {
     message,
     pacing: parsed.value,
-    source: "cache"
+    source: resultSourceFromMessage(message)
   };
 };
 
@@ -46,10 +58,10 @@ const persistResult = async (
   message: AiMessage,
   pacing: GoalPacingResponse
 ): Promise<GoalPacingResult> => {
-  const savedMessage = await repository.saveAiMessage(message);
+  const saved = await repository.saveCoachPulseEpisode(message, []);
 
   return {
-    message: savedMessage,
+    message: saved.message,
     pacing,
     source: message.status === "ok" ? "ai" : message.status === "fallback" ? "fallback" : "local"
   };
@@ -67,6 +79,7 @@ export class GoalPacingService {
     const snapshot = buildGoalPacingSnapshot(snapshotInputs, settings.aiPayloadScope);
     const scopeKey = String(year);
     const createdAt = nowIso();
+    const aiConfigured = settings.aiEnabled && settings.aiApiKey.trim().length > 0;
 
     const activeMemories = await repository.listAiMemories({
       status: "active",
@@ -84,17 +97,27 @@ export class GoalPacingService {
     });
 
     if (!bypassCache) {
-      const cached = await repository.getAiMessage("goal_pacing", scopeKey, inputHash);
-      if (cached) {
-        const result = await cachedResult(repository, cached);
-        if (result) {
-          return result;
+      if (aiConfigured) {
+        const cached = await repository.getAiMessage("goal_pacing", scopeKey, inputHash);
+        if (cached) {
+          const result = await cachedResult(repository, cached);
+          if (result) {
+            return { ...result, source: "cache" };
+          }
+        }
+      } else {
+        const skipped = await repository.getAiMessageRecord("goal_pacing", scopeKey, inputHash);
+        if (skipped?.status === "skipped") {
+          const result = await cachedResult(repository, skipped);
+          if (result) {
+            return { ...result, source: "cache" };
+          }
         }
       }
     }
 
     const localPacing = buildLocalGoalPacing(snapshot);
-    const existingMessage = await repository.getAiMessage("goal_pacing", scopeKey, inputHash);
+    const existingMessage = await repository.getAiMessageRecord("goal_pacing", scopeKey, inputHash);
     const baseMessage = (): AiMessage => ({
       id: existingMessage?.id ?? createEntityId("ai-message"),
       surface: "goal_pacing",
@@ -114,8 +137,6 @@ export class GoalPacingService {
       latencyMs: null,
       createdAt
     });
-
-    const aiConfigured = settings.aiEnabled && settings.aiApiKey.trim().length > 0;
 
     if (!aiConfigured) {
       const skippedMessage = {

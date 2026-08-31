@@ -38,4 +38,40 @@ describe("validateMonthlySynthesisResponse", () => {
       }).ok
     ).toBe(false);
   });
+
+  it("accepts score boundaries 0 and 100", () => {
+    expect(
+      validateMonthlySynthesisResponse({
+        ...validPayload,
+        goalEvaluationDrafts: [{ ...validPayload.goalEvaluationDrafts[0], score: 0 }]
+      }).ok
+    ).toBe(true);
+    expect(
+      validateMonthlySynthesisResponse({
+        ...validPayload,
+        goalEvaluationDrafts: [{ ...validPayload.goalEvaluationDrafts[0], score: 100 }]
+      }).ok
+    ).toBe(true);
+  });
+
+  it("rejects scores outside 0-100", () => {
+    expect(
+      validateMonthlySynthesisResponse({
+        ...validPayload,
+        goalEvaluationDrafts: [{ ...validPayload.goalEvaluationDrafts[0], score: -1 }]
+      }).ok
+    ).toBe(false);
+    expect(
+      validateMonthlySynthesisResponse({
+        ...validPayload,
+        goalEvaluationDrafts: [{ ...validPayload.goalEvaluationDrafts[0], score: 101 }]
+      }).ok
+    ).toBe(false);
+    expect(
+      validateMonthlySynthesisResponse({
+        ...validPayload,
+        goalEvaluationDrafts: [{ ...validPayload.goalEvaluationDrafts[0], score: 0.82 }]
+      }).ok
+    ).toBe(true);
+  });
 });

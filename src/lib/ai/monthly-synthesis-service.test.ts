@@ -134,4 +134,98 @@ describe("MonthlySynthesisService", () => {
     expect(first.message.id).toBe(second.message.id);
     expect(second.source).toBe("cache");
   });
+
+  it("uses cache on identical input hash when AI is enabled", async () => {
+    const provider: AiProvider = {
+      generateStructured: vi.fn(async () => ({
+        text: JSON.stringify({
+          headline: "IA",
+          weekPattern: "Stable",
+          sectionDrafts: {},
+          goalEvaluationDrafts: [
+            {
+              goalId: "goal-1",
+              score: 80,
+              trend: "up",
+              notes: "Bien",
+              blockers: ""
+            }
+          ]
+        }),
+        model: "test-model",
+        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 }
+      }))
+    };
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const service = new MonthlySynthesisService(provider);
+    const settings = defaultAppSettings();
+    settings.aiEnabled = true;
+    settings.aiApiKey = "secret";
+    const snapshotInputs = buildMonthlyInputs();
+
+    const first = await service.buildSynthesis(repository, {
+      monthKey: "2026-04",
+      settings,
+      snapshotInputs,
+      trigger: "explicit"
+    });
+    const second = await service.buildSynthesis(repository, {
+      monthKey: "2026-04",
+      settings,
+      snapshotInputs,
+      trigger: "explicit"
+    });
+
+    expect(first.source).toBe("ai");
+    expect(second.source).toBe("cache");
+    expect(provider.generateStructured).toHaveBeenCalledOnce();
+  });
+
+  it("drops goal evaluation drafts for unknown goal ids", async () => {
+    const provider: AiProvider = {
+      generateStructured: vi.fn(async () => ({
+        text: JSON.stringify({
+          headline: "IA",
+          weekPattern: "Stable",
+          sectionDrafts: {},
+          goalEvaluationDrafts: [
+            {
+              goalId: "unknown-goal",
+              score: 80,
+              trend: "up",
+              notes: "Hallucination",
+              blockers: ""
+            },
+            {
+              goalId: "goal-1",
+              score: 70,
+              trend: "steady",
+              notes: "Reel",
+              blockers: ""
+            }
+          ]
+        }),
+        model: "test-model",
+        usage: { tokensPrompt: 1, tokensCompletion: 2, latencyMs: 3 }
+      }))
+    };
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const service = new MonthlySynthesisService(provider);
+    const settings = defaultAppSettings();
+    settings.aiEnabled = true;
+    settings.aiApiKey = "secret";
+
+    const result = await service.buildSynthesis(repository, {
+      monthKey: "2026-04",
+      settings,
+      snapshotInputs: buildMonthlyInputs(),
+      trigger: "explicit"
+    });
+
+    const goalProposals = result.proposals.filter((proposal) => proposal.type === "goal_evaluation");
+    expect(goalProposals).toHaveLength(1);
+    expect(JSON.parse(goalProposals[0].payloadJson).goalId).toBe("goal-1");
+  });
 });
