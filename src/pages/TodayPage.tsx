@@ -69,6 +69,11 @@ export const TodayPage = () => {
       });
       setCoachResult(localResult);
 
+      // Scheduled pulses own persistence when the pulse engine is enabled.
+      if (settings.aiPulseEnabled) {
+        return;
+      }
+
       if (!settings.aiEnabled || !settings.aiApiKey.trim()) {
         return;
       }
@@ -82,6 +87,8 @@ export const TodayPage = () => {
         trigger: "auto"
       });
       setCoachResult(aiResult);
+    } catch (error) {
+      console.error("Failed to load coach pulse", error);
     } finally {
       setCoachLoading(false);
     }
@@ -127,6 +134,8 @@ export const TodayPage = () => {
           slotHour: Number.isFinite(slotHour) ? slotHour : undefined
         });
         setCoachResult(result);
+      } catch (error) {
+        console.error("Failed to load coach pulse", error);
       } finally {
         setCoachLoading(false);
       }

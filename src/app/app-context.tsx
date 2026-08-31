@@ -64,10 +64,16 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   const startupStageRef = useRef(startupStage);
   const autoBackupRunningRef = useRef(false);
   const pulseRunningRef = useRef(false);
+  const startupWorkQueueRef = useRef(Promise.resolve());
   const appOpenStartedAtRef = useRef<string | null>(null);
   const appOpenIntervalsRef = useRef<AppOpenInterval[]>([]);
   const [pulseRevision, setPulseRevision] = useState(0);
   const pomodoro = usePomodoroController(repository);
+
+  const enqueueStartupWork = (work: () => Promise<void>) => {
+    startupWorkQueueRef.current = startupWorkQueueRef.current.then(work).catch(() => undefined);
+    return startupWorkQueueRef.current;
+  };
 
   useEffect(() => {
     installDebugInstrumentation();
@@ -76,67 +82,6 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       tauriRuntime: isTauriRuntime()
     });
   }, []);
-
-  useEffect(() => {
-    if (!repository) {
-      return;
-    }
-
-    let cancelled = false;
-
-    const runAutoBackupIfDue = async (trigger: "startup" | "interval") => {
-      if (autoBackupRunningRef.current || !settings.autoBackupEnabled) {
-        return;
-      }
-
-      if (!isAutoBackupDue(settings.lastBackupAt, settings.autoBackupIntervalHours)) {
-        return;
-      }
-
-      autoBackupRunningRef.current = true;
-      logDebug("info", "storage.backup", "Verification backup automatique", {
-        trigger,
-        lastBackupAt: settings.lastBackupAt,
-        intervalHours: settings.autoBackupIntervalHours
-      });
-
-      try {
-        const storageInfo = await repository?.getStorageInfo();
-        if (!storageInfo) {
-          return;
-        }
-
-        const backup = await repository.createBackup("auto");
-        const nextSettings = {
-          ...settings,
-          lastBackupAt: backup.createdAt,
-          lastBackupPath: backup.backupPath
-        };
-
-        await repository.saveSettings(nextSettings);
-
-        if (!cancelled) {
-          setSettings(nextSettings);
-        }
-
-        logDebug("info", "storage.backup", "Backup automatique termine", backup);
-      } catch (error) {
-        logDebug("error", "storage.backup", "Echec du backup automatique", error);
-      } finally {
-        autoBackupRunningRef.current = false;
-      }
-    };
-
-    void runAutoBackupIfDue("startup");
-    const intervalId = window.setInterval(() => {
-      void runAutoBackupIfDue("interval");
-    }, AUTO_BACKUP_CHECK_INTERVAL_MS);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-  }, [repository, settings]);
 
   useEffect(() => {
     if (!repository) {
@@ -217,7 +162,9 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     };
 
     markAppOpen();
-    void runPulseEvaluation("startup");
+    void enqueueStartupWork(async () => {
+      await runPulseEvaluation("startup");
+    });
 
     const intervalId = window.setInterval(() => {
       void runPulseEvaluation("interval");
@@ -241,6 +188,67 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [repository, settings, coachService, pomodoro.state.activeSession]);
+
+  useEffect(() => {
+    if (!repository) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const runAutoBackupIfDue = async (trigger: "startup" | "interval") => {
+      if (autoBackupRunningRef.current || !settings.autoBackupEnabled) {
+        return;
+      }
+
+      if (!isAutoBackupDue(settings.lastBackupAt, settings.autoBackupIntervalHours)) {
+        return;
+      }
+
+      autoBackupRunningRef.current = true;
+      logDebug("info", "storage.backup", "Verification backup automatique", {
+        trigger,
+        lastBackupAt: settings.lastBackupAt,
+        intervalHours: settings.autoBackupIntervalHours
+      });
+
+      try {
+        const storageInfo = await repository?.getStorageInfo();
+        if (!storageInfo) {
+          return;
+        }
+
+        const backup = await repository.createBackup("auto");
+        const nextSettings = {
+          ...settings,
+          lastBackupAt: backup.createdAt,
+          lastBackupPath: backup.backupPath
+        };
+
+        await repository.saveSettings(nextSettings);
+
+        if (!cancelled) {
+          setSettings(nextSettings);
+        }
+
+        logDebug("info", "storage.backup", "Backup automatique termine", backup);
+      } catch (error) {
+        logDebug("error", "storage.backup", "Echec du backup automatique", error);
+      } finally {
+        autoBackupRunningRef.current = false;
+      }
+    };
+
+    void enqueueStartupWork(() => runAutoBackupIfDue("startup"));
+    const intervalId = window.setInterval(() => {
+      void runAutoBackupIfDue("interval");
+    }, AUTO_BACKUP_CHECK_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [repository, settings]);
 
   useEffect(() => {
     let cancelled = false;

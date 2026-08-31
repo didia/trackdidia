@@ -95,6 +95,7 @@ import {
   relationshipPersonalContextId
 } from "../relationship-draws";
 import type { AppRepository, BackupResult, PomodoroStartOptions, StorageInfo } from "./repository";
+import { DbSerialQueue } from "./db-serial-queue";
 import { getTodayDate } from "../date";
 
 interface Migration {
@@ -743,8 +744,13 @@ export const migrations: Migration[] = [
 
 export class TauriSqliteRepository implements AppRepository {
   private dbPromise: Promise<Database> | null = null;
+  private readonly writeQueue = new DbSerialQueue();
 
   constructor(private readonly connectionString = "sqlite:trackdidia.db") {}
+
+  private runExclusive<T>(operation: () => Promise<T>): Promise<T> {
+    return this.writeQueue.run(operation);
+  }
 
   async initialize(): Promise<void> {
     logDebug("info", "storage.sqlite", "Initialisation SQLite", this.connectionString);
@@ -1230,14 +1236,16 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async saveSettings(settings: AppSettings): Promise<void> {
-    const db = await this.getDb();
-    const normalized = mergeAppSettingsWithDefaults(settings, defaultAppSettings());
-    await db.execute(
-      `INSERT INTO app_settings (id, value)
-       VALUES (1, $1)
-       ON CONFLICT(id) DO UPDATE SET value = excluded.value`,
-      [JSON.stringify(normalized)]
-    );
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      const normalized = mergeAppSettingsWithDefaults(settings, defaultAppSettings());
+      await db.execute(
+        `INSERT INTO app_settings (id, value)
+         VALUES (1, $1)
+         ON CONFLICT(id) DO UPDATE SET value = excluded.value`,
+        [JSON.stringify(normalized)]
+      );
+    });
   }
 
   async getAiMessage(surface: AiSurface, scopeKey: string, inputHash: string): Promise<AiMessage | null> {
@@ -1280,8 +1288,7 @@ export class TauriSqliteRepository implements AppRepository {
     return this.deserializeAiMessage(rows[0]);
   }
 
-  async saveAiMessage(message: AiMessage): Promise<AiMessage> {
-    const db = await this.getDb();
+  private async insertAiMessage(db: Database, message: AiMessage): Promise<AiMessage> {
     await db.execute(
       `INSERT INTO ai_messages (
         id, surface, scope_key, stance, kind, input_hash, prompt_version, model,
@@ -1325,47 +1332,56 @@ export class TauriSqliteRepository implements AppRepository {
     return this.deserializeAiMessage(rows[0]);
   }
 
+  async saveAiMessage(message: AiMessage): Promise<AiMessage> {
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      return this.insertAiMessage(db, message);
+    });
+  }
+
   async saveCoachPulseEpisode(
     message: AiMessage,
     proposals: AiProposal[]
   ): Promise<{ message: AiMessage; proposals: AiProposal[] }> {
-    const db = await this.getDb();
-    await db.execute("BEGIN IMMEDIATE");
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      await db.execute("BEGIN IMMEDIATE");
 
-    try {
-      const savedMessage = await this.saveAiMessage(message);
-      await db.execute(
-        `DELETE FROM ai_proposals
-         WHERE message_id = $1 AND status = 'pending'`,
-        [savedMessage.id]
-      );
-
-      const savedProposals: AiProposal[] = [];
-      for (const proposal of proposals) {
+      try {
+        const savedMessage = await this.insertAiMessage(db, message);
         await db.execute(
-          `INSERT INTO ai_proposals (
-            id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [
-            proposal.id,
-            savedMessage.id,
-            proposal.type,
-            proposal.payloadJson,
-            proposal.status,
-            proposal.appliedEntityId,
-            proposal.decidedAt,
-            proposal.createdAt
-          ]
+          `DELETE FROM ai_proposals
+           WHERE message_id = $1 AND status = 'pending'`,
+          [savedMessage.id]
         );
-        savedProposals.push({ ...proposal, messageId: savedMessage.id });
-      }
 
-      await db.execute("COMMIT");
-      return { message: savedMessage, proposals: savedProposals };
-    } catch (error) {
-      await db.execute("ROLLBACK");
-      throw error;
-    }
+        const savedProposals: AiProposal[] = [];
+        for (const proposal of proposals) {
+          await db.execute(
+            `INSERT INTO ai_proposals (
+              id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [
+              proposal.id,
+              savedMessage.id,
+              proposal.type,
+              proposal.payloadJson,
+              proposal.status,
+              proposal.appliedEntityId,
+              proposal.decidedAt,
+              proposal.createdAt
+            ]
+          );
+          savedProposals.push({ ...proposal, messageId: savedMessage.id });
+        }
+
+        await db.execute("COMMIT");
+        return { message: savedMessage, proposals: savedProposals };
+      } catch (error) {
+        await db.execute("ROLLBACK");
+        throw error;
+      }
+    });
   }
 
   async listAiMessages(surface?: AiSurface, limit = 50): Promise<AiMessage[]> {
@@ -1912,23 +1928,25 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async createBackup(kind: "manual" | "auto" = "manual"): Promise<BackupResult> {
-    const db = await this.getDb();
-    const storageInfo = await this.getStorageInfo();
-    const createdAt = new Date().toISOString();
-    const backupPath = `${storageInfo.backupDir}/${buildBackupFileName(createdAt, kind)}`;
-    const escapedPath = backupPath.replace(/'/g, "''");
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      const storageInfo = await this.getStorageInfo();
+      const createdAt = new Date().toISOString();
+      const backupPath = `${storageInfo.backupDir}/${buildBackupFileName(createdAt, kind)}`;
+      const escapedPath = backupPath.replace(/'/g, "''");
 
-    logDebug("info", "storage.backup", "Creation d'un backup SQLite", {
-      kind,
-      backupPath
+      logDebug("info", "storage.backup", "Creation d'un backup SQLite", {
+        kind,
+        backupPath
+      });
+
+      await db.execute(`VACUUM INTO '${escapedPath}'`);
+
+      return {
+        backupPath,
+        createdAt
+      };
     });
-
-    await db.execute(`VACUUM INTO '${escapedPath}'`);
-
-    return {
-      backupPath,
-      createdAt
-    };
   }
 
   async importGoogleTasksExport(rawJson: unknown): Promise<GtdImportSummary> {
