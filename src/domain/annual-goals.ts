@@ -309,10 +309,12 @@ export const computeYearProgressFraction = (year: number, asOfDate: string): num
   return elapsedMs / totalMs;
 };
 
+export const ANNUAL_GOAL_PACE_TOLERANCE = 0.1;
+
 export const isAnnualGoalOnPace = (
   progressRatio: number | null,
   expectedFraction: number,
-  tolerance = 0.1
+  tolerance = ANNUAL_GOAL_PACE_TOLERANCE
 ): boolean => {
   if (progressRatio === null) {
     return false;

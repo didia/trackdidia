@@ -1,3 +1,4 @@
+import { ANNUAL_GOAL_PACE_TOLERANCE } from "../../../domain/annual-goals";
 import type { GoalPacingResponse, GoalPacingRiskLevel } from "../../../domain/types";
 import type { GoalPacingSnapshot } from "../context/goal-pacing-snapshot";
 
@@ -7,7 +8,7 @@ const riskFromGap = (progressRatio: number | null, expected: number): GoalPacing
   }
 
   const gap = expected - progressRatio;
-  if (gap <= 0.05) {
+  if (gap <= ANNUAL_GOAL_PACE_TOLERANCE) {
     return "low";
   }
 

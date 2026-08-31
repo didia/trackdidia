@@ -28,7 +28,7 @@ import { formatPercent } from "../lib/format";
 import { formatTimestamp } from "../lib/format";
 import { resolveMonthlySnapshotInputs } from "../lib/ai/context/monthly-snapshot";
 import { loadLatestMonthlySynthesis } from "../lib/ai/monthly-synthesis-loader";
-import { MonthlySynthesisService } from "../lib/ai/monthly-synthesis-service";
+import { MonthlySynthesisService, monthlyReviewSectionFromProposal } from "../lib/ai/monthly-synthesis-service";
 import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
 import { applyCoachProposal } from "../lib/ai/proposals/apply-proposal";
 
@@ -167,8 +167,25 @@ export const MonthlyReviewPage = () => {
     async (options: { monthKey: string; trigger: "auto" | "explicit"; bypassCache?: boolean }) => {
       const requestId = ++synthesisRequestSeqRef.current;
       setSynthesisLoading(true);
+      setSynthesisResult(null);
+
       try {
+        if (options.trigger === "auto") {
+          const stored = await loadLatestMonthlySynthesis(repository, synthesisService, options.monthKey);
+          if (requestId !== synthesisRequestSeqRef.current) {
+            return;
+          }
+          if (stored) {
+            setSynthesisResult(stored);
+          }
+        }
+
         const snapshotInputs = await resolveMonthlySnapshotInputs(repository, options.monthKey);
+
+        if (requestId !== synthesisRequestSeqRef.current) {
+          return;
+        }
+
         const result = await synthesisService.buildSynthesis(repository, {
           monthKey: options.monthKey,
           settings,
@@ -176,9 +193,11 @@ export const MonthlyReviewPage = () => {
           trigger: options.trigger,
           bypassCache: options.bypassCache
         });
+
         if (requestId !== synthesisRequestSeqRef.current) {
           return;
         }
+
         setSynthesisResult(result);
       } finally {
         if (requestId === synthesisRequestSeqRef.current) {
@@ -194,21 +213,42 @@ export const MonthlyReviewPage = () => {
       return;
     }
 
-    setSynthesisResult(null);
+    void runSynthesis({ monthKey: summary.monthKey, trigger: "auto" });
+  }, [summary?.monthKey, loading, runSynthesis]);
 
-    void (async () => {
-      const stored = await loadLatestMonthlySynthesis(repository, synthesisService, summary.monthKey);
-      if (stored && stored.message.scopeKey === summary.monthKey) {
-        setSynthesisResult(stored);
-      }
-      await runSynthesis({ monthKey: summary.monthKey, trigger: "auto" });
-    })();
-  }, [summary?.monthKey, loading, repository, runSynthesis, synthesisService]);
+  const synthesisMatchesMonth =
+    synthesisResult?.message.scopeKey === summary?.monthKey && synthesisResult !== null;
 
   const handleAcceptSynthesisProposal = async (proposal: AiProposal) => {
-    const monthKey = latestReviewRef.current?.monthKey ?? selectedMonthKey;
+    if (!summary || synthesisResult?.message.scopeKey !== summary.monthKey) {
+      return;
+    }
 
-    if (synthesisResult?.message.scopeKey !== monthKey) {
+    const monthKey = summary.monthKey;
+    const currentReview = latestReviewRef.current ?? review ?? createEmptyMonthlyReview(monthKey);
+
+    if (proposal.type === "review_section_draft") {
+      const section = monthlyReviewSectionFromProposal(proposal);
+      if (!section) {
+        return;
+      }
+
+      const nextReview = updateMonthlyReviewNote(currentReview, section.sectionKey, section.text);
+      latestReviewRef.current = nextReview;
+      setReview(nextReview);
+      noteRefs.current[section.sectionKey]?.setDraft(section.text);
+
+      const accepted = await repository.acceptAiMonthlyReviewSectionDraftProposal(proposal, nextReview);
+      setSynthesisResult((current) =>
+        current
+          ? {
+              ...current,
+              proposals: current.proposals.map((item) =>
+                item.id === proposal.id ? accepted.proposal : item
+              )
+            }
+          : current
+      );
       return;
     }
 
@@ -235,10 +275,6 @@ export const MonthlyReviewPage = () => {
           : current
       );
       return;
-    }
-
-    if (proposal.type === "review_section_draft" && applied.sectionKey && applied.text !== undefined) {
-      noteRefs.current[applied.sectionKey as MonthlyReviewSectionKey]?.setDraft(applied.text);
     }
 
     if (proposal.type === "goal_evaluation" && applied.goalId) {
@@ -388,7 +424,7 @@ export const MonthlyReviewPage = () => {
 
       <SectionCard title="Coach mensuel" subtitle="Synthese du mois, brouillons de sections et evaluations d'objectifs proposees.">
         <MonthlySynthesisPanel
-          result={synthesisResult}
+          result={synthesisMatchesMonth ? synthesisResult : null}
           loading={synthesisLoading}
           notice={synthesisNotice}
           settings={settings}

@@ -159,7 +159,7 @@ memories with monthly-specific kind priority, validates JSON, and persists propo
 
 | Type | Accept applies |
 |---|---|
-| `review_section_draft` | Prefills the monthly ritual note textarea for that section key |
+| `review_section_draft` | Persists the ritual note on the monthly review, then marks the proposal accepted |
 | `goal_evaluation` | Writes an `AnnualGoalEvaluation` for the month on the linked annual goal |
 
 Monthly synthesis messages and proposals persist atomically via `saveCoachPulseEpisode`.
@@ -172,6 +172,10 @@ Monthly synthesis cache policy matches weekly: only `ok` results (and `skipped` 
 remains off) are sticky cache hits. Proposals for unknown `goalId`s are dropped at persist
 time. Accepting a `goal_evaluation` for a missing goal dismisses the proposal and shows
 **Objectif introuvable, suggestion ignoree.**
+
+Monthly synthesis loading and acceptance are **month-scoped**: changing the selected month
+invalidates in-flight loads, hides mismatched results, and rejects accept/dismiss when
+the proposal message `scopeKey` does not match the displayed month.
 
 ### Goal pacing (`goal_pacing`)
 

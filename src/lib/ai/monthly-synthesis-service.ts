@@ -304,3 +304,27 @@ export const monthlySectionKeyFromProposal = (payloadJson: string): MonthlyRevie
     return null;
   }
 };
+
+export const monthlyReviewSectionFromProposal = (
+  proposal: AiProposal
+): { sectionKey: MonthlyReviewSectionKey; text: string } | null => {
+  if (proposal.type !== "review_section_draft") {
+    return null;
+  }
+
+  const sectionKey = monthlySectionKeyFromProposal(proposal.payloadJson);
+  if (!sectionKey) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(proposal.payloadJson) as { text?: string };
+    if (!payload.text?.trim()) {
+      return null;
+    }
+
+    return { sectionKey, text: payload.text.trim() };
+  } catch {
+    return null;
+  }
+};

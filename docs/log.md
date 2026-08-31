@@ -5,6 +5,7 @@ the top of the table.
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-08-30 | Phase 5 PR #59 second-pass: atomic monthly section-draft accept, month-scoped synthesis, aligned goal-pacing risk tolerance | `docs/ai-settings-and-privacy.md`, `docs/reviews-and-goals.md`, `docs/storage-and-backups.md` | `acceptAiMonthlyReviewSectionDraftProposal`, `MonthlyReviewPage`, `ANNUAL_GOAL_PACE_TOLERANCE`, `goal-pacing-fallback` |
 | 2026-08-30 | Phase 5 PR #59 review: S3/S4 schema prompts, monthly/goal-pacing cache parity with weekly, annual year/month gating, unknown goal dismiss, score 0–100 validation | `docs/ai-settings-and-privacy.md`, `docs/reviews-and-goals.md` | `OpenRouterProvider`, `MonthlySynthesisService`, `GoalPacingService`, `AnnualGoalsPage`, `MonthlyReviewPage` |
 | 2026-08-30 | Weekly Settings preview passes Goals+pulse via `weeklyRescueTime` (fixes null Goals on injected path) | `docs/ai-settings-and-privacy.md` | `SettingsPage.tsx`, `preview.ts` |
 | 2026-08-30 | Phase 4 PR #58 review: atomic weekly synthesis persist/accept, standing objectives UI, week-scoped synthesis, migration 25 index, S2 schema prompt, preview Goals parity, fallback retry policy | `docs/reviews-and-goals.md`, `docs/ai-settings-and-privacy.md`, `docs/storage-and-backups.md` | Migration 25, `WeeklyReviewPage`, `WeeklySynthesisService`, `acceptAi*Proposal`, `listDailyEntriesOnOrBefore` |
