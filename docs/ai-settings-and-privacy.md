@@ -21,6 +21,7 @@ Default highlights:
 | AI payload scope | `full` |
 | AI max tokens | `700` |
 | AI timeout | `20000` ms |
+| AI cost estimate rate | `1` USD / million tokens (approximate) |
 | AI memory enabled | Yes |
 | AI surface models | `{}` (falls back to `aiModel`) |
 | Pulse enabled | Yes |
@@ -256,6 +257,61 @@ Every coach result is persisted in SQLite (migrations 21–24):
 
 Browser preview uses `MemoryRepository` with the same methods. The old in-memory
 `AiCoachService` cache is replaced by this durable store on desktop.
+
+### Cost dashboard (Settings)
+
+Settings → **Cout IA (mois en cours)** aggregates `ai_messages` for the current local
+calendar month (`created_at` boundaries in local time):
+
+| Metric | Source |
+|---|---|
+| Appels enregistres | Row count in the month |
+| Jetons entree / sortie | Sum of `tokens_prompt` / `tokens_completion` (null → 0) |
+| Cout estime | `(prompt + completion) / 1_000_000 × aiCostPerMillionTokens` (computed in UI via `applyCostEstimate`, not in the repository) |
+
+`aiCostPerMillionTokens` defaults to **1.0** USD per million tokens (prompt +
+completion combined). This is a **rough static estimate** — OpenRouter pricing varies
+by model. Adjust the rate under **Parametres IA**; nothing calls external pricing APIs.
+Clearing the rate field in the draft hides the estimate instead of showing **0,00 $ US**.
+
+Repository method: `computeAiUsageForMonth(monthKey)` returns token totals only
+(`AiUsageTotals` — no `estimatedCostUsd`).
+
+### Coach analytics (Settings)
+
+Settings → **Analytique coach** (read-only, French labels) aggregates `ai_proposals`
+joined with parent `ai_messages`:
+
+| View | Description |
+|---|---|
+| Par surface | Acceptance rate by `coach_pulse`, `weekly_synthesis`, etc. |
+| Par type | Acceptance rate by proposal type |
+| Par posture | Acceptance rate by pulse stance (`open`, `steer`, …) |
+| Tendance de rejet | Dismissal rate over the last 30 local days (all days with at least one decision) |
+| Signaux de revision | Surfaces/types/stances below 35% acceptance (≥ 3 decisions) flagged as **Candidat de revision de prompt** |
+
+Pure functions live in `src/lib/ai/analytics/`. No automatic prompt changes — human-readable signals only.
+
+Repository helpers: `listAiProposalsSince(sinceIso)`, `listAiMessagesSince(sinceIso, limit?)`.
+When the message cap binds, the **newest** rows are retained (oldest dropped).
+
+Load failures in the analytics section show a visible French error banner; the card
+stays mounted.
+
+### Prompt version registry
+
+Prompt versions are centralized per surface in `src/lib/ai/prompts/registry.ts` and
+stored on each `ai_messages.prompt_version` row:
+
+| Surface | Version constant |
+|---|---|
+| `coach_pulse` | `coach_pulse.v1` |
+| `weekly_synthesis` | `weekly_synthesis.v1` |
+| `monthly_synthesis` | `monthly_synthesis.v1` |
+| `goal_pacing` | `goal_pacing.v1` |
+
+The analytics section lists active versions and surfaces low-acceptance areas as
+prompt-revision candidates.
 
 ## OpenRouter request
 

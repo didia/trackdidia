@@ -4,6 +4,8 @@ import type { AiPayloadScope, AppSettings } from "../domain/types";
 import { useAppContext } from "../app/app-context";
 import { SectionCard } from "../components/SectionCard";
 import { AiMemoryProfileSection } from "../components/AiMemoryProfileSection";
+import { AiCostDashboardSection } from "../components/AiCostDashboardSection";
+import { AiCoachAnalyticsSection } from "../components/AiCoachAnalyticsSection";
 import initialGoogleTasksExport from "../../Tasks.json";
 import { formatDateTimeShort, getTodayDate } from "../lib/date";
 import type { StorageInfo } from "../lib/storage/repository";
@@ -24,6 +26,7 @@ export const SettingsPage = () => {
   const goalsService = useMemo(() => new RescueTimeGoalsService(repository), [repository]);
   const [draftSettings, setDraftSettings] = useState<AppSettings>(settings);
   const [pulseSlotsDraft, setPulseSlotsDraft] = useState(() => formatPulseSlotHours(settings.aiPulseSlots));
+  const [costRateDraft, setCostRateDraft] = useState(() => String(settings.aiCostPerMillionTokens));
   const [pulseSlotsError, setPulseSlotsError] = useState("");
   const [savingSettings, setSavingSettings] = useState(false);
   const [savingRescuetimeSettings, setSavingRescuetimeSettings] = useState(false);
@@ -50,8 +53,18 @@ export const SettingsPage = () => {
   useEffect(() => {
     setDraftSettings(settings);
     setPulseSlotsDraft(formatPulseSlotHours(settings.aiPulseSlots));
+    setCostRateDraft(String(settings.aiCostPerMillionTokens));
     setPulseSlotsError("");
   }, [settings]);
+
+  const parsedCostRate = useMemo((): number | null => {
+    const trimmed = costRateDraft.trim();
+    if (trimmed === "") {
+      return null;
+    }
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? Math.max(0, parsed) : null;
+  }, [costRateDraft]);
 
   useEffect(() => {
     let cancelled = false;
@@ -115,9 +128,12 @@ export const SettingsPage = () => {
 
             setPulseSlotsError("");
             setSavingSettings(true);
+            const trimmedCostRate = costRateDraft.trim();
             await saveSettings({
               ...draftSettings,
-              aiPulseSlots: parsedSlots.hours
+              aiPulseSlots: parsedSlots.hours,
+              aiCostPerMillionTokens:
+                trimmedCostRate === "" ? settings.aiCostPerMillionTokens : Math.max(0, Number(trimmedCostRate))
             });
             setSavingSettings(false);
           }}
@@ -288,6 +304,17 @@ export const SettingsPage = () => {
             />
           </label>
 
+          <label>
+            <span>Tarif approximatif IA (USD / million de jetons)</span>
+            <input
+              type="number"
+              min={0}
+              step={0.1}
+              value={costRateDraft}
+              onChange={(event) => setCostRateDraft(event.target.value)}
+            />
+          </label>
+
           <div className="form-actions">
             <button className="button button--primary" type="submit" disabled={savingSettings}>
               {savingSettings ? "Enregistrement..." : "Enregistrer les parametres"}
@@ -299,6 +326,7 @@ export const SettingsPage = () => {
                 const defaults = defaultAppSettings();
                 setDraftSettings(defaults);
                 setPulseSlotsDraft(formatPulseSlotHours(defaults.aiPulseSlots));
+                setCostRateDraft(String(defaults.aiCostPerMillionTokens));
                 setPulseSlotsError("");
               }}
             >
@@ -307,6 +335,10 @@ export const SettingsPage = () => {
           </div>
         </form>
       </SectionCard>
+
+      <AiCostDashboardSection repository={repository} costPerMillionTokens={parsedCostRate} />
+
+      <AiCoachAnalyticsSection repository={repository} />
 
       <AiMemoryProfileSection repository={repository} memoryEnabled={draftSettings.aiMemoryEnabled} />
 
