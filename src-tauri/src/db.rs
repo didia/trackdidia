@@ -1,24 +1,7 @@
-//! Custom sqlite pool that replaces `tauri-plugin-sql`.
+//! Single-connection SQLite pool, exposed as `db_connect` / `db_execute` / `db_select`.
 //!
-//! `tauri-plugin-sql` 2.3.2 has no way to pin its pool to a single physical connection: its
-//! `DbPool::connect` (src/wrapper.rs) calls `Pool::connect(conn_url)` with no `PoolOptions`
-//! hook, and sqlx's default `max_connections` is 10. sqlx's idle connection queue is a FIFO
-//! `crossbeam ArrayQueue` (sqlx-core-0.8.6/src/pool/inner.rs), not most-recently-used, so once
-//! the app's own concurrent `db.select()` calls (e.g. the `Promise.all` in `getGtdOverview`)
-//! grow the pool past one connection, a `BEGIN IMMEDIATE` and its later `COMMIT` -- issued as
-//! separate `db.execute()` calls from the JS side -- can land on two different physical
-//! connections. WAL mode and app-level write serialization do not close that hole by
-//! themselves.
-//!
-//! This module builds our own `sqlx::SqlitePool` with `max_connections(1)` *and* the idle-timeout
-//! and max-lifetime reapers disabled (see `build_pool_options` below -- capping `max_connections`
-//! alone does not stop sqlx from silently closing that one connection between statements of an
-//! open transaction), so there is structurally only one physical connection that stays open for
-//! the app's lifetime: every statement, including BEGIN/COMMIT pairs, is guaranteed to hit it. It
-//! is exposed to the frontend as three thin Tauri commands
-//! (`db_connect`, `db_execute`, `db_select`) that mirror the shape of the plugin's own
-//! `load`/`execute`/`select` commands closely enough that the TS-side `Database` wrapper in
-//! `tauri-sqlite-repository.ts` is a drop-in replacement for `@tauri-apps/plugin-sql`'s.
+//! JS issues `BEGIN` / `COMMIT` as separate commands, so the pool must keep one physical
+//! connection for the app's lifetime. See `build_pool_options`.
 
 use serde_json::Value as JsonValue;
 use sqlx::{
@@ -34,12 +17,9 @@ pub struct DbState(Mutex<Option<Pool<Sqlite>>>);
 
 type SqlxQuery<'q> = sqlx::query::Query<'q, Sqlite, sqlx::sqlite::SqliteArguments<'q>>;
 
-/// Binds a JSON value coming from the JS side onto a query, mirroring the conversion rules
-/// `tauri-plugin-sql` used (src/wrapper.rs `DbPool::execute`/`select`): null binds as SQL NULL,
-/// strings bind as TEXT, numbers bind as REAL (sqlite's column affinity then coerces to
-/// INTEGER/TEXT as declared by the schema). Only null/string/number ever flow through this
-/// repository's params (booleans are converted to 0/1 integers before being passed in), but
-/// bool/object/array are handled defensively rather than panicking.
+/// Binds a JSON value from the JS side onto a query. Null → SQL NULL, strings → TEXT,
+/// numbers → REAL (column affinity then coerces). Bools become 0/1; other JSON types
+/// stringify. The repository only sends null/string/number in practice.
 fn bind_value<'q>(query: SqlxQuery<'q>, value: JsonValue) -> SqlxQuery<'q> {
     match value {
         JsonValue::Null => query.bind(None::<String>),
@@ -50,9 +30,8 @@ fn bind_value<'q>(query: SqlxQuery<'q>, value: JsonValue) -> SqlxQuery<'q> {
     }
 }
 
-/// Decodes a single column into a `serde_json::Value`, based on sqlite's runtime type name for
-/// that value (mirrors `tauri-plugin-sql`'s src/decode/sqlite.rs, minus the DATE/TIME/DATETIME
-/// branches this schema never uses -- every column here is TEXT, INTEGER or REAL).
+/// Decodes a column into JSON from sqlite's runtime type. Schema columns are TEXT, INTEGER,
+/// or REAL; DATE/TIME branches are omitted.
 fn column_to_json(row: &SqliteRow, index: usize) -> Result<JsonValue, String> {
     let raw = row
         .try_get_raw(index)
@@ -93,23 +72,11 @@ fn column_to_json(row: &SqliteRow, index: usize) -> Result<JsonValue, String> {
     Ok(value)
 }
 
-/// Builds the `SqlitePoolOptions` shared by `db_connect` and the test suite below.
+/// Pool options shared by `db_connect` and the tests below.
 ///
-/// `max_connections(1)` alone is not sufficient to guarantee a `BEGIN IMMEDIATE` / `COMMIT`
-/// pair issued as separate statements lands on the same physical connection: sqlx returns the
-/// connection to its idle queue after every individual statement (sqlx-core-0.8.6
-/// `pool/connection.rs::return_to_pool`), and that same code path closes the connection if it is
-/// `is_beyond_max_lifetime` (default 30 minutes) even while a transaction is open-but-idle
-/// between statements. Separately, a background maintenance task (sqlx-core-0.8.6
-/// `pool/inner.rs`) wakes every `min(max_lifetime, idle_timeout)` (default `idle_timeout` is 10
-/// minutes) and closes idle connections past either threshold. Either reaper closing the
-/// connection mid-transaction silently rolls it back; the later `COMMIT` then runs against a
-/// freshly-opened connection in autocommit mode and fails (swallowed by `rollbackQuietly` on the
-/// TS side), defeating the whole point of pinning the pool to one connection.
-///
-/// So, in addition to `max_connections(1)`, this disables both reapers (`idle_timeout(None)`,
-/// `max_lifetime(None)`) and keeps the connection warm (`min_connections(1)`) so the single
-/// connection is never closed out from under an open transaction for the app's lifetime.
+/// `max_connections(1)` is not enough: sqlx can still close that connection between
+/// statements of an open transaction via idle-timeout / max-lifetime reapers. Disabling
+/// both and keeping `min_connections(1)` leaves one connection alive for the app lifetime.
 fn build_pool_options() -> SqlitePoolOptions {
     SqlitePoolOptions::new()
         .max_connections(1)
@@ -134,8 +101,7 @@ fn resolve_db_path(app: &AppHandle, db: &str) -> Result<std::path::PathBuf, Stri
     Ok(app_data_dir.join(file_name))
 }
 
-/// Connects the single-connection pool once (subsequent calls are no-ops), mirroring
-/// `@tauri-apps/plugin-sql`'s `Database.load`.
+/// Connects the single-connection pool once. Later calls are no-ops.
 #[tauri::command]
 pub async fn db_connect(app: AppHandle, state: State<'_, DbState>, db: String) -> Result<(), String> {
     let mut guard = state.0.lock().await;
@@ -148,11 +114,6 @@ pub async fn db_connect(app: AppHandle, state: State<'_, DbState>, db: String) -
         .filename(&db_path)
         .create_if_missing(true);
 
-    // The whole point: max_connections(1) means there is only ever one physical connection, so
-    // BEGIN IMMEDIATE / COMMIT pairs issued as separate statements are structurally guaranteed
-    // to hit the same connection -- but only because build_pool_options() *also* disables the
-    // idle-timeout and max-lifetime reapers (see its doc comment); max_connections(1) alone does
-    // not stop sqlx from closing that one connection out from under an open transaction.
     let pool = build_pool_options()
         .connect_with(connect_options)
         .await
@@ -162,9 +123,7 @@ pub async fn db_connect(app: AppHandle, state: State<'_, DbState>, db: String) -
     Ok(())
 }
 
-/// Pool-level implementation of `db_execute`, factored out so both the Tauri command and the
-/// tests below (which build a pool directly with `build_pool_options`, bypassing `AppHandle`/
-/// `State`) exercise the exact same query/bind/decode path.
+/// Pool-level `db_execute` so the command and the tests share one query/bind path.
 async fn execute_on_pool(pool: &Pool<Sqlite>, query: &str, values: Vec<JsonValue>) -> Result<(u64, i64), String> {
     let mut sql_query = sqlx::query(query);
     for value in values {
@@ -179,8 +138,7 @@ async fn execute_on_pool(pool: &Pool<Sqlite>, query: &str, values: Vec<JsonValue
     Ok((result.rows_affected(), result.last_insert_rowid()))
 }
 
-/// Pool-level implementation of `db_select`, factored out for the same reason as
-/// `execute_on_pool`.
+/// Pool-level `db_select`, shared with the tests like `execute_on_pool`.
 async fn select_on_pool(
     pool: &Pool<Sqlite>,
     query: &str,
@@ -208,8 +166,7 @@ async fn select_on_pool(
     Ok(results)
 }
 
-/// Executes a non-SELECT statement, mirroring `@tauri-apps/plugin-sql`'s `execute` command:
-/// returns `(rows_affected, last_insert_rowid)`.
+/// Executes a non-SELECT statement. Returns `(rows_affected, last_insert_rowid)`.
 #[tauri::command]
 pub async fn db_execute(state: State<'_, DbState>, query: String, values: Vec<JsonValue>) -> Result<(u64, i64), String> {
     let guard = state.0.lock().await;
@@ -220,8 +177,7 @@ pub async fn db_execute(state: State<'_, DbState>, query: String, values: Vec<Js
     execute_on_pool(pool, &query, values).await
 }
 
-/// Executes a SELECT statement, mirroring `@tauri-apps/plugin-sql`'s `select` command: returns
-/// one JSON object per row, keyed by column name.
+/// Executes a SELECT. Returns one JSON object per row, keyed by column name.
 #[tauri::command]
 pub async fn db_select(
     state: State<'_, DbState>,
@@ -241,11 +197,8 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    /// Builds a pool with the exact same options `db_connect` uses (`build_pool_options`),
-    /// pointed at a tempfile-backed sqlite database rather than `:memory:`. A tempfile is more
-    /// faithful to the real bug: sqlite's `:memory:` databases are private per-connection unless
-    /// a shared-cache URI is used, which would mask exactly the kind of "statement landed on a
-    /// different physical connection" bug this whole module exists to prevent.
+    /// Same pool options as `db_connect`, on a tempfile rather than `:memory:` (in-memory DBs
+    /// are private per connection and would hide a split-connection failure).
     async fn test_pool() -> (Pool<Sqlite>, tempfile::TempDir) {
         let dir = tempfile::tempdir().expect("create tempdir");
         let db_path = dir.path().join("test.db");
@@ -259,7 +212,7 @@ mod tests {
         (pool, dir)
     }
 
-    /// (a) Round-trips NULL/TEXT/INTEGER/REAL through `bind_value` + `column_to_json`.
+    /// Round-trips NULL/TEXT/INTEGER/REAL through `bind_value` + `column_to_json`.
     #[tokio::test]
     async fn bind_and_decode_round_trip_all_value_types() {
         let (pool, _dir) = test_pool().await;
@@ -301,7 +254,7 @@ mod tests {
         assert_eq!(rows[1]["real_col"], JsonValue::Null);
     }
 
-    /// (b) `rows_affected`/`last_insert_rowid` are correct after an INSERT.
+    /// `rows_affected` / `last_insert_rowid` after an INSERT.
     #[tokio::test]
     async fn execute_returns_rows_affected_and_last_insert_rowid() {
         let (pool, _dir) = test_pool().await;
@@ -325,9 +278,7 @@ mod tests {
         assert_eq!(last_insert_rowid, 2);
     }
 
-    /// (c) The actual regression this round is about: BEGIN IMMEDIATE / INSERT / COMMIT issued
-    /// as three SEPARATE calls through the pool (mirroring the three separate `db_execute`
-    /// invocations the JS side makes) must land on the same connection and commit successfully.
+    /// BEGIN / INSERT / COMMIT as three separate pool calls must persist the row.
     #[tokio::test]
     async fn separate_begin_insert_commit_calls_persist_the_row() {
         let (pool, _dir) = test_pool().await;
@@ -370,19 +321,8 @@ mod tests {
         assert!(rows.is_empty());
     }
 
-    // (d)/(e) below directly demonstrate the fix by forcing sqlx's idle-timeout reaper to close
-    // the connection between the BEGIN IMMEDIATE and COMMIT calls: sqlx's background maintenance
-    // task wakes every `min(max_lifetime, idle_timeout)` -- derived from the pool's OWN configured
-    // options, not a fixed interval (sqlx-core-0.8.6 `pool/inner.rs` around line 508) -- so a test
-    // pool can simply configure a short `idle_timeout` (here, 50ms) to make the reaper fire in well
-    // under a second. No sleeping past real (minutes-long) reaper intervals and no reaching into
-    // sqlx-internal pool state is needed; a prior version of this comment claimed otherwise, which
-    // was wrong.
-
-    /// Same shape as `test_pool`, but deliberately WITHOUT the reap-prevention
-    /// `build_pool_options` provides: `min_connections(0)` and a short `idle_timeout` so the
-    /// background reaper can (and, per (d) below, does) close the single connection while a
-    /// transaction sits open-but-idle between statements.
+    /// Same as `test_pool` but with a short idle timeout so the reaper can close the connection
+    /// between statements of an open transaction.
     async fn reaper_prone_test_pool() -> (Pool<Sqlite>, tempfile::TempDir) {
         let dir = tempfile::tempdir().expect("create tempdir");
         let db_path = dir.path().join("test.db");
@@ -400,15 +340,7 @@ mod tests {
         (pool, dir)
     }
 
-    /// (d) Negative control: with the reaper enabled (short `idle_timeout`, no
-    /// `min_connections(1)`/`idle_timeout(None)` protection), a BEGIN IMMEDIATE followed by a
-    /// sleep long enough for the reaper to run, then an INSERT and a COMMIT -- each issued as a
-    /// SEPARATE `execute_on_pool` call, exactly as real `db_execute` invocations from the JS side
-    /// are -- silently loses the transaction: the reaper closes the idle connection during the
-    /// sleep, the INSERT runs in autocommit on a freshly-opened connection, and COMMIT fails
-    /// because there is no transaction left to commit. This is the exact failure
-    /// `build_pool_options`'s `idle_timeout(None)`/`max_lifetime(None)`/`min_connections(1)` exist
-    /// to prevent, and the exact failure `rollbackQuietly` would swallow in production.
+    /// Negative control: with the reaper enabled, COMMIT fails after an idle gap.
     #[tokio::test(flavor = "multi_thread")]
     async fn reaper_without_protection_silently_breaks_an_open_transaction() {
         let (pool, _dir) = reaper_prone_test_pool().await;
@@ -433,9 +365,7 @@ mod tests {
         );
     }
 
-    /// (e) Same sequence as (d), but through a pool built with the real `build_pool_options()`
-    /// (the config `db_connect` actually uses in production): the reaper is disabled, so the
-    /// connection survives the sleep, COMMIT succeeds, and the row is durably persisted.
+    /// Same sequence as the negative control, but `build_pool_options()` keeps the transaction.
     #[tokio::test(flavor = "multi_thread")]
     async fn build_pool_options_protects_an_open_transaction_from_the_reaper() {
         let (pool, _dir) = test_pool().await;
@@ -446,7 +376,7 @@ mod tests {
 
         execute_on_pool(&pool, "BEGIN IMMEDIATE", vec![]).await.expect("begin immediate");
 
-        // Same sleep as (d); with build_pool_options() the reaper never fires, so this is inert.
+        // Same idle gap as the negative control; the reaper is disabled so this is inert.
         tokio::time::sleep(std::time::Duration::from_millis(400)).await;
 
         execute_on_pool(&pool, "INSERT INTO txn_protected (id, name) VALUES (?, ?)", vec![json!(1), json!("carol")])

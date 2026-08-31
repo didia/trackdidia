@@ -99,26 +99,7 @@ import type { AppRepository, BackupResult, PomodoroStartOptions, StorageInfo } f
 import { DbSerialQueue } from "./db-serial-queue";
 import { getTodayDate } from "../date";
 
-/**
- * Drop-in replacement for `@tauri-apps/plugin-sql`'s `Database` class, backed by the Rust-side
- * `db_connect`/`db_execute`/`db_select` commands (src-tauri/src/db.rs) instead of the plugin.
- *
- * We stopped using `@tauri-apps/plugin-sql` because its pool cannot be pinned to a single
- * physical connection: `tauri-plugin-sql` 2.3.2's `DbPool::connect` calls `Pool::connect(conn_url)`
- * with no options hook, and sqlx's idle connection queue is a FIFO (not most-recently-used), so
- * this app's own concurrent `db.select()` calls (e.g. the `Promise.all` in `getGtdOverview`)
- * could grow the pool past one connection and keep it there. That meant a `BEGIN IMMEDIATE` and
- * its later `COMMIT`, issued as separate `execute()` calls, could land on two different physical
- * connections even with WAL mode and app-level write serialization. The Rust pool behind these
- * commands is built with `max_connections(1)` *and* with sqlx's idle-timeout and max-lifetime
- * reapers disabled (`min_connections(1)`, `idle_timeout(None)`, `max_lifetime(None)` -- see
- * `db::build_pool_options` in src-tauri/src/db.rs): capping `max_connections` alone does not stop
- * sqlx from closing that one connection between statements of an open transaction (it returns the
- * connection to its idle queue after every statement and can reap it there), which would silently
- * roll back a `BEGIN IMMEDIATE` before its later `COMMIT` runs. With all four options set, there
- * is structurally only one connection, it never gets closed out from under an open transaction,
- * and every statement -- including BEGIN/COMMIT pairs -- is guaranteed to hit it.
- */
+/** Thin wrapper around the Rust `db_connect` / `db_execute` / `db_select` commands. */
 class Database {
   private constructor(private readonly path: string) {}
 
@@ -800,16 +781,8 @@ export class TauriSqliteRepository implements AppRepository {
     try {
       const db = await this.getDb();
 
-      // WAL mode lets readers proceed while a writer holds the lock and is persisted in the
-      // database file header, so this only needs to run once per process but is safe/cheap to
-      // repeat on every launch. Rollback-journal mode (the sqlite default) blocks ALL readers
-      // during a write, which is why a leaked open transaction previously froze the whole app
-      // with "database is locked" instead of just the next write.
       const journalModeRows = await db.select<{ journal_mode: string }[]>("PRAGMA journal_mode=WAL");
       logDebug("info", "storage.sqlite", "Mode journal SQLite", journalModeRows[0]?.journal_mode ?? "inconnu");
-      // Defensive/explicit: sqlx already defaults busy_timeout to 5s for new pool connections,
-      // but setting it here documents the intent and keeps behavior consistent even if that
-      // default ever changes upstream.
       await db.execute("PRAGMA busy_timeout = 5000");
 
       await db.execute(migrations[0].sql);
@@ -1609,15 +1582,7 @@ export class TauriSqliteRepository implements AppRepository {
     return this.deserializeAiProposal(rows[0]);
   }
 
-  /**
-   * Best-effort ROLLBACK: if the failure happened before BEGIN IMMEDIATE actually took effect
-   * (or the transaction was already implicitly closed some other way), a ROLLBACK issued here
-   * can itself fail with "cannot rollback - no transaction is active". We must not let that
-   * secondary error mask the original failure. (This used to also guard against BEGIN/COMMIT
-   * landing on different pooled connections; the sqlite pool is now pinned to a single physical
-   * connection -- see src-tauri/src/db.rs -- so that particular failure mode is gone, but the
-   * defensive rollback is still worth keeping.)
-   */
+  /** Best-effort ROLLBACK; a secondary "no transaction" error must not mask the original failure. */
   private async rollbackQuietly(db: Database): Promise<void> {
     try {
       await db.execute("ROLLBACK");
