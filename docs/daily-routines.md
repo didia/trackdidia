@@ -47,18 +47,19 @@ The morning screen captures:
 The intention field saves after a 450 ms debounce and flushes immediately before the
 "complete morning" navigation.
 
-Morning/anytime principles:
+Morning/anytime principles shown on the morning screen (`morningPrincipleKeys`):
 
 | Key | UI label |
 |---|---|
+| `respectReveil` | Respect réveil |
 | `priereDuMatin` | Prière du matin |
 | `oxytocineDuMatin` | Oxytocine du matin |
 | `avoirLuMesPrincipes` | Avoir lu mes principes |
 | `ecriture` | Écriture |
 | `apprentissage` | Apprentissage |
-| `managedSolitude` | Managed solitude |
-| `respectDeVieCommeJesus` | Respect de vie comme Jésus |
-| `respectReveil` | Respect réveil |
+
+`managedSolitude` and `respectDeVieCommeJesus` remain available on the evening and
+history screens but are not part of the morning anchors list.
 
 Principle values are tri-state: `true`, `false`, or `null` (not answered).
 

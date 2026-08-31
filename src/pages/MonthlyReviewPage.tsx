@@ -131,6 +131,7 @@ export const MonthlyReviewPage = () => {
   const [synthesisLoading, setSynthesisLoading] = useState(false);
   const [synthesisNotice, setSynthesisNotice] = useState<string | null>(null);
   const latestReviewRef = useRef<MonthlyReview | null>(null);
+  const saveChainRef = useRef(Promise.resolve());
   const noteRefs = useRef<Partial<Record<MonthlyReviewSectionKey, PersistedTextareaHandle | null>>>({});
   const synthesisRequestSeqRef = useRef(0);
 
@@ -314,10 +315,19 @@ export const MonthlyReviewPage = () => {
   };
 
   const saveReview = useCallback(
-    async (nextReview: MonthlyReview) => {
+    (nextReview: MonthlyReview) => {
       latestReviewRef.current = nextReview;
       setReview(nextReview);
-      await repository.saveMonthlyReview(nextReview);
+      saveChainRef.current = saveChainRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          const snapshot = latestReviewRef.current;
+          if (!snapshot) {
+            return;
+          }
+          await repository.saveMonthlyReview(snapshot);
+        });
+      return saveChainRef.current;
     },
     [repository]
   );

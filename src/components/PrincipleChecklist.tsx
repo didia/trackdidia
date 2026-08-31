@@ -8,7 +8,11 @@ interface PrincipleChecklistProps {
 }
 
 export const PrincipleChecklist = ({ entry, keys, onChange }: PrincipleChecklistProps) => {
-  const definitions = principleDefinitions.filter((definition) => !keys || keys.includes(definition.key));
+  const definitions = keys
+    ? keys
+        .map((key) => principleDefinitions.find((definition) => definition.key === key))
+        .filter((definition): definition is (typeof principleDefinitions)[number] => Boolean(definition))
+    : principleDefinitions;
 
   return (
     <div className="principle-list">

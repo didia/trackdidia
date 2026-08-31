@@ -48,9 +48,14 @@ export const principleDefinitions: PrincipleDefinition[] = [
   { key: "objectifsAtteints", label: "Objectifs atteints", helper: "Objectifs du jour reellement atteints.", timing: "evening" }
 ];
 
-export const morningPrincipleKeys = principleDefinitions
-  .filter((definition) => definition.timing === "morning" || definition.timing === "anytime")
-  .map((definition) => definition.key);
+export const morningPrincipleKeys: PrincipleKey[] = [
+  "respectReveil",
+  "priereDuMatin",
+  "oxytocineDuMatin",
+  "avoirLuMesPrincipes",
+  "ecriture",
+  "apprentissage"
+];
 
 export const eveningPrincipleKeys = principleDefinitions.map((definition) => definition.key);
 

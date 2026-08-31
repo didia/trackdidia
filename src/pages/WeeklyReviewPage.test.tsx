@@ -129,6 +129,54 @@ describe("WeeklyReviewPage", () => {
     });
   });
 
+  it("keeps the latest ritual notes after leaving the page even if an earlier save is still in flight", async () => {
+    vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-03-29");
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const originalSave = repository.saveWeeklyReview.bind(repository);
+    let startedSaves = 0;
+    let settledSaves = 0;
+    let releaseFirstSave: () => void = () => undefined;
+    const firstSaveGate = new Promise<void>((resolve) => {
+      releaseFirstSave = resolve;
+    });
+    repository.saveWeeklyReview = async (review) => {
+      startedSaves += 1;
+      const call = startedSaves;
+      try {
+        if (call === 1) {
+          await firstSaveGate;
+        }
+        return await originalSave(review);
+      } finally {
+        settledSaves += 1;
+      }
+    };
+
+    const user = userEvent.setup();
+    const rendered = await renderWithApp(<WeeklyReviewPage />, { repository, route: "/semaine" });
+
+    const bilanField = await screen.findByLabelText(/notes bilan/i);
+    await user.type(bilanField, "AB");
+    rendered.unmount();
+    releaseFirstSave();
+
+    await waitFor(() => {
+      expect(startedSaves).toBeGreaterThanOrEqual(2);
+      expect(settledSaves).toBe(startedSaves);
+    });
+
+    await expect(repository.getWeeklyReview("2026-03-29")).resolves.toMatchObject({
+      notes: expect.objectContaining({
+        bilan: "AB"
+      })
+    });
+
+    await renderWithApp(<WeeklyReviewPage />, { repository, route: "/semaine" });
+    expect(await screen.findByLabelText(/notes bilan/i)).toHaveValue("AB");
+  });
+
   it("renders RescueTime goals score", async () => {
     const goalsSnapshot = {
       weekStartDate: "2026-08-02",
