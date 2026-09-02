@@ -5,6 +5,7 @@ the top of the table.
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-02 | Daily journal saves serialize through `useDailyEntry`; Pomodoro manual refresh shows loading and failure; inactive assigned projects are labeled in selectors | `docs/daily-routines.md`, `docs/conventions.md`, `docs/recurrences-and-pomodoro.md`, `docs/gtd.md` | `useDailyEntry`, `usePomodoroController`, `projectAssignmentLabel` |
 | 2026-09-01 | Pomodoro page can refresh eligible tasks; task/recurrence assignment selectors suggest active projects only; Today dashboard edits morning intention and night reflection as matching textareas | `docs/recurrences-and-pomodoro.md`, `docs/gtd.md`, `docs/daily-routines.md` | `PomodoroPage`, `projectsForAssignment`, `TodayPage` |
 | 2026-08-31 | Custom single-connection sqlx pool (`db_connect`/`db_execute`/`db_select`) replaces `tauri-plugin-sql`; WAL + busy_timeout; reapers disabled so JS `BEGIN`/`COMMIT` stay on one connection | `docs/storage-and-backups.md`, `docs/architecture.md`, `docs/desktop-builds.md` | `src-tauri/src/db.rs`, `TauriSqliteRepository` |
 | 2026-08-31 | Morning anchors list trimmed to six principles in ritual order | `docs/daily-routines.md` | `morningPrincipleKeys`, `PrincipleChecklist` |

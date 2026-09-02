@@ -3,6 +3,7 @@ import type {
   DailyTaskStats,
   Project,
   ProjectFilters,
+  ProjectStatus,
   Task,
   TaskContext,
   TaskEvent,
@@ -116,6 +117,15 @@ export const projectsForAssignment = (
   const current = projects.find((project) => project.id === currentProjectId);
   return current ? [...active, cloneProject(current)] : active;
 };
+
+const inactiveProjectLabels: Record<Exclude<ProjectStatus, "active">, string> = {
+  on_hold: "En pause",
+  completed: "Termine",
+  cancelled: "Retire"
+};
+
+export const projectAssignmentLabel = (project: Project): string =>
+  project.status === "active" ? project.title : `${project.title} (${inactiveProjectLabels[project.status]})`;
 
 export const buildDailyTaskStats = (tasks: Task[], events: TaskEvent[], date: string): DailyTaskStats => {
   const { startMs } = getDayRange(date);

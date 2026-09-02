@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { StrictMode, type PropsWithChildren } from "react";
 import type { PomodoroSession } from "../domain/types";
 import { MemoryRepository } from "../lib/storage/memory-repository";
@@ -213,5 +213,56 @@ describe("usePomodoroController", () => {
     await flushControllerQueue();
 
     expect(result.current.sessions[0]?.status).toBe("paused");
+  });
+
+  it("raises loading while a manual reload is in flight", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const { result } = renderHook(() => usePomodoroController(repository));
+    await flushControllerQueue();
+    expect(result.current.loading).toBe(false);
+
+    const originalListTasks = repository.listTasks.bind(repository);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.spyOn(repository, "listTasks").mockImplementation(async (filters) => {
+      await gate;
+      return originalListTasks(filters);
+    });
+
+    let finished = false;
+    const pending = result.current.reload().then(() => {
+      finished = true;
+    });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(true);
+    });
+    expect(finished).toBe(false);
+
+    await act(async () => {
+      release();
+      await pending;
+    });
+
+    expect(result.current.loading).toBe(false);
+  });
+
+  it("records a reload error and clears loading when a manual refresh fails", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const { result } = renderHook(() => usePomodoroController(repository));
+    await flushControllerQueue();
+
+    vi.spyOn(repository, "generateDueRecurringTasks").mockRejectedValueOnce(new Error("sqlite busy"));
+
+    await act(async () => {
+      await result.current.reload();
+    });
+
+    expect(result.current.loading).toBe(false);
+    expect(result.current.reloadError).toBe("Impossible de rafraichir les taches.");
   });
 });

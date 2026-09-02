@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { applyDailyPomodoroStats, applyDailyTaskStats, createEmptyDailyEntry } from "../domain/daily-entry";
 import type { DailyEntry, DailyPomodoroStats, DailyTaskStats } from "../domain/types";
 import { getTodayDate } from "../lib/date";
 import { useAppContext } from "./app-context";
+
+export type DailyEntrySaveInput = DailyEntry | ((current: DailyEntry) => DailyEntry);
 
 export const useDailyEntry = (date: string) => {
   const { repository } = useAppContext();
@@ -10,6 +12,15 @@ export const useDailyEntry = (date: string) => {
   const [taskStats, setTaskStats] = useState<DailyTaskStats | null>(null);
   const [pomodoroStats, setPomodoroStats] = useState<DailyPomodoroStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const entryRef = useRef<DailyEntry | null>(null);
+  const saveChainRef = useRef(Promise.resolve());
+  const dateRef = useRef(date);
+  dateRef.current = date;
+
+  const publishEntry = (nextEntry: DailyEntry) => {
+    entryRef.current = nextEntry;
+    setEntry(nextEntry);
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -24,13 +35,10 @@ export const useDailyEntry = (date: string) => {
     setTaskStats(stats);
     setPomodoroStats(nextPomodoroStats);
 
-    if (existing) {
-      setEntry(applyDailyPomodoroStats(applyDailyTaskStats(existing, stats), nextPomodoroStats));
-      setLoading(false);
-      return;
-    }
-
-    setEntry(applyDailyPomodoroStats(applyDailyTaskStats(createEmptyDailyEntry(date), stats), nextPomodoroStats));
+    const nextEntry = existing
+      ? applyDailyPomodoroStats(applyDailyTaskStats(existing, stats), nextPomodoroStats)
+      : applyDailyPomodoroStats(applyDailyTaskStats(createEmptyDailyEntry(date), stats), nextPomodoroStats);
+    publishEntry(nextEntry);
     setLoading(false);
   }, [date, repository]);
 
@@ -39,23 +47,44 @@ export const useDailyEntry = (date: string) => {
   }, [load]);
 
   const save = useCallback(
-    async (nextEntry: DailyEntry) => {
-      await repository.saveDailyEntry(nextEntry);
-      if (nextEntry.date === getTodayDate()) {
-        await repository.generateDailyRelationshipTasks(nextEntry.date);
+    async (input: DailyEntrySaveInput) => {
+      const current = entryRef.current;
+      if (!current) {
+        return;
       }
-      const [persisted, stats, nextPomodoroStats] = await Promise.all([
-        repository.getDailyEntry(nextEntry.date),
-        repository.computeDailyTaskStats(nextEntry.date),
-        repository.computeDailyPomodoroStats(nextEntry.date)
-      ]);
-      setTaskStats(stats);
-      setPomodoroStats(nextPomodoroStats);
-      setEntry(
-        persisted
-          ? applyDailyPomodoroStats(applyDailyTaskStats(persisted, stats), nextPomodoroStats)
-          : applyDailyPomodoroStats(applyDailyTaskStats(nextEntry, stats), nextPomodoroStats)
-      );
+
+      const nextEntry = typeof input === "function" ? input(current) : input;
+      publishEntry(nextEntry);
+
+      const run = saveChainRef.current.catch(() => undefined).then(async () => {
+        const snapshot = entryRef.current;
+        if (!snapshot) {
+          return;
+        }
+
+        await repository.saveDailyEntry(snapshot);
+        if (snapshot.date === getTodayDate()) {
+          await repository.generateDailyRelationshipTasks(snapshot.date);
+        }
+        const [stats, nextPomodoroStats] = await Promise.all([
+          repository.computeDailyTaskStats(snapshot.date),
+          repository.computeDailyPomodoroStats(snapshot.date)
+        ]);
+
+        if (dateRef.current !== snapshot.date) {
+          return;
+        }
+
+        setTaskStats(stats);
+        setPomodoroStats(nextPomodoroStats);
+        const latest = entryRef.current;
+        if (!latest || latest.date !== snapshot.date) {
+          return;
+        }
+        publishEntry(applyDailyPomodoroStats(applyDailyTaskStats(latest, stats), nextPomodoroStats));
+      });
+      saveChainRef.current = run;
+      return run;
     },
     [repository]
   );

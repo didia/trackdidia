@@ -15,6 +15,7 @@ const buildPomodoro = (overrides: Partial<PomodoroControllerValue> = {}): Pomodo
   preferredTask: null,
   preferredActivityLabel: null,
   loading: false,
+  reloadError: null,
   reload: async () => undefined,
   startPomodoro: async () => undefined,
   pauseCurrent: async () => undefined,
@@ -50,5 +51,24 @@ describe("PomodoroPage", () => {
     });
 
     expect(await screen.findByRole("button", { name: /rafraichir les taches/i })).toBeDisabled();
+  });
+
+  it("does not reload on mount when the controller is already loading", async () => {
+    const reload = vi.fn(async () => undefined);
+
+    await renderWithApp(<PomodoroPage />, {
+      contextOverrides: { pomodoro: buildPomodoro({ loading: true, reload }) }
+    });
+
+    await screen.findByRole("button", { name: /rafraichir les taches/i });
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("shows a manual refresh failure from the controller", async () => {
+    await renderWithApp(<PomodoroPage />, {
+      contextOverrides: { pomodoro: buildPomodoro({ reloadError: "Impossible de rafraichir les taches." }) }
+    });
+
+    expect(await screen.findByText("Impossible de rafraichir les taches.")).toBeInTheDocument();
   });
 });

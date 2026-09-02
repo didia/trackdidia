@@ -207,7 +207,11 @@ required.
 - Complete a focus early after at least half of its 25 minutes has elapsed.
 - Skip a current or pending break.
 - Cancel any active session.
-- Refresh eligible task lists from the Pomodoro screen (also runs on opening the page). The refresh regenerates due recurrences and reloads today's sessions, summaries, and GTD tasks.
+- Refresh eligible task lists from the Pomodoro screen (also runs on opening the page,
+  unless the shared controller is still on its initial load). The refresh regenerates
+  due recurrences and reloads today's sessions, summaries, and GTD tasks. The button
+  disables while that pass is in flight. A failed refresh shows
+  "Impossible de rafraichir les taches." and can be retried.
 
 Completing a GTD task during focus detaches it from the continuing session.
 

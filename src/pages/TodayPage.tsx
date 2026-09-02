@@ -182,8 +182,9 @@ export const TodayPage = () => {
       const applied = await applyCoachProposal(repository, proposal, currentEntry.date);
 
       if (proposal.type === "intention_draft" && applied.text !== undefined) {
-        await save(updateNote(currentEntry, "morningIntention", applied.text));
-        morningIntentionRef.current?.setDraft(applied.text);
+        const intention = applied.text;
+        await save((latest) => updateNote(latest, "morningIntention", intention));
+        morningIntentionRef.current?.setDraft(intention);
       }
 
       if (!applied.proposalDecided) {
@@ -324,11 +325,7 @@ export const TodayPage = () => {
               rows={4}
               savedValue={entry.morningIntention}
               onPersist={(nextValue) => {
-                const current = entryRef.current;
-                if (!current) {
-                  return;
-                }
-                void save(updateNote(current, "morningIntention", nextValue));
+                void save((current) => updateNote(current, "morningIntention", nextValue));
               }}
               placeholder="Quelle est ton intention pour aujourd'hui ?"
             />
@@ -339,11 +336,7 @@ export const TodayPage = () => {
               rows={4}
               savedValue={entry.nightReflection}
               onPersist={(nextValue) => {
-                const current = entryRef.current;
-                if (!current) {
-                  return;
-                }
-                void save(updateNote(current, "nightReflection", nextValue));
+                void save((current) => updateNote(current, "nightReflection", nextValue));
               }}
               placeholder="Qu'est-ce qui a ete fidele aujourd'hui ?"
             />

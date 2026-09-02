@@ -21,6 +21,7 @@ export interface PomodoroControllerValue {
   preferredTask: Task | null;
   preferredActivityLabel: string | null;
   loading: boolean;
+  reloadError: string | null;
   reload: () => Promise<void>;
   startPomodoro: (options?: PomodoroStartOptions) => Promise<void>;
   pauseCurrent: () => Promise<void>;
@@ -71,6 +72,7 @@ export const usePomodoroController = (repository: AppRepository | null): Pomodor
   const [taskSummaries, setTaskSummaries] = useState<PomodoroTaskSummary[]>([]);
   const [allTasks, setAllTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
+  const [reloadError, setReloadError] = useState<string | null>(null);
   const stateRef = useRef<PomodoroState>(buildIdleState());
   const repositoryRef = useRef<AppRepository | null>(repository);
   const mountedRef = useRef(false);
@@ -537,8 +539,25 @@ export const usePomodoroController = (repository: AppRepository | null): Pomodor
     if (!repository) {
       return;
     }
-    await runQueued("rechargement Pomodoro", async () => refreshEverything(repository, false));
-  }, [refreshEverything, repository, runQueued]);
+    await runQueued("rechargement Pomodoro", async () => {
+      if (isCurrentRepository(repository)) {
+        setReloadError(null);
+        setLoading(true);
+      }
+      try {
+        await refreshEverything(repository, false);
+      } catch (error) {
+        if (isCurrentRepository(repository)) {
+          setReloadError("Impossible de rafraichir les taches.");
+        }
+        throw error;
+      } finally {
+        if (isCurrentRepository(repository)) {
+          setLoading(false);
+        }
+      }
+    });
+  }, [isCurrentRepository, refreshEverything, repository, runQueued]);
 
   const currentActivityLabel = state.activeSession?.activeTaskId ? null : state.activeSession?.activeLabel ?? null;
   const currentTask = useMemo(() => {
@@ -574,6 +593,7 @@ export const usePomodoroController = (repository: AppRepository | null): Pomodor
     preferredTask: preferredSelection.task,
     preferredActivityLabel: preferredSelection.label,
     loading,
+    reloadError,
     reload,
     startPomodoro,
     pauseCurrent,
@@ -591,6 +611,7 @@ export const usePomodoroController = (repository: AppRepository | null): Pomodor
     currentTask,
     loading,
     pauseCurrent,
+    reloadError,
     preferredSelection,
     reload,
     resumeCurrent,

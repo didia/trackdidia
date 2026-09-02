@@ -12,7 +12,12 @@ export const PomodoroPage = () => {
   const lastSyncedSourceRef = useRef<string>("");
 
   useEffect(() => {
+    if (pomodoro.loading) {
+      return;
+    }
     void pomodoro.reload();
+    // Intentionally omit `pomodoro.loading`: a cold start on this route already
+    // runs `refreshEverything` in the controller boot effect.
   }, [pomodoro.reload]);
 
   useEffect(() => {
@@ -97,6 +102,7 @@ export const PomodoroPage = () => {
           </button>
         }
       >
+        {pomodoro.reloadError ? <p className="empty-copy">{pomodoro.reloadError}</p> : null}
         <div className="pomodoro-panel">
           <div className={`pomodoro-clock${activeSession ? ` pomodoro-clock--${activeSession.kind}` : ""}`}>
             <span className="pomodoro-clock__label">{sessionLabel}</span>
