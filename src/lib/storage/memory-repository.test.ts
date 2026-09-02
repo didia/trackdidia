@@ -1,5 +1,6 @@
 import { createEmptyDailyEntry, defaultAppSettings } from "../../domain/daily-entry";
 import { afterEach, vi } from "vitest";
+import { getTodayDate } from "../date";
 import { addDays } from "../gtd/shared";
 import { MemoryRepository } from "./memory-repository";
 
@@ -408,7 +409,7 @@ describe("MemoryRepository", () => {
     await repository.switchPomodoroTask(sessionId, null, "Inbox zero", switchAt);
     await repository.stopPomodoroSession(sessionId, "completed", completeAt);
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getTodayDate();
     const summaries = await repository.listPomodoroTaskSummaries(today, completeAt);
     const stats = await repository.computeDailyPomodoroStats(today);
 

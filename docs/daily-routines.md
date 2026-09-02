@@ -28,6 +28,8 @@ The Today screen is the daily control center. It:
 - displays local or AI morning/evening coaching;
 - reminds the user about the weekly ritual on Sunday;
 - reminds the user about the previous month's review on the first Saturday;
+- edits `morningIntention` and `nightReflection` in matching persisted textareas
+  (450 ms debounce, flush on blur/unmount, same as the other daily screens);
 - summarizes completed focus sessions and focused time;
 - lists tasks added/completed today from the event ledger;
 - shows the GTD-derived start/added/completed/remaining counts;
