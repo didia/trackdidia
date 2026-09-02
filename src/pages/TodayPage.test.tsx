@@ -248,4 +248,71 @@ describe("TodayPage", () => {
     const saved = await repository.getDailyEntry(today);
     expect(saved?.nightReflection).toBe("Reflexion mise a jour");
   });
+
+  it("keeps both journal fields when the second persist starts before the first save resolves", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const today = getTodayDate();
+    const originalSave = repository.saveDailyEntry.bind(repository);
+    const saveDailyEntry = vi.spyOn(repository, "saveDailyEntry").mockImplementation(async (entry) => {
+      await new Promise((resolve) => {
+        window.setTimeout(resolve, 120);
+      });
+      return originalSave(entry);
+    });
+
+    const coachService = {
+      buildPulse: vi.fn(async () => ({
+        message: {
+          id: "ai-message:local",
+          surface: "coach_pulse" as const,
+          scopeKey: today,
+          stance: "open" as const,
+          kind: "open",
+          inputHash: "local",
+          promptVersion: "coach_pulse.v1",
+          model: "local",
+          status: "skipped" as const,
+          bodyJson: null,
+          bodyText: null,
+          deltaClass: null,
+          notified: false,
+          tokensPrompt: null,
+          tokensCompletion: null,
+          latencyMs: null,
+          createdAt: "2026-08-29T08:00:00.000Z"
+        },
+        pulse: {
+          stance: "open" as const,
+          headline: "Local",
+          read: "Brief local",
+          move: null
+        },
+        proposals: [],
+        source: "local" as const
+      }))
+    } as unknown as CoachPulseService;
+
+    const user = userEvent.setup();
+    await renderWithApp(<TodayPage />, { repository, route: "/", contextOverrides: { coachService } });
+
+    const intention = await screen.findByRole("textbox", { name: /intention/i });
+    const reflection = screen.getByRole("textbox", { name: /reflection/i });
+    await user.type(intention, "Mon intention");
+    await user.click(reflection);
+    await user.type(reflection, "Ma reflexion");
+    await user.tab();
+
+    await waitFor(() => {
+      expect(saveDailyEntry.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+    await waitFor(
+      async () => {
+        const saved = await repository.getDailyEntry(today);
+        expect(saved?.morningIntention).toBe("Mon intention");
+        expect(saved?.nightReflection).toBe("Ma reflexion");
+      },
+      { timeout: 3000 }
+    );
+  });
 });

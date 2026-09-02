@@ -54,11 +54,7 @@ export const MorningRoutinePage = () => {
             rows={4}
             savedValue={entry.morningIntention}
             onPersist={(nextValue) => {
-              const currentEntry = latestEntryRef.current;
-              if (!currentEntry) {
-                return;
-              }
-              void save(updateNote(currentEntry, "morningIntention", nextValue));
+              void save((current) => updateNote(current, "morningIntention", nextValue));
             }}
             placeholder="Quelle posture veux-tu garder aujourd'hui ?"
           />
@@ -69,7 +65,7 @@ export const MorningRoutinePage = () => {
         <PrincipleChecklist
           entry={entry}
           keys={morningPrincipleKeys}
-          onChange={(key, value) => void save(updatePrinciple(entry, key, value))}
+          onChange={(key, value) => void save((current) => updatePrinciple(current, key, value))}
         />
       </SectionCard>
 
@@ -85,7 +81,7 @@ export const MorningRoutinePage = () => {
             tachesDebut: taskStats?.tasksAtStart ?? resolveMetricValue(entry, "tachesDebut"),
             tachesAjoutes: taskStats?.tasksAdded ?? resolveMetricValue(entry, "tachesAjoutes")
           }}
-          onChange={(key, value) => void save(updateMetric(entry, key, value))}
+          onChange={(key, value) => void save((current) => updateMetric(current, key, value))}
         />
       </SectionCard>
 
@@ -100,7 +96,9 @@ export const MorningRoutinePage = () => {
             }
             intentionRef.current?.flush();
             const intention = intentionRef.current?.getDraft() ?? current.morningIntention;
-            await save(applyRoutineTransition(updateNote(current, "morningIntention", intention), "complete_morning"));
+            await save((latest) =>
+              applyRoutineTransition(updateNote(latest, "morningIntention", intention), "complete_morning")
+            );
             navigate("/");
           }}
         >

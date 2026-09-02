@@ -20,8 +20,9 @@ instances restrict the bucket to Next Actions or Scheduled and can apply eligibl
 edits to one occurrence or the full local series. Project assignment selectors on
 the task card and recurrence editor suggest active projects only. A currently
 assigned project that is on hold, completed, or cancelled stays in that one
-dropdown until the assignment changes. The Recurrences project filter still lists
-every project.
+dropdown until the assignment changes, labeled with its status (`En pause`,
+`Termine`, or `Retire`) so it is not mistaken for an active choice. The Recurrences
+project filter still lists every project.
 
 Bulk controls complete, cancel, or move selected tasks. A bulk move to Scheduled is
 skipped for tasks without `scheduledFor`.

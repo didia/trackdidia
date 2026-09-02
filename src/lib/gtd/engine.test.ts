@@ -1,5 +1,5 @@
 import type { Project, ProjectStatus } from "../../domain/types";
-import { projectsForAssignment } from "./engine";
+import { projectsForAssignment, projectAssignmentLabel } from "./engine";
 
 const buildProject = (id: string, title: string, status: ProjectStatus): Project => ({
   id,
@@ -49,5 +49,12 @@ describe("projectsForAssignment", () => {
       "p-active-a",
       "p-active-z"
     ]);
+  });
+
+  it("labels a retained inactive project with its status", () => {
+    expect(projectAssignmentLabel(onHold)).toBe("Hold (En pause)");
+    expect(projectAssignmentLabel(completed)).toBe("Done (Termine)");
+    expect(projectAssignmentLabel(cancelled)).toBe("Cancel (Retire)");
+    expect(projectAssignmentLabel(activeAlpha)).toBe("Alpha");
   });
 });

@@ -75,8 +75,9 @@ export const EveningClosurePage = () => {
       const applied = await applyCoachProposal(repository, proposal, currentEntry.date);
 
       if (proposal.type === "tomorrow_focus_draft" && applied.text !== undefined) {
-        await save(updateNote(currentEntry, "tomorrowFocus", applied.text));
-        tomorrowFocusRef.current?.setDraft(applied.text);
+        const tomorrowFocus = applied.text;
+        await save((latest) => updateNote(latest, "tomorrowFocus", tomorrowFocus));
+        tomorrowFocusRef.current?.setDraft(tomorrowFocus);
       }
 
       if (!applied.proposalDecided) {
@@ -149,14 +150,14 @@ export const EveningClosurePage = () => {
           entry={entry}
           suggestionKeys={[...autoSuggestedMetricKeys]}
           suggestedValues={entry.suggestedMetrics}
-          onChange={(key, value) => void save(updateMetric(entry, key, value))}
+          onChange={(key, value) => void save((current) => updateMetric(current, key, value))}
         />
       </SectionCard>
 
       <SectionCard title="Principes de vie" subtitle="Oui ou non pour chaque principe.">
         <PrincipleChecklist
           entry={entry}
-          onChange={(key, value) => void save(updatePrinciple(entry, key, value))}
+          onChange={(key, value) => void save((current) => updatePrinciple(current, key, value))}
         />
       </SectionCard>
 
@@ -169,11 +170,7 @@ export const EveningClosurePage = () => {
               rows={5}
               savedValue={entry.nightReflection}
               onPersist={(nextValue) => {
-                const current = latestEntryRef.current;
-                if (!current) {
-                  return;
-                }
-                void save(updateNote(current, "nightReflection", nextValue));
+                void save((current) => updateNote(current, "nightReflection", nextValue));
               }}
               placeholder="Qu'est-ce qui a ete fidele aujourd'hui ?"
             />
@@ -185,11 +182,7 @@ export const EveningClosurePage = () => {
               rows={5}
               savedValue={entry.tomorrowFocus}
               onPersist={(nextValue) => {
-                const current = latestEntryRef.current;
-                if (!current) {
-                  return;
-                }
-                void save(updateNote(current, "tomorrowFocus", nextValue));
+                void save((current) => updateNote(current, "tomorrowFocus", nextValue));
               }}
               placeholder="Quel est le prochain acte simple qui compte ?"
             />
@@ -210,8 +203,12 @@ export const EveningClosurePage = () => {
             tomorrowFocusRef.current?.flush();
             const night = nightReflectionRef.current?.getDraft() ?? current.nightReflection;
             const tomorrow = tomorrowFocusRef.current?.getDraft() ?? current.tomorrowFocus;
-            const withNotes = updateNote(updateNote(current, "nightReflection", night), "tomorrowFocus", tomorrow);
-            await save(applyRoutineTransition(withNotes, "close_day"));
+            await save((latest) =>
+              applyRoutineTransition(
+                updateNote(updateNote(latest, "nightReflection", night), "tomorrowFocus", tomorrow),
+                "close_day"
+              )
+            );
             navigate("/");
           }}
         >

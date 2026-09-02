@@ -30,6 +30,8 @@ The Today screen is the daily control center. It:
 - reminds the user about the previous month's review on the first Saturday;
 - edits `morningIntention` and `nightReflection` in matching persisted textareas
   (450 ms debounce, flush on blur/unmount, same as the other daily screens);
+  `useDailyEntry.save` applies updates against the latest in-memory entry and
+  serializes persists so overlapping field writes cannot clobber each other;
 - summarizes completed focus sessions and focused time;
 - lists tasks added/completed today from the event ledger;
 - shows the GTD-derived start/added/completed/remaining counts;
@@ -224,6 +226,12 @@ When loading today's entry, the hook also:
 - computes task statistics;
 - computes completed focus sessions;
 - decorates the entry with those suggestions.
+
+Saves accept either a full entry or an updater `(current) => next`. The updater is
+applied immediately to the hook's current entry, then persists run one at a time
+and always write that latest snapshot. Evening closure (`nightReflection` +
+`tomorrowFocus`) uses the same hook, so overlapping journal writes on that screen
+are covered by the same queue.
 
 ## Consumers
 
