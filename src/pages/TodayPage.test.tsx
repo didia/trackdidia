@@ -1,6 +1,6 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { defaultAppSettings } from "../domain/daily-entry";
+import { defaultAppSettings, createEmptyDailyEntry } from "../domain/daily-entry";
 import type { AiProposal, CoachPulseResult } from "../domain/types";
 import { CoachPulseService } from "../lib/ai/coach-pulse-service";
 import { getTodayDate } from "../lib/date";
@@ -191,5 +191,61 @@ describe("TodayPage", () => {
 
     await user.click(screen.getByRole("button", { name: /realisees/i }));
     expect(await screen.findByText("Action terminee du jour")).toBeInTheDocument();
+  });
+
+  it("saves night reflection from the daily state section", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const today = getTodayDate();
+    const seeded = createEmptyDailyEntry(today);
+    seeded.nightReflection = "Reflexion initiale";
+    await repository.saveDailyEntry(seeded);
+    const saveDailyEntry = vi.spyOn(repository, "saveDailyEntry");
+
+    const coachService = {
+      buildPulse: vi.fn(async () => ({
+        message: {
+          id: "ai-message:local",
+          surface: "coach_pulse" as const,
+          scopeKey: today,
+          stance: "open" as const,
+          kind: "open",
+          inputHash: "local",
+          promptVersion: "coach_pulse.v1",
+          model: "local",
+          status: "skipped" as const,
+          bodyJson: null,
+          bodyText: null,
+          deltaClass: null,
+          notified: false,
+          tokensPrompt: null,
+          tokensCompletion: null,
+          latencyMs: null,
+          createdAt: "2026-08-29T08:00:00.000Z"
+        },
+        pulse: {
+          stance: "open" as const,
+          headline: "Local",
+          read: "Brief local",
+          move: null
+        },
+        proposals: [],
+        source: "local" as const
+      }))
+    } as unknown as CoachPulseService;
+
+    const user = userEvent.setup();
+    await renderWithApp(<TodayPage />, { repository, route: "/", contextOverrides: { coachService } });
+
+    const field = await screen.findByRole("textbox", { name: /reflection/i });
+    await user.clear(field);
+    await user.type(field, "Reflexion mise a jour");
+    await user.tab();
+
+    await waitFor(() => {
+      expect(saveDailyEntry).toHaveBeenCalled();
+    });
+    const saved = await repository.getDailyEntry(today);
+    expect(saved?.nightReflection).toBe("Reflexion mise a jour");
   });
 });

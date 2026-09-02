@@ -5,6 +5,7 @@ import { SectionCard } from "../components/SectionCard";
 import { formatDateShort, getTodayDate } from "../lib/date";
 import { createEntityId } from "../lib/gtd/shared";
 import { addDays } from "../lib/gtd/shared";
+import { projectsForAssignment } from "../lib/gtd/engine";
 import { createRecurringTemplate, findNextRecurringDate } from "../lib/recurring/engine";
 
 const weekdayOptions = [
@@ -252,7 +253,7 @@ const RecurringTemplateCard = ({
             <span>Projet</span>
             <select value={draft.projectId ?? ""} onChange={(event) => setDraft((current) => ({ ...current, projectId: event.target.value || null }))}>
               <option value="">Sans projet</option>
-              {projects.map((project) => (
+              {projectsForAssignment(projects, draft.projectId).map((project) => (
                 <option key={project.id} value={project.id}>
                   {project.title}
                 </option>

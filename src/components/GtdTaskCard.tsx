@@ -8,6 +8,7 @@ import {
   toLocalDateInputValue,
   toLocalTimeInputValue
 } from "../lib/date";
+import { projectsForAssignment } from "../lib/gtd/engine";
 import { buildContextId, nowIso } from "../lib/gtd/shared";
 
 const bucketLabels: Record<Task["bucket"], string> = {
@@ -286,7 +287,7 @@ export const GtdTaskCard = ({
                 }
               >
                 <option value="">Sans projet</option>
-                {projects.map((project) => (
+                {projectsForAssignment(projects, draft.projectId).map((project) => (
                   <option key={project.id} value={project.id}>
                     {project.title}
                   </option>

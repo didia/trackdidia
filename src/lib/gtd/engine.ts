@@ -105,6 +105,18 @@ export const filterProjects = (projects: Project[], filters: ProjectFilters = {}
     .sort((left, right) => left.title.localeCompare(right.title))
     .map((project) => cloneProject(project));
 
+export const projectsForAssignment = (
+  projects: Project[],
+  currentProjectId?: string | null
+): Project[] => {
+  const active = filterProjects(projects, { status: "active" });
+  if (!currentProjectId || active.some((project) => project.id === currentProjectId)) {
+    return active;
+  }
+  const current = projects.find((project) => project.id === currentProjectId);
+  return current ? [...active, cloneProject(current)] : active;
+};
+
 export const buildDailyTaskStats = (tasks: Task[], events: TaskEvent[], date: string): DailyTaskStats => {
   const { startMs } = getDayRange(date);
   const tasksById = new Map(tasks.map((task) => [task.id, task] as const));

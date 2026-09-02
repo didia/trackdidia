@@ -17,7 +17,11 @@ and project records, and an event ledger used for daily statistics.
 The shared `GtdTaskCard` can edit title, notes, bucket, project, contexts, scheduled
 date/time, and deadline. It can also complete or cancel the task. Recurring
 instances restrict the bucket to Next Actions or Scheduled and can apply eligible
-edits to one occurrence or the full local series.
+edits to one occurrence or the full local series. Project assignment selectors on
+the task card and recurrence editor suggest active projects only. A currently
+assigned project that is on hold, completed, or cancelled stays in that one
+dropdown until the assignment changes. The Recurrences project filter still lists
+every project.
 
 Bulk controls complete, cancel, or move selected tasks. A bulk move to Scheduled is
 skipped for tasks without `scheduledFor`.
@@ -62,7 +66,8 @@ of four statuses:
 
 `statusChangedAt` tracks the last status transition. Project filters can show open,
 individual status, or all projects. Tasks may reference a project, but the database
-does not declare a foreign key or cascade.
+does not declare a foreign key or cascade. Assignment dropdowns do not offer on
+hold, completed, or cancelled projects as new choices.
 
 ## Screen behavior
 

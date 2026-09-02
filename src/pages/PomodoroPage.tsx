@@ -12,6 +12,10 @@ export const PomodoroPage = () => {
   const lastSyncedSourceRef = useRef<string>("");
 
   useEffect(() => {
+    void pomodoro.reload();
+  }, [pomodoro.reload]);
+
+  useEffect(() => {
     const currentTaskId = pomodoro.currentTask?.id;
     const preferredTaskId = pomodoro.preferredTask?.id;
     const nextManualTitle = pomodoro.currentActivityLabel ?? pomodoro.preferredActivityLabel ?? "";
@@ -79,7 +83,20 @@ export const PomodoroPage = () => {
         </div>
       </header>
 
-      <SectionCard title="Timer principal" subtitle="25 min de focus, 5 min de pause, puis 25 min de grande pause apres 4 sessions.">
+      <SectionCard
+        title="Timer principal"
+        subtitle="25 min de focus, 5 min de pause, puis 25 min de grande pause apres 4 sessions."
+        aside={
+          <button
+            className="button"
+            type="button"
+            disabled={pomodoro.loading}
+            onClick={() => void pomodoro.reload()}
+          >
+            Rafraichir les taches
+          </button>
+        }
+      >
         <div className="pomodoro-panel">
           <div className={`pomodoro-clock${activeSession ? ` pomodoro-clock--${activeSession.kind}` : ""}`}>
             <span className="pomodoro-clock__label">{sessionLabel}</span>

@@ -333,12 +333,23 @@ export const TodayPage = () => {
               placeholder="Quelle est ton intention pour aujourd'hui ?"
             />
           </label>
+          <label className="stacked-field">
+            <span>Reflection du soir</span>
+            <PersistedTextarea
+              rows={4}
+              savedValue={entry.nightReflection}
+              onPersist={(nextValue) => {
+                const current = entryRef.current;
+                if (!current) {
+                  return;
+                }
+                void save(updateNote(current, "nightReflection", nextValue));
+              }}
+              placeholder="Qu'est-ce qui a ete fidele aujourd'hui ?"
+            />
+          </label>
         </div>
         <div className="status-grid">
-          <article className="status-card">
-            <span>Reflection du soir</span>
-            <strong>{entry.nightReflection || "Pas encore ecrite"}</strong>
-          </article>
           <article className="status-card">
             <span>Mise a jour</span>
             <strong>{formatTimestamp(entry.updatedAt)}</strong>
