@@ -37,7 +37,7 @@ describe("PomodoroPage", () => {
       contextOverrides: { pomodoro: buildPomodoro({ reload }) }
     });
 
-    const refreshButton = await screen.findByRole("button", { name: /rafraichir les taches/i });
+    const refreshButton = await screen.findByRole("button", { name: /rafraîchir les tâches/i });
     expect(reload).toHaveBeenCalled();
 
     reload.mockClear();
@@ -50,7 +50,7 @@ describe("PomodoroPage", () => {
       contextOverrides: { pomodoro: buildPomodoro({ loading: true }) }
     });
 
-    expect(await screen.findByRole("button", { name: /rafraichir les taches/i })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: /rafraîchir les tâches/i })).toBeDisabled();
   });
 
   it("does not reload on mount when the controller is already loading", async () => {

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useTaskSelection } from "../app/use-task-selection";
 import { useGtdWorkspace } from "../app/use-gtd";
 import { BulkTaskToolbar } from "../components/BulkTaskToolbar";
@@ -6,6 +7,7 @@ import { GtdTaskCard } from "../components/GtdTaskCard";
 import { SectionCard } from "../components/SectionCard";
 
 export const NextActionsPage = () => {
+  const { t } = useTranslation("gtd");
   const {
     tasks,
     projects,
@@ -69,20 +71,20 @@ export const NextActionsPage = () => {
     <div className="page">
       <header className="hero">
         <div>
-          <p className="eyebrow">Next Actions</p>
-          <h2>Le terrain executable du moment.</h2>
+          <p className="eyebrow">{t("nextActions.hero.eyebrow")}</p>
+          <h2>{t("nextActions.hero.title")}</h2>
           <p className="hero__copy">
-            Ici, tu gardes uniquement les prochaines actions reelles, filtrables par contexte.
+            {t("nextActions.hero.copy")}
           </p>
         </div>
       </header>
 
-      <SectionCard title="Ajouter une next action" subtitle="Cree directement une action executable sans repasser par l'inbox si c'est clair.">
+      <SectionCard title={t("nextActions.add.title")} subtitle={t("nextActions.add.subtitle")}>
         <div className="inline-form">
           <input
             value={title}
             onChange={(event) => setTitle(event.target.value)}
-            placeholder="Nouvelle next action"
+            placeholder={t("nextActions.add.placeholder")}
           />
           <button
             className="button button--primary"
@@ -93,19 +95,19 @@ export const NextActionsPage = () => {
               setTitle("");
             }}
           >
-            Ajouter
+            {t("nextActions.add.button")}
           </button>
         </div>
       </SectionCard>
 
-      <SectionCard title="Filtrer par contexte" subtitle="Les anciennes listes Google sont devenues des contexts plats.">
+      <SectionCard title={t("nextActions.contextFilter.title")} subtitle={t("nextActions.contextFilter.subtitle")}>
         <div className="tag-row">
           <button
             type="button"
             className={`tag-chip${selectedContextId === "all" ? " tag-chip--active" : ""}`}
             onClick={() => setSelectedContextId("all")}
           >
-            Tous
+            {t("nextActions.contextFilter.all")}
           </button>
           {contexts.map((context) => (
             <button
@@ -120,30 +122,30 @@ export const NextActionsPage = () => {
         </div>
       </SectionCard>
 
-      <SectionCard title="Deadlines" subtitle="Filtre et tri rapide par date limite.">
+      <SectionCard title={t("nextActions.deadlines.title")} subtitle={t("nextActions.deadlines.subtitle")}>
         <div className="task-card__grid">
           <label className="stacked-field">
-            <span>Filtre deadline</span>
+            <span>{t("nextActions.deadlines.filterLabel")}</span>
             <select value={deadlineFilter} onChange={(event) => setDeadlineFilter(event.target.value as typeof deadlineFilter)}>
-              <option value="all">Toutes</option>
-              <option value="with">Avec deadline</option>
-              <option value="without">Sans deadline</option>
-              <option value="today">Deadline aujourd'hui</option>
-              <option value="overdue">Deadline depassee</option>
+              <option value="all">{t("nextActions.deadlines.filter.all")}</option>
+              <option value="with">{t("nextActions.deadlines.filter.with")}</option>
+              <option value="without">{t("nextActions.deadlines.filter.without")}</option>
+              <option value="today">{t("nextActions.deadlines.filter.today")}</option>
+              <option value="overdue">{t("nextActions.deadlines.filter.overdue")}</option>
             </select>
           </label>
           <label className="stacked-field">
-            <span>Trier par</span>
+            <span>{t("nextActions.deadlines.sortLabel")}</span>
             <select value={sortMode} onChange={(event) => setSortMode(event.target.value as typeof sortMode)}>
-              <option value="deadline_asc">Deadline (proche d'abord)</option>
-              <option value="deadline_desc">Deadline (loin d'abord)</option>
-              <option value="updated">Derniere mise a jour</option>
+              <option value="deadline_asc">{t("nextActions.deadlines.sort.asc")}</option>
+              <option value="deadline_desc">{t("nextActions.deadlines.sort.desc")}</option>
+              <option value="updated">{t("nextActions.deadlines.sort.updated")}</option>
             </select>
           </label>
         </div>
       </SectionCard>
 
-      <SectionCard title="Actions actives" subtitle={`${nextActionTasks.length} action(s) visible(s) dans cette vue.`}>
+      <SectionCard title={t("nextActions.list.title")} subtitle={t("nextActions.list.subtitle", { count: nextActionTasks.length })}>
         <BulkTaskToolbar
           selectedCount={selection.selectedCount}
           totalCount={nextActionTasks.length}
@@ -166,9 +168,9 @@ export const NextActionsPage = () => {
         />
 
         {loading ? (
-          <p>Chargement des next actions...</p>
+          <p>{t("nextActions.loading")}</p>
         ) : nextActionTasks.length === 0 ? (
-          <p className="empty-copy">Aucune next action pour ce filtre.</p>
+          <p className="empty-copy">{t("nextActions.empty")}</p>
         ) : (
           <div className="task-list">
             {nextActionTasks.map((task) => (

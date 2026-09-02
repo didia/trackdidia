@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { principleDefinitions } from "../definitions";
 import type { DailyEntry, PrincipleKey } from "../types";
 import { TREND_LONG_WINDOW_DAYS } from "./constants";
@@ -106,7 +107,12 @@ export const computeStreakFindings = (entries: DailyEntry[], referenceDate?: str
       evidenceWindow,
       sampleSize: answeredInWindow.length,
       value: currentStreak,
-      label: `Streak actuel de ${currentStreak} jour(s) pour ${key} (taux 28j: ${Math.round(rate28d * 100)}%).`,
+      label: t("streak", {
+        ns: "insights",
+        count: currentStreak,
+        label: t(`${key}.label`, { ns: "principles" }),
+        rate: Math.round(rate28d * 100)
+      }),
       principleKey: key,
       currentStreak,
       longestStreak,

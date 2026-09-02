@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { Project, ProjectStatus, Task, TaskContext } from "../domain/types";
 import { useGtdWorkspace } from "../app/use-gtd";
 import { GtdTaskCard } from "../components/GtdTaskCard";
@@ -6,16 +7,35 @@ import { SectionCard } from "../components/SectionCard";
 import { createEntityId, nowIso } from "../lib/gtd/shared";
 import { formatDurationSince } from "../lib/date";
 
-const projectStatusLabels: Record<ProjectStatus, string> = {
-  active: "Actif",
-  on_hold: "En pause",
-  completed: "Termine",
-  cancelled: "Retire"
-};
+const projectStatusKey = {
+  active: "active",
+  on_hold: "onHold",
+  completed: "completed",
+  cancelled: "cancelled"
+} as const;
 
 type ProjectStatusFilter = "open" | "all" | ProjectStatus;
 
+const projectStatusFilterValues: ProjectStatusFilter[] = [
+  "open",
+  "active",
+  "on_hold",
+  "completed",
+  "cancelled",
+  "all"
+];
+
+const projectStatusFilterKey: Record<ProjectStatusFilter, "open" | "active" | "onHold" | "completed" | "cancelled" | "all"> = {
+  open: "open",
+  active: "active",
+  on_hold: "onHold",
+  completed: "completed",
+  cancelled: "cancelled",
+  all: "all"
+};
+
 export const ProjectsPage = () => {
+  const { t } = useTranslation("gtd");
   const {
     tasks,
     projects,
@@ -109,17 +129,17 @@ export const ProjectsPage = () => {
     <div className="page">
       <header className="hero">
         <div>
-          <p className="eyebrow">Projects</p>
-          <h2>Les fronts ouverts qui demandent plusieurs actions.</h2>
+          <p className="eyebrow">{t("projects.hero.eyebrow")}</p>
+          <h2>{t("projects.hero.title")}</h2>
           <p className="hero__copy">
-            Ici, un projet se pilote comme une tache multi-steps: il peut etre actif, en pause, termine ou retire.
+            {t("projects.hero.copy")}
           </p>
         </div>
       </header>
 
-      <SectionCard title="Nouveau projet" subtitle="Ajoute un projet manuel en plus de ceux importes depuis Google Tasks.">
+      <SectionCard title={t("projects.create.title")} subtitle={t("projects.create.subtitle")}>
         <div className="inline-form">
-          <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Titre du projet" />
+          <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder={t("projects.create.placeholder")} />
           <button
             className="button button--primary"
             type="button"
@@ -141,53 +161,46 @@ export const ProjectsPage = () => {
               setTitle("");
             }}
           >
-            Creer
+            {t("projects.create.button")}
           </button>
         </div>
       </SectionCard>
 
-      <SectionCard title="Filtrer les projets" subtitle="Comme dans Next Actions, tu peux rapidement resserrer la vue.">
+      <SectionCard title={t("projects.filters.title")} subtitle={t("projects.filters.subtitle")}>
         <div className="stacked-field">
-          <span>Recherche</span>
+          <span>{t("projects.filters.searchLabel")}</span>
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Rechercher un projet, une note ou une action liee"
+            placeholder={t("projects.filters.searchPlaceholder")}
           />
         </div>
 
         <div className="stacked-field">
-          <span>Statut</span>
+          <span>{t("projects.filters.statusLabel")}</span>
           <div className="tag-row">
-            {[
-              { value: "open", label: "Ouverts" },
-              { value: "active", label: "Actifs" },
-              { value: "on_hold", label: "En pause" },
-              { value: "completed", label: "Termines" },
-              { value: "cancelled", label: "Retires" },
-              { value: "all", label: "Tous" }
-            ].map((option) => (
+            {projectStatusFilterValues.map((value) => (
               <button
-                key={option.value}
+                key={value}
                 type="button"
-                className={`tag-chip${statusFilter === option.value ? " tag-chip--active" : ""}`}
-                onClick={() => setStatusFilter(option.value as ProjectStatusFilter)}
+                className={`tag-chip${statusFilter === value ? " tag-chip--active" : ""}`}
+                onClick={() => setStatusFilter(value)}
               >
-                {option.label}
+                {t(`projects.filters.status.${projectStatusFilterKey[value]}`)}
               </button>
             ))}
           </div>
         </div>
 
         <div className="stacked-field">
-          <span>Contexte</span>
+          <span>{t("projects.filters.contextLabel")}</span>
           <div className="tag-row">
             <button
               type="button"
               className={`tag-chip${selectedContextId === "all" ? " tag-chip--active" : ""}`}
               onClick={() => setSelectedContextId("all")}
             >
-              Tous
+              {t("projects.filters.contextAll")}
             </button>
             {contexts.map((context) => (
               <button
@@ -203,11 +216,11 @@ export const ProjectsPage = () => {
         </div>
       </SectionCard>
 
-      <SectionCard title="Projets" subtitle={`${visibleProjects.length} projet(s) visible(s) dans cette vue.`}>
+      <SectionCard title={t("projects.list.title")} subtitle={t("projects.list.subtitle", { count: visibleProjects.length })}>
         {loading ? (
-          <p>Chargement des projets...</p>
+          <p>{t("projects.loading")}</p>
         ) : visibleProjects.length === 0 ? (
-          <p className="empty-copy">Aucun projet ne correspond a ces filtres.</p>
+          <p className="empty-copy">{t("projects.empty")}</p>
         ) : (
           <div className="project-list">
             {visibleProjects.map((project) => (
@@ -270,6 +283,7 @@ const GtdProjectCard = ({
   onCancelTask: (taskId: string) => Promise<unknown>;
   onClearPastRecurrences: (taskId: string) => Promise<unknown>;
 }) => {
+  const { t } = useTranslation("gtd");
   const [draft, setDraft] = useState(project);
   const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -304,40 +318,40 @@ const GtdProjectCard = ({
           <span className="task-card__title">{project.title}</span>
           <span className="task-card__meta-row">
             <span className={`project-card__status-pill project-card__status-pill--${project.status}`}>
-              {projectStatusLabels[project.status]}
+              {t(`projects.status.${projectStatusKey[project.status]}`)}
             </span>
             {contextNames.length > 0 ? (
               <span className="task-card__context-copy">{contextNames.join(" • ")}</span>
             ) : (
-              <span className="task-card__context-copy">Sans contexte</span>
+              <span className="task-card__context-copy">{t("projects.card.noContext")}</span>
             )}
-            <span className="task-card__meta">{tasks.length} action(s) active(s)</span>
+            <span className="task-card__meta">{t("projects.card.activeActions", { count: tasks.length })}</span>
             <span className="task-card__meta">{formatDurationSince(project.statusChangedAt)}</span>
           </span>
         </button>
 
         <div className="task-card__quick-actions">
           <button className="button" type="button" onClick={() => setExpanded((current) => !current)}>
-            {expanded ? "Refermer" : "Ouvrir"}
+            {expanded ? t("projects.card.collapse") : t("projects.card.expand")}
           </button>
           {project.status === "active" ? (
             <button className="button" type="button" onClick={() => void saveStatus("on_hold")}>
-              Pause
+              {t("projects.card.pause")}
             </button>
           ) : null}
           {project.status === "on_hold" ? (
             <button className="button" type="button" onClick={() => void saveStatus("active")}>
-              Reprendre
+              {t("projects.card.resume")}
             </button>
           ) : null}
           {(project.status === "active" || project.status === "on_hold") ? (
             <button className="button" type="button" onClick={() => void saveStatus("completed")}>
-              Terminer
+              {t("projects.card.complete")}
             </button>
           ) : null}
           {(project.status === "active" || project.status === "on_hold") ? (
             <button className="button button--ghost" type="button" onClick={() => void saveStatus("cancelled")}>
-              Retirer
+              {t("projects.card.cancel")}
             </button>
           ) : null}
         </div>
@@ -346,7 +360,7 @@ const GtdProjectCard = ({
       {expanded ? (
         <>
           <div className="stacked-field">
-            <span>Titre</span>
+            <span>{t("projects.card.titleLabel")}</span>
             <input
               value={draft.title}
               onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
@@ -355,7 +369,7 @@ const GtdProjectCard = ({
 
           <div className="task-card__grid">
             <label className="stacked-field">
-              <span>Statut du projet</span>
+              <span>{t("projects.card.statusLabel")}</span>
               <select
                 value={draft.status}
                 onChange={(event) =>
@@ -365,9 +379,9 @@ const GtdProjectCard = ({
                   }))
                 }
               >
-                {Object.entries(projectStatusLabels).map(([value, label]) => (
+                {(Object.keys(projectStatusKey) as ProjectStatus[]).map((value) => (
                   <option key={value} value={value}>
-                    {label}
+                    {t(`projects.status.${projectStatusKey[value]}`)}
                   </option>
                 ))}
               </select>
@@ -375,12 +389,12 @@ const GtdProjectCard = ({
           </div>
 
           <div className="stacked-field">
-            <span>Notes</span>
+            <span>{t("projects.card.notesLabel")}</span>
             <textarea
               rows={4}
               value={draft.notes}
               onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))}
-              placeholder="Resultat souhaite, contraintes, prochaine discussion..."
+              placeholder={t("projects.card.notesPlaceholder")}
             />
           </div>
 
@@ -406,7 +420,7 @@ const GtdProjectCard = ({
 
           <div className="project-card__footer">
             <span>
-              {tasks.length} action(s) active(s) liee(s) • {formatDurationSince(draft.statusChangedAt)}
+              {t("projects.card.footerMeta", { count: tasks.length, duration: formatDurationSince(draft.statusChangedAt) })}
             </span>
             <button
               className="button button--primary"
@@ -423,13 +437,13 @@ const GtdProjectCard = ({
                 setSaving(false);
               }}
             >
-              {saving ? "Enregistrement..." : "Enregistrer"}
+              {saving ? t("projects.card.saving") : t("projects.card.save")}
             </button>
           </div>
 
           <div className="project-card__tasks">
             {tasks.length === 0 ? (
-              <p className="empty-copy">Aucune tache active liee a ce projet.</p>
+              <p className="empty-copy">{t("projects.card.tasksEmpty")}</p>
             ) : (
               <div className="task-list">
                 {tasks.map((task) => (

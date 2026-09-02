@@ -1,4 +1,5 @@
 import { getWeekStartSunday } from "../../lib/gtd/shared";
+import { t } from "../../i18n";
 import { resolveMetricValue } from "../daily-entry";
 import { metricDefinitions, principleDefinitions } from "../definitions";
 import type { DailyEntry, MetricKey } from "../types";
@@ -76,7 +77,13 @@ const buildFinding = (
     evidenceWindow: buildEvidenceWindow(baselineFrom, referenceDate),
     sampleSize: baselineValues.length,
     value: currentValue,
-    label: `${scope === "today" ? "Aujourd'hui" : "Cette semaine"}, ${subject}: ${currentValue.toFixed(2)} vs une base personnelle de ${baselineMean.toFixed(2)} (n=${baselineValues.length}).`,
+    label: t(scope === "today" ? "anomalyToday" : "anomalyWeek", {
+      ns: "insights",
+      subject: subject === "discipline" ? t("subjectDiscipline", { ns: "insights" }) : t(`${subject}.label`, { ns: "metrics" }),
+      value: currentValue.toFixed(2),
+      mean: baselineMean.toFixed(2),
+      count: baselineValues.length
+    }),
     subject,
     scope,
     currentValue,

@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { computeDisciplineScore } from "../daily-entry";
 import { principleDefinitions } from "../definitions";
 import type { DailyEntry, PrincipleKey } from "../types";
@@ -45,7 +46,13 @@ export const computeCorrelationFindings = (entries: DailyEntry[]): CorrelationFi
       evidenceWindow: buildEvidenceWindow(qualifyingDates[0], qualifyingDates[qualifyingDates.length - 1]),
       sampleSize,
       value: diff,
-      label: `Discipline moyenne associee aux jours avec ${key}: ${Math.round(meanDisciplineWhenTrue * 100)}% (vs ${Math.round(meanDisciplineWhenFalse * 100)}% sans, n=${sampleSize}).`,
+      label: t("correlationDiscipline", {
+        ns: "insights",
+        label: t(`${key}.label`, { ns: "principles" }),
+        pctTrue: Math.round(meanDisciplineWhenTrue * 100),
+        pctFalse: Math.round(meanDisciplineWhenFalse * 100),
+        count: sampleSize
+      }),
       principleKey: key,
       meanDisciplineWhenTrue,
       meanDisciplineWhenFalse,

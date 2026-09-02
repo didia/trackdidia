@@ -1,0 +1,20 @@
+{
+  "today": "Aujourd'hui",
+  "morningRoutine": "Routine du matin",
+  "eveningClose": "Fermeture du soir",
+  "week": "Semaine",
+  "month": "Mois",
+  "annualGoals": "Objectifs annuels",
+  "dailyHistory": "Historique quotidien",
+  "gtdInbox": "Inbox GTD",
+  "nextActions": "Next Actions",
+  "projects": "Projects",
+  "pomodoro": "Pomodoro",
+  "recurrences": "Récurrences",
+  "references": "References",
+  "scheduled": "Scheduled",
+  "waitingFor": "Waiting For",
+  "somedayMaybe": "Someday / Maybe",
+  "settings": "Paramètres",
+  "authorPrefix": "Auteur : {{author}}"
+}

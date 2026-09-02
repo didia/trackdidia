@@ -1,0 +1,337 @@
+{
+  "weekly": {
+    "status": {
+      "closed": "Revue clôturée",
+      "draft": "Brouillon"
+    },
+    "loading": "Chargement de la revue hebdomadaire...",
+    "loadingPlaceholder": "...",
+    "hero": {
+      "eyebrow": "Semaine",
+      "range": "{{start}} au {{end}}",
+      "copy": "Clôture la semaine passée, lis les signaux du quotidien et prépare la suivante sans perdre le fil."
+    },
+    "nav": {
+      "prev": "Semaine précédente",
+      "next": "Semaine suivante"
+    },
+    "picker": {
+      "title": "Choisir la semaine",
+      "subtitle": "La semaine métier suit le rythme dimanche -> samedi, aligné avec ton rituel du dimanche.",
+      "startLabel": "Début de semaine",
+      "load": "Charger la semaine",
+      "current": "Revenir à cette semaine",
+      "window": "Fenêtre courante : {{start}} -> {{end}}.",
+      "invalid": "Saisis un dimanche pour charger une semaine."
+    },
+    "coach": {
+      "title": "Coach hebdomadaire",
+      "subtitle": "Synthèse de la semaine, brouillons de sections et actions proposées."
+    },
+    "overview": {
+      "title": "Vue d'ensemble",
+      "subtitle": "Le cœur quantifié de la semaine, calculé à partir du quotidien.",
+      "status": "Statut",
+      "score": "Score hebdo",
+      "sleepAverage": "Sommeil moyen",
+      "trcRespected": "TRC respecté",
+      "screenTime": "Temps d'écran",
+      "pomodoris": "Pomodoris",
+      "calorieAverage": "Dépense calorique moyenne",
+      "computerProductivity": "Productivité ordinateur",
+      "disciplineAverage": "Discipline moyenne",
+      "tasks": "Tâches"
+    },
+    "rescueGoals": {
+      "title": "RescueTime Goals",
+      "subtitle": "Score optionnel basé sur tes goals RescueTime actives (distinct des objectifs permanents TrackDidia).",
+      "refreshError": "Échec du rafraîchissement RescueTime Goals.",
+      "pulseRefreshError": "Échec du rafraîchissement RescueTime pulse.",
+      "missingKey": "Clé RescueTime manquante. Configure-la dans",
+      "settingsLink": "Paramètres",
+      "missingKeySuffix": "pour charger tes goals RescueTime.",
+      "metrics": {
+        "score": "Score objectifs",
+        "points": "Points obtenus",
+        "source": "Source"
+      },
+      "source": {
+        "goals": "RescueTime Goals",
+        "missingKey": "Clé manquante"
+      },
+      "refreshing": "Rafraîchissement...",
+      "refresh": "Rafraîchir RescueTime",
+      "loading": "Chargement des objectifs RescueTime...",
+      "empty": "Aucun goal RescueTime actif trouvé pour ce compte.",
+      "direction": {
+        "more": "Plus de temps",
+        "less": "Moins de temps"
+      },
+      "timeLine": "Temps : {{actual}} / {{target}} (cible hebdo)",
+      "schedule": "Horaire : {{label}}"
+    },
+    "standing": {
+      "title": "Objectifs permanents",
+      "subtitle": "Objectifs TrackDidia suivis semaine après semaine (manuels ou basés sur RescueTime). Le coach peut en proposer de nouveaux.",
+      "loading": "Chargement des objectifs permanents...",
+      "empty": "Aucun objectif permanent pour l'instant.",
+      "kind": {
+        "manual": "Manuel",
+        "time": "Temps RescueTime"
+      },
+      "timeLine": "Temps : {{actual}} / {{target}} (cible)",
+      "achievedAria": "Marquer {{title}} comme atteint",
+      "achieved": "Atteint cette semaine",
+      "delete": "Supprimer",
+      "score": "Score objectifs permanents : {{score}}"
+    },
+    "axes": {
+      "title": "Axes automatiques",
+      "subtitle": "Scores dérivés des métriques quotidiennes de la semaine.",
+      "sleep": "Sommeil",
+      "respectTrc": "Respect TRC",
+      "screenTimeScore": "Score temps d'écran",
+      "focusTimeScore": "Score temps focus",
+      "physicalActivity": "Activité physique",
+      "disciplineScore": "Score discipline",
+      "completionRate": "Taux de complétion",
+      "computerProductivity": "Productivité ordinateur",
+      "rescueTimeScore": "Score objectifs RescueTime"
+    },
+    "days": {
+      "title": "Vue 7 jours",
+      "subtitle": "Relis la semaine comme une séquence, pas seulement comme une moyenne.",
+      "metrics": {
+        "sleep": "Sommeil : {{value}}",
+        "sleepNone": "Sommeil : —",
+        "sleepValue": "{{n}} / 100",
+        "trc": "TRC : {{value}}",
+        "screen": "Écran : {{n}} min",
+        "pomodoris": "Pomodoris : {{n}}",
+        "kcal": "Kcal : {{n}}",
+        "discipline": "Discipline : {{value}}",
+        "tasks": "Tâches : {{completed}}/{{added}}"
+      },
+      "openHistory": "Ouvrir l'historique quotidien"
+    },
+    "ritual": {
+      "title": "Rituel hebdomadaire",
+      "subtitle": "Chaque bloc reste manuel pour l'instant, mais l'écran rassemble tout ton rituel du dimanche.",
+      "notesLabel": "Notes {{section}}",
+      "notesPlaceholder": "Notes {{section}}...",
+      "doneAria": "Marquer {{section}} comme fait",
+      "done": "Fait",
+      "bilan": {
+        "title": "Bilan",
+        "subtitle": "Réalisations, défis, notes hebdo et apprentissages.",
+        "prompt": "Qu'est-ce qui a marché cette semaine ? Qu'est-ce qui a coincé ?"
+      },
+      "budget": {
+        "title": "Budget",
+        "subtitle": "Réalité, stabilité, résilience, création et flexibilité.",
+        "prompt": "Que doit faire l'argent avant la prochaine paie et quels ajustements sont nécessaires ?"
+      },
+      "tempsEtPlan": {
+        "title": "Temps et plan",
+        "subtitle": "Usage du temps, plan de suivi et journal hebdomadaire.",
+        "prompt": "Qu'est-ce que ton temps raconte vraiment et quel cap garder la semaine prochaine ?"
+      },
+      "collecte": {
+        "title": "Collecte",
+        "subtitle": "Collecter et traiter perso, pro et réseaux sociaux.",
+        "prompt": "Qu'est-ce qu'il reste à vider, clarifier, déléguer ou archiver ?",
+        "link": "Ouvrir l'inbox"
+      },
+      "calendrier": {
+        "title": "Calendrier",
+        "subtitle": "Revue du passé récent et du calendrier à venir.",
+        "prompt": "Y a-t-il des suivis oubliés, deadlines ou préparations à lancer ?",
+        "link": "Voir le calendrier"
+      },
+      "gtd": {
+        "title": "GTD",
+        "subtitle": "Listes d'actions, waiting-for et projets.",
+        "prompt": "Chaque projet a-t-il un prochain pas clair ?",
+        "link": "Voir les next actions"
+      },
+      "alignement": {
+        "title": "Alignement",
+        "subtitle": "Objectifs, domaines de focus, énoncé de mission et objectifs du mois.",
+        "prompt": "Ton système de la semaine reste-t-il aligné avec ce qui compte vraiment ?",
+        "link": "Voir les projets"
+      },
+      "dimanche": {
+        "title": "Dimanche",
+        "subtitle": "Clôturer la semaine passée et préparer la suivante.",
+        "prompt": "Quels apprentissages emporter et quel ton poser pour la semaine qui arrive ?",
+        "link": "Ouvrir l'historique"
+      }
+    },
+    "state": {
+      "title": "État de la revue",
+      "subtitle": "Ferme la revue quand tu as bouclé la semaine et posé la suite.",
+      "updatedAt": "Dernière mise à jour",
+      "start": "Début",
+      "end": "Fin"
+    },
+    "memory": {
+      "title": "Mémoires candidates",
+      "subtitle": "Observations dérivées de la semaine. Accepte ou ignore chaque proposition avant qu'elle devienne durable.",
+      "itemLabel": "Mémoire candidate",
+      "accept": "Accepter",
+      "dismiss": "Ignorer"
+    },
+    "actions": {
+      "close": "Clôturer la revue",
+      "reopen": "Réouvrir la revue"
+    },
+    "format": {
+      "none": "—",
+      "hours": "{{n}} h",
+      "score": "{{n}} / 100",
+      "percent": "{{n}}%"
+    }
+  },
+  "monthly": {
+    "status": {
+      "closed": "Revue clôturée",
+      "draft": "Brouillon"
+    },
+    "synthesis": {
+      "goalMissing": "Objectif introuvable, suggestion ignorée."
+    },
+    "loading": "Chargement de la revue mensuelle...",
+    "hero": {
+      "eyebrow": "Mois",
+      "range": "{{start}} au {{end}}",
+      "copy": "Reprends le mois dans son ensemble, boucle la trajectoire et prépare le suivant avec plus de clarté."
+    },
+    "picker": {
+      "title": "Choisir le mois",
+      "subtitle": "La clôture mensuelle se fait idéalement le premier samedi du mois suivant.",
+      "monthLabel": "Mois à relire",
+      "load": "Charger le mois",
+      "current": "Revenir au mois courant",
+      "window": "Fenêtre courante : {{start}} -> {{end}}."
+    },
+    "summary": {
+      "title": "Synthèse mensuelle",
+      "subtitle": "Les chiffres du mois calculés depuis le quotidien et les semaines.",
+      "status": "Statut",
+      "daysTracked": "Jours tracés",
+      "weeksCovered": "Semaines couvertes",
+      "weeklyReviewsClosed": "Revues hebdo clôturées",
+      "sleepAverage": "Sommeil moyen",
+      "trc": "TRC",
+      "screenTime": "Temps d'écran",
+      "pomodoris": "Pomodoris",
+      "disciplineAverage": "Discipline moyenne",
+      "tasksCompletion": "Complétion tâches",
+      "weeklyScoreAverage": "Score hebdo moyen"
+    },
+    "coach": {
+      "title": "Coach mensuel",
+      "subtitle": "Synthèse du mois, brouillons de sections et évaluations d'objectifs proposées."
+    },
+    "weeks": {
+      "title": "Semaines du mois",
+      "subtitle": "Relis les semaines pour reconnecter les notes hebdo au tableau d'ensemble.",
+      "status": {
+        "missing": "Pas de revue",
+        "closed": "Clôturée",
+        "draft": "Brouillon"
+      },
+      "metrics": {
+        "end": "Fin : {{date}}",
+        "score": "Score : {{n}}",
+        "notes": "Notes : {{n}}"
+      },
+      "openWeekly": "Ouvrir la revue hebdomadaire"
+    },
+    "goals": {
+      "title": "Objectifs annuels",
+      "subtitle": "Le mois doit te montrer ce qui nourrit vraiment les objectifs, pas seulement ce qui a rempli les cases.",
+      "empty": "Aucun objectif annuel relié pour l'instant.",
+      "metrics": {
+        "current": "Actuel :",
+        "target": "Cible :",
+        "month": "Mois :",
+        "evaluation": "Évaluation :"
+      },
+      "manage": "Gérer les objectifs annuels"
+    },
+    "ritual": {
+      "title": "Rituel mensuel",
+      "subtitle": "Les blocs ci-dessous reprennent ta revue mensuelle de façon structurée, avec notes courtes et état fait / pas fait.",
+      "notesLabel": "Notes {{section}}",
+      "doneAria": "Marquer {{section}} comme fait",
+      "done": "Fait",
+      "bilan": {
+        "title": "Bilan",
+        "subtitle": "Réalisations, défis et revue du mois.",
+        "prompt": "Qu'est-ce qui a été accompli, qu'est-ce qui a freiné, et qu'as-tu appris ?"
+      },
+      "journaux": {
+        "title": "Journaux",
+        "subtitle": "Journal mensuel et notes hebdomadaires.",
+        "prompt": "Que racontent les journaux et les notes hebdo une fois relus ensemble ?",
+        "link": "Voir les semaines"
+      },
+      "finances": {
+        "title": "Finances",
+        "subtitle": "Revoir les finances du mois passé.",
+        "prompt": "Que dit le mois passé sur l'argent, les tensions et les ajustements ?"
+      },
+      "temps": {
+        "title": "Temps",
+        "subtitle": "Revoir l'usage du temps du mois passé.",
+        "prompt": "Où le temps est-il allé, et était-ce cohérent avec les priorités ?"
+      },
+      "progressionObjectifs": {
+        "title": "Progression des objectifs",
+        "subtitle": "Réfléchir à la progression des objectifs.",
+        "prompt": "Quels objectifs avancent, lesquels stagnent, et pourquoi ?",
+        "link": "Ouvrir les objectifs annuels"
+      },
+      "missionObjectifs": {
+        "title": "Mission et objectifs",
+        "subtitle": "Revoir l'énoncé de mission, les buts et les objectifs.",
+        "prompt": "Faut-il recalibrer le système ou juste mieux l'exécuter ?"
+      },
+      "nettoyageListes": {
+        "title": "Nettoyage des listes",
+        "subtitle": "Nettoyer et mettre à jour les listes GTD.",
+        "prompt": "Quelles listes doivent être nettoyées, fermées ou relancées ?",
+        "link": "Voir Projects"
+      },
+      "calendrier": {
+        "title": "Calendrier",
+        "subtitle": "Relire le mois passé et préparer le suivant.",
+        "prompt": "Quels loose ends, deadlines ou engagements dois-tu absorber maintenant ?",
+        "link": "Ouvrir Scheduled"
+      },
+      "grosProjets": {
+        "title": "Gros projets",
+        "subtitle": "Planifier les gros projets.",
+        "prompt": "Quels gros chantiers doivent être décomposés ou bloqués au calendrier ?",
+        "link": "Voir Next Actions"
+      },
+      "developpement": {
+        "title": "Développement personnel",
+        "subtitle": "Apprentissages, compétences et axes de croissance.",
+        "prompt": "Quelles compétences veux-tu nourrir le mois prochain et comment ?"
+      }
+    },
+    "state": {
+      "title": "État de la revue",
+      "subtitle": "Clôture le mois une fois la boucle faite et le suivant clarifié.",
+      "updatedAt": "Dernière mise à jour",
+      "start": "Début",
+      "end": "Fin"
+    },
+    "actions": {
+      "close": "Clôturer la revue du mois",
+      "reopen": "Réouvrir la revue"
+    }
+  }
+}

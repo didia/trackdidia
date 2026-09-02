@@ -25,12 +25,12 @@ describe("PreviousDayReviewCard", () => {
     await screen.findByText("Finaliser hier");
 
     expect(screen.getByText("Marche")).toBeInTheDocument();
-    expect(screen.getByText("Depense calorique")).toBeInTheDocument();
-    expect(screen.getByText("Retro journalier")).toBeInTheDocument();
-    expect(screen.getByText("Reflection du soir")).toBeInTheDocument();
+    expect(screen.getByText("Dépense calorique")).toBeInTheDocument();
+    expect(screen.getByText("Rétro journalier")).toBeInTheDocument();
+    expect(screen.getByText("Réflexion du soir")).toBeInTheDocument();
 
-    expect(screen.queryByText("Qualite du sommeil")).not.toBeInTheDocument();
-    expect(screen.queryByText("Priere du soir")).not.toBeInTheDocument();
+    expect(screen.queryByText("Qualité du sommeil")).not.toBeInTheDocument();
+    expect(screen.queryByText("Prière du soir")).not.toBeInTheDocument();
   });
 
   it("saves only the missing fields for yesterday and flags the settings, without touching today", async () => {
@@ -60,10 +60,10 @@ describe("PreviousDayReviewCard", () => {
     const marcheInput = screen.getByText("Marche").closest("label")!.querySelector("input")!;
     await user.type(marcheInput, "8000");
 
-    const retroGroup = screen.getByRole("group", { name: /retro journalier/i });
+    const retroGroup = screen.getByRole("group", { name: /rétro journalier/i });
     await user.click(within(retroGroup).getByRole("button", { name: /oui/i }));
 
-    const reflection = screen.getByText("Reflection du soir").closest("label")!.querySelector("textarea")!;
+    const reflection = screen.getByText("Réflexion du soir").closest("label")!.querySelector("textarea")!;
     await user.type(reflection, "Bonne journee.");
 
     await user.click(screen.getByRole("button", { name: /enregistrer hier/i }));

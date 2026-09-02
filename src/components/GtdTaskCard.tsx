@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { Project, Task, TaskContext } from "../domain/types";
 import {
   buildIsoFromLocalDateAndTime,
@@ -11,14 +12,14 @@ import {
 import { projectsForAssignment, projectAssignmentLabel } from "../lib/gtd/engine";
 import { buildContextId, nowIso } from "../lib/gtd/shared";
 
-const bucketLabels: Record<Task["bucket"], string> = {
-  inbox: "Inbox",
-  next_action: "Next Action",
-  scheduled: "Scheduled",
-  waiting_for: "Waiting For",
-  someday_maybe: "Someday / Maybe",
-  reference: "References"
-};
+const bucketLabelKeys = {
+  inbox: "buckets.inbox",
+  next_action: "buckets.nextAction",
+  scheduled: "buckets.scheduled",
+  waiting_for: "buckets.waitingFor",
+  someday_maybe: "buckets.somedayMaybe",
+  reference: "buckets.reference"
+} as const satisfies Record<Task["bucket"], string>;
 
 interface GtdTaskCardProps {
   task: Task;
@@ -59,6 +60,8 @@ export const GtdTaskCard = ({
   onCancel,
   onClearPastRecurrences
 }: GtdTaskCardProps) => {
+  const { t } = useTranslation("gtd");
+  const { t: tCommon } = useTranslation("common");
   const [draft, setDraft] = useState<Task>(task);
   const [saving, setSaving] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -93,11 +96,13 @@ export const GtdTaskCard = ({
   const contextNames = draft.contextIds
     .map((contextId) => contexts.find((context) => context.id === contextId)?.name ?? contextId)
     .sort((left, right) => left.localeCompare(right));
-  const availableBuckets = draft.isRecurringInstance
-    ? (Object.entries(bucketLabels).filter(([value]) => value === "next_action" || value === "scheduled") as Array<
-        [Task["bucket"], string]
-      >)
-    : (Object.entries(bucketLabels) as Array<[Task["bucket"], string]>);
+  const availableBuckets = (
+    draft.isRecurringInstance
+      ? (Object.keys(bucketLabelKeys) as Array<Task["bucket"]>).filter(
+          (value) => value === "next_action" || value === "scheduled"
+        )
+      : (Object.keys(bucketLabelKeys) as Array<Task["bucket"]>)
+  );
   const isPastDue =
     task.status === "active" && task.scheduledFor ? isPastDueDateTime(task.scheduledFor) : false;
   const isDeadlineMissed =
@@ -116,7 +121,7 @@ export const GtdTaskCard = ({
         updatedAt: nowIso()
       });
     } catch (error) {
-      setContextError(error instanceof Error ? error.message : "Impossible d'enregistrer le contexte.");
+      setContextError(error instanceof Error ? error.message : t("errors.saveContext"));
     } finally {
       setContextSavingId(null);
     }
@@ -166,7 +171,7 @@ export const GtdTaskCard = ({
       setNewContextName("");
       setContextEditorOpen(true);
     } catch (error) {
-      setContextError(error instanceof Error ? error.message : "Impossible de creer le contexte.");
+      setContextError(error instanceof Error ? error.message : t("errors.createContext"));
     } finally {
       setContextSavingId(null);
     }
@@ -182,7 +187,7 @@ export const GtdTaskCard = ({
               checked={selected}
               onChange={() => onToggleSelected(task.id)}
               onClick={(event) => event.stopPropagation()}
-              aria-label={`Selectionner ${task.title}`}
+              aria-label={t("task.selectAria", { title: task.title })}
             />
           </label>
         ) : null}
@@ -195,11 +200,11 @@ export const GtdTaskCard = ({
         >
           <span className="task-card__title">{task.title}</span>
           <span className="task-card__meta-row">
-            <span className="task-card__bucket">{bucketLabels[task.bucket]}</span>
+            <span className="task-card__bucket">{t(bucketLabelKeys[task.bucket])}</span>
             {contextNames.length > 0 ? (
               <span className="task-card__context-copy">{contextNames.join(" • ")}</span>
             ) : (
-              <span className="task-card__context-copy">Sans contexte</span>
+              <span className="task-card__context-copy">{t("task.noContext")}</span>
             )}
             {task.scheduledFor ? (
               <span className={`task-card__date-pill${isPastDue ? " task-card__date-pill--overdue" : ""}`}>
@@ -208,28 +213,27 @@ export const GtdTaskCard = ({
             ) : null}
             {task.deadline ? (
               <span className={`task-card__date-pill${isDeadlineMissed ? " task-card__date-pill--overdue" : ""}`}>
-                Deadline: {formatDateShort(task.deadline)}
+                {t("task.deadlinePrefix", { date: formatDateShort(task.deadline) })}
               </span>
             ) : null}
             {task.pendingPastRecurrences > 0 ? (
               <span className="task-card__recurrence-pill">
-                {task.pendingPastRecurrences} recurrence{task.pendingPastRecurrences > 1 ? "s" : ""} passee
-                {task.pendingPastRecurrences > 1 ? "s" : ""}
+                {t("task.pendingPastRecurrences", { count: task.pendingPastRecurrences })}
               </span>
             ) : null}
-            {task.isRecurringInstance ? <span className="task-card__recurrence-pill">Recurrente</span> : null}
+            {task.isRecurringInstance ? <span className="task-card__recurrence-pill">{t("task.recurring")}</span> : null}
           </span>
         </button>
 
         <div className="task-card__quick-actions">
           <button className="button" type="button" onClick={() => setExpanded((current) => !current)}>
-            {expanded ? "Refermer" : "Ouvrir"}
+            {expanded ? tCommon("actions.collapse") : tCommon("actions.open")}
           </button>
           <button className="button" type="button" onClick={() => void onComplete(task.id)}>
-            Terminee
+            {t("task.complete")}
           </button>
           <button className="button button--ghost" type="button" onClick={() => void onCancel(task.id)}>
-            Retirer
+            {t("task.remove")}
           </button>
         </div>
       </div>
@@ -237,7 +241,7 @@ export const GtdTaskCard = ({
       {expanded ? (
         <>
           <div className="stacked-field">
-            <span>Titre</span>
+            <span>{t("task.title")}</span>
             <input
               value={draft.title}
               onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
@@ -245,18 +249,18 @@ export const GtdTaskCard = ({
           </div>
 
           <div className="stacked-field">
-            <span>Notes</span>
+            <span>{t("task.notes")}</span>
             <textarea
               rows={3}
               value={draft.notes}
               onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))}
-              placeholder="Decision, prochain pas, contexte..."
+              placeholder={t("task.notesPlaceholder")}
             />
           </div>
 
           <div className="task-card__grid">
             <label className="stacked-field">
-              <span>Bucket GTD</span>
+              <span>{t("task.bucket")}</span>
               <select
                 value={draft.bucket}
                 onChange={(event) =>
@@ -267,16 +271,16 @@ export const GtdTaskCard = ({
                   }))
                 }
               >
-                {availableBuckets.map(([value, label]) => (
+                {availableBuckets.map((value) => (
                   <option key={value} value={value}>
-                    {label}
+                    {t(bucketLabelKeys[value])}
                   </option>
                 ))}
               </select>
             </label>
 
             <label className="stacked-field">
-              <span>Projet</span>
+              <span>{t("task.project")}</span>
               <select
                 value={draft.projectId ?? ""}
                 onChange={(event) =>
@@ -286,7 +290,7 @@ export const GtdTaskCard = ({
                   }))
                 }
               >
-                <option value="">Sans projet</option>
+                <option value="">{t("task.noProject")}</option>
                 {projectsForAssignment(projects, draft.projectId).map((project) => (
                   <option key={project.id} value={project.id}>
                     {projectAssignmentLabel(project)}
@@ -296,7 +300,7 @@ export const GtdTaskCard = ({
             </label>
 
             <label className="stacked-field">
-              <span>Date planifiee</span>
+              <span>{t("task.scheduledDate")}</span>
               <div className="task-card__datetime-grid">
                 <input
                   type="date"
@@ -333,7 +337,7 @@ export const GtdTaskCard = ({
             </label>
 
             <label className="stacked-field">
-              <span>Deadline (date limite)</span>
+              <span>{t("task.deadline")}</span>
               <input
                 type="date"
                 value={draft.deadline ?? ""}
@@ -366,7 +370,7 @@ export const GtdTaskCard = ({
                 type="text"
                 value={newContextName}
                 onChange={(event) => setNewContextName(event.target.value)}
-                placeholder="Nouveau contexte"
+                placeholder={t("task.newContextPlaceholder")}
               />
               <button
                 className="button"
@@ -374,7 +378,7 @@ export const GtdTaskCard = ({
                 disabled={!newContextName.trim() || Boolean(contextSavingId)}
                 onClick={() => void createNewContext()}
               >
-                Ajouter le contexte
+                {t("task.addContext")}
               </button>
             </div>
 
@@ -383,7 +387,7 @@ export const GtdTaskCard = ({
               type="button"
               onClick={() => setContextEditorOpen((current) => !current)}
             >
-              {contextEditorOpen ? "Refermer l'edition des contextes" : "Editer les contextes"}
+              {contextEditorOpen ? t("task.closeContextEditor") : t("task.editContexts")}
             </button>
           </div>
 
@@ -409,7 +413,7 @@ export const GtdTaskCard = ({
                     disabled={contextSavingId === context.id || !(contextDrafts[context.id] ?? context.name).trim()}
                     onClick={() => void saveExistingContext(context)}
                   >
-                    {contextSavingId === context.id ? "Enregistrement..." : "Renommer"}
+                    {contextSavingId === context.id ? tCommon("actions.saving") : t("task.renameContext")}
                   </button>
                 </div>
               ))}
@@ -419,13 +423,13 @@ export const GtdTaskCard = ({
           <div className="task-card__actions">
             {draft.isRecurringInstance && draft.recurringTemplateId ? (
               <label className="stacked-field">
-                <span>Portee de l'edition</span>
+                <span>{t("task.editScope")}</span>
                 <select
                   value={recurringEditScope}
                   onChange={(event) => setRecurringEditScope(event.target.value as "occurrence" | "series")}
                 >
-                  <option value="occurrence">Cette occurrence seulement</option>
-                  <option value="series">Toute la serie</option>
+                  <option value="occurrence">{t("task.scopeOccurrence")}</option>
+                  <option value="series">{t("task.scopeSeries")}</option>
                 </select>
               </label>
             ) : null}
@@ -435,7 +439,7 @@ export const GtdTaskCard = ({
                 type="button"
                 onClick={() => void onClearPastRecurrences(task.id)}
               >
-                Marquer les recurrences passees comme completees
+                {t("task.clearPast")}
               </button>
             ) : null}
             <button
@@ -460,7 +464,7 @@ export const GtdTaskCard = ({
                 setSaving(false);
               }}
             >
-              {saving ? "Enregistrement..." : "Enregistrer"}
+              {saving ? tCommon("actions.saving") : tCommon("actions.save")}
             </button>
           </div>
         </>

@@ -1,0 +1,15 @@
+{
+  "seconds": "depuis quelques secondes",
+  "minutes": "depuis {{count}} min",
+  "hours": "depuis {{count}} h",
+  "days": "depuis {{count}} j",
+  "weeks": "depuis {{count}} sem",
+  "months": "depuis {{count}} mois",
+  "years_one": "depuis {{count}} an",
+  "years_other": "depuis {{count}} ans",
+  "compactSeconds": "{{count}} s",
+  "compactMinutes": "{{count}} min",
+  "compactMinutesSeconds": "{{minutes}} min {{seconds}}s",
+  "compactHours": "{{count}} h",
+  "compactHoursMinutes": "{{hours}} h {{minutes}} min"
+}

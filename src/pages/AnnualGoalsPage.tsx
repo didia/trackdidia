@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   annualGoalDimensions,
   annualGoalSourceOptions,
@@ -18,9 +19,6 @@ import { loadLatestGoalPacing } from "../lib/ai/goal-pacing-loader";
 import { GoalPacingService } from "../lib/ai/goal-pacing-service";
 import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
 
-const formatMaybeNumber = (value: number | null, unit: string): string =>
-  value === null ? "—" : `${Math.round(value)} ${unit}`.trim();
-
 const AnnualGoalCard = ({
   goal,
   snapshot,
@@ -36,6 +34,7 @@ const AnnualGoalCard = ({
   onDeleteGoal: (goalId: string) => Promise<void>;
   onSaveEvaluation: (goal: AnnualGoal, monthKey: string, changes: Partial<AnnualGoal["evaluations"][string]>) => Promise<void>;
 }) => {
+  const { t } = useTranslation("goals");
   const [draft, setDraft] = useState(goal);
 
   useEffect(() => {
@@ -55,30 +54,33 @@ const AnnualGoalCard = ({
     setScoreDraft(evaluation.score === null ? "" : String(evaluation.score));
   }, [evaluation.score, evaluationMonthKey, goal.id]);
 
+  const formatMaybeNumber = (value: number | null, unit: string): string =>
+    value === null ? t("format.none") : `${Math.round(value)} ${unit}`.trim();
+
   return (
     <article className="goal-card">
       <div className="goal-card__header">
         <div>
-          <strong>{goal.title || "Nouvel objectif"}</strong>
-          <p className="empty-copy">{snapshot?.sourceLabel ?? "Source manuelle"}</p>
+          <strong>{goal.title || t("card.untitled")}</strong>
+          <p className="empty-copy">{snapshot?.sourceLabel ?? t("card.sourceManualFallback")}</p>
         </div>
         <div className="task-card__quick-actions">
           <button className="button" type="button" onClick={() => void onSaveGoal(draft)}>
-            Enregistrer
+            {t("card.save")}
           </button>
           <button className="button button--ghost" type="button" onClick={() => void onDeleteGoal(goal.id)}>
-            Supprimer
+            {t("card.delete")}
           </button>
         </div>
       </div>
 
       <div className="task-card__grid">
         <label className="stacked-field">
-          <span>Titre</span>
+          <span>{t("card.fields.title")}</span>
           <input value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} />
         </label>
         <label className="stacked-field">
-          <span>Dimension</span>
+          <span>{t("card.fields.dimension")}</span>
           <select
             value={draft.dimension}
             onChange={(event) =>
@@ -96,7 +98,7 @@ const AnnualGoalCard = ({
           </select>
         </label>
         <label className="stacked-field">
-          <span>Source</span>
+          <span>{t("card.fields.source")}</span>
           <select
             value={draft.sourceId ?? ""}
             onChange={(event) =>
@@ -106,7 +108,7 @@ const AnnualGoalCard = ({
               }))
             }
           >
-            <option value="">Manuel</option>
+            <option value="">{t("card.sourceManualOption")}</option>
             {annualGoalSourceOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
@@ -115,7 +117,7 @@ const AnnualGoalCard = ({
           </select>
         </label>
         <label className="stacked-field">
-          <span>Cible</span>
+          <span>{t("card.fields.target")}</span>
           <input
             type="number"
             value={draft.targetValue ?? ""}
@@ -128,11 +130,11 @@ const AnnualGoalCard = ({
           />
         </label>
         <label className="stacked-field">
-          <span>Unite</span>
+          <span>{t("card.fields.unit")}</span>
           <input value={draft.unit} onChange={(event) => setDraft((current) => ({ ...current, unit: event.target.value }))} />
         </label>
         <label className="stacked-field">
-          <span>Etat actuel manuel</span>
+          <span>{t("card.fields.manualCurrent")}</span>
           <input
             type="number"
             value={draft.manualCurrentValue ?? ""}
@@ -147,7 +149,7 @@ const AnnualGoalCard = ({
       </div>
 
       <label className="stacked-field">
-        <span>Description</span>
+        <span>{t("card.fields.description")}</span>
         <PersistedTextarea
           key={`${goal.id}-description`}
           rows={3}
@@ -159,16 +161,16 @@ const AnnualGoalCard = ({
 
       <div className="weekly-overview-grid">
         <article className="status-card">
-          <span>Etat actuel</span>
+          <span>{t("card.metrics.current")}</span>
           <strong>{formatMaybeNumber(snapshot?.currentValue ?? null, draft.unit)}</strong>
         </article>
         <article className="status-card">
-          <span>Progression</span>
-          <strong>{snapshot?.progressRatio === null || snapshot?.progressRatio === undefined ? "—" : `${Math.round(snapshot.progressRatio * 100)}%`}</strong>
+          <span>{t("card.metrics.progress")}</span>
+          <strong>{snapshot?.progressRatio === null || snapshot?.progressRatio === undefined ? t("format.none") : `${Math.round(snapshot.progressRatio * 100)}%`}</strong>
         </article>
         <article className="status-card">
-          <span>Source</span>
-          <strong>{snapshot?.sourceLabel ?? "Manuelle"}</strong>
+          <span>{t("card.metrics.source")}</span>
+          <strong>{snapshot?.sourceLabel ?? t("card.sourceLabelManual")}</strong>
         </article>
       </div>
 
@@ -185,7 +187,7 @@ const AnnualGoalCard = ({
         {(snapshot?.monthlyProgress ?? []).map((point) => (
           <article key={point.monthKey} className={`goal-progress-pill${point.monthKey === evaluationMonthKey ? " goal-progress-pill--active" : ""}`}>
             <span>{point.monthKey.slice(5)}</span>
-            <strong>{point.value === null ? "—" : Math.round(point.value)}</strong>
+            <strong>{point.value === null ? t("format.none") : Math.round(point.value)}</strong>
           </article>
         ))}
       </div>
@@ -193,7 +195,7 @@ const AnnualGoalCard = ({
       <div className="goal-card__evaluation">
         <div className="task-card__grid">
           <label className="stacked-field">
-            <span>Score {evaluationMonthKey}</span>
+            <span>{t("card.scoreLabel", { monthKey: evaluationMonthKey })}</span>
             <input
               type="number"
               value={scoreDraft}
@@ -206,7 +208,7 @@ const AnnualGoalCard = ({
             />
           </label>
           <label className="stacked-field">
-            <span>Tendance</span>
+            <span>{t("card.trend")}</span>
             <select
               value={evaluation.trend ?? ""}
               onChange={(event) =>
@@ -215,7 +217,7 @@ const AnnualGoalCard = ({
                 })
               }
             >
-              <option value="">Aucune</option>
+              <option value="">{t("card.trendNone")}</option>
               {annualGoalTrendOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
@@ -226,7 +228,7 @@ const AnnualGoalCard = ({
         </div>
 
         <label className="stacked-field">
-          <span>Notes mensuelles</span>
+          <span>{t("card.notes")}</span>
           <PersistedTextarea
             key={`${goal.id}-${evaluationMonthKey}-notes`}
             rows={3}
@@ -236,7 +238,7 @@ const AnnualGoalCard = ({
           />
         </label>
         <label className="stacked-field">
-          <span>Blocages</span>
+          <span>{t("card.blockers")}</span>
           <PersistedTextarea
             key={`${goal.id}-${evaluationMonthKey}-blockers`}
             rows={3}
@@ -251,6 +253,7 @@ const AnnualGoalCard = ({
 };
 
 export const AnnualGoalsPage = () => {
+  const { t } = useTranslation("goals");
   const { repository, settings } = useAppContext();
   const pacingService = useMemo(() => new GoalPacingService(new OpenRouterProvider()), []);
   const currentYear = Number(getTodayDate().slice(0, 4));
@@ -379,25 +382,25 @@ export const AnnualGoalsPage = () => {
   );
 
   if (loading) {
-    return <div className="page"><p>Chargement des objectifs annuels...</p></div>;
+    return <div className="page"><p>{t("loading")}</p></div>;
   }
 
   return (
     <div className="page">
       <header className="hero">
         <div>
-          <p className="eyebrow">Objectifs annuels</p>
-          <h2>Dimensions de vie, cibles, progression mensuelle et blocages.</h2>
+          <p className="eyebrow">{t("hero.eyebrow")}</p>
+          <h2>{t("hero.title")}</h2>
           <p className="hero__copy">
-            L'objectif n'est pas juste de declarer une ambition, mais de voir quelles habitudes quotidiennes et quels resultats hebdo la nourrissent reellement.
+            {t("hero.copy")}
           </p>
         </div>
       </header>
 
-      <SectionCard title="Pilotage" subtitle="Choisis l'annee de reference et le mois d'evaluation.">
+      <SectionCard title={t("pilot.title")} subtitle={t("pilot.subtitle")}>
         <div className="task-card__grid">
           <label className="stacked-field">
-            <span>Annee</span>
+            <span>{t("pilot.year")}</span>
             <input
               type="number"
               value={selectedYear}
@@ -405,7 +408,7 @@ export const AnnualGoalsPage = () => {
             />
           </label>
           <label className="stacked-field">
-            <span>Mois d'evaluation</span>
+            <span>{t("pilot.month")}</span>
             <input
               type="month"
               value={evaluationMonthKey}
@@ -415,7 +418,7 @@ export const AnnualGoalsPage = () => {
         </div>
       </SectionCard>
 
-      <SectionCard title="Pilotage annuel" subtitle="Lecture du rythme vs la cible annuelle — informatif, sans accept-step.">
+      <SectionCard title={t("pacing.title")} subtitle={t("pacing.subtitle")}>
         <GoalPacingPanel
           result={
             pacingResult?.message.scopeKey === String(selectedYear) ? pacingResult : null
@@ -428,14 +431,14 @@ export const AnnualGoalsPage = () => {
         />
       </SectionCard>
 
-      <SectionCard title="Ajouter un objectif" subtitle="Structure par dimension, cible et source de donnees.">
+      <SectionCard title={t("create.title")} subtitle={t("create.subtitle")}>
         <div className="task-card__grid">
           <label className="stacked-field">
-            <span>Titre</span>
+            <span>{t("card.fields.title")}</span>
             <input value={draftGoal.title} onChange={(event) => setDraftGoal((current) => ({ ...current, title: event.target.value }))} />
           </label>
           <label className="stacked-field">
-            <span>Dimension</span>
+            <span>{t("card.fields.dimension")}</span>
             <select
               value={draftGoal.dimension}
               onChange={(event) => setDraftGoal((current) => ({ ...current, dimension: event.target.value as AnnualGoal["dimension"] }))}
@@ -448,7 +451,7 @@ export const AnnualGoalsPage = () => {
             </select>
           </label>
           <label className="stacked-field">
-            <span>Source</span>
+            <span>{t("card.fields.source")}</span>
             <select
               value={draftGoal.sourceId ?? ""}
               onChange={(event) =>
@@ -458,7 +461,7 @@ export const AnnualGoalsPage = () => {
                 }))
               }
             >
-              <option value="">Manuel</option>
+              <option value="">{t("card.sourceManualOption")}</option>
               {annualGoalSourceOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
@@ -467,7 +470,7 @@ export const AnnualGoalsPage = () => {
             </select>
           </label>
           <label className="stacked-field">
-            <span>Cible</span>
+            <span>{t("card.fields.target")}</span>
             <input
               type="number"
               value={draftGoal.targetValue ?? ""}
@@ -480,11 +483,11 @@ export const AnnualGoalsPage = () => {
             />
           </label>
           <label className="stacked-field">
-            <span>Unite</span>
+            <span>{t("card.fields.unit")}</span>
             <input value={draftGoal.unit} onChange={(event) => setDraftGoal((current) => ({ ...current, unit: event.target.value }))} />
           </label>
           <label className="stacked-field">
-            <span>Valeur manuelle actuelle</span>
+            <span>{t("create.manualCurrent")}</span>
             <input
               type="number"
               value={draftGoal.manualCurrentValue ?? ""}
@@ -498,7 +501,7 @@ export const AnnualGoalsPage = () => {
           </label>
         </div>
         <label className="stacked-field">
-          <span>Description</span>
+          <span>{t("card.fields.description")}</span>
           <PersistedTextarea
             key="new-goal-description"
             rows={3}
@@ -517,18 +520,18 @@ export const AnnualGoalsPage = () => {
               await load();
             }}
           >
-            Ajouter l'objectif
+            {t("create.button")}
           </button>
         </div>
       </SectionCard>
 
       <SectionCard
-        title="Objectifs actifs"
-        subtitle="Chaque objectif affiche sa progression annuelle, sa trajectoire mensuelle et son evaluation du mois choisi."
+        title={t("list.title")}
+        subtitle={t("list.subtitle")}
       >
         <div className="goal-list">
           {goals.length === 0 ? (
-            <p className="empty-copy">Aucun objectif annuel pour l'instant.</p>
+            <p className="empty-copy">{t("list.empty")}</p>
           ) : (
             goals.map((goal) => (
               <AnnualGoalCard

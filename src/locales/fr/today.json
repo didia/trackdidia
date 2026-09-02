@@ -1,0 +1,83 @@
+{
+  "loading": "Chargement de la journée...",
+  "hero": {
+    "eyebrow": "Aujourd'hui",
+    "copy": "Une vue rapide pour ouvrir, tenir et fermer la journée sans casser ton rythme.",
+    "openMorning": "Ouvrir le matin",
+    "closeEvening": "Fermer le soir"
+  },
+  "banner": {
+    "browserPreview": "Mode aperçu navigateur : le runtime Tauri n'est pas détecté, donc le stockage utilise une mémoire temporaire."
+  },
+  "sunday": {
+    "title": "Rituel du dimanche",
+    "subtitle": "Clôture la semaine passée, note les apprentissages et prépare la suivante.",
+    "body": "La revue hebdomadaire consolide sommeil, TRC, temps d'écran, pomodoris, discipline et tâches avant ton rituel de reset.",
+    "openWeekly": "Ouvrir la revue hebdomadaire"
+  },
+  "monthly": {
+    "title": "Clôture mensuelle",
+    "subtitle": "Premier samedi du mois : il est temps de relire le mois passé et recalibrer les objectifs.",
+    "body": "La revue mensuelle relie tes semaines, tes journaux et tes objectifs annuels pour voir ce qui nourrit vraiment le prochain mois.",
+    "openMonthly": "Ouvrir la revue mensuelle",
+    "openGoals": "Ouvrir les objectifs annuels"
+  },
+  "coachTitle": "Coach du jour",
+  "state": {
+    "title": "État de la journée",
+    "subtitle": "Point de repère avant de replonger dans la routine.",
+    "morningIntention": "Intention du matin",
+    "morningPlaceholder": "Quelle est ton intention pour aujourd'hui ?",
+    "nightReflection": "Réflexion du soir",
+    "nightPlaceholder": "Qu'est-ce qui a été fidèle aujourd'hui ?",
+    "updatedAt": "Mise à jour"
+  },
+  "pomodoro": {
+    "title": "Pomodoro du jour",
+    "subtitle": "Résumé simple de ce qui a été produit en focus aujourd'hui.",
+    "completedCount": "Pomodoris complétés",
+    "focusedHours": "Heures de focus",
+    "hoursUnit": "{{n}} h",
+    "tasksCompleted": "Tâches complétées en pomodoro",
+    "completedPanelTitle": "Tâches complétées pendant une journée avec focus",
+    "completedPanelCopy": "Liste des tâches terminées aujourd'hui qui ont reçu du temps de pomodoro.",
+    "completedPanelEmpty": "Aucune tâche complétée via le flux pomodoro aujourd'hui.",
+    "openPage": "Ouvrir la page Pomodoro"
+  },
+  "gtd": {
+    "title": "Charge GTD du jour",
+    "subtitle": "Les valeurs viennent du moteur GTD, avec possibilité d'override dans la routine et l'historique.",
+    "start": "Début",
+    "added": "Ajoutées",
+    "completed": "Réalisées",
+    "remaining": "Restantes",
+    "addedPanelTitle": "Tâches ajoutées aujourd'hui",
+    "completedPanelTitle": "Tâches complétées aujourd'hui",
+    "panelCount_one": "{{count}} tâche dans cette vue.",
+    "panelCount_other": "{{count}} tâches dans cette vue.",
+    "panelClose": "Fermer",
+    "panelEmpty": "Aucune tâche pour ce compteur aujourd'hui.",
+    "openInbox": "Ouvrir l'inbox",
+    "openNextActions": "Voir les next actions",
+    "openScheduled": "Voir le calendrier"
+  },
+  "buckets": {
+    "inbox": "Inbox",
+    "nextAction": "Next Action",
+    "scheduled": "Scheduled",
+    "waitingFor": "Waiting For",
+    "somedayMaybe": "Someday / Maybe",
+    "reference": "References"
+  },
+  "previousDay": {
+    "title": "Finaliser hier",
+    "subtitle": "{{date}} — complète ce qui n'a pas encore été rempli hier soir.",
+    "nightReflection": "Réflexion du soir",
+    "save": "Enregistrer hier"
+  },
+  "summary": {
+    "status": "Statut",
+    "discipline": "Discipline",
+    "tasksCompleted": "Tâches complétées"
+  }
+}

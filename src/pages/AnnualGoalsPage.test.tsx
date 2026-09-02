@@ -18,14 +18,14 @@ describe("AnnualGoalsPage", () => {
     await user.type(await screen.findByLabelText(/^titre$/i), "Discipline annuelle");
     await user.clear(screen.getByLabelText(/cible/i));
     await user.type(screen.getByLabelText(/cible/i), "80");
-    await user.type(screen.getByLabelText(/unite/i), "%");
+    await user.type(screen.getByLabelText(/unité/i), "%");
     await user.selectOptions(screen.getByLabelText(/^source$/i), "weekly_discipline");
     await user.click(screen.getByRole("button", { name: /ajouter l'objectif/i }));
 
     expect((await screen.findAllByText("Discipline annuelle")).length).toBeGreaterThanOrEqual(1);
 
     const scoreInput = screen.getByLabelText(/score \d{4}-\d{2}/i);
-    const evaluationMonthInput = screen.getByLabelText(/mois d'evaluation/i) as HTMLInputElement;
+    const evaluationMonthInput = screen.getByLabelText(/mois d'évaluation/i) as HTMLInputElement;
     const evaluationMonthKey = evaluationMonthInput.value;
     await user.clear(scoreInput);
     await user.type(scoreInput, "72");
@@ -55,13 +55,13 @@ describe("AnnualGoalsPage", () => {
       }
     });
 
-    await screen.findByLabelText(/^annee$/i);
+    await screen.findByLabelText(/^année$/i);
     await waitFor(() => {
       expect(buildPacingSpy).toHaveBeenCalledTimes(1);
     });
     const initialCalls = buildPacingSpy.mock.calls.length;
 
-    const yearInput = screen.getByLabelText(/^annee$/i);
+    const yearInput = screen.getByLabelText(/^année$/i);
     fireEvent.change(yearInput, { target: { value: "202" } });
 
     await waitFor(() => {
@@ -94,7 +94,7 @@ describe("AnnualGoalsPage", () => {
       expect(screen.getByText(/dans les clous|hors rythme/i)).toBeInTheDocument();
     });
 
-    const yearInput = screen.getByLabelText(/^annee$/i);
+    const yearInput = screen.getByLabelText(/^année$/i);
     fireEvent.change(yearInput, { target: { value: "2025" } });
 
     await waitFor(() => {

@@ -8,6 +8,7 @@ import type {
   PomodoroTaskSummary,
   Task
 } from "../../domain/types";
+import { t } from "../../i18n";
 import { createEntityId, toLocalDateString } from "../gtd/shared";
 
 export const POMODORO_DURATIONS_MS: Record<PomodoroKind, number> = {
@@ -371,9 +372,9 @@ export const buildPomodoroTaskSummaries = (
       taskId: key.startsWith("manual:") ? null : key,
       taskTitle: key.startsWith("manual:")
         ? key === untitledKey
-          ? "Sans titre"
-          : value.label ?? "Sans titre"
-        : taskTitles.get(key) ?? "Tache inconnue",
+          ? t("untitled", { ns: "pomodoro" })
+          : value.label ?? t("untitled", { ns: "pomodoro" })
+        : taskTitles.get(key) ?? t("unknownTask", { ns: "pomodoro" }),
       totalSeconds: Math.round(value.totalSeconds),
       sessionCount: value.sessionIds.size
     }))
@@ -387,13 +388,4 @@ export const computeDailyPomodoroStats = (sessions: PomodoroSession[], date: str
   ).length
 });
 
-export const getPomodoroKindLabel = (kind: PomodoroKind): string => {
-  switch (kind) {
-    case "focus":
-      return "Focus";
-    case "short_break":
-      return "Pause courte";
-    case "long_break":
-      return "Grande pause";
-  }
-};
+export const getPomodoroKindLabel = (kind: PomodoroKind): string => t(`kind.${kind}`, { ns: "pomodoro" });

@@ -1,0 +1,121 @@
+{
+  "format": {
+    "none": "—"
+  },
+  "card": {
+    "untitled": "Nouvel objectif",
+    "sourceManualFallback": "Source manuelle",
+    "save": "Enregistrer",
+    "delete": "Supprimer",
+    "fields": {
+      "title": "Titre",
+      "dimension": "Dimension",
+      "source": "Source",
+      "target": "Cible",
+      "unit": "Unité",
+      "manualCurrent": "État actuel manuel",
+      "description": "Description"
+    },
+    "sourceManualOption": "Manuel",
+    "metrics": {
+      "current": "État actuel",
+      "progress": "Progression",
+      "source": "Source"
+    },
+    "sourceLabelManual": "Manuelle",
+    "scoreLabel": "Score {{monthKey}}",
+    "trend": "Tendance",
+    "trendNone": "Aucune",
+    "notes": "Notes mensuelles",
+    "blockers": "Blocages"
+  },
+  "loading": "Chargement des objectifs annuels...",
+  "hero": {
+    "eyebrow": "Objectifs annuels",
+    "title": "Dimensions de vie, cibles, progression mensuelle et blocages.",
+    "copy": "L'objectif n'est pas juste de déclarer une ambition, mais de voir quelles habitudes quotidiennes et quels résultats hebdo la nourrissent réellement."
+  },
+  "pilot": {
+    "title": "Pilotage",
+    "subtitle": "Choisis l'année de référence et le mois d'évaluation.",
+    "year": "Année",
+    "month": "Mois d'évaluation"
+  },
+  "pacing": {
+    "title": "Pilotage annuel",
+    "subtitle": "Lecture du rythme vs la cible annuelle — informatif, sans accept-step."
+  },
+  "create": {
+    "title": "Ajouter un objectif",
+    "subtitle": "Structure par dimension, cible et source de données.",
+    "manualCurrent": "Valeur manuelle actuelle",
+    "button": "Ajouter l'objectif"
+  },
+  "list": {
+    "title": "Objectifs actifs",
+    "subtitle": "Chaque objectif affiche sa progression annuelle, sa trajectoire mensuelle et son évaluation du mois choisi.",
+    "empty": "Aucun objectif annuel pour l'instant."
+  },
+  "sources": {
+    "manual": "Manuel",
+    "weekly_sleep_average": "Sommeil moyen hebdo",
+    "weekly_respect_trc": "Respect TRC hebdo",
+    "weekly_weekly_score": "Score hebdo moyen",
+    "weekly_discipline": "Discipline hebdo",
+    "weekly_tasks_completion_rate": "Complétion des tâches hebdo",
+    "daily_depense_calorique_avg": "Dépense calorique moyenne",
+    "daily_qualite_sommeil_avg": "Qualité du sommeil moyenne",
+    "daily_temps_ecran_avg": "Temps d'écran moyen",
+    "daily_pomodoris_sum": "Pomodoris mensuels",
+    "daily_pomodoris_avg": "Pomodoris moyens",
+    "daily_respect_trc_rate": "Respect TRC quotidien",
+    "daily_respect_reveil_rate": "Respect réveil",
+    "daily_priere_du_matin_rate": "Prière du matin",
+    "daily_priere_du_soir_rate": "Prière du soir",
+    "daily_objectifs_atteints_rate": "Objectifs atteints"
+  },
+  "dimensions": {
+    "physique": "Dimension physique",
+    "spirituelle": "Dimension spirituelle",
+    "sociale": "Dimension sociale",
+    "intellectuelle": "Dimension intellectuelle",
+    "global": "Global"
+  },
+  "trends": {
+    "up": "En hausse",
+    "steady": "Stable",
+    "down": "En baisse"
+  },
+  "linkedMetric": {
+    "weekly_sleep_average": "Sommeil moyen",
+    "weekly_respect_trc": "Respect TRC",
+    "weekly_weekly_score": "Score hebdo",
+    "weekly_discipline": "Discipline moyenne",
+    "weekly_tasks_completion_rate": "Taux de complétion des tâches",
+    "daily_qualite_sommeil_avg": "Sommeil moyen hebdo",
+    "daily_temps_ecran_avg": "Temps d'écran hebdo",
+    "daily_pomodoris_sum": "Pomodoris hebdo",
+    "daily_pomodoris_avg": "Pomodoris hebdo",
+    "daily_respect_trc_rate": "Respect TRC hebdo"
+  },
+  "habit": {
+    "qualiteSommeil": "Qualité du sommeil",
+    "respectTrc": "Respect TRC",
+    "sommeil": "Sommeil",
+    "trc": "TRC",
+    "tempsEcran": "Temps d'écran",
+    "tempsFocus": "Temps focus",
+    "discipline": "Discipline",
+    "taches": "Tâches",
+    "depenseCalorique": "Dépense calorique",
+    "principesDeVie": "Principes de vie",
+    "tachesRealisees": "Tâches réalisées",
+    "tachesAjoutees": "Tâches ajoutées",
+    "tempsEcranTelephone": "Temps d'écran téléphone",
+    "pomodoris": "Pomodoris",
+    "respectReveil": "Respect réveil",
+    "priereDuMatin": "Prière du matin",
+    "priereDuSoir": "Prière du soir",
+    "objectifsAtteints": "Objectifs atteints"
+  }
+}

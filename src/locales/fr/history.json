@@ -1,0 +1,34 @@
+{
+  "loading": "Chargement de l'historique...",
+  "hero": {
+    "eyebrow": "Historique quotidien",
+    "title": "Relire, corriger, réouvrir si nécessaire.",
+    "copy": "Une vue compacte des derniers jours avec édition complète sur la date choisie."
+  },
+  "picker": {
+    "title": "Choisir une date",
+    "subtitle": "Ouvre une journée existante ou crée une date manquante.",
+    "dateLabel": "Date à ouvrir",
+    "load": "Charger la date",
+    "empty": "Aucune journée enregistrée pour l'instant."
+  },
+  "editor": {
+    "subtitle": "Édition complète de la journée sélectionnée.",
+    "morningIntention": "Intention du matin",
+    "nightReflection": "Réflexion du soir",
+    "tomorrowFocus": "Focus de demain"
+  },
+  "metrics": {
+    "title": "Métriques",
+    "subtitle": "Toutes les métriques du suivi quotidien."
+  },
+  "principles": {
+    "title": "Principes de vie",
+    "subtitle": "Révise ce qui a été respecté ce jour-là."
+  },
+  "actions": {
+    "save": "Enregistrer les modifications",
+    "reopen": "Réouvrir",
+    "close": "Marquer comme clôturée"
+  }
+}

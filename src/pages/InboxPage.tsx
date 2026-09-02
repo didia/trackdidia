@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useTaskSelection } from "../app/use-task-selection";
 import { useGtdWorkspace } from "../app/use-gtd";
 import { BulkTaskToolbar } from "../components/BulkTaskToolbar";
@@ -6,6 +7,7 @@ import { GtdTaskCard } from "../components/GtdTaskCard";
 import { SectionCard } from "../components/SectionCard";
 
 export const InboxPage = () => {
+  const { t } = useTranslation("gtd");
   const {
     tasks,
     projects,
@@ -32,20 +34,20 @@ export const InboxPage = () => {
     <div className="page">
       <header className="hero">
         <div>
-          <p className="eyebrow">GTD Inbox</p>
-          <h2>Capturer puis clarifier.</h2>
+          <p className="eyebrow">{t("inbox.hero.eyebrow")}</p>
+          <h2>{t("inbox.hero.title")}</h2>
           <p className="hero__copy">
-            Le matin, vide ce bucket et transforme chaque entree en next action, attente, someday ou tache planifiee.
+            {t("inbox.hero.copy")}
           </p>
         </div>
       </header>
 
-      <SectionCard title="Capture rapide" subtitle="Une ligne suffit pour ne rien perdre quand une idee arrive.">
+      <SectionCard title={t("inbox.capture.title")} subtitle={t("inbox.capture.subtitle")}>
         <div className="inline-form">
           <input
             value={title}
             onChange={(event) => setTitle(event.target.value)}
-            placeholder="Ajouter une nouvelle entree a l'inbox"
+            placeholder={t("inbox.capture.placeholder")}
           />
           <button
             className="button button--primary"
@@ -56,14 +58,14 @@ export const InboxPage = () => {
               setTitle("");
             }}
           >
-            Ajouter
+            {t("inbox.capture.add")}
           </button>
         </div>
       </SectionCard>
 
       <SectionCard
-        title="Clarification du matin"
-        subtitle={`${inboxTasks.length} element(s) dans l'inbox. Utilise la carte pour decider du bon bucket GTD.`}
+        title={t("inbox.clarify.title")}
+        subtitle={t("inbox.clarify.subtitle", { count: inboxTasks.length })}
       >
         <BulkTaskToolbar
           selectedCount={selection.selectedCount}
@@ -87,9 +89,9 @@ export const InboxPage = () => {
         />
 
         {loading ? (
-          <p>Chargement de l'inbox...</p>
+          <p>{t("inbox.loading")}</p>
         ) : inboxTasks.length === 0 ? (
-          <p className="empty-copy">Inbox vide. Tu peux ouvrir la journee avec un vrai zero mental.</p>
+          <p className="empty-copy">{t("inbox.empty")}</p>
         ) : (
           <div className="task-list">
             {visibleTasks.map((task) => (
@@ -122,7 +124,7 @@ export const InboxPage = () => {
         {inboxTasks.length > visibleCount ? (
           <div className="form-actions">
             <button className="button" type="button" onClick={() => setVisibleCount((current) => current + 40)}>
-              Charger 40 de plus
+              {t("inbox.loadMore")}
             </button>
           </div>
         ) : null}

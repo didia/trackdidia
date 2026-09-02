@@ -1,0 +1,7 @@
+{
+  "pomodoroTestTitle": "Session Pomodoro terminée (test)",
+  "pomodoroTestBody": "Focus terminée.",
+  "pomodoroCompletedTitle": "Session Pomodoro terminée",
+  "pomodoroCompletedBody": "{{kind}} terminée.",
+  "coachDayPaused": "Coach — journée en pause"
+}

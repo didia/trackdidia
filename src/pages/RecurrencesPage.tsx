@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { Project, RecurringTaskTemplate, TaskContext } from "../domain/types";
 import { useAppContext } from "../app/app-context";
 import { SectionCard } from "../components/SectionCard";
@@ -8,23 +9,10 @@ import { addDays } from "../lib/gtd/shared";
 import { projectsForAssignment, projectAssignmentLabel } from "../lib/gtd/engine";
 import { createRecurringTemplate, findNextRecurringDate } from "../lib/recurring/engine";
 
-const weekdayOptions = [
-  { value: 0, label: "Dim" },
-  { value: 1, label: "Lun" },
-  { value: 2, label: "Mar" },
-  { value: 3, label: "Mer" },
-  { value: 4, label: "Jeu" },
-  { value: 5, label: "Ven" },
-  { value: 6, label: "Sam" }
-];
-
-const nthWeekOptions = [
-  { value: 1, label: "1er" },
-  { value: 2, label: "2e" },
-  { value: 3, label: "3e" },
-  { value: 4, label: "4e" },
-  { value: 5, label: "5e" }
-];
+const weekdayValues = [0, 1, 2, 3, 4, 5, 6] as const;
+const nthWeekValues = [1, 2, 3, 4, 5] as const;
+type WeekdayValue = (typeof weekdayValues)[number];
+type NthWeekValue = (typeof nthWeekValues)[number];
 
 const createDraftTemplate = (): RecurringTaskTemplate =>
   createRecurringTemplate({
@@ -55,6 +43,7 @@ const RecurringTemplateCard = ({
   onResume: (id: string) => Promise<void>;
   onCancel: (id: string) => Promise<void>;
 }) => {
+  const { t } = useTranslation("recurrences");
   const [draft, setDraft] = useState<RecurringTaskTemplate>(template);
   const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -64,25 +53,36 @@ const RecurringTemplateCard = ({
     setExpanded(false);
   }, [template]);
 
+  const weekdayLabel = (day: WeekdayValue) => t(`weekdays.${day}`);
+  const nthWeekLabel = (nth: NthWeekValue) => t(`nthWeek.${nth}`);
+  const ruleCopy =
+    template.ruleType === "daily"
+      ? t("rule.daily", { count: template.dailyInterval })
+      : template.ruleType === "weekly"
+        ? t("rule.weekly", {
+            n: template.weeklyInterval,
+            days: template.weeklyDays.map((day) => weekdayLabel(day as WeekdayValue)).join(", ")
+          })
+        : template.monthlyMode === "day_of_month"
+          ? t("rule.monthlyDay", { n: template.dayOfMonth ?? 1 })
+          : t("rule.monthlyNth", {
+              nth: nthWeekLabel((draft.nthWeek ?? 1) as NthWeekValue),
+              weekday: weekdayLabel((draft.weekday ?? 6) as WeekdayValue)
+            });
+
   return (
     <article className="task-card">
       <div className="task-card__summary">
         <button className="task-card__toggle" type="button" onClick={() => setExpanded((current) => !current)}>
           <span className="task-card__title">{template.title}</span>
           <span className="task-card__meta-row">
-            <span className="task-card__bucket">{template.targetBucket === "next_action" ? "Next Actions" : "Scheduled"}</span>
+            <span className="task-card__bucket">{t(`buckets.${template.targetBucket}`)}</span>
             <span className="task-card__context-copy">
-              {template.ruleType === "daily"
-                ? `Tous les ${template.dailyInterval} jour(s)`
-                : template.ruleType === "weekly"
-                  ? `Chaque ${template.weeklyInterval} sem • ${template.weeklyDays.map((day) => weekdayOptions.find((option) => option.value === day)?.label ?? day).join(", ")}`
-                  : template.monthlyMode === "day_of_month"
-                    ? `Chaque mois • jour ${template.dayOfMonth ?? 1}`
-                    : `Chaque mois • ${nthWeekOptions.find((option) => option.value === draft.nthWeek)?.label ?? draft.nthWeek} ${weekdayOptions.find((option) => option.value === draft.weekday)?.label ?? draft.weekday}`}
+              {ruleCopy}
             </span>
-            {nextOccurrence ? <span className="task-card__date-pill">Prochaine • {formatDateShort(nextOccurrence)}</span> : null}
+            {nextOccurrence ? <span className="task-card__date-pill">{t("card.nextOccurrence", { date: formatDateShort(nextOccurrence) })}</span> : null}
             {template.pendingMissedOccurrences > 0 ? (
-              <span className="task-card__recurrence-pill">{template.pendingMissedOccurrences} retard(s)</span>
+              <span className="task-card__recurrence-pill">{t("card.missed", { count: template.pendingMissedOccurrences })}</span>
             ) : null}
           </span>
         </button>
@@ -90,15 +90,15 @@ const RecurringTemplateCard = ({
         <div className="task-card__quick-actions">
           {template.status === "active" ? (
             <button className="button" type="button" onClick={() => void onPause(template.id)}>
-              Pause
+              {t("card.pause")}
             </button>
           ) : template.status === "paused" ? (
             <button className="button" type="button" onClick={() => void onResume(template.id)}>
-              Reprendre
+              {t("card.resume")}
             </button>
           ) : null}
           <button className="button button--ghost" type="button" onClick={() => void onCancel(template.id)}>
-            Annuler
+            {t("card.cancel")}
           </button>
         </div>
       </div>
@@ -107,11 +107,11 @@ const RecurringTemplateCard = ({
         <>
           <div className="task-card__grid">
             <label className="stacked-field">
-              <span>Titre</span>
+              <span>{t("form.title")}</span>
               <input value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} />
             </label>
             <label className="stacked-field">
-              <span>Bucket cible</span>
+              <span>{t("form.targetBucket")}</span>
               <select
                 value={draft.targetBucket}
                 onChange={(event) =>
@@ -122,34 +122,34 @@ const RecurringTemplateCard = ({
                   }))
                 }
               >
-                <option value="next_action">Next Actions</option>
-                <option value="scheduled">Scheduled</option>
+                <option value="next_action">{t("buckets.next_action")}</option>
+                <option value="scheduled">{t("buckets.scheduled")}</option>
               </select>
             </label>
             <label className="stacked-field">
-              <span>Date de depart</span>
+              <span>{t("form.startDate")}</span>
               <input type="date" value={draft.startDate} onChange={(event) => setDraft((current) => ({ ...current, startDate: event.target.value }))} />
             </label>
           </div>
 
           <label className="stacked-field">
-            <span>Notes</span>
+            <span>{t("form.notes")}</span>
             <textarea rows={3} value={draft.notes} onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))} />
           </label>
 
           <div className="task-card__grid">
             <label className="stacked-field">
-              <span>Type de regle</span>
+              <span>{t("form.ruleType")}</span>
               <select value={draft.ruleType} onChange={(event) => setDraft((current) => ({ ...current, ruleType: event.target.value as RecurringTaskTemplate["ruleType"] }))}>
-                <option value="daily">Journaliere</option>
-                <option value="weekly">Hebdomadaire</option>
-                <option value="monthly">Mensuelle</option>
+                <option value="daily">{t("form.daily")}</option>
+                <option value="weekly">{t("form.weekly")}</option>
+                <option value="monthly">{t("form.monthly")}</option>
               </select>
             </label>
 
             {draft.ruleType === "daily" ? (
               <label className="stacked-field">
-                <span>Intervalle</span>
+                <span>{t("form.interval")}</span>
                 <input
                   type="number"
                   min={1}
@@ -161,7 +161,7 @@ const RecurringTemplateCard = ({
 
             {draft.ruleType === "weekly" ? (
               <label className="stacked-field">
-                <span>Intervalle (semaines)</span>
+                <span>{t("form.weeklyInterval")}</span>
                 <input
                   type="number"
                   min={1}
@@ -173,17 +173,17 @@ const RecurringTemplateCard = ({
 
             {draft.ruleType === "monthly" ? (
               <label className="stacked-field">
-                <span>Mode mensuel</span>
+                <span>{t("form.monthlyMode")}</span>
                 <select value={draft.monthlyMode} onChange={(event) => setDraft((current) => ({ ...current, monthlyMode: event.target.value as RecurringTaskTemplate["monthlyMode"] }))}>
-                  <option value="day_of_month">Jour fixe</option>
-                  <option value="nth_weekday">Nth weekday</option>
+                  <option value="day_of_month">{t("form.dayOfMonth")}</option>
+                  <option value="nth_weekday">{t("form.nthWeekday")}</option>
                 </select>
               </label>
             ) : null}
 
             {draft.targetBucket === "scheduled" ? (
               <label className="stacked-field">
-                <span>Heure optionnelle</span>
+                <span>{t("form.scheduledTime")}</span>
                 <input type="time" value={draft.scheduledTime ?? ""} onChange={(event) => setDraft((current) => ({ ...current, scheduledTime: event.target.value || null }))} />
               </label>
             ) : null}
@@ -191,21 +191,21 @@ const RecurringTemplateCard = ({
 
           {draft.ruleType === "weekly" ? (
             <div className="tag-row">
-              {weekdayOptions.map((option) => (
+              {weekdayValues.map((value) => (
                 <button
-                  key={option.value}
+                  key={value}
                   type="button"
-                  className={`tag-chip${draft.weeklyDays.includes(option.value) ? " tag-chip--active" : ""}`}
+                  className={`tag-chip${draft.weeklyDays.includes(value) ? " tag-chip--active" : ""}`}
                   onClick={() =>
                     setDraft((current) => ({
                       ...current,
-                      weeklyDays: current.weeklyDays.includes(option.value)
-                        ? current.weeklyDays.filter((day) => day !== option.value)
-                        : [...current.weeklyDays, option.value].sort((left, right) => left - right)
+                      weeklyDays: current.weeklyDays.includes(value)
+                        ? current.weeklyDays.filter((day) => day !== value)
+                        : [...current.weeklyDays, value].sort((left, right) => left - right)
                     }))
                   }
                 >
-                  {option.label}
+                  {weekdayLabel(value)}
                 </button>
               ))}
             </div>
@@ -213,7 +213,7 @@ const RecurringTemplateCard = ({
 
           {draft.ruleType === "monthly" && draft.monthlyMode === "day_of_month" ? (
             <label className="stacked-field">
-              <span>Jour du mois</span>
+              <span>{t("form.dayOfMonthField")}</span>
               <input
                 type="number"
                 min={1}
@@ -227,21 +227,21 @@ const RecurringTemplateCard = ({
           {draft.ruleType === "monthly" && draft.monthlyMode === "nth_weekday" ? (
             <div className="task-card__grid">
               <label className="stacked-field">
-                <span>Semaine</span>
+                <span>{t("form.nthWeek")}</span>
                 <select value={draft.nthWeek ?? 1} onChange={(event) => setDraft((current) => ({ ...current, nthWeek: Number(event.target.value) }))}>
-                  {nthWeekOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
+                  {nthWeekValues.map((value) => (
+                    <option key={value} value={value}>
+                      {nthWeekLabel(value)}
                     </option>
                   ))}
                 </select>
               </label>
               <label className="stacked-field">
-                <span>Jour</span>
+                <span>{t("form.weekday")}</span>
                 <select value={draft.weekday ?? 6} onChange={(event) => setDraft((current) => ({ ...current, weekday: Number(event.target.value) }))}>
-                  {weekdayOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
+                  {weekdayValues.map((value) => (
+                    <option key={value} value={value}>
+                      {weekdayLabel(value)}
                     </option>
                   ))}
                 </select>
@@ -250,9 +250,9 @@ const RecurringTemplateCard = ({
           ) : null}
 
           <label className="stacked-field">
-            <span>Projet</span>
+            <span>{t("form.project")}</span>
             <select value={draft.projectId ?? ""} onChange={(event) => setDraft((current) => ({ ...current, projectId: event.target.value || null }))}>
-              <option value="">Sans projet</option>
+              <option value="">{t("form.noProject")}</option>
               {projectsForAssignment(projects, draft.projectId).map((project) => (
                 <option key={project.id} value={project.id}>
                   {projectAssignmentLabel(project)}
@@ -292,7 +292,7 @@ const RecurringTemplateCard = ({
                 setSaving(false);
               }}
             >
-              {saving ? "Enregistrement..." : "Enregistrer"}
+              {saving ? t("form.saving") : t("form.save")}
             </button>
           </div>
         </>
@@ -302,6 +302,7 @@ const RecurringTemplateCard = ({
 };
 
 export const RecurrencesPage = () => {
+  const { t } = useTranslation("recurrences");
   const { repository } = useAppContext();
   const [templates, setTemplates] = useState<RecurringTaskTemplate[]>([]);
   const [contexts, setContexts] = useState<TaskContext[]>([]);
@@ -381,29 +382,29 @@ export const RecurrencesPage = () => {
     <div className="page">
       <header className="hero">
         <div>
-          <p className="eyebrow">Recurrences</p>
-          <h2>Les taches qui reviennent sans que tu les recrées a la main.</h2>
+          <p className="eyebrow">{t("hero.eyebrow")}</p>
+          <h2>{t("hero.title")}</h2>
           <p className="hero__copy">
-            Definis une serie, laisse l&apos;app generer l&apos;occurrence du jour a minuit, et garde de la visibilite sur les dates a venir dans Scheduled.
+            {t("hero.copy")}
           </p>
         </div>
       </header>
 
-      <SectionCard title="Nouvelle recurrence" subtitle="Creer une serie locale qui generera automatiquement une occurrence quand elle devient due.">
+      <SectionCard title={t("create.title")} subtitle={t("create.subtitle")}>
         <div className="task-card__grid">
           <label className="stacked-field">
-            <span>Titre</span>
+            <span>{t("form.title")}</span>
             <input value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} />
           </label>
           <label className="stacked-field">
-            <span>Bucket cible</span>
+            <span>{t("form.targetBucket")}</span>
             <select value={draft.targetBucket} onChange={(event) => setDraft((current) => ({ ...current, targetBucket: event.target.value as "next_action" | "scheduled" }))}>
-              <option value="next_action">Next Actions</option>
-              <option value="scheduled">Scheduled</option>
+              <option value="next_action">{t("buckets.next_action")}</option>
+              <option value="scheduled">{t("buckets.scheduled")}</option>
             </select>
           </label>
           <label className="stacked-field">
-            <span>Date de depart</span>
+            <span>{t("form.startDate")}</span>
             <input type="date" value={draft.startDate} onChange={(event) => setDraft((current) => ({ ...current, startDate: event.target.value }))} />
           </label>
         </div>
@@ -418,38 +419,38 @@ export const RecurrencesPage = () => {
               await load();
             }}
           >
-            Creer la recurrence
+            {t("create.button")}
           </button>
         </div>
       </SectionCard>
 
-      <SectionCard title="Filtres" subtitle="Affiner la vue par statut, bucket, contexte ou type de regle.">
+      <SectionCard title={t("filters.title")} subtitle={t("filters.subtitle")}>
         <div className="task-card__grid">
           <label className="stacked-field">
-            <span>Recherche</span>
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Filtrer les recurrences" />
+            <span>{t("filters.search")}</span>
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("filters.searchPlaceholder")} />
           </label>
           <label className="stacked-field">
-            <span>Statut</span>
+            <span>{t("filters.status")}</span>
             <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
-              <option value="all">Tous</option>
-              <option value="active">Actives</option>
-              <option value="paused">En pause</option>
-              <option value="cancelled">Annulees</option>
+              <option value="all">{t("filters.all")}</option>
+              <option value="active">{t("filters.active")}</option>
+              <option value="paused">{t("filters.paused")}</option>
+              <option value="cancelled">{t("filters.cancelled")}</option>
             </select>
           </label>
           <label className="stacked-field">
-            <span>Bucket</span>
+            <span>{t("filters.bucket")}</span>
             <select value={bucketFilter} onChange={(event) => setBucketFilter(event.target.value as typeof bucketFilter)}>
-              <option value="all">Tous</option>
-              <option value="next_action">Next Actions</option>
-              <option value="scheduled">Scheduled</option>
+              <option value="all">{t("filters.all")}</option>
+              <option value="next_action">{t("buckets.next_action")}</option>
+              <option value="scheduled">{t("buckets.scheduled")}</option>
             </select>
           </label>
           <label className="stacked-field">
-            <span>Contexte</span>
+            <span>{t("filters.context")}</span>
             <select value={contextFilter} onChange={(event) => setContextFilter(event.target.value)}>
-              <option value="all">Tous</option>
+              <option value="all">{t("filters.all")}</option>
               {contexts.map((context) => (
                 <option key={context.id} value={context.id}>
                   {context.name}
@@ -458,18 +459,18 @@ export const RecurrencesPage = () => {
             </select>
           </label>
           <label className="stacked-field">
-            <span>Regle</span>
+            <span>{t("filters.rule")}</span>
             <select value={ruleFilter} onChange={(event) => setRuleFilter(event.target.value as typeof ruleFilter)}>
-              <option value="all">Toutes</option>
-              <option value="daily">Journaliere</option>
-              <option value="weekly">Hebdomadaire</option>
-              <option value="monthly">Mensuelle</option>
+              <option value="all">{t("filters.ruleAll")}</option>
+              <option value="daily">{t("form.daily")}</option>
+              <option value="weekly">{t("form.weekly")}</option>
+              <option value="monthly">{t("form.monthly")}</option>
             </select>
           </label>
           <label className="stacked-field">
-            <span>Projet</span>
+            <span>{t("filters.project")}</span>
             <select value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)}>
-              <option value="all">Tous</option>
+              <option value="all">{t("filters.all")}</option>
               {projects.map((project) => (
                 <option key={project.id} value={project.id}>
                   {project.title}
@@ -480,11 +481,11 @@ export const RecurrencesPage = () => {
         </div>
       </SectionCard>
 
-      <SectionCard title="Series recurrentes" subtitle={`${visibleTemplates.length} recurrence(s) visible(s).`}>
+      <SectionCard title={t("list.title")} subtitle={t("list.subtitle", { count: visibleTemplates.length })}>
         {loading ? (
-          <p>Chargement des recurrences...</p>
+          <p>{t("loading")}</p>
         ) : visibleTemplates.length === 0 ? (
-          <p className="empty-copy">Aucune recurrence pour ce filtre.</p>
+          <p className="empty-copy">{t("empty")}</p>
         ) : (
           <div className="task-list">
             {visibleTemplates.map((template) => (

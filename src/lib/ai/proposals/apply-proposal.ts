@@ -8,6 +8,7 @@ import type {
   Task,
   WeeklyRitualSectionKey
 } from "../../../domain/types";
+import { t } from "../../../i18n";
 import { getTodayDate } from "../../date";
 import type { AppRepository } from "../../storage/repository";
 import { applyAcceptedProposal } from "../memory/apply-proposal";
@@ -55,7 +56,7 @@ export const applyCoachProposal = async (
     const objectives = await repository.listWeeklyObjectives();
     const saved = await repository.saveWeeklyObjective(
       createEmptyWeeklyObjective({
-        title: payload.title ?? "Objectif",
+        title: payload.title ?? t("proposal.defaultObjectiveTitle", { ns: "coach" }),
         kind: payload.kind ?? "manual",
         targetHours: payload.targetHours ?? null,
         rescuetimeKind: payload.rescuetimeKind ?? null,
@@ -158,15 +159,15 @@ export const proposalPreviewText = (proposal: AiProposal): string => {
   }
 
   if (proposal.type === "review_section_draft") {
-    return `[${payload.sectionKey ?? "section"}] ${payload.text ?? ""}`;
+    return `[${payload.sectionKey ?? t("proposal.sectionFallback", { ns: "coach" })}] ${payload.text ?? ""}`;
   }
 
   if (proposal.type === "weekly_objective") {
-    return payload.title ?? "Objectif hebdomadaire";
+    return payload.title ?? t("proposal.weeklyObjectivePreview", { ns: "coach" });
   }
 
   if (proposal.type === "gtd_action") {
-    return `${payload.action ?? "action"} — ${payload.reason ?? ""}`;
+    return `${payload.action ?? t("proposal.actionFallback", { ns: "coach" })} — ${payload.reason ?? ""}`;
   }
 
   if (proposal.type === "goal_evaluation") {
@@ -175,7 +176,7 @@ export const proposalPreviewText = (proposal: AiProposal): string => {
       score?: number | null;
       notes?: string;
     };
-    return `[${evaluationPayload.goalId ?? "objectif"}] score ${evaluationPayload.score ?? "—"} — ${evaluationPayload.notes ?? ""}`;
+    return `[${evaluationPayload.goalId ?? t("proposal.goalFallback", { ns: "coach" })}] score ${evaluationPayload.score ?? t("emDash", { ns: "common" })} — ${evaluationPayload.notes ?? ""}`;
   }
 
   if (proposal.type === "commitment") {
@@ -183,7 +184,7 @@ export const proposalPreviewText = (proposal: AiProposal): string => {
   }
 
   if (proposal.type === "memory") {
-    return `[${payload.kind ?? "memoire"}] ${payload.statement ?? ""}`;
+    return `[${payload.kind ?? t("proposal.memoryKindFallback", { ns: "coach" })}] ${payload.statement ?? ""}`;
   }
 
   return "";

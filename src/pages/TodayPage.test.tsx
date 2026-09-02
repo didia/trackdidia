@@ -186,10 +186,10 @@ describe("TodayPage", () => {
     const user = userEvent.setup();
     await renderWithApp(<TodayPage />, { repository, route: "/", contextOverrides: { coachService } });
 
-    await user.click(await screen.findByRole("button", { name: /ajoutees/i }));
+    await user.click(await screen.findByRole("button", { name: /ajoutées/i }));
     expect(await screen.findByText("Nouvelle action du jour")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /realisees/i }));
+    await user.click(screen.getByRole("button", { name: /réalisées/i }));
     expect(await screen.findByText("Action terminee du jour")).toBeInTheDocument();
   });
 
@@ -237,7 +237,7 @@ describe("TodayPage", () => {
     const user = userEvent.setup();
     await renderWithApp(<TodayPage />, { repository, route: "/", contextOverrides: { coachService } });
 
-    const field = await screen.findByRole("textbox", { name: /reflection/i });
+    const field = await screen.findByRole("textbox", { name: /réflexion/i });
     await user.clear(field);
     await user.type(field, "Reflexion mise a jour");
     await user.tab();

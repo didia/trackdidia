@@ -107,7 +107,7 @@ only (calories included; RescueTime excluded).
 
 The `/semaine` screen tracks **two distinct objective systems**:
 
-1. **RescueTime Goals** (read-only): enabled goals from the RescueTime API feed optional RescueTime score axes on the weekly overview. Manage goals in RescueTime; configure the API key under **Parametres → RescueTime**.
+1. **RescueTime Goals** (read-only): enabled goals from the RescueTime API feed optional RescueTime score axes on the weekly overview. Manage goals in RescueTime; configure the API key under **Paramètres → RescueTime**.
 2. **Standing objectives** (`weekly_objectives`): durable TrackDidia objectives the coach can propose via `weekly_objective` accept-step. The page lists them with a per-week score, lets you toggle manual achievement (`saveWeeklyObjectiveResult`), and delete objectives. Time-based objectives score against RescueTime Analytic Data when configured.
 
 RescueTime Goals remain the optional weekly-score axis described below. Standing objectives use `WeeklyObjectivesService.computeWeeklyObjectivesSnapshot()` and are separate from RescueTime Goals.
@@ -157,7 +157,7 @@ When there is no tracked computer time (`sum(seconds) === 0`), the pulse is `nul
 and excluded from the displayed weekly score. A real `0` pulse is included.
 
 Goals are read-only in TrackDidia — manage them in RescueTime. Configure the API key
-under **Parametres → RescueTime** (stored in SQLite, same as OpenRouter). Time data
+under **Paramètres → RescueTime** (stored in SQLite, same as OpenRouter). Time data
 comes from the Analytic Data API and labeled project times (projects and clients).
 Schedule windows such as “Evening family time” are not filtered yet; v1 uses full-week
 totals with a documented approximation.

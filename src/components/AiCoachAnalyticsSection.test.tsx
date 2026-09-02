@@ -20,7 +20,7 @@ describe("AiCoachAnalyticsSection", () => {
 
     expect(await screen.findByText("Analytique coach")).toBeInTheDocument();
     expect(
-      screen.getByText("Impossible de charger l'analytique coach. Reessayez plus tard.")
+      screen.getByText("Impossible de charger l'analytique coach. Réessaie plus tard.")
     ).toBeInTheDocument();
   });
 

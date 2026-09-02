@@ -1,4 +1,5 @@
 import type { AppSettings, Task } from "../domain/types";
+import { t, tList } from "../i18n";
 import { buildContextId, toLocalDateString } from "./gtd/shared";
 
 export type RelationshipDrawCategory = "children" | "spouse";
@@ -12,73 +13,31 @@ export interface RelationshipDrawDefinition {
   processedDateKey: "relationshipDrawChildrenProcessedDate" | "relationshipDrawSpouseProcessedDate";
 }
 
-export const relationshipPersonalContextName = "Personnel";
+export const relationshipPersonalContextName = t("contextPersonal", { ns: "relationship" });
 export const relationshipPersonalContextId = buildContextId(relationshipPersonalContextName);
 
-export const defaultChildrenActivities = [
-  "Lire une histoire ensemble",
-  "Dessin libre sur une feuille blanche",
-  "Danser sur une chanson",
-  "Chasse au tresor dans la maison",
-  "Faire un puzzle ensemble",
-  "Construire une cabane avec coussins",
-  "Promenade autour du quartier",
-  "Jeu de memoire ou cartes",
-  "Colorier ensemble",
-  "Faire semblant (magasin, docteur, etc.)",
-  "Ecouter de la musique et deviner le style",
-  "Faire une mini seance de yoga",
-  "Demander son moment prefere de la journee",
-  "Faire des bulles",
-  "Construire quelque chose avec LEGO",
-  "Cuisiner quelque chose de simple",
-  "Jeu qui suis-je",
-  "Regarder un petit livre illustre ensemble",
-  "Faire un parcours avec coussins et chaises",
-  "Calins et discussion avant dodo"
-] as const;
+export const defaultChildrenActivities = tList("childrenActivities", "relationship");
 
-export const defaultSpouseActivities = [
-  "Promenade ensemble apres le souper",
-  "Massage de 5 minutes",
-  "Danser dans le salon",
-  "Discussion meilleur moment de la journee",
-  "Regarder une video drole ensemble",
-  "Boire un the ou un cafe ensemble",
-  "Dire 3 choses que tu apprecies",
-  "Preparer une collation ensemble",
-  "Envoyer un message d'amour dans la journee",
-  "Mini soiree cinema",
-  "Ecouter une chanson souvenir",
-  "Planifier un projet futur",
-  "Apporter une surprise simple",
-  "Cuisiner ensemble un petit plat",
-  "Discussion sans telephone pendant 15 min",
-  "Regarder un album photo",
-  "Se faire un massage des mains",
-  "Jeu rapide ensemble",
-  "Rire ensemble d'un souvenir drole",
-  "Dire je t'aime et faire un calin"
-] as const;
+export const defaultSpouseActivities = tList("spouseActivities", "relationship");
 
 export const relationshipDrawDefinitions: RelationshipDrawDefinition[] = [
   {
     category: "children",
-    label: "Avec enfants",
-    titlePrefix: "Avec enfants:",
-    notes: "Tirage quotidien relationnel genere automatiquement pour passer un moment avec les enfants.",
+    label: t("children.label", { ns: "relationship" }),
+    titlePrefix: t("children.titlePrefix", { ns: "relationship" }),
+    notes: t("children.notes", { ns: "relationship" }),
     settingsKey: "relationshipDrawChildrenActivities",
     processedDateKey: "relationshipDrawChildrenProcessedDate"
   },
   {
     category: "spouse",
-    label: "Avec mon epouse",
-    titlePrefix: "Avec mon epouse:",
-    notes: "Tirage quotidien relationnel genere automatiquement pour nourrir la relation avec ton epouse.",
+    label: t("spouse.label", { ns: "relationship" }),
+    titlePrefix: t("spouse.titlePrefix", { ns: "relationship" }),
+    notes: t("spouse.notes", { ns: "relationship" }),
     settingsKey: "relationshipDrawSpouseActivities",
     processedDateKey: "relationshipDrawSpouseProcessedDate"
   }
-] as const;
+];
 
 export const mergeAppSettingsWithDefaults = (settings: Partial<AppSettings>, defaults: AppSettings): AppSettings => ({
   ...defaults,

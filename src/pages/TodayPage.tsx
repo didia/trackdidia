@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import type { AiProposal, CoachPulseResult, Task } from "../domain/types";
 import { resolveMetricValue, updateNote } from "../domain/daily-entry";
@@ -17,16 +18,8 @@ import type { DailyTaskBreakdown } from "../lib/storage/repository";
 import { isSunday } from "../lib/gtd/shared";
 import { isFirstSaturdayOfMonth } from "../domain/monthly-review";
 
-const bucketLabels: Record<Task["bucket"], string> = {
-  inbox: "Inbox",
-  next_action: "Next Action",
-  scheduled: "Scheduled",
-  waiting_for: "Waiting For",
-  someday_maybe: "Someday / Maybe",
-  reference: "References"
-};
-
 export const TodayPage = () => {
+  const { t } = useTranslation("today");
   const today = getTodayDate();
   const { entry, loading, save } = useDailyEntry(today);
   const { repository, settings, coachService, browserPreview, pomodoro, pulseRevision } = useAppContext();
@@ -223,8 +216,17 @@ export const TodayPage = () => {
     );
   };
 
+  const bucketLabels: Record<Task["bucket"], string> = {
+    inbox: t("buckets.inbox"),
+    next_action: t("buckets.nextAction"),
+    scheduled: t("buckets.scheduled"),
+    waiting_for: t("buckets.waitingFor"),
+    someday_maybe: t("buckets.somedayMaybe"),
+    reference: t("buckets.reference")
+  };
+
   if (loading || !entry) {
-    return <div className="page"><p>Chargement de la journee...</p></div>;
+    return <div className="page"><p>{t("loading")}</p></div>;
   }
 
   const visibleTasks =
@@ -246,25 +248,25 @@ export const TodayPage = () => {
     <div className="page">
       <header className="hero">
         <div>
-          <p className="eyebrow">Aujourd'hui</p>
+          <p className="eyebrow">{t("hero.eyebrow")}</p>
           <h2>{formatDateLong(entry.date)}</h2>
           <p className="hero__copy">
-            Une vue rapide pour ouvrir, tenir et fermer la journee sans casser ton rythme.
+            {t("hero.copy")}
           </p>
         </div>
         <div className="hero__actions">
           <Link className="button button--primary" to="/routine-matin">
-            Ouvrir le matin
+            {t("hero.openMorning")}
           </Link>
           <Link className="button" to="/fermeture-soir">
-            Fermer le soir
+            {t("hero.closeEvening")}
           </Link>
         </div>
       </header>
 
       {browserPreview ? (
         <div className="banner">
-          Mode apercu navigateur: le runtime Tauri n'est pas detecte, donc le stockage utilise une memoire temporaire.
+          {t("banner.browserPreview")}
         </div>
       ) : null}
 
@@ -272,15 +274,15 @@ export const TodayPage = () => {
 
       {isSunday(entry.date) ? (
         <SectionCard
-          title="Rituel du dimanche"
-          subtitle="Cloture la semaine passee, note les apprentissages et prepare la suivante."
+          title={t("sunday.title")}
+          subtitle={t("sunday.subtitle")}
         >
           <p className="empty-copy">
-            La revue hebdomadaire consolide sommeil, TRC, temps d'ecran, pomodoris, discipline et taches avant ton rituel de reset.
+            {t("sunday.body")}
           </p>
           <div className="section-actions">
             <Link className="button button--primary" to="/semaine">
-              Ouvrir la revue hebdomadaire
+              {t("sunday.openWeekly")}
             </Link>
           </div>
         </SectionCard>
@@ -288,25 +290,25 @@ export const TodayPage = () => {
 
       {isFirstSaturdayOfMonth(entry.date) ? (
         <SectionCard
-          title="Cloture mensuelle"
-          subtitle="Premier samedi du mois: il est temps de relire le mois passe et recalibrer les objectifs."
+          title={t("monthly.title")}
+          subtitle={t("monthly.subtitle")}
         >
           <p className="empty-copy">
-            La revue mensuelle relie tes semaines, tes journaux et tes objectifs annuels pour voir ce qui nourrit vraiment le prochain mois.
+            {t("monthly.body")}
           </p>
           <div className="section-actions">
             <Link className="button button--primary" to="/mois">
-              Ouvrir la revue mensuelle
+              {t("monthly.openMonthly")}
             </Link>
             <Link className="button" to="/objectifs-annuels">
-              Ouvrir les objectifs annuels
+              {t("monthly.openGoals")}
             </Link>
           </div>
         </SectionCard>
       ) : null}
 
       <CoachPulsePanel
-        title="Coach du jour"
+        title={t("coachTitle")}
         result={coachResult}
         loading={coachLoading}
         settings={settings}
@@ -316,10 +318,10 @@ export const TodayPage = () => {
         onDismissProposal={(proposal) => void handleDismissProposal(proposal)}
       />
 
-      <SectionCard title="Etat de la journee" subtitle="Point de repere avant de replonger dans la routine.">
+      <SectionCard title={t("state.title")} subtitle={t("state.subtitle")}>
         <div className="journal-grid">
           <label className="stacked-field">
-            <span>Intention du matin</span>
+            <span>{t("state.morningIntention")}</span>
             <PersistedTextarea
               ref={morningIntentionRef}
               rows={4}
@@ -327,44 +329,44 @@ export const TodayPage = () => {
               onPersist={(nextValue) => {
                 void save((current) => updateNote(current, "morningIntention", nextValue));
               }}
-              placeholder="Quelle est ton intention pour aujourd'hui ?"
+              placeholder={t("state.morningPlaceholder")}
             />
           </label>
           <label className="stacked-field">
-            <span>Reflection du soir</span>
+            <span>{t("state.nightReflection")}</span>
             <PersistedTextarea
               rows={4}
               savedValue={entry.nightReflection}
               onPersist={(nextValue) => {
                 void save((current) => updateNote(current, "nightReflection", nextValue));
               }}
-              placeholder="Qu'est-ce qui a ete fidele aujourd'hui ?"
+              placeholder={t("state.nightPlaceholder")}
             />
           </label>
         </div>
         <div className="status-grid">
           <article className="status-card">
-            <span>Mise a jour</span>
+            <span>{t("state.updatedAt")}</span>
             <strong>{formatTimestamp(entry.updatedAt)}</strong>
           </article>
         </div>
       </SectionCard>
 
       <SectionCard
-        title="Pomodoro du jour"
-        subtitle="Resume simple de ce qui a ete produit en focus aujourd'hui."
+        title={t("pomodoro.title")}
+        subtitle={t("pomodoro.subtitle")}
       >
         <div className="pomodoro-widget__summary">
           <article className="status-card">
-            <span>Pomodoris completes</span>
+            <span>{t("pomodoro.completedCount")}</span>
             <strong>{completedPomodoroCount}</strong>
           </article>
           <article className="status-card">
-            <span>Heures focused</span>
-            <strong>{totalFocusedHours} h</strong>
+            <span>{t("pomodoro.focusedHours")}</span>
+            <strong>{t("pomodoro.hoursUnit", { n: totalFocusedHours })}</strong>
           </article>
           <article className="status-card">
-            <span>Taches completees en pomodoro</span>
+            <span>{t("pomodoro.tasksCompleted")}</span>
             <strong>{completedPomodoroTasks.length}</strong>
           </article>
         </div>
@@ -372,12 +374,12 @@ export const TodayPage = () => {
         <div className="daily-task-panel">
           <div className="daily-task-panel__header">
             <div>
-              <strong>Taches completees pendant une journee avec focus</strong>
-              <p>Liste des taches terminees aujourd'hui qui ont recu du temps de pomodoro.</p>
+              <strong>{t("pomodoro.completedPanelTitle")}</strong>
+              <p>{t("pomodoro.completedPanelCopy")}</p>
             </div>
           </div>
           {completedPomodoroTasks.length === 0 ? (
-            <p className="empty-copy">Aucune tache completee via le flux pomodoro aujourd'hui.</p>
+            <p className="empty-copy">{t("pomodoro.completedPanelEmpty")}</p>
           ) : (
             <div className="pomodoro-history__segments">
               {completedPomodoroTasks.map((task) => (
@@ -391,15 +393,15 @@ export const TodayPage = () => {
 
         <div className="section-actions">
           <Link className="button" to="/pomodoro">
-            Ouvrir la page Pomodoro
+            {t("pomodoro.openPage")}
           </Link>
         </div>
       </SectionCard>
 
-      <SectionCard title="Charge GTD du jour" subtitle="Les valeurs viennent du moteur GTD, avec possibilite d'override dans la routine et l'historique.">
+      <SectionCard title={t("gtd.title")} subtitle={t("gtd.subtitle")}>
         <div className="status-grid">
           <article className="status-card">
-            <span>Debut</span>
+            <span>{t("gtd.start")}</span>
             <strong>{resolveMetricValue(entry, "tachesDebut") ?? 0}</strong>
           </article>
           <button
@@ -408,7 +410,7 @@ export const TodayPage = () => {
             onClick={() => setOpenTaskPanel((current) => (current === "added" ? null : "added"))}
             aria-expanded={openTaskPanel === "added"}
           >
-            <span>Ajoutees</span>
+            <span>{t("gtd.added")}</span>
             <strong>{resolveMetricValue(entry, "tachesAjoutes") ?? 0}</strong>
           </button>
           <button
@@ -417,11 +419,11 @@ export const TodayPage = () => {
             onClick={() => setOpenTaskPanel((current) => (current === "completed" ? null : "completed"))}
             aria-expanded={openTaskPanel === "completed"}
           >
-            <span>Realisees</span>
+            <span>{t("gtd.completed")}</span>
             <strong>{resolveMetricValue(entry, "tachesRealises") ?? 0}</strong>
           </button>
           <article className="status-card">
-            <span>Restantes</span>
+            <span>{t("gtd.remaining")}</span>
             <strong>{resolveMetricValue(entry, "tachesFin") ?? 0}</strong>
           </article>
         </div>
@@ -430,18 +432,18 @@ export const TodayPage = () => {
           <div className="daily-task-panel">
             <div className="daily-task-panel__header">
               <div>
-                <strong>{openTaskPanel === "added" ? "Taches ajoutees aujourd'hui" : "Taches completees aujourd'hui"}</strong>
+                <strong>{openTaskPanel === "added" ? t("gtd.addedPanelTitle") : t("gtd.completedPanelTitle")}</strong>
                 <p>
-                  {visibleTasks.length} tache(s) dans cette vue.
+                  {t("gtd.panelCount", { count: visibleTasks.length })}
                 </p>
               </div>
               <button className="button button--ghost" type="button" onClick={() => setOpenTaskPanel(null)}>
-                Fermer
+                {t("gtd.panelClose")}
               </button>
             </div>
 
             {visibleTasks.length === 0 ? (
-              <p className="empty-copy">Aucune tache pour ce compteur aujourd'hui.</p>
+              <p className="empty-copy">{t("gtd.panelEmpty")}</p>
             ) : (
               <div className="daily-task-list">
                 {visibleTasks.map((task) => (
@@ -460,13 +462,13 @@ export const TodayPage = () => {
 
         <div className="section-actions">
           <Link className="button" to="/inbox">
-            Ouvrir l'inbox
+            {t("gtd.openInbox")}
           </Link>
           <Link className="button" to="/next-actions">
-            Voir les next actions
+            {t("gtd.openNextActions")}
           </Link>
           <Link className="button" to="/scheduled">
-            Voir le calendrier
+            {t("gtd.openScheduled")}
           </Link>
         </div>
       </SectionCard>

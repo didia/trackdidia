@@ -34,7 +34,7 @@ describe("correlations insight module", () => {
     expect(finding?.diff).toBeCloseTo(5 / 14);
     expect(finding?.value).toBeCloseTo(5 / 14);
     expect(finding?.severity).toBe("positive");
-    expect(finding?.label).toContain("associee");
+    expect(finding?.label).toContain("associée");
     expect(finding?.label.toLowerCase()).not.toContain("cause");
   });
 

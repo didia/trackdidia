@@ -1,0 +1,57 @@
+{
+  "contextPersonal": "Personnel",
+  "children": {
+    "label": "Avec enfants",
+    "titlePrefix": "Avec enfants :",
+    "notes": "Tirage quotidien relationnel généré automatiquement pour passer un moment avec les enfants."
+  },
+  "spouse": {
+    "label": "Avec mon épouse",
+    "titlePrefix": "Avec mon épouse :",
+    "notes": "Tirage quotidien relationnel généré automatiquement pour nourrir la relation avec ton épouse."
+  },
+  "childrenActivities": [
+    "Lire une histoire ensemble",
+    "Dessin libre sur une feuille blanche",
+    "Danser sur une chanson",
+    "Chasse au trésor dans la maison",
+    "Faire un puzzle ensemble",
+    "Construire une cabane avec coussins",
+    "Promenade autour du quartier",
+    "Jeu de mémoire ou cartes",
+    "Colorier ensemble",
+    "Faire semblant (magasin, docteur, etc.)",
+    "Écouter de la musique et deviner le style",
+    "Faire une mini séance de yoga",
+    "Demander son moment préféré de la journée",
+    "Faire des bulles",
+    "Construire quelque chose avec LEGO",
+    "Cuisiner quelque chose de simple",
+    "Jeu qui suis-je",
+    "Regarder un petit livre illustré ensemble",
+    "Faire un parcours avec coussins et chaises",
+    "Câlins et discussion avant dodo"
+  ],
+  "spouseActivities": [
+    "Promenade ensemble après le souper",
+    "Massage de 5 minutes",
+    "Danser dans le salon",
+    "Discussion meilleur moment de la journée",
+    "Regarder une vidéo drôle ensemble",
+    "Boire un thé ou un café ensemble",
+    "Dire 3 choses que tu apprécies",
+    "Préparer une collation ensemble",
+    "Envoyer un message d'amour dans la journée",
+    "Mini soirée cinéma",
+    "Écouter une chanson souvenir",
+    "Planifier un projet futur",
+    "Apporter une surprise simple",
+    "Cuisiner ensemble un petit plat",
+    "Discussion sans téléphone pendant 15 min",
+    "Regarder un album photo",
+    "Se faire un massage des mains",
+    "Jeu rapide ensemble",
+    "Rire ensemble d'un souvenir drôle",
+    "Dire je t'aime et faire un câlin"
+  ]
+}

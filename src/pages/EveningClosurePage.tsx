@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import {
   autoSuggestedMetricKeys,
@@ -21,6 +22,7 @@ import { resolveDailySnapshotInputs } from "../lib/ai/context/preview";
 import { getTodayDate, formatDateLong } from "../lib/date";
 
 export const EveningClosurePage = () => {
+  const { t } = useTranslation("evening");
   const navigate = useNavigate();
   const { repository, settings, coachService } = useAppContext();
   const { entry, loading, save } = useDailyEntry(getTodayDate());
@@ -117,17 +119,17 @@ export const EveningClosurePage = () => {
   };
 
   if (loading || !entry) {
-    return <div className="page"><p>Chargement de la fermeture du soir...</p></div>;
+    return <div className="page"><p>{t("loading")}</p></div>;
   }
 
   return (
     <div className="page">
       <header className="hero">
         <div>
-          <p className="eyebrow">Fermeture du soir</p>
+          <p className="eyebrow">{t("hero.eyebrow")}</p>
           <h2>{formatDateLong(entry.date)}</h2>
           <p className="hero__copy">
-            Referme la boucle, mesure la fidelite du jour et prepare le terrain pour demain.
+            {t("hero.copy")}
           </p>
         </div>
       </header>
@@ -135,7 +137,7 @@ export const EveningClosurePage = () => {
       <EntrySummaryStrip entry={entry} />
 
       <CoachPulsePanel
-        title="Coach de cloture"
+        title={t("coachTitle")}
         result={coachResult}
         loading={coachLoading}
         settings={settings}
@@ -145,7 +147,7 @@ export const EveningClosurePage = () => {
         onDismissProposal={(proposal) => void handleDismissProposal(proposal)}
       />
 
-      <SectionCard title="Metriques du jour" subtitle="Complete les chiffres qui rendent la journee lisible.">
+      <SectionCard title={t("metrics.title")} subtitle={t("metrics.subtitle")}>
         <MetricGrid
           entry={entry}
           suggestionKeys={[...autoSuggestedMetricKeys]}
@@ -154,17 +156,17 @@ export const EveningClosurePage = () => {
         />
       </SectionCard>
 
-      <SectionCard title="Principes de vie" subtitle="Oui ou non pour chaque principe.">
+      <SectionCard title={t("principles.title")} subtitle={t("principles.subtitle")}>
         <PrincipleChecklist
           entry={entry}
           onChange={(key, value) => void save((current) => updatePrinciple(current, key, value))}
         />
       </SectionCard>
 
-      <SectionCard title="Cloture" subtitle="Une lecture honnete et courte de la journee.">
+      <SectionCard title={t("closure.title")} subtitle={t("closure.subtitle")}>
         <div className="journal-grid">
           <label className="stacked-field">
-            <span>Reflection du soir</span>
+            <span>{t("closure.nightReflection")}</span>
             <PersistedTextarea
               ref={nightReflectionRef}
               rows={5}
@@ -172,11 +174,11 @@ export const EveningClosurePage = () => {
               onPersist={(nextValue) => {
                 void save((current) => updateNote(current, "nightReflection", nextValue));
               }}
-              placeholder="Qu'est-ce qui a ete fidele aujourd'hui ?"
+              placeholder={t("closure.nightPlaceholder")}
             />
           </label>
           <label className="stacked-field">
-            <span>Focus de demain</span>
+            <span>{t("closure.tomorrowFocus")}</span>
             <PersistedTextarea
               ref={tomorrowFocusRef}
               rows={5}
@@ -184,7 +186,7 @@ export const EveningClosurePage = () => {
               onPersist={(nextValue) => {
                 void save((current) => updateNote(current, "tomorrowFocus", nextValue));
               }}
-              placeholder="Quel est le prochain acte simple qui compte ?"
+              placeholder={t("closure.tomorrowPlaceholder")}
             />
           </label>
         </div>
@@ -212,7 +214,7 @@ export const EveningClosurePage = () => {
             navigate("/");
           }}
         >
-          Cloturer la journee
+          {t("closeDay")}
         </button>
       </div>
     </div>

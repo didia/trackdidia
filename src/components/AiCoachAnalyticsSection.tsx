@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { loadCoachAnalytics } from "../lib/ai/analytics/load-coach-analytics";
 import type { AcceptanceRateBucket, CoachAnalyticsSummary } from "../lib/ai/analytics/proposal-analytics";
 import { PROMPT_REGISTRY } from "../lib/ai/prompts/registry";
+import { t as translate } from "../i18n";
 import type { AppRepository } from "../lib/storage/repository";
 import { SectionCard } from "./SectionCard";
 
@@ -10,41 +12,47 @@ interface AiCoachAnalyticsSectionProps {
 }
 
 const formatRate = (value: number | null): string =>
-  value === null ? "—" : `${Math.round(value * 100)} %`;
+  value === null ? translate("emDash", { ns: "common" }) : `${Math.round(value * 100)} %`;
 
-const BucketTable = ({ title, buckets }: { title: string; buckets: AcceptanceRateBucket[] }) => (
-  <div className="analytics-table-block">
-    <h4>{title}</h4>
-    {buckets.length === 0 ? (
-      <p className="muted-copy">Aucune proposition decidee pour le moment.</p>
-    ) : (
-      <table className="analytics-table">
-        <thead>
-          <tr>
-            <th scope="col">Libelle</th>
-            <th scope="col">Decidees</th>
-            <th scope="col">Acceptees</th>
-            <th scope="col">Rejetees</th>
-            <th scope="col">Taux d&apos;acceptation</th>
-          </tr>
-        </thead>
-        <tbody>
-          {buckets.map((bucket) => (
-            <tr key={bucket.key}>
-              <td>{bucket.label}</td>
-              <td>{bucket.decided}</td>
-              <td>{bucket.accepted}</td>
-              <td>{bucket.dismissed}</td>
-              <td>{formatRate(bucket.acceptanceRate)}</td>
+const BucketTable = ({ title, buckets }: { title: string; buckets: AcceptanceRateBucket[] }) => {
+  const { t } = useTranslation("settings");
+
+  return (
+    <div className="analytics-table-block">
+      <h4>{title}</h4>
+      {buckets.length === 0 ? (
+        <p className="muted-copy">{t("analytics.noDecidedProposals")}</p>
+      ) : (
+        <table className="analytics-table">
+          <thead>
+            <tr>
+              <th scope="col">{t("analytics.col.label")}</th>
+              <th scope="col">{t("analytics.col.decided")}</th>
+              <th scope="col">{t("analytics.col.accepted")}</th>
+              <th scope="col">{t("analytics.col.dismissed")}</th>
+              <th scope="col">{t("analytics.col.acceptanceRate")}</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    )}
-  </div>
-);
+          </thead>
+          <tbody>
+            {buckets.map((bucket) => (
+              <tr key={bucket.key}>
+                <td>{bucket.label}</td>
+                <td>{bucket.decided}</td>
+                <td>{bucket.accepted}</td>
+                <td>{bucket.dismissed}</td>
+                <td>{formatRate(bucket.acceptanceRate)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+};
 
 export const AiCoachAnalyticsSection = ({ repository }: AiCoachAnalyticsSectionProps) => {
+  const { t } = useTranslation("settings");
+  const { t: tCommon } = useTranslation("common");
   const [analytics, setAnalytics] = useState<CoachAnalyticsSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +64,7 @@ export const AiCoachAnalyticsSection = ({ repository }: AiCoachAnalyticsSectionP
       setAnalytics(await loadCoachAnalytics(repository));
     } catch {
       setAnalytics(null);
-      setError("Impossible de charger l'analytique coach. Reessayez plus tard.");
+      setError(translate("analytics.loadError", { ns: "settings" }));
     } finally {
       setLoading(false);
     }
@@ -76,7 +84,7 @@ export const AiCoachAnalyticsSection = ({ repository }: AiCoachAnalyticsSectionP
       } catch {
         if (!cancelled) {
           setAnalytics(null);
-          setError("Impossible de charger l'analytique coach. Reessayez plus tard.");
+          setError(translate("analytics.loadError", { ns: "settings" }));
         }
       } finally {
         if (!cancelled) {
@@ -92,8 +100,8 @@ export const AiCoachAnalyticsSection = ({ repository }: AiCoachAnalyticsSectionP
 
   if (loading) {
     return (
-      <SectionCard title="Analytique coach" subtitle="Taux d'acceptation des propositions IA (lecture seule).">
-        <p className="muted-copy">Chargement...</p>
+      <SectionCard title={t("analytics.title")} subtitle={t("analytics.subtitle")}>
+        <p className="muted-copy">{tCommon("status.loading")}</p>
       </SectionCard>
     );
   }
@@ -101,13 +109,13 @@ export const AiCoachAnalyticsSection = ({ repository }: AiCoachAnalyticsSectionP
   if (error) {
     return (
       <SectionCard
-        title="Analytique coach"
-        subtitle="Taux d'acceptation des propositions IA (lecture seule)."
+        title={t("analytics.title")}
+        subtitle={t("analytics.subtitle")}
       >
         <div className="banner">{error}</div>
         <div className="form-actions">
           <button className="button button--ghost" type="button" onClick={() => void loadAnalytics()}>
-            Reessayer
+            {tCommon("actions.retry")}
           </button>
         </div>
       </SectionCard>
@@ -117,10 +125,10 @@ export const AiCoachAnalyticsSection = ({ repository }: AiCoachAnalyticsSectionP
   if (!analytics) {
     return (
       <SectionCard
-        title="Analytique coach"
-        subtitle="Taux d'acceptation des propositions IA (lecture seule)."
+        title={t("analytics.title")}
+        subtitle={t("analytics.subtitle")}
       >
-        <p className="muted-copy">Aucune donnee disponible.</p>
+        <p className="muted-copy">{t("analytics.noData")}</p>
       </SectionCard>
     );
   }
@@ -129,25 +137,25 @@ export const AiCoachAnalyticsSection = ({ repository }: AiCoachAnalyticsSectionP
 
   return (
     <SectionCard
-      title="Analytique coach"
-      subtitle="Taux d'acceptation des propositions IA (lecture seule). Aucune modification automatique de prompt."
+      title={t("analytics.title")}
+      subtitle={t("analytics.subtitleFull")}
     >
-      <BucketTable title="Par surface" buckets={analytics.bySurface} />
-      <BucketTable title="Par type de proposition" buckets={analytics.byType} />
-      <BucketTable title="Par posture (pulse coach)" buckets={analytics.byStance} />
+      <BucketTable title={t("analytics.bySurface")} buckets={analytics.bySurface} />
+      <BucketTable title={t("analytics.byType")} buckets={analytics.byType} />
+      <BucketTable title={t("analytics.byStance")} buckets={analytics.byStance} />
 
       <div className="analytics-table-block">
-        <h4>Tendance de rejet (30 derniers jours)</h4>
+        <h4>{t("analytics.dismissalTrend")}</h4>
         {dismissalTrend.length === 0 ? (
-          <p className="muted-copy">Aucune decision enregistree sur la periode.</p>
+          <p className="muted-copy">{t("analytics.noDecisionsInPeriod")}</p>
         ) : (
           <table className="analytics-table">
             <thead>
               <tr>
-                <th scope="col">Date</th>
-                <th scope="col">Decisions</th>
-                <th scope="col">Rejets</th>
-                <th scope="col">Taux de rejet</th>
+                <th scope="col">{t("analytics.col.date")}</th>
+                <th scope="col">{t("analytics.col.decisions")}</th>
+                <th scope="col">{t("analytics.col.dismissals")}</th>
+                <th scope="col">{t("analytics.col.dismissalRate")}</th>
               </tr>
             </thead>
             <tbody>
@@ -166,13 +174,19 @@ export const AiCoachAnalyticsSection = ({ repository }: AiCoachAnalyticsSectionP
 
       {analytics.lowAcceptanceSignals.length > 0 ? (
         <div className="analytics-table-block">
-          <h4>Signaux de revision de prompt</h4>
+          <h4>{t("analytics.promptRevisionSignals")}</h4>
           <ul className="analytics-signals">
             {analytics.lowAcceptanceSignals.map((signal) => (
               <li key={`${signal.dimension}-${signal.key}`}>
-                <strong>{signal.label}</strong> — {Math.round(signal.acceptanceRate * 100)} % d&apos;acceptation
-                sur {signal.sampleSize} decisions. {signal.note}
-                {signal.promptVersion ? ` (version actuelle : ${signal.promptVersion})` : null}
+                <strong>{signal.label}</strong> {tCommon("emDash")}{" "}
+                {t("analytics.acceptanceSample", {
+                  percent: Math.round(signal.acceptanceRate * 100),
+                  count: signal.sampleSize
+                })}{" "}
+                {signal.note}
+                {signal.promptVersion
+                  ? ` ${t("analytics.currentVersion", { version: signal.promptVersion })}`
+                  : null}
               </li>
             ))}
           </ul>
@@ -180,13 +194,13 @@ export const AiCoachAnalyticsSection = ({ repository }: AiCoachAnalyticsSectionP
       ) : null}
 
       <div className="analytics-table-block">
-        <h4>Versions de prompt actives</h4>
+        <h4>{t("analytics.activePromptVersions")}</h4>
         <table className="analytics-table">
           <thead>
             <tr>
-              <th scope="col">Surface</th>
-              <th scope="col">Version</th>
-              <th scope="col">Description</th>
+              <th scope="col">{t("analytics.col.surface")}</th>
+              <th scope="col">{t("analytics.col.version")}</th>
+              <th scope="col">{t("analytics.col.description")}</th>
             </tr>
           </thead>
           <tbody>
@@ -194,7 +208,7 @@ export const AiCoachAnalyticsSection = ({ repository }: AiCoachAnalyticsSectionP
               <tr key={entry.surface}>
                 <td>{entry.surface}</td>
                 <td>{entry.version}</td>
-                <td>{entry.description}</td>
+                <td>{translate(`analytics.prompt.${entry.surface}`, { ns: "settings" })}</td>
               </tr>
             ))}
           </tbody>

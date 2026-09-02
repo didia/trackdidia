@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useTaskSelection } from "../app/use-task-selection";
 import { useGtdWorkspace } from "../app/use-gtd";
 import { BulkTaskToolbar } from "../components/BulkTaskToolbar";
@@ -6,6 +7,7 @@ import { GtdTaskCard } from "../components/GtdTaskCard";
 import { SectionCard } from "../components/SectionCard";
 
 export const SomedayMaybePage = () => {
+  const { t } = useTranslation("gtd");
   const {
     tasks,
     projects,
@@ -40,20 +42,20 @@ export const SomedayMaybePage = () => {
     <div className="page">
       <header className="hero">
         <div>
-          <p className="eyebrow">Someday / Maybe</p>
-          <h2>Le parking des pistes a revisiter plus tard.</h2>
+          <p className="eyebrow">{t("someday.hero.eyebrow")}</p>
+          <h2>{t("someday.hero.title")}</h2>
           <p className="hero__copy">
-            Cette vue garde les idees, envies et paris non engages sans encombrer l'execution du moment.
+            {t("someday.hero.copy")}
           </p>
         </div>
       </header>
 
-      <SectionCard title="Ajouter a someday / maybe" subtitle="Range directement ici ce qui reste interessant mais non engage maintenant.">
+      <SectionCard title={t("someday.add.title")} subtitle={t("someday.add.subtitle")}>
         <div className="inline-form">
           <input
             value={title}
             onChange={(event) => setTitle(event.target.value)}
-            placeholder="Nouvelle piste someday / maybe"
+            placeholder={t("someday.add.placeholder")}
           />
           <button
             className="button button--primary"
@@ -64,19 +66,19 @@ export const SomedayMaybePage = () => {
               setTitle("");
             }}
           >
-            Ajouter
+            {t("someday.add.button")}
           </button>
         </div>
       </SectionCard>
 
-      <SectionCard title="Filtrer par contexte" subtitle="Affiche les idees selon le domaine ou le contexte qui t'interesse.">
+      <SectionCard title={t("someday.filters.title")} subtitle={t("someday.filters.subtitle")}>
         <div className="tag-row">
           <button
             type="button"
             className={`tag-chip${selectedContextId === "all" ? " tag-chip--active" : ""}`}
             onClick={() => setSelectedContextId("all")}
           >
-            Tous
+            {t("someday.filters.all")}
           </button>
           {contexts.map((context) => (
             <button
@@ -91,7 +93,7 @@ export const SomedayMaybePage = () => {
         </div>
       </SectionCard>
 
-      <SectionCard title="Reserve active" subtitle={`${somedayTasks.length} element(s) visible(s) dans cette vue.`}>
+      <SectionCard title={t("someday.list.title")} subtitle={t("someday.list.subtitle", { count: somedayTasks.length })}>
         <BulkTaskToolbar
           selectedCount={selection.selectedCount}
           totalCount={somedayTasks.length}
@@ -114,9 +116,9 @@ export const SomedayMaybePage = () => {
         />
 
         {loading ? (
-          <p>Chargement de la reserve...</p>
+          <p>{t("someday.loading")}</p>
         ) : somedayTasks.length === 0 ? (
-          <p className="empty-copy">Aucune tache someday / maybe pour ce filtre.</p>
+          <p className="empty-copy">{t("someday.empty")}</p>
         ) : (
           <div className="task-list">
             {somedayTasks.map((task) => (

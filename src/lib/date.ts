@@ -1,3 +1,5 @@
+import { t } from "../i18n";
+
 export const getTodayDate = (): string => {
   const now = new Date();
   const year = now.getFullYear();
@@ -74,39 +76,39 @@ export const formatDurationSince = (value: string): string => {
   const diffMinutes = Math.floor(diffMs / 60000);
 
   if (diffMinutes < 1) {
-    return "depuis quelques secondes";
+    return t("seconds", { ns: "relativeTime" });
   }
 
   if (diffMinutes < 60) {
-    return `depuis ${diffMinutes} min`;
+    return t("minutes", { ns: "relativeTime", count: diffMinutes });
   }
 
   const diffHours = Math.floor(diffMinutes / 60);
 
   if (diffHours < 24) {
-    return `depuis ${diffHours} h`;
+    return t("hours", { ns: "relativeTime", count: diffHours });
   }
 
   const diffDays = Math.floor(diffHours / 24);
 
   if (diffDays < 7) {
-    return `depuis ${diffDays} j`;
+    return t("days", { ns: "relativeTime", count: diffDays });
   }
 
   const diffWeeks = Math.floor(diffDays / 7);
 
   if (diffWeeks < 5) {
-    return `depuis ${diffWeeks} sem`;
+    return t("weeks", { ns: "relativeTime", count: diffWeeks });
   }
 
   const diffMonths = Math.floor(diffDays / 30);
 
   if (diffMonths < 12) {
-    return `depuis ${diffMonths} mois`;
+    return t("months", { ns: "relativeTime", count: diffMonths });
   }
 
   const diffYears = Math.floor(diffDays / 365);
-  return `depuis ${diffYears} an${diffYears > 1 ? "s" : ""}`;
+  return t("years", { ns: "relativeTime", count: diffYears });
 };
 
 export const formatTimerRemaining = (ms: number): string => {
@@ -118,17 +120,21 @@ export const formatTimerRemaining = (ms: number): string => {
 
 export const formatSecondsCompact = (totalSeconds: number): string => {
   if (totalSeconds < 60) {
-    return `${Math.max(0, Math.round(totalSeconds))} s`;
+    return t("compactSeconds", { ns: "relativeTime", count: Math.max(0, Math.round(totalSeconds)) });
   }
 
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = Math.round(totalSeconds % 60);
 
   if (minutes < 60) {
-    return seconds > 0 ? `${minutes} min ${seconds}s` : `${minutes} min`;
+    return seconds > 0
+      ? t("compactMinutesSeconds", { ns: "relativeTime", minutes, seconds })
+      : t("compactMinutes", { ns: "relativeTime", count: minutes });
   }
 
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
-  return remainingMinutes > 0 ? `${hours} h ${remainingMinutes} min` : `${hours} h`;
+  return remainingMinutes > 0
+    ? t("compactHoursMinutes", { ns: "relativeTime", hours, minutes: remainingMinutes })
+    : t("compactHours", { ns: "relativeTime", count: hours });
 };

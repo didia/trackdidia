@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import {
   autoSuggestedMetricKeys,
@@ -20,6 +21,7 @@ import { addDays } from "../lib/gtd/shared";
 import { getTodayDate, formatDateLong } from "../lib/date";
 
 export const MorningRoutinePage = () => {
+  const { t } = useTranslation("morning");
   const navigate = useNavigate();
   const { entry, loading, save, taskStats} = useDailyEntry(getTodayDate());
   const latestEntryRef = useRef(entry);
@@ -27,17 +29,17 @@ export const MorningRoutinePage = () => {
   latestEntryRef.current = entry;
 
   if (loading || !entry) {
-    return <div className="page"><p>Chargement de la routine du matin...</p></div>;
+    return <div className="page"><p>{t("loading")}</p></div>;
   }
 
   return (
     <div className="page">
       <header className="hero">
         <div>
-          <p className="eyebrow">Routine du matin</p>
+          <p className="eyebrow">{t("hero.eyebrow")}</p>
           <h2>{formatDateLong(entry.date)}</h2>
           <p className="hero__copy">
-            Ouvre la journee avec intention, clarte et une premiere structure realiste.
+            {t("hero.copy")}
           </p>
         </div>
       </header>
@@ -46,9 +48,9 @@ export const MorningRoutinePage = () => {
 
       <PreviousDayReviewCard date={addDays(getTodayDate(), -1)} />
 
-      <SectionCard title="Intention du jour" subtitle="Une phrase suffit. Cherche le ton juste, pas la perfection.">
+      <SectionCard title={t("intention.title")} subtitle={t("intention.subtitle")}>
         <label className="stacked-field">
-          <span>Intention</span>
+          <span>{t("intention.label")}</span>
           <PersistedTextarea
             ref={intentionRef}
             rows={4}
@@ -56,12 +58,12 @@ export const MorningRoutinePage = () => {
             onPersist={(nextValue) => {
               void save((current) => updateNote(current, "morningIntention", nextValue));
             }}
-            placeholder="Quelle posture veux-tu garder aujourd'hui ?"
+            placeholder={t("intention.placeholder")}
           />
         </label>
       </SectionCard>
 
-      <SectionCard title="Ancrages du matin" subtitle="Quelques signaux forts pour bien demarrer.">
+      <SectionCard title={t("principles.title")} subtitle={t("principles.subtitle")}>
         <PrincipleChecklist
           entry={entry}
           keys={morningPrincipleKeys}
@@ -70,8 +72,8 @@ export const MorningRoutinePage = () => {
       </SectionCard>
 
       <SectionCard
-        title="Charge de travail GTD"
-        subtitle="Le moteur GTD propose ces valeurs automatiquement, mais tu peux les ajuster si ta lecture du jour differe."
+        title={t("gtd.title")}
+        subtitle={t("gtd.subtitle")}
       >
         <MetricGrid
           entry={entry}
@@ -102,7 +104,7 @@ export const MorningRoutinePage = () => {
             navigate("/");
           }}
         >
-          Marquer le matin comme complete
+          {t("completeMorning")}
         </button>
       </div>
     </div>

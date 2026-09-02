@@ -2,6 +2,7 @@ import type { AppOpenInterval } from "../../../domain/insights/movement";
 import type { AiMessage, AppSettings, CoachPulseResult, CoachPulseStance } from "../../../domain/types";
 import { createEmptyDailyEntry } from "../../../domain/daily-entry";
 import { createEntityId, nowIso, toLocalDateString } from "../../gtd/shared";
+import { t } from "../../../i18n";
 import type { AppRepository } from "../../storage/repository";
 import { notifyPomodoroCompletion } from "../../pomodoro/sound";
 import type { CoachPulseService } from "../coach-pulse-service";
@@ -231,7 +232,7 @@ export const runPulseEngine = async (context: PulseEngineContext): Promise<Pulse
 
   if (notification.shouldNotify) {
     const notified = await notifyPomodoroCompletion(
-      "Coach — journee en pause",
+      t("coachDayPaused", { ns: "notifications" }),
       result.pulse.headline
     );
 

@@ -105,7 +105,7 @@ describe("WeeklyReviewPage", () => {
     const user = userEvent.setup();
     await renderWithApp(<WeeklyReviewPage />, { repository, route: "/semaine" });
 
-    const dateInput = await screen.findByLabelText(/debut de semaine/i);
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
     await user.clear(dateInput);
     await user.type(dateInput, "2026-03-29");
     await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
@@ -224,7 +224,7 @@ describe("WeeklyReviewPage", () => {
       }
     });
 
-    const dateInput = await screen.findByLabelText(/debut de semaine/i);
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
     await user.clear(dateInput);
     await user.type(dateInput, "2026-08-02");
     await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
@@ -292,7 +292,7 @@ describe("WeeklyReviewPage", () => {
       }
     });
 
-    const dateInput = await screen.findByLabelText(/debut de semaine/i);
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
     await user.clear(dateInput);
     await user.type(dateInput, weekStart);
     await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
@@ -365,7 +365,7 @@ describe("WeeklyReviewPage", () => {
       }
     });
 
-    const dateInput = await screen.findByLabelText(/debut de semaine/i);
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
     await user.clear(dateInput);
     await user.type(dateInput, weekStart);
     await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
@@ -375,7 +375,7 @@ describe("WeeklyReviewPage", () => {
       expect(screen.getByText("0.50/1")).toBeInTheDocument();
     });
 
-    const refreshButton = screen.getByRole("button", { name: /rafraichir rescuetime/i });
+    const refreshButton = screen.getByRole("button", { name: /rafraîchir rescuetime/i });
     expect(refreshButton).not.toBeDisabled();
 
     expect(resolvePulse).toBeDefined();
@@ -420,12 +420,12 @@ describe("WeeklyReviewPage", () => {
     const user = userEvent.setup();
     await renderWithApp(<WeeklyReviewPage />, { repository, route: "/semaine" });
 
-    const dateInput = await screen.findByLabelText(/debut de semaine/i);
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
     await user.clear(dateInput);
     await user.type(dateInput, weekStartDate);
     await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
 
-    expect(await screen.findByText("Memoires candidates")).toBeInTheDocument();
+    expect(await screen.findByText("Mémoires candidates")).toBeInTheDocument();
     await user.click(screen.getAllByRole("button", { name: /^accepter$/i })[0]);
 
     await waitFor(async () => {
@@ -502,7 +502,7 @@ describe("WeeklyReviewPage", () => {
     const user = userEvent.setup();
     await renderWithApp(<WeeklyReviewPage />, { repository, route: "/semaine" });
 
-    const dateInput = await screen.findByLabelText(/debut de semaine/i);
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
     await user.clear(dateInput);
     await user.type(dateInput, weekStartDate);
     await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
@@ -606,7 +606,7 @@ describe("WeeklyReviewPage", () => {
     const user = userEvent.setup();
     await renderWithApp(<WeeklyReviewPage />, { repository, route: "/semaine" });
 
-    const dateInput = await screen.findByLabelText(/debut de semaine/i);
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
     await user.clear(dateInput);
     await user.type(dateInput, weekStartDate);
     await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
@@ -717,7 +717,7 @@ describe("WeeklyReviewPage", () => {
     const user = userEvent.setup();
     await renderWithApp(<WeeklyReviewPage />, { repository, route: "/semaine" });
 
-    const dateInput = await screen.findByLabelText(/debut de semaine/i);
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
     await user.clear(dateInput);
     await user.type(dateInput, weekStartDate);
     await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
@@ -802,7 +802,7 @@ describe("WeeklyReviewPage", () => {
     const user = userEvent.setup();
     await renderWithApp(<WeeklyReviewPage />, { repository, route: "/semaine" });
 
-    const dateInput = await screen.findByLabelText(/debut de semaine/i);
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
     await user.clear(dateInput);
     await user.type(dateInput, weekB);
     await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
@@ -868,7 +868,7 @@ describe("WeeklyReviewPage local synthesis integration", () => {
       contextOverrides: { settings: disabledSettings }
     });
 
-    const dateInput = await screen.findByLabelText(/debut de semaine/i);
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
     await user.clear(dateInput);
     await user.type(dateInput, weekStartDate);
     await user.click(screen.getByRole("button", { name: /charger la semaine/i }));

@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import quotes from "../../quotes.json";
 
 type Quote = {
@@ -30,7 +31,7 @@ const hashString = (value: string) => {
 export const getQuoteOfTheDay = (date = new Date()) => {
   if (quoteList.length === 0) {
     return {
-      quote: "Une journee bien tenue a la fois.",
+      quote: t("quoteFallback", { ns: "common" }),
       author: "Trackdidia",
       language: "fr",
       category: "fallback"

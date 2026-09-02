@@ -1,3 +1,4 @@
+import { t } from "../../../i18n";
 import type {
   AiMessage,
   AiProposal,
@@ -55,33 +56,33 @@ export interface CoachAnalyticsSummary {
 const DECIDED_STATUSES: AiProposalStatus[] = ["accepted", "dismissed"];
 
 const SURFACE_LABELS: Record<AiSurface, string> = {
-  coach_pulse: "Pulse coach",
-  weekly_synthesis: "Synthese hebdomadaire",
-  monthly_synthesis: "Synthese mensuelle",
-  goal_pacing: "Rythme objectifs"
+  coach_pulse: t("analytics.surface.coach_pulse", { ns: "coach" }),
+  weekly_synthesis: t("analytics.surface.weekly_synthesis", { ns: "coach" }),
+  monthly_synthesis: t("analytics.surface.monthly_synthesis", { ns: "coach" }),
+  goal_pacing: t("analytics.surface.goal_pacing", { ns: "coach" })
 };
 
 const TYPE_LABELS: Record<AiProposalType, string> = {
-  intention_draft: "Intention du matin",
-  tomorrow_focus_draft: "Focus demain",
-  memory: "Memoire",
-  commitment: "Engagement",
-  review_section_draft: "Section de revue",
-  weekly_objective: "Objectif hebdo",
-  gtd_action: "Action GTD",
-  goal_evaluation: "Evaluation objectif"
+  intention_draft: t("analytics.type.intention_draft", { ns: "coach" }),
+  tomorrow_focus_draft: t("analytics.type.tomorrow_focus_draft", { ns: "coach" }),
+  memory: t("analytics.type.memory", { ns: "coach" }),
+  commitment: t("analytics.type.commitment", { ns: "coach" }),
+  review_section_draft: t("analytics.type.review_section_draft", { ns: "coach" }),
+  weekly_objective: t("analytics.type.weekly_objective", { ns: "coach" }),
+  gtd_action: t("analytics.type.gtd_action", { ns: "coach" }),
+  goal_evaluation: t("analytics.type.goal_evaluation", { ns: "coach" })
 };
 
 const STANCE_LABELS: Record<CoachPulseStance, string> = {
-  open: "Ouverture",
-  steer: "Ajustement",
-  wind_down: "Fin de journee",
-  close: "Cloture"
+  open: t("analytics.stance.open", { ns: "coach" }),
+  steer: t("analytics.stance.steer", { ns: "coach" }),
+  wind_down: t("analytics.stance.wind_down", { ns: "coach" }),
+  close: t("analytics.stance.close", { ns: "coach" })
 };
 
 const LOW_ACCEPTANCE_THRESHOLD = 0.35;
 const LOW_ACCEPTANCE_MIN_SAMPLE = 3;
-const PROMPT_REVISION_NOTE = "Candidat de revision de prompt";
+const PROMPT_REVISION_NOTE = t("promptRevisionNote", { ns: "coach" });
 
 const rate = (numerator: number, denominator: number): number | null =>
   denominator > 0 ? numerator / denominator : null;

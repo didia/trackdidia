@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useAppContext } from "../app/app-context";
 import { usePomodoroTiming } from "../app/use-pomodoro-timing";
 import { SectionCard } from "../components/SectionCard";
 import { formatDateLong, formatDateTimeShort, formatSecondsCompact, formatTimerRemaining, getTodayDate } from "../lib/date";
-import { getPomodoroKindLabel } from "../lib/pomodoro/engine";
+import type { PomodoroKind } from "../domain/types";
 
 export const PomodoroPage = () => {
+  const { t } = useTranslation("pomodoro");
   const { pomodoro } = useAppContext();
   const [selectedTaskId, setSelectedTaskId] = useState<string>("");
   const [manualTitle, setManualTitle] = useState<string>("");
@@ -67,30 +69,31 @@ export const PomodoroPage = () => {
   const canSkipBreak = hasLiveBreakSession || hasPausedBreakSession || (!hasActiveSession && nextSessionIsBreak);
   const canEditManualTitle = !selectedTaskId && (!hasActiveSession || (activeSession?.kind === "focus" && activeSession.status === "running"));
   const canStartNextSession = !hasActiveSession;
-  const nextActionLabel = pomodoro.state.nextSessionKind === "focus" ? "Demarrer un focus" : "Demarrer la pause";
-  const sessionLabel = hasActiveSession && activeSession ? getPomodoroKindLabel(activeSession.kind) : getPomodoroKindLabel(pomodoro.state.nextSessionKind);
+  const nextActionLabel = pomodoro.state.nextSessionKind === "focus" ? t("actions.startFocus") : t("actions.startBreak");
+  const kindLabel = (kind: PomodoroKind) => t(`kind.${kind}`);
+  const sessionLabel = hasActiveSession && activeSession ? kindLabel(activeSession.kind) : kindLabel(pomodoro.state.nextSessionKind);
   const taskLookup = useMemo(
     () => new Map(pomodoro.taskOptions.map((task) => [task.id, task.title] as const)),
     [pomodoro.taskOptions]
   );
   const resolveSegmentLabel = (taskId: string | null, title: string | null) =>
-    taskId ? taskLookup.get(taskId) ?? "Tache inconnue" : title?.trim() || "Sans titre";
+    taskId ? taskLookup.get(taskId) ?? t("unknownTask") : title?.trim() || t("untitled");
 
   return (
     <div className="page">
       <header className="hero">
         <div>
-          <p className="eyebrow">Pomodoro</p>
+          <p className="eyebrow">{t("hero.eyebrow")}</p>
           <h2>{formatDateLong(getTodayDate())}</h2>
           <p className="hero__copy">
-            Un cycle de focus integre a Trackdidia, lie a tes taches GTD et a ta metrique quotidienne.
+            {t("hero.copy")}
           </p>
         </div>
       </header>
 
       <SectionCard
-        title="Timer principal"
-        subtitle="25 min de focus, 5 min de pause, puis 25 min de grande pause apres 4 sessions."
+        title={t("timer.title")}
+        subtitle={t("timer.subtitle")}
         aside={
           <button
             className="button"
@@ -98,7 +101,7 @@ export const PomodoroPage = () => {
             disabled={pomodoro.loading}
             onClick={() => void pomodoro.reload()}
           >
-            Rafraichir les taches
+            {t("timer.refresh")}
           </button>
         }
       >
@@ -106,36 +109,36 @@ export const PomodoroPage = () => {
         <div className="pomodoro-panel">
           <div className={`pomodoro-clock${activeSession ? ` pomodoro-clock--${activeSession.kind}` : ""}`}>
             <span className="pomodoro-clock__label">{sessionLabel}</span>
-            <strong>{hasActiveSession && activeSession ? timing.valid ? formatTimerRemaining(timing.remainingMs) : "--:--" : "00:00"}</strong>
+            <strong>{hasActiveSession && activeSession ? timing.valid ? formatTimerRemaining(timing.remainingMs) : t("timerPlaceholder") : t("idleTimer")}</strong>
             <span className="pomodoro-clock__cycle">
-              Session {pomodoro.state.currentCycleIndex}/4{hasPausedSession ? " • En pause" : ""}
+              {t("sessionCycle", { n: pomodoro.state.currentCycleIndex })}{hasPausedSession ? t("pausedSuffix") : ""}
             </span>
           </div>
 
           <div className="pomodoro-panel__controls">
             <div className="status-grid">
               <article className="status-card">
-                <span>Tache active</span>
+                <span>{t("activeTask")}</span>
                 <strong>
                   {pomodoro.currentTask?.title ??
                     pomodoro.currentActivityLabel ??
                     pomodoro.preferredTask?.title ??
                     pomodoro.preferredActivityLabel ??
-                    "Sans tache assignee"}
+                    t("noTaskAssigned")}
                 </strong>
               </article>
               <article className="status-card">
-                <span>Prochaine etape</span>
-                <strong>{getPomodoroKindLabel(pomodoro.state.nextSessionKind)}</strong>
+                <span>{t("nextStep")}</span>
+                <strong>{kindLabel(pomodoro.state.nextSessionKind)}</strong>
               </article>
               <article className="status-card">
-                <span>Focus completes dans le cycle</span>
+                <span>{t("timer.focusCompleted")}</span>
                 <strong>{pomodoro.state.completedFocusCountInCycle}</strong>
               </article>
             </div>
 
             <label className="stacked-field">
-              <span>Tache liee au focus</span>
+              <span>{t("timer.linkedTask")}</span>
               <select
                 value={selectedTaskId}
                 disabled={Boolean(hasActiveSession && (activeSession?.kind !== "focus" || activeSession.status !== "running"))}
@@ -151,7 +154,7 @@ export const PomodoroPage = () => {
                   }
                 }}
               >
-                <option value="">Sans tache assignee</option>
+                <option value="">{t("timer.noTaskOption")}</option>
                 {pomodoro.taskOptions.map((task) => (
                   <option key={task.id} value={task.id}>
                     {task.title}
@@ -162,13 +165,13 @@ export const PomodoroPage = () => {
 
             {!selectedTaskId ? (
               <label className="stacked-field">
-                <span>Titre libre si aucune tache n'est liee</span>
+                <span>{t("timer.manualTitle")}</span>
                 <div className="inline-field">
                   <input
                     type="text"
                     value={manualTitle}
                     disabled={!canEditManualTitle}
-                    placeholder="Ex.: Inbox zero, lecture strategique, admin..."
+                    placeholder={t("timer.manualPlaceholder")}
                     onChange={(event) => setManualTitle(event.target.value)}
                   />
                   <button
@@ -181,7 +184,7 @@ export const PomodoroPage = () => {
                       }
                     }}
                   >
-                    Appliquer
+                    {t("timer.apply")}
                   </button>
                 </div>
               </label>
@@ -208,42 +211,42 @@ export const PomodoroPage = () => {
 
               {hasRunningSession ? (
                 <button className="button" type="button" onClick={() => void pomodoro.pauseCurrent()}>
-                  Mettre en pause
+                  {t("actions.pause")}
                 </button>
               ) : null}
 
               {hasPausedSession ? (
                 <button className="button button--primary" type="button" onClick={() => void pomodoro.resumeCurrent()}>
-                  Reprendre
+                  {t("actions.resume")}
                 </button>
               ) : null}
 
               {canSkipBreak ? (
                 <button className="button" type="button" onClick={() => void pomodoro.skipBreak()}>
-                  Skipper la pause
+                  {t("actions.skipBreak")}
                 </button>
               ) : null}
 
               {hasLiveFocusSession && pomodoro.currentTask ? (
                 <button className="button" type="button" onClick={() => void pomodoro.completeCurrentTask()}>
-                  Terminer la tache
+                  {t("actions.completeTask")}
                 </button>
               ) : null}
 
               {(hasLiveFocusSession || hasPausedFocusSession) ? (
                 <>
                   <button className="button" type="button" disabled={!timing.canCompleteNow} onClick={() => void pomodoro.completeNow()}>
-                    Terminer maintenant
+                    {t("actions.completeNow")}
                   </button>
                   <button className="button button--ghost" type="button" onClick={() => void pomodoro.cancelCurrent()}>
-                    Annuler la session
+                    {t("actions.cancel")}
                   </button>
                 </>
               ) : null}
 
               {(hasLiveBreakSession || hasPausedBreakSession) ? (
                 <button className="button button--ghost" type="button" onClick={() => void pomodoro.cancelCurrent()}>
-                  Annuler la session
+                  {t("actions.cancel")}
                 </button>
               ) : null}
             </div>
@@ -251,43 +254,37 @@ export const PomodoroPage = () => {
             {hasActiveSession ? (
               <p className="field-card__helper">
                 {hasPausedSession
-                  ? "La session est en pause. Reprendre relance le chrono la ou il s'est arrete."
+                  ? t("helper.paused")
                   : hasLiveFocusSession
                     ? timing.canCompleteNow
-                      ? "Terminer maintenant cloture cette session comme completee et fait avancer le cycle. Annuler la session l'arrete sans la compter comme accomplie."
-                      : "Pendant la premiere moitie du focus, tu peux mettre en pause ou annuler la session. Terminer maintenant est active apres la moitie du pomodoro."
-                    : "Skipper la pause cloture la pause tout de suite et relance le cycle. Annuler la session l'arrete sans la compter."}
+                      ? t("helper.focusCompletable")
+                      : t("helper.focusEarly")
+                    : t("helper.break")}
               </p>
             ) : null}
           </div>
         </div>
       </SectionCard>
 
-      <SectionCard title="Historique du jour" subtitle="Chaque session garde la trace des taches touchees, meme si tu en changes en cours de focus.">
+      <SectionCard title={t("history.title")} subtitle={t("history.subtitle")}>
         {pomodoro.sessions.length === 0 ? (
-          <p className="empty-copy">Aucune session Pomodoro enregistree aujourd'hui.</p>
+          <p className="empty-copy">{t("history.empty")}</p>
         ) : (
           <div className="pomodoro-history">
             {pomodoro.sessions.map((session) => (
               <article key={session.id} className="pomodoro-history__item">
                 <div className="pomodoro-history__header">
-                  <strong>{getPomodoroKindLabel(session.kind)}</strong>
+                  <strong>{kindLabel(session.kind)}</strong>
                   <span>
                     {formatDateTimeShort(session.startedAt)} → {formatDateTimeShort(session.endsAt)}
                   </span>
                 </div>
                 <span className={`pomodoro-history__status pomodoro-history__status--${session.status}`}>
-                  {session.status === "running"
-                    ? "En cours"
-                    : session.status === "paused"
-                      ? "En pause"
-                      : session.status === "completed"
-                        ? "Completee"
-                        : "Annulee"}
+                  {t(`history.${session.status}`)}
                 </span>
                 <div className="pomodoro-history__segments">
                   {session.segments.length === 0 ? (
-                    <span>Aucune tache associee</span>
+                    <span>{t("history.noSegments")}</span>
                   ) : (
                     session.segments.map((segment) => (
                       <span key={segment.id} className="tag-chip">
@@ -302,16 +299,16 @@ export const PomodoroPage = () => {
         )}
       </SectionCard>
 
-      <SectionCard title="Temps passe par tache" subtitle="Temps reel cumule par tache, independamment du nombre de pomodoros.">
+      <SectionCard title={t("summary.title")} subtitle={t("summary.subtitle")}>
         {pomodoro.taskSummaries.length === 0 ? (
-          <p className="empty-copy">Aucun temps de focus enregistre sur une tache aujourd'hui.</p>
+          <p className="empty-copy">{t("summary.empty")}</p>
         ) : (
           <div className="pomodoro-summary-list">
             {pomodoro.taskSummaries.map((summary) => (
               <article key={`${summary.taskId ?? "none"}-${summary.taskTitle}`} className="status-card">
                 <span>{summary.taskTitle}</span>
                 <strong>{formatSecondsCompact(summary.totalSeconds)}</strong>
-                <small>{summary.sessionCount} session(s) impliquee(s)</small>
+                <small>{t("summary.sessionCount", { count: summary.sessionCount })}</small>
               </article>
             ))}
           </div>

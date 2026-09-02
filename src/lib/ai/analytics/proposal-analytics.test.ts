@@ -1,4 +1,5 @@
 import type { AiMessage, AiProposal } from "../../../domain/types";
+import { t } from "../../../i18n";
 import { buildAiUsageSummary, estimateTokenCostUsd } from "./cost";
 import { getCurrentMonthKey, monthKeyToLocalRange, toLocalDateKey } from "./month-range";
 import {
@@ -158,7 +159,7 @@ describe("proposal-analytics", () => {
         expect.objectContaining({
           dimension: "surface",
           key: "monthly_synthesis",
-          note: "Candidat de revision de prompt",
+          note: t("promptRevisionNote", { ns: "coach" }),
           promptVersion: "monthly_synthesis.v1"
         })
       ])

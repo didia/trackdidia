@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { defaultAppSettings } from "../domain/daily-entry";
 import type { AiPayloadScope, AppSettings } from "../domain/types";
 import { useAppContext } from "../app/app-context";
@@ -15,13 +16,10 @@ import type { Surface } from "../lib/ai/context/types";
 import { formatPulseSlotHours, parsePulseSlotHours } from "../lib/ai/pulse/slot-hours";
 import { buildWeekDates } from "../domain/weekly-review";
 
-const payloadScopes: Array<{ value: AiPayloadScope; label: string }> = [
-  { value: "metrics", label: "metrics" },
-  { value: "metrics_and_structure", label: "metrics_and_structure" },
-  { value: "full", label: "full" }
-];
+const payloadScopeValues: AiPayloadScope[] = ["metrics", "metrics_and_structure", "full"];
 
 export const SettingsPage = () => {
+  const { t } = useTranslation("settings");
   const { repository, settings, saveSettings, debugEnabled, setDebugEnabled, browserPreview } = useAppContext();
   const goalsService = useMemo(() => new RescueTimeGoalsService(repository), [repository]);
   const [draftSettings, setDraftSettings] = useState<AppSettings>(settings);
@@ -104,17 +102,17 @@ export const SettingsPage = () => {
     <div className="page">
       <header className="hero">
         <div>
-          <p className="eyebrow">Configuration</p>
-          <h2>Parametres de Trackdidia</h2>
+          <p className="eyebrow">{t("hero.eyebrow")}</p>
+          <h2>{t("hero.title")}</h2>
           <p className="hero__copy">
-            Gere l&apos;activation de l&apos;IA, le mode debug et les options du coach.
+            {t("hero.copy")}
           </p>
         </div>
       </header>
 
       <SectionCard
-        title="Parametres IA"
-        subtitle="Coach local par defaut, ou OpenRouter avec ta cle API pour router vers le modele de ton choix."
+        title={t("ai.title")}
+        subtitle={t("ai.subtitle")}
       >
         <form
           className="settings-form"
@@ -149,7 +147,7 @@ export const SettingsPage = () => {
                 }))
               }
             />
-            <span>Activer les messages IA</span>
+            <span>{t("ai.enable")}</span>
           </label>
 
           <label className="switch-row">
@@ -158,11 +156,11 @@ export const SettingsPage = () => {
               checked={debugEnabled}
               onChange={(event) => setDebugEnabled(event.target.checked)}
             />
-            <span>Mode debug local (console + panneau de logs)</span>
+            <span>{t("ai.debug")}</span>
           </label>
 
           <label>
-            <span>URL de base OpenRouter</span>
+            <span>{t("ai.baseUrl")}</span>
             <input
               type="url"
               value={draftSettings.aiBaseUrl}
@@ -172,12 +170,12 @@ export const SettingsPage = () => {
                   aiBaseUrl: event.target.value
                 }))
               }
-              placeholder="https://openrouter.ai/api/v1"
+              placeholder={t("ai.baseUrlPlaceholder")}
             />
           </label>
 
           <label>
-            <span>Modele OpenRouter</span>
+            <span>{t("ai.model")}</span>
             <input
               type="text"
               value={draftSettings.aiModel}
@@ -187,12 +185,12 @@ export const SettingsPage = () => {
                   aiModel: event.target.value
                 }))
               }
-              placeholder="moonshotai/kimi-k2.6"
+              placeholder={t("ai.modelPlaceholder")}
             />
           </label>
 
           <label>
-            <span>Cle API OpenRouter</span>
+            <span>{t("ai.apiKey")}</span>
             <input
               type="password"
               value={draftSettings.aiApiKey}
@@ -202,12 +200,12 @@ export const SettingsPage = () => {
                   aiApiKey: event.target.value
                 }))
               }
-              placeholder="sk-or-..."
+              placeholder={t("ai.apiKeyPlaceholder")}
             />
           </label>
 
           <label>
-            <span>Portee du payload envoye a l&apos;IA</span>
+            <span>{t("ai.payloadScopeLabel")}</span>
             <select
               value={draftSettings.aiPayloadScope}
               onChange={(event) =>
@@ -217,9 +215,9 @@ export const SettingsPage = () => {
                 }))
               }
             >
-              {payloadScopes.map((scope) => (
-                <option key={scope.value} value={scope.value}>
-                  {scope.label}
+              {payloadScopeValues.map((value) => (
+                <option key={value} value={value}>
+                  {t(`ai.payloadScope.${value}`)}
                 </option>
               ))}
             </select>
@@ -236,7 +234,7 @@ export const SettingsPage = () => {
                 }))
               }
             />
-            <span>Activer la memoire IA (continuite entre les pulses)</span>
+            <span>{t("ai.memory")}</span>
           </label>
 
           <label className="switch-row">
@@ -250,7 +248,7 @@ export const SettingsPage = () => {
                 }))
               }
             />
-            <span>Activer le pulse coach (open / steer / wind_down)</span>
+            <span>{t("ai.pulse")}</span>
           </label>
 
           <label className="switch-row">
@@ -264,11 +262,11 @@ export const SettingsPage = () => {
                 }))
               }
             />
-            <span>Notifications OS sur deuxieme stall consecutif (jours ouvrables)</span>
+            <span>{t("ai.pulseNotify")}</span>
           </label>
 
           <label>
-            <span>Heures de pulse (local, trois heures uniques 0–23, separees par des virgules)</span>
+            <span>{t("ai.pulseSlots")}</span>
             <input
               type="text"
               value={pulseSlotsDraft}
@@ -282,14 +280,14 @@ export const SettingsPage = () => {
                 const parsed = parsePulseSlotHours(pulseSlotsDraft);
                 setPulseSlotsError(parsed.ok ? "" : parsed.error);
               }}
-              placeholder="5, 13, 20"
+              placeholder={t("ai.pulseSlotsPlaceholder")}
               aria-invalid={pulseSlotsError.length > 0}
             />
             {pulseSlotsError ? <span className="field-error">{pulseSlotsError}</span> : null}
           </label>
 
           <label>
-            <span>Notifications max par jour</span>
+            <span>{t("ai.maxNotifications")}</span>
             <input
               type="number"
               min={0}
@@ -305,7 +303,7 @@ export const SettingsPage = () => {
           </label>
 
           <label>
-            <span>Tarif approximatif IA (USD / million de jetons)</span>
+            <span>{t("ai.costRate")}</span>
             <input
               type="number"
               min={0}
@@ -317,7 +315,7 @@ export const SettingsPage = () => {
 
           <div className="form-actions">
             <button className="button button--primary" type="submit" disabled={savingSettings}>
-              {savingSettings ? "Enregistrement..." : "Enregistrer les parametres"}
+              {savingSettings ? t("ai.saving") : t("ai.save")}
             </button>
             <button
               className="button button--ghost"
@@ -330,7 +328,7 @@ export const SettingsPage = () => {
                 setPulseSlotsError("");
               }}
             >
-              Reinitialiser
+              {t("ai.reset")}
             </button>
           </div>
         </form>
@@ -344,38 +342,32 @@ export const SettingsPage = () => {
 
       {debugEnabled ? (
         <SectionCard
-          title="Apercu du payload IA (debug)"
-          subtitle="Rendu exact du snapshot envoye a l'IA pour chaque portee (quotidien, hebdomadaire ou mensuel), construit a partir des donnees reelles."
+          title={t("payloadPreview.title")}
+          subtitle={t("payloadPreview.subtitle")}
         >
           {payloadPreviewError ? <div className="banner">{payloadPreviewError}</div> : null}
           {payloadPreviewPulseWarning ? <div className="banner">{payloadPreviewPulseWarning}</div> : null}
 
           <div className="history-toolbar">
             <label className="stacked-field">
-              <span>Surface</span>
+              <span>{t("payloadPreview.surface")}</span>
               <select
-                aria-label="Surface apercu payload IA"
+                aria-label={t("payloadPreview.surfaceAria")}
                 value={payloadPreviewSurface}
                 onChange={(event) => setPayloadPreviewSurface(event.target.value as Surface)}
               >
-                <option value="daily">Quotidien (coach_pulse)</option>
-                <option value="weekly">Hebdomadaire (weekly_synthesis)</option>
-                <option value="monthly">Mensuel (monthly_synthesis)</option>
-                <option value="annual">Annuel (goal_pacing)</option>
+                <option value="daily">{t("payloadPreview.surfaceOption.daily")}</option>
+                <option value="weekly">{t("payloadPreview.surfaceOption.weekly")}</option>
+                <option value="monthly">{t("payloadPreview.surfaceOption.monthly")}</option>
+                <option value="annual">{t("payloadPreview.surfaceOption.annual")}</option>
               </select>
             </label>
             <label className="stacked-field">
               <span>
-                {payloadPreviewSurface === "weekly"
-                  ? "Dimanche de la semaine"
-                  : payloadPreviewSurface === "monthly"
-                    ? "Mois"
-                    : payloadPreviewSurface === "annual"
-                      ? "Date de reference"
-                      : "Date"}
+                {t(`payloadPreview.dateLabel.${payloadPreviewSurface}`)}
               </span>
               <input
-                aria-label="Date apercu payload IA"
+                aria-label={t("payloadPreview.dateAria")}
                 type={payloadPreviewSurface === "monthly" ? "month" : "date"}
                 value={
                   payloadPreviewSurface === "weekly"
@@ -418,12 +410,12 @@ export const SettingsPage = () => {
                     const warnings: string[] = [];
                     if (weeklyRescueTime.pulseFetchError) {
                       warnings.push(
-                        `Pulse RescueTime indisponible pour cet apercu (${weeklyRescueTime.pulseFetchError}). L'apercu affichera "pas de donnee" a la place.`
+                        t("payloadPreview.pulseWarningWeekly", { error: weeklyRescueTime.pulseFetchError })
                       );
                     }
                     if (weeklyRescueTime.goalsFetchError) {
                       warnings.push(
-                        `Goals RescueTime indisponibles pour cet apercu (${weeklyRescueTime.goalsFetchError}). L'apercu affichera "pas de donnee" a la place.`
+                        t("payloadPreview.goalsWarning", { error: weeklyRescueTime.goalsFetchError })
                       );
                     }
                     if (warnings.length > 0) {
@@ -431,13 +423,13 @@ export const SettingsPage = () => {
                     }
 
                     const entries = await Promise.all(
-                      payloadScopes.map(async (scope) => {
-                        const snapshot = await previewPayload(repository, scope.value, {
+                      payloadScopeValues.map(async (value) => {
+                        const snapshot = await previewPayload(repository, value, {
                           surface: payloadPreviewSurface,
                           date,
                           weeklyRescueTime
                         });
-                        return [scope.value, JSON.stringify(snapshot, null, 2)] as const;
+                        return [value, JSON.stringify(snapshot, null, 2)] as const;
                       })
                     );
                     setPayloadPreviews(Object.fromEntries(entries) as Record<AiPayloadScope, string>);
@@ -448,17 +440,17 @@ export const SettingsPage = () => {
                     const productivityPulse = await resolveProductivityPulse(repository, date);
                     if (productivityPulse.fetchError) {
                       setPayloadPreviewPulseWarning(
-                        `Pulse RescueTime indisponible pour cet apercu (${productivityPulse.fetchError}). L'apercu ci-dessous affichera "pas de donnee" a la place.`
+                        t("payloadPreview.pulseWarningDaily", { error: productivityPulse.fetchError })
                       );
                     }
                     const entries = await Promise.all(
-                      payloadScopes.map(async (scope) => {
-                        const snapshot = await previewPayload(repository, scope.value, {
+                      payloadScopeValues.map(async (value) => {
+                        const snapshot = await previewPayload(repository, value, {
                           surface: payloadPreviewSurface,
                           date,
                           productivityPulse
                         });
-                        return [scope.value, JSON.stringify(snapshot, null, 2)] as const;
+                        return [value, JSON.stringify(snapshot, null, 2)] as const;
                       })
                     );
                     setPayloadPreviews(Object.fromEntries(entries) as Record<AiPayloadScope, string>);
@@ -466,34 +458,34 @@ export const SettingsPage = () => {
                   }
 
                   const entries = await Promise.all(
-                    payloadScopes.map(async (scope) => {
-                      const snapshot = await previewPayload(repository, scope.value, {
+                    payloadScopeValues.map(async (value) => {
+                      const snapshot = await previewPayload(repository, value, {
                         surface: payloadPreviewSurface,
                         date
                       });
-                      return [scope.value, JSON.stringify(snapshot, null, 2)] as const;
+                      return [value, JSON.stringify(snapshot, null, 2)] as const;
                     })
                   );
                   setPayloadPreviews(Object.fromEntries(entries) as Record<AiPayloadScope, string>);
                 } catch (error) {
                   setPayloadPreviewError(
-                    error instanceof Error ? error.message : "Echec du calcul de l'apercu du payload IA."
+                    error instanceof Error ? error.message : t("payloadPreview.error")
                   );
                 } finally {
                   setLoadingPayloadPreviews(false);
                 }
               }}
             >
-              {loadingPayloadPreviews ? "Calcul en cours..." : "Calculer l'apercu pour les 3 portees"}
+              {loadingPayloadPreviews ? t("payloadPreview.computing") : t("payloadPreview.compute")}
             </button>
           </div>
 
           {payloadPreviews ? (
             <div className="payload-preview">
-              {payloadScopes.map((scope) => (
-                <details key={scope.value}>
-                  <summary>{scope.label}</summary>
-                  <pre>{payloadPreviews[scope.value]}</pre>
+              {payloadScopeValues.map((value) => (
+                <details key={value}>
+                  <summary>{t(`ai.payloadScope.${value}`)}</summary>
+                  <pre>{payloadPreviews[value]}</pre>
                 </details>
               ))}
             </div>
@@ -502,8 +494,8 @@ export const SettingsPage = () => {
       ) : null}
 
       <SectionCard
-        title="RescueTime"
-        subtitle="Cle API stockee localement dans SQLite. Utilise-la pour charger tes goals RescueTime dans la revue hebdomadaire — modifiable a tout moment, y compris dans l'app bundlee."
+        title={t("rescuetime.title")}
+        subtitle={t("rescuetime.subtitle")}
       >
         {rescuetimeMessage ? <div className="banner">{rescuetimeMessage}</div> : null}
 
@@ -516,16 +508,16 @@ export const SettingsPage = () => {
 
             try {
               await saveSettings(draftSettings);
-              setRescuetimeMessage("Cle RescueTime enregistree.");
+              setRescuetimeMessage(t("rescuetime.saved"));
             } catch (error) {
-              setRescuetimeMessage(error instanceof Error ? error.message : "Echec de l'enregistrement RescueTime.");
+              setRescuetimeMessage(error instanceof Error ? error.message : t("rescuetime.saveError"));
             } finally {
               setSavingRescuetimeSettings(false);
             }
           }}
         >
           <label>
-            <span>Cle API RescueTime</span>
+            <span>{t("rescuetime.apiKey")}</span>
             <input
               type="password"
               value={draftSettings.rescuetimeApiKey}
@@ -535,13 +527,13 @@ export const SettingsPage = () => {
                   rescuetimeApiKey: event.target.value
                 }))
               }
-              placeholder="Bearer token RescueTime"
+              placeholder={t("rescuetime.apiKeyPlaceholder")}
             />
           </label>
 
           <div className="form-actions">
             <button className="button button--primary" type="submit" disabled={savingRescuetimeSettings}>
-              {savingRescuetimeSettings ? "Enregistrement..." : "Enregistrer la cle RescueTime"}
+              {savingRescuetimeSettings ? t("ai.saving") : t("rescuetime.save")}
             </button>
             <button
               className="button"
@@ -555,25 +547,25 @@ export const SettingsPage = () => {
                   const result = await goalsService.testConnection(draftSettings.rescuetimeApiKey);
                   setRescuetimeMessage(
                     result.goalCount > 0
-                      ? `Connexion OK. ${result.goalCount} goal(s) actif(s). Exemple: ${result.sampleGoal}. Enregistre la cle pour l'utiliser dans l'app.`
-                      : "Connexion OK, mais aucun goal RescueTime actif trouve."
+                      ? t("rescuetime.testOkWithGoals", { count: result.goalCount, sample: result.sampleGoal })
+                      : t("rescuetime.testOkEmpty")
                   );
                 } catch (error) {
-                  setRescuetimeMessage(error instanceof Error ? error.message : "Echec du test RescueTime.");
+                  setRescuetimeMessage(error instanceof Error ? error.message : t("rescuetime.testError"));
                 } finally {
                   setTestingRescuetime(false);
                 }
               }}
             >
-              {testingRescuetime ? "Test en cours..." : "Tester la connexion"}
+              {testingRescuetime ? t("rescuetime.testing") : t("rescuetime.test")}
             </button>
           </div>
         </form>
       </SectionCard>
 
       <SectionCard
-        title="Activites relationnelles quotidiennes"
-        subtitle="Chaque matin, Trackdidia peut tirer au hasard une activite avec les enfants et une autre avec ton epouse."
+        title={t("relationship.title")}
+        subtitle={t("relationship.subtitle")}
       >
         {relationshipMessage ? <div className="banner">{relationshipMessage}</div> : null}
 
@@ -589,11 +581,11 @@ export const SettingsPage = () => {
                 }))
               }
             />
-            <span>Activer le tirage quotidien relationnel</span>
+            <span>{t("relationship.enable")}</span>
           </label>
 
           <label className="stacked-field">
-            <span>Activites avec enfants (une par ligne)</span>
+            <span>{t("relationship.children")}</span>
             <textarea
               rows={10}
               value={draftSettings.relationshipDrawChildrenActivities.join("\n")}
@@ -610,7 +602,7 @@ export const SettingsPage = () => {
           </label>
 
           <label className="stacked-field">
-            <span>Activites avec ton epouse (une par ligne)</span>
+            <span>{t("relationship.spouse")}</span>
             <textarea
               rows={10}
               value={draftSettings.relationshipDrawSpouseActivities.join("\n")}
@@ -638,53 +630,53 @@ export const SettingsPage = () => {
 
               try {
                 await saveSettings(draftSettings);
-                setRelationshipMessage("Configuration des activites relationnelles enregistree.");
+                setRelationshipMessage(t("relationship.saved"));
               } catch (error) {
                 setRelationshipMessage(
-                  error instanceof Error ? error.message : "Echec de l'enregistrement des activites relationnelles."
+                  error instanceof Error ? error.message : t("relationship.saveError")
                 );
               } finally {
                 setSavingRelationshipSettings(false);
               }
             }}
           >
-            {savingRelationshipSettings ? "Enregistrement..." : "Enregistrer les activites relationnelles"}
+            {savingRelationshipSettings ? t("ai.saving") : t("relationship.save")}
           </button>
         </div>
       </SectionCard>
 
       <SectionCard
-        title="Sauvegarde locale"
-        subtitle="Exporte un snapshot manuel de la base SQLite et active les backups automatiques toutes les 24h."
+        title={t("backup.title")}
+        subtitle={t("backup.subtitle")}
       >
         <div className="status-grid">
           <article className="status-card">
-            <span>Environnement</span>
+            <span>{t("backup.env.label")}</span>
             <strong>
               {storageInfo?.environment === "development"
-                ? "Developpement"
+                ? t("backup.env.development")
                 : storageInfo?.environment === "production"
-                  ? "Production"
+                  ? t("backup.env.production")
                   : browserPreview
-                    ? "Mode preview"
-                    : "..."}
+                    ? t("backup.env.preview")
+                    : t("loadingPlaceholder")}
             </strong>
           </article>
           <article className="status-card">
-            <span>Base SQLite</span>
-            <strong>{storageInfo?.databasePath ?? (browserPreview ? "Mode preview" : "...")}</strong>
+            <span>{t("backup.fields.database")}</span>
+            <strong>{storageInfo?.databasePath ?? (browserPreview ? t("backup.env.preview") : t("loadingPlaceholder"))}</strong>
           </article>
           <article className="status-card">
-            <span>Dossier des backups</span>
-            <strong>{storageInfo?.backupDir ?? (browserPreview ? "Mode preview" : "...")}</strong>
+            <span>{t("backup.fields.backupDir")}</span>
+            <strong>{storageInfo?.backupDir ?? (browserPreview ? t("backup.env.preview") : t("loadingPlaceholder"))}</strong>
           </article>
           <article className="status-card">
-            <span>Dernier backup</span>
-            <strong>{settings.lastBackupAt ? formatDateTimeShort(settings.lastBackupAt) : "Jamais"}</strong>
+            <span>{t("backup.fields.lastBackup")}</span>
+            <strong>{settings.lastBackupAt ? formatDateTimeShort(settings.lastBackupAt) : t("backup.never")}</strong>
           </article>
           <article className="status-card">
-            <span>Backup auto</span>
-            <strong>{draftSettings.autoBackupEnabled ? `Toutes les ${draftSettings.autoBackupIntervalHours}h` : "Desactive"}</strong>
+            <span>{t("backup.fields.autoBackup")}</span>
+            <strong>{draftSettings.autoBackupEnabled ? t("backup.autoInterval", { n: draftSettings.autoBackupIntervalHours }) : t("backup.disabled")}</strong>
           </article>
         </div>
 
@@ -702,11 +694,11 @@ export const SettingsPage = () => {
                 }))
               }
             />
-            <span>Activer le backup automatique local</span>
+            <span>{t("backup.autoEnable")}</span>
           </label>
 
           <label>
-            <span>Intervalle de backup automatique (heures)</span>
+            <span>{t("backup.interval")}</span>
             <input
               type="number"
               min={1}
@@ -739,15 +731,15 @@ export const SettingsPage = () => {
                 };
                 await saveSettings(nextSettings);
                 setDraftSettings(nextSettings);
-                setBackupMessage("Preferences de backup enregistrees.");
+                setBackupMessage(t("backup.prefsSaved"));
               } catch (error) {
-                setBackupMessage(error instanceof Error ? error.message : "Echec de l'enregistrement des backups.");
+                setBackupMessage(error instanceof Error ? error.message : t("backup.prefsError"));
               } finally {
                 setSavingBackupSettings(false);
               }
             }}
           >
-            {savingBackupSettings ? "Enregistrement..." : "Enregistrer les preferences de backup"}
+            {savingBackupSettings ? t("ai.saving") : t("backup.savePrefs")}
           </button>
           <button
             className="button button--primary"
@@ -766,39 +758,39 @@ export const SettingsPage = () => {
                 };
                 await saveSettings(nextSettings);
                 setDraftSettings(nextSettings);
-                setBackupMessage(`Backup cree avec succes: ${backup.backupPath}`);
+                setBackupMessage(t("backup.created", { path: backup.backupPath }));
               } catch (error) {
-                setBackupMessage(error instanceof Error ? error.message : "Echec du backup manuel.");
+                setBackupMessage(error instanceof Error ? error.message : t("backup.createError"));
               } finally {
                 setCreatingBackup(false);
               }
             }}
           >
-            {creatingBackup ? "Export en cours..." : "Exporter un backup maintenant"}
+            {creatingBackup ? t("backup.exporting") : t("backup.export")}
           </button>
         </div>
       </SectionCard>
 
       <SectionCard
-        title="Import GTD"
-        subtitle="Controle l'import initial depuis l'export Google Tasks inclus dans l'app."
+        title={t("gtdImport.title")}
+        subtitle={t("gtdImport.subtitle")}
       >
         <div className="status-grid">
           <article className="status-card">
-            <span>Taches GTD</span>
-            <strong>{gtdOverview?.taskCount ?? "..."}</strong>
+            <span>{t("gtdImport.stats.tasks")}</span>
+            <strong>{gtdOverview?.taskCount ?? t("loadingPlaceholder")}</strong>
           </article>
           <article className="status-card">
-            <span>Projets GTD</span>
-            <strong>{gtdOverview?.projectCount ?? "..."}</strong>
+            <span>{t("gtdImport.stats.projects")}</span>
+            <strong>{gtdOverview?.projectCount ?? t("loadingPlaceholder")}</strong>
           </article>
           <article className="status-card">
-            <span>Contexts GTD</span>
-            <strong>{gtdOverview?.contextCount ?? "..."}</strong>
+            <span>{t("gtdImport.stats.contexts")}</span>
+            <strong>{gtdOverview?.contextCount ?? t("loadingPlaceholder")}</strong>
           </article>
           <article className="status-card">
-            <span>Dernier import</span>
-            <strong>{settings.gtdImportDoneAt || "Jamais"}</strong>
+            <span>{t("gtdImport.stats.lastImport")}</span>
+            <strong>{settings.gtdImportDoneAt || t("backup.never")}</strong>
           </article>
         </div>
 
@@ -824,16 +816,20 @@ export const SettingsPage = () => {
                 setDraftSettings(nextSettings);
                 setGtdOverview(await repository.getGtdOverview());
                 setGtdMessage(
-                  `Import termine: ${summary.importedTasks} taches, ${summary.importedProjects} projets, ${summary.importedContexts} contexts.`
+                  t("gtdImport.success", {
+                    tasks: summary.importedTasks,
+                    projects: summary.importedProjects,
+                    contexts: summary.importedContexts
+                  })
                 );
               } catch (error) {
-                setGtdMessage(error instanceof Error ? error.message : "Echec de l'import GTD.");
+                setGtdMessage(error instanceof Error ? error.message : t("gtdImport.error"));
               } finally {
                 setImportingGtd(false);
               }
             }}
           >
-            {importingGtd ? "Import en cours..." : "Relancer l'import Google Tasks"}
+            {importingGtd ? t("gtdImport.importing") : t("gtdImport.import")}
           </button>
         </div>
       </SectionCard>

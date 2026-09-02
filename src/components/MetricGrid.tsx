@@ -1,5 +1,7 @@
+import { useTranslation } from "react-i18next";
 import { metricDefinitions } from "../domain/definitions";
 import { resolveMetricValue } from "../domain/daily-entry";
+import { t as translate } from "../i18n";
 import type { DailyEntry, MetricKey, SuggestedMetrics } from "../domain/types";
 
 interface MetricGridProps {
@@ -11,6 +13,7 @@ interface MetricGridProps {
 }
 
 export const MetricGrid = ({ entry, keys, suggestedValues, suggestionKeys = [], onChange }: MetricGridProps) => {
+  const { t } = useTranslation("metrics");
   const definitions = metricDefinitions.filter((definition) => !keys || keys.includes(definition.key));
   const suggestionSet = new Set(suggestionKeys);
 
@@ -18,10 +21,10 @@ export const MetricGrid = ({ entry, keys, suggestedValues, suggestionKeys = [], 
     <div className="metric-grid">
       {definitions.map((definition) => (
         <label key={definition.key} className="field-card">
-          <span className="field-card__label">{definition.label}</span>
+          <span className="field-card__label">{translate(`${definition.key}.label`, { ns: "metrics" })}</span>
           <span className="field-card__helper">
-            {definition.helper}
-            {suggestionSet.has(definition.key) ? " Suggestion auto, modifiable si besoin." : ""}
+            {translate(`${definition.key}.helper`, { ns: "metrics" })}
+            {suggestionSet.has(definition.key) ? t("suggestionHint") : ""}
           </span>
           <div className="field-card__control">
             <input
@@ -40,7 +43,7 @@ export const MetricGrid = ({ entry, keys, suggestedValues, suggestionKeys = [], 
                 onChange(definition.key, value === "" ? null : Number(value));
               }}
             />
-            {definition.unit ? <small>{definition.unit}</small> : null}
+            {definition.unit ? <small>{translate(`${definition.key}.unit`, { ns: "metrics" })}</small> : null}
           </div>
         </label>
       ))}

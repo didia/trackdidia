@@ -16,7 +16,7 @@ describe("HistoryPage", () => {
 
     await renderWithApp(<HistoryPage />, { repository });
 
-    const dateInput = await screen.findByLabelText(/date a ouvrir/i);
+    const dateInput = await screen.findByLabelText(/date à ouvrir/i);
     await user.clear(dateInput);
     await user.type(dateInput, "2026-03-29");
     await user.click(screen.getByRole("button", { name: /charger la date/i }));
@@ -40,7 +40,7 @@ describe("HistoryPage", () => {
 
     await renderWithApp(<HistoryPage />, { repository });
 
-    const dateInput = await screen.findByLabelText(/date a ouvrir/i);
+    const dateInput = await screen.findByLabelText(/date à ouvrir/i);
     await user.clear(dateInput);
     await user.type(dateInput, "2026-03-29");
     await user.click(screen.getByRole("button", { name: /charger la date/i }));

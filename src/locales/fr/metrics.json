@@ -1,0 +1,58 @@
+{
+  "suggestionHint": " Suggestion auto, modifiable si besoin.",
+  "course": {
+    "label": "Course",
+    "helper": "Temps ou volume lié à la course.",
+    "unit": "min"
+  },
+  "marche": {
+    "label": "Marche",
+    "helper": "Nombre de pas de la journée.",
+    "unit": "pas"
+  },
+  "depenseCalorique": {
+    "label": "Dépense calorique",
+    "helper": "Calories dépensées.",
+    "unit": "kcal"
+  },
+  "pushups": {
+    "label": "Pushups",
+    "helper": "Total de pushups.",
+    "unit": "rep"
+  },
+  "qualiteSommeil": {
+    "label": "Qualité du sommeil",
+    "helper": "Score de sommeil.",
+    "unit": "/100"
+  },
+  "tempsEcranTelephone": {
+    "label": "Temps d'écran téléphone",
+    "helper": "Temps d'écran total.",
+    "unit": "min"
+  },
+  "pomodoris": {
+    "label": "Pomodoris",
+    "helper": "Nombre de blocs concentrés.",
+    "unit": "sessions"
+  },
+  "tachesDebut": {
+    "label": "Tâches début",
+    "helper": "Tâches prévues au début de la journée.",
+    "unit": "nb"
+  },
+  "tachesFin": {
+    "label": "Tâches fin",
+    "helper": "Tâches restantes en fin de journée.",
+    "unit": "nb"
+  },
+  "tachesAjoutes": {
+    "label": "Tâches ajoutées",
+    "helper": "Tâches ajoutées après le départ.",
+    "unit": "nb"
+  },
+  "tachesRealises": {
+    "label": "Tâches réalisées",
+    "helper": "Tâches complétées.",
+    "unit": "nb"
+  }
+}

@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { resolveMetricValue } from "../daily-entry";
 import { metricDefinitions } from "../definitions";
 import type { DailyEntry, MetricKey } from "../types";
@@ -70,8 +71,18 @@ export const computeMetricTrendFindings = (entries: DailyEntry[], referenceDate?
       value: average7d,
       label:
         shortSampleSize > 0
-          ? `Moyenne 7j de ${key}: ${average7d.toFixed(1)} (moyenne 28j: ${average28d.toFixed(1)}, tendance ${direction}).`
-          : `Pas de donnee pour ${key} sur les 7 derniers jours (moyenne 28j: ${average28d.toFixed(1)}).`,
+          ? t("trendMetric", {
+              ns: "insights",
+              label: t(`${key}.label`, { ns: "metrics" }),
+              avg7: average7d.toFixed(1),
+              avg28: average28d.toFixed(1),
+              direction: t(`direction.${direction}`, { ns: "insights" })
+            })
+          : t("trendMetricNoShort", {
+              ns: "insights",
+              label: t(`${key}.label`, { ns: "metrics" }),
+              avg28: average28d.toFixed(1)
+            }),
       metricKey: key,
       average7d,
       average28d,
@@ -121,7 +132,12 @@ export const computeWeeklyScoreTrend = (points: WeeklyScoreTrendPoint[]): Weekly
     },
     sampleSize: priorWeeks.length,
     value: latest.weeklyScore,
-    label: `Score hebdomadaire de la derniere semaine: ${latest.weeklyScore.toFixed(1)} (moyenne des semaines precedentes: ${baselineAverage.toFixed(1)}, tendance ${direction}).`,
+    label: t("trendWeeklyScore", {
+      ns: "insights",
+      score: latest.weeklyScore.toFixed(1),
+      baseline: baselineAverage.toFixed(1),
+      direction: t(`direction.${direction}`, { ns: "insights" })
+    }),
     latestWeekStartDate: latest.weekStartDate,
     latestScore: latest.weeklyScore,
     baselineAverage,

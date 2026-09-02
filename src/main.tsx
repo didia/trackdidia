@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./App";
+import "./i18n";
 import { installDebugInstrumentation, logDebug } from "./lib/debug";
 import "./styles.css";
 

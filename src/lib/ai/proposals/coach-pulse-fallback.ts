@@ -1,6 +1,7 @@
 import type { Finding } from "../../../domain/insights/types";
 import { MIN_SAMPLE_DAYS } from "../../../domain/insights/constants";
 import type { AiDeltaClass, CoachPulseResponse, CoachPulseStance } from "../../../domain/types";
+import { t } from "../../../i18n";
 
 const severityRank: Record<Finding["severity"], number> = {
   watch: 3,
@@ -28,8 +29,8 @@ export const pickTopFinding = (findings: Finding[]): Finding | null => {
 
 export const buildLocalUnknownPulse = (stance: CoachPulseStance): CoachPulseResponse => ({
   stance,
-  headline: "Signal insuffisant",
-  read: "Je n'ai pas assez de signal depuis la derniere pulsation. As-tu avance hors application, ou la journee est-elle encore ouverte?",
+  headline: t("pulse.unknown.headline", { ns: "coach" }),
+  read: t("pulse.unknown.read", { ns: "coach" }),
   move: null
 });
 
@@ -43,29 +44,29 @@ export const buildLocalCoachPulse = (
   if (stance === "open") {
     return {
       stance: "open",
-      headline: topFinding ? "Lecture du terrain" : "Ouvre simplement",
-      read: topFinding?.label ?? "Pas assez de signal pour une lecture fine. Commence par une intention courte et un premier bloc protege.",
+      headline: topFinding ? t("pulse.open.headlineWithFinding", { ns: "coach" }) : t("pulse.open.headline", { ns: "coach" }),
+      read: topFinding?.label ?? t("pulse.open.readFallback", { ns: "coach" }),
       move: {
-        what: "Ecris une intention en une phrase",
-        why: "Donner un cap clair avant d'entrer dans le flux",
+        what: t("pulse.open.moveWhat", { ns: "coach" }),
+        why: t("pulse.open.moveWhy", { ns: "coach" }),
         horizon: "now"
       },
-      intentionDraft: topFinding ? `Tenir le cap sur: ${topFinding.label}` : undefined
+      intentionDraft: topFinding ? t("pulse.open.intentionDraft", { ns: "coach", label: topFinding.label }) : undefined
     };
   }
 
   if (stance === "steer") {
     return {
       stance: "steer",
-      headline: topFinding ? "Mi-journee — corrige le cap" : "Mi-journee — un geste concret",
+      headline: topFinding ? t("pulse.steer.headlineWithFinding", { ns: "coach" }) : t("pulse.steer.headline", { ns: "coach" }),
       read:
         topFinding?.label ??
         (deltaClass === "stall"
-          ? "Aucun focus ni tache completee depuis la derniere pulsation. L'apres-midi est encore disponible."
-          : "Repere un bloc concret pour relancer l'apres-midi."),
+          ? t("pulse.steer.readStall", { ns: "coach" })
+          : t("pulse.steer.readFallback", { ns: "coach" })),
       move: {
-        what: "Choisis une seule action de 25 minutes",
-        why: "Un geste concret vaut mieux qu'une liste",
+        what: t("pulse.steer.moveWhat", { ns: "coach" }),
+        why: t("pulse.steer.moveWhy", { ns: "coach" }),
         horizon: "now"
       }
     };
@@ -74,13 +75,13 @@ export const buildLocalCoachPulse = (
   if (stance === "wind_down") {
     return {
       stance: "wind_down",
-      headline: topFinding ? "Fin de journee — ce qui reste" : "Fin de journee — referme le realisable",
-      read:
-        topFinding?.label ??
-        "Note ce qui peut encore tenir aujourd'hui et ce qu'il faut laisser tomber sans culpabilite.",
+      headline: topFinding
+        ? t("pulse.windDown.headlineWithFinding", { ns: "coach" })
+        : t("pulse.windDown.headline", { ns: "coach" }),
+      read: topFinding?.label ?? t("pulse.windDown.readFallback", { ns: "coach" }),
       move: {
-        what: "Liste deux choses realistes ou une seule a abandonner",
-        why: "Refermer sans surcharger le soir",
+        what: t("pulse.windDown.moveWhat", { ns: "coach" }),
+        why: t("pulse.windDown.moveWhy", { ns: "coach" }),
         horizon: "today"
       }
     };
@@ -88,13 +89,15 @@ export const buildLocalCoachPulse = (
 
   return {
     stance: "close",
-    headline: topFinding ? "Bilan du jour" : "Referme proprement",
-    read: topFinding?.label ?? "La journee merite une lecture honnete, meme imparfaite. Note ce qui a tenu et ce qui a deraille.",
+    headline: topFinding ? t("pulse.close.headlineWithFinding", { ns: "coach" }) : t("pulse.close.headline", { ns: "coach" }),
+    read: topFinding?.label ?? t("pulse.close.readFallback", { ns: "coach" }),
     move: {
-      what: "Choisis une seule priorite pour demain",
-      why: "Refermer avec un prochain geste concret",
+      what: t("pulse.close.moveWhat", { ns: "coach" }),
+      why: t("pulse.close.moveWhy", { ns: "coach" }),
       horizon: "tomorrow"
     },
-    tomorrowFocusDraft: topFinding ? `Reprendre la ou ${topFinding.label.toLowerCase()}` : undefined
+    tomorrowFocusDraft: topFinding
+      ? t("pulse.close.tomorrowFocusDraft", { ns: "coach", label: topFinding.label })
+      : undefined
   };
 };

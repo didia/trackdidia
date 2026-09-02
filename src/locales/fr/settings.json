@@ -1,0 +1,230 @@
+{
+  "loadingPlaceholder": "...",
+  "hero": {
+    "eyebrow": "Configuration",
+    "title": "Paramètres de Trackdidia",
+    "copy": "Gère l'activation de l'IA, le mode debug et les options du coach."
+  },
+  "ai": {
+    "title": "Paramètres IA",
+    "subtitle": "Coach local par défaut, ou OpenRouter avec ta clé API pour router vers le modèle de ton choix.",
+    "enable": "Activer les messages IA",
+    "debug": "Mode debug local (console + panneau de logs)",
+    "baseUrl": "URL de base OpenRouter",
+    "baseUrlPlaceholder": "https://openrouter.ai/api/v1",
+    "model": "Modèle OpenRouter",
+    "modelPlaceholder": "moonshotai/kimi-k2.6",
+    "apiKey": "Clé API OpenRouter",
+    "apiKeyPlaceholder": "sk-or-...",
+    "payloadScopeLabel": "Portée du payload envoyé à l'IA",
+    "payloadScope": {
+      "metrics": "metrics",
+      "metrics_and_structure": "metrics_and_structure",
+      "full": "full"
+    },
+    "memory": "Activer la mémoire IA (continuité entre les pulses)",
+    "pulse": "Activer le pulse coach (open / steer / wind_down)",
+    "pulseNotify": "Notifications OS sur deuxième stall consécutif (jours ouvrables)",
+    "pulseSlots": "Heures de pulse (local, trois heures uniques 0–23, séparées par des virgules)",
+    "pulseSlotsPlaceholder": "5, 13, 20",
+    "pulseSlotsEmpty": "Entrez exactement trois heures (0–23), séparées par des virgules.",
+    "pulseSlotsFormat": "Format invalide : utilisez trois heures séparées par des virgules.",
+    "pulseSlotsInvalidHour": "Heure invalide : « {{part}} » (0–23 attendu).",
+    "pulseSlotsCount": "Entrez exactement trois heures locales (open, steer, wind_down).",
+    "pulseSlotsUnique": "Les trois heures doivent être uniques.",
+    "maxNotifications": "Notifications max par jour",
+    "costRate": "Tarif approximatif IA (USD / million de jetons)",
+    "saving": "Enregistrement...",
+    "save": "Enregistrer les paramètres",
+    "reset": "Réinitialiser"
+  },
+  "payloadPreview": {
+    "title": "Aperçu du payload IA (debug)",
+    "subtitle": "Rendu exact du snapshot envoyé à l'IA pour chaque portée (quotidien, hebdomadaire ou mensuel), construit à partir des données réelles.",
+    "surface": "Surface",
+    "surfaceAria": "Surface aperçu payload IA",
+    "surfaceOption": {
+      "daily": "Quotidien (coach_pulse)",
+      "weekly": "Hebdomadaire (weekly_synthesis)",
+      "monthly": "Mensuel (monthly_synthesis)",
+      "annual": "Annuel (goal_pacing)"
+    },
+    "dateLabel": {
+      "weekly": "Dimanche de la semaine",
+      "monthly": "Mois",
+      "annual": "Date de référence",
+      "daily": "Date"
+    },
+    "dateAria": "Date aperçu payload IA",
+    "pulseWarningWeekly": "Pulse RescueTime indisponible pour cet aperçu ({{error}}). L'aperçu affichera \"pas de donnée\" à la place.",
+    "goalsWarning": "Goals RescueTime indisponibles pour cet aperçu ({{error}}). L'aperçu affichera \"pas de donnée\" à la place.",
+    "pulseWarningDaily": "Pulse RescueTime indisponible pour cet aperçu ({{error}}). L'aperçu ci-dessous affichera \"pas de donnée\" à la place.",
+    "error": "Échec du calcul de l'aperçu du payload IA.",
+    "computing": "Calcul en cours...",
+    "compute": "Calculer l'aperçu pour les 3 portées"
+  },
+  "rescuetime": {
+    "title": "RescueTime",
+    "subtitle": "Clé API stockée localement dans SQLite. Utilise-la pour charger tes goals RescueTime dans la revue hebdomadaire — modifiable à tout moment, y compris dans l'app bundlée.",
+    "saved": "Clé RescueTime enregistrée.",
+    "saveError": "Échec de l'enregistrement RescueTime.",
+    "apiKey": "Clé API RescueTime",
+    "apiKeyPlaceholder": "Bearer token RescueTime",
+    "save": "Enregistrer la clé RescueTime",
+    "testOkWithGoals_one": "Connexion OK. {{count}} goal actif. Exemple : {{sample}}. Enregistre la clé pour l'utiliser dans l'app.",
+    "testOkWithGoals_other": "Connexion OK. {{count}} goals actifs. Exemple : {{sample}}. Enregistre la clé pour l'utiliser dans l'app.",
+    "testOkEmpty": "Connexion OK, mais aucun goal RescueTime actif trouvé.",
+    "testError": "Échec du test RescueTime.",
+    "testing": "Test en cours...",
+    "test": "Tester la connexion"
+  },
+  "relationship": {
+    "title": "Activités relationnelles quotidiennes",
+    "subtitle": "Chaque matin, Trackdidia peut tirer au hasard une activité avec les enfants et une autre avec ton épouse.",
+    "enable": "Activer le tirage quotidien relationnel",
+    "children": "Activités avec enfants (une par ligne)",
+    "spouse": "Activités avec ton épouse (une par ligne)",
+    "saved": "Configuration des activités relationnelles enregistrée.",
+    "saveError": "Échec de l'enregistrement des activités relationnelles.",
+    "save": "Enregistrer les activités relationnelles"
+  },
+  "backup": {
+    "title": "Sauvegarde locale",
+    "subtitle": "Exporte un snapshot manuel de la base SQLite et active les backups automatiques toutes les 24h.",
+    "env": {
+      "label": "Environnement",
+      "development": "Développement",
+      "production": "Production",
+      "preview": "Mode preview"
+    },
+    "fields": {
+      "database": "Base SQLite",
+      "backupDir": "Dossier des backups",
+      "lastBackup": "Dernier backup",
+      "autoBackup": "Backup auto"
+    },
+    "never": "Jamais",
+    "autoInterval": "Toutes les {{n}}h",
+    "disabled": "Désactivé",
+    "autoEnable": "Activer le backup automatique local",
+    "interval": "Intervalle de backup automatique (heures)",
+    "prefsSaved": "Préférences de backup enregistrées.",
+    "prefsError": "Échec de l'enregistrement des backups.",
+    "savePrefs": "Enregistrer les préférences de backup",
+    "created": "Backup créé avec succès : {{path}}",
+    "createError": "Échec du backup manuel.",
+    "exporting": "Export en cours...",
+    "export": "Exporter un backup maintenant"
+  },
+  "gtdImport": {
+    "title": "Import GTD",
+    "subtitle": "Contrôle l'import initial depuis l'export Google Tasks inclus dans l'app.",
+    "stats": {
+      "tasks": "Tâches GTD",
+      "projects": "Projets GTD",
+      "contexts": "Contexts GTD",
+      "lastImport": "Dernier import"
+    },
+    "success": "Import terminé : {{tasks}} tâches, {{projects}} projets, {{contexts}} contexts.",
+    "error": "Échec de l'import GTD.",
+    "importing": "Import en cours...",
+    "import": "Relancer l'import Google Tasks"
+  },
+  "memoryProfile": {
+    "title": "Profil coach (mémoires épinglées)",
+    "subtitle": "Mission, saison de vie, style de coaching — toujours injecté quand la mémoire IA est active.",
+    "disabledHint": "Active la mémoire IA ci-dessus pour que ce profil soit utilisé par le coach.",
+    "statementRequired": "Le libellé est requis.",
+    "updated": "Profil mis à jour.",
+    "added": "Mémoire épinglée ajoutée.",
+    "archived": "Mémoire archivée.",
+    "loading": "Chargement du profil...",
+    "edit": "Modifier",
+    "delete": "Supprimer",
+    "editStatement": "Modifier le libellé",
+    "newStatement": "Nouveau libellé",
+    "statementPlaceholder": "Ex. Mission personnelle, style de coaching souhaité...",
+    "detail": "Détail (optionnel)",
+    "detailPlaceholder": "Contexte durable pour le coach...",
+    "update": "Mettre à jour",
+    "add": "Ajouter",
+    "cancel": "Annuler"
+  },
+  "analytics": {
+    "title": "Analytique coach",
+    "subtitle": "Taux d'acceptation des propositions IA (lecture seule).",
+    "subtitleFull": "Taux d'acceptation des propositions IA (lecture seule). Aucune modification automatique de prompt.",
+    "loadError": "Impossible de charger l'analytique coach. Réessaie plus tard.",
+    "retry": "Réessayer",
+    "noData": "Aucune donnée disponible.",
+    "noDecidedProposals": "Aucune proposition décidée pour le moment.",
+    "bySurface": "Par surface",
+    "byType": "Par type de proposition",
+    "byStance": "Par posture (pulse coach)",
+    "col": {
+      "label": "Libellé",
+      "decided": "Décidées",
+      "accepted": "Acceptées",
+      "dismissed": "Rejetées",
+      "acceptanceRate": "Taux d'acceptation",
+      "date": "Date",
+      "decisions": "Décisions",
+      "dismissals": "Rejets",
+      "dismissalRate": "Taux de rejet",
+      "surface": "Surface",
+      "version": "Version",
+      "description": "Description"
+    },
+    "dismissalTrend": "Tendance de rejet (30 derniers jours)",
+    "noDecisionsInPeriod": "Aucune décision enregistrée sur la période.",
+    "promptRevisionSignals": "Signaux de révision de prompt",
+    "acceptanceSample": "{{percent}} % d'acceptation sur {{count}} décisions.",
+    "currentVersion": "(version actuelle : {{version}})",
+    "activePromptVersions": "Versions de prompt actives",
+    "prompt": {
+      "coach_pulse": "Pulse quotidien (open, steer, wind_down, close) avec propositions acceptables.",
+      "weekly_synthesis": "Synthèse hebdomadaire : sections, objectifs et actions GTD.",
+      "monthly_synthesis": "Synthèse mensuelle : sections et évaluations d'objectifs annuels.",
+      "goal_pacing": "Rythme annuel des objectifs (affichage seulement, sans propositions)."
+    }
+  },
+  "cost": {
+    "title": "Coût IA (mois en cours)",
+    "subtitle": "Estimation locale à partir des jetons enregistrés dans ai_messages. Les tarifs OpenRouter varient selon le modèle.",
+    "month": "Mois",
+    "calls": "Appels enregistrés",
+    "tokensPrompt": "Jetons entrée",
+    "tokensCompletion": "Jetons sortie",
+    "estimated": "Coût estimé",
+    "enterRateHint": "Entrez un tarif approximatif dans Paramètres IA pour estimer le coût.",
+    "calculatedWithRate": "Coût calculé avec le tarif {{rate}} USD / million de jetons (prompt + completion). Les tarifs OpenRouter varient selon le modèle — ajuste le tarif dans Paramètres IA."
+  },
+  "debug": {
+    "title": "Debug Trackdidia",
+    "hide": "Masquer",
+    "show": "Afficher",
+    "clear": "Vider",
+    "pomodoroTests": "Tests Pomodoro",
+    "testSessionChime": "Son session 3s",
+    "testCycleChime": "Son cycle 5s",
+    "testNotification": "Test notification",
+    "testCompletion": "Test completion",
+    "consoleHint": "Les erreurs sont aussi envoyées à `console.info` et `console.error`.",
+    "emptyLogs": "Aucun log pour le moment.",
+    "level": {
+      "error": "Erreur",
+      "warn": "Alerte",
+      "info": "Info"
+    },
+    "log": {
+      "sessionChimeOk": "Test son session (3s) réussi",
+      "sessionChimeFail": "Test son session échoué",
+      "cycleChimeOk": "Test son cycle (5s) réussi",
+      "cycleChimeFail": "Test son cycle échoué",
+      "notificationOk": "Test notification réussi",
+      "notificationFail": "Test notification échoué",
+      "completion": "Test completion Pomodoro",
+      "pomodoroTestFail": "Échec du test Pomodoro"
+    }
+  }
+}

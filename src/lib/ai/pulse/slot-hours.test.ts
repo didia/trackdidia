@@ -10,7 +10,7 @@ describe("slot-hours", () => {
   it("rejects duplicates", () => {
     expect(parsePulseSlotHours("5, 5, 20")).toEqual({
       ok: false,
-      error: "Les trois heures doivent etre uniques."
+      error: "Les trois heures doivent être uniques."
     });
   });
 
@@ -31,11 +31,11 @@ describe("slot-hours", () => {
   it("rejects empty input", () => {
     expect(parsePulseSlotHours("")).toEqual({
       ok: false,
-      error: "Entrez exactement trois heures (0–23), separees par des virgules."
+      error: "Entrez exactement trois heures (0–23), séparées par des virgules."
     });
     expect(parsePulseSlotHours("   ")).toEqual({
       ok: false,
-      error: "Entrez exactement trois heures (0–23), separees par des virgules."
+      error: "Entrez exactement trois heures (0–23), séparées par des virgules."
     });
   });
 

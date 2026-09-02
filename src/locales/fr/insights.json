@@ -1,0 +1,38 @@
+{
+  "direction": {
+    "up": "en hausse",
+    "down": "en baisse",
+    "flat": "stable"
+  },
+  "streak": "Streak actuel de {{count}} jour pour {{label}} (taux 28j : {{rate}}%).",
+  "streak_other": "Streak actuel de {{count}} jours pour {{label}} (taux 28j : {{rate}}%).",
+  "trendMetric": "Moyenne 7j de {{label}} : {{avg7}} (moyenne 28j : {{avg28}}, tendance {{direction}}).",
+  "trendMetricNoShort": "Pas de donnée pour {{label}} sur les 7 derniers jours (moyenne 28j : {{avg28}}).",
+  "trendWeeklyScore": "Score hebdomadaire de la dernière semaine : {{score}} (moyenne des semaines précédentes : {{baseline}}, tendance {{direction}}).",
+  "anomalyToday": "Aujourd'hui, {{subject}} : {{value}} vs une base personnelle de {{mean}} (n={{count}}).",
+  "anomalyWeek": "Cette semaine, {{subject}} : {{value}} vs une base personnelle de {{mean}} (n={{count}}).",
+  "subjectDiscipline": "discipline",
+  "correlationDiscipline": "Discipline moyenne associée aux jours avec {{label}} : {{pctTrue}}% (vs {{pctFalse}}% sans, n={{count}}).",
+  "inboxBacklog_one": "{{count}} élément en attente de clarification dans l'inbox.",
+  "inboxBacklog_other": "{{count}} éléments en attente de clarification dans l'inbox.",
+  "projectsWithoutNext_one": "{{count}} projet actif sans next action associée.",
+  "projectsWithoutNext_other": "{{count}} projets actifs sans next action associée.",
+  "staleNextActions": "{{count}} next action non touchée depuis plus de {{days}} jours.",
+  "staleNextActions_other": "{{count}} next actions non touchées depuis plus de {{days}} jours.",
+  "agingWaiting_one": "{{count}} attente non relancée depuis plus de {{days}} jours.",
+  "agingWaiting_other": "{{count}} attentes non relancées depuis plus de {{days}} jours.",
+  "overdueDeadlines_one": "{{count}} tâche avec une deadline dépassée.",
+  "overdueDeadlines_other": "{{count}} tâches avec une deadline dépassée.",
+  "scheduledVsCompleted": "{{scheduled}} tâche planifiée pour {{done}} tâche complétée sur {{days}} jours (ratio {{ratio}}).",
+  "scheduledVsCompleted_other": "{{scheduled}} tâches planifiées pour {{done}} tâches complétées sur {{days}} jours (ratio {{ratio}}).",
+  "focusTotals": "{{sessions}} session de focus complétée, {{minutes}} minute au total.",
+  "focusTotals_other": "{{sessions}} sessions de focus complétées, {{minutes}} minutes au total.",
+  "focusConcentration": "{{percent}}% du temps de focus concentré sur une seule tâche.",
+  "focusPulseAlignment": "Sessions focus du jour comparées (approximation, périodes différentes) au pulse RescueTime de la semaine en cours à ce jour ({{pulse}}/100) (alignement : {{alignment}}).",
+  "alignment": {
+    "aligned_high": "aligné haut",
+    "aligned_low": "aligné bas",
+    "focus_high_pulse_low": "focus haut, pulse bas",
+    "pulse_high_focus_low": "pulse haut, focus bas"
+  }
+}

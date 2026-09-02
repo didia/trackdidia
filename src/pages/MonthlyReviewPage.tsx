@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { useAppContext } from "../app/app-context";
 import {
@@ -41,83 +42,30 @@ interface MonthlySectionDefinition {
   linkLabel?: string;
 }
 
-const monthlySections: MonthlySectionDefinition[] = [
-  {
-    key: "bilan",
-    title: "Bilan",
-    subtitle: "Achievements, challenges et revue du mois.",
-    prompt: "Qu'est-ce qui a ete accompli, qu'est-ce qui a freine, et qu'as-tu appris ?"
-  },
-  {
-    key: "journaux",
-    title: "Journaux",
-    subtitle: "Monthly journal et weekly notes.",
-    prompt: "Que racontent les journaux et les notes hebdo une fois relus ensemble ?",
-    linkTo: "/semaine",
-    linkLabel: "Voir les semaines"
-  },
-  {
-    key: "finances",
-    title: "Finances",
-    subtitle: "Review last month finances.",
-    prompt: "Que dit le mois passe sur l'argent, les tensions et les ajustements ?"
-  },
-  {
-    key: "temps",
-    title: "Temps",
-    subtitle: "Review last month time usage.",
-    prompt: "Ou le temps est-il alle, et etait-ce coherent avec les priorites ?"
-  },
-  {
-    key: "progressionObjectifs",
-    title: "Progression des objectifs",
-    subtitle: "Reflect on goals and objectives progress.",
-    prompt: "Quels objectifs avancent, lesquels stagnent, et pourquoi ?",
-    linkTo: "/objectifs-annuels",
-    linkLabel: "Ouvrir les objectifs annuels"
-  },
-  {
-    key: "missionObjectifs",
-    title: "Mission et objectifs",
-    subtitle: "Review mission statement, goals and objectives.",
-    prompt: "Faut-il recalibrer le systeme ou juste mieux l'executer ?"
-  },
-  {
-    key: "nettoyageListes",
-    title: "Nettoyage des listes",
-    subtitle: "Clean up and update GTD lists.",
-    prompt: "Quelles listes doivent etre nettoyees, fermees ou relancees ?",
-    linkTo: "/projects",
-    linkLabel: "Voir Projects"
-  },
-  {
-    key: "calendrier",
-    title: "Calendrier",
-    subtitle: "Review past month and preview next month.",
-    prompt: "Quels loose ends, deadlines ou engagements dois-tu absorber maintenant ?",
-    linkTo: "/scheduled",
-    linkLabel: "Ouvrir Scheduled"
-  },
-  {
-    key: "grosProjets",
-    title: "Gros projets",
-    subtitle: "Plan for big projects.",
-    prompt: "Quels gros chantiers doivent etre decomposes ou bloques au calendrier ?",
-    linkTo: "/next-actions",
-    linkLabel: "Voir Next Actions"
-  },
-  {
-    key: "developpement",
-    title: "Developpement personnel",
-    subtitle: "Learning, skills and growth areas.",
-    prompt: "Quelles competences veux-tu nourrir le mois prochain et comment ?"
-  }
+const monthlySectionMeta: Array<{
+  key: MonthlyReviewSectionKey;
+  linkTo?: string;
+  linkKey?:
+    | "monthly.ritual.journaux.link"
+    | "monthly.ritual.progressionObjectifs.link"
+    | "monthly.ritual.nettoyageListes.link"
+    | "monthly.ritual.calendrier.link"
+    | "monthly.ritual.grosProjets.link";
+}> = [
+  { key: "bilan" },
+  { key: "journaux", linkTo: "/semaine", linkKey: "monthly.ritual.journaux.link" },
+  { key: "finances" },
+  { key: "temps" },
+  { key: "progressionObjectifs", linkTo: "/objectifs-annuels", linkKey: "monthly.ritual.progressionObjectifs.link" },
+  { key: "missionObjectifs" },
+  { key: "nettoyageListes", linkTo: "/projects", linkKey: "monthly.ritual.nettoyageListes.link" },
+  { key: "calendrier", linkTo: "/scheduled", linkKey: "monthly.ritual.calendrier.link" },
+  { key: "grosProjets", linkTo: "/next-actions", linkKey: "monthly.ritual.grosProjets.link" },
+  { key: "developpement" }
 ];
 
-const deriveMonthlyStatusLabel = (status: MonthlyReview["status"]): string =>
-  status === "closed" ? "Revue cloturee" : "Brouillon";
-
 export const MonthlyReviewPage = () => {
+  const { t } = useTranslation("reviews");
   const { repository, settings } = useAppContext();
   const synthesisService = useMemo(() => new MonthlySynthesisService(new OpenRouterProvider()), []);
   const today = getTodayDate();
@@ -264,7 +212,7 @@ export const MonthlyReviewPage = () => {
 
     if (proposal.type === "goal_evaluation" && !applied.goalId) {
       await repository.decideAiProposal(proposal.id, "dismissed");
-      setSynthesisNotice("Objectif introuvable, suggestion ignoree.");
+      setSynthesisNotice(t("monthly.synthesis.goalMissing"));
       setSynthesisResult((current) =>
         current
           ? {
@@ -337,33 +285,49 @@ export const MonthlyReviewPage = () => {
     [goalSnapshots, selectedMonthKey]
   );
 
+  const monthlySections = useMemo<MonthlySectionDefinition[]>(
+    () =>
+      monthlySectionMeta.map((section) => ({
+        key: section.key,
+        title: t(`monthly.ritual.${section.key}.title`),
+        subtitle: t(`monthly.ritual.${section.key}.subtitle`),
+        prompt: t(`monthly.ritual.${section.key}.prompt`),
+        linkTo: section.linkTo,
+        linkLabel: section.linkKey ? t(section.linkKey) : undefined
+      })),
+    [t]
+  );
+
   if (loading || !review || !summary) {
-    return <div className="page"><p>Chargement de la revue mensuelle...</p></div>;
+    return <div className="page"><p>{t("monthly.loading")}</p></div>;
   }
 
   return (
     <div className="page">
       <header className="hero">
         <div>
-          <p className="eyebrow">Mois</p>
+          <p className="eyebrow">{t("monthly.hero.eyebrow")}</p>
           <h2>
-            {formatDateLong(summary.monthStartDate)} au {formatDateLong(summary.monthEndDate)}
+            {t("monthly.hero.range", {
+              start: formatDateLong(summary.monthStartDate),
+              end: formatDateLong(summary.monthEndDate)
+            })}
           </h2>
           <p className="hero__copy">
-            Reprends le mois dans son ensemble, boucle la trajectoire et prepare le suivant avec plus de clarte.
+            {t("monthly.hero.copy")}
           </p>
         </div>
       </header>
 
       <SectionCard
-        title="Choisir le mois"
-        subtitle="La cloture mensuelle se fait idealement le premier samedi du mois suivant."
+        title={t("monthly.picker.title")}
+        subtitle={t("monthly.picker.subtitle")}
       >
         <div className="history-toolbar">
           <label className="stacked-field">
-            <span>Mois a relire</span>
+            <span>{t("monthly.picker.monthLabel")}</span>
             <input
-              aria-label="Mois a relire"
+              aria-label={t("monthly.picker.monthLabel")}
               type="month"
               value={selectedMonthKey}
               onChange={(event) => setSelectedMonthKey(event.target.value)}
@@ -371,68 +335,71 @@ export const MonthlyReviewPage = () => {
           </label>
           <div className="form-actions">
             <button className="button" type="button" onClick={() => void loadMonth(selectedMonthKey)}>
-              Charger le mois
+              {t("monthly.picker.load")}
             </button>
             <button className="button" type="button" onClick={() => void loadMonth(initialMonth)}>
-              Revenir au mois courant
+              {t("monthly.picker.current")}
             </button>
           </div>
         </div>
         <p className="empty-copy">
-          Fenetre courante: {getMonthStartDate(selectedMonthKey)} {"->"} {getMonthEndDate(selectedMonthKey)}.
+          {t("monthly.picker.window", {
+            start: getMonthStartDate(selectedMonthKey),
+            end: getMonthEndDate(selectedMonthKey)
+          })}
         </p>
       </SectionCard>
 
-      <SectionCard title="Synthese mensuelle" subtitle="Les chiffres du mois calcules depuis le quotidien et les semaines.">
+      <SectionCard title={t("monthly.summary.title")} subtitle={t("monthly.summary.subtitle")}>
         <div className="weekly-overview-grid">
           <article className="status-card">
-            <span>Statut</span>
-            <strong>{deriveMonthlyStatusLabel(review.status)}</strong>
+            <span>{t("monthly.summary.status")}</span>
+            <strong>{review.status === "closed" ? t("monthly.status.closed") : t("monthly.status.draft")}</strong>
           </article>
           <article className="status-card">
-            <span>Jours tracés</span>
+            <span>{t("monthly.summary.daysTracked")}</span>
             <strong>{summary.daysTracked}</strong>
           </article>
           <article className="status-card">
-            <span>Semaines couvertes</span>
+            <span>{t("monthly.summary.weeksCovered")}</span>
             <strong>{summary.weeksCovered}</strong>
           </article>
           <article className="status-card">
-            <span>Revues hebdo cloturees</span>
+            <span>{t("monthly.summary.weeklyReviewsClosed")}</span>
             <strong>{summary.weeklyReviewsCompleted}</strong>
           </article>
           <article className="status-card">
-            <span>Sommeil moyen</span>
+            <span>{t("monthly.summary.sleepAverage")}</span>
             <strong>{Math.round(summary.sleepAverage)} / 100</strong>
           </article>
           <article className="status-card">
-            <span>TRC</span>
+            <span>{t("monthly.summary.trc")}</span>
             <strong>{Math.round(summary.trcRate)}%</strong>
           </article>
           <article className="status-card">
-            <span>Temps d'ecran</span>
+            <span>{t("monthly.summary.screenTime")}</span>
             <strong>{summary.screenTimeTotalMinutes} min</strong>
           </article>
           <article className="status-card">
-            <span>Pomodoris</span>
+            <span>{t("monthly.summary.pomodoris")}</span>
             <strong>{summary.pomodorisTotal}</strong>
           </article>
           <article className="status-card">
-            <span>Discipline moyenne</span>
+            <span>{t("monthly.summary.disciplineAverage")}</span>
             <strong>{Math.round(summary.disciplineAverage * 100)}%</strong>
           </article>
           <article className="status-card">
-            <span>Completion taches</span>
+            <span>{t("monthly.summary.tasksCompletion")}</span>
             <strong>{Math.round(summary.tasksCompletionRate)}%</strong>
           </article>
           <article className="status-card">
-            <span>Score hebdo moyen</span>
+            <span>{t("monthly.summary.weeklyScoreAverage")}</span>
             <strong>{formatPercent(summary.weeklyScoreAverage)}</strong>
           </article>
         </div>
       </SectionCard>
 
-      <SectionCard title="Coach mensuel" subtitle="Synthese du mois, brouillons de sections et evaluations d'objectifs proposees.">
+      <SectionCard title={t("monthly.coach.title")} subtitle={t("monthly.coach.subtitle")}>
         <MonthlySynthesisPanel
           result={synthesisMatchesMonth ? synthesisResult : null}
           loading={synthesisLoading}
@@ -455,36 +422,42 @@ export const MonthlyReviewPage = () => {
         />
       </SectionCard>
 
-      <SectionCard title="Semaines du mois" subtitle="Relis les semaines pour reconnecter les notes hebdo au tableau d'ensemble.">
+      <SectionCard title={t("monthly.weeks.title")} subtitle={t("monthly.weeks.subtitle")}>
         <div className="weekly-day-grid">
           {summary.weeks.map((week) => (
             <article key={week.weekStartDate} className="schedule-day-group">
               <div className="schedule-day-group__header">
                 <h3>{week.weekStartDate}</h3>
-                <span>{week.reviewStatus === "missing" ? "Pas de revue" : week.reviewStatus === "closed" ? "Cloturee" : "Brouillon"}</span>
+                <span>
+                  {week.reviewStatus === "missing"
+                    ? t("monthly.weeks.status.missing")
+                    : week.reviewStatus === "closed"
+                      ? t("monthly.weeks.status.closed")
+                      : t("monthly.weeks.status.draft")}
+                </span>
               </div>
               <div className="weekly-day-card__metrics">
-                <span>Fin: {week.weekEndDate}</span>
-                <span>Score: {formatPercent(week.weeklyScore)}</span>
-                <span>Notes: {week.noteCount}</span>
+                <span>{t("monthly.weeks.metrics.end", { date: week.weekEndDate })}</span>
+                <span>{t("monthly.weeks.metrics.score", { n: formatPercent(week.weeklyScore) })}</span>
+                <span>{t("monthly.weeks.metrics.notes", { n: week.noteCount })}</span>
               </div>
             </article>
           ))}
         </div>
         <div className="section-actions">
           <Link className="button" to="/semaine">
-            Ouvrir la revue hebdomadaire
+            {t("monthly.weeks.openWeekly")}
           </Link>
         </div>
       </SectionCard>
 
       <SectionCard
-        title="Objectifs annuels"
-        subtitle="Le mois doit te montrer ce qui nourrit vraiment les objectifs, pas seulement ce qui a rempli les cases."
+        title={t("monthly.goals.title")}
+        subtitle={t("monthly.goals.subtitle")}
       >
         <div className="weekly-day-grid">
           {selectedGoalSnapshots.length === 0 ? (
-            <p className="empty-copy">Aucun objectif annuel relie pour l'instant.</p>
+            <p className="empty-copy">{t("monthly.goals.empty")}</p>
           ) : (
             selectedGoalSnapshots.map((snapshot) => {
               const monthPoint = snapshot.monthlyProgress.find((point) => point.monthKey === selectedMonthKey) ?? null;
@@ -496,10 +469,10 @@ export const MonthlyReviewPage = () => {
                     <span>{snapshot.goal.dimension}</span>
                   </div>
                   <div className="weekly-day-card__metrics">
-                    <span>Actuel: {snapshot.currentValue === null ? "—" : `${Math.round(snapshot.currentValue)} ${snapshot.goal.unit}`.trim()}</span>
-                    <span>Cible: {snapshot.goal.targetValue === null ? "—" : `${snapshot.goal.targetValue} ${snapshot.goal.unit}`.trim()}</span>
-                    <span>Mois: {monthPoint?.value === null || monthPoint?.value === undefined ? "—" : `${Math.round(monthPoint.value)} ${snapshot.goal.unit}`.trim()}</span>
-                    <span>Evaluation: {evaluation?.score === null || evaluation?.score === undefined ? "—" : `${evaluation.score}/100`}</span>
+                    <span>{t("monthly.goals.metrics.current")} {snapshot.currentValue === null ? "—" : `${Math.round(snapshot.currentValue)} ${snapshot.goal.unit}`.trim()}</span>
+                    <span>{t("monthly.goals.metrics.target")} {snapshot.goal.targetValue === null ? "—" : `${snapshot.goal.targetValue} ${snapshot.goal.unit}`.trim()}</span>
+                    <span>{t("monthly.goals.metrics.month")} {monthPoint?.value === null || monthPoint?.value === undefined ? "—" : `${Math.round(monthPoint.value)} ${snapshot.goal.unit}`.trim()}</span>
+                    <span>{t("monthly.goals.metrics.evaluation")} {evaluation?.score === null || evaluation?.score === undefined ? "—" : `${evaluation.score}/100`}</span>
                   </div>
                 </article>
               );
@@ -508,14 +481,14 @@ export const MonthlyReviewPage = () => {
         </div>
         <div className="section-actions">
           <Link className="button button--primary" to="/objectifs-annuels">
-            Gerer les objectifs annuels
+            {t("monthly.goals.manage")}
           </Link>
         </div>
       </SectionCard>
 
       <SectionCard
-        title="Rituel mensuel"
-        subtitle="Les blocs ci-dessous reprennent ta revue mensuelle de facon structuree, avec notes courtes et etat fait / pas fait."
+        title={t("monthly.ritual.title")}
+        subtitle={t("monthly.ritual.subtitle")}
       >
         <div className="weekly-ritual-grid">
           {monthlySections.map((section) => (
@@ -527,7 +500,7 @@ export const MonthlyReviewPage = () => {
                 </div>
                 <label className="switch-row">
                   <input
-                    aria-label={`Marquer ${section.title} comme fait`}
+                    aria-label={t("monthly.ritual.doneAria", { section: section.title })}
                     type="checkbox"
                     checked={review.ritualChecklist[section.key]}
                     onChange={(event) => {
@@ -538,12 +511,12 @@ export const MonthlyReviewPage = () => {
                       void saveReview(updateMonthlyReviewChecklist(currentReview, section.key, event.target.checked));
                     }}
                   />
-                  <span>Fait</span>
+                  <span>{t("monthly.ritual.done")}</span>
                 </label>
               </div>
               <p className="empty-copy">{section.prompt}</p>
               <label className="stacked-field">
-                <span>{`Notes ${section.title}`}</span>
+                <span>{t("monthly.ritual.notesLabel", { section: section.title })}</span>
                 <PersistedTextarea
                   ref={(handle) => {
                     noteRefs.current[section.key] = handle;
@@ -573,18 +546,18 @@ export const MonthlyReviewPage = () => {
         </div>
       </SectionCard>
 
-      <SectionCard title="Etat de la revue" subtitle="Cloture le mois une fois la boucle faite et le suivant clarifie.">
+      <SectionCard title={t("monthly.state.title")} subtitle={t("monthly.state.subtitle")}>
         <div className="weekly-overview-grid">
           <article className="status-card">
-            <span>Derniere mise a jour</span>
+            <span>{t("monthly.state.updatedAt")}</span>
             <strong>{formatTimestamp(review.updatedAt)}</strong>
           </article>
           <article className="status-card">
-            <span>Debut</span>
+            <span>{t("monthly.state.start")}</span>
             <strong>{summary.monthStartDate}</strong>
           </article>
           <article className="status-card">
-            <span>Fin</span>
+            <span>{t("monthly.state.end")}</span>
             <strong>{summary.monthEndDate}</strong>
           </article>
         </div>
@@ -602,7 +575,7 @@ export const MonthlyReviewPage = () => {
             void saveReview(applyMonthlyReviewTransition(currentReview, "closed"));
           }}
         >
-          Cloturer la revue du mois
+          {t("monthly.actions.close")}
         </button>
         <button
           className="button"
@@ -615,7 +588,7 @@ export const MonthlyReviewPage = () => {
             void saveReview(applyMonthlyReviewTransition(currentReview, "draft"));
           }}
         >
-          Reouvrir la revue
+          {t("monthly.actions.reopen")}
         </button>
       </div>
     </div>

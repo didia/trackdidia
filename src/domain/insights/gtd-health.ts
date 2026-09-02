@@ -1,4 +1,5 @@
 import { addDays, toLocalDateString } from "../../lib/gtd/shared";
+import { t } from "../../i18n";
 import type { Project, Task } from "../types";
 import { AGING_WAITING_FOR_DAYS, STALE_NEXT_ACTION_DAYS, TREND_LONG_WINDOW_DAYS } from "./constants";
 import { buildEvidenceWindow, daysBetweenDates } from "./shared";
@@ -60,7 +61,7 @@ export const computeGtdHealthFindings = (tasks: Task[], projects: Project[], now
       now,
       inboxTasks.length,
       activeTasks.length,
-      `${inboxTasks.length} element(s) en attente de clarification dans l'inbox.`,
+      t("inboxBacklog", { ns: "insights", count: inboxTasks.length }),
       { taskIds: inboxTasks.map((task) => task.id) }
     )
   );
@@ -80,7 +81,7 @@ export const computeGtdHealthFindings = (tasks: Task[], projects: Project[], now
       now,
       projectsWithoutNextAction.length,
       activeProjects.length,
-      `${projectsWithoutNextAction.length} projet(s) actif(s) sans next action associee.`,
+      t("projectsWithoutNext", { ns: "insights", count: projectsWithoutNextAction.length }),
       { projectIds: projectsWithoutNextAction.map((project) => project.id) }
     )
   );
@@ -95,7 +96,7 @@ export const computeGtdHealthFindings = (tasks: Task[], projects: Project[], now
       now,
       staleNextActions.length,
       nextActions.length,
-      `${staleNextActions.length} next action(s) non touchee(s) depuis plus de ${STALE_NEXT_ACTION_DAYS} jours.`,
+      t("staleNextActions", { ns: "insights", count: staleNextActions.length, days: STALE_NEXT_ACTION_DAYS }),
       { taskIds: staleNextActions.map((task) => task.id) }
     )
   );
@@ -110,7 +111,7 @@ export const computeGtdHealthFindings = (tasks: Task[], projects: Project[], now
       now,
       agingWaitingFor.length,
       waitingForTasks.length,
-      `${agingWaitingFor.length} attente(s) non relancee(s) depuis plus de ${AGING_WAITING_FOR_DAYS} jours.`,
+      t("agingWaiting", { ns: "insights", count: agingWaitingFor.length, days: AGING_WAITING_FOR_DAYS }),
       { taskIds: agingWaitingFor.map((task) => task.id) }
     )
   );
@@ -123,7 +124,7 @@ export const computeGtdHealthFindings = (tasks: Task[], projects: Project[], now
       now,
       overdueDeadlines.length,
       tasksWithDeadline.length,
-      `${overdueDeadlines.length} tache(s) avec une deadline depassee.`,
+      t("overdueDeadlines", { ns: "insights", count: overdueDeadlines.length }),
       { taskIds: overdueDeadlines.map((task) => task.id) }
     )
   );
@@ -143,7 +144,14 @@ export const computeGtdHealthFindings = (tasks: Task[], projects: Project[], now
       now,
       scheduledVsCompletedRatio,
       scheduledActive.length + completedInWindow.length,
-      `${scheduledActive.length} tache(s) planifiee(s) pour ${completedInWindow.length} tache(s) completee(s) sur ${TREND_LONG_WINDOW_DAYS} jours (ratio ${scheduledVsCompletedRatio.toFixed(2)}).`,
+      t("scheduledVsCompleted", {
+        ns: "insights",
+        count: scheduledActive.length,
+        scheduled: scheduledActive.length,
+        done: completedInWindow.length,
+        days: TREND_LONG_WINDOW_DAYS,
+        ratio: scheduledVsCompletedRatio.toFixed(2)
+      }),
       {
         taskIds: [...scheduledActive.map((task) => task.id), ...completedInWindow.map((task) => task.id)],
         severity: "info"

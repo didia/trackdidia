@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { t as translate } from "../i18n";
 import {
   clearDebugLogs,
   getDebugEntries,
@@ -17,19 +19,12 @@ interface DebugPanelProps {
   forced?: boolean;
 }
 
-const renderLevel = (level: DebugLogEntry["level"]) => {
-  if (level === "error") {
-    return "Erreur";
-  }
-
-  if (level === "warn") {
-    return "Alerte";
-  }
-
-  return "Info";
-};
+const renderLevel = (level: DebugLogEntry["level"]) =>
+  translate(`debug.level.${level}`, { ns: "settings" });
 
 export const DebugPanel = ({ enabled, forced = false }: DebugPanelProps) => {
+  const { t } = useTranslation("settings");
+  const { t: tCommon } = useTranslation("common");
   const [entries, setEntries] = useState(getDebugEntries());
   const [open, setOpen] = useState(forced);
   const [testingPomodoro, setTestingPomodoro] = useState(false);
@@ -53,26 +48,44 @@ export const DebugPanel = ({ enabled, forced = false }: DebugPanelProps) => {
     try {
       if (mode === "chime-session") {
         const played = await testPomodoroChime("session");
-        logDebug("info", "pomodoro.debug", played ? "Test son session (3s) reussi" : "Test son session echoue");
+        logDebug(
+          "info",
+          "pomodoro.debug",
+          played
+            ? translate("debug.log.sessionChimeOk", { ns: "settings" })
+            : translate("debug.log.sessionChimeFail", { ns: "settings" })
+        );
         return;
       }
 
       if (mode === "chime-cycle") {
         const played = await testPomodoroChime("cycle");
-        logDebug("info", "pomodoro.debug", played ? "Test son cycle (5s) reussi" : "Test son cycle echoue");
+        logDebug(
+          "info",
+          "pomodoro.debug",
+          played
+            ? translate("debug.log.cycleChimeOk", { ns: "settings" })
+            : translate("debug.log.cycleChimeFail", { ns: "settings" })
+        );
         return;
       }
 
       if (mode === "notification") {
         const notified = await testPomodoroNotification();
-        logDebug("info", "pomodoro.debug", notified ? "Test notification reussi" : "Test notification echoue");
+        logDebug(
+          "info",
+          "pomodoro.debug",
+          notified
+            ? translate("debug.log.notificationOk", { ns: "settings" })
+            : translate("debug.log.notificationFail", { ns: "settings" })
+        );
         return;
       }
 
       const result = await testPomodoroCompletionAnnouncement("session");
-      logDebug("info", "pomodoro.debug", "Test completion Pomodoro", result);
+      logDebug("info", "pomodoro.debug", translate("debug.log.completion", { ns: "settings" }), result);
     } catch (error) {
-      logDebug("error", "pomodoro.debug", "Echec du test Pomodoro", error);
+      logDebug("error", "pomodoro.debug", translate("debug.log.pomodoroTestFail", { ns: "settings" }), error);
     } finally {
       setTestingPomodoro(false);
     }
@@ -81,13 +94,13 @@ export const DebugPanel = ({ enabled, forced = false }: DebugPanelProps) => {
   return (
     <div className="debug-panel">
       <div className="debug-panel__bar">
-        <strong>Debug Trackdidia</strong>
+        <strong>{t("debug.title")}</strong>
         <div className="debug-panel__actions">
           <button className="button button--ghost" type="button" onClick={() => setOpen((current) => !current)}>
-            {open ? "Masquer" : "Afficher"}
+            {open ? tCommon("actions.hide") : tCommon("actions.show")}
           </button>
           <button className="button button--ghost" type="button" onClick={() => clearDebugLogs()}>
-            Vider
+            {t("debug.clear")}
           </button>
         </div>
       </div>
@@ -95,7 +108,7 @@ export const DebugPanel = ({ enabled, forced = false }: DebugPanelProps) => {
       {open ? (
         <div className="debug-panel__body">
           <div className="debug-panel__tools">
-            <strong>Tests Pomodoro</strong>
+            <strong>{t("debug.pomodoroTests")}</strong>
             <div className="debug-panel__actions">
               <button
                 className="button button--ghost"
@@ -103,7 +116,7 @@ export const DebugPanel = ({ enabled, forced = false }: DebugPanelProps) => {
                 disabled={testingPomodoro}
                 onClick={() => void runPomodoroTest("chime-session")}
               >
-                Son session 3s
+                {t("debug.testSessionChime")}
               </button>
               <button
                 className="button button--ghost"
@@ -111,7 +124,7 @@ export const DebugPanel = ({ enabled, forced = false }: DebugPanelProps) => {
                 disabled={testingPomodoro}
                 onClick={() => void runPomodoroTest("chime-cycle")}
               >
-                Son cycle 5s
+                {t("debug.testCycleChime")}
               </button>
               <button
                 className="button button--ghost"
@@ -119,7 +132,7 @@ export const DebugPanel = ({ enabled, forced = false }: DebugPanelProps) => {
                 disabled={testingPomodoro}
                 onClick={() => void runPomodoroTest("notification")}
               >
-                Test notification
+                {t("debug.testNotification")}
               </button>
               <button
                 className="button button--ghost"
@@ -127,16 +140,16 @@ export const DebugPanel = ({ enabled, forced = false }: DebugPanelProps) => {
                 disabled={testingPomodoro}
                 onClick={() => void runPomodoroTest("completion")}
               >
-                Test completion
+                {t("debug.testCompletion")}
               </button>
             </div>
           </div>
           <p className="debug-panel__hint">
-            Les erreurs sont aussi envoyees a `console.info` et `console.error`.
+            {t("debug.consoleHint")}
           </p>
           <div className="debug-log-list">
             {entries.length === 0 ? (
-              <p className="empty-copy">Aucun log pour le moment.</p>
+              <p className="empty-copy">{t("debug.emptyLogs")}</p>
             ) : (
               entries
                 .slice()

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { autoSuggestedMetricKeys, findMissingMetricKeys, findUnansweredPrincipleKeys, updateMetric, updateNote, updatePrinciple } from "../domain/daily-entry";
 import type { DailyEntry, MetricKey, PrincipleKey } from "../domain/types";
 import { useDailyEntry } from "../app/use-daily-entry";
@@ -20,6 +21,7 @@ interface PreviousDayReviewCardProps {
 }
 
 export const PreviousDayReviewCard = ({ date }: PreviousDayReviewCardProps) => {
+  const { t } = useTranslation("today");
   const { entry, loading, save } = useDailyEntry(date);
   const { settings, saveSettings } = useAppContext();
   const [draft, setDraft] = useState<DailyEntry | null>(null);
@@ -68,8 +70,8 @@ export const PreviousDayReviewCard = ({ date }: PreviousDayReviewCardProps) => {
 
   return (
     <SectionCard
-      title="Finaliser hier"
-      subtitle={`${formatDateLong(date)} - complete ce qui n'a pas encore ete rempli hier soir.`}
+      title={t("previousDay.title")}
+      subtitle={t("previousDay.subtitle", { date: formatDateLong(date) })}
     >
       <div className="section-stack">
         {missing.metricKeys.length > 0 ? (
@@ -92,7 +94,7 @@ export const PreviousDayReviewCard = ({ date }: PreviousDayReviewCardProps) => {
 
         {missing.nightReflection ? (
           <label className="stacked-field">
-            <span>Reflection du soir</span>
+            <span>{t("previousDay.nightReflection")}</span>
             <PersistedTextarea
               rows={4}
               debounceMs={0}
@@ -104,7 +106,7 @@ export const PreviousDayReviewCard = ({ date }: PreviousDayReviewCardProps) => {
 
         <div className="form-actions">
           <button className="button button--primary" type="button" onClick={() => void handleSave()}>
-            Enregistrer hier
+            {t("previousDay.save")}
           </button>
         </div>
       </div>

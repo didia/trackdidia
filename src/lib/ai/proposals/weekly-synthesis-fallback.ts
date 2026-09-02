@@ -1,5 +1,6 @@
 import type { Finding } from "../../../domain/insights/types";
 import type { WeeklyRitualSectionKey, WeeklySynthesisResponse } from "../../../domain/types";
+import { t } from "../../../i18n";
 import { formatPercent } from "../../format";
 import { pickTopFinding } from "./coach-pulse-fallback";
 import type { WeeklySnapshot, WeeklySnapshotAxis } from "../context/weekly-snapshot";
@@ -50,10 +51,13 @@ const buildSectionDrafts = (findings: Finding[], axes: WeeklySnapshotAxis[]): Pa
   }
 
   if (weakest.length >= 2) {
-    drafts.tempsEtPlan = `Axes a surveiller: ${weakest.map((axis) => axis.label).join(" et ")}.`;
+    drafts.tempsEtPlan = t("weekly.sectionAxesWatch", {
+      ns: "coach",
+      axes: weakest.map((axis) => axis.label).join(" et ")
+    });
   }
 
-  drafts.dimanche = "Cloturer la semaine passee et poser le ton pour celle qui arrive.";
+  drafts.dimanche = t("weekly.sectionSunday", { ns: "coach" });
 
   return drafts;
 };
@@ -71,7 +75,7 @@ const buildGtdActions = (
       {
         taskId,
         action: "defer",
-        reason: "Next action stale — clarifier, planifier ou deleguer."
+        reason: t("weekly.staleDeferReason", { ns: "coach" })
       }
     ];
   }
@@ -81,23 +85,23 @@ const buildGtdActions = (
 
 export const buildLocalWeeklySynthesis = (snapshot: WeeklySnapshot): WeeklySynthesisResponse => {
   const rankedAxes = sortAxesByScore(snapshot.axes);
-  const strongest = rankedAxes[0]?.label ?? "Discipline";
+  const strongest = rankedAxes[0]?.label ?? t("weekly.axisDiscipline", { ns: "coach" });
   const weakest = rankedAxes.slice(-2).map((axis) => axis.label);
   const paddedWeakest =
     weakest.length === 2
       ? weakest
       : weakest.length === 1
-        ? [weakest[0], "Completion taches"]
-        : ["Temps d'ecran", "Pomodoris"];
+        ? [weakest[0], t("weekly.axisTasksCompletion", { ns: "coach" })]
+        : [t("weekly.axisScreenTime", { ns: "coach" }), t("weekly.axisPomodoris", { ns: "coach" })];
 
   const topFinding = pickTopFinding(snapshot.findings as Finding[]);
   const scorePercent = formatPercent(snapshot.weeklyScore);
 
   return {
-    headline: topFinding ? "Lecture de la semaine" : "Semaine a refermer",
+    headline: topFinding ? t("weekly.headlineWithFinding", { ns: "coach" }) : t("weekly.headline", { ns: "coach" }),
     scoreExplanation: topFinding
-      ? `Score hebdo ${scorePercent}. ${topFinding.label}`
-      : `Score hebdo ${scorePercent}. Les signaux restent partiels — note ce qui a tenu malgre tout.`,
+      ? t("weekly.scoreWithFinding", { ns: "coach", score: scorePercent, label: topFinding.label })
+      : t("weekly.scorePartial", { ns: "coach", score: scorePercent }),
     strongestAxis: strongest,
     weakestAxes: paddedWeakest,
     sectionDrafts: buildSectionDrafts(snapshot.findings as Finding[], snapshot.axes),
