@@ -57,7 +57,7 @@ Morning/anytime principles shown on the morning screen (`morningPrincipleKeys`):
 |---|---|
 | `respectReveil` | Respect réveil |
 | `priereDuMatin` | Prière du matin |
-| `oxytocineDuMatin` | Oxytocine du matin |
+| `oxytocineDuMatin` | Ocytocine du matin |
 | `avoirLuMesPrincipes` | Avoir lu mes principes |
 | `ecriture` | Écriture |
 | `apprentissage` | Apprentissage |
@@ -151,7 +151,7 @@ suggestion behavior for other days.
 There are fourteen equally weighted principles:
 
 1. Prière du matin
-2. Oxytocine du matin
+2. Ocytocine du matin
 3. Avoir lu mes principes
 4. Écriture
 5. Apprentissage

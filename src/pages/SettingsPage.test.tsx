@@ -9,7 +9,7 @@ describe("SettingsPage AI payload preview", () => {
   it("hides the debug payload preview when debug mode is off", async () => {
     await renderWithApp(<SettingsPage />, { contextOverrides: { debugEnabled: false } });
 
-    expect(screen.queryByText("Apercu du payload IA (debug)")).not.toBeInTheDocument();
+    expect(screen.queryByText("Aperçu du payload IA (debug)")).not.toBeInTheDocument();
   });
 
   it("shows validation feedback for invalid pulse slot hours on blur", async () => {
@@ -28,9 +28,9 @@ describe("SettingsPage AI payload preview", () => {
     const user = userEvent.setup();
     await renderWithApp(<SettingsPage />, { contextOverrides: { debugEnabled: true } });
 
-    expect(screen.getByText("Apercu du payload IA (debug)")).toBeInTheDocument();
+    expect(screen.getByText("Aperçu du payload IA (debug)")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Calculer l'apercu pour les 3 portees" }));
+    await user.click(screen.getByRole("button", { name: "Calculer l'aperçu pour les 3 portées" }));
 
     const findSummary = (label: string) =>
       screen.findAllByText(label).then((matches) => matches.find((node) => node.tagName === "SUMMARY")!);
@@ -79,15 +79,15 @@ describe("SettingsPage AI cost and analytics", () => {
 
     await renderWithApp(<SettingsPage />, { repository });
 
-    expect(screen.getByText("Cout IA (mois en cours)")).toBeInTheDocument();
+    expect(screen.getByText("Coût IA (mois en cours)")).toBeInTheDocument();
     expect(screen.getByText("Analytique coach")).toBeInTheDocument();
     expect(screen.getByText("Versions de prompt actives")).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(screen.getByText("Jetons entree").parentElement).toHaveTextContent("200");
+      expect(screen.getByText("Jetons entrée").parentElement).toHaveTextContent("200");
     });
     expect(screen.getByText("Jetons sortie").parentElement).toHaveTextContent("100");
-    expect(screen.getByText("Appels enregistres").parentElement).toHaveTextContent("1");
+    expect(screen.getByText("Appels enregistrés").parentElement).toHaveTextContent("1");
   });
 
   it("does not re-fetch usage when editing the approximate rate", async () => {
@@ -101,7 +101,7 @@ describe("SettingsPage AI cost and analytics", () => {
     await renderWithApp(<SettingsPage />, { repository });
 
     await waitFor(() => {
-      expect(screen.getByText("Jetons entree").parentElement).toHaveTextContent("200");
+      expect(screen.getByText("Jetons entrée").parentElement).toHaveTextContent("200");
     });
 
     const initialCalls = computeSpy.mock.calls.length;
@@ -111,7 +111,7 @@ describe("SettingsPage AI cost and analytics", () => {
     await user.type(rateInput, "2");
 
     await waitFor(() => {
-      expect(screen.getByText("Cout estime").parentElement).toHaveTextContent("0,0006");
+      expect(screen.getByText("Coût estimé").parentElement).toHaveTextContent("0,0006");
     });
 
     expect(computeSpy.mock.calls.length).toBe(initialCalls);
@@ -126,7 +126,7 @@ describe("SettingsPage AI cost and analytics", () => {
 
     expect(await screen.findByText("Analytique coach")).toBeInTheDocument();
     expect(
-      screen.getByText("Impossible de charger l'analytique coach. Reessayez plus tard.")
+      screen.getByText("Impossible de charger l'analytique coach. Réessaie plus tard.")
     ).toBeInTheDocument();
   });
 });

@@ -1,0 +1,314 @@
+{
+  "buckets": {
+    "inbox": "Inbox",
+    "nextAction": "Next Action",
+    "nextActions": "Next Actions",
+    "scheduled": "Scheduled",
+    "waitingFor": "Waiting For",
+    "somedayMaybe": "Someday / Maybe",
+    "reference": "References"
+  },
+  "inbox": {
+    "hero": {
+      "eyebrow": "GTD Inbox",
+      "title": "Capturer puis clarifier.",
+      "copy": "Le matin, vide ce bucket et transforme chaque entrée en next action, attente, someday ou tâche planifiée."
+    },
+    "capture": {
+      "title": "Capture rapide",
+      "subtitle": "Une ligne suffit pour ne rien perdre quand une idée arrive.",
+      "placeholder": "Ajouter une nouvelle entrée à l'inbox",
+      "add": "Ajouter"
+    },
+    "clarify": {
+      "title": "Clarification du matin",
+      "subtitle_one": "{{count}} élément dans l'inbox. Utilise la carte pour décider du bon bucket GTD.",
+      "subtitle_other": "{{count}} éléments dans l'inbox. Utilise la carte pour décider du bon bucket GTD."
+    },
+    "loading": "Chargement de l'inbox...",
+    "empty": "Inbox vide. Tu peux ouvrir la journée avec un vrai zéro mental.",
+    "loadMore": "Charger 40 de plus"
+  },
+  "nextActions": {
+    "hero": {
+      "eyebrow": "Next Actions",
+      "title": "Le terrain exécutable du moment.",
+      "copy": "Ici, tu gardes uniquement les prochaines actions réelles, filtrables par contexte."
+    },
+    "add": {
+      "title": "Ajouter une next action",
+      "subtitle": "Crée directement une action exécutable sans repasser par l'inbox si c'est clair.",
+      "placeholder": "Nouvelle next action",
+      "button": "Ajouter"
+    },
+    "contextFilter": {
+      "title": "Filtrer par contexte",
+      "subtitle": "Les anciennes listes Google sont devenues des contexts plats.",
+      "all": "Tous"
+    },
+    "deadlines": {
+      "title": "Deadlines",
+      "subtitle": "Filtre et tri rapide par date limite.",
+      "filterLabel": "Filtre deadline",
+      "filter": {
+        "all": "Toutes",
+        "with": "Avec deadline",
+        "without": "Sans deadline",
+        "today": "Deadline aujourd'hui",
+        "overdue": "Deadline dépassée"
+      },
+      "sortLabel": "Trier par",
+      "sort": {
+        "asc": "Deadline (proche d'abord)",
+        "desc": "Deadline (loin d'abord)",
+        "updated": "Dernière mise à jour"
+      }
+    },
+    "list": {
+      "title": "Actions actives",
+      "subtitle_one": "{{count}} action visible dans cette vue.",
+      "subtitle_other": "{{count}} actions visibles dans cette vue."
+    },
+    "loading": "Chargement des next actions...",
+    "empty": "Aucune next action pour ce filtre."
+  },
+  "projects": {
+    "status": {
+      "active": "Actif",
+      "onHold": "En pause",
+      "completed": "Terminé",
+      "cancelled": "Retiré"
+    },
+    "hero": {
+      "eyebrow": "Projects",
+      "title": "Les fronts ouverts qui demandent plusieurs actions.",
+      "copy": "Ici, un projet se pilote comme une tâche multi-steps : il peut être actif, en pause, terminé ou retiré."
+    },
+    "create": {
+      "title": "Nouveau projet",
+      "subtitle": "Ajoute un projet manuel en plus de ceux importés depuis Google Tasks.",
+      "placeholder": "Titre du projet",
+      "button": "Créer"
+    },
+    "filters": {
+      "title": "Filtrer les projets",
+      "subtitle": "Comme dans Next Actions, tu peux rapidement resserrer la vue.",
+      "searchLabel": "Recherche",
+      "searchPlaceholder": "Rechercher un projet, une note ou une action liée",
+      "statusLabel": "Statut",
+      "status": {
+        "open": "Ouverts",
+        "active": "Actifs",
+        "onHold": "En pause",
+        "completed": "Terminés",
+        "cancelled": "Retirés",
+        "all": "Tous"
+      },
+      "contextLabel": "Contexte",
+      "contextAll": "Tous"
+    },
+    "list": {
+      "title": "Projets",
+      "subtitle_one": "{{count}} projet visible dans cette vue.",
+      "subtitle_other": "{{count}} projets visibles dans cette vue."
+    },
+    "loading": "Chargement des projets...",
+    "empty": "Aucun projet ne correspond à ces filtres.",
+    "card": {
+      "noContext": "Sans contexte",
+      "activeActions_one": "{{count}} action active",
+      "activeActions_other": "{{count}} actions actives",
+      "collapse": "Refermer",
+      "expand": "Ouvrir",
+      "pause": "Pause",
+      "resume": "Reprendre",
+      "complete": "Terminer",
+      "cancel": "Retirer",
+      "titleLabel": "Titre",
+      "statusLabel": "Statut du projet",
+      "notesLabel": "Notes",
+      "notesPlaceholder": "Résultat souhaité, contraintes, prochaine discussion...",
+      "footerMeta_one": "{{count}} action active liée • {{duration}}",
+      "footerMeta_other": "{{count}} actions actives liées • {{duration}}",
+      "saving": "Enregistrement...",
+      "save": "Enregistrer",
+      "tasksEmpty": "Aucune tâche active liée à ce projet."
+    }
+  },
+  "scheduled": {
+    "hero": {
+      "eyebrow": "Scheduled",
+      "title": "Le calendrier interne des tâches.",
+      "copy": "Cette vue remplace la planification Google Calendar pour V1, avec une date et une heure locales."
+    },
+    "range": {
+      "title": "Choisir la plage",
+      "subtitle": "Passe d'une journée cible à une vue hebdomadaire complète.",
+      "dateLabel": "Date",
+      "viewLabel": "Vue",
+      "view": {
+        "day": "Jour",
+        "week": "Semaine"
+      },
+      "includeLabel": "Inclure"
+    },
+    "include": {
+      "planned": "Planifiées",
+      "deadlines": "Deadlines"
+    },
+    "list": {
+      "title": {
+        "day": "Tâches planifiées",
+        "week": "Semaine planifiée"
+      },
+      "subtitleDay_one": "{{count}} tâche visible ({{planned}} planifiée(s), {{deadlines}} deadline(s)) et {{previews}} preview(s) sur {{date}}.",
+      "subtitleDay_other": "{{count}} tâches visibles ({{planned}} planifiée(s), {{deadlines}} deadline(s)) et {{previews}} preview(s) sur {{date}}.",
+      "subtitleWeek_one": "{{count}} tâche et {{previews}} preview(s) entre {{start}} et {{end}}.",
+      "subtitleWeek_other": "{{count}} tâches et {{previews}} preview(s) entre {{start}} et {{end}}."
+    },
+    "loading": "Chargement des tâches planifiées...",
+    "empty": {
+      "day": "Aucune tâche pour cette date avec les filtres sélectionnés.",
+      "week": "Aucune tâche pour cette semaine avec les filtres sélectionnés."
+    },
+    "section": {
+      "planned": "Planifiées",
+      "plannedEmpty": "Aucune tâche planifiée.",
+      "deadlines": "Deadlines",
+      "deadlinesEmpty": "Aucune deadline."
+    },
+    "preview": {
+      "badge": "Preview",
+      "toNextActions": "Vers Next Actions",
+      "toScheduled": "Vers Scheduled"
+    },
+    "weekDay": {
+      "count_one": "{{count}} tâche",
+      "count_other": "{{count}} tâches",
+      "empty": "Aucune tâche.",
+      "sectionEmpty": "Aucune."
+    }
+  },
+  "waiting": {
+    "hero": {
+      "eyebrow": "Waiting For",
+      "title": "Ce qui dépend d'un retour externe.",
+      "copy": "Cette vue garde visibles les engagements en attente sans les mélanger aux next actions."
+    },
+    "add": {
+      "title": "Ajouter une attente",
+      "subtitle": "Capture directement une attente en cours sans passer par l'inbox.",
+      "placeholder": "Nouvelle tâche en attente",
+      "button": "Ajouter"
+    },
+    "filters": {
+      "title": "Filtrer par contexte",
+      "subtitle": "Affiche seulement les attentes reliées au contexte qui t'intéresse.",
+      "all": "Tous"
+    },
+    "list": {
+      "title": "Attentes actives",
+      "subtitle_one": "{{count}} élément visible dans cette vue.",
+      "subtitle_other": "{{count}} éléments visibles dans cette vue."
+    },
+    "loading": "Chargement des attentes...",
+    "empty": "Aucune tâche en attente pour ce filtre."
+  },
+  "someday": {
+    "hero": {
+      "eyebrow": "Someday / Maybe",
+      "title": "Le parking des pistes à revisiter plus tard.",
+      "copy": "Cette vue garde les idées, envies et paris non engagés sans encombrer l'exécution du moment."
+    },
+    "add": {
+      "title": "Ajouter à someday / maybe",
+      "subtitle": "Range directement ici ce qui reste intéressant mais non engagé maintenant.",
+      "placeholder": "Nouvelle piste someday / maybe",
+      "button": "Ajouter"
+    },
+    "filters": {
+      "title": "Filtrer par contexte",
+      "subtitle": "Affiche les idées selon le domaine ou le contexte qui t'intéresse.",
+      "all": "Tous"
+    },
+    "list": {
+      "title": "Réserve active",
+      "subtitle_one": "{{count}} élément visible dans cette vue.",
+      "subtitle_other": "{{count}} éléments visibles dans cette vue."
+    },
+    "loading": "Chargement de la réserve...",
+    "empty": "Aucune tâche someday / maybe pour ce filtre."
+  },
+  "references": {
+    "hero": {
+      "eyebrow": "References",
+      "title": "Les contenus à consulter sans les traiter comme des next actions.",
+      "copy": "Toutes les tâches de lecture ont été déplacées ici pour séparer les références des actions exécutables."
+    },
+    "list": {
+      "title": "Bibliothèque de références",
+      "subtitle_one": "{{count}} élément dans cette liste.",
+      "subtitle_other": "{{count}} éléments dans cette liste."
+    },
+    "loading": "Chargement des références...",
+    "empty": "Aucune référence pour le moment."
+  },
+  "task": {
+    "selectAria": "Sélectionner {{title}}",
+    "noContext": "Sans contexte",
+    "deadlinePrefix": "Deadline : {{date}}",
+    "pendingPastRecurrences_one": "{{count}} récurrence passée",
+    "pendingPastRecurrences_other": "{{count}} récurrences passées",
+    "recurring": "Récurrente",
+    "complete": "Terminée",
+    "remove": "Retirer",
+    "title": "Titre",
+    "notes": "Notes",
+    "notesPlaceholder": "Décision, prochain pas, contexte...",
+    "bucket": "Bucket GTD",
+    "project": "Projet",
+    "noProject": "Sans projet",
+    "scheduledDate": "Date planifiée",
+    "deadline": "Deadline (date limite)",
+    "newContextPlaceholder": "Nouveau contexte",
+    "addContext": "Ajouter le contexte",
+    "closeContextEditor": "Refermer l'édition des contextes",
+    "editContexts": "Éditer les contextes",
+    "renameContext": "Renommer",
+    "editScope": "Portée de l'édition",
+    "scopeOccurrence": "Cette occurrence seulement",
+    "scopeSeries": "Toute la série",
+    "clearPast": "Marquer les récurrences passées comme complétées",
+    "saving": "Enregistrement...",
+    "save": "Enregistrer"
+  },
+  "bulk": {
+    "selectedCount_one": "{{count}} tâche sélectionnée sur {{total}}",
+    "selectedCount_other": "{{count}} tâches sélectionnées sur {{total}}",
+    "deselectAll": "Tout désélectionner",
+    "selectAll": "Tout sélectionner",
+    "clearSelection": "Effacer la sélection",
+    "moveTo": "Déplacer vers",
+    "processing": "Traitement...",
+    "moveSelection": "Déplacer la sélection",
+    "completeSelection": "Terminer la sélection",
+    "removeSelection": "Retirer la sélection",
+    "confirm": "Confirmer",
+    "cancel": "Annuler",
+    "confirmComplete_one": "Terminer {{count}} tâche sélectionnée ?",
+    "confirmComplete_other": "Terminer {{count}} tâches sélectionnées ?",
+    "confirmRemove_one": "Retirer {{count}} tâche sélectionnée ?",
+    "confirmRemove_other": "Retirer {{count}} tâches sélectionnées ?",
+    "confirmMove_one": "Déplacer {{count}} tâche sélectionnée vers {{bucket}} ?",
+    "confirmMove_other": "Déplacer {{count}} tâches sélectionnées vers {{bucket}} ?",
+    "confirmMoveScheduledNote": " Les tâches sans date resteront inchangées.",
+    "moved_one": "{{count}} tâche déplacée.",
+    "moved_other": "{{count}} tâches déplacées.",
+    "skipped_one": "{{count}} ignorée.",
+    "skipped_other": "{{count}} ignorées."
+  },
+  "errors": {
+    "saveContext": "Impossible d'enregistrer le contexte.",
+    "createContext": "Impossible de créer le contexte."
+  }
+}

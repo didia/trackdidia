@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PomodoroSessionDetails, PomodoroState, PomodoroTaskSummary, Task } from "../domain/types";
+import { t } from "../i18n";
 import { getTodayDate } from "../lib/date";
 import { logDebug } from "../lib/debug";
 import { getPomodoroTiming, getPomodoroKindLabel } from "../lib/pomodoro/engine";
@@ -124,8 +125,8 @@ export const usePomodoroController = (repository: AppRepository | null): Pomodor
     const variant = resolvePomodoroChimeVariant(session.kind, session.cycleIndex);
     await playPomodoroChime(variant);
     await notifyPomodoroCompletion(
-      "Session Pomodoro terminee",
-      `${getPomodoroKindLabel(session.kind)} terminee.`
+      t("pomodoroCompletedTitle", { ns: "notifications" }),
+      t("pomodoroCompletedBody", { ns: "notifications", kind: getPomodoroKindLabel(session.kind) })
     );
   }, []);
 

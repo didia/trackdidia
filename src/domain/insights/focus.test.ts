@@ -64,7 +64,7 @@ describe("focus insight module", () => {
     const findings = computeFocusFindings(summaries, 5, now, 80);
     const finding = findings.find((item) => item.kind === "focus_pulse_alignment");
 
-    expect(finding?.label).toContain("periodes differentes");
+    expect(finding?.label).toContain("périodes différentes");
     expect(finding?.label).toContain("semaine en cours");
   });
 });

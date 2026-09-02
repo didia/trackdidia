@@ -1,12 +1,13 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { Task } from "../domain/types";
 
-const bucketOptions: Array<{ value: Task["bucket"]; label: string }> = [
-  { value: "next_action", label: "Next Actions" },
-  { value: "waiting_for", label: "Waiting For" },
-  { value: "someday_maybe", label: "Someday / Maybe" },
-  { value: "reference", label: "References" },
-  { value: "scheduled", label: "Scheduled" }
+const bucketOptions: Array<{ value: Task["bucket"]; labelKey: "buckets.nextActions" | "buckets.waitingFor" | "buckets.somedayMaybe" | "buckets.reference" | "buckets.scheduled" }> = [
+  { value: "next_action", labelKey: "buckets.nextActions" },
+  { value: "waiting_for", labelKey: "buckets.waitingFor" },
+  { value: "someday_maybe", labelKey: "buckets.somedayMaybe" },
+  { value: "reference", labelKey: "buckets.reference" },
+  { value: "scheduled", labelKey: "buckets.scheduled" }
 ];
 
 interface BulkTaskToolbarProps {
@@ -30,6 +31,8 @@ export const BulkTaskToolbar = ({
   onRemove,
   onMove
 }: BulkTaskToolbarProps) => {
+  const { t } = useTranslation("gtd");
+  const { t: tCommon } = useTranslation("common");
   const [runningAction, setRunningAction] = useState<"complete" | "remove" | "move" | null>(null);
   const [targetBucket, setTargetBucket] = useState<Task["bucket"]>("next_action");
   const [pendingAction, setPendingAction] = useState<null | "complete" | "remove" | "move">(null);
@@ -39,16 +42,17 @@ export const BulkTaskToolbar = ({
     return null;
   }
 
-  const targetLabel = bucketOptions.find((option) => option.value === targetBucket)?.label ?? targetBucket;
+  const targetLabel =
+    t(bucketOptions.find((option) => option.value === targetBucket)?.labelKey ?? "buckets.nextActions");
 
   const confirmMessage =
     pendingAction === "complete"
-      ? `Terminer ${selectedCount} tache${selectedCount > 1 ? "s" : ""} selectionnee${selectedCount > 1 ? "s" : ""} ?`
+      ? t("bulk.confirmComplete", { count: selectedCount })
       : pendingAction === "remove"
-        ? `Retirer ${selectedCount} tache${selectedCount > 1 ? "s" : ""} selectionnee${selectedCount > 1 ? "s" : ""} ?`
+        ? t("bulk.confirmRemove", { count: selectedCount })
         : pendingAction === "move"
-          ? `Deplacer ${selectedCount} tache${selectedCount > 1 ? "s" : ""} selectionnee${selectedCount > 1 ? "s" : ""} vers ${targetLabel} ?${
-              targetBucket === "scheduled" ? " Les taches sans date resteront inchangées." : ""
+          ? `${t("bulk.confirmMove", { count: selectedCount, bucket: targetLabel })}${
+              targetBucket === "scheduled" ? t("bulk.confirmMoveScheduledNote") : ""
             }`
           : "";
 
@@ -80,7 +84,7 @@ export const BulkTaskToolbar = ({
 
     if (result.skippedCount > 0) {
       setFeedbackMessage(
-        `${result.movedCount} tache${result.movedCount > 1 ? "s" : ""} deplacee${result.movedCount > 1 ? "s" : ""}. ${result.skippedCount} ignoree${result.skippedCount > 1 ? "s" : ""}.`
+        `${t("bulk.moved", { count: result.movedCount })} ${t("bulk.skipped", { count: result.skippedCount })}`
       );
     }
   };
@@ -89,26 +93,25 @@ export const BulkTaskToolbar = ({
     <div className="bulk-toolbar-wrapper">
       <div className="bulk-toolbar">
       <div className="bulk-toolbar__copy">
-        <strong>{selectedCount}</strong> tache{selectedCount > 1 ? "s" : ""} selectionnee
-        {selectedCount > 1 ? "s" : ""} sur {totalCount}
+        {t("bulk.selectedCount", { count: selectedCount, total: totalCount })}
       </div>
 
       <div className="bulk-toolbar__actions">
         <button className="button" type="button" onClick={onToggleAll}>
-          {allSelected ? "Tout deselectionner" : "Tout selectionner"}
+          {allSelected ? t("bulk.deselectAll") : t("bulk.selectAll")}
         </button>
 
         {selectedCount > 0 ? (
           <>
             <button className="button" type="button" onClick={onClear}>
-              Effacer la selection
+              {t("bulk.clearSelection")}
             </button>
             <label className="bulk-toolbar__move">
-              <span>Deplacer vers</span>
+              <span>{t("bulk.moveTo")}</span>
               <select value={targetBucket} onChange={(event) => setTargetBucket(event.target.value as Task["bucket"])}>
                 {bucketOptions.map((option) => (
                   <option key={option.value} value={option.value}>
-                    {option.label}
+                    {t(option.labelKey)}
                   </option>
                 ))}
               </select>
@@ -119,7 +122,7 @@ export const BulkTaskToolbar = ({
               disabled={runningAction !== null}
               onClick={() => setPendingAction("move")}
             >
-              {runningAction === "move" ? "Traitement..." : "Deplacer la selection"}
+              {runningAction === "move" ? tCommon("status.processing") : t("bulk.moveSelection")}
             </button>
             <button
               className="button"
@@ -127,7 +130,7 @@ export const BulkTaskToolbar = ({
               disabled={runningAction !== null}
               onClick={() => setPendingAction("complete")}
             >
-              {runningAction === "complete" ? "Traitement..." : "Terminer la selection"}
+              {runningAction === "complete" ? tCommon("status.processing") : t("bulk.completeSelection")}
             </button>
             <button
               className="button button--ghost"
@@ -135,7 +138,7 @@ export const BulkTaskToolbar = ({
               disabled={runningAction !== null}
               onClick={() => setPendingAction("remove")}
             >
-              {runningAction === "remove" ? "Traitement..." : "Retirer la selection"}
+              {runningAction === "remove" ? tCommon("status.processing") : t("bulk.removeSelection")}
             </button>
           </>
         ) : null}
@@ -149,10 +152,10 @@ export const BulkTaskToolbar = ({
           <p>{confirmMessage}</p>
           <div className="bulk-confirm__actions">
             <button className="button button--primary" type="button" disabled={runningAction !== null} onClick={() => void runPendingAction()}>
-              Confirmer
+              {tCommon("actions.confirm")}
             </button>
             <button className="button" type="button" disabled={runningAction !== null} onClick={() => setPendingAction(null)}>
-              Annuler
+              {tCommon("actions.cancel")}
             </button>
           </div>
         </div>

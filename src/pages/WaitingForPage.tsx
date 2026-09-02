@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useTaskSelection } from "../app/use-task-selection";
 import { useGtdWorkspace } from "../app/use-gtd";
 import { BulkTaskToolbar } from "../components/BulkTaskToolbar";
@@ -6,6 +7,7 @@ import { GtdTaskCard } from "../components/GtdTaskCard";
 import { SectionCard } from "../components/SectionCard";
 
 export const WaitingForPage = () => {
+  const { t } = useTranslation("gtd");
   const {
     tasks,
     projects,
@@ -40,20 +42,20 @@ export const WaitingForPage = () => {
     <div className="page">
       <header className="hero">
         <div>
-          <p className="eyebrow">Waiting For</p>
-          <h2>Ce qui depend d'un retour externe.</h2>
+          <p className="eyebrow">{t("waiting.hero.eyebrow")}</p>
+          <h2>{t("waiting.hero.title")}</h2>
           <p className="hero__copy">
-            Cette vue garde visibles les engagements en attente sans les melanger aux next actions.
+            {t("waiting.hero.copy")}
           </p>
         </div>
       </header>
 
-      <SectionCard title="Ajouter une attente" subtitle="Capture directement une attente en cours sans passer par l'inbox.">
+      <SectionCard title={t("waiting.add.title")} subtitle={t("waiting.add.subtitle")}>
         <div className="inline-form">
           <input
             value={title}
             onChange={(event) => setTitle(event.target.value)}
-            placeholder="Nouvelle tache en attente"
+            placeholder={t("waiting.add.placeholder")}
           />
           <button
             className="button button--primary"
@@ -64,19 +66,19 @@ export const WaitingForPage = () => {
               setTitle("");
             }}
           >
-            Ajouter
+            {t("waiting.add.button")}
           </button>
         </div>
       </SectionCard>
 
-      <SectionCard title="Filtrer par contexte" subtitle="Affiche seulement les attentes reliees au contexte qui t'interesse.">
+      <SectionCard title={t("waiting.filters.title")} subtitle={t("waiting.filters.subtitle")}>
         <div className="tag-row">
           <button
             type="button"
             className={`tag-chip${selectedContextId === "all" ? " tag-chip--active" : ""}`}
             onClick={() => setSelectedContextId("all")}
           >
-            Tous
+            {t("waiting.filters.all")}
           </button>
           {contexts.map((context) => (
             <button
@@ -91,7 +93,7 @@ export const WaitingForPage = () => {
         </div>
       </SectionCard>
 
-      <SectionCard title="Attentes actives" subtitle={`${waitingTasks.length} element(s) visible(s) dans cette vue.`}>
+      <SectionCard title={t("waiting.list.title")} subtitle={t("waiting.list.subtitle", { count: waitingTasks.length })}>
         <BulkTaskToolbar
           selectedCount={selection.selectedCount}
           totalCount={waitingTasks.length}
@@ -114,9 +116,9 @@ export const WaitingForPage = () => {
         />
 
         {loading ? (
-          <p>Chargement des attentes...</p>
+          <p>{t("waiting.loading")}</p>
         ) : waitingTasks.length === 0 ? (
-          <p className="empty-copy">Aucune tache en attente pour ce filtre.</p>
+          <p className="empty-copy">{t("waiting.empty")}</p>
         ) : (
           <div className="task-list">
             {waitingTasks.map((task) => (

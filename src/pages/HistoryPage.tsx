@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   applyDailyPomodoroStats,
   applyRoutineTransition,
@@ -22,6 +23,7 @@ import { formatDateLong, formatDateShort, getTodayDate } from "../lib/date";
 type DailyNoteKey = "morningIntention" | "nightReflection" | "tomorrowFocus";
 
 export const HistoryPage = () => {
+  const { t } = useTranslation("history");
   const { repository } = useAppContext();
   const [entries, setEntries] = useState<DailyEntry[]>([]);
   const [selectedDate, setSelectedDate] = useState(getTodayDate());
@@ -72,40 +74,40 @@ export const HistoryPage = () => {
   }, [repository]);
 
   if (!selectedEntry) {
-    return <div className="page"><p>Chargement de l'historique...</p></div>;
+    return <div className="page"><p>{t("loading")}</p></div>;
   }
 
   return (
     <div className="page">
       <header className="hero">
         <div>
-          <p className="eyebrow">Historique quotidien</p>
-          <h2>Relire, corriger, reouvrir si necessaire.</h2>
+          <p className="eyebrow">{t("hero.eyebrow")}</p>
+          <h2>{t("hero.title")}</h2>
           <p className="hero__copy">
-            Une vue compacte des derniers jours avec edition complete sur la date choisie.
+            {t("hero.copy")}
           </p>
         </div>
       </header>
 
-      <SectionCard title="Choisir une date" subtitle="Ouvre une journee existante ou cree une date manquante.">
+      <SectionCard title={t("picker.title")} subtitle={t("picker.subtitle")}>
         <div className="history-toolbar">
           <label className="stacked-field">
-            <span>Date a ouvrir</span>
+            <span>{t("picker.dateLabel")}</span>
             <input
-              aria-label="Date a ouvrir"
+              aria-label={t("picker.dateLabel")}
               type="date"
               value={selectedDate}
               onChange={(event) => setSelectedDate(event.target.value)}
             />
           </label>
           <button className="button" type="button" onClick={() => void loadEntry(selectedDate)}>
-            Charger la date
+            {t("picker.load")}
           </button>
         </div>
 
         <div className="history-list">
           {entries.length === 0 ? (
-            <p className="empty-copy">Aucune journee enregistree pour l'instant.</p>
+            <p className="empty-copy">{t("picker.empty")}</p>
           ) : (
             entries.map((entry) => (
               <button
@@ -122,12 +124,12 @@ export const HistoryPage = () => {
         </div>
       </SectionCard>
 
-      <SectionCard title={formatDateLong(selectedEntry.date)} subtitle="Edition complete de la journee selectionnee.">
+      <SectionCard title={formatDateLong(selectedEntry.date)} subtitle={t("editor.subtitle")}>
         <EntrySummaryStrip entry={selectedEntry} />
 
         <div className="journal-grid">
           <label className="stacked-field">
-            <span>Intention du matin</span>
+            <span>{t("editor.morningIntention")}</span>
             <PersistedTextarea
               key={`${selectedEntry.date}-morningIntention`}
               rows={3}
@@ -140,7 +142,7 @@ export const HistoryPage = () => {
             />
           </label>
           <label className="stacked-field">
-            <span>Reflection du soir</span>
+            <span>{t("editor.nightReflection")}</span>
             <PersistedTextarea
               key={`${selectedEntry.date}-nightReflection`}
               rows={3}
@@ -153,7 +155,7 @@ export const HistoryPage = () => {
             />
           </label>
           <label className="stacked-field">
-            <span>Focus de demain</span>
+            <span>{t("editor.tomorrowFocus")}</span>
             <PersistedTextarea
               key={`${selectedEntry.date}-tomorrowFocus`}
               rows={3}
@@ -168,7 +170,7 @@ export const HistoryPage = () => {
         </div>
       </SectionCard>
 
-      <SectionCard title="Metriques" subtitle="Toutes les metriques du suivi quotidien.">
+      <SectionCard title={t("metrics.title")} subtitle={t("metrics.subtitle")}>
         <MetricGrid
           entry={selectedEntry}
           suggestionKeys={[...autoSuggestedMetricKeys]}
@@ -177,7 +179,7 @@ export const HistoryPage = () => {
         />
       </SectionCard>
 
-      <SectionCard title="Principes de vie" subtitle="Revise ce qui a ete respecte ce jour-la.">
+      <SectionCard title={t("principles.title")} subtitle={t("principles.subtitle")}>
         <PrincipleChecklist
           entry={selectedEntry}
           onChange={(key, value) => setSelectedEntry(updatePrinciple(selectedEntry, key, value))}
@@ -193,21 +195,21 @@ export const HistoryPage = () => {
             await loadEntries();
           }}
         >
-          Enregistrer les modifications
+          {t("actions.save")}
         </button>
         <button
           className="button"
           type="button"
           onClick={() => setSelectedEntry(applyRoutineTransition(selectedEntry, "reopen_day"))}
         >
-          Reouvrir
+          {t("actions.reopen")}
         </button>
         <button
           className="button"
           type="button"
           onClick={() => setSelectedEntry(applyRoutineTransition(selectedEntry, "close_day"))}
         >
-          Marquer comme cloturee
+          {t("actions.close")}
         </button>
       </div>
     </div>

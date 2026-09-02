@@ -12,15 +12,15 @@ describe("MorningRoutinePage", () => {
     expect(anchorsSection).not.toBeNull();
     const anchors = within(anchorsSection!);
 
-    expect(anchors.getByText("Respect reveil")).toBeInTheDocument();
-    expect(anchors.getByText("Priere du matin")).toBeInTheDocument();
-    expect(anchors.getByText("Oxytocine du matin")).toBeInTheDocument();
+    expect(anchors.getByText("Respect réveil")).toBeInTheDocument();
+    expect(anchors.getByText("Prière du matin")).toBeInTheDocument();
+    expect(anchors.getByText("Ocytocine du matin")).toBeInTheDocument();
     expect(anchors.getByText("Avoir lu mes principes")).toBeInTheDocument();
-    expect(anchors.getByText("Ecriture")).toBeInTheDocument();
+    expect(anchors.getByText("Écriture")).toBeInTheDocument();
     expect(anchors.getByText("Apprentissage")).toBeInTheDocument();
 
     expect(anchors.queryByText("Managed solitude")).not.toBeInTheDocument();
-    expect(anchors.queryByText("Respect de vie comme Jesus")).not.toBeInTheDocument();
+    expect(anchors.queryByText("Respect de vie comme Jésus")).not.toBeInTheDocument();
   });
 
   it("saves the intention and completes the morning status", async () => {
@@ -29,7 +29,7 @@ describe("MorningRoutinePage", () => {
 
     const intention = await screen.findByRole("textbox", { name: /intention/i });
     await user.type(intention, "Je garde un rythme calme.");
-    await user.click(screen.getByRole("button", { name: /marquer le matin comme complete/i }));
+    await user.click(screen.getByRole("button", { name: /marquer le matin comme complété/i }));
 
     const saved = await repository.getDailyEntry(getTodayDate());
     expect(saved?.morningIntention).toContain("Je garde un rythme calme.");

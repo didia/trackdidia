@@ -1,0 +1,58 @@
+{
+  "priereDuMatin": {
+    "label": "Prière du matin",
+    "helper": "Avoir commencé la journée dans la prière."
+  },
+  "oxytocineDuMatin": {
+    "label": "Ocytocine du matin",
+    "helper": "Connexion affective ou relationnelle le matin."
+  },
+  "avoirLuMesPrincipes": {
+    "label": "Avoir lu mes principes",
+    "helper": "Relecture des principes personnels."
+  },
+  "ecriture": {
+    "label": "Écriture",
+    "helper": "Temps d'écriture ou de journal."
+  },
+  "apprentissage": {
+    "label": "Apprentissage",
+    "helper": "Progression intellectuelle ou spirituelle."
+  },
+  "managedSolitude": {
+    "label": "Managed solitude",
+    "helper": "Solitude choisie et saine."
+  },
+  "respectDeVieCommeJesus": {
+    "label": "Respect de vie comme Jésus",
+    "helper": "Alignement avec le style de vie visé."
+  },
+  "retroJournalier": {
+    "label": "Rétro journalier",
+    "helper": "Fermeture et revue de la journée."
+  },
+  "tempsDeQualiteAvecEnfants": {
+    "label": "Temps de qualité avec enfants",
+    "helper": "Présence intentionnelle avec les enfants."
+  },
+  "priereDuSoir": {
+    "label": "Prière du soir",
+    "helper": "Clôturer la journée dans la prière."
+  },
+  "attentionAMonEpouse": {
+    "label": "Attention à mon épouse",
+    "helper": "Action concrète ou présence envers mon épouse."
+  },
+  "respectTrc": {
+    "label": "Respect TRC",
+    "helper": "Respect du cadre TRC."
+  },
+  "respectReveil": {
+    "label": "Respect réveil",
+    "helper": "Heure de réveil respectée."
+  },
+  "objectifsAtteints": {
+    "label": "Objectifs atteints",
+    "helper": "Objectifs du jour réellement atteints."
+  }
+}

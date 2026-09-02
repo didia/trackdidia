@@ -1,4 +1,5 @@
 import type { AiSurface } from "../../../domain/types";
+import { t } from "../../../i18n";
 import { COACH_PULSE_PROMPT_VERSION } from "../coach-pulse-service";
 import { GOAL_PACING_PROMPT_VERSION } from "../goal-pacing-service";
 import { MONTHLY_SYNTHESIS_PROMPT_VERSION } from "../monthly-synthesis-service";
@@ -14,22 +15,22 @@ export const PROMPT_REGISTRY: PromptRegistryEntry[] = [
   {
     surface: "coach_pulse",
     version: COACH_PULSE_PROMPT_VERSION,
-    description: "Pulse quotidien (open, steer, wind_down, close) avec propositions acceptables."
+    description: t("analytics.prompt.coach_pulse", { ns: "settings" })
   },
   {
     surface: "weekly_synthesis",
     version: WEEKLY_SYNTHESIS_PROMPT_VERSION,
-    description: "Synthese hebdomadaire: sections, objectifs et actions GTD."
+    description: t("analytics.prompt.weekly_synthesis", { ns: "settings" })
   },
   {
     surface: "monthly_synthesis",
     version: MONTHLY_SYNTHESIS_PROMPT_VERSION,
-    description: "Synthese mensuelle: sections et evaluations d'objectifs annuels."
+    description: t("analytics.prompt.monthly_synthesis", { ns: "settings" })
   },
   {
     surface: "goal_pacing",
     version: GOAL_PACING_PROMPT_VERSION,
-    description: "Rythme annuel des objectifs (affichage seulement, sans propositions)."
+    description: t("analytics.prompt.goal_pacing", { ns: "settings" })
   }
 ];
 

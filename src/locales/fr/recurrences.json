@@ -1,0 +1,94 @@
+{
+  "weekdays": {
+    "0": "Dim",
+    "1": "Lun",
+    "2": "Mar",
+    "3": "Mer",
+    "4": "Jeu",
+    "5": "Ven",
+    "6": "Sam"
+  },
+  "nthWeek": {
+    "1": "1er",
+    "2": "2e",
+    "3": "3e",
+    "4": "4e",
+    "5": "5e"
+  },
+  "buckets": {
+    "next_action": "Next Actions",
+    "scheduled": "Scheduled"
+  },
+  "rule": {
+    "daily": "Tous les {{n}} jour(s)",
+    "daily_one": "Tous les {{count}} jour",
+    "daily_other": "Tous les {{count}} jours",
+    "weekly": "Chaque {{n}} sem • {{days}}",
+    "monthlyDay": "Chaque mois • jour {{n}}",
+    "monthlyNth": "Chaque mois • {{nth}} {{weekday}}"
+  },
+  "card": {
+    "nextOccurrence": "Prochaine • {{date}}",
+    "missed_one": "{{count}} retard",
+    "missed_other": "{{count}} retards",
+    "pause": "Pause",
+    "resume": "Reprendre",
+    "cancel": "Annuler"
+  },
+  "form": {
+    "title": "Titre",
+    "targetBucket": "Bucket cible",
+    "startDate": "Date de départ",
+    "notes": "Notes",
+    "ruleType": "Type de règle",
+    "daily": "Journalière",
+    "weekly": "Hebdomadaire",
+    "monthly": "Mensuelle",
+    "interval": "Intervalle",
+    "weeklyInterval": "Intervalle (semaines)",
+    "monthlyMode": "Mode mensuel",
+    "dayOfMonth": "Jour fixe",
+    "nthWeekday": "Nième jour de la semaine",
+    "scheduledTime": "Heure optionnelle",
+    "dayOfMonthField": "Jour du mois",
+    "nthWeek": "Semaine",
+    "weekday": "Jour",
+    "project": "Projet",
+    "noProject": "Sans projet",
+    "saving": "Enregistrement...",
+    "save": "Enregistrer"
+  },
+  "hero": {
+    "eyebrow": "Récurrences",
+    "title": "Les tâches qui reviennent sans que tu les recrées à la main.",
+    "copy": "Définis une série, laisse l'app générer l'occurrence du jour à minuit, et garde de la visibilité sur les dates à venir dans Scheduled."
+  },
+  "create": {
+    "title": "Nouvelle récurrence",
+    "subtitle": "Créer une série locale qui générera automatiquement une occurrence quand elle devient due.",
+    "button": "Créer la récurrence"
+  },
+  "filters": {
+    "title": "Filtres",
+    "subtitle": "Affiner la vue par statut, bucket, contexte ou type de règle.",
+    "search": "Recherche",
+    "searchPlaceholder": "Filtrer les récurrences",
+    "status": "Statut",
+    "all": "Tous",
+    "active": "Actives",
+    "paused": "En pause",
+    "cancelled": "Annulées",
+    "bucket": "Bucket",
+    "context": "Contexte",
+    "rule": "Règle",
+    "ruleAll": "Toutes",
+    "project": "Projet"
+  },
+  "list": {
+    "title": "Séries récurrentes",
+    "subtitle_one": "{{count}} récurrence visible.",
+    "subtitle_other": "{{count}} récurrences visibles."
+  },
+  "loading": "Chargement des récurrences...",
+  "empty": "Aucune récurrence pour ce filtre."
+}

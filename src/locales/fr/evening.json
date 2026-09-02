@@ -1,0 +1,25 @@
+{
+  "loading": "Chargement de la fermeture du soir...",
+  "hero": {
+    "eyebrow": "Fermeture du soir",
+    "copy": "Referme la boucle, mesure la fidélité du jour et prépare le terrain pour demain."
+  },
+  "coachTitle": "Coach de clôture",
+  "metrics": {
+    "title": "Métriques du jour",
+    "subtitle": "Complète les chiffres qui rendent la journée lisible."
+  },
+  "principles": {
+    "title": "Principes de vie",
+    "subtitle": "Oui ou non pour chaque principe."
+  },
+  "closure": {
+    "title": "Clôture",
+    "subtitle": "Une lecture honnête et courte de la journée.",
+    "nightReflection": "Réflexion du soir",
+    "nightPlaceholder": "Qu'est-ce qui a été fidèle aujourd'hui ?",
+    "tomorrowFocus": "Focus de demain",
+    "tomorrowPlaceholder": "Quel est le prochain acte simple qui compte ?"
+  },
+  "closeDay": "Clôturer la journée"
+}

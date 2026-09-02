@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import type {
   AnnualGoal,
   AnnualGoalDimension,
@@ -50,38 +51,42 @@ const weeklyAverage = (weeklySummaries: WeeklyReviewSummary[], selector: (summar
 const dailyAverageMetric = (entries: DailyEntry[], key: Parameters<typeof resolveMetricValue>[1]): number | null =>
   average(entries.map((entry) => resolveMetricValue(entry, key)).filter((value): value is number => value !== null));
 
+const sourceLabel = (id: AnnualGoalSourceId): string => t(`sources.${id}`, { ns: "goals" });
+const linkedMetricLabel = (id: string): string => t(`linkedMetric.${id}`, { ns: "goals" });
+const habitLabel = (key: string): string => t(`habit.${key}`, { ns: "goals" });
+
 const sourceDefinitions: AnnualGoalSourceDefinition[] = [
   {
     id: "weekly_sleep_average",
-    label: "Sommeil moyen hebdo",
+    label: sourceLabel("weekly_sleep_average"),
     type: "weekly_summary",
-    weeklyMetricLabels: ["Sommeil moyen"],
-    dailyHabitLabels: ["Qualite du sommeil"],
+    weeklyMetricLabels: [linkedMetricLabel("weekly_sleep_average")],
+    dailyHabitLabels: [habitLabel("qualiteSommeil")],
     computeCurrent: (_entries, weeklySummaries) => weeklyAverage(weeklySummaries, (summary) => summary.sleepAverage),
     computeMonth: (monthKey, _entries, weeklySummaries) => weeklyAverage(filterWeeklyByMonth(monthKey, weeklySummaries), (summary) => summary.sleepAverage)
   },
   {
     id: "weekly_respect_trc",
-    label: "Respect TRC hebdo",
+    label: sourceLabel("weekly_respect_trc"),
     type: "weekly_summary",
-    weeklyMetricLabels: ["Respect TRC"],
-    dailyHabitLabels: ["Respect TRC"],
+    weeklyMetricLabels: [linkedMetricLabel("weekly_respect_trc")],
+    dailyHabitLabels: [habitLabel("respectTrc")],
     computeCurrent: (_entries, weeklySummaries) => weeklyAverage(weeklySummaries, (summary) => summary.respectTrc),
     computeMonth: (monthKey, _entries, weeklySummaries) => weeklyAverage(filterWeeklyByMonth(monthKey, weeklySummaries), (summary) => summary.respectTrc)
   },
   {
     id: "weekly_weekly_score",
-    label: "Score hebdo moyen",
+    label: sourceLabel("weekly_weekly_score"),
     type: "weekly_summary",
-    weeklyMetricLabels: ["Score hebdo"],
+    weeklyMetricLabels: [linkedMetricLabel("weekly_weekly_score")],
     dailyHabitLabels: [
-      "Sommeil",
-      "TRC",
-      "Temps d'ecran",
-      "Temps focus",
-      "Discipline",
-      "Taches",
-      "Depense calorique"
+      habitLabel("sommeil"),
+      habitLabel("trc"),
+      habitLabel("tempsEcran"),
+      habitLabel("tempsFocus"),
+      habitLabel("discipline"),
+      habitLabel("taches"),
+      habitLabel("depenseCalorique")
     ],
     computeCurrent: (_entries, weeklySummaries) => {
       const value = weeklyAverage(weeklySummaries, (summary) => summary.weeklyScore);
@@ -94,126 +99,126 @@ const sourceDefinitions: AnnualGoalSourceDefinition[] = [
   },
   {
     id: "weekly_discipline",
-    label: "Discipline hebdo",
+    label: sourceLabel("weekly_discipline"),
     type: "weekly_summary",
-    weeklyMetricLabels: ["Discipline moyenne"],
-    dailyHabitLabels: ["Principes de vie"],
+    weeklyMetricLabels: [linkedMetricLabel("weekly_discipline")],
+    dailyHabitLabels: [habitLabel("principesDeVie")],
     computeCurrent: (_entries, weeklySummaries) => weeklyAverage(weeklySummaries, (summary) => summary.disciplineAverage * 100),
     computeMonth: (monthKey, _entries, weeklySummaries) => weeklyAverage(filterWeeklyByMonth(monthKey, weeklySummaries), (summary) => summary.disciplineAverage * 100)
   },
   {
     id: "weekly_tasks_completion_rate",
-    label: "Completion des taches hebdo",
+    label: sourceLabel("weekly_tasks_completion_rate"),
     type: "weekly_summary",
-    weeklyMetricLabels: ["Taux de completion des taches"],
-    dailyHabitLabels: ["Taches realisees", "Taches ajoutees"],
+    weeklyMetricLabels: [linkedMetricLabel("weekly_tasks_completion_rate")],
+    dailyHabitLabels: [habitLabel("tachesRealisees"), habitLabel("tachesAjoutees")],
     computeCurrent: (_entries, weeklySummaries) => weeklyAverage(weeklySummaries, (summary) => summary.tasksCompletionRate),
     computeMonth: (monthKey, _entries, weeklySummaries) => weeklyAverage(filterWeeklyByMonth(monthKey, weeklySummaries), (summary) => summary.tasksCompletionRate)
   },
   {
     id: "daily_depense_calorique_avg",
-    label: "Depense calorique moyenne",
+    label: sourceLabel("daily_depense_calorique_avg"),
     type: "daily_metric",
     weeklyMetricLabels: [],
-    dailyHabitLabels: ["Depense calorique"],
+    dailyHabitLabels: [habitLabel("depenseCalorique")],
     computeCurrent: (entries) => dailyAverageMetric(entries, "depenseCalorique"),
     computeMonth: (monthKey, entries) => dailyAverageMetric(filterEntriesByMonth(monthKey, entries), "depenseCalorique")
   },
   {
     id: "daily_qualite_sommeil_avg",
-    label: "Qualite du sommeil moyenne",
+    label: sourceLabel("daily_qualite_sommeil_avg"),
     type: "daily_metric",
-    weeklyMetricLabels: ["Sommeil moyen hebdo"],
-    dailyHabitLabels: ["Qualite du sommeil"],
+    weeklyMetricLabels: [linkedMetricLabel("daily_qualite_sommeil_avg")],
+    dailyHabitLabels: [habitLabel("qualiteSommeil")],
     computeCurrent: (entries) => dailyAverageMetric(entries, "qualiteSommeil"),
     computeMonth: (monthKey, entries) => dailyAverageMetric(filterEntriesByMonth(monthKey, entries), "qualiteSommeil")
   },
   {
     id: "daily_temps_ecran_avg",
-    label: "Temps d'ecran moyen",
+    label: sourceLabel("daily_temps_ecran_avg"),
     type: "daily_metric",
-    weeklyMetricLabels: ["Temps d'ecran hebdo"],
-    dailyHabitLabels: ["Temps d'ecran telephone"],
+    weeklyMetricLabels: [linkedMetricLabel("daily_temps_ecran_avg")],
+    dailyHabitLabels: [habitLabel("tempsEcranTelephone")],
     computeCurrent: (entries) => dailyAverageMetric(entries, "tempsEcranTelephone"),
     computeMonth: (monthKey, entries) => dailyAverageMetric(filterEntriesByMonth(monthKey, entries), "tempsEcranTelephone")
   },
   {
     id: "daily_pomodoris_sum",
-    label: "Pomodoris mensuels",
+    label: sourceLabel("daily_pomodoris_sum"),
     type: "daily_metric",
-    weeklyMetricLabels: ["Pomodoris hebdo"],
-    dailyHabitLabels: ["Pomodoris"],
+    weeklyMetricLabels: [linkedMetricLabel("daily_pomodoris_sum")],
+    dailyHabitLabels: [habitLabel("pomodoris")],
     computeCurrent: (entries) => sum(entries.map((entry) => resolveMetricValue(entry, "pomodoris") ?? 0)),
     computeMonth: (monthKey, entries) => sum(filterEntriesByMonth(monthKey, entries).map((entry) => resolveMetricValue(entry, "pomodoris") ?? 0))
   },
   {
     id: "daily_pomodoris_avg",
-    label: "Pomodoris moyens",
+    label: sourceLabel("daily_pomodoris_avg"),
     type: "daily_metric",
-    weeklyMetricLabels: ["Pomodoris hebdo"],
-    dailyHabitLabels: ["Pomodoris"],
+    weeklyMetricLabels: [linkedMetricLabel("daily_pomodoris_avg")],
+    dailyHabitLabels: [habitLabel("pomodoris")],
     computeCurrent: (entries) => dailyAverageMetric(entries, "pomodoris"),
     computeMonth: (monthKey, entries) => dailyAverageMetric(filterEntriesByMonth(monthKey, entries), "pomodoris")
   },
   {
     id: "daily_respect_trc_rate",
-    label: "Respect TRC quotidien",
+    label: sourceLabel("daily_respect_trc_rate"),
     type: "daily_principle",
-    weeklyMetricLabels: ["Respect TRC hebdo"],
-    dailyHabitLabels: ["Respect TRC"],
+    weeklyMetricLabels: [linkedMetricLabel("daily_respect_trc_rate")],
+    dailyHabitLabels: [habitLabel("respectTrc")],
     computeCurrent: (entries) => computePrincipleRate(entries, "respectTrc"),
     computeMonth: (monthKey, entries) => computePrincipleRate(filterEntriesByMonth(monthKey, entries), "respectTrc")
   },
   {
     id: "daily_respect_reveil_rate",
-    label: "Respect reveil",
+    label: sourceLabel("daily_respect_reveil_rate"),
     type: "daily_principle",
     weeklyMetricLabels: [],
-    dailyHabitLabels: ["Respect reveil"],
+    dailyHabitLabels: [habitLabel("respectReveil")],
     computeCurrent: (entries) => computePrincipleRate(entries, "respectReveil"),
     computeMonth: (monthKey, entries) => computePrincipleRate(filterEntriesByMonth(monthKey, entries), "respectReveil")
   },
   {
     id: "daily_priere_du_matin_rate",
-    label: "Priere du matin",
+    label: sourceLabel("daily_priere_du_matin_rate"),
     type: "daily_principle",
     weeklyMetricLabels: [],
-    dailyHabitLabels: ["Priere du matin"],
+    dailyHabitLabels: [habitLabel("priereDuMatin")],
     computeCurrent: (entries) => computePrincipleRate(entries, "priereDuMatin"),
     computeMonth: (monthKey, entries) => computePrincipleRate(filterEntriesByMonth(monthKey, entries), "priereDuMatin")
   },
   {
     id: "daily_priere_du_soir_rate",
-    label: "Priere du soir",
+    label: sourceLabel("daily_priere_du_soir_rate"),
     type: "daily_principle",
     weeklyMetricLabels: [],
-    dailyHabitLabels: ["Priere du soir"],
+    dailyHabitLabels: [habitLabel("priereDuSoir")],
     computeCurrent: (entries) => computePrincipleRate(entries, "priereDuSoir"),
     computeMonth: (monthKey, entries) => computePrincipleRate(filterEntriesByMonth(monthKey, entries), "priereDuSoir")
   },
   {
     id: "daily_objectifs_atteints_rate",
-    label: "Objectifs atteints",
+    label: sourceLabel("daily_objectifs_atteints_rate"),
     type: "daily_principle",
     weeklyMetricLabels: [],
-    dailyHabitLabels: ["Objectifs atteints"],
+    dailyHabitLabels: [habitLabel("objectifsAtteints")],
     computeCurrent: (entries) => computePrincipleRate(entries, "objectifsAtteints"),
     computeMonth: (monthKey, entries) => computePrincipleRate(filterEntriesByMonth(monthKey, entries), "objectifsAtteints")
   }
 ];
 
 export const annualGoalDimensions: Array<{ value: AnnualGoalDimension; label: string }> = [
-  { value: "physique", label: "Dimension physique" },
-  { value: "spirituelle", label: "Dimension spirituelle" },
-  { value: "sociale", label: "Dimension sociale" },
-  { value: "intellectuelle", label: "Dimension intellectuelle" },
-  { value: "global", label: "Global" }
+  { value: "physique", label: t("dimensions.physique", { ns: "goals" }) },
+  { value: "spirituelle", label: t("dimensions.spirituelle", { ns: "goals" }) },
+  { value: "sociale", label: t("dimensions.sociale", { ns: "goals" }) },
+  { value: "intellectuelle", label: t("dimensions.intellectuelle", { ns: "goals" }) },
+  { value: "global", label: t("dimensions.global", { ns: "goals" }) }
 ];
 
 export const annualGoalTrendOptions: Array<{ value: AnnualGoalTrend; label: string }> = [
-  { value: "up", label: "En hausse" },
-  { value: "steady", label: "Stable" },
-  { value: "down", label: "En baisse" }
+  { value: "up", label: t("trends.up", { ns: "goals" }) },
+  { value: "steady", label: t("trends.steady", { ns: "goals" }) },
+  { value: "down", label: t("trends.down", { ns: "goals" }) }
 ];
 
 export const annualGoalSourceOptions = sourceDefinitions.map((definition) => ({

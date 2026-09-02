@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { useAppContext } from "../app/app-context";
 import { deriveStatusLabel } from "../domain/daily-entry";
@@ -47,82 +48,31 @@ interface RitualSectionDefinition {
   linkLabel?: string;
 }
 
-const ritualSections: RitualSectionDefinition[] = [
-  {
-    key: "bilan",
-    title: "Bilan",
-    subtitle: "Achievements, challenges, weekly notes et apprentissages.",
-    prompt: "Qu'est-ce qui a marche cette semaine ? Qu'est-ce qui a coince ?"
-  },
-  {
-    key: "budget",
-    title: "Budget",
-    subtitle: "Reality, stability, resilience, creation et flexibility.",
-    prompt: "Que doit faire l'argent avant la prochaine paie et quels ajustements sont necessaires ?"
-  },
-  {
-    key: "tempsEtPlan",
-    title: "Temps et plan",
-    subtitle: "Time usage, life tracking plan et weekly journal.",
-    prompt: "Qu'est-ce que ton temps raconte vraiment et quel cap garder la semaine prochaine ?"
-  },
-  {
-    key: "collecte",
-    title: "Collecte",
-    subtitle: "Collect and process perso, pro et reseaux sociaux.",
-    prompt: "Qu'est-ce qu'il reste a vider, clarifier, deleguer ou archiver ?",
-    linkTo: "/inbox",
-    linkLabel: "Ouvrir l'inbox"
-  },
-  {
-    key: "calendrier",
-    title: "Calendrier",
-    subtitle: "Revue du passe recent et du calendrier a venir.",
-    prompt: "Y a-t-il des suivis oublies, deadlines ou preparations a lancer ?",
-    linkTo: "/scheduled",
-    linkLabel: "Voir le calendrier"
-  },
-  {
-    key: "gtd",
-    title: "GTD",
-    subtitle: "Action lists, waiting-for et projets.",
-    prompt: "Chaque projet a-t-il un prochain pas clair ?",
-    linkTo: "/next-actions",
-    linkLabel: "Voir les next actions"
-  },
-  {
-    key: "alignement",
-    title: "Alignement",
-    subtitle: "Goals, areas of focus, mission statement et objectifs du mois.",
-    prompt: "Ton systeme de la semaine reste-t-il aligne avec ce qui compte vraiment ?",
-    linkTo: "/projects",
-    linkLabel: "Voir les projets"
-  },
-  {
-    key: "dimanche",
-    title: "Dimanche",
-    subtitle: "Cloturer la semaine passee et preparer la suivante.",
-    prompt: "Quels apprentissages emporter et quel ton poser pour la semaine qui arrive ?",
-    linkTo: "/historique",
-    linkLabel: "Ouvrir l'historique"
-  }
+const ritualSectionMeta: Array<{
+  key: WeeklyRitualSectionKey;
+  linkTo?: string;
+  linkKey?:
+    | "weekly.ritual.collecte.link"
+    | "weekly.ritual.calendrier.link"
+    | "weekly.ritual.gtd.link"
+    | "weekly.ritual.alignement.link"
+    | "weekly.ritual.dimanche.link";
+}> = [
+  { key: "bilan" },
+  { key: "budget" },
+  { key: "tempsEtPlan" },
+  { key: "collecte", linkTo: "/inbox", linkKey: "weekly.ritual.collecte.link" },
+  { key: "calendrier", linkTo: "/scheduled", linkKey: "weekly.ritual.calendrier.link" },
+  { key: "gtd", linkTo: "/next-actions", linkKey: "weekly.ritual.gtd.link" },
+  { key: "alignement", linkTo: "/projects", linkKey: "weekly.ritual.alignement.link" },
+  { key: "dimanche", linkTo: "/historique", linkKey: "weekly.ritual.dimanche.link" }
 ];
 
 const formatWholePercent = (value: number): string => `${Math.round(value)}%`;
 
-const formatHours = (hours: number | null): string =>
-  hours === null ? "—" : `${hours.toFixed(2)} h`;
-
-const formatObjectiveScore = (score: number | null): string =>
-  score === null ? "—" : formatPercent(score);
-
-const formatPulse = (value: number | null): string =>
-  value === null ? "—" : `${Math.round(value)} / 100`;
-
-const deriveWeeklyStatusLabel = (status: WeeklyReview["status"]): string =>
-  status === "closed" ? "Revue cloturee" : "Brouillon";
-
 export const WeeklyReviewPage = () => {
+  const { t } = useTranslation("reviews");
+  const { t: tCommon } = useTranslation("common");
   const { repository, settings } = useAppContext();
   const goalsService = useMemo(() => new RescueTimeGoalsService(repository), [repository]);
   const objectivesService = useMemo(() => new WeeklyObjectivesService(repository), [repository]);
@@ -174,7 +124,7 @@ export const WeeklyReviewPage = () => {
         }
         if (options?.refreshing) {
           setRescueTimeMessage(
-            error instanceof Error ? error.message : "Echec du rafraichissement RescueTime Goals."
+            error instanceof Error ? error.message : t("weekly.rescueGoals.refreshError")
           );
         }
       } finally {
@@ -187,7 +137,7 @@ export const WeeklyReviewPage = () => {
         }
       }
     },
-    [goalsService]
+    [goalsService, t]
   );
 
   const loadPulseSnapshot = useCallback(
@@ -211,7 +161,7 @@ export const WeeklyReviewPage = () => {
         }
         if (options?.refreshing) {
           setRescueTimeMessage(
-            error instanceof Error ? error.message : "Echec du rafraichissement RescueTime pulse."
+            error instanceof Error ? error.message : t("weekly.rescueGoals.pulseRefreshError")
           );
         }
       } finally {
@@ -224,7 +174,7 @@ export const WeeklyReviewPage = () => {
         }
       }
     },
-    [goalsService]
+    [goalsService, t]
   );
 
   const loadStandingObjectives = useCallback(
@@ -591,8 +541,30 @@ export const WeeklyReviewPage = () => {
     });
   }, [goalsSnapshot, pulseSnapshot, summary]);
 
+  const ritualSections = useMemo<RitualSectionDefinition[]>(
+    () =>
+      ritualSectionMeta.map((section) => ({
+        key: section.key,
+        title: t(`weekly.ritual.${section.key}.title`),
+        subtitle: t(`weekly.ritual.${section.key}.subtitle`),
+        prompt: t(`weekly.ritual.${section.key}.prompt`),
+        linkTo: section.linkTo,
+        linkLabel: section.linkKey ? t(section.linkKey) : undefined
+      })),
+    [t]
+  );
+
+  const formatHours = (hours: number | null): string =>
+    hours === null ? t("weekly.format.none") : t("weekly.format.hours", { n: hours.toFixed(2) });
+
+  const formatObjectiveScore = (score: number | null): string =>
+    score === null ? t("weekly.format.none") : formatPercent(score);
+
+  const formatPulse = (value: number | null): string =>
+    value === null ? t("weekly.format.none") : t("weekly.format.score", { n: Math.round(value) });
+
   if (loading || !review || !summary || !displayedSummary) {
-    return <div className="page"><p>Chargement de la revue hebdomadaire...</p></div>;
+    return <div className="page"><p>{t("weekly.loading")}</p></div>;
   }
 
   const weekMatchedGoalsSnapshot =
@@ -609,12 +581,15 @@ export const WeeklyReviewPage = () => {
     <div className="page">
       <header className="hero">
         <div>
-          <p className="eyebrow">Semaine</p>
+          <p className="eyebrow">{t("weekly.hero.eyebrow")}</p>
           <h2>
-            {formatDateLong(summary.weekStartDate)} au {formatDateLong(summary.weekEndDate)}
+            {t("weekly.hero.range", {
+              start: formatDateLong(summary.weekStartDate),
+              end: formatDateLong(summary.weekEndDate)
+            })}
           </h2>
           <p className="hero__copy">
-            Cloture la semaine passee, lis les signaux du quotidien et prepare la suivante sans perdre le fil.
+            {t("weekly.hero.copy")}
           </p>
         </div>
         <div className="hero__actions">
@@ -629,7 +604,7 @@ export const WeeklyReviewPage = () => {
               void loadWeek(addDays(selectedWeekStart, -7));
             }}
           >
-            Semaine precedente
+            {t("weekly.nav.prev")}
           </button>
           <button
             className="button"
@@ -642,20 +617,20 @@ export const WeeklyReviewPage = () => {
               void loadWeek(addDays(selectedWeekStart, 7));
             }}
           >
-            Semaine suivante
+            {t("weekly.nav.next")}
           </button>
         </div>
       </header>
 
       <SectionCard
-        title="Choisir la semaine"
-        subtitle="La semaine metier suit le rythme dimanche -> samedi, aligne avec ton rituel du dimanche."
+        title={t("weekly.picker.title")}
+        subtitle={t("weekly.picker.subtitle")}
       >
         <div className="history-toolbar">
           <label className="stacked-field">
-            <span>Debut de semaine</span>
+            <span>{t("weekly.picker.startLabel")}</span>
             <input
-              aria-label="Debut de semaine"
+              aria-label={t("weekly.picker.startLabel")}
               type="date"
               value={selectedWeekStart}
               onChange={(event) => setSelectedWeekStart(event.target.value)}
@@ -673,21 +648,24 @@ export const WeeklyReviewPage = () => {
                 void loadWeek(selectedWeekStart);
               }}
             >
-              Charger la semaine
+              {t("weekly.picker.load")}
             </button>
             <button className="button" type="button" onClick={() => void loadWeek(buildWeekDates(getTodayDate()))}>
-              Revenir a cette semaine
+              {t("weekly.picker.current")}
             </button>
           </div>
         </div>
         <p className="empty-copy">
           {hasValidSelectedWeek
-            ? `Fenetre courante: ${formatDateShort(selectedWeekStart)} -> ${formatDateShort(weekEndDate)}.`
-            : "Saisis un dimanche pour charger une semaine."}
+            ? t("weekly.picker.window", {
+                start: formatDateShort(selectedWeekStart),
+                end: formatDateShort(weekEndDate)
+              })
+            : t("weekly.picker.invalid")}
         </p>
       </SectionCard>
 
-      <SectionCard title="Coach hebdomadaire" subtitle="Synthese de la semaine, brouillons de sections et actions proposees.">
+      <SectionCard title={t("weekly.coach.title")} subtitle={t("weekly.coach.subtitle")}>
         <WeeklySynthesisPanel
           result={synthesisMatchesWeek ? synthesisResult : null}
           loading={synthesisLoading}
@@ -710,48 +688,48 @@ export const WeeklyReviewPage = () => {
         />
       </SectionCard>
 
-      <SectionCard title="Vue d'ensemble" subtitle="Le coeur quantifie de la semaine, calcule a partir du quotidien.">
+      <SectionCard title={t("weekly.overview.title")} subtitle={t("weekly.overview.subtitle")}>
         <div className="weekly-overview-grid">
           <article className="status-card">
-            <span>Statut</span>
-            <strong>{deriveWeeklyStatusLabel(review.status)}</strong>
+            <span>{t("weekly.overview.status")}</span>
+            <strong>{review.status === "closed" ? t("weekly.status.closed") : t("weekly.status.draft")}</strong>
           </article>
           <article className="status-card">
-            <span>Score hebdo</span>
+            <span>{t("weekly.overview.score")}</span>
             <strong>{formatPercent(displayedSummary.weeklyScore)}</strong>
           </article>
           <article className="status-card">
-            <span>Sommeil moyen</span>
-            <strong>{Math.round(summary.sleepAverage)} / 100</strong>
+            <span>{t("weekly.overview.sleepAverage")}</span>
+            <strong>{t("weekly.format.score", { n: Math.round(summary.sleepAverage) })}</strong>
           </article>
           <article className="status-card">
-            <span>TRC respecte</span>
+            <span>{t("weekly.overview.trcRespected")}</span>
             <strong>{summary.trcDaysRespected} / 7</strong>
           </article>
           <article className="status-card">
-            <span>Temps d'ecran</span>
+            <span>{t("weekly.overview.screenTime")}</span>
             <strong>{summary.screenTimeTotalMinutes} min</strong>
           </article>
           <article className="status-card">
-            <span>Pomodoris</span>
+            <span>{t("weekly.overview.pomodoris")}</span>
             <strong>{summary.pomodorisTotal}</strong>
           </article>
           <article className="status-card">
-            <span>Depense calorique moyenne</span>
+            <span>{t("weekly.overview.calorieAverage")}</span>
             <strong>{Math.round(summary.calorieAverage)} kcal</strong>
           </article>
           <article className="status-card">
-            <span>Productivite ordinateur</span>
+            <span>{t("weekly.overview.computerProductivity")}</span>
             <strong>
-              {pulseBusy || !weekMatchedPulseSnapshot ? "..." : formatPulse(displayedSummary.productivityPulse)}
+              {pulseBusy || !weekMatchedPulseSnapshot ? t("weekly.loadingPlaceholder") : formatPulse(displayedSummary.productivityPulse)}
             </strong>
           </article>
           <article className="status-card">
-            <span>Discipline moyenne</span>
+            <span>{t("weekly.overview.disciplineAverage")}</span>
             <strong>{formatWholePercent(summary.disciplineAverage * 100)}</strong>
           </article>
           <article className="status-card">
-            <span>Taches</span>
+            <span>{t("weekly.overview.tasks")}</span>
             <strong>
               {summary.tasksCompletedTotal} / {summary.tasksAddedTotal}
             </strong>
@@ -760,14 +738,14 @@ export const WeeklyReviewPage = () => {
       </SectionCard>
 
       <SectionCard
-        title="RescueTime Goals"
-        subtitle="Score optionnel base sur tes goals RescueTime actives (distinct des objectifs permanents TrackDidia)."
+        title={t("weekly.rescueGoals.title")}
+        subtitle={t("weekly.rescueGoals.subtitle")}
       >
         {rescueTimeMessage ? <div className="banner">{rescueTimeMessage}</div> : null}
         {!settings.rescuetimeApiKey.trim() ? (
           <div className="banner">
-            Cle RescueTime manquante. Configure-la dans{" "}
-            <Link to="/parametres">Parametres</Link> pour charger tes goals RescueTime.
+            {t("weekly.rescueGoals.missingKey")}{" "}
+            <Link to="/parametres">{t("weekly.rescueGoals.settingsLink")}</Link> {t("weekly.rescueGoals.missingKeySuffix")}
           </div>
         ) : null}
         {weekMatchedGoalsSnapshot?.fetchError ? (
@@ -779,32 +757,32 @@ export const WeeklyReviewPage = () => {
 
         <div className="weekly-overview-grid">
           <article className="status-card">
-            <span>Score objectifs</span>
+            <span>{t("weekly.rescueGoals.metrics.score")}</span>
             <strong>
               {goalsBusy || !weekMatchedGoalsSnapshot
-                ? "..."
+                ? t("weekly.loadingPlaceholder")
                 : formatObjectiveScore(weekMatchedGoalsSnapshot.score)}
             </strong>
           </article>
           <article className="status-card">
-            <span>Points obtenus</span>
+            <span>{t("weekly.rescueGoals.metrics.points")}</span>
             <strong>
               {goalsBusy || !weekMatchedGoalsSnapshot
-                ? "..."
+                ? t("weekly.loadingPlaceholder")
                 : weekMatchedGoalsSnapshot.items.length === 0
-                  ? "—"
+                  ? t("weekly.format.none")
                   : `${weekMatchedGoalsSnapshot.totalAchievement.toFixed(2)} / ${weekMatchedGoalsSnapshot.items.length}`}
             </strong>
           </article>
           <article className="status-card">
-            <span>Productivite ordinateur</span>
+            <span>{t("weekly.overview.computerProductivity")}</span>
             <strong>
-              {pulseBusy || !weekMatchedPulseSnapshot ? "..." : formatPulse(displayedSummary.productivityPulse)}
+              {pulseBusy || !weekMatchedPulseSnapshot ? t("weekly.loadingPlaceholder") : formatPulse(displayedSummary.productivityPulse)}
             </strong>
           </article>
           <article className="status-card">
-            <span>Source</span>
-            <strong>{settings.rescuetimeApiKey.trim() ? "RescueTime Goals" : "Cle manquante"}</strong>
+            <span>{t("weekly.rescueGoals.metrics.source")}</span>
+            <strong>{settings.rescuetimeApiKey.trim() ? t("weekly.rescueGoals.source.goals") : t("weekly.rescueGoals.source.missingKey")}</strong>
           </article>
         </div>
 
@@ -815,14 +793,14 @@ export const WeeklyReviewPage = () => {
             disabled={rescueTimeRefreshing || !settings.rescuetimeApiKey.trim()}
             onClick={() => void refreshRescueTimeData(summary.weekStartDate)}
           >
-            {rescueTimeRefreshing ? "Rafraichissement..." : "Rafraichir RescueTime"}
+            {rescueTimeRefreshing ? t("weekly.rescueGoals.refreshing") : t("weekly.rescueGoals.refresh")}
           </button>
         </div>
 
         {goalsBusy || !weekMatchedGoalsSnapshot ? (
-          <p className="empty-copy">Chargement des objectifs RescueTime...</p>
+          <p className="empty-copy">{t("weekly.rescueGoals.loading")}</p>
         ) : weekMatchedGoalsSnapshot.fetchError ? null : weekMatchedGoalsSnapshot.items.length === 0 ? (
-          <p className="empty-copy">Aucun goal RescueTime actif trouve pour ce compte.</p>
+          <p className="empty-copy">{t("weekly.rescueGoals.empty")}</p>
         ) : (
           <div className="weekly-day-grid">
             {weekMatchedGoalsSnapshot.items.map((item) => (
@@ -832,11 +810,14 @@ export const WeeklyReviewPage = () => {
                   <span>{item.achievement.toFixed(2)}/1</span>
                 </div>
                 <div className="weekly-day-card__metrics">
-                  <span>{item.isMore ? "Plus de temps" : "Moins de temps"}</span>
+                  <span>{item.isMore ? t("weekly.rescueGoals.direction.more") : t("weekly.rescueGoals.direction.less")}</span>
                   <span>
-                    Temps: {formatHours(item.actualHours)} / {formatHours(item.weeklyTargetHours)} (cible hebdo)
+                    {t("weekly.rescueGoals.timeLine", {
+                      actual: formatHours(item.actualHours),
+                      target: formatHours(item.weeklyTargetHours)
+                    })}
                   </span>
-                  <span>Horaire: {item.scheduleLabel}</span>
+                  <span>{t("weekly.rescueGoals.schedule", { label: item.scheduleLabel })}</span>
                 </div>
               </article>
             ))}
@@ -845,15 +826,15 @@ export const WeeklyReviewPage = () => {
       </SectionCard>
 
       <SectionCard
-        title="Objectifs permanents"
-        subtitle="Objectifs TrackDidia suivis semaine apres semaine (manuels ou bases sur RescueTime). Le coach peut en proposer de nouveaux."
+        title={t("weekly.standing.title")}
+        subtitle={t("weekly.standing.subtitle")}
       >
         {standingObjectivesLoading || !weekMatchedStandingObjectivesSnapshot ? (
-          <p className="empty-copy">Chargement des objectifs permanents...</p>
+          <p className="empty-copy">{t("weekly.standing.loading")}</p>
         ) : weekMatchedStandingObjectivesSnapshot.fetchError ? (
           <div className="banner">{weekMatchedStandingObjectivesSnapshot.fetchError}</div>
         ) : weekMatchedStandingObjectivesSnapshot.items.length === 0 ? (
-          <p className="empty-copy">Aucun objectif permanent pour l'instant.</p>
+          <p className="empty-copy">{t("weekly.standing.empty")}</p>
         ) : (
           <div className="weekly-day-grid">
             {weekMatchedStandingObjectivesSnapshot.items.map((item) => (
@@ -863,15 +844,18 @@ export const WeeklyReviewPage = () => {
                   <span>{item.achievement.toFixed(2)}/1</span>
                 </div>
                 <div className="weekly-day-card__metrics">
-                  <span>{item.objective.kind === "manual" ? "Manuel" : "Temps RescueTime"}</span>
+                  <span>{item.objective.kind === "manual" ? t("weekly.standing.kind.manual") : t("weekly.standing.kind.time")}</span>
                   {item.objective.kind === "time" ? (
                     <span>
-                      Temps: {formatHours(item.actualHours)} / {formatHours(item.objective.targetHours)} (cible)
+                      {t("weekly.standing.timeLine", {
+                        actual: formatHours(item.actualHours),
+                        target: formatHours(item.objective.targetHours)
+                      })}
                     </span>
                   ) : (
                     <label className="switch-row">
                       <input
-                        aria-label={`Marquer ${item.objective.title} comme atteint`}
+                        aria-label={t("weekly.standing.achievedAria", { title: item.objective.title })}
                         type="checkbox"
                         checked={item.achievement === 1}
                         onChange={(event) => {
@@ -883,7 +867,7 @@ export const WeeklyReviewPage = () => {
                           }).then(() => loadStandingObjectives(weekMatchedStandingObjectivesSnapshot.weekStartDate));
                         }}
                       />
-                      <span>Atteint cette semaine</span>
+                      <span>{t("weekly.standing.achieved")}</span>
                     </label>
                   )}
                   {item.error ? <span>{item.error}</span> : null}
@@ -898,7 +882,7 @@ export const WeeklyReviewPage = () => {
                       );
                     }}
                   >
-                    Supprimer
+                    {t("weekly.standing.delete")}
                   </button>
                 </div>
               </article>
@@ -907,59 +891,59 @@ export const WeeklyReviewPage = () => {
         )}
         {!standingObjectivesLoading && weekMatchedStandingObjectivesSnapshot ? (
           <p className="empty-copy">
-            Score objectifs permanents: {formatObjectiveScore(weekMatchedStandingObjectivesSnapshot.score)}
+            {t("weekly.standing.score", { score: formatObjectiveScore(weekMatchedStandingObjectivesSnapshot.score) })}
           </p>
         ) : null}
       </SectionCard>
 
-      <SectionCard title="Axes automatiques" subtitle="Scores derives des metriques quotidiennes de la semaine.">
+      <SectionCard title={t("weekly.axes.title")} subtitle={t("weekly.axes.subtitle")}>
         <div className="weekly-overview-grid">
           <article className="status-card">
-            <span>Sommeil</span>
+            <span>{t("weekly.axes.sleep")}</span>
             <strong>{formatWholePercent(summary.sleepQuality)}</strong>
           </article>
           <article className="status-card">
-            <span>Respect TRC</span>
+            <span>{t("weekly.axes.respectTrc")}</span>
             <strong>{formatWholePercent(summary.respectTrc)}</strong>
           </article>
           <article className="status-card">
-            <span>Score temps d'ecran</span>
+            <span>{t("weekly.axes.screenTimeScore")}</span>
             <strong>{formatWholePercent(summary.phoneScreenTime)}</strong>
           </article>
           <article className="status-card">
-            <span>Score temps focus</span>
+            <span>{t("weekly.axes.focusTimeScore")}</span>
             <strong>{formatWholePercent(summary.pomodoris)}</strong>
           </article>
           <article className="status-card">
-            <span>Activite physique</span>
+            <span>{t("weekly.axes.physicalActivity")}</span>
             <strong>{formatWholePercent(summary.physicalActivity)}</strong>
           </article>
           <article className="status-card">
-            <span>Score discipline</span>
+            <span>{t("weekly.axes.disciplineScore")}</span>
             <strong>{formatWholePercent(summary.discipline)}</strong>
           </article>
           <article className="status-card">
-            <span>Taux de completion</span>
+            <span>{t("weekly.axes.completionRate")}</span>
             <strong>{formatWholePercent(summary.tasksCompletionRate)}</strong>
           </article>
           <article className="status-card">
-            <span>Productivite ordinateur</span>
+            <span>{t("weekly.axes.computerProductivity")}</span>
             <strong>
-              {pulseBusy || !weekMatchedPulseSnapshot ? "..." : formatPulse(displayedSummary.productivityPulse)}
+              {pulseBusy || !weekMatchedPulseSnapshot ? t("weekly.loadingPlaceholder") : formatPulse(displayedSummary.productivityPulse)}
             </strong>
           </article>
           <article className="status-card">
-            <span>Score objectifs RescueTime</span>
+            <span>{t("weekly.axes.rescueTimeScore")}</span>
             <strong>
               {goalsBusy || !weekMatchedGoalsSnapshot
-                ? "..."
+                ? t("weekly.loadingPlaceholder")
                 : formatObjectiveScore(displayedSummary.rescueTimeGoalsScore)}
             </strong>
           </article>
         </div>
       </SectionCard>
 
-      <SectionCard title="Vue 7 jours" subtitle="Relis la semaine comme une sequence, pas seulement comme une moyenne.">
+      <SectionCard title={t("weekly.days.title")} subtitle={t("weekly.days.subtitle")}>
         <div className="weekly-day-grid">
           {summary.days.map((day) => (
             <article key={day.date} className="schedule-day-group">
@@ -968,14 +952,24 @@ export const WeeklyReviewPage = () => {
                 <span>{deriveStatusLabel(day.status)}</span>
               </div>
               <div className="weekly-day-card__metrics">
-                <span>Sommeil: {day.sleepQuality === null ? "—" : `${Math.round(day.sleepQuality)} / 100`}</span>
-                <span>TRC: {day.trcRespected ? "Oui" : "Non"}</span>
-                <span>Ecran: {day.screenTimeMinutes} min</span>
-                <span>Pomodoris: {day.pomodoris}</span>
-                <span>Kcal: {day.calorieExpenditure}</span>
-                <span>Discipline: {formatWholePercent(day.disciplineScore * 100)}</span>
                 <span>
-                  Taches: {day.tasksCompleted}/{day.tasksAdded}
+                  {day.sleepQuality === null
+                    ? t("weekly.days.metrics.sleepNone")
+                    : t("weekly.days.metrics.sleep", {
+                        value: t("weekly.days.metrics.sleepValue", { n: Math.round(day.sleepQuality) })
+                      })}
+                </span>
+                <span>
+                  {t("weekly.days.metrics.trc", {
+                    value: day.trcRespected ? tCommon("boolean.yes") : tCommon("boolean.no")
+                  })}
+                </span>
+                <span>{t("weekly.days.metrics.screen", { n: day.screenTimeMinutes })}</span>
+                <span>{t("weekly.days.metrics.pomodoris", { n: day.pomodoris })}</span>
+                <span>{t("weekly.days.metrics.kcal", { n: day.calorieExpenditure })}</span>
+                <span>{t("weekly.days.metrics.discipline", { value: formatWholePercent(day.disciplineScore * 100) })}</span>
+                <span>
+                  {t("weekly.days.metrics.tasks", { completed: day.tasksCompleted, added: day.tasksAdded })}
                 </span>
               </div>
             </article>
@@ -983,14 +977,14 @@ export const WeeklyReviewPage = () => {
         </div>
         <div className="section-actions">
           <Link className="button" to="/historique">
-            Ouvrir l'historique quotidien
+            {t("weekly.days.openHistory")}
           </Link>
         </div>
       </SectionCard>
 
       <SectionCard
-        title="Rituel hebdomadaire"
-        subtitle="Chaque bloc reste manuel pour l'instant, mais l'ecran rassemble tout ton rituel du dimanche."
+        title={t("weekly.ritual.title")}
+        subtitle={t("weekly.ritual.subtitle")}
       >
         <div className="weekly-ritual-grid">
           {ritualSections.map((section) => (
@@ -1002,7 +996,7 @@ export const WeeklyReviewPage = () => {
                 </div>
                 <label className="switch-row">
                   <input
-                    aria-label={`Marquer ${section.title} comme fait`}
+                    aria-label={t("weekly.ritual.doneAria", { section: section.title })}
                     type="checkbox"
                     checked={review.ritualChecklist[section.key]}
                     onChange={(event) => {
@@ -1013,12 +1007,12 @@ export const WeeklyReviewPage = () => {
                       void saveReview(updateWeeklyReviewChecklist(currentReview, section.key, event.target.checked));
                     }}
                   />
-                  <span>Fait</span>
+                  <span>{t("weekly.ritual.done")}</span>
                 </label>
               </div>
               <p className="empty-copy">{section.prompt}</p>
               <label className="stacked-field">
-                <span>{`Notes ${section.title}`}</span>
+                <span>{t("weekly.ritual.notesLabel", { section: section.title })}</span>
                 <PersistedTextarea
                   key={`${review.weekStartDate}-${section.key}`}
                   ref={(handle) => {
@@ -1034,7 +1028,7 @@ export const WeeklyReviewPage = () => {
                     }
                     void saveReview(updateWeeklyReviewNote(currentReview, section.key, value));
                   }}
-                  placeholder={`Notes ${section.title.toLowerCase()}...`}
+                  placeholder={t("weekly.ritual.notesPlaceholder", { section: section.title.toLowerCase() })}
                 />
               </label>
               {section.linkTo && section.linkLabel ? (
@@ -1049,18 +1043,18 @@ export const WeeklyReviewPage = () => {
         </div>
       </SectionCard>
 
-      <SectionCard title="Etat de la revue" subtitle="Ferme la revue quand tu as boucle la semaine et pose la suite.">
+      <SectionCard title={t("weekly.state.title")} subtitle={t("weekly.state.subtitle")}>
         <div className="weekly-overview-grid">
           <article className="status-card">
-            <span>Derniere mise a jour</span>
+            <span>{t("weekly.state.updatedAt")}</span>
             <strong>{formatTimestamp(review.updatedAt)}</strong>
           </article>
           <article className="status-card">
-            <span>Debut</span>
+            <span>{t("weekly.state.start")}</span>
             <strong>{formatDateLong(summary.weekStartDate)}</strong>
           </article>
           <article className="status-card">
-            <span>Fin</span>
+            <span>{t("weekly.state.end")}</span>
             <strong>{formatDateLong(summary.weekEndDate)}</strong>
           </article>
         </div>
@@ -1068,13 +1062,13 @@ export const WeeklyReviewPage = () => {
 
       {weeklyMemoryProposals.length > 0 ? (
         <SectionCard
-          title="Memoires candidates"
-          subtitle="Observations derivees de la semaine. Accepte ou ignore chaque proposition avant qu'elle devienne durable."
+          title={t("weekly.memory.title")}
+          subtitle={t("weekly.memory.subtitle")}
         >
           <div className="coach-pulse__proposals">
             {weeklyMemoryProposals.map((proposal) => (
               <article key={proposal.id} className="coach-pulse__proposal">
-                <span>Memoire candidate</span>
+                <span>{t("weekly.memory.itemLabel")}</span>
                 <p>{proposalPreviewText(proposal)}</p>
                 <div className="section-actions">
                   <button
@@ -1082,14 +1076,14 @@ export const WeeklyReviewPage = () => {
                     type="button"
                     onClick={() => void handleAcceptWeeklyMemoryProposal(proposal)}
                   >
-                    Accepter
+                    {t("weekly.memory.accept")}
                   </button>
                   <button
                     className="button button--ghost"
                     type="button"
                     onClick={() => void handleDismissWeeklyMemoryProposal(proposal)}
                   >
-                    Ignorer
+                    {t("weekly.memory.dismiss")}
                   </button>
                 </div>
               </article>
@@ -1120,7 +1114,7 @@ export const WeeklyReviewPage = () => {
             })();
           }}
         >
-          Cloturer la revue
+          {t("weekly.actions.close")}
         </button>
         <button
           className="button"
@@ -1133,7 +1127,7 @@ export const WeeklyReviewPage = () => {
             void saveReview(applyWeeklyReviewTransition(currentReview, "draft"));
           }}
         >
-          Reouvrir la revue
+          {t("weekly.actions.reopen")}
         </button>
       </div>
     </div>

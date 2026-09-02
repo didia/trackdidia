@@ -1,5 +1,6 @@
 import { ANNUAL_GOAL_PACE_TOLERANCE } from "../../../domain/annual-goals";
 import type { GoalPacingResponse, GoalPacingRiskLevel } from "../../../domain/types";
+import { t } from "../../../i18n";
 import type { GoalPacingSnapshot } from "../context/goal-pacing-snapshot";
 
 const riskFromGap = (progressRatio: number | null, expected: number): GoalPacingRiskLevel => {
@@ -21,33 +22,33 @@ const riskFromGap = (progressRatio: number | null, expected: number): GoalPacing
 
 const formatGap = (progressRatio: number | null, expected: number): string => {
   if (progressRatio === null) {
-    return "Pas assez de donnees pour mesurer l'ecart.";
+    return t("pacing.gapUnknown", { ns: "coach" });
   }
 
   const delta = progressRatio - expected;
   const deltaPercent = Math.round(Math.abs(delta) * 100);
   return delta >= 0
-    ? `En avance d'environ ${deltaPercent} point(s) vs le rythme annuel attendu.`
-    : `En retard d'environ ${deltaPercent} point(s) vs le rythme annuel attendu.`;
+    ? t("pacing.gapAhead", { ns: "coach", count: deltaPercent })
+    : t("pacing.gapBehind", { ns: "coach", count: deltaPercent });
 };
 
 const weeklyBehaviour = (onPace: boolean, progressRatio: number | null): string =>
   onPace
-    ? "Maintenir le rythme actuel: une revue hebdo courte suffit pour garder la trajectoire."
+    ? t("pacing.weeklyOnPace", { ns: "coach" })
     : progressRatio === null
-      ? "Commencer par tracer la metrique liee chaque semaine avant d'ajuster la cible."
-      : "Bloquer un creneau hebdomadaire dedie et reduire l'ecart par petits increments mesurables.";
+      ? t("pacing.weeklyNoData", { ns: "coach" })
+      : t("pacing.weeklyCatchUp", { ns: "coach" });
 
 const recommendation = (onPace: boolean, riskLevel: GoalPacingRiskLevel): string => {
   if (onPace && riskLevel === "low") {
-    return "Conserver la cadence actuelle et noter ce qui fonctionne pour le repeter.";
+    return t("pacing.recLow", { ns: "coach" });
   }
 
   if (riskLevel === "high") {
-    return "Recalibrer la cible ou le plan d'execution ce mois-ci — l'ecart risque de se cristalliser.";
+    return t("pacing.recHigh", { ns: "coach" });
   }
 
-  return "Ajuster une habitude hebdomadaire concrete plutot que revoir toute la cible annuelle.";
+  return t("pacing.recMedium", { ns: "coach" });
 };
 
 export const buildLocalGoalPacing = (snapshot: GoalPacingSnapshot): GoalPacingResponse => ({

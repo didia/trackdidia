@@ -46,7 +46,7 @@ describe("MonthlyReviewPage", () => {
     const user = userEvent.setup();
     await renderWithApp(<MonthlyReviewPage />, { repository, route: "/mois" });
 
-    const monthInput = await screen.findByLabelText(/mois a relire/i);
+    const monthInput = await screen.findByLabelText(/mois à relire/i);
     await user.clear(monthInput);
     await user.type(monthInput, "2026-04");
     await user.click(screen.getByRole("button", { name: /charger le mois/i }));
@@ -89,7 +89,7 @@ describe("MonthlyReviewPage", () => {
       contextOverrides: { settings: { ...defaultAppSettings(), aiEnabled: false } }
     });
 
-    const monthInput = await screen.findByLabelText(/mois a relire/i);
+    const monthInput = await screen.findByLabelText(/mois à relire/i);
     await user.clear(monthInput);
     await user.type(monthInput, "2026-04");
     await user.click(screen.getByRole("button", { name: /charger le mois/i }));
@@ -136,7 +136,7 @@ describe("MonthlyReviewPage", () => {
       contextOverrides: { settings: { ...defaultAppSettings(), aiEnabled: false } }
     });
 
-    const monthInput = await screen.findByLabelText(/mois a relire/i);
+    const monthInput = await screen.findByLabelText(/mois à relire/i);
     await user.clear(monthInput);
     await user.type(monthInput, "2026-04");
     await user.click(screen.getByRole("button", { name: /charger le mois/i }));
@@ -153,7 +153,7 @@ describe("MonthlyReviewPage", () => {
     await user.click(within(proposal!).getByRole("button", { name: /accepter/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/objectif introuvable, suggestion ignoree/i)).toBeInTheDocument();
+      expect(screen.getByText(/objectif introuvable, suggestion ignorée/i)).toBeInTheDocument();
     });
 
     const messages = await repository.listAiMessages("monthly_synthesis");
@@ -212,7 +212,7 @@ describe("MonthlyReviewPage", () => {
     const user = userEvent.setup();
     await renderWithApp(<MonthlyReviewPage />, { repository, route: "/mois" });
 
-    const monthInput = await screen.findByLabelText(/mois a relire/i);
+    const monthInput = await screen.findByLabelText(/mois à relire/i);
     await user.clear(monthInput);
     await user.type(monthInput, "2026-04");
     await user.click(screen.getByRole("button", { name: /charger le mois/i }));
@@ -249,7 +249,7 @@ describe("MonthlyReviewPage", () => {
       contextOverrides: { settings: { ...defaultAppSettings(), aiEnabled: false } }
     });
 
-    const monthInput = await screen.findByLabelText(/mois a relire/i);
+    const monthInput = await screen.findByLabelText(/mois à relire/i);
     await user.clear(monthInput);
     await user.type(monthInput, "2026-04");
     await user.click(screen.getByRole("button", { name: /charger le mois/i }));
@@ -337,14 +337,14 @@ describe("MonthlyReviewPage", () => {
       contextOverrides: { settings: { ...defaultAppSettings(), aiEnabled: false } }
     });
 
-    const monthInput = await screen.findByLabelText(/mois a relire/i);
+    const monthInput = await screen.findByLabelText(/mois à relire/i);
     await user.clear(monthInput);
     await user.type(monthInput, "2026-04");
     await user.click(screen.getByRole("button", { name: /charger le mois/i }));
 
-    expect(await screen.findByText("Preparation de la synthese...")).toBeInTheDocument();
+    expect(await screen.findByText("Préparation de la synthèse...")).toBeInTheDocument();
 
-    const mayInput = screen.getByLabelText(/mois a relire/i);
+    const mayInput = screen.getByLabelText(/mois à relire/i);
     fireEvent.change(mayInput, { target: { value: "2026-05" } });
     await waitFor(() => {
       expect(mayInput).toHaveValue("2026-05");

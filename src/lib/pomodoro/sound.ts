@@ -3,6 +3,7 @@ import {
   requestPermission,
   sendNotification
 } from "@tauri-apps/plugin-notification";
+import { t } from "../../i18n";
 import { logDebug } from "../debug";
 import { isTauriRuntime } from "../storage/factory";
 
@@ -378,12 +379,15 @@ export const testPomodoroChime = async (variant: PomodoroChimeVariant = "session
 };
 
 export const testPomodoroNotification = async (): Promise<boolean> =>
-  notifyPomodoroCompletion("Session Pomodoro terminee (test)", "Focus terminee.");
+  notifyPomodoroCompletion(t("pomodoroTestTitle", { ns: "notifications" }), t("pomodoroTestBody", { ns: "notifications" }));
 
 export const testPomodoroCompletionAnnouncement = async (
   variant: PomodoroChimeVariant = "session"
 ): Promise<PomodoroCompletionTestResult> => {
   const played = await testPomodoroChime(variant);
-  const notified = await notifyPomodoroCompletion("Session Pomodoro terminee (test)", "Focus terminee.");
+  const notified = await notifyPomodoroCompletion(
+    t("pomodoroTestTitle", { ns: "notifications" }),
+    t("pomodoroTestBody", { ns: "notifications" })
+  );
   return { played, notified, variant };
 };

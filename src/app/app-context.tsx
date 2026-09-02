@@ -7,10 +7,12 @@ import {
   useState,
   type PropsWithChildren
 } from "react";
+import { useTranslation } from "react-i18next";
 import { defaultAppSettings } from "../domain/daily-entry";
 import type { AppSettings } from "../domain/types";
 import { CoachPulseService } from "../lib/ai/coach-pulse-service";
 import { DebugPanel } from "../components/DebugPanel";
+import { t } from "../i18n";
 import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
 import {
   getDebugEnabled,
@@ -54,11 +56,12 @@ export const useAppContext = (): AppContextValue => {
 };
 
 export const AppProvider = ({ children }: PropsWithChildren) => {
+  const { t: tCommon } = useTranslation("common");
   const [repository, setRepository] = useState<AppRepository | null>(null);
   const [settings, setSettings] = useState(defaultAppSettings());
   const [loading, setLoading] = useState(true);
   const [startupError, setStartupError] = useState<string | null>(null);
-  const [startupStage, setStartupStage] = useState("Demarrage du bootstrap");
+  const [startupStage, setStartupStage] = useState(() => t("startup.bootstrap"));
   const [debugEnabled, setDebugEnabledState] = useState(getDebugEnabled());
   const coachService = useMemo(() => new CoachPulseService(new OpenRouterProvider()), []);
   const startupStageRef = useRef(startupStage);
@@ -286,9 +289,9 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
 
     const bootstrap = async () => {
       try {
-        markStage("Creation du repository");
+        markStage(t("startup.createRepository"));
         const nextRepository = await createRepository();
-        markStage("Chargement des parametres");
+        markStage(t("startup.loadSettings"));
         let nextSettings = await nextRepository.getSettings();
         const gtdOverview = await nextRepository.getGtdOverview();
         const shouldImportGtd =
@@ -302,7 +305,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         });
 
         if (shouldImportGtd) {
-          markStage("Import initial des taches GTD");
+          markStage(t("startup.importGtd"));
           const summary = await nextRepository.importGoogleTasksExport(initialGoogleTasksExport);
           nextSettings = {
             ...nextSettings,
@@ -313,7 +316,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         }
 
         if (!nextSettings.gtdReferencesMigrationDoneAt) {
-          markStage("Migration des references");
+          markStage(t("startup.migrateReferences"));
           const movedCount = await nextRepository.moveTasksWithContextToBucket(buildContextId("Reading"), "reference");
           nextSettings = {
             ...nextSettings,
@@ -326,7 +329,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         }
 
         if (!nextSettings.gtdScheduledNormalizationDoneAt) {
-          markStage("Normalisation des taches planifiees");
+          markStage(t("startup.normalizeScheduled"));
           const movedCount = await nextRepository.moveTasksWithScheduledDatesToBucket("scheduled");
           nextSettings = {
             ...nextSettings,
@@ -339,7 +342,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         }
 
         if (!nextSettings.gtdRecurringCollapseDoneAt) {
-          markStage("Consolidation des taches recurrentes");
+          markStage(t("startup.collapseRecurring"));
           const changedCount = await nextRepository.collapseGoogleRecurringTasks(initialGoogleTasksExport);
           nextSettings = {
             ...nextSettings,
@@ -351,20 +354,20 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
           });
         }
 
-        markStage("Generation des recurrences du jour");
+        markStage(t("startup.generateRecurrences"));
         const generatedCount = await nextRepository.generateDueRecurringTasks(getTodayDate());
         logDebug("info", "app.bootstrap", "Generation des recurrences terminee", {
           generatedCount
         });
 
-        markStage("Generation des activites relationnelles du jour");
+        markStage(t("startup.generateRelationship"));
         const generatedRelationshipCount = await nextRepository.generateDailyRelationshipTasks(getTodayDate());
         nextSettings = await nextRepository.getSettings();
         logDebug("info", "app.bootstrap", "Generation des activites relationnelles terminee", {
           generatedRelationshipCount
         });
 
-        markStage("Finalisation du bootstrap");
+        markStage(t("startup.finalize"));
 
         settled = true;
 
@@ -377,14 +380,14 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         }
       } catch (error) {
         const message =
-          error instanceof Error ? error.message : "Erreur inconnue pendant l'initialisation.";
+          error instanceof Error ? error.message : t("startup.unknownError");
         await activateFallback(message, error);
       }
     };
 
     const timeoutId = window.setTimeout(() => {
       activateFallback(
-        `Timeout de demarrage apres 8 secondes. Etape en cours: ${startupStageRef.current}`
+        t("startup.timeout", { stage: startupStageRef.current })
       ).catch((error) => {
         logDebug("error", "app.bootstrap", "Echec inattendu du fallback (timeout)", error);
       });
@@ -405,10 +408,10 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       <>
         <div className="splash">
           <div className="splash__panel">
-            <p className="eyebrow">Trackdidia</p>
-            <h1>Preparation de ton espace quotidien...</h1>
-            <p>Initialisation du stockage local et des routines.</p>
-            <p><strong>Etape:</strong> {startupStage}</p>
+            <p className="eyebrow">{tCommon("brand")}</p>
+            <h1>{tCommon("startup.splashTitle")}</h1>
+            <p>{tCommon("startup.splashBody")}</p>
+            <p><strong>{tCommon("startup.stageLabel")}</strong> {startupStage}</p>
           </div>
         </div>
         <DebugPanel enabled={true} forced={debugEnabled || true} />
@@ -443,9 +446,9 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     >
       {startupError ? (
         <div className="banner">
-          Echec du stockage SQLite au demarrage. L'application utilise un mode temporaire non persistant.
+          {tCommon("startup.sqliteFallback")}
           <br />
-          Detail: {startupError}
+          {tCommon("startup.detail")} {startupError}
         </div>
       ) : null}
       {children}

@@ -72,7 +72,7 @@ only on the **second consecutive weekday `stall`**, respects
 `aiPulseMaxNotificationsPerDay`, never fires during an active Pomodoro focus
 session, and never fires on weekends.
 
-Settings → Parametres IA exposes pulse toggles, slot hours, and notification cap.
+Settings → Paramètres IA exposes pulse toggles, slot hours, and notification cap.
 Pulse slot hours must be **exactly three unique local hours (0–23)**, saved sorted;
 invalid input is rejected on save with inline feedback. Extra hours in legacy stored
 settings are capped to the first three unique sorted values at scheduling time.
@@ -271,7 +271,7 @@ calendar month (`created_at` boundaries in local time):
 
 `aiCostPerMillionTokens` defaults to **1.0** USD per million tokens (prompt +
 completion combined). This is a **rough static estimate** — OpenRouter pricing varies
-by model. Adjust the rate under **Parametres IA**; nothing calls external pricing APIs.
+by model. Adjust the rate under **Paramètres IA**; nothing calls external pricing APIs.
 Clearing the rate field in the draft hides the estimate instead of showing **0,00 $ US**.
 
 Repository method: `computeAiUsageForMonth(monthKey)` returns token totals only
@@ -348,7 +348,7 @@ not block the daily workflow.
 
 The weekly review loads **RescueTime Goals** when a non-empty `rescuetimeApiKey`
 is stored in app settings. The bundled desktop app reads this key **only** from
-SQLite settings (`Parametres → RescueTime`); it never reads a repo-root `.env` file.
+SQLite settings (`Paramètres → RescueTime`); it never reads a repo-root `.env` file.
 
 RescueTime HTTP uses dual transport via `fetchRescueTimeJson`:
 

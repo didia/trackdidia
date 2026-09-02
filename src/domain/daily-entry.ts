@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { addDays, getWeekStartSunday } from "../lib/gtd/shared";
 import { metricDefinitions, principleDefinitions } from "./definitions";
 import type {
@@ -179,11 +180,11 @@ export const computeTaskCompletionPercent = (entry: DailyEntry): number => {
 export const deriveStatusLabel = (status: DailyStatus): string => {
   switch (status) {
     case "not_started":
-      return "A demarrer";
+      return t("status.notStarted", { ns: "common" });
     case "morning_done":
-      return "Matin complete";
+      return t("status.morningDone", { ns: "common" });
     case "closed":
-      return "Journee cloturee";
+      return t("status.closed", { ns: "common" });
   }
 };
 

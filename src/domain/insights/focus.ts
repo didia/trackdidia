@@ -1,4 +1,5 @@
 import { toLocalDateString } from "../../lib/gtd/shared";
+import { t } from "../../i18n";
 import type { PomodoroTaskSummary } from "../types";
 import { POMODORO_DAILY_TARGET_SESSIONS } from "./constants";
 import { buildEvidenceWindow } from "./shared";
@@ -61,7 +62,12 @@ export const computeFocusFindings = (
       now,
       completedFocusSessionCount,
       completedFocusSessionCount,
-      `${completedFocusSessionCount} session(s) de focus completee(s), ${totalMinutes} minute(s) au total.`
+      t("focusTotals", {
+        ns: "insights",
+        count: completedFocusSessionCount,
+        sessions: completedFocusSessionCount,
+        minutes: totalMinutes
+      })
     )
   );
 
@@ -74,7 +80,7 @@ export const computeFocusFindings = (
         now,
         concentration,
         taskSummaries.length,
-        `${Math.round(concentration * 100)}% du temps de focus concentre sur une seule tache.`,
+        t("focusConcentration", { ns: "insights", percent: Math.round(concentration * 100) }),
         concentration >= 0.6 ? "positive" : "info"
       )
     );
@@ -104,7 +110,11 @@ export const computeFocusFindings = (
         now,
         diff,
         completedFocusSessionCount,
-        `Sessions focus du jour comparees (approximation, periodes differentes) au pulse RescueTime de la semaine en cours a ce jour (${Math.round(productivityPulseWeekToDate)}/100) (alignement: ${alignment}).`,
+        t("focusPulseAlignment", {
+          ns: "insights",
+          pulse: Math.round(productivityPulseWeekToDate),
+          alignment: t(`alignment.${alignment}`, { ns: "insights" })
+        }),
         bothHigh ? "positive" : bothLow ? "watch" : "info",
         alignment
       )

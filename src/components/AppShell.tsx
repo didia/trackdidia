@@ -1,29 +1,32 @@
+import { useTranslation } from "react-i18next";
 import { useAppContext } from "../app/app-context";
 import { FloatingPomodoroTimer } from "./FloatingPomodoroTimer";
 import { NavLink, Outlet } from "react-router-dom";
 import { getQuoteOfTheDay } from "../lib/quote-of-the-day";
 
 const navigation = [
-  { to: "/", label: "Aujourd'hui", end: true },
-  { to: "/routine-matin", label: "Routine du matin" },
-  { to: "/fermeture-soir", label: "Fermeture du soir" },
-  { to: "/semaine", label: "Semaine" },
-  { to: "/mois", label: "Mois" },
-  { to: "/objectifs-annuels", label: "Objectifs annuels" },
-  { to: "/historique", label: "Historique quotidien" },
-  { to: "/inbox", label: "Inbox GTD" },
-  { to: "/next-actions", label: "Next Actions" },
-  { to: "/projects", label: "Projects" },
-  { to: "/pomodoro", label: "Pomodoro" },
-  { to: "/recurrences", label: "Recurrences" },
-  { to: "/references", label: "References" },
-  { to: "/scheduled", label: "Scheduled" },
-  { to: "/waiting-for", label: "Waiting For" },
-  { to: "/someday-maybe", label: "Someday / Maybe" },
-  { to: "/parametres", label: "Parametres" }
-];
+  { to: "/", labelKey: "today", end: true },
+  { to: "/routine-matin", labelKey: "morningRoutine" },
+  { to: "/fermeture-soir", labelKey: "eveningClose" },
+  { to: "/semaine", labelKey: "week" },
+  { to: "/mois", labelKey: "month" },
+  { to: "/objectifs-annuels", labelKey: "annualGoals" },
+  { to: "/historique", labelKey: "dailyHistory" },
+  { to: "/inbox", labelKey: "gtdInbox" },
+  { to: "/next-actions", labelKey: "nextActions" },
+  { to: "/projects", labelKey: "projects" },
+  { to: "/pomodoro", labelKey: "pomodoro" },
+  { to: "/recurrences", labelKey: "recurrences" },
+  { to: "/references", labelKey: "references" },
+  { to: "/scheduled", labelKey: "scheduled" },
+  { to: "/waiting-for", labelKey: "waitingFor" },
+  { to: "/someday-maybe", labelKey: "somedayMaybe" },
+  { to: "/parametres", labelKey: "settings" }
+] as const;
 
 export const AppShell = () => {
+  const { t } = useTranslation("nav");
+  const { t: tCommon } = useTranslation("common");
   const { pomodoro } = useAppContext();
   const hasFloatingPomodoro = Boolean(pomodoro.state.activeSession);
   const quoteOfTheDay = getQuoteOfTheDay();
@@ -32,20 +35,20 @@ export const AppShell = () => {
     <div className="layout">
       <aside className="sidebar">
         <div className="brand-block">
-          <p className="eyebrow">Trackdidia</p>
+          <p className="eyebrow">{tCommon("brand")}</p>
           <h1>{quoteOfTheDay.quote}</h1>
-          <p className="sidebar__copy">Auteur: {quoteOfTheDay.author}</p>
+          <p className="sidebar__copy">{t("authorPrefix", { author: quoteOfTheDay.author })}</p>
         </div>
 
         <nav className="nav">
           {navigation.map((item) => (
             <NavLink
               key={item.to}
-              end={item.end}
+              end={"end" in item ? item.end : undefined}
               to={item.to}
               className={({ isActive }) => `nav__link${isActive ? " nav__link--active" : ""}`}
             >
-              {item.label}
+              {t(item.labelKey)}
             </NavLink>
           ))}
         </nav>

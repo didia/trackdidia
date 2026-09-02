@@ -22,6 +22,7 @@ The only optional network call is the OpenRouter coach.
 | Durable storage | SQLite through a custom single-connection sqlx pool (`src-tauri/src/db.rs`), exposed to the frontend as the `db_connect`/`db_execute`/`db_select` Tauri commands |
 | Native notifications | `@tauri-apps/plugin-notification` |
 | Tests | Vitest 2 + Testing Library + jsdom |
+| Copy | i18next + react-i18next, French-only, one JSON namespace per file under `src/locales/fr/` |
 | Optional AI | OpenRouter chat-completions-compatible endpoint |
 
 Styling is a single custom stylesheet in `src/styles.css`; there is no component
@@ -40,6 +41,8 @@ framework or external state-management library.
   src/
     App.tsx                     route table
     main.tsx                    React entry point
+    i18n/                       i18next init and typed namespaces
+    locales/fr/                 French UI copy (one JSON file per namespace)
     pages/                      route-level screens
     components/                 reusable UI and task cards
     app/                        provider and orchestration hooks
@@ -59,9 +62,14 @@ framework or external state-management library.
 
 ## Runtime composition
 
-`src/main.tsx` installs debug instrumentation and mounts `App`. `App` wraps all
-routes in `AppProvider`. The provider constructs the runtime services shared by
-the pages:
+`src/main.tsx` initializes i18next (French-only), installs debug instrumentation,
+and mounts `App`. All user-facing copy lives in `src/locales/fr/*.json`. React
+screens use `useTranslation`; non-React user-facing strings use `t()` from
+`src/i18n`. Runtime language stays French; `AppSettings.language` remains `"fr"`.
+There is no language switcher.
+
+`App` wraps all routes in `AppProvider`. The provider constructs the runtime
+services shared by the pages:
 
 - an `AppRepository`,
 - `AppSettings`,

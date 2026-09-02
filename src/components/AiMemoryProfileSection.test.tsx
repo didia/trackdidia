@@ -27,7 +27,7 @@ describe("AiMemoryProfileSection", () => {
     const labelInput = screen.getByDisplayValue("Ma mission");
     await user.clear(labelInput);
     await user.type(labelInput, "Mission revisee");
-    await user.click(screen.getByRole("button", { name: "Mettre a jour" }));
+    await user.click(screen.getByRole("button", { name: "Mettre à jour" }));
 
     await waitFor(() => {
       expect(screen.getByText("Mission revisee")).toBeInTheDocument();

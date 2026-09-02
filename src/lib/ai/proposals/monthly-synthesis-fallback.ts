@@ -1,11 +1,12 @@
 import type { MonthlyReviewSectionKey, MonthlySynthesisResponse } from "../../../domain/types";
+import { t } from "../../../i18n";
 import { formatPercent } from "../../format";
 import type { MonthlySnapshot } from "../context/monthly-snapshot";
 
 const describeWeekPattern = (snapshot: MonthlySnapshot): string => {
   const scores = snapshot.weeks.map((week) => week.weeklyScore);
   if (scores.length === 0) {
-    return "Pas assez de semaines tracees pour lire un rythme.";
+    return t("monthly.weekPatternInsufficient", { ns: "coach" });
   }
 
   const average = scores.reduce((sum, score) => sum + score, 0) / scores.length;
@@ -18,25 +19,33 @@ const describeWeekPattern = (snapshot: MonthlySnapshot): string => {
   const delta = secondAvg - firstAvg;
 
   if (Math.abs(delta) < 0.03) {
-    return `Score hebdo moyen ${formatPercent(average)} — rythme stable sur le mois.`;
+    return t("monthly.weekPatternStable", { ns: "coach", score: formatPercent(average) });
   }
 
   return delta > 0
-    ? `Score hebdo moyen ${formatPercent(average)} — acceleration en fin de mois (+${formatPercent(delta)}).`
-    : `Score hebdo moyen ${formatPercent(average)} — ralentissement en fin de mois (${formatPercent(delta)}).`;
+    ? t("monthly.weekPatternUp", { ns: "coach", score: formatPercent(average), delta: formatPercent(delta) })
+    : t("monthly.weekPatternDown", { ns: "coach", score: formatPercent(average), delta: formatPercent(delta) });
 };
 
 const buildSectionDrafts = (snapshot: MonthlySnapshot): Partial<Record<MonthlyReviewSectionKey, string>> => {
   const drafts: Partial<Record<MonthlyReviewSectionKey, string>> = {};
 
-  drafts.bilan = `Mois avec ${snapshot.daysTracked} jours traces et score hebdo moyen ${formatPercent(snapshot.weeklyScoreAverage)}.`;
+  drafts.bilan = t("monthly.sectionBilan", {
+    ns: "coach",
+    days: snapshot.daysTracked,
+    score: formatPercent(snapshot.weeklyScoreAverage)
+  });
   drafts.progressionObjectifs =
     snapshot.goals.length > 0
-      ? `${snapshot.goals.length} objectif(s) annuel(s) relies — relire ce qui avance et ce qui stagne.`
-      : "Aucun objectif annuel relie pour l'instant.";
+      ? t("monthly.sectionGoalsLinked", { ns: "coach", count: snapshot.goals.length })
+      : t("monthly.sectionGoalsNone", { ns: "coach" });
 
   if (snapshot.weeklyReviewsCompleted < snapshot.weeksCovered) {
-    drafts.journaux = `${snapshot.weeklyReviewsCompleted}/${snapshot.weeksCovered} revues hebdo cloturees — reconnecter les notes avant de fermer le mois.`;
+    drafts.journaux = t("monthly.sectionJournals", {
+      ns: "coach",
+      completed: snapshot.weeklyReviewsCompleted,
+      covered: snapshot.weeksCovered
+    });
   }
 
   return drafts;
@@ -60,13 +69,16 @@ const buildGoalEvaluationDrafts = (
             : "down",
     notes:
       goal.monthValue === null
-        ? "Donnees mensuelles insuffisantes pour une lecture fine."
-        : `Valeur du mois: ${Math.round(goal.monthValue)} ${goal.unit}.`,
-    blockers: goal.progressRatio !== null && goal.progressRatio < 0.5 ? "Ecart important vs cible annuelle." : ""
+        ? t("monthly.goalNotesInsufficient", { ns: "coach" })
+        : t("monthly.goalNotesValue", { ns: "coach", value: Math.round(goal.monthValue), unit: goal.unit }),
+    blockers: goal.progressRatio !== null && goal.progressRatio < 0.5 ? t("monthly.goalBlockersGap", { ns: "coach" }) : ""
   }));
 
 export const buildLocalMonthlySynthesis = (snapshot: MonthlySnapshot): MonthlySynthesisResponse => ({
-  headline: snapshot.weeklyScoreAverage >= 0.7 ? "Mois solide a refermer" : "Mois a relire avant de cloturer",
+  headline:
+    snapshot.weeklyScoreAverage >= 0.7
+      ? t("monthly.headlineStrong", { ns: "coach" })
+      : t("monthly.headlineReview", { ns: "coach" }),
   weekPattern: describeWeekPattern(snapshot),
   sectionDrafts: buildSectionDrafts(snapshot),
   goalEvaluationDrafts: buildGoalEvaluationDrafts(snapshot)

@@ -1,22 +1,17 @@
+import { useTranslation } from "react-i18next";
 import type { AiProposal, AppSettings, MonthlySynthesisResult } from "../domain/types";
+import { t as translate } from "../i18n";
 
-const sourceLabels: Record<MonthlySynthesisResult["source"], string> = {
-  ai: "IA active",
-  cache: "IA en cache",
-  local: "Guide local",
-  fallback: "Fallback local"
-};
-
-const proposalLabels: Record<AiProposal["type"], string> = {
-  intention_draft: "Intention du matin",
-  tomorrow_focus_draft: "Focus de demain",
-  commitment: "Engagement pour demain",
-  memory: "Memoire candidate",
-  review_section_draft: "Brouillon de section",
-  weekly_objective: "Objectif hebdomadaire",
-  gtd_action: "Action GTD",
-  goal_evaluation: "Evaluation objectif"
-};
+const proposalTypeKeys = {
+  intention_draft: "proposal.intentionDraft",
+  tomorrow_focus_draft: "proposal.tomorrowFocus",
+  commitment: "proposal.commitment",
+  memory: "proposal.memory",
+  review_section_draft: "proposal.reviewSection",
+  weekly_objective: "proposal.weeklyObjective",
+  gtd_action: "proposal.gtdAction",
+  goal_evaluation: "proposal.goalEvaluation"
+} as const satisfies Record<AiProposal["type"], string>;
 
 interface MonthlySynthesisPanelProps {
   result: MonthlySynthesisResult | null;
@@ -39,11 +34,13 @@ export const MonthlySynthesisPanel = ({
   onAcceptProposal,
   onDismissProposal
 }: MonthlySynthesisPanelProps) => {
+  const { t } = useTranslation("coach");
+  const { t: tCommon } = useTranslation("common");
   const aiAvailable = settings.aiEnabled && settings.aiApiKey.trim().length > 0;
   const disabledReason = !settings.aiEnabled
-    ? "Active l'IA dans les parametres"
+    ? t("disabled.aiOff")
     : !settings.aiApiKey.trim()
-      ? "Ajoute une cle OpenRouter dans les parametres"
+      ? t("disabled.missingKey")
       : null;
 
   if (!result && !loading) {
@@ -56,11 +53,11 @@ export const MonthlySynthesisPanel = ({
   return (
     <section className="coach-card coach-pulse">
       <div className="coach-card__label">
-        <span>Coach mensuel</span>
-        <small>{result ? sourceLabels[result.source] : "Chargement..."}</small>
+        <span>{t("monthly.title")}</span>
+        <small>{result ? translate(`source.${result.source}`, { ns: "coach" }) : tCommon("status.loading")}</small>
       </div>
 
-      {loading && !synthesis ? <p>Preparation de la synthese...</p> : null}
+      {loading && !synthesis ? <p>{t("monthly.preparing")}</p> : null}
 
       {synthesis ? (
         <div className="coach-pulse__body">
@@ -69,13 +66,15 @@ export const MonthlySynthesisPanel = ({
         </div>
       ) : null}
 
-      {result?.warning ? <small className="coach-card__warning">Fallback local: {result.warning}</small> : null}
+      {result?.warning ? (
+        <small className="coach-card__warning">{t("warningFallbackPrefix", { warning: result.warning })}</small>
+      ) : null}
 
       {notice ? <small className="coach-card__warning">{notice}</small> : null}
 
       {pendingProposals.length > 0 ? (
         <div className="coach-pulse__proposals">
-          <strong>Suggestions</strong>
+          <strong>{t("proposals")}</strong>
           {pendingProposals.map((proposal) => {
             const payload = JSON.parse(proposal.payloadJson) as {
               text?: string;
@@ -86,20 +85,20 @@ export const MonthlySynthesisPanel = ({
             };
             const preview =
               proposal.type === "review_section_draft"
-                ? `[${payload.sectionKey ?? "section"}] ${payload.text ?? ""}`
+                ? `[${payload.sectionKey ?? t("proposal.sectionFallback")}] ${payload.text ?? ""}`
                 : proposal.type === "goal_evaluation"
-                  ? `[${payload.goalId ?? "objectif"}] ${payload.score ?? "—"}/100 — ${payload.notes ?? ""}`
+                  ? `[${payload.goalId ?? t("proposal.goalFallback")}] ${payload.score ?? tCommon("emDash")}/100 ${tCommon("emDash")} ${payload.notes ?? ""}`
                   : payload.text ?? "";
             return (
               <article key={proposal.id} className="coach-pulse__proposal">
-                <span>{proposalLabels[proposal.type]}</span>
+                <span>{t(proposalTypeKeys[proposal.type])}</span>
                 <p>{preview}</p>
                 <div className="section-actions">
                   <button className="button button--primary" type="button" onClick={() => onAcceptProposal(proposal)}>
-                    Accepter
+                    {t("accept")}
                   </button>
                   <button className="button button--ghost" type="button" onClick={() => onDismissProposal(proposal)}>
-                    Ignorer
+                    {t("dismiss")}
                   </button>
                 </div>
               </article>
@@ -116,7 +115,7 @@ export const MonthlySynthesisPanel = ({
           title={disabledReason ?? undefined}
           onClick={onRequestCoach}
         >
-          {disabledReason ?? "Demander au coach"}
+          {disabledReason ?? t("request")}
         </button>
         <button
           className="button"
@@ -125,7 +124,7 @@ export const MonthlySynthesisPanel = ({
           title={disabledReason ?? undefined}
           onClick={onRegenerate}
         >
-          Regenerer
+          {t("regenerate")}
         </button>
       </div>
     </section>

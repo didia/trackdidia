@@ -122,13 +122,13 @@ describe("MemoryRepository", () => {
     expect(tasks).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          title: "Avec enfants: Lire une histoire ensemble",
+          title: "Avec enfants : Lire une histoire ensemble",
           bucket: "next_action",
           contextIds: expect.arrayContaining(["context:personnel"]),
           sourceExternalId: "relationship-draw:children:2026-04-01"
         }),
         expect.objectContaining({
-          title: "Avec mon epouse: Boire un the ensemble",
+          title: "Avec mon épouse : Boire un the ensemble",
           bucket: "next_action",
           contextIds: expect.arrayContaining(["context:personnel"]),
           sourceExternalId: "relationship-draw:spouse:2026-04-01"

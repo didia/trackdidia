@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { AiMemory } from "../domain/types";
+import { t as translate } from "../i18n";
 import { createEntityId, nowIso } from "../lib/gtd/shared";
 import type { AppRepository } from "../lib/storage/repository";
 import { SectionCard } from "./SectionCard";
@@ -15,6 +17,8 @@ const emptyDraft = (): { statement: string; detail: string } => ({
 });
 
 export const AiMemoryProfileSection = ({ repository, memoryEnabled }: AiMemoryProfileSectionProps) => {
+  const { t } = useTranslation("settings");
+  const { t: tCommon } = useTranslation("common");
   const [memories, setMemories] = useState<AiMemory[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
@@ -46,7 +50,7 @@ export const AiMemoryProfileSection = ({ repository, memoryEnabled }: AiMemoryPr
 
   const handleSave = async () => {
     if (!draft.statement.trim()) {
-      setMessage("Le libelle est requis.");
+      setMessage(translate("memoryProfile.statementRequired", { ns: "settings" }));
       return;
     }
 
@@ -75,14 +79,18 @@ export const AiMemoryProfileSection = ({ repository, memoryEnabled }: AiMemoryPr
         };
 
     await repository.saveAiMemory(memory);
-    setMessage(editingId ? "Profil mis a jour." : "Memoire epinglee ajoutee.");
+    setMessage(
+      editingId
+        ? translate("memoryProfile.updated", { ns: "settings" })
+        : translate("memoryProfile.added", { ns: "settings" })
+    );
     resetForm();
     await loadMemories();
   };
 
   const handleDelete = async (id: string) => {
     await repository.archiveAiMemory(id, "resolved");
-    setMessage("Memoire archivee.");
+    setMessage(translate("memoryProfile.archived", { ns: "settings" }));
     if (editingId === id) {
       resetForm();
     }
@@ -91,15 +99,15 @@ export const AiMemoryProfileSection = ({ repository, memoryEnabled }: AiMemoryPr
 
   return (
     <SectionCard
-      title="Profil coach (memoires epinglees)"
-      subtitle="Mission, saison de vie, style de coaching — toujours injecte quand la memoire IA est active."
+      title={t("memoryProfile.title")}
+      subtitle={t("memoryProfile.subtitle")}
     >
       {!memoryEnabled ? (
-        <p className="hero__copy">Active la memoire IA ci-dessus pour que ce profil soit utilise par le coach.</p>
+        <p className="hero__copy">{t("memoryProfile.disabledHint")}</p>
       ) : null}
       {message ? <div className="banner">{message}</div> : null}
 
-      {loading ? <p>Chargement du profil...</p> : null}
+      {loading ? <p>{t("memoryProfile.loading")}</p> : null}
 
       {!loading && memories.length > 0 ? (
         <ul className="memory-profile-list">
@@ -118,10 +126,10 @@ export const AiMemoryProfileSection = ({ repository, memoryEnabled }: AiMemoryPr
                     setDraft({ statement: memory.statement, detail: memory.detail });
                   }}
                 >
-                  Modifier
+                  {tCommon("actions.edit")}
                 </button>
                 <button className="button button--ghost" type="button" onClick={() => void handleDelete(memory.id)}>
-                  Supprimer
+                  {tCommon("actions.delete")}
                 </button>
               </div>
             </li>
@@ -131,32 +139,32 @@ export const AiMemoryProfileSection = ({ repository, memoryEnabled }: AiMemoryPr
 
       <div className="settings-form">
         <label>
-          <span>{editingId ? "Modifier le libelle" : "Nouveau libelle"}</span>
+          <span>{editingId ? t("memoryProfile.editStatement") : t("memoryProfile.newStatement")}</span>
           <input
             type="text"
             value={draft.statement}
             onChange={(event) => setDraft((current) => ({ ...current, statement: event.target.value }))}
-            placeholder="Ex. Mission personnelle, style de coaching souhaite..."
+            placeholder={t("memoryProfile.statementPlaceholder")}
           />
         </label>
 
         <label>
-          <span>Detail (optionnel)</span>
+          <span>{t("memoryProfile.detail")}</span>
           <textarea
             rows={3}
             value={draft.detail}
             onChange={(event) => setDraft((current) => ({ ...current, detail: event.target.value }))}
-            placeholder="Contexte durable pour le coach..."
+            placeholder={t("memoryProfile.detailPlaceholder")}
           />
         </label>
 
         <div className="form-actions">
           <button className="button button--primary" type="button" onClick={() => void handleSave()}>
-            {editingId ? "Mettre a jour" : "Ajouter"}
+            {editingId ? tCommon("actions.update") : tCommon("actions.add")}
           </button>
           {editingId ? (
             <button className="button button--ghost" type="button" onClick={resetForm}>
-              Annuler
+              {tCommon("actions.cancel")}
             </button>
           ) : null}
         </div>

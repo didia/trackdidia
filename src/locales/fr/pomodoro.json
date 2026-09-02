@@ -1,0 +1,73 @@
+{
+  "kind": {
+    "focus": "Focus",
+    "short_break": "Pause courte",
+    "long_break": "Grande pause"
+  },
+  "untitled": "Sans titre",
+  "unknownTask": "Tâche inconnue",
+  "noTaskAssigned": "Sans tâche assignée",
+  "activeLabel": "Pomodoro actif",
+  "sessionCycle": "Session {{n}}/4",
+  "pausedSuffix": " • En pause",
+  "timerPlaceholder": "--:--",
+  "idleTimer": "00:00",
+  "activeTask": "Tâche active",
+  "nextStep": "Prochaine étape",
+  "hero": {
+    "eyebrow": "Pomodoro",
+    "copy": "Un cycle de focus intégré à Trackdidia, lié à tes tâches GTD et à ta métrique quotidienne."
+  },
+  "timer": {
+    "title": "Timer principal",
+    "subtitle": "25 min de focus, 5 min de pause, puis 25 min de grande pause après 4 sessions.",
+    "refresh": "Rafraîchir les tâches",
+    "linkedTask": "Tâche liée au focus",
+    "noTaskOption": "Sans tâche assignée",
+    "manualTitle": "Titre libre si aucune tâche n'est liée",
+    "manualPlaceholder": "Ex. : Inbox zero, lecture stratégique, admin...",
+    "apply": "Appliquer",
+    "focusCompleted": "Focus complétés dans le cycle"
+  },
+  "actions": {
+    "startFocus": "Démarrer un focus",
+    "startBreak": "Démarrer la pause",
+    "pause": "Mettre en pause",
+    "resume": "Reprendre",
+    "skipBreak": "Skipper la pause",
+    "skip": "Skipper",
+    "completeTask": "Terminer la tâche",
+    "completeNow": "Terminer maintenant",
+    "complete": "Terminer",
+    "cancel": "Annuler la session"
+  },
+  "helper": {
+    "paused": "La session est en pause. Reprendre relance le chrono là où il s'est arrêté.",
+    "focusCompletable": "Terminer maintenant clôture cette session comme complétée et fait avancer le cycle. Annuler la session l'arrête sans la compter comme accomplie.",
+    "focusEarly": "Pendant la première moitié du focus, tu peux mettre en pause ou annuler la session. Terminer maintenant est activé après la moitié du pomodoro.",
+    "break": "Skipper la pause clôture la pause tout de suite et relance le cycle. Annuler la session l'arrête sans la compter."
+  },
+  "history": {
+    "title": "Historique du jour",
+    "subtitle": "Chaque session garde la trace des tâches touchées, même si tu en changes en cours de focus.",
+    "empty": "Aucune session Pomodoro enregistrée aujourd'hui.",
+    "running": "En cours",
+    "paused": "En pause",
+    "completed": "Complétée",
+    "cancelled": "Annulée",
+    "noSegments": "Aucune tâche associée"
+  },
+  "summary": {
+    "title": "Temps passé par tâche",
+    "subtitle": "Temps réel cumulé par tâche, indépendamment du nombre de pomodoros.",
+    "empty": "Aucun temps de focus enregistré sur une tâche aujourd'hui.",
+    "sessionCount_one": "{{count}} session impliquée",
+    "sessionCount_other": "{{count}} sessions impliquées"
+  },
+  "status": {
+    "running": "En cours",
+    "paused": "En pause",
+    "completed": "Complétée",
+    "cancelled": "Annulée"
+  }
+}

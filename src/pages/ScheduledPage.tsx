@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useTaskSelection } from "../app/use-task-selection";
 import { useGtdWorkspace } from "../app/use-gtd";
 import { useAppContext } from "../app/app-context";
@@ -10,6 +11,7 @@ import { addDays, getWeekStartSunday } from "../lib/gtd/shared";
 import type { RecurringPreviewOccurrence } from "../domain/types";
 
 export const ScheduledPage = () => {
+  const { t } = useTranslation("gtd");
   const { repository } = useAppContext();
   const {
     tasks,
@@ -100,55 +102,55 @@ export const ScheduledPage = () => {
     <div className="page">
       <header className="hero">
         <div>
-          <p className="eyebrow">Scheduled</p>
-          <h2>Le calendrier interne des taches.</h2>
+          <p className="eyebrow">{t("scheduled.hero.eyebrow")}</p>
+          <h2>{t("scheduled.hero.title")}</h2>
           <p className="hero__copy">
-            Cette vue remplace la planification Google Calendar pour V1, avec une date et une heure locales.
+            {t("scheduled.hero.copy")}
           </p>
         </div>
       </header>
 
-      <SectionCard title="Choisir la plage" subtitle="Passe d'une journee cible a une vue hebdomadaire complete.">
+      <SectionCard title={t("scheduled.range.title")} subtitle={t("scheduled.range.subtitle")}>
         <div className="history-toolbar">
           <label className="stacked-field">
-            <span>Date</span>
+            <span>{t("scheduled.range.dateLabel")}</span>
             <input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
           </label>
           <div className="stacked-field">
-            <span>Vue</span>
+            <span>{t("scheduled.range.viewLabel")}</span>
             <div className="tag-row">
               <button
                 type="button"
                 className={`tag-chip${viewMode === "day" ? " tag-chip--active" : ""}`}
                 onClick={() => setViewMode("day")}
               >
-                Jour
+                {t("scheduled.range.view.day")}
               </button>
               <button
                 type="button"
                 className={`tag-chip${viewMode === "week" ? " tag-chip--active" : ""}`}
                 onClick={() => setViewMode("week")}
               >
-                Semaine
+                {t("scheduled.range.view.week")}
               </button>
             </div>
           </div>
           <div className="stacked-field">
-            <span>Inclure</span>
+            <span>{t("scheduled.range.includeLabel")}</span>
             <div className="tag-row">
               <button
                 type="button"
                 className={`tag-chip${showPlanned ? " tag-chip--active" : ""}`}
                 onClick={() => setShowPlanned((current) => !current)}
               >
-                Planifiees
+                {t("scheduled.include.planned")}
               </button>
               <button
                 type="button"
                 className={`tag-chip${showDeadlines ? " tag-chip--active" : ""}`}
                 onClick={() => setShowDeadlines((current) => !current)}
               >
-                Deadlines
+                {t("scheduled.include.deadlines")}
               </button>
             </div>
           </div>
@@ -156,11 +158,22 @@ export const ScheduledPage = () => {
       </SectionCard>
 
       <SectionCard
-        title={viewMode === "day" ? "Taches planifiees" : "Semaine planifiee"}
+        title={viewMode === "day" ? t("scheduled.list.title.day") : t("scheduled.list.title.week")}
         subtitle={
           viewMode === "day"
-            ? `${displayedTasks.length} tache(s) visibles (${plannedTasks.length} planifiee(s), ${deadlineTasks.length} deadline(s)) et ${scheduledPreviews.length} preview(s) sur ${selectedDate}.`
-            : `${displayedTasks.length} tache(s) et ${weekDates.reduce((total, date) => total + previewForDate(date).length, 0)} preview(s) entre ${weekStartDate} et ${weekDates[6]}.`
+            ? t("scheduled.list.subtitleDay", {
+                count: displayedTasks.length,
+                planned: plannedTasks.length,
+                deadlines: deadlineTasks.length,
+                previews: scheduledPreviews.length,
+                date: selectedDate
+              })
+            : t("scheduled.list.subtitleWeek", {
+                count: displayedTasks.length,
+                previews: weekDates.reduce((total, date) => total + previewForDate(date).length, 0),
+                start: weekStartDate,
+                end: weekDates[6]
+              })
         }
       >
         <BulkTaskToolbar
@@ -185,17 +198,17 @@ export const ScheduledPage = () => {
         />
 
         {loading ? (
-          <p>Chargement des taches planifiees...</p>
+          <p>{t("scheduled.loading")}</p>
         ) : displayedTasks.length === 0 && (viewMode === "week" ? weekDates.every((date) => previewForDate(date).length === 0) : scheduledPreviews.length === 0) ? (
           <p className="empty-copy">
-            {viewMode === "day" ? "Aucune tache pour cette date avec les filtres selectionnes." : "Aucune tache pour cette semaine avec les filtres selectionnes."}
+            {viewMode === "day" ? t("scheduled.empty.day") : t("scheduled.empty.week")}
           </p>
         ) : viewMode === "day" ? (
           <div className="schedule-day-split">
             {showPlanned ? (
               <section className="schedule-section">
-                <h3 className="schedule-section__title">Planifiees</h3>
-                {plannedTasks.length === 0 ? <p className="empty-copy">Aucune tache planifiee.</p> : (
+                <h3 className="schedule-section__title">{t("scheduled.section.planned")}</h3>
+                {plannedTasks.length === 0 ? <p className="empty-copy">{t("scheduled.section.plannedEmpty")}</p> : (
                   <div className="task-list">
                     {plannedTasks.map((task) => (
               <GtdTaskCard
@@ -228,8 +241,8 @@ export const ScheduledPage = () => {
 
             {showDeadlines ? (
               <section className="schedule-section">
-                <h3 className="schedule-section__title">Deadlines</h3>
-                {deadlineTasks.length === 0 ? <p className="empty-copy">Aucune deadline.</p> : (
+                <h3 className="schedule-section__title">{t("scheduled.section.deadlines")}</h3>
+                {deadlineTasks.length === 0 ? <p className="empty-copy">{t("scheduled.section.deadlinesEmpty")}</p> : (
                   <div className="task-list">
                     {deadlineTasks.map((task) => (
                       <GtdTaskCard
@@ -266,9 +279,9 @@ export const ScheduledPage = () => {
                   <div className="task-card__toggle">
                     <span className="task-card__title">{preview.title}</span>
                     <span className="task-card__meta-row">
-                      <span className="task-card__bucket">Preview</span>
+                      <span className="task-card__bucket">{t("scheduled.preview.badge")}</span>
                       <span className="task-card__context-copy">
-                        {preview.targetBucket === "next_action" ? "Vers Next Actions" : "Vers Scheduled"}
+                        {preview.targetBucket === "next_action" ? t("scheduled.preview.toNextActions") : t("scheduled.preview.toScheduled")}
                       </span>
                       {preview.scheduledFor ? (
                         <span className={`task-card__date-pill${preview.status === "overdue_preview" ? " task-card__date-pill--overdue" : ""}`}>
@@ -287,19 +300,19 @@ export const ScheduledPage = () => {
               <section key={group.date} className="schedule-day-group">
                 <header className="schedule-day-group__header">
                   <h3>{formatDateLong(group.date)}</h3>
-                  <span>{(showPlanned ? group.plannedTasks.length : 0) + (showDeadlines ? group.deadlineTasks.length : 0)} tache(s)</span>
+                  <span>{t("scheduled.weekDay.count", { count: (showPlanned ? group.plannedTasks.length : 0) + (showDeadlines ? group.deadlineTasks.length : 0) })}</span>
                 </header>
 
                 {(showPlanned ? group.plannedTasks.length : 0) === 0 &&
                 (showDeadlines ? group.deadlineTasks.length : 0) === 0 &&
                 previewForDate(group.date).length === 0 ? (
-                  <p className="empty-copy">Aucune tache.</p>
+                  <p className="empty-copy">{t("scheduled.weekDay.empty")}</p>
                 ) : (
                   <div className="schedule-day-split">
                     {showPlanned ? (
                       <section className="schedule-section">
-                        <h4 className="schedule-section__title">Planifiees</h4>
-                        {group.plannedTasks.length === 0 ? <p className="empty-copy">Aucune.</p> : (
+                        <h4 className="schedule-section__title">{t("scheduled.section.planned")}</h4>
+                        {group.plannedTasks.length === 0 ? <p className="empty-copy">{t("scheduled.weekDay.sectionEmpty")}</p> : (
                           <div className="task-list">
                             {group.plannedTasks.map((task) => (
                       <GtdTaskCard
@@ -332,8 +345,8 @@ export const ScheduledPage = () => {
 
                     {showDeadlines ? (
                       <section className="schedule-section">
-                        <h4 className="schedule-section__title">Deadlines</h4>
-                        {group.deadlineTasks.length === 0 ? <p className="empty-copy">Aucune.</p> : (
+                        <h4 className="schedule-section__title">{t("scheduled.section.deadlines")}</h4>
+                        {group.deadlineTasks.length === 0 ? <p className="empty-copy">{t("scheduled.weekDay.sectionEmpty")}</p> : (
                           <div className="task-list">
                             {group.deadlineTasks.map((task) => (
                               <GtdTaskCard
@@ -370,9 +383,9 @@ export const ScheduledPage = () => {
                           <div className="task-card__toggle">
                             <span className="task-card__title">{preview.title}</span>
                             <span className="task-card__meta-row">
-                              <span className="task-card__bucket">Preview</span>
+                              <span className="task-card__bucket">{t("scheduled.preview.badge")}</span>
                               <span className="task-card__context-copy">
-                                {preview.targetBucket === "next_action" ? "Vers Next Actions" : "Vers Scheduled"}
+                                {preview.targetBucket === "next_action" ? t("scheduled.preview.toNextActions") : t("scheduled.preview.toScheduled")}
                               </span>
                               {preview.scheduledFor ? (
                                 <span className={`task-card__date-pill${preview.status === "overdue_preview" ? " task-card__date-pill--overdue" : ""}`}>

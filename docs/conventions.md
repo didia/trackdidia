@@ -34,10 +34,17 @@ cargo check --manifest-path src-tauri/Cargo.toml
 | AI provider/service behavior | `src/lib/ai/` |
 | Persistence API or adapter | `src/lib/storage/` |
 | Native capability/path/build behavior | `src-tauri/` |
+| User-facing copy | matching JSON file under `src/locales/fr/` |
 
 Prefer pure functions for calculations and state transitions. Pages should compose
 those functions and repository calls rather than becoming alternate business-rule
 implementations.
+
+New UI copy goes in the matching namespace file under `src/locales/fr/`, not
+inline in components. Non-React user-facing strings (notifications, relative
+dates, local coach fallbacks, insight labels) use `t(key, { ns })` from
+`src/i18n`. Do not i18n AI system prompts, `logDebug` messages, `quotes.json`,
+or user-authored content.
 
 ## TypeScript and React
 

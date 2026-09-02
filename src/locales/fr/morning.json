@@ -1,0 +1,22 @@
+{
+  "loading": "Chargement de la routine du matin...",
+  "hero": {
+    "eyebrow": "Routine du matin",
+    "copy": "Ouvre la journée avec intention, clarté et une première structure réaliste."
+  },
+  "intention": {
+    "title": "Intention du jour",
+    "subtitle": "Une phrase suffit. Cherche le ton juste, pas la perfection.",
+    "label": "Intention",
+    "placeholder": "Quelle posture veux-tu garder aujourd'hui ?"
+  },
+  "principles": {
+    "title": "Ancrages du matin",
+    "subtitle": "Quelques signaux forts pour bien démarrer."
+  },
+  "gtd": {
+    "title": "Charge de travail GTD",
+    "subtitle": "Le moteur GTD propose ces valeurs automatiquement, mais tu peux les ajuster si ta lecture du jour diffère."
+  },
+  "completeMorning": "Marquer le matin comme complété"
+}

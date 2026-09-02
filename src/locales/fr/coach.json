@@ -1,0 +1,172 @@
+{
+  "source": {
+    "ai": "IA active",
+    "cache": "IA en cache",
+    "local": "Guide local",
+    "fallback": "Fallback local"
+  },
+  "disabled": {
+    "aiOff": "Active l'IA dans les paramètres",
+    "missingKey": "Ajoute une clé OpenRouter dans les paramètres"
+  },
+  "stance": {
+    "open": "Ouverture",
+    "steer": "Mi-journée",
+    "wind_down": "Fin de journée",
+    "close": "Clôture"
+  },
+  "proposal": {
+    "intentionDraft": "Intention du matin",
+    "tomorrowFocus": "Focus de demain",
+    "commitment": "Engagement pour demain",
+    "memory": "Mémoire candidate",
+    "reviewSection": "Brouillon de section",
+    "weeklyObjective": "Objectif hebdomadaire",
+    "gtdAction": "Action GTD",
+    "goalEvaluation": "Évaluation objectif",
+    "generic": "Suggestion",
+    "memoryKindFallback": "mémoire",
+    "sectionFallback": "section",
+    "objectiveFallback": "Objectif",
+    "actionFallback": "action",
+    "goalFallback": "objectif",
+    "defaultObjectiveTitle": "Objectif",
+    "weeklyObjectivePreview": "Objectif hebdomadaire"
+  },
+  "pulse": {
+    "preparing": "Préparation du coach...",
+    "horizonPrefix": "Horizon : {{horizon}}",
+    "priorities": "Priorités",
+    "wins": "Victoires",
+    "friction": "Point de friction",
+    "adjustment": "Ajustement :",
+    "principleToRecover": "Principe à retrouver :",
+    "unknown": {
+      "headline": "Signal insuffisant",
+      "read": "Je n'ai pas assez de signal depuis la dernière pulsation. As-tu avancé hors application, ou la journée est-elle encore ouverte ?"
+    },
+    "open": {
+      "headlineWithFinding": "Lecture du terrain",
+      "headline": "Ouvre simplement",
+      "readFallback": "Pas assez de signal pour une lecture fine. Commence par une intention courte et un premier bloc protégé.",
+      "moveWhat": "Écris une intention en une phrase",
+      "moveWhy": "Donner un cap clair avant d'entrer dans le flux",
+      "intentionDraft": "Tenir le cap sur : {{label}}"
+    },
+    "steer": {
+      "headlineWithFinding": "Mi-journée — corrige le cap",
+      "headline": "Mi-journée — un geste concret",
+      "readStall": "Aucun focus ni tâche complétée depuis la dernière pulsation. L'après-midi est encore disponible.",
+      "readFallback": "Repère un bloc concret pour relancer l'après-midi.",
+      "moveWhat": "Choisis une seule action de 25 minutes",
+      "moveWhy": "Un geste concret vaut mieux qu'une liste"
+    },
+    "windDown": {
+      "headlineWithFinding": "Fin de journée — ce qui reste",
+      "headline": "Fin de journée — referme le réalisable",
+      "readFallback": "Note ce qui peut encore tenir aujourd'hui et ce qu'il faut laisser tomber sans culpabilité.",
+      "moveWhat": "Liste deux choses réalistes ou une seule à abandonner",
+      "moveWhy": "Refermer sans surcharger le soir"
+    },
+    "close": {
+      "headlineWithFinding": "Bilan du jour",
+      "headline": "Referme proprement",
+      "readFallback": "La journée mérite une lecture honnête, même imparfaite. Note ce qui a tenu et ce qui a déraillé.",
+      "moveWhat": "Choisis une seule priorité pour demain",
+      "moveWhy": "Refermer avec un prochain geste concret",
+      "tomorrowFocusDraft": "Reprendre là où {{label}}"
+    }
+  },
+  "weekly": {
+    "title": "Coach hebdomadaire",
+    "preparing": "Préparation de la synthèse...",
+    "strongestAxis": "Axe le plus solide :",
+    "weakestAxes": "Axes à surveiller :",
+    "sectionAxesWatch": "Axes à surveiller : {{axes}}.",
+    "sectionSunday": "Clôturer la semaine passée et poser le ton pour celle qui arrive.",
+    "staleDeferReason": "Next action stale — clarifier, planifier ou déléguer.",
+    "axisDiscipline": "Discipline",
+    "axisTasksCompletion": "Complétion tâches",
+    "axisScreenTime": "Temps d'écran",
+    "axisPomodoris": "Pomodoris",
+    "headlineWithFinding": "Lecture de la semaine",
+    "headline": "Semaine à refermer",
+    "scoreWithFinding": "Score hebdo {{score}}. {{label}}",
+    "scorePartial": "Score hebdo {{score}}. Les signaux restent partiels — note ce qui a tenu malgré tout."
+  },
+  "monthly": {
+    "title": "Coach mensuel",
+    "preparing": "Préparation de la synthèse...",
+    "weekPatternInsufficient": "Pas assez de semaines tracées pour lire un rythme.",
+    "weekPatternStable": "Score hebdo moyen {{score}} — rythme stable sur le mois.",
+    "weekPatternUp": "Score hebdo moyen {{score}} — accélération en fin de mois (+{{delta}}).",
+    "weekPatternDown": "Score hebdo moyen {{score}} — ralentissement en fin de mois ({{delta}}).",
+    "sectionBilan": "Mois avec {{days}} jours tracés et score hebdo moyen {{score}}.",
+    "sectionGoalsLinked_one": "{{count}} objectif annuel relié — relire ce qui avance et ce qui stagne.",
+    "sectionGoalsLinked_other": "{{count}} objectifs annuels reliés — relire ce qui avance et ce qui stagne.",
+    "sectionGoalsNone": "Aucun objectif annuel relié pour l'instant.",
+    "sectionJournals": "{{completed}}/{{covered}} revues hebdo clôturées — reconnecter les notes avant de fermer le mois.",
+    "goalNotesInsufficient": "Données mensuelles insuffisantes pour une lecture fine.",
+    "goalNotesValue": "Valeur du mois : {{value}} {{unit}}.",
+    "goalBlockersGap": "Écart important vs cible annuelle.",
+    "headlineStrong": "Mois solide à refermer",
+    "headlineReview": "Mois à relire avant de clôturer"
+  },
+  "pacing": {
+    "title": "Pilotage annuel",
+    "preparing": "Analyse du rythme annuel...",
+    "onPace": "Dans les clous",
+    "offPace": "Hors rythme",
+    "riskPrefix": "Risque {{level}}",
+    "weeklyBehaviour": "Comportement hebdo :",
+    "recommendation": "Recommandation :",
+    "empty": "Aucun objectif annuel à analyser pour l'instant.",
+    "gapUnknown": "Pas assez de données pour mesurer l'écart.",
+    "gapAhead_one": "En avance d'environ {{count}} point vs le rythme annuel attendu.",
+    "gapAhead_other": "En avance d'environ {{count}} points vs le rythme annuel attendu.",
+    "gapBehind_one": "En retard d'environ {{count}} point vs le rythme annuel attendu.",
+    "gapBehind_other": "En retard d'environ {{count}} points vs le rythme annuel attendu.",
+    "weeklyOnPace": "Maintenir le rythme actuel : une revue hebdo courte suffit pour garder la trajectoire.",
+    "weeklyNoData": "Commencer par tracer la métrique liée chaque semaine avant d'ajuster la cible.",
+    "weeklyCatchUp": "Bloquer un créneau hebdomadaire dédié et réduire l'écart par petits incréments mesurables.",
+    "recLow": "Conserver la cadence actuelle et noter ce qui fonctionne pour le répéter.",
+    "recHigh": "Recalibrer la cible ou le plan d'exécution ce mois-ci — l'écart risque de se cristalliser.",
+    "recMedium": "Ajuster une habitude hebdomadaire concrète plutôt que revoir toute la cible annuelle."
+  },
+  "risk": {
+    "low": "Faible",
+    "medium": "Moyen",
+    "high": "Élevé"
+  },
+  "warningFallbackPrefix": "Fallback local : {{warning}}",
+  "proposals": "Suggestions",
+  "accept": "Accepter",
+  "dismiss": "Ignorer",
+  "request": "Demander au coach",
+  "regenerate": "Régénérer",
+  "promptRevisionNote": "Candidat de révision de prompt",
+  "analytics": {
+    "surface": {
+      "coach_pulse": "Pulse coach",
+      "weekly_synthesis": "Synthèse hebdomadaire",
+      "monthly_synthesis": "Synthèse mensuelle",
+      "goal_pacing": "Rythme objectifs"
+    },
+    "type": {
+      "intention_draft": "Intention du matin",
+      "tomorrow_focus_draft": "Focus demain",
+      "memory": "Mémoire",
+      "commitment": "Engagement",
+      "review_section_draft": "Section de revue",
+      "weekly_objective": "Objectif hebdo",
+      "gtd_action": "Action GTD",
+      "goal_evaluation": "Évaluation objectif"
+    },
+    "stance": {
+      "open": "Ouverture",
+      "steer": "Ajustement",
+      "wind_down": "Fin de journée",
+      "close": "Clôture"
+    }
+  }
+}

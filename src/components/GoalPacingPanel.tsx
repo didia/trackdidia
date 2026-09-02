@@ -1,17 +1,6 @@
+import { useTranslation } from "react-i18next";
 import type { AppSettings, GoalPacingResult } from "../domain/types";
-
-const sourceLabels: Record<GoalPacingResult["source"], string> = {
-  ai: "IA active",
-  cache: "IA en cache",
-  local: "Guide local",
-  fallback: "Fallback local"
-};
-
-const riskLabels = {
-  low: "Faible",
-  medium: "Moyen",
-  high: "Eleve"
-} as const;
+import { t as translate } from "../i18n";
 
 interface GoalPacingPanelProps {
   result: GoalPacingResult | null;
@@ -30,11 +19,13 @@ export const GoalPacingPanel = ({
   onRequestCoach,
   onRegenerate
 }: GoalPacingPanelProps) => {
+  const { t } = useTranslation("coach");
+  const { t: tCommon } = useTranslation("common");
   const aiAvailable = settings.aiEnabled && settings.aiApiKey.trim().length > 0;
   const disabledReason = !settings.aiEnabled
-    ? "Active l'IA dans les parametres"
+    ? t("disabled.aiOff")
     : !settings.aiApiKey.trim()
-      ? "Ajoute une cle OpenRouter dans les parametres"
+      ? t("disabled.missingKey")
       : null;
 
   if (!result && !loading) {
@@ -46,11 +37,11 @@ export const GoalPacingPanel = ({
   return (
     <section className="coach-card coach-pulse">
       <div className="coach-card__label">
-        <span>Pilotage annuel</span>
-        <small>{result ? sourceLabels[result.source] : "Chargement..."}</small>
+        <span>{t("pacing.title")}</span>
+        <small>{result ? translate(`source.${result.source}`, { ns: "coach" }) : tCommon("status.loading")}</small>
       </div>
 
-      {loading && !pacing ? <p>Analyse du rythme annuel...</p> : null}
+      {loading && !pacing ? <p>{t("pacing.preparing")}</p> : null}
 
       {pacing && pacing.goals.length > 0 ? (
         <div className="coach-pulse__proposals">
@@ -58,23 +49,26 @@ export const GoalPacingPanel = ({
             <article key={goal.goalId} className="coach-pulse__proposal">
               <span>{goalTitlesById.get(goal.goalId) ?? goal.goalId}</span>
               <p>
-                <strong>{goal.onPace ? "Dans les clous" : "Hors rythme"}</strong> — Risque {riskLabels[goal.riskLevel]}
+                <strong>{goal.onPace ? t("pacing.onPace") : t("pacing.offPace")}</strong> {tCommon("emDash")}{" "}
+                {t("pacing.riskPrefix", { level: translate(`risk.${goal.riskLevel}`, { ns: "coach" }) })}
               </p>
               <p>{goal.gap}</p>
               <p>
-                <strong>Comportement hebdo:</strong> {goal.requiredWeeklyBehaviour}
+                <strong>{t("pacing.weeklyBehaviour")}</strong> {goal.requiredWeeklyBehaviour}
               </p>
               <p>
-                <strong>Recommandation:</strong> {goal.recommendation}
+                <strong>{t("pacing.recommendation")}</strong> {goal.recommendation}
               </p>
             </article>
           ))}
         </div>
       ) : pacing ? (
-        <p className="empty-copy">Aucun objectif annuel a analyser pour l'instant.</p>
+        <p className="empty-copy">{t("pacing.empty")}</p>
       ) : null}
 
-      {result?.warning ? <small className="coach-card__warning">Fallback local: {result.warning}</small> : null}
+      {result?.warning ? (
+        <small className="coach-card__warning">{t("warningFallbackPrefix", { warning: result.warning })}</small>
+      ) : null}
 
       <div className="section-actions coach-pulse__actions">
         <button
@@ -84,7 +78,7 @@ export const GoalPacingPanel = ({
           title={disabledReason ?? undefined}
           onClick={onRequestCoach}
         >
-          {disabledReason ?? "Demander au coach"}
+          {disabledReason ?? t("request")}
         </button>
         <button
           className="button"
@@ -93,7 +87,7 @@ export const GoalPacingPanel = ({
           title={disabledReason ?? undefined}
           onClick={onRegenerate}
         >
-          Regenerer
+          {t("regenerate")}
         </button>
       </div>
     </section>

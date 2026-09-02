@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { AiUsageSummary, AiUsageTotals } from "../domain/types";
 import { applyCostEstimate } from "../lib/ai/analytics/cost";
 import { getCurrentMonthKey } from "../lib/ai/analytics/month-range";
@@ -22,6 +23,8 @@ const formatUsd = (value: number): string =>
   }).format(value);
 
 export const AiCostDashboardSection = ({ repository, costPerMillionTokens }: AiCostDashboardSectionProps) => {
+  const { t } = useTranslation("settings");
+  const { t: tCommon } = useTranslation("common");
   const [totals, setTotals] = useState<AiUsageTotals | null>(null);
   const [loading, setLoading] = useState(true);
   const monthKey = getCurrentMonthKey();
@@ -48,48 +51,43 @@ export const AiCostDashboardSection = ({ repository, costPerMillionTokens }: AiC
 
   const costLabel =
     loading || !totals
-      ? "..."
+      ? tCommon("ellipsis")
       : costPerMillionTokens === null
-        ? "—"
+        ? tCommon("emDash")
         : formatUsd(usage!.estimatedCostUsd);
 
   return (
     <SectionCard
-      title="Cout IA (mois en cours)"
-      subtitle="Estimation locale a partir des jetons enregistres dans ai_messages. Les tarifs OpenRouter varient selon le modele."
+      title={t("cost.title")}
+      subtitle={t("cost.subtitle")}
     >
       <div className="status-grid">
         <article className="status-card">
-          <span>Mois</span>
+          <span>{t("cost.month")}</span>
           <strong>{monthKey}</strong>
         </article>
         <article className="status-card">
-          <span>Appels enregistres</span>
-          <strong>{loading || !totals ? "..." : formatInteger(totals.callCount)}</strong>
+          <span>{t("cost.calls")}</span>
+          <strong>{loading || !totals ? tCommon("ellipsis") : formatInteger(totals.callCount)}</strong>
         </article>
         <article className="status-card">
-          <span>Jetons entree</span>
-          <strong>{loading || !totals ? "..." : formatInteger(totals.tokensPrompt)}</strong>
+          <span>{t("cost.tokensPrompt")}</span>
+          <strong>{loading || !totals ? tCommon("ellipsis") : formatInteger(totals.tokensPrompt)}</strong>
         </article>
         <article className="status-card">
-          <span>Jetons sortie</span>
-          <strong>{loading || !totals ? "..." : formatInteger(totals.tokensCompletion)}</strong>
+          <span>{t("cost.tokensCompletion")}</span>
+          <strong>{loading || !totals ? tCommon("ellipsis") : formatInteger(totals.tokensCompletion)}</strong>
         </article>
         <article className="status-card">
-          <span>Cout estime</span>
+          <span>{t("cost.estimated")}</span>
           <strong>{costLabel}</strong>
         </article>
       </div>
 
       <p className="muted-copy">
-        {costPerMillionTokens === null ? (
-          <>Entrez un tarif approximatif dans Parametres IA pour estimer le cout.</>
-        ) : (
-          <>
-            Cout calcule avec le tarif {costPerMillionTokens} USD / million de jetons (prompt + completion). Les
-            tarifs OpenRouter varient selon le modele — ajuste le tarif dans Parametres IA.
-          </>
-        )}
+        {costPerMillionTokens === null
+          ? t("cost.enterRateHint")
+          : t("cost.calculatedWithRate", { rate: costPerMillionTokens })}
       </p>
     </SectionCard>
   );
