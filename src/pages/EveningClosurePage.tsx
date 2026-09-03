@@ -20,7 +20,9 @@ import { PrincipleChecklist } from "../components/PrincipleChecklist";
 import { SectionCard } from "../components/SectionCard";
 import { loadLatestClosePulseForDate } from "../lib/ai/coach-pulse-loader";
 import { resolveDailySnapshotInputs } from "../lib/ai/context/preview";
+import { resolveDueCommitmentsOnClose } from "../lib/ai/memory/lifecycle";
 import { getTodayDate, formatDateLong } from "../lib/date";
+import { nowIso } from "../lib/gtd/shared";
 
 export const EveningClosurePage = () => {
   const { t } = useTranslation("evening");
@@ -42,44 +44,41 @@ export const EveningClosurePage = () => {
 
     setCoachLoading(true);
     try {
-      const stored = await loadLatestClosePulseForDate(
-        repository,
-        coachService,
-        currentEntry.date,
-        currentEntry
-      );
+      await resolveDueCommitmentsOnClose(repository, currentEntry.date, currentEntry, nowIso());
+
+      const stored = await loadLatestClosePulseForDate(repository, coachService, currentEntry.date);
       if (stored) {
         setCoachResult(stored);
-        return;
       }
 
-      const fastInputs = await resolveDailySnapshotInputs(
+      const snapshotInputs = await resolveDailySnapshotInputs(
         repository,
         currentEntry.date,
         new Date().toISOString(),
         undefined,
         { skipRescueTimeFetch: true }
       );
-      const localResult = await coachService.buildPulse(repository, {
-        stance: "close",
-        entry: currentEntry,
-        settings,
-        snapshotInputs: fastInputs,
-        trigger: "auto",
-        localOnly: true
-      });
-      setCoachResult(localResult);
 
       if (!settings.aiEnabled || !settings.aiApiKey.trim()) {
+        if (!stored) {
+          const localResult = await coachService.buildPulse(repository, {
+            stance: "close",
+            entry: currentEntry,
+            settings,
+            snapshotInputs,
+            trigger: "auto",
+            localOnly: true
+          });
+          setCoachResult(localResult);
+        }
         return;
       }
 
-      const fullInputs = await resolveDailySnapshotInputs(repository, currentEntry.date);
       const aiResult = await coachService.buildPulse(repository, {
         stance: "close",
         entry: currentEntry,
         settings,
-        snapshotInputs: fullInputs,
+        snapshotInputs,
         trigger: "auto"
       });
       setCoachResult(aiResult);

@@ -1,8 +1,6 @@
-import type { AiMessage, CoachPulseResult, DailyEntry } from "../../domain/types";
-import { nowIso } from "../gtd/shared";
+import type { AiMessage, CoachPulseResult } from "../../domain/types";
 import type { AppRepository } from "../storage/repository";
 import type { CoachPulseService } from "./coach-pulse-service";
-import { resolveDueCommitmentsOnClose } from "./memory/lifecycle";
 
 const latestPulseMessage = (
   messages: AiMessage[],
@@ -19,9 +17,9 @@ const latestPulseMessage = (
 export const latestScheduledPulseMessage = (messages: AiMessage[]): AiMessage | null =>
   latestPulseMessage(messages, (message) => Boolean(message.stance && message.stance !== "close"));
 
-/** Latest evening `close` pulse for a day. */
+/** Latest successful evening `close` pulse for a day. Failed/skipped rows are not reused. */
 export const latestClosePulseMessage = (messages: AiMessage[]): AiMessage | null =>
-  latestPulseMessage(messages, (message) => message.stance === "close");
+  latestPulseMessage(messages, (message) => message.stance === "close" && message.status === "ok");
 
 export const loadLatestCoachPulseForDate = async (
   repository: AppRepository,
@@ -41,8 +39,7 @@ export const loadLatestCoachPulseForDate = async (
 export const loadLatestClosePulseForDate = async (
   repository: AppRepository,
   coachService: CoachPulseService,
-  date: string,
-  entry: DailyEntry
+  date: string
 ): Promise<CoachPulseResult | null> => {
   const messages = await repository.listAiMessagesForDate(date);
   const latest = latestClosePulseMessage(messages);
@@ -51,11 +48,5 @@ export const loadLatestClosePulseForDate = async (
     return null;
   }
 
-  const result = await coachService.resultFromMessage(repository, latest);
-  if (!result) {
-    return null;
-  }
-
-  await resolveDueCommitmentsOnClose(repository, date, entry, nowIso());
-  return result;
+  return coachService.resultFromMessage(repository, latest);
 };

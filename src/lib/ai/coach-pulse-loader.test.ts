@@ -12,19 +12,21 @@ import { CoachPulseService } from "./coach-pulse-service";
 
 const today = getTodayDate();
 
-const pulseBody = (stance: AiMessage["stance"], headline: string) =>
+const pulseBody = (stance: AiMessage["stance"], headline: string, extra: Record<string, unknown> = {}) =>
   JSON.stringify({
     stance,
     headline,
     read: "Lecture",
-    move: null
+    move: null,
+    ...extra
   });
 
 const message = (
   id: string,
   stance: NonNullable<AiMessage["stance"]>,
   createdAt: string,
-  headline: string
+  headline: string,
+  status: AiMessage["status"] = "ok"
 ): AiMessage => ({
   id,
   surface: "coach_pulse",
@@ -34,7 +36,7 @@ const message = (
   inputHash: `hash-${id}`,
   promptVersion: "coach_pulse.v1",
   model: "local",
-  status: "ok",
+  status,
   bodyJson: pulseBody(stance, headline),
   bodyText: headline,
   deltaClass: null,
@@ -61,7 +63,22 @@ describe("coach-pulse-loader", () => {
     expect(latestClosePulseMessage([close, steer])?.id).toBe("ai-message:close");
   });
 
-  it("hydrates a persisted close pulse without going through buildPulse", async () => {
+  it("does not reuse fallback or skipped close pulses", () => {
+    const fallback = message(
+      "ai-message:fallback",
+      "close",
+      "2026-08-29T21:00:00.000Z",
+      "Local",
+      "fallback"
+    );
+    const skipped = message("ai-message:skipped", "close", "2026-08-29T20:30:00.000Z", "Local", "skipped");
+    const ok = message("ai-message:ok", "close", "2026-08-29T20:00:00.000Z", "Cloture");
+
+    expect(latestClosePulseMessage([fallback, skipped])).toBeNull();
+    expect(latestClosePulseMessage([fallback, skipped, ok])?.id).toBe("ai-message:ok");
+  });
+
+  it("hydrates a persisted ok close pulse without going through buildPulse", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
     const close = message("ai-message:close", "close", "2026-08-29T20:00:00.000Z", "Cloture");
@@ -72,16 +89,27 @@ describe("coach-pulse-loader", () => {
       buildPulse: vi.fn()
     } as unknown as CoachPulseService;
 
-    const loaded = await loadLatestClosePulseForDate(
-      repository,
-      coachService,
-      today,
-      createEmptyDailyEntry(today)
-    );
+    const loaded = await loadLatestClosePulseForDate(repository, coachService, today);
 
     expect(loaded?.pulse.headline).toBe("Cloture");
     expect(coachService.resultFromMessage).toHaveBeenCalledOnce();
     expect(coachService.buildPulse).not.toHaveBeenCalled();
+  });
+
+  it("returns null for a close pulse whose proposals were not persisted", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const close = message("ai-message:close", "close", "2026-08-29T20:00:00.000Z", "Cloture");
+    close.bodyJson = pulseBody("close", "Cloture", { tomorrowFocusDraft: "Dormir tot" });
+    await repository.saveAiMessage(close);
+
+    const loaded = await loadLatestClosePulseForDate(
+      repository,
+      new CoachPulseService({ generateStructured: vi.fn() }),
+      today
+    );
+
+    expect(loaded).toBeNull();
   });
 
   it("does not treat a close pulse as the Today scheduled thread", async () => {
