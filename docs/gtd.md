@@ -15,9 +15,12 @@ and project records, and an event ledger used for daily statistics.
 | `reference` | `/references` | Non-actionable material |
 
 The shared `GtdTaskCard` can edit title, notes, bucket, project, contexts, scheduled
-date/time, and deadline. It can also complete or cancel the task. Recurring
-instances restrict the bucket to Next Actions or Scheduled and can apply eligible
-edits to one occurrence or the full local series. Project assignment selectors on
+date/time, and deadline. It can also complete or cancel the task. The collapsed
+summary shows the bucket, then the assigned project title when present, then
+context names, joined with ` • `. `Sans contexte` appears only when the task has
+neither a project nor any contexts. Recurring instances restrict the bucket to
+Next Actions or Scheduled and can apply eligible edits to one occurrence or the
+full local series. Project assignment selectors on
 the task card and recurrence editor suggest active projects only. A currently
 assigned project that is on hold, completed, or cancelled stays in that one
 dropdown until the assignment changes, labeled with its status (`En pause`,

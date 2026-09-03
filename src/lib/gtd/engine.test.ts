@@ -1,5 +1,5 @@
 import type { Project, ProjectStatus } from "../../domain/types";
-import { projectsForAssignment, projectAssignmentLabel } from "./engine";
+import { formatTaskCardAssociationCopy, projectsForAssignment, projectAssignmentLabel } from "./engine";
 
 const buildProject = (id: string, title: string, status: ProjectStatus): Project => ({
   id,
@@ -56,5 +56,23 @@ describe("projectsForAssignment", () => {
     expect(projectAssignmentLabel(completed)).toBe("Done (Termine)");
     expect(projectAssignmentLabel(cancelled)).toBe("Cancel (Retire)");
     expect(projectAssignmentLabel(activeAlpha)).toBe("Alpha");
+  });
+});
+
+describe("formatTaskCardAssociationCopy", () => {
+  it("shows the project title when the task has a project and no contexts", () => {
+    expect(formatTaskCardAssociationCopy("MentorIA", [], "Sans contexte")).toBe("MentorIA");
+  });
+
+  it("shows context names when the task has contexts and no project", () => {
+    expect(formatTaskCardAssociationCopy(null, ["Perso"], "Sans contexte")).toBe("Perso");
+  });
+
+  it("shows project then contexts when both are present", () => {
+    expect(formatTaskCardAssociationCopy("MentorIA", ["Perso"], "Sans contexte")).toBe("MentorIA • Perso");
+  });
+
+  it("falls back when the task has neither a project nor contexts", () => {
+    expect(formatTaskCardAssociationCopy(null, [], "Sans contexte")).toBe("Sans contexte");
   });
 });

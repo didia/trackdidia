@@ -5,6 +5,7 @@ the top of the table.
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-02 | Collapsed `GtdTaskCard` shows the assigned project title before contexts; `Sans contexte` only when neither is set | `docs/gtd.md` | `formatTaskCardAssociationCopy`, `GtdTaskCard` |
 | 2026-09-02 | User-facing copy lives in `src/locales/fr/*.json` via react-i18next (French-only, accented); screens use `useTranslation`, engines use `t()` | `docs/architecture.md`, `docs/conventions.md` | `src/i18n/index.ts`, `src/locales/fr/`, pages/components, fallbacks, insights |
 | 2026-09-02 | Daily journal saves serialize through `useDailyEntry`; Pomodoro manual refresh shows loading and failure; inactive assigned projects are labeled in selectors | `docs/daily-routines.md`, `docs/conventions.md`, `docs/recurrences-and-pomodoro.md`, `docs/gtd.md` | `useDailyEntry`, `usePomodoroController`, `projectAssignmentLabel` |
 | 2026-09-01 | Pomodoro page can refresh eligible tasks; task/recurrence assignment selectors suggest active projects only; Today dashboard edits morning intention and night reflection as matching textareas | `docs/recurrences-and-pomodoro.md`, `docs/gtd.md`, `docs/daily-routines.md` | `PomodoroPage`, `projectsForAssignment`, `TodayPage` |

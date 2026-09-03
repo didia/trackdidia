@@ -127,6 +127,15 @@ const inactiveProjectLabels: Record<Exclude<ProjectStatus, "active">, string> = 
 export const projectAssignmentLabel = (project: Project): string =>
   project.status === "active" ? project.title : `${project.title} (${inactiveProjectLabels[project.status]})`;
 
+export const formatTaskCardAssociationCopy = (
+  projectTitle: string | null | undefined,
+  contextNames: string[],
+  noContextLabel: string
+): string => {
+  const parts = [...(projectTitle ? [projectTitle] : []), ...contextNames];
+  return parts.length > 0 ? parts.join(" • ") : noContextLabel;
+};
+
 export const buildDailyTaskStats = (tasks: Task[], events: TaskEvent[], date: string): DailyTaskStats => {
   const { startMs } = getDayRange(date);
   const tasksById = new Map(tasks.map((task) => [task.id, task] as const));

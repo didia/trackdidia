@@ -9,7 +9,7 @@ import {
   toLocalDateInputValue,
   toLocalTimeInputValue
 } from "../lib/date";
-import { projectsForAssignment, projectAssignmentLabel } from "../lib/gtd/engine";
+import { formatTaskCardAssociationCopy, projectsForAssignment, projectAssignmentLabel } from "../lib/gtd/engine";
 import { buildContextId, nowIso } from "../lib/gtd/shared";
 
 const bucketLabelKeys = {
@@ -96,6 +96,9 @@ export const GtdTaskCard = ({
   const contextNames = draft.contextIds
     .map((contextId) => contexts.find((context) => context.id === contextId)?.name ?? contextId)
     .sort((left, right) => left.localeCompare(right));
+  const projectTitle = draft.projectId
+    ? projects.find((project) => project.id === draft.projectId)?.title ?? draft.projectId
+    : null;
   const availableBuckets = (
     draft.isRecurringInstance
       ? (Object.keys(bucketLabelKeys) as Array<Task["bucket"]>).filter(
@@ -201,11 +204,9 @@ export const GtdTaskCard = ({
           <span className="task-card__title">{task.title}</span>
           <span className="task-card__meta-row">
             <span className="task-card__bucket">{t(bucketLabelKeys[task.bucket])}</span>
-            {contextNames.length > 0 ? (
-              <span className="task-card__context-copy">{contextNames.join(" • ")}</span>
-            ) : (
-              <span className="task-card__context-copy">{t("task.noContext")}</span>
-            )}
+            <span className="task-card__context-copy">
+              {formatTaskCardAssociationCopy(projectTitle, contextNames, t("task.noContext"))}
+            </span>
             {task.scheduledFor ? (
               <span className={`task-card__date-pill${isPastDue ? " task-card__date-pill--overdue" : ""}`}>
                 {formatDateTimeShort(task.scheduledFor)}
