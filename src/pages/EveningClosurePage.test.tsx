@@ -126,4 +126,38 @@ describe("EveningClosurePage coach proposals", () => {
     });
     expect(saveDailyEntry).not.toHaveBeenCalled();
   });
+
+  it("reuses a persisted close pulse on reopen instead of calling the model", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const proposal: AiProposal = {
+      id: "ai-proposal:tomorrow",
+      messageId: "ai-message:close",
+      type: "tomorrow_focus_draft",
+      payloadJson: JSON.stringify({ text: "Preparer la presentation" }),
+      status: "pending",
+      appliedEntityId: null,
+      decidedAt: null,
+      createdAt: "2026-08-29T20:00:00.000Z"
+    };
+    const stored = buildCoachResult(proposal);
+    await repository.saveAiMessage(stored.message);
+    await repository.saveAiProposal(proposal);
+
+    const coachService = {
+      resultFromMessage: vi.fn(async () => stored),
+      buildPulse: vi.fn(async () => stored)
+    } as unknown as CoachPulseService;
+
+    await renderWithApp(<EveningClosurePage />, {
+      repository,
+      route: "/fermeture-soir",
+      contextOverrides: { coachService, settings: defaultAppSettings() }
+    });
+
+    expect(await screen.findByText("Cloture")).toBeInTheDocument();
+    expect(await screen.findByText("Preparer la presentation")).toBeInTheDocument();
+    expect(coachService.buildPulse).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /demander au coach/i })).not.toBeInTheDocument();
+  });
 });

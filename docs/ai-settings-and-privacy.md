@@ -88,21 +88,28 @@ When AI is disabled or the API key is empty:
 - only the local brief renders, from a persisted pulse or the deterministic fallback;
 - **Regenerer** stays disabled with an explanatory label.
 
-### Auto-load trigger (Today)
+### Auto-load trigger (Today and evening close)
 
 When AI is configured, Today auto-loads the coach on page open:
 
-1. if a pulse for today is already persisted, that thread is shown;
+1. if a scheduled pulse for today is already persisted (`open`/`steer`/`wind_down`, never `close`), that thread is shown;
 2. otherwise a fast local brief from snapshot inputs that skip the live RescueTime fetch;
 3. then an AI call (cache-first) once the full snapshot is ready.
 
 Scheduled pulses (`open`/`steer`/`wind_down`) also call the model when the window
-classifies as `progress` or `stall`. Evening closure still auto-runs the `close`
-stance on page open. **Regenerer** bypasses the `ai_messages` input-hash cache
-deliberately.
+classifies as `progress` or `stall`.
+
+Evening closure (`/fermeture-soir`) uses the same persist-and-reuse pattern for the
+`close` stance:
+
+1. if a `close` pulse for today is already persisted (`scopeKey` `YYYY-MM-DD#close`), that thread is shown and due commitments are finalized idempotently;
+2. otherwise a fast local brief, then an AI call (cache-first) once the full snapshot is ready.
+
+Reopening the evening page does not call the model again. **Régénérer** bypasses both
+the persisted-thread reuse and the `ai_messages` input-hash cache deliberately.
 
 There is **no** gate requiring the user to write journal text first, and no
-**Demander au coach** button on Today while auto-load is active.
+**Demander au coach** button on Today or evening close while auto-load is active.
 
 ### Structured output and accept-step
 

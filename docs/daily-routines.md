@@ -113,6 +113,10 @@ The evening screen exposes:
 
 The journal fields are debounced and flushed before closure.
 
+The close coach panel auto-loads like Today: a persisted `close` pulse for the day is
+reused on reopen, and **Régénérer** is the explicit bypass. The morning routine screen
+does not host a coach panel; the morning/open thread lives on Today.
+
 Evening-specific principles include daily retro, quality time with children, evening
 prayer, attention to spouse, TRC, and goals achieved. Anytime and morning principles
 remain editable so the full day can be corrected before closure.

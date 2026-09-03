@@ -18,6 +18,7 @@ import { PersistedTextarea, type PersistedTextareaHandle } from "../components/P
 import { MetricGrid } from "../components/MetricGrid";
 import { PrincipleChecklist } from "../components/PrincipleChecklist";
 import { SectionCard } from "../components/SectionCard";
+import { loadLatestClosePulseForDate } from "../lib/ai/coach-pulse-loader";
 import { resolveDailySnapshotInputs } from "../lib/ai/context/preview";
 import { getTodayDate, formatDateLong } from "../lib/date";
 
@@ -32,6 +33,62 @@ export const EveningClosurePage = () => {
   const nightReflectionRef = useRef<PersistedTextareaHandle>(null);
   const tomorrowFocusRef = useRef<PersistedTextareaHandle>(null);
   latestEntryRef.current = entry;
+
+  const loadCoachFromStore = useCallback(async () => {
+    const currentEntry = latestEntryRef.current;
+    if (!currentEntry) {
+      return;
+    }
+
+    setCoachLoading(true);
+    try {
+      const stored = await loadLatestClosePulseForDate(
+        repository,
+        coachService,
+        currentEntry.date,
+        currentEntry
+      );
+      if (stored) {
+        setCoachResult(stored);
+        return;
+      }
+
+      const fastInputs = await resolveDailySnapshotInputs(
+        repository,
+        currentEntry.date,
+        new Date().toISOString(),
+        undefined,
+        { skipRescueTimeFetch: true }
+      );
+      const localResult = await coachService.buildPulse(repository, {
+        stance: "close",
+        entry: currentEntry,
+        settings,
+        snapshotInputs: fastInputs,
+        trigger: "auto",
+        localOnly: true
+      });
+      setCoachResult(localResult);
+
+      if (!settings.aiEnabled || !settings.aiApiKey.trim()) {
+        return;
+      }
+
+      const fullInputs = await resolveDailySnapshotInputs(repository, currentEntry.date);
+      const aiResult = await coachService.buildPulse(repository, {
+        stance: "close",
+        entry: currentEntry,
+        settings,
+        snapshotInputs: fullInputs,
+        trigger: "auto"
+      });
+      setCoachResult(aiResult);
+    } catch (error) {
+      console.error("Failed to load evening coach pulse", error);
+    } finally {
+      setCoachLoading(false);
+    }
+  }, [coachService, repository, settings]);
 
   const loadCoach = useCallback(
     async (options: { trigger: "auto" | "explicit"; bypassCache?: boolean }) => {
@@ -52,6 +109,8 @@ export const EveningClosurePage = () => {
           bypassCache: options.bypassCache ?? false
         });
         setCoachResult(result);
+      } catch (error) {
+        console.error("Failed to load evening coach pulse", error);
       } finally {
         setCoachLoading(false);
       }
@@ -64,8 +123,8 @@ export const EveningClosurePage = () => {
       return;
     }
 
-    void loadCoach({ trigger: "explicit" });
-  }, [entry?.date, loadCoach]);
+    void loadCoachFromStore();
+  }, [entry?.date, loadCoachFromStore]);
 
   const handleAcceptProposal = async (proposal: AiProposal) => {
     const currentEntry = latestEntryRef.current;
@@ -141,7 +200,7 @@ export const EveningClosurePage = () => {
         result={coachResult}
         loading={coachLoading}
         settings={settings}
-        onRequestCoach={() => void loadCoach({ trigger: "explicit" })}
+        autoloadAi
         onRegenerate={() => void loadCoach({ trigger: "explicit", bypassCache: true })}
         onAcceptProposal={(proposal) => void handleAcceptProposal(proposal)}
         onDismissProposal={(proposal) => void handleDismissProposal(proposal)}
