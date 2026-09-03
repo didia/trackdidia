@@ -527,6 +527,7 @@ export interface AppSettings {
   rescuetimeApiKey: string;
   autoBackupEnabled: boolean;
   autoBackupIntervalHours: number;
+  backupDestinationDir: string;
   lastBackupAt: string;
   lastBackupPath: string;
   gtdImportDoneAt: string;

@@ -14,7 +14,9 @@ import { RescueTimeGoalsService } from "../lib/rescuetime/rescuetime-goals-servi
 import { previewPayload, resolveProductivityPulse, resolveWeeklyRescueTimeInputs } from "../lib/ai/context/preview";
 import type { Surface } from "../lib/ai/context/types";
 import { formatPulseSlotHours, parsePulseSlotHours } from "../lib/ai/pulse/slot-hours";
+import { BACKUP_RETENTION_COUNT, isBackupDestinationConfigured } from "../lib/backup";
 import { buildWeekDates } from "../domain/weekly-review";
+import { open } from "@tauri-apps/plugin-dialog";
 
 const payloadScopeValues: AiPayloadScope[] = ["metrics", "metrics_and_structure", "full"];
 
@@ -35,6 +37,7 @@ export const SettingsPage = () => {
   const [gtdMessage, setGtdMessage] = useState("");
   const [backupMessage, setBackupMessage] = useState("");
   const [creatingBackup, setCreatingBackup] = useState(false);
+  const [choosingBackupFolder, setChoosingBackupFolder] = useState(false);
   const [savingRelationshipSettings, setSavingRelationshipSettings] = useState(false);
   const [relationshipMessage, setRelationshipMessage] = useState("");
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
@@ -647,7 +650,7 @@ export const SettingsPage = () => {
 
       <SectionCard
         title={t("backup.title")}
-        subtitle={t("backup.subtitle")}
+        subtitle={t("backup.subtitle", { n: BACKUP_RETENTION_COUNT })}
       >
         <div className="status-grid">
           <article className="status-card">
@@ -668,7 +671,9 @@ export const SettingsPage = () => {
           </article>
           <article className="status-card">
             <span>{t("backup.fields.backupDir")}</span>
-            <strong>{storageInfo?.backupDir ?? (browserPreview ? t("backup.env.preview") : t("loadingPlaceholder"))}</strong>
+            <strong>
+              {storageInfo?.backupDir || settings.backupDestinationDir || t("backup.notConfigured")}
+            </strong>
           </article>
           <article className="status-card">
             <span>{t("backup.fields.lastBackup")}</span>
@@ -680,6 +685,11 @@ export const SettingsPage = () => {
           </article>
         </div>
 
+        <p className="hero__copy">{t("backup.folderHint")}</p>
+
+        {draftSettings.autoBackupEnabled && !isBackupDestinationConfigured(settings.backupDestinationDir) ? (
+          <div className="banner">{t("backup.missingFolder")}</div>
+        ) : null}
         {backupMessage ? <div className="banner">{backupMessage}</div> : null}
 
         <div className="settings-form">
@@ -718,6 +728,41 @@ export const SettingsPage = () => {
           <button
             className="button"
             type="button"
+            disabled={choosingBackupFolder || browserPreview}
+            onClick={async () => {
+              setChoosingBackupFolder(true);
+              setBackupMessage("");
+
+              try {
+                const selected = await open({
+                  directory: true,
+                  multiple: false
+                });
+                if (!selected || Array.isArray(selected)) {
+                  return;
+                }
+
+                const nextSettings = {
+                  ...settings,
+                  backupDestinationDir: selected
+                };
+                await saveSettings(nextSettings);
+                setDraftSettings(nextSettings);
+                const nextStorageInfo = await repository.getStorageInfo();
+                setStorageInfo(nextStorageInfo);
+                setBackupMessage(t("backup.folderSaved"));
+              } catch (error) {
+                setBackupMessage(error instanceof Error ? error.message : t("backup.folderError"));
+              } finally {
+                setChoosingBackupFolder(false);
+              }
+            }}
+          >
+            {choosingBackupFolder ? t("backup.choosingFolder") : t("backup.chooseFolder")}
+          </button>
+          <button
+            className="button"
+            type="button"
             disabled={savingBackupSettings}
             onClick={async () => {
               setSavingBackupSettings(true);
@@ -727,7 +772,8 @@ export const SettingsPage = () => {
                 const nextSettings = {
                   ...settings,
                   autoBackupEnabled: draftSettings.autoBackupEnabled,
-                  autoBackupIntervalHours: draftSettings.autoBackupIntervalHours
+                  autoBackupIntervalHours: draftSettings.autoBackupIntervalHours,
+                  backupDestinationDir: draftSettings.backupDestinationDir
                 };
                 await saveSettings(nextSettings);
                 setDraftSettings(nextSettings);
@@ -744,7 +790,11 @@ export const SettingsPage = () => {
           <button
             className="button button--primary"
             type="button"
-            disabled={creatingBackup || browserPreview}
+            disabled={
+              creatingBackup ||
+              browserPreview ||
+              !isBackupDestinationConfigured(settings.backupDestinationDir)
+            }
             onClick={async () => {
               setCreatingBackup(true);
               setBackupMessage("");

@@ -59,7 +59,7 @@ Tauri runs `npm run dev`, then opens `http://localhost:1420` in the main desktop
 window. Debug builds use:
 
 - `trackdidia.dev.db`;
-- `backups-dev/`;
+- backups under the chosen destination's `backups-dev/` subdirectory;
 - debug logging enabled by `import.meta.env.DEV`.
 
 The configured main window is 1440×960, resizable, with minimum 1100×760.
@@ -89,7 +89,7 @@ Release builds use:
 - product name `TrackDidia`;
 - version `0.1.0`;
 - identifier `com.trackdidia.desktop`;
-- production `trackdidia.db` and `backups/`.
+- production `trackdidia.db` and `{destination}/backups/`.
 
 The Rust crate version and Tauri configuration version should stay aligned when
 preparing a release.
@@ -120,7 +120,9 @@ database. The installed app continues to use
 The Rust host registers:
 
 - `tauri-plugin-notification`;
+- `tauri-plugin-dialog`;
 - the custom `resolve_storage_paths` command;
+- the custom `ensure_backup_dir` and `prune_backups` commands;
 - the custom `rescuetime_http_get` command;
 - the custom `db_connect`, `db_execute`, and `db_select` commands (`src-tauri/src/db.rs`),
   a hand-rolled single-connection sqlx pool that replaces `tauri-plugin-sql`.
@@ -128,7 +130,8 @@ The Rust host registers:
 The default main-window capability grants:
 
 - `core:default`;
-- `notification:default`.
+- `notification:default`;
+- `dialog:default`.
 
 New native APIs require both plugin initialization and capability review.
 
@@ -159,7 +162,7 @@ Before changing any of these, document and test migration behavior:
 - Tauri identifier;
 - product name/path behavior;
 - SQLite filenames;
-- backup directory names;
+- backup destination setting and environment subdirectory names;
 - schema migration IDs;
 - application settings serialization.
 

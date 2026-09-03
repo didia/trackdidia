@@ -4,6 +4,12 @@ import { vi } from "vitest";
 import { SettingsPage } from "./SettingsPage";
 import { renderWithApp } from "../test/test-utils";
 import { MemoryRepository } from "../lib/storage/memory-repository";
+import { defaultAppSettings } from "../domain/daily-entry";
+import { open } from "@tauri-apps/plugin-dialog";
+
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  open: vi.fn()
+}));
 
 describe("SettingsPage AI payload preview", () => {
   it("hides the debug payload preview when debug mode is off", async () => {
@@ -130,3 +136,56 @@ describe("SettingsPage AI cost and analytics", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("SettingsPage backup destination", () => {
+  it("shows an unconfigured destination, a missing-folder warning, and a disabled export", async () => {
+    await renderWithApp(<SettingsPage />);
+
+    expect(screen.getByText("Non configuré")).toBeInTheDocument();
+    expect(
+      screen.getByText("Choisis un dossier de backup pour activer les exports et les backups automatiques.")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Exporter un backup maintenant" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Choisir le dossier Google Drive" })).toBeDisabled();
+  });
+
+  it("shows the chosen folder and keeps export disabled in browser preview", async () => {
+    await renderWithApp(<SettingsPage />, {
+      contextOverrides: {
+        settings: {
+          ...defaultAppSettings(),
+          backupDestinationDir: "/Users/didia/Drive/TrackDidia"
+        }
+      }
+    });
+
+    expect(screen.getByText("/Users/didia/Drive/TrackDidia")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Choisis un dossier de backup pour activer les exports et les backups automatiques.")
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Exporter un backup maintenant" })).toBeDisabled();
+  });
+
+  it("saves a picked Google Drive folder from the native dialog", async () => {
+    const user = userEvent.setup();
+    const saveSettings = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(open).mockResolvedValue("/Users/didia/Drive/TrackDidia");
+
+    await renderWithApp(<SettingsPage />, {
+      contextOverrides: {
+        browserPreview: false,
+        saveSettings
+      }
+    });
+
+    await user.click(screen.getByRole("button", { name: "Choisir le dossier Google Drive" }));
+
+    await waitFor(() => {
+      expect(saveSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ backupDestinationDir: "/Users/didia/Drive/TrackDidia" })
+      );
+    });
+    expect(screen.getByText("Dossier de backup enregistré.")).toBeInTheDocument();
+  });
+});
+

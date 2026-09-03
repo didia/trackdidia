@@ -89,8 +89,8 @@
     "save": "Enregistrer les activités relationnelles"
   },
   "backup": {
-    "title": "Sauvegarde locale",
-    "subtitle": "Exporte un snapshot manuel de la base SQLite et active les backups automatiques toutes les 24h.",
+    "title": "Sauvegarde",
+    "subtitle": "Écrit les snapshots SQLite dans un dossier Google Drive (Drive pour ordinateur). Seuls les {{n}} plus récents sont conservés. Les copies déjà présentes dans Application Support ne sont ni déplacées ni supprimées.",
     "env": {
       "label": "Environnement",
       "development": "Développement",
@@ -106,7 +106,14 @@
     "never": "Jamais",
     "autoInterval": "Toutes les {{n}}h",
     "disabled": "Désactivé",
-    "autoEnable": "Activer le backup automatique local",
+    "notConfigured": "Non configuré",
+    "chooseFolder": "Choisir le dossier Google Drive",
+    "choosingFolder": "Sélection du dossier...",
+    "folderHint": "Choisis un dossier synchronisé par Google Drive. Le développement écrit dans backups-dev/, la production dans backups/.",
+    "missingFolder": "Choisis un dossier de backup pour activer les exports et les backups automatiques.",
+    "folderSaved": "Dossier de backup enregistré.",
+    "folderError": "Échec de la sélection du dossier de backup.",
+    "autoEnable": "Activer le backup automatique",
     "interval": "Intervalle de backup automatique (heures)",
     "prefsSaved": "Préférences de backup enregistrées.",
     "prefsError": "Échec de l'enregistrement des backups.",

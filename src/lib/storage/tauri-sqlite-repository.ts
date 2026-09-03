@@ -82,7 +82,13 @@ import {
   syncTemplateStatusChange
 } from "../recurring/engine";
 import { addDays, cloneProject, cloneTask, createEntityId, nowIso } from "../gtd/shared";
-import { buildBackupFileName } from "../backup";
+import {
+  BACKUP_RETENTION_COUNT,
+  MISSING_BACKUP_DESTINATION_ERROR,
+  buildBackupFileName,
+  isBackupDestinationConfigured,
+  resolveBackupDir
+} from "../backup";
 import { formatUnknownError, logDebug } from "../debug";
 import {
   buildRelationshipDrawTaskTitle,
@@ -2024,15 +2030,31 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async getStorageInfo(): Promise<StorageInfo> {
-    return invoke<StorageInfo>("resolve_storage_paths");
+    const native = await invoke<StorageInfo>("resolve_storage_paths");
+    const settings = await this.getSettings();
+    return {
+      ...native,
+      backupDir: isBackupDestinationConfigured(settings.backupDestinationDir)
+        ? resolveBackupDir(settings.backupDestinationDir, native.environment)
+        : ""
+    };
   }
 
   async createBackup(kind: "manual" | "auto" = "manual"): Promise<BackupResult> {
     return this.runExclusive(async () => {
       const db = await this.getDb();
-      const storageInfo = await this.getStorageInfo();
+      const settings = await this.getSettings();
+      if (!isBackupDestinationConfigured(settings.backupDestinationDir)) {
+        throw new Error(MISSING_BACKUP_DESTINATION_ERROR);
+      }
+
+      const storageInfo = await invoke<StorageInfo>("resolve_storage_paths");
+      const backupDir = await invoke<string>("ensure_backup_dir", {
+        destinationDir: settings.backupDestinationDir,
+        environment: storageInfo.environment
+      });
       const createdAt = new Date().toISOString();
-      const backupPath = `${storageInfo.backupDir}/${buildBackupFileName(createdAt, kind)}`;
+      const backupPath = `${backupDir}/${buildBackupFileName(createdAt, kind)}`;
       const escapedPath = backupPath.replace(/'/g, "''");
 
       logDebug("info", "storage.backup", "Creation d'un backup SQLite", {
@@ -2041,6 +2063,12 @@ export class TauriSqliteRepository implements AppRepository {
       });
 
       await db.execute(`VACUUM INTO '${escapedPath}'`);
+
+      const prune = await invoke<{ deletedPaths: string[]; keptCount: number }>("prune_backups", {
+        dir: backupDir,
+        keep: BACKUP_RETENTION_COUNT
+      });
+      logDebug("info", "storage.backup", "Retention des backups appliquee", prune);
 
       return {
         backupPath,

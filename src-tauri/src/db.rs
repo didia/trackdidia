@@ -86,7 +86,7 @@ fn build_pool_options() -> SqlitePoolOptions {
 }
 
 /// Resolves a `sqlite:<file>` connection string to a full path under `app_data_dir`, matching
-/// the directory `resolve_storage_paths` (main.rs) already reports/backs up, so the live
+/// the directory `resolve_storage_paths` (main.rs) already reports, so the live
 /// connection always points at the same file shown to the user in Settings.
 fn resolve_db_path(app: &AppHandle, db: &str) -> Result<std::path::PathBuf, String> {
     let app_data_dir = app

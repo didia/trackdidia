@@ -25,7 +25,11 @@ import { MemoryRepository } from "../lib/storage/memory-repository";
 import type { AppRepository } from "../lib/storage/repository";
 import initialGoogleTasksExport from "../../Tasks.json";
 import { buildContextId } from "../lib/gtd/shared";
-import { AUTO_BACKUP_CHECK_INTERVAL_MS, isAutoBackupDue } from "../lib/backup";
+import {
+  AUTO_BACKUP_CHECK_INTERVAL_MS,
+  isAutoBackupDue,
+  isBackupDestinationConfigured
+} from "../lib/backup";
 import { PULSE_CHECK_INTERVAL_MS } from "../lib/ai/pulse/constants";
 import { runPulseEngine } from "../lib/ai/pulse/pulse-engine";
 import type { AppOpenInterval } from "../domain/insights/movement";
@@ -205,6 +209,13 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
 
     const runAutoBackupIfDue = async (trigger: "startup" | "interval") => {
       if (autoBackupRunningRef.current || !settings.autoBackupEnabled) {
+        return;
+      }
+
+      if (!isBackupDestinationConfigured(settings.backupDestinationDir)) {
+        logDebug("info", "storage.backup", "Backup automatique ignore: dossier non configure", {
+          trigger
+        });
         return;
       }
 

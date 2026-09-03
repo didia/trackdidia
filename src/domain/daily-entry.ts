@@ -70,6 +70,7 @@ export const defaultAppSettings = (): AppSettings => ({
   rescuetimeApiKey: "",
   autoBackupEnabled: true,
   autoBackupIntervalHours: 24,
+  backupDestinationDir: "",
   lastBackupAt: "",
   lastBackupPath: "",
   gtdImportDoneAt: "",
