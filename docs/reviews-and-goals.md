@@ -1,5 +1,7 @@
 # Reviews and Annual Goals
 
+See also: [changelog](logs/reviews-and-goals.md).
+
 TrackDidia turns daily evidence into three higher-level loops:
 
 - Sunday-to-Saturday weekly reviews;

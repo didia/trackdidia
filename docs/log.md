@@ -1,51 +1,35 @@
 # Documentation Log
 
-Chronological record of material TrackDidia wiki maintenance. Add new entries at
-the top of the table.
+Chronological records live in domain logs under [`docs/logs/`](logs/). This page
+is only the catalog and write rules — day-to-day work should not edit it.
 
-| Date | Change | Canonical pages | Evidence |
-|---|---|---|---|
-| 2026-09-04 | Morning routine captures today's sleep quality and pushups; both remain editable on evening closure | `docs/daily-routines.md` | `morningMetricKeys`, `MorningRoutinePage` |
-| 2026-09-04 | AI max tokens default is 4096, configurable in Settings; stored factory 700 is upgraded once at bootstrap; unreadable length-truncated OpenRouter responses log a debug warn and a French fallback warning | `docs/ai-settings-and-privacy.md` | `aiMaxTokens`, `applyLegacyAiMaxTokensUpgrade`, `OpenRouterProvider`, `SettingsPage` |
-| 2026-09-04 | Collapsed task summary reads the persisted assignment, nested project-card tasks omit the repeated project title, and `formatAssociationCopy` is shared with project cards | `docs/gtd.md` | `formatAssociationCopy`, `hideProjectTitle`, `GtdTaskCard` |
-| 2026-09-03 | Tasks with no stored contexts inherit their project's contexts for collapsed-card labels and context filters | `docs/gtd.md` | `effectiveTaskContextIds`, `GtdTaskCard`, Next Actions / Waiting For / Someday filters |
-| 2026-09-03 | Collapsed `GtdTaskCard` shows the assigned project title before contexts; `Sans contexte` only when neither is set | `docs/gtd.md` | `formatAssociationCopy`, `GtdTaskCard` |
-| 2026-09-03 | Evening close auto-load only reuses `ok` pulses, skip-RescueTime hash cache keeps freshness, commitments resolve with AI off, disabled reason is visible on autoload | `docs/ai-settings-and-privacy.md`, `docs/daily-routines.md` | `latestClosePulseMessage`, `EveningClosurePage`, `CoachPulsePanel`, `resolveDueCommitmentsOnClose` |
-| 2026-09-03 | Backup destination must already exist; prune is best-effort; missing-folder warning is app-wide when auto-backup is on | `docs/storage-and-backups.md`, `docs/ai-settings-and-privacy.md` | `ensure_backup_directory`, `prune_backups`, `isBackupDestinationMissing` |
-| 2026-09-02 | Evening close coach reuses a persisted `close` pulse on page open (Today-style), instead of calling the model every visit | `docs/ai-settings-and-privacy.md`, `docs/daily-routines.md` | `loadLatestClosePulseForDate`, `EveningClosurePage` |
-| 2026-09-02 | Backups write to a user-chosen folder (typically Google Drive for Desktop), keep the newest 30 snapshots per environment subdirectory, and no longer create Application Support backup dirs | `docs/storage-and-backups.md`, `docs/desktop-builds.md`, `docs/ai-settings-and-privacy.md`, `docs/architecture.md` | `backupDestinationDir`, `src/lib/backup.ts`, `src-tauri/src/backup.rs`, `SettingsPage` |
-| 2026-09-02 | User-facing copy lives in `src/locales/fr/*.json` via react-i18next (French-only, accented); screens use `useTranslation`, engines use `t()` | `docs/architecture.md`, `docs/conventions.md` | `src/i18n/index.ts`, `src/locales/fr/`, pages/components, fallbacks, insights |
-| 2026-09-02 | Daily journal saves serialize through `useDailyEntry`; Pomodoro manual refresh shows loading and failure; inactive assigned projects are labeled in selectors | `docs/daily-routines.md`, `docs/conventions.md`, `docs/recurrences-and-pomodoro.md`, `docs/gtd.md` | `useDailyEntry`, `usePomodoroController`, `projectAssignmentLabel` |
-| 2026-09-01 | Pomodoro page can refresh eligible tasks; task/recurrence assignment selectors suggest active projects only; Today dashboard edits morning intention and night reflection as matching textareas | `docs/recurrences-and-pomodoro.md`, `docs/gtd.md`, `docs/daily-routines.md` | `PomodoroPage`, `projectsForAssignment`, `TodayPage` |
-| 2026-08-31 | Custom single-connection sqlx pool (`db_connect`/`db_execute`/`db_select`) replaces `tauri-plugin-sql`; WAL + busy_timeout; reapers disabled so JS `BEGIN`/`COMMIT` stay on one connection | `docs/storage-and-backups.md`, `docs/architecture.md`, `docs/desktop-builds.md` | `src-tauri/src/db.rs`, `TauriSqliteRepository` |
-| 2026-08-31 | Morning anchors list trimmed to six principles in ritual order | `docs/daily-routines.md` | `morningPrincipleKeys`, `PrincipleChecklist` |
-| 2026-08-31 | Weekly/monthly ritual notes survive leaving the page: textarea flush on unmount, serialized latest-wins review saves | `docs/reviews-and-goals.md`, `docs/conventions.md` | `PersistedTextarea`, `WeeklyReviewPage`, `MonthlyReviewPage` |
-| 2026-08-31 | Phase 6 PR #60 review: analytics error state, cost rate without refetch, `AiUsageTotals` vs UI cost estimate, newest-under-cap messages, 30-day dismissal table, analytics CSS | `docs/ai-settings-and-privacy.md` | `AiCoachAnalyticsSection`, `AiCostDashboardSection`, `SettingsPage`, `listAiMessagesSince`, `computeAiUsageForMonth` |
-| 2026-08-30 | Phase 5 PR #59 second-pass: atomic monthly section-draft accept, month-scoped synthesis, aligned goal-pacing risk tolerance | `docs/ai-settings-and-privacy.md`, `docs/reviews-and-goals.md`, `docs/storage-and-backups.md` | `acceptAiMonthlyReviewSectionDraftProposal`, `MonthlyReviewPage`, `ANNUAL_GOAL_PACE_TOLERANCE`, `goal-pacing-fallback` |
-| 2026-08-30 | Phase 5 PR #59 review: S3/S4 schema prompts, monthly/goal-pacing cache parity with weekly, annual year/month gating, unknown goal dismiss, score 0–100 validation | `docs/ai-settings-and-privacy.md`, `docs/reviews-and-goals.md` | `OpenRouterProvider`, `MonthlySynthesisService`, `GoalPacingService`, `AnnualGoalsPage`, `MonthlyReviewPage` |
-| 2026-08-30 | Weekly Settings preview passes Goals+pulse via `weeklyRescueTime` (fixes null Goals on injected path) | `docs/ai-settings-and-privacy.md` | `SettingsPage.tsx`, `preview.ts` |
-| 2026-08-30 | Phase 4 PR #58 review: atomic weekly synthesis persist/accept, standing objectives UI, week-scoped synthesis, migration 25 index, S2 schema prompt, preview Goals parity, fallback retry policy | `docs/reviews-and-goals.md`, `docs/ai-settings-and-privacy.md`, `docs/storage-and-backups.md` | Migration 25, `WeeklyReviewPage`, `WeeklySynthesisService`, `acceptAi*Proposal`, `listDailyEntriesOnOrBefore` |
-| 2026-08-30 | Phase 3 PR review fixes: atomic memory accept, weekly distill rebuild, close-cache commitment finalization, stable pattern confirmation refresh | `docs/ai-settings-and-privacy.md` | `acceptAiMemoryProposal`, `weekly-distillation.ts`, `CoachPulseService`, `lifecycle.ts` |
-| 2026-08-30 | Phase 2 pulse review fixes: completed tasks count as progress, idle/unknown skip RescueTime fetch, missed slots break stall notification chain, pulse slot hours require exactly three unique local hours | `docs/ai-settings-and-privacy.md` | `src/lib/ai/pulse/pulse-engine.ts`, `slot-hours.ts`, `SettingsPage.tsx` |
-| 2026-08-30 | Phase 1 PR review fixes: Today auto-loads AI, accept auto-saves journal fields, append-only `ai_messages` (migration 23), coach schema in prompts, ephemeral local proposals suppressed, RescueTime skipped for fast local brief | `docs/ai-settings-and-privacy.md`, `docs/storage-and-backups.md` | Migration 23, `CoachPulseService`, `CoachPulsePanel`, `TodayPage`, `EveningClosurePage` |
-| 2026-08-29 | Shipped AI Integration v2 Phase 6 (final): monthly AI cost dashboard, proposal-acceptance analytics in Settings, prompt version registry, repository usage/analytics methods | `docs/ai-settings-and-privacy.md` | `src/lib/ai/analytics/`, `src/lib/ai/prompts/registry.ts`, `AiCostDashboardSection`, `AiCoachAnalyticsSection`, `computeAiUsageForMonth` |
-| 2026-08-29 | Phase 4 fix: persist local weekly synthesis on auto trigger; gtd_action schedules today; Settings weekly payload preview | `docs/ai-settings-and-privacy.md` | `WeeklySynthesisService`, `apply-proposal.ts`, `SettingsPage.tsx` |
-| 2026-08-29 | Shipped AI Integration v2 Phase 5: S3 `monthly_synthesis` on `/mois`, S4 `goal_pacing` on `/objectifs-annuels`, monthly/annual snapshots, goal_evaluation accept-step | `docs/reviews-and-goals.md`, `docs/ai-settings-and-privacy.md` | `src/lib/ai/context/monthly-snapshot.ts`, `MonthlySynthesisService`, `GoalPacingService`, `MonthlyReviewPage`, `AnnualGoalsPage` |
-| 2026-08-29 | Shipped AI Integration v2 Phase 4: S2 `weekly_synthesis` on `/semaine`, weekly snapshot builder, accept-step for section drafts/objectives/GTD actions | `docs/reviews-and-goals.md`, `docs/ai-settings-and-privacy.md` | `src/lib/ai/context/weekly-snapshot.ts`, `WeeklySynthesisService`, `WeeklyReviewPage` |
-| 2026-08-29 | Shipped AI Integration v2 Phase 3: `ai_memories` migration 24, retrieval/lifecycle engine, commitment loop, distillation proposals, Settings profile CRUD | `docs/ai-settings-and-privacy.md`, `docs/storage-and-backups.md` | Migration 24, `src/lib/ai/memory/`, `AiMemoryProfileSection`, `CoachPulseService` |
-| 2026-08-29 | Shipped AI Integration v2 Phase 2: catch-up pulse engine (`open`/`steer`/`wind_down`), delta gate, weekday stall notifications, pulse settings, and Today panel thread | `docs/ai-settings-and-privacy.md` | `src/lib/ai/pulse/`, `app-context.tsx`, `TodayPage.tsx`, `SettingsPage.tsx` |
-| 2026-08-29 | Shipped AI Integration v2 Phase 1: structured `coach_pulse` (`open`/`close`), provider hardening, `ai_messages`/`ai_proposals` persistence, explicit coach trigger, and accept-step prefills | `docs/ai-settings-and-privacy.md`, `docs/storage-and-backups.md` | Migrations 21–22, `CoachPulseService`, `OpenRouterProvider`, `TodayPage`, `EveningClosurePage` |
-| 2026-08-29 | Documented the Settings `aiPayloadScope` control (default `full`) and the debug-gated AI payload preview panel, including the shared RescueTime pulse fetch reused across its three scoped previews | `docs/ai-settings-and-privacy.md` | `src/domain/types.ts` (`AiPayloadScope`), `src/pages/SettingsPage.tsx`, `src/lib/ai/context/preview.ts` (`resolveProductivityPulse`) |
-| 2026-08-29 | Added a "Finaliser hier" card on `/routine-matin` that shows only yesterday's still-missing manual metrics, unanswered principles, and empty night reflection, saved via one button and hidden by `AppSettings.previousDayReviewDoneDate` | `docs/daily-routines.md` | `src/domain/daily-entry.ts` (`findMissingMetricKeys`, `findUnansweredPrincipleKeys`), `src/components/PreviousDayReviewCard.tsx`, `src/pages/MorningRoutinePage.tsx` |
-| 2026-08-13 | Added `npm run mac-install` to copy the release `Trackdidia.app` into `/Applications` | `docs/desktop-builds.md` | `scripts/mac-install.sh`, `package.json` |
-| 2026-08-12 | Weekly score: seven local axes (calories at 3800 kcal/day), optional RescueTime Goals + productivity pulse overlay on `/semaine` | `docs/reviews-and-goals.md`, `docs/ai-settings-and-privacy.md` | `src/domain/weekly-review.ts`, `src/lib/rescuetime/rescuetime-goals-service.ts`, weekly review page |
-| 2026-08-12 | Retry Pomodoro history/summary snapshots after a transient list-read failure so the page cannot stay on pre-action history after the active session already updated | `docs/recurrences-and-pomodoro.md` | `src/app/use-pomodoro-controller.ts`, Pomodoro controller tests |
-| 2026-08-11 | Documented RescueTime dual transport (Tauri native HTTP vs browser fetch fallback) | `docs/ai-settings-and-privacy.md` | `fetchRescueTimeJson`, `rescuetime_http_get` |
-| 2026-08-11 | Clarified RescueTime API key is app settings only at runtime; Settings test uses Goals API; weekly review reloads on key change | `docs/ai-settings-and-privacy.md`, `docs/reviews-and-goals.md` | Settings page, `RescueTimeGoalsService.testConnection`, weekly review effect |
-| 2026-08-11 | Added standing weekly objectives with RescueTime time scoring, migration 20, settings key, and `/semaine` UI | `docs/reviews-and-goals.md`, `docs/ai-settings-and-privacy.md`, `docs/storage-and-backups.md` | Migration 20, `src/domain/weekly-objectives.ts`, `src/lib/rescuetime/*`, weekly review page |
-| 2026-07-30 | Hardened Pomodoro expiry against malformed deadlines, action/deadline races, and transient post-expiry refresh failures | `docs/recurrences-and-pomodoro.md` | `src/lib/pomodoro/engine.ts`, `src/app/use-pomodoro-controller.ts`, Pomodoro tests |
-| 2026-07-30 | Reworked Pomodoro timing so display ticks are local to timer views while controller expiry uses serialized deadline scheduling, recovery-safe invalid timing, and deduplicated verified completion notices | `docs/recurrences-and-pomodoro.md` | `src/app/use-pomodoro-controller.ts`, `src/app/use-pomodoro-timing.ts`, Pomodoro tests |
-| 2026-07-29 | Bootstrapped the full agent-maintained documentation system: architecture, persistence, daily routines, reviews/goals, GTD, recurrences/Pomodoro, AI/privacy, conventions, and desktop builds | `AGENTS.md`, `docs/*.md` | Current source tree, tests, Tauri configuration, comparison with the Bâtisseurs documentation structure |
+## Domain logs
+
+| Domain log | Canonical page |
+|---|---|
+| [logs/architecture.md](logs/architecture.md) | [architecture.md](architecture.md) |
+| [logs/storage-and-backups.md](logs/storage-and-backups.md) | [storage-and-backups.md](storage-and-backups.md) |
+| [logs/daily-routines.md](logs/daily-routines.md) | [daily-routines.md](daily-routines.md) |
+| [logs/reviews-and-goals.md](logs/reviews-and-goals.md) | [reviews-and-goals.md](reviews-and-goals.md) |
+| [logs/gtd.md](logs/gtd.md) | [gtd.md](gtd.md) |
+| [logs/recurrences-and-pomodoro.md](logs/recurrences-and-pomodoro.md) | [recurrences-and-pomodoro.md](recurrences-and-pomodoro.md) |
+| [logs/ai-settings-and-privacy.md](logs/ai-settings-and-privacy.md) | [ai-settings-and-privacy.md](ai-settings-and-privacy.md) |
+| [logs/conventions.md](logs/conventions.md) | [conventions.md](conventions.md) |
+| [logs/desktop-builds.md](logs/desktop-builds.md) | [desktop-builds.md](desktop-builds.md) |
+
+Path rule: `docs/<page>.md` → `docs/logs/<page>.md`. Documentation-process
+changes (`AGENTS.md`, this index, conventions workflow) land in
+[logs/conventions.md](logs/conventions.md).
+
+## Write rules
+
+1. Update the canonical page whose shipped behavior changed.
+2. Prepend a row to **only** that page’s file under `docs/logs/`.
+3. If two product domains both changed materially, prepend the same row to
+   **both** product logs.
+4. Do **not** also edit this index unless you are adding a new domain log here.
+5. Do **not** log incidental mentions of `architecture.md` / `conventions.md`
+   when those pages were not the subject of the change.
 
 ## Entry template
 

@@ -3,8 +3,9 @@
 ## Documentation (read this first)
 
 TrackDidia's canonical, agent-maintained documentation lives in [`docs/`](docs/).
-Start at [`docs/index.md`](docs/index.md) for the complete catalog and use
-[`docs/log.md`](docs/log.md) as the chronological record of documentation changes.
+Start at [`docs/index.md`](docs/index.md) for the complete catalog. Chronological
+records live in domain logs under [`docs/logs/`](docs/logs/);
+[`docs/log.md`](docs/log.md) is only the index of those logs.
 
 The application is a local-first personal operating system. It combines daily
 routines and life metrics, Sunday-to-Saturday reviews, monthly and annual goals,
@@ -33,8 +34,10 @@ Treat `docs/` as persistent memory for agents and humans.
 - Add a new page only when a subsystem no longer fits cleanly in an existing page.
 - Keep one canonical home per fact and link to it elsewhere instead of duplicating it.
 - Add new pages to both [`docs/index.md`](docs/index.md) and the table above.
-- Append a concise entry to [`docs/log.md`](docs/log.md) for material documentation
-  changes.
+- For a material documentation change, prepend a concise entry to the matching
+  domain log under [`docs/logs/`](docs/logs/) (`docs/<page>.md` →
+  `docs/logs/<page>.md`). Do not edit [`docs/log.md`](docs/log.md) unless you are
+  adding a new domain log to that index.
 - Verify relative Markdown links before reporting work complete.
 - Describe shipped behavior only. Keep future ideas in [`PRD.md`](PRD.md), clearly
   labeled as roadmap rather than current behavior.

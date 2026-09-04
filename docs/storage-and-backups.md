@@ -1,5 +1,7 @@
 # Storage and Backups
 
+See also: [changelog](logs/storage-and-backups.md).
+
 TrackDidia is local-first. The desktop application stores all durable product data
 in one SQLite database. Browser preview and startup fallback use an in-memory
 repository and do not survive reloads.

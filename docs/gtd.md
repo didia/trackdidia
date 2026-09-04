@@ -1,5 +1,7 @@
 # GTD Workspace
 
+See also: [changelog](logs/gtd.md).
+
 TrackDidia implements a local GTD workspace around one task model, separate context
 and project records, and an event ledger used for daily statistics.
 

@@ -1,5 +1,7 @@
 # Desktop Development and Builds
 
+See also: [changelog](logs/desktop-builds.md).
+
 TrackDidia has two useful development modes:
 
 - Vite/browser preview for fast UI work;
