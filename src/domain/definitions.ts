@@ -76,4 +76,6 @@ export const morningPrincipleKeys: PrincipleKey[] = [
   "apprentissage"
 ];
 
+export const morningMetricKeys: MetricKey[] = ["qualiteSommeil", "pushups"];
+
 export const eveningPrincipleKeys = principleDefinitions.map((definition) => definition.key);

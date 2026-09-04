@@ -14,7 +14,12 @@ interface MetricGridProps {
 
 export const MetricGrid = ({ entry, keys, suggestedValues, suggestionKeys = [], onChange }: MetricGridProps) => {
   const { t } = useTranslation("metrics");
-  const definitions = metricDefinitions.filter((definition) => !keys || keys.includes(definition.key));
+  const definitions = keys
+    ? keys.flatMap((key) => {
+        const definition = metricDefinitions.find((item) => item.key === key);
+        return definition ? [definition] : [];
+      })
+    : metricDefinitions;
   const suggestionSet = new Set(suggestionKeys);
 
   return (

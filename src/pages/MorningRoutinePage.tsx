@@ -9,7 +9,7 @@ import {
   updateNote,
   updatePrinciple
 } from "../domain/daily-entry";
-import { morningPrincipleKeys } from "../domain/definitions";
+import { morningMetricKeys, morningPrincipleKeys } from "../domain/definitions";
 import { useDailyEntry } from "../app/use-daily-entry";
 import { EntrySummaryStrip } from "../components/EntrySummaryStrip";
 import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
@@ -61,6 +61,14 @@ export const MorningRoutinePage = () => {
             placeholder={t("intention.placeholder")}
           />
         </label>
+      </SectionCard>
+
+      <SectionCard title={t("metrics.title")} subtitle={t("metrics.subtitle")}>
+        <MetricGrid
+          entry={entry}
+          keys={[...morningMetricKeys]}
+          onChange={(key, value) => void save((current) => updateMetric(current, key, value))}
+        />
       </SectionCard>
 
       <SectionCard title={t("principles.title")} subtitle={t("principles.subtitle")}>

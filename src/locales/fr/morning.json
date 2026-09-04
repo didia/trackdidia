@@ -10,6 +10,10 @@
     "label": "Intention",
     "placeholder": "Quelle posture veux-tu garder aujourd'hui ?"
   },
+  "metrics": {
+    "title": "Chiffres du matin",
+    "subtitle": "Le sommeil est connu au réveil ; les pushups du matin se confirment à la fermeture."
+  },
   "principles": {
     "title": "Ancrages du matin",
     "subtitle": "Quelques signaux forts pour bien démarrer."
