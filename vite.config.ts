@@ -15,5 +15,9 @@ export default defineConfig({
     globals: true,
     css: true,
     exclude: [...configDefaults.exclude, "**/.claude/**"],
+    // Local-first calendar semantics; keep CI and laptops on the same wall clock.
+    env: {
+      TZ: "America/Toronto",
+    },
   },
 });

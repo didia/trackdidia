@@ -18,9 +18,15 @@ vi.mock("../../pomodoro/sound", () => ({
 
 const weekday = "2026-08-28"; // Friday
 
+/** Local (non-Z) wall times so interval clamping stays stable across runner timezones. */
+const briefAppOpenInterval = {
+  startedAt: `${weekday}T15:50:00.000`,
+  endedAt: `${weekday}T16:00:00.000`,
+};
+
 const longAppOpenInterval = {
-  startedAt: `${weekday}T08:00:00.000Z`,
-  endedAt: `${weekday}T21:00:00.000Z`,
+  startedAt: `${weekday}T08:00:00.000`,
+  endedAt: `${weekday}T21:00:00.000`,
 };
 
 describe("pulse-engine integration", () => {
@@ -46,12 +52,7 @@ describe("pulse-engine integration", () => {
       settings,
       saveSettings: async () => undefined,
       nowIso: `${weekday}T16:00:00`,
-      appOpenIntervals: [
-        {
-          startedAt: `${weekday}T16:00:00.000Z`,
-          endedAt: `${weekday}T16:10:00.000Z`,
-        },
-      ],
+      appOpenIntervals: [briefAppOpenInterval],
       focusSessionActive: false,
     });
 
@@ -89,12 +90,7 @@ describe("pulse-engine integration", () => {
       settings,
       saveSettings: async () => undefined,
       nowIso: `${weekday}T16:00:00`,
-      appOpenIntervals: [
-        {
-          startedAt: `${weekday}T16:00:00.000Z`,
-          endedAt: `${weekday}T16:10:00.000Z`,
-        },
-      ],
+      appOpenIntervals: [briefAppOpenInterval],
       focusSessionActive: false,
     });
 
@@ -122,7 +118,7 @@ describe("pulse-engine integration", () => {
       title: "Terminer le rapport",
       bucket: "next_action",
     });
-    await repository.completeTask(task.id, `${weekday}T15:30:00.000Z`);
+    await repository.completeTask(task.id, `${weekday}T15:30:00.000`);
 
     const settings = defaultAppSettings();
     settings.aiEnabled = true;
@@ -133,7 +129,7 @@ describe("pulse-engine integration", () => {
       coachService,
       settings: {
         ...settings,
-        aiPulseFirstOpenAt: { [weekday]: `${weekday}T08:00:00.000Z` },
+        aiPulseFirstOpenAt: { [weekday]: `${weekday}T08:00:00.000` },
       },
       saveSettings: async () => undefined,
       nowIso: `${weekday}T16:00:00`,
@@ -172,14 +168,14 @@ describe("pulse-engine integration", () => {
       coachService,
       settings: {
         ...settings,
-        aiPulseFirstOpenAt: { [weekday]: `${weekday}T16:00:00.000Z` },
+        aiPulseFirstOpenAt: { [weekday]: `${weekday}T16:00:00.000` },
       },
       saveSettings: async () => undefined,
       nowIso: `${weekday}T16:00:00`,
       appOpenIntervals: [
         {
-          startedAt: `${weekday}T08:00:00.000Z`,
-          endedAt: `${weekday}T16:00:00.000Z`,
+          startedAt: `${weekday}T08:00:00.000`,
+          endedAt: `${weekday}T16:00:00.000`,
         },
       ],
       focusSessionActive: false,
@@ -223,7 +219,7 @@ describe("pulse-engine integration", () => {
       tokensPrompt: null,
       tokensCompletion: null,
       latencyMs: null,
-      createdAt: `${weekday}T08:30:00.000Z`,
+      createdAt: `${weekday}T08:30:00.000`,
     };
     await repository.saveAiMessage(openStall);
 
@@ -237,7 +233,7 @@ describe("pulse-engine integration", () => {
       coachService,
       settings: {
         ...settings,
-        aiPulseFirstOpenAt: { [weekday]: `${weekday}T08:00:00.000Z` },
+        aiPulseFirstOpenAt: { [weekday]: `${weekday}T08:00:00.000` },
       },
       saveSettings: async () => undefined,
       nowIso: `${weekday}T21:00:00`,
