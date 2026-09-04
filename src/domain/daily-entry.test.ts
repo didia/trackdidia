@@ -13,7 +13,7 @@ import {
   findUnansweredPrincipleKeys,
   updateMetric,
   updateNote,
-  updatePrinciple
+  updatePrinciple,
 } from "./daily-entry";
 import { principleDefinitions } from "./definitions";
 
@@ -43,7 +43,7 @@ describe("daily entry domain", () => {
       tasksAtStart: 3,
       tasksAdded: 8,
       tasksCompleted: 2,
-      tasksRemaining: 9
+      tasksRemaining: 9,
     });
 
     // Week Sun 2026-03-29 .. Sat 2026-04-04; Tue 03-31 => 5 days left inclusive
@@ -78,7 +78,7 @@ describe("daily entry domain", () => {
       tasksAtStart: 3,
       tasksAdded: 2,
       tasksCompleted: 1,
-      tasksRemaining: 4
+      tasksRemaining: 4,
     });
 
     expect(entry.metrics.tachesAjoutes).toBe(7);
@@ -91,7 +91,7 @@ describe("daily entry domain", () => {
     entry = updateMetric(entry, "pomodoris", 6);
     entry = applyDailyPomodoroStats(entry, {
       date: "2026-03-31",
-      completedFocusSessions: 4
+      completedFocusSessions: 4,
     });
 
     expect(entry.metrics.pomodoris).toBe(6);
@@ -106,11 +106,11 @@ describe("daily entry domain", () => {
       tasksAtStart: 3,
       tasksAdded: 2,
       tasksCompleted: 1,
-      tasksRemaining: 4
+      tasksRemaining: 4,
     });
     entry = applyDailyPomodoroStats(entry, {
       date: "2026-03-31",
-      completedFocusSessions: 4
+      completedFocusSessions: 4,
     });
 
     const missing = findMissingMetricKeys(entry);

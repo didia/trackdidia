@@ -59,7 +59,7 @@ describe("DbSerialQueue", () => {
     const results = await Promise.all([
       runFakeTransaction("a"),
       runFakeTransaction("b"),
-      runFakeTransaction("c")
+      runFakeTransaction("c"),
     ]);
 
     expect(results).toEqual(["a", "b", "c"]);

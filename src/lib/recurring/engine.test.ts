@@ -1,5 +1,9 @@
-import { buildRecurringPreviewOccurrences, createRecurringTemplate, listDueDatesBetween } from "./engine";
 import type { Task } from "../../domain/types";
+import {
+  buildRecurringPreviewOccurrences,
+  createRecurringTemplate,
+  listDueDatesBetween,
+} from "./engine";
 
 describe("recurring engine", () => {
   it("generates weekly due dates on the selected weekdays", () => {
@@ -8,14 +12,14 @@ describe("recurring engine", () => {
       startDate: "2026-04-01",
       ruleType: "weekly",
       weeklyInterval: 1,
-      weeklyDays: [0, 3]
+      weeklyDays: [0, 3],
     });
 
     expect(listDueDatesBetween(template, "2026-04-01", "2026-04-12")).toEqual([
       "2026-04-01",
       "2026-04-05",
       "2026-04-08",
-      "2026-04-12"
+      "2026-04-12",
     ]);
   });
 
@@ -26,13 +30,13 @@ describe("recurring engine", () => {
       ruleType: "monthly",
       monthlyMode: "nth_weekday",
       nthWeek: 1,
-      weekday: 6
+      weekday: 6,
     });
 
     expect(listDueDatesBetween(template, "2026-04-01", "2026-06-30")).toEqual([
       "2026-04-04",
       "2026-05-02",
-      "2026-06-06"
+      "2026-06-06",
     ]);
   });
 
@@ -43,7 +47,7 @@ describe("recurring engine", () => {
       startDate: "2026-04-01",
       ruleType: "daily",
       dailyInterval: 1,
-      targetBucket: "next_action"
+      targetBucket: "next_action",
     });
 
     const tasks: Task[] = [
@@ -67,11 +71,16 @@ describe("recurring engine", () => {
         source: "manual",
         sourceExternalId: null,
         createdAt: "2026-04-01T00:00:00.000Z",
-        updatedAt: "2026-04-01T00:00:00.000Z"
-      }
+        updatedAt: "2026-04-01T00:00:00.000Z",
+      },
     ];
 
-    const previews = buildRecurringPreviewOccurrences([template], tasks, "2026-04-01", "2026-04-03");
+    const previews = buildRecurringPreviewOccurrences(
+      [template],
+      tasks,
+      "2026-04-01",
+      "2026-04-03",
+    );
 
     expect(previews.map((preview) => preview.dueDate)).toEqual(["2026-04-02", "2026-04-03"]);
   });

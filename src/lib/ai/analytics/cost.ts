@@ -8,10 +8,10 @@ export const estimateTokenCostUsd = (tokensTotal: number, costPerMillionTokens: 
 
 export const applyCostEstimate = (
   summary: AiUsageTotals,
-  costPerMillionTokens: number
+  costPerMillionTokens: number,
 ): AiUsageSummary => ({
   ...summary,
-  estimatedCostUsd: estimateTokenCostUsd(summary.tokensTotal, costPerMillionTokens)
+  estimatedCostUsd: estimateTokenCostUsd(summary.tokensTotal, costPerMillionTokens),
 });
 
 export const buildAiUsageSummary = (
@@ -19,7 +19,7 @@ export const buildAiUsageSummary = (
   callCount: number,
   tokensPrompt: number,
   tokensCompletion: number,
-  costPerMillionTokens: number
+  costPerMillionTokens: number,
 ): AiUsageSummary => {
   const tokensTotal = tokensPrompt + tokensCompletion;
   return {
@@ -28,6 +28,6 @@ export const buildAiUsageSummary = (
     tokensPrompt,
     tokensCompletion,
     tokensTotal,
-    estimatedCostUsd: estimateTokenCostUsd(tokensTotal, costPerMillionTokens)
+    estimatedCostUsd: estimateTokenCostUsd(tokensTotal, costPerMillionTokens),
   };
 };

@@ -5,7 +5,7 @@ import {
   getCoachInputText,
   getLocalTimeZone,
   resolveCoachCachePartOfDay,
-  resolvePartOfDay
+  resolvePartOfDay,
 } from "./coach-input";
 import type { AiProvider } from "./provider";
 
@@ -56,7 +56,7 @@ export class AiCoachService {
     kind: CoachMessage["kind"],
     entry: DailyEntry,
     recentEntries: DailyEntry[],
-    settings: AppSettings
+    settings: AppSettings,
   ): Promise<CoachMessage> {
     const title = kind === "morning" ? "Coach du matin" : "Coach du soir";
     const partOfDay = resolveCoachCachePartOfDay(kind);
@@ -70,7 +70,7 @@ export class AiCoachService {
       kind,
       title,
       body: localBody,
-      source: "local"
+      source: "local",
     });
 
     const cacheKey = buildCoachCacheKey(entry.date, partOfDay, inputContent);
@@ -91,14 +91,14 @@ export class AiCoachService {
         timeZone: getLocalTimeZone(),
         partOfDay,
         currentPartOfDay: resolvePartOfDay(),
-        inputContent
+        inputContent,
       });
 
       const message: CoachMessage = {
         kind,
         title,
         body,
-        source: "ai"
+        source: "ai",
       };
       this.cache.set(cacheKey, message);
       return message;
@@ -108,7 +108,7 @@ export class AiCoachService {
         title,
         body: localBody,
         source: "fallback",
-        warning: error instanceof Error ? error.message : "L'IA n'a pas pu repondre."
+        warning: error instanceof Error ? error.message : "L'IA n'a pas pu repondre.",
       };
     }
   }

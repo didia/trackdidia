@@ -7,7 +7,7 @@ describe("productivitySecondsForGoal", () => {
     { productivity: 1, seconds: 1800 },
     { productivity: 0, seconds: 900 },
     { productivity: -1, seconds: 600 },
-    { productivity: -2, seconds: 300 }
+    { productivity: -2, seconds: 300 },
   ];
 
   it("sums all distracting time for aggregate id 7", () => {
@@ -18,8 +18,8 @@ describe("productivitySecondsForGoal", () => {
         amount_seconds: 3600,
         is_more: false,
         taxon_id: 7,
-        productivity: { id: 7, sql_score_equals: "< 0" }
-      })
+        productivity: { id: 7, sql_score_equals: "< 0" },
+      }),
     ).toBe(900);
   });
 
@@ -31,8 +31,8 @@ describe("productivitySecondsForGoal", () => {
         amount_seconds: 3600,
         is_more: false,
         taxon_id: 10,
-        productivity: { id: 10, sql_score_equals: "BETWEEN -2 and 2" }
-      })
+        productivity: { id: 10, sql_score_equals: "BETWEEN -2 and 2" },
+      }),
     ).toBe(7200);
   });
 
@@ -44,8 +44,8 @@ describe("productivitySecondsForGoal", () => {
         amount_seconds: 3600,
         is_more: true,
         taxon_id: 2,
-        productivity: { id: 2, name: "very productive", display_name: "Focus Work" }
-      })
+        productivity: { id: 2, name: "very productive", display_name: "Focus Work" },
+      }),
     ).toBe(3600);
   });
 });
@@ -55,8 +55,8 @@ describe("computeProductivityPulse", () => {
     expect(
       computeProductivityPulse([
         { productivity: 2, seconds: 3600 },
-        { productivity: 0, seconds: 3600 }
-      ])
+        { productivity: 0, seconds: 3600 },
+      ]),
     ).toBe(75);
   });
 
@@ -70,8 +70,8 @@ describe("computeProductivityPulse", () => {
       computeProductivityPulse([
         { productivity: Number.NaN, seconds: 3600 },
         { productivity: 2, seconds: Number.POSITIVE_INFINITY },
-        { productivity: 1, seconds: 1800 }
-      ])
+        { productivity: 1, seconds: 1800 },
+      ]),
     ).toBe(75);
   });
 

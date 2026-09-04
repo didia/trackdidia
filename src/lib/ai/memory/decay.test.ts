@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { effectiveConfidence, isBelowRetrievalThreshold } from "./decay";
 import type { AiMemory } from "../../../domain/types";
+import { effectiveConfidence, isBelowRetrievalThreshold } from "./decay";
 
 const buildMemory = (partial: Partial<AiMemory>): AiMemory => ({
   id: "ai-memory:test",
@@ -15,7 +15,7 @@ const buildMemory = (partial: Partial<AiMemory>): AiMemory => ({
   createdAt: "2026-01-01T00:00:00.000Z",
   lastConfirmedAt: partial.lastConfirmedAt ?? "2026-01-01T00:00:00.000Z",
   expiresAt: null,
-  pinned: partial.pinned ?? false
+  pinned: partial.pinned ?? false,
 });
 
 describe("memory decay", () => {
@@ -27,7 +27,11 @@ describe("memory decay", () => {
   });
 
   it("does not decay pinned memories", () => {
-    const memory = buildMemory({ pinned: true, confidence: 0.9, lastConfirmedAt: "2024-01-01T00:00:00.000Z" });
+    const memory = buildMemory({
+      pinned: true,
+      confidence: 0.9,
+      lastConfirmedAt: "2024-01-01T00:00:00.000Z",
+    });
     expect(effectiveConfidence(memory, "2026-08-29T00:00:00.000Z")).toBe(0.9);
   });
 

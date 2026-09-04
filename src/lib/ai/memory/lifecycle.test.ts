@@ -3,8 +3,8 @@ import { createEmptyDailyEntry, updatePrinciple } from "../../../domain/daily-en
 import { principleDefinitions } from "../../../domain/definitions";
 import type { AiMemory, DailyEntry } from "../../../domain/types";
 import { MemoryRepository } from "../../storage/memory-repository";
-import { runMemoryLifecycle } from "./lifecycle";
 import { stringifyPatternDetail } from "./detail";
+import { runMemoryLifecycle } from "./lifecycle";
 
 const buildOppositeCorrelationHistory = (): DailyEntry[] => {
   const entries: DailyEntry[] = [];
@@ -36,7 +36,7 @@ describe("memory lifecycle", () => {
       createdAt: "2026-08-01T00:00:00.000Z",
       lastConfirmedAt: "2026-08-01T00:00:00.000Z",
       expiresAt: "2026-08-20",
-      pinned: false
+      pinned: false,
     });
 
     await runMemoryLifecycle(repository, "2026-08-29", [], "2026-08-29T12:00:00.000Z");
@@ -61,7 +61,7 @@ describe("memory lifecycle", () => {
       createdAt: "2026-08-12T00:00:00.000Z",
       lastConfirmedAt: "2026-08-12T00:00:00.000Z",
       expiresAt: null,
-      pinned: false
+      pinned: false,
     };
 
     await repository.saveAiMemory(memory);
@@ -88,7 +88,7 @@ describe("memory lifecycle", () => {
       createdAt: "2026-02-01T00:00:00.000Z",
       lastConfirmedAt: "2026-02-01T00:00:00.000Z",
       expiresAt: null,
-      pinned: false
+      pinned: false,
     });
 
     await runMemoryLifecycle(repository, "2026-08-29", history, "2026-08-29T12:00:00.000Z");

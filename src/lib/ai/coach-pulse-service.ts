@@ -8,19 +8,23 @@ import type {
   CoachPulseResponse,
   CoachPulseResult,
   CoachPulseStance,
-  DailyEntry
+  DailyEntry,
 } from "../../domain/types";
 import { createEntityId, nowIso } from "../gtd/shared";
 import type { AppRepository } from "../storage/repository";
 import { buildDailySnapshot, type DailySnapshotInputs } from "./context/daily-snapshot";
 import { buildAiInputHash } from "./input-hash";
+import {
+  buildCloseMemoryIds,
+  findDueCommitment,
+  resolveCommitment,
+} from "./memory/commitment-resolution";
+import { resolveDueCommitmentsOnClose, runMemoryLifecycle } from "./memory/lifecycle";
+import { retrieveMemories } from "./memory/retrieval";
 import { normalizeAiBaseUrl } from "./openrouter-provider";
 import { buildLocalCoachPulse } from "./proposals/coach-pulse-fallback";
 import { parseCoachPulseJson } from "./proposals/coach-pulse-validator";
 import type { AiProvider } from "./provider";
-import { findDueCommitment, buildCloseMemoryIds, resolveCommitment } from "./memory/commitment-resolution";
-import { runMemoryLifecycle, resolveDueCommitmentsOnClose } from "./memory/lifecycle";
-import { retrieveMemories } from "./memory/retrieval";
 
 export const COACH_PULSE_PROMPT_VERSION = "coach_pulse.v1";
 
@@ -59,7 +63,7 @@ const buildScopeKey = (date: string, stance: CoachPulseStance, slotHour?: number
 
 const buildConfigFingerprint = (settings: AppSettings): Record<string, string> => ({
   model: settings.aiSurfaceModels.coach_pulse?.trim() || settings.aiModel,
-  baseUrl: normalizeAiBaseUrl(settings.aiBaseUrl)
+  baseUrl: normalizeAiBaseUrl(settings.aiBaseUrl),
 });
 
 const pulseToBodyText = (pulse: CoachPulseResponse): string =>
@@ -69,7 +73,7 @@ const pulseToBodyText = (pulse: CoachPulseResponse): string =>
 
 const buildCommitmentResolution = (
   commitment: AiMemory | null,
-  entry: DailyEntry
+  entry: DailyEntry,
 ): CommitmentResolutionPayload | null => {
   if (!commitment) {
     return null;
@@ -79,11 +83,15 @@ const buildCommitmentResolution = (
   return {
     statement: resolution.statement,
     progressLabel: resolution.progressLabel,
-    met: resolution.met
+    met: resolution.met,
   };
 };
 
-const buildProposals = (messageId: string, pulse: CoachPulseResponse, createdAt: string): AiProposal[] => {
+const buildProposals = (
+  messageId: string,
+  pulse: CoachPulseResponse,
+  createdAt: string,
+): AiProposal[] => {
   const proposals: AiProposal[] = [];
 
   if (pulse.stance === "open" && pulse.intentionDraft?.trim()) {
@@ -95,7 +103,7 @@ const buildProposals = (messageId: string, pulse: CoachPulseResponse, createdAt:
       status: "pending",
       appliedEntityId: null,
       decidedAt: null,
-      createdAt
+      createdAt,
     });
   }
 
@@ -108,7 +116,7 @@ const buildProposals = (messageId: string, pulse: CoachPulseResponse, createdAt:
       status: "pending",
       appliedEntityId: null,
       decidedAt: null,
-      createdAt
+      createdAt,
     });
   }
 
@@ -120,12 +128,12 @@ const buildProposals = (messageId: string, pulse: CoachPulseResponse, createdAt:
       payloadJson: JSON.stringify({
         statement: pulse.commitment.statement.trim(),
         metricKey: pulse.commitment.metricKey,
-        target: pulse.commitment.target
+        target: pulse.commitment.target,
       }),
       status: "pending",
       appliedEntityId: null,
       decidedAt: null,
-      createdAt
+      createdAt,
     });
   }
 
@@ -139,12 +147,12 @@ const buildProposals = (messageId: string, pulse: CoachPulseResponse, createdAt:
           kind: candidate.kind,
           statement: candidate.statement,
           confidence: candidate.confidence,
-          source: "ai_extracted"
+          source: "ai_extracted",
         }),
         status: "pending",
         appliedEntityId: null,
         decidedAt: null,
-        createdAt
+        createdAt,
       });
     }
   }
@@ -165,7 +173,7 @@ const expectedProposalCount = (pulse: CoachPulseResponse): number => {
 
 const cachedResult = async (
   repository: AppRepository,
-  message: AiMessage
+  message: AiMessage,
 ): Promise<CoachPulseResult | null> => {
   if (!message.bodyJson) {
     return null;
@@ -183,7 +191,7 @@ const cachedResult = async (
       message,
       pulse,
       proposals,
-      source: "cache"
+      source: "cache",
     };
   } catch {
     return null;
@@ -193,7 +201,7 @@ const cachedResult = async (
 const persistResult = async (
   repository: AppRepository,
   message: AiMessage,
-  pulse: CoachPulseResponse
+  pulse: CoachPulseResponse,
 ): Promise<CoachPulseResult> => {
   const proposals = buildProposals(message.id, pulse, message.createdAt);
   const saved = await repository.saveCoachPulseEpisode(message, proposals);
@@ -202,7 +210,7 @@ const persistResult = async (
     message: saved.message,
     pulse,
     proposals: saved.proposals,
-    source: message.status === "ok" ? "ai" : message.status === "fallback" ? "fallback" : "local"
+    source: message.status === "ok" ? "ai" : message.status === "fallback" ? "fallback" : "local",
   };
 };
 
@@ -210,7 +218,7 @@ const finalizeClosePulse = async (
   repository: AppRepository,
   result: CoachPulseResult,
   entry: DailyEntry,
-  createdAt: string
+  createdAt: string,
 ): Promise<CoachPulseResult> => {
   await resolveDueCommitmentsOnClose(repository, entry.date, entry, createdAt);
   return result;
@@ -219,13 +227,16 @@ const finalizeClosePulse = async (
 export class CoachPulseService {
   constructor(private readonly provider: AiProvider) {}
 
-  async resultFromMessage(repository: AppRepository, message: AiMessage): Promise<CoachPulseResult | null> {
+  async resultFromMessage(
+    repository: AppRepository,
+    message: AiMessage,
+  ): Promise<CoachPulseResult | null> {
     return cachedResult(repository, message);
   }
 
   async buildPulse(
     repository: AppRepository,
-    request: CoachPulseRequest
+    request: CoachPulseRequest,
   ): Promise<CoachPulseResult> {
     const {
       stance,
@@ -236,7 +247,7 @@ export class CoachPulseService {
       trigger = "auto",
       localOnly = false,
       deltaClass = null,
-      slotHour
+      slotHour,
     } = request;
     const snapshot = buildDailySnapshot(snapshotInputs, settings.aiPayloadScope);
     const scopeKey = buildScopeKey(entry.date, stance, slotHour);
@@ -245,11 +256,11 @@ export class CoachPulseService {
     await runMemoryLifecycle(repository, entry.date, snapshotInputs.historyEntries, createdAt);
     const activeMemories = await repository.listAiMemories({
       status: "active",
-      activeOnDate: entry.date
+      activeOnDate: entry.date,
     });
     const { block: memoryBlock, selected } = retrieveMemories(activeMemories, settings, {
       stance,
-      nowIso: createdAt
+      nowIso: createdAt,
     });
     const dueCommitment = await findDueCommitment(repository, entry.date, stance, activeMemories);
     const commitmentResolution = buildCommitmentResolution(dueCommitment, entry);
@@ -257,7 +268,7 @@ export class CoachPulseService {
       stance === "close"
         ? buildCloseMemoryIds(
             selected.map((memory) => memory.id),
-            dueCommitment
+            dueCommitment,
           )
         : selected.map((memory) => memory.id).sort();
     const inputHash = buildAiInputHash({
@@ -267,7 +278,7 @@ export class CoachPulseService {
       snapshot,
       config: buildConfigFingerprint(settings),
       memoryIds,
-      commitmentResolution
+      commitmentResolution,
     });
 
     if (!bypassCache) {
@@ -286,8 +297,10 @@ export class CoachPulseService {
     const localPulse = buildLocalCoachPulse(stance, findings, deltaClass ?? undefined);
     const aiConfigured = settings.aiEnabled && settings.aiApiKey.trim().length > 0;
     const autoMayCallProvider =
-      trigger === "auto" && (deltaClass === null || deltaClass === "progress" || deltaClass === "stall");
-    const shouldCallProvider = !localOnly && aiConfigured && (trigger === "explicit" || autoMayCallProvider);
+      trigger === "auto" &&
+      (deltaClass === null || deltaClass === "progress" || deltaClass === "stall");
+    const shouldCallProvider =
+      !localOnly && aiConfigured && (trigger === "explicit" || autoMayCallProvider);
     const baseMessage = (): AiMessage => ({
       id: createEntityId("ai-message"),
       surface: "coach_pulse",
@@ -305,14 +318,14 @@ export class CoachPulseService {
       tokensPrompt: null,
       tokensCompletion: null,
       latencyMs: null,
-      createdAt
+      createdAt,
     });
 
     if (!shouldCallProvider) {
       const skippedMessage = {
         ...baseMessage(),
         status: "skipped" as const,
-        model: "local"
+        model: "local",
       };
 
       if (trigger === "explicit" || deltaClass !== null) {
@@ -326,7 +339,7 @@ export class CoachPulseService {
         message: skippedMessage,
         pulse: localPulse,
         proposals: [],
-        source: "local"
+        source: "local",
       };
     }
 
@@ -337,7 +350,7 @@ export class CoachPulseService {
         settings,
         snapshot,
         memoryBlock,
-        commitmentResolution
+        commitmentResolution,
       });
 
       let parsed = parseCoachPulseJson(first.text, stance);
@@ -353,14 +366,14 @@ export class CoachPulseService {
           snapshot,
           memoryBlock,
           commitmentResolution,
-          repairHint: parsed.error
+          repairHint: parsed.error,
         });
         parsed = parseCoachPulseJson(repair.text, stance);
         finalText = repair.text;
         usage = {
           tokensPrompt: usage.tokensPrompt + repair.usage.tokensPrompt,
           tokensCompletion: usage.tokensCompletion + repair.usage.tokensCompletion,
-          latencyMs: usage.latencyMs + repair.usage.latencyMs
+          latencyMs: usage.latencyMs + repair.usage.latencyMs,
         };
         model = repair.model;
       }
@@ -374,17 +387,18 @@ export class CoachPulseService {
           bodyText: pulseToBodyText(localPulse),
           tokensPrompt: usage.tokensPrompt,
           tokensCompletion: usage.tokensCompletion,
-          latencyMs: usage.latencyMs
+          latencyMs: usage.latencyMs,
         };
 
         const result = await persistResult(repository, message, localPulse);
-        const finalized = stance === "close"
-          ? await finalizeClosePulse(repository, result, entry, createdAt)
-          : result;
+        const finalized =
+          stance === "close"
+            ? await finalizeClosePulse(repository, result, entry, createdAt)
+            : result;
         return {
           ...finalized,
           source: "fallback",
-          warning: parsed.error
+          warning: parsed.error,
         };
       }
 
@@ -396,33 +410,35 @@ export class CoachPulseService {
         bodyText: pulseToBodyText(parsed.value),
         tokensPrompt: usage.tokensPrompt,
         tokensCompletion: usage.tokensCompletion,
-        latencyMs: usage.latencyMs
+        latencyMs: usage.latencyMs,
       };
 
       const result = await persistResult(repository, message, parsed.value);
-      const finalized = stance === "close"
-        ? await finalizeClosePulse(repository, result, entry, createdAt)
-        : result;
+      const finalized =
+        stance === "close"
+          ? await finalizeClosePulse(repository, result, entry, createdAt)
+          : result;
       return {
         ...finalized,
-        source: "ai"
+        source: "ai",
       };
     } catch (error) {
       const message: AiMessage = {
         ...baseMessage(),
         status: "fallback",
         bodyJson: JSON.stringify(localPulse),
-        bodyText: pulseToBodyText(localPulse)
+        bodyText: pulseToBodyText(localPulse),
       };
 
       const result = await persistResult(repository, message, localPulse);
-      const finalized = stance === "close"
-        ? await finalizeClosePulse(repository, result, entry, createdAt)
-        : result;
+      const finalized =
+        stance === "close"
+          ? await finalizeClosePulse(repository, result, entry, createdAt)
+          : result;
       return {
         ...finalized,
         source: "fallback",
-        warning: error instanceof Error ? error.message : "L'IA n'a pas pu repondre."
+        warning: error instanceof Error ? error.message : "L'IA n'a pas pu repondre.",
       };
     }
   }

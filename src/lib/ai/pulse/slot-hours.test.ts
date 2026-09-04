@@ -10,43 +10,43 @@ describe("slot-hours", () => {
   it("rejects duplicates", () => {
     expect(parsePulseSlotHours("5, 5, 20")).toEqual({
       ok: false,
-      error: "Les trois heures doivent être uniques."
+      error: "Les trois heures doivent être uniques.",
     });
   });
 
   it("rejects two values", () => {
     expect(parsePulseSlotHours("5, 13")).toEqual({
       ok: false,
-      error: "Entrez exactement trois heures locales (open, steer, wind_down)."
+      error: "Entrez exactement trois heures locales (open, steer, wind_down).",
     });
   });
 
   it("rejects four values", () => {
     expect(parsePulseSlotHours("5, 13, 20, 21")).toEqual({
       ok: false,
-      error: "Entrez exactement trois heures locales (open, steer, wind_down)."
+      error: "Entrez exactement trois heures locales (open, steer, wind_down).",
     });
   });
 
   it("rejects empty input", () => {
     expect(parsePulseSlotHours("")).toEqual({
       ok: false,
-      error: "Entrez exactement trois heures (0–23), séparées par des virgules."
+      error: "Entrez exactement trois heures (0–23), séparées par des virgules.",
     });
     expect(parsePulseSlotHours("   ")).toEqual({
       ok: false,
-      error: "Entrez exactement trois heures (0–23), séparées par des virgules."
+      error: "Entrez exactement trois heures (0–23), séparées par des virgules.",
     });
   });
 
   it("rejects out-of-range hours", () => {
     expect(parsePulseSlotHours("5, 13, 24")).toEqual({
       ok: false,
-      error: "Heure invalide : « 24 » (0–23 attendu)."
+      error: "Heure invalide : « 24 » (0–23 attendu).",
     });
     expect(parsePulseSlotHours("5, -1, 20")).toEqual({
       ok: false,
-      error: "Heure invalide : « -1 » (0–23 attendu)."
+      error: "Heure invalide : « -1 » (0–23 attendu).",
     });
   });
 

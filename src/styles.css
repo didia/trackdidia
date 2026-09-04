@@ -123,7 +123,10 @@ a {
   padding: 14px 16px;
   border-radius: 18px;
   color: var(--muted);
-  transition: transform 120ms ease, background 120ms ease, color 120ms ease;
+  transition:
+    transform 120ms ease,
+    background 120ms ease,
+    color 120ms ease;
 }
 
 .nav__link:hover,
@@ -189,7 +192,11 @@ a {
   color: var(--ink);
   border-radius: 999px;
   padding: 12px 18px;
-  transition: transform 120ms ease, background 120ms ease, filter 80ms ease, opacity 120ms ease;
+  transition:
+    transform 120ms ease,
+    background 120ms ease,
+    filter 80ms ease,
+    opacity 120ms ease;
 }
 
 .button:hover:not(:disabled):not(:active) {
@@ -386,7 +393,11 @@ a {
   width: 100%;
   text-align: left;
   cursor: pointer;
-  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease, filter 80ms ease;
+  transition:
+    transform 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease,
+    filter 80ms ease;
 }
 
 .status-card--interactive:hover:not(:disabled):not(:active) {
@@ -730,7 +741,10 @@ textarea {
   border-radius: 999px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.8);
-  transition: transform 80ms ease, background 120ms ease, filter 80ms ease;
+  transition:
+    transform 80ms ease,
+    background 120ms ease,
+    filter 80ms ease;
 }
 
 .toggle:active:not(:disabled) {
@@ -1032,7 +1046,10 @@ textarea {
   padding: 0;
   color: inherit;
   border-radius: 12px;
-  transition: background 80ms ease, opacity 80ms ease, filter 80ms ease;
+  transition:
+    background 80ms ease,
+    opacity 80ms ease,
+    filter 80ms ease;
 }
 
 .task-card__toggle:active:not(:disabled) {
@@ -1181,7 +1198,10 @@ textarea {
   color: var(--muted);
   border-radius: 999px;
   padding: 8px 12px;
-  transition: transform 80ms ease, background 120ms ease, filter 80ms ease;
+  transition:
+    transform 80ms ease,
+    background 120ms ease,
+    filter 80ms ease;
 }
 
 button.tag-chip:active:not(:disabled) {
@@ -1448,7 +1468,12 @@ button.tag-chip:active:not(:disabled) {
   .toggle,
   .tag-chip,
   .task-card__toggle {
-    transition: background 120ms ease, color 120ms ease, filter 80ms ease, opacity 120ms ease, border-color 120ms ease;
+    transition:
+      background 120ms ease,
+      color 120ms ease,
+      filter 80ms ease,
+      opacity 120ms ease,
+      border-color 120ms ease;
   }
 
   .button:hover,

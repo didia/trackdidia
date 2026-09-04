@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-04 | Boot sequence no longer imports or collapses against a bundled `Tasks.json` | `docs/architecture.md` | `app-context.tsx` |
 | 2026-09-02 | User-facing copy lives in `src/locales/fr/*.json` via react-i18next (French-only, accented); screens use `useTranslation`, engines use `t()` | `docs/architecture.md`, `docs/conventions.md` | `src/i18n/index.ts`, `src/locales/fr/`, pages/components, fallbacks, insights |
 
 ## Entry template

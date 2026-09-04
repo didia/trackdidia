@@ -15,23 +15,23 @@ export const PROMPT_REGISTRY: PromptRegistryEntry[] = [
   {
     surface: "coach_pulse",
     version: COACH_PULSE_PROMPT_VERSION,
-    description: t("analytics.prompt.coach_pulse", { ns: "settings" })
+    description: t("analytics.prompt.coach_pulse", { ns: "settings" }),
   },
   {
     surface: "weekly_synthesis",
     version: WEEKLY_SYNTHESIS_PROMPT_VERSION,
-    description: t("analytics.prompt.weekly_synthesis", { ns: "settings" })
+    description: t("analytics.prompt.weekly_synthesis", { ns: "settings" }),
   },
   {
     surface: "monthly_synthesis",
     version: MONTHLY_SYNTHESIS_PROMPT_VERSION,
-    description: t("analytics.prompt.monthly_synthesis", { ns: "settings" })
+    description: t("analytics.prompt.monthly_synthesis", { ns: "settings" }),
   },
   {
     surface: "goal_pacing",
     version: GOAL_PACING_PROMPT_VERSION,
-    description: t("analytics.prompt.goal_pacing", { ns: "settings" })
-  }
+    description: t("analytics.prompt.goal_pacing", { ns: "settings" }),
+  },
 ];
 
 export const promptVersionForSurface = (surface: AiSurface): string =>

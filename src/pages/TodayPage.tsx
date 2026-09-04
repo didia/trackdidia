@@ -1,28 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
-import type { AiProposal, CoachPulseResult, Task } from "../domain/types";
-import { resolveMetricValue, updateNote } from "../domain/daily-entry";
 import { useAppContext } from "../app/app-context";
 import { useDailyEntry } from "../app/use-daily-entry";
 import { CoachPulsePanel } from "../components/CoachPulsePanel";
-import { applyCoachProposal } from "../lib/ai/proposals/apply-proposal";
 import { EntrySummaryStrip } from "../components/EntrySummaryStrip";
 import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
 import { SectionCard } from "../components/SectionCard";
-import { resolveDailySnapshotInputs } from "../lib/ai/context/preview";
+import { resolveMetricValue, updateNote } from "../domain/daily-entry";
+import { isFirstSaturdayOfMonth } from "../domain/monthly-review";
+import type { AiProposal, CoachPulseResult, Task } from "../domain/types";
 import { loadLatestCoachPulseForDate } from "../lib/ai/coach-pulse-loader";
+import { resolveDailySnapshotInputs } from "../lib/ai/context/preview";
+import { applyCoachProposal } from "../lib/ai/proposals/apply-proposal";
 import { formatDateLong, formatDateTimeShort, getTodayDate } from "../lib/date";
 import { formatTimestamp } from "../lib/format";
-import type { DailyTaskBreakdown } from "../lib/storage/repository";
 import { isSunday } from "../lib/gtd/shared";
-import { isFirstSaturdayOfMonth } from "../domain/monthly-review";
+import type { DailyTaskBreakdown } from "../lib/storage/repository";
 
 export const TodayPage = () => {
   const { t } = useTranslation("today");
   const today = getTodayDate();
   const { entry, loading, save } = useDailyEntry(today);
-  const { repository, settings, coachService, browserPreview, pomodoro, pulseRevision } = useAppContext();
+  const { repository, settings, coachService, browserPreview, pomodoro } = useAppContext();
   const [coachResult, setCoachResult] = useState<CoachPulseResult | null>(null);
   const [coachLoading, setCoachLoading] = useState(true);
   const [taskBreakdown, setTaskBreakdown] = useState<DailyTaskBreakdown | null>(null);
@@ -50,7 +50,7 @@ export const TodayPage = () => {
         currentEntry.date,
         new Date().toISOString(),
         undefined,
-        { skipRescueTimeFetch: true }
+        { skipRescueTimeFetch: true },
       );
       const localResult = await coachService.buildPulse(repository, {
         stance: "open",
@@ -58,7 +58,7 @@ export const TodayPage = () => {
         settings,
         snapshotInputs: fastInputs,
         trigger: "auto",
-        localOnly: true
+        localOnly: true,
       });
       setCoachResult(localResult);
 
@@ -77,7 +77,7 @@ export const TodayPage = () => {
         entry: currentEntry,
         settings,
         snapshotInputs: fullInputs,
-        trigger: "auto"
+        trigger: "auto",
       });
       setCoachResult(aiResult);
     } catch (error) {
@@ -107,9 +107,13 @@ export const TodayPage = () => {
           currentEntry.date,
           new Date().toISOString(),
           undefined,
-          { skipRescueTimeFetch: options.skipRescueTimeFetch ?? false }
+          { skipRescueTimeFetch: options.skipRescueTimeFetch ?? false },
         );
-        const latest = await loadLatestCoachPulseForDate(repository, coachService, currentEntry.date);
+        const latest = await loadLatestCoachPulseForDate(
+          repository,
+          coachService,
+          currentEntry.date,
+        );
         const stance = options.stance ?? latest?.pulse.stance ?? "open";
         const slotHour =
           options.slotHour ??
@@ -124,7 +128,7 @@ export const TodayPage = () => {
           snapshotInputs,
           trigger: options.trigger,
           bypassCache: options.bypassCache ?? false,
-          slotHour: Number.isFinite(slotHour) ? slotHour : undefined
+          slotHour: Number.isFinite(slotHour) ? slotHour : undefined,
         });
         setCoachResult(result);
       } catch (error) {
@@ -133,7 +137,7 @@ export const TodayPage = () => {
         setCoachLoading(false);
       }
     },
-    [coachService, repository, settings]
+    [coachService, repository, settings],
   );
 
   useEffect(() => {
@@ -142,7 +146,7 @@ export const TodayPage = () => {
     }
 
     void loadCoachFromStore();
-  }, [entry?.date, loadCoachFromStore, pulseRevision]);
+  }, [entry?.date, loadCoachFromStore, entry]);
 
   useEffect(() => {
     if (!entry) {
@@ -184,7 +188,7 @@ export const TodayPage = () => {
         await repository.decideAiProposal(
           proposal.id,
           "accepted",
-          applied.memoryId ?? currentEntry.date
+          applied.memoryId ?? currentEntry.date,
         );
       }
       setCoachResult((current) =>
@@ -192,10 +196,12 @@ export const TodayPage = () => {
           ? {
               ...current,
               proposals: current.proposals.map((item) =>
-                item.id === proposal.id ? { ...item, status: "accepted", decidedAt: new Date().toISOString() } : item
-              )
+                item.id === proposal.id
+                  ? { ...item, status: "accepted", decidedAt: new Date().toISOString() }
+                  : item,
+              ),
             }
-          : current
+          : current,
       );
     } catch (error) {
       console.error("Failed to accept coach proposal", error);
@@ -209,10 +215,12 @@ export const TodayPage = () => {
         ? {
             ...current,
             proposals: current.proposals.map((item) =>
-              item.id === proposal.id ? { ...item, status: "dismissed", decidedAt: new Date().toISOString() } : item
-            )
+              item.id === proposal.id
+                ? { ...item, status: "dismissed", decidedAt: new Date().toISOString() }
+                : item,
+            ),
           }
-        : current
+        : current,
     );
   };
 
@@ -222,26 +230,33 @@ export const TodayPage = () => {
     scheduled: t("buckets.scheduled"),
     waiting_for: t("buckets.waitingFor"),
     someday_maybe: t("buckets.somedayMaybe"),
-    reference: t("buckets.reference")
+    reference: t("buckets.reference"),
   };
 
   if (loading || !entry) {
-    return <div className="page"><p>{t("loading")}</p></div>;
+    return (
+      <div className="page">
+        <p>{t("loading")}</p>
+      </div>
+    );
   }
 
   const visibleTasks =
     openTaskPanel === "added"
-      ? taskBreakdown?.addedTasks ?? []
+      ? (taskBreakdown?.addedTasks ?? [])
       : openTaskPanel === "completed"
-        ? taskBreakdown?.completedTasks ?? []
+        ? (taskBreakdown?.completedTasks ?? [])
         : [];
   const completedPomodoroCount = pomodoro.sessions.filter(
-    (session) => session.kind === "focus" && session.status === "completed"
+    (session) => session.kind === "focus" && session.status === "completed",
   ).length;
-  const totalFocusedSeconds = pomodoro.taskSummaries.reduce((sum, summary) => sum + summary.totalSeconds, 0);
+  const totalFocusedSeconds = pomodoro.taskSummaries.reduce(
+    (sum, summary) => sum + summary.totalSeconds,
+    0,
+  );
   const totalFocusedHours = (totalFocusedSeconds / 3600).toFixed(1);
   const completedPomodoroTasks = (taskBreakdown?.completedTasks ?? []).filter((task) =>
-    pomodoro.taskSummaries.some((summary) => summary.taskId === task.id)
+    pomodoro.taskSummaries.some((summary) => summary.taskId === task.id),
   );
 
   return (
@@ -250,9 +265,7 @@ export const TodayPage = () => {
         <div>
           <p className="eyebrow">{t("hero.eyebrow")}</p>
           <h2>{formatDateLong(entry.date)}</h2>
-          <p className="hero__copy">
-            {t("hero.copy")}
-          </p>
+          <p className="hero__copy">{t("hero.copy")}</p>
         </div>
         <div className="hero__actions">
           <Link className="button button--primary" to="/routine-matin">
@@ -264,22 +277,13 @@ export const TodayPage = () => {
         </div>
       </header>
 
-      {browserPreview ? (
-        <div className="banner">
-          {t("banner.browserPreview")}
-        </div>
-      ) : null}
+      {browserPreview ? <div className="banner">{t("banner.browserPreview")}</div> : null}
 
       <EntrySummaryStrip entry={entry} />
 
       {isSunday(entry.date) ? (
-        <SectionCard
-          title={t("sunday.title")}
-          subtitle={t("sunday.subtitle")}
-        >
-          <p className="empty-copy">
-            {t("sunday.body")}
-          </p>
+        <SectionCard title={t("sunday.title")} subtitle={t("sunday.subtitle")}>
+          <p className="empty-copy">{t("sunday.body")}</p>
           <div className="section-actions">
             <Link className="button button--primary" to="/semaine">
               {t("sunday.openWeekly")}
@@ -289,13 +293,8 @@ export const TodayPage = () => {
       ) : null}
 
       {isFirstSaturdayOfMonth(entry.date) ? (
-        <SectionCard
-          title={t("monthly.title")}
-          subtitle={t("monthly.subtitle")}
-        >
-          <p className="empty-copy">
-            {t("monthly.body")}
-          </p>
+        <SectionCard title={t("monthly.title")} subtitle={t("monthly.subtitle")}>
+          <p className="empty-copy">{t("monthly.body")}</p>
           <div className="section-actions">
             <Link className="button button--primary" to="/mois">
               {t("monthly.openMonthly")}
@@ -352,10 +351,7 @@ export const TodayPage = () => {
         </div>
       </SectionCard>
 
-      <SectionCard
-        title={t("pomodoro.title")}
-        subtitle={t("pomodoro.subtitle")}
-      >
+      <SectionCard title={t("pomodoro.title")} subtitle={t("pomodoro.subtitle")}>
         <div className="pomodoro-widget__summary">
           <article className="status-card">
             <span>{t("pomodoro.completedCount")}</span>
@@ -416,7 +412,9 @@ export const TodayPage = () => {
           <button
             className={`status-card status-card--interactive${openTaskPanel === "completed" ? " status-card--active" : ""}`}
             type="button"
-            onClick={() => setOpenTaskPanel((current) => (current === "completed" ? null : "completed"))}
+            onClick={() =>
+              setOpenTaskPanel((current) => (current === "completed" ? null : "completed"))
+            }
             aria-expanded={openTaskPanel === "completed"}
           >
             <span>{t("gtd.completed")}</span>
@@ -432,12 +430,18 @@ export const TodayPage = () => {
           <div className="daily-task-panel">
             <div className="daily-task-panel__header">
               <div>
-                <strong>{openTaskPanel === "added" ? t("gtd.addedPanelTitle") : t("gtd.completedPanelTitle")}</strong>
-                <p>
-                  {t("gtd.panelCount", { count: visibleTasks.length })}
-                </p>
+                <strong>
+                  {openTaskPanel === "added"
+                    ? t("gtd.addedPanelTitle")
+                    : t("gtd.completedPanelTitle")}
+                </strong>
+                <p>{t("gtd.panelCount", { count: visibleTasks.length })}</p>
               </div>
-              <button className="button button--ghost" type="button" onClick={() => setOpenTaskPanel(null)}>
+              <button
+                className="button button--ghost"
+                type="button"
+                onClick={() => setOpenTaskPanel(null)}
+              >
                 {t("gtd.panelClose")}
               </button>
             </div>
@@ -472,7 +476,6 @@ export const TodayPage = () => {
           </Link>
         </div>
       </SectionCard>
-
     </div>
   );
 };

@@ -1,13 +1,13 @@
 import { defaultAppSettings } from "../domain/daily-entry";
-import { mergeAppSettingsWithDefaults } from "./relationship-draws";
 import {
   BACKUP_RETENTION_COUNT,
   buildBackupFileName,
   isAutoBackupDue,
   isBackupDestinationConfigured,
   isBackupDestinationMissing,
-  resolveBackupDir
+  resolveBackupDir,
 } from "./backup";
+import { mergeAppSettingsWithDefaults } from "./relationship-draws";
 
 describe("backup helpers", () => {
   it("marks auto backup as due when no previous backup exists", () => {
@@ -16,17 +16,13 @@ describe("backup helpers", () => {
 
   it("marks auto backup as due after the configured interval", () => {
     expect(
-      isAutoBackupDue(
-        "2026-03-30T10:00:00.000Z",
-        24,
-        Date.parse("2026-03-31T10:00:01.000Z")
-      )
+      isAutoBackupDue("2026-03-30T10:00:00.000Z", 24, Date.parse("2026-03-31T10:00:01.000Z")),
     ).toBe(true);
   });
 
   it("builds a stable backup filename", () => {
     expect(buildBackupFileName("2026-03-31T10:15:22.456Z", "manual")).toBe(
-      "trackdidia-manual-backup-2026-03-31T10-15-22-456Z.db"
+      "trackdidia-manual-backup-2026-03-31T10-15-22-456Z.db",
     );
   });
 
@@ -41,26 +37,26 @@ describe("backup helpers", () => {
   });
 
   it("flags a missing destination only when auto-backup is enabled", () => {
-    expect(
-      isBackupDestinationMissing({ autoBackupEnabled: true, backupDestinationDir: "" })
-    ).toBe(true);
+    expect(isBackupDestinationMissing({ autoBackupEnabled: true, backupDestinationDir: "" })).toBe(
+      true,
+    );
     expect(
       isBackupDestinationMissing({
         autoBackupEnabled: true,
-        backupDestinationDir: "/Users/didia/Drive/TrackDidia"
-      })
+        backupDestinationDir: "/Users/didia/Drive/TrackDidia",
+      }),
     ).toBe(false);
-    expect(
-      isBackupDestinationMissing({ autoBackupEnabled: false, backupDestinationDir: "" })
-    ).toBe(false);
+    expect(isBackupDestinationMissing({ autoBackupEnabled: false, backupDestinationDir: "" })).toBe(
+      false,
+    );
   });
 
   it("resolves production and development backup subfolders", () => {
     expect(resolveBackupDir("/Users/didia/Drive/TrackDidia", "production")).toBe(
-      "/Users/didia/Drive/TrackDidia/backups"
+      "/Users/didia/Drive/TrackDidia/backups",
     );
     expect(resolveBackupDir("/Users/didia/Drive/TrackDidia", "development")).toBe(
-      "/Users/didia/Drive/TrackDidia/backups-dev"
+      "/Users/didia/Drive/TrackDidia/backups-dev",
     );
   });
 

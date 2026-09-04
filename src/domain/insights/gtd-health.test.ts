@@ -24,7 +24,7 @@ const buildTask = (overrides: Partial<Task>): Task => ({
   sourceExternalId: null,
   createdAt: now,
   updatedAt: now,
-  ...overrides
+  ...overrides,
 });
 
 const buildProject = (overrides: Partial<Project>): Project => ({
@@ -38,17 +38,20 @@ const buildProject = (overrides: Partial<Project>): Project => ({
   sourceExternalId: null,
   createdAt: now,
   updatedAt: now,
-  ...overrides
+  ...overrides,
 });
 
 const findKind = (
   findings: ReturnType<typeof computeGtdHealthFindings>,
-  kind: ReturnType<typeof computeGtdHealthFindings>[number]["kind"]
+  kind: ReturnType<typeof computeGtdHealthFindings>[number]["kind"],
 ) => findings.find((finding) => finding.kind === kind);
 
 describe("gtd-health insight module", () => {
   it("counts the inbox backlog", () => {
-    const tasks = [buildTask({ id: "t1", bucket: "inbox" }), buildTask({ id: "t2", bucket: "next_action" })];
+    const tasks = [
+      buildTask({ id: "t1", bucket: "inbox" }),
+      buildTask({ id: "t2", bucket: "next_action" }),
+    ];
 
     const finding = findKind(computeGtdHealthFindings(tasks, [], now), "inbox_backlog");
 
@@ -61,7 +64,10 @@ describe("gtd-health insight module", () => {
     const projects = [buildProject({ id: "p1" }), buildProject({ id: "p2" })];
     const tasks = [buildTask({ id: "t1", bucket: "next_action", projectId: "p2" })];
 
-    const finding = findKind(computeGtdHealthFindings(tasks, projects, now), "projects_without_next_action");
+    const finding = findKind(
+      computeGtdHealthFindings(tasks, projects, now),
+      "projects_without_next_action",
+    );
 
     expect(finding?.value).toBe(1);
     expect(finding?.projectIds).toEqual(["p1"]);
@@ -70,7 +76,7 @@ describe("gtd-health insight module", () => {
   it("flags next actions untouched for more than the stale threshold", () => {
     const tasks = [
       buildTask({ id: "stale", bucket: "next_action", updatedAt: "2026-01-22T12:00:00.000Z" }),
-      buildTask({ id: "fresh", bucket: "next_action", updatedAt: now })
+      buildTask({ id: "fresh", bucket: "next_action", updatedAt: now }),
     ];
 
     const finding = findKind(computeGtdHealthFindings(tasks, [], now), "stale_next_actions");
@@ -83,7 +89,7 @@ describe("gtd-health insight module", () => {
   it("flags waiting-for items aging beyond the threshold", () => {
     const tasks = [
       buildTask({ id: "aging", bucket: "waiting_for", updatedAt: "2026-01-12T12:00:00.000Z" }),
-      buildTask({ id: "recent", bucket: "waiting_for", updatedAt: "2026-01-27T12:00:00.000Z" })
+      buildTask({ id: "recent", bucket: "waiting_for", updatedAt: "2026-01-27T12:00:00.000Z" }),
     ];
 
     const finding = findKind(computeGtdHealthFindings(tasks, [], now), "aging_waiting_for");
@@ -95,7 +101,7 @@ describe("gtd-health insight module", () => {
   it("flags overdue deadlines", () => {
     const tasks = [
       buildTask({ id: "overdue", bucket: "next_action", deadline: "2026-01-27" }),
-      buildTask({ id: "future", bucket: "next_action", deadline: "2026-02-06" })
+      buildTask({ id: "future", bucket: "next_action", deadline: "2026-02-06" }),
     ];
 
     const finding = findKind(computeGtdHealthFindings(tasks, [], now), "overdue_deadlines");
@@ -110,16 +116,19 @@ describe("gtd-health insight module", () => {
       buildTask({
         id: "completed-recent",
         status: "completed",
-        completedAt: "2026-01-20T12:00:00.000Z"
+        completedAt: "2026-01-20T12:00:00.000Z",
       }),
       buildTask({
         id: "completed-old",
         status: "completed",
-        completedAt: "2025-12-01T12:00:00.000Z"
-      })
+        completedAt: "2025-12-01T12:00:00.000Z",
+      }),
     ];
 
-    const finding = findKind(computeGtdHealthFindings(tasks, [], now), "scheduled_vs_completed_ratio");
+    const finding = findKind(
+      computeGtdHealthFindings(tasks, [], now),
+      "scheduled_vs_completed_ratio",
+    );
 
     expect(finding?.value).toBeCloseTo(1);
     expect(finding?.taskIds).toEqual(expect.arrayContaining(["scheduled", "completed-recent"]));

@@ -7,9 +7,14 @@ import {
   formatDateTimeShort,
   isPastDueDateTime,
   toLocalDateInputValue,
-  toLocalTimeInputValue
+  toLocalTimeInputValue,
 } from "../lib/date";
-import { effectiveTaskContextIds, formatAssociationCopy, projectsForAssignment, projectAssignmentLabel } from "../lib/gtd/engine";
+import {
+  effectiveTaskContextIds,
+  formatAssociationCopy,
+  projectAssignmentLabel,
+  projectsForAssignment,
+} from "../lib/gtd/engine";
 import { buildContextId, nowIso } from "../lib/gtd/shared";
 
 const bucketLabelKeys = {
@@ -18,7 +23,7 @@ const bucketLabelKeys = {
   scheduled: "buckets.scheduled",
   waiting_for: "buckets.waitingFor",
   someday_maybe: "buckets.somedayMaybe",
-  reference: "buckets.reference"
+  reference: "buckets.reference",
 } as const satisfies Record<Task["bucket"], string>;
 
 interface GtdTaskCardProps {
@@ -41,7 +46,7 @@ interface GtdTaskCardProps {
       projectId?: string | null;
       scheduledFor?: string | null;
       deadline?: string | null;
-    }
+    },
   ) => Promise<Task>;
   onComplete: (taskId: string) => Promise<void>;
   onCancel: (taskId: string) => Promise<void>;
@@ -60,7 +65,7 @@ export const GtdTaskCard = ({
   onApplyRecurringEditScope,
   onComplete,
   onCancel,
-  onClearPastRecurrences
+  onClearPastRecurrences,
 }: GtdTaskCardProps) => {
   const { t } = useTranslation("gtd");
   const { t: tCommon } = useTranslation("common");
@@ -72,7 +77,9 @@ export const GtdTaskCard = ({
   const [contextDrafts, setContextDrafts] = useState<Record<string, string>>({});
   const [contextSavingId, setContextSavingId] = useState<string | null>(null);
   const [contextError, setContextError] = useState("");
-  const [recurringEditScope, setRecurringEditScope] = useState<"occurrence" | "series">("occurrence");
+  const [recurringEditScope, setRecurringEditScope] = useState<"occurrence" | "series">(
+    "occurrence",
+  );
 
   useEffect(() => {
     setDraft(task);
@@ -81,9 +88,7 @@ export const GtdTaskCard = ({
   }, [task]);
 
   useEffect(() => {
-    setContextDrafts(
-      Object.fromEntries(contexts.map((context) => [context.id, context.name]))
-    );
+    setContextDrafts(Object.fromEntries(contexts.map((context) => [context.id, context.name])));
   }, [contexts]);
 
   const toggleContext = (contextId: string) => {
@@ -91,7 +96,7 @@ export const GtdTaskCard = ({
       ...current,
       contextIds: current.contextIds.includes(contextId)
         ? current.contextIds.filter((id) => id !== contextId)
-        : [...current.contextIds, contextId]
+        : [...current.contextIds, contextId],
     }));
   };
 
@@ -101,19 +106,19 @@ export const GtdTaskCard = ({
   const projectTitle = hideProjectTitle
     ? null
     : task.projectId
-      ? projects.find((project) => project.id === task.projectId)?.title ?? task.projectId
+      ? (projects.find((project) => project.id === task.projectId)?.title ?? task.projectId)
       : null;
-  const availableBuckets = (
-    draft.isRecurringInstance
-      ? (Object.keys(bucketLabelKeys) as Array<Task["bucket"]>).filter(
-          (value) => value === "next_action" || value === "scheduled"
-        )
-      : (Object.keys(bucketLabelKeys) as Array<Task["bucket"]>)
-  );
+  const availableBuckets = draft.isRecurringInstance
+    ? (Object.keys(bucketLabelKeys) as Array<Task["bucket"]>).filter(
+        (value) => value === "next_action" || value === "scheduled",
+      )
+    : (Object.keys(bucketLabelKeys) as Array<Task["bucket"]>);
   const isPastDue =
     task.status === "active" && task.scheduledFor ? isPastDueDateTime(task.scheduledFor) : false;
   const isDeadlineMissed =
-    task.status === "active" && task.deadline ? new Date(`${task.deadline}T23:59:59`).getTime() < Date.now() : false;
+    task.status === "active" && task.deadline
+      ? new Date(`${task.deadline}T23:59:59`).getTime() < Date.now()
+      : false;
   const scheduledDateValue = toLocalDateInputValue(draft.scheduledFor);
   const scheduledTimeValue = toLocalTimeInputValue(draft.scheduledFor);
 
@@ -125,7 +130,7 @@ export const GtdTaskCard = ({
       await onSaveContext({
         ...context,
         name: (contextDrafts[context.id] ?? context.name).trim(),
-        updatedAt: nowIso()
+        updatedAt: nowIso(),
       });
     } catch (error) {
       setContextError(error instanceof Error ? error.message : t("errors.saveContext"));
@@ -142,7 +147,7 @@ export const GtdTaskCard = ({
     }
 
     const existingContext = contexts.find(
-      (context) => context.name.trim().toLocaleLowerCase() === nextName.toLocaleLowerCase()
+      (context) => context.name.trim().toLocaleLowerCase() === nextName.toLocaleLowerCase(),
     );
 
     if (existingContext) {
@@ -150,7 +155,7 @@ export const GtdTaskCard = ({
         ...current,
         contextIds: current.contextIds.includes(existingContext.id)
           ? current.contextIds
-          : [...current.contextIds, existingContext.id]
+          : [...current.contextIds, existingContext.id],
       }));
       setNewContextName("");
       setContextError("");
@@ -167,13 +172,13 @@ export const GtdTaskCard = ({
         id: contextId,
         name: nextName,
         createdAt: timestamp,
-        updatedAt: timestamp
+        updatedAt: timestamp,
       });
       setDraft((current) => ({
         ...current,
         contextIds: current.contextIds.includes(savedContext.id)
           ? current.contextIds
-          : [...current.contextIds, savedContext.id]
+          : [...current.contextIds, savedContext.id],
       }));
       setNewContextName("");
       setContextEditorOpen(true);
@@ -212,12 +217,16 @@ export const GtdTaskCard = ({
               {formatAssociationCopy(projectTitle, contextNames, t("task.noContext"))}
             </span>
             {task.scheduledFor ? (
-              <span className={`task-card__date-pill${isPastDue ? " task-card__date-pill--overdue" : ""}`}>
+              <span
+                className={`task-card__date-pill${isPastDue ? " task-card__date-pill--overdue" : ""}`}
+              >
                 {formatDateTimeShort(task.scheduledFor)}
               </span>
             ) : null}
             {task.deadline ? (
-              <span className={`task-card__date-pill${isDeadlineMissed ? " task-card__date-pill--overdue" : ""}`}>
+              <span
+                className={`task-card__date-pill${isDeadlineMissed ? " task-card__date-pill--overdue" : ""}`}
+              >
                 {t("task.deadlinePrefix", { date: formatDateShort(task.deadline) })}
               </span>
             ) : null}
@@ -226,18 +235,28 @@ export const GtdTaskCard = ({
                 {t("task.pendingPastRecurrences", { count: task.pendingPastRecurrences })}
               </span>
             ) : null}
-            {task.isRecurringInstance ? <span className="task-card__recurrence-pill">{t("task.recurring")}</span> : null}
+            {task.isRecurringInstance ? (
+              <span className="task-card__recurrence-pill">{t("task.recurring")}</span>
+            ) : null}
           </span>
         </button>
 
         <div className="task-card__quick-actions">
-          <button className="button" type="button" onClick={() => setExpanded((current) => !current)}>
+          <button
+            className="button"
+            type="button"
+            onClick={() => setExpanded((current) => !current)}
+          >
             {expanded ? tCommon("actions.collapse") : tCommon("actions.open")}
           </button>
           <button className="button" type="button" onClick={() => void onComplete(task.id)}>
             {t("task.complete")}
           </button>
-          <button className="button button--ghost" type="button" onClick={() => void onCancel(task.id)}>
+          <button
+            className="button button--ghost"
+            type="button"
+            onClick={() => void onCancel(task.id)}
+          >
             {t("task.remove")}
           </button>
         </div>
@@ -249,7 +268,9 @@ export const GtdTaskCard = ({
             <span>{t("task.title")}</span>
             <input
               value={draft.title}
-              onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
+              onChange={(event) =>
+                setDraft((current) => ({ ...current, title: event.target.value }))
+              }
             />
           </div>
 
@@ -258,7 +279,9 @@ export const GtdTaskCard = ({
             <textarea
               rows={3}
               value={draft.notes}
-              onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))}
+              onChange={(event) =>
+                setDraft((current) => ({ ...current, notes: event.target.value }))
+              }
               placeholder={t("task.notesPlaceholder")}
             />
           </div>
@@ -272,7 +295,7 @@ export const GtdTaskCard = ({
                   setDraft((current) => ({
                     ...current,
                     bucket: event.target.value as Task["bucket"],
-                    scheduledFor: event.target.value === "scheduled" ? current.scheduledFor : null
+                    scheduledFor: event.target.value === "scheduled" ? current.scheduledFor : null,
                   }))
                 }
               >
@@ -291,7 +314,7 @@ export const GtdTaskCard = ({
                 onChange={(event) =>
                   setDraft((current) => ({
                     ...current,
-                    projectId: event.target.value || null
+                    projectId: event.target.value || null,
                   }))
                 }
               >
@@ -317,8 +340,8 @@ export const GtdTaskCard = ({
                       scheduledFor: buildIsoFromLocalDateAndTime(
                         event.target.value,
                         toLocalTimeInputValue(current.scheduledFor),
-                        current.scheduledFor
-                      )
+                        current.scheduledFor,
+                      ),
                     }))
                   }
                 />
@@ -333,8 +356,8 @@ export const GtdTaskCard = ({
                       scheduledFor: buildIsoFromLocalDateAndTime(
                         toLocalDateInputValue(current.scheduledFor),
                         event.target.value,
-                        current.scheduledFor
-                      )
+                        current.scheduledFor,
+                      ),
                     }))
                   }
                 />
@@ -349,7 +372,7 @@ export const GtdTaskCard = ({
                 onChange={(event) =>
                   setDraft((current) => ({
                     ...current,
-                    deadline: event.target.value || null
+                    deadline: event.target.value || null,
                   }))
                 }
               />
@@ -408,17 +431,22 @@ export const GtdTaskCard = ({
                     onChange={(event) =>
                       setContextDrafts((current) => ({
                         ...current,
-                        [context.id]: event.target.value
+                        [context.id]: event.target.value,
                       }))
                     }
                   />
                   <button
                     className="button"
                     type="button"
-                    disabled={contextSavingId === context.id || !(contextDrafts[context.id] ?? context.name).trim()}
+                    disabled={
+                      contextSavingId === context.id ||
+                      !(contextDrafts[context.id] ?? context.name).trim()
+                    }
                     onClick={() => void saveExistingContext(context)}
                   >
-                    {contextSavingId === context.id ? tCommon("actions.saving") : t("task.renameContext")}
+                    {contextSavingId === context.id
+                      ? tCommon("actions.saving")
+                      : t("task.renameContext")}
                   </button>
                 </div>
               ))}
@@ -431,7 +459,9 @@ export const GtdTaskCard = ({
                 <span>{t("task.editScope")}</span>
                 <select
                   value={recurringEditScope}
-                  onChange={(event) => setRecurringEditScope(event.target.value as "occurrence" | "series")}
+                  onChange={(event) =>
+                    setRecurringEditScope(event.target.value as "occurrence" | "series")
+                  }
                 >
                   <option value="occurrence">{t("task.scopeOccurrence")}</option>
                   <option value="series">{t("task.scopeSeries")}</option>
@@ -453,7 +483,11 @@ export const GtdTaskCard = ({
               disabled={saving || !draft.title.trim()}
               onClick={async () => {
                 setSaving(true);
-                if (draft.isRecurringInstance && draft.recurringTemplateId && onApplyRecurringEditScope) {
+                if (
+                  draft.isRecurringInstance &&
+                  draft.recurringTemplateId &&
+                  onApplyRecurringEditScope
+                ) {
                   await onApplyRecurringEditScope(draft.id, recurringEditScope, {
                     title: draft.title,
                     notes: draft.notes,
@@ -461,7 +495,7 @@ export const GtdTaskCard = ({
                     contextIds: draft.contextIds,
                     projectId: draft.projectId,
                     scheduledFor: draft.scheduledFor,
-                    deadline: draft.deadline
+                    deadline: draft.deadline,
                   });
                 } else {
                   await onSave(draft);

@@ -1,35 +1,21 @@
 import {
+  buildAnnualGoalSnapshots,
+  cloneAnnualGoal,
+  createEmptyAnnualGoal,
+} from "../../domain/annual-goals";
+import {
   applyDailyPomodoroStats,
   applyDailyTaskStats,
   cloneEntry,
   createEmptyDailyEntry,
-  defaultAppSettings
+  defaultAppSettings,
 } from "../../domain/daily-entry";
 import {
-  buildAnnualGoalSnapshots,
-  cloneAnnualGoal,
-  createEmptyAnnualGoal
-} from "../../domain/annual-goals";
-import {
-  applyMonthlyReviewTransition,
   buildMonthlyReviewSummary,
   cloneMonthlyReview,
-  createEmptyMonthlyReview,
   getMonthKey,
-  listWeekStartsForMonth
+  listWeekStartsForMonth,
 } from "../../domain/monthly-review";
-import {
-  buildWeeklyReviewSummary,
-  buildWeekDates,
-  cloneWeeklyReview,
-  listWeekDates
-} from "../../domain/weekly-review";
-import {
-  cloneWeeklyObjective,
-  createEmptyWeeklyObjective
-} from "../../domain/weekly-objectives";
-import { getTodayDate } from "../date";
-import { monthKeyToLocalRange } from "../ai/analytics/month-range";
 import type {
   AiMemory,
   AiMemoryFilters,
@@ -57,21 +43,36 @@ import type {
   TaskFilters,
   WeeklyObjective,
   WeeklyObjectiveResult,
-  WeeklyReview
+  WeeklyReview,
 } from "../../domain/types";
+import { cloneWeeklyObjective, createEmptyWeeklyObjective } from "../../domain/weekly-objectives";
 import {
-  buildDailyTaskBreakdown,
+  buildWeekDates,
+  buildWeeklyReviewSummary,
+  cloneWeeklyReview,
+  listWeekDates,
+} from "../../domain/weekly-review";
+import { monthKeyToLocalRange } from "../ai/analytics/month-range";
+import { getTodayDate } from "../date";
+import {
   buildCarryoverEvents,
+  buildDailyTaskBreakdown,
   buildDailyTaskStats,
   buildLifecycleEvents,
   cloneContexts,
-  cloneProjects,
-  cloneTasks,
   createTaskFromInput,
   filterProjects,
-  filterTasks
+  filterTasks,
 } from "../gtd/engine";
 import { buildGoogleTasksImport } from "../gtd/google-tasks-import";
+import {
+  addDays,
+  buildContextId,
+  cloneProject,
+  cloneTask,
+  createEntityId,
+  nowIso,
+} from "../gtd/shared";
 import {
   buildPomodoroSessionDetails,
   buildPomodoroState,
@@ -79,7 +80,7 @@ import {
   computeDailyPomodoroStats,
   createPomodoroSegment,
   createPomodoroSession,
-  getPomodoroRunningBreakSessionIdsToAutoCompleteWhenReset
+  getPomodoroRunningBreakSessionIdsToAutoCompleteWhenReset,
 } from "../pomodoro/engine";
 import {
   applySeriesChangesToTemplate,
@@ -88,11 +89,9 @@ import {
   cloneRecurringTemplate,
   createRecurringTemplate,
   filterRecurringTemplates,
-  findNextRecurringDate,
   listDueDatesBetween,
-  syncTemplateStatusChange
+  syncTemplateStatusChange,
 } from "../recurring/engine";
-import { addDays, buildContextId, cloneProject, cloneTask, createEntityId, nowIso } from "../gtd/shared";
 import {
   buildRelationshipDrawTaskTitle,
   findActiveRelationshipDrawTask,
@@ -102,7 +101,7 @@ import {
   mergeAppSettingsWithDefaults,
   pickRelationshipDrawActivity,
   relationshipDrawDefinitions,
-  relationshipPersonalContextId
+  relationshipPersonalContextId,
 } from "../relationship-draws";
 import type { AppRepository, PomodoroStartOptions, StorageInfo } from "./repository";
 
@@ -166,7 +165,7 @@ export class MemoryRepository implements AppRepository {
     const nextReview = {
       ...cloneWeeklyReview(review),
       weekStartDate: normalized,
-      weekEndDate: addDays(normalized, 6)
+      weekEndDate: addDays(normalized, 6),
     };
     this.weeklyReviews.set(normalized, nextReview);
   }
@@ -184,7 +183,7 @@ export class MemoryRepository implements AppRepository {
       listWeekDates(normalized).map(async (date) => {
         const existing = this.entries.get(date);
         return this.decorateEntry(existing ?? createEmptyDailyEntry(date));
-      })
+      }),
     );
 
     return buildWeeklyReviewSummary(normalized, entries);
@@ -192,7 +191,9 @@ export class MemoryRepository implements AppRepository {
 
   async listWeeklyObjectives(): Promise<WeeklyObjective[]> {
     return [...this.weeklyObjectives.values()]
-      .sort((left, right) => left.sortOrder - right.sortOrder || left.title.localeCompare(right.title))
+      .sort(
+        (left, right) => left.sortOrder - right.sortOrder || left.title.localeCompare(right.title),
+      )
       .map((objective) => cloneWeeklyObjective(objective));
   }
 
@@ -203,7 +204,7 @@ export class MemoryRepository implements AppRepository {
       id: objective.id || createEntityId("weekly-objective"),
       title: objective.title.trim(),
       createdAt: objective.createdAt || timestamp,
-      updatedAt: timestamp
+      updatedAt: timestamp,
     });
     this.weeklyObjectives.set(nextObjective.id, nextObjective);
     return cloneWeeklyObjective(nextObjective);
@@ -232,7 +233,7 @@ export class MemoryRepository implements AppRepository {
       weekStartDate: normalized,
       objectiveId: result.objectiveId,
       achieved: result.achieved,
-      updatedAt: timestamp
+      updatedAt: timestamp,
     };
     this.weeklyObjectiveResults.set(`${normalized}:${result.objectiveId}`, nextResult);
   }
@@ -247,7 +248,7 @@ export class MemoryRepository implements AppRepository {
     const normalized = getMonthKey(`${review.monthKey}-01`);
     this.monthlyReviews.set(normalized, {
       ...cloneMonthlyReview(review),
-      monthKey: normalized
+      monthKey: normalized,
     });
   }
 
@@ -260,13 +261,17 @@ export class MemoryRepository implements AppRepository {
 
   async computeMonthlyReviewSummary(monthKey: string) {
     const normalized = getMonthKey(`${monthKey}-01`);
-    const entries = (await Promise.all(
-      [...this.entries.values()]
-        .filter((entry) => getMonthKey(entry.date) === normalized)
-        .map((entry) => this.decorateEntry(entry))
-    )).sort((left, right) => left.date.localeCompare(right.date));
+    const entries = (
+      await Promise.all(
+        [...this.entries.values()]
+          .filter((entry) => getMonthKey(entry.date) === normalized)
+          .map((entry) => this.decorateEntry(entry)),
+      )
+    ).sort((left, right) => left.date.localeCompare(right.date));
     const weekStarts = listWeekStartsForMonth(normalized);
-    const weeklySummaries = await Promise.all(weekStarts.map((weekStartDate) => this.computeWeeklyReviewSummary(weekStartDate)));
+    const weeklySummaries = await Promise.all(
+      weekStarts.map((weekStartDate) => this.computeWeeklyReviewSummary(weekStartDate)),
+    );
     const weeklyReviews = weekStarts
       .map((weekStartDate) => this.weeklyReviews.get(weekStartDate))
       .filter((review): review is WeeklyReview => Boolean(review))
@@ -290,7 +295,7 @@ export class MemoryRepository implements AppRepository {
       description: goal.description.trim(),
       unit: goal.unit.trim(),
       createdAt: goal.createdAt || timestamp,
-      updatedAt: timestamp
+      updatedAt: timestamp,
     });
 
     this.annualGoals.set(nextGoal.id, cloneAnnualGoal(nextGoal));
@@ -305,15 +310,17 @@ export class MemoryRepository implements AppRepository {
     const entries = await Promise.all(
       [...this.entries.values()]
         .filter((entry) => entry.date.startsWith(`${year}-`))
-        .map((entry) => this.decorateEntry(entry))
+        .map((entry) => this.decorateEntry(entry)),
     );
     const weekStarts = [...new Set(entries.map((entry) => buildWeekDates(entry.date)))].sort();
-    const weeklySummaries = await Promise.all(weekStarts.map((weekStartDate) => this.computeWeeklyReviewSummary(weekStartDate)));
+    const weeklySummaries = await Promise.all(
+      weekStarts.map((weekStartDate) => this.computeWeeklyReviewSummary(weekStartDate)),
+    );
     return buildAnnualGoalSnapshots(
       [...this.annualGoals.values()].map((goal) => cloneAnnualGoal(goal)),
       year,
       entries,
-      weeklySummaries
+      weeklySummaries,
     );
   }
 
@@ -325,27 +332,35 @@ export class MemoryRepository implements AppRepository {
     this.settings = mergeAppSettingsWithDefaults(settings, defaultAppSettings());
   }
 
-  async getAiMessage(surface: AiSurface, scopeKey: string, inputHash: string): Promise<AiMessage | null> {
+  async getAiMessage(
+    surface: AiSurface,
+    scopeKey: string,
+    inputHash: string,
+  ): Promise<AiMessage | null> {
     const matches = [...this.aiMessages.values()]
       .filter(
         (message) =>
           message.surface === surface &&
           message.scopeKey === scopeKey &&
           message.inputHash === inputHash &&
-          message.status === "ok"
+          message.status === "ok",
       )
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 
     return matches[0] ? { ...matches[0] } : null;
   }
 
-  async getAiMessageRecord(surface: AiSurface, scopeKey: string, inputHash: string): Promise<AiMessage | null> {
+  async getAiMessageRecord(
+    surface: AiSurface,
+    scopeKey: string,
+    inputHash: string,
+  ): Promise<AiMessage | null> {
     const matches = [...this.aiMessages.values()]
       .filter(
         (message) =>
           message.surface === surface &&
           message.scopeKey === scopeKey &&
-          message.inputHash === inputHash
+          message.inputHash === inputHash,
       )
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 
@@ -360,7 +375,7 @@ export class MemoryRepository implements AppRepository {
 
   async saveCoachPulseEpisode(
     message: AiMessage,
-    proposals: AiProposal[]
+    proposals: AiProposal[],
   ): Promise<{ message: AiMessage; proposals: AiProposal[] }> {
     const savedMessage = await this.saveAiMessage(message);
     for (const [id, proposal] of this.aiProposals.entries()) {
@@ -420,18 +435,24 @@ export class MemoryRepository implements AppRepository {
   async computeAiUsageForMonth(monthKey: string): Promise<AiUsageTotals> {
     const { startIso, endIso } = monthKeyToLocalRange(monthKey);
     const messages = [...this.aiMessages.values()].filter(
-      (message) => message.createdAt >= startIso && message.createdAt < endIso
+      (message) => message.createdAt >= startIso && message.createdAt < endIso,
     );
 
-    const tokensPrompt = messages.reduce((total, message) => total + (message.tokensPrompt ?? 0), 0);
-    const tokensCompletion = messages.reduce((total, message) => total + (message.tokensCompletion ?? 0), 0);
+    const tokensPrompt = messages.reduce(
+      (total, message) => total + (message.tokensPrompt ?? 0),
+      0,
+    );
+    const tokensCompletion = messages.reduce(
+      (total, message) => total + (message.tokensCompletion ?? 0),
+      0,
+    );
 
     return {
       monthKey,
       callCount: messages.length,
       tokensPrompt,
       tokensCompletion,
-      tokensTotal: tokensPrompt + tokensCompletion
+      tokensTotal: tokensPrompt + tokensCompletion,
     };
   }
 
@@ -451,7 +472,7 @@ export class MemoryRepository implements AppRepository {
   async decideAiProposal(
     id: string,
     status: "accepted" | "dismissed",
-    appliedEntityId?: string
+    appliedEntityId?: string,
   ): Promise<AiProposal> {
     const existing = this.aiProposals.get(id);
     if (!existing) {
@@ -462,7 +483,7 @@ export class MemoryRepository implements AppRepository {
       ...existing,
       status,
       appliedEntityId: appliedEntityId ?? null,
-      decidedAt: nowIso()
+      decidedAt: nowIso(),
     };
     this.aiProposals.set(id, updated);
     return { ...updated };
@@ -470,7 +491,7 @@ export class MemoryRepository implements AppRepository {
 
   async acceptAiMemoryProposal(
     proposal: AiProposal,
-    memory: AiMemory
+    memory: AiMemory,
   ): Promise<{ memory: AiMemory; proposal: AiProposal }> {
     const existingProposal = this.aiProposals.get(proposal.id);
     if (!existingProposal) {
@@ -486,7 +507,7 @@ export class MemoryRepository implements AppRepository {
 
       return {
         memory: { ...existingMemory },
-        proposal: { ...existingProposal }
+        proposal: { ...existingProposal },
       };
     }
 
@@ -497,19 +518,19 @@ export class MemoryRepository implements AppRepository {
       ...existingProposal,
       status: "accepted",
       appliedEntityId: savedMemory.id,
-      decidedAt
+      decidedAt,
     };
     this.aiProposals.set(proposal.id, updatedProposal);
 
     return {
       memory: savedMemory,
-      proposal: { ...updatedProposal }
+      proposal: { ...updatedProposal },
     };
   }
 
   async acceptAiWeeklyObjectiveProposal(
     proposal: AiProposal,
-    objective: WeeklyObjective
+    objective: WeeklyObjective,
   ): Promise<{ objective: WeeklyObjective; proposal: AiProposal }> {
     const existingProposal = this.aiProposals.get(proposal.id);
     if (!existingProposal) {
@@ -518,14 +539,16 @@ export class MemoryRepository implements AppRepository {
 
     if (existingProposal.status === "accepted") {
       const objectiveId = existingProposal.appliedEntityId ?? objective.id;
-      const existingObjective = [...this.weeklyObjectives.values()].find((item) => item.id === objectiveId);
+      const existingObjective = [...this.weeklyObjectives.values()].find(
+        (item) => item.id === objectiveId,
+      );
       if (!existingObjective) {
         throw new Error(`Weekly objective not found: ${objectiveId}`);
       }
 
       return {
         objective: cloneWeeklyObjective(existingObjective),
-        proposal: { ...existingProposal }
+        proposal: { ...existingProposal },
       };
     }
 
@@ -535,19 +558,19 @@ export class MemoryRepository implements AppRepository {
       ...existingProposal,
       status: "accepted",
       appliedEntityId: savedObjective.id,
-      decidedAt
+      decidedAt,
     };
     this.aiProposals.set(proposal.id, updatedProposal);
 
     return {
       objective: savedObjective,
-      proposal: { ...updatedProposal }
+      proposal: { ...updatedProposal },
     };
   }
 
   async acceptAiReviewSectionDraftProposal(
     proposal: AiProposal,
-    review: WeeklyReview
+    review: WeeklyReview,
   ): Promise<{ review: WeeklyReview; proposal: AiProposal }> {
     const existingProposal = this.aiProposals.get(proposal.id);
     if (!existingProposal) {
@@ -558,7 +581,7 @@ export class MemoryRepository implements AppRepository {
       const savedReview = await this.getWeeklyReview(review.weekStartDate);
       return {
         review: savedReview ?? review,
-        proposal: { ...existingProposal }
+        proposal: { ...existingProposal },
       };
     }
 
@@ -568,19 +591,19 @@ export class MemoryRepository implements AppRepository {
       ...existingProposal,
       status: "accepted",
       appliedEntityId: review.weekStartDate,
-      decidedAt
+      decidedAt,
     };
     this.aiProposals.set(proposal.id, updatedProposal);
 
     return {
       review,
-      proposal: { ...updatedProposal }
+      proposal: { ...updatedProposal },
     };
   }
 
   async acceptAiMonthlyReviewSectionDraftProposal(
     proposal: AiProposal,
-    review: MonthlyReview
+    review: MonthlyReview,
   ): Promise<{ review: MonthlyReview; proposal: AiProposal }> {
     const existingProposal = this.aiProposals.get(proposal.id);
     if (!existingProposal) {
@@ -591,7 +614,7 @@ export class MemoryRepository implements AppRepository {
       const savedReview = await this.getMonthlyReview(review.monthKey);
       return {
         review: savedReview ?? review,
-        proposal: { ...existingProposal }
+        proposal: { ...existingProposal },
       };
     }
 
@@ -601,19 +624,19 @@ export class MemoryRepository implements AppRepository {
       ...existingProposal,
       status: "accepted",
       appliedEntityId: review.monthKey,
-      decidedAt
+      decidedAt,
     };
     this.aiProposals.set(proposal.id, updatedProposal);
 
     return {
       review,
-      proposal: { ...updatedProposal }
+      proposal: { ...updatedProposal },
     };
   }
 
   async acceptAiGtdActionProposal(
     proposal: AiProposal,
-    scheduledDate: string
+    scheduledDate: string,
   ): Promise<{ taskId: string | null; proposal: AiProposal }> {
     const existingProposal = this.aiProposals.get(proposal.id);
     if (!existingProposal) {
@@ -623,7 +646,7 @@ export class MemoryRepository implements AppRepository {
     if (existingProposal.status === "accepted") {
       return {
         taskId: existingProposal.appliedEntityId,
-        proposal: { ...existingProposal }
+        proposal: { ...existingProposal },
       };
     }
 
@@ -656,13 +679,13 @@ export class MemoryRepository implements AppRepository {
       ...existingProposal,
       status: "accepted",
       appliedEntityId: payload.taskId,
-      decidedAt
+      decidedAt,
     };
     this.aiProposals.set(proposal.id, updatedProposal);
 
     return {
       taskId: payload.taskId,
-      proposal: { ...updatedProposal }
+      proposal: { ...updatedProposal },
     };
   }
 
@@ -685,7 +708,7 @@ export class MemoryRepository implements AppRepository {
 
     if (filters.activeOnDate) {
       memories = memories.filter(
-        (memory) => !memory.expiresAt || memory.expiresAt >= filters.activeOnDate!
+        (memory) => !memory.expiresAt || memory.expiresAt >= filters.activeOnDate!,
       );
     }
 
@@ -700,7 +723,10 @@ export class MemoryRepository implements AppRepository {
     return { ...persisted };
   }
 
-  async archiveAiMemory(id: string, reason: "expired" | "contradicted" | "resolved"): Promise<void> {
+  async archiveAiMemory(
+    id: string,
+    reason: "expired" | "contradicted" | "resolved",
+  ): Promise<void> {
     const existing = this.aiMemories.get(id);
     if (!existing) {
       throw new Error(`AI memory not found: ${id}`);
@@ -715,7 +741,7 @@ export class MemoryRepository implements AppRepository {
       ...existing,
       status: reason === "contradicted" ? "contradicted" : "archived",
       detail,
-      lastConfirmedAt: nowIso()
+      lastConfirmedAt: nowIso(),
     });
   }
 
@@ -745,11 +771,15 @@ export class MemoryRepository implements AppRepository {
     return payload.summary;
   }
 
-  async getGtdOverview(): Promise<{ taskCount: number; projectCount: number; contextCount: number }> {
+  async getGtdOverview(): Promise<{
+    taskCount: number;
+    projectCount: number;
+    contextCount: number;
+  }> {
     return {
       taskCount: this.tasks.size,
       projectCount: this.projects.size,
-      contextCount: this.contexts.size
+      contextCount: this.contexts.size,
     };
   }
 
@@ -757,14 +787,18 @@ export class MemoryRepository implements AppRepository {
     let movedCount = 0;
 
     for (const [taskId, task] of this.tasks.entries()) {
-      if (task.status !== "active" || !task.contextIds.includes(contextId) || task.bucket === bucket) {
+      if (
+        task.status !== "active" ||
+        !task.contextIds.includes(contextId) ||
+        task.bucket === bucket
+      ) {
         continue;
       }
 
       this.tasks.set(taskId, {
         ...cloneTask(task),
         bucket,
-        updatedAt: nowIso()
+        updatedAt: nowIso(),
       });
       movedCount += 1;
     }
@@ -783,7 +817,7 @@ export class MemoryRepository implements AppRepository {
       this.tasks.set(taskId, {
         ...cloneTask(task),
         bucket,
-        updatedAt: nowIso()
+        updatedAt: nowIso(),
       });
       movedCount += 1;
     }
@@ -806,15 +840,16 @@ export class MemoryRepository implements AppRepository {
           task.source === "google_import" &&
           (task.id === desiredTask.id ||
             task.recurrenceGroupId === desiredTask.recurrenceGroupId ||
-            (task.sourceExternalId ? sourceIds.has(task.sourceExternalId) : false))
+            (task.sourceExternalId ? sourceIds.has(task.sourceExternalId) : false)),
       );
 
-      const previousPrimary = existingMatches.find((task) => task.id === desiredTask.id) ?? existingMatches[0] ?? null;
+      const previousPrimary =
+        existingMatches.find((task) => task.id === desiredTask.id) ?? existingMatches[0] ?? null;
       const nextTask: Task = {
         ...cloneTask(desiredTask),
         notes: previousPrimary?.notes?.trim() ? previousPrimary.notes : desiredTask.notes,
         projectId: previousPrimary?.projectId ?? desiredTask.projectId,
-        updatedAt: nowIso()
+        updatedAt: nowIso(),
       };
 
       this.tasks.set(nextTask.id, cloneTask(nextTask));
@@ -833,7 +868,9 @@ export class MemoryRepository implements AppRepository {
   }
 
   async listContexts(): Promise<TaskContext[]> {
-    return cloneContexts([...this.contexts.values()].sort((left, right) => left.name.localeCompare(right.name)));
+    return cloneContexts(
+      [...this.contexts.values()].sort((left, right) => left.name.localeCompare(right.name)),
+    );
   }
 
   async saveContext(context: TaskContext): Promise<TaskContext> {
@@ -845,7 +882,9 @@ export class MemoryRepository implements AppRepository {
     }
 
     const duplicate = [...this.contexts.values()].find(
-      (candidate) => candidate.id !== context.id && candidate.name.trim().toLocaleLowerCase() === nextName.toLocaleLowerCase()
+      (candidate) =>
+        candidate.id !== context.id &&
+        candidate.name.trim().toLocaleLowerCase() === nextName.toLocaleLowerCase(),
     );
 
     if (duplicate) {
@@ -857,7 +896,7 @@ export class MemoryRepository implements AppRepository {
       id: context.id,
       name: nextName,
       createdAt: previous?.createdAt ?? context.createdAt ?? timestamp,
-      updatedAt: timestamp
+      updatedAt: timestamp,
     };
 
     this.contexts.set(nextContext.id, nextContext);
@@ -870,7 +909,7 @@ export class MemoryRepository implements AppRepository {
 
   async saveProject(project: Project): Promise<Project> {
     const timestamp = nowIso();
-    const previous = project.id ? this.projects.get(project.id) ?? null : null;
+    const previous = project.id ? (this.projects.get(project.id) ?? null) : null;
     const nextProject: Project = {
       ...cloneProject(project),
       id: project.id || createEntityId("project"),
@@ -881,7 +920,7 @@ export class MemoryRepository implements AppRepository {
           ? timestamp
           : project.statusChangedAt || previous?.statusChangedAt || project.createdAt || timestamp,
       updatedAt: timestamp,
-      createdAt: project.createdAt || timestamp
+      createdAt: project.createdAt || timestamp,
     };
 
     this.ensureContextsByIds(nextProject.contextIds);
@@ -897,13 +936,13 @@ export class MemoryRepository implements AppRepository {
   async listRecurringTaskTemplates(filters: RecurringTemplateFilters = {}) {
     return filterRecurringTemplates(
       [...this.recurringTemplates.values()].map((template) => cloneRecurringTemplate(template)),
-      filters
+      filters,
     );
   }
 
   async saveRecurringTaskTemplate(template: RecurringTaskTemplate): Promise<RecurringTaskTemplate> {
     const timestamp = nowIso();
-    const previous = template.id ? this.recurringTemplates.get(template.id) ?? null : null;
+    const previous = template.id ? (this.recurringTemplates.get(template.id) ?? null) : null;
     const nextTemplate = createRecurringTemplate({
       ...cloneRecurringTemplate(template),
       id: template.id || createEntityId("recurring-template"),
@@ -914,7 +953,7 @@ export class MemoryRepository implements AppRepository {
         previous && previous.status !== template.status
           ? timestamp
           : template.statusChangedAt || previous?.statusChangedAt || timestamp,
-      updatedAt: timestamp
+      updatedAt: timestamp,
     });
 
     this.ensureContextsByIds(nextTemplate.contextIds);
@@ -952,7 +991,7 @@ export class MemoryRepository implements AppRepository {
       this.tasks.set(activeTask.id, {
         ...cloneTask(activeTask),
         status: "cancelled",
-        updatedAt: nowIso()
+        updatedAt: nowIso(),
       });
     }
     return cloneRecurringTemplate(nextTemplate);
@@ -975,7 +1014,8 @@ export class MemoryRepository implements AppRepository {
       }
 
       const latestDueDate = dueDates[dueDates.length - 1];
-      const nextPending = (activeTask?.pendingPastRecurrences ?? 0) + dueDates.length - 1 + (activeTask ? 1 : 0);
+      const nextPending =
+        (activeTask?.pendingPastRecurrences ?? 0) + dueDates.length - 1 + (activeTask ? 1 : 0);
       const previousPending = activeTask?.pendingPastRecurrences ?? 0;
       const pendingPastRecurrences = Math.max(previousPending, nextPending);
       const timestamp = nowIso();
@@ -986,11 +1026,12 @@ export class MemoryRepository implements AppRepository {
             bucket: template.targetBucket,
             scheduledFor:
               template.targetBucket === "scheduled"
-                ? buildTaskFromRecurringTemplate(template, latestDueDate, pendingPastRecurrences).scheduledFor
+                ? buildTaskFromRecurringTemplate(template, latestDueDate, pendingPastRecurrences)
+                    .scheduledFor
                 : null,
             recurrenceDueDate: latestDueDate,
             pendingPastRecurrences,
-            updatedAt: timestamp
+            updatedAt: timestamp,
           }
         : buildTaskFromRecurringTemplate(template, latestDueDate, Math.max(0, dueDates.length - 1));
 
@@ -1002,7 +1043,7 @@ export class MemoryRepository implements AppRepository {
         ...cloneRecurringTemplate(template),
         lastGeneratedForDate: latestDueDate,
         pendingMissedOccurrences: nextTask.pendingPastRecurrences,
-        updatedAt: timestamp
+        updatedAt: timestamp,
       });
 
       changedCount += 1;
@@ -1016,24 +1057,28 @@ export class MemoryRepository implements AppRepository {
       [...this.recurringTemplates.values()],
       [...this.tasks.values()],
       rangeStart,
-      rangeEnd
+      rangeEnd,
     );
   }
 
-  async applyRecurringEditScope(taskId: string, scope: "occurrence" | "series", changes: {
-    title?: string;
-    notes?: string;
-    bucket?: "next_action" | "scheduled";
-    contextIds?: string[];
-    projectId?: string | null;
-    scheduledFor?: string | null;
-    deadline?: string | null;
-  }) {
+  async applyRecurringEditScope(
+    taskId: string,
+    scope: "occurrence" | "series",
+    changes: {
+      title?: string;
+      notes?: string;
+      bucket?: "next_action" | "scheduled";
+      contextIds?: string[];
+      projectId?: string | null;
+      scheduledFor?: string | null;
+      deadline?: string | null;
+    },
+  ) {
     const task = this.getExistingTask(taskId);
     if (!task.recurringTemplateId) {
       return this.saveTask({
         ...task,
-        ...changes
+        ...changes,
       });
     }
 
@@ -1046,7 +1091,7 @@ export class MemoryRepository implements AppRepository {
         contextIds: changes.contextIds ?? task.contextIds,
         projectId: changes.projectId === undefined ? task.projectId : changes.projectId,
         scheduledFor: changes.scheduledFor === undefined ? task.scheduledFor : changes.scheduledFor,
-        deadline: changes.deadline === undefined ? task.deadline : changes.deadline
+        deadline: changes.deadline === undefined ? task.deadline : changes.deadline,
       });
     }
 
@@ -1071,7 +1116,7 @@ export class MemoryRepository implements AppRepository {
       ...cloneTask(task),
       title: task.title.trim(),
       notes: task.notes.trim(),
-      updatedAt: nowIso()
+      updatedAt: nowIso(),
     };
 
     this.ensureContextsByIds(nextTask.contextIds);
@@ -1080,13 +1125,18 @@ export class MemoryRepository implements AppRepository {
     return cloneTask(nextTask);
   }
 
-  async moveTask(taskId: string, bucket: Task["bucket"], contextIds: string[], projectId?: string | null): Promise<Task> {
+  async moveTask(
+    taskId: string,
+    bucket: Task["bucket"],
+    contextIds: string[],
+    projectId?: string | null,
+  ): Promise<Task> {
     const current = this.getExistingTask(taskId);
     return this.saveTask({
       ...current,
       bucket,
       contextIds: [...contextIds],
-      projectId: projectId ?? current.projectId
+      projectId: projectId ?? current.projectId,
     });
   }
 
@@ -1094,8 +1144,12 @@ export class MemoryRepository implements AppRepository {
     const current = this.getExistingTask(taskId);
     return this.saveTask({
       ...current,
-      bucket: scheduledFor ? "scheduled" : current.bucket === "scheduled" ? "next_action" : current.bucket,
-      scheduledFor
+      bucket: scheduledFor
+        ? "scheduled"
+        : current.bucket === "scheduled"
+          ? "next_action"
+          : current.bucket,
+      scheduledFor,
     });
   }
 
@@ -1104,19 +1158,21 @@ export class MemoryRepository implements AppRepository {
     const nextTask = await this.saveTask({
       ...current,
       status: "completed",
-      completedAt
+      completedAt,
     });
     if (current.recurringTemplateId) {
       const template = this.getExistingRecurringTemplate(current.recurringTemplateId);
       const nextLastGeneratedForDate =
-        current.recurrenceDueDate && (!template.lastGeneratedForDate || current.recurrenceDueDate > template.lastGeneratedForDate)
+        current.recurrenceDueDate &&
+        (!template.lastGeneratedForDate ||
+          current.recurrenceDueDate > template.lastGeneratedForDate)
           ? current.recurrenceDueDate
           : template.lastGeneratedForDate;
       this.recurringTemplates.set(current.recurringTemplateId, {
         ...cloneRecurringTemplate(template),
         lastGeneratedForDate: nextLastGeneratedForDate,
         pendingMissedOccurrences: 0,
-        updatedAt: nowIso()
+        updatedAt: nowIso(),
       });
     }
     return nextTask;
@@ -1127,14 +1183,14 @@ export class MemoryRepository implements AppRepository {
     const nextTask = await this.saveTask({
       ...current,
       status: "cancelled",
-      completedAt: null
+      completedAt: null,
     });
     if (current.recurringTemplateId) {
       const template = this.getExistingRecurringTemplate(current.recurringTemplateId);
       this.recurringTemplates.set(current.recurringTemplateId, {
         ...cloneRecurringTemplate(template),
         pendingMissedOccurrences: 0,
-        updatedAt: nowIso()
+        updatedAt: nowIso(),
       });
     }
     return nextTask;
@@ -1144,7 +1200,7 @@ export class MemoryRepository implements AppRepository {
     const current = this.getExistingTask(taskId);
     return this.saveTask({
       ...current,
-      pendingPastRecurrences: 0
+      pendingPastRecurrences: 0,
     });
   }
 
@@ -1167,12 +1223,14 @@ export class MemoryRepository implements AppRepository {
       if (findActiveRelationshipDrawTask(taskSnapshot, definition.category)) {
         nextSettings = {
           ...nextSettings,
-          [definition.processedDateKey]: date
+          [definition.processedDateKey]: date,
         };
         continue;
       }
 
-      const activity = pickRelationshipDrawActivity(getRelationshipDrawActivities(nextSettings, definition));
+      const activity = pickRelationshipDrawActivity(
+        getRelationshipDrawActivities(nextSettings, definition),
+      );
       if (!activity) {
         continue;
       }
@@ -1185,13 +1243,13 @@ export class MemoryRepository implements AppRepository {
         source: "manual",
         sourceExternalId: getRelationshipDrawSourceExternalId(definition.category, date),
         createdAt: `${date}T00:00:00.000Z`,
-        updatedAt: `${date}T00:00:00.000Z`
+        updatedAt: `${date}T00:00:00.000Z`,
       });
 
       taskSnapshot.push(createdTask);
       nextSettings = {
         ...nextSettings,
-        [definition.processedDateKey]: date
+        [definition.processedDateKey]: date,
       };
       createdCount += 1;
     }
@@ -1219,13 +1277,20 @@ export class MemoryRepository implements AppRepository {
   }
 
   async applyWeeklyCarryover(weekStartDate: string): Promise<number> {
-    const nextEvents = buildCarryoverEvents([...this.tasks.values()], [...this.events.values()], weekStartDate);
+    const nextEvents = buildCarryoverEvents(
+      [...this.tasks.values()],
+      [...this.events.values()],
+      weekStartDate,
+    );
     this.persistEvents(nextEvents);
     return nextEvents.length;
   }
 
   async getPomodoroState(): Promise<PomodoroState> {
-    return buildPomodoroState([...this.pomodoroSessions.values()], [...this.pomodoroSegments.values()]);
+    return buildPomodoroState(
+      [...this.pomodoroSessions.values()],
+      [...this.pomodoroSegments.values()],
+    );
   }
 
   async startPomodoro(options: PomodoroStartOptions = {}): Promise<PomodoroState> {
@@ -1238,13 +1303,21 @@ export class MemoryRepository implements AppRepository {
 
     const startedAt = nowIso();
     const kind = options.kind ?? state.nextSessionKind;
-    const cycleIndex = kind === "focus" ? state.nextFocusCycleIndex : Math.max(1, state.completedFocusCountInCycle || 1);
+    const cycleIndex =
+      kind === "focus"
+        ? state.nextFocusCycleIndex
+        : Math.max(1, state.completedFocusCountInCycle || 1);
     const session = createPomodoroSession(kind, startedAt, cycleIndex);
     this.pomodoroSessions.set(session.id, session);
 
     if (kind === "focus") {
       const normalizedTitle = options.taskId ? null : (options.title ?? "").trim() || null;
-      const segment = createPomodoroSegment(session.id, startedAt, options.taskId ?? null, normalizedTitle);
+      const segment = createPomodoroSegment(
+        session.id,
+        startedAt,
+        options.taskId ?? null,
+        normalizedTitle,
+      );
       this.pomodoroSegments.set(segment.id, segment);
     }
 
@@ -1254,7 +1327,7 @@ export class MemoryRepository implements AppRepository {
   async stopPomodoroSession(
     sessionId: string,
     status: "completed" | "cancelled",
-    at = nowIso()
+    at = nowIso(),
   ): Promise<PomodoroState> {
     const session = this.pomodoroSessions.get(sessionId);
 
@@ -1267,7 +1340,9 @@ export class MemoryRepository implements AppRepository {
     }
 
     const closedAt =
-      status === "completed" && session.status === "running" && new Date(at).getTime() >= new Date(session.endsAt).getTime()
+      status === "completed" &&
+      session.status === "running" &&
+      new Date(at).getTime() >= new Date(session.endsAt).getTime()
         ? session.endsAt
         : at;
 
@@ -1276,7 +1351,7 @@ export class MemoryRepository implements AppRepository {
       status,
       pausedRemainingMs: null,
       completedAt: status === "completed" ? closedAt : null,
-      cancelledAt: status === "cancelled" ? closedAt : null
+      cancelledAt: status === "cancelled" ? closedAt : null,
     });
 
     for (const [segmentId, segment] of this.pomodoroSegments.entries()) {
@@ -1286,7 +1361,7 @@ export class MemoryRepository implements AppRepository {
 
       this.pomodoroSegments.set(segmentId, {
         ...segment,
-        endedAt: closedAt
+        endedAt: closedAt,
       });
     }
 
@@ -1309,7 +1384,7 @@ export class MemoryRepository implements AppRepository {
     this.pomodoroSessions.set(sessionId, {
       ...session,
       status: "paused",
-      pausedRemainingMs: remainingMs
+      pausedRemainingMs: remainingMs,
     });
 
     for (const [segmentId, segment] of this.pomodoroSegments.entries()) {
@@ -1319,7 +1394,7 @@ export class MemoryRepository implements AppRepository {
 
       this.pomodoroSegments.set(segmentId, {
         ...segment,
-        endedAt: at
+        endedAt: at,
       });
     }
 
@@ -1337,14 +1412,16 @@ export class MemoryRepository implements AppRepository {
       return this.getPomodoroState();
     }
 
-    const remainingMs = session.pausedRemainingMs ?? Math.max(0, new Date(session.endsAt).getTime() - new Date(at).getTime());
+    const remainingMs =
+      session.pausedRemainingMs ??
+      Math.max(0, new Date(session.endsAt).getTime() - new Date(at).getTime());
     const nextEndsAt = new Date(new Date(at).getTime() + remainingMs).toISOString();
 
     this.pomodoroSessions.set(sessionId, {
       ...session,
       status: "running",
       endsAt: nextEndsAt,
-      pausedRemainingMs: null
+      pausedRemainingMs: null,
     });
 
     if (session.kind === "focus") {
@@ -1354,7 +1431,12 @@ export class MemoryRepository implements AppRepository {
         .at(-1);
 
       if (latestSegment) {
-        const nextSegment = createPomodoroSegment(sessionId, at, latestSegment.taskId, latestSegment.title);
+        const nextSegment = createPomodoroSegment(
+          sessionId,
+          at,
+          latestSegment.taskId,
+          latestSegment.title,
+        );
         this.pomodoroSegments.set(nextSegment.id, nextSegment);
       }
     }
@@ -1364,7 +1446,9 @@ export class MemoryRepository implements AppRepository {
 
   async completeExpiredPomodoroSessions(now = nowIso()): Promise<PomodoroState> {
     const expiredRunningSessions = [...this.pomodoroSessions.values()].filter(
-      (session) => session.status === "running" && new Date(session.endsAt).getTime() <= new Date(now).getTime()
+      (session) =>
+        session.status === "running" &&
+        new Date(session.endsAt).getTime() <= new Date(now).getTime(),
     );
 
     for (const session of expiredRunningSessions) {
@@ -1372,7 +1456,10 @@ export class MemoryRepository implements AppRepository {
     }
 
     const afterExpiry = [...this.pomodoroSessions.values()];
-    for (const sessionId of getPomodoroRunningBreakSessionIdsToAutoCompleteWhenReset(afterExpiry, now)) {
+    for (const sessionId of getPomodoroRunningBreakSessionIdsToAutoCompleteWhenReset(
+      afterExpiry,
+      now,
+    )) {
       await this.stopPomodoroSession(sessionId, "completed", now);
     }
 
@@ -1383,7 +1470,7 @@ export class MemoryRepository implements AppRepository {
     sessionId: string,
     taskId: string | null,
     title: string | null = null,
-    changedAt = nowIso()
+    changedAt = nowIso(),
   ): Promise<PomodoroState> {
     const session = this.pomodoroSessions.get(sessionId);
 
@@ -1396,7 +1483,7 @@ export class MemoryRepository implements AppRepository {
     }
 
     const openSegment = [...this.pomodoroSegments.values()].find(
-      (segment) => segment.sessionId === sessionId && segment.endedAt === null
+      (segment) => segment.sessionId === sessionId && segment.endedAt === null,
     );
 
     const normalizedTitle = taskId ? null : (title ?? "").trim() || null;
@@ -1408,7 +1495,7 @@ export class MemoryRepository implements AppRepository {
     if (openSegment) {
       this.pomodoroSegments.set(openSegment.id, {
         ...openSegment,
-        endedAt: changedAt
+        endedAt: changedAt,
       });
     }
 
@@ -1420,7 +1507,7 @@ export class MemoryRepository implements AppRepository {
   async listPomodoroSessions(date: string) {
     return buildPomodoroSessionDetails(
       [...this.pomodoroSessions.values()].filter((session) => session.date === date),
-      [...this.pomodoroSegments.values()]
+      [...this.pomodoroSegments.values()],
     );
   }
 
@@ -1430,7 +1517,7 @@ export class MemoryRepository implements AppRepository {
       [...this.pomodoroSegments.values()],
       [...this.tasks.values()],
       date,
-      now
+      now,
     );
   }
 
@@ -1453,13 +1540,16 @@ export class MemoryRepository implements AppRepository {
       (candidate) =>
         candidate.recurringTemplateId === templateId &&
         candidate.isRecurringInstance &&
-        candidate.status === "active"
+        candidate.status === "active",
     );
 
     return task ? cloneTask(task) : null;
   }
 
-  private findProcessingStartDate(template: RecurringTaskTemplate, activeTask: Task | null): string {
+  private findProcessingStartDate(
+    template: RecurringTaskTemplate,
+    activeTask: Task | null,
+  ): string {
     const candidates = [template.startDate];
 
     if (template.lastGeneratedForDate) {
@@ -1487,9 +1577,13 @@ export class MemoryRepository implements AppRepository {
       projectId: template.projectId,
       scheduledFor:
         template.targetBucket === "scheduled" && task.recurrenceDueDate
-          ? buildTaskFromRecurringTemplate(template, task.recurrenceDueDate, task.pendingPastRecurrences).scheduledFor
+          ? buildTaskFromRecurringTemplate(
+              template,
+              task.recurrenceDueDate,
+              task.pendingPastRecurrences,
+            ).scheduledFor
           : null,
-      updatedAt: nowIso()
+      updatedAt: nowIso(),
     };
   }
 
@@ -1508,9 +1602,12 @@ export class MemoryRepository implements AppRepository {
   private async decorateEntry(entry: DailyEntry): Promise<DailyEntry> {
     const [taskStats, pomodoroStats] = await Promise.all([
       this.computeDailyTaskStats(entry.date),
-      this.computeDailyPomodoroStats(entry.date)
+      this.computeDailyPomodoroStats(entry.date),
     ]);
-    return applyDailyPomodoroStats(applyDailyTaskStats(cloneEntry(entry), taskStats), pomodoroStats);
+    return applyDailyPomodoroStats(
+      applyDailyTaskStats(cloneEntry(entry), taskStats),
+      pomodoroStats,
+    );
   }
 
   private getExistingTask(taskId: string): Task {
@@ -1525,7 +1622,9 @@ export class MemoryRepository implements AppRepository {
   private persistEvents(events: TaskEvent[]): void {
     for (const event of events) {
       if (event.dedupeKey) {
-        const existing = [...this.events.values()].find((candidate) => candidate.dedupeKey === event.dedupeKey);
+        const existing = [...this.events.values()].find(
+          (candidate) => candidate.dedupeKey === event.dedupeKey,
+        );
         if (existing) {
           continue;
         }
@@ -1533,7 +1632,7 @@ export class MemoryRepository implements AppRepository {
 
       this.events.set(event.id, {
         ...event,
-        metadata: { ...event.metadata }
+        metadata: { ...event.metadata },
       });
     }
   }
@@ -1544,13 +1643,15 @@ export class MemoryRepository implements AppRepository {
         continue;
       }
 
-      const name = contextId.startsWith("context:") ? contextId.slice("context:".length).replace(/-/g, " ") : contextId;
+      const name = contextId.startsWith("context:")
+        ? contextId.slice("context:".length).replace(/-/g, " ")
+        : contextId;
       const timestamp = nowIso();
       this.contexts.set(contextId, {
         id: contextId,
         name,
         createdAt: timestamp,
-        updatedAt: timestamp
+        updatedAt: timestamp,
       });
     }
   }
@@ -1566,7 +1667,7 @@ export class MemoryRepository implements AppRepository {
       id,
       name,
       createdAt: nowIso(),
-      updatedAt: nowIso()
+      updatedAt: nowIso(),
     };
     this.contexts.set(id, context);
     return context;

@@ -13,13 +13,13 @@ export const formatDateLong = (date: string): string =>
     weekday: "long",
     year: "numeric",
     month: "long",
-    day: "numeric"
+    day: "numeric",
   }).format(new Date(`${date}T12:00:00`));
 
 export const formatDateShort = (date: string): string =>
   new Intl.DateTimeFormat("fr-CA", {
     month: "short",
-    day: "numeric"
+    day: "numeric",
   }).format(new Date(`${date}T12:00:00`));
 
 export const formatDateTimeShort = (value: string): string =>
@@ -27,7 +27,7 @@ export const formatDateTimeShort = (value: string): string =>
     month: "short",
     day: "numeric",
     hour: "2-digit",
-    minute: "2-digit"
+    minute: "2-digit",
   }).format(new Date(value));
 
 export const toLocalDateInputValue = (value: string | null): string => {
@@ -56,7 +56,7 @@ export const toLocalTimeInputValue = (value: string | null): string => {
 export const buildIsoFromLocalDateAndTime = (
   dateValue: string,
   timeValue: string,
-  fallbackIso: string | null = null
+  fallbackIso: string | null = null,
 ): string | null => {
   if (!dateValue) {
     return null;
@@ -120,7 +120,10 @@ export const formatTimerRemaining = (ms: number): string => {
 
 export const formatSecondsCompact = (totalSeconds: number): string => {
   if (totalSeconds < 60) {
-    return t("compactSeconds", { ns: "relativeTime", count: Math.max(0, Math.round(totalSeconds)) });
+    return t("compactSeconds", {
+      ns: "relativeTime",
+      count: Math.max(0, Math.round(totalSeconds)),
+    });
   }
 
   const minutes = Math.floor(totalSeconds / 60);

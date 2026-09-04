@@ -2,11 +2,11 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createEmptyDailyEntry, defaultAppSettings } from "../domain/daily-entry";
 import type { AiProposal, AppSettings, CoachPulseResult } from "../domain/types";
-import { CoachPulseService } from "../lib/ai/coach-pulse-service";
+import type { CoachPulseService } from "../lib/ai/coach-pulse-service";
 import { stringifyCommitmentDetail } from "../lib/ai/memory/detail";
 import { getTodayDate } from "../lib/date";
-import { renderWithApp } from "../test/test-utils";
 import { MemoryRepository } from "../lib/storage/memory-repository";
+import { renderWithApp } from "../test/test-utils";
 import { EveningClosurePage } from "./EveningClosurePage";
 
 const today = getTodayDate();
@@ -18,7 +18,10 @@ const enabledAiSettings = (): AppSettings => {
   return settings;
 };
 
-const buildCoachResult = (proposal: AiProposal, status: CoachPulseResult["message"]["status"] = "ok"): CoachPulseResult => ({
+const buildCoachResult = (
+  proposal: AiProposal,
+  status: CoachPulseResult["message"]["status"] = "ok",
+): CoachPulseResult => ({
   message: {
     id: "ai-message:close",
     surface: "coach_pulse",
@@ -34,7 +37,7 @@ const buildCoachResult = (proposal: AiProposal, status: CoachPulseResult["messag
       headline: "Cloture",
       read: "Lecture",
       move: null,
-      tomorrowFocusDraft: "Dormir tot"
+      tomorrowFocusDraft: "Dormir tot",
     }),
     bodyText: "Cloture",
     deltaClass: null,
@@ -42,17 +45,17 @@ const buildCoachResult = (proposal: AiProposal, status: CoachPulseResult["messag
     tokensPrompt: null,
     tokensCompletion: null,
     latencyMs: null,
-    createdAt: "2026-08-29T20:00:00.000Z"
+    createdAt: "2026-08-29T20:00:00.000Z",
   },
   pulse: {
     stance: "close",
     headline: "Cloture",
     read: "Lecture",
     move: null,
-    tomorrowFocusDraft: "Dormir tot"
+    tomorrowFocusDraft: "Dormir tot",
   },
   proposals: [proposal],
-  source: status === "ok" ? "cache" : "local"
+  source: status === "ok" ? "cache" : "local",
 });
 
 const tomorrowProposal = (): AiProposal => ({
@@ -63,7 +66,7 @@ const tomorrowProposal = (): AiProposal => ({
   status: "pending",
   appliedEntityId: null,
   decidedAt: null,
-  createdAt: "2026-08-29T20:00:00.000Z"
+  createdAt: "2026-08-29T20:00:00.000Z",
 });
 
 describe("EveningClosurePage coach proposals", () => {
@@ -72,7 +75,7 @@ describe("EveningClosurePage coach proposals", () => {
     await repository.initialize();
     const proposal = tomorrowProposal();
     const coachService = {
-      buildPulse: vi.fn(async () => buildCoachResult(proposal))
+      buildPulse: vi.fn(async () => buildCoachResult(proposal)),
     } as unknown as CoachPulseService;
 
     await repository.saveAiProposal(proposal);
@@ -83,7 +86,7 @@ describe("EveningClosurePage coach proposals", () => {
     await renderWithApp(<EveningClosurePage />, {
       repository,
       route: "/fermeture-soir",
-      contextOverrides: { coachService, settings: defaultAppSettings() }
+      contextOverrides: { coachService, settings: defaultAppSettings() },
     });
 
     await screen.findByText("Preparer la presentation");
@@ -101,7 +104,7 @@ describe("EveningClosurePage coach proposals", () => {
     await repository.initialize();
     const proposal = tomorrowProposal();
     const coachService = {
-      buildPulse: vi.fn(async () => buildCoachResult(proposal))
+      buildPulse: vi.fn(async () => buildCoachResult(proposal)),
     } as unknown as CoachPulseService;
 
     await repository.saveAiProposal(proposal);
@@ -112,7 +115,7 @@ describe("EveningClosurePage coach proposals", () => {
     await renderWithApp(<EveningClosurePage />, {
       repository,
       route: "/fermeture-soir",
-      contextOverrides: { coachService, settings: defaultAppSettings() }
+      contextOverrides: { coachService, settings: defaultAppSettings() },
     });
 
     await screen.findByText("Preparer la presentation");
@@ -136,13 +139,13 @@ describe("EveningClosurePage coach proposals", () => {
 
     const coachService = {
       resultFromMessage: vi.fn(async () => stored),
-      buildPulse: vi.fn(async () => stored)
+      buildPulse: vi.fn(async () => stored),
     } as unknown as CoachPulseService;
 
     await renderWithApp(<EveningClosurePage />, {
       repository,
       route: "/fermeture-soir",
-      contextOverrides: { coachService, settings: defaultAppSettings() }
+      contextOverrides: { coachService, settings: defaultAppSettings() },
     });
 
     expect(await screen.findByText("Cloture")).toBeInTheDocument();
@@ -162,13 +165,13 @@ describe("EveningClosurePage coach proposals", () => {
 
     const coachService = {
       resultFromMessage: vi.fn(async () => stored),
-      buildPulse: vi.fn(async () => stored)
+      buildPulse: vi.fn(async () => stored),
     } as unknown as CoachPulseService;
 
     await renderWithApp(<EveningClosurePage />, {
       repository,
       route: "/fermeture-soir",
-      contextOverrides: { coachService, settings: enabledAiSettings() }
+      contextOverrides: { coachService, settings: enabledAiSettings() },
     });
 
     expect(await screen.findByText("Cloture")).toBeInTheDocument();
@@ -180,8 +183,8 @@ describe("EveningClosurePage coach proposals", () => {
       expect.objectContaining({
         stance: "close",
         trigger: "auto",
-        snapshotInputs: expect.objectContaining({ productivityPulseWeekToDate: null })
-      })
+        snapshotInputs: expect.objectContaining({ productivityPulseWeekToDate: null }),
+      }),
     );
   });
 
@@ -195,13 +198,13 @@ describe("EveningClosurePage coach proposals", () => {
 
     const coachService = {
       resultFromMessage: vi.fn(async () => fallback),
-      buildPulse: vi.fn(async () => buildCoachResult(proposal))
+      buildPulse: vi.fn(async () => buildCoachResult(proposal)),
     } as unknown as CoachPulseService;
 
     await renderWithApp(<EveningClosurePage />, {
       repository,
       route: "/fermeture-soir",
-      contextOverrides: { coachService, settings: enabledAiSettings() }
+      contextOverrides: { coachService, settings: enabledAiSettings() },
     });
 
     await waitFor(() => {
@@ -227,18 +230,18 @@ describe("EveningClosurePage coach proposals", () => {
       createdAt: "2026-08-28T20:00:00.000Z",
       lastConfirmedAt: "2026-08-28T20:00:00.000Z",
       expiresAt: today,
-      pinned: false
+      pinned: false,
     });
     await repository.saveDailyEntry(createEmptyDailyEntry(today));
 
     const coachService = {
-      buildPulse: vi.fn(async () => buildCoachResult(proposal))
+      buildPulse: vi.fn(async () => buildCoachResult(proposal)),
     } as unknown as CoachPulseService;
 
     await renderWithApp(<EveningClosurePage />, {
       repository,
       route: "/fermeture-soir",
-      contextOverrides: { coachService, settings: defaultAppSettings() }
+      contextOverrides: { coachService, settings: defaultAppSettings() },
     });
 
     await screen.findByText("Preparer la presentation");
@@ -246,6 +249,8 @@ describe("EveningClosurePage coach proposals", () => {
     const archived = await repository.listAiMemories({ status: "archived", kind: "commitment" });
     expect(archived).toHaveLength(1);
     expect(archived[0]?.detail.match(/\[resolved:/g)).toHaveLength(1);
-    await expect(repository.listAiMemories({ status: "active", kind: "commitment" })).resolves.toHaveLength(0);
+    await expect(
+      repository.listAiMemories({ status: "active", kind: "commitment" }),
+    ).resolves.toHaveLength(0);
   });
 });

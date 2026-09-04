@@ -5,7 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
-  type PropsWithChildren
+  type PropsWithChildren,
 } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
@@ -19,18 +19,17 @@ import {
   getDebugEnabled,
   installDebugInstrumentation,
   logDebug,
-  setDebugEnabled as persistDebugEnabled
+  setDebugEnabled as persistDebugEnabled,
 } from "../lib/debug";
 import { createRepository, isTauriRuntime } from "../lib/storage/factory";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import type { AppRepository } from "../lib/storage/repository";
-import initialGoogleTasksExport from "../../Tasks.json";
 import { buildContextId } from "../lib/gtd/shared";
 import {
   AUTO_BACKUP_CHECK_INTERVAL_MS,
   isAutoBackupDue,
   isBackupDestinationConfigured,
-  isBackupDestinationMissing
+  isBackupDestinationMissing,
 } from "../lib/backup";
 import { PULSE_CHECK_INTERVAL_MS } from "../lib/ai/pulse/constants";
 import { runPulseEngine } from "../lib/ai/pulse/pulse-engine";
@@ -91,7 +90,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     installDebugInstrumentation();
     logDebug("info", "app.bootstrap", "Demarrage du bootstrap React", {
       debugEnabled: getDebugEnabled(),
-      tauriRuntime: isTauriRuntime()
+      tauriRuntime: isTauriRuntime(),
     });
   }, []);
 
@@ -110,7 +109,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
 
       appOpenIntervalsRef.current.push({
         startedAt,
-        endedAt: new Date().toISOString()
+        endedAt: new Date().toISOString(),
       });
       appOpenStartedAtRef.current = null;
     };
@@ -140,7 +139,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         if (appOpenStartedAtRef.current) {
           openIntervals.push({
             startedAt: appOpenStartedAtRef.current,
-            endedAt: new Date().toISOString()
+            endedAt: new Date().toISOString(),
           });
         }
 
@@ -155,7 +154,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
             }
           },
           appOpenIntervals: openIntervals,
-          focusSessionActive
+          focusSessionActive,
         });
 
         if ((result.result || result.recordedMissed > 0) && !cancelled) {
@@ -164,7 +163,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
 
         logDebug("info", "ai.pulse", "Evaluation pulse terminee", {
           ranSlot: result.ranSlot?.scopeKey ?? null,
-          recordedMissed: result.recordedMissed
+          recordedMissed: result.recordedMissed,
         });
       } catch (error) {
         logDebug("error", "ai.pulse", "Echec evaluation pulse", error);
@@ -217,7 +216,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
 
       if (!isBackupDestinationConfigured(settings.backupDestinationDir)) {
         logDebug("info", "storage.backup", "Backup automatique ignore: dossier non configure", {
-          trigger
+          trigger,
         });
         return;
       }
@@ -230,7 +229,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       logDebug("info", "storage.backup", "Verification backup automatique", {
         trigger,
         lastBackupAt: settings.lastBackupAt,
-        intervalHours: settings.autoBackupIntervalHours
+        intervalHours: settings.autoBackupIntervalHours,
       });
 
       try {
@@ -243,7 +242,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         const nextSettings = {
           ...settings,
           lastBackupAt: backup.createdAt,
-          lastBackupPath: backup.backupPath
+          lastBackupPath: backup.backupPath,
         };
 
         await repository.saveSettings(nextSettings);
@@ -297,7 +296,12 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         setSettings(defaultAppSettings());
         setStartupError(message);
         setLoading(false);
-        logDebug("error", "app.bootstrap", "Bootstrap en echec, fallback memoire active", error ?? message);
+        logDebug(
+          "error",
+          "app.bootstrap",
+          "Bootstrap en echec, fallback memoire active",
+          error ?? message,
+        );
       }
     };
 
@@ -307,46 +311,36 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         const nextRepository = await createRepository();
         markStage(t("startup.loadSettings"));
         let nextSettings = await nextRepository.getSettings();
-        const upgradedAiMaxTokens = applyLegacyAiMaxTokensUpgrade(nextSettings, new Date().toISOString());
+        const upgradedAiMaxTokens = applyLegacyAiMaxTokensUpgrade(
+          nextSettings,
+          new Date().toISOString(),
+        );
         if (upgradedAiMaxTokens) {
           nextSettings = upgradedAiMaxTokens;
           await nextRepository.saveSettings(nextSettings);
           logDebug("info", "app.bootstrap", "Migration aiMaxTokens terminee", {
-            aiMaxTokens: nextSettings.aiMaxTokens
+            aiMaxTokens: nextSettings.aiMaxTokens,
           });
         }
         const gtdOverview = await nextRepository.getGtdOverview();
-        const shouldImportGtd =
-          !nextSettings.gtdImportDoneAt ||
-          (gtdOverview.taskCount === 0 && gtdOverview.projectCount === 0);
-
         logDebug("info", "app.bootstrap", "Etat GTD au demarrage", {
           gtdImportDoneAt: nextSettings.gtdImportDoneAt,
           gtdOverview,
-          shouldImportGtd
         });
-
-        if (shouldImportGtd) {
-          markStage(t("startup.importGtd"));
-          const summary = await nextRepository.importGoogleTasksExport(initialGoogleTasksExport);
-          nextSettings = {
-            ...nextSettings,
-            gtdImportDoneAt: new Date().toISOString()
-          };
-          await nextRepository.saveSettings(nextSettings);
-          logDebug("info", "app.bootstrap", "Import Google Tasks termine", summary);
-        }
 
         if (!nextSettings.gtdReferencesMigrationDoneAt) {
           markStage(t("startup.migrateReferences"));
-          const movedCount = await nextRepository.moveTasksWithContextToBucket(buildContextId("Reading"), "reference");
+          const movedCount = await nextRepository.moveTasksWithContextToBucket(
+            buildContextId("Reading"),
+            "reference",
+          );
           nextSettings = {
             ...nextSettings,
-            gtdReferencesMigrationDoneAt: new Date().toISOString()
+            gtdReferencesMigrationDoneAt: new Date().toISOString(),
           };
           await nextRepository.saveSettings(nextSettings);
           logDebug("info", "app.bootstrap", "Migration Reading -> References terminee", {
-            movedCount
+            movedCount,
           });
         }
 
@@ -355,38 +349,27 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
           const movedCount = await nextRepository.moveTasksWithScheduledDatesToBucket("scheduled");
           nextSettings = {
             ...nextSettings,
-            gtdScheduledNormalizationDoneAt: new Date().toISOString()
+            gtdScheduledNormalizationDoneAt: new Date().toISOString(),
           };
           await nextRepository.saveSettings(nextSettings);
           logDebug("info", "app.bootstrap", "Migration vers Scheduled terminee", {
-            movedCount
-          });
-        }
-
-        if (!nextSettings.gtdRecurringCollapseDoneAt) {
-          markStage(t("startup.collapseRecurring"));
-          const changedCount = await nextRepository.collapseGoogleRecurringTasks(initialGoogleTasksExport);
-          nextSettings = {
-            ...nextSettings,
-            gtdRecurringCollapseDoneAt: new Date().toISOString()
-          };
-          await nextRepository.saveSettings(nextSettings);
-          logDebug("info", "app.bootstrap", "Consolidation des recurrentes terminee", {
-            changedCount
+            movedCount,
           });
         }
 
         markStage(t("startup.generateRecurrences"));
         const generatedCount = await nextRepository.generateDueRecurringTasks(getTodayDate());
         logDebug("info", "app.bootstrap", "Generation des recurrences terminee", {
-          generatedCount
+          generatedCount,
         });
 
         markStage(t("startup.generateRelationship"));
-        const generatedRelationshipCount = await nextRepository.generateDailyRelationshipTasks(getTodayDate());
+        const generatedRelationshipCount = await nextRepository.generateDailyRelationshipTasks(
+          getTodayDate(),
+        );
         nextSettings = await nextRepository.getSettings();
         logDebug("info", "app.bootstrap", "Generation des activites relationnelles terminee", {
-          generatedRelationshipCount
+          generatedRelationshipCount,
         });
 
         markStage(t("startup.finalize"));
@@ -401,16 +384,13 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
           logDebug("info", "app.bootstrap", "Bootstrap termine");
         }
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : t("startup.unknownError");
+        const message = error instanceof Error ? error.message : t("startup.unknownError");
         await activateFallback(message, error);
       }
     };
 
     const timeoutId = window.setTimeout(() => {
-      activateFallback(
-        t("startup.timeout", { stage: startupStageRef.current })
-      ).catch((error) => {
+      activateFallback(t("startup.timeout", { stage: startupStageRef.current })).catch((error) => {
         logDebug("error", "app.bootstrap", "Echec inattendu du fallback (timeout)", error);
       });
     }, 8_000);
@@ -433,7 +413,9 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
             <p className="eyebrow">{tCommon("brand")}</p>
             <h1>{tCommon("startup.splashTitle")}</h1>
             <p>{tCommon("startup.splashBody")}</p>
-            <p><strong>{tCommon("startup.stageLabel")}</strong> {startupStage}</p>
+            <p>
+              <strong>{tCommon("startup.stageLabel")}</strong> {startupStage}
+            </p>
           </div>
         </div>
         <DebugPanel enabled={true} forced={debugEnabled || true} />
@@ -463,7 +445,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         debugEnabled,
         setDebugEnabled,
         pomodoro,
-        pulseRevision
+        pulseRevision,
       }}
     >
       {startupError ? (

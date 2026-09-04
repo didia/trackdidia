@@ -42,7 +42,9 @@ interface TaskListMapping {
 const normalizeListTitle = (value: string): string => value.replace(/\s+\(\d+\)\s*$/, "").trim();
 
 const getScheduledFor = (task: GoogleTask): string | null =>
-  task.scheduled_time?.find((item) => item.current)?.start ?? task.scheduled_time?.[0]?.start ?? null;
+  task.scheduled_time?.find((item) => item.current)?.start ??
+  task.scheduled_time?.[0]?.start ??
+  null;
 
 const getSortTimestamp = (task: GoogleTask): string =>
   getScheduledFor(task) ?? task.updated ?? task.created ?? nowIso();
@@ -53,7 +55,7 @@ const buildContext = (name: string): TaskContext => {
     id: buildContextId(name),
     name,
     createdAt: timestamp,
-    updatedAt: timestamp
+    updatedAt: timestamp,
   };
 };
 
@@ -121,14 +123,14 @@ const buildProjectFromGoogleTask = (task: GoogleTask, contextId: string): Projec
   source: "google_import",
   sourceExternalId: task.id,
   createdAt: task.created ?? task.updated ?? nowIso(),
-  updatedAt: task.updated ?? task.created ?? nowIso()
+  updatedAt: task.updated ?? task.created ?? nowIso(),
 });
 
 const buildTaskFromGoogleTask = (
   task: GoogleTask,
   mapping: TaskListMapping,
   contextIds: string[],
-  recurrenceTaskIds: string[] = []
+  recurrenceTaskIds: string[] = [],
 ): Task => {
   const scheduledFor = getScheduledFor(task);
   const recurrenceGroupId = task.task_recurrence_id ?? null;
@@ -152,7 +154,7 @@ const buildTaskFromGoogleTask = (
     source: "google_import",
     sourceExternalId: recurrenceGroupId ?? task.id,
     createdAt: task.created ?? task.updated ?? nowIso(),
-    updatedAt: task.updated ?? task.created ?? nowIso()
+    updatedAt: task.updated ?? task.created ?? nowIso(),
   };
 };
 
@@ -223,11 +225,18 @@ export const buildGoogleTasksImport = (rawJson: unknown): ImportPayload => {
     }
   }
 
-  for (const [recurrenceId, group] of recurringGroups.entries()) {
-    const sortedGroup = [...group].sort((left, right) => getSortTimestamp(right.task).localeCompare(getSortTimestamp(left.task)));
+  for (const [_recurrenceId, group] of recurringGroups.entries()) {
+    const sortedGroup = [...group].sort((left, right) =>
+      getSortTimestamp(right.task).localeCompare(getSortTimestamp(left.task)),
+    );
     const latest = sortedGroup[0];
     const sourceTaskIds = sortedGroup.map((item) => item.task.id);
-    const normalizedTask = buildTaskFromGoogleTask(latest.task, latest.mapping, latest.contextIds, sourceTaskIds);
+    const normalizedTask = buildTaskFromGoogleTask(
+      latest.task,
+      latest.mapping,
+      latest.contextIds,
+      sourceTaskIds,
+    );
     taskMap.set(normalizedTask.id, normalizedTask);
     recurringSourceTaskIds[normalizedTask.id] = sourceTaskIds;
   }
@@ -241,7 +250,7 @@ export const buildGoogleTasksImport = (rawJson: unknown): ImportPayload => {
       importedTasks: taskMap.size,
       importedProjects: projectMap.size,
       importedContexts: contextMap.size,
-      skippedCompletedTasks
-    }
+      skippedCompletedTasks,
+    },
   };
 };

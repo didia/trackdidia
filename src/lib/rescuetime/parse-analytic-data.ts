@@ -15,7 +15,7 @@ const findSecondsColumnIndex = (rowHeaders: unknown[]): number => {
 
   for (const candidate of candidates) {
     const index = normalized.findIndex(
-      (header) => header.includes(candidate.replace(/_/g, " ")) || header === candidate
+      (header) => header.includes(candidate.replace(/_/g, " ")) || header === candidate,
     );
     if (index >= 0) {
       return index;
@@ -27,7 +27,7 @@ const findSecondsColumnIndex = (rowHeaders: unknown[]): number => {
 
 const findNameColumnIndex = (rowHeaders: unknown[]): number => {
   const normalized = rowHeaders.map((header) => String(header).toLowerCase());
-  const categoryIndex = normalized.findIndex((header) => header === "category");
+  const categoryIndex = normalized.indexOf("category");
   if (categoryIndex >= 0) {
     return categoryIndex;
   }
@@ -55,7 +55,7 @@ export const parseRankRows = (payload: RescueTimeAnalyticPayload): ParsedRescueT
     return {
       name,
       seconds,
-      hours: seconds / 3600
+      hours: seconds / 3600,
     };
   });
 
@@ -64,7 +64,7 @@ export const parseRankRows = (payload: RescueTimeAnalyticPayload): ParsedRescueT
 
 export const resolveObjectiveSeconds = (
   rows: ParsedRescueTimeRow[],
-  thing: string | null
+  thing: string | null,
 ): number => {
   if (thing) {
     const match = rows.find((row) => row.name === thing);

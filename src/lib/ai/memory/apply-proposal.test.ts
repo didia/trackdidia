@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { AiProposal } from "../../../domain/types";
 import { MemoryRepository } from "../../storage/memory-repository";
-import { applyAcceptedProposal, buildMemoryFromProposal, memoryIdFromProposal } from "./apply-proposal";
+import {
+  applyAcceptedProposal,
+  buildMemoryFromProposal,
+  memoryIdFromProposal,
+} from "./apply-proposal";
 
 describe("applyAcceptedProposal", () => {
   const seedProposal = async (repository: MemoryRepository, proposal: AiProposal) => {
@@ -18,12 +22,12 @@ describe("applyAcceptedProposal", () => {
         kind: "preference",
         statement: "Prefere un seul conseil concret",
         confidence: 0.85,
-        source: "ai_extracted"
+        source: "ai_extracted",
       }),
       status: "pending",
       appliedEntityId: null,
       decidedAt: null,
-      createdAt: "2026-08-29T20:00:00.000Z"
+      createdAt: "2026-08-29T20:00:00.000Z",
     };
 
     await seedProposal(repository, proposal);
@@ -49,12 +53,12 @@ describe("applyAcceptedProposal", () => {
       payloadJson: JSON.stringify({
         statement: "8 pomodoros demain",
         metricKey: "pomodoris",
-        target: 8
+        target: 8,
       }),
       status: "pending",
       appliedEntityId: null,
       decidedAt: null,
-      createdAt: "2026-08-28T20:00:00.000Z"
+      createdAt: "2026-08-28T20:00:00.000Z",
     };
 
     await seedProposal(repository, proposal);
@@ -73,12 +77,12 @@ describe("applyAcceptedProposal", () => {
         kind: "preference",
         statement: "Prefere un seul conseil concret",
         confidence: 0.85,
-        source: "ai_extracted"
+        source: "ai_extracted",
       }),
       status: "pending",
       appliedEntityId: null,
       decidedAt: null,
-      createdAt: "2026-08-29T20:00:00.000Z"
+      createdAt: "2026-08-29T20:00:00.000Z",
     };
 
     await seedProposal(repository, proposal);
@@ -87,14 +91,14 @@ describe("applyAcceptedProposal", () => {
     await repository.saveAiMemory(memory!);
 
     const retried = await applyAcceptedProposal(repository, proposal, "2026-08-29");
-    expect(retried?.id).toBe(memory!.id);
+    expect(retried?.id).toBe(memory?.id);
 
     const stored = await repository.listAiMemories({ status: "active", kind: "preference" });
     expect(stored).toHaveLength(1);
 
     const decided = await repository.listAiProposals(proposal.messageId);
     expect(decided[0]?.status).toBe("accepted");
-    expect(decided[0]?.appliedEntityId).toBe(memory!.id);
+    expect(decided[0]?.appliedEntityId).toBe(memory?.id);
   });
 
   it("does not duplicate memory rows when accept is retried", async () => {
@@ -107,12 +111,12 @@ describe("applyAcceptedProposal", () => {
         kind: "preference",
         statement: "Prefere un seul conseil concret",
         confidence: 0.85,
-        source: "ai_extracted"
+        source: "ai_extracted",
       }),
       status: "pending",
       appliedEntityId: null,
       decidedAt: null,
-      createdAt: "2026-08-29T20:00:00.000Z"
+      createdAt: "2026-08-29T20:00:00.000Z",
     };
 
     await seedProposal(repository, proposal);

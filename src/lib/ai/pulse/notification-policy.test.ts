@@ -22,7 +22,7 @@ const buildMessage = (partial: Partial<AiMessage>): AiMessage => ({
   tokensCompletion: null,
   latencyMs: null,
   createdAt: "2026-08-29T13:00:00.000Z",
-  ...partial
+  ...partial,
 });
 
 describe("notification-policy", () => {
@@ -33,7 +33,7 @@ describe("notification-policy", () => {
       nowIso: "2026-08-29T14:00:00",
       dayOfWeek: 5,
       todayMessages: [],
-      focusSessionActive: false
+      focusSessionActive: false,
     });
 
     expect(decision.shouldNotify).toBe(false);
@@ -47,7 +47,7 @@ describe("notification-policy", () => {
       nowIso: "2026-08-29T20:00:00",
       dayOfWeek: 5,
       todayMessages: [buildMessage({ scopeKey: "2026-08-29#13", deltaClass: "stall" })],
-      focusSessionActive: false
+      focusSessionActive: false,
     });
 
     expect(decision.shouldNotify).toBe(true);
@@ -62,9 +62,9 @@ describe("notification-policy", () => {
       dayOfWeek: 5,
       todayMessages: [
         buildMessage({ scopeKey: "2026-08-29#13", deltaClass: "stall", notified: true }),
-        buildMessage({ scopeKey: "2026-08-29#13", id: "ai-message:prev", deltaClass: "stall" })
+        buildMessage({ scopeKey: "2026-08-29#13", id: "ai-message:prev", deltaClass: "stall" }),
       ],
-      focusSessionActive: false
+      focusSessionActive: false,
     });
 
     expect(decision.shouldNotify).toBe(false);
@@ -78,7 +78,7 @@ describe("notification-policy", () => {
       nowIso: "2026-08-29T20:00:00",
       dayOfWeek: 6,
       todayMessages: [buildMessage({ deltaClass: "stall" })],
-      focusSessionActive: false
+      focusSessionActive: false,
     });
 
     expect(decision.shouldNotify).toBe(false);
@@ -92,7 +92,7 @@ describe("notification-policy", () => {
       nowIso: "2026-08-29T20:00:00",
       dayOfWeek: 5,
       todayMessages: [buildMessage({ deltaClass: "stall" })],
-      focusSessionActive: true
+      focusSessionActive: true,
     });
 
     expect(decision.shouldNotify).toBe(false);

@@ -4,7 +4,7 @@ import {
   rescueTimeLabelsMatch,
   scheduleDaysInWeek,
   scoreLessGoal,
-  scoreMoreGoal
+  scoreMoreGoal,
 } from "./rescuetime-goals";
 
 describe("rescuetime-goals", () => {
@@ -30,7 +30,7 @@ describe("rescuetime-goals", () => {
           actualHours: 1,
           weeklyTargetHours: 2,
           achievement: 0.5,
-          scheduleLabel: "24x7"
+          scheduleLabel: "24x7",
         },
         {
           goalId: 2,
@@ -39,10 +39,10 @@ describe("rescuetime-goals", () => {
           actualHours: 2,
           weeklyTargetHours: 2,
           achievement: 1,
-          scheduleLabel: "24x7"
-        }
+          scheduleLabel: "24x7",
+        },
       ],
-      { rescuetimeConfigured: true }
+      { rescuetimeConfigured: true },
     );
 
     expect(snapshot.totalAchievement).toBe(1.5);

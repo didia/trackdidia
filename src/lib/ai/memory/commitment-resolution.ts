@@ -1,5 +1,11 @@
 import { resolveMetricValue } from "../../../domain/daily-entry";
-import type { AiMemory, CoachPulseStance, DailyEntry, MetricKey, PrincipleKey } from "../../../domain/types";
+import type {
+  AiMemory,
+  CoachPulseStance,
+  DailyEntry,
+  MetricKey,
+  PrincipleKey,
+} from "../../../domain/types";
 import type { AppRepository } from "../../storage/repository";
 import { parseCommitmentDetail } from "./detail";
 
@@ -50,7 +56,7 @@ export const resolveCommitment = (memory: AiMemory, entry: DailyEntry): Commitme
       target,
       currentValue,
       progressLabel,
-      met: currentValue === null ? null : met
+      met: currentValue === null ? null : met,
     };
   }
 
@@ -66,7 +72,7 @@ export const resolveCommitment = (memory: AiMemory, entry: DailyEntry): Commitme
       target,
       currentValue,
       progressLabel: formatMetricProgress(currentValue, target),
-      met
+      met,
     };
   }
 
@@ -78,12 +84,14 @@ export const resolveCommitment = (memory: AiMemory, entry: DailyEntry): Commitme
     target,
     currentValue: null,
     progressLabel: "Engagement sans metrique liee",
-    met: null
+    met: null,
   };
 };
 
 export const findActiveCommitment = (memories: AiMemory[]): AiMemory | null => {
-  const commitments = memories.filter((memory) => memory.kind === "commitment" && memory.status === "active");
+  const commitments = memories.filter(
+    (memory) => memory.kind === "commitment" && memory.status === "active",
+  );
   if (commitments.length === 0) {
     return null;
   }
@@ -96,7 +104,7 @@ export const findDueCommitment = async (
   repository: AppRepository,
   date: string,
   stance: CoachPulseStance,
-  activeMemories: AiMemory[]
+  activeMemories: AiMemory[],
 ): Promise<AiMemory | null> => {
   const active = findActiveCommitment(activeMemories);
   if (active) {
@@ -109,13 +117,16 @@ export const findDueCommitment = async (
 
   const archivedToday = await repository.listAiMemories({
     status: "archived",
-    kind: "commitment"
+    kind: "commitment",
   });
 
   return archivedToday.find((memory) => memory.expiresAt === date) ?? null;
 };
 
-export const buildCloseMemoryIds = (selectedIds: string[], dueCommitment: AiMemory | null): string[] => {
+export const buildCloseMemoryIds = (
+  selectedIds: string[],
+  dueCommitment: AiMemory | null,
+): string[] => {
   const ids = new Set(selectedIds);
   if (dueCommitment) {
     ids.add(dueCommitment.id);

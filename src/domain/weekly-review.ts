@@ -8,7 +8,7 @@ import type {
   WeeklyReviewStatus,
   WeeklyReviewSummary,
   WeeklyRitualChecklist,
-  WeeklyRitualSectionKey
+  WeeklyRitualSectionKey,
 } from "./types";
 
 export const phoneScreenTargetMinutes = 840;
@@ -23,7 +23,7 @@ const emptyWeeklyNotes = (): WeeklyReviewNotes => ({
   calendrier: "",
   gtd: "",
   alignement: "",
-  dimanche: ""
+  dimanche: "",
 });
 
 const emptyWeeklyChecklist = (): WeeklyRitualChecklist => ({
@@ -34,7 +34,7 @@ const emptyWeeklyChecklist = (): WeeklyRitualChecklist => ({
   calendrier: false,
   gtd: false,
   alignement: false,
-  dimanche: false
+  dimanche: false,
 });
 
 const clampAtZero = (value: number): number => (Number.isFinite(value) ? Math.max(0, value) : 0);
@@ -83,49 +83,49 @@ export const createEmptyWeeklyReview = (weekStartDate: string): WeeklyReview => 
     status: "draft",
     notes: emptyWeeklyNotes(),
     ritualChecklist: emptyWeeklyChecklist(),
-    updatedAt: new Date().toISOString()
+    updatedAt: new Date().toISOString(),
   };
 };
 
 export const cloneWeeklyReview = (review: WeeklyReview): WeeklyReview => ({
   ...review,
   notes: { ...review.notes },
-  ritualChecklist: { ...review.ritualChecklist }
+  ritualChecklist: { ...review.ritualChecklist },
 });
 
 export const updateWeeklyReviewNote = (
   review: WeeklyReview,
   key: WeeklyRitualSectionKey,
-  value: string
+  value: string,
 ): WeeklyReview => ({
   ...cloneWeeklyReview(review),
   notes: {
     ...review.notes,
-    [key]: value
+    [key]: value,
   },
-  updatedAt: new Date().toISOString()
+  updatedAt: new Date().toISOString(),
 });
 
 export const updateWeeklyReviewChecklist = (
   review: WeeklyReview,
   key: WeeklyRitualSectionKey,
-  value: boolean
+  value: boolean,
 ): WeeklyReview => ({
   ...cloneWeeklyReview(review),
   ritualChecklist: {
     ...review.ritualChecklist,
-    [key]: value
+    [key]: value,
   },
-  updatedAt: new Date().toISOString()
+  updatedAt: new Date().toISOString(),
 });
 
 export const applyWeeklyReviewTransition = (
   review: WeeklyReview,
-  status: WeeklyReviewStatus
+  status: WeeklyReviewStatus,
 ): WeeklyReview => ({
   ...cloneWeeklyReview(review),
   status,
-  updatedAt: new Date().toISOString()
+  updatedAt: new Date().toISOString(),
 });
 
 const buildDaySummary = (entry: DailyEntry): WeeklyReviewDaySummary => ({
@@ -138,7 +138,7 @@ const buildDaySummary = (entry: DailyEntry): WeeklyReviewDaySummary => ({
   calorieExpenditure: resolveMetricValue(entry, "depenseCalorique") ?? 0,
   disciplineScore: computeDisciplineScore(entry),
   tasksAdded: resolveMetricValue(entry, "tachesAjoutes") ?? 0,
-  tasksCompleted: resolveMetricValue(entry, "tachesRealises") ?? 0
+  tasksCompleted: resolveMetricValue(entry, "tachesRealises") ?? 0,
 });
 
 export const localWeeklyScoreAxes = (summary: WeeklyReviewSummary): number[] => [
@@ -148,7 +148,7 @@ export const localWeeklyScoreAxes = (summary: WeeklyReviewSummary): number[] => 
   scoreAgainstTarget(summary.pomodoris, 100),
   scoreAgainstTarget(summary.discipline, 100),
   scoreAgainstTarget(summary.tasksCompletionRate, 100),
-  scoreAgainstTarget(summary.physicalActivity, 100)
+  scoreAgainstTarget(summary.physicalActivity, 100),
 ];
 
 export const applyWeeklyScoreExternalAxes = (
@@ -156,7 +156,7 @@ export const applyWeeklyScoreExternalAxes = (
   external: {
     rescueTimeGoalsScore: number | null;
     productivityPulse: number | null;
-  }
+  },
 ): WeeklyReviewSummary => {
   const axisScores = [...localWeeklyScoreAxes(summary)];
 
@@ -172,13 +172,13 @@ export const applyWeeklyScoreExternalAxes = (
     ...summary,
     rescueTimeGoalsScore: external.rescueTimeGoalsScore,
     productivityPulse: external.productivityPulse,
-    weeklyScore: average(axisScores)
+    weeklyScore: average(axisScores),
   };
 };
 
 export const buildWeeklyReviewSummary = (
   weekStartDate: string,
-  entries: DailyEntry[]
+  entries: DailyEntry[],
 ): WeeklyReviewSummary => {
   const normalized = buildWeekDates(weekStartDate);
   const orderedEntries = [...entries].sort((left, right) => left.date.localeCompare(right.date));
@@ -224,11 +224,11 @@ export const buildWeeklyReviewSummary = (
     productivityPulse: null,
     rescueTimeGoalsScore: null,
     weeklyScore: 0,
-    days: daySummaries
+    days: daySummaries,
   };
 
   return {
     ...baseSummary,
-    weeklyScore: average(localWeeklyScoreAxes(baseSummary))
+    weeklyScore: average(localWeeklyScoreAxes(baseSummary)),
   };
 };

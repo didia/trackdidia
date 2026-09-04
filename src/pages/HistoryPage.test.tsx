@@ -2,8 +2,8 @@ import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createEmptyDailyEntry } from "../domain/daily-entry";
 import { MemoryRepository } from "../lib/storage/memory-repository";
-import { HistoryPage } from "./HistoryPage";
 import { renderWithApp } from "../test/test-utils";
+import { HistoryPage } from "./HistoryPage";
 
 describe("HistoryPage", () => {
   it("loads an existing day and saves edits", async () => {

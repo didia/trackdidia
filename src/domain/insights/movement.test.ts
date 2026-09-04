@@ -19,7 +19,7 @@ const buildSession = (overrides: Partial<PomodoroSessionDetails>): PomodoroSessi
   activeTaskId: null,
   activeLabel: null,
   taskIds: [],
-  ...overrides
+  ...overrides,
 });
 
 const buildTask = (overrides: Partial<Task>): Task => ({
@@ -43,7 +43,7 @@ const buildTask = (overrides: Partial<Task>): Task => ({
   sourceExternalId: null,
   createdAt: sinceIso,
   updatedAt: sinceIso,
-  ...overrides
+  ...overrides,
 });
 
 describe("movement insight module", () => {
@@ -53,7 +53,7 @@ describe("movement insight module", () => {
       nowIso,
       focusSessions: [buildSession({ completedAt: "2026-02-01T10:00:00.000Z" })],
       tasks: [],
-      appOpenIntervals: []
+      appOpenIntervals: [],
     });
 
     expect(movement.completedFocusSessionCount).toBe(1);
@@ -67,7 +67,7 @@ describe("movement insight module", () => {
       nowIso,
       focusSessions: [],
       tasks: [buildTask({ status: "completed", completedAt: "2026-02-01T09:00:00.000Z" })],
-      appOpenIntervals: []
+      appOpenIntervals: [],
     });
 
     expect(movement.completedTaskCount).toBe(1);
@@ -80,7 +80,7 @@ describe("movement insight module", () => {
       nowIso,
       focusSessions: [buildSession({ status: "cancelled", completedAt: null })],
       tasks: [buildTask({ status: "active" })],
-      appOpenIntervals: []
+      appOpenIntervals: [],
     });
 
     expect(movement.moved).toBe(false);
@@ -92,7 +92,7 @@ describe("movement insight module", () => {
       nowIso,
       focusSessions: [buildSession({ completedAt: "2026-02-01T07:00:00.000Z" })],
       tasks: [buildTask({ status: "completed", completedAt: "2026-02-01T13:00:00.000Z" })],
-      appOpenIntervals: []
+      appOpenIntervals: [],
     });
 
     expect(movement.moved).toBe(false);
@@ -102,9 +102,11 @@ describe("movement insight module", () => {
     const movement = computeWindowMovement({
       sinceIso,
       nowIso,
-      focusSessions: [buildSession({ kind: "short_break", completedAt: "2026-02-01T10:00:00.000Z" })],
+      focusSessions: [
+        buildSession({ kind: "short_break", completedAt: "2026-02-01T10:00:00.000Z" }),
+      ],
       tasks: [],
-      appOpenIntervals: []
+      appOpenIntervals: [],
     });
 
     expect(movement.completedFocusSessionCount).toBe(0);
@@ -119,8 +121,8 @@ describe("movement insight module", () => {
       appOpenIntervals: [
         { startedAt: "2026-02-01T07:30:00.000Z", endedAt: "2026-02-01T09:00:00.000Z" },
         { startedAt: "2026-02-01T08:30:00.000Z", endedAt: "2026-02-01T10:00:00.000Z" },
-        { startedAt: "2026-02-01T11:00:00.000Z", endedAt: "2026-02-01T13:00:00.000Z" }
-      ]
+        { startedAt: "2026-02-01T11:00:00.000Z", endedAt: "2026-02-01T13:00:00.000Z" },
+      ],
     });
 
     // Merged, clamped overlap: [08:00-10:00] (2h) + [11:00-12:00] (1h) = 3h out of a 4h window.

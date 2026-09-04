@@ -1,11 +1,8 @@
-import {
-  computeYearProgressFraction,
-  isAnnualGoalOnPace
-} from "../../../domain/annual-goals";
+import { computeYearProgressFraction, isAnnualGoalOnPace } from "../../../domain/annual-goals";
 import type {
   AiPayloadScope,
   AnnualGoalProgressPoint,
-  AnnualGoalSnapshot
+  AnnualGoalSnapshot,
 } from "../../../domain/types";
 import { getTodayDate } from "../../date";
 import type { Surface } from "./types";
@@ -44,7 +41,7 @@ const sanitizeGoal = (
   snapshot: AnnualGoalSnapshot,
   evaluationMonthKey: string,
   expectedProgressRatio: number,
-  includeStructure: boolean
+  includeStructure: boolean,
 ): GoalPacingSnapshotGoal => {
   const evaluation = snapshot.goal.evaluations[evaluationMonthKey] ?? null;
 
@@ -59,11 +56,14 @@ const sanitizeGoal = (
     onPace: isAnnualGoalOnPace(snapshot.progressRatio, expectedProgressRatio),
     monthlyProgress: snapshot.monthlyProgress,
     evaluationScore: evaluation?.score ?? null,
-    evaluationTrend: evaluation?.trend ?? null
+    evaluationTrend: evaluation?.trend ?? null,
   };
 };
 
-export const buildGoalPacingSnapshot = (inputs: GoalPacingSnapshotInputs, scope: AiPayloadScope): GoalPacingSnapshot => {
+export const buildGoalPacingSnapshot = (
+  inputs: GoalPacingSnapshotInputs,
+  scope: AiPayloadScope,
+): GoalPacingSnapshot => {
   const includeStructure = scope === "metrics_and_structure" || scope === "full";
   const expectedProgressRatio = computeYearProgressFraction(inputs.year, inputs.asOfDate);
 
@@ -74,15 +74,15 @@ export const buildGoalPacingSnapshot = (inputs: GoalPacingSnapshotInputs, scope:
     asOfDate: inputs.asOfDate,
     expectedProgressRatio,
     goals: inputs.goalSnapshots.map((snapshot) =>
-      sanitizeGoal(snapshot, inputs.evaluationMonthKey, expectedProgressRatio, includeStructure)
-    )
+      sanitizeGoal(snapshot, inputs.evaluationMonthKey, expectedProgressRatio, includeStructure),
+    ),
   };
 };
 
 export const resolveGoalPacingSnapshotInputs = async (
   repository: import("../../storage/repository").AppRepository,
   year: number,
-  options: { asOfDate?: string; evaluationMonthKey?: string } = {}
+  options: { asOfDate?: string; evaluationMonthKey?: string } = {},
 ): Promise<GoalPacingSnapshotInputs> => {
   const asOfDate = options.asOfDate ?? getTodayDate();
   const evaluationMonthKey = options.evaluationMonthKey ?? asOfDate.slice(0, 7);
@@ -92,6 +92,6 @@ export const resolveGoalPacingSnapshotInputs = async (
     year,
     asOfDate,
     evaluationMonthKey,
-    goalSnapshots
+    goalSnapshots,
   };
 };

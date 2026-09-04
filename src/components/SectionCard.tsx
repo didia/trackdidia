@@ -1,4 +1,4 @@
-import { useId, type PropsWithChildren } from "react";
+import { type PropsWithChildren, useId } from "react";
 
 interface SectionCardProps extends PropsWithChildren {
   title: string;

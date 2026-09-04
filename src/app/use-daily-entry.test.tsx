@@ -1,8 +1,8 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
+import { defaultAppSettings, updateNote } from "../domain/daily-entry";
 import { CoachPulseService } from "../lib/ai/coach-pulse-service";
 import type { AiProvider } from "../lib/ai/provider";
-import { defaultAppSettings, updateNote } from "../domain/daily-entry";
 import { getTodayDate } from "../lib/date";
 import { buildPomodoroSessionDetails, buildPomodoroState } from "../lib/pomodoro/engine";
 import { MemoryRepository } from "../lib/storage/memory-repository";
@@ -14,7 +14,7 @@ class FakeProvider implements AiProvider {
     return {
       text: "{}",
       model: "test",
-      usage: { tokensPrompt: 0, tokensCompletion: 0, latencyMs: 0 }
+      usage: { tokensPrompt: 0, tokensCompletion: 0, latencyMs: 0 },
     };
   }
 }
@@ -47,9 +47,9 @@ const wrapRepository = (repository: MemoryRepository) => {
       completeCurrentTask: async () => undefined,
       completeNow: async () => undefined,
       cancelCurrent: async () => undefined,
-      switchTask: async () => undefined
+      switchTask: async () => undefined,
     },
-    pulseRevision: 0
+    pulseRevision: 0,
   };
 
   return ({ children }: PropsWithChildren) => (
@@ -71,7 +71,7 @@ describe("useDailyEntry", () => {
     });
 
     const { result } = renderHook(() => useDailyEntry(today), {
-      wrapper: wrapRepository(repository)
+      wrapper: wrapRepository(repository),
     });
 
     await waitFor(() => {
@@ -80,8 +80,12 @@ describe("useDailyEntry", () => {
     });
 
     await act(async () => {
-      const first = result.current.save((current) => updateNote(current, "morningIntention", "Mon intention"));
-      const second = result.current.save((current) => updateNote(current, "nightReflection", "Ma reflexion"));
+      const first = result.current.save((current) =>
+        updateNote(current, "morningIntention", "Mon intention"),
+      );
+      const second = result.current.save((current) =>
+        updateNote(current, "nightReflection", "Ma reflexion"),
+      );
       await Promise.all([first, second]);
     });
 

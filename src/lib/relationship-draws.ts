@@ -27,7 +27,7 @@ export const relationshipDrawDefinitions: RelationshipDrawDefinition[] = [
     titlePrefix: t("children.titlePrefix", { ns: "relationship" }),
     notes: t("children.notes", { ns: "relationship" }),
     settingsKey: "relationshipDrawChildrenActivities",
-    processedDateKey: "relationshipDrawChildrenProcessedDate"
+    processedDateKey: "relationshipDrawChildrenProcessedDate",
   },
   {
     category: "spouse",
@@ -35,11 +35,14 @@ export const relationshipDrawDefinitions: RelationshipDrawDefinition[] = [
     titlePrefix: t("spouse.titlePrefix", { ns: "relationship" }),
     notes: t("spouse.notes", { ns: "relationship" }),
     settingsKey: "relationshipDrawSpouseActivities",
-    processedDateKey: "relationshipDrawSpouseProcessedDate"
-  }
+    processedDateKey: "relationshipDrawSpouseProcessedDate",
+  },
 ];
 
-export const mergeAppSettingsWithDefaults = (settings: Partial<AppSettings>, defaults: AppSettings): AppSettings => ({
+export const mergeAppSettingsWithDefaults = (
+  settings: Partial<AppSettings>,
+  defaults: AppSettings,
+): AppSettings => ({
   ...defaults,
   ...settings,
   aiSurfaceModels:
@@ -54,14 +57,12 @@ export const mergeAppSettingsWithDefaults = (settings: Partial<AppSettings>, def
     typeof settings.aiTimeoutMs === "number" && settings.aiTimeoutMs > 0
       ? settings.aiTimeoutMs
       : defaults.aiTimeoutMs,
-  relationshipDrawChildrenActivities:
-    Array.isArray(settings.relationshipDrawChildrenActivities)
-      ? settings.relationshipDrawChildrenActivities
-      : defaults.relationshipDrawChildrenActivities,
-  relationshipDrawSpouseActivities:
-    Array.isArray(settings.relationshipDrawSpouseActivities)
-      ? settings.relationshipDrawSpouseActivities
-      : defaults.relationshipDrawSpouseActivities,
+  relationshipDrawChildrenActivities: Array.isArray(settings.relationshipDrawChildrenActivities)
+    ? settings.relationshipDrawChildrenActivities
+    : defaults.relationshipDrawChildrenActivities,
+  relationshipDrawSpouseActivities: Array.isArray(settings.relationshipDrawSpouseActivities)
+    ? settings.relationshipDrawSpouseActivities
+    : defaults.relationshipDrawSpouseActivities,
   aiPulseSlots:
     Array.isArray(settings.aiPulseSlots) && settings.aiPulseSlots.length > 0
       ? settings.aiPulseSlots
@@ -71,7 +72,8 @@ export const mergeAppSettingsWithDefaults = (settings: Partial<AppSettings>, def
       ? settings.aiPulseNotifyDays
       : defaults.aiPulseNotifyDays,
   aiPulseMaxNotificationsPerDay:
-    typeof settings.aiPulseMaxNotificationsPerDay === "number" && settings.aiPulseMaxNotificationsPerDay >= 0
+    typeof settings.aiPulseMaxNotificationsPerDay === "number" &&
+    settings.aiPulseMaxNotificationsPerDay >= 0
       ? settings.aiPulseMaxNotificationsPerDay
       : defaults.aiPulseMaxNotificationsPerDay,
   aiPulseFirstOpenAt:
@@ -81,39 +83,44 @@ export const mergeAppSettingsWithDefaults = (settings: Partial<AppSettings>, def
   aiCostPerMillionTokens:
     typeof settings.aiCostPerMillionTokens === "number" && settings.aiCostPerMillionTokens >= 0
       ? settings.aiCostPerMillionTokens
-      : defaults.aiCostPerMillionTokens
+      : defaults.aiCostPerMillionTokens,
 });
 
 export const getRelationshipDrawActivities = (
   settings: AppSettings,
-  definition: RelationshipDrawDefinition
+  definition: RelationshipDrawDefinition,
 ): string[] => settings[definition.settingsKey].map((activity) => activity.trim()).filter(Boolean);
 
 export const getRelationshipDrawProcessedDate = (
   settings: AppSettings,
-  definition: RelationshipDrawDefinition
+  definition: RelationshipDrawDefinition,
 ): string => settings[definition.processedDateKey];
 
 export const setRelationshipDrawProcessedDate = (
   settings: AppSettings,
   definition: RelationshipDrawDefinition,
-  date: string
+  date: string,
 ): AppSettings => ({
   ...settings,
-  [definition.processedDateKey]: date
+  [definition.processedDateKey]: date,
 });
 
 export const getRelationshipDrawSourcePrefix = (category: RelationshipDrawCategory): string =>
   `relationship-draw:${category}:`;
 
-export const getRelationshipDrawSourceExternalId = (category: RelationshipDrawCategory, date: string): string =>
-  `${getRelationshipDrawSourcePrefix(category)}${date}`;
+export const getRelationshipDrawSourceExternalId = (
+  category: RelationshipDrawCategory,
+  date: string,
+): string => `${getRelationshipDrawSourcePrefix(category)}${date}`;
 
-export const findActiveRelationshipDrawTask = (tasks: Task[], category: RelationshipDrawCategory): Task | null =>
+export const findActiveRelationshipDrawTask = (
+  tasks: Task[],
+  category: RelationshipDrawCategory,
+): Task | null =>
   tasks.find(
     (task) =>
       task.status === "active" &&
-      task.sourceExternalId?.startsWith(getRelationshipDrawSourcePrefix(category))
+      task.sourceExternalId?.startsWith(getRelationshipDrawSourcePrefix(category)),
   ) ?? null;
 
 export const pickRelationshipDrawActivity = (activities: string[]): string | null => {
@@ -125,10 +132,13 @@ export const pickRelationshipDrawActivity = (activities: string[]): string | nul
   return activities[index] ?? null;
 };
 
-export const buildRelationshipDrawTaskTitle = (definition: RelationshipDrawDefinition, activity: string): string =>
-  `${definition.titlePrefix} ${activity}`.trim();
+export const buildRelationshipDrawTaskTitle = (
+  definition: RelationshipDrawDefinition,
+  activity: string,
+): string => `${definition.titlePrefix} ${activity}`.trim();
 
 export const isTaskFromRelationshipDrawDate = (task: Task, date: string): boolean =>
   task.sourceExternalId?.endsWith(date) ?? false;
 
-export const getRelationshipDrawTaskDate = (task: Task): string => toLocalDateString(task.createdAt);
+export const getRelationshipDrawTaskDate = (task: Task): string =>
+  toLocalDateString(task.createdAt);

@@ -1,12 +1,12 @@
-import { MemoryRouter } from "react-router-dom";
 import { act, render } from "@testing-library/react";
+import type { PropsWithChildren, ReactElement } from "react";
+import { MemoryRouter } from "react-router-dom";
+import { AppContext, type AppContextValue } from "../app/app-context";
 import { defaultAppSettings } from "../domain/daily-entry";
 import { CoachPulseService } from "../lib/ai/coach-pulse-service";
-import { AppContext, type AppContextValue } from "../app/app-context";
-import { MemoryRepository } from "../lib/storage/memory-repository";
-import type { PropsWithChildren, ReactElement } from "react";
-import { buildPomodoroSessionDetails, buildPomodoroState } from "../lib/pomodoro/engine";
 import type { AiProvider } from "../lib/ai/provider";
+import { buildPomodoroSessionDetails, buildPomodoroState } from "../lib/pomodoro/engine";
+import { MemoryRepository } from "../lib/storage/memory-repository";
 
 class FakeProvider implements AiProvider {
   async generateStructured() {
@@ -15,10 +15,10 @@ class FakeProvider implements AiProvider {
         stance: "open",
         headline: "Message test",
         read: "Lecture test",
-        move: null
+        move: null,
       }),
       model: "test",
-      usage: { tokensPrompt: 0, tokensCompletion: 0, latencyMs: 0 }
+      usage: { tokensPrompt: 0, tokensCompletion: 0, latencyMs: 0 },
     };
   }
 }
@@ -29,10 +29,7 @@ interface RenderOptions {
   contextOverrides?: Partial<AppContextValue>;
 }
 
-export const renderWithApp = async (
-  ui: ReactElement,
-  options: RenderOptions = {}
-) => {
+export const renderWithApp = async (ui: ReactElement, options: RenderOptions = {}) => {
   const repository = options.repository ?? new MemoryRepository();
   await repository.initialize();
 
@@ -63,10 +60,10 @@ export const renderWithApp = async (
       completeCurrentTask: async () => undefined,
       completeNow: async () => undefined,
       cancelCurrent: async () => undefined,
-      switchTask: async () => undefined
+      switchTask: async () => undefined,
     },
     pulseRevision: 0,
-    ...options.contextOverrides
+    ...options.contextOverrides,
   };
 
   const Wrapper = ({ children }: PropsWithChildren) => (
@@ -86,6 +83,6 @@ export const renderWithApp = async (
 
   return {
     repository,
-    ...rendered
+    ...rendered,
   };
 };

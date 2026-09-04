@@ -1,12 +1,16 @@
-import { addDays } from "../gtd/shared";
+import type {
+  RescueTimeTaxonomy,
+  RescueTimeTaxonomyEntry,
+  WeeklyObjectivesSnapshot,
+} from "../../domain/types";
 import {
   buildWeeklyObjectivesSnapshot,
   type RescueTimeErrorsByObjectiveId,
-  type RescueTimeSecondsByObjectiveId
+  type RescueTimeSecondsByObjectiveId,
 } from "../../domain/weekly-objectives";
 import { buildWeekDates } from "../../domain/weekly-review";
-import type { RescueTimeTaxonomy, RescueTimeTaxonomyEntry, WeeklyObjectivesSnapshot } from "../../domain/types";
 import { getTodayDate } from "../date";
+import { addDays } from "../gtd/shared";
 import type { AppRepository } from "../storage/repository";
 import { defaultRescueTimeClient, type RescueTimeClient } from "./client";
 import { parseRankRows, resolveObjectiveSeconds } from "./parse-analytic-data";
@@ -14,7 +18,7 @@ import { parseRankRows, resolveObjectiveSeconds } from "./parse-analytic-data";
 export class WeeklyObjectivesService {
   constructor(
     private readonly repository: AppRepository,
-    private readonly client: RescueTimeClient = defaultRescueTimeClient
+    private readonly client: RescueTimeClient = defaultRescueTimeClient,
   ) {}
 
   async computeWeeklyObjectivesSnapshot(weekStartDate: string): Promise<WeeklyObjectivesSnapshot> {
@@ -23,7 +27,7 @@ export class WeeklyObjectivesService {
     const [objectives, results, settings] = await Promise.all([
       this.repository.listWeeklyObjectives(),
       this.repository.getWeeklyObjectiveResults(normalized),
-      this.repository.getSettings()
+      this.repository.getSettings(),
     ]);
 
     const apiKey = settings.rescuetimeApiKey.trim();
@@ -48,15 +52,19 @@ export class WeeklyObjectivesService {
           const payload = await this.client.fetchAnalyticData(apiKey, {
             kind,
             begin: normalized,
-            end: weekEndDate
+            end: weekEndDate,
           });
           const rows = parseRankRows(payload);
 
           for (const objective of group) {
-            secondsByObjectiveId[objective.id] = resolveObjectiveSeconds(rows, objective.rescuetimeThing);
+            secondsByObjectiveId[objective.id] = resolveObjectiveSeconds(
+              rows,
+              objective.rescuetimeThing,
+            );
           }
         } catch (error) {
-          const message = error instanceof Error ? error.message : "Echec de la requete RescueTime.";
+          const message =
+            error instanceof Error ? error.message : "Echec de la requete RescueTime.";
           fetchError = message;
           for (const objective of group) {
             errorsByObjectiveId[objective.id] = message;
@@ -68,14 +76,14 @@ export class WeeklyObjectivesService {
     return buildWeeklyObjectivesSnapshot(normalized, objectives, results, secondsByObjectiveId, {
       rescuetimeConfigured,
       fetchError,
-      errorsByObjectiveId
+      errorsByObjectiveId,
     });
   }
 
   async listRescueTimeTaxonomy(
     kind: RescueTimeTaxonomy,
     begin: string,
-    end: string
+    end: string,
   ): Promise<RescueTimeTaxonomyEntry[]> {
     const settings = await this.repository.getSettings();
     const apiKey = settings.rescuetimeApiKey.trim();

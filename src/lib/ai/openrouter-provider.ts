@@ -1,11 +1,15 @@
-import type { AppSettings, AiSurface } from "../../domain/types";
-import type { CoachMessage } from "../../domain/types";
+import type { AiSurface, AppSettings, CoachMessage } from "../../domain/types";
 import { logDebug } from "../debug";
-import type { AiPromptContext, AiProvider, AiStructuredRequest, AiStructuredResult } from "./provider";
 import { buildCoachPulseSchemaPrompt } from "./proposals/coach-pulse-schema-prompt";
 import { buildGoalPacingSchemaPrompt } from "./proposals/goal-pacing-schema-prompt";
 import { buildMonthlySynthesisSchemaPrompt } from "./proposals/monthly-synthesis-schema-prompt";
 import { buildWeeklySynthesisSchemaPrompt } from "./proposals/weekly-synthesis-schema-prompt";
+import type {
+  AiPromptContext,
+  AiProvider,
+  AiStructuredRequest,
+  AiStructuredResult,
+} from "./provider";
 
 export const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 export const DEFAULT_OPENROUTER_MODEL = "moonshotai/kimi-k2.6";
@@ -29,12 +33,13 @@ const createTimeoutController = (timeoutMs: number): { signal: AbortSignal; clea
     signal: controller.signal,
     clear: () => {
       clearTimeout(timeoutId);
-    }
+    },
   };
 };
 
 const toTimeoutError = (error: unknown): Error => {
-  const name = typeof error === "object" && error !== null && "name" in error ? String(error.name) : "";
+  const name =
+    typeof error === "object" && error !== null && "name" in error ? String(error.name) : "";
   const message = error instanceof Error ? error.message : "";
 
   if (name === "AbortError" || /aborted|timed out/i.test(message)) {
@@ -103,7 +108,11 @@ const isMaxTokenFinishReason = (reason: string): boolean => {
   return normalized === "length" || normalized === "max_tokens";
 };
 
-const hitMaxTokenCap = (finishReasons: string[], tokensCompletion: number, maxTokens: number): boolean =>
+const hitMaxTokenCap = (
+  finishReasons: string[],
+  tokensCompletion: number,
+  maxTokens: number,
+): boolean =>
   finishReasons.some(isMaxTokenFinishReason) || (maxTokens > 0 && tokensCompletion >= maxTokens);
 
 const isReadableJsonText = (text: string): boolean => {
@@ -132,7 +141,7 @@ const extractUsage = (payload: unknown): { tokensPrompt: number; tokensCompletio
   const record = usage as Record<string, unknown>;
   return {
     tokensPrompt: typeof record.prompt_tokens === "number" ? record.prompt_tokens : 0,
-    tokensCompletion: typeof record.completion_tokens === "number" ? record.completion_tokens : 0
+    tokensCompletion: typeof record.completion_tokens === "number" ? record.completion_tokens : 0,
   };
 };
 
@@ -218,7 +227,7 @@ export class OpenRouterProvider implements AiProvider {
         notes: {
           morningIntention: context.entry.morningIntention,
           nightReflection: context.entry.nightReflection,
-          tomorrowFocus: context.entry.tomorrowFocus
+          tomorrowFocus: context.entry.tomorrowFocus,
         },
         gtd: {
           inboxBacklog: 0,
@@ -227,19 +236,19 @@ export class OpenRouterProvider implements AiProvider {
           staleNextActions: 0,
           agingWaitingFor: 0,
           overdueDeadlines: 0,
-          scheduledVsCompletedRatio: 0
+          scheduledVsCompletedRatio: 0,
         },
         pomodoro: {
           completedFocusSessionCount: 0,
           totalFocusMinutes: 0,
           taskConcentration: null,
-          topTask: null
+          topTask: null,
         },
         rescueTime: { configured: false, productivityPulseWeekToDate: null },
         history: { daysConsidered: 0, disciplineAverage7d: 0, disciplineAverage28d: 0 },
         weeklyScoreTrend: null,
-        findings: []
-      }
+        findings: [],
+      },
     });
 
     try {
@@ -272,7 +281,7 @@ export class OpenRouterProvider implements AiProvider {
       messages: [
         {
           role: "system",
-          content: buildSystemPrompt(request, request.repairHint)
+          content: buildSystemPrompt(request, request.repairHint),
         },
         {
           role: "user",
@@ -282,15 +291,15 @@ export class OpenRouterProvider implements AiProvider {
                   surface: request.surface,
                   stance: request.stance,
                   snapshot: request.snapshot,
-                  commitmentResolution: request.commitmentResolution ?? null
+                  commitmentResolution: request.commitmentResolution ?? null,
                 }
               : {
                   surface: request.surface,
-                  snapshot: request.snapshot
-                }
-          )
-        }
-      ]
+                  snapshot: request.snapshot,
+                },
+          ),
+        },
+      ],
     };
 
     let lastError: Error | null = null;
@@ -306,9 +315,9 @@ export class OpenRouterProvider implements AiProvider {
             "Content-Type": "application/json",
             Authorization: `Bearer ${request.settings.aiApiKey}`,
             "HTTP-Referer": "https://trackdidia.app",
-            "X-Title": "Trackdidia"
+            "X-Title": "Trackdidia",
           },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
         });
 
         if (!response.ok) {
@@ -329,12 +338,15 @@ export class OpenRouterProvider implements AiProvider {
         const usage = extractUsage(body);
         const finishReasons = extractFinishReasons(body);
 
-        if (hitMaxTokenCap(finishReasons, usage.tokensCompletion, request.settings.aiMaxTokens) && !isReadableJsonText(text)) {
+        if (
+          hitMaxTokenCap(finishReasons, usage.tokensCompletion, request.settings.aiMaxTokens) &&
+          !isReadableJsonText(text)
+        ) {
           logDebug("warn", "ai.openrouter", "Reponse IA illisible: max_tokens atteint", {
             surface: request.surface,
             maxTokens: request.settings.aiMaxTokens,
             finishReason: finishReasons.join(",") || "completion_tokens",
-            tokensCompletion: usage.tokensCompletion
+            tokensCompletion: usage.tokensCompletion,
           });
           throw new Error(AI_MAX_TOKENS_TRUNCATED_ERROR);
         }
@@ -349,8 +361,8 @@ export class OpenRouterProvider implements AiProvider {
           usage: {
             tokensPrompt: usage.tokensPrompt,
             tokensCompletion: usage.tokensCompletion,
-            latencyMs: Date.now() - startedAt
-          }
+            latencyMs: Date.now() - startedAt,
+          },
         };
       } catch (error) {
         const normalized = toTimeoutError(error);

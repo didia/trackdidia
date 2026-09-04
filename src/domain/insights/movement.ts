@@ -64,21 +64,27 @@ export const computeWindowMovement = (input: WindowMovementInput): WindowMovemen
   };
 
   const completedFocusSessionCount = input.focusSessions.filter(
-    (session) => session.kind === "focus" && session.status === "completed" && isWithinWindow(session.completedAt)
+    (session) =>
+      session.kind === "focus" &&
+      session.status === "completed" &&
+      isWithinWindow(session.completedAt),
   ).length;
 
   const completedTaskCount = input.tasks.filter(
-    (task) => task.status === "completed" && isWithinWindow(task.completedAt)
+    (task) => task.status === "completed" && isWithinWindow(task.completedAt),
   ).length;
 
   const clampedIntervals = input.appOpenIntervals
     .map((interval): [number, number] => [
       Math.max(sinceMs, new Date(interval.startedAt).getTime()),
-      Math.min(nowMs, new Date(interval.endedAt).getTime())
+      Math.min(nowMs, new Date(interval.endedAt).getTime()),
     ])
     .filter(([start, end]) => end > start);
 
-  const appOpenMs = mergeIntervals(clampedIntervals).reduce((sum, [start, end]) => sum + (end - start), 0);
+  const appOpenMs = mergeIntervals(clampedIntervals).reduce(
+    (sum, [start, end]) => sum + (end - start),
+    0,
+  );
   const appOpenRatio = windowMs > 0 ? Math.min(1, appOpenMs / windowMs) : 0;
 
   return {
@@ -89,6 +95,6 @@ export const computeWindowMovement = (input: WindowMovementInput): WindowMovemen
     completedTaskCount,
     appOpenMs,
     appOpenRatio,
-    moved: completedFocusSessionCount > 0 || completedTaskCount > 0
+    moved: completedFocusSessionCount > 0 || completedTaskCount > 0,
   };
 };

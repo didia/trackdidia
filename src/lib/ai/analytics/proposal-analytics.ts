@@ -1,12 +1,12 @@
-import { t } from "../../../i18n";
 import type {
   AiMessage,
   AiProposal,
   AiProposalStatus,
   AiProposalType,
   AiSurface,
-  CoachPulseStance
+  CoachPulseStance,
 } from "../../../domain/types";
+import { t } from "../../../i18n";
 import { promptVersionForSurface } from "../prompts/registry";
 import { toLocalDateKey } from "./month-range";
 
@@ -59,7 +59,7 @@ const SURFACE_LABELS: Record<AiSurface, string> = {
   coach_pulse: t("analytics.surface.coach_pulse", { ns: "coach" }),
   weekly_synthesis: t("analytics.surface.weekly_synthesis", { ns: "coach" }),
   monthly_synthesis: t("analytics.surface.monthly_synthesis", { ns: "coach" }),
-  goal_pacing: t("analytics.surface.goal_pacing", { ns: "coach" })
+  goal_pacing: t("analytics.surface.goal_pacing", { ns: "coach" }),
 };
 
 const TYPE_LABELS: Record<AiProposalType, string> = {
@@ -70,14 +70,14 @@ const TYPE_LABELS: Record<AiProposalType, string> = {
   review_section_draft: t("analytics.type.review_section_draft", { ns: "coach" }),
   weekly_objective: t("analytics.type.weekly_objective", { ns: "coach" }),
   gtd_action: t("analytics.type.gtd_action", { ns: "coach" }),
-  goal_evaluation: t("analytics.type.goal_evaluation", { ns: "coach" })
+  goal_evaluation: t("analytics.type.goal_evaluation", { ns: "coach" }),
 };
 
 const STANCE_LABELS: Record<CoachPulseStance, string> = {
   open: t("analytics.stance.open", { ns: "coach" }),
   steer: t("analytics.stance.steer", { ns: "coach" }),
   wind_down: t("analytics.stance.wind_down", { ns: "coach" }),
-  close: t("analytics.stance.close", { ns: "coach" })
+  close: t("analytics.stance.close", { ns: "coach" }),
 };
 
 const LOW_ACCEPTANCE_THRESHOLD = 0.35;
@@ -97,19 +97,19 @@ const emptyBucket = (key: string, label: string): AcceptanceRateBucket => ({
   expired: 0,
   decided: 0,
   acceptanceRate: null,
-  dismissalRate: null
+  dismissalRate: null,
 });
 
 const finalizeBucket = (bucket: AcceptanceRateBucket): AcceptanceRateBucket => ({
   ...bucket,
   decided: bucket.accepted + bucket.dismissed,
   acceptanceRate: rate(bucket.accepted, bucket.accepted + bucket.dismissed),
-  dismissalRate: rate(bucket.dismissed, bucket.accepted + bucket.dismissed)
+  dismissalRate: rate(bucket.dismissed, bucket.accepted + bucket.dismissed),
 });
 
 export const joinProposalsWithMessages = (
   proposals: AiProposal[],
-  messages: AiMessage[]
+  messages: AiMessage[],
 ): AiProposalWithMessage[] => {
   const messagesById = new Map(messages.map((message) => [message.id, message]));
   return proposals
@@ -120,7 +120,10 @@ export const joinProposalsWithMessages = (
     .filter((row): row is AiProposalWithMessage => row !== null);
 };
 
-const accumulateStatus = (bucket: AcceptanceRateBucket, status: AiProposalStatus): AcceptanceRateBucket => {
+const accumulateStatus = (
+  bucket: AcceptanceRateBucket,
+  status: AiProposalStatus,
+): AcceptanceRateBucket => {
   const next = { ...bucket, total: bucket.total + 1 };
   if (status === "accepted") {
     next.accepted += 1;
@@ -137,7 +140,7 @@ const accumulateStatus = (bucket: AcceptanceRateBucket, status: AiProposalStatus
 const buildBuckets = <T extends string>(
   rows: AiProposalWithMessage[],
   pickKey: (row: AiProposalWithMessage) => T | null,
-  labels: Record<T, string>
+  labels: Record<T, string>,
 ): AcceptanceRateBucket[] => {
   const buckets = new Map<string, AcceptanceRateBucket>();
 
@@ -153,26 +156,32 @@ const buildBuckets = <T extends string>(
 
   return [...buckets.values()]
     .map(finalizeBucket)
-    .sort((left, right) => right.decided - left.decided || left.label.localeCompare(right.label, "fr"));
+    .sort(
+      (left, right) => right.decided - left.decided || left.label.localeCompare(right.label, "fr"),
+    );
 };
 
-export const computeAcceptanceRatesBySurface = (rows: AiProposalWithMessage[]): AcceptanceRateBucket[] =>
-  buildBuckets(rows, (row) => row.message.surface, SURFACE_LABELS);
+export const computeAcceptanceRatesBySurface = (
+  rows: AiProposalWithMessage[],
+): AcceptanceRateBucket[] => buildBuckets(rows, (row) => row.message.surface, SURFACE_LABELS);
 
-export const computeAcceptanceRatesByType = (rows: AiProposalWithMessage[]): AcceptanceRateBucket[] =>
-  buildBuckets(rows, (row) => row.proposal.type, TYPE_LABELS);
+export const computeAcceptanceRatesByType = (
+  rows: AiProposalWithMessage[],
+): AcceptanceRateBucket[] => buildBuckets(rows, (row) => row.proposal.type, TYPE_LABELS);
 
-export const computeAcceptanceRatesByStance = (rows: AiProposalWithMessage[]): AcceptanceRateBucket[] =>
+export const computeAcceptanceRatesByStance = (
+  rows: AiProposalWithMessage[],
+): AcceptanceRateBucket[] =>
   buildBuckets(
     rows.filter((row) => row.message.surface === "coach_pulse" && row.message.stance),
     (row) => row.message.stance,
-    STANCE_LABELS
+    STANCE_LABELS,
   );
 
 export const computeDismissalTrend = (
   rows: AiProposalWithMessage[],
   lastNDays = 30,
-  referenceDate = new Date()
+  referenceDate = new Date(),
 ): DismissalTrendPoint[] => {
   const start = new Date(referenceDate);
   start.setHours(0, 0, 0, 0);
@@ -206,21 +215,21 @@ export const computeDismissalTrend = (
 
   return [...points.values()].map((point) => ({
     ...point,
-    dismissalRate: rate(point.dismissed, point.decided)
+    dismissalRate: rate(point.dismissed, point.decided),
   }));
 };
 
 const lowAcceptanceFromBuckets = (
   dimension: LowAcceptanceSignal["dimension"],
   buckets: AcceptanceRateBucket[],
-  promptVersionForKey: (key: string) => string | null
+  promptVersionForKey: (key: string) => string | null,
 ): LowAcceptanceSignal[] =>
   buckets
     .filter(
       (bucket) =>
         bucket.decided >= LOW_ACCEPTANCE_MIN_SAMPLE &&
         bucket.acceptanceRate !== null &&
-        bucket.acceptanceRate < LOW_ACCEPTANCE_THRESHOLD
+        bucket.acceptanceRate < LOW_ACCEPTANCE_THRESHOLD,
     )
     .map((bucket) => ({
       dimension,
@@ -229,7 +238,7 @@ const lowAcceptanceFromBuckets = (
       acceptanceRate: bucket.acceptanceRate as number,
       sampleSize: bucket.decided,
       promptVersion: promptVersionForKey(bucket.key),
-      note: PROMPT_REVISION_NOTE
+      note: PROMPT_REVISION_NOTE,
     }));
 
 export const flagLowAcceptanceSignals = (summary: {
@@ -237,14 +246,18 @@ export const flagLowAcceptanceSignals = (summary: {
   byType: AcceptanceRateBucket[];
   byStance: AcceptanceRateBucket[];
 }): LowAcceptanceSignal[] => [
-  ...lowAcceptanceFromBuckets("surface", summary.bySurface, (key) => promptVersionForSurface(key as AiSurface)),
+  ...lowAcceptanceFromBuckets("surface", summary.bySurface, (key) =>
+    promptVersionForSurface(key as AiSurface),
+  ),
   ...lowAcceptanceFromBuckets("type", summary.byType, () => null),
-  ...lowAcceptanceFromBuckets("stance", summary.byStance, () => promptVersionForSurface("coach_pulse"))
+  ...lowAcceptanceFromBuckets("stance", summary.byStance, () =>
+    promptVersionForSurface("coach_pulse"),
+  ),
 ];
 
 export const buildCoachAnalyticsSummary = (
   rows: AiProposalWithMessage[],
-  referenceDate = new Date()
+  referenceDate = new Date(),
 ): CoachAnalyticsSummary => {
   const bySurface = computeAcceptanceRatesBySurface(rows);
   const byType = computeAcceptanceRatesByType(rows);
@@ -257,6 +270,6 @@ export const buildCoachAnalyticsSummary = (
     byType,
     byStance,
     dismissalTrend,
-    lowAcceptanceSignals
+    lowAcceptanceSignals,
   };
 };

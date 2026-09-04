@@ -1,31 +1,37 @@
+import { open } from "@tauri-apps/plugin-dialog";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useAppContext } from "../app/app-context";
+import { AiCoachAnalyticsSection } from "../components/AiCoachAnalyticsSection";
+import { AiCostDashboardSection } from "../components/AiCostDashboardSection";
+import { AiMemoryProfileSection } from "../components/AiMemoryProfileSection";
+import { SectionCard } from "../components/SectionCard";
 import { defaultAppSettings } from "../domain/daily-entry";
 import type { AiPayloadScope, AppSettings } from "../domain/types";
-import { useAppContext } from "../app/app-context";
-import { SectionCard } from "../components/SectionCard";
-import { AiMemoryProfileSection } from "../components/AiMemoryProfileSection";
-import { AiCostDashboardSection } from "../components/AiCostDashboardSection";
-import { AiCoachAnalyticsSection } from "../components/AiCoachAnalyticsSection";
-import initialGoogleTasksExport from "../../Tasks.json";
-import { formatDateTimeShort, getTodayDate } from "../lib/date";
-import type { StorageInfo } from "../lib/storage/repository";
-import { RescueTimeGoalsService } from "../lib/rescuetime/rescuetime-goals-service";
-import { previewPayload, resolveProductivityPulse, resolveWeeklyRescueTimeInputs } from "../lib/ai/context/preview";
+import { buildWeekDates } from "../domain/weekly-review";
+import {
+  previewPayload,
+  resolveProductivityPulse,
+  resolveWeeklyRescueTimeInputs,
+} from "../lib/ai/context/preview";
 import type { Surface } from "../lib/ai/context/types";
 import { formatPulseSlotHours, parsePulseSlotHours } from "../lib/ai/pulse/slot-hours";
 import { BACKUP_RETENTION_COUNT, isBackupDestinationConfigured } from "../lib/backup";
-import { buildWeekDates } from "../domain/weekly-review";
-import { open } from "@tauri-apps/plugin-dialog";
+import { formatDateTimeShort, getTodayDate } from "../lib/date";
+import { RescueTimeGoalsService } from "../lib/rescuetime/rescuetime-goals-service";
+import type { StorageInfo } from "../lib/storage/repository";
 
 const payloadScopeValues: AiPayloadScope[] = ["metrics", "metrics_and_structure", "full"];
 
 export const SettingsPage = () => {
   const { t } = useTranslation("settings");
-  const { repository, settings, saveSettings, debugEnabled, setDebugEnabled, browserPreview } = useAppContext();
+  const { repository, settings, saveSettings, debugEnabled, setDebugEnabled, browserPreview } =
+    useAppContext();
   const goalsService = useMemo(() => new RescueTimeGoalsService(repository), [repository]);
   const [draftSettings, setDraftSettings] = useState<AppSettings>(settings);
-  const [pulseSlotsDraft, setPulseSlotsDraft] = useState(() => formatPulseSlotHours(settings.aiPulseSlots));
+  const [pulseSlotsDraft, setPulseSlotsDraft] = useState(() =>
+    formatPulseSlotHours(settings.aiPulseSlots),
+  );
   const [costRateDraft, setCostRateDraft] = useState(() => String(settings.aiCostPerMillionTokens));
   const [pulseSlotsError, setPulseSlotsError] = useState("");
   const [savingSettings, setSavingSettings] = useState(false);
@@ -33,18 +39,20 @@ export const SettingsPage = () => {
   const [rescuetimeMessage, setRescuetimeMessage] = useState("");
   const [testingRescuetime, setTestingRescuetime] = useState(false);
   const [savingBackupSettings, setSavingBackupSettings] = useState(false);
-  const [importingGtd, setImportingGtd] = useState(false);
-  const [gtdMessage, setGtdMessage] = useState("");
   const [backupMessage, setBackupMessage] = useState("");
   const [creatingBackup, setCreatingBackup] = useState(false);
   const [choosingBackupFolder, setChoosingBackupFolder] = useState(false);
   const [savingRelationshipSettings, setSavingRelationshipSettings] = useState(false);
   const [relationshipMessage, setRelationshipMessage] = useState("");
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
-  const [gtdOverview, setGtdOverview] = useState<{ taskCount: number; projectCount: number; contextCount: number } | null>(
-    null
+  const [gtdOverview, setGtdOverview] = useState<{
+    taskCount: number;
+    projectCount: number;
+    contextCount: number;
+  } | null>(null);
+  const [payloadPreviews, setPayloadPreviews] = useState<Record<AiPayloadScope, string> | null>(
+    null,
   );
-  const [payloadPreviews, setPayloadPreviews] = useState<Record<AiPayloadScope, string> | null>(null);
   const [payloadPreviewSurface, setPayloadPreviewSurface] = useState<Surface>("daily");
   const [payloadPreviewDate, setPayloadPreviewDate] = useState(getTodayDate());
   const [loadingPayloadPreviews, setLoadingPayloadPreviews] = useState(false);
@@ -107,16 +115,11 @@ export const SettingsPage = () => {
         <div>
           <p className="eyebrow">{t("hero.eyebrow")}</p>
           <h2>{t("hero.title")}</h2>
-          <p className="hero__copy">
-            {t("hero.copy")}
-          </p>
+          <p className="hero__copy">{t("hero.copy")}</p>
         </div>
       </header>
 
-      <SectionCard
-        title={t("ai.title")}
-        subtitle={t("ai.subtitle")}
-      >
+      <SectionCard title={t("ai.title")} subtitle={t("ai.subtitle")}>
         <form
           className="settings-form"
           onSubmit={async (event) => {
@@ -134,7 +137,9 @@ export const SettingsPage = () => {
               ...draftSettings,
               aiPulseSlots: parsedSlots.hours,
               aiCostPerMillionTokens:
-                trimmedCostRate === "" ? settings.aiCostPerMillionTokens : Math.max(0, Number(trimmedCostRate))
+                trimmedCostRate === ""
+                  ? settings.aiCostPerMillionTokens
+                  : Math.max(0, Number(trimmedCostRate)),
             });
             setSavingSettings(false);
           }}
@@ -146,7 +151,7 @@ export const SettingsPage = () => {
               onChange={(event) =>
                 setDraftSettings((current) => ({
                   ...current,
-                  aiEnabled: event.target.checked
+                  aiEnabled: event.target.checked,
                 }))
               }
             />
@@ -170,7 +175,7 @@ export const SettingsPage = () => {
               onChange={(event) =>
                 setDraftSettings((current) => ({
                   ...current,
-                  aiBaseUrl: event.target.value
+                  aiBaseUrl: event.target.value,
                 }))
               }
               placeholder={t("ai.baseUrlPlaceholder")}
@@ -185,7 +190,7 @@ export const SettingsPage = () => {
               onChange={(event) =>
                 setDraftSettings((current) => ({
                   ...current,
-                  aiModel: event.target.value
+                  aiModel: event.target.value,
                 }))
               }
               placeholder={t("ai.modelPlaceholder")}
@@ -200,7 +205,7 @@ export const SettingsPage = () => {
               onChange={(event) =>
                 setDraftSettings((current) => ({
                   ...current,
-                  aiApiKey: event.target.value
+                  aiApiKey: event.target.value,
                 }))
               }
               placeholder={t("ai.apiKeyPlaceholder")}
@@ -214,7 +219,7 @@ export const SettingsPage = () => {
               onChange={(event) =>
                 setDraftSettings((current) => ({
                   ...current,
-                  aiPayloadScope: event.target.value as AiPayloadScope
+                  aiPayloadScope: event.target.value as AiPayloadScope,
                 }))
               }
             >
@@ -233,7 +238,7 @@ export const SettingsPage = () => {
               onChange={(event) =>
                 setDraftSettings((current) => ({
                   ...current,
-                  aiMemoryEnabled: event.target.checked
+                  aiMemoryEnabled: event.target.checked,
                 }))
               }
             />
@@ -247,7 +252,7 @@ export const SettingsPage = () => {
               onChange={(event) =>
                 setDraftSettings((current) => ({
                   ...current,
-                  aiPulseEnabled: event.target.checked
+                  aiPulseEnabled: event.target.checked,
                 }))
               }
             />
@@ -261,7 +266,7 @@ export const SettingsPage = () => {
               onChange={(event) =>
                 setDraftSettings((current) => ({
                   ...current,
-                  aiPulseNotifyEnabled: event.target.checked
+                  aiPulseNotifyEnabled: event.target.checked,
                 }))
               }
             />
@@ -299,7 +304,7 @@ export const SettingsPage = () => {
               onChange={(event) =>
                 setDraftSettings((current) => ({
                   ...current,
-                  aiPulseMaxNotificationsPerDay: Math.max(0, Number(event.target.value || 0))
+                  aiPulseMaxNotificationsPerDay: Math.max(0, Number(event.target.value || 0)),
                 }))
               }
             />
@@ -315,7 +320,7 @@ export const SettingsPage = () => {
               onChange={(event) =>
                 setDraftSettings((current) => ({
                   ...current,
-                  aiMaxTokens: Math.max(1, Math.floor(Number(event.target.value || 1)))
+                  aiMaxTokens: Math.max(1, Math.floor(Number(event.target.value || 1))),
                 }))
               }
             />
@@ -357,15 +362,17 @@ export const SettingsPage = () => {
 
       <AiCoachAnalyticsSection repository={repository} />
 
-      <AiMemoryProfileSection repository={repository} memoryEnabled={draftSettings.aiMemoryEnabled} />
+      <AiMemoryProfileSection
+        repository={repository}
+        memoryEnabled={draftSettings.aiMemoryEnabled}
+      />
 
       {debugEnabled ? (
-        <SectionCard
-          title={t("payloadPreview.title")}
-          subtitle={t("payloadPreview.subtitle")}
-        >
+        <SectionCard title={t("payloadPreview.title")} subtitle={t("payloadPreview.subtitle")}>
           {payloadPreviewError ? <div className="banner">{payloadPreviewError}</div> : null}
-          {payloadPreviewPulseWarning ? <div className="banner">{payloadPreviewPulseWarning}</div> : null}
+          {payloadPreviewPulseWarning ? (
+            <div className="banner">{payloadPreviewPulseWarning}</div>
+          ) : null}
 
           <div className="history-toolbar">
             <label className="stacked-field">
@@ -382,9 +389,7 @@ export const SettingsPage = () => {
               </select>
             </label>
             <label className="stacked-field">
-              <span>
-                {t(`payloadPreview.dateLabel.${payloadPreviewSurface}`)}
-              </span>
+              <span>{t(`payloadPreview.dateLabel.${payloadPreviewSurface}`)}</span>
               <input
                 aria-label={t("payloadPreview.dateAria")}
                 type={payloadPreviewSurface === "monthly" ? "month" : "date"}
@@ -429,12 +434,16 @@ export const SettingsPage = () => {
                     const warnings: string[] = [];
                     if (weeklyRescueTime.pulseFetchError) {
                       warnings.push(
-                        t("payloadPreview.pulseWarningWeekly", { error: weeklyRescueTime.pulseFetchError })
+                        t("payloadPreview.pulseWarningWeekly", {
+                          error: weeklyRescueTime.pulseFetchError,
+                        }),
                       );
                     }
                     if (weeklyRescueTime.goalsFetchError) {
                       warnings.push(
-                        t("payloadPreview.goalsWarning", { error: weeklyRescueTime.goalsFetchError })
+                        t("payloadPreview.goalsWarning", {
+                          error: weeklyRescueTime.goalsFetchError,
+                        }),
                       );
                     }
                     if (warnings.length > 0) {
@@ -446,12 +455,14 @@ export const SettingsPage = () => {
                         const snapshot = await previewPayload(repository, value, {
                           surface: payloadPreviewSurface,
                           date,
-                          weeklyRescueTime
+                          weeklyRescueTime,
                         });
                         return [value, JSON.stringify(snapshot, null, 2)] as const;
-                      })
+                      }),
                     );
-                    setPayloadPreviews(Object.fromEntries(entries) as Record<AiPayloadScope, string>);
+                    setPayloadPreviews(
+                      Object.fromEntries(entries) as Record<AiPayloadScope, string>,
+                    );
                     return;
                   }
 
@@ -459,7 +470,9 @@ export const SettingsPage = () => {
                     const productivityPulse = await resolveProductivityPulse(repository, date);
                     if (productivityPulse.fetchError) {
                       setPayloadPreviewPulseWarning(
-                        t("payloadPreview.pulseWarningDaily", { error: productivityPulse.fetchError })
+                        t("payloadPreview.pulseWarningDaily", {
+                          error: productivityPulse.fetchError,
+                        }),
                       );
                     }
                     const entries = await Promise.all(
@@ -467,12 +480,14 @@ export const SettingsPage = () => {
                         const snapshot = await previewPayload(repository, value, {
                           surface: payloadPreviewSurface,
                           date,
-                          productivityPulse
+                          productivityPulse,
                         });
                         return [value, JSON.stringify(snapshot, null, 2)] as const;
-                      })
+                      }),
                     );
-                    setPayloadPreviews(Object.fromEntries(entries) as Record<AiPayloadScope, string>);
+                    setPayloadPreviews(
+                      Object.fromEntries(entries) as Record<AiPayloadScope, string>,
+                    );
                     return;
                   }
 
@@ -480,15 +495,15 @@ export const SettingsPage = () => {
                     payloadScopeValues.map(async (value) => {
                       const snapshot = await previewPayload(repository, value, {
                         surface: payloadPreviewSurface,
-                        date
+                        date,
                       });
                       return [value, JSON.stringify(snapshot, null, 2)] as const;
-                    })
+                    }),
                   );
                   setPayloadPreviews(Object.fromEntries(entries) as Record<AiPayloadScope, string>);
                 } catch (error) {
                   setPayloadPreviewError(
-                    error instanceof Error ? error.message : t("payloadPreview.error")
+                    error instanceof Error ? error.message : t("payloadPreview.error"),
                   );
                 } finally {
                   setLoadingPayloadPreviews(false);
@@ -512,10 +527,7 @@ export const SettingsPage = () => {
         </SectionCard>
       ) : null}
 
-      <SectionCard
-        title={t("rescuetime.title")}
-        subtitle={t("rescuetime.subtitle")}
-      >
+      <SectionCard title={t("rescuetime.title")} subtitle={t("rescuetime.subtitle")}>
         {rescuetimeMessage ? <div className="banner">{rescuetimeMessage}</div> : null}
 
         <form
@@ -529,7 +541,9 @@ export const SettingsPage = () => {
               await saveSettings(draftSettings);
               setRescuetimeMessage(t("rescuetime.saved"));
             } catch (error) {
-              setRescuetimeMessage(error instanceof Error ? error.message : t("rescuetime.saveError"));
+              setRescuetimeMessage(
+                error instanceof Error ? error.message : t("rescuetime.saveError"),
+              );
             } finally {
               setSavingRescuetimeSettings(false);
             }
@@ -543,7 +557,7 @@ export const SettingsPage = () => {
               onChange={(event) =>
                 setDraftSettings((current) => ({
                   ...current,
-                  rescuetimeApiKey: event.target.value
+                  rescuetimeApiKey: event.target.value,
                 }))
               }
               placeholder={t("rescuetime.apiKeyPlaceholder")}
@@ -551,7 +565,11 @@ export const SettingsPage = () => {
           </label>
 
           <div className="form-actions">
-            <button className="button button--primary" type="submit" disabled={savingRescuetimeSettings}>
+            <button
+              className="button button--primary"
+              type="submit"
+              disabled={savingRescuetimeSettings}
+            >
               {savingRescuetimeSettings ? t("ai.saving") : t("rescuetime.save")}
             </button>
             <button
@@ -566,11 +584,16 @@ export const SettingsPage = () => {
                   const result = await goalsService.testConnection(draftSettings.rescuetimeApiKey);
                   setRescuetimeMessage(
                     result.goalCount > 0
-                      ? t("rescuetime.testOkWithGoals", { count: result.goalCount, sample: result.sampleGoal })
-                      : t("rescuetime.testOkEmpty")
+                      ? t("rescuetime.testOkWithGoals", {
+                          count: result.goalCount,
+                          sample: result.sampleGoal,
+                        })
+                      : t("rescuetime.testOkEmpty"),
                   );
                 } catch (error) {
-                  setRescuetimeMessage(error instanceof Error ? error.message : t("rescuetime.testError"));
+                  setRescuetimeMessage(
+                    error instanceof Error ? error.message : t("rescuetime.testError"),
+                  );
                 } finally {
                   setTestingRescuetime(false);
                 }
@@ -582,10 +605,7 @@ export const SettingsPage = () => {
         </form>
       </SectionCard>
 
-      <SectionCard
-        title={t("relationship.title")}
-        subtitle={t("relationship.subtitle")}
-      >
+      <SectionCard title={t("relationship.title")} subtitle={t("relationship.subtitle")}>
         {relationshipMessage ? <div className="banner">{relationshipMessage}</div> : null}
 
         <div className="settings-form">
@@ -596,7 +616,7 @@ export const SettingsPage = () => {
               onChange={(event) =>
                 setDraftSettings((current) => ({
                   ...current,
-                  relationshipDrawsEnabled: event.target.checked
+                  relationshipDrawsEnabled: event.target.checked,
                 }))
               }
             />
@@ -614,7 +634,7 @@ export const SettingsPage = () => {
                   relationshipDrawChildrenActivities: event.target.value
                     .split("\n")
                     .map((line) => line.trim())
-                    .filter(Boolean)
+                    .filter(Boolean),
                 }))
               }
             />
@@ -631,7 +651,7 @@ export const SettingsPage = () => {
                   relationshipDrawSpouseActivities: event.target.value
                     .split("\n")
                     .map((line) => line.trim())
-                    .filter(Boolean)
+                    .filter(Boolean),
                 }))
               }
             />
@@ -652,7 +672,7 @@ export const SettingsPage = () => {
                 setRelationshipMessage(t("relationship.saved"));
               } catch (error) {
                 setRelationshipMessage(
-                  error instanceof Error ? error.message : t("relationship.saveError")
+                  error instanceof Error ? error.message : t("relationship.saveError"),
                 );
               } finally {
                 setSavingRelationshipSettings(false);
@@ -683,7 +703,10 @@ export const SettingsPage = () => {
           </article>
           <article className="status-card">
             <span>{t("backup.fields.database")}</span>
-            <strong>{storageInfo?.databasePath ?? (browserPreview ? t("backup.env.preview") : t("loadingPlaceholder"))}</strong>
+            <strong>
+              {storageInfo?.databasePath ??
+                (browserPreview ? t("backup.env.preview") : t("loadingPlaceholder"))}
+            </strong>
           </article>
           <article className="status-card">
             <span>{t("backup.fields.backupDir")}</span>
@@ -697,11 +720,19 @@ export const SettingsPage = () => {
           </article>
           <article className="status-card">
             <span>{t("backup.fields.lastBackup")}</span>
-            <strong>{settings.lastBackupAt ? formatDateTimeShort(settings.lastBackupAt) : t("backup.never")}</strong>
+            <strong>
+              {settings.lastBackupAt
+                ? formatDateTimeShort(settings.lastBackupAt)
+                : t("backup.never")}
+            </strong>
           </article>
           <article className="status-card">
             <span>{t("backup.fields.autoBackup")}</span>
-            <strong>{draftSettings.autoBackupEnabled ? t("backup.autoInterval", { n: draftSettings.autoBackupIntervalHours }) : t("backup.disabled")}</strong>
+            <strong>
+              {draftSettings.autoBackupEnabled
+                ? t("backup.autoInterval", { n: draftSettings.autoBackupIntervalHours })
+                : t("backup.disabled")}
+            </strong>
           </article>
         </div>
 
@@ -720,7 +751,7 @@ export const SettingsPage = () => {
               onChange={(event) =>
                 setDraftSettings((current) => ({
                   ...current,
-                  autoBackupEnabled: event.target.checked
+                  autoBackupEnabled: event.target.checked,
                 }))
               }
             />
@@ -737,7 +768,7 @@ export const SettingsPage = () => {
               onChange={(event) =>
                 setDraftSettings((current) => ({
                   ...current,
-                  autoBackupIntervalHours: Math.max(1, Number(event.target.value || 24))
+                  autoBackupIntervalHours: Math.max(1, Number(event.target.value || 24)),
                 }))
               }
             />
@@ -756,7 +787,7 @@ export const SettingsPage = () => {
               try {
                 const selected = await open({
                   directory: true,
-                  multiple: false
+                  multiple: false,
                 });
                 if (!selected || Array.isArray(selected)) {
                   return;
@@ -764,7 +795,7 @@ export const SettingsPage = () => {
 
                 const nextSettings = {
                   ...settings,
-                  backupDestinationDir: selected
+                  backupDestinationDir: selected,
                 };
                 await saveSettings(nextSettings);
                 setDraftSettings(nextSettings);
@@ -793,7 +824,7 @@ export const SettingsPage = () => {
                   ...settings,
                   autoBackupEnabled: draftSettings.autoBackupEnabled,
                   autoBackupIntervalHours: draftSettings.autoBackupIntervalHours,
-                  backupDestinationDir: draftSettings.backupDestinationDir
+                  backupDestinationDir: draftSettings.backupDestinationDir,
                 };
                 await saveSettings(nextSettings);
                 setDraftSettings(nextSettings);
@@ -824,7 +855,7 @@ export const SettingsPage = () => {
                 const nextSettings = {
                   ...settings,
                   lastBackupAt: backup.createdAt,
-                  lastBackupPath: backup.backupPath
+                  lastBackupPath: backup.backupPath,
                 };
                 await saveSettings(nextSettings);
                 setDraftSettings(nextSettings);
@@ -841,10 +872,7 @@ export const SettingsPage = () => {
         </div>
       </SectionCard>
 
-      <SectionCard
-        title={t("gtdImport.title")}
-        subtitle={t("gtdImport.subtitle")}
-      >
+      <SectionCard title={t("gtdImport.title")} subtitle={t("gtdImport.subtitle")}>
         <div className="status-grid">
           <article className="status-card">
             <span>{t("gtdImport.stats.tasks")}</span>
@@ -862,45 +890,6 @@ export const SettingsPage = () => {
             <span>{t("gtdImport.stats.lastImport")}</span>
             <strong>{settings.gtdImportDoneAt || t("backup.never")}</strong>
           </article>
-        </div>
-
-        {gtdMessage ? <div className="banner">{gtdMessage}</div> : null}
-
-        <div className="form-actions">
-          <button
-            className="button button--primary"
-            type="button"
-            disabled={importingGtd}
-            onClick={async () => {
-              setImportingGtd(true);
-              setGtdMessage("");
-
-              try {
-                const summary = await repository.importGoogleTasksExport(initialGoogleTasksExport);
-                const importedAt = new Date().toISOString();
-                const nextSettings = {
-                  ...settings,
-                  gtdImportDoneAt: importedAt
-                };
-                await saveSettings(nextSettings);
-                setDraftSettings(nextSettings);
-                setGtdOverview(await repository.getGtdOverview());
-                setGtdMessage(
-                  t("gtdImport.success", {
-                    tasks: summary.importedTasks,
-                    projects: summary.importedProjects,
-                    contexts: summary.importedContexts
-                  })
-                );
-              } catch (error) {
-                setGtdMessage(error instanceof Error ? error.message : t("gtdImport.error"));
-              } finally {
-                setImportingGtd(false);
-              }
-            }}
-          >
-            {importingGtd ? t("gtdImport.importing") : t("gtdImport.import")}
-          </button>
         </div>
       </SectionCard>
     </div>

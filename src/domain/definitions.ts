@@ -20,20 +20,23 @@ export interface PrincipleDefinition {
 
 const metric = (
   key: MetricKey,
-  extras: Pick<MetricDefinition, "step" | "min" | "max">
+  extras: Pick<MetricDefinition, "step" | "min" | "max">,
 ): MetricDefinition => ({
   key,
   label: t(`${key}.label`, { ns: "metrics" }),
   helper: t(`${key}.helper`, { ns: "metrics" }),
   unit: t(`${key}.unit`, { ns: "metrics" }),
-  ...extras
+  ...extras,
 });
 
-const principle = (key: PrincipleKey, timing: PrincipleDefinition["timing"]): PrincipleDefinition => ({
+const principle = (
+  key: PrincipleKey,
+  timing: PrincipleDefinition["timing"],
+): PrincipleDefinition => ({
   key,
   label: t(`${key}.label`, { ns: "principles" }),
   helper: t(`${key}.helper`, { ns: "principles" }),
-  timing
+  timing,
 });
 
 export const metricDefinitions: MetricDefinition[] = [
@@ -47,7 +50,7 @@ export const metricDefinitions: MetricDefinition[] = [
   metric("tachesDebut", { step: 1, min: 0 }),
   metric("tachesFin", { step: 1, min: 0 }),
   metric("tachesAjoutes", { step: 1, min: 0 }),
-  metric("tachesRealises", { step: 1, min: 0 })
+  metric("tachesRealises", { step: 1, min: 0 }),
 ];
 
 export const principleDefinitions: PrincipleDefinition[] = [
@@ -64,7 +67,7 @@ export const principleDefinitions: PrincipleDefinition[] = [
   principle("attentionAMonEpouse", "evening"),
   principle("respectTrc", "evening"),
   principle("respectReveil", "morning"),
-  principle("objectifsAtteints", "evening")
+  principle("objectifsAtteints", "evening"),
 ];
 
 export const morningPrincipleKeys: PrincipleKey[] = [
@@ -73,7 +76,7 @@ export const morningPrincipleKeys: PrincipleKey[] = [
   "oxytocineDuMatin",
   "avoirLuMesPrincipes",
   "ecriture",
-  "apprentissage"
+  "apprentissage",
 ];
 
 export const morningMetricKeys: MetricKey[] = ["qualiteSommeil", "pushups"];

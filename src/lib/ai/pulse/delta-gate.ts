@@ -1,6 +1,6 @@
-import type { AiDeltaClass } from "../../../domain/types";
 import type { AppOpenInterval } from "../../../domain/insights/movement";
 import { computeWindowMovement } from "../../../domain/insights/movement";
+import type { AiDeltaClass } from "../../../domain/types";
 import { PULSE_UNKNOWN_CONTINUOUS_OPEN_MS } from "./constants";
 
 export interface PulseWindowInput {
@@ -38,7 +38,7 @@ const mergeIntervals = (intervals: Array<[number, number]>): Array<[number, numb
 export const computeMaxContinuousOpenMs = (
   sinceIso: string,
   nowIso: string,
-  appOpenIntervals: AppOpenInterval[]
+  appOpenIntervals: AppOpenInterval[],
 ): number => {
   const sinceMs = new Date(sinceIso).getTime();
   const nowMs = new Date(nowIso).getTime();
@@ -46,7 +46,7 @@ export const computeMaxContinuousOpenMs = (
   const clamped = appOpenIntervals
     .map((interval): [number, number] => [
       Math.max(sinceMs, new Date(interval.startedAt).getTime()),
-      Math.min(nowMs, new Date(interval.endedAt).getTime())
+      Math.min(nowMs, new Date(interval.endedAt).getTime()),
     ])
     .filter(([start, end]) => end > start);
 
@@ -65,13 +65,13 @@ export const classifyPulseWindow = (input: PulseWindowInput): PulseWindowResult 
     nowIso: input.nowIso,
     focusSessions: input.focusSessions,
     tasks: input.tasks,
-    appOpenIntervals: input.appOpenIntervals
+    appOpenIntervals: input.appOpenIntervals,
   });
 
   const maxContinuousOpenMs = computeMaxContinuousOpenMs(
     input.sinceIso,
     input.nowIso,
-    input.appOpenIntervals
+    input.appOpenIntervals,
   );
 
   if (movement.moved) {

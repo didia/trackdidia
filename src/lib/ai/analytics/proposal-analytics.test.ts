@@ -4,12 +4,12 @@ import { buildAiUsageSummary, estimateTokenCostUsd } from "./cost";
 import { getCurrentMonthKey, monthKeyToLocalRange, toLocalDateKey } from "./month-range";
 import {
   buildCoachAnalyticsSummary,
-  computeAcceptanceRatesBySurface,
   computeAcceptanceRatesByStance,
+  computeAcceptanceRatesBySurface,
   computeAcceptanceRatesByType,
   computeDismissalTrend,
   flagLowAcceptanceSignals,
-  joinProposalsWithMessages
+  joinProposalsWithMessages,
 } from "./proposal-analytics";
 
 const buildMessage = (partial: Partial<AiMessage>): AiMessage => ({
@@ -30,7 +30,7 @@ const buildMessage = (partial: Partial<AiMessage>): AiMessage => ({
   tokensCompletion: 50,
   latencyMs: 1000,
   createdAt: "2026-08-01T10:00:00.000Z",
-  ...partial
+  ...partial,
 });
 
 const buildProposal = (partial: Partial<AiProposal>): AiProposal => ({
@@ -42,7 +42,7 @@ const buildProposal = (partial: Partial<AiProposal>): AiProposal => ({
   appliedEntityId: null,
   decidedAt: "2026-08-01T11:00:00.000Z",
   createdAt: "2026-08-01T10:30:00.000Z",
-  ...partial
+  ...partial,
 });
 
 describe("month-range", () => {
@@ -65,7 +65,7 @@ describe("cost", () => {
       tokensPrompt: 1000,
       tokensCompletion: 500,
       tokensTotal: 1500,
-      estimatedCostUsd: 0.003
+      estimatedCostUsd: 0.003,
     });
   });
 });
@@ -81,30 +81,59 @@ describe("proposal-analytics", () => {
 
   it("computes acceptance rates by surface, type, and stance", () => {
     const pulseMessage = buildMessage({ id: "msg-pulse", surface: "coach_pulse", stance: "steer" });
-    const weeklyMessage = buildMessage({ id: "msg-weekly", surface: "weekly_synthesis", stance: null });
+    const weeklyMessage = buildMessage({
+      id: "msg-weekly",
+      surface: "weekly_synthesis",
+      stance: null,
+    });
     const rows = joinProposalsWithMessages(
       [
-        buildProposal({ id: "p1", messageId: "msg-pulse", type: "intention_draft", status: "accepted" }),
-        buildProposal({ id: "p2", messageId: "msg-pulse", type: "tomorrow_focus_draft", status: "dismissed" }),
-        buildProposal({ id: "p3", messageId: "msg-weekly", type: "review_section_draft", status: "accepted" })
+        buildProposal({
+          id: "p1",
+          messageId: "msg-pulse",
+          type: "intention_draft",
+          status: "accepted",
+        }),
+        buildProposal({
+          id: "p2",
+          messageId: "msg-pulse",
+          type: "tomorrow_focus_draft",
+          status: "dismissed",
+        }),
+        buildProposal({
+          id: "p3",
+          messageId: "msg-weekly",
+          type: "review_section_draft",
+          status: "accepted",
+        }),
       ],
-      [pulseMessage, weeklyMessage]
+      [pulseMessage, weeklyMessage],
     );
 
     expect(computeAcceptanceRatesBySurface(rows)).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ key: "coach_pulse", accepted: 1, dismissed: 1, acceptanceRate: 0.5 }),
-        expect.objectContaining({ key: "weekly_synthesis", accepted: 1, dismissed: 0, acceptanceRate: 1 })
-      ])
+        expect.objectContaining({
+          key: "coach_pulse",
+          accepted: 1,
+          dismissed: 1,
+          acceptanceRate: 0.5,
+        }),
+        expect.objectContaining({
+          key: "weekly_synthesis",
+          accepted: 1,
+          dismissed: 0,
+          acceptanceRate: 1,
+        }),
+      ]),
     );
     expect(computeAcceptanceRatesByType(rows)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ key: "intention_draft", acceptanceRate: 1 }),
-        expect.objectContaining({ key: "tomorrow_focus_draft", acceptanceRate: 0 })
-      ])
+        expect.objectContaining({ key: "tomorrow_focus_draft", acceptanceRate: 0 }),
+      ]),
     );
     expect(computeAcceptanceRatesByStance(rows)).toEqual([
-      expect.objectContaining({ key: "steer", accepted: 1, dismissed: 1, acceptanceRate: 0.5 })
+      expect.objectContaining({ key: "steer", accepted: 1, dismissed: 1, acceptanceRate: 0.5 }),
     ]);
   });
 
@@ -116,16 +145,16 @@ describe("proposal-analytics", () => {
           id: "d1",
           messageId: "msg-trend",
           status: "dismissed",
-          decidedAt: "2026-08-28T15:00:00.000Z"
+          decidedAt: "2026-08-28T15:00:00.000Z",
         }),
         buildProposal({
           id: "d2",
           messageId: "msg-trend",
           status: "accepted",
-          decidedAt: "2026-08-28T16:00:00.000Z"
-        })
+          decidedAt: "2026-08-28T16:00:00.000Z",
+        }),
       ],
-      [message]
+      [message],
     );
 
     const trend = computeDismissalTrend(rows, 30, new Date("2026-08-29T12:00:00.000Z"));
@@ -135,8 +164,8 @@ describe("proposal-analytics", () => {
       expect.objectContaining({
         dismissed: 1,
         decided: 2,
-        dismissalRate: 0.5
-      })
+        dismissalRate: 0.5,
+      }),
     );
   });
 
@@ -146,9 +175,9 @@ describe("proposal-analytics", () => {
       [
         buildProposal({ id: "l1", messageId: "msg-low", status: "dismissed" }),
         buildProposal({ id: "l2", messageId: "msg-low", status: "dismissed" }),
-        buildProposal({ id: "l3", messageId: "msg-low", status: "accepted" })
+        buildProposal({ id: "l3", messageId: "msg-low", status: "accepted" }),
       ],
-      [message]
+      [message],
     );
 
     const summary = buildCoachAnalyticsSummary(rows, new Date("2026-08-29T12:00:00.000Z"));
@@ -160,9 +189,9 @@ describe("proposal-analytics", () => {
           dimension: "surface",
           key: "monthly_synthesis",
           note: t("promptRevisionNote", { ns: "coach" }),
-          promptVersion: "monthly_synthesis.v1"
-        })
-      ])
+          promptVersion: "monthly_synthesis.v1",
+        }),
+      ]),
     );
   });
 });

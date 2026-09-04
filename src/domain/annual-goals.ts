@@ -1,4 +1,6 @@
 import { t } from "../i18n";
+import { resolveMetricValue } from "./daily-entry";
+import { getMonthKey, getMonthStartDate } from "./monthly-review";
 import type {
   AnnualGoal,
   AnnualGoalDimension,
@@ -8,10 +10,8 @@ import type {
   AnnualGoalSourceType,
   AnnualGoalTrend,
   DailyEntry,
-  WeeklyReviewSummary
+  WeeklyReviewSummary,
 } from "./types";
-import { computeDisciplineScore, resolveMetricValue } from "./daily-entry";
-import { getMonthKey, getMonthStartDate } from "./monthly-review";
 
 interface AnnualGoalSourceDefinition {
   id: AnnualGoalSourceId;
@@ -20,7 +20,11 @@ interface AnnualGoalSourceDefinition {
   weeklyMetricLabels: string[];
   dailyHabitLabels: string[];
   computeCurrent: (entries: DailyEntry[], weeklySummaries: WeeklyReviewSummary[]) => number | null;
-  computeMonth: (monthKey: string, entries: DailyEntry[], weeklySummaries: WeeklyReviewSummary[]) => number | null;
+  computeMonth: (
+    monthKey: string,
+    entries: DailyEntry[],
+    weeklySummaries: WeeklyReviewSummary[],
+  ) => number | null;
 }
 
 const average = (values: number[]): number | null =>
@@ -28,7 +32,10 @@ const average = (values: number[]): number | null =>
 
 const sum = (values: number[]): number => values.reduce((total, value) => total + value, 0);
 
-const computePrincipleRate = (entries: DailyEntry[], key: keyof DailyEntry["principleChecks"]): number | null => {
+const computePrincipleRate = (
+  entries: DailyEntry[],
+  key: keyof DailyEntry["principleChecks"],
+): number | null => {
   if (entries.length === 0) {
     return null;
   }
@@ -40,16 +47,33 @@ const computePrincipleRate = (entries: DailyEntry[], key: keyof DailyEntry["prin
 const filterEntriesByMonth = (monthKey: string, entries: DailyEntry[]): DailyEntry[] =>
   entries.filter((entry) => getMonthKey(entry.date) === monthKey);
 
-const filterWeeklyByMonth = (monthKey: string, weeklySummaries: WeeklyReviewSummary[]): WeeklyReviewSummary[] => {
+const filterWeeklyByMonth = (
+  monthKey: string,
+  weeklySummaries: WeeklyReviewSummary[],
+): WeeklyReviewSummary[] => {
   const monthStart = getMonthStartDate(monthKey);
-  return weeklySummaries.filter((summary) => getMonthKey(summary.weekStartDate) === monthKey || getMonthKey(summary.weekEndDate) === monthKey || (summary.weekStartDate < monthStart && summary.weekEndDate >= monthStart));
+  return weeklySummaries.filter(
+    (summary) =>
+      getMonthKey(summary.weekStartDate) === monthKey ||
+      getMonthKey(summary.weekEndDate) === monthKey ||
+      (summary.weekStartDate < monthStart && summary.weekEndDate >= monthStart),
+  );
 };
 
-const weeklyAverage = (weeklySummaries: WeeklyReviewSummary[], selector: (summary: WeeklyReviewSummary) => number): number | null =>
-  average(weeklySummaries.map(selector));
+const weeklyAverage = (
+  weeklySummaries: WeeklyReviewSummary[],
+  selector: (summary: WeeklyReviewSummary) => number,
+): number | null => average(weeklySummaries.map(selector));
 
-const dailyAverageMetric = (entries: DailyEntry[], key: Parameters<typeof resolveMetricValue>[1]): number | null =>
-  average(entries.map((entry) => resolveMetricValue(entry, key)).filter((value): value is number => value !== null));
+const dailyAverageMetric = (
+  entries: DailyEntry[],
+  key: Parameters<typeof resolveMetricValue>[1],
+): number | null =>
+  average(
+    entries
+      .map((entry) => resolveMetricValue(entry, key))
+      .filter((value): value is number => value !== null),
+  );
 
 const sourceLabel = (id: AnnualGoalSourceId): string => t(`sources.${id}`, { ns: "goals" });
 const linkedMetricLabel = (id: string): string => t(`linkedMetric.${id}`, { ns: "goals" });
@@ -62,8 +86,13 @@ const sourceDefinitions: AnnualGoalSourceDefinition[] = [
     type: "weekly_summary",
     weeklyMetricLabels: [linkedMetricLabel("weekly_sleep_average")],
     dailyHabitLabels: [habitLabel("qualiteSommeil")],
-    computeCurrent: (_entries, weeklySummaries) => weeklyAverage(weeklySummaries, (summary) => summary.sleepAverage),
-    computeMonth: (monthKey, _entries, weeklySummaries) => weeklyAverage(filterWeeklyByMonth(monthKey, weeklySummaries), (summary) => summary.sleepAverage)
+    computeCurrent: (_entries, weeklySummaries) =>
+      weeklyAverage(weeklySummaries, (summary) => summary.sleepAverage),
+    computeMonth: (monthKey, _entries, weeklySummaries) =>
+      weeklyAverage(
+        filterWeeklyByMonth(monthKey, weeklySummaries),
+        (summary) => summary.sleepAverage,
+      ),
   },
   {
     id: "weekly_respect_trc",
@@ -71,8 +100,13 @@ const sourceDefinitions: AnnualGoalSourceDefinition[] = [
     type: "weekly_summary",
     weeklyMetricLabels: [linkedMetricLabel("weekly_respect_trc")],
     dailyHabitLabels: [habitLabel("respectTrc")],
-    computeCurrent: (_entries, weeklySummaries) => weeklyAverage(weeklySummaries, (summary) => summary.respectTrc),
-    computeMonth: (monthKey, _entries, weeklySummaries) => weeklyAverage(filterWeeklyByMonth(monthKey, weeklySummaries), (summary) => summary.respectTrc)
+    computeCurrent: (_entries, weeklySummaries) =>
+      weeklyAverage(weeklySummaries, (summary) => summary.respectTrc),
+    computeMonth: (monthKey, _entries, weeklySummaries) =>
+      weeklyAverage(
+        filterWeeklyByMonth(monthKey, weeklySummaries),
+        (summary) => summary.respectTrc,
+      ),
   },
   {
     id: "weekly_weekly_score",
@@ -86,16 +120,19 @@ const sourceDefinitions: AnnualGoalSourceDefinition[] = [
       habitLabel("tempsFocus"),
       habitLabel("discipline"),
       habitLabel("taches"),
-      habitLabel("depenseCalorique")
+      habitLabel("depenseCalorique"),
     ],
     computeCurrent: (_entries, weeklySummaries) => {
       const value = weeklyAverage(weeklySummaries, (summary) => summary.weeklyScore);
       return value === null ? null : value * 100;
     },
     computeMonth: (monthKey, _entries, weeklySummaries) => {
-      const value = weeklyAverage(filterWeeklyByMonth(monthKey, weeklySummaries), (summary) => summary.weeklyScore);
+      const value = weeklyAverage(
+        filterWeeklyByMonth(monthKey, weeklySummaries),
+        (summary) => summary.weeklyScore,
+      );
       return value === null ? null : value * 100;
-    }
+    },
   },
   {
     id: "weekly_discipline",
@@ -103,8 +140,13 @@ const sourceDefinitions: AnnualGoalSourceDefinition[] = [
     type: "weekly_summary",
     weeklyMetricLabels: [linkedMetricLabel("weekly_discipline")],
     dailyHabitLabels: [habitLabel("principesDeVie")],
-    computeCurrent: (_entries, weeklySummaries) => weeklyAverage(weeklySummaries, (summary) => summary.disciplineAverage * 100),
-    computeMonth: (monthKey, _entries, weeklySummaries) => weeklyAverage(filterWeeklyByMonth(monthKey, weeklySummaries), (summary) => summary.disciplineAverage * 100)
+    computeCurrent: (_entries, weeklySummaries) =>
+      weeklyAverage(weeklySummaries, (summary) => summary.disciplineAverage * 100),
+    computeMonth: (monthKey, _entries, weeklySummaries) =>
+      weeklyAverage(
+        filterWeeklyByMonth(monthKey, weeklySummaries),
+        (summary) => summary.disciplineAverage * 100,
+      ),
   },
   {
     id: "weekly_tasks_completion_rate",
@@ -112,8 +154,13 @@ const sourceDefinitions: AnnualGoalSourceDefinition[] = [
     type: "weekly_summary",
     weeklyMetricLabels: [linkedMetricLabel("weekly_tasks_completion_rate")],
     dailyHabitLabels: [habitLabel("tachesRealisees"), habitLabel("tachesAjoutees")],
-    computeCurrent: (_entries, weeklySummaries) => weeklyAverage(weeklySummaries, (summary) => summary.tasksCompletionRate),
-    computeMonth: (monthKey, _entries, weeklySummaries) => weeklyAverage(filterWeeklyByMonth(monthKey, weeklySummaries), (summary) => summary.tasksCompletionRate)
+    computeCurrent: (_entries, weeklySummaries) =>
+      weeklyAverage(weeklySummaries, (summary) => summary.tasksCompletionRate),
+    computeMonth: (monthKey, _entries, weeklySummaries) =>
+      weeklyAverage(
+        filterWeeklyByMonth(monthKey, weeklySummaries),
+        (summary) => summary.tasksCompletionRate,
+      ),
   },
   {
     id: "daily_depense_calorique_avg",
@@ -122,7 +169,8 @@ const sourceDefinitions: AnnualGoalSourceDefinition[] = [
     weeklyMetricLabels: [],
     dailyHabitLabels: [habitLabel("depenseCalorique")],
     computeCurrent: (entries) => dailyAverageMetric(entries, "depenseCalorique"),
-    computeMonth: (monthKey, entries) => dailyAverageMetric(filterEntriesByMonth(monthKey, entries), "depenseCalorique")
+    computeMonth: (monthKey, entries) =>
+      dailyAverageMetric(filterEntriesByMonth(monthKey, entries), "depenseCalorique"),
   },
   {
     id: "daily_qualite_sommeil_avg",
@@ -131,7 +179,8 @@ const sourceDefinitions: AnnualGoalSourceDefinition[] = [
     weeklyMetricLabels: [linkedMetricLabel("daily_qualite_sommeil_avg")],
     dailyHabitLabels: [habitLabel("qualiteSommeil")],
     computeCurrent: (entries) => dailyAverageMetric(entries, "qualiteSommeil"),
-    computeMonth: (monthKey, entries) => dailyAverageMetric(filterEntriesByMonth(monthKey, entries), "qualiteSommeil")
+    computeMonth: (monthKey, entries) =>
+      dailyAverageMetric(filterEntriesByMonth(monthKey, entries), "qualiteSommeil"),
   },
   {
     id: "daily_temps_ecran_avg",
@@ -140,7 +189,8 @@ const sourceDefinitions: AnnualGoalSourceDefinition[] = [
     weeklyMetricLabels: [linkedMetricLabel("daily_temps_ecran_avg")],
     dailyHabitLabels: [habitLabel("tempsEcranTelephone")],
     computeCurrent: (entries) => dailyAverageMetric(entries, "tempsEcranTelephone"),
-    computeMonth: (monthKey, entries) => dailyAverageMetric(filterEntriesByMonth(monthKey, entries), "tempsEcranTelephone")
+    computeMonth: (monthKey, entries) =>
+      dailyAverageMetric(filterEntriesByMonth(monthKey, entries), "tempsEcranTelephone"),
   },
   {
     id: "daily_pomodoris_sum",
@@ -148,8 +198,14 @@ const sourceDefinitions: AnnualGoalSourceDefinition[] = [
     type: "daily_metric",
     weeklyMetricLabels: [linkedMetricLabel("daily_pomodoris_sum")],
     dailyHabitLabels: [habitLabel("pomodoris")],
-    computeCurrent: (entries) => sum(entries.map((entry) => resolveMetricValue(entry, "pomodoris") ?? 0)),
-    computeMonth: (monthKey, entries) => sum(filterEntriesByMonth(monthKey, entries).map((entry) => resolveMetricValue(entry, "pomodoris") ?? 0))
+    computeCurrent: (entries) =>
+      sum(entries.map((entry) => resolveMetricValue(entry, "pomodoris") ?? 0)),
+    computeMonth: (monthKey, entries) =>
+      sum(
+        filterEntriesByMonth(monthKey, entries).map(
+          (entry) => resolveMetricValue(entry, "pomodoris") ?? 0,
+        ),
+      ),
   },
   {
     id: "daily_pomodoris_avg",
@@ -158,7 +214,8 @@ const sourceDefinitions: AnnualGoalSourceDefinition[] = [
     weeklyMetricLabels: [linkedMetricLabel("daily_pomodoris_avg")],
     dailyHabitLabels: [habitLabel("pomodoris")],
     computeCurrent: (entries) => dailyAverageMetric(entries, "pomodoris"),
-    computeMonth: (monthKey, entries) => dailyAverageMetric(filterEntriesByMonth(monthKey, entries), "pomodoris")
+    computeMonth: (monthKey, entries) =>
+      dailyAverageMetric(filterEntriesByMonth(monthKey, entries), "pomodoris"),
   },
   {
     id: "daily_respect_trc_rate",
@@ -167,7 +224,8 @@ const sourceDefinitions: AnnualGoalSourceDefinition[] = [
     weeklyMetricLabels: [linkedMetricLabel("daily_respect_trc_rate")],
     dailyHabitLabels: [habitLabel("respectTrc")],
     computeCurrent: (entries) => computePrincipleRate(entries, "respectTrc"),
-    computeMonth: (monthKey, entries) => computePrincipleRate(filterEntriesByMonth(monthKey, entries), "respectTrc")
+    computeMonth: (monthKey, entries) =>
+      computePrincipleRate(filterEntriesByMonth(monthKey, entries), "respectTrc"),
   },
   {
     id: "daily_respect_reveil_rate",
@@ -176,7 +234,8 @@ const sourceDefinitions: AnnualGoalSourceDefinition[] = [
     weeklyMetricLabels: [],
     dailyHabitLabels: [habitLabel("respectReveil")],
     computeCurrent: (entries) => computePrincipleRate(entries, "respectReveil"),
-    computeMonth: (monthKey, entries) => computePrincipleRate(filterEntriesByMonth(monthKey, entries), "respectReveil")
+    computeMonth: (monthKey, entries) =>
+      computePrincipleRate(filterEntriesByMonth(monthKey, entries), "respectReveil"),
   },
   {
     id: "daily_priere_du_matin_rate",
@@ -185,7 +244,8 @@ const sourceDefinitions: AnnualGoalSourceDefinition[] = [
     weeklyMetricLabels: [],
     dailyHabitLabels: [habitLabel("priereDuMatin")],
     computeCurrent: (entries) => computePrincipleRate(entries, "priereDuMatin"),
-    computeMonth: (monthKey, entries) => computePrincipleRate(filterEntriesByMonth(monthKey, entries), "priereDuMatin")
+    computeMonth: (monthKey, entries) =>
+      computePrincipleRate(filterEntriesByMonth(monthKey, entries), "priereDuMatin"),
   },
   {
     id: "daily_priere_du_soir_rate",
@@ -194,7 +254,8 @@ const sourceDefinitions: AnnualGoalSourceDefinition[] = [
     weeklyMetricLabels: [],
     dailyHabitLabels: [habitLabel("priereDuSoir")],
     computeCurrent: (entries) => computePrincipleRate(entries, "priereDuSoir"),
-    computeMonth: (monthKey, entries) => computePrincipleRate(filterEntriesByMonth(monthKey, entries), "priereDuSoir")
+    computeMonth: (monthKey, entries) =>
+      computePrincipleRate(filterEntriesByMonth(monthKey, entries), "priereDuSoir"),
   },
   {
     id: "daily_objectifs_atteints_rate",
@@ -203,8 +264,9 @@ const sourceDefinitions: AnnualGoalSourceDefinition[] = [
     weeklyMetricLabels: [],
     dailyHabitLabels: [habitLabel("objectifsAtteints")],
     computeCurrent: (entries) => computePrincipleRate(entries, "objectifsAtteints"),
-    computeMonth: (monthKey, entries) => computePrincipleRate(filterEntriesByMonth(monthKey, entries), "objectifsAtteints")
-  }
+    computeMonth: (monthKey, entries) =>
+      computePrincipleRate(filterEntriesByMonth(monthKey, entries), "objectifsAtteints"),
+  },
 ];
 
 export const annualGoalDimensions: Array<{ value: AnnualGoalDimension; label: string }> = [
@@ -212,19 +274,19 @@ export const annualGoalDimensions: Array<{ value: AnnualGoalDimension; label: st
   { value: "spirituelle", label: t("dimensions.spirituelle", { ns: "goals" }) },
   { value: "sociale", label: t("dimensions.sociale", { ns: "goals" }) },
   { value: "intellectuelle", label: t("dimensions.intellectuelle", { ns: "goals" }) },
-  { value: "global", label: t("dimensions.global", { ns: "goals" }) }
+  { value: "global", label: t("dimensions.global", { ns: "goals" }) },
 ];
 
 export const annualGoalTrendOptions: Array<{ value: AnnualGoalTrend; label: string }> = [
   { value: "up", label: t("trends.up", { ns: "goals" }) },
   { value: "steady", label: t("trends.steady", { ns: "goals" }) },
-  { value: "down", label: t("trends.down", { ns: "goals" }) }
+  { value: "down", label: t("trends.down", { ns: "goals" }) },
 ];
 
 export const annualGoalSourceOptions = sourceDefinitions.map((definition) => ({
   value: definition.id,
   label: definition.label,
-  type: definition.type
+  type: definition.type,
 }));
 
 export const createEmptyAnnualGoal = (overrides: Partial<AnnualGoal> = {}): AnnualGoal => {
@@ -240,28 +302,28 @@ export const createEmptyAnnualGoal = (overrides: Partial<AnnualGoal> = {}): Annu
     manualCurrentValue: overrides.manualCurrentValue ?? null,
     evaluations: overrides.evaluations ?? {},
     createdAt: overrides.createdAt ?? timestamp,
-    updatedAt: overrides.updatedAt ?? timestamp
+    updatedAt: overrides.updatedAt ?? timestamp,
   };
 };
 
 export const cloneAnnualGoal = (goal: AnnualGoal): AnnualGoal => ({
   ...goal,
   evaluations: Object.fromEntries(
-    Object.entries(goal.evaluations).map(([monthKey, evaluation]) => [monthKey, { ...evaluation }])
-  )
+    Object.entries(goal.evaluations).map(([monthKey, evaluation]) => [monthKey, { ...evaluation }]),
+  ),
 });
 
 export const updateAnnualGoalEvaluation = (
   goal: AnnualGoal,
   monthKey: string,
-  changes: Partial<AnnualGoalEvaluation>
+  changes: Partial<AnnualGoalEvaluation>,
 ): AnnualGoal => {
   const existing = goal.evaluations[monthKey] ?? {
     monthKey,
     score: null,
     trend: null,
     notes: "",
-    blockers: ""
+    blockers: "",
   };
 
   return {
@@ -270,10 +332,10 @@ export const updateAnnualGoalEvaluation = (
       ...goal.evaluations,
       [monthKey]: {
         ...existing,
-        ...changes
-      }
+        ...changes,
+      },
     },
-    updatedAt: new Date().toISOString()
+    updatedAt: new Date().toISOString(),
   };
 };
 
@@ -281,9 +343,9 @@ const buildMonthKeysForYear = (year: number): string[] =>
   Array.from({ length: 12 }, (_, index) => `${year}-${String(index + 1).padStart(2, "0")}`);
 
 export const getAnnualGoalSourceDefinition = (
-  sourceId: AnnualGoalSourceId | null
+  sourceId: AnnualGoalSourceId | null,
 ): AnnualGoalSourceDefinition | null =>
-  sourceId ? sourceDefinitions.find((definition) => definition.id === sourceId) ?? null : null;
+  sourceId ? (sourceDefinitions.find((definition) => definition.id === sourceId) ?? null) : null;
 
 /** Fraction of the calendar year elapsed on a local date (0–1). */
 export const computeYearProgressFraction = (year: number, asOfDate: string): number => {
@@ -319,7 +381,7 @@ export const ANNUAL_GOAL_PACE_TOLERANCE = 0.1;
 export const isAnnualGoalOnPace = (
   progressRatio: number | null,
   expectedFraction: number,
-  tolerance = ANNUAL_GOAL_PACE_TOLERANCE
+  tolerance = ANNUAL_GOAL_PACE_TOLERANCE,
 ): boolean => {
   if (progressRatio === null) {
     return false;
@@ -336,11 +398,12 @@ export const buildAnnualGoalSnapshots = (
   goals: AnnualGoal[],
   year: number,
   entries: DailyEntry[],
-  weeklySummaries: WeeklyReviewSummary[]
+  weeklySummaries: WeeklyReviewSummary[],
 ): AnnualGoalSnapshot[] => {
   const yearEntries = entries.filter((entry) => entry.date.startsWith(`${year}-`));
   const yearWeeklySummaries = weeklySummaries.filter(
-    (summary) => summary.weekStartDate.startsWith(`${year}-`) || summary.weekEndDate.startsWith(`${year}-`)
+    (summary) =>
+      summary.weekStartDate.startsWith(`${year}-`) || summary.weekEndDate.startsWith(`${year}-`),
   );
 
   return goals.map((rawGoal) => {
@@ -361,10 +424,10 @@ export const buildAnnualGoalSnapshots = (
       progressRatio,
       monthlyProgress: buildMonthKeysForYear(year).map((monthKey) => ({
         monthKey,
-        value: source?.computeMonth(monthKey, yearEntries, yearWeeklySummaries) ?? null
+        value: source?.computeMonth(monthKey, yearEntries, yearWeeklySummaries) ?? null,
       })),
       linkedWeeklyMetricLabels: source?.weeklyMetricLabels ?? [],
-      linkedDailyHabitLabels: source?.dailyHabitLabels ?? []
+      linkedDailyHabitLabels: source?.dailyHabitLabels ?? [],
     };
   });
 };

@@ -1,4 +1,4 @@
-import { resolvePulseSlots, buildPulseScopeKey } from "./slot-resolution";
+import { buildPulseScopeKey, resolvePulseSlots } from "./slot-resolution";
 
 describe("slot-resolution", () => {
   const date = "2026-08-29";
@@ -9,13 +9,13 @@ describe("slot-resolution", () => {
       nowIso: "2026-08-29T10:30:00",
       slotHours: [5, 13, 20],
       firstOpenAtIso: "2026-08-29T10:00:00",
-      processedScopeKeys: new Set()
+      processedScopeKeys: new Set(),
     });
 
     expect(result.dueSlot).toEqual({
       stance: "open",
       hour: 5,
-      scopeKey: date
+      scopeKey: date,
     });
     expect(result.missedSlots).toEqual([]);
   });
@@ -26,20 +26,20 @@ describe("slot-resolution", () => {
       nowIso: "2026-08-29T16:00:00",
       slotHours: [5, 13, 20],
       firstOpenAtIso: "2026-08-29T16:00:00",
-      processedScopeKeys: new Set()
+      processedScopeKeys: new Set(),
     });
 
     expect(result.dueSlot).toEqual({
       stance: "steer",
       hour: 13,
-      scopeKey: `${date}#13`
+      scopeKey: `${date}#13`,
     });
     expect(result.missedSlots).toEqual([
       {
         stance: "open",
         hour: 5,
-        scopeKey: date
-      }
+        scopeKey: date,
+      },
     ]);
   });
 
@@ -49,7 +49,7 @@ describe("slot-resolution", () => {
       nowIso: "2026-08-29T08:00:00",
       slotHours: [5, 13, 20],
       firstOpenAtIso: null,
-      processedScopeKeys: new Set()
+      processedScopeKeys: new Set(),
     });
 
     expect(result.dueSlot).toBeNull();
@@ -67,13 +67,13 @@ describe("slot-resolution", () => {
       nowIso: "2026-08-29T21:00:00",
       slotHours: [5, 13, 20, 21],
       firstOpenAtIso: "2026-08-29T06:00:00",
-      processedScopeKeys: new Set([date, `${date}#13`])
+      processedScopeKeys: new Set([date, `${date}#13`]),
     });
 
     expect(result.dueSlot).toEqual({
       stance: "wind_down",
       hour: 20,
-      scopeKey: `${date}#20`
+      scopeKey: `${date}#20`,
     });
     expect(result.missedSlots).toEqual([]);
   });

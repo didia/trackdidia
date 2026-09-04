@@ -1,25 +1,27 @@
+import { computeDisciplineScore, resolveMetricValue } from "../../../domain/daily-entry";
+import { metricDefinitions, principleDefinitions } from "../../../domain/definitions";
 import { computeAnomalyFindings } from "../../../domain/insights/anomalies";
+import {
+  TREND_LONG_WINDOW_DAYS,
+  TREND_SHORT_WINDOW_DAYS,
+} from "../../../domain/insights/constants";
 import { computeCorrelationFindings } from "../../../domain/insights/correlations";
 import { computeFocusFindings } from "../../../domain/insights/focus";
 import { computeGtdHealthFindings } from "../../../domain/insights/gtd-health";
 import {
   average,
   entriesInTrailingWindow,
-  sortEntriesByDate
+  sortEntriesByDate,
 } from "../../../domain/insights/shared";
 import { computeStreakFindings } from "../../../domain/insights/streaks";
-import type { Finding } from "../../../domain/insights/types";
 import {
   computeMetricTrendFindings,
   computeWeeklyScoreTrend,
   type TrendDirection,
   type WeeklyScoreTrendFinding,
-  type WeeklyScoreTrendPoint
+  type WeeklyScoreTrendPoint,
 } from "../../../domain/insights/trends";
-import { TREND_LONG_WINDOW_DAYS, TREND_SHORT_WINDOW_DAYS } from "../../../domain/insights/constants";
-import { computeDisciplineScore, resolveMetricValue } from "../../../domain/daily-entry";
-import { metricDefinitions, principleDefinitions } from "../../../domain/definitions";
-import { calorieTargetDaily, phoneScreenTargetMinutes, pomodoroTarget } from "../../../domain/weekly-review";
+import type { Finding } from "../../../domain/insights/types";
 import type {
   AiPayloadScope,
   DailyEntry,
@@ -28,15 +30,20 @@ import type {
   PomodoroTaskSummary,
   PrincipleKey,
   Project,
-  Task
+  Task,
 } from "../../../domain/types";
+import {
+  calorieTargetDaily,
+  phoneScreenTargetMinutes,
+  pomodoroTarget,
+} from "../../../domain/weekly-review";
 import type { Surface } from "./types";
 
 /** Daily metric targets known from existing product constants. `null` where none is defined yet. */
 const metricDailyTargets: Partial<Record<MetricKey, number>> = {
   tempsEcranTelephone: phoneScreenTargetMinutes / 7,
   pomodoris: pomodoroTarget / 7,
-  depenseCalorique: calorieTargetDaily
+  depenseCalorique: calorieTargetDaily,
 };
 
 export interface DailySnapshotMetric {
@@ -166,7 +173,11 @@ const sanitizeFindingForScope = (finding: Finding, includeStructure: boolean): F
     return finding;
   }
 
-  const { taskIds: _taskIds, projectIds: _projectIds, ...rest } = finding as Finding & {
+  const {
+    taskIds: _taskIds,
+    projectIds: _projectIds,
+    ...rest
+  } = finding as Finding & {
     taskIds?: string[];
     projectIds?: string[];
   };
@@ -179,7 +190,10 @@ const sanitizeFindingForScope = (finding: Finding, includeStructure: boolean): F
  * already-fetched repository data and insight findings. Redaction is applied centrally here
  * based on `scope`, so no caller can leak a field by forgetting to redact.
  */
-export const buildDailySnapshot = (inputs: DailySnapshotInputs, scope: AiPayloadScope): DailySnapshot => {
+export const buildDailySnapshot = (
+  inputs: DailySnapshotInputs,
+  scope: AiPayloadScope,
+): DailySnapshot => {
   const includeStructure = scope === "metrics_and_structure" || scope === "full";
   const includeFreeText = scope === "full";
 
@@ -193,9 +207,11 @@ export const buildDailySnapshot = (inputs: DailySnapshotInputs, scope: AiPayload
     inputs.pomodoroTaskSummaries,
     inputs.completedFocusSessionCount,
     inputs.now,
-    inputs.productivityPulseWeekToDate
+    inputs.productivityPulseWeekToDate,
   );
-  const weeklyScoreTrend = inputs.weeklyScoreHistory ? computeWeeklyScoreTrend(inputs.weeklyScoreHistory) : null;
+  const weeklyScoreTrend = inputs.weeklyScoreHistory
+    ? computeWeeklyScoreTrend(inputs.weeklyScoreHistory)
+    : null;
 
   const metrics: DailySnapshotMetric[] = metricDefinitions.map((definition) => {
     const trend = trendFindings.find((finding) => finding.metricKey === definition.key);
@@ -208,7 +224,7 @@ export const buildDailySnapshot = (inputs: DailySnapshotInputs, scope: AiPayload
       average7d: trend && trend.shortSampleSize > 0 ? trend.average7d : null,
       average28d: trend?.average28d ?? 0,
       delta: trend?.delta ?? 0,
-      direction: trend?.direction ?? "flat"
+      direction: trend?.direction ?? "flat",
     };
   });
 
@@ -222,44 +238,60 @@ export const buildDailySnapshot = (inputs: DailySnapshotInputs, scope: AiPayload
       currentStreak: streak?.currentStreak ?? 0,
       longestStreak: streak?.longestStreak ?? 0,
       daysSinceLastTrue: streak?.daysSinceLastTrue ?? null,
-      rate28d: streak?.rate28d ?? 0
+      rate28d: streak?.rate28d ?? 0,
     };
   });
 
   const inboxBacklogFinding = gtdHealthFindings.find((finding) => finding.kind === "inbox_backlog");
   const projectsWithoutNextActionFinding = gtdHealthFindings.find(
-    (finding) => finding.kind === "projects_without_next_action"
+    (finding) => finding.kind === "projects_without_next_action",
   );
-  const staleNextActionsFinding = gtdHealthFindings.find((finding) => finding.kind === "stale_next_actions");
-  const agingWaitingForFinding = gtdHealthFindings.find((finding) => finding.kind === "aging_waiting_for");
-  const overdueDeadlinesFinding = gtdHealthFindings.find((finding) => finding.kind === "overdue_deadlines");
+  const staleNextActionsFinding = gtdHealthFindings.find(
+    (finding) => finding.kind === "stale_next_actions",
+  );
+  const agingWaitingForFinding = gtdHealthFindings.find(
+    (finding) => finding.kind === "aging_waiting_for",
+  );
+  const overdueDeadlinesFinding = gtdHealthFindings.find(
+    (finding) => finding.kind === "overdue_deadlines",
+  );
   const scheduledVsCompletedFinding = gtdHealthFindings.find(
-    (finding) => finding.kind === "scheduled_vs_completed_ratio"
+    (finding) => finding.kind === "scheduled_vs_completed_ratio",
   );
   const projectTitles = projectTitleById(inputs.projects);
 
   const gtd: DailySnapshotGtd = {
     inboxBacklog: inboxBacklogFinding?.value ?? 0,
     projectsWithoutNextAction: projectsWithoutNextActionFinding?.value ?? 0,
-    projectsWithoutNextActionSample: (projectsWithoutNextActionFinding?.projectIds ?? []).slice(0, 3).map((id) => ({
-      id,
-      ...(includeStructure ? { title: projectTitles.get(id) ?? id } : {})
-    })),
+    projectsWithoutNextActionSample: (projectsWithoutNextActionFinding?.projectIds ?? [])
+      .slice(0, 3)
+      .map((id) => ({
+        id,
+        ...(includeStructure ? { title: projectTitles.get(id) ?? id } : {}),
+      })),
     staleNextActions: staleNextActionsFinding?.value ?? 0,
     agingWaitingFor: agingWaitingForFinding?.value ?? 0,
     overdueDeadlines: overdueDeadlinesFinding?.value ?? 0,
-    scheduledVsCompletedRatio: scheduledVsCompletedFinding?.value ?? 0
+    scheduledVsCompletedRatio: scheduledVsCompletedFinding?.value ?? 0,
   };
 
   const focusTotalsFinding = focusFindings.find((finding) => finding.kind === "focus_totals");
-  const taskConcentrationFinding = focusFindings.find((finding) => finding.kind === "task_concentration");
-  const topTaskSummary = inputs.pomodoroTaskSummaries.reduce<PomodoroTaskSummary | null>((top, summary) => {
-    if (!top || summary.totalSeconds > top.totalSeconds) {
-      return summary;
-    }
-    return top;
-  }, null);
-  const totalFocusSeconds = inputs.pomodoroTaskSummaries.reduce((sum, summary) => sum + summary.totalSeconds, 0);
+  const taskConcentrationFinding = focusFindings.find(
+    (finding) => finding.kind === "task_concentration",
+  );
+  const topTaskSummary = inputs.pomodoroTaskSummaries.reduce<PomodoroTaskSummary | null>(
+    (top, summary) => {
+      if (!top || summary.totalSeconds > top.totalSeconds) {
+        return summary;
+      }
+      return top;
+    },
+    null,
+  );
+  const totalFocusSeconds = inputs.pomodoroTaskSummaries.reduce(
+    (sum, summary) => sum + summary.totalSeconds,
+    0,
+  );
 
   const pomodoro: DailySnapshotPomodoro = {
     completedFocusSessionCount: focusTotalsFinding?.value ?? inputs.completedFocusSessionCount,
@@ -268,22 +300,34 @@ export const buildDailySnapshot = (inputs: DailySnapshotInputs, scope: AiPayload
     topTask: topTaskSummary
       ? {
           taskId: topTaskSummary.taskId,
-          ...(includeStructure ? { title: topTaskSummary.taskTitle } : {})
+          ...(includeStructure ? { title: topTaskSummary.taskTitle } : {}),
         }
-      : null
+      : null,
   };
 
   const rescueTime: DailySnapshotRescueTime = {
     configured: inputs.rescuetimeConfigured,
-    productivityPulseWeekToDate: inputs.productivityPulseWeekToDate
+    productivityPulseWeekToDate: inputs.productivityPulseWeekToDate,
   };
 
-  const disciplineShortWindow = entriesInTrailingWindow(ordered, inputs.date, TREND_SHORT_WINDOW_DAYS);
-  const disciplineLongWindow = entriesInTrailingWindow(ordered, inputs.date, TREND_LONG_WINDOW_DAYS);
+  const disciplineShortWindow = entriesInTrailingWindow(
+    ordered,
+    inputs.date,
+    TREND_SHORT_WINDOW_DAYS,
+  );
+  const disciplineLongWindow = entriesInTrailingWindow(
+    ordered,
+    inputs.date,
+    TREND_LONG_WINDOW_DAYS,
+  );
   const history: DailySnapshotHistory = {
     daysConsidered: disciplineLongWindow.length,
-    disciplineAverage7d: average(disciplineShortWindow.map((entry) => computeDisciplineScore(entry))),
-    disciplineAverage28d: average(disciplineLongWindow.map((entry) => computeDisciplineScore(entry)))
+    disciplineAverage7d: average(
+      disciplineShortWindow.map((entry) => computeDisciplineScore(entry)),
+    ),
+    disciplineAverage28d: average(
+      disciplineLongWindow.map((entry) => computeDisciplineScore(entry)),
+    ),
   };
 
   const findings: Finding[] = [
@@ -293,7 +337,7 @@ export const buildDailySnapshot = (inputs: DailySnapshotInputs, scope: AiPayload
     ...anomalyFindings,
     ...gtdHealthFindings,
     ...focusFindings,
-    ...(weeklyScoreTrend ? [weeklyScoreTrend] : [])
+    ...(weeklyScoreTrend ? [weeklyScoreTrend] : []),
   ].map((finding) => sanitizeFindingForScope(finding, includeStructure));
 
   return {
@@ -308,8 +352,8 @@ export const buildDailySnapshot = (inputs: DailySnapshotInputs, scope: AiPayload
           notes: {
             morningIntention: inputs.entry.morningIntention,
             nightReflection: inputs.entry.nightReflection,
-            tomorrowFocus: inputs.entry.tomorrowFocus
-          }
+            tomorrowFocus: inputs.entry.tomorrowFocus,
+          },
         }
       : {}),
     gtd,
@@ -317,6 +361,6 @@ export const buildDailySnapshot = (inputs: DailySnapshotInputs, scope: AiPayload
     rescueTime,
     history,
     weeklyScoreTrend,
-    findings
+    findings,
   };
 };

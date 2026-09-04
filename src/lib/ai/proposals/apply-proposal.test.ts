@@ -1,7 +1,7 @@
-import type { AiProposal, Task } from "../../../domain/types";
 import { createEmptyAnnualGoal } from "../../../domain/annual-goals";
-import { MemoryRepository } from "../../storage/memory-repository";
+import type { AiProposal, Task } from "../../../domain/types";
 import * as dateModule from "../../date";
+import { MemoryRepository } from "../../storage/memory-repository";
 import { applyCoachProposal } from "./apply-proposal";
 
 const now = "2026-08-29T12:00:00.000Z";
@@ -27,7 +27,7 @@ const buildTask = (overrides: Partial<Task>): Task => ({
   sourceExternalId: null,
   createdAt: now,
   updatedAt: now,
-  ...overrides
+  ...overrides,
 });
 
 describe("applyCoachProposal gtd_action", () => {
@@ -49,12 +49,12 @@ describe("applyCoachProposal gtd_action", () => {
       payloadJson: JSON.stringify({
         taskId: "task-schedule",
         action: "schedule",
-        reason: "Planifier"
+        reason: "Planifier",
       }),
       status: "pending",
       appliedEntityId: null,
       decidedAt: null,
-      createdAt: now
+      createdAt: now,
     };
 
     const applied = await applyCoachProposal(repository, proposal, "2026-08-02");
@@ -75,12 +75,12 @@ describe("applyCoachProposal gtd_action", () => {
       payloadJson: JSON.stringify({
         taskId: "task-missing",
         action: "schedule",
-        reason: "Planifier"
+        reason: "Planifier",
       }),
       status: "pending",
       appliedEntityId: null,
       decidedAt: null,
-      createdAt: now
+      createdAt: now,
     };
 
     const applied = await applyCoachProposal(repository, proposal, "2026-08-02");
@@ -92,7 +92,12 @@ describe("applyCoachProposal gtd_action", () => {
     const repository = new MemoryRepository();
     await repository.initialize();
     await repository.saveTask(
-      buildTask({ id: "task-completed", status: "completed", completedAt: now, bucket: "next_action" })
+      buildTask({
+        id: "task-completed",
+        status: "completed",
+        completedAt: now,
+        bucket: "next_action",
+      }),
     );
 
     const proposal: AiProposal = {
@@ -102,12 +107,12 @@ describe("applyCoachProposal gtd_action", () => {
       payloadJson: JSON.stringify({
         taskId: "task-completed",
         action: "drop",
-        reason: "Stale"
+        reason: "Stale",
       }),
       status: "pending",
       appliedEntityId: null,
       decidedAt: null,
-      createdAt: now
+      createdAt: now,
     };
 
     const applied = await applyCoachProposal(repository, proposal, "2026-08-02");
@@ -121,7 +126,9 @@ describe("applyCoachProposal goal_evaluation", () => {
   it("writes an annual goal evaluation for the month", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
-    await repository.saveAnnualGoal(createEmptyAnnualGoal({ id: "goal-annual", title: "Test goal" }));
+    await repository.saveAnnualGoal(
+      createEmptyAnnualGoal({ id: "goal-annual", title: "Test goal" }),
+    );
 
     const goals = await repository.listAnnualGoals();
     const goal = goals[0];
@@ -136,12 +143,12 @@ describe("applyCoachProposal goal_evaluation", () => {
         score: 82,
         trend: "up",
         notes: "Bon mois",
-        blockers: "Fatigue en fin de mois"
+        blockers: "Fatigue en fin de mois",
       }),
       status: "pending",
       appliedEntityId: null,
       decidedAt: null,
-      createdAt: now
+      createdAt: now,
     };
 
     const applied = await applyCoachProposal(repository, proposal, "2026-04");
@@ -153,7 +160,7 @@ describe("applyCoachProposal goal_evaluation", () => {
       score: 82,
       trend: "up",
       notes: "Bon mois",
-      blockers: "Fatigue en fin de mois"
+      blockers: "Fatigue en fin de mois",
     });
   });
 });

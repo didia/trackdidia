@@ -1,24 +1,24 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createEmptyDailyEntry, updatePrinciple } from "../domain/daily-entry";
-import { addDays } from "../lib/gtd/shared";
 import { principleDefinitions } from "../domain/definitions";
 import {
   applyWeeklyScoreExternalAxes,
   createEmptyWeeklyReview,
-  localWeeklyScoreAxes
+  localWeeklyScoreAxes,
 } from "../domain/weekly-review";
-import { MemoryRepository } from "../lib/storage/memory-repository";
 import { createWeeklyMemoryProposals } from "../lib/ai/memory/weekly-distillation";
 import { WeeklySynthesisService } from "../lib/ai/weekly-synthesis-service";
-import { formatPercent } from "../lib/format";
 import * as dateModule from "../lib/date";
+import { formatPercent } from "../lib/format";
+import { addDays } from "../lib/gtd/shared";
 import { RescueTimeGoalsService } from "../lib/rescuetime/rescuetime-goals-service";
+import { MemoryRepository } from "../lib/storage/memory-repository";
 import { renderWithApp } from "../test/test-utils";
 import { WeeklyReviewPage } from "./WeeklyReviewPage";
 
 vi.mock("../lib/ai/weekly-synthesis-loader", () => ({
-  loadLatestWeeklySynthesis: vi.fn(async () => null)
+  loadLatestWeeklySynthesis: vi.fn(async () => null),
 }));
 
 describe("WeeklyReviewPage", () => {
@@ -43,7 +43,7 @@ describe("WeeklyReviewPage", () => {
           weakestAxes: ["Sommeil", "Pomodoris"],
           sectionDrafts: {},
           nextWeekObjectives: [],
-          gtdActions: []
+          gtdActions: [],
         }),
         bodyText: "Semaine",
         deltaClass: null,
@@ -51,7 +51,7 @@ describe("WeeklyReviewPage", () => {
         tokensPrompt: null,
         tokensCompletion: null,
         latencyMs: null,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
       },
       synthesis: {
         headline: "Semaine",
@@ -60,10 +60,10 @@ describe("WeeklyReviewPage", () => {
         weakestAxes: ["Sommeil", "Pomodoris"],
         sectionDrafts: {},
         nextWeekObjectives: [],
-        gtdActions: []
+        gtdActions: [],
       },
       proposals: [],
-      source: "local"
+      source: "local",
     });
   };
 
@@ -87,7 +87,7 @@ describe("WeeklyReviewPage", () => {
       "2026-04-01",
       "2026-04-02",
       "2026-04-03",
-      "2026-04-04"
+      "2026-04-04",
     ];
 
     for (const date of weekDates) {
@@ -120,11 +120,11 @@ describe("WeeklyReviewPage", () => {
     await waitFor(async () => {
       await expect(repository.getWeeklyReview("2026-03-29")).resolves.toMatchObject({
         ritualChecklist: expect.objectContaining({
-          bilan: true
+          bilan: true,
         }),
         notes: expect.objectContaining({
-          bilan: "Semaine solide."
-        })
+          bilan: "Semaine solide.",
+        }),
       });
     });
   });
@@ -169,8 +169,8 @@ describe("WeeklyReviewPage", () => {
 
     await expect(repository.getWeeklyReview("2026-03-29")).resolves.toMatchObject({
       notes: expect.objectContaining({
-        bilan: "AB"
-      })
+        bilan: "AB",
+      }),
     });
 
     await renderWithApp(<WeeklyReviewPage />, { repository, route: "/semaine" });
@@ -191,25 +191,27 @@ describe("WeeklyReviewPage", () => {
           actualHours: 3.5,
           weeklyTargetHours: 14,
           achievement: 0.25,
-          scheduleLabel: "24x7"
-        }
+          scheduleLabel: "24x7",
+        },
       ],
-      rescuetimeConfigured: true
+      rescuetimeConfigured: true,
     };
 
-    vi.spyOn(RescueTimeGoalsService.prototype, "computeGoalsSnapshot").mockResolvedValue(goalsSnapshot);
+    vi.spyOn(RescueTimeGoalsService.prototype, "computeGoalsSnapshot").mockResolvedValue(
+      goalsSnapshot,
+    );
     vi.spyOn(RescueTimeGoalsService.prototype, "computeProductivityPulse").mockResolvedValue({
       weekStartDate: "2026-08-02",
       weekEndDate: "2026-08-08",
       pulse: null,
-      rescuetimeConfigured: true
+      rescuetimeConfigured: true,
     });
 
     const repository = new MemoryRepository();
     await repository.initialize();
     await repository.saveSettings({
       ...(await repository.getSettings()),
-      rescuetimeApiKey: "rt-test-key"
+      rescuetimeApiKey: "rt-test-key",
     });
 
     const user = userEvent.setup();
@@ -219,9 +221,9 @@ describe("WeeklyReviewPage", () => {
       contextOverrides: {
         settings: {
           ...(await repository.getSettings()),
-          rescuetimeApiKey: "rt-test-key"
-        }
-      }
+          rescuetimeApiKey: "rt-test-key",
+        },
+      },
     });
 
     const dateInput = await screen.findByLabelText(/début de semaine/i);
@@ -243,17 +245,21 @@ describe("WeeklyReviewPage", () => {
       score: 1,
       totalAchievement: 1,
       items: [],
-      rescuetimeConfigured: true
+      rescuetimeConfigured: true,
     };
     const pulseSnapshot = {
       weekStartDate: weekStart,
       weekEndDate: "2026-08-08",
       pulse: 100,
-      rescuetimeConfigured: true
+      rescuetimeConfigured: true,
     };
 
-    vi.spyOn(RescueTimeGoalsService.prototype, "computeGoalsSnapshot").mockResolvedValue(goalsSnapshot);
-    vi.spyOn(RescueTimeGoalsService.prototype, "computeProductivityPulse").mockResolvedValue(pulseSnapshot);
+    vi.spyOn(RescueTimeGoalsService.prototype, "computeGoalsSnapshot").mockResolvedValue(
+      goalsSnapshot,
+    );
+    vi.spyOn(RescueTimeGoalsService.prototype, "computeProductivityPulse").mockResolvedValue(
+      pulseSnapshot,
+    );
 
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -265,7 +271,7 @@ describe("WeeklyReviewPage", () => {
       "2026-08-05",
       "2026-08-06",
       "2026-08-07",
-      "2026-08-08"
+      "2026-08-08",
     ];
 
     for (const date of weekDates) {
@@ -277,7 +283,7 @@ describe("WeeklyReviewPage", () => {
 
     await repository.saveSettings({
       ...(await repository.getSettings()),
-      rescuetimeApiKey: "rt-test-key"
+      rescuetimeApiKey: "rt-test-key",
     });
 
     const user = userEvent.setup();
@@ -287,9 +293,9 @@ describe("WeeklyReviewPage", () => {
       contextOverrides: {
         settings: {
           ...(await repository.getSettings()),
-          rescuetimeApiKey: "rt-test-key"
-        }
-      }
+          rescuetimeApiKey: "rt-test-key",
+        },
+      },
     });
 
     const dateInput = await screen.findByLabelText(/début de semaine/i);
@@ -300,14 +306,16 @@ describe("WeeklyReviewPage", () => {
     const localSummary = await repository.computeWeeklyReviewSummary(weekStart);
     const expected = applyWeeklyScoreExternalAxes(localSummary, {
       rescueTimeGoalsScore: 1,
-      productivityPulse: 100
+      productivityPulse: 100,
     });
     const localAxesSum = localWeeklyScoreAxes(localSummary).reduce((sum, value) => sum + value, 0);
     expect(expected.weeklyScore).toBeCloseTo((localAxesSum + 1 + 1) / 9);
 
     await waitFor(() => {
       const scoreCard = screen.getAllByText("Score hebdo")[0].closest("article");
-      expect(scoreCard?.querySelector("strong")?.textContent).toBe(formatPercent(expected.weeklyScore));
+      expect(scoreCard?.querySelector("strong")?.textContent).toBe(
+        formatPercent(expected.weeklyScore),
+      );
     });
   });
 
@@ -334,23 +342,23 @@ describe("WeeklyReviewPage", () => {
           actualHours: 1,
           weeklyTargetHours: 2,
           achievement: 0.5,
-          scheduleLabel: "24x7"
-        }
+          scheduleLabel: "24x7",
+        },
       ],
-      rescuetimeConfigured: true
+      rescuetimeConfigured: true,
     });
     vi.spyOn(RescueTimeGoalsService.prototype, "computeProductivityPulse").mockImplementation(
       () =>
         new Promise<PulseSnapshot>((resolve) => {
           resolvePulse = resolve;
-        })
+        }),
     );
 
     const repository = new MemoryRepository();
     await repository.initialize();
     await repository.saveSettings({
       ...(await repository.getSettings()),
-      rescuetimeApiKey: "rt-test-key"
+      rescuetimeApiKey: "rt-test-key",
     });
 
     const user = userEvent.setup();
@@ -360,9 +368,9 @@ describe("WeeklyReviewPage", () => {
       contextOverrides: {
         settings: {
           ...(await repository.getSettings()),
-          rescuetimeApiKey: "rt-test-key"
-        }
-      }
+          rescuetimeApiKey: "rt-test-key",
+        },
+      },
     });
 
     const dateInput = await screen.findByLabelText(/début de semaine/i);
@@ -379,11 +387,11 @@ describe("WeeklyReviewPage", () => {
     expect(refreshButton).not.toBeDisabled();
 
     expect(resolvePulse).toBeDefined();
-    resolvePulse!({
+    resolvePulse?.({
       weekStartDate: weekStart,
       weekEndDate: "2026-08-08",
       pulse: 90,
-      rescuetimeConfigured: true
+      rescuetimeConfigured: true,
     });
 
     await waitFor(() => {
@@ -414,7 +422,7 @@ describe("WeeklyReviewPage", () => {
     await repository.saveWeeklyReview({
       ...createEmptyWeeklyReview(weekStartDate),
       status: "closed",
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     });
 
     const user = userEvent.setup();
@@ -461,7 +469,7 @@ describe("WeeklyReviewPage", () => {
         weakestAxes: ["Sommeil", "Pomodoris"],
         sectionDrafts: { bilan: "Brouillon coach" },
         nextWeekObjectives: [],
-        gtdActions: []
+        gtdActions: [],
       }),
       bodyText: "Local",
       deltaClass: null,
@@ -469,7 +477,7 @@ describe("WeeklyReviewPage", () => {
       tokensPrompt: null,
       tokensCompletion: null,
       latencyMs: null,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
     const proposal = {
       id: "proposal-section",
@@ -479,7 +487,7 @@ describe("WeeklyReviewPage", () => {
       status: "pending" as const,
       appliedEntityId: null,
       decidedAt: null,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
     await repository.saveAiMessage(message);
     await repository.saveAiProposal(proposal);
@@ -493,10 +501,10 @@ describe("WeeklyReviewPage", () => {
         weakestAxes: ["Sommeil", "Pomodoris"],
         sectionDrafts: { bilan: "Brouillon coach" },
         nextWeekObjectives: [],
-        gtdActions: []
+        gtdActions: [],
       },
       proposals: [proposal],
-      source: "local"
+      source: "local",
     });
 
     const user = userEvent.setup();
@@ -518,8 +526,8 @@ describe("WeeklyReviewPage", () => {
     await waitFor(async () => {
       await expect(repository.getWeeklyReview(weekStartDate)).resolves.toMatchObject({
         notes: expect.objectContaining({
-          bilan: "Brouillon coach"
-        })
+          bilan: "Brouillon coach",
+        }),
       });
     });
   });
@@ -551,7 +559,7 @@ describe("WeeklyReviewPage", () => {
         weakestAxes: ["Sommeil", "Pomodoris"],
         sectionDrafts: { bilan: "Brouillon coach" },
         nextWeekObjectives: [],
-        gtdActions: []
+        gtdActions: [],
       }),
       bodyText: "Local",
       deltaClass: null,
@@ -559,7 +567,7 @@ describe("WeeklyReviewPage", () => {
       tokensPrompt: null,
       tokensCompletion: null,
       latencyMs: null,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
     const proposal = {
       id: "proposal-objective",
@@ -570,12 +578,12 @@ describe("WeeklyReviewPage", () => {
         kind: "manual",
         targetHours: null,
         rescuetimeKind: null,
-        rescuetimeThing: null
+        rescuetimeThing: null,
       }),
       status: "pending" as const,
       appliedEntityId: null,
       decidedAt: null,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
     await repository.saveAiMessage(message);
     await repository.saveAiProposal(proposal);
@@ -594,13 +602,13 @@ describe("WeeklyReviewPage", () => {
             kind: "manual",
             targetHours: null,
             rescuetimeKind: null,
-            rescuetimeThing: null
-          }
+            rescuetimeThing: null,
+          },
         ],
-        gtdActions: []
+        gtdActions: [],
       },
       proposals: [proposal],
-      source: "local"
+      source: "local",
     });
 
     const user = userEvent.setup();
@@ -652,7 +660,7 @@ describe("WeeklyReviewPage", () => {
       source: "manual",
       sourceExternalId: null,
       createdAt: timestamp,
-      updatedAt: timestamp
+      updatedAt: timestamp,
     });
 
     const message = {
@@ -672,7 +680,7 @@ describe("WeeklyReviewPage", () => {
         weakestAxes: ["Sommeil", "Pomodoris"],
         sectionDrafts: {},
         nextWeekObjectives: [],
-        gtdActions: [{ taskId: "task-gtd-schedule", action: "schedule", reason: "Planifier" }]
+        gtdActions: [{ taskId: "task-gtd-schedule", action: "schedule", reason: "Planifier" }],
       }),
       bodyText: "Semaine",
       deltaClass: null,
@@ -680,7 +688,7 @@ describe("WeeklyReviewPage", () => {
       tokensPrompt: null,
       tokensCompletion: null,
       latencyMs: null,
-      createdAt: timestamp
+      createdAt: timestamp,
     };
     const proposal = {
       id: "proposal-gtd",
@@ -689,12 +697,12 @@ describe("WeeklyReviewPage", () => {
       payloadJson: JSON.stringify({
         taskId: "task-gtd-schedule",
         action: "schedule",
-        reason: "Planifier"
+        reason: "Planifier",
       }),
       status: "pending" as const,
       appliedEntityId: null,
       decidedAt: null,
-      createdAt: timestamp
+      createdAt: timestamp,
     };
     await repository.saveAiMessage(message);
     await repository.saveAiProposal(proposal);
@@ -708,10 +716,10 @@ describe("WeeklyReviewPage", () => {
         weakestAxes: ["Sommeil", "Pomodoris"],
         sectionDrafts: {},
         nextWeekObjectives: [],
-        gtdActions: [{ taskId: "task-gtd-schedule", action: "schedule", reason: "Planifier" }]
+        gtdActions: [{ taskId: "task-gtd-schedule", action: "schedule", reason: "Planifier" }],
       },
       proposals: [proposal],
-      source: "local"
+      source: "local",
     });
 
     const user = userEvent.setup();
@@ -726,7 +734,9 @@ describe("WeeklyReviewPage", () => {
 
     await waitFor(async () => {
       const tasks = await repository.listTasks({ includeCompleted: true });
-      expect(tasks.find((task) => task.id === "task-gtd-schedule")?.scheduledFor).toBe("2026-08-29");
+      expect(tasks.find((task) => task.id === "task-gtd-schedule")?.scheduledFor).toBe(
+        "2026-08-29",
+      );
       const updated = await repository.listAiProposals(message.id);
       expect(updated[0]?.status).toBe("accepted");
     });
@@ -761,7 +771,7 @@ describe("WeeklyReviewPage", () => {
         weakestAxes: ["Sommeil", "Pomodoris"],
         sectionDrafts: { bilan: "Semaine A" },
         nextWeekObjectives: [],
-        gtdActions: []
+        gtdActions: [],
       }),
       bodyText: "Semaine A",
       deltaClass: null,
@@ -769,7 +779,7 @@ describe("WeeklyReviewPage", () => {
       tokensPrompt: null,
       tokensCompletion: null,
       latencyMs: null,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
     const proposal = {
       id: "proposal-week-a",
@@ -779,25 +789,31 @@ describe("WeeklyReviewPage", () => {
       status: "pending" as const,
       appliedEntityId: null,
       decidedAt: null,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
     await repository.saveAiMessage(message);
     await repository.saveAiProposal(proposal);
 
-    vi.spyOn(WeeklySynthesisService.prototype, "buildSynthesis").mockImplementation(async (_repo, request) => ({
-      message: { ...message, scopeKey: request.weekStartDate, inputHash: `hash-${request.weekStartDate}` },
-      synthesis: {
-        headline: request.weekStartDate === weekA ? "Semaine A" : "Semaine B",
-        scoreExplanation: "Score",
-        strongestAxis: "Discipline",
-        weakestAxes: ["Sommeil", "Pomodoris"],
-        sectionDrafts: {},
-        nextWeekObjectives: [],
-        gtdActions: []
-      },
-      proposals: request.weekStartDate === weekA ? [proposal] : [],
-      source: "local" as const
-    }));
+    vi.spyOn(WeeklySynthesisService.prototype, "buildSynthesis").mockImplementation(
+      async (_repo, request) => ({
+        message: {
+          ...message,
+          scopeKey: request.weekStartDate,
+          inputHash: `hash-${request.weekStartDate}`,
+        },
+        synthesis: {
+          headline: request.weekStartDate === weekA ? "Semaine A" : "Semaine B",
+          scoreExplanation: "Score",
+          strongestAxis: "Discipline",
+          weakestAxes: ["Sommeil", "Pomodoris"],
+          sectionDrafts: {},
+          nextWeekObjectives: [],
+          gtdActions: [],
+        },
+        proposals: request.weekStartDate === weekA ? [proposal] : [],
+        source: "local" as const,
+      }),
+    );
 
     const user = userEvent.setup();
     await renderWithApp(<WeeklyReviewPage />, { repository, route: "/semaine" });
@@ -817,7 +833,7 @@ describe("WeeklyReviewPage", () => {
 
     await expect(repository.getWeeklyReview(weekB)).resolves.toBeNull();
     await expect(repository.listAiProposals(message.id)).resolves.toEqual([
-      expect.objectContaining({ status: "pending" })
+      expect.objectContaining({ status: "pending" }),
     ]);
   });
 });
@@ -837,13 +853,13 @@ describe("WeeklyReviewPage local synthesis integration", () => {
       score: null,
       totalAchievement: 0,
       items: [],
-      rescuetimeConfigured: false
+      rescuetimeConfigured: false,
     });
     vi.spyOn(RescueTimeGoalsService.prototype, "computeProductivityPulse").mockResolvedValue({
       weekStartDate: "2026-08-02",
       weekEndDate: "2026-08-08",
       pulse: null,
-      rescuetimeConfigured: false
+      rescuetimeConfigured: false,
     });
 
     const repository = new MemoryRepository();
@@ -857,7 +873,7 @@ describe("WeeklyReviewPage local synthesis integration", () => {
     const disabledSettings = {
       ...(await repository.getSettings()),
       aiEnabled: false,
-      aiApiKey: ""
+      aiApiKey: "",
     };
     await repository.saveSettings(disabledSettings);
 
@@ -865,7 +881,7 @@ describe("WeeklyReviewPage local synthesis integration", () => {
     await renderWithApp(<WeeklyReviewPage />, {
       repository,
       route: "/semaine",
-      contextOverrides: { settings: disabledSettings }
+      contextOverrides: { settings: disabledSettings },
     });
 
     const dateInput = await screen.findByLabelText(/début de semaine/i);

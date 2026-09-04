@@ -1,5 +1,5 @@
-import { t } from "../i18n";
 import quotes from "../../quotes.json";
+import { t } from "../i18n";
 
 type Quote = {
   quote: string;
@@ -34,7 +34,7 @@ export const getQuoteOfTheDay = (date = new Date()) => {
       quote: t("quoteFallback", { ns: "common" }),
       author: "Trackdidia",
       language: "fr",
-      category: "fallback"
+      category: "fallback",
     };
   }
 

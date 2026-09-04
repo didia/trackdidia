@@ -7,21 +7,31 @@ See also: [changelog](logs/conventions.md).
 Run all JavaScript commands from the repository root.
 
 ```bash
+npm run lint
+npm run typecheck
 npm run test
 npm run build
+npm run verify
+npm run verify:all
 ```
 
-`npm run test` executes the Vitest suite once. `npm run build` runs
-`tsc --noEmit` before the Vite production build, so it is also the repository's
-type-check gate.
+- `npm run lint` runs Biome (`biome check .`) for format and lint.
+- `npm run typecheck` runs `tsc --noEmit`.
+- `npm run test` executes the Vitest suite once.
+- `npm run build` runs `tsc --noEmit` before the Vite production build.
+- `npm run verify` chains lint, typecheck, test, and build.
+- `npm run verify:all` runs `scripts/verify.sh` (frontend verify + Cargo
+  check/clippy + `cmp AGENTS.md CLAUDE.md`).
 
-There is no lint or format script at present. If Rust/Tauri host code changes, also
-run:
+Pull requests and pushes to `master` run the same frontend, Rust, and agents-sync
+jobs in `.github/workflows/ci.yml`.
+
+If Rust/Tauri host code changes, also run:
 
 ```bash
 cargo check --manifest-path src-tauri/Cargo.toml
+cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 ```
-
 ## File placement
 
 | Kind of change | Location |
@@ -170,15 +180,9 @@ documentation.
    while asserting April/May fixtures; the annual-goals page test edits the current
    month but asserts the evaluation under `2026-04`. Use fake timers or derive the
    expected month/date before treating these tests as stable.
-2. **The bundled task export dominates the frontend bundle.** `Tasks.json` is a
-   static import (about 2.6 MB in the current workspace), and Vite reports a
-   JavaScript chunk above 500 kB. A user-selected import or lazy/native file read
-   would reduce bundle size and personal-data exposure.
-3. **OpenRouter credentials are not in a keychain.** The key lives in the settings
+2. **OpenRouter credentials are not in a keychain.** The key lives in the settings
    JSON and therefore in every database backup.
-4. **Backup restore is manual.** The app can create snapshots but cannot validate or
+3. **Backup restore is manual.** The app can create snapshots but cannot validate or
    restore one through the UI.
-5. **Migrations are not explicitly transactional as a unit.** A partial multi-
+4. **Migrations are not explicitly transactional as a unit.** A partial multi-
    statement failure may require operator investigation before retry.
-6. **No lint/format automation is configured.** The build enforces types, while
-   style consistency remains manual.

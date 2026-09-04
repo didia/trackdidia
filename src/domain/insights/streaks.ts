@@ -2,7 +2,13 @@ import { t } from "../../i18n";
 import { principleDefinitions } from "../definitions";
 import type { DailyEntry, PrincipleKey } from "../types";
 import { TREND_LONG_WINDOW_DAYS } from "./constants";
-import { daysBetweenDates, entriesInTrailingWindow, latestEntryDate, sortEntriesByDate, trailingEvidenceWindow } from "./shared";
+import {
+  daysBetweenDates,
+  entriesInTrailingWindow,
+  latestEntryDate,
+  sortEntriesByDate,
+  trailingEvidenceWindow,
+} from "./shared";
 import type { Finding } from "./types";
 
 export interface StreakFinding extends Finding {
@@ -29,7 +35,10 @@ export interface StreakFinding extends Finding {
  * Per-principle streak stats (spec `ai-integration-v2.md` §3): current streak, longest streak,
  * days since last `true`, 28-day rate. `referenceDate` defaults to the most recent entry's date.
  */
-export const computeStreakFindings = (entries: DailyEntry[], referenceDate?: string): StreakFinding[] => {
+export const computeStreakFindings = (
+  entries: DailyEntry[],
+  referenceDate?: string,
+): StreakFinding[] => {
   const ordered = sortEntriesByDate(entries);
   const reference = referenceDate ?? latestEntryDate(ordered);
 
@@ -62,7 +71,10 @@ export const computeStreakFindings = (entries: DailyEntry[], referenceDate?: str
         // rather than counting both.
         continue;
       }
-      if (currentStreakPreviousDate !== null && daysBetweenDates(entry.date, currentStreakPreviousDate) !== 1) {
+      if (
+        currentStreakPreviousDate !== null &&
+        daysBetweenDates(entry.date, currentStreakPreviousDate) !== 1
+      ) {
         break;
       }
       currentStreak += 1;
@@ -75,7 +87,8 @@ export const computeStreakFindings = (entries: DailyEntry[], referenceDate?: str
     for (const entry of upToReference) {
       if (entry.principleChecks[key] === true) {
         runningStreak =
-          longestStreakPreviousDate !== null && daysBetweenDates(longestStreakPreviousDate, entry.date) === 1
+          longestStreakPreviousDate !== null &&
+          daysBetweenDates(longestStreakPreviousDate, entry.date) === 1
             ? runningStreak + 1
             : 1;
         longestStreak = Math.max(longestStreak, runningStreak);
@@ -99,7 +112,11 @@ export const computeStreakFindings = (entries: DailyEntry[], referenceDate?: str
     const rate28d = answeredInWindow.length > 0 ? trueInWindow.length / answeredInWindow.length : 0;
 
     const severity: StreakFinding["severity"] =
-      currentStreak >= 3 ? "positive" : daysSinceLastTrue !== null && daysSinceLastTrue >= 3 ? "watch" : "info";
+      currentStreak >= 3
+        ? "positive"
+        : daysSinceLastTrue !== null && daysSinceLastTrue >= 3
+          ? "watch"
+          : "info";
 
     return {
       id: `streak:${key}:${reference}`,
@@ -111,13 +128,13 @@ export const computeStreakFindings = (entries: DailyEntry[], referenceDate?: str
         ns: "insights",
         count: currentStreak,
         label: t(`${key}.label`, { ns: "principles" }),
-        rate: Math.round(rate28d * 100)
+        rate: Math.round(rate28d * 100),
       }),
       principleKey: key,
       currentStreak,
       longestStreak,
       daysSinceLastTrue,
-      rate28d
+      rate28d,
     };
   });
 };

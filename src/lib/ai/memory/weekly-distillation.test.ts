@@ -2,14 +2,14 @@ import { describe, expect, it } from "vitest";
 import { createEmptyDailyEntry, updatePrinciple } from "../../../domain/daily-entry";
 import { principleDefinitions } from "../../../domain/definitions";
 import { MemoryRepository } from "../../storage/memory-repository";
+import { COACH_PULSE_PROMPT_VERSION } from "../coach-pulse-service";
 import {
   buildWeeklyDistillInputHash,
   buildWeeklyDistillMessageId,
   buildWeeklyDistillScopeKey,
   createWeeklyMemoryProposals,
-  loadWeeklyMemoryProposals
+  loadWeeklyMemoryProposals,
 } from "./weekly-distillation";
-import { COACH_PULSE_PROMPT_VERSION } from "../coach-pulse-service";
 
 const buildCorrelationHistory = () => {
   const entries = [];
@@ -42,8 +42,12 @@ describe("weekly distillation", () => {
     const scopeKey = buildWeeklyDistillScopeKey(weekStartDate);
     const inputHash = buildWeeklyDistillInputHash(weekStartDate);
     await expect(repository.getAiMessage("coach_pulse", scopeKey, inputHash)).resolves.toBeNull();
-    await expect(repository.getAiMessageRecord("coach_pulse", scopeKey, inputHash)).resolves.not.toBeNull();
-    await expect(loadWeeklyMemoryProposals(repository, weekStartDate)).resolves.toHaveLength(first.length);
+    await expect(
+      repository.getAiMessageRecord("coach_pulse", scopeKey, inputHash),
+    ).resolves.not.toBeNull();
+    await expect(loadWeeklyMemoryProposals(repository, weekStartDate)).resolves.toHaveLength(
+      first.length,
+    );
   });
 
   it("rebuilds missing child proposals when the marker exists without a full set", async () => {
@@ -64,7 +68,9 @@ describe("weekly distillation", () => {
     const rebuilt = await createWeeklyMemoryProposals(repository, weekStartDate, history);
     expect(rebuilt).toHaveLength(full.length);
     expect(rebuilt.map((proposal) => proposal.id)).toEqual(full.map((proposal) => proposal.id));
-    await expect(loadWeeklyMemoryProposals(repository, weekStartDate)).resolves.toHaveLength(full.length);
+    await expect(loadWeeklyMemoryProposals(repository, weekStartDate)).resolves.toHaveLength(
+      full.length,
+    );
   });
 
   it("does not duplicate proposals when create is called twice after partial marker insert", async () => {
@@ -92,7 +98,7 @@ describe("weekly distillation", () => {
       tokensPrompt: null,
       tokensCompletion: null,
       latencyMs: null,
-      createdAt: "2026-08-16T12:00:00.000Z"
+      createdAt: "2026-08-16T12:00:00.000Z",
     });
 
     const first = await createWeeklyMemoryProposals(repository, weekStartDate, history);
@@ -102,6 +108,7 @@ describe("weekly distillation", () => {
     expect(second.map((proposal) => proposal.id)).toEqual(first.map((proposal) => proposal.id));
 
     const message = await repository.getAiMessageRecord("coach_pulse", scopeKey, inputHash);
+    expect(message).not.toBeNull();
     const proposals = await repository.listAiProposals(message!.id);
     const pending = proposals.filter((proposal) => proposal.status === "pending");
     expect(pending).toHaveLength(first.length);
@@ -138,7 +145,7 @@ describe("weekly distillation", () => {
       tokensPrompt: null,
       tokensCompletion: null,
       latencyMs: null,
-      createdAt: "2026-08-23T12:00:00.000Z"
+      createdAt: "2026-08-23T12:00:00.000Z",
     });
 
     const [acceptedProposal, missingProposal, pendingProposal] = expected;
@@ -147,13 +154,13 @@ describe("weekly distillation", () => {
       messageId,
       status: "accepted",
       appliedEntityId: "ai-memory:accepted",
-      decidedAt: "2026-08-23T12:05:00.000Z"
+      decidedAt: "2026-08-23T12:05:00.000Z",
     });
     await repository.saveAiProposal({ ...pendingProposal, messageId });
 
     const pending = await createWeeklyMemoryProposals(repository, weekStartDate, history);
     expect(pending.map((proposal) => proposal.id).sort()).toEqual(
-      [missingProposal.id, pendingProposal.id].sort()
+      [missingProposal.id, pendingProposal.id].sort(),
     );
 
     const stored = await repository.listAiProposals(messageId);

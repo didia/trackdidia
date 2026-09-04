@@ -1,20 +1,25 @@
 import { t } from "../i18n";
 import { addDays, getWeekStartSunday } from "../lib/gtd/shared";
+import { defaultChildrenActivities, defaultSpouseActivities } from "../lib/relationship-draws";
 import { metricDefinitions, principleDefinitions } from "./definitions";
 import type {
   AppSettings,
-  DailyPomodoroStats,
   DailyEntry,
-  DailyTaskStats,
   DailyMetrics,
+  DailyPomodoroStats,
   DailyStatus,
+  DailyTaskStats,
   MetricKey,
   PrincipleChecks,
-  PrincipleKey
+  PrincipleKey,
 } from "./types";
-import { defaultChildrenActivities, defaultSpouseActivities } from "../lib/relationship-draws";
 
-export const gtdMetricKeys = ["tachesDebut", "tachesFin", "tachesAjoutes", "tachesRealises"] as const;
+export const gtdMetricKeys = [
+  "tachesDebut",
+  "tachesFin",
+  "tachesAjoutes",
+  "tachesRealises",
+] as const;
 export const autoSuggestedMetricKeys = [...gtdMetricKeys, "pomodoris"] as const;
 
 const emptyMetrics = (): DailyMetrics => ({
@@ -28,7 +33,7 @@ const emptyMetrics = (): DailyMetrics => ({
   tachesDebut: null,
   tachesFin: null,
   tachesAjoutes: null,
-  tachesRealises: null
+  tachesRealises: null,
 });
 
 const emptyPrinciples = (): PrincipleChecks => ({
@@ -45,14 +50,17 @@ const emptyPrinciples = (): PrincipleChecks => ({
   attentionAMonEpouse: null,
   respectTrc: null,
   respectReveil: null,
-  objectifsAtteints: null
+  objectifsAtteints: null,
 });
 
 export const DEFAULT_AI_MAX_TOKENS = 4_096;
 /** Previous factory default, upgraded once at bootstrap when `aiMaxTokensUpgradeDoneAt` is empty. */
 export const LEGACY_FACTORY_AI_MAX_TOKENS = 700;
 
-export const applyLegacyAiMaxTokensUpgrade = (settings: AppSettings, nowIso: string): AppSettings | null => {
+export const applyLegacyAiMaxTokensUpgrade = (
+  settings: AppSettings,
+  nowIso: string,
+): AppSettings | null => {
   if (settings.aiMaxTokensUpgradeDoneAt) {
     return null;
   }
@@ -60,8 +68,10 @@ export const applyLegacyAiMaxTokensUpgrade = (settings: AppSettings, nowIso: str
   return {
     ...settings,
     aiMaxTokens:
-      settings.aiMaxTokens === LEGACY_FACTORY_AI_MAX_TOKENS ? DEFAULT_AI_MAX_TOKENS : settings.aiMaxTokens,
-    aiMaxTokensUpgradeDoneAt: nowIso
+      settings.aiMaxTokens === LEGACY_FACTORY_AI_MAX_TOKENS
+        ? DEFAULT_AI_MAX_TOKENS
+        : settings.aiMaxTokens,
+    aiMaxTokensUpgradeDoneAt: nowIso,
   };
 };
 
@@ -100,7 +110,7 @@ export const defaultAppSettings = (): AppSettings => ({
   relationshipDrawSpouseActivities: [...defaultSpouseActivities],
   relationshipDrawChildrenProcessedDate: "",
   relationshipDrawSpouseProcessedDate: "",
-  previousDayReviewDoneDate: ""
+  previousDayReviewDoneDate: "",
 });
 
 export const createEmptyDailyEntry = (date: string): DailyEntry => ({
@@ -111,42 +121,50 @@ export const createEmptyDailyEntry = (date: string): DailyEntry => ({
   morningIntention: "",
   nightReflection: "",
   tomorrowFocus: "",
-  updatedAt: new Date().toISOString()
+  updatedAt: new Date().toISOString(),
 });
 
 export const cloneEntry = (entry: DailyEntry): DailyEntry => ({
   ...entry,
   metrics: { ...entry.metrics },
   suggestedMetrics: entry.suggestedMetrics ? { ...entry.suggestedMetrics } : undefined,
-  principleChecks: { ...entry.principleChecks }
+  principleChecks: { ...entry.principleChecks },
 });
 
-export const updateMetric = (entry: DailyEntry, key: MetricKey, value: number | null): DailyEntry => ({
+export const updateMetric = (
+  entry: DailyEntry,
+  key: MetricKey,
+  value: number | null,
+): DailyEntry => ({
   ...cloneEntry(entry),
   metrics: {
     ...entry.metrics,
-    [key]: value
+    [key]: value,
   },
-  updatedAt: new Date().toISOString()
+  updatedAt: new Date().toISOString(),
 });
 
-export const updatePrinciple = (entry: DailyEntry, key: PrincipleKey, value: boolean | null): DailyEntry => ({
+export const updatePrinciple = (
+  entry: DailyEntry,
+  key: PrincipleKey,
+  value: boolean | null,
+): DailyEntry => ({
   ...cloneEntry(entry),
   principleChecks: {
     ...entry.principleChecks,
-    [key]: value
+    [key]: value,
   },
-  updatedAt: new Date().toISOString()
+  updatedAt: new Date().toISOString(),
 });
 
 export const updateNote = (
   entry: DailyEntry,
   key: "morningIntention" | "nightReflection" | "tomorrowFocus",
-  value: string
+  value: string,
 ): DailyEntry => ({
   ...cloneEntry(entry),
   [key]: value,
-  updatedAt: new Date().toISOString()
+  updatedAt: new Date().toISOString(),
 });
 
 export const computeDisciplineScore = (entry: DailyEntry): number => {
@@ -154,7 +172,9 @@ export const computeDisciplineScore = (entry: DailyEntry): number => {
     return 0;
   }
 
-  const completed = principleDefinitions.filter(({ key }) => entry.principleChecks[key] === true).length;
+  const completed = principleDefinitions.filter(
+    ({ key }) => entry.principleChecks[key] === true,
+  ).length;
   return completed / principleDefinitions.length;
 };
 
@@ -163,13 +183,22 @@ export const computeCompletionPercent = (entry: DailyEntry): number => {
   const principleCount = principleDefinitions.length;
   const noteCount = 3;
 
-  const completedMetrics = metricDefinitions.filter(({ key }) => entry.metrics[key] !== null).length;
-  const completedPrinciples = principleDefinitions.filter(({ key }) => entry.principleChecks[key] !== null).length;
-  const completedNotes = [entry.morningIntention, entry.nightReflection, entry.tomorrowFocus].filter(
-    (value) => value.trim().length > 0
+  const completedMetrics = metricDefinitions.filter(
+    ({ key }) => entry.metrics[key] !== null,
   ).length;
+  const completedPrinciples = principleDefinitions.filter(
+    ({ key }) => entry.principleChecks[key] !== null,
+  ).length;
+  const completedNotes = [
+    entry.morningIntention,
+    entry.nightReflection,
+    entry.tomorrowFocus,
+  ].filter((value) => value.trim().length > 0).length;
 
-  return (completedMetrics + completedPrinciples + completedNotes) / (metricCount + principleCount + noteCount);
+  return (
+    (completedMetrics + completedPrinciples + completedNotes) /
+    (metricCount + principleCount + noteCount)
+  );
 };
 
 const daysRemainingInWeekInclusive = (date: string): number => {
@@ -209,13 +238,13 @@ export const deriveStatusLabel = (status: DailyStatus): string => {
 
 export const applyRoutineTransition = (
   entry: DailyEntry,
-  action: "complete_morning" | "close_day" | "reopen_day"
+  action: "complete_morning" | "close_day" | "reopen_day",
 ): DailyEntry => {
   if (action === "complete_morning") {
     return {
       ...cloneEntry(entry),
       status: "morning_done",
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
   }
 
@@ -223,20 +252,20 @@ export const applyRoutineTransition = (
     return {
       ...cloneEntry(entry),
       status: "closed",
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
   }
 
   return {
     ...cloneEntry(entry),
     status: entry.morningIntention.trim() ? "morning_done" : "not_started",
-    updatedAt: new Date().toISOString()
+    updatedAt: new Date().toISOString(),
   };
 };
 
 export const buildEntrySummary = (entry: DailyEntry) => ({
   disciplineScore: computeDisciplineScore(entry),
-  taskCompletionPercent: computeTaskCompletionPercent(entry)
+  taskCompletionPercent: computeTaskCompletionPercent(entry),
 });
 
 export const applyDailyTaskStats = (entry: DailyEntry, stats: DailyTaskStats): DailyEntry => ({
@@ -246,16 +275,19 @@ export const applyDailyTaskStats = (entry: DailyEntry, stats: DailyTaskStats): D
     tachesDebut: stats.tasksAtStart,
     tachesAjoutes: stats.tasksAdded,
     tachesRealises: stats.tasksCompleted,
-    tachesFin: stats.tasksRemaining
-  }
+    tachesFin: stats.tasksRemaining,
+  },
 });
 
-export const applyDailyPomodoroStats = (entry: DailyEntry, stats: DailyPomodoroStats): DailyEntry => ({
+export const applyDailyPomodoroStats = (
+  entry: DailyEntry,
+  stats: DailyPomodoroStats,
+): DailyEntry => ({
   ...cloneEntry(entry),
   suggestedMetrics: {
     ...(entry.suggestedMetrics ?? {}),
-    pomodoris: stats.completedFocusSessions
-  }
+    pomodoris: stats.completedFocusSessions,
+  },
 });
 
 export const resolveMetricValue = (entry: DailyEntry, key: MetricKey): number | null =>

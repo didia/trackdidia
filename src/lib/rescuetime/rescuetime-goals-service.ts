@@ -1,15 +1,15 @@
-import { addDays } from "../gtd/shared";
 import {
   computeRescueTimeGoalsSnapshot,
+  type RescueTimeGoalItemSnapshot,
+  type RescueTimeGoalRecord,
+  type RescueTimeGoalsSnapshot,
   rescueTimeLabelsMatch,
   scheduleDaysInWeek,
   scoreLessGoal,
   scoreMoreGoal,
-  type RescueTimeGoalItemSnapshot,
-  type RescueTimeGoalRecord,
-  type RescueTimeGoalsSnapshot
 } from "../../domain/rescuetime-goals";
 import { buildWeekDates } from "../../domain/weekly-review";
+import { addDays } from "../gtd/shared";
 import type { AppRepository } from "../storage/repository";
 import {
   aggregateProjectTimes,
@@ -19,8 +19,8 @@ import {
   parseProductivityRows,
   parseRankRows,
   productivitySecondsForGoal,
+  type RescueTimeGoalsClient,
   resolveAnalyticKind,
-  type RescueTimeGoalsClient
 } from "./goals-client";
 import { computeProductivityPulse } from "./productivity-mapping";
 
@@ -35,7 +35,7 @@ const createAnalyticCache = (): AnalyticCache => ({
   productivity: new Map(),
   overview: new Map(),
   category: new Map(),
-  activity: new Map()
+  activity: new Map(),
 });
 
 export interface RescueTimeProductivityPulseSnapshot {
@@ -49,7 +49,7 @@ export interface RescueTimeProductivityPulseSnapshot {
 export class RescueTimeGoalsService {
   constructor(
     private readonly repository: AppRepository,
-    private readonly client: RescueTimeGoalsClient = defaultRescueTimeGoalsClient
+    private readonly client: RescueTimeGoalsClient = defaultRescueTimeGoalsClient,
   ) {}
 
   async computeGoalsSnapshot(weekStartDate: string): Promise<RescueTimeGoalsSnapshot> {
@@ -85,7 +85,7 @@ export class RescueTimeGoalsService {
               projectTimesCache = aggregateProjectTimes(payload);
             }
             return projectTimesCache;
-          }
+          },
         );
         const achievement = goal.is_more
           ? scoreMoreGoal(actualSeconds, weeklyTargetSeconds)
@@ -98,16 +98,19 @@ export class RescueTimeGoalsService {
           actualHours: actualSeconds / 3600,
           weeklyTargetHours: weeklyTargetSeconds / 3600,
           achievement,
-          scheduleLabel
+          scheduleLabel,
         });
       }
 
-      return computeRescueTimeGoalsSnapshot(normalized, weekEndDate, items, { rescuetimeConfigured });
+      return computeRescueTimeGoalsSnapshot(normalized, weekEndDate, items, {
+        rescuetimeConfigured,
+      });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Echec de la requete RescueTime Goals.";
+      const message =
+        error instanceof Error ? error.message : "Echec de la requete RescueTime Goals.";
       return computeRescueTimeGoalsSnapshot(normalized, weekEndDate, [], {
         rescuetimeConfigured,
-        fetchError: message
+        fetchError: message,
       });
     }
   }
@@ -117,14 +120,14 @@ export class RescueTimeGoalsService {
     weekStart: string,
     weekEnd: string,
     scheduleId: number,
-    caches: AnalyticCache
+    caches: AnalyticCache,
   ) {
     if (!caches.productivity.has(scheduleId)) {
       const payload = await this.client.fetchAnalyticData(apiKey, {
         kind: "productivity",
         begin: weekStart,
         end: weekEnd,
-        scheduleId
+        scheduleId,
       });
       caches.productivity.set(scheduleId, parseProductivityRows(payload));
     }
@@ -137,7 +140,7 @@ export class RescueTimeGoalsService {
     weekStart: string,
     weekEnd: string,
     scheduleId: number,
-    caches: AnalyticCache
+    caches: AnalyticCache,
   ) {
     const cacheMap = caches[kind];
     if (!cacheMap.has(scheduleId)) {
@@ -145,7 +148,7 @@ export class RescueTimeGoalsService {
         kind,
         begin: weekStart,
         end: weekEnd,
-        scheduleId
+        scheduleId,
       });
       cacheMap.set(scheduleId, parseRankRows(payload));
     }
@@ -158,7 +161,7 @@ export class RescueTimeGoalsService {
     weekStart: string,
     weekEnd: string,
     caches: AnalyticCache,
-    ensureProjectTimesCache: () => Promise<ReturnType<typeof aggregateProjectTimes>>
+    ensureProjectTimesCache: () => Promise<ReturnType<typeof aggregateProjectTimes>>,
   ): Promise<number> {
     const taxonomy = goal.taxonomy?.search_name ?? goal.taxonomy_name ?? "";
     const scheduleId = goalScheduleId(goal);
@@ -190,7 +193,9 @@ export class RescueTimeGoalsService {
     return matchRankRowSeconds(rows, goal, rankKind);
   }
 
-  async computeProductivityPulse(weekStartDate: string): Promise<RescueTimeProductivityPulseSnapshot> {
+  async computeProductivityPulse(
+    weekStartDate: string,
+  ): Promise<RescueTimeProductivityPulseSnapshot> {
     const normalized = buildWeekDates(weekStartDate);
     const weekEndDate = addDays(normalized, 6);
     const settings = await this.repository.getSettings();
@@ -202,7 +207,7 @@ export class RescueTimeGoalsService {
         weekStartDate: normalized,
         weekEndDate,
         pulse: null,
-        rescuetimeConfigured
+        rescuetimeConfigured,
       };
     }
 
@@ -211,7 +216,7 @@ export class RescueTimeGoalsService {
         kind: "productivity",
         begin: normalized,
         end: weekEndDate,
-        sourceType: "computers"
+        sourceType: "computers",
       });
       const rows = parseProductivityRows(payload);
       const pulse = computeProductivityPulse(rows);
@@ -220,7 +225,7 @@ export class RescueTimeGoalsService {
         weekStartDate: normalized,
         weekEndDate,
         pulse,
-        rescuetimeConfigured
+        rescuetimeConfigured,
       };
     } catch (error) {
       const message =
@@ -230,7 +235,7 @@ export class RescueTimeGoalsService {
         weekEndDate,
         pulse: null,
         rescuetimeConfigured,
-        fetchError: message
+        fetchError: message,
       };
     }
   }
@@ -244,7 +249,7 @@ export class RescueTimeGoalsService {
     const goals = await this.client.listGoals(trimmed);
     return {
       goalCount: goals.length,
-      sampleGoal: goals[0]?.display_name
+      sampleGoal: goals[0]?.display_name,
     };
   }
 }

@@ -5,7 +5,9 @@ import { buildPomodoroSessionDetails, buildPomodoroState } from "../lib/pomodoro
 import { renderWithApp } from "../test/test-utils";
 import { PomodoroPage } from "./PomodoroPage";
 
-const buildPomodoro = (overrides: Partial<PomodoroControllerValue> = {}): PomodoroControllerValue => ({
+const buildPomodoro = (
+  overrides: Partial<PomodoroControllerValue> = {},
+): PomodoroControllerValue => ({
   state: buildPomodoroState([], []),
   sessions: buildPomodoroSessionDetails([], []),
   taskSummaries: [],
@@ -25,7 +27,7 @@ const buildPomodoro = (overrides: Partial<PomodoroControllerValue> = {}): Pomodo
   completeNow: async () => undefined,
   cancelCurrent: async () => undefined,
   switchTask: async () => undefined,
-  ...overrides
+  ...overrides,
 });
 
 describe("PomodoroPage", () => {
@@ -34,7 +36,7 @@ describe("PomodoroPage", () => {
     const user = userEvent.setup();
 
     await renderWithApp(<PomodoroPage />, {
-      contextOverrides: { pomodoro: buildPomodoro({ reload }) }
+      contextOverrides: { pomodoro: buildPomodoro({ reload }) },
     });
 
     const refreshButton = await screen.findByRole("button", { name: /rafraîchir les tâches/i });
@@ -47,7 +49,7 @@ describe("PomodoroPage", () => {
 
   it("disables the refresh button while lists are loading", async () => {
     await renderWithApp(<PomodoroPage />, {
-      contextOverrides: { pomodoro: buildPomodoro({ loading: true }) }
+      contextOverrides: { pomodoro: buildPomodoro({ loading: true }) },
     });
 
     expect(await screen.findByRole("button", { name: /rafraîchir les tâches/i })).toBeDisabled();
@@ -57,16 +59,18 @@ describe("PomodoroPage", () => {
     const reload = vi.fn(async () => undefined);
 
     await renderWithApp(<PomodoroPage />, {
-      contextOverrides: { pomodoro: buildPomodoro({ loading: true, reload }) }
+      contextOverrides: { pomodoro: buildPomodoro({ loading: true, reload }) },
     });
 
-    await screen.findByRole("button", { name: /rafraichir les taches/i });
+    await screen.findByRole("button", { name: /rafraîchir les tâches/i });
     expect(reload).not.toHaveBeenCalled();
   });
 
   it("shows a manual refresh failure from the controller", async () => {
     await renderWithApp(<PomodoroPage />, {
-      contextOverrides: { pomodoro: buildPomodoro({ reloadError: "Impossible de rafraichir les taches." }) }
+      contextOverrides: {
+        pomodoro: buildPomodoro({ reloadError: "Impossible de rafraichir les taches." }),
+      },
     });
 
     expect(await screen.findByText("Impossible de rafraichir les taches.")).toBeInTheDocument();

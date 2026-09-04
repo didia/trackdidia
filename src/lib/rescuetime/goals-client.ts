@@ -1,9 +1,9 @@
 import { normalizeRescueTimeLabel, type RescueTimeGoalRecord } from "../../domain/rescuetime-goals";
 import { addDays } from "../gtd/shared";
+import { fetchRescueTimeJson } from "./http-transport";
 import type { RescueTimeAnalyticPayload } from "./parse-analytic-data";
 import { parseRankRows } from "./parse-analytic-data";
-import { fetchRescueTimeJson } from "./http-transport";
-import { productivitySecondsForGoal, type ParsedProductivityRow } from "./productivity-mapping";
+import { type ParsedProductivityRow, productivitySecondsForGoal } from "./productivity-mapping";
 
 export { parseRankRows };
 
@@ -30,8 +30,15 @@ export interface RescueTimeAnalyticQuery {
 
 export interface RescueTimeGoalsClient {
   listGoals(apiKey: string): Promise<RescueTimeGoalRecord[]>;
-  fetchAnalyticData(apiKey: string, query: RescueTimeAnalyticQuery): Promise<RescueTimeAnalyticPayload>;
-  fetchProjectTimes(apiKey: string, begin: string, end: string): Promise<RescueTimeProjectTimesPayload>;
+  fetchAnalyticData(
+    apiKey: string,
+    query: RescueTimeAnalyticQuery,
+  ): Promise<RescueTimeAnalyticPayload>;
+  fetchProjectTimes(
+    apiKey: string,
+    begin: string,
+    end: string,
+  ): Promise<RescueTimeProjectTimesPayload>;
 }
 
 const sleep = (milliseconds: number): Promise<void> =>
@@ -43,12 +50,15 @@ export class HttpRescueTimeGoalsClient implements RescueTimeGoalsClient {
   async listGoals(apiKey: string): Promise<RescueTimeGoalRecord[]> {
     const goals = await fetchRescueTimeJson<RescueTimeGoalRecord[]>(
       "https://www.rescuetime.com/api/resource/goals",
-      apiKey
+      apiKey,
     );
     return goals.filter((goal) => goal.enabled !== false);
   }
 
-  async fetchAnalyticData(apiKey: string, query: RescueTimeAnalyticQuery): Promise<RescueTimeAnalyticPayload> {
+  async fetchAnalyticData(
+    apiKey: string,
+    query: RescueTimeAnalyticQuery,
+  ): Promise<RescueTimeAnalyticPayload> {
     const url = new URL("https://www.rescuetime.com/anapi/data");
     url.searchParams.set("format", "json");
     url.searchParams.set("perspective", "rank");
@@ -64,7 +74,11 @@ export class HttpRescueTimeGoalsClient implements RescueTimeGoalsClient {
     return fetchRescueTimeJson<RescueTimeAnalyticPayload>(url.toString(), apiKey);
   }
 
-  async fetchProjectTimes(apiKey: string, begin: string, end: string): Promise<RescueTimeProjectTimesPayload> {
+  async fetchProjectTimes(
+    apiKey: string,
+    begin: string,
+    end: string,
+  ): Promise<RescueTimeProjectTimesPayload> {
     const projectTimes: NonNullable<RescueTimeProjectTimesPayload["project_times"]> = [];
 
     for (let cursor = begin; cursor <= end; cursor = addDays(cursor, 1)) {
@@ -72,7 +86,10 @@ export class HttpRescueTimeGoalsClient implements RescueTimeGoalsClient {
       url.searchParams.set("date", cursor);
 
       for (let attempt = 0; attempt < 12; attempt += 1) {
-        const payload = await fetchRescueTimeJson<RescueTimeProjectTimesPayload>(url.toString(), apiKey);
+        const payload = await fetchRescueTimeJson<RescueTimeProjectTimesPayload>(
+          url.toString(),
+          apiKey,
+        );
         if (payload.is_complete !== false) {
           projectTimes.push(...(payload.project_times ?? []));
           break;
@@ -92,14 +109,20 @@ export const defaultRescueTimeGoalsClient = new HttpRescueTimeGoalsClient();
 
 export { productivitySecondsForGoal, type ParsedProductivityRow };
 
-export const parseProductivityRows = (payload: RescueTimeAnalyticPayload): ParsedProductivityRow[] => {
+export const parseProductivityRows = (
+  payload: RescueTimeAnalyticPayload,
+): ParsedProductivityRow[] => {
   const headers = payload.row_headers ?? [];
-  const secondsIndex = headers.findIndex((header) => String(header).toLowerCase().includes("time spent"));
-  const productivityIndex = headers.findIndex((header) => String(header).toLowerCase() === "productivity");
+  const secondsIndex = headers.findIndex((header) =>
+    String(header).toLowerCase().includes("time spent"),
+  );
+  const productivityIndex = headers.findIndex(
+    (header) => String(header).toLowerCase() === "productivity",
+  );
 
   return (payload.rows ?? []).map((row) => ({
     productivity: Number(row[productivityIndex] ?? 0),
-    seconds: Number(row[secondsIndex] ?? 0)
+    seconds: Number(row[secondsIndex] ?? 0),
   }));
 };
 
@@ -140,7 +163,7 @@ export const resolveAnalyticKind = (goal: RescueTimeGoalRecord): string => {
 export const matchRankRowSeconds = (
   rows: ReturnType<typeof parseRankRows>,
   goal: RescueTimeGoalRecord,
-  kind: string
+  _kind: string,
 ): number => {
   const needle = normalizeRescueTimeLabel(
     goal.taxon_display_name ??
@@ -148,7 +171,7 @@ export const matchRankRowSeconds = (
       goal.v2project?.name ??
       goal.productivity?.display_name ??
       goal.productivity?.name ??
-      ""
+      "",
   );
 
   if (!needle) {

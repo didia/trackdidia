@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useTaskSelection } from "../app/use-task-selection";
 import { useGtdWorkspace } from "../app/use-gtd";
+import { useTaskSelection } from "../app/use-task-selection";
 import { BulkTaskToolbar } from "../components/BulkTaskToolbar";
 import { GtdTaskCard } from "../components/GtdTaskCard";
 import { SectionCard } from "../components/SectionCard";
@@ -23,12 +23,16 @@ export const NextActionsPage = () => {
     cancelTask,
     cancelTasks,
     clearPastRecurrences,
-    moveTasksToBucket
+    moveTasksToBucket,
   } = useGtdWorkspace();
   const [selectedContextId, setSelectedContextId] = useState("all");
   const [title, setTitle] = useState("");
-  const [deadlineFilter, setDeadlineFilter] = useState<"all" | "with" | "without" | "today" | "overdue">("all");
-  const [sortMode, setSortMode] = useState<"updated" | "deadline_asc" | "deadline_desc">("deadline_asc");
+  const [deadlineFilter, setDeadlineFilter] = useState<
+    "all" | "with" | "without" | "today" | "overdue"
+  >("all");
+  const [sortMode, setSortMode] = useState<"updated" | "deadline_asc" | "deadline_desc">(
+    "deadline_asc",
+  );
 
   const nextActionTasks = useMemo(() => {
     const today = new Date();
@@ -37,7 +41,11 @@ export const NextActionsPage = () => {
 
     const base = tasks
       .filter((task) => task.bucket === "next_action")
-      .filter((task) => (selectedContextId === "all" ? true : effectiveTaskContextIds(task, projects).includes(selectedContextId)))
+      .filter((task) =>
+        selectedContextId === "all"
+          ? true
+          : effectiveTaskContextIds(task, projects).includes(selectedContextId),
+      )
       .filter((task) => {
         if (deadlineFilter === "all") {
           return true;
@@ -62,8 +70,11 @@ export const NextActionsPage = () => {
         return right.updatedAt.localeCompare(left.updatedAt);
       }
       const leftKey = left.deadline ?? (sortMode === "deadline_asc" ? "9999-12-31" : "0000-01-01");
-      const rightKey = right.deadline ?? (sortMode === "deadline_asc" ? "9999-12-31" : "0000-01-01");
-      return sortMode === "deadline_asc" ? leftKey.localeCompare(rightKey) : rightKey.localeCompare(leftKey);
+      const rightKey =
+        right.deadline ?? (sortMode === "deadline_asc" ? "9999-12-31" : "0000-01-01");
+      return sortMode === "deadline_asc"
+        ? leftKey.localeCompare(rightKey)
+        : rightKey.localeCompare(leftKey);
     });
   }, [deadlineFilter, projects, selectedContextId, sortMode, tasks]);
   const selection = useTaskSelection(nextActionTasks.map((task) => task.id));
@@ -74,9 +85,7 @@ export const NextActionsPage = () => {
         <div>
           <p className="eyebrow">{t("nextActions.hero.eyebrow")}</p>
           <h2>{t("nextActions.hero.title")}</h2>
-          <p className="hero__copy">
-            {t("nextActions.hero.copy")}
-          </p>
+          <p className="hero__copy">{t("nextActions.hero.copy")}</p>
         </div>
       </header>
 
@@ -101,7 +110,10 @@ export const NextActionsPage = () => {
         </div>
       </SectionCard>
 
-      <SectionCard title={t("nextActions.contextFilter.title")} subtitle={t("nextActions.contextFilter.subtitle")}>
+      <SectionCard
+        title={t("nextActions.contextFilter.title")}
+        subtitle={t("nextActions.contextFilter.subtitle")}
+      >
         <div className="tag-row">
           <button
             type="button"
@@ -123,11 +135,17 @@ export const NextActionsPage = () => {
         </div>
       </SectionCard>
 
-      <SectionCard title={t("nextActions.deadlines.title")} subtitle={t("nextActions.deadlines.subtitle")}>
+      <SectionCard
+        title={t("nextActions.deadlines.title")}
+        subtitle={t("nextActions.deadlines.subtitle")}
+      >
         <div className="task-card__grid">
           <label className="stacked-field">
             <span>{t("nextActions.deadlines.filterLabel")}</span>
-            <select value={deadlineFilter} onChange={(event) => setDeadlineFilter(event.target.value as typeof deadlineFilter)}>
+            <select
+              value={deadlineFilter}
+              onChange={(event) => setDeadlineFilter(event.target.value as typeof deadlineFilter)}
+            >
               <option value="all">{t("nextActions.deadlines.filter.all")}</option>
               <option value="with">{t("nextActions.deadlines.filter.with")}</option>
               <option value="without">{t("nextActions.deadlines.filter.without")}</option>
@@ -137,7 +155,10 @@ export const NextActionsPage = () => {
           </label>
           <label className="stacked-field">
             <span>{t("nextActions.deadlines.sortLabel")}</span>
-            <select value={sortMode} onChange={(event) => setSortMode(event.target.value as typeof sortMode)}>
+            <select
+              value={sortMode}
+              onChange={(event) => setSortMode(event.target.value as typeof sortMode)}
+            >
               <option value="deadline_asc">{t("nextActions.deadlines.sort.asc")}</option>
               <option value="deadline_desc">{t("nextActions.deadlines.sort.desc")}</option>
               <option value="updated">{t("nextActions.deadlines.sort.updated")}</option>
@@ -146,7 +167,10 @@ export const NextActionsPage = () => {
         </div>
       </SectionCard>
 
-      <SectionCard title={t("nextActions.list.title")} subtitle={t("nextActions.list.subtitle", { count: nextActionTasks.length })}>
+      <SectionCard
+        title={t("nextActions.list.title")}
+        subtitle={t("nextActions.list.subtitle", { count: nextActionTasks.length })}
+      >
         <BulkTaskToolbar
           selectedCount={selection.selectedCount}
           totalCount={nextActionTasks.length}

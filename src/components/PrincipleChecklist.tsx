@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { principleDefinitions } from "../domain/definitions";
-import { t as translate } from "../i18n";
 import type { DailyEntry, PrincipleKey } from "../domain/types";
+import { t as translate } from "../i18n";
 
 interface PrincipleChecklistProps {
   entry: DailyEntry;
@@ -14,7 +14,9 @@ export const PrincipleChecklist = ({ entry, keys, onChange }: PrincipleChecklist
   const definitions = keys
     ? keys
         .map((key) => principleDefinitions.find((definition) => definition.key === key))
-        .filter((definition): definition is (typeof principleDefinitions)[number] => Boolean(definition))
+        .filter((definition): definition is (typeof principleDefinitions)[number] =>
+          Boolean(definition),
+        )
     : principleDefinitions;
 
   return (
@@ -38,7 +40,9 @@ export const PrincipleChecklist = ({ entry, keys, onChange }: PrincipleChecklist
               </button>
               <button
                 type="button"
-                className={value === false ? "toggle toggle--active toggle--muted" : "toggle toggle--muted"}
+                className={
+                  value === false ? "toggle toggle--active toggle--muted" : "toggle toggle--muted"
+                }
                 onClick={() => onChange(definition.key, false)}
               >
                 {t("boolean.no")}

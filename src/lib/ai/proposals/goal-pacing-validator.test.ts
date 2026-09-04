@@ -9,9 +9,9 @@ describe("validateGoalPacingResponse", () => {
         gap: "En avance de 5 points.",
         requiredWeeklyBehaviour: "Maintenir le rythme actuel.",
         riskLevel: "low",
-        recommendation: "Conserver la cadence."
-      }
-    ]
+        recommendation: "Conserver la cadence.",
+      },
+    ],
   };
 
   it("accepts a valid goal pacing payload", () => {
@@ -22,8 +22,8 @@ describe("validateGoalPacingResponse", () => {
   it("rejects invalid risk level", () => {
     expect(
       validateGoalPacingResponse({
-        goals: [{ ...validPayload.goals[0], riskLevel: "critical" }]
-      }).ok
+        goals: [{ ...validPayload.goals[0], riskLevel: "critical" }],
+      }).ok,
     ).toBe(false);
   });
 });

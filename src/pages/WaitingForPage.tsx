@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useTaskSelection } from "../app/use-task-selection";
 import { useGtdWorkspace } from "../app/use-gtd";
+import { useTaskSelection } from "../app/use-task-selection";
 import { BulkTaskToolbar } from "../components/BulkTaskToolbar";
 import { GtdTaskCard } from "../components/GtdTaskCard";
 import { SectionCard } from "../components/SectionCard";
@@ -23,7 +23,7 @@ export const WaitingForPage = () => {
     cancelTask,
     cancelTasks,
     clearPastRecurrences,
-    moveTasksToBucket
+    moveTasksToBucket,
   } = useGtdWorkspace();
   const [selectedContextId, setSelectedContextId] = useState("all");
   const [title, setTitle] = useState("");
@@ -34,7 +34,9 @@ export const WaitingForPage = () => {
       return base;
     }
 
-    return base.filter((task) => effectiveTaskContextIds(task, projects).includes(selectedContextId));
+    return base.filter((task) =>
+      effectiveTaskContextIds(task, projects).includes(selectedContextId),
+    );
   }, [projects, selectedContextId, tasks]);
 
   const selection = useTaskSelection(waitingTasks.map((task) => task.id));
@@ -45,9 +47,7 @@ export const WaitingForPage = () => {
         <div>
           <p className="eyebrow">{t("waiting.hero.eyebrow")}</p>
           <h2>{t("waiting.hero.title")}</h2>
-          <p className="hero__copy">
-            {t("waiting.hero.copy")}
-          </p>
+          <p className="hero__copy">{t("waiting.hero.copy")}</p>
         </div>
       </header>
 
@@ -94,7 +94,10 @@ export const WaitingForPage = () => {
         </div>
       </SectionCard>
 
-      <SectionCard title={t("waiting.list.title")} subtitle={t("waiting.list.subtitle", { count: waitingTasks.length })}>
+      <SectionCard
+        title={t("waiting.list.title")}
+        subtitle={t("waiting.list.subtitle", { count: waitingTasks.length })}
+      >
         <BulkTaskToolbar
           selectedCount={selection.selectedCount}
           totalCount={waitingTasks.length}

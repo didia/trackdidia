@@ -1,3 +1,4 @@
+import { addDays, getWeekStartSunday } from "../lib/gtd/shared";
 import { computeDisciplineScore, resolveMetricValue } from "./daily-entry";
 import type {
   DailyEntry,
@@ -8,16 +9,17 @@ import type {
   MonthlyReviewStatus,
   MonthlyReviewSummary,
   WeeklyReview,
-  WeeklyReviewSummary
+  WeeklyReviewSummary,
 } from "./types";
-import { addDays, getWeekStartSunday } from "../lib/gtd/shared";
 
 const average = (values: number[]): number =>
   values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
 
-const clampMonthKey = (monthKey: string): string => (/^\d{4}-\d{2}$/.test(monthKey) ? monthKey : monthKey.slice(0, 7));
+const clampMonthKey = (monthKey: string): string =>
+  /^\d{4}-\d{2}$/.test(monthKey) ? monthKey : monthKey.slice(0, 7);
 
-const createDateFromMonthKey = (monthKey: string, day: number): string => `${clampMonthKey(monthKey)}-${String(day).padStart(2, "0")}`;
+const createDateFromMonthKey = (monthKey: string, day: number): string =>
+  `${clampMonthKey(monthKey)}-${String(day).padStart(2, "0")}`;
 
 export const getMonthKey = (date: string): string => date.slice(0, 7);
 
@@ -82,7 +84,7 @@ const emptyMonthlyNotes = (): MonthlyReviewNotes => ({
   nettoyageListes: "",
   calendrier: "",
   grosProjets: "",
-  developpement: ""
+  developpement: "",
 });
 
 const emptyMonthlyChecklist = (): MonthlyReviewChecklist => ({
@@ -95,7 +97,7 @@ const emptyMonthlyChecklist = (): MonthlyReviewChecklist => ({
   nettoyageListes: false,
   calendrier: false,
   grosProjets: false,
-  developpement: false
+  developpement: false,
 });
 
 export const createEmptyMonthlyReview = (monthKey: string): MonthlyReview => {
@@ -107,56 +109,56 @@ export const createEmptyMonthlyReview = (monthKey: string): MonthlyReview => {
     status: "draft",
     notes: emptyMonthlyNotes(),
     ritualChecklist: emptyMonthlyChecklist(),
-    updatedAt: new Date().toISOString()
+    updatedAt: new Date().toISOString(),
   };
 };
 
 export const cloneMonthlyReview = (review: MonthlyReview): MonthlyReview => ({
   ...review,
   notes: { ...review.notes },
-  ritualChecklist: { ...review.ritualChecklist }
+  ritualChecklist: { ...review.ritualChecklist },
 });
 
 export const updateMonthlyReviewNote = (
   review: MonthlyReview,
   key: MonthlyReviewSectionKey,
-  value: string
+  value: string,
 ): MonthlyReview => ({
   ...cloneMonthlyReview(review),
   notes: {
     ...review.notes,
-    [key]: value
+    [key]: value,
   },
-  updatedAt: new Date().toISOString()
+  updatedAt: new Date().toISOString(),
 });
 
 export const updateMonthlyReviewChecklist = (
   review: MonthlyReview,
   key: MonthlyReviewSectionKey,
-  value: boolean
+  value: boolean,
 ): MonthlyReview => ({
   ...cloneMonthlyReview(review),
   ritualChecklist: {
     ...review.ritualChecklist,
-    [key]: value
+    [key]: value,
   },
-  updatedAt: new Date().toISOString()
+  updatedAt: new Date().toISOString(),
 });
 
 export const applyMonthlyReviewTransition = (
   review: MonthlyReview,
-  status: MonthlyReviewStatus
+  status: MonthlyReviewStatus,
 ): MonthlyReview => ({
   ...cloneMonthlyReview(review),
   status,
-  updatedAt: new Date().toISOString()
+  updatedAt: new Date().toISOString(),
 });
 
 export const buildMonthlyReviewSummary = (
   monthKey: string,
   entries: DailyEntry[],
   weeklyReviews: WeeklyReview[],
-  weeklySummaries: WeeklyReviewSummary[]
+  weeklySummaries: WeeklyReviewSummary[],
 ): MonthlyReviewSummary => {
   const normalized = clampMonthKey(monthKey);
   const daysTracked = entries.length;
@@ -166,16 +168,23 @@ export const buildMonthlyReviewSummary = (
   const trcCount = entries.filter((entry) => entry.principleChecks.respectTrc === true).length;
   const screenTimeTotalMinutes = entries.reduce(
     (sum, entry) => sum + (resolveMetricValue(entry, "tempsEcranTelephone") ?? 0),
-    0
+    0,
   );
-  const pomodorisTotal = entries.reduce((sum, entry) => sum + (resolveMetricValue(entry, "pomodoris") ?? 0), 0);
+  const pomodorisTotal = entries.reduce(
+    (sum, entry) => sum + (resolveMetricValue(entry, "pomodoris") ?? 0),
+    0,
+  );
   const disciplineAverage = average(entries.map((entry) => computeDisciplineScore(entry)));
-  const tasksAddedTotal = entries.reduce((sum, entry) => sum + (resolveMetricValue(entry, "tachesAjoutes") ?? 0), 0);
+  const tasksAddedTotal = entries.reduce(
+    (sum, entry) => sum + (resolveMetricValue(entry, "tachesAjoutes") ?? 0),
+    0,
+  );
   const tasksCompletedTotal = entries.reduce(
     (sum, entry) => sum + (resolveMetricValue(entry, "tachesRealises") ?? 0),
-    0
+    0,
   );
-  const tasksCompletionRate = tasksAddedTotal > 0 ? (tasksCompletedTotal / tasksAddedTotal) * 100 : 0;
+  const tasksCompletionRate =
+    tasksAddedTotal > 0 ? (tasksCompletedTotal / tasksAddedTotal) * 100 : 0;
   const weeklyScoreAverage = average(weeklySummaries.map((summary) => summary.weeklyScore));
   const weeklyReviewMap = new Map(weeklyReviews.map((review) => [review.weekStartDate, review]));
   const weeks = weeklySummaries.map((summary) => {
@@ -188,7 +197,7 @@ export const buildMonthlyReviewSummary = (
       weekEndDate: summary.weekEndDate,
       weeklyScore: summary.weeklyScore,
       reviewStatus: (review?.status ?? "missing") as "missing" | WeeklyReview["status"],
-      noteCount
+      noteCount,
     };
   });
 
@@ -206,6 +215,6 @@ export const buildMonthlyReviewSummary = (
     disciplineAverage,
     tasksCompletionRate,
     weeklyScoreAverage,
-    weeks
+    weeks,
   };
 };

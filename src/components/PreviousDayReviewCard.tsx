@@ -1,14 +1,21 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { autoSuggestedMetricKeys, findMissingMetricKeys, findUnansweredPrincipleKeys, updateMetric, updateNote, updatePrinciple } from "../domain/daily-entry";
-import type { DailyEntry, MetricKey, PrincipleKey } from "../domain/types";
-import { useDailyEntry } from "../app/use-daily-entry";
 import { useAppContext } from "../app/app-context";
-import { MetricGrid } from "./MetricGrid";
-import { PrincipleChecklist } from "./PrincipleChecklist";
-import { PersistedTextarea } from "./PersistedTextarea";
-import { SectionCard } from "./SectionCard";
+import { useDailyEntry } from "../app/use-daily-entry";
+import {
+  autoSuggestedMetricKeys,
+  findMissingMetricKeys,
+  findUnansweredPrincipleKeys,
+  updateMetric,
+  updateNote,
+  updatePrinciple,
+} from "../domain/daily-entry";
+import type { DailyEntry, MetricKey, PrincipleKey } from "../domain/types";
 import { formatDateLong } from "../lib/date";
+import { MetricGrid } from "./MetricGrid";
+import { PersistedTextarea } from "./PersistedTextarea";
+import { PrincipleChecklist } from "./PrincipleChecklist";
+import { SectionCard } from "./SectionCard";
 
 interface MissingFields {
   metricKeys: MetricKey[];
@@ -36,7 +43,7 @@ export const PreviousDayReviewCard = ({ date }: PreviousDayReviewCardProps) => {
     setMissing({
       metricKeys: findMissingMetricKeys(entry),
       principleKeys: findUnansweredPrincipleKeys(entry),
-      nightReflection: entry.nightReflection.trim() === ""
+      nightReflection: entry.nightReflection.trim() === "",
     });
   }, [draft, entry]);
 
@@ -49,7 +56,9 @@ export const PreviousDayReviewCard = ({ date }: PreviousDayReviewCardProps) => {
   }
 
   const hasNothingMissing =
-    missing.metricKeys.length === 0 && missing.principleKeys.length === 0 && !missing.nightReflection;
+    missing.metricKeys.length === 0 &&
+    missing.principleKeys.length === 0 &&
+    !missing.nightReflection;
 
   if (hasNothingMissing) {
     return null;
@@ -105,7 +114,11 @@ export const PreviousDayReviewCard = ({ date }: PreviousDayReviewCardProps) => {
         ) : null}
 
         <div className="form-actions">
-          <button className="button button--primary" type="button" onClick={() => void handleSave()}>
+          <button
+            className="button button--primary"
+            type="button"
+            onClick={() => void handleSave()}
+          >
             {t("previousDay.save")}
           </button>
         </div>

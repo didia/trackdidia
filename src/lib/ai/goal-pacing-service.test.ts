@@ -1,7 +1,10 @@
-import { defaultAppSettings } from "../../domain/daily-entry";
 import { createEmptyAnnualGoal } from "../../domain/annual-goals";
+import { defaultAppSettings } from "../../domain/daily-entry";
 import { MemoryRepository } from "../storage/memory-repository";
-import { buildGoalPacingSnapshot, type GoalPacingSnapshotInputs } from "./context/goal-pacing-snapshot";
+import {
+  buildGoalPacingSnapshot,
+  type GoalPacingSnapshotInputs,
+} from "./context/goal-pacing-snapshot";
 import { GoalPacingService } from "./goal-pacing-service";
 import type { AiProvider } from "./provider";
 
@@ -11,16 +14,21 @@ const buildPacingInputs = (year = 2026, progressRatio = 0.6): GoalPacingSnapshot
   evaluationMonthKey: "2026-08",
   goalSnapshots: [
     {
-      goal: createEmptyAnnualGoal({ id: "goal-1", title: "Discipline", targetValue: 100, unit: "%" }),
+      goal: createEmptyAnnualGoal({
+        id: "goal-1",
+        title: "Discipline",
+        targetValue: 100,
+        unit: "%",
+      }),
       sourceType: "manual",
       sourceLabel: null,
       currentValue: 60,
       progressRatio,
       monthlyProgress: [{ monthKey: "2026-08", value: 65 }],
       linkedWeeklyMetricLabels: [],
-      linkedDailyHabitLabels: []
-    }
-  ]
+      linkedDailyHabitLabels: [],
+    },
+  ],
 });
 
 describe("buildGoalPacingSnapshot", () => {
@@ -49,7 +57,7 @@ describe("GoalPacingService", () => {
     const result = await service.buildPacing(repository, {
       year: 2026,
       settings,
-      snapshotInputs: buildPacingInputs()
+      snapshotInputs: buildPacingInputs(),
     });
 
     expect(result.source).toBe("local");
@@ -68,12 +76,12 @@ describe("GoalPacingService", () => {
     const first = await service.buildPacing(repository, {
       year: 2026,
       settings,
-      snapshotInputs: buildPacingInputs()
+      snapshotInputs: buildPacingInputs(),
     });
     const second = await service.buildPacing(repository, {
       year: 2026,
       settings,
-      snapshotInputs: buildPacingInputs()
+      snapshotInputs: buildPacingInputs(),
     });
 
     expect(first.message.id).toBe(second.message.id);
@@ -91,13 +99,13 @@ describe("GoalPacingService", () => {
               gap: "Proche",
               requiredWeeklyBehaviour: "Focus",
               riskLevel: "low",
-              recommendation: "Continuer"
-            }
-          ]
+              recommendation: "Continuer",
+            },
+          ],
         }),
         model: "test-model",
-        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 }
-      }))
+        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 },
+      })),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -111,13 +119,13 @@ describe("GoalPacingService", () => {
       year: 2026,
       settings,
       snapshotInputs,
-      trigger: "explicit"
+      trigger: "explicit",
     });
     const second = await service.buildPacing(repository, {
       year: 2026,
       settings,
       snapshotInputs,
-      trigger: "explicit"
+      trigger: "explicit",
     });
 
     expect(first.source).toBe("ai");

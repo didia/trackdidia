@@ -2,42 +2,48 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { useAppContext } from "../app/app-context";
+import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
+import { SectionCard } from "../components/SectionCard";
+import { WeeklySynthesisPanel } from "../components/WeeklySynthesisPanel";
 import { deriveStatusLabel } from "../domain/daily-entry";
+import type { RescueTimeGoalsSnapshot } from "../domain/rescuetime-goals";
+import type {
+  AiProposal,
+  WeeklyObjectivesSnapshot,
+  WeeklyReview,
+  WeeklyReviewSummary,
+  WeeklyRitualSectionKey,
+  WeeklySynthesisResult,
+} from "../domain/types";
 import {
   applyWeeklyReviewTransition,
   applyWeeklyScoreExternalAxes,
   buildWeekDates,
   createEmptyWeeklyReview,
   updateWeeklyReviewChecklist,
-  updateWeeklyReviewNote
+  updateWeeklyReviewNote,
 } from "../domain/weekly-review";
-import type {
-  AiProposal,
-  WeeklyReview,
-  WeeklyReviewSummary,
-  WeeklyRitualSectionKey,
-  WeeklySynthesisResult
-} from "../domain/types";
-import type { RescueTimeGoalsSnapshot } from "../domain/rescuetime-goals";
-import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
-import { SectionCard } from "../components/SectionCard";
-import { WeeklySynthesisPanel } from "../components/WeeklySynthesisPanel";
-import { formatDateLong, formatDateShort, getTodayDate } from "../lib/date";
-import { formatPercent, formatTimestamp } from "../lib/format";
-import { addDays } from "../lib/gtd/shared";
-import { RescueTimeGoalsService, type RescueTimeProductivityPulseSnapshot } from "../lib/rescuetime/rescuetime-goals-service";
-import { createWeeklyMemoryProposals, loadWeeklyMemoryProposals } from "../lib/ai/memory/weekly-distillation";
+import { resolveWeeklySnapshotInputs } from "../lib/ai/context/weekly-snapshot";
+import {
+  createWeeklyMemoryProposals,
+  loadWeeklyMemoryProposals,
+} from "../lib/ai/memory/weekly-distillation";
+import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
 import { applyCoachProposal, proposalPreviewText } from "../lib/ai/proposals/apply-proposal";
 import {
   buildWeeklyObjectiveFromProposal,
-  reviewSectionFromProposal
+  reviewSectionFromProposal,
 } from "../lib/ai/proposals/weekly-proposal-ids";
-import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
-import { resolveWeeklySnapshotInputs } from "../lib/ai/context/weekly-snapshot";
 import { loadLatestWeeklySynthesis } from "../lib/ai/weekly-synthesis-loader";
 import { WeeklySynthesisService } from "../lib/ai/weekly-synthesis-service";
+import { formatDateLong, formatDateShort, getTodayDate } from "../lib/date";
+import { formatPercent, formatTimestamp } from "../lib/format";
+import { addDays } from "../lib/gtd/shared";
+import {
+  RescueTimeGoalsService,
+  type RescueTimeProductivityPulseSnapshot,
+} from "../lib/rescuetime/rescuetime-goals-service";
 import { WeeklyObjectivesService } from "../lib/rescuetime/weekly-objectives-service";
-import type { WeeklyObjectivesSnapshot } from "../domain/types";
 
 interface RitualSectionDefinition {
   key: WeeklyRitualSectionKey;
@@ -65,7 +71,7 @@ const ritualSectionMeta: Array<{
   { key: "calendrier", linkTo: "/scheduled", linkKey: "weekly.ritual.calendrier.link" },
   { key: "gtd", linkTo: "/next-actions", linkKey: "weekly.ritual.gtd.link" },
   { key: "alignement", linkTo: "/projects", linkKey: "weekly.ritual.alignement.link" },
-  { key: "dimanche", linkTo: "/historique", linkKey: "weekly.ritual.dimanche.link" }
+  { key: "dimanche", linkTo: "/historique", linkKey: "weekly.ritual.dimanche.link" },
 ];
 
 const formatWholePercent = (value: number): string => `${Math.round(value)}%`;
@@ -81,9 +87,12 @@ export const WeeklyReviewPage = () => {
   const [review, setReview] = useState<WeeklyReview | null>(null);
   const [summary, setSummary] = useState<WeeklyReviewSummary | null>(null);
   const [goalsSnapshot, setGoalsSnapshot] = useState<RescueTimeGoalsSnapshot | null>(null);
-  const [standingObjectivesSnapshot, setStandingObjectivesSnapshot] = useState<WeeklyObjectivesSnapshot | null>(null);
+  const [standingObjectivesSnapshot, setStandingObjectivesSnapshot] =
+    useState<WeeklyObjectivesSnapshot | null>(null);
   const [standingObjectivesLoading, setStandingObjectivesLoading] = useState(true);
-  const [pulseSnapshot, setPulseSnapshot] = useState<RescueTimeProductivityPulseSnapshot | null>(null);
+  const [pulseSnapshot, setPulseSnapshot] = useState<RescueTimeProductivityPulseSnapshot | null>(
+    null,
+  );
   const [goalsLoading, setGoalsLoading] = useState(true);
   const [pulseLoading, setPulseLoading] = useState(true);
   const [goalsRefreshing, setGoalsRefreshing] = useState(false);
@@ -96,7 +105,9 @@ export const WeeklyReviewPage = () => {
   const [applyingProposalIds, setApplyingProposalIds] = useState<string[]>([]);
   const latestReviewRef = useRef<WeeklyReview | null>(null);
   const saveChainRef = useRef(Promise.resolve());
-  const noteRefs = useRef<Partial<Record<WeeklyRitualSectionKey, PersistedTextareaHandle | null>>>({});
+  const noteRefs = useRef<Partial<Record<WeeklyRitualSectionKey, PersistedTextareaHandle | null>>>(
+    {},
+  );
   const weekRequestSeqRef = useRef(0);
   const goalsRequestSeqRef = useRef(0);
   const pulseRequestSeqRef = useRef(0);
@@ -124,7 +135,7 @@ export const WeeklyReviewPage = () => {
         }
         if (options?.refreshing) {
           setRescueTimeMessage(
-            error instanceof Error ? error.message : t("weekly.rescueGoals.refreshError")
+            error instanceof Error ? error.message : t("weekly.rescueGoals.refreshError"),
           );
         }
       } finally {
@@ -137,7 +148,7 @@ export const WeeklyReviewPage = () => {
         }
       }
     },
-    [goalsService, t]
+    [goalsService, t],
   );
 
   const loadPulseSnapshot = useCallback(
@@ -161,7 +172,7 @@ export const WeeklyReviewPage = () => {
         }
         if (options?.refreshing) {
           setRescueTimeMessage(
-            error instanceof Error ? error.message : t("weekly.rescueGoals.pulseRefreshError")
+            error instanceof Error ? error.message : t("weekly.rescueGoals.pulseRefreshError"),
           );
         }
       } finally {
@@ -174,7 +185,7 @@ export const WeeklyReviewPage = () => {
         }
       }
     },
-    [goalsService, t]
+    [goalsService, t],
   );
 
   const loadStandingObjectives = useCallback(
@@ -182,7 +193,8 @@ export const WeeklyReviewPage = () => {
       const requestId = ++standingObjectivesRequestSeqRef.current;
       setStandingObjectivesLoading(true);
       try {
-        const snapshot = await objectivesService.computeWeeklyObjectivesSnapshot(requestedWeekStart);
+        const snapshot =
+          await objectivesService.computeWeeklyObjectivesSnapshot(requestedWeekStart);
         if (requestId !== standingObjectivesRequestSeqRef.current) {
           return;
         }
@@ -193,7 +205,7 @@ export const WeeklyReviewPage = () => {
         }
       }
     },
-    [objectivesService]
+    [objectivesService],
   );
 
   const loadRescueTimeData = useCallback(
@@ -208,7 +220,7 @@ export const WeeklyReviewPage = () => {
       void loadPulseSnapshot(requestedWeekStart);
       void loadStandingObjectives(requestedWeekStart);
     },
-    [loadGoalsSnapshot, loadPulseSnapshot, loadStandingObjectives]
+    [loadGoalsSnapshot, loadPulseSnapshot, loadStandingObjectives],
   );
 
   const refreshRescueTimeData = useCallback(
@@ -216,7 +228,7 @@ export const WeeklyReviewPage = () => {
       void loadGoalsSnapshot(requestedWeekStart, { refreshing: true });
       void loadPulseSnapshot(requestedWeekStart, { refreshing: true });
     },
-    [loadGoalsSnapshot, loadPulseSnapshot]
+    [loadGoalsSnapshot, loadPulseSnapshot],
   );
 
   const loadWeek = useCallback(
@@ -227,7 +239,7 @@ export const WeeklyReviewPage = () => {
       try {
         const [existingReview, computedSummary] = await Promise.all([
           repository.getWeeklyReview(normalized),
-          repository.computeWeeklyReviewSummary(normalized)
+          repository.computeWeeklyReviewSummary(normalized),
         ]);
         if (requestId !== weekRequestSeqRef.current) {
           return;
@@ -244,7 +256,7 @@ export const WeeklyReviewPage = () => {
         }
       }
     },
-    [loadRescueTimeData, repository]
+    [loadRescueTimeData, repository],
   );
 
   useEffect(() => {
@@ -266,18 +278,26 @@ export const WeeklyReviewPage = () => {
         });
       return saveChainRef.current;
     },
-    [repository]
+    [repository],
   );
 
   const runSynthesis = useCallback(
-    async (options: { weekStartDate: string; trigger: "auto" | "explicit"; bypassCache?: boolean }) => {
+    async (options: {
+      weekStartDate: string;
+      trigger: "auto" | "explicit";
+      bypassCache?: boolean;
+    }) => {
       const requestId = ++synthesisRequestSeqRef.current;
       setSynthesisLoading(true);
       setSynthesisResult(null);
 
       try {
         if (options.trigger === "auto") {
-          const stored = await loadLatestWeeklySynthesis(repository, synthesisService, options.weekStartDate);
+          const stored = await loadLatestWeeklySynthesis(
+            repository,
+            synthesisService,
+            options.weekStartDate,
+          );
           if (requestId !== synthesisRequestSeqRef.current) {
             return;
           }
@@ -286,15 +306,17 @@ export const WeeklyReviewPage = () => {
           }
         }
 
-        const goals =
-          goalsSnapshot?.weekStartDate === options.weekStartDate ? goalsSnapshot : null;
-        const pulse =
-          pulseSnapshot?.weekStartDate === options.weekStartDate ? pulseSnapshot : null;
-        const snapshotInputs = await resolveWeeklySnapshotInputs(repository, options.weekStartDate, {
-          productivityPulse: pulse?.pulse ?? null,
-          rescueTimeGoalsScore: goals?.score ?? null,
-          rescuetimeConfigured: Boolean(settings.rescuetimeApiKey.trim())
-        });
+        const goals = goalsSnapshot?.weekStartDate === options.weekStartDate ? goalsSnapshot : null;
+        const pulse = pulseSnapshot?.weekStartDate === options.weekStartDate ? pulseSnapshot : null;
+        const snapshotInputs = await resolveWeeklySnapshotInputs(
+          repository,
+          options.weekStartDate,
+          {
+            productivityPulse: pulse?.pulse ?? null,
+            rescueTimeGoalsScore: goals?.score ?? null,
+            rescuetimeConfigured: Boolean(settings.rescuetimeApiKey.trim()),
+          },
+        );
 
         if (requestId !== synthesisRequestSeqRef.current) {
           return;
@@ -305,7 +327,7 @@ export const WeeklyReviewPage = () => {
           settings,
           snapshotInputs,
           trigger: options.trigger,
-          bypassCache: options.bypassCache
+          bypassCache: options.bypassCache,
         });
 
         if (requestId !== synthesisRequestSeqRef.current) {
@@ -319,7 +341,7 @@ export const WeeklyReviewPage = () => {
         }
       }
     },
-    [goalsSnapshot, pulseSnapshot, repository, settings, synthesisService]
+    [goalsSnapshot, pulseSnapshot, repository, settings, synthesisService],
   );
 
   useEffect(() => {
@@ -347,7 +369,8 @@ export const WeeklyReviewPage = () => {
 
     try {
       const weekStartDate = summary.weekStartDate;
-      const currentReview = latestReviewRef.current ?? review ?? createEmptyWeeklyReview(weekStartDate);
+      const currentReview =
+        latestReviewRef.current ?? review ?? createEmptyWeeklyReview(weekStartDate);
 
       if (proposal.type === "review_section_draft") {
         const section = reviewSectionFromProposal(proposal);
@@ -366,10 +389,10 @@ export const WeeklyReviewPage = () => {
             ? {
                 ...current,
                 proposals: current.proposals.map((item) =>
-                  item.id === proposal.id ? accepted.proposal : item
-                )
+                  item.id === proposal.id ? accepted.proposal : item,
+                ),
               }
-            : current
+            : current,
         );
         return;
       }
@@ -388,10 +411,10 @@ export const WeeklyReviewPage = () => {
             ? {
                 ...current,
                 proposals: current.proposals.map((item) =>
-                  item.id === proposal.id ? accepted.proposal : item
-                )
+                  item.id === proposal.id ? accepted.proposal : item,
+                ),
               }
-            : current
+            : current,
         );
         return;
       }
@@ -407,10 +430,10 @@ export const WeeklyReviewPage = () => {
             ? {
                 ...current,
                 proposals: current.proposals.map((item) =>
-                  item.id === proposal.id ? accepted.proposal : item
-                )
+                  item.id === proposal.id ? accepted.proposal : item,
+                ),
               }
-            : current
+            : current,
         );
         return;
       }
@@ -424,10 +447,10 @@ export const WeeklyReviewPage = () => {
                 proposals: current.proposals.map((item) =>
                   item.id === proposal.id
                     ? { ...item, status: "accepted", decidedAt: new Date().toISOString() }
-                    : item
-                )
+                    : item,
+                ),
               }
-            : current
+            : current,
         );
         return;
       }
@@ -435,17 +458,19 @@ export const WeeklyReviewPage = () => {
       await repository.decideAiProposal(
         proposal.id,
         "accepted",
-        applied.objectiveId ?? applied.taskId ?? applied.memoryId ?? weekStartDate
+        applied.objectiveId ?? applied.taskId ?? applied.memoryId ?? weekStartDate,
       );
       setSynthesisResult((current) =>
         current
           ? {
               ...current,
               proposals: current.proposals.map((item) =>
-                item.id === proposal.id ? { ...item, status: "accepted", decidedAt: new Date().toISOString() } : item
-              )
+                item.id === proposal.id
+                  ? { ...item, status: "accepted", decidedAt: new Date().toISOString() }
+                  : item,
+              ),
             }
-          : current
+          : current,
       );
     } finally {
       setApplyingProposalIds((current) => current.filter((id) => id !== proposal.id));
@@ -467,10 +492,12 @@ export const WeeklyReviewPage = () => {
         ? {
             ...current,
             proposals: current.proposals.map((item) =>
-              item.id === proposal.id ? { ...item, status: "dismissed", decidedAt: new Date().toISOString() } : item
-            )
+              item.id === proposal.id
+                ? { ...item, status: "dismissed", decidedAt: new Date().toISOString() }
+                : item,
+            ),
           }
-        : current
+        : current,
     );
   };
 
@@ -479,7 +506,7 @@ export const WeeklyReviewPage = () => {
       const proposals = await loadWeeklyMemoryProposals(repository, weekStartDate);
       setWeeklyMemoryProposals(proposals);
     },
-    [repository]
+    [repository],
   );
 
   useEffect(() => {
@@ -504,11 +531,11 @@ export const WeeklyReviewPage = () => {
 
   const hasValidSelectedWeek = useMemo(
     () => /^\d{4}-\d{2}-\d{2}$/.test(selectedWeekStart),
-    [selectedWeekStart]
+    [selectedWeekStart],
   );
   const weekEndDate = useMemo(
     () => (hasValidSelectedWeek ? addDays(selectedWeekStart, 6) : ""),
-    [hasValidSelectedWeek, selectedWeekStart]
+    [hasValidSelectedWeek, selectedWeekStart],
   );
 
   const previousRescuetimeApiKeyRef = useRef(settings.rescuetimeApiKey);
@@ -537,7 +564,7 @@ export const WeeklyReviewPage = () => {
 
     return applyWeeklyScoreExternalAxes(summary, {
       rescueTimeGoalsScore,
-      productivityPulse
+      productivityPulse,
     });
   }, [goalsSnapshot, pulseSnapshot, summary]);
 
@@ -549,9 +576,9 @@ export const WeeklyReviewPage = () => {
         subtitle: t(`weekly.ritual.${section.key}.subtitle`),
         prompt: t(`weekly.ritual.${section.key}.prompt`),
         linkTo: section.linkTo,
-        linkLabel: section.linkKey ? t(section.linkKey) : undefined
+        linkLabel: section.linkKey ? t(section.linkKey) : undefined,
       })),
-    [t]
+    [t],
   );
 
   const formatHours = (hours: number | null): string =>
@@ -564,13 +591,19 @@ export const WeeklyReviewPage = () => {
     value === null ? t("weekly.format.none") : t("weekly.format.score", { n: Math.round(value) });
 
   if (loading || !review || !summary || !displayedSummary) {
-    return <div className="page"><p>{t("weekly.loading")}</p></div>;
+    return (
+      <div className="page">
+        <p>{t("weekly.loading")}</p>
+      </div>
+    );
   }
 
   const weekMatchedGoalsSnapshot =
     goalsSnapshot?.weekStartDate === summary.weekStartDate ? goalsSnapshot : null;
   const weekMatchedStandingObjectivesSnapshot =
-    standingObjectivesSnapshot?.weekStartDate === summary.weekStartDate ? standingObjectivesSnapshot : null;
+    standingObjectivesSnapshot?.weekStartDate === summary.weekStartDate
+      ? standingObjectivesSnapshot
+      : null;
   const weekMatchedPulseSnapshot =
     pulseSnapshot?.weekStartDate === summary.weekStartDate ? pulseSnapshot : null;
   const goalsBusy = goalsLoading || goalsRefreshing;
@@ -585,12 +618,10 @@ export const WeeklyReviewPage = () => {
           <h2>
             {t("weekly.hero.range", {
               start: formatDateLong(summary.weekStartDate),
-              end: formatDateLong(summary.weekEndDate)
+              end: formatDateLong(summary.weekEndDate),
             })}
           </h2>
-          <p className="hero__copy">
-            {t("weekly.hero.copy")}
-          </p>
+          <p className="hero__copy">{t("weekly.hero.copy")}</p>
         </div>
         <div className="hero__actions">
           <button
@@ -622,10 +653,7 @@ export const WeeklyReviewPage = () => {
         </div>
       </header>
 
-      <SectionCard
-        title={t("weekly.picker.title")}
-        subtitle={t("weekly.picker.subtitle")}
-      >
+      <SectionCard title={t("weekly.picker.title")} subtitle={t("weekly.picker.subtitle")}>
         <div className="history-toolbar">
           <label className="stacked-field">
             <span>{t("weekly.picker.startLabel")}</span>
@@ -650,7 +678,11 @@ export const WeeklyReviewPage = () => {
             >
               {t("weekly.picker.load")}
             </button>
-            <button className="button" type="button" onClick={() => void loadWeek(buildWeekDates(getTodayDate()))}>
+            <button
+              className="button"
+              type="button"
+              onClick={() => void loadWeek(buildWeekDates(getTodayDate()))}
+            >
               {t("weekly.picker.current")}
             </button>
           </div>
@@ -659,7 +691,7 @@ export const WeeklyReviewPage = () => {
           {hasValidSelectedWeek
             ? t("weekly.picker.window", {
                 start: formatDateShort(selectedWeekStart),
-                end: formatDateShort(weekEndDate)
+                end: formatDateShort(weekEndDate),
               })
             : t("weekly.picker.invalid")}
         </p>
@@ -681,7 +713,11 @@ export const WeeklyReviewPage = () => {
             if (!summary) {
               return;
             }
-            void runSynthesis({ weekStartDate: summary.weekStartDate, trigger: "explicit", bypassCache: true });
+            void runSynthesis({
+              weekStartDate: summary.weekStartDate,
+              trigger: "explicit",
+              bypassCache: true,
+            });
           }}
           onAcceptProposal={(proposal) => void handleAcceptSynthesisProposal(proposal)}
           onDismissProposal={(proposal) => void handleDismissSynthesisProposal(proposal)}
@@ -692,7 +728,9 @@ export const WeeklyReviewPage = () => {
         <div className="weekly-overview-grid">
           <article className="status-card">
             <span>{t("weekly.overview.status")}</span>
-            <strong>{review.status === "closed" ? t("weekly.status.closed") : t("weekly.status.draft")}</strong>
+            <strong>
+              {review.status === "closed" ? t("weekly.status.closed") : t("weekly.status.draft")}
+            </strong>
           </article>
           <article className="status-card">
             <span>{t("weekly.overview.score")}</span>
@@ -721,7 +759,9 @@ export const WeeklyReviewPage = () => {
           <article className="status-card">
             <span>{t("weekly.overview.computerProductivity")}</span>
             <strong>
-              {pulseBusy || !weekMatchedPulseSnapshot ? t("weekly.loadingPlaceholder") : formatPulse(displayedSummary.productivityPulse)}
+              {pulseBusy || !weekMatchedPulseSnapshot
+                ? t("weekly.loadingPlaceholder")
+                : formatPulse(displayedSummary.productivityPulse)}
             </strong>
           </article>
           <article className="status-card">
@@ -745,7 +785,8 @@ export const WeeklyReviewPage = () => {
         {!settings.rescuetimeApiKey.trim() ? (
           <div className="banner">
             {t("weekly.rescueGoals.missingKey")}{" "}
-            <Link to="/parametres">{t("weekly.rescueGoals.settingsLink")}</Link> {t("weekly.rescueGoals.missingKeySuffix")}
+            <Link to="/parametres">{t("weekly.rescueGoals.settingsLink")}</Link>{" "}
+            {t("weekly.rescueGoals.missingKeySuffix")}
           </div>
         ) : null}
         {weekMatchedGoalsSnapshot?.fetchError ? (
@@ -777,12 +818,18 @@ export const WeeklyReviewPage = () => {
           <article className="status-card">
             <span>{t("weekly.overview.computerProductivity")}</span>
             <strong>
-              {pulseBusy || !weekMatchedPulseSnapshot ? t("weekly.loadingPlaceholder") : formatPulse(displayedSummary.productivityPulse)}
+              {pulseBusy || !weekMatchedPulseSnapshot
+                ? t("weekly.loadingPlaceholder")
+                : formatPulse(displayedSummary.productivityPulse)}
             </strong>
           </article>
           <article className="status-card">
             <span>{t("weekly.rescueGoals.metrics.source")}</span>
-            <strong>{settings.rescuetimeApiKey.trim() ? t("weekly.rescueGoals.source.goals") : t("weekly.rescueGoals.source.missingKey")}</strong>
+            <strong>
+              {settings.rescuetimeApiKey.trim()
+                ? t("weekly.rescueGoals.source.goals")
+                : t("weekly.rescueGoals.source.missingKey")}
+            </strong>
           </article>
         </div>
 
@@ -793,13 +840,16 @@ export const WeeklyReviewPage = () => {
             disabled={rescueTimeRefreshing || !settings.rescuetimeApiKey.trim()}
             onClick={() => void refreshRescueTimeData(summary.weekStartDate)}
           >
-            {rescueTimeRefreshing ? t("weekly.rescueGoals.refreshing") : t("weekly.rescueGoals.refresh")}
+            {rescueTimeRefreshing
+              ? t("weekly.rescueGoals.refreshing")
+              : t("weekly.rescueGoals.refresh")}
           </button>
         </div>
 
         {goalsBusy || !weekMatchedGoalsSnapshot ? (
           <p className="empty-copy">{t("weekly.rescueGoals.loading")}</p>
-        ) : weekMatchedGoalsSnapshot.fetchError ? null : weekMatchedGoalsSnapshot.items.length === 0 ? (
+        ) : weekMatchedGoalsSnapshot.fetchError ? null : weekMatchedGoalsSnapshot.items.length ===
+          0 ? (
           <p className="empty-copy">{t("weekly.rescueGoals.empty")}</p>
         ) : (
           <div className="weekly-day-grid">
@@ -810,11 +860,15 @@ export const WeeklyReviewPage = () => {
                   <span>{item.achievement.toFixed(2)}/1</span>
                 </div>
                 <div className="weekly-day-card__metrics">
-                  <span>{item.isMore ? t("weekly.rescueGoals.direction.more") : t("weekly.rescueGoals.direction.less")}</span>
+                  <span>
+                    {item.isMore
+                      ? t("weekly.rescueGoals.direction.more")
+                      : t("weekly.rescueGoals.direction.less")}
+                  </span>
                   <span>
                     {t("weekly.rescueGoals.timeLine", {
                       actual: formatHours(item.actualHours),
-                      target: formatHours(item.weeklyTargetHours)
+                      target: formatHours(item.weeklyTargetHours),
                     })}
                   </span>
                   <span>{t("weekly.rescueGoals.schedule", { label: item.scheduleLabel })}</span>
@@ -825,10 +879,7 @@ export const WeeklyReviewPage = () => {
         )}
       </SectionCard>
 
-      <SectionCard
-        title={t("weekly.standing.title")}
-        subtitle={t("weekly.standing.subtitle")}
-      >
+      <SectionCard title={t("weekly.standing.title")} subtitle={t("weekly.standing.subtitle")}>
         {standingObjectivesLoading || !weekMatchedStandingObjectivesSnapshot ? (
           <p className="empty-copy">{t("weekly.standing.loading")}</p>
         ) : weekMatchedStandingObjectivesSnapshot.fetchError ? (
@@ -844,27 +895,39 @@ export const WeeklyReviewPage = () => {
                   <span>{item.achievement.toFixed(2)}/1</span>
                 </div>
                 <div className="weekly-day-card__metrics">
-                  <span>{item.objective.kind === "manual" ? t("weekly.standing.kind.manual") : t("weekly.standing.kind.time")}</span>
+                  <span>
+                    {item.objective.kind === "manual"
+                      ? t("weekly.standing.kind.manual")
+                      : t("weekly.standing.kind.time")}
+                  </span>
                   {item.objective.kind === "time" ? (
                     <span>
                       {t("weekly.standing.timeLine", {
                         actual: formatHours(item.actualHours),
-                        target: formatHours(item.objective.targetHours)
+                        target: formatHours(item.objective.targetHours),
                       })}
                     </span>
                   ) : (
                     <label className="switch-row">
                       <input
-                        aria-label={t("weekly.standing.achievedAria", { title: item.objective.title })}
+                        aria-label={t("weekly.standing.achievedAria", {
+                          title: item.objective.title,
+                        })}
                         type="checkbox"
                         checked={item.achievement === 1}
                         onChange={(event) => {
-                          void repository.saveWeeklyObjectiveResult({
-                            weekStartDate: weekMatchedStandingObjectivesSnapshot.weekStartDate,
-                            objectiveId: item.objective.id,
-                            achieved: event.target.checked,
-                            updatedAt: new Date().toISOString()
-                          }).then(() => loadStandingObjectives(weekMatchedStandingObjectivesSnapshot.weekStartDate));
+                          void repository
+                            .saveWeeklyObjectiveResult({
+                              weekStartDate: weekMatchedStandingObjectivesSnapshot.weekStartDate,
+                              objectiveId: item.objective.id,
+                              achieved: event.target.checked,
+                              updatedAt: new Date().toISOString(),
+                            })
+                            .then(() =>
+                              loadStandingObjectives(
+                                weekMatchedStandingObjectivesSnapshot.weekStartDate,
+                              ),
+                            );
                         }}
                       />
                       <span>{t("weekly.standing.achieved")}</span>
@@ -877,9 +940,13 @@ export const WeeklyReviewPage = () => {
                     className="button button--ghost"
                     type="button"
                     onClick={() => {
-                      void repository.deleteWeeklyObjective(item.objective.id).then(() =>
-                        loadStandingObjectives(weekMatchedStandingObjectivesSnapshot.weekStartDate)
-                      );
+                      void repository
+                        .deleteWeeklyObjective(item.objective.id)
+                        .then(() =>
+                          loadStandingObjectives(
+                            weekMatchedStandingObjectivesSnapshot.weekStartDate,
+                          ),
+                        );
                     }}
                   >
                     {t("weekly.standing.delete")}
@@ -891,7 +958,9 @@ export const WeeklyReviewPage = () => {
         )}
         {!standingObjectivesLoading && weekMatchedStandingObjectivesSnapshot ? (
           <p className="empty-copy">
-            {t("weekly.standing.score", { score: formatObjectiveScore(weekMatchedStandingObjectivesSnapshot.score) })}
+            {t("weekly.standing.score", {
+              score: formatObjectiveScore(weekMatchedStandingObjectivesSnapshot.score),
+            })}
           </p>
         ) : null}
       </SectionCard>
@@ -929,7 +998,9 @@ export const WeeklyReviewPage = () => {
           <article className="status-card">
             <span>{t("weekly.axes.computerProductivity")}</span>
             <strong>
-              {pulseBusy || !weekMatchedPulseSnapshot ? t("weekly.loadingPlaceholder") : formatPulse(displayedSummary.productivityPulse)}
+              {pulseBusy || !weekMatchedPulseSnapshot
+                ? t("weekly.loadingPlaceholder")
+                : formatPulse(displayedSummary.productivityPulse)}
             </strong>
           </article>
           <article className="status-card">
@@ -956,20 +1027,29 @@ export const WeeklyReviewPage = () => {
                   {day.sleepQuality === null
                     ? t("weekly.days.metrics.sleepNone")
                     : t("weekly.days.metrics.sleep", {
-                        value: t("weekly.days.metrics.sleepValue", { n: Math.round(day.sleepQuality) })
+                        value: t("weekly.days.metrics.sleepValue", {
+                          n: Math.round(day.sleepQuality),
+                        }),
                       })}
                 </span>
                 <span>
                   {t("weekly.days.metrics.trc", {
-                    value: day.trcRespected ? tCommon("boolean.yes") : tCommon("boolean.no")
+                    value: day.trcRespected ? tCommon("boolean.yes") : tCommon("boolean.no"),
                   })}
                 </span>
                 <span>{t("weekly.days.metrics.screen", { n: day.screenTimeMinutes })}</span>
                 <span>{t("weekly.days.metrics.pomodoris", { n: day.pomodoris })}</span>
                 <span>{t("weekly.days.metrics.kcal", { n: day.calorieExpenditure })}</span>
-                <span>{t("weekly.days.metrics.discipline", { value: formatWholePercent(day.disciplineScore * 100) })}</span>
                 <span>
-                  {t("weekly.days.metrics.tasks", { completed: day.tasksCompleted, added: day.tasksAdded })}
+                  {t("weekly.days.metrics.discipline", {
+                    value: formatWholePercent(day.disciplineScore * 100),
+                  })}
+                </span>
+                <span>
+                  {t("weekly.days.metrics.tasks", {
+                    completed: day.tasksCompleted,
+                    added: day.tasksAdded,
+                  })}
                 </span>
               </div>
             </article>
@@ -982,10 +1062,7 @@ export const WeeklyReviewPage = () => {
         </div>
       </SectionCard>
 
-      <SectionCard
-        title={t("weekly.ritual.title")}
-        subtitle={t("weekly.ritual.subtitle")}
-      >
+      <SectionCard title={t("weekly.ritual.title")} subtitle={t("weekly.ritual.subtitle")}>
         <div className="weekly-ritual-grid">
           {ritualSections.map((section) => (
             <article key={section.key} className="weekly-ritual-card">
@@ -1004,7 +1081,13 @@ export const WeeklyReviewPage = () => {
                       if (!currentReview) {
                         return;
                       }
-                      void saveReview(updateWeeklyReviewChecklist(currentReview, section.key, event.target.checked));
+                      void saveReview(
+                        updateWeeklyReviewChecklist(
+                          currentReview,
+                          section.key,
+                          event.target.checked,
+                        ),
+                      );
                     }}
                   />
                   <span>{t("weekly.ritual.done")}</span>
@@ -1028,7 +1111,9 @@ export const WeeklyReviewPage = () => {
                     }
                     void saveReview(updateWeeklyReviewNote(currentReview, section.key, value));
                   }}
-                  placeholder={t("weekly.ritual.notesPlaceholder", { section: section.title.toLowerCase() })}
+                  placeholder={t("weekly.ritual.notesPlaceholder", {
+                    section: section.title.toLowerCase(),
+                  })}
                 />
               </label>
               {section.linkTo && section.linkLabel ? (
@@ -1061,10 +1146,7 @@ export const WeeklyReviewPage = () => {
       </SectionCard>
 
       {weeklyMemoryProposals.length > 0 ? (
-        <SectionCard
-          title={t("weekly.memory.title")}
-          subtitle={t("weekly.memory.subtitle")}
-        >
+        <SectionCard title={t("weekly.memory.title")} subtitle={t("weekly.memory.subtitle")}>
           <div className="coach-pulse__proposals">
             {weeklyMemoryProposals.map((proposal) => (
               <article key={proposal.id} className="coach-pulse__proposal">
@@ -1107,7 +1189,7 @@ export const WeeklyReviewPage = () => {
               const proposals = await createWeeklyMemoryProposals(
                 repository,
                 closedReview.weekStartDate,
-                historyEntries
+                historyEntries,
               );
               setWeeklyMemoryProposals(proposals);
               await saveReview(closedReview);

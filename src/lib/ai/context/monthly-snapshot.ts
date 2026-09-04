@@ -4,7 +4,7 @@ import type {
   MonthlyReview,
   MonthlyReviewSectionKey,
   MonthlyReviewSummary,
-  MonthlyReviewWeekSummary
+  MonthlyReviewWeekSummary,
 } from "../../../domain/types";
 import type { Surface } from "./types";
 
@@ -61,7 +61,7 @@ export interface MonthlySnapshotInputs {
 const sanitizeGoal = (
   snapshot: AnnualGoalSnapshot,
   monthKey: string,
-  includeStructure: boolean
+  includeStructure: boolean,
 ): MonthlySnapshotGoal => {
   const monthPoint = snapshot.monthlyProgress.find((point) => point.monthKey === monthKey) ?? null;
   const evaluation = snapshot.goal.evaluations[monthKey] ?? null;
@@ -76,11 +76,14 @@ const sanitizeGoal = (
     progressRatio: snapshot.progressRatio,
     monthValue: monthPoint?.value ?? null,
     evaluationScore: evaluation?.score ?? null,
-    evaluationTrend: evaluation?.trend ?? null
+    evaluationTrend: evaluation?.trend ?? null,
   };
 };
 
-export const buildMonthlySnapshot = (inputs: MonthlySnapshotInputs, scope: AiPayloadScope): MonthlySnapshot => {
+export const buildMonthlySnapshot = (
+  inputs: MonthlySnapshotInputs,
+  scope: AiPayloadScope,
+): MonthlySnapshot => {
   const includeStructure = scope === "metrics_and_structure" || scope === "full";
   const includeFreeText = scope === "full";
   const { summary, review, goalSnapshots, monthKey } = inputs;
@@ -107,28 +110,28 @@ export const buildMonthlySnapshot = (inputs: MonthlySnapshotInputs, scope: AiPay
       weekEndDate: week.weekEndDate,
       weeklyScore: week.weeklyScore,
       reviewStatus: week.reviewStatus,
-      noteCount: week.noteCount
+      noteCount: week.noteCount,
     })),
     goals: goalSnapshots.map((snapshot) => sanitizeGoal(snapshot, monthKey, includeStructure)),
-    ...(includeFreeText && review ? { notes: { ...review.notes } } : {})
+    ...(includeFreeText && review ? { notes: { ...review.notes } } : {}),
   };
 };
 
 export const resolveMonthlySnapshotInputs = async (
   repository: import("../../storage/repository").AppRepository,
-  monthKey: string
+  monthKey: string,
 ): Promise<MonthlySnapshotInputs> => {
   const year = Number(monthKey.slice(0, 4));
   const [summary, review, goalSnapshots] = await Promise.all([
     repository.computeMonthlyReviewSummary(monthKey),
     repository.getMonthlyReview(monthKey),
-    repository.computeAnnualGoalSnapshots(year)
+    repository.computeAnnualGoalSnapshots(year),
   ]);
 
   return {
     monthKey,
     summary,
     review,
-    goalSnapshots
+    goalSnapshots,
   };
 };

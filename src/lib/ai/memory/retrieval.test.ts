@@ -16,7 +16,7 @@ const buildMemory = (partial: Partial<AiMemory>): AiMemory => ({
   createdAt: partial.createdAt ?? "2026-08-01T00:00:00.000Z",
   lastConfirmedAt: partial.lastConfirmedAt ?? "2026-08-01T00:00:00.000Z",
   expiresAt: partial.expiresAt ?? null,
-  pinned: partial.pinned ?? false
+  pinned: partial.pinned ?? false,
 });
 
 describe("retrieveMemories ranking", () => {
@@ -25,7 +25,7 @@ describe("retrieveMemories ranking", () => {
     const pinned = buildMemory({ id: "p1", pinned: true, kind: "principle", statement: "Mission" });
     const commitment = buildMemory({ id: "c1", kind: "commitment", statement: "8 pomodoros" });
     const nonPinned = Array.from({ length: 10 }, (_, index) =>
-      buildMemory({ id: `n${index}`, kind: "pattern", statement: `Pattern ${index}` })
+      buildMemory({ id: `n${index}`, kind: "pattern", statement: `Pattern ${index}` }),
     );
 
     const selected = selectMemoriesForPrompt([...nonPinned, commitment, pinned], "open", nowIso);
@@ -49,7 +49,7 @@ describe("retrieveMemories ranking", () => {
     settings.aiMemoryEnabled = false;
     const { block } = retrieveMemories([buildMemory({})], settings, {
       stance: "open",
-      nowIso: "2026-08-29T12:00:00.000Z"
+      nowIso: "2026-08-29T12:00:00.000Z",
     });
     expect(block).toBe("");
   });

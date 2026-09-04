@@ -17,13 +17,13 @@ const buildSnapshotInputs = (entry = createEmptyDailyEntry("2026-08-29")): Daily
   completedFocusSessionCount: 0,
   productivityPulseWeekToDate: null,
   rescuetimeConfigured: false,
-  now: "2026-08-29T12:00:00.000Z"
+  now: "2026-08-29T12:00:00.000Z",
 });
 
 describe("CoachPulseService", () => {
   it("returns local guidance when AI is disabled", async () => {
     const provider: AiProvider = {
-      generateStructured: vi.fn()
+      generateStructured: vi.fn(),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -35,7 +35,7 @@ describe("CoachPulseService", () => {
       entry: createEmptyDailyEntry("2026-08-29"),
       settings,
       snapshotInputs: buildSnapshotInputs(),
-      trigger: "explicit"
+      trigger: "explicit",
     });
 
     expect(result.source).toBe("local");
@@ -49,11 +49,11 @@ describe("CoachPulseService", () => {
           stance: "open",
           headline: "IA",
           read: "Signal",
-          move: null
+          move: null,
         }),
         model: "test-model",
-        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 }
-      }))
+        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 },
+      })),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -69,14 +69,14 @@ describe("CoachPulseService", () => {
       entry,
       settings,
       snapshotInputs,
-      trigger: "explicit"
+      trigger: "explicit",
     });
     const second = await service.buildPulse(repository, {
       stance: "open",
       entry,
       settings,
       snapshotInputs,
-      trigger: "explicit"
+      trigger: "explicit",
     });
 
     expect(first.source).toBe("ai");
@@ -89,8 +89,8 @@ describe("CoachPulseService", () => {
       generateStructured: vi.fn(async () => ({
         text: JSON.stringify({ headline: "bad" }),
         model: "test-model",
-        usage: { tokensPrompt: 1, tokensCompletion: 1, latencyMs: 1 }
-      }))
+        usage: { tokensPrompt: 1, tokensCompletion: 1, latencyMs: 1 },
+      })),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -104,7 +104,7 @@ describe("CoachPulseService", () => {
       entry: createEmptyDailyEntry("2026-08-29"),
       settings,
       snapshotInputs: buildSnapshotInputs(),
-      trigger: "explicit"
+      trigger: "explicit",
     });
 
     expect(result.source).toBe("fallback");
@@ -118,11 +118,11 @@ describe("CoachPulseService", () => {
           stance: "open",
           headline: "IA",
           read: "Signal",
-          move: null
+          move: null,
         }),
         model: "test-model",
-        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 }
-      }))
+        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 },
+      })),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -136,7 +136,7 @@ describe("CoachPulseService", () => {
       entry: createEmptyDailyEntry("2026-08-29"),
       settings,
       snapshotInputs: buildSnapshotInputs(),
-      trigger: "auto"
+      trigger: "auto",
     });
 
     expect(result.source).toBe("ai");
@@ -150,11 +150,11 @@ describe("CoachPulseService", () => {
           stance: "steer",
           headline: "Relance",
           read: "Signal",
-          move: null
+          move: null,
         }),
         model: "test-model",
-        usage: { tokensPrompt: 1, tokensCompletion: 1, latencyMs: 1 }
-      }))
+        usage: { tokensPrompt: 1, tokensCompletion: 1, latencyMs: 1 },
+      })),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -170,7 +170,7 @@ describe("CoachPulseService", () => {
       snapshotInputs: buildSnapshotInputs(),
       trigger: "auto",
       deltaClass: "stall",
-      slotHour: 13
+      slotHour: 13,
     });
 
     expect(result.source).toBe("ai");
@@ -179,7 +179,7 @@ describe("CoachPulseService", () => {
 
   it("returns ephemeral local auto results without proposals", async () => {
     const provider: AiProvider = {
-      generateStructured: vi.fn()
+      generateStructured: vi.fn(),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -192,7 +192,7 @@ describe("CoachPulseService", () => {
       settings,
       snapshotInputs: buildSnapshotInputs(),
       trigger: "auto",
-      localOnly: true
+      localOnly: true,
     });
 
     expect(result.source).toBe("local");
@@ -210,10 +210,10 @@ describe("CoachPulseService", () => {
             headline: "Premier",
             read: "Signal initial",
             move: null,
-            intentionDraft: "Focus initial"
+            intentionDraft: "Focus initial",
           }),
           model: "test-model",
-          usage: { tokensPrompt: 5, tokensCompletion: 10, latencyMs: 50 }
+          usage: { tokensPrompt: 5, tokensCompletion: 10, latencyMs: 50 },
         })
         .mockResolvedValueOnce({
           text: JSON.stringify({
@@ -221,11 +221,11 @@ describe("CoachPulseService", () => {
             headline: "Regenere",
             read: "Signal regenere",
             move: null,
-            intentionDraft: "Focus regenere"
+            intentionDraft: "Focus regenere",
           }),
           model: "test-model",
-          usage: { tokensPrompt: 6, tokensCompletion: 11, latencyMs: 60 }
-        })
+          usage: { tokensPrompt: 6, tokensCompletion: 11, latencyMs: 60 },
+        }),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -241,7 +241,7 @@ describe("CoachPulseService", () => {
       entry,
       settings,
       snapshotInputs,
-      trigger: "explicit"
+      trigger: "explicit",
     });
     const regenerated = await service.buildPulse(repository, {
       stance: "open",
@@ -249,7 +249,7 @@ describe("CoachPulseService", () => {
       settings,
       snapshotInputs,
       trigger: "explicit",
-      bypassCache: true
+      bypassCache: true,
     });
 
     expect(regenerated.message.id).not.toBe(first.message.id);
@@ -269,11 +269,11 @@ describe("CoachPulseService", () => {
           headline: "IA",
           read: "Signal",
           move: null,
-          intentionDraft: "Focus"
+          intentionDraft: "Focus",
         }),
         model: "test-model",
-        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 }
-      }))
+        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 },
+      })),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -289,7 +289,7 @@ describe("CoachPulseService", () => {
       entry,
       settings,
       snapshotInputs,
-      trigger: "auto"
+      trigger: "auto",
     });
 
     await repository.decideAiProposal(first.proposals[0].id, "accepted", entry.date);
@@ -299,7 +299,7 @@ describe("CoachPulseService", () => {
       entry,
       settings,
       snapshotInputs,
-      trigger: "auto"
+      trigger: "auto",
     });
 
     expect(second.source).toBe("cache");
@@ -313,11 +313,11 @@ describe("CoachPulseService", () => {
           stance: "open",
           headline: "IA",
           read: "Signal",
-          move: null
+          move: null,
         }),
         model: "test-model",
-        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 }
-      }))
+        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 },
+      })),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -334,7 +334,7 @@ describe("CoachPulseService", () => {
       entry,
       settings: disabledSettings,
       snapshotInputs,
-      trigger: "explicit"
+      trigger: "explicit",
     });
 
     const result = await service.buildPulse(repository, {
@@ -342,7 +342,7 @@ describe("CoachPulseService", () => {
       entry,
       settings: enabledSettings,
       snapshotInputs,
-      trigger: "auto"
+      trigger: "auto",
     });
 
     expect(result.source).toBe("ai");
@@ -357,11 +357,11 @@ describe("CoachPulseService", () => {
           headline: "Cloture",
           read: "Bilan",
           move: null,
-          tomorrowFocusDraft: "Demain"
+          tomorrowFocusDraft: "Demain",
         }),
         model: "test-model",
-        usage: { tokensPrompt: 1, tokensCompletion: 1, latencyMs: 1 }
-      }))
+        usage: { tokensPrompt: 1, tokensCompletion: 1, latencyMs: 1 },
+      })),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -384,7 +384,7 @@ describe("CoachPulseService", () => {
       createdAt: "2026-08-28T20:00:00.000Z",
       lastConfirmedAt: "2026-08-28T20:00:00.000Z",
       expiresAt: "2026-08-29",
-      pinned: false
+      pinned: false,
     });
 
     await service.buildPulse(repository, {
@@ -392,7 +392,7 @@ describe("CoachPulseService", () => {
       entry,
       settings,
       snapshotInputs: buildSnapshotInputs(entry),
-      trigger: "explicit"
+      trigger: "explicit",
     });
 
     expect(provider.generateStructured).toHaveBeenCalledWith(
@@ -400,9 +400,9 @@ describe("CoachPulseService", () => {
         commitmentResolution: {
           statement: "8 pomodoros",
           progressLabel: "6/8",
-          met: false
-        }
-      })
+          met: false,
+        },
+      }),
     );
 
     const archived = await repository.listAiMemories({ status: "archived", kind: "commitment" });
@@ -417,11 +417,11 @@ describe("CoachPulseService", () => {
           headline: "Cloture",
           read: "Bilan",
           move: null,
-          tomorrowFocusDraft: "Demain"
+          tomorrowFocusDraft: "Demain",
         }),
         model: "test-model",
-        usage: { tokensPrompt: 1, tokensCompletion: 1, latencyMs: 1 }
-      }))
+        usage: { tokensPrompt: 1, tokensCompletion: 1, latencyMs: 1 },
+      })),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -444,7 +444,7 @@ describe("CoachPulseService", () => {
       createdAt: "2026-08-28T20:00:00.000Z",
       lastConfirmedAt: "2026-08-28T20:00:00.000Z",
       expiresAt: "2026-08-29",
-      pinned: false
+      pinned: false,
     });
 
     const snapshotInputs = buildSnapshotInputs(entry);
@@ -453,14 +453,14 @@ describe("CoachPulseService", () => {
       entry,
       settings,
       snapshotInputs,
-      trigger: "explicit"
+      trigger: "explicit",
     });
     const second = await service.buildPulse(repository, {
       stance: "close",
       entry,
       settings,
       snapshotInputs,
-      trigger: "explicit"
+      trigger: "explicit",
     });
 
     expect(first.source).toBe("ai");
@@ -476,11 +476,11 @@ describe("CoachPulseService", () => {
           headline: "Cloture",
           read: "Bilan",
           move: null,
-          tomorrowFocusDraft: "Demain"
+          tomorrowFocusDraft: "Demain",
         }),
         model: "test-model",
-        usage: { tokensPrompt: 1, tokensCompletion: 1, latencyMs: 1 }
-      }))
+        usage: { tokensPrompt: 1, tokensCompletion: 1, latencyMs: 1 },
+      })),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -504,7 +504,7 @@ describe("CoachPulseService", () => {
       createdAt: "2026-08-28T20:00:00.000Z",
       lastConfirmedAt: "2026-08-28T20:00:00.000Z",
       expiresAt: "2026-08-29",
-      pinned: false
+      pinned: false,
     });
 
     const snapshotInputs = buildSnapshotInputs(entry);
@@ -513,7 +513,7 @@ describe("CoachPulseService", () => {
       entry,
       settings,
       snapshotInputs,
-      trigger: "explicit"
+      trigger: "explicit",
     });
     expect(seeded.source).toBe("ai");
 
@@ -530,7 +530,7 @@ describe("CoachPulseService", () => {
       createdAt: "2026-08-28T20:00:00.000Z",
       lastConfirmedAt: "2026-08-28T20:00:00.000Z",
       expiresAt: "2026-08-29",
-      pinned: false
+      pinned: false,
     });
 
     const cached = await service.buildPulse(repository, {
@@ -538,7 +538,7 @@ describe("CoachPulseService", () => {
       entry,
       settings,
       snapshotInputs,
-      trigger: "explicit"
+      trigger: "explicit",
     });
 
     expect(cached.source).toBe("cache");
@@ -557,11 +557,11 @@ describe("CoachPulseService", () => {
           stance: "open",
           headline: "IA",
           read: "Signal",
-          move: null
+          move: null,
         }),
         model: "test-model",
-        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 }
-      }))
+        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 },
+      })),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -577,7 +577,7 @@ describe("CoachPulseService", () => {
       entry,
       settings,
       snapshotInputs,
-      trigger: "explicit"
+      trigger: "explicit",
     });
     expect(first.source).toBe("ai");
 
@@ -595,7 +595,7 @@ describe("CoachPulseService", () => {
       createdAt: timestamp,
       lastConfirmedAt: timestamp,
       expiresAt: null,
-      pinned: true
+      pinned: true,
     });
 
     const second = await service.buildPulse(repository, {
@@ -603,15 +603,15 @@ describe("CoachPulseService", () => {
       entry,
       settings,
       snapshotInputs,
-      trigger: "explicit"
+      trigger: "explicit",
     });
 
     expect(second.source).toBe("ai");
     expect(provider.generateStructured).toHaveBeenCalledTimes(2);
     expect(provider.generateStructured).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        memoryBlock: expect.stringContaining("Mission personnelle")
-      })
+        memoryBlock: expect.stringContaining("Mission personnelle"),
+      }),
     );
   });
 });
@@ -638,7 +638,7 @@ describe("MemoryRepository ai_messages", () => {
       tokensPrompt: null,
       tokensCompletion: null,
       latencyMs: null,
-      createdAt: "2026-08-29T08:00:00.000Z"
+      createdAt: "2026-08-29T08:00:00.000Z",
     };
 
     await repository.saveAiMessage(message);
@@ -650,10 +650,12 @@ describe("MemoryRepository ai_messages", () => {
       status: "pending",
       appliedEntityId: null,
       decidedAt: null,
-      createdAt: "2026-08-29T08:00:00.000Z"
+      createdAt: "2026-08-29T08:00:00.000Z",
     });
 
-    await expect(repository.getAiMessage("coach_pulse", "2026-08-29", "abc123")).resolves.toBeNull();
+    await expect(
+      repository.getAiMessage("coach_pulse", "2026-08-29", "abc123"),
+    ).resolves.toBeNull();
     await expect(repository.listAiMessagesForDate("2026-08-29")).resolves.toHaveLength(1);
     await expect(repository.listAiProposals(message.id)).resolves.toHaveLength(1);
 
@@ -680,7 +682,7 @@ describe("MemoryRepository ai_messages", () => {
         headline: "Coach",
         read: "Lecture",
         move: null,
-        intentionDraft: "Focus"
+        intentionDraft: "Focus",
       } satisfies CoachPulseResponse),
       bodyText: "Coach",
       deltaClass: null,
@@ -688,7 +690,7 @@ describe("MemoryRepository ai_messages", () => {
       tokensPrompt: 1,
       tokensCompletion: 2,
       latencyMs: 3,
-      createdAt: "2026-08-29T08:00:00.000Z"
+      createdAt: "2026-08-29T08:00:00.000Z",
     };
 
     const saved = await repository.saveCoachPulseEpisode(message, [
@@ -700,8 +702,8 @@ describe("MemoryRepository ai_messages", () => {
         status: "pending",
         appliedEntityId: null,
         decidedAt: null,
-        createdAt: "2026-08-29T08:00:00.000Z"
-      }
+        createdAt: "2026-08-29T08:00:00.000Z",
+      },
     ]);
 
     expect(saved.proposals).toHaveLength(1);

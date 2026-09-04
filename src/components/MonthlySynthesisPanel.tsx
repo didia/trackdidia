@@ -10,7 +10,7 @@ const proposalTypeKeys = {
   review_section_draft: "proposal.reviewSection",
   weekly_objective: "proposal.weeklyObjective",
   gtd_action: "proposal.gtdAction",
-  goal_evaluation: "proposal.goalEvaluation"
+  goal_evaluation: "proposal.goalEvaluation",
 } as const satisfies Record<AiProposal["type"], string>;
 
 interface MonthlySynthesisPanelProps {
@@ -32,7 +32,7 @@ export const MonthlySynthesisPanel = ({
   onRequestCoach,
   onRegenerate,
   onAcceptProposal,
-  onDismissProposal
+  onDismissProposal,
 }: MonthlySynthesisPanelProps) => {
   const { t } = useTranslation("coach");
   const { t: tCommon } = useTranslation("common");
@@ -48,13 +48,18 @@ export const MonthlySynthesisPanel = ({
   }
 
   const synthesis = result?.synthesis;
-  const pendingProposals = result?.proposals.filter((proposal) => proposal.status === "pending") ?? [];
+  const pendingProposals =
+    result?.proposals.filter((proposal) => proposal.status === "pending") ?? [];
 
   return (
     <section className="coach-card coach-pulse">
       <div className="coach-card__label">
         <span>{t("monthly.title")}</span>
-        <small>{result ? translate(`source.${result.source}`, { ns: "coach" }) : tCommon("status.loading")}</small>
+        <small>
+          {result
+            ? translate(`source.${result.source}`, { ns: "coach" })
+            : tCommon("status.loading")}
+        </small>
       </div>
 
       {loading && !synthesis ? <p>{t("monthly.preparing")}</p> : null}
@@ -67,7 +72,9 @@ export const MonthlySynthesisPanel = ({
       ) : null}
 
       {result?.warning ? (
-        <small className="coach-card__warning">{t("warningFallbackPrefix", { warning: result.warning })}</small>
+        <small className="coach-card__warning">
+          {t("warningFallbackPrefix", { warning: result.warning })}
+        </small>
       ) : null}
 
       {notice ? <small className="coach-card__warning">{notice}</small> : null}
@@ -88,16 +95,24 @@ export const MonthlySynthesisPanel = ({
                 ? `[${payload.sectionKey ?? t("proposal.sectionFallback")}] ${payload.text ?? ""}`
                 : proposal.type === "goal_evaluation"
                   ? `[${payload.goalId ?? t("proposal.goalFallback")}] ${payload.score ?? tCommon("emDash")}/100 ${tCommon("emDash")} ${payload.notes ?? ""}`
-                  : payload.text ?? "";
+                  : (payload.text ?? "");
             return (
               <article key={proposal.id} className="coach-pulse__proposal">
                 <span>{t(proposalTypeKeys[proposal.type])}</span>
                 <p>{preview}</p>
                 <div className="section-actions">
-                  <button className="button button--primary" type="button" onClick={() => onAcceptProposal(proposal)}>
+                  <button
+                    className="button button--primary"
+                    type="button"
+                    onClick={() => onAcceptProposal(proposal)}
+                  >
                     {t("accept")}
                   </button>
-                  <button className="button button--ghost" type="button" onClick={() => onDismissProposal(proposal)}>
+                  <button
+                    className="button button--ghost"
+                    type="button"
+                    onClick={() => onDismissProposal(proposal)}
+                  >
                     {t("dismiss")}
                   </button>
                 </div>

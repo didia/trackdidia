@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { applyDailyPomodoroStats, applyDailyTaskStats, createEmptyDailyEntry } from "../domain/daily-entry";
+import {
+  applyDailyPomodoroStats,
+  applyDailyTaskStats,
+  createEmptyDailyEntry,
+} from "../domain/daily-entry";
 import type { DailyEntry, DailyPomodoroStats, DailyTaskStats } from "../domain/types";
 import { getTodayDate } from "../lib/date";
 import { useAppContext } from "./app-context";
@@ -30,14 +34,17 @@ export const useDailyEntry = (date: string) => {
     const [existing, stats, nextPomodoroStats] = await Promise.all([
       repository.getDailyEntry(date),
       repository.computeDailyTaskStats(date),
-      repository.computeDailyPomodoroStats(date)
+      repository.computeDailyPomodoroStats(date),
     ]);
     setTaskStats(stats);
     setPomodoroStats(nextPomodoroStats);
 
     const nextEntry = existing
       ? applyDailyPomodoroStats(applyDailyTaskStats(existing, stats), nextPomodoroStats)
-      : applyDailyPomodoroStats(applyDailyTaskStats(createEmptyDailyEntry(date), stats), nextPomodoroStats);
+      : applyDailyPomodoroStats(
+          applyDailyTaskStats(createEmptyDailyEntry(date), stats),
+          nextPomodoroStats,
+        );
     publishEntry(nextEntry);
     setLoading(false);
   }, [date, repository]);
@@ -56,37 +63,41 @@ export const useDailyEntry = (date: string) => {
       const nextEntry = typeof input === "function" ? input(current) : input;
       publishEntry(nextEntry);
 
-      const run = saveChainRef.current.catch(() => undefined).then(async () => {
-        const snapshot = entryRef.current;
-        if (!snapshot) {
-          return;
-        }
+      const run = saveChainRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          const snapshot = entryRef.current;
+          if (!snapshot) {
+            return;
+          }
 
-        await repository.saveDailyEntry(snapshot);
-        if (snapshot.date === getTodayDate()) {
-          await repository.generateDailyRelationshipTasks(snapshot.date);
-        }
-        const [stats, nextPomodoroStats] = await Promise.all([
-          repository.computeDailyTaskStats(snapshot.date),
-          repository.computeDailyPomodoroStats(snapshot.date)
-        ]);
+          await repository.saveDailyEntry(snapshot);
+          if (snapshot.date === getTodayDate()) {
+            await repository.generateDailyRelationshipTasks(snapshot.date);
+          }
+          const [stats, nextPomodoroStats] = await Promise.all([
+            repository.computeDailyTaskStats(snapshot.date),
+            repository.computeDailyPomodoroStats(snapshot.date),
+          ]);
 
-        if (dateRef.current !== snapshot.date) {
-          return;
-        }
+          if (dateRef.current !== snapshot.date) {
+            return;
+          }
 
-        setTaskStats(stats);
-        setPomodoroStats(nextPomodoroStats);
-        const latest = entryRef.current;
-        if (!latest || latest.date !== snapshot.date) {
-          return;
-        }
-        publishEntry(applyDailyPomodoroStats(applyDailyTaskStats(latest, stats), nextPomodoroStats));
-      });
+          setTaskStats(stats);
+          setPomodoroStats(nextPomodoroStats);
+          const latest = entryRef.current;
+          if (!latest || latest.date !== snapshot.date) {
+            return;
+          }
+          publishEntry(
+            applyDailyPomodoroStats(applyDailyTaskStats(latest, stats), nextPomodoroStats),
+          );
+        });
       saveChainRef.current = run;
       return run;
     },
-    [repository]
+    [repository],
   );
 
   return {
@@ -95,6 +106,6 @@ export const useDailyEntry = (date: string) => {
     reload: load,
     save,
     taskStats,
-    pomodoroStats
+    pomodoroStats,
   };
 };

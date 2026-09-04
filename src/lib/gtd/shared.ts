@@ -66,12 +66,12 @@ export const isTaskActionableForDate = (task: Task, date: string): boolean =>
 
 export const cloneTask = (task: Task): Task => ({
   ...task,
-  contextIds: [...task.contextIds]
+  contextIds: [...task.contextIds],
 });
 
 export const cloneProject = (project: Project): Project => ({
   ...project,
-  contextIds: [...project.contextIds]
+  contextIds: [...project.contextIds],
 });
 
 export const cloneContext = (context: TaskContext): TaskContext => ({ ...context });

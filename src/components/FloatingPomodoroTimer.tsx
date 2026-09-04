@@ -44,8 +44,12 @@ export const FloatingPomodoroTimer = () => {
 
       <div className="floating-pomodoro__body">
         <div className="floating-pomodoro__clock">
-          <span className="floating-pomodoro__kind">{translate(`kind.${activeSession.kind}`, { ns: "pomodoro" })}</span>
-          <strong>{timing.valid ? formatTimerRemaining(timing.remainingMs) : t("timerPlaceholder")}</strong>
+          <span className="floating-pomodoro__kind">
+            {translate(`kind.${activeSession.kind}`, { ns: "pomodoro" })}
+          </span>
+          <strong>
+            {timing.valid ? formatTimerRemaining(timing.remainingMs) : t("timerPlaceholder")}
+          </strong>
         </div>
 
         <div className="floating-pomodoro__summary">
@@ -79,7 +83,11 @@ export const FloatingPomodoroTimer = () => {
           </button>
         )}
 
-        <button className="button button--ghost" type="button" onClick={() => void pomodoro.cancelCurrent()}>
+        <button
+          className="button button--ghost"
+          type="button"
+          onClick={() => void pomodoro.cancelCurrent()}
+        >
           {tCommon("actions.cancel")}
         </button>
       </div>

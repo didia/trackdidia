@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useTaskSelection } from "../app/use-task-selection";
 import { useGtdWorkspace } from "../app/use-gtd";
+import { useTaskSelection } from "../app/use-task-selection";
 import { BulkTaskToolbar } from "../components/BulkTaskToolbar";
 import { GtdTaskCard } from "../components/GtdTaskCard";
 import { SectionCard } from "../components/SectionCard";
@@ -22,7 +22,7 @@ export const InboxPage = () => {
     cancelTask,
     cancelTasks,
     clearPastRecurrences,
-    moveTasksToBucket
+    moveTasksToBucket,
   } = useGtdWorkspace();
   const [title, setTitle] = useState("");
   const [visibleCount, setVisibleCount] = useState(40);
@@ -36,9 +36,7 @@ export const InboxPage = () => {
         <div>
           <p className="eyebrow">{t("inbox.hero.eyebrow")}</p>
           <h2>{t("inbox.hero.title")}</h2>
-          <p className="hero__copy">
-            {t("inbox.hero.copy")}
-          </p>
+          <p className="hero__copy">{t("inbox.hero.copy")}</p>
         </div>
       </header>
 
@@ -123,7 +121,11 @@ export const InboxPage = () => {
 
         {inboxTasks.length > visibleCount ? (
           <div className="form-actions">
-            <button className="button" type="button" onClick={() => setVisibleCount((current) => current + 40)}>
+            <button
+              className="button"
+              type="button"
+              onClick={() => setVisibleCount((current) => current + 40)}
+            >
               {t("inbox.loadMore")}
             </button>
           </div>

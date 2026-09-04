@@ -1,4 +1,3 @@
-import { createEmptyWeeklyObjective } from "../../../domain/weekly-objectives";
 import { updateAnnualGoalEvaluation } from "../../../domain/annual-goals";
 import type {
   AiProposal,
@@ -6,8 +5,9 @@ import type {
   MonthlyReviewSectionKey,
   RescueTimeTaxonomy,
   Task,
-  WeeklyRitualSectionKey
+  WeeklyRitualSectionKey,
 } from "../../../domain/types";
+import { createEmptyWeeklyObjective } from "../../../domain/weekly-objectives";
 import { t } from "../../../i18n";
 import { getTodayDate } from "../../date";
 import type { AppRepository } from "../../storage/repository";
@@ -27,7 +27,7 @@ export interface ProposalApplyResult {
 export const applyCoachProposal = async (
   repository: AppRepository,
   proposal: AiProposal,
-  acceptedDate: string
+  acceptedDate: string,
 ): Promise<ProposalApplyResult> => {
   if (proposal.type === "intention_draft" || proposal.type === "tomorrow_focus_draft") {
     const payload = JSON.parse(proposal.payloadJson) as { text?: string };
@@ -41,7 +41,7 @@ export const applyCoachProposal = async (
     };
     return {
       sectionKey: payload.sectionKey,
-      text: payload.text ?? ""
+      text: payload.text ?? "",
     };
   }
 
@@ -61,8 +61,8 @@ export const applyCoachProposal = async (
         targetHours: payload.targetHours ?? null,
         rescuetimeKind: payload.rescuetimeKind ?? null,
         rescuetimeThing: payload.rescuetimeThing ?? null,
-        sortOrder: objectives.length
-      })
+        sortOrder: objectives.length,
+      }),
     );
     return { objectiveId: saved.id };
   }
@@ -128,8 +128,8 @@ export const applyCoachProposal = async (
         score: payload.score ?? null,
         trend: payload.trend ?? null,
         notes: payload.notes ?? "",
-        blockers: payload.blockers ?? ""
-      })
+        blockers: payload.blockers ?? "",
+      }),
     );
 
     return { goalId: saved.id, monthKey: payload.monthKey };

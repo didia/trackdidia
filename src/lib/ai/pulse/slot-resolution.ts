@@ -41,10 +41,14 @@ const localMinutesSinceMidnight = (iso: string): number => {
 
 const slotHourToMinutes = (hour: number): number => hour * 60;
 
-const buildSlot = (date: string, stance: PulseScheduledStance, hour: number): ResolvedPulseSlot => ({
+const buildSlot = (
+  date: string,
+  stance: PulseScheduledStance,
+  hour: number,
+): ResolvedPulseSlot => ({
   stance,
   hour,
-  scopeKey: buildPulseScopeKey(date, stance, hour)
+  scopeKey: buildPulseScopeKey(date, stance, hour),
 });
 
 /**
@@ -65,7 +69,7 @@ export const resolvePulseSlots = (input: SlotResolutionInput): SlotResolutionRes
 
       const effectiveMinutes = Math.max(
         slotHourToMinutes(slot.hour),
-        localMinutesSinceMidnight(input.firstOpenAtIso)
+        localMinutesSinceMidnight(input.firstOpenAtIso),
       );
       return nowMinutes >= effectiveMinutes;
     }
@@ -73,7 +77,9 @@ export const resolvePulseSlots = (input: SlotResolutionInput): SlotResolutionRes
     return nowMinutes >= slotHourToMinutes(slot.hour);
   });
 
-  const unprocessedPassed = passedSlots.filter((slot) => !input.processedScopeKeys.has(slot.scopeKey));
+  const unprocessedPassed = passedSlots.filter(
+    (slot) => !input.processedScopeKeys.has(slot.scopeKey),
+  );
 
   if (unprocessedPassed.length === 0) {
     return { dueSlot: null, missedSlots: [] };

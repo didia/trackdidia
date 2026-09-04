@@ -1,11 +1,11 @@
 import { addDays } from "../lib/gtd/shared";
-import { buildWeekDates } from "./weekly-review";
 import type {
   WeeklyObjective,
   WeeklyObjectiveItemSnapshot,
   WeeklyObjectiveResult,
-  WeeklyObjectivesSnapshot
+  WeeklyObjectivesSnapshot,
 } from "./types";
+import { buildWeekDates } from "./weekly-review";
 
 export interface RescueTimeSecondsByObjectiveId {
   [objectiveId: string]: number | null;
@@ -15,8 +15,16 @@ export interface RescueTimeErrorsByObjectiveId {
   [objectiveId: string]: string | undefined;
 }
 
-export const scoreTimeObjective = (actualHours: number | null, targetHours: number | null): number => {
-  if (actualHours === null || targetHours === null || !Number.isFinite(targetHours) || targetHours <= 0) {
+export const scoreTimeObjective = (
+  actualHours: number | null,
+  targetHours: number | null,
+): number => {
+  if (
+    actualHours === null ||
+    targetHours === null ||
+    !Number.isFinite(targetHours) ||
+    targetHours <= 0
+  ) {
     return 0;
   }
 
@@ -36,12 +44,12 @@ export const computeWeeklyObjectivesScore = (achievements: number[]): number | n
 };
 
 export const cloneWeeklyObjective = (objective: WeeklyObjective): WeeklyObjective => ({
-  ...objective
+  ...objective,
 });
 
 export const createEmptyWeeklyObjective = (
   partial: Partial<WeeklyObjective> = {},
-  timestamp = new Date().toISOString()
+  timestamp = new Date().toISOString(),
 ): WeeklyObjective => ({
   id: partial.id ?? "",
   title: partial.title ?? "",
@@ -51,7 +59,7 @@ export const createEmptyWeeklyObjective = (
   rescuetimeThing: partial.rescuetimeThing ?? null,
   sortOrder: partial.sortOrder ?? 0,
   createdAt: partial.createdAt ?? timestamp,
-  updatedAt: partial.updatedAt ?? timestamp
+  updatedAt: partial.updatedAt ?? timestamp,
 });
 
 export const buildWeeklyObjectivesSnapshot = (
@@ -63,13 +71,13 @@ export const buildWeeklyObjectivesSnapshot = (
     rescuetimeConfigured: boolean;
     fetchError?: string;
     errorsByObjectiveId?: RescueTimeErrorsByObjectiveId;
-  }
+  },
 ): WeeklyObjectivesSnapshot => {
   const normalized = buildWeekDates(weekStartDate);
   const weekEndDate = addDays(normalized, 6);
   const resultsByObjectiveId = new Map(results.map((result) => [result.objectiveId, result]));
   const sortedObjectives = [...objectives].sort(
-    (left, right) => left.sortOrder - right.sortOrder || left.title.localeCompare(right.title)
+    (left, right) => left.sortOrder - right.sortOrder || left.title.localeCompare(right.title),
   );
 
   const items: WeeklyObjectiveItemSnapshot[] = sortedObjectives.map((objective) => {
@@ -79,7 +87,7 @@ export const buildWeeklyObjectivesSnapshot = (
         objective,
         actualHours: null,
         achievement: scoreManualObjective(result?.achieved ?? false),
-        source: "manual"
+        source: "manual",
       };
     }
 
@@ -90,7 +98,7 @@ export const buildWeeklyObjectivesSnapshot = (
         actualHours: null,
         achievement: 0,
         source: "missing",
-        error
+        error,
       };
     }
 
@@ -100,7 +108,7 @@ export const buildWeeklyObjectivesSnapshot = (
         objective,
         actualHours: null,
         achievement: 0,
-        source: "missing"
+        source: "missing",
       };
     }
 
@@ -109,7 +117,7 @@ export const buildWeeklyObjectivesSnapshot = (
       objective,
       actualHours,
       achievement: scoreTimeObjective(actualHours, objective.targetHours),
-      source: "rescuetime"
+      source: "rescuetime",
     };
   });
 
@@ -123,6 +131,6 @@ export const buildWeeklyObjectivesSnapshot = (
     totalAchievement,
     score: computeWeeklyObjectivesScore(achievements),
     rescuetimeConfigured: options.rescuetimeConfigured,
-    fetchError: options.fetchError
+    fetchError: options.fetchError,
   };
 };

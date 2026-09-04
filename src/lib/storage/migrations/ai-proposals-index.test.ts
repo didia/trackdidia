@@ -8,6 +8,8 @@ describe("migration 25 ai_proposals index", () => {
     expect(migration?.sql).toContain("weekly_objective");
     expect(migration?.sql).toContain("gtd_action");
     expect(migration?.sql).toContain("memory");
-    expect(migration?.sql).toMatch(/type NOT IN \('memory', 'review_section_draft', 'weekly_objective', 'gtd_action'\)/);
+    expect(migration?.sql).toMatch(
+      /type NOT IN \('memory', 'review_section_draft', 'weekly_objective', 'gtd_action'\)/,
+    );
   });
 });

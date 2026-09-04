@@ -158,7 +158,12 @@ export interface MonthlyReviewSummary {
   weeks: MonthlyReviewWeekSummary[];
 }
 
-export type AnnualGoalDimension = "physique" | "spirituelle" | "sociale" | "intellectuelle" | "global";
+export type AnnualGoalDimension =
+  | "physique"
+  | "spirituelle"
+  | "sociale"
+  | "intellectuelle"
+  | "global";
 export type AnnualGoalTrend = "up" | "steady" | "down";
 export type AnnualGoalSourceType = "weekly_summary" | "daily_metric" | "daily_principle" | "manual";
 
@@ -553,7 +558,13 @@ export interface CoachMessage {
 }
 
 export type TaskStatus = "active" | "completed" | "cancelled";
-export type TaskBucket = "inbox" | "next_action" | "scheduled" | "waiting_for" | "someday_maybe" | "reference";
+export type TaskBucket =
+  | "inbox"
+  | "next_action"
+  | "scheduled"
+  | "waiting_for"
+  | "someday_maybe"
+  | "reference";
 export type ProjectStatus = "active" | "on_hold" | "completed" | "cancelled";
 export type RecurringTargetBucket = Extract<TaskBucket, "next_action" | "scheduled">;
 export type RecurringRuleType = "daily" | "weekly" | "monthly";

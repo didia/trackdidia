@@ -128,18 +128,14 @@
     "export": "Exporter un backup maintenant"
   },
   "gtdImport": {
-    "title": "Import GTD",
-    "subtitle": "Contrôle l'import initial depuis l'export Google Tasks inclus dans l'app.",
+    "title": "État GTD",
+    "subtitle": "Vue d'ensemble des tâches, projets et contexts stockés localement.",
     "stats": {
       "tasks": "Tâches GTD",
       "projects": "Projets GTD",
       "contexts": "Contexts GTD",
       "lastImport": "Dernier import"
-    },
-    "success": "Import terminé : {{tasks}} tâches, {{projects}} projets, {{contexts}} contexts.",
-    "error": "Échec de l'import GTD.",
-    "importing": "Import en cours...",
-    "import": "Relancer l'import Google Tasks"
+    }
   },
   "memoryProfile": {
     "title": "Profil coach (mémoires épinglées)",

@@ -2,8 +2,8 @@ import type { Finding } from "../../../domain/insights/types";
 import type { WeeklyRitualSectionKey, WeeklySynthesisResponse } from "../../../domain/types";
 import { t } from "../../../i18n";
 import { formatPercent } from "../../format";
-import { pickTopFinding } from "./coach-pulse-fallback";
 import type { WeeklySnapshot, WeeklySnapshotAxis } from "../context/weekly-snapshot";
+import { pickTopFinding } from "./coach-pulse-fallback";
 
 const sortAxesByScore = (axes: WeeklySnapshotAxis[]): WeeklySnapshotAxis[] =>
   [...axes].sort((left, right) => right.score - left.score);
@@ -15,7 +15,11 @@ const sectionForFinding = (finding: Finding): WeeklyRitualSectionKey | null => {
     return "gtd";
   }
 
-  if (kind.startsWith("aging_") || kind === "overdue_deadlines" || kind === "scheduled_vs_completed_ratio") {
+  if (
+    kind.startsWith("aging_") ||
+    kind === "overdue_deadlines" ||
+    kind === "scheduled_vs_completed_ratio"
+  ) {
     return "gtd";
   }
 
@@ -38,7 +42,10 @@ const sectionForFinding = (finding: Finding): WeeklyRitualSectionKey | null => {
   return "bilan";
 };
 
-const buildSectionDrafts = (findings: Finding[], axes: WeeklySnapshotAxis[]): Partial<Record<WeeklyRitualSectionKey, string>> => {
+const buildSectionDrafts = (
+  findings: Finding[],
+  axes: WeeklySnapshotAxis[],
+): Partial<Record<WeeklyRitualSectionKey, string>> => {
   const drafts: Partial<Record<WeeklyRitualSectionKey, string>> = {};
   const topFinding = pickTopFinding(findings);
   const weakest = sortAxesByScore(axes).slice(-2);
@@ -53,7 +60,7 @@ const buildSectionDrafts = (findings: Finding[], axes: WeeklySnapshotAxis[]): Pa
   if (weakest.length >= 2) {
     drafts.tempsEtPlan = t("weekly.sectionAxesWatch", {
       ns: "coach",
-      axes: weakest.map((axis) => axis.label).join(" et ")
+      axes: weakest.map((axis) => axis.label).join(" et "),
     });
   }
 
@@ -62,11 +69,9 @@ const buildSectionDrafts = (findings: Finding[], axes: WeeklySnapshotAxis[]): Pa
   return drafts;
 };
 
-const buildGtdActions = (
-  snapshot: WeeklySnapshot
-): WeeklySynthesisResponse["gtdActions"] => {
+const buildGtdActions = (snapshot: WeeklySnapshot): WeeklySynthesisResponse["gtdActions"] => {
   const staleFinding = snapshot.findings.find(
-    (finding) => "kind" in finding && finding.kind === "stale_next_actions"
+    (finding) => "kind" in finding && finding.kind === "stale_next_actions",
   ) as (Finding & { taskIds?: string[] }) | undefined;
   const taskId = staleFinding?.taskIds?.[0];
 
@@ -75,8 +80,8 @@ const buildGtdActions = (
       {
         taskId,
         action: "defer",
-        reason: t("weekly.staleDeferReason", { ns: "coach" })
-      }
+        reason: t("weekly.staleDeferReason", { ns: "coach" }),
+      },
     ];
   }
 
@@ -98,7 +103,9 @@ export const buildLocalWeeklySynthesis = (snapshot: WeeklySnapshot): WeeklySynth
   const scorePercent = formatPercent(snapshot.weeklyScore);
 
   return {
-    headline: topFinding ? t("weekly.headlineWithFinding", { ns: "coach" }) : t("weekly.headline", { ns: "coach" }),
+    headline: topFinding
+      ? t("weekly.headlineWithFinding", { ns: "coach" })
+      : t("weekly.headline", { ns: "coach" }),
     scoreExplanation: topFinding
       ? t("weekly.scoreWithFinding", { ns: "coach", score: scorePercent, label: topFinding.label })
       : t("weekly.scorePartial", { ns: "coach", score: scorePercent }),
@@ -106,6 +113,6 @@ export const buildLocalWeeklySynthesis = (snapshot: WeeklySnapshot): WeeklySynth
     weakestAxes: paddedWeakest,
     sectionDrafts: buildSectionDrafts(snapshot.findings as Finding[], snapshot.axes),
     nextWeekObjectives: [],
-    gtdActions: buildGtdActions(snapshot)
+    gtdActions: buildGtdActions(snapshot),
   };
 };

@@ -26,7 +26,7 @@ const buildTask = (overrides: Partial<Task> = {}): Task => ({
   sourceExternalId: null,
   createdAt: now,
   updatedAt: now,
-  ...overrides
+  ...overrides,
 });
 
 const buildProject = (overrides: Partial<Project> = {}): Project => ({
@@ -40,7 +40,7 @@ const buildProject = (overrides: Partial<Project> = {}): Project => ({
   sourceExternalId: null,
   createdAt: now,
   updatedAt: now,
-  ...overrides
+  ...overrides,
 });
 
 const buildContext = (overrides: Partial<TaskContext> = {}): TaskContext => ({
@@ -48,7 +48,7 @@ const buildContext = (overrides: Partial<TaskContext> = {}): TaskContext => ({
   name: "Perso",
   createdAt: now,
   updatedAt: now,
-  ...overrides
+  ...overrides,
 });
 
 const noopAsync = async () => undefined;
@@ -57,7 +57,7 @@ const renderCard = (
   task: Task,
   projects: Project[] = [],
   contexts: TaskContext[] = [],
-  hideProjectTitle = false
+  hideProjectTitle = false,
 ) =>
   render(
     <GtdTaskCard
@@ -70,10 +70,14 @@ const renderCard = (
       onComplete={noopAsync}
       onCancel={noopAsync}
       onClearPastRecurrences={noopAsync}
-    />
+    />,
   );
 
-const associationCopy = () => screen.getByText("Réviser les documents").closest("button")!.querySelector(".task-card__context-copy");
+const associationCopy = () =>
+  screen
+    .getByText("Réviser les documents")
+    .closest("button")
+    ?.querySelector(".task-card__context-copy");
 
 describe("GtdTaskCard collapsed association copy", () => {
   it("shows Sans contexte when the task has neither a project nor contexts", () => {
@@ -91,7 +95,7 @@ describe("GtdTaskCard collapsed association copy", () => {
     renderCard(
       buildTask({ projectId: "project:mentoria", contextIds: ["context:perso"] }),
       [buildProject()],
-      [buildContext()]
+      [buildContext()],
     );
     expect(associationCopy()).toHaveTextContent("MentorIA • Perso");
   });
@@ -106,7 +110,7 @@ describe("GtdTaskCard collapsed association copy", () => {
     renderCard(
       buildTask({ projectId: "project:mentoria" }),
       [buildProject({ contextIds: ["context:perso"] })],
-      [buildContext()]
+      [buildContext()],
     );
     expect(associationCopy()).toHaveTextContent("MentorIA • Perso");
   });
@@ -115,7 +119,7 @@ describe("GtdTaskCard collapsed association copy", () => {
     renderCard(
       buildTask({ projectId: "project:mentoria", contextIds: ["context:call"] }),
       [buildProject({ contextIds: ["context:perso"] })],
-      [buildContext(), buildContext({ id: "context:call", name: "Call" })]
+      [buildContext(), buildContext({ id: "context:call", name: "Call" })],
     );
     expect(associationCopy()).toHaveTextContent("MentorIA • Call");
     expect(associationCopy()).not.toHaveTextContent("Perso");
@@ -136,12 +140,7 @@ describe("GtdTaskCard collapsed association copy", () => {
   });
 
   it("omits the project title when hideProjectTitle is set", () => {
-    renderCard(
-      buildTask({ projectId: "project:mentoria" }),
-      [buildProject()],
-      [],
-      true
-    );
+    renderCard(buildTask({ projectId: "project:mentoria" }), [buildProject()], [], true);
     expect(associationCopy()).toHaveTextContent("Sans contexte");
     expect(associationCopy()).not.toHaveTextContent("MentorIA");
   });

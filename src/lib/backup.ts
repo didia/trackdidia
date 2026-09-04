@@ -4,7 +4,7 @@ export const BACKUP_RETENTION_COUNT = 30;
 export const isAutoBackupDue = (
   lastBackupAt: string,
   intervalHours: number,
-  nowMs = Date.now()
+  nowMs = Date.now(),
 ): boolean => {
   if (!lastBackupAt) {
     return true;
@@ -34,7 +34,7 @@ export const isBackupDestinationMissing = (settings: {
 
 export const resolveBackupDir = (
   destinationDir: string,
-  environment: "development" | "production"
+  environment: "development" | "production",
 ): string => {
   const trimmed = destinationDir.replace(/[/\\]+$/, "");
   const subdir = environment === "development" ? "backups-dev" : "backups";

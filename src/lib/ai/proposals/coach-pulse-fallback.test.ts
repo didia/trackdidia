@@ -1,5 +1,9 @@
-import { buildLocalCoachPulse, hasMeaningfulEvidence, pickTopFinding } from "./coach-pulse-fallback";
 import type { Finding } from "../../../domain/insights/types";
+import {
+  buildLocalCoachPulse,
+  hasMeaningfulEvidence,
+  pickTopFinding,
+} from "./coach-pulse-fallback";
 
 const zeroSampleFinding = (label: string): Finding => ({
   id: "finding:test",
@@ -7,7 +11,7 @@ const zeroSampleFinding = (label: string): Finding => ({
   evidenceWindow: { from: "2026-08-01", to: "2026-08-29", days: 29 },
   sampleSize: 0,
   value: 0,
-  label
+  label,
 });
 
 describe("coach-pulse-fallback", () => {

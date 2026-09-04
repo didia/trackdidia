@@ -1,5 +1,8 @@
-import { buildGoalPacingSnapshot, type GoalPacingSnapshotInputs } from "../context/goal-pacing-snapshot";
 import { createEmptyAnnualGoal } from "../../../domain/annual-goals";
+import {
+  buildGoalPacingSnapshot,
+  type GoalPacingSnapshotInputs,
+} from "../context/goal-pacing-snapshot";
 import { buildLocalGoalPacing } from "./goal-pacing-fallback";
 
 const buildPacingInputs = (progressRatio: number): GoalPacingSnapshotInputs => ({
@@ -8,16 +11,21 @@ const buildPacingInputs = (progressRatio: number): GoalPacingSnapshotInputs => (
   evaluationMonthKey: "2026-06",
   goalSnapshots: [
     {
-      goal: createEmptyAnnualGoal({ id: "goal-1", title: "Discipline", targetValue: 100, unit: "%" }),
+      goal: createEmptyAnnualGoal({
+        id: "goal-1",
+        title: "Discipline",
+        targetValue: 100,
+        unit: "%",
+      }),
       sourceType: "manual",
       sourceLabel: null,
       currentValue: Math.round(progressRatio * 100),
       progressRatio,
       monthlyProgress: [{ monthKey: "2026-08", value: Math.round(progressRatio * 100) }],
       linkedWeeklyMetricLabels: [],
-      linkedDailyHabitLabels: []
-    }
-  ]
+      linkedDailyHabitLabels: [],
+    },
+  ],
 });
 
 describe("buildLocalGoalPacing risk alignment", () => {

@@ -5,7 +5,7 @@ const now = "2026-02-01T12:00:00.000Z";
 
 const summaries: PomodoroTaskSummary[] = [
   { taskId: "t1", taskTitle: "A", totalSeconds: 1800, sessionCount: 3 },
-  { taskId: "t2", taskTitle: "B", totalSeconds: 600, sessionCount: 1 }
+  { taskId: "t2", taskTitle: "B", totalSeconds: 600, sessionCount: 1 },
 ];
 
 describe("focus insight module", () => {

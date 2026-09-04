@@ -1,9 +1,9 @@
 import { createEmptyDailyEntry, updateNote } from "../../../domain/daily-entry";
-import { MemoryRepository } from "../../storage/memory-repository";
 import { RescueTimeGoalsService } from "../../rescuetime/rescuetime-goals-service";
-import { previewPayload, resolveProductivityPulse } from "./preview";
+import { MemoryRepository } from "../../storage/memory-repository";
 import type { DailySnapshot } from "./daily-snapshot";
 import type { MonthlySnapshot } from "./monthly-snapshot";
+import { previewPayload, resolveProductivityPulse } from "./preview";
 import type { WeeklySnapshot } from "./weekly-snapshot";
 
 describe("previewPayload", () => {
@@ -29,11 +29,13 @@ describe("previewPayload", () => {
       source: "manual",
       sourceExternalId: null,
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     });
 
-    const metricsSnapshot = await previewPayload(repository, "metrics", { date }) as DailySnapshot;
-    const fullSnapshot = await previewPayload(repository, "full", { date }) as DailySnapshot;
+    const metricsSnapshot = (await previewPayload(repository, "metrics", {
+      date,
+    })) as DailySnapshot;
+    const fullSnapshot = (await previewPayload(repository, "full", { date })) as DailySnapshot;
 
     expect(metricsSnapshot.notes).toBeUndefined();
     expect(fullSnapshot.notes?.morningIntention).toBe("Texte libre du jour.");
@@ -50,11 +52,11 @@ describe("previewPayload", () => {
 
     const metricsSnapshot = await previewPayload(repository, "metrics", {
       surface: "weekly",
-      date: weekStart
+      date: weekStart,
     });
     const fullSnapshot = (await previewPayload(repository, "full", {
       surface: "weekly",
-      date: weekStart
+      date: weekStart,
     })) as import("./weekly-snapshot").WeeklySnapshot;
 
     expect(metricsSnapshot.surface).toBe("weekly");
@@ -69,26 +71,26 @@ describe("previewPayload", () => {
       score: 0.75,
       totalAchievement: 0.75,
       items: [],
-      rescuetimeConfigured: true
+      rescuetimeConfigured: true,
     });
     vi.spyOn(RescueTimeGoalsService.prototype, "computeProductivityPulse").mockResolvedValue({
       weekStartDate: "2026-08-02",
       weekEndDate: "2026-08-08",
       pulse: 80,
-      rescuetimeConfigured: true
+      rescuetimeConfigured: true,
     });
 
     const repository = new MemoryRepository();
     await repository.initialize();
     await repository.saveSettings({
       ...(await repository.getSettings()),
-      rescuetimeApiKey: "rt-test-key"
+      rescuetimeApiKey: "rt-test-key",
     });
     await repository.saveDailyEntry(createEmptyDailyEntry("2026-08-02"));
 
     const snapshot = (await previewPayload(repository, "full", {
       surface: "weekly",
-      date: "2026-08-02"
+      date: "2026-08-02",
     })) as WeeklySnapshot;
 
     expect(snapshot.weeklyScore).toBeGreaterThan(0);
@@ -106,8 +108,8 @@ describe("previewPayload", () => {
       weeklyRescueTime: {
         configured: true,
         productivityPulse: 80,
-        rescueTimeGoalsScore: 0.75
-      }
+        rescueTimeGoalsScore: 0.75,
+      },
     })) as WeeklySnapshot;
 
     expect(snapshot.axes.some((axis) => axis.key === "rescueTimeGoalsScore")).toBe(true);
@@ -122,7 +124,7 @@ describe("previewPayload", () => {
 
     const snapshot = (await previewPayload(repository, "metrics", {
       surface: "monthly",
-      date: "2026-04-01"
+      date: "2026-04-01",
     })) as MonthlySnapshot;
 
     expect(snapshot.surface).toBe("monthly");
@@ -151,8 +153,13 @@ describe("resolveProductivityPulse", () => {
   it("surfaces fetchError (rather than pretending 'no data this week') when RescueTime is configured but the request fails", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
-    await repository.saveSettings({ ...(await repository.getSettings()), rescuetimeApiKey: "rt-test-key" });
-    globalThis.fetch = vi.fn(async () => new Response("Unauthorized", { status: 401 })) as typeof fetch;
+    await repository.saveSettings({
+      ...(await repository.getSettings()),
+      rescuetimeApiKey: "rt-test-key",
+    });
+    globalThis.fetch = vi.fn(
+      async () => new Response("Unauthorized", { status: 401 }),
+    ) as typeof fetch;
 
     const result = await resolveProductivityPulse(repository, "2026-02-01");
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createEmptyDailyEntry, updateMetric } from "../../../domain/daily-entry";
-import { resolveCommitment } from "./commitment-resolution";
 import type { AiMemory } from "../../../domain/types";
+import { resolveCommitment } from "./commitment-resolution";
 import { stringifyCommitmentDetail } from "./detail";
 
 describe("commitment resolution", () => {
@@ -20,7 +20,7 @@ describe("commitment resolution", () => {
       createdAt: "2026-08-28T20:00:00.000Z",
       lastConfirmedAt: "2026-08-28T20:00:00.000Z",
       expiresAt: "2026-08-29",
-      pinned: false
+      pinned: false,
     };
 
     const resolution = resolveCommitment(memory, entry);

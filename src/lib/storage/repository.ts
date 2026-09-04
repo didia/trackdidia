@@ -1,10 +1,20 @@
 import type {
+  AiMemory,
+  AiMemoryFilters,
+  AiMessage,
+  AiProposal,
+  AiSurface,
+  AiUsageTotals,
+  AnnualGoal,
+  AnnualGoalSnapshot,
   AppSettings,
   CreateTaskInput,
   DailyEntry,
   DailyPomodoroStats,
   DailyTaskStats,
   GtdImportSummary,
+  MonthlyReview,
+  MonthlyReviewSummary,
   PomodoroKind,
   PomodoroSessionDetails,
   PomodoroState,
@@ -20,20 +30,10 @@ import type {
   Task,
   TaskContext,
   TaskFilters,
-  MonthlyReview,
-  MonthlyReviewSummary,
-  AnnualGoal,
-  AnnualGoalSnapshot,
-  AiMemory,
-  AiMemoryFilters,
-  AiProposal,
-  AiMessage,
-  AiSurface,
-  AiUsageTotals,
+  WeeklyObjective,
+  WeeklyObjectiveResult,
   WeeklyReview,
   WeeklyReviewSummary,
-  WeeklyObjective,
-  WeeklyObjectiveResult
 } from "../../domain/types";
 
 export interface NativeStoragePaths {
@@ -90,9 +90,16 @@ export interface AppRepository {
   saveSettings(settings: AppSettings): Promise<void>;
   getAiMessage(surface: AiSurface, scopeKey: string, inputHash: string): Promise<AiMessage | null>;
   /** Latest row for surface/scope/hash regardless of status (e.g. weekly distill markers). */
-  getAiMessageRecord(surface: AiSurface, scopeKey: string, inputHash: string): Promise<AiMessage | null>;
+  getAiMessageRecord(
+    surface: AiSurface,
+    scopeKey: string,
+    inputHash: string,
+  ): Promise<AiMessage | null>;
   saveAiMessage(message: AiMessage): Promise<AiMessage>;
-  saveCoachPulseEpisode(message: AiMessage, proposals: AiProposal[]): Promise<{ message: AiMessage; proposals: AiProposal[] }>;
+  saveCoachPulseEpisode(
+    message: AiMessage,
+    proposals: AiProposal[],
+  ): Promise<{ message: AiMessage; proposals: AiProposal[] }>;
   listAiMessages(surface?: AiSurface, limit?: number): Promise<AiMessage[]>;
   listAiMessagesForDate(date: string): Promise<AiMessage[]>;
   listAiMessagesSince(sinceIso: string, limit?: number): Promise<AiMessage[]>;
@@ -104,24 +111,27 @@ export interface AppRepository {
   decideAiProposal(
     id: string,
     status: "accepted" | "dismissed",
-    appliedEntityId?: string
+    appliedEntityId?: string,
   ): Promise<AiProposal>;
-  acceptAiMemoryProposal(proposal: AiProposal, memory: AiMemory): Promise<{ memory: AiMemory; proposal: AiProposal }>;
+  acceptAiMemoryProposal(
+    proposal: AiProposal,
+    memory: AiMemory,
+  ): Promise<{ memory: AiMemory; proposal: AiProposal }>;
   acceptAiWeeklyObjectiveProposal(
     proposal: AiProposal,
-    objective: WeeklyObjective
+    objective: WeeklyObjective,
   ): Promise<{ objective: WeeklyObjective; proposal: AiProposal }>;
   acceptAiReviewSectionDraftProposal(
     proposal: AiProposal,
-    review: WeeklyReview
+    review: WeeklyReview,
   ): Promise<{ review: WeeklyReview; proposal: AiProposal }>;
   acceptAiMonthlyReviewSectionDraftProposal(
     proposal: AiProposal,
-    review: MonthlyReview
+    review: MonthlyReview,
   ): Promise<{ review: MonthlyReview; proposal: AiProposal }>;
   acceptAiGtdActionProposal(
     proposal: AiProposal,
-    scheduledDate: string
+    scheduledDate: string,
   ): Promise<{ taskId: string | null; proposal: AiProposal }>;
   listAiMemories(filters?: AiMemoryFilters): Promise<AiMemory[]>;
   saveAiMemory(memory: AiMemory): Promise<AiMemory>;
@@ -140,7 +150,12 @@ export interface AppRepository {
   listTasks(filters?: TaskFilters): Promise<Task[]>;
   createTask(input: CreateTaskInput): Promise<Task>;
   saveTask(task: Task): Promise<Task>;
-  moveTask(taskId: string, bucket: Task["bucket"], contextIds: string[], projectId?: string | null): Promise<Task>;
+  moveTask(
+    taskId: string,
+    bucket: Task["bucket"],
+    contextIds: string[],
+    projectId?: string | null,
+  ): Promise<Task>;
   scheduleTask(taskId: string, scheduledFor: string | null): Promise<Task>;
   completeTask(taskId: string, completedAt?: string): Promise<Task>;
   cancelTask(taskId: string): Promise<Task>;
@@ -151,7 +166,11 @@ export interface AppRepository {
   applyWeeklyCarryover(weekStartDate: string): Promise<number>;
   getPomodoroState(): Promise<PomodoroState>;
   startPomodoro(options?: PomodoroStartOptions): Promise<PomodoroState>;
-  stopPomodoroSession(sessionId: string, status: Extract<PomodoroStatus, "completed" | "cancelled">, at?: string): Promise<PomodoroState>;
+  stopPomodoroSession(
+    sessionId: string,
+    status: Extract<PomodoroStatus, "completed" | "cancelled">,
+    at?: string,
+  ): Promise<PomodoroState>;
   pausePomodoroSession(sessionId: string, at?: string): Promise<PomodoroState>;
   resumePomodoroSession(sessionId: string, at?: string): Promise<PomodoroState>;
   completeExpiredPomodoroSessions(now?: string): Promise<PomodoroState>;
@@ -159,7 +178,7 @@ export interface AppRepository {
     sessionId: string,
     taskId: string | null,
     title?: string | null,
-    changedAt?: string
+    changedAt?: string,
   ): Promise<PomodoroState>;
   listPomodoroSessions(date: string): Promise<PomodoroSessionDetails[]>;
   listPomodoroTaskSummaries(date: string, now?: string): Promise<PomodoroTaskSummary[]>;
@@ -170,6 +189,13 @@ export interface AppRepository {
   resumeRecurringTaskTemplate(id: string): Promise<RecurringTaskTemplate>;
   cancelRecurringTaskTemplate(id: string): Promise<RecurringTaskTemplate>;
   generateDueRecurringTasks(date: string, now?: string): Promise<number>;
-  listRecurringPreviewOccurrences(rangeStart: string, rangeEnd: string): Promise<RecurringPreviewOccurrence[]>;
-  applyRecurringEditScope(taskId: string, scope: RecurringEditScope, changes: RecurringTaskChanges): Promise<Task>;
+  listRecurringPreviewOccurrences(
+    rangeStart: string,
+    rangeEnd: string,
+  ): Promise<RecurringPreviewOccurrence[]>;
+  applyRecurringEditScope(
+    taskId: string,
+    scope: RecurringEditScope,
+    changes: RecurringTaskChanges,
+  ): Promise<Task>;
 }

@@ -13,9 +13,13 @@ const describeWeekPattern = (snapshot: MonthlySnapshot): string => {
   const firstHalf = scores.slice(0, Math.ceil(scores.length / 2));
   const secondHalf = scores.slice(Math.ceil(scores.length / 2));
   const firstAvg =
-    firstHalf.length > 0 ? firstHalf.reduce((sum, score) => sum + score, 0) / firstHalf.length : average;
+    firstHalf.length > 0
+      ? firstHalf.reduce((sum, score) => sum + score, 0) / firstHalf.length
+      : average;
   const secondAvg =
-    secondHalf.length > 0 ? secondHalf.reduce((sum, score) => sum + score, 0) / secondHalf.length : average;
+    secondHalf.length > 0
+      ? secondHalf.reduce((sum, score) => sum + score, 0) / secondHalf.length
+      : average;
   const delta = secondAvg - firstAvg;
 
   if (Math.abs(delta) < 0.03) {
@@ -23,17 +27,27 @@ const describeWeekPattern = (snapshot: MonthlySnapshot): string => {
   }
 
   return delta > 0
-    ? t("monthly.weekPatternUp", { ns: "coach", score: formatPercent(average), delta: formatPercent(delta) })
-    : t("monthly.weekPatternDown", { ns: "coach", score: formatPercent(average), delta: formatPercent(delta) });
+    ? t("monthly.weekPatternUp", {
+        ns: "coach",
+        score: formatPercent(average),
+        delta: formatPercent(delta),
+      })
+    : t("monthly.weekPatternDown", {
+        ns: "coach",
+        score: formatPercent(average),
+        delta: formatPercent(delta),
+      });
 };
 
-const buildSectionDrafts = (snapshot: MonthlySnapshot): Partial<Record<MonthlyReviewSectionKey, string>> => {
+const buildSectionDrafts = (
+  snapshot: MonthlySnapshot,
+): Partial<Record<MonthlyReviewSectionKey, string>> => {
   const drafts: Partial<Record<MonthlyReviewSectionKey, string>> = {};
 
   drafts.bilan = t("monthly.sectionBilan", {
     ns: "coach",
     days: snapshot.daysTracked,
-    score: formatPercent(snapshot.weeklyScoreAverage)
+    score: formatPercent(snapshot.weeklyScoreAverage),
   });
   drafts.progressionObjectifs =
     snapshot.goals.length > 0
@@ -44,7 +58,7 @@ const buildSectionDrafts = (snapshot: MonthlySnapshot): Partial<Record<MonthlyRe
     drafts.journaux = t("monthly.sectionJournals", {
       ns: "coach",
       completed: snapshot.weeklyReviewsCompleted,
-      covered: snapshot.weeksCovered
+      covered: snapshot.weeksCovered,
     });
   }
 
@@ -52,7 +66,7 @@ const buildSectionDrafts = (snapshot: MonthlySnapshot): Partial<Record<MonthlyRe
 };
 
 const buildGoalEvaluationDrafts = (
-  snapshot: MonthlySnapshot
+  snapshot: MonthlySnapshot,
 ): MonthlySynthesisResponse["goalEvaluationDrafts"] =>
   snapshot.goals.map((goal) => ({
     goalId: goal.goalId,
@@ -60,7 +74,9 @@ const buildGoalEvaluationDrafts = (
       goal.evaluationScore ??
       (goal.progressRatio === null ? null : Math.round(Math.min(goal.progressRatio, 1) * 100)),
     trend:
-      goal.evaluationTrend === "up" || goal.evaluationTrend === "steady" || goal.evaluationTrend === "down"
+      goal.evaluationTrend === "up" ||
+      goal.evaluationTrend === "steady" ||
+      goal.evaluationTrend === "down"
         ? goal.evaluationTrend
         : goal.progressRatio !== null && goal.progressRatio >= 0.7
           ? "up"
@@ -70,16 +86,25 @@ const buildGoalEvaluationDrafts = (
     notes:
       goal.monthValue === null
         ? t("monthly.goalNotesInsufficient", { ns: "coach" })
-        : t("monthly.goalNotesValue", { ns: "coach", value: Math.round(goal.monthValue), unit: goal.unit }),
-    blockers: goal.progressRatio !== null && goal.progressRatio < 0.5 ? t("monthly.goalBlockersGap", { ns: "coach" }) : ""
+        : t("monthly.goalNotesValue", {
+            ns: "coach",
+            value: Math.round(goal.monthValue),
+            unit: goal.unit,
+          }),
+    blockers:
+      goal.progressRatio !== null && goal.progressRatio < 0.5
+        ? t("monthly.goalBlockersGap", { ns: "coach" })
+        : "",
   }));
 
-export const buildLocalMonthlySynthesis = (snapshot: MonthlySnapshot): MonthlySynthesisResponse => ({
+export const buildLocalMonthlySynthesis = (
+  snapshot: MonthlySnapshot,
+): MonthlySynthesisResponse => ({
   headline:
     snapshot.weeklyScoreAverage >= 0.7
       ? t("monthly.headlineStrong", { ns: "coach" })
       : t("monthly.headlineReview", { ns: "coach" }),
   weekPattern: describeWeekPattern(snapshot),
   sectionDrafts: buildSectionDrafts(snapshot),
-  goalEvaluationDrafts: buildGoalEvaluationDrafts(snapshot)
+  goalEvaluationDrafts: buildGoalEvaluationDrafts(snapshot),
 });

@@ -1,35 +1,39 @@
 import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import {
-  autoSuggestedMetricKeys,
-  applyRoutineTransition,
-  resolveMetricValue,
-  updateMetric,
-  updateNote,
-  updatePrinciple
-} from "../domain/daily-entry";
-import { morningMetricKeys, morningPrincipleKeys } from "../domain/definitions";
 import { useDailyEntry } from "../app/use-daily-entry";
 import { EntrySummaryStrip } from "../components/EntrySummaryStrip";
-import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
 import { MetricGrid } from "../components/MetricGrid";
+import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
 import { PreviousDayReviewCard } from "../components/PreviousDayReviewCard";
 import { PrincipleChecklist } from "../components/PrincipleChecklist";
 import { SectionCard } from "../components/SectionCard";
+import {
+  applyRoutineTransition,
+  autoSuggestedMetricKeys,
+  resolveMetricValue,
+  updateMetric,
+  updateNote,
+  updatePrinciple,
+} from "../domain/daily-entry";
+import { morningMetricKeys, morningPrincipleKeys } from "../domain/definitions";
+import { formatDateLong, getTodayDate } from "../lib/date";
 import { addDays } from "../lib/gtd/shared";
-import { getTodayDate, formatDateLong } from "../lib/date";
 
 export const MorningRoutinePage = () => {
   const { t } = useTranslation("morning");
   const navigate = useNavigate();
-  const { entry, loading, save, taskStats} = useDailyEntry(getTodayDate());
+  const { entry, loading, save, taskStats } = useDailyEntry(getTodayDate());
   const latestEntryRef = useRef(entry);
   const intentionRef = useRef<PersistedTextareaHandle>(null);
   latestEntryRef.current = entry;
 
   if (loading || !entry) {
-    return <div className="page"><p>{t("loading")}</p></div>;
+    return (
+      <div className="page">
+        <p>{t("loading")}</p>
+      </div>
+    );
   }
 
   return (
@@ -38,9 +42,7 @@ export const MorningRoutinePage = () => {
         <div>
           <p className="eyebrow">{t("hero.eyebrow")}</p>
           <h2>{formatDateLong(entry.date)}</h2>
-          <p className="hero__copy">
-            {t("hero.copy")}
-          </p>
+          <p className="hero__copy">{t("hero.copy")}</p>
         </div>
       </header>
 
@@ -79,17 +81,14 @@ export const MorningRoutinePage = () => {
         />
       </SectionCard>
 
-      <SectionCard
-        title={t("gtd.title")}
-        subtitle={t("gtd.subtitle")}
-      >
+      <SectionCard title={t("gtd.title")} subtitle={t("gtd.subtitle")}>
         <MetricGrid
           entry={entry}
           keys={["tachesDebut", "tachesAjoutes"]}
           suggestionKeys={[...autoSuggestedMetricKeys]}
           suggestedValues={{
             tachesDebut: taskStats?.tasksAtStart ?? resolveMetricValue(entry, "tachesDebut"),
-            tachesAjoutes: taskStats?.tasksAdded ?? resolveMetricValue(entry, "tachesAjoutes")
+            tachesAjoutes: taskStats?.tasksAdded ?? resolveMetricValue(entry, "tachesAjoutes"),
           }}
           onChange={(key, value) => void save((current) => updateMetric(current, key, value))}
         />
@@ -107,7 +106,10 @@ export const MorningRoutinePage = () => {
             intentionRef.current?.flush();
             const intention = intentionRef.current?.getDraft() ?? current.morningIntention;
             await save((latest) =>
-              applyRoutineTransition(updateNote(latest, "morningIntention", intention), "complete_morning")
+              applyRoutineTransition(
+                updateNote(latest, "morningIntention", intention),
+                "complete_morning",
+              ),
             );
             navigate("/");
           }}

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { CreateTaskInput, Project, Task, TaskContext } from "../domain/types";
-import { useAppContext } from "./app-context";
 import { getTodayDate } from "../lib/date";
+import { useAppContext } from "./app-context";
 
 export const useGtdWorkspace = () => {
   const { repository } = useAppContext();
@@ -10,23 +10,26 @@ export const useGtdWorkspace = () => {
   const [contexts, setContexts] = useState<TaskContext[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async (options?: { preserveVisibleState?: boolean }) => {
-    if (!options?.preserveVisibleState) {
-      setLoading(true);
-    }
+  const load = useCallback(
+    async (options?: { preserveVisibleState?: boolean }) => {
+      if (!options?.preserveVisibleState) {
+        setLoading(true);
+      }
 
-    await repository.generateDueRecurringTasks(getTodayDate());
-    await repository.generateDailyRelationshipTasks(getTodayDate());
-    const [nextTasks, nextProjects, nextContexts] = await Promise.all([
-      repository.listTasks({ includeCompleted: false }),
-      repository.listProjects(),
-      repository.listContexts()
-    ]);
-    setTasks(nextTasks);
-    setProjects(nextProjects);
-    setContexts(nextContexts);
-    setLoading(false);
-  }, [repository]);
+      await repository.generateDueRecurringTasks(getTodayDate());
+      await repository.generateDailyRelationshipTasks(getTodayDate());
+      const [nextTasks, nextProjects, nextContexts] = await Promise.all([
+        repository.listTasks({ includeCompleted: false }),
+        repository.listProjects(),
+        repository.listContexts(),
+      ]);
+      setTasks(nextTasks);
+      setProjects(nextProjects);
+      setContexts(nextContexts);
+      setLoading(false);
+    },
+    [repository],
+  );
 
   useEffect(() => {
     void load();
@@ -38,7 +41,7 @@ export const useGtdWorkspace = () => {
       await load({ preserveVisibleState: true });
       return task;
     },
-    [load, repository]
+    [load, repository],
   );
 
   const saveTask = useCallback(
@@ -47,16 +50,21 @@ export const useGtdWorkspace = () => {
       await load({ preserveVisibleState: true });
       return nextTask;
     },
-    [load, repository]
+    [load, repository],
   );
 
   const moveTask = useCallback(
-    async (taskId: string, bucket: Task["bucket"], contextIds: string[], projectId?: string | null) => {
+    async (
+      taskId: string,
+      bucket: Task["bucket"],
+      contextIds: string[],
+      projectId?: string | null,
+    ) => {
       const nextTask = await repository.moveTask(taskId, bucket, contextIds, projectId);
       await load({ preserveVisibleState: true });
       return nextTask;
     },
-    [load, repository]
+    [load, repository],
   );
 
   const moveTasksToBucket = useCallback(
@@ -81,16 +89,16 @@ export const useGtdWorkspace = () => {
           await repository.saveTask({
             ...task,
             bucket,
-            scheduledFor: bucket === "scheduled" ? task.scheduledFor : null
+            scheduledFor: bucket === "scheduled" ? task.scheduledFor : null,
           });
           movedCount += 1;
-        })
+        }),
       );
 
       await load({ preserveVisibleState: true });
       return { movedCount, skippedCount };
     },
-    [load, repository, tasks]
+    [load, repository, tasks],
   );
 
   const scheduleTask = useCallback(
@@ -99,7 +107,7 @@ export const useGtdWorkspace = () => {
       await load({ preserveVisibleState: true });
       return nextTask;
     },
-    [load, repository]
+    [load, repository],
   );
 
   const completeTask = useCallback(
@@ -108,7 +116,7 @@ export const useGtdWorkspace = () => {
       await load({ preserveVisibleState: true });
       return nextTask;
     },
-    [load, repository]
+    [load, repository],
   );
 
   const completeTasks = useCallback(
@@ -116,7 +124,7 @@ export const useGtdWorkspace = () => {
       await Promise.all(taskIds.map((taskId) => repository.completeTask(taskId)));
       await load({ preserveVisibleState: true });
     },
-    [load, repository]
+    [load, repository],
   );
 
   const cancelTask = useCallback(
@@ -125,7 +133,7 @@ export const useGtdWorkspace = () => {
       await load({ preserveVisibleState: true });
       return nextTask;
     },
-    [load, repository]
+    [load, repository],
   );
 
   const cancelTasks = useCallback(
@@ -133,7 +141,7 @@ export const useGtdWorkspace = () => {
       await Promise.all(taskIds.map((taskId) => repository.cancelTask(taskId)));
       await load({ preserveVisibleState: true });
     },
-    [load, repository]
+    [load, repository],
   );
 
   const clearPastRecurrences = useCallback(
@@ -142,7 +150,7 @@ export const useGtdWorkspace = () => {
       await load({ preserveVisibleState: true });
       return nextTask;
     },
-    [load, repository]
+    [load, repository],
   );
 
   const saveProject = useCallback(
@@ -151,7 +159,7 @@ export const useGtdWorkspace = () => {
       await load({ preserveVisibleState: true });
       return nextProject;
     },
-    [load, repository]
+    [load, repository],
   );
 
   const saveContext = useCallback(
@@ -160,7 +168,7 @@ export const useGtdWorkspace = () => {
       await load({ preserveVisibleState: true });
       return nextContext;
     },
-    [load, repository]
+    [load, repository],
   );
 
   const applyRecurringEditScope = useCallback(
@@ -175,13 +183,13 @@ export const useGtdWorkspace = () => {
         projectId?: string | null;
         scheduledFor?: string | null;
         deadline?: string | null;
-      }
+      },
     ) => {
       const nextTask = await repository.applyRecurringEditScope(taskId, scope, changes);
       await load({ preserveVisibleState: true });
       return nextTask;
     },
-    [load, repository]
+    [load, repository],
   );
 
   return {
@@ -202,6 +210,6 @@ export const useGtdWorkspace = () => {
     clearPastRecurrences,
     saveProject,
     saveContext,
-    applyRecurringEditScope
+    applyRecurringEditScope,
   };
 };

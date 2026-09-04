@@ -11,7 +11,7 @@ import {
   getPreviousMonthKey,
   isFirstSaturdayOfMonth,
   updateMonthlyReviewChecklist,
-  updateMonthlyReviewNote
+  updateMonthlyReviewNote,
 } from "../domain/monthly-review";
 import type {
   AiProposal,
@@ -19,7 +19,7 @@ import type {
   MonthlyReview,
   MonthlyReviewSectionKey,
   MonthlyReviewSummary,
-  MonthlySynthesisResult
+  MonthlySynthesisResult,
 } from "../domain/types";
 import { MonthlySynthesisPanel } from "../components/MonthlySynthesisPanel";
 import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
@@ -29,7 +29,10 @@ import { formatPercent } from "../lib/format";
 import { formatTimestamp } from "../lib/format";
 import { resolveMonthlySnapshotInputs } from "../lib/ai/context/monthly-snapshot";
 import { loadLatestMonthlySynthesis } from "../lib/ai/monthly-synthesis-loader";
-import { MonthlySynthesisService, monthlyReviewSectionFromProposal } from "../lib/ai/monthly-synthesis-service";
+import {
+  MonthlySynthesisService,
+  monthlyReviewSectionFromProposal,
+} from "../lib/ai/monthly-synthesis-service";
 import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
 import { applyCoachProposal } from "../lib/ai/proposals/apply-proposal";
 
@@ -56,12 +59,16 @@ const monthlySectionMeta: Array<{
   { key: "journaux", linkTo: "/semaine", linkKey: "monthly.ritual.journaux.link" },
   { key: "finances" },
   { key: "temps" },
-  { key: "progressionObjectifs", linkTo: "/objectifs-annuels", linkKey: "monthly.ritual.progressionObjectifs.link" },
+  {
+    key: "progressionObjectifs",
+    linkTo: "/objectifs-annuels",
+    linkKey: "monthly.ritual.progressionObjectifs.link",
+  },
   { key: "missionObjectifs" },
   { key: "nettoyageListes", linkTo: "/projects", linkKey: "monthly.ritual.nettoyageListes.link" },
   { key: "calendrier", linkTo: "/scheduled", linkKey: "monthly.ritual.calendrier.link" },
   { key: "grosProjets", linkTo: "/next-actions", linkKey: "monthly.ritual.grosProjets.link" },
-  { key: "developpement" }
+  { key: "developpement" },
 ];
 
 export const MonthlyReviewPage = () => {
@@ -69,7 +76,9 @@ export const MonthlyReviewPage = () => {
   const { repository, settings } = useAppContext();
   const synthesisService = useMemo(() => new MonthlySynthesisService(new OpenRouterProvider()), []);
   const today = getTodayDate();
-  const initialMonth = isFirstSaturdayOfMonth(today) ? getPreviousMonthKey(today) : getMonthKey(today);
+  const initialMonth = isFirstSaturdayOfMonth(today)
+    ? getPreviousMonthKey(today)
+    : getMonthKey(today);
   const [selectedMonthKey, setSelectedMonthKey] = useState(initialMonth);
   const [review, setReview] = useState<MonthlyReview | null>(null);
   const [summary, setSummary] = useState<MonthlyReviewSummary | null>(null);
@@ -80,7 +89,9 @@ export const MonthlyReviewPage = () => {
   const [synthesisNotice, setSynthesisNotice] = useState<string | null>(null);
   const latestReviewRef = useRef<MonthlyReview | null>(null);
   const saveChainRef = useRef(Promise.resolve());
-  const noteRefs = useRef<Partial<Record<MonthlyReviewSectionKey, PersistedTextareaHandle | null>>>({});
+  const noteRefs = useRef<Partial<Record<MonthlyReviewSectionKey, PersistedTextareaHandle | null>>>(
+    {},
+  );
   const synthesisRequestSeqRef = useRef(0);
 
   const loadMonth = useCallback(
@@ -95,7 +106,7 @@ export const MonthlyReviewPage = () => {
       const [existingReview, computedSummary, annualSnapshots] = await Promise.all([
         repository.getMonthlyReview(requestedMonthKey),
         repository.computeMonthlyReviewSummary(requestedMonthKey),
-        repository.computeAnnualGoalSnapshots(Number(requestedMonthKey.slice(0, 4)))
+        repository.computeAnnualGoalSnapshots(Number(requestedMonthKey.slice(0, 4))),
       ]);
       const nextReview = existingReview ?? createEmptyMonthlyReview(requestedMonthKey);
       latestReviewRef.current = nextReview;
@@ -105,7 +116,7 @@ export const MonthlyReviewPage = () => {
       setGoalSnapshots(annualSnapshots);
       setLoading(false);
     },
-    [repository]
+    [repository],
   );
 
   useEffect(() => {
@@ -120,7 +131,11 @@ export const MonthlyReviewPage = () => {
 
       try {
         if (options.trigger === "auto") {
-          const stored = await loadLatestMonthlySynthesis(repository, synthesisService, options.monthKey);
+          const stored = await loadLatestMonthlySynthesis(
+            repository,
+            synthesisService,
+            options.monthKey,
+          );
           if (requestId !== synthesisRequestSeqRef.current) {
             return;
           }
@@ -140,7 +155,7 @@ export const MonthlyReviewPage = () => {
           settings,
           snapshotInputs,
           trigger: options.trigger,
-          bypassCache: options.bypassCache
+          bypassCache: options.bypassCache,
         });
 
         if (requestId !== synthesisRequestSeqRef.current) {
@@ -154,7 +169,7 @@ export const MonthlyReviewPage = () => {
         }
       }
     },
-    [repository, settings, synthesisService]
+    [repository, settings, synthesisService],
   );
 
   useEffect(() => {
@@ -187,16 +202,19 @@ export const MonthlyReviewPage = () => {
       setReview(nextReview);
       noteRefs.current[section.sectionKey]?.setDraft(section.text);
 
-      const accepted = await repository.acceptAiMonthlyReviewSectionDraftProposal(proposal, nextReview);
+      const accepted = await repository.acceptAiMonthlyReviewSectionDraftProposal(
+        proposal,
+        nextReview,
+      );
       setSynthesisResult((current) =>
         current
           ? {
               ...current,
               proposals: current.proposals.map((item) =>
-                item.id === proposal.id ? accepted.proposal : item
-              )
+                item.id === proposal.id ? accepted.proposal : item,
+              ),
             }
-          : current
+          : current,
       );
       return;
     }
@@ -218,33 +236,39 @@ export const MonthlyReviewPage = () => {
           ? {
               ...current,
               proposals: current.proposals.map((item) =>
-                item.id === proposal.id ? { ...item, status: "dismissed", decidedAt: new Date().toISOString() } : item
-              )
+                item.id === proposal.id
+                  ? { ...item, status: "dismissed", decidedAt: new Date().toISOString() }
+                  : item,
+              ),
             }
-          : current
+          : current,
       );
       return;
     }
 
     if (proposal.type === "goal_evaluation" && applied.goalId) {
-      const annualSnapshots = await repository.computeAnnualGoalSnapshots(Number(monthKey.slice(0, 4)));
+      const annualSnapshots = await repository.computeAnnualGoalSnapshots(
+        Number(monthKey.slice(0, 4)),
+      );
       setGoalSnapshots(annualSnapshots);
     }
 
     await repository.decideAiProposal(
       proposal.id,
       "accepted",
-      applied.goalId ?? applied.objectiveId ?? applied.taskId ?? applied.memoryId ?? monthKey
+      applied.goalId ?? applied.objectiveId ?? applied.taskId ?? applied.memoryId ?? monthKey,
     );
     setSynthesisResult((current) =>
       current
         ? {
             ...current,
             proposals: current.proposals.map((item) =>
-              item.id === proposal.id ? { ...item, status: "accepted", decidedAt: new Date().toISOString() } : item
-            )
+              item.id === proposal.id
+                ? { ...item, status: "accepted", decidedAt: new Date().toISOString() }
+                : item,
+            ),
           }
-        : current
+        : current,
     );
   };
 
@@ -255,10 +279,12 @@ export const MonthlyReviewPage = () => {
         ? {
             ...current,
             proposals: current.proposals.map((item) =>
-              item.id === proposal.id ? { ...item, status: "dismissed", decidedAt: new Date().toISOString() } : item
-            )
+              item.id === proposal.id
+                ? { ...item, status: "dismissed", decidedAt: new Date().toISOString() }
+                : item,
+            ),
           }
-        : current
+        : current,
     );
   };
 
@@ -277,12 +303,15 @@ export const MonthlyReviewPage = () => {
         });
       return saveChainRef.current;
     },
-    [repository]
+    [repository],
   );
 
   const selectedGoalSnapshots = useMemo(
-    () => goalSnapshots.filter((snapshot) => snapshot.monthlyProgress.some((point) => point.monthKey === selectedMonthKey)),
-    [goalSnapshots, selectedMonthKey]
+    () =>
+      goalSnapshots.filter((snapshot) =>
+        snapshot.monthlyProgress.some((point) => point.monthKey === selectedMonthKey),
+      ),
+    [goalSnapshots, selectedMonthKey],
   );
 
   const monthlySections = useMemo<MonthlySectionDefinition[]>(
@@ -293,13 +322,17 @@ export const MonthlyReviewPage = () => {
         subtitle: t(`monthly.ritual.${section.key}.subtitle`),
         prompt: t(`monthly.ritual.${section.key}.prompt`),
         linkTo: section.linkTo,
-        linkLabel: section.linkKey ? t(section.linkKey) : undefined
+        linkLabel: section.linkKey ? t(section.linkKey) : undefined,
       })),
-    [t]
+    [t],
   );
 
   if (loading || !review || !summary) {
-    return <div className="page"><p>{t("monthly.loading")}</p></div>;
+    return (
+      <div className="page">
+        <p>{t("monthly.loading")}</p>
+      </div>
+    );
   }
 
   return (
@@ -310,19 +343,14 @@ export const MonthlyReviewPage = () => {
           <h2>
             {t("monthly.hero.range", {
               start: formatDateLong(summary.monthStartDate),
-              end: formatDateLong(summary.monthEndDate)
+              end: formatDateLong(summary.monthEndDate),
             })}
           </h2>
-          <p className="hero__copy">
-            {t("monthly.hero.copy")}
-          </p>
+          <p className="hero__copy">{t("monthly.hero.copy")}</p>
         </div>
       </header>
 
-      <SectionCard
-        title={t("monthly.picker.title")}
-        subtitle={t("monthly.picker.subtitle")}
-      >
+      <SectionCard title={t("monthly.picker.title")} subtitle={t("monthly.picker.subtitle")}>
         <div className="history-toolbar">
           <label className="stacked-field">
             <span>{t("monthly.picker.monthLabel")}</span>
@@ -334,7 +362,11 @@ export const MonthlyReviewPage = () => {
             />
           </label>
           <div className="form-actions">
-            <button className="button" type="button" onClick={() => void loadMonth(selectedMonthKey)}>
+            <button
+              className="button"
+              type="button"
+              onClick={() => void loadMonth(selectedMonthKey)}
+            >
               {t("monthly.picker.load")}
             </button>
             <button className="button" type="button" onClick={() => void loadMonth(initialMonth)}>
@@ -345,7 +377,7 @@ export const MonthlyReviewPage = () => {
         <p className="empty-copy">
           {t("monthly.picker.window", {
             start: getMonthStartDate(selectedMonthKey),
-            end: getMonthEndDate(selectedMonthKey)
+            end: getMonthEndDate(selectedMonthKey),
           })}
         </p>
       </SectionCard>
@@ -354,7 +386,9 @@ export const MonthlyReviewPage = () => {
         <div className="weekly-overview-grid">
           <article className="status-card">
             <span>{t("monthly.summary.status")}</span>
-            <strong>{review.status === "closed" ? t("monthly.status.closed") : t("monthly.status.draft")}</strong>
+            <strong>
+              {review.status === "closed" ? t("monthly.status.closed") : t("monthly.status.draft")}
+            </strong>
           </article>
           <article className="status-card">
             <span>{t("monthly.summary.daysTracked")}</span>
@@ -415,7 +449,11 @@ export const MonthlyReviewPage = () => {
             if (!summary) {
               return;
             }
-            void runSynthesis({ monthKey: summary.monthKey, trigger: "explicit", bypassCache: true });
+            void runSynthesis({
+              monthKey: summary.monthKey,
+              trigger: "explicit",
+              bypassCache: true,
+            });
           }}
           onAcceptProposal={(proposal) => void handleAcceptSynthesisProposal(proposal)}
           onDismissProposal={(proposal) => void handleDismissSynthesisProposal(proposal)}
@@ -438,7 +476,9 @@ export const MonthlyReviewPage = () => {
               </div>
               <div className="weekly-day-card__metrics">
                 <span>{t("monthly.weeks.metrics.end", { date: week.weekEndDate })}</span>
-                <span>{t("monthly.weeks.metrics.score", { n: formatPercent(week.weeklyScore) })}</span>
+                <span>
+                  {t("monthly.weeks.metrics.score", { n: formatPercent(week.weeklyScore) })}
+                </span>
                 <span>{t("monthly.weeks.metrics.notes", { n: week.noteCount })}</span>
               </div>
             </article>
@@ -451,16 +491,15 @@ export const MonthlyReviewPage = () => {
         </div>
       </SectionCard>
 
-      <SectionCard
-        title={t("monthly.goals.title")}
-        subtitle={t("monthly.goals.subtitle")}
-      >
+      <SectionCard title={t("monthly.goals.title")} subtitle={t("monthly.goals.subtitle")}>
         <div className="weekly-day-grid">
           {selectedGoalSnapshots.length === 0 ? (
             <p className="empty-copy">{t("monthly.goals.empty")}</p>
           ) : (
             selectedGoalSnapshots.map((snapshot) => {
-              const monthPoint = snapshot.monthlyProgress.find((point) => point.monthKey === selectedMonthKey) ?? null;
+              const monthPoint =
+                snapshot.monthlyProgress.find((point) => point.monthKey === selectedMonthKey) ??
+                null;
               const evaluation = snapshot.goal.evaluations[selectedMonthKey] ?? null;
               return (
                 <article key={snapshot.goal.id} className="schedule-day-group">
@@ -469,10 +508,30 @@ export const MonthlyReviewPage = () => {
                     <span>{snapshot.goal.dimension}</span>
                   </div>
                   <div className="weekly-day-card__metrics">
-                    <span>{t("monthly.goals.metrics.current")} {snapshot.currentValue === null ? "—" : `${Math.round(snapshot.currentValue)} ${snapshot.goal.unit}`.trim()}</span>
-                    <span>{t("monthly.goals.metrics.target")} {snapshot.goal.targetValue === null ? "—" : `${snapshot.goal.targetValue} ${snapshot.goal.unit}`.trim()}</span>
-                    <span>{t("monthly.goals.metrics.month")} {monthPoint?.value === null || monthPoint?.value === undefined ? "—" : `${Math.round(monthPoint.value)} ${snapshot.goal.unit}`.trim()}</span>
-                    <span>{t("monthly.goals.metrics.evaluation")} {evaluation?.score === null || evaluation?.score === undefined ? "—" : `${evaluation.score}/100`}</span>
+                    <span>
+                      {t("monthly.goals.metrics.current")}{" "}
+                      {snapshot.currentValue === null
+                        ? "—"
+                        : `${Math.round(snapshot.currentValue)} ${snapshot.goal.unit}`.trim()}
+                    </span>
+                    <span>
+                      {t("monthly.goals.metrics.target")}{" "}
+                      {snapshot.goal.targetValue === null
+                        ? "—"
+                        : `${snapshot.goal.targetValue} ${snapshot.goal.unit}`.trim()}
+                    </span>
+                    <span>
+                      {t("monthly.goals.metrics.month")}{" "}
+                      {monthPoint?.value === null || monthPoint?.value === undefined
+                        ? "—"
+                        : `${Math.round(monthPoint.value)} ${snapshot.goal.unit}`.trim()}
+                    </span>
+                    <span>
+                      {t("monthly.goals.metrics.evaluation")}{" "}
+                      {evaluation?.score === null || evaluation?.score === undefined
+                        ? "—"
+                        : `${evaluation.score}/100`}
+                    </span>
                   </div>
                 </article>
               );
@@ -486,10 +545,7 @@ export const MonthlyReviewPage = () => {
         </div>
       </SectionCard>
 
-      <SectionCard
-        title={t("monthly.ritual.title")}
-        subtitle={t("monthly.ritual.subtitle")}
-      >
+      <SectionCard title={t("monthly.ritual.title")} subtitle={t("monthly.ritual.subtitle")}>
         <div className="weekly-ritual-grid">
           {monthlySections.map((section) => (
             <article key={section.key} className="weekly-ritual-card">
@@ -508,7 +564,13 @@ export const MonthlyReviewPage = () => {
                       if (!currentReview) {
                         return;
                       }
-                      void saveReview(updateMonthlyReviewChecklist(currentReview, section.key, event.target.checked));
+                      void saveReview(
+                        updateMonthlyReviewChecklist(
+                          currentReview,
+                          section.key,
+                          event.target.checked,
+                        ),
+                      );
                     }}
                   />
                   <span>{t("monthly.ritual.done")}</span>

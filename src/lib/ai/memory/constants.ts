@@ -16,7 +16,7 @@ export const KIND_PRIORITY_BY_STANCE: Record<CoachPulseStance, MemoryKind[]> = {
   open: ["commitment", "principle", "preference", "context", "pattern"],
   steer: ["commitment", "pattern", "preference", "context", "principle"],
   wind_down: ["commitment", "context", "pattern", "preference", "principle"],
-  close: ["pattern", "preference", "context", "principle", "commitment"]
+  close: ["pattern", "preference", "context", "principle", "commitment"],
 };
 
 export const KIND_PRIORITY_WEEKLY: MemoryKind[] = [
@@ -24,7 +24,7 @@ export const KIND_PRIORITY_WEEKLY: MemoryKind[] = [
   "preference",
   "principle",
   "context",
-  "commitment"
+  "commitment",
 ];
 
 export const KIND_PRIORITY_MONTHLY: MemoryKind[] = [
@@ -32,7 +32,7 @@ export const KIND_PRIORITY_MONTHLY: MemoryKind[] = [
   "context",
   "preference",
   "principle",
-  "commitment"
+  "commitment",
 ];
 
 export const KIND_PRIORITY_GOAL: MemoryKind[] = [
@@ -40,5 +40,5 @@ export const KIND_PRIORITY_GOAL: MemoryKind[] = [
   "pattern",
   "context",
   "preference",
-  "commitment"
+  "commitment",
 ];

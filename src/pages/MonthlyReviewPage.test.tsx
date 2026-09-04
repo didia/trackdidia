@@ -1,25 +1,33 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, vi } from "vitest";
-import { createEmptyDailyEntry, defaultAppSettings } from "../domain/daily-entry";
 import { createEmptyAnnualGoal } from "../domain/annual-goals";
-import { MemoryRepository } from "../lib/storage/memory-repository";
+import { createEmptyDailyEntry, defaultAppSettings } from "../domain/daily-entry";
 import { loadLatestMonthlySynthesis } from "../lib/ai/monthly-synthesis-loader";
 import { MonthlySynthesisService } from "../lib/ai/monthly-synthesis-service";
 import type { AiProvider } from "../lib/ai/provider";
+import { MemoryRepository } from "../lib/storage/memory-repository";
 import { renderWithApp } from "../test/test-utils";
 import { MonthlyReviewPage } from "./MonthlyReviewPage";
 
 const mockBuildSynthesisPreferStored = () => {
   const buildSynthesis = MonthlySynthesisService.prototype.buildSynthesis;
-  vi.spyOn(MonthlySynthesisService.prototype, "buildSynthesis").mockImplementation(async (repository, request) => {
-    const loaderService = new MonthlySynthesisService({ generateStructured: vi.fn() } as unknown as AiProvider);
-    const stored = await loadLatestMonthlySynthesis(repository, loaderService, request.monthKey);
-    if (stored) {
-      return stored;
-    }
-    return buildSynthesis.call(new MonthlySynthesisService({ generateStructured: vi.fn() } as unknown as AiProvider), repository, request);
-  });
+  vi.spyOn(MonthlySynthesisService.prototype, "buildSynthesis").mockImplementation(
+    async (repository, request) => {
+      const loaderService = new MonthlySynthesisService({
+        generateStructured: vi.fn(),
+      } as unknown as AiProvider);
+      const stored = await loadLatestMonthlySynthesis(repository, loaderService, request.monthKey);
+      if (stored) {
+        return stored;
+      }
+      return buildSynthesis.call(
+        new MonthlySynthesisService({ generateStructured: vi.fn() } as unknown as AiProvider),
+        repository,
+        request,
+      );
+    },
+  );
 };
 
 describe("MonthlyReviewPage", () => {
@@ -57,8 +65,8 @@ describe("MonthlyReviewPage", () => {
     await waitFor(async () => {
       await expect(repository.getMonthlyReview("2026-04")).resolves.toMatchObject({
         notes: expect.objectContaining({
-          bilan: "Mois intense."
-        })
+          bilan: "Mois intense.",
+        }),
       });
     });
   });
@@ -72,8 +80,8 @@ describe("MonthlyReviewPage", () => {
         title: "Discipline",
         targetValue: 100,
         manualCurrentValue: 75,
-        unit: "%"
-      })
+        unit: "%",
+      }),
     );
 
     for (const date of ["2026-04-01", "2026-04-02"]) {
@@ -86,7 +94,7 @@ describe("MonthlyReviewPage", () => {
     await renderWithApp(<MonthlyReviewPage />, {
       repository,
       route: "/mois",
-      contextOverrides: { settings: { ...defaultAppSettings(), aiEnabled: false } }
+      contextOverrides: { settings: { ...defaultAppSettings(), aiEnabled: false } },
     });
 
     const monthInput = await screen.findByLabelText(/mois à relire/i);
@@ -119,8 +127,8 @@ describe("MonthlyReviewPage", () => {
         title: "Discipline",
         targetValue: 100,
         manualCurrentValue: 75,
-        unit: "%"
-      })
+        unit: "%",
+      }),
     );
 
     for (const date of ["2026-04-01", "2026-04-02"]) {
@@ -133,7 +141,7 @@ describe("MonthlyReviewPage", () => {
     await renderWithApp(<MonthlyReviewPage />, {
       repository,
       route: "/mois",
-      contextOverrides: { settings: { ...defaultAppSettings(), aiEnabled: false } }
+      contextOverrides: { settings: { ...defaultAppSettings(), aiEnabled: false } },
     });
 
     const monthInput = await screen.findByLabelText(/mois à relire/i);
@@ -185,7 +193,7 @@ describe("MonthlyReviewPage", () => {
         headline: "Mois solide",
         weekPattern: "Rythme stable",
         sectionDrafts: { bilan: "Brouillon coach mensuel" },
-        goalEvaluationDrafts: []
+        goalEvaluationDrafts: [],
       }),
       bodyText: "Local",
       deltaClass: null,
@@ -193,7 +201,7 @@ describe("MonthlyReviewPage", () => {
       tokensPrompt: null,
       tokensCompletion: null,
       latencyMs: null,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
     const proposal = {
       id: "proposal-section-monthly",
@@ -203,7 +211,7 @@ describe("MonthlyReviewPage", () => {
       status: "pending" as const,
       appliedEntityId: null,
       decidedAt: null,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
     await repository.saveAiMessage(message);
     await repository.saveAiProposal(proposal);
@@ -228,8 +236,8 @@ describe("MonthlyReviewPage", () => {
     await waitFor(async () => {
       await expect(repository.getMonthlyReview("2026-04")).resolves.toMatchObject({
         notes: expect.objectContaining({
-          bilan: "Brouillon coach mensuel"
-        })
+          bilan: "Brouillon coach mensuel",
+        }),
       });
     });
   });
@@ -246,7 +254,7 @@ describe("MonthlyReviewPage", () => {
     await renderWithApp(<MonthlyReviewPage />, {
       repository,
       route: "/mois",
-      contextOverrides: { settings: { ...defaultAppSettings(), aiEnabled: false } }
+      contextOverrides: { settings: { ...defaultAppSettings(), aiEnabled: false } },
     });
 
     const monthInput = await screen.findByLabelText(/mois à relire/i);
@@ -265,11 +273,15 @@ describe("MonthlyReviewPage", () => {
       const messages = await repository.listAiMessages("monthly_synthesis");
       expect(messages.length).toBeGreaterThan(0);
       const proposals = await repository.listAiProposals(messages[0].id);
-      expect(proposals.some((item) => item.type === "review_section_draft" && item.status === "accepted")).toBe(true);
+      expect(
+        proposals.some(
+          (item) => item.type === "review_section_draft" && item.status === "accepted",
+        ),
+      ).toBe(true);
       await expect(repository.getMonthlyReview("2026-04")).resolves.toMatchObject({
         notes: expect.objectContaining({
-          bilan: expect.any(String)
-        })
+          bilan: expect.any(String),
+        }),
       });
     });
   });
@@ -288,53 +300,59 @@ describe("MonthlyReviewPage", () => {
     });
 
     const buildSynthesis = MonthlySynthesisService.prototype.buildSynthesis;
-    vi.spyOn(MonthlySynthesisService.prototype, "buildSynthesis").mockImplementation(async (repository, request) => {
-      if (request.monthKey === "2026-04") {
-        await aprilBlocked;
-        return {
-          message: {
-            id: "ai-message-april-delayed",
-            surface: "monthly_synthesis",
-            scopeKey: "2026-04",
-            stance: null,
-            kind: "monthly",
-            inputHash: "hash-april",
-            promptVersion: "monthly_synthesis.v1",
-            model: "local",
-            status: "skipped",
-            bodyJson: JSON.stringify({
+    vi.spyOn(MonthlySynthesisService.prototype, "buildSynthesis").mockImplementation(
+      async (repository, request) => {
+        if (request.monthKey === "2026-04") {
+          await aprilBlocked;
+          return {
+            message: {
+              id: "ai-message-april-delayed",
+              surface: "monthly_synthesis",
+              scopeKey: "2026-04",
+              stance: null,
+              kind: "monthly",
+              inputHash: "hash-april",
+              promptVersion: "monthly_synthesis.v1",
+              model: "local",
+              status: "skipped",
+              bodyJson: JSON.stringify({
+                headline: "Headline Avril Unique",
+                weekPattern: "Avril",
+                sectionDrafts: {},
+                goalEvaluationDrafts: [],
+              }),
+              bodyText: "Avril",
+              deltaClass: null,
+              notified: false,
+              tokensPrompt: null,
+              tokensCompletion: null,
+              latencyMs: null,
+              createdAt: "2026-04-01T08:00:00.000Z",
+            },
+            synthesis: {
               headline: "Headline Avril Unique",
               weekPattern: "Avril",
               sectionDrafts: {},
-              goalEvaluationDrafts: []
-            }),
-            bodyText: "Avril",
-            deltaClass: null,
-            notified: false,
-            tokensPrompt: null,
-            tokensCompletion: null,
-            latencyMs: null,
-            createdAt: "2026-04-01T08:00:00.000Z"
-          },
-          synthesis: {
-            headline: "Headline Avril Unique",
-            weekPattern: "Avril",
-            sectionDrafts: {},
-            goalEvaluationDrafts: []
-          },
-          proposals: [],
-          source: "local"
-        };
-      }
+              goalEvaluationDrafts: [],
+            },
+            proposals: [],
+            source: "local",
+          };
+        }
 
-      return buildSynthesis.call(new MonthlySynthesisService({ generateStructured: vi.fn() } as unknown as AiProvider), repository, request);
-    });
+        return buildSynthesis.call(
+          new MonthlySynthesisService({ generateStructured: vi.fn() } as unknown as AiProvider),
+          repository,
+          request,
+        );
+      },
+    );
 
     const user = userEvent.setup();
     await renderWithApp(<MonthlyReviewPage />, {
       repository,
       route: "/mois",
-      contextOverrides: { settings: { ...defaultAppSettings(), aiEnabled: false } }
+      contextOverrides: { settings: { ...defaultAppSettings(), aiEnabled: false } },
     });
 
     const monthInput = await screen.findByLabelText(/mois à relire/i);

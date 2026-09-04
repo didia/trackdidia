@@ -1,10 +1,10 @@
 import {
+  type ComponentPropsWithoutRef,
   forwardRef,
   useEffect,
   useImperativeHandle,
   useRef,
   useState,
-  type ComponentPropsWithoutRef
 } from "react";
 
 export type PersistedTextareaHandle = {
@@ -30,7 +30,7 @@ type PersistedTextareaProps = Omit<
 export const PersistedTextarea = forwardRef<PersistedTextareaHandle, PersistedTextareaProps>(
   function PersistedTextarea(
     { savedValue, onPersist, debounceMs = 450, onBlur, ...textareaProps },
-    ref
+    ref,
   ) {
     const [draft, setDraft] = useState(savedValue);
     const dirtyRef = useRef(false);
@@ -106,7 +106,7 @@ export const PersistedTextarea = forwardRef<PersistedTextareaHandle, PersistedTe
         dirtyRef.current = true;
         draftRef.current = value;
         setDraft(value);
-      }
+      },
     }));
 
     return (
@@ -130,5 +130,5 @@ export const PersistedTextarea = forwardRef<PersistedTextareaHandle, PersistedTe
         }}
       />
     );
-  }
+  },
 );

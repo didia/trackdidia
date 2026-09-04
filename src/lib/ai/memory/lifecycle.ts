@@ -2,10 +2,10 @@ import { computeCorrelationFindings } from "../../../domain/insights/correlation
 import type { DailyEntry } from "../../../domain/types";
 import { addDays } from "../../gtd/shared";
 import type { AppRepository } from "../../storage/repository";
-import { isBelowRetrievalThreshold } from "./decay";
-import { parsePatternDetail, stringifyPatternDetail } from "./detail";
 import { resolveCommitment } from "./commitment-resolution";
 import { PATTERN_CONTRADICTION_DIFF } from "./constants";
+import { isBelowRetrievalThreshold } from "./decay";
+import { parsePatternDetail, stringifyPatternDetail } from "./detail";
 
 export interface MemoryLifecycleResult {
   archivedExpired: number;
@@ -21,18 +21,20 @@ export const runMemoryLifecycle = async (
   repository: AppRepository,
   date: string,
   historyEntries: DailyEntry[],
-  nowIso: string
+  nowIso: string,
 ): Promise<MemoryLifecycleResult> => {
   const result: MemoryLifecycleResult = {
     archivedExpired: 0,
     archivedDecay: 0,
     contradicted: 0,
-    resolvedCommitments: 0
+    resolvedCommitments: 0,
   };
 
   const memories = await repository.listAiMemories({ status: "active" });
   const correlations = computeCorrelationFindings(historyEntries);
-  const correlationByPrinciple = new Map(correlations.map((finding) => [finding.principleKey, finding]));
+  const correlationByPrinciple = new Map(
+    correlations.map((finding) => [finding.principleKey, finding]),
+  );
 
   for (const memory of memories) {
     if (memory.kind === "context" && isExpiredContext(memory.expiresAt, date)) {
@@ -68,11 +70,11 @@ export const runMemoryLifecycle = async (
               ...memory,
               detail: stringifyPatternDetail({
                 principleKey: detail.principleKey,
-                diff: current.diff
+                diff: current.diff,
               }),
               confidence: Math.min(1, memory.confidence + 0.05),
               lastConfirmedAt: nowIso,
-              evidenceTo: date
+              evidenceTo: date,
             });
             continue;
           }
@@ -80,7 +82,7 @@ export const runMemoryLifecycle = async (
           await repository.saveAiMemory({
             ...memory,
             lastConfirmedAt: nowIso,
-            evidenceTo: date
+            evidenceTo: date,
           });
           continue;
         }
@@ -100,12 +102,12 @@ export const resolveDueCommitmentsOnClose = async (
   repository: AppRepository,
   date: string,
   entry: DailyEntry,
-  nowIso: string
+  nowIso: string,
 ): Promise<number> => {
   const commitments = await repository.listAiMemories({
     status: "active",
     kind: "commitment",
-    activeOnDate: date
+    activeOnDate: date,
   });
 
   let resolved = 0;
@@ -115,7 +117,8 @@ export const resolveDueCommitmentsOnClose = async (
     }
 
     const resolution = resolveCommitment(memory, entry);
-    const outcome = resolution.met === true ? "atteint" : resolution.met === false ? "non atteint" : "inconnu";
+    const outcome =
+      resolution.met === true ? "atteint" : resolution.met === false ? "non atteint" : "inconnu";
     const resolvedSuffix = `[resolved:${outcome};${resolution.progressLabel}]`;
     const detail = memory.detail.includes("[resolved:")
       ? memory.detail
@@ -123,7 +126,7 @@ export const resolveDueCommitmentsOnClose = async (
     await repository.saveAiMemory({
       ...memory,
       detail,
-      lastConfirmedAt: nowIso
+      lastConfirmedAt: nowIso,
     });
     await repository.archiveAiMemory(memory.id, "resolved");
     resolved += 1;

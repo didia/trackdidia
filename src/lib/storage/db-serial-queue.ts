@@ -6,7 +6,7 @@ export class DbSerialQueue {
     const result = this.tail.then(operation, operation);
     this.tail = result.then(
       () => undefined,
-      () => undefined
+      () => undefined,
     );
     return result;
   }

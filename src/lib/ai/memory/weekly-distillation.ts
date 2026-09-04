@@ -10,13 +10,16 @@ const MAX_WEEKLY_CANDIDATES = 3;
 export const buildWeeklyDistillScopeKey = (weekStartDate: string): string =>
   `${weekStartDate}#weekly-distill`;
 
-export const buildWeeklyDistillInputHash = (weekStartDate: string): string => `weekly:${weekStartDate}`;
+export const buildWeeklyDistillInputHash = (weekStartDate: string): string =>
+  `weekly:${weekStartDate}`;
 
 export const buildWeeklyDistillMessageId = (weekStartDate: string): string =>
   `ai-message:weekly-distill:${weekStartDate}`;
 
-export const buildWeeklyDistillProposalId = (weekStartDate: string, principleKey: PrincipleKey): string =>
-  `ai-proposal:weekly-distill:${weekStartDate}:${principleKey}`;
+export const buildWeeklyDistillProposalId = (
+  weekStartDate: string,
+  principleKey: PrincipleKey,
+): string => `ai-proposal:weekly-distill:${weekStartDate}:${principleKey}`;
 
 const buildWeeklyDistillMessage = (weekStartDate: string, createdAt: string): AiMessage => ({
   id: buildWeeklyDistillMessageId(weekStartDate),
@@ -35,14 +38,14 @@ const buildWeeklyDistillMessage = (weekStartDate: string, createdAt: string): Ai
   tokensPrompt: null,
   tokensCompletion: null,
   latencyMs: null,
-  createdAt
+  createdAt,
 });
 
 const buildExpectedWeeklyProposals = (
   weekStartDate: string,
   messageId: string,
   createdAt: string,
-  historyEntries: DailyEntry[]
+  historyEntries: DailyEntry[],
 ): AiProposal[] => {
   const findings = computeCorrelationFindings(historyEntries)
     .filter((finding) => Math.abs(finding.diff) >= 0.1)
@@ -56,7 +59,7 @@ const buildExpectedWeeklyProposals = (
       finding.principleKey,
       finding.diff,
       finding.evidenceWindow.from,
-      finding.evidenceWindow.to
+      finding.evidenceWindow.to,
     );
 
     return {
@@ -67,7 +70,7 @@ const buildExpectedWeeklyProposals = (
       status: "pending",
       appliedEntityId: null,
       decidedAt: null,
-      createdAt
+      createdAt,
     };
   });
 };
@@ -88,7 +91,7 @@ const persistMissingWeeklyProposals = async (
   repository: AppRepository,
   messageId: string,
   existing: AiProposal[],
-  expected: AiProposal[]
+  expected: AiProposal[],
 ): Promise<void> => {
   const existingIds = new Set(existing.map((proposal) => proposal.id));
 
@@ -103,7 +106,7 @@ const persistMissingWeeklyProposals = async (
 
 export const loadWeeklyMemoryProposals = async (
   repository: AppRepository,
-  weekStartDate: string
+  weekStartDate: string,
 ): Promise<AiProposal[]> => {
   const scopeKey = buildWeeklyDistillScopeKey(weekStartDate);
   const inputHash = buildWeeklyDistillInputHash(weekStartDate);
@@ -119,7 +122,7 @@ export const loadWeeklyMemoryProposals = async (
 export const createWeeklyMemoryProposals = async (
   repository: AppRepository,
   weekStartDate: string,
-  historyEntries: DailyEntry[]
+  historyEntries: DailyEntry[],
 ): Promise<AiProposal[]> => {
   const scopeKey = buildWeeklyDistillScopeKey(weekStartDate);
   const inputHash = buildWeeklyDistillInputHash(weekStartDate);
@@ -129,7 +132,7 @@ export const createWeeklyMemoryProposals = async (
     weekStartDate,
     messageId,
     createdAt,
-    historyEntries
+    historyEntries,
   );
 
   if (expectedProposals.length === 0) {
@@ -144,7 +147,7 @@ export const createWeeklyMemoryProposals = async (
         repository,
         existing.id,
         current,
-        expectedProposals.map((proposal) => ({ ...proposal, messageId: existing.id }))
+        expectedProposals.map((proposal) => ({ ...proposal, messageId: existing.id })),
       );
     }
 
@@ -153,7 +156,7 @@ export const createWeeklyMemoryProposals = async (
 
   const saved = await repository.saveCoachPulseEpisode(
     buildWeeklyDistillMessage(weekStartDate, createdAt),
-    expectedProposals
+    expectedProposals,
   );
   return saved.proposals.filter((proposal) => proposal.status === "pending");
 };
