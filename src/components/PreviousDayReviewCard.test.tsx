@@ -22,9 +22,8 @@ describe("PreviousDayReviewCard", () => {
 
     await renderWithApp(<MorningRoutinePage />, { repository });
 
-    const card = (await screen.findByText("Finaliser hier")).closest("section");
-    expect(card).not.toBeNull();
-    const yesterdayCard = within(card!);
+    const card = await screen.findByRole("region", { name: /finaliser hier/i });
+    const yesterdayCard = within(card);
 
     expect(yesterdayCard.getByText("Marche")).toBeInTheDocument();
     expect(yesterdayCard.getByText("Dépense calorique")).toBeInTheDocument();

@@ -45,7 +45,8 @@ suggestions.
 The morning screen captures:
 
 - `morningIntention`;
-- today's `qualiteSommeil` and `pushups` (already known on waking);
+- today's `qualiteSommeil` (known on waking) and `pushups` (morning count,
+  still confirmable at close);
 - the morning and anytime principles;
 - GTD workload values for tasks at start and tasks added.
 
