@@ -38,7 +38,6 @@ framework or external state-management library.
   docs/                         canonical documentation
   README.md                     short developer entry point
   PRD.md                        roadmap/history, not current truth
-  Tasks.json                    local, gitignored Google Tasks export
   quotes.json                   local quote-of-the-day catalog
   src/
     App.tsx                     route table
@@ -132,12 +131,10 @@ screen.
 2. In desktop mode, call the native `resolve_storage_paths` command.
 3. Create and initialize the SQLite repository; otherwise initialize memory storage.
 4. Load settings.
-5. Inspect GTD counts and import `Tasks.json` when no import marker exists or both
-   task and project counts are zero.
+5. Log GTD overview counts from the repository.
 6. Run one-time data normalizations tracked in settings:
    - move the `Reading` context to References,
-   - move dated work to Scheduled,
-   - collapse imported Google recurring task instances.
+   - move dated work to Scheduled.
 7. Generate due recurring tasks for the current local date.
 8. Generate enabled relationship activity tasks for the current local date.
 9. Expose the repository and settings to the UI.
@@ -215,7 +212,8 @@ default core access, notifications, and dialogs.
 - Browser preview has no persistence or backups.
 - Backup creation exists, but restore is manual and has no UI.
 - The AI key is stored in the local SQLite settings JSON rather than an OS keychain.
-- `Tasks.json` is a build-time local import, not a live Google Tasks connection.
+- Google Tasks import helpers still accept an in-memory payload for tests and tooling,
+  but the app no longer ships or requires a bundled `Tasks.json` export.
 
 ## Related documentation
 

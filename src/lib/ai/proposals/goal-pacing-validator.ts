@@ -6,7 +6,7 @@ const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.trim().length > 0;
 
 export const validateGoalPacingResponse = (
-  payload: unknown
+  payload: unknown,
 ): { ok: true; value: GoalPacingResponse } | { ok: false; error: string } => {
   if (typeof payload !== "object" || payload === null) {
     return { ok: false, error: "Response must be a JSON object" };
@@ -40,7 +40,7 @@ export const validateGoalPacingResponse = (
 };
 
 export const parseGoalPacingJson = (
-  raw: string
+  raw: string,
 ): { ok: true; value: GoalPacingResponse } | { ok: false; error: string } => {
   try {
     const parsed = JSON.parse(raw) as unknown;

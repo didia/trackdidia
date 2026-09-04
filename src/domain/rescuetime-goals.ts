@@ -75,7 +75,7 @@ export const computeRescueTimeGoalsSnapshot = (
   weekStartDate: string,
   weekEndDate: string,
   items: RescueTimeGoalItemSnapshot[],
-  options: { rescuetimeConfigured: boolean; fetchError?: string }
+  options: { rescuetimeConfigured: boolean; fetchError?: string },
 ): RescueTimeGoalsSnapshot => {
   const achievements = items.map((item) => item.achievement);
   const totalAchievement = achievements.reduce((sum, achievement) => sum + achievement, 0);
@@ -87,7 +87,7 @@ export const computeRescueTimeGoalsSnapshot = (
     totalAchievement,
     score: achievements.length > 0 ? totalAchievement / achievements.length : null,
     rescuetimeConfigured: options.rescuetimeConfigured,
-    fetchError: options.fetchError
+    fetchError: options.fetchError,
   };
 };
 
@@ -105,5 +105,9 @@ export const rescueTimeLabelsMatch = (left: string, right: string): boolean => {
   if (!a || !b) {
     return false;
   }
-  return a.includes(b) || b.includes(a) || a.split(" ").some((token) => token.length > 3 && b.includes(token));
+  return (
+    a.includes(b) ||
+    b.includes(a) ||
+    a.split(" ").some((token) => token.length > 3 && b.includes(token))
+  );
 };

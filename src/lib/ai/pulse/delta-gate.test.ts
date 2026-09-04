@@ -7,7 +7,7 @@ describe("delta-gate", () => {
     focusSessions: [],
     tasks: [],
     appOpenIntervals: [] as Array<{ startedAt: string; endedAt: string }>,
-    dayOfWeek: 5
+    dayOfWeek: 5,
   };
 
   it("classifies movement as progress", () => {
@@ -28,9 +28,9 @@ describe("delta-gate", () => {
           segments: [],
           activeTaskId: null,
           activeLabel: null,
-          taskIds: []
-        }
-      ]
+          taskIds: [],
+        },
+      ],
     });
 
     expect(result.deltaClass).toBe("progress");
@@ -42,9 +42,9 @@ describe("delta-gate", () => {
       appOpenIntervals: [
         {
           startedAt: "2026-08-29T08:00:00.000Z",
-          endedAt: "2026-08-29T13:00:00.000Z"
-        }
-      ]
+          endedAt: "2026-08-29T13:00:00.000Z",
+        },
+      ],
     });
 
     expect(result.deltaClass).toBe("stall");
@@ -57,9 +57,9 @@ describe("delta-gate", () => {
       appOpenIntervals: [
         {
           startedAt: "2026-08-29T08:00:00.000Z",
-          endedAt: "2026-08-29T08:20:00.000Z"
-        }
-      ]
+          endedAt: "2026-08-29T08:20:00.000Z",
+        },
+      ],
     });
 
     expect(result.deltaClass).toBe("unknown");
@@ -72,9 +72,9 @@ describe("delta-gate", () => {
       appOpenIntervals: [
         {
           startedAt: "2026-08-29T08:00:00.000Z",
-          endedAt: "2026-08-29T13:00:00.000Z"
-        }
-      ]
+          endedAt: "2026-08-29T13:00:00.000Z",
+        },
+      ],
     });
 
     expect(result.deltaClass).toBe("idle");
@@ -90,8 +90,8 @@ describe("delta-gate", () => {
       "2026-08-29T13:00:00.000Z",
       [
         { startedAt: "2026-08-29T08:00:00.000Z", endedAt: "2026-08-29T09:00:00.000Z" },
-        { startedAt: "2026-08-29T09:30:00.000Z", endedAt: "2026-08-29T11:00:00.000Z" }
-      ]
+        { startedAt: "2026-08-29T09:30:00.000Z", endedAt: "2026-08-29T11:00:00.000Z" },
+      ],
     );
 
     expect(maxMs).toBe(90 * 60 * 1000);

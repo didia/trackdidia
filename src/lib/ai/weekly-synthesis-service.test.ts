@@ -2,11 +2,19 @@ import { createEmptyDailyEntry, defaultAppSettings, updateNote } from "../../dom
 import { buildWeekDates } from "../../domain/weekly-review";
 import { MemoryRepository } from "../storage/memory-repository";
 import { buildWeeklySnapshot, type WeeklySnapshotInputs } from "./context/weekly-snapshot";
-import { WeeklySynthesisService } from "./weekly-synthesis-service";
 import type { AiProvider } from "./provider";
+import { WeeklySynthesisService } from "./weekly-synthesis-service";
 
 const buildWeeklyInputs = (weekStartDate = "2026-08-02"): WeeklySnapshotInputs => {
-  const weekDates = ["2026-08-02", "2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07", "2026-08-08"];
+  const weekDates = [
+    "2026-08-02",
+    "2026-08-03",
+    "2026-08-04",
+    "2026-08-05",
+    "2026-08-06",
+    "2026-08-07",
+    "2026-08-08",
+  ];
   const weekEntries = weekDates.map((date) => {
     let entry = createEmptyDailyEntry(date);
     entry = updateNote(entry, "morningIntention", `Intention ${date}`);
@@ -36,7 +44,7 @@ const buildWeeklyInputs = (weekStartDate = "2026-08-02"): WeeklySnapshotInputs =
       productivityPulse: null,
       rescueTimeGoalsScore: null,
       weeklyScore: 0.75,
-      days: []
+      days: [],
     },
     weekEntries,
     historyEntries: weekEntries,
@@ -48,7 +56,7 @@ const buildWeeklyInputs = (weekStartDate = "2026-08-02"): WeeklySnapshotInputs =
     productivityPulse: null,
     rescueTimeGoalsScore: null,
     rescuetimeConfigured: false,
-    now: "2026-08-08T12:00:00.000Z"
+    now: "2026-08-08T12:00:00.000Z",
   };
 };
 
@@ -67,7 +75,7 @@ describe("buildWeeklySnapshot redaction", () => {
         calendrier: "",
         gtd: "",
         alignement: "",
-        dimanche: ""
+        dimanche: "",
       },
       ritualChecklist: {
         bilan: false,
@@ -77,9 +85,9 @@ describe("buildWeeklySnapshot redaction", () => {
         calendrier: false,
         gtd: false,
         alignement: false,
-        dimanche: false
+        dimanche: false,
       },
-      updatedAt: "2026-08-08T12:00:00.000Z"
+      updatedAt: "2026-08-08T12:00:00.000Z",
     };
 
     const metricsSnapshot = buildWeeklySnapshot(inputs, "metrics");
@@ -93,7 +101,7 @@ describe("buildWeeklySnapshot redaction", () => {
 describe("WeeklySynthesisService", () => {
   it("returns local synthesis when AI is disabled", async () => {
     const provider: AiProvider = {
-      generateStructured: vi.fn()
+      generateStructured: vi.fn(),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -104,7 +112,7 @@ describe("WeeklySynthesisService", () => {
       weekStartDate: "2026-08-02",
       settings,
       snapshotInputs: buildWeeklyInputs(),
-      trigger: "explicit"
+      trigger: "explicit",
     });
 
     expect(result.source).toBe("local");
@@ -114,7 +122,7 @@ describe("WeeklySynthesisService", () => {
 
   it("persists local proposals on auto trigger when AI is disabled", async () => {
     const provider: AiProvider = {
-      generateStructured: vi.fn()
+      generateStructured: vi.fn(),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -126,7 +134,7 @@ describe("WeeklySynthesisService", () => {
       weekStartDate: "2026-08-02",
       settings,
       snapshotInputs,
-      trigger: "auto"
+      trigger: "auto",
     });
 
     expect(first.source).toBe("local");
@@ -137,7 +145,7 @@ describe("WeeklySynthesisService", () => {
       weekStartDate: "2026-08-02",
       settings,
       snapshotInputs,
-      trigger: "auto"
+      trigger: "auto",
     });
 
     expect(second.source).toBe("cache");
@@ -154,11 +162,11 @@ describe("WeeklySynthesisService", () => {
           weakestAxes: ["Sommeil", "Pomodoris"],
           sectionDrafts: {},
           nextWeekObjectives: [],
-          gtdActions: []
+          gtdActions: [],
         }),
         model: "test-model",
-        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 }
-      }))
+        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 },
+      })),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -172,13 +180,13 @@ describe("WeeklySynthesisService", () => {
       weekStartDate: "2026-08-02",
       settings,
       snapshotInputs,
-      trigger: "explicit"
+      trigger: "explicit",
     });
     const second = await service.buildSynthesis(repository, {
       weekStartDate: "2026-08-02",
       settings,
       snapshotInputs,
-      trigger: "explicit"
+      trigger: "explicit",
     });
 
     expect(first.source).toBe("ai");
@@ -196,11 +204,11 @@ describe("WeeklySynthesisService", () => {
           weakestAxes: ["Sommeil", "Pomodoris"],
           sectionDrafts: {},
           nextWeekObjectives: [],
-          gtdActions: []
+          gtdActions: [],
         }),
         model: "test-model",
-        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 }
-      }))
+        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 },
+      })),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -214,14 +222,14 @@ describe("WeeklySynthesisService", () => {
       weekStartDate: "2026-08-02",
       settings,
       snapshotInputs,
-      trigger: "explicit"
+      trigger: "explicit",
     });
     const regenerated = await service.buildSynthesis(repository, {
       weekStartDate: "2026-08-02",
       settings,
       snapshotInputs,
       trigger: "explicit",
-      bypassCache: true
+      bypassCache: true,
     });
 
     expect(regenerated.message.id).not.toBe(first.message.id);
@@ -240,11 +248,11 @@ describe("WeeklySynthesisService", () => {
           weakestAxes: ["Sommeil", "Pomodoris"],
           sectionDrafts: {},
           nextWeekObjectives: [],
-          gtdActions: []
+          gtdActions: [],
         }),
         model: "test-model",
-        usage: { tokensPrompt: 1, tokensCompletion: 2, latencyMs: 3 }
-      }))
+        usage: { tokensPrompt: 1, tokensCompletion: 2, latencyMs: 3 },
+      })),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -271,7 +279,7 @@ describe("WeeklySynthesisService", () => {
         weakestAxes: ["Sommeil", "Pomodoris"],
         sectionDrafts: { bilan: "Old" },
         nextWeekObjectives: [],
-        gtdActions: []
+        gtdActions: [],
       }),
       bodyText: "Fallback",
       deltaClass: null,
@@ -279,14 +287,14 @@ describe("WeeklySynthesisService", () => {
       tokensPrompt: null,
       tokensCompletion: null,
       latencyMs: null,
-      createdAt: "2026-08-08T12:00:00.000Z"
+      createdAt: "2026-08-08T12:00:00.000Z",
     });
 
     const result = await service.buildSynthesis(repository, {
       weekStartDate: "2026-08-02",
       settings,
       snapshotInputs,
-      trigger: "auto"
+      trigger: "auto",
     });
 
     expect(result.source).toBe("ai");
@@ -295,7 +303,7 @@ describe("WeeklySynthesisService", () => {
 
   it("persists multiple section drafts through saveCoachPulseEpisode", async () => {
     const provider: AiProvider = {
-      generateStructured: vi.fn()
+      generateStructured: vi.fn(),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -307,10 +315,12 @@ describe("WeeklySynthesisService", () => {
       weekStartDate: "2026-08-02",
       settings,
       snapshotInputs,
-      trigger: "auto"
+      trigger: "auto",
     });
 
-    const sectionDrafts = result.proposals.filter((proposal) => proposal.type === "review_section_draft");
+    const sectionDrafts = result.proposals.filter(
+      (proposal) => proposal.type === "review_section_draft",
+    );
     expect(sectionDrafts.length).toBeGreaterThanOrEqual(2);
   });
 });

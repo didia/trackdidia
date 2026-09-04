@@ -17,7 +17,7 @@ export const GoalPacingPanel = ({
   settings,
   goalTitlesById,
   onRequestCoach,
-  onRegenerate
+  onRegenerate,
 }: GoalPacingPanelProps) => {
   const { t } = useTranslation("coach");
   const { t: tCommon } = useTranslation("common");
@@ -38,7 +38,11 @@ export const GoalPacingPanel = ({
     <section className="coach-card coach-pulse">
       <div className="coach-card__label">
         <span>{t("pacing.title")}</span>
-        <small>{result ? translate(`source.${result.source}`, { ns: "coach" }) : tCommon("status.loading")}</small>
+        <small>
+          {result
+            ? translate(`source.${result.source}`, { ns: "coach" })
+            : tCommon("status.loading")}
+        </small>
       </div>
 
       {loading && !pacing ? <p>{t("pacing.preparing")}</p> : null}
@@ -49,8 +53,11 @@ export const GoalPacingPanel = ({
             <article key={goal.goalId} className="coach-pulse__proposal">
               <span>{goalTitlesById.get(goal.goalId) ?? goal.goalId}</span>
               <p>
-                <strong>{goal.onPace ? t("pacing.onPace") : t("pacing.offPace")}</strong> {tCommon("emDash")}{" "}
-                {t("pacing.riskPrefix", { level: translate(`risk.${goal.riskLevel}`, { ns: "coach" }) })}
+                <strong>{goal.onPace ? t("pacing.onPace") : t("pacing.offPace")}</strong>{" "}
+                {tCommon("emDash")}{" "}
+                {t("pacing.riskPrefix", {
+                  level: translate(`risk.${goal.riskLevel}`, { ns: "coach" }),
+                })}
               </p>
               <p>{goal.gap}</p>
               <p>
@@ -67,7 +74,9 @@ export const GoalPacingPanel = ({
       ) : null}
 
       {result?.warning ? (
-        <small className="coach-card__warning">{t("warningFallbackPrefix", { warning: result.warning })}</small>
+        <small className="coach-card__warning">
+          {t("warningFallbackPrefix", { warning: result.warning })}
+        </small>
       ) : null}
 
       <div className="section-actions coach-pulse__actions">

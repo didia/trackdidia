@@ -1,12 +1,12 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { defaultAppSettings, createEmptyDailyEntry } from "../domain/daily-entry";
+import { createEmptyDailyEntry, defaultAppSettings } from "../domain/daily-entry";
 import type { AiProposal, CoachPulseResult } from "../domain/types";
-import { CoachPulseService } from "../lib/ai/coach-pulse-service";
+import type { CoachPulseService } from "../lib/ai/coach-pulse-service";
 import { getTodayDate } from "../lib/date";
 import { addDays } from "../lib/gtd/shared";
-import { renderWithApp } from "../test/test-utils";
 import { MemoryRepository } from "../lib/storage/memory-repository";
+import { renderWithApp } from "../test/test-utils";
 import { TodayPage } from "./TodayPage";
 
 const buildCoachResult = (proposal: AiProposal): CoachPulseResult => ({
@@ -24,7 +24,7 @@ const buildCoachResult = (proposal: AiProposal): CoachPulseResult => ({
       stance: "open",
       headline: "Coach",
       read: "Lecture",
-      move: null
+      move: null,
     }),
     bodyText: "Coach",
     deltaClass: null,
@@ -32,16 +32,16 @@ const buildCoachResult = (proposal: AiProposal): CoachPulseResult => ({
     tokensPrompt: null,
     tokensCompletion: null,
     latencyMs: null,
-    createdAt: "2026-08-29T08:00:00.000Z"
+    createdAt: "2026-08-29T08:00:00.000Z",
   },
   pulse: {
     stance: "open",
     headline: "Coach",
     read: "Lecture",
-    move: null
+    move: null,
   },
   proposals: [proposal],
-  source: "local"
+  source: "local",
 });
 
 describe("TodayPage coach proposals", () => {
@@ -57,12 +57,12 @@ describe("TodayPage coach proposals", () => {
       status: "pending",
       appliedEntityId: null,
       decidedAt: null,
-      createdAt: "2026-08-29T08:00:00.000Z"
+      createdAt: "2026-08-29T08:00:00.000Z",
     };
 
     const coachService = {
       resultFromMessage: vi.fn(async () => buildCoachResult(proposal)),
-      buildPulse: vi.fn(async () => buildCoachResult(proposal))
+      buildPulse: vi.fn(async () => buildCoachResult(proposal)),
     } as unknown as CoachPulseService;
 
     await repository.saveAiMessage(buildCoachResult(proposal).message);
@@ -73,7 +73,7 @@ describe("TodayPage coach proposals", () => {
     const user = userEvent.setup();
     await renderWithApp(<TodayPage />, {
       repository,
-      contextOverrides: { coachService, settings: defaultAppSettings() }
+      contextOverrides: { coachService, settings: defaultAppSettings() },
     });
 
     await screen.findByText("Focus profond");
@@ -82,7 +82,11 @@ describe("TodayPage coach proposals", () => {
     await user.click(screen.getByRole("button", { name: /accepter/i }));
 
     expect(await screen.findByDisplayValue("Focus profond")).toBeInTheDocument();
-    expect(decideAiProposal).toHaveBeenCalledWith("ai-proposal:intention", "accepted", getTodayDate());
+    expect(decideAiProposal).toHaveBeenCalledWith(
+      "ai-proposal:intention",
+      "accepted",
+      getTodayDate(),
+    );
     expect(saveDailyEntry).toHaveBeenCalled();
   });
 
@@ -98,12 +102,12 @@ describe("TodayPage coach proposals", () => {
       status: "pending",
       appliedEntityId: null,
       decidedAt: null,
-      createdAt: "2026-08-29T08:00:00.000Z"
+      createdAt: "2026-08-29T08:00:00.000Z",
     };
 
     const coachService = {
       resultFromMessage: vi.fn(async () => buildCoachResult(proposal)),
-      buildPulse: vi.fn(async () => buildCoachResult(proposal))
+      buildPulse: vi.fn(async () => buildCoachResult(proposal)),
     } as unknown as CoachPulseService;
 
     await repository.saveAiMessage(buildCoachResult(proposal).message);
@@ -114,7 +118,7 @@ describe("TodayPage coach proposals", () => {
     const user = userEvent.setup();
     await renderWithApp(<TodayPage />, {
       repository,
-      contextOverrides: { coachService, settings: defaultAppSettings() }
+      contextOverrides: { coachService, settings: defaultAppSettings() },
     });
 
     await screen.findByText("Focus profond");
@@ -140,14 +144,14 @@ describe("TodayPage", () => {
       id: "task-added",
       title: "Nouvelle action du jour",
       bucket: "next_action",
-      createdAt: `${today}T09:00:00.000Z`
+      createdAt: `${today}T09:00:00.000Z`,
     });
 
     await repository.createTask({
       id: "task-completed",
       title: "Action terminee du jour",
       bucket: "next_action",
-      createdAt: `${yesterday}T09:00:00.000Z`
+      createdAt: `${yesterday}T09:00:00.000Z`,
     });
     await repository.completeTask("task-completed", `${today}T18:00:00.000Z`);
 
@@ -170,21 +174,25 @@ describe("TodayPage", () => {
           tokensPrompt: null,
           tokensCompletion: null,
           latencyMs: null,
-          createdAt: "2026-08-29T08:00:00.000Z"
+          createdAt: "2026-08-29T08:00:00.000Z",
         },
         pulse: {
           stance: "open" as const,
           headline: "Local",
           read: "Brief local",
-          move: null
+          move: null,
         },
         proposals: [],
-        source: "local" as const
-      }))
+        source: "local" as const,
+      })),
     } as unknown as CoachPulseService;
 
     const user = userEvent.setup();
-    await renderWithApp(<TodayPage />, { repository, route: "/", contextOverrides: { coachService } });
+    await renderWithApp(<TodayPage />, {
+      repository,
+      route: "/",
+      contextOverrides: { coachService },
+    });
 
     await user.click(await screen.findByRole("button", { name: /ajoutées/i }));
     expect(await screen.findByText("Nouvelle action du jour")).toBeInTheDocument();
@@ -221,21 +229,25 @@ describe("TodayPage", () => {
           tokensPrompt: null,
           tokensCompletion: null,
           latencyMs: null,
-          createdAt: "2026-08-29T08:00:00.000Z"
+          createdAt: "2026-08-29T08:00:00.000Z",
         },
         pulse: {
           stance: "open" as const,
           headline: "Local",
           read: "Brief local",
-          move: null
+          move: null,
         },
         proposals: [],
-        source: "local" as const
-      }))
+        source: "local" as const,
+      })),
     } as unknown as CoachPulseService;
 
     const user = userEvent.setup();
-    await renderWithApp(<TodayPage />, { repository, route: "/", contextOverrides: { coachService } });
+    await renderWithApp(<TodayPage />, {
+      repository,
+      route: "/",
+      contextOverrides: { coachService },
+    });
 
     const field = await screen.findByRole("textbox", { name: /réflexion/i });
     await user.clear(field);
@@ -254,12 +266,14 @@ describe("TodayPage", () => {
     await repository.initialize();
     const today = getTodayDate();
     const originalSave = repository.saveDailyEntry.bind(repository);
-    const saveDailyEntry = vi.spyOn(repository, "saveDailyEntry").mockImplementation(async (entry) => {
-      await new Promise((resolve) => {
-        window.setTimeout(resolve, 120);
+    const saveDailyEntry = vi
+      .spyOn(repository, "saveDailyEntry")
+      .mockImplementation(async (entry) => {
+        await new Promise((resolve) => {
+          window.setTimeout(resolve, 120);
+        });
+        return originalSave(entry);
       });
-      return originalSave(entry);
-    });
 
     const coachService = {
       buildPulse: vi.fn(async () => ({
@@ -280,24 +294,28 @@ describe("TodayPage", () => {
           tokensPrompt: null,
           tokensCompletion: null,
           latencyMs: null,
-          createdAt: "2026-08-29T08:00:00.000Z"
+          createdAt: "2026-08-29T08:00:00.000Z",
         },
         pulse: {
           stance: "open" as const,
           headline: "Local",
           read: "Brief local",
-          move: null
+          move: null,
         },
         proposals: [],
-        source: "local" as const
-      }))
+        source: "local" as const,
+      })),
     } as unknown as CoachPulseService;
 
     const user = userEvent.setup();
-    await renderWithApp(<TodayPage />, { repository, route: "/", contextOverrides: { coachService } });
+    await renderWithApp(<TodayPage />, {
+      repository,
+      route: "/",
+      contextOverrides: { coachService },
+    });
 
     const intention = await screen.findByRole("textbox", { name: /intention/i });
-    const reflection = screen.getByRole("textbox", { name: /reflection/i });
+    const reflection = screen.getByRole("textbox", { name: /réflexion/i });
     await user.type(intention, "Mon intention");
     await user.click(reflection);
     await user.type(reflection, "Ma reflexion");
@@ -312,7 +330,7 @@ describe("TodayPage", () => {
         expect(saved?.morningIntention).toBe("Mon intention");
         expect(saved?.nightReflection).toBe("Ma reflexion");
       },
-      { timeout: 3000 }
+      { timeout: 3000 },
     );
   });
 });

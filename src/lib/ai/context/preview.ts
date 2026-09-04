@@ -1,16 +1,16 @@
 import { createEmptyDailyEntry } from "../../../domain/daily-entry";
+import { getMonthKey } from "../../../domain/monthly-review";
 import type { AiPayloadScope } from "../../../domain/types";
+import { buildWeekDates } from "../../../domain/weekly-review";
 import { getTodayDate } from "../../date";
 import { getWeekStartSunday } from "../../gtd/shared";
-import { buildWeekDates } from "../../../domain/weekly-review";
 import { RescueTimeGoalsService } from "../../rescuetime/rescuetime-goals-service";
 import type { AppRepository } from "../../storage/repository";
 import { buildDailySnapshot, type DailySnapshot } from "./daily-snapshot";
 import { buildGoalPacingSnapshot, resolveGoalPacingSnapshotInputs } from "./goal-pacing-snapshot";
 import { buildMonthlySnapshot, resolveMonthlySnapshotInputs } from "./monthly-snapshot";
-import { buildWeeklySnapshot, resolveWeeklySnapshotInputs } from "./weekly-snapshot";
 import type { Surface } from "./types";
-import { getMonthKey } from "../../../domain/monthly-review";
+import { buildWeeklySnapshot, resolveWeeklySnapshotInputs } from "./weekly-snapshot";
 
 /**
  * How much daily-entry history to load for the insight engine. `computeStreakFindings`'s
@@ -59,7 +59,7 @@ export interface ResolvedWeeklyRescueTime {
  */
 export const resolveWeeklyRescueTimeInputs = async (
   repository: AppRepository,
-  weekStartDate: string
+  weekStartDate: string,
 ): Promise<ResolvedWeeklyRescueTime> => {
   const settings = await repository.getSettings();
   const configured = settings.rescuetimeApiKey.trim().length > 0;
@@ -68,14 +68,14 @@ export const resolveWeeklyRescueTimeInputs = async (
     return {
       configured,
       productivityPulse: null,
-      rescueTimeGoalsScore: null
+      rescueTimeGoalsScore: null,
     };
   }
 
   const goalsService = new RescueTimeGoalsService(repository);
   const [pulseSnapshot, goalsSnapshot] = await Promise.all([
     goalsService.computeProductivityPulse(weekStartDate),
-    goalsService.computeGoalsSnapshot(weekStartDate)
+    goalsService.computeGoalsSnapshot(weekStartDate),
   ]);
 
   return {
@@ -83,7 +83,7 @@ export const resolveWeeklyRescueTimeInputs = async (
     productivityPulse: pulseSnapshot.pulse,
     rescueTimeGoalsScore: goalsSnapshot.score,
     pulseFetchError: pulseSnapshot.fetchError,
-    goalsFetchError: goalsSnapshot.fetchError
+    goalsFetchError: goalsSnapshot.fetchError,
   };
 };
 
@@ -94,7 +94,7 @@ export const resolveWeeklyRescueTimeInputs = async (
  */
 export const resolveProductivityPulse = async (
   repository: AppRepository,
-  date: string
+  date: string,
 ): Promise<ResolvedProductivityPulse> => {
   const settings = await repository.getSettings();
   const configured = settings.rescuetimeApiKey.trim().length > 0;
@@ -118,7 +118,7 @@ export const resolveDailySnapshotInputs = async (
   date: string,
   now = new Date().toISOString(),
   productivityPulse?: ResolvedProductivityPulse,
-  options: ResolveDailySnapshotInputsOptions = {}
+  options: ResolveDailySnapshotInputsOptions = {},
 ) => {
   const settings = await repository.getSettings();
   const rescuetimeConfigured = settings.rescuetimeApiKey.trim().length > 0;
@@ -127,20 +127,27 @@ export const resolveDailySnapshotInputs = async (
     (options.skipRescueTimeFetch
       ? Promise.resolve<ResolvedProductivityPulse>({
           configured: rescuetimeConfigured,
-          pulseWeekToDate: null
+          pulseWeekToDate: null,
         })
       : resolveProductivityPulse(repository, date));
 
-  const [entry, historyEntries, tasks, projects, pomodoroTaskSummaries, dailyPomodoroStats, resolvedPulse] =
-    await Promise.all([
-      repository.getDailyEntry(date),
-      repository.listDailyEntries(INSIGHT_HISTORY_LOOKBACK_DAYS),
-      repository.listTasks({ includeCompleted: true }),
-      repository.listProjects(),
-      repository.listPomodoroTaskSummaries(date, now),
-      repository.computeDailyPomodoroStats(date),
-      resolvedPulsePromise
-    ]);
+  const [
+    entry,
+    historyEntries,
+    tasks,
+    projects,
+    pomodoroTaskSummaries,
+    dailyPomodoroStats,
+    resolvedPulse,
+  ] = await Promise.all([
+    repository.getDailyEntry(date),
+    repository.listDailyEntries(INSIGHT_HISTORY_LOOKBACK_DAYS),
+    repository.listTasks({ includeCompleted: true }),
+    repository.listProjects(),
+    repository.listPomodoroTaskSummaries(date, now),
+    repository.computeDailyPomodoroStats(date),
+    resolvedPulsePromise,
+  ]);
 
   const resolvedEntry = entry ?? createEmptyDailyEntry(date);
   const historyEntriesWithToday = historyEntries.some((item) => item.date === date)
@@ -157,7 +164,7 @@ export const resolveDailySnapshotInputs = async (
     completedFocusSessionCount: dailyPomodoroStats.completedFocusSessions,
     productivityPulseWeekToDate: resolvedPulse.pulseWeekToDate,
     rescuetimeConfigured: resolvedPulse.configured,
-    now
+    now,
   };
 };
 
@@ -175,7 +182,7 @@ export type PreviewSnapshot =
 export const previewPayload = async (
   repository: AppRepository,
   scope: AiPayloadScope,
-  options: PreviewPayloadOptions = {}
+  options: PreviewPayloadOptions = {},
 ): Promise<PreviewSnapshot> => {
   const surface = options.surface ?? "daily";
   const now = options.now ?? new Date().toISOString();
@@ -188,7 +195,7 @@ export const previewPayload = async (
       now,
       productivityPulse: rescueTime.productivityPulse,
       rescueTimeGoalsScore: rescueTime.rescueTimeGoalsScore,
-      rescuetimeConfigured: rescueTime.configured
+      rescuetimeConfigured: rescueTime.configured,
     });
     return buildWeeklySnapshot(inputs, scope);
   }
@@ -204,7 +211,7 @@ export const previewPayload = async (
     const year = Number(asOfDate.slice(0, 4));
     const inputs = await resolveGoalPacingSnapshotInputs(repository, year, {
       asOfDate,
-      evaluationMonthKey: getMonthKey(asOfDate)
+      evaluationMonthKey: getMonthKey(asOfDate),
     });
     return buildGoalPacingSnapshot(inputs, scope);
   }
@@ -218,4 +225,3 @@ export const previewPayload = async (
 
   return buildDailySnapshot(inputs, scope);
 };
-

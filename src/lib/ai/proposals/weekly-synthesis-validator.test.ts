@@ -13,10 +13,10 @@ describe("validateWeeklySynthesisResponse", () => {
         kind: "manual",
         targetHours: null,
         rescuetimeKind: null,
-        rescuetimeThing: null
-      }
+        rescuetimeThing: null,
+      },
     ],
-    gtdActions: [{ taskId: "task-1", action: "defer", reason: "Stale" }]
+    gtdActions: [{ taskId: "task-1", action: "defer", reason: "Stale" }],
   };
 
   it("accepts a valid weekly synthesis payload", () => {
@@ -25,9 +25,11 @@ describe("validateWeeklySynthesisResponse", () => {
   });
 
   it("rejects fewer or more than two weakestAxes", () => {
-    expect(validateWeeklySynthesisResponse({ ...validPayload, weakestAxes: ["One"] }).ok).toBe(false);
+    expect(validateWeeklySynthesisResponse({ ...validPayload, weakestAxes: ["One"] }).ok).toBe(
+      false,
+    );
     expect(
-      validateWeeklySynthesisResponse({ ...validPayload, weakestAxes: ["One", "Two", "Three"] }).ok
+      validateWeeklySynthesisResponse({ ...validPayload, weakestAxes: ["One", "Two", "Three"] }).ok,
     ).toBe(false);
   });
 
@@ -37,10 +39,12 @@ describe("validateWeeklySynthesisResponse", () => {
       kind: "manual" as const,
       targetHours: null,
       rescuetimeKind: null,
-      rescuetimeThing: null
+      rescuetimeThing: null,
     }));
 
-    expect(validateWeeklySynthesisResponse({ ...validPayload, nextWeekObjectives: objectives }).ok).toBe(false);
+    expect(
+      validateWeeklySynthesisResponse({ ...validPayload, nextWeekObjectives: objectives }).ok,
+    ).toBe(false);
   });
 
   it("rejects invalid time objectives", () => {
@@ -53,10 +57,10 @@ describe("validateWeeklySynthesisResponse", () => {
             kind: "time",
             targetHours: 0,
             rescuetimeKind: "category",
-            rescuetimeThing: "Work"
-          }
-        ]
-      }).ok
+            rescuetimeThing: "Work",
+          },
+        ],
+      }).ok,
     ).toBe(false);
 
     expect(
@@ -68,10 +72,10 @@ describe("validateWeeklySynthesisResponse", () => {
             kind: "time",
             targetHours: 2,
             rescuetimeKind: null,
-            rescuetimeThing: null
-          }
-        ]
-      }).ok
+            rescuetimeThing: null,
+          },
+        ],
+      }).ok,
     ).toBe(false);
   });
 
@@ -84,9 +88,9 @@ describe("validateWeeklySynthesisResponse", () => {
           kind: "manual",
           targetHours: 3,
           rescuetimeKind: "category",
-          rescuetimeThing: "Work"
-        }
-      ]
+          rescuetimeThing: "Work",
+        },
+      ],
     });
 
     expect(result.ok).toBe(true);
@@ -96,7 +100,7 @@ describe("validateWeeklySynthesisResponse", () => {
         kind: "manual",
         targetHours: null,
         rescuetimeKind: null,
-        rescuetimeThing: null
+        rescuetimeThing: null,
       });
     }
   });

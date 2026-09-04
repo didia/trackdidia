@@ -1,27 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import {
-  autoSuggestedMetricKeys,
-  applyRoutineTransition,
-  updateMetric,
-  updateNote,
-  updatePrinciple
-} from "../domain/daily-entry";
-import type { AiProposal, CoachPulseResult } from "../domain/types";
 import { useAppContext } from "../app/app-context";
 import { useDailyEntry } from "../app/use-daily-entry";
 import { CoachPulsePanel } from "../components/CoachPulsePanel";
-import { applyCoachProposal } from "../lib/ai/proposals/apply-proposal";
 import { EntrySummaryStrip } from "../components/EntrySummaryStrip";
-import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
 import { MetricGrid } from "../components/MetricGrid";
+import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
 import { PrincipleChecklist } from "../components/PrincipleChecklist";
 import { SectionCard } from "../components/SectionCard";
+import {
+  applyRoutineTransition,
+  autoSuggestedMetricKeys,
+  updateMetric,
+  updateNote,
+  updatePrinciple,
+} from "../domain/daily-entry";
+import type { AiProposal, CoachPulseResult } from "../domain/types";
 import { loadLatestClosePulseForDate } from "../lib/ai/coach-pulse-loader";
 import { resolveDailySnapshotInputs } from "../lib/ai/context/preview";
 import { resolveDueCommitmentsOnClose } from "../lib/ai/memory/lifecycle";
-import { getTodayDate, formatDateLong } from "../lib/date";
+import { applyCoachProposal } from "../lib/ai/proposals/apply-proposal";
+import { formatDateLong, getTodayDate } from "../lib/date";
 import { nowIso } from "../lib/gtd/shared";
 
 export const EveningClosurePage = () => {
@@ -56,7 +56,7 @@ export const EveningClosurePage = () => {
         currentEntry.date,
         new Date().toISOString(),
         undefined,
-        { skipRescueTimeFetch: true }
+        { skipRescueTimeFetch: true },
       );
 
       if (!settings.aiEnabled || !settings.aiApiKey.trim()) {
@@ -67,7 +67,7 @@ export const EveningClosurePage = () => {
             settings,
             snapshotInputs,
             trigger: "auto",
-            localOnly: true
+            localOnly: true,
           });
           setCoachResult(localResult);
         }
@@ -79,7 +79,7 @@ export const EveningClosurePage = () => {
         entry: currentEntry,
         settings,
         snapshotInputs,
-        trigger: "auto"
+        trigger: "auto",
       });
       setCoachResult(aiResult);
     } catch (error) {
@@ -105,7 +105,7 @@ export const EveningClosurePage = () => {
           settings,
           snapshotInputs,
           trigger: options.trigger,
-          bypassCache: options.bypassCache ?? false
+          bypassCache: options.bypassCache ?? false,
         });
         setCoachResult(result);
       } catch (error) {
@@ -114,7 +114,7 @@ export const EveningClosurePage = () => {
         setCoachLoading(false);
       }
     },
-    [coachService, repository, settings]
+    [coachService, repository, settings],
   );
 
   useEffect(() => {
@@ -123,7 +123,7 @@ export const EveningClosurePage = () => {
     }
 
     void loadCoachFromStore();
-  }, [entry?.date, loadCoachFromStore]);
+  }, [entry?.date, loadCoachFromStore, entry]);
 
   const handleAcceptProposal = async (proposal: AiProposal) => {
     const currentEntry = latestEntryRef.current;
@@ -144,7 +144,7 @@ export const EveningClosurePage = () => {
         await repository.decideAiProposal(
           proposal.id,
           "accepted",
-          applied.memoryId ?? currentEntry.date
+          applied.memoryId ?? currentEntry.date,
         );
       }
       setCoachResult((current) =>
@@ -152,10 +152,12 @@ export const EveningClosurePage = () => {
           ? {
               ...current,
               proposals: current.proposals.map((item) =>
-                item.id === proposal.id ? { ...item, status: "accepted", decidedAt: new Date().toISOString() } : item
-              )
+                item.id === proposal.id
+                  ? { ...item, status: "accepted", decidedAt: new Date().toISOString() }
+                  : item,
+              ),
             }
-          : current
+          : current,
       );
     } catch (error) {
       console.error("Failed to accept coach proposal", error);
@@ -169,15 +171,21 @@ export const EveningClosurePage = () => {
         ? {
             ...current,
             proposals: current.proposals.map((item) =>
-              item.id === proposal.id ? { ...item, status: "dismissed", decidedAt: new Date().toISOString() } : item
-            )
+              item.id === proposal.id
+                ? { ...item, status: "dismissed", decidedAt: new Date().toISOString() }
+                : item,
+            ),
           }
-        : current
+        : current,
     );
   };
 
   if (loading || !entry) {
-    return <div className="page"><p>{t("loading")}</p></div>;
+    return (
+      <div className="page">
+        <p>{t("loading")}</p>
+      </div>
+    );
   }
 
   return (
@@ -186,9 +194,7 @@ export const EveningClosurePage = () => {
         <div>
           <p className="eyebrow">{t("hero.eyebrow")}</p>
           <h2>{formatDateLong(entry.date)}</h2>
-          <p className="hero__copy">
-            {t("hero.copy")}
-          </p>
+          <p className="hero__copy">{t("hero.copy")}</p>
         </div>
       </header>
 
@@ -266,8 +272,8 @@ export const EveningClosurePage = () => {
             await save((latest) =>
               applyRoutineTransition(
                 updateNote(updateNote(latest, "nightReflection", night), "tomorrowFocus", tomorrow),
-                "close_day"
-              )
+                "close_day",
+              ),
             );
             navigate("/");
           }}

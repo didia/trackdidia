@@ -1,17 +1,22 @@
-import type { AppOpenInterval } from "../../../domain/insights/movement";
-import type { AiMessage, AppSettings, CoachPulseResult, CoachPulseStance } from "../../../domain/types";
 import { createEmptyDailyEntry } from "../../../domain/daily-entry";
-import { createEntityId, nowIso, toLocalDateString } from "../../gtd/shared";
+import type { AppOpenInterval } from "../../../domain/insights/movement";
+import type {
+  AiMessage,
+  AppSettings,
+  CoachPulseResult,
+  CoachPulseStance,
+} from "../../../domain/types";
 import { t } from "../../../i18n";
-import type { AppRepository } from "../../storage/repository";
+import { createEntityId, nowIso, toLocalDateString } from "../../gtd/shared";
 import { notifyPomodoroCompletion } from "../../pomodoro/sound";
+import type { AppRepository } from "../../storage/repository";
 import type { CoachPulseService } from "../coach-pulse-service";
 import { COACH_PULSE_PROMPT_VERSION } from "../coach-pulse-service";
 import { resolveDailySnapshotInputs } from "../context/preview";
 import { buildLocalCoachPulse, buildLocalUnknownPulse } from "../proposals/coach-pulse-fallback";
 import { classifyPulseWindow } from "./delta-gate";
 import { evaluatePulseNotification } from "./notification-policy";
-import { buildPulseScopeKey, resolvePulseSlots, type ResolvedPulseSlot } from "./slot-resolution";
+import { buildPulseScopeKey, type ResolvedPulseSlot, resolvePulseSlots } from "./slot-resolution";
 
 export interface PulseEngineContext {
   repository: AppRepository;
@@ -49,7 +54,7 @@ const lastPulseTimestamp = (messages: AiMessage[], date: string): string => {
 const recordMissedSlot = async (
   repository: AppRepository,
   slot: ResolvedPulseSlot,
-  createdAt: string
+  createdAt: string,
 ): Promise<void> => {
   const message: AiMessage = {
     id: createEntityId("ai-message"),
@@ -68,7 +73,7 @@ const recordMissedSlot = async (
     tokensPrompt: null,
     tokensCompletion: null,
     latencyMs: null,
-    createdAt
+    createdAt,
   };
 
   await repository.saveAiMessage(message);
@@ -77,10 +82,10 @@ const recordMissedSlot = async (
 const recordLocalPulse = async (
   repository: AppRepository,
   slot: ResolvedPulseSlot,
-  settings: AppSettings,
+  _settings: AppSettings,
   deltaClass: AiMessage["deltaClass"],
   pulseBody: ReturnType<typeof buildLocalCoachPulse>,
-  createdAt: string
+  createdAt: string,
 ): Promise<CoachPulseResult> => {
   const message: AiMessage = {
     id: createEntityId("ai-message"),
@@ -99,7 +104,7 @@ const recordLocalPulse = async (
     tokensPrompt: null,
     tokensCompletion: null,
     latencyMs: null,
-    createdAt
+    createdAt,
   };
 
   const saved = await repository.saveAiMessage(message);
@@ -107,7 +112,7 @@ const recordLocalPulse = async (
     message: saved,
     pulse: pulseBody,
     proposals: [],
-    source: "local"
+    source: "local",
   };
 };
 
@@ -115,7 +120,7 @@ export const ensureFirstOpenRecorded = async (
   settings: AppSettings,
   date: string,
   nowIso: string,
-  saveSettings: (settings: AppSettings) => Promise<void>
+  saveSettings: (settings: AppSettings) => Promise<void>,
 ): Promise<AppSettings> => {
   if (settings.aiPulseFirstOpenAt[date]) {
     return settings;
@@ -125,8 +130,8 @@ export const ensureFirstOpenRecorded = async (
     ...settings,
     aiPulseFirstOpenAt: {
       ...settings.aiPulseFirstOpenAt,
-      [date]: nowIso
-    }
+      [date]: nowIso,
+    },
   };
 
   await saveSettings(nextSettings);
@@ -145,7 +150,12 @@ export const runPulseEngine = async (context: PulseEngineContext): Promise<Pulse
   const date = toLocalDateString(atIso);
   const dayOfWeek = new Date(atIso).getDay();
 
-  const settings = await ensureFirstOpenRecorded(context.settings, date, atIso, context.saveSettings);
+  const settings = await ensureFirstOpenRecorded(
+    context.settings,
+    date,
+    atIso,
+    context.saveSettings,
+  );
   const todayMessages = await context.repository.listAiMessagesForDate(date);
   const processedScopeKeys = processedScopeKeysFromMessages(todayMessages);
 
@@ -154,7 +164,7 @@ export const runPulseEngine = async (context: PulseEngineContext): Promise<Pulse
     nowIso: atIso,
     slotHours: settings.aiPulseSlots,
     firstOpenAtIso: settings.aiPulseFirstOpenAt[date] ?? null,
-    processedScopeKeys
+    processedScopeKeys,
   });
 
   let recordedMissed = 0;
@@ -179,7 +189,7 @@ export const runPulseEngine = async (context: PulseEngineContext): Promise<Pulse
   const sinceIso = lastPulseTimestamp(todayMessages, date);
   const [focusSessions, tasks] = await Promise.all([
     context.repository.listPomodoroSessions(date),
-    context.repository.listTasks({ includeCompleted: true })
+    context.repository.listTasks({ includeCompleted: true }),
   ]);
 
   const window = classifyPulseWindow({
@@ -188,7 +198,7 @@ export const runPulseEngine = async (context: PulseEngineContext): Promise<Pulse
     focusSessions,
     tasks,
     appOpenIntervals: context.appOpenIntervals,
-    dayOfWeek
+    dayOfWeek,
   });
 
   if (window.deltaClass === "idle" || window.deltaClass === "unknown") {
@@ -203,7 +213,7 @@ export const runPulseEngine = async (context: PulseEngineContext): Promise<Pulse
       settings,
       window.deltaClass,
       localPulse,
-      atIso
+      atIso,
     );
 
     return { ranSlot: dueSlot, result, recordedMissed: missedSlots.length };
@@ -218,7 +228,7 @@ export const runPulseEngine = async (context: PulseEngineContext): Promise<Pulse
     snapshotInputs,
     trigger: "auto",
     deltaClass: window.deltaClass,
-    slotHour: dueSlot.hour
+    slotHour: dueSlot.hour,
   });
 
   const notification = evaluatePulseNotification({
@@ -227,19 +237,19 @@ export const runPulseEngine = async (context: PulseEngineContext): Promise<Pulse
     nowIso: atIso,
     dayOfWeek,
     todayMessages: messagesForNotification,
-    focusSessionActive: context.focusSessionActive
+    focusSessionActive: context.focusSessionActive,
   });
 
   if (notification.shouldNotify) {
     const notified = await notifyPomodoroCompletion(
       t("coachDayPaused", { ns: "notifications" }),
-      result.pulse.headline
+      result.pulse.headline,
     );
 
     if (notified) {
       await context.repository.saveAiMessage({
         ...result.message,
-        notified: true
+        notified: true,
       });
       result.message.notified = true;
     }

@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useTaskSelection } from "../app/use-task-selection";
-import { useGtdWorkspace } from "../app/use-gtd";
 import { useAppContext } from "../app/app-context";
+import { useGtdWorkspace } from "../app/use-gtd";
+import { useTaskSelection } from "../app/use-task-selection";
 import { BulkTaskToolbar } from "../components/BulkTaskToolbar";
 import { GtdTaskCard } from "../components/GtdTaskCard";
 import { SectionCard } from "../components/SectionCard";
+import type { RecurringPreviewOccurrence } from "../domain/types";
 import { formatDateLong, formatDateTimeShort, getTodayDate } from "../lib/date";
 import { addDays, getWeekStartSunday } from "../lib/gtd/shared";
-import type { RecurringPreviewOccurrence } from "../domain/types";
 
 export const ScheduledPage = () => {
   const { t } = useTranslation("gtd");
@@ -26,7 +26,7 @@ export const ScheduledPage = () => {
     cancelTask,
     cancelTasks,
     clearPastRecurrences,
-    moveTasksToBucket
+    moveTasksToBucket,
   } = useGtdWorkspace();
   const [selectedDate, setSelectedDate] = useState(getTodayDate());
   const [viewMode, setViewMode] = useState<"day" | "week">("day");
@@ -36,43 +36,43 @@ export const ScheduledPage = () => {
 
   const plannedTasks = useMemo(
     () =>
-      tasks.filter(
-        (task) => task.scheduledFor && task.scheduledFor.slice(0, 10) === selectedDate
-      ),
-    [selectedDate, tasks]
+      tasks.filter((task) => task.scheduledFor && task.scheduledFor.slice(0, 10) === selectedDate),
+    [selectedDate, tasks],
   );
   const deadlineTasks = useMemo(
     () => tasks.filter((task) => task.deadline === selectedDate),
-    [selectedDate, tasks]
+    [selectedDate, tasks],
   );
   const weekStartDate = useMemo(() => getWeekStartSunday(selectedDate), [selectedDate]);
   const weekDates = useMemo(
     () => Array.from({ length: 7 }, (_, index) => addDays(weekStartDate, index)),
-    [weekStartDate]
+    [weekStartDate],
   );
 
   const weekTasksByDate = useMemo(
     () =>
       weekDates.map((date) => ({
         date,
-        plannedTasks: tasks.filter((task) => task.scheduledFor && task.scheduledFor.slice(0, 10) === date),
-        deadlineTasks: tasks.filter((task) => task.deadline === date)
+        plannedTasks: tasks.filter(
+          (task) => task.scheduledFor && task.scheduledFor.slice(0, 10) === date,
+        ),
+        deadlineTasks: tasks.filter((task) => task.deadline === date),
       })),
-    [tasks, weekDates]
+    [tasks, weekDates],
   );
 
   const displayedTasks = useMemo(() => {
     if (viewMode === "day") {
       const grouped = [
         ...(showPlanned ? plannedTasks : []),
-        ...(showDeadlines ? deadlineTasks : [])
+        ...(showDeadlines ? deadlineTasks : []),
       ];
       return [...new Map(grouped.map((task) => [task.id, task])).values()];
     }
 
     const grouped = weekTasksByDate.flatMap((group) => [
       ...(showPlanned ? group.plannedTasks : []),
-      ...(showDeadlines ? group.deadlineTasks : [])
+      ...(showDeadlines ? group.deadlineTasks : []),
     ]);
     return [...new Map(grouped.map((task) => [task.id, task])).values()];
   }, [deadlineTasks, plannedTasks, showDeadlines, showPlanned, viewMode, weekTasksByDate]);
@@ -82,7 +82,10 @@ export const ScheduledPage = () => {
     let cancelled = false;
 
     const loadPreviews = async () => {
-      const nextPreviews = await repository.listRecurringPreviewOccurrences(selectedDate, addDays(selectedDate, 30));
+      const nextPreviews = await repository.listRecurringPreviewOccurrences(
+        selectedDate,
+        addDays(selectedDate, 30),
+      );
       if (!cancelled) {
         setPreviewOccurrences(nextPreviews);
       }
@@ -95,7 +98,8 @@ export const ScheduledPage = () => {
     };
   }, [repository, selectedDate]);
 
-  const previewForDate = (date: string) => previewOccurrences.filter((preview) => preview.dueDate === date);
+  const previewForDate = (date: string) =>
+    previewOccurrences.filter((preview) => preview.dueDate === date);
   const scheduledPreviews = previewForDate(selectedDate);
 
   return (
@@ -104,9 +108,7 @@ export const ScheduledPage = () => {
         <div>
           <p className="eyebrow">{t("scheduled.hero.eyebrow")}</p>
           <h2>{t("scheduled.hero.title")}</h2>
-          <p className="hero__copy">
-            {t("scheduled.hero.copy")}
-          </p>
+          <p className="hero__copy">{t("scheduled.hero.copy")}</p>
         </div>
       </header>
 
@@ -114,7 +116,11 @@ export const ScheduledPage = () => {
         <div className="history-toolbar">
           <label className="stacked-field">
             <span>{t("scheduled.range.dateLabel")}</span>
-            <input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(event) => setSelectedDate(event.target.value)}
+            />
           </label>
           <div className="stacked-field">
             <span>{t("scheduled.range.viewLabel")}</span>
@@ -166,13 +172,13 @@ export const ScheduledPage = () => {
                 planned: plannedTasks.length,
                 deadlines: deadlineTasks.length,
                 previews: scheduledPreviews.length,
-                date: selectedDate
+                date: selectedDate,
               })
             : t("scheduled.list.subtitleWeek", {
                 count: displayedTasks.length,
                 previews: weekDates.reduce((total, date) => total + previewForDate(date).length, 0),
                 start: weekStartDate,
-                end: weekDates[6]
+                end: weekDates[6],
               })
         }
       >
@@ -199,7 +205,10 @@ export const ScheduledPage = () => {
 
         {loading ? (
           <p>{t("scheduled.loading")}</p>
-        ) : displayedTasks.length === 0 && (viewMode === "week" ? weekDates.every((date) => previewForDate(date).length === 0) : scheduledPreviews.length === 0) ? (
+        ) : displayedTasks.length === 0 &&
+          (viewMode === "week"
+            ? weekDates.every((date) => previewForDate(date).length === 0)
+            : scheduledPreviews.length === 0) ? (
           <p className="empty-copy">
             {viewMode === "day" ? t("scheduled.empty.day") : t("scheduled.empty.week")}
           </p>
@@ -208,31 +217,33 @@ export const ScheduledPage = () => {
             {showPlanned ? (
               <section className="schedule-section">
                 <h3 className="schedule-section__title">{t("scheduled.section.planned")}</h3>
-                {plannedTasks.length === 0 ? <p className="empty-copy">{t("scheduled.section.plannedEmpty")}</p> : (
+                {plannedTasks.length === 0 ? (
+                  <p className="empty-copy">{t("scheduled.section.plannedEmpty")}</p>
+                ) : (
                   <div className="task-list">
                     {plannedTasks.map((task) => (
-              <GtdTaskCard
-                key={task.id}
-                task={task}
-                contexts={contexts}
-                projects={projects}
-                selected={selection.isSelected(task.id)}
-                onToggleSelected={selection.toggleTask}
-                onSave={async (nextTask) => {
-                  await saveTask(nextTask);
-                }}
-                onSaveContext={saveContext}
-                onApplyRecurringEditScope={applyRecurringEditScope}
-                onComplete={async (taskId) => {
-                  await completeTask(taskId);
-                }}
-                onCancel={async (taskId) => {
-                  await cancelTask(taskId);
-                }}
-                onClearPastRecurrences={async (taskId) => {
-                  await clearPastRecurrences(taskId);
-                }}
-              />
+                      <GtdTaskCard
+                        key={task.id}
+                        task={task}
+                        contexts={contexts}
+                        projects={projects}
+                        selected={selection.isSelected(task.id)}
+                        onToggleSelected={selection.toggleTask}
+                        onSave={async (nextTask) => {
+                          await saveTask(nextTask);
+                        }}
+                        onSaveContext={saveContext}
+                        onApplyRecurringEditScope={applyRecurringEditScope}
+                        onComplete={async (taskId) => {
+                          await completeTask(taskId);
+                        }}
+                        onCancel={async (taskId) => {
+                          await cancelTask(taskId);
+                        }}
+                        onClearPastRecurrences={async (taskId) => {
+                          await clearPastRecurrences(taskId);
+                        }}
+                      />
                     ))}
                   </div>
                 )}
@@ -242,7 +253,9 @@ export const ScheduledPage = () => {
             {showDeadlines ? (
               <section className="schedule-section">
                 <h3 className="schedule-section__title">{t("scheduled.section.deadlines")}</h3>
-                {deadlineTasks.length === 0 ? <p className="empty-copy">{t("scheduled.section.deadlinesEmpty")}</p> : (
+                {deadlineTasks.length === 0 ? (
+                  <p className="empty-copy">{t("scheduled.section.deadlinesEmpty")}</p>
+                ) : (
                   <div className="task-list">
                     {deadlineTasks.map((task) => (
                       <GtdTaskCard
@@ -281,10 +294,14 @@ export const ScheduledPage = () => {
                     <span className="task-card__meta-row">
                       <span className="task-card__bucket">{t("scheduled.preview.badge")}</span>
                       <span className="task-card__context-copy">
-                        {preview.targetBucket === "next_action" ? t("scheduled.preview.toNextActions") : t("scheduled.preview.toScheduled")}
+                        {preview.targetBucket === "next_action"
+                          ? t("scheduled.preview.toNextActions")
+                          : t("scheduled.preview.toScheduled")}
                       </span>
                       {preview.scheduledFor ? (
-                        <span className={`task-card__date-pill${preview.status === "overdue_preview" ? " task-card__date-pill--overdue" : ""}`}>
+                        <span
+                          className={`task-card__date-pill${preview.status === "overdue_preview" ? " task-card__date-pill--overdue" : ""}`}
+                        >
                           {formatDateTimeShort(preview.scheduledFor)}
                         </span>
                       ) : null}
@@ -300,7 +317,13 @@ export const ScheduledPage = () => {
               <section key={group.date} className="schedule-day-group">
                 <header className="schedule-day-group__header">
                   <h3>{formatDateLong(group.date)}</h3>
-                  <span>{t("scheduled.weekDay.count", { count: (showPlanned ? group.plannedTasks.length : 0) + (showDeadlines ? group.deadlineTasks.length : 0) })}</span>
+                  <span>
+                    {t("scheduled.weekDay.count", {
+                      count:
+                        (showPlanned ? group.plannedTasks.length : 0) +
+                        (showDeadlines ? group.deadlineTasks.length : 0),
+                    })}
+                  </span>
                 </header>
 
                 {(showPlanned ? group.plannedTasks.length : 0) === 0 &&
@@ -311,32 +334,36 @@ export const ScheduledPage = () => {
                   <div className="schedule-day-split">
                     {showPlanned ? (
                       <section className="schedule-section">
-                        <h4 className="schedule-section__title">{t("scheduled.section.planned")}</h4>
-                        {group.plannedTasks.length === 0 ? <p className="empty-copy">{t("scheduled.weekDay.sectionEmpty")}</p> : (
+                        <h4 className="schedule-section__title">
+                          {t("scheduled.section.planned")}
+                        </h4>
+                        {group.plannedTasks.length === 0 ? (
+                          <p className="empty-copy">{t("scheduled.weekDay.sectionEmpty")}</p>
+                        ) : (
                           <div className="task-list">
                             {group.plannedTasks.map((task) => (
-                      <GtdTaskCard
-                        key={task.id}
-                        task={task}
-                        contexts={contexts}
-                        projects={projects}
-                        selected={selection.isSelected(task.id)}
-                        onToggleSelected={selection.toggleTask}
-                        onSave={async (nextTask) => {
-                          await saveTask(nextTask);
-                        }}
-                        onSaveContext={saveContext}
-                        onApplyRecurringEditScope={applyRecurringEditScope}
-                        onComplete={async (taskId) => {
-                          await completeTask(taskId);
-                        }}
-                        onCancel={async (taskId) => {
-                          await cancelTask(taskId);
-                        }}
-                        onClearPastRecurrences={async (taskId) => {
-                          await clearPastRecurrences(taskId);
-                        }}
-                      />
+                              <GtdTaskCard
+                                key={task.id}
+                                task={task}
+                                contexts={contexts}
+                                projects={projects}
+                                selected={selection.isSelected(task.id)}
+                                onToggleSelected={selection.toggleTask}
+                                onSave={async (nextTask) => {
+                                  await saveTask(nextTask);
+                                }}
+                                onSaveContext={saveContext}
+                                onApplyRecurringEditScope={applyRecurringEditScope}
+                                onComplete={async (taskId) => {
+                                  await completeTask(taskId);
+                                }}
+                                onCancel={async (taskId) => {
+                                  await cancelTask(taskId);
+                                }}
+                                onClearPastRecurrences={async (taskId) => {
+                                  await clearPastRecurrences(taskId);
+                                }}
+                              />
                             ))}
                           </div>
                         )}
@@ -345,8 +372,12 @@ export const ScheduledPage = () => {
 
                     {showDeadlines ? (
                       <section className="schedule-section">
-                        <h4 className="schedule-section__title">{t("scheduled.section.deadlines")}</h4>
-                        {group.deadlineTasks.length === 0 ? <p className="empty-copy">{t("scheduled.weekDay.sectionEmpty")}</p> : (
+                        <h4 className="schedule-section__title">
+                          {t("scheduled.section.deadlines")}
+                        </h4>
+                        {group.deadlineTasks.length === 0 ? (
+                          <p className="empty-copy">{t("scheduled.weekDay.sectionEmpty")}</p>
+                        ) : (
                           <div className="task-list">
                             {group.deadlineTasks.map((task) => (
                               <GtdTaskCard
@@ -383,12 +414,18 @@ export const ScheduledPage = () => {
                           <div className="task-card__toggle">
                             <span className="task-card__title">{preview.title}</span>
                             <span className="task-card__meta-row">
-                              <span className="task-card__bucket">{t("scheduled.preview.badge")}</span>
+                              <span className="task-card__bucket">
+                                {t("scheduled.preview.badge")}
+                              </span>
                               <span className="task-card__context-copy">
-                                {preview.targetBucket === "next_action" ? t("scheduled.preview.toNextActions") : t("scheduled.preview.toScheduled")}
+                                {preview.targetBucket === "next_action"
+                                  ? t("scheduled.preview.toNextActions")
+                                  : t("scheduled.preview.toScheduled")}
                               </span>
                               {preview.scheduledFor ? (
-                                <span className={`task-card__date-pill${preview.status === "overdue_preview" ? " task-card__date-pill--overdue" : ""}`}>
+                                <span
+                                  className={`task-card__date-pill${preview.status === "overdue_preview" ? " task-card__date-pill--overdue" : ""}`}
+                                >
                                   {formatDateTimeShort(preview.scheduledFor)}
                                 </span>
                               ) : null}

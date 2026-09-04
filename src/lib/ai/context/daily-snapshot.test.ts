@@ -1,4 +1,9 @@
-import { createEmptyDailyEntry, updateMetric, updateNote, updatePrinciple } from "../../../domain/daily-entry";
+import {
+  createEmptyDailyEntry,
+  updateMetric,
+  updateNote,
+  updatePrinciple,
+} from "../../../domain/daily-entry";
 import type { PomodoroTaskSummary, Project, Task } from "../../../domain/types";
 import { buildDailySnapshot, type DailySnapshotInputs } from "./daily-snapshot";
 
@@ -25,7 +30,7 @@ const buildProject = (overrides: Partial<Project>): Project => ({
   sourceExternalId: null,
   createdAt: now,
   updatedAt: now,
-  ...overrides
+  ...overrides,
 });
 
 const buildTask = (overrides: Partial<Task>): Task => ({
@@ -49,19 +54,31 @@ const buildTask = (overrides: Partial<Task>): Task => ({
   sourceExternalId: null,
   createdAt: now,
   updatedAt: now,
-  ...overrides
+  ...overrides,
 });
 
 const buildInputs = (): DailySnapshotInputs => {
   const entry = buildEntry();
   const projectWithoutNextAction = buildProject({ id: "project:without-next-action" });
-  const projectWithNextAction = buildProject({ id: "project:with-next-action", title: "Projet actif" });
+  const projectWithNextAction = buildProject({
+    id: "project:with-next-action",
+    title: "Projet actif",
+  });
   const tasks: Task[] = [
-    buildTask({ id: "task:next-action", bucket: "next_action", projectId: projectWithNextAction.id })
+    buildTask({
+      id: "task:next-action",
+      bucket: "next_action",
+      projectId: projectWithNextAction.id,
+    }),
   ];
   const pomodoroTaskSummaries: PomodoroTaskSummary[] = [
-    { taskId: "task:next-action", taskTitle: "Tache prioritaire", totalSeconds: 3000, sessionCount: 4 },
-    { taskId: "task:other", taskTitle: "Autre tache", totalSeconds: 600, sessionCount: 1 }
+    {
+      taskId: "task:next-action",
+      taskTitle: "Tache prioritaire",
+      totalSeconds: 3000,
+      sessionCount: 4,
+    },
+    { taskId: "task:other", taskTitle: "Autre tache", totalSeconds: 600, sessionCount: 1 },
   ];
 
   return {
@@ -74,7 +91,7 @@ const buildInputs = (): DailySnapshotInputs => {
     completedFocusSessionCount: 5,
     productivityPulseWeekToDate: 70,
     rescuetimeConfigured: true,
-    now
+    now,
   };
 };
 
@@ -83,7 +100,9 @@ describe("daily snapshot context builder", () => {
     const snapshot = buildDailySnapshot(buildInputs(), "metrics");
 
     expect(snapshot.metrics.find((metric) => metric.key === "pomodoris")?.todayValue).toBe(6);
-    expect(snapshot.principles.find((principle) => principle.key === "priereDuMatin")?.todayValue).toBe(true);
+    expect(
+      snapshot.principles.find((principle) => principle.key === "priereDuMatin")?.todayValue,
+    ).toBe(true);
     expect(snapshot.gtd.projectsWithoutNextAction).toBe(1);
     expect(snapshot.findings.length).toBeGreaterThan(0);
   });
@@ -93,9 +112,11 @@ describe("daily snapshot context builder", () => {
     const json = JSON.parse(JSON.stringify(snapshot));
 
     expect("notes" in json).toBe(false);
-    expect(json.gtd.projectsWithoutNextActionSample.every((item: { title?: string }) => !("title" in item))).toBe(
-      true
-    );
+    expect(
+      json.gtd.projectsWithoutNextActionSample.every(
+        (item: { title?: string }) => !("title" in item),
+      ),
+    ).toBe(true);
     expect("title" in json.pomodoro.topTask).toBe(false);
   });
 
@@ -107,9 +128,18 @@ describe("daily snapshot context builder", () => {
     const entry = buildEntry();
     const projectWithNextAction = buildProject({ id: "project:with-next-action" });
     const tasks: Task[] = [
-      buildTask({ id: "task:next-action", bucket: "next_action", projectId: projectWithNextAction.id }),
+      buildTask({
+        id: "task:next-action",
+        bucket: "next_action",
+        projectId: projectWithNextAction.id,
+      }),
       buildTask({ id: "task:scheduled", bucket: "scheduled" }),
-      buildTask({ id: "task:completed", status: "completed", bucket: "next_action", completedAt: now })
+      buildTask({
+        id: "task:completed",
+        status: "completed",
+        bucket: "next_action",
+        completedAt: now,
+      }),
     ];
     const inputs: DailySnapshotInputs = {
       date: "2026-02-01",
@@ -121,7 +151,7 @@ describe("daily snapshot context builder", () => {
       completedFocusSessionCount: 5,
       productivityPulseWeekToDate: 70,
       rescuetimeConfigured: true,
-      now
+      now,
     };
 
     const snapshot = buildDailySnapshot(inputs, "metrics");
@@ -132,7 +162,9 @@ describe("daily snapshot context builder", () => {
     // Sanity check: the scheduled-vs-completed finding that normally carries these ids is actually
     // present with a non-empty population, so the assertion above exercises the redaction rather
     // than an empty findings array.
-    const ratioFinding = snapshot.findings.find((finding) => finding.id.startsWith("gtd_health:scheduled_vs_completed_ratio"));
+    const ratioFinding = snapshot.findings.find((finding) =>
+      finding.id.startsWith("gtd_health:scheduled_vs_completed_ratio"),
+    );
     expect(ratioFinding).toBeDefined();
     expect(ratioFinding?.sampleSize).toBeGreaterThan(0);
   });
@@ -141,7 +173,12 @@ describe("daily snapshot context builder", () => {
     const entry = buildEntry();
     const tasks: Task[] = [
       buildTask({ id: "task:scheduled", bucket: "scheduled" }),
-      buildTask({ id: "task:completed", status: "completed", bucket: "next_action", completedAt: now })
+      buildTask({
+        id: "task:completed",
+        status: "completed",
+        bucket: "next_action",
+        completedAt: now,
+      }),
     ];
     const inputs: DailySnapshotInputs = {
       date: "2026-02-01",
@@ -153,7 +190,7 @@ describe("daily snapshot context builder", () => {
       completedFocusSessionCount: 5,
       productivityPulseWeekToDate: 70,
       rescuetimeConfigured: true,
-      now
+      now,
     };
 
     const snapshot = buildDailySnapshot(inputs, "metrics_and_structure");

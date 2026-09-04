@@ -68,5 +68,3 @@ AGENTS.md
 - [`PRD.md`](../PRD.md) is a historical roadmap and may contain unshipped ideas.
 - [`README.md`](../README.md) is the short entry point, not the complete technical
   reference.
-- `Tasks.json` is a gitignored local Google Tasks export bundled by the current
-  source tree; it may contain personal data and must not be copied into docs.

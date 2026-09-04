@@ -465,13 +465,11 @@ snapshot.
 
 See [Storage and backups](storage-and-backups.md) for the actual backup mechanism.
 
-## GTD import controls
+## GTD overview
 
-Settings displays current task/project/context counts and the last import timestamp.
-The manual action reruns the bundled `Tasks.json` import, updates the timestamp, and
-relies on stable IDs/conflict handling to avoid duplicate rows.
-
-The screen does not accept a file upload and does not connect to Google.
+Settings displays current task/project/context counts and the last import timestamp
+when one was recorded historically. There is no in-app Google Tasks re-import and no
+bundled export file.
 
 ## Debug mode
 

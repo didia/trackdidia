@@ -35,15 +35,22 @@ export const computeCorrelationFindings = (entries: DailyEntry[]): CorrelationFi
       continue;
     }
 
-    const meanDisciplineWhenTrue = average(trueEntries.map((entry) => computeDisciplineScore(entry)));
-    const meanDisciplineWhenFalse = average(falseEntries.map((entry) => computeDisciplineScore(entry)));
+    const meanDisciplineWhenTrue = average(
+      trueEntries.map((entry) => computeDisciplineScore(entry)),
+    );
+    const meanDisciplineWhenFalse = average(
+      falseEntries.map((entry) => computeDisciplineScore(entry)),
+    );
     const diff = meanDisciplineWhenTrue - meanDisciplineWhenFalse;
     const qualifyingDates = [...trueEntries, ...falseEntries].map((entry) => entry.date).sort();
 
     findings.push({
       id: `correlation:${key}`,
       severity: diff >= 0.1 ? "positive" : diff <= -0.1 ? "watch" : "info",
-      evidenceWindow: buildEvidenceWindow(qualifyingDates[0], qualifyingDates[qualifyingDates.length - 1]),
+      evidenceWindow: buildEvidenceWindow(
+        qualifyingDates[0],
+        qualifyingDates[qualifyingDates.length - 1],
+      ),
       sampleSize,
       value: diff,
       label: t("correlationDiscipline", {
@@ -51,14 +58,14 @@ export const computeCorrelationFindings = (entries: DailyEntry[]): CorrelationFi
         label: t(`${key}.label`, { ns: "principles" }),
         pctTrue: Math.round(meanDisciplineWhenTrue * 100),
         pctFalse: Math.round(meanDisciplineWhenFalse * 100),
-        count: sampleSize
+        count: sampleSize,
       }),
       principleKey: key,
       meanDisciplineWhenTrue,
       meanDisciplineWhenFalse,
       sampleSizeTrue: trueEntries.length,
       sampleSizeFalse: falseEntries.length,
-      diff
+      diff,
     });
   }
 

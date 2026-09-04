@@ -31,7 +31,9 @@ const lastTwoScheduledStances = (messages: AiMessage[]): AiDeltaClass[] =>
  * Deterministic OS notification policy (spec §6.4).
  * Silent by default; second consecutive stall on configured weekdays only.
  */
-export const evaluatePulseNotification = (context: PulseNotificationContext): PulseNotificationDecision => {
+export const evaluatePulseNotification = (
+  context: PulseNotificationContext,
+): PulseNotificationDecision => {
   if (!context.settings.aiPulseNotifyEnabled) {
     return { shouldNotify: false, reason: "notifications_disabled" };
   }

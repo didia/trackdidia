@@ -64,7 +64,9 @@ export const formatUnknownError = (error: unknown): string => {
 
 export const getDebugEntries = (): DebugLogEntry[] => entries;
 
-export const subscribeToDebugLogs = (listener: (entries: DebugLogEntry[]) => void): (() => void) => {
+export const subscribeToDebugLogs = (
+  listener: (entries: DebugLogEntry[]) => void,
+): (() => void) => {
   listeners.add(listener);
   listener(entries);
   return () => {
@@ -82,10 +84,14 @@ export const logDebug = (
   level: DebugLevel,
   scope: string,
   message: string,
-  details?: unknown
+  details?: unknown,
 ): DebugLogEntry => {
   const detailText =
-    details === undefined ? undefined : typeof details === "string" ? details : formatUnknownError(details);
+    details === undefined
+      ? undefined
+      : typeof details === "string"
+        ? details
+        : formatUnknownError(details);
 
   const entry: DebugLogEntry = {
     id: nextId++,
@@ -93,7 +99,7 @@ export const logDebug = (
     level,
     scope,
     message,
-    details: detailText
+    details: detailText,
   };
 
   entries = [...entries, entry].slice(-200);
@@ -131,4 +137,3 @@ export const installDebugInstrumentation = (): void => {
     logDebug("error", "window.unhandledrejection", "Promise non geree", event.reason);
   });
 };
-

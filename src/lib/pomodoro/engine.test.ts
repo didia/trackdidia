@@ -1,3 +1,4 @@
+import type { Task } from "../../domain/types";
 import {
   buildPomodoroSessionDetails,
   buildPomodoroState,
@@ -5,10 +6,9 @@ import {
   computeDailyPomodoroStats,
   createPomodoroSegment,
   createPomodoroSession,
+  getPomodoroRunningBreakSessionIdsToAutoCompleteWhenReset,
   getPomodoroTiming,
-  getPomodoroRunningBreakSessionIdsToAutoCompleteWhenReset
 } from "./engine";
-import type { Task } from "../../domain/types";
 
 describe("pomodoro engine", () => {
   it("calculates running and paused timing at the focus completion boundary", () => {
@@ -18,12 +18,17 @@ describe("pomodoro engine", () => {
     expect(getPomodoroTiming(running, halfway)).toEqual({
       remainingMs: 12 * 60 * 1000 + 30 * 1000,
       canCompleteNow: true,
-      valid: true
+      valid: true,
     });
-    expect(getPomodoroTiming({ ...running, status: "paused", pausedRemainingMs: 30 * 60 * 1000 }, halfway + 999_999)).toEqual({
+    expect(
+      getPomodoroTiming(
+        { ...running, status: "paused", pausedRemainingMs: 30 * 60 * 1000 },
+        halfway + 999_999,
+      ),
+    ).toEqual({
       remainingMs: 25 * 60 * 1000,
       canCompleteNow: false,
-      valid: true
+      valid: true,
     });
   });
 
@@ -33,24 +38,26 @@ describe("pomodoro engine", () => {
     expect(getPomodoroTiming({ ...breakSession, endsAt: "not-a-date" }, Date.now())).toEqual({
       remainingMs: 0,
       canCompleteNow: false,
-      valid: false
+      valid: false,
     });
-    expect(getPomodoroTiming({ ...breakSession, status: "paused", pausedRemainingMs: -1 }, Date.now())).toEqual({
+    expect(
+      getPomodoroTiming({ ...breakSession, status: "paused", pausedRemainingMs: -1 }, Date.now()),
+    ).toEqual({
       remainingMs: 0,
       canCompleteNow: false,
-      valid: false
+      valid: false,
     });
     expect(getPomodoroTiming(breakSession, new Date(breakSession.endsAt).getTime())).toEqual({
       remainingMs: 0,
       canCompleteNow: false,
-      valid: true
+      valid: true,
     });
   });
 
   it("keeps a running session with a malformed deadline active for recovery", () => {
     const corruptRunning = {
       ...createPomodoroSession("focus", "2026-04-01T09:00:00.000Z", 1),
-      endsAt: "not-a-date"
+      endsAt: "not-a-date",
     };
 
     const state = buildPomodoroState([corruptRunning], [], "2026-04-01T10:00:00.000Z");
@@ -58,7 +65,7 @@ describe("pomodoro engine", () => {
     expect(state.activeSession).toMatchObject({
       id: corruptRunning.id,
       status: "running",
-      endsAt: "not-a-date"
+      endsAt: "not-a-date",
     });
   });
 
@@ -68,44 +75,44 @@ describe("pomodoro engine", () => {
         ...createPomodoroSession("focus", "2026-04-01T09:00:00.000Z", 1),
         status: "completed" as const,
         completedAt: "2026-04-01T09:25:00.000Z",
-        endsAt: "2026-04-01T09:25:00.000Z"
+        endsAt: "2026-04-01T09:25:00.000Z",
       },
       {
         ...createPomodoroSession("short_break", "2026-04-01T09:25:00.000Z", 1),
         status: "completed" as const,
         completedAt: "2026-04-01T09:30:00.000Z",
-        endsAt: "2026-04-01T09:30:00.000Z"
+        endsAt: "2026-04-01T09:30:00.000Z",
       },
       {
         ...createPomodoroSession("focus", "2026-04-01T09:30:00.000Z", 2),
         status: "completed" as const,
         completedAt: "2026-04-01T09:55:00.000Z",
-        endsAt: "2026-04-01T09:55:00.000Z"
+        endsAt: "2026-04-01T09:55:00.000Z",
       },
       {
         ...createPomodoroSession("short_break", "2026-04-01T09:55:00.000Z", 2),
         status: "completed" as const,
         completedAt: "2026-04-01T10:00:00.000Z",
-        endsAt: "2026-04-01T10:00:00.000Z"
+        endsAt: "2026-04-01T10:00:00.000Z",
       },
       {
         ...createPomodoroSession("focus", "2026-04-01T10:00:00.000Z", 3),
         status: "completed" as const,
         completedAt: "2026-04-01T10:25:00.000Z",
-        endsAt: "2026-04-01T10:25:00.000Z"
+        endsAt: "2026-04-01T10:25:00.000Z",
       },
       {
         ...createPomodoroSession("short_break", "2026-04-01T10:25:00.000Z", 3),
         status: "completed" as const,
         completedAt: "2026-04-01T10:30:00.000Z",
-        endsAt: "2026-04-01T10:30:00.000Z"
+        endsAt: "2026-04-01T10:30:00.000Z",
       },
       {
         ...createPomodoroSession("focus", "2026-04-01T10:30:00.000Z", 4),
         status: "completed" as const,
         completedAt: "2026-04-01T10:55:00.000Z",
-        endsAt: "2026-04-01T10:55:00.000Z"
-      }
+        endsAt: "2026-04-01T10:55:00.000Z",
+      },
     ];
 
     const state = buildPomodoroState(sessions, [], "2026-04-01T10:56:00.000Z");
@@ -119,7 +126,7 @@ describe("pomodoro engine", () => {
     const session = createPomodoroSession("focus", "2026-04-01T11:00:00.000Z", 2);
     const firstSegment = {
       ...createPomodoroSegment(session.id, "2026-04-01T11:00:00.000Z", "task-1"),
-      endedAt: "2026-04-01T11:10:00.000Z"
+      endedAt: "2026-04-01T11:10:00.000Z",
     };
     const secondSegment = createPomodoroSegment(session.id, "2026-04-01T11:10:00.000Z", "task-2");
 
@@ -134,11 +141,11 @@ describe("pomodoro engine", () => {
     const session = {
       ...createPomodoroSession("focus", "2026-04-01T11:00:00.000Z", 2),
       status: "paused" as const,
-      pausedRemainingMs: 8 * 60 * 1000
+      pausedRemainingMs: 8 * 60 * 1000,
     };
     const segment = {
       ...createPomodoroSegment(session.id, "2026-04-01T11:00:00.000Z", "task-2"),
-      endedAt: "2026-04-01T11:17:00.000Z"
+      endedAt: "2026-04-01T11:17:00.000Z",
     };
 
     const details = buildPomodoroSessionDetails([session], [segment]);
@@ -155,8 +162,8 @@ describe("pomodoro engine", () => {
         ...createPomodoroSession("focus", "2026-04-01T09:00:00.000Z", 2),
         status: "completed" as const,
         completedAt: "2026-04-01T09:25:00.000Z",
-        endsAt: "2026-04-01T09:25:00.000Z"
-      }
+        endsAt: "2026-04-01T09:25:00.000Z",
+      },
     ];
 
     const state = buildPomodoroState(sessions, [], "2026-04-01T09:51:00.000Z");
@@ -183,7 +190,7 @@ describe("pomodoro engine", () => {
       ...createPomodoroSession("focus", "2026-04-01T06:00:00.000Z", 2),
       status: "completed" as const,
       completedAt: "2026-04-01T06:25:00.000Z",
-      endsAt: "2026-04-01T06:25:00.000Z"
+      endsAt: "2026-04-01T06:25:00.000Z",
     };
     const liveBreak = createPomodoroSession("short_break", "2026-04-01T08:50:00.000Z", 2);
     const sessions = [focusDone, liveBreak];
@@ -194,12 +201,19 @@ describe("pomodoro engine", () => {
     expect(state.currentCycleIndex).toBe(1);
     expect(state.nextSessionKind).toBe("focus");
 
-    expect(getPomodoroRunningBreakSessionIdsToAutoCompleteWhenReset(sessions, now)).toEqual([liveBreak.id]);
+    expect(getPomodoroRunningBreakSessionIdsToAutoCompleteWhenReset(sessions, now)).toEqual([
+      liveBreak.id,
+    ]);
   });
 
   it("tracks a free-form title inside a running focus session", () => {
     const session = createPomodoroSession("focus", "2026-04-01T11:00:00.000Z", 1);
-    const segment = createPomodoroSegment(session.id, "2026-04-01T11:00:00.000Z", null, "Inbox zero");
+    const segment = createPomodoroSegment(
+      session.id,
+      "2026-04-01T11:00:00.000Z",
+      null,
+      "Inbox zero",
+    );
 
     const details = buildPomodoroSessionDetails([session], [segment]);
 
@@ -212,7 +226,7 @@ describe("pomodoro engine", () => {
       ...createPomodoroSession("focus", "2026-04-01T11:00:00.000Z", 1),
       status: "completed" as const,
       completedAt: "2026-04-01T11:25:00.000Z",
-      endsAt: "2026-04-01T11:25:00.000Z"
+      endsAt: "2026-04-01T11:25:00.000Z",
     };
     const tasks: Task[] = [
       {
@@ -235,33 +249,39 @@ describe("pomodoro engine", () => {
         source: "manual",
         sourceExternalId: null,
         createdAt: "2026-04-01T10:00:00.000Z",
-        updatedAt: "2026-04-01T10:00:00.000Z"
-      }
+        updatedAt: "2026-04-01T10:00:00.000Z",
+      },
     ];
 
     const segments = [
       {
         ...createPomodoroSegment(session.id, "2026-04-01T11:00:00.000Z", "task-1"),
-        endedAt: "2026-04-01T11:15:00.000Z"
+        endedAt: "2026-04-01T11:15:00.000Z",
       },
       {
         ...createPomodoroSegment(session.id, "2026-04-01T11:15:00.000Z", null, "Inbox zero"),
-        endedAt: "2026-04-01T11:25:00.000Z"
-      }
+        endedAt: "2026-04-01T11:25:00.000Z",
+      },
     ];
 
-    const summaries = buildPomodoroTaskSummaries([session], segments, tasks, "2026-04-01", "2026-04-01T12:00:00.000Z");
+    const summaries = buildPomodoroTaskSummaries(
+      [session],
+      segments,
+      tasks,
+      "2026-04-01",
+      "2026-04-01T12:00:00.000Z",
+    );
 
     expect(summaries).toEqual([
       expect.objectContaining({
         taskId: "task-1",
-        totalSeconds: 900
+        totalSeconds: 900,
       }),
       expect.objectContaining({
         taskId: null,
         taskTitle: "Inbox zero",
-        totalSeconds: 600
-      })
+        totalSeconds: 600,
+      }),
     ]);
     expect(computeDailyPomodoroStats([session], "2026-04-01").completedFocusSessions).toBe(1);
   });

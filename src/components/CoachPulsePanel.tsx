@@ -11,7 +11,7 @@ const proposalTypeKeys = {
   review_section_draft: "proposal.reviewSection",
   weekly_objective: "proposal.weeklyObjective",
   gtd_action: "proposal.gtdAction",
-  goal_evaluation: "proposal.goalEvaluation"
+  goal_evaluation: "proposal.goalEvaluation",
 } as const satisfies Partial<Record<AiProposal["type"], string>>;
 
 const principleLabel = (key: PrincipleKey | null | undefined): string | null => {
@@ -44,7 +44,7 @@ export const CoachPulsePanel = ({
   onRequestCoach,
   onRegenerate,
   onAcceptProposal,
-  onDismissProposal
+  onDismissProposal,
 }: CoachPulsePanelProps) => {
   const { t } = useTranslation("coach");
   const { t: tCommon } = useTranslation("common");
@@ -60,21 +60,28 @@ export const CoachPulsePanel = ({
   }
 
   const pulse = result?.pulse;
-  const pendingProposals = result?.proposals.filter((proposal) => proposal.status === "pending") ?? [];
+  const pendingProposals =
+    result?.proposals.filter((proposal) => proposal.status === "pending") ?? [];
   const principleRecovery = principleLabel(pulse?.principleToRecover);
 
   return (
     <section className="coach-card coach-pulse">
       <div className="coach-card__label">
         <span>{title}</span>
-        <small>{result ? translate(`source.${result.source}`, { ns: "coach" }) : tCommon("status.loading")}</small>
+        <small>
+          {result
+            ? translate(`source.${result.source}`, { ns: "coach" })
+            : tCommon("status.loading")}
+        </small>
       </div>
 
       {loading && !pulse ? <p>{t("pulse.preparing")}</p> : null}
 
       {pulse ? (
         <div className="coach-pulse__body">
-          <p className="coach-pulse__stance">{translate(`stance.${pulse.stance}`, { ns: "coach" })}</p>
+          <p className="coach-pulse__stance">
+            {translate(`stance.${pulse.stance}`, { ns: "coach" })}
+          </p>
           <h3 className="coach-pulse__headline">{pulse.headline}</h3>
           <p>{pulse.read}</p>
           {pulse.move ? (
@@ -129,30 +136,44 @@ export const CoachPulsePanel = ({
       ) : null}
 
       {result?.warning ? (
-        <small className="coach-card__warning">{t("warningFallbackPrefix", { warning: result.warning })}</small>
+        <small className="coach-card__warning">
+          {t("warningFallbackPrefix", { warning: result.warning })}
+        </small>
       ) : null}
 
       {pendingProposals.length > 0 ? (
         <div className="coach-pulse__proposals">
           <strong>{t("proposals")}</strong>
           {pendingProposals.map((proposal) => {
-            const payload = JSON.parse(proposal.payloadJson) as { text?: string; statement?: string; kind?: string };
+            const payload = JSON.parse(proposal.payloadJson) as {
+              text?: string;
+              statement?: string;
+              kind?: string;
+            };
             const preview =
               proposal.type === "memory"
                 ? `[${payload.kind ?? t("proposal.memoryKindFallback")}] ${payload.statement ?? ""}`
                 : proposal.type === "commitment"
-                  ? payload.statement ?? ""
-                  : payload.text ?? "";
+                  ? (payload.statement ?? "")
+                  : (payload.text ?? "");
             const typeKey = proposalTypeKeys[proposal.type];
             return (
               <article key={proposal.id} className="coach-pulse__proposal">
                 <span>{typeKey ? t(typeKey) : t("proposal.generic")}</span>
                 <p>{preview}</p>
                 <div className="section-actions">
-                  <button className="button button--primary" type="button" onClick={() => onAcceptProposal(proposal)}>
+                  <button
+                    className="button button--primary"
+                    type="button"
+                    onClick={() => onAcceptProposal(proposal)}
+                  >
                     {t("accept")}
                   </button>
-                  <button className="button button--ghost" type="button" onClick={() => onDismissProposal(proposal)}>
+                  <button
+                    className="button button--ghost"
+                    type="button"
+                    onClick={() => onDismissProposal(proposal)}
+                  >
                     {t("dismiss")}
                   </button>
                 </div>

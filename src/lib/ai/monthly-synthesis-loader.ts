@@ -1,7 +1,7 @@
 import type { AiMessage, MonthlySynthesisResult } from "../../domain/types";
-import { parseMonthlySynthesisJson } from "./proposals/monthly-synthesis-validator";
 import type { AppRepository } from "../storage/repository";
 import type { MonthlySynthesisService } from "./monthly-synthesis-service";
+import { parseMonthlySynthesisJson } from "./proposals/monthly-synthesis-validator";
 
 const sourceFromMessage = (message: AiMessage): MonthlySynthesisResult["source"] => {
   if (message.status === "ok") {
@@ -18,7 +18,7 @@ const sourceFromMessage = (message: AiMessage): MonthlySynthesisResult["source"]
 export const loadLatestMonthlySynthesis = async (
   repository: AppRepository,
   synthesisService: MonthlySynthesisService,
-  monthKey: string
+  monthKey: string,
 ): Promise<MonthlySynthesisResult | null> => {
   const messages = await repository.listAiMessages("monthly_synthesis", 20);
   const latest = messages
@@ -48,6 +48,6 @@ export const loadLatestMonthlySynthesis = async (
     message: latest,
     synthesis: parsed.value,
     proposals,
-    source: sourceFromMessage(latest)
+    source: sourceFromMessage(latest),
   };
 };

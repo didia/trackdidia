@@ -1,7 +1,7 @@
 import { createEmptyWeeklyObjective } from "../../domain/weekly-objectives";
 import { MemoryRepository } from "../storage/memory-repository";
-import { WeeklyObjectivesService } from "./weekly-objectives-service";
 import type { RescueTimeClient } from "./client";
+import { WeeklyObjectivesService } from "./weekly-objectives-service";
 
 describe("WeeklyObjectivesService", () => {
   it("computes a snapshot from repository data and a mocked RescueTime client", async () => {
@@ -14,34 +14,36 @@ describe("WeeklyObjectivesService", () => {
         kind: "time",
         targetHours: 2,
         rescuetimeKind: "category",
-        rescuetimeThing: "Software Development"
-      })
+        rescuetimeThing: "Software Development",
+      }),
     );
 
     await repository.saveWeeklyObjective(
       createEmptyWeeklyObjective({
         title: "Budget review",
-        kind: "manual"
-      })
+        kind: "manual",
+      }),
     );
 
+    const manual = (await repository.listWeeklyObjectives()).find((item) => item.kind === "manual");
+    expect(manual).toBeDefined();
     await repository.saveWeeklyObjectiveResult({
       weekStartDate: "2026-08-02",
-      objectiveId: (await repository.listWeeklyObjectives()).find((item) => item.kind === "manual")!.id,
+      objectiveId: manual!.id,
       achieved: true,
-      updatedAt: "2026-08-09T12:00:00.000Z"
+      updatedAt: "2026-08-09T12:00:00.000Z",
     });
 
     await repository.saveSettings({
       ...(await repository.getSettings()),
-      rescuetimeApiKey: "rt-test-key"
+      rescuetimeApiKey: "rt-test-key",
     });
 
     const mockClient: RescueTimeClient = {
       fetchAnalyticData: vi.fn(async () => ({
         row_headers: ["Rank", "Time Spent (seconds)", "Category"],
-        rows: [[1, 3600, "Software Development"]]
-      }))
+        rows: [[1, 3600, "Software Development"]],
+      })),
     };
 
     const service = new WeeklyObjectivesService(repository, mockClient);
@@ -51,15 +53,15 @@ describe("WeeklyObjectivesService", () => {
     expect(snapshot.items.find((item) => item.objective.id === objective.id)).toMatchObject({
       actualHours: 1,
       achievement: 0.5,
-      source: "rescuetime"
+      source: "rescuetime",
     });
     expect(mockClient.fetchAnalyticData).toHaveBeenCalledWith(
       "rt-test-key",
       expect.objectContaining({
         kind: "category",
         begin: "2026-08-02",
-        end: "2026-08-08"
-      })
+        end: "2026-08-08",
+      }),
     );
   });
 });

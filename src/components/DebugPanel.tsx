@@ -3,15 +3,15 @@ import { useTranslation } from "react-i18next";
 import { t as translate } from "../i18n";
 import {
   clearDebugLogs,
+  type DebugLogEntry,
   getDebugEntries,
   logDebug,
   subscribeToDebugLogs,
-  type DebugLogEntry
 } from "../lib/debug";
 import {
   testPomodoroChime,
   testPomodoroCompletionAnnouncement,
-  testPomodoroNotification
+  testPomodoroNotification,
 } from "../lib/pomodoro/sound";
 
 interface DebugPanelProps {
@@ -42,7 +42,7 @@ export const DebugPanel = ({ enabled, forced = false }: DebugPanelProps) => {
   }
 
   const runPomodoroTest = async (
-    mode: "chime-session" | "chime-cycle" | "notification" | "completion"
+    mode: "chime-session" | "chime-cycle" | "notification" | "completion",
   ) => {
     setTestingPomodoro(true);
     try {
@@ -53,7 +53,7 @@ export const DebugPanel = ({ enabled, forced = false }: DebugPanelProps) => {
           "pomodoro.debug",
           played
             ? translate("debug.log.sessionChimeOk", { ns: "settings" })
-            : translate("debug.log.sessionChimeFail", { ns: "settings" })
+            : translate("debug.log.sessionChimeFail", { ns: "settings" }),
         );
         return;
       }
@@ -65,7 +65,7 @@ export const DebugPanel = ({ enabled, forced = false }: DebugPanelProps) => {
           "pomodoro.debug",
           played
             ? translate("debug.log.cycleChimeOk", { ns: "settings" })
-            : translate("debug.log.cycleChimeFail", { ns: "settings" })
+            : translate("debug.log.cycleChimeFail", { ns: "settings" }),
         );
         return;
       }
@@ -77,15 +77,25 @@ export const DebugPanel = ({ enabled, forced = false }: DebugPanelProps) => {
           "pomodoro.debug",
           notified
             ? translate("debug.log.notificationOk", { ns: "settings" })
-            : translate("debug.log.notificationFail", { ns: "settings" })
+            : translate("debug.log.notificationFail", { ns: "settings" }),
         );
         return;
       }
 
       const result = await testPomodoroCompletionAnnouncement("session");
-      logDebug("info", "pomodoro.debug", translate("debug.log.completion", { ns: "settings" }), result);
+      logDebug(
+        "info",
+        "pomodoro.debug",
+        translate("debug.log.completion", { ns: "settings" }),
+        result,
+      );
     } catch (error) {
-      logDebug("error", "pomodoro.debug", translate("debug.log.pomodoroTestFail", { ns: "settings" }), error);
+      logDebug(
+        "error",
+        "pomodoro.debug",
+        translate("debug.log.pomodoroTestFail", { ns: "settings" }),
+        error,
+      );
     } finally {
       setTestingPomodoro(false);
     }
@@ -96,7 +106,11 @@ export const DebugPanel = ({ enabled, forced = false }: DebugPanelProps) => {
       <div className="debug-panel__bar">
         <strong>{t("debug.title")}</strong>
         <div className="debug-panel__actions">
-          <button className="button button--ghost" type="button" onClick={() => setOpen((current) => !current)}>
+          <button
+            className="button button--ghost"
+            type="button"
+            onClick={() => setOpen((current) => !current)}
+          >
             {open ? tCommon("actions.hide") : tCommon("actions.show")}
           </button>
           <button className="button button--ghost" type="button" onClick={() => clearDebugLogs()}>
@@ -144,9 +158,7 @@ export const DebugPanel = ({ enabled, forced = false }: DebugPanelProps) => {
               </button>
             </div>
           </div>
-          <p className="debug-panel__hint">
-            {t("debug.consoleHint")}
-          </p>
+          <p className="debug-panel__hint">{t("debug.consoleHint")}</p>
           <div className="debug-log-list">
             {entries.length === 0 ? (
               <p className="empty-copy">{t("debug.emptyLogs")}</p>

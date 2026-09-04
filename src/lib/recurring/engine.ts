@@ -3,7 +3,7 @@ import type {
   RecurringTargetBucket,
   RecurringTaskTemplate,
   RecurringTemplateFilters,
-  Task
+  Task,
 } from "../../domain/types";
 import { createEntityId, toLocalDateString } from "../gtd/shared";
 
@@ -17,7 +17,7 @@ const addDays = (date: string, amount: number): string => {
   return toLocalDateString(next);
 };
 
-const addMonths = (date: string, amount: number): string => {
+const _addMonths = (date: string, amount: number): string => {
   const next = atLocalNoon(date);
   next.setMonth(next.getMonth() + amount, 1);
   return toLocalDateString(next);
@@ -34,7 +34,10 @@ const buildScheduledFor = (date: string, time: string | null): string | null => 
   return new Date(`${date}T${time}:00`).toISOString();
 };
 
-const matchesTemplateSearch = (template: RecurringTaskTemplate, filters: RecurringTemplateFilters): boolean => {
+const matchesTemplateSearch = (
+  template: RecurringTaskTemplate,
+  filters: RecurringTemplateFilters,
+): boolean => {
   if (filters.status && template.status !== filters.status) {
     return false;
   }
@@ -68,7 +71,7 @@ const matchesTemplateSearch = (template: RecurringTaskTemplate, filters: Recurri
 
 export const filterRecurringTemplates = (
   templates: RecurringTaskTemplate[],
-  filters: RecurringTemplateFilters = {}
+  filters: RecurringTemplateFilters = {},
 ): RecurringTaskTemplate[] =>
   templates
     .filter((template) => matchesTemplateSearch(template, filters))
@@ -77,11 +80,11 @@ export const filterRecurringTemplates = (
 export const cloneRecurringTemplate = (template: RecurringTaskTemplate): RecurringTaskTemplate => ({
   ...template,
   contextIds: [...template.contextIds],
-  weeklyDays: [...template.weeklyDays]
+  weeklyDays: [...template.weeklyDays],
 });
 
 export const createRecurringTemplate = (
-  template: Partial<RecurringTaskTemplate> & Pick<RecurringTaskTemplate, "title" | "startDate">
+  template: Partial<RecurringTaskTemplate> & Pick<RecurringTaskTemplate, "title" | "startDate">,
 ): RecurringTaskTemplate => {
   const timestamp = new Date().toISOString();
 
@@ -107,7 +110,7 @@ export const createRecurringTemplate = (
     pendingMissedOccurrences: Math.max(0, template.pendingMissedOccurrences ?? 0),
     statusChangedAt: template.statusChangedAt ?? timestamp,
     createdAt: template.createdAt ?? timestamp,
-    updatedAt: template.updatedAt ?? timestamp
+    updatedAt: template.updatedAt ?? timestamp,
   };
 };
 
@@ -150,7 +153,12 @@ const occursOnDate = (template: RecurringTaskTemplate, date: string): boolean =>
     const current = atLocalNoon(date);
     const start = atLocalNoon(template.startDate);
     const weekDelta = Math.floor(diffDays(date, template.startDate) / 7);
-    return template.weeklyDays.includes(current.getDay()) && weekDelta >= 0 && weekDelta % Math.max(1, template.weeklyInterval) === 0 && current >= start;
+    return (
+      template.weeklyDays.includes(current.getDay()) &&
+      weekDelta >= 0 &&
+      weekDelta % Math.max(1, template.weeklyInterval) === 0 &&
+      current >= start
+    );
   }
 
   const candidate = monthDueDate(template, date);
@@ -168,7 +176,7 @@ const occursOnDate = (template: RecurringTaskTemplate, date: string): boolean =>
 export const listDueDatesBetween = (
   template: RecurringTaskTemplate,
   rangeStart: string,
-  rangeEnd: string
+  rangeEnd: string,
 ): string[] => {
   const dueDates: string[] = [];
   let cursor = rangeStart;
@@ -186,7 +194,7 @@ export const listDueDatesBetween = (
 export const findNextRecurringDate = (
   template: RecurringTaskTemplate,
   fromDate: string,
-  maxDaysToInspect = 366
+  maxDaysToInspect = 366,
 ): string | null => {
   let cursor = fromDate < template.startDate ? template.startDate : fromDate;
 
@@ -204,12 +212,12 @@ export const buildRecurringPreviewOccurrences = (
   templates: RecurringTaskTemplate[],
   tasks: Task[],
   rangeStart: string,
-  rangeEnd: string
+  rangeEnd: string,
 ): RecurringPreviewOccurrence[] => {
   const activeTasksByTemplate = new Map(
     tasks
       .filter((task) => task.status === "active" && task.recurringTemplateId)
-      .map((task) => [task.recurringTemplateId as string, task] as const)
+      .map((task) => [task.recurringTemplateId as string, task] as const),
   );
   const previews: RecurringPreviewOccurrence[] = [];
 
@@ -225,7 +233,10 @@ export const buildRecurringPreviewOccurrences = (
         continue;
       }
 
-      const scheduledFor = buildScheduledFor(dueDate, template.targetBucket === "scheduled" ? template.scheduledTime : null);
+      const scheduledFor = buildScheduledFor(
+        dueDate,
+        template.targetBucket === "scheduled" ? template.scheduledTime : null,
+      );
       previews.push({
         id: `preview:${template.id}:${dueDate}`,
         templateId: template.id,
@@ -237,7 +248,8 @@ export const buildRecurringPreviewOccurrences = (
         dueDate,
         scheduledFor,
         scheduledTime: template.scheduledTime,
-        status: activeTask && dueDate < toLocalDateString(new Date()) ? "overdue_preview" : "future"
+        status:
+          activeTask && dueDate < toLocalDateString(new Date()) ? "overdue_preview" : "future",
       });
     }
   }
@@ -252,7 +264,7 @@ export const buildRecurringPreviewOccurrences = (
 export const buildTaskFromRecurringTemplate = (
   template: RecurringTaskTemplate,
   dueDate: string,
-  pendingPastRecurrences: number
+  pendingPastRecurrences: number,
 ): Task => ({
   id: `recurring-task:${template.id}`,
   title: template.title,
@@ -262,7 +274,10 @@ export const buildTaskFromRecurringTemplate = (
   contextIds: [...template.contextIds],
   projectId: template.projectId,
   parentTaskId: null,
-  scheduledFor: template.targetBucket === "scheduled" ? buildScheduledFor(dueDate, template.scheduledTime) : null,
+  scheduledFor:
+    template.targetBucket === "scheduled"
+      ? buildScheduledFor(dueDate, template.scheduledTime)
+      : null,
   deadline: null,
   recurringTemplateId: template.id,
   recurrenceDueDate: dueDate,
@@ -273,19 +288,19 @@ export const buildTaskFromRecurringTemplate = (
   source: "manual",
   sourceExternalId: null,
   createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString()
+  updatedAt: new Date().toISOString(),
 });
 
 export const syncTemplateStatusChange = (
   template: RecurringTaskTemplate,
-  nextStatus: RecurringTaskTemplate["status"]
+  nextStatus: RecurringTaskTemplate["status"],
 ): RecurringTaskTemplate => {
   const timestamp = new Date().toISOString();
   return {
     ...cloneRecurringTemplate(template),
     status: nextStatus,
     statusChangedAt: template.status === nextStatus ? template.statusChangedAt : timestamp,
-    updatedAt: timestamp
+    updatedAt: timestamp,
   };
 };
 
@@ -298,7 +313,7 @@ export const applySeriesChangesToTemplate = (
     contextIds?: string[];
     projectId?: string | null;
     scheduledFor?: string | null;
-  }
+  },
 ): RecurringTaskTemplate => {
   const timestamp = new Date().toISOString();
   const nextTargetBucket = changes.bucket ?? template.targetBucket;
@@ -319,11 +334,14 @@ export const applySeriesChangesToTemplate = (
     contextIds: changes.contextIds ? [...changes.contextIds] : [...template.contextIds],
     projectId: changes.projectId === undefined ? template.projectId : changes.projectId,
     scheduledTime,
-    updatedAt: timestamp
+    updatedAt: timestamp,
   };
 };
 
-export const findProcessingRangeStart = (template: RecurringTaskTemplate, activeTask: Task | null): string => {
+export const findProcessingRangeStart = (
+  template: RecurringTaskTemplate,
+  activeTask: Task | null,
+): string => {
   const candidates = [template.startDate];
 
   if (template.lastGeneratedForDate) {

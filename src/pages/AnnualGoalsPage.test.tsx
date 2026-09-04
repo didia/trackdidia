@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { defaultAppSettings } from "../domain/daily-entry";
 import { createEmptyAnnualGoal } from "../domain/annual-goals";
+import { defaultAppSettings } from "../domain/daily-entry";
 import { GoalPacingService } from "../lib/ai/goal-pacing-service";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { renderWithApp } from "../test/test-utils";
@@ -34,7 +34,7 @@ describe("AnnualGoalsPage", () => {
     await waitFor(async () => {
       const goals = await repository.listAnnualGoals();
       expect(goals[0].evaluations[evaluationMonthKey]).toMatchObject({
-        score: 72
+        score: 72,
       });
     });
   });
@@ -50,9 +50,9 @@ describe("AnnualGoalsPage", () => {
       contextOverrides: {
         settings: {
           ...defaultAppSettings(),
-          aiEnabled: false
-        }
-      }
+          aiEnabled: false,
+        },
+      },
     });
 
     await screen.findByLabelText(/^année$/i);
@@ -80,14 +80,14 @@ describe("AnnualGoalsPage", () => {
         title: "Objectif 2026",
         targetValue: 100,
         manualCurrentValue: 80,
-        unit: "%"
-      })
+        unit: "%",
+      }),
     );
 
     await renderWithApp(<AnnualGoalsPage />, {
       repository,
       route: "/objectifs-annuels",
-      contextOverrides: { settings: { ...defaultAppSettings(), aiEnabled: false } }
+      contextOverrides: { settings: { ...defaultAppSettings(), aiEnabled: false } },
     });
 
     await waitFor(() => {

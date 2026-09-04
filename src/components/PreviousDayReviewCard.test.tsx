@@ -1,10 +1,10 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createEmptyDailyEntry, defaultAppSettings } from "../domain/daily-entry";
+import { getTodayDate } from "../lib/date";
+import { addDays } from "../lib/gtd/shared";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { MorningRoutinePage } from "../pages/MorningRoutinePage";
-import { addDays } from "../lib/gtd/shared";
-import { getTodayDate } from "../lib/date";
 import { renderWithApp } from "../test/test-utils";
 
 const yesterday = addDays(getTodayDate(), -1);
@@ -53,18 +53,21 @@ describe("PreviousDayReviewCard", () => {
 
     await renderWithApp(<MorningRoutinePage />, {
       repository,
-      contextOverrides: { settings, saveSettings }
+      contextOverrides: { settings, saveSettings },
     });
 
     await screen.findByText("Finaliser hier");
 
-    const marcheInput = screen.getByText("Marche").closest("label")!.querySelector("input")!;
+    const marcheInput = screen.getByText("Marche").closest("label")?.querySelector("input")!;
     await user.type(marcheInput, "8000");
 
     const retroGroup = screen.getByRole("group", { name: /rétro journalier/i });
     await user.click(within(retroGroup).getByRole("button", { name: /oui/i }));
 
-    const reflection = screen.getByText("Réflexion du soir").closest("label")!.querySelector("textarea")!;
+    const reflection = screen
+      .getByText("Réflexion du soir")
+      .closest("label")
+      ?.querySelector("textarea")!;
     await user.type(reflection, "Bonne journee.");
 
     await user.click(screen.getByRole("button", { name: /enregistrer hier/i }));
@@ -78,9 +81,9 @@ describe("PreviousDayReviewCard", () => {
     expect(savedToday).toBeNull();
 
     expect(saveSettings).toHaveBeenCalled();
-    expect((savedSettings as { previousDayReviewDoneDate: string } | null)?.previousDayReviewDoneDate).toBe(
-      yesterday
-    );
+    expect(
+      (savedSettings as { previousDayReviewDoneDate: string } | null)?.previousDayReviewDoneDate,
+    ).toBe(yesterday);
   });
 
   it("hides the card when the flag already covers yesterday", async () => {
@@ -93,8 +96,8 @@ describe("PreviousDayReviewCard", () => {
     await renderWithApp(<MorningRoutinePage />, {
       repository,
       contextOverrides: {
-        settings: { ...defaultAppSettings(), previousDayReviewDoneDate: yesterday }
-      }
+        settings: { ...defaultAppSettings(), previousDayReviewDoneDate: yesterday },
+      },
     });
 
     await screen.findByRole("textbox", { name: /intention/i });
@@ -111,7 +114,9 @@ describe("PreviousDayReviewCard", () => {
     seeded.metrics.pushups = 20;
     seeded.metrics.qualiteSommeil = 80;
     seeded.metrics.tempsEcranTelephone = 60;
-    for (const key of Object.keys(seeded.principleChecks) as Array<keyof typeof seeded.principleChecks>) {
+    for (const key of Object.keys(seeded.principleChecks) as Array<
+      keyof typeof seeded.principleChecks
+    >) {
       seeded.principleChecks[key] = true;
     }
     seeded.nightReflection = "Journee cloturee.";

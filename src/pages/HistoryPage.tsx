@@ -9,7 +9,7 @@ import {
   deriveStatusLabel,
   updateMetric,
   updateNote,
-  updatePrinciple
+  updatePrinciple,
 } from "../domain/daily-entry";
 import type { DailyEntry } from "../domain/types";
 import { useAppContext } from "../app/app-context";
@@ -43,12 +43,15 @@ export const HistoryPage = () => {
     const [existing, stats, pomodoroStats] = await Promise.all([
       repository.getDailyEntry(date),
       repository.computeDailyTaskStats(date),
-      repository.computeDailyPomodoroStats(date)
+      repository.computeDailyPomodoroStats(date),
     ]);
     setSelectedEntry(
       existing
         ? applyDailyPomodoroStats(applyDailyTaskStats(existing, stats), pomodoroStats)
-        : applyDailyPomodoroStats(applyDailyTaskStats(createEmptyDailyEntry(date), stats), pomodoroStats)
+        : applyDailyPomodoroStats(
+            applyDailyTaskStats(createEmptyDailyEntry(date), stats),
+            pomodoroStats,
+          ),
     );
   };
 
@@ -74,7 +77,11 @@ export const HistoryPage = () => {
   }, [repository]);
 
   if (!selectedEntry) {
-    return <div className="page"><p>{t("loading")}</p></div>;
+    return (
+      <div className="page">
+        <p>{t("loading")}</p>
+      </div>
+    );
   }
 
   return (
@@ -83,9 +90,7 @@ export const HistoryPage = () => {
         <div>
           <p className="eyebrow">{t("hero.eyebrow")}</p>
           <h2>{t("hero.title")}</h2>
-          <p className="hero__copy">
-            {t("hero.copy")}
-          </p>
+          <p className="hero__copy">{t("hero.copy")}</p>
         </div>
       </header>
 

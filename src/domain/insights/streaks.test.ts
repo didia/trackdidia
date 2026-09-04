@@ -4,7 +4,9 @@ import type { DailyEntry, PrincipleKey } from "../types";
 import { computeStreakFindings } from "./streaks";
 
 const buildEntries = (startDate: string, values: boolean[], key: PrincipleKey): DailyEntry[] =>
-  values.map((value, index) => updatePrinciple(createEmptyDailyEntry(addDays(startDate, index)), key, value));
+  values.map((value, index) =>
+    updatePrinciple(createEmptyDailyEntry(addDays(startDate, index)), key, value),
+  );
 
 describe("streaks insight module", () => {
   it("computes current streak, longest streak, days since last true and 28-day rate", () => {
@@ -27,7 +29,9 @@ describe("streaks insight module", () => {
   it("reports daysSinceLastTrue as null when the principle was never true", () => {
     const entries = buildEntries("2026-01-01", [false, false, false], "priereDuSoir");
 
-    const finding = computeStreakFindings(entries).find((item) => item.principleKey === "priereDuSoir");
+    const finding = computeStreakFindings(entries).find(
+      (item) => item.principleKey === "priereDuSoir",
+    );
 
     expect(finding?.currentStreak).toBe(0);
     expect(finding?.longestStreak).toBe(0);
@@ -49,11 +53,17 @@ describe("streaks insight module", () => {
   });
 
   it("skips past an unanswered reference day to find the last answered day for currentStreak", () => {
-    const trueEntries = buildEntries("2026-01-01", Array.from({ length: 10 }, () => true), "priereDuMatin");
+    const trueEntries = buildEntries(
+      "2026-01-01",
+      Array.from({ length: 10 }, () => true),
+      "priereDuMatin",
+    );
     const unansweredToday = createEmptyDailyEntry("2026-01-11");
     const entries = [...trueEntries, unansweredToday];
 
-    const finding = computeStreakFindings(entries).find((item) => item.principleKey === "priereDuMatin");
+    const finding = computeStreakFindings(entries).find(
+      (item) => item.principleKey === "priereDuMatin",
+    );
 
     expect(finding?.currentStreak).toBe(10);
     expect(finding?.longestStreak).toBe(10);
@@ -63,10 +73,12 @@ describe("streaks insight module", () => {
   it("does not bridge a streak across a calendar-date gap between entries", () => {
     const entries = [
       updatePrinciple(createEmptyDailyEntry("2026-01-01"), "priereDuMatin", true),
-      updatePrinciple(createEmptyDailyEntry("2026-01-10"), "priereDuMatin", true)
+      updatePrinciple(createEmptyDailyEntry("2026-01-10"), "priereDuMatin", true),
     ];
 
-    const finding = computeStreakFindings(entries).find((item) => item.principleKey === "priereDuMatin");
+    const finding = computeStreakFindings(entries).find(
+      (item) => item.principleKey === "priereDuMatin",
+    );
 
     expect(finding?.currentStreak).toBe(1);
     expect(finding?.longestStreak).toBe(1);

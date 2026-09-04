@@ -1,7 +1,13 @@
-import type { CoachPulseStance, AiMemory, AppSettings, MemoryKind } from "../../../domain/types";
+import type { AiMemory, AppSettings, CoachPulseStance, MemoryKind } from "../../../domain/types";
+import {
+  KIND_PRIORITY_BY_STANCE,
+  KIND_PRIORITY_GOAL,
+  KIND_PRIORITY_MONTHLY,
+  KIND_PRIORITY_WEEKLY,
+  MEMORY_RETRIEVAL_CAP,
+} from "./constants";
 import { effectiveConfidence } from "./decay";
 import { formatMemoryBlock } from "./format";
-import { KIND_PRIORITY_BY_STANCE, KIND_PRIORITY_GOAL, KIND_PRIORITY_MONTHLY, KIND_PRIORITY_WEEKLY, MEMORY_RETRIEVAL_CAP } from "./constants";
 
 export interface RetrieveMemoriesOptions {
   stance: CoachPulseStance;
@@ -17,7 +23,7 @@ const kindRank = (stance: CoachPulseStance, kind: AiMemory["kind"]): number => {
 export const rankMemories = (
   memories: AiMemory[],
   stance: CoachPulseStance,
-  nowIso: string
+  nowIso: string,
 ): AiMemory[] => {
   return [...memories].sort((left, right) => {
     if (left.pinned !== right.pinned) {
@@ -43,7 +49,7 @@ export const rankMemories = (
 export const selectMemoriesForPrompt = (
   memories: AiMemory[],
   stance: CoachPulseStance,
-  nowIso: string
+  nowIso: string,
 ): AiMemory[] => {
   const ranked = rankMemories(memories, stance, nowIso);
   const pinned = ranked.filter((memory) => memory.pinned);
@@ -54,7 +60,7 @@ export const selectMemoriesForPrompt = (
 export const retrieveMemories = (
   memories: AiMemory[],
   settings: AppSettings,
-  options: RetrieveMemoriesOptions
+  options: RetrieveMemoriesOptions,
 ): { selected: AiMemory[]; block: string } => {
   if (!settings.aiMemoryEnabled) {
     return { selected: [], block: "" };
@@ -66,7 +72,7 @@ export const retrieveMemories = (
 
   return {
     selected,
-    block: formatMemoryBlock(selected, nowIso)
+    block: formatMemoryBlock(selected, nowIso),
   };
 };
 
@@ -99,7 +105,7 @@ export const rankMemoriesForWeekly = (memories: AiMemory[], nowIso: string): AiM
 export const retrieveMemoriesForWeekly = (
   memories: AiMemory[],
   settings: AppSettings,
-  options: { nowIso?: string } = {}
+  options: { nowIso?: string } = {},
 ): { selected: AiMemory[]; block: string } => {
   if (!settings.aiMemoryEnabled) {
     return { selected: [], block: "" };
@@ -114,7 +120,7 @@ export const retrieveMemoriesForWeekly = (
 
   return {
     selected,
-    block: formatMemoryBlock(selected, nowIso)
+    block: formatMemoryBlock(selected, nowIso),
   };
 };
 
@@ -123,7 +129,11 @@ const kindRankForOrder = (kind: AiMemory["kind"], order: MemoryKind[]): number =
   return index === -1 ? order.length : index;
 };
 
-const rankMemoriesByKindOrder = (memories: AiMemory[], order: MemoryKind[], nowIso: string): AiMemory[] =>
+const rankMemoriesByKindOrder = (
+  memories: AiMemory[],
+  order: MemoryKind[],
+  nowIso: string,
+): AiMemory[] =>
   [...memories].sort((left, right) => {
     if (left.pinned !== right.pinned) {
       return left.pinned ? -1 : 1;
@@ -148,7 +158,7 @@ const retrieveMemoriesByKindOrder = (
   memories: AiMemory[],
   settings: AppSettings,
   order: MemoryKind[],
-  options: { nowIso?: string } = {}
+  options: { nowIso?: string } = {},
 ): { selected: AiMemory[]; block: string } => {
   if (!settings.aiMemoryEnabled) {
     return { selected: [], block: "" };
@@ -163,18 +173,20 @@ const retrieveMemoriesByKindOrder = (
 
   return {
     selected,
-    block: formatMemoryBlock(selected, nowIso)
+    block: formatMemoryBlock(selected, nowIso),
   };
 };
 
 export const retrieveMemoriesForMonthly = (
   memories: AiMemory[],
   settings: AppSettings,
-  options: { nowIso?: string } = {}
-): { selected: AiMemory[]; block: string } => retrieveMemoriesByKindOrder(memories, settings, KIND_PRIORITY_MONTHLY, options);
+  options: { nowIso?: string } = {},
+): { selected: AiMemory[]; block: string } =>
+  retrieveMemoriesByKindOrder(memories, settings, KIND_PRIORITY_MONTHLY, options);
 
 export const retrieveMemoriesForGoalPacing = (
   memories: AiMemory[],
   settings: AppSettings,
-  options: { nowIso?: string } = {}
-): { selected: AiMemory[]; block: string } => retrieveMemoriesByKindOrder(memories, settings, KIND_PRIORITY_GOAL, options);
+  options: { nowIso?: string } = {},
+): { selected: AiMemory[]; block: string } =>
+  retrieveMemoriesByKindOrder(memories, settings, KIND_PRIORITY_GOAL, options);

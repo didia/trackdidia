@@ -1,8 +1,8 @@
 import { useTranslation } from "react-i18next";
-import { useAppContext } from "../app/app-context";
-import { FloatingPomodoroTimer } from "./FloatingPomodoroTimer";
 import { NavLink, Outlet } from "react-router-dom";
+import { useAppContext } from "../app/app-context";
 import { getQuoteOfTheDay } from "../lib/quote-of-the-day";
+import { FloatingPomodoroTimer } from "./FloatingPomodoroTimer";
 
 const navigation = [
   { to: "/", labelKey: "today", end: true },
@@ -21,7 +21,7 @@ const navigation = [
   { to: "/scheduled", labelKey: "scheduled" },
   { to: "/waiting-for", labelKey: "waitingFor" },
   { to: "/someday-maybe", labelKey: "somedayMaybe" },
-  { to: "/parametres", labelKey: "settings" }
+  { to: "/parametres", labelKey: "settings" },
 ] as const;
 
 export const AppShell = () => {

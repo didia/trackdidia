@@ -28,7 +28,7 @@ describe("MemoryRepository AI usage aggregation", () => {
       tokensPrompt: 999,
       tokensCompletion: 999,
       latencyMs: null,
-      createdAt: beforeMonth
+      createdAt: beforeMonth,
     });
 
     await repository.saveAiMessage({
@@ -48,7 +48,7 @@ describe("MemoryRepository AI usage aggregation", () => {
       tokensPrompt: 100,
       tokensCompletion: 40,
       latencyMs: null,
-      createdAt: inMonth
+      createdAt: inMonth,
     });
 
     await repository.saveAiMessage({
@@ -68,7 +68,7 @@ describe("MemoryRepository AI usage aggregation", () => {
       tokensPrompt: 500,
       tokensCompletion: 500,
       latencyMs: null,
-      createdAt: afterMonth
+      createdAt: afterMonth,
     });
 
     await expect(repository.computeAiUsageForMonth("2026-08")).resolves.toEqual({
@@ -76,7 +76,7 @@ describe("MemoryRepository AI usage aggregation", () => {
       callCount: 1,
       tokensPrompt: 100,
       tokensCompletion: 40,
-      tokensTotal: 140
+      tokensTotal: 140,
     });
   });
 
@@ -101,7 +101,7 @@ describe("MemoryRepository AI usage aggregation", () => {
       tokensPrompt: null,
       tokensCompletion: null,
       latencyMs: null,
-      createdAt: "2026-08-29T12:00:00.000Z"
+      createdAt: "2026-08-29T12:00:00.000Z",
     };
 
     await repository.saveAiMessage(message);
@@ -113,12 +113,18 @@ describe("MemoryRepository AI usage aggregation", () => {
       status: "pending",
       appliedEntityId: null,
       decidedAt: null,
-      createdAt: "2026-08-29T12:05:00.000Z"
+      createdAt: "2026-08-29T12:05:00.000Z",
     });
 
-    await expect(repository.listAiMessagesSince("2026-08-29T00:00:00.000Z")).resolves.toHaveLength(1);
-    await expect(repository.listAiProposalsSince("2026-08-29T00:00:00.000Z")).resolves.toHaveLength(1);
-    await expect(repository.listAiProposalsSince("2026-08-30T00:00:00.000Z")).resolves.toHaveLength(0);
+    await expect(repository.listAiMessagesSince("2026-08-29T00:00:00.000Z")).resolves.toHaveLength(
+      1,
+    );
+    await expect(repository.listAiProposalsSince("2026-08-29T00:00:00.000Z")).resolves.toHaveLength(
+      1,
+    );
+    await expect(repository.listAiProposalsSince("2026-08-30T00:00:00.000Z")).resolves.toHaveLength(
+      0,
+    );
   });
 
   it("retains the newest messages when the cap binds", async () => {
@@ -142,7 +148,7 @@ describe("MemoryRepository AI usage aggregation", () => {
       tokensPrompt: 1,
       tokensCompletion: 1,
       latencyMs: null,
-      createdAt
+      createdAt,
     });
 
     await repository.saveAiMessage(buildMessageAt("msg-old", "2026-08-29T10:00:00.000Z"));

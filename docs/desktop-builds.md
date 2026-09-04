@@ -11,12 +11,7 @@ TrackDidia has two useful development modes:
 
 - Node.js/npm compatible with the committed lockfile;
 - Rust toolchain for Tauri development/builds;
-- platform-specific Tauri build prerequisites;
-- a local `Tasks.json` file when building the current source, because
-  `AppProvider` and Settings import it statically.
-
-`Tasks.json` is gitignored and can contain personal data. Do not replace it with
-real data in a commit.
+- platform-specific Tauri build prerequisites.
 
 ## Install
 
@@ -74,8 +69,8 @@ npm run build
 ```
 
 The frontend build runs TypeScript checking and writes Vite assets to `dist/`.
-Because `Tasks.json` is a static JSON import, locally built JavaScript may embed
-content from that file. Treat the output as potentially sensitive.
+Treat locally built artifacts as potentially sensitive if the working tree contains
+personal data.
 
 ## Native production bundle
 
@@ -149,7 +144,7 @@ Before distributing a build:
 6. Verify an existing database upgrades without losing entries/tasks/settings.
 7. Create and inspect a manual backup.
 8. Check Pomodoro sound and notification permission behavior.
-9. Confirm no real API key or personal `Tasks.json` content is in committed files.
+9. Confirm no real API key is in committed files.
 10. Build the native bundle and smoke-test the installed artifact.
 
 ## Data continuity

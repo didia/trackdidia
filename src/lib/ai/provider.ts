@@ -1,4 +1,10 @@
-import type { AppSettings, AiSurface, CoachMessage, CoachPulseStance, DailyEntry } from "../../domain/types";
+import type {
+  AiSurface,
+  AppSettings,
+  CoachMessage,
+  CoachPulseStance,
+  DailyEntry,
+} from "../../domain/types";
 import type { DailySnapshot } from "./context/daily-snapshot";
 import type { GoalPacingSnapshot } from "./context/goal-pacing-snapshot";
 import type { MonthlySnapshot } from "./context/monthly-snapshot";

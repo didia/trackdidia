@@ -8,8 +8,16 @@ describe("usePomodoroTiming", () => {
   it("ticks a valid running session locally and stops for paused or invalid data", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-01T09:00:00.000Z"));
-    const running = { ...createPomodoroSession("focus", "2026-04-01T09:00:00.000Z", 1), segments: [], activeTaskId: null, activeLabel: null, taskIds: [] };
-    const { result, rerender } = renderHook(({ session }) => usePomodoroTiming(session), { initialProps: { session: running } });
+    const running = {
+      ...createPomodoroSession("focus", "2026-04-01T09:00:00.000Z", 1),
+      segments: [],
+      activeTaskId: null,
+      activeLabel: null,
+      taskIds: [],
+    };
+    const { result, rerender } = renderHook(({ session }) => usePomodoroTiming(session), {
+      initialProps: { session: running },
+    });
 
     expect(result.current.remainingMs).toBe(25 * 60 * 1000);
     act(() => vi.advanceTimersByTime(1000));

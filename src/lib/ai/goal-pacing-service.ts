@@ -1,7 +1,15 @@
-import type { AiMessage, AppSettings, GoalPacingResponse, GoalPacingResult } from "../../domain/types";
+import type {
+  AiMessage,
+  AppSettings,
+  GoalPacingResponse,
+  GoalPacingResult,
+} from "../../domain/types";
 import { createEntityId, nowIso } from "../gtd/shared";
 import type { AppRepository } from "../storage/repository";
-import { buildGoalPacingSnapshot, type GoalPacingSnapshotInputs } from "./context/goal-pacing-snapshot";
+import {
+  buildGoalPacingSnapshot,
+  type GoalPacingSnapshotInputs,
+} from "./context/goal-pacing-snapshot";
 import { buildAiInputHash } from "./input-hash";
 import { retrieveMemoriesForGoalPacing } from "./memory/retrieval";
 import { buildLocalGoalPacing } from "./proposals/goal-pacing-fallback";
@@ -36,7 +44,10 @@ const resultSourceFromMessage = (message: AiMessage): GoalPacingResult["source"]
   return "local";
 };
 
-const cachedResult = async (repository: AppRepository, message: AiMessage): Promise<GoalPacingResult | null> => {
+const cachedResult = async (
+  _repository: AppRepository,
+  message: AiMessage,
+): Promise<GoalPacingResult | null> => {
   if (!message.bodyJson) {
     return null;
   }
@@ -49,32 +60,38 @@ const cachedResult = async (repository: AppRepository, message: AiMessage): Prom
   return {
     message,
     pacing: parsed.value,
-    source: resultSourceFromMessage(message)
+    source: resultSourceFromMessage(message),
   };
 };
 
 const persistResult = async (
   repository: AppRepository,
   message: AiMessage,
-  pacing: GoalPacingResponse
+  pacing: GoalPacingResponse,
 ): Promise<GoalPacingResult> => {
   const saved = await repository.saveCoachPulseEpisode(message, []);
 
   return {
     message: saved.message,
     pacing,
-    source: message.status === "ok" ? "ai" : message.status === "fallback" ? "fallback" : "local"
+    source: message.status === "ok" ? "ai" : message.status === "fallback" ? "fallback" : "local",
   };
 };
 
 export class GoalPacingService {
   constructor(private readonly provider: AiProvider) {}
 
-  async resultFromMessage(repository: AppRepository, message: AiMessage): Promise<GoalPacingResult | null> {
+  async resultFromMessage(
+    repository: AppRepository,
+    message: AiMessage,
+  ): Promise<GoalPacingResult | null> {
     return cachedResult(repository, message);
   }
 
-  async buildPacing(repository: AppRepository, request: GoalPacingRequest): Promise<GoalPacingResult> {
+  async buildPacing(
+    repository: AppRepository,
+    request: GoalPacingRequest,
+  ): Promise<GoalPacingResult> {
     const { year, settings, snapshotInputs, bypassCache = false } = request;
     const snapshot = buildGoalPacingSnapshot(snapshotInputs, settings.aiPayloadScope);
     const scopeKey = String(year);
@@ -83,17 +100,21 @@ export class GoalPacingService {
 
     const activeMemories = await repository.listAiMemories({
       status: "active",
-      activeOnDate: snapshot.asOfDate
+      activeOnDate: snapshot.asOfDate,
     });
-    const { block: memoryBlock, selected } = retrieveMemoriesForGoalPacing(activeMemories, settings, {
-      nowIso: createdAt
-    });
+    const { block: memoryBlock, selected } = retrieveMemoriesForGoalPacing(
+      activeMemories,
+      settings,
+      {
+        nowIso: createdAt,
+      },
+    );
     const memoryIds = selected.map((memory) => memory.id).sort();
     const inputHash = buildAiInputHash({
       promptVersion: GOAL_PACING_PROMPT_VERSION,
       scope: settings.aiPayloadScope,
       snapshot,
-      memoryIds
+      memoryIds,
     });
 
     if (!bypassCache) {
@@ -135,14 +156,14 @@ export class GoalPacingService {
       tokensPrompt: null,
       tokensCompletion: null,
       latencyMs: null,
-      createdAt
+      createdAt,
     });
 
     if (!aiConfigured) {
       const skippedMessage = {
         ...baseMessage(),
         status: "skipped" as const,
-        model: "local"
+        model: "local",
       };
 
       return persistResult(repository, skippedMessage, localPacing);
@@ -153,7 +174,7 @@ export class GoalPacingService {
         surface: "goal_pacing",
         settings,
         snapshot,
-        memoryBlock
+        memoryBlock,
       });
 
       let parsed = parseGoalPacingJson(first.text);
@@ -167,14 +188,14 @@ export class GoalPacingService {
           settings,
           snapshot,
           memoryBlock,
-          repairHint: parsed.error
+          repairHint: parsed.error,
         });
         parsed = parseGoalPacingJson(repair.text);
         finalText = repair.text;
         usage = {
           tokensPrompt: usage.tokensPrompt + repair.usage.tokensPrompt,
           tokensCompletion: usage.tokensCompletion + repair.usage.tokensCompletion,
-          latencyMs: usage.latencyMs + repair.usage.latencyMs
+          latencyMs: usage.latencyMs + repair.usage.latencyMs,
         };
         model = repair.model;
       }
@@ -188,14 +209,14 @@ export class GoalPacingService {
           bodyText: pacingToBodyText(localPacing),
           tokensPrompt: usage.tokensPrompt,
           tokensCompletion: usage.tokensCompletion,
-          latencyMs: usage.latencyMs
+          latencyMs: usage.latencyMs,
         };
 
         const result = await persistResult(repository, message, localPacing);
         return {
           ...result,
           source: "fallback",
-          warning: parsed.error
+          warning: parsed.error,
         };
       }
 
@@ -207,27 +228,27 @@ export class GoalPacingService {
         bodyText: pacingToBodyText(parsed.value),
         tokensPrompt: usage.tokensPrompt,
         tokensCompletion: usage.tokensCompletion,
-        latencyMs: usage.latencyMs
+        latencyMs: usage.latencyMs,
       };
 
       const result = await persistResult(repository, message, parsed.value);
       return {
         ...result,
-        source: "ai"
+        source: "ai",
       };
     } catch (error) {
       const message: AiMessage = {
         ...baseMessage(),
         status: "fallback",
         bodyJson: JSON.stringify(localPacing),
-        bodyText: pacingToBodyText(localPacing)
+        bodyText: pacingToBodyText(localPacing),
       };
 
       const result = await persistResult(repository, message, localPacing);
       return {
         ...result,
         source: "fallback",
-        warning: error instanceof Error ? error.message : "L'IA n'a pas pu repondre."
+        warning: error instanceof Error ? error.message : "L'IA n'a pas pu repondre.",
       };
     }
   }

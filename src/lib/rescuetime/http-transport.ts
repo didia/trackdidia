@@ -13,12 +13,15 @@ const createTimeoutController = (timeoutMs: number): { signal: AbortSignal; clea
     signal: controller.signal,
     clear: () => {
       clearTimeout(timeoutId);
-    }
+    },
   };
 };
 
 const toTimeoutError = (error: unknown): Error => {
-  if (error instanceof Error && (error.name === "AbortError" || /aborted|timed out/i.test(error.message))) {
+  if (
+    error instanceof Error &&
+    (error.name === "AbortError" || /aborted|timed out/i.test(error.message))
+  ) {
     return new Error("RescueTime request timed out.");
   }
   return error instanceof Error ? error : new Error("RescueTime request failed.");
@@ -40,7 +43,7 @@ export const fetchRescueTimeJson = async <T>(url: string, apiKey: string): Promi
             return;
           }
           timeout.signal.addEventListener("abort", onAbort, { once: true });
-        })
+        }),
       ]);
       return JSON.parse(body) as T;
     }
@@ -48,8 +51,8 @@ export const fetchRescueTimeJson = async <T>(url: string, apiKey: string): Promi
     const response = await fetch(url, {
       signal: timeout.signal,
       headers: {
-        Authorization: `Bearer ${apiKey}`
-      }
+        Authorization: `Bearer ${apiKey}`,
+      },
     });
 
     if (!response.ok) {

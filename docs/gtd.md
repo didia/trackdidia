@@ -168,10 +168,11 @@ tasksRemaining = max(0, tasksAtStart + tasksAdded - tasksCompleted)
 
 The same event selection powers the Today screen's task breakdown.
 
-## Bundled Google Tasks import
+## Google Tasks import helpers
 
-`Tasks.json` is imported statically by the application and is gitignored. It is a
-snapshot, not a Google API integration.
+`buildGoogleTasksImport` and repository `importGoogleTasksExport` still accept an
+in-memory Google Tasks export payload for tests and tooling. The desktop app no
+longer ships or statically imports a `Tasks.json` file.
 
 Only items whose Google status is `needsAction` are imported. Completed entries are
 counted as skipped.

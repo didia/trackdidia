@@ -10,7 +10,7 @@ const proposalTypeKeys = {
   review_section_draft: "proposal.reviewSection",
   weekly_objective: "proposal.weeklyObjective",
   gtd_action: "proposal.gtdAction",
-  goal_evaluation: "proposal.goalEvaluation"
+  goal_evaluation: "proposal.goalEvaluation",
 } as const satisfies Record<AiProposal["type"], string>;
 
 interface WeeklySynthesisPanelProps {
@@ -32,7 +32,7 @@ export const WeeklySynthesisPanel = ({
   onRequestCoach,
   onRegenerate,
   onAcceptProposal,
-  onDismissProposal
+  onDismissProposal,
 }: WeeklySynthesisPanelProps) => {
   const { t } = useTranslation("coach");
   const { t: tCommon } = useTranslation("common");
@@ -48,13 +48,18 @@ export const WeeklySynthesisPanel = ({
   }
 
   const synthesis = result?.synthesis;
-  const pendingProposals = result?.proposals.filter((proposal) => proposal.status === "pending") ?? [];
+  const pendingProposals =
+    result?.proposals.filter((proposal) => proposal.status === "pending") ?? [];
 
   return (
     <section className="coach-card coach-pulse">
       <div className="coach-card__label">
         <span>{t("weekly.title")}</span>
-        <small>{result ? translate(`source.${result.source}`, { ns: "coach" }) : tCommon("status.loading")}</small>
+        <small>
+          {result
+            ? translate(`source.${result.source}`, { ns: "coach" })
+            : tCommon("status.loading")}
+        </small>
       </div>
 
       {loading && !synthesis ? <p>{t("weekly.preparing")}</p> : null}
@@ -73,7 +78,9 @@ export const WeeklySynthesisPanel = ({
       ) : null}
 
       {result?.warning ? (
-        <small className="coach-card__warning">{t("warningFallbackPrefix", { warning: result.warning })}</small>
+        <small className="coach-card__warning">
+          {t("warningFallbackPrefix", { warning: result.warning })}
+        </small>
       ) : null}
 
       {pendingProposals.length > 0 ? (
@@ -92,10 +99,10 @@ export const WeeklySynthesisPanel = ({
               proposal.type === "review_section_draft"
                 ? `[${payload.sectionKey ?? t("proposal.sectionFallback")}] ${payload.text ?? ""}`
                 : proposal.type === "weekly_objective"
-                  ? payload.title ?? t("proposal.objectiveFallback")
+                  ? (payload.title ?? t("proposal.objectiveFallback"))
                   : proposal.type === "gtd_action"
                     ? `${payload.action ?? t("proposal.actionFallback")} ${tCommon("emDash")} ${payload.reason ?? ""}`
-                    : payload.text ?? "";
+                    : (payload.text ?? "");
             return (
               <article key={proposal.id} className="coach-pulse__proposal">
                 <span>{t(proposalTypeKeys[proposal.type])}</span>

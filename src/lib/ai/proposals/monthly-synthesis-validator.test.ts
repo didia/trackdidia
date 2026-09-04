@@ -11,9 +11,9 @@ describe("validateMonthlySynthesisResponse", () => {
         score: 75,
         trend: "up",
         notes: "Bonne progression",
-        blockers: ""
-      }
-    ]
+        blockers: "",
+      },
+    ],
   };
 
   it("accepts a valid monthly synthesis payload", () => {
@@ -25,8 +25,8 @@ describe("validateMonthlySynthesisResponse", () => {
     expect(
       validateMonthlySynthesisResponse({
         ...validPayload,
-        sectionDrafts: { invalid: "x" }
-      }).ok
+        sectionDrafts: { invalid: "x" },
+      }).ok,
     ).toBe(false);
   });
 
@@ -34,8 +34,8 @@ describe("validateMonthlySynthesisResponse", () => {
     expect(
       validateMonthlySynthesisResponse({
         ...validPayload,
-        goalEvaluationDrafts: [{ ...validPayload.goalEvaluationDrafts[0], trend: "sideways" }]
-      }).ok
+        goalEvaluationDrafts: [{ ...validPayload.goalEvaluationDrafts[0], trend: "sideways" }],
+      }).ok,
     ).toBe(false);
   });
 
@@ -43,14 +43,14 @@ describe("validateMonthlySynthesisResponse", () => {
     expect(
       validateMonthlySynthesisResponse({
         ...validPayload,
-        goalEvaluationDrafts: [{ ...validPayload.goalEvaluationDrafts[0], score: 0 }]
-      }).ok
+        goalEvaluationDrafts: [{ ...validPayload.goalEvaluationDrafts[0], score: 0 }],
+      }).ok,
     ).toBe(true);
     expect(
       validateMonthlySynthesisResponse({
         ...validPayload,
-        goalEvaluationDrafts: [{ ...validPayload.goalEvaluationDrafts[0], score: 100 }]
-      }).ok
+        goalEvaluationDrafts: [{ ...validPayload.goalEvaluationDrafts[0], score: 100 }],
+      }).ok,
     ).toBe(true);
   });
 
@@ -58,20 +58,20 @@ describe("validateMonthlySynthesisResponse", () => {
     expect(
       validateMonthlySynthesisResponse({
         ...validPayload,
-        goalEvaluationDrafts: [{ ...validPayload.goalEvaluationDrafts[0], score: -1 }]
-      }).ok
+        goalEvaluationDrafts: [{ ...validPayload.goalEvaluationDrafts[0], score: -1 }],
+      }).ok,
     ).toBe(false);
     expect(
       validateMonthlySynthesisResponse({
         ...validPayload,
-        goalEvaluationDrafts: [{ ...validPayload.goalEvaluationDrafts[0], score: 101 }]
-      }).ok
+        goalEvaluationDrafts: [{ ...validPayload.goalEvaluationDrafts[0], score: 101 }],
+      }).ok,
     ).toBe(false);
     expect(
       validateMonthlySynthesisResponse({
         ...validPayload,
-        goalEvaluationDrafts: [{ ...validPayload.goalEvaluationDrafts[0], score: 0.82 }]
-      }).ok
+        goalEvaluationDrafts: [{ ...validPayload.goalEvaluationDrafts[0], score: 0.82 }],
+      }).ok,
     ).toBe(true);
   });
 });

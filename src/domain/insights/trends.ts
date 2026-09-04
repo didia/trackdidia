@@ -3,7 +3,13 @@ import { resolveMetricValue } from "../daily-entry";
 import { metricDefinitions } from "../definitions";
 import type { DailyEntry, MetricKey } from "../types";
 import { TREND_LONG_WINDOW_DAYS, TREND_SHORT_WINDOW_DAYS } from "./constants";
-import { average, entriesInTrailingWindow, latestEntryDate, sortEntriesByDate, trailingEvidenceWindow } from "./shared";
+import {
+  average,
+  entriesInTrailingWindow,
+  latestEntryDate,
+  sortEntriesByDate,
+  trailingEvidenceWindow,
+} from "./shared";
 import type { Finding } from "./types";
 
 export type TrendDirection = "up" | "down" | "flat";
@@ -33,7 +39,10 @@ export interface MetricTrendFinding extends Finding {
  * Per-metric 7-day and 28-day trailing averages, their delta and direction
  * (spec `ai-integration-v2.md` §3). `referenceDate` defaults to the most recent entry's date.
  */
-export const computeMetricTrendFindings = (entries: DailyEntry[], referenceDate?: string): MetricTrendFinding[] => {
+export const computeMetricTrendFindings = (
+  entries: DailyEntry[],
+  referenceDate?: string,
+): MetricTrendFinding[] => {
   const ordered = sortEntriesByDate(entries);
   const reference = referenceDate ?? latestEntryDate(ordered);
 
@@ -76,19 +85,19 @@ export const computeMetricTrendFindings = (entries: DailyEntry[], referenceDate?
               label: t(`${key}.label`, { ns: "metrics" }),
               avg7: average7d.toFixed(1),
               avg28: average28d.toFixed(1),
-              direction: t(`direction.${direction}`, { ns: "insights" })
+              direction: t(`direction.${direction}`, { ns: "insights" }),
             })
           : t("trendMetricNoShort", {
               ns: "insights",
               label: t(`${key}.label`, { ns: "metrics" }),
-              avg28: average28d.toFixed(1)
+              avg28: average28d.toFixed(1),
             }),
       metricKey: key,
       average7d,
       average28d,
       shortSampleSize,
       delta,
-      direction
+      direction,
     };
   });
 };
@@ -110,12 +119,16 @@ export interface WeeklyScoreTrendFinding extends Finding {
  * Weekly-score trajectory (spec `ai-integration-v2.md` §3): the most recent weekly score
  * versus the average of prior weeks. `points` must be ordered oldest to newest.
  */
-export const computeWeeklyScoreTrend = (points: WeeklyScoreTrendPoint[]): WeeklyScoreTrendFinding | null => {
+export const computeWeeklyScoreTrend = (
+  points: WeeklyScoreTrendPoint[],
+): WeeklyScoreTrendFinding | null => {
   if (points.length < 2) {
     return null;
   }
 
-  const ordered = [...points].sort((left, right) => left.weekStartDate.localeCompare(right.weekStartDate));
+  const ordered = [...points].sort((left, right) =>
+    left.weekStartDate.localeCompare(right.weekStartDate),
+  );
   const latest = ordered[ordered.length - 1];
   const priorWeeks = ordered.slice(0, -1);
   const baselineAverage = average(priorWeeks.map((point) => point.weeklyScore));
@@ -128,7 +141,7 @@ export const computeWeeklyScoreTrend = (points: WeeklyScoreTrendPoint[]): Weekly
     evidenceWindow: {
       from: ordered[0].weekStartDate,
       to: latest.weekStartDate,
-      days: ordered.length * 7
+      days: ordered.length * 7,
     },
     sampleSize: priorWeeks.length,
     value: latest.weeklyScore,
@@ -136,12 +149,12 @@ export const computeWeeklyScoreTrend = (points: WeeklyScoreTrendPoint[]): Weekly
       ns: "insights",
       score: latest.weeklyScore.toFixed(1),
       baseline: baselineAverage.toFixed(1),
-      direction: t(`direction.${direction}`, { ns: "insights" })
+      direction: t(`direction.${direction}`, { ns: "insights" }),
     }),
     latestWeekStartDate: latest.weekStartDate,
     latestScore: latest.weeklyScore,
     baselineAverage,
     delta,
-    direction
+    direction,
   };
 };

@@ -19,11 +19,17 @@ const buildEntry = (date: string, isTrue: boolean): DailyEntry => {
 
 describe("correlations insight module", () => {
   it("reports the discipline difference between true and false days once the sample floor is met", () => {
-    const trueDays = Array.from({ length: 6 }, (_, index) => buildEntry(addDays("2026-01-01", index), true));
-    const falseDays = Array.from({ length: 6 }, (_, index) => buildEntry(addDays("2026-01-07", index), false));
+    const trueDays = Array.from({ length: 6 }, (_, index) =>
+      buildEntry(addDays("2026-01-01", index), true),
+    );
+    const falseDays = Array.from({ length: 6 }, (_, index) =>
+      buildEntry(addDays("2026-01-07", index), false),
+    );
     const entries = [...trueDays, ...falseDays];
 
-    const finding = computeCorrelationFindings(entries).find((item) => item.principleKey === "priereDuMatin");
+    const finding = computeCorrelationFindings(entries).find(
+      (item) => item.principleKey === "priereDuMatin",
+    );
 
     expect(finding).toBeDefined();
     expect(finding?.sampleSize).toBe(12);
@@ -39,19 +45,29 @@ describe("correlations insight module", () => {
   });
 
   it("omits the finding below the minimum sample floor", () => {
-    const trueDays = Array.from({ length: 4 }, (_, index) => buildEntry(addDays("2026-01-01", index), true));
-    const falseDays = Array.from({ length: 4 }, (_, index) => buildEntry(addDays("2026-01-05", index), false));
+    const trueDays = Array.from({ length: 4 }, (_, index) =>
+      buildEntry(addDays("2026-01-01", index), true),
+    );
+    const falseDays = Array.from({ length: 4 }, (_, index) =>
+      buildEntry(addDays("2026-01-05", index), false),
+    );
     const entries = [...trueDays, ...falseDays];
 
-    const finding = computeCorrelationFindings(entries).find((item) => item.principleKey === "priereDuMatin");
+    const finding = computeCorrelationFindings(entries).find(
+      (item) => item.principleKey === "priereDuMatin",
+    );
 
     expect(finding).toBeUndefined();
   });
 
   it("omits the finding when one side of the comparison has no data", () => {
-    const entries = Array.from({ length: 12 }, (_, index) => buildEntry(addDays("2026-01-01", index), true));
+    const entries = Array.from({ length: 12 }, (_, index) =>
+      buildEntry(addDays("2026-01-01", index), true),
+    );
 
-    const finding = computeCorrelationFindings(entries).find((item) => item.principleKey === "priereDuMatin");
+    const finding = computeCorrelationFindings(entries).find(
+      (item) => item.principleKey === "priereDuMatin",
+    );
 
     expect(finding).toBeUndefined();
   });

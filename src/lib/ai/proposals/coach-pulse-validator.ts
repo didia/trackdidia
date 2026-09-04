@@ -1,5 +1,10 @@
 import { metricDefinitions, principleDefinitions } from "../../../domain/definitions";
-import type { CoachPulseResponse, CoachPulseStance, MetricKey, PrincipleKey } from "../../../domain/types";
+import type {
+  CoachPulseResponse,
+  CoachPulseStance,
+  MetricKey,
+  PrincipleKey,
+} from "../../../domain/types";
 
 const metricKeys = new Set(metricDefinitions.map((definition) => definition.key));
 const principleKeys = new Set(principleDefinitions.map((definition) => definition.key));
@@ -44,7 +49,11 @@ const validateCommitmentCheck = (value: unknown): string | null => {
   }
 
   const check = value as Record<string, unknown>;
-  if (!isNonEmptyString(check.commitment) || !isNonEmptyString(check.progress) || !isNonEmptyString(check.question)) {
+  if (
+    !isNonEmptyString(check.commitment) ||
+    !isNonEmptyString(check.progress) ||
+    !isNonEmptyString(check.question)
+  ) {
     return "commitmentCheck fields must be non-empty strings";
   }
 
@@ -53,7 +62,7 @@ const validateCommitmentCheck = (value: unknown): string | null => {
 
 export const validateCoachPulseResponse = (
   payload: unknown,
-  expectedStance: CoachPulseStance
+  expectedStance: CoachPulseStance,
 ): { ok: true; value: CoachPulseResponse } | { ok: false; error: string } => {
   if (typeof payload !== "object" || payload === null) {
     return { ok: false, error: "Response must be a JSON object" };
@@ -125,7 +134,11 @@ export const validateCoachPulseResponse = (
       }
 
       const friction = record.frictionPoint as Record<string, unknown>;
-      if (!isNonEmptyString(friction.what) || !isNonEmptyString(friction.why) || !isNonEmptyString(friction.adjustment)) {
+      if (
+        !isNonEmptyString(friction.what) ||
+        !isNonEmptyString(friction.why) ||
+        !isNonEmptyString(friction.adjustment)
+      ) {
         return { ok: false, error: "frictionPoint requires what, why, and adjustment" };
       }
     }
@@ -188,7 +201,7 @@ export const validateCoachPulseResponse = (
 
 export const parseCoachPulseJson = (
   raw: string,
-  expectedStance: CoachPulseStance
+  expectedStance: CoachPulseStance,
 ): { ok: true; value: CoachPulseResponse } | { ok: false; error: string } => {
   try {
     const parsed = JSON.parse(raw) as unknown;

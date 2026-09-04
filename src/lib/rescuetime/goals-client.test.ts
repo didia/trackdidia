@@ -10,13 +10,13 @@ const overviewGoal = (name: string): RescueTimeGoalRecord => ({
   is_more: true,
   taxon_id: 1,
   taxonomy_name: "overview",
-  overview: { name }
+  overview: { name },
 });
 
 describe("matchRankRowSeconds", () => {
   const nestedRows = [
     { name: "Work", seconds: 100, hours: 100 / 3600 },
-    { name: "Network Work", seconds: 200, hours: 200 / 3600 }
+    { name: "Network Work", seconds: 200, hours: 200 / 3600 },
   ];
 
   it("prefers exact match over nested substring collision", () => {
@@ -30,7 +30,7 @@ describe("matchRankRowSeconds", () => {
   it("returns nested row even when Work appears first in rank data", () => {
     const reversedRows = [
       { name: "Work", seconds: 100, hours: 100 / 3600 },
-      { name: "Network Work", seconds: 200, hours: 200 / 3600 }
+      { name: "Network Work", seconds: 200, hours: 200 / 3600 },
     ];
     expect(matchRankRowSeconds(reversedRows, overviewGoal("Network Work"), "overview")).toBe(200);
   });
@@ -38,7 +38,7 @@ describe("matchRankRowSeconds", () => {
   it("prefers longest partial match when no exact match exists", () => {
     const partialRows = [
       { name: "Dev", seconds: 50, hours: 50 / 3600 },
-      { name: "Dev Tools", seconds: 150, hours: 150 / 3600 }
+      { name: "Dev Tools", seconds: 150, hours: 150 / 3600 },
     ];
     expect(matchRankRowSeconds(partialRows, overviewGoal("Dev Tool"), "overview")).toBe(150);
   });
@@ -48,7 +48,7 @@ describe("HttpRescueTimeGoalsClient.fetchAnalyticData", () => {
   it("serializes restrict_source_type when sourceType is set", async () => {
     const fetchSpy = vi.spyOn(httpTransport, "fetchRescueTimeJson").mockResolvedValue({
       row_headers: [],
-      rows: []
+      rows: [],
     });
 
     const client = new HttpRescueTimeGoalsClient();
@@ -56,7 +56,7 @@ describe("HttpRescueTimeGoalsClient.fetchAnalyticData", () => {
       kind: "productivity",
       begin: "2026-08-02",
       end: "2026-08-08",
-      sourceType: "computers"
+      sourceType: "computers",
     });
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);

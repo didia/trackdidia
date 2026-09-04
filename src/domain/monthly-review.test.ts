@@ -1,5 +1,11 @@
 import { createEmptyDailyEntry, updateMetric, updatePrinciple } from "./daily-entry";
-import { buildMonthlyReviewSummary, createEmptyMonthlyReview, isFirstSaturdayOfMonth, updateMonthlyReviewChecklist, updateMonthlyReviewNote } from "./monthly-review";
+import {
+  buildMonthlyReviewSummary,
+  createEmptyMonthlyReview,
+  isFirstSaturdayOfMonth,
+  updateMonthlyReviewChecklist,
+  updateMonthlyReviewNote,
+} from "./monthly-review";
 import type { WeeklyReview, WeeklyReviewSummary } from "./types";
 
 describe("monthly review domain", () => {
@@ -29,7 +35,7 @@ describe("monthly review domain", () => {
           calendrier: "",
           gtd: "",
           alignement: "",
-          dimanche: ""
+          dimanche: "",
         },
         ritualChecklist: {
           bilan: true,
@@ -39,10 +45,10 @@ describe("monthly review domain", () => {
           calendrier: false,
           gtd: false,
           alignement: false,
-          dimanche: false
+          dimanche: false,
         },
-        updatedAt: "2026-03-08T12:00:00.000Z"
-      }
+        updatedAt: "2026-03-08T12:00:00.000Z",
+      },
     ];
 
     const weeklySummaries: WeeklyReviewSummary[] = [
@@ -67,8 +73,8 @@ describe("monthly review domain", () => {
         productivityPulse: null,
         rescueTimeGoalsScore: null,
         weeklyScore: 0.6,
-        days: []
-      }
+        days: [],
+      },
     ];
 
     const summary = buildMonthlyReviewSummary("2026-03", entries, weeklyReviews, weeklySummaries);

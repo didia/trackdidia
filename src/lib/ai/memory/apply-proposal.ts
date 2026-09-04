@@ -1,8 +1,14 @@
-import type { AiMemory, AiProposal, MemoryKind, MetricKey, PrincipleKey } from "../../../domain/types";
+import type {
+  AiMemory,
+  AiProposal,
+  MemoryKind,
+  MetricKey,
+  PrincipleKey,
+} from "../../../domain/types";
 import { createEntityId, nowIso } from "../../gtd/shared";
 import type { AppRepository } from "../../storage/repository";
-import { commitmentExpiresAt } from "./lifecycle";
 import { stringifyCommitmentDetail, stringifyPatternDetail } from "./detail";
+import { commitmentExpiresAt } from "./lifecycle";
 
 export interface MemoryProposalPayload {
   kind: MemoryKind;
@@ -28,7 +34,7 @@ export const memoryIdFromProposal = (proposalId: string): string =>
 export const createMemoryFromProposal = (
   payload: MemoryProposalPayload,
   acceptedDate: string,
-  memoryId?: string
+  memoryId?: string,
 ): AiMemory => {
   const timestamp = nowIso();
   return {
@@ -45,14 +51,18 @@ export const createMemoryFromProposal = (
     lastConfirmedAt: timestamp,
     expiresAt:
       payload.expiresAt ??
-      (payload.kind === "commitment" ? commitmentExpiresAt(acceptedDate) : payload.kind === "context" ? null : null),
-    pinned: payload.pinned ?? false
+      (payload.kind === "commitment"
+        ? commitmentExpiresAt(acceptedDate)
+        : payload.kind === "context"
+          ? null
+          : null),
+    pinned: payload.pinned ?? false,
   };
 };
 
 export const buildMemoryFromProposal = (
   proposal: AiProposal,
-  acceptedDate: string
+  acceptedDate: string,
 ): AiMemory | null => {
   const memoryId = memoryIdFromProposal(proposal.id);
 
@@ -70,12 +80,12 @@ export const buildMemoryFromProposal = (
         confidence: 1,
         detail: stringifyCommitmentDetail({
           metricKey: payload.metricKey ?? null,
-          target: payload.target ?? null
+          target: payload.target ?? null,
         }),
-        source: "ai_extracted"
+        source: "ai_extracted",
       },
       acceptedDate,
-      memoryId
+      memoryId,
     );
   }
 
@@ -85,7 +95,7 @@ export const buildMemoryFromProposal = (
 export const applyAcceptedProposal = async (
   repository: AppRepository,
   proposal: AiProposal,
-  acceptedDate: string
+  acceptedDate: string,
 ): Promise<AiMemory | null> => {
   const memory = buildMemoryFromProposal(proposal, acceptedDate);
   if (!memory) {
@@ -102,7 +112,7 @@ export const buildPatternMemoryPayload = (
   principleKey: PrincipleKey,
   diff: number,
   evidenceFrom: string,
-  evidenceTo: string
+  evidenceTo: string,
 ): MemoryProposalPayload => ({
   kind: "pattern",
   statement,
@@ -110,5 +120,5 @@ export const buildPatternMemoryPayload = (
   detail: stringifyPatternDetail({ principleKey, diff }),
   evidenceFrom,
   evidenceTo,
-  source: "derived"
+  source: "derived",
 });

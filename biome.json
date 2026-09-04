@@ -1,0 +1,57 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.3.11/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "includes": [
+      "**",
+      "!dist",
+      "!coverage",
+      "!src-tauri/target",
+      "!src-tauri/gen",
+      "!package-lock.json",
+      "!scripts/rescuetime-*.mjs"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "semicolons": "always"
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "a11y": {
+        "noLabelWithoutControl": "off",
+        "useSemanticElements": "off"
+      },
+      "correctness": {
+        "useExhaustiveDependencies": "off"
+      },
+      "style": {
+        "noNonNullAssertion": "off"
+      },
+      "suspicious": {
+        "noAssignInExpressions": "off",
+        "noNonNullAssertedOptionalChain": "off"
+      },
+      "performance": {
+        "noAccumulatingSpread": "off"
+      }
+    }
+  },
+  "assist": {
+    "enabled": false
+  }
+}

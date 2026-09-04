@@ -3,8 +3,8 @@ import type {
   WeeklyObjectiveKind,
   WeeklyRitualSectionKey,
   WeeklySynthesisGtdAction,
+  WeeklySynthesisObjectiveDraft,
   WeeklySynthesisResponse,
-  WeeklySynthesisObjectiveDraft
 } from "../../../domain/types";
 
 const ritualSectionKeys = new Set<WeeklyRitualSectionKey>([
@@ -15,11 +15,16 @@ const ritualSectionKeys = new Set<WeeklyRitualSectionKey>([
   "calendrier",
   "gtd",
   "alignement",
-  "dimanche"
+  "dimanche",
 ]);
 
 const objectiveKinds = new Set<WeeklyObjectiveKind>(["time", "manual"]);
-const rescuetimeKinds = new Set<RescueTimeTaxonomy>(["overview", "category", "activity", "productivity"]);
+const rescuetimeKinds = new Set<RescueTimeTaxonomy>([
+  "overview",
+  "category",
+  "activity",
+  "productivity",
+]);
 const gtdActions = new Set<WeeklySynthesisGtdAction>(["schedule", "defer", "delegate", "drop"]);
 
 const isNonEmptyString = (value: unknown): value is string =>
@@ -50,8 +55,13 @@ const validateSectionDrafts = (value: unknown): string | null => {
 const isFinitePositiveNumber = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value) && value > 0;
 
-const normalizeObjective = (objective: Record<string, unknown>): WeeklySynthesisObjectiveDraft | null => {
-  if (!isNonEmptyString(objective.title) || !objectiveKinds.has(String(objective.kind) as WeeklyObjectiveKind)) {
+const normalizeObjective = (
+  objective: Record<string, unknown>,
+): WeeklySynthesisObjectiveDraft | null => {
+  if (
+    !isNonEmptyString(objective.title) ||
+    !objectiveKinds.has(String(objective.kind) as WeeklyObjectiveKind)
+  ) {
     return null;
   }
 
@@ -79,7 +89,7 @@ const normalizeObjective = (objective: Record<string, unknown>): WeeklySynthesis
       kind,
       targetHours: objective.targetHours,
       rescuetimeKind: String(objective.rescuetimeKind) as RescueTimeTaxonomy,
-      rescuetimeThing: objective.rescuetimeThing.trim()
+      rescuetimeThing: objective.rescuetimeThing.trim(),
     };
   }
 
@@ -99,7 +109,11 @@ const normalizeObjective = (objective: Record<string, unknown>): WeeklySynthesis
     return null;
   }
 
-  if (objective.rescuetimeThing !== null && objective.rescuetimeThing !== undefined && typeof objective.rescuetimeThing !== "string") {
+  if (
+    objective.rescuetimeThing !== null &&
+    objective.rescuetimeThing !== undefined &&
+    typeof objective.rescuetimeThing !== "string"
+  ) {
     return null;
   }
 
@@ -108,7 +122,7 @@ const normalizeObjective = (objective: Record<string, unknown>): WeeklySynthesis
     kind,
     targetHours: null,
     rescuetimeKind: null,
-    rescuetimeThing: null
+    rescuetimeThing: null,
   };
 };
 
@@ -166,7 +180,7 @@ const validateGtdActions = (value: unknown): string | null => {
 };
 
 export const validateWeeklySynthesisResponse = (
-  payload: unknown
+  payload: unknown,
 ): { ok: true; value: WeeklySynthesisResponse } | { ok: false; error: string } => {
   if (typeof payload !== "object" || payload === null) {
     return { ok: false, error: "Response must be a JSON object" };
@@ -205,24 +219,27 @@ export const validateWeeklySynthesisResponse = (
     return { ok: false, error: gtdActionsError };
   }
 
-  const normalizedObjectives = (record.nextWeekObjectives as Record<string, unknown>[]).map((objective) =>
-    normalizeObjective(objective)
+  const normalizedObjectives = (record.nextWeekObjectives as Record<string, unknown>[]).map(
+    (objective) => normalizeObjective(objective),
   );
   if (normalizedObjectives.some((objective) => objective === null)) {
-    return { ok: false, error: "nextWeekObjective requires valid title, kind, and kind-specific fields" };
+    return {
+      ok: false,
+      error: "nextWeekObjective requires valid title, kind, and kind-specific fields",
+    };
   }
 
   return {
     ok: true,
     value: {
       ...(record as unknown as WeeklySynthesisResponse),
-      nextWeekObjectives: normalizedObjectives as WeeklySynthesisObjectiveDraft[]
-    }
+      nextWeekObjectives: normalizedObjectives as WeeklySynthesisObjectiveDraft[],
+    },
   };
 };
 
 export const parseWeeklySynthesisJson = (
-  raw: string
+  raw: string,
 ): { ok: true; value: WeeklySynthesisResponse } | { ok: false; error: string } => {
   try {
     const parsed = JSON.parse(raw) as unknown;

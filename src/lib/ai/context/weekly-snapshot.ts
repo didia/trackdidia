@@ -1,19 +1,10 @@
+import { createEmptyDailyEntry, resolveMetricValue } from "../../../domain/daily-entry";
+import { metricDefinitions, principleDefinitions } from "../../../domain/definitions";
 import { computeAnomalyFindings } from "../../../domain/insights/anomalies";
 import { computeFocusFindings } from "../../../domain/insights/focus";
 import { computeGtdHealthFindings } from "../../../domain/insights/gtd-health";
 import { computeStreakFindings } from "../../../domain/insights/streaks";
 import type { Finding } from "../../../domain/insights/types";
-import { metricDefinitions, principleDefinitions } from "../../../domain/definitions";
-import { resolveMetricValue, createEmptyDailyEntry } from "../../../domain/daily-entry";
-import {
-  applyWeeklyScoreExternalAxes,
-  buildWeekDates,
-  listWeekDates,
-  localWeeklyScoreAxes,
-  phoneScreenTargetMinutes,
-  pomodoroTarget,
-  calorieTargetDaily
-} from "../../../domain/weekly-review";
 import type {
   AiPayloadScope,
   DailyEntry,
@@ -23,16 +14,25 @@ import type {
   Project,
   Task,
   WeeklyReview,
-  WeeklyReviewSummary,
   WeeklyReviewStatus,
-  WeeklyRitualSectionKey
+  WeeklyReviewSummary,
+  WeeklyRitualSectionKey,
 } from "../../../domain/types";
+import {
+  applyWeeklyScoreExternalAxes,
+  buildWeekDates,
+  calorieTargetDaily,
+  listWeekDates,
+  localWeeklyScoreAxes,
+  phoneScreenTargetMinutes,
+  pomodoroTarget,
+} from "../../../domain/weekly-review";
 import type { Surface } from "./types";
 
 const metricWeeklyTargets: Partial<Record<MetricKey, number>> = {
   tempsEcranTelephone: phoneScreenTargetMinutes,
   pomodoris: pomodoroTarget,
-  depenseCalorique: calorieTargetDaily * 7
+  depenseCalorique: calorieTargetDaily * 7,
 };
 
 export interface WeeklySnapshotAxis {
@@ -119,7 +119,7 @@ export interface WeeklySnapshotInputs {
 }
 
 const axisDefinitions = (
-  summary: WeeklyReviewSummary
+  summary: WeeklyReviewSummary,
 ): Array<{ key: string; label: string; score: number }> => [
   { key: "sleepQuality", label: "Sommeil", score: summary.sleepQuality },
   { key: "respectTrc", label: "Respect TRC", score: summary.respectTrc },
@@ -129,11 +129,23 @@ const axisDefinitions = (
   { key: "tasksCompletionRate", label: "Completion taches", score: summary.tasksCompletionRate },
   { key: "physicalActivity", label: "Activite physique", score: summary.physicalActivity },
   ...(summary.rescueTimeGoalsScore !== null
-    ? [{ key: "rescueTimeGoalsScore", label: "Objectifs RescueTime", score: summary.rescueTimeGoalsScore * 100 }]
+    ? [
+        {
+          key: "rescueTimeGoalsScore",
+          label: "Objectifs RescueTime",
+          score: summary.rescueTimeGoalsScore * 100,
+        },
+      ]
     : []),
   ...(summary.productivityPulse !== null
-    ? [{ key: "productivityPulse", label: "Productivite ordinateur", score: summary.productivityPulse }]
-    : [])
+    ? [
+        {
+          key: "productivityPulse",
+          label: "Productivite ordinateur",
+          score: summary.productivityPulse,
+        },
+      ]
+    : []),
 ];
 
 const projectTitleById = (projects: Project[]): Map<string, string> =>
@@ -144,7 +156,11 @@ const sanitizeFindingForScope = (finding: Finding, includeStructure: boolean): F
     return finding;
   }
 
-  const { taskIds: _taskIds, projectIds: _projectIds, ...rest } = finding as Finding & {
+  const {
+    taskIds: _taskIds,
+    projectIds: _projectIds,
+    ...rest
+  } = finding as Finding & {
     taskIds?: string[];
     projectIds?: string[];
   };
@@ -152,7 +168,9 @@ const sanitizeFindingForScope = (finding: Finding, includeStructure: boolean): F
   return rest as Finding;
 };
 
-const aggregatePomodoroSummaries = (summariesByDay: PomodoroTaskSummary[][]): PomodoroTaskSummary[] => {
+const aggregatePomodoroSummaries = (
+  summariesByDay: PomodoroTaskSummary[][],
+): PomodoroTaskSummary[] => {
   const totals = new Map<string, PomodoroTaskSummary>();
 
   for (const daySummaries of summariesByDay) {
@@ -171,7 +189,10 @@ const aggregatePomodoroSummaries = (summariesByDay: PomodoroTaskSummary[][]): Po
   return [...totals.values()];
 };
 
-export const buildWeeklySnapshot = (inputs: WeeklySnapshotInputs, scope: AiPayloadScope): WeeklySnapshot => {
+export const buildWeeklySnapshot = (
+  inputs: WeeklySnapshotInputs,
+  scope: AiPayloadScope,
+): WeeklySnapshot => {
   const includeStructure = scope === "metrics_and_structure" || scope === "full";
   const includeFreeText = scope === "full";
   const normalizedWeekStart = buildWeekDates(inputs.weekStartDate);
@@ -181,7 +202,7 @@ export const buildWeeklySnapshot = (inputs: WeeklySnapshotInputs, scope: AiPaylo
 
   const enrichedSummary = applyWeeklyScoreExternalAxes(inputs.summary, {
     rescueTimeGoalsScore: inputs.rescueTimeGoalsScore,
-    productivityPulse: inputs.productivityPulse
+    productivityPulse: inputs.productivityPulse,
   });
 
   const streakFindings = computeStreakFindings(inputs.historyEntries, weekEndDate);
@@ -191,7 +212,7 @@ export const buildWeeklySnapshot = (inputs: WeeklySnapshotInputs, scope: AiPaylo
     inputs.pomodoroTaskSummaries,
     inputs.completedFocusSessionCount,
     inputs.now,
-    inputs.productivityPulse
+    inputs.productivityPulse,
   );
 
   const metrics: WeeklySnapshotMetric[] = metricDefinitions.map((definition) => {
@@ -210,56 +231,74 @@ export const buildWeeklySnapshot = (inputs: WeeklySnapshotInputs, scope: AiPaylo
       unit: definition.unit ?? null,
       target: metricWeeklyTargets[definition.key] ?? null,
       weekTotal,
-      weekAverage
+      weekAverage,
     };
   });
 
   const principles: WeeklySnapshotPrinciple[] = principleDefinitions.map((definition) => {
-    const daysTrue = weekDates.filter((date) => entriesByDate.get(date)?.principleChecks[definition.key] === true).length;
+    const daysTrue = weekDates.filter(
+      (date) => entriesByDate.get(date)?.principleChecks[definition.key] === true,
+    ).length;
 
     return {
       key: definition.key,
       label: definition.label,
       timing: definition.timing,
       daysTrue,
-      weekRate: daysTrue / 7
+      weekRate: daysTrue / 7,
     };
   });
 
   const inboxBacklogFinding = gtdHealthFindings.find((finding) => finding.kind === "inbox_backlog");
   const projectsWithoutNextActionFinding = gtdHealthFindings.find(
-    (finding) => finding.kind === "projects_without_next_action"
+    (finding) => finding.kind === "projects_without_next_action",
   );
-  const staleNextActionsFinding = gtdHealthFindings.find((finding) => finding.kind === "stale_next_actions");
-  const agingWaitingForFinding = gtdHealthFindings.find((finding) => finding.kind === "aging_waiting_for");
-  const overdueDeadlinesFinding = gtdHealthFindings.find((finding) => finding.kind === "overdue_deadlines");
+  const staleNextActionsFinding = gtdHealthFindings.find(
+    (finding) => finding.kind === "stale_next_actions",
+  );
+  const agingWaitingForFinding = gtdHealthFindings.find(
+    (finding) => finding.kind === "aging_waiting_for",
+  );
+  const overdueDeadlinesFinding = gtdHealthFindings.find(
+    (finding) => finding.kind === "overdue_deadlines",
+  );
   const scheduledVsCompletedFinding = gtdHealthFindings.find(
-    (finding) => finding.kind === "scheduled_vs_completed_ratio"
+    (finding) => finding.kind === "scheduled_vs_completed_ratio",
   );
   const projectTitles = projectTitleById(inputs.projects);
 
   const gtd: WeeklySnapshotGtd = {
     inboxBacklog: inboxBacklogFinding?.value ?? 0,
     projectsWithoutNextAction: projectsWithoutNextActionFinding?.value ?? 0,
-    projectsWithoutNextActionSample: (projectsWithoutNextActionFinding?.projectIds ?? []).slice(0, 3).map((id) => ({
-      id,
-      ...(includeStructure ? { title: projectTitles.get(id) ?? id } : {})
-    })),
+    projectsWithoutNextActionSample: (projectsWithoutNextActionFinding?.projectIds ?? [])
+      .slice(0, 3)
+      .map((id) => ({
+        id,
+        ...(includeStructure ? { title: projectTitles.get(id) ?? id } : {}),
+      })),
     staleNextActions: staleNextActionsFinding?.value ?? 0,
     agingWaitingFor: agingWaitingForFinding?.value ?? 0,
     overdueDeadlines: overdueDeadlinesFinding?.value ?? 0,
-    scheduledVsCompletedRatio: scheduledVsCompletedFinding?.value ?? 0
+    scheduledVsCompletedRatio: scheduledVsCompletedFinding?.value ?? 0,
   };
 
   const focusTotalsFinding = focusFindings.find((finding) => finding.kind === "focus_totals");
-  const taskConcentrationFinding = focusFindings.find((finding) => finding.kind === "task_concentration");
-  const topTaskSummary = inputs.pomodoroTaskSummaries.reduce<PomodoroTaskSummary | null>((top, summary) => {
-    if (!top || summary.totalSeconds > top.totalSeconds) {
-      return summary;
-    }
-    return top;
-  }, null);
-  const totalFocusSeconds = inputs.pomodoroTaskSummaries.reduce((sum, summary) => sum + summary.totalSeconds, 0);
+  const taskConcentrationFinding = focusFindings.find(
+    (finding) => finding.kind === "task_concentration",
+  );
+  const topTaskSummary = inputs.pomodoroTaskSummaries.reduce<PomodoroTaskSummary | null>(
+    (top, summary) => {
+      if (!top || summary.totalSeconds > top.totalSeconds) {
+        return summary;
+      }
+      return top;
+    },
+    null,
+  );
+  const totalFocusSeconds = inputs.pomodoroTaskSummaries.reduce(
+    (sum, summary) => sum + summary.totalSeconds,
+    0,
+  );
 
   const focus: WeeklySnapshotFocus = {
     completedFocusSessionCount: focusTotalsFinding?.value ?? inputs.completedFocusSessionCount,
@@ -268,16 +307,19 @@ export const buildWeeklySnapshot = (inputs: WeeklySnapshotInputs, scope: AiPaylo
     topTask: topTaskSummary
       ? {
           taskId: topTaskSummary.taskId,
-          ...(includeStructure ? { title: topTaskSummary.taskTitle } : {})
+          ...(includeStructure ? { title: topTaskSummary.taskTitle } : {}),
         }
       : null,
     productivityPulse: inputs.productivityPulse,
-    rescueTimeConfigured: inputs.rescuetimeConfigured
+    rescueTimeConfigured: inputs.rescuetimeConfigured,
   };
 
-  const findings: Finding[] = [...streakFindings, ...anomalyFindings, ...gtdHealthFindings, ...focusFindings].map(
-    (finding) => sanitizeFindingForScope(finding, includeStructure)
-  );
+  const findings: Finding[] = [
+    ...streakFindings,
+    ...anomalyFindings,
+    ...gtdHealthFindings,
+    ...focusFindings,
+  ].map((finding) => sanitizeFindingForScope(finding, includeStructure));
 
   return {
     surface: "weekly",
@@ -293,10 +335,10 @@ export const buildWeeklySnapshot = (inputs: WeeklySnapshotInputs, scope: AiPaylo
     focus,
     ...(includeFreeText && inputs.review
       ? {
-          notes: { ...inputs.review.notes }
+          notes: { ...inputs.review.notes },
         }
       : {}),
-    findings
+    findings,
   };
 };
 
@@ -308,7 +350,7 @@ export const resolveWeeklySnapshotInputs = async (
     productivityPulse?: number | null;
     rescueTimeGoalsScore?: number | null;
     rescuetimeConfigured?: boolean;
-  } = {}
+  } = {},
 ): Promise<WeeklySnapshotInputs> => {
   const normalized = buildWeekDates(weekStartDate);
   const weekDates = listWeekDates(normalized);
@@ -321,17 +363,19 @@ export const resolveWeeklySnapshotInputs = async (
     repository.listDailyEntriesOnOrBefore(weekEndDate, 180),
     repository.listTasks({ includeCompleted: true }),
     repository.listProjects(),
-    ...weekDates.map((date) => repository.getDailyEntry(date))
+    ...weekDates.map((date) => repository.getDailyEntry(date)),
   ]);
 
-  const weekEntries = weekDates.map((date, index) => weekEntryRows[index] ?? createEmptyDailyEntry(date));
+  const weekEntries = weekDates.map(
+    (date, index) => weekEntryRows[index] ?? createEmptyDailyEntry(date),
+  );
   const pomodoroSummariesByDay: PomodoroTaskSummary[][] = [];
   let completedFocusSessionCount = 0;
 
   for (const date of weekDates) {
     const [summaries, stats] = await Promise.all([
       repository.listPomodoroTaskSummaries(date, now),
-      repository.computeDailyPomodoroStats(date)
+      repository.computeDailyPomodoroStats(date),
     ]);
     pomodoroSummariesByDay.push(summaries);
     completedFocusSessionCount += stats.completedFocusSessions;
@@ -352,7 +396,7 @@ export const resolveWeeklySnapshotInputs = async (
     productivityPulse: options.productivityPulse ?? null,
     rescueTimeGoalsScore: options.rescueTimeGoalsScore ?? null,
     rescuetimeConfigured: options.rescuetimeConfigured ?? false,
-    now
+    now,
   };
 };
 
@@ -361,9 +405,10 @@ export const rankWeeklyAxes = (summary: WeeklyReviewSummary): WeeklySnapshotAxis
   axisDefinitions(
     applyWeeklyScoreExternalAxes(summary, {
       rescueTimeGoalsScore: summary.rescueTimeGoalsScore,
-      productivityPulse: summary.productivityPulse
-    })
+      productivityPulse: summary.productivityPulse,
+    }),
   );
 
 /** Sanity check used in tests — local axes count without external overlays. */
-export const localWeeklyAxisCount = (summary: WeeklyReviewSummary): number => localWeeklyScoreAxes(summary).length;
+export const localWeeklyAxisCount = (summary: WeeklyReviewSummary): number =>
+  localWeeklyScoreAxes(summary).length;

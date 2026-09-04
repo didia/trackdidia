@@ -1,16 +1,16 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createEmptyDailyEntry, defaultAppSettings } from "../domain/daily-entry";
-import { MorningRoutinePage } from "./MorningRoutinePage";
-import { MemoryRepository } from "../lib/storage/memory-repository";
-import { addDays } from "../lib/gtd/shared";
 import { getTodayDate } from "../lib/date";
+import { addDays } from "../lib/gtd/shared";
+import { MemoryRepository } from "../lib/storage/memory-repository";
 import { renderWithApp } from "../test/test-utils";
+import { MorningRoutinePage } from "./MorningRoutinePage";
 
 const hidePreviousDayReview = {
   contextOverrides: {
-    settings: { ...defaultAppSettings(), previousDayReviewDoneDate: addDays(getTodayDate(), -1) }
-  }
+    settings: { ...defaultAppSettings(), previousDayReviewDoneDate: addDays(getTodayDate(), -1) },
+  },
 };
 
 describe("MorningRoutinePage", () => {

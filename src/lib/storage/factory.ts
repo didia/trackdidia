@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import { MemoryRepository } from "./memory-repository";
 import { logDebug } from "../debug";
+import { MemoryRepository } from "./memory-repository";
 import type { AppRepository, NativeStoragePaths } from "./repository";
 import { TauriSqliteRepository } from "./tauri-sqlite-repository";
 
@@ -9,7 +9,7 @@ export const isTauriRuntime = (): boolean =>
 
 export const createRepository = async (): Promise<AppRepository> => {
   logDebug("info", "storage.factory", "Creation du repository", {
-    tauriRuntime: isTauriRuntime()
+    tauriRuntime: isTauriRuntime(),
   });
 
   if (isTauriRuntime()) {

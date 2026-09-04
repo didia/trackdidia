@@ -5,7 +5,7 @@ import {
   AI_MAX_TOKENS_TRUNCATED_ERROR,
   DEFAULT_OPENROUTER_BASE_URL,
   normalizeAiBaseUrl,
-  OpenRouterProvider
+  OpenRouterProvider,
 } from "./openrouter-provider";
 
 describe("normalizeAiBaseUrl", () => {
@@ -15,9 +15,11 @@ describe("normalizeAiBaseUrl", () => {
 
   it("strips chat completions and responses suffixes", () => {
     expect(normalizeAiBaseUrl("https://openrouter.ai/api/v1/chat/completions")).toBe(
-      DEFAULT_OPENROUTER_BASE_URL
+      DEFAULT_OPENROUTER_BASE_URL,
     );
-    expect(normalizeAiBaseUrl("https://openrouter.ai/api/v1/responses/")).toBe(DEFAULT_OPENROUTER_BASE_URL);
+    expect(normalizeAiBaseUrl("https://openrouter.ai/api/v1/responses/")).toBe(
+      DEFAULT_OPENROUTER_BASE_URL,
+    );
   });
 });
 
@@ -32,9 +34,13 @@ describe("OpenRouterProvider", () => {
   it("posts structured requests with max_tokens, temperature, and json response format", async () => {
     const fetchMock = vi.fn(async () =>
       Response.json({
-        choices: [{ message: { content: '{"stance":"open","headline":"Bonjour","read":"Go","move":null}' } }],
-        usage: { prompt_tokens: 12, completion_tokens: 34 }
-      })
+        choices: [
+          {
+            message: { content: '{"stance":"open","headline":"Bonjour","read":"Go","move":null}' },
+          },
+        ],
+        usage: { prompt_tokens: 12, completion_tokens: 34 },
+      }),
     );
     globalThis.fetch = fetchMock as typeof fetch;
 
@@ -61,19 +67,19 @@ describe("OpenRouterProvider", () => {
           staleNextActions: 0,
           agingWaitingFor: 0,
           overdueDeadlines: 0,
-          scheduledVsCompletedRatio: 0
+          scheduledVsCompletedRatio: 0,
         },
         pomodoro: {
           completedFocusSessionCount: 0,
           totalFocusMinutes: 0,
           taskConcentration: null,
-          topTask: null
+          topTask: null,
         },
         rescueTime: { configured: false, productivityPulseWeekToDate: null },
         history: { daysConsidered: 0, disciplineAverage7d: 0, disciplineAverage28d: 0 },
         weeklyScoreTrend: null,
-        findings: []
-      }
+        findings: [],
+      },
     });
 
     expect(result.text).toContain("Bonjour");
@@ -87,7 +93,7 @@ describe("OpenRouterProvider", () => {
       model: settings.aiModel,
       max_tokens: DEFAULT_AI_MAX_TOKENS,
       temperature: 0.4,
-      response_format: { type: "json_object" }
+      response_format: { type: "json_object" },
     });
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer sk-or-test");
     const systemPrompt = body.messages[0].content as string;
@@ -98,9 +104,16 @@ describe("OpenRouterProvider", () => {
   it("includes weekly synthesis schema fields in the system prompt", async () => {
     const fetchMock = vi.fn(async () =>
       Response.json({
-        choices: [{ message: { content: '{"headline":"Semaine","scoreExplanation":"ok","strongestAxis":"Discipline","weakestAxes":["A","B"],"nextWeekObjectives":[],"gtdActions":[]}' } }],
-        usage: { prompt_tokens: 1, completion_tokens: 2 }
-      })
+        choices: [
+          {
+            message: {
+              content:
+                '{"headline":"Semaine","scoreExplanation":"ok","strongestAxis":"Discipline","weakestAxes":["A","B"],"nextWeekObjectives":[],"gtdActions":[]}',
+            },
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 2 },
+      }),
     );
     globalThis.fetch = fetchMock as typeof fetch;
 
@@ -128,7 +141,7 @@ describe("OpenRouterProvider", () => {
           staleNextActions: 0,
           agingWaitingFor: 0,
           overdueDeadlines: 0,
-          scheduledVsCompletedRatio: 0
+          scheduledVsCompletedRatio: 0,
         },
         focus: {
           completedFocusSessionCount: 0,
@@ -136,10 +149,10 @@ describe("OpenRouterProvider", () => {
           taskConcentration: null,
           topTask: null,
           productivityPulse: null,
-          rescueTimeConfigured: false
+          rescueTimeConfigured: false,
         },
-        findings: []
-      }
+        findings: [],
+      },
     });
 
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
@@ -154,17 +167,21 @@ describe("OpenRouterProvider", () => {
   it("includes monthly synthesis schema fields in the system prompt", async () => {
     const fetchMock = vi.fn(async () =>
       Response.json({
-        choices: [{
-          message: {
-            content: JSON.stringify({
-              headline: "Mois solide",
-              weekPattern: "Stable",
-              goalEvaluationDrafts: [{ goalId: "goal-1", score: 75, trend: "up", notes: "", blockers: "" }]
-            })
-          }
-        }],
-        usage: { prompt_tokens: 1, completion_tokens: 2 }
-      })
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                headline: "Mois solide",
+                weekPattern: "Stable",
+                goalEvaluationDrafts: [
+                  { goalId: "goal-1", score: 75, trend: "up", notes: "", blockers: "" },
+                ],
+              }),
+            },
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 2 },
+      }),
     );
     globalThis.fetch = fetchMock as typeof fetch;
 
@@ -193,8 +210,21 @@ describe("OpenRouterProvider", () => {
         tasksCompletionRate: 80,
         weeklyScoreAverage: 0.72,
         weeks: [],
-        goals: [{ goalId: "goal-1", title: "Sommeil", dimension: "global", currentValue: 70, targetValue: 100, unit: "%", progressRatio: 0.7, monthValue: 75, evaluationScore: null, evaluationTrend: null }]
-      }
+        goals: [
+          {
+            goalId: "goal-1",
+            title: "Sommeil",
+            dimension: "global",
+            currentValue: 70,
+            targetValue: 100,
+            unit: "%",
+            progressRatio: 0.7,
+            monthValue: 75,
+            evaluationScore: null,
+            evaluationTrend: null,
+          },
+        ],
+      },
     });
 
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
@@ -209,22 +239,26 @@ describe("OpenRouterProvider", () => {
   it("includes goal pacing schema fields in the system prompt", async () => {
     const fetchMock = vi.fn(async () =>
       Response.json({
-        choices: [{
-          message: {
-            content: JSON.stringify({
-              goals: [{
-                goalId: "goal-1",
-                onPace: true,
-                gap: "Proche",
-                requiredWeeklyBehaviour: "Focus",
-                riskLevel: "low",
-                recommendation: "Continuer"
-              }]
-            })
-          }
-        }],
-        usage: { prompt_tokens: 1, completion_tokens: 2 }
-      })
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                goals: [
+                  {
+                    goalId: "goal-1",
+                    onPace: true,
+                    gap: "Proche",
+                    requiredWeeklyBehaviour: "Focus",
+                    riskLevel: "low",
+                    recommendation: "Continuer",
+                  },
+                ],
+              }),
+            },
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 2 },
+      }),
     );
     globalThis.fetch = fetchMock as typeof fetch;
 
@@ -241,20 +275,22 @@ describe("OpenRouterProvider", () => {
         year: 2026,
         asOfDate: "2026-08-29",
         expectedProgressRatio: 0.66,
-        goals: [{
-          goalId: "goal-1",
-          title: "Discipline",
-          dimension: "global",
-          currentValue: 60,
-          targetValue: 100,
-          unit: "%",
-          progressRatio: 0.6,
-          onPace: true,
-          monthlyProgress: [],
-          evaluationScore: null,
-          evaluationTrend: null
-        }]
-      }
+        goals: [
+          {
+            goalId: "goal-1",
+            title: "Discipline",
+            dimension: "global",
+            currentValue: 60,
+            targetValue: 100,
+            unit: "%",
+            progressRatio: 0.6,
+            onPace: true,
+            monthlyProgress: [],
+            evaluationScore: null,
+            evaluationTrend: null,
+          },
+        ],
+      },
     });
 
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
@@ -273,9 +309,13 @@ describe("OpenRouterProvider", () => {
       .mockResolvedValueOnce(Response.json({ error: { message: "Rate limited" } }, { status: 429 }))
       .mockResolvedValueOnce(
         Response.json({
-          choices: [{ message: { content: '{"stance":"open","headline":"Retry","read":"ok","move":null}' } }],
-          usage: { prompt_tokens: 1, completion_tokens: 2 }
-        })
+          choices: [
+            {
+              message: { content: '{"stance":"open","headline":"Retry","read":"ok","move":null}' },
+            },
+          ],
+          usage: { prompt_tokens: 1, completion_tokens: 2 },
+        }),
       );
     globalThis.fetch = fetchMock as typeof fetch;
 
@@ -301,19 +341,19 @@ describe("OpenRouterProvider", () => {
           staleNextActions: 0,
           agingWaitingFor: 0,
           overdueDeadlines: 0,
-          scheduledVsCompletedRatio: 0
+          scheduledVsCompletedRatio: 0,
         },
         pomodoro: {
           completedFocusSessionCount: 0,
           totalFocusMinutes: 0,
           taskConcentration: null,
-          topTask: null
+          topTask: null,
         },
         rescueTime: { configured: false, productivityPulseWeekToDate: null },
         history: { daysConsidered: 0, disciplineAverage7d: 0, disciplineAverage28d: 0 },
         weeklyScoreTrend: null,
-        findings: []
-      }
+        findings: [],
+      },
     });
 
     await vi.runAllTimersAsync();
@@ -351,20 +391,20 @@ describe("OpenRouterProvider", () => {
             staleNextActions: 0,
             agingWaitingFor: 0,
             overdueDeadlines: 0,
-            scheduledVsCompletedRatio: 0
+            scheduledVsCompletedRatio: 0,
           },
           pomodoro: {
             completedFocusSessionCount: 0,
             totalFocusMinutes: 0,
             taskConcentration: null,
-            topTask: null
+            topTask: null,
           },
           rescueTime: { configured: false, productivityPulseWeekToDate: null },
           history: { daysConsidered: 0, disciplineAverage7d: 0, disciplineAverage28d: 0 },
           weeklyScoreTrend: null,
-          findings: []
-        }
-      })
+          findings: [],
+        },
+      }),
     ).rejects.toThrow("AI request timed out.");
 
     expect(globalThis.fetch).toHaveBeenCalledTimes(2);
@@ -372,7 +412,7 @@ describe("OpenRouterProvider", () => {
 
   it("surfaces OpenRouter error messages without retry on 4xx", async () => {
     globalThis.fetch = vi.fn(async () =>
-      Response.json({ error: { message: "Insufficient credits" } }, { status: 402 })
+      Response.json({ error: { message: "Insufficient credits" } }, { status: 402 }),
     ) as typeof fetch;
 
     const provider = new OpenRouterProvider();
@@ -398,20 +438,20 @@ describe("OpenRouterProvider", () => {
             staleNextActions: 0,
             agingWaitingFor: 0,
             overdueDeadlines: 0,
-            scheduledVsCompletedRatio: 0
+            scheduledVsCompletedRatio: 0,
           },
           pomodoro: {
             completedFocusSessionCount: 0,
             totalFocusMinutes: 0,
             taskConcentration: null,
-            topTask: null
+            topTask: null,
           },
           rescueTime: { configured: false, productivityPulseWeekToDate: null },
           history: { daysConsidered: 0, disciplineAverage7d: 0, disciplineAverage28d: 0 },
           weeklyScoreTrend: null,
-          findings: []
-        }
-      })
+          findings: [],
+        },
+      }),
     ).rejects.toThrow("Insufficient credits");
     expect(globalThis.fetch).toHaveBeenCalledOnce();
   });
@@ -430,18 +470,18 @@ describe("OpenRouterProvider", () => {
       staleNextActions: 0,
       agingWaitingFor: 0,
       overdueDeadlines: 0,
-      scheduledVsCompletedRatio: 0
+      scheduledVsCompletedRatio: 0,
     },
     pomodoro: {
       completedFocusSessionCount: 0,
       totalFocusMinutes: 0,
       taskConcentration: null,
-      topTask: null
+      topTask: null,
     },
     rescueTime: { configured: false, productivityPulseWeekToDate: null },
     history: { daysConsidered: 0, disciplineAverage7d: 0, disciplineAverage28d: 0 },
     weeklyScoreTrend: null,
-    findings: []
+    findings: [],
   });
 
   it("logs a debug warn and throws when finish_reason length truncates JSON", async () => {
@@ -451,11 +491,11 @@ describe("OpenRouterProvider", () => {
         choices: [
           {
             finish_reason: "length",
-            message: { content: '{"stance":"open","headline":"Tronque' }
-          }
+            message: { content: '{"stance":"open","headline":"Tronque' },
+          },
         ],
-        usage: { prompt_tokens: 10, completion_tokens: 700 }
-      })
+        usage: { prompt_tokens: 10, completion_tokens: 700 },
+      }),
     ) as typeof fetch;
 
     const provider = new OpenRouterProvider();
@@ -467,8 +507,8 @@ describe("OpenRouterProvider", () => {
         surface: "coach_pulse",
         stance: "open",
         settings,
-        snapshot: dailySnapshot()
-      })
+        snapshot: dailySnapshot(),
+      }),
     ).rejects.toThrow(AI_MAX_TOKENS_TRUNCATED_ERROR);
 
     expect(globalThis.fetch).toHaveBeenCalledOnce();
@@ -480,8 +520,8 @@ describe("OpenRouterProvider", () => {
         surface: "coach_pulse",
         maxTokens: DEFAULT_AI_MAX_TOKENS,
         finishReason: "length",
-        tokensCompletion: 700
-      })
+        tokensCompletion: 700,
+      }),
     );
     logSpy.mockRestore();
   });
@@ -493,11 +533,11 @@ describe("OpenRouterProvider", () => {
         choices: [
           {
             finish_reason: "length",
-            message: { content: '{"stance":"open","headline":"Ok","read":"Go","move":null}' }
-          }
+            message: { content: '{"stance":"open","headline":"Ok","read":"Go","move":null}' },
+          },
         ],
-        usage: { prompt_tokens: 10, completion_tokens: DEFAULT_AI_MAX_TOKENS }
-      })
+        usage: { prompt_tokens: 10, completion_tokens: DEFAULT_AI_MAX_TOKENS },
+      }),
     ) as typeof fetch;
 
     const provider = new OpenRouterProvider();
@@ -508,7 +548,7 @@ describe("OpenRouterProvider", () => {
       surface: "coach_pulse",
       stance: "open",
       settings,
-      snapshot: dailySnapshot()
+      snapshot: dailySnapshot(),
     });
 
     expect(result.text).toContain("Ok");
@@ -516,7 +556,7 @@ describe("OpenRouterProvider", () => {
       "warn",
       "ai.openrouter",
       "Reponse IA illisible: max_tokens atteint",
-      expect.anything()
+      expect.anything(),
     );
     logSpy.mockRestore();
   });
@@ -529,11 +569,11 @@ describe("OpenRouterProvider", () => {
           {
             finish_reason: "stop",
             native_finish_reason: "MAX_TOKENS",
-            message: { content: '{"headline":' }
-          }
+            message: { content: '{"headline":' },
+          },
         ],
-        usage: { prompt_tokens: 4, completion_tokens: 8000 }
-      })
+        usage: { prompt_tokens: 4, completion_tokens: 8000 },
+      }),
     ) as typeof fetch;
 
     const provider = new OpenRouterProvider();
@@ -546,8 +586,8 @@ describe("OpenRouterProvider", () => {
         surface: "coach_pulse",
         stance: "open",
         settings,
-        snapshot: dailySnapshot()
-      })
+        snapshot: dailySnapshot(),
+      }),
     ).rejects.toThrow(AI_MAX_TOKENS_TRUNCATED_ERROR);
 
     expect(globalThis.fetch).toHaveBeenCalledOnce();
@@ -559,8 +599,8 @@ describe("OpenRouterProvider", () => {
         surface: "coach_pulse",
         maxTokens: 8000,
         finishReason: "stop,MAX_TOKENS",
-        tokensCompletion: 8000
-      })
+        tokensCompletion: 8000,
+      }),
     );
     logSpy.mockRestore();
   });

@@ -16,7 +16,9 @@ export const CoachCard = ({ message }: { message: CoachMessage | null }) => {
       </div>
       <p>{message.body}</p>
       {message.warning ? (
-        <small className="coach-card__warning">{t("warningFallbackPrefix", { warning: message.warning })}</small>
+        <small className="coach-card__warning">
+          {t("warningFallbackPrefix", { warning: message.warning })}
+        </small>
       ) : null}
     </section>
   );

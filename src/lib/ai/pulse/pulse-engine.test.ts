@@ -3,8 +3,8 @@ import type { AiMessage } from "../../../domain/types";
 import { createEntityId, toLocalDateString } from "../../gtd/shared";
 import { MemoryRepository } from "../../storage/memory-repository";
 import { CoachPulseService } from "../coach-pulse-service";
-import type { AiProvider } from "../provider";
 import * as preview from "../context/preview";
+import type { AiProvider } from "../provider";
 import { runPulseEngine } from "./pulse-engine";
 
 const { notifyCompletion } = vi.hoisted(() => ({ notifyCompletion: vi.fn(async () => true) }));
@@ -13,14 +13,14 @@ vi.mock("../../pomodoro/sound", () => ({
   unlockPomodoroSound: vi.fn(async () => undefined),
   playPomodoroChime: vi.fn(async () => undefined),
   notifyPomodoroCompletion: notifyCompletion,
-  resolvePomodoroChimeVariant: vi.fn(() => "focus")
+  resolvePomodoroChimeVariant: vi.fn(() => "focus"),
 }));
 
 const weekday = "2026-08-28"; // Friday
 
 const longAppOpenInterval = {
   startedAt: `${weekday}T08:00:00.000Z`,
-  endedAt: `${weekday}T21:00:00.000Z`
+  endedAt: `${weekday}T21:00:00.000Z`,
 };
 
 describe("pulse-engine integration", () => {
@@ -31,7 +31,7 @@ describe("pulse-engine integration", () => {
 
   it("persists idle/unknown pulses without calling the provider", async () => {
     const provider: AiProvider = {
-      generateStructured: vi.fn()
+      generateStructured: vi.fn(),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -49,10 +49,10 @@ describe("pulse-engine integration", () => {
       appOpenIntervals: [
         {
           startedAt: `${weekday}T16:00:00.000Z`,
-          endedAt: `${weekday}T16:10:00.000Z`
-        }
+          endedAt: `${weekday}T16:10:00.000Z`,
+        },
       ],
-      focusSessionActive: false
+      focusSessionActive: false,
     });
 
     expect(result.ranSlot?.stance).toBe("steer");
@@ -60,16 +60,20 @@ describe("pulse-engine integration", () => {
     expect(provider.generateStructured).not.toHaveBeenCalled();
 
     const messages = await repository.listAiMessagesForDate(weekday);
-    expect(messages.some((message) => message.scopeKey === weekday && message.deltaClass === "idle")).toBe(true);
-    expect(messages.some((message) => message.scopeKey === `${weekday}#13` && message.deltaClass === "unknown")).toBe(
-      true
-    );
+    expect(
+      messages.some((message) => message.scopeKey === weekday && message.deltaClass === "idle"),
+    ).toBe(true);
+    expect(
+      messages.some(
+        (message) => message.scopeKey === `${weekday}#13` && message.deltaClass === "unknown",
+      ),
+    ).toBe(true);
   });
 
   it("does not fetch daily snapshot inputs on idle/unknown paths", async () => {
     const resolveSpy = vi.spyOn(preview, "resolveDailySnapshotInputs");
     const provider: AiProvider = {
-      generateStructured: vi.fn()
+      generateStructured: vi.fn(),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -88,10 +92,10 @@ describe("pulse-engine integration", () => {
       appOpenIntervals: [
         {
           startedAt: `${weekday}T16:00:00.000Z`,
-          endedAt: `${weekday}T16:10:00.000Z`
-        }
+          endedAt: `${weekday}T16:10:00.000Z`,
+        },
       ],
-      focusSessionActive: false
+      focusSessionActive: false,
     });
 
     expect(resolveSpy).not.toHaveBeenCalled();
@@ -104,11 +108,11 @@ describe("pulse-engine integration", () => {
           stance: "steer",
           headline: "Relance",
           read: "Signal",
-          move: null
+          move: null,
         }),
         model: "test-model",
-        usage: { tokensPrompt: 1, tokensCompletion: 1, latencyMs: 1 }
-      }))
+        usage: { tokensPrompt: 1, tokensCompletion: 1, latencyMs: 1 },
+      })),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -116,7 +120,7 @@ describe("pulse-engine integration", () => {
 
     const task = await repository.createTask({
       title: "Terminer le rapport",
-      bucket: "next_action"
+      bucket: "next_action",
     });
     await repository.completeTask(task.id, `${weekday}T15:30:00.000Z`);
 
@@ -129,12 +133,12 @@ describe("pulse-engine integration", () => {
       coachService,
       settings: {
         ...settings,
-        aiPulseFirstOpenAt: { [weekday]: `${weekday}T08:00:00.000Z` }
+        aiPulseFirstOpenAt: { [weekday]: `${weekday}T08:00:00.000Z` },
       },
       saveSettings: async () => undefined,
       nowIso: `${weekday}T16:00:00`,
       appOpenIntervals: [longAppOpenInterval],
-      focusSessionActive: false
+      focusSessionActive: false,
     });
 
     expect(result.ranSlot?.stance).toBe("steer");
@@ -149,11 +153,11 @@ describe("pulse-engine integration", () => {
           stance: "steer",
           headline: "Relance",
           read: "Signal",
-          move: null
+          move: null,
         }),
         model: "test-model",
-        usage: { tokensPrompt: 1, tokensCompletion: 1, latencyMs: 1 }
-      }))
+        usage: { tokensPrompt: 1, tokensCompletion: 1, latencyMs: 1 },
+      })),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -168,17 +172,17 @@ describe("pulse-engine integration", () => {
       coachService,
       settings: {
         ...settings,
-        aiPulseFirstOpenAt: { [weekday]: `${weekday}T16:00:00.000Z` }
+        aiPulseFirstOpenAt: { [weekday]: `${weekday}T16:00:00.000Z` },
       },
       saveSettings: async () => undefined,
       nowIso: `${weekday}T16:00:00`,
       appOpenIntervals: [
         {
           startedAt: `${weekday}T08:00:00.000Z`,
-          endedAt: `${weekday}T16:00:00.000Z`
-        }
+          endedAt: `${weekday}T16:00:00.000Z`,
+        },
       ],
-      focusSessionActive: false
+      focusSessionActive: false,
     });
 
     expect(result.ranSlot?.stance).toBe("steer");
@@ -192,11 +196,11 @@ describe("pulse-engine integration", () => {
           stance: "wind_down",
           headline: "Pause",
           read: "Signal",
-          move: null
+          move: null,
         }),
         model: "test-model",
-        usage: { tokensPrompt: 1, tokensCompletion: 1, latencyMs: 1 }
-      }))
+        usage: { tokensPrompt: 1, tokensCompletion: 1, latencyMs: 1 },
+      })),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -219,7 +223,7 @@ describe("pulse-engine integration", () => {
       tokensPrompt: null,
       tokensCompletion: null,
       latencyMs: null,
-      createdAt: `${weekday}T08:30:00.000Z`
+      createdAt: `${weekday}T08:30:00.000Z`,
     };
     await repository.saveAiMessage(openStall);
 
@@ -233,19 +237,23 @@ describe("pulse-engine integration", () => {
       coachService,
       settings: {
         ...settings,
-        aiPulseFirstOpenAt: { [weekday]: `${weekday}T08:00:00.000Z` }
+        aiPulseFirstOpenAt: { [weekday]: `${weekday}T08:00:00.000Z` },
       },
       saveSettings: async () => undefined,
       nowIso: `${weekday}T21:00:00`,
       appOpenIntervals: [longAppOpenInterval],
-      focusSessionActive: false
+      focusSessionActive: false,
     });
 
     expect(result.ranSlot?.stance).toBe("wind_down");
     expect(result.result?.message.deltaClass).toBe("stall");
 
     const messages = await repository.listAiMessagesForDate(weekday);
-    expect(messages.some((message) => message.scopeKey === `${weekday}#13` && message.deltaClass === "idle")).toBe(true);
+    expect(
+      messages.some(
+        (message) => message.scopeKey === `${weekday}#13` && message.deltaClass === "idle",
+      ),
+    ).toBe(true);
     expect(notifyCompletion).not.toHaveBeenCalled();
     expect(result.result?.message.notified).toBe(false);
   });
@@ -260,7 +268,7 @@ describe("pulse-engine integration", () => {
     }
 
     const provider: AiProvider = {
-      generateStructured: vi.fn()
+      generateStructured: vi.fn(),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -277,7 +285,7 @@ describe("pulse-engine integration", () => {
       },
       nowIso: atIso,
       appOpenIntervals: [{ startedAt: atIso, endedAt: atIso }],
-      focusSessionActive: false
+      focusSessionActive: false,
     });
 
     expect(savedSettings.aiPulseFirstOpenAt[localDate]).toBe(atIso);

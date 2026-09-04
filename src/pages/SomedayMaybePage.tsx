@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useTaskSelection } from "../app/use-task-selection";
 import { useGtdWorkspace } from "../app/use-gtd";
+import { useTaskSelection } from "../app/use-task-selection";
 import { BulkTaskToolbar } from "../components/BulkTaskToolbar";
 import { GtdTaskCard } from "../components/GtdTaskCard";
 import { SectionCard } from "../components/SectionCard";
@@ -23,7 +23,7 @@ export const SomedayMaybePage = () => {
     cancelTask,
     cancelTasks,
     clearPastRecurrences,
-    moveTasksToBucket
+    moveTasksToBucket,
   } = useGtdWorkspace();
   const [selectedContextId, setSelectedContextId] = useState("all");
   const [title, setTitle] = useState("");
@@ -34,7 +34,9 @@ export const SomedayMaybePage = () => {
       return base;
     }
 
-    return base.filter((task) => effectiveTaskContextIds(task, projects).includes(selectedContextId));
+    return base.filter((task) =>
+      effectiveTaskContextIds(task, projects).includes(selectedContextId),
+    );
   }, [projects, selectedContextId, tasks]);
 
   const selection = useTaskSelection(somedayTasks.map((task) => task.id));
@@ -45,9 +47,7 @@ export const SomedayMaybePage = () => {
         <div>
           <p className="eyebrow">{t("someday.hero.eyebrow")}</p>
           <h2>{t("someday.hero.title")}</h2>
-          <p className="hero__copy">
-            {t("someday.hero.copy")}
-          </p>
+          <p className="hero__copy">{t("someday.hero.copy")}</p>
         </div>
       </header>
 
@@ -94,7 +94,10 @@ export const SomedayMaybePage = () => {
         </div>
       </SectionCard>
 
-      <SectionCard title={t("someday.list.title")} subtitle={t("someday.list.subtitle", { count: somedayTasks.length })}>
+      <SectionCard
+        title={t("someday.list.title")}
+        subtitle={t("someday.list.subtitle", { count: somedayTasks.length })}
+      >
         <BulkTaskToolbar
           selectedCount={selection.selectedCount}
           totalCount={somedayTasks.length}

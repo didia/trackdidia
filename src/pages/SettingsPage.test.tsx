@@ -1,14 +1,14 @@
+import { open } from "@tauri-apps/plugin-dialog";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
-import { SettingsPage } from "./SettingsPage";
-import { renderWithApp } from "../test/test-utils";
-import { MemoryRepository } from "../lib/storage/memory-repository";
 import { defaultAppSettings } from "../domain/daily-entry";
-import { open } from "@tauri-apps/plugin-dialog";
+import { MemoryRepository } from "../lib/storage/memory-repository";
+import { renderWithApp } from "../test/test-utils";
+import { SettingsPage } from "./SettingsPage";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
-  open: vi.fn()
+  open: vi.fn(),
 }));
 
 describe("SettingsPage AI payload preview", () => {
@@ -27,7 +27,9 @@ describe("SettingsPage AI payload preview", () => {
     await user.type(input, "5, 13");
     await user.tab();
 
-    expect(screen.getByText("Entrez exactement trois heures locales (open, steer, wind_down).")).toBeInTheDocument();
+    expect(
+      screen.getByText("Entrez exactement trois heures locales (open, steer, wind_down)."),
+    ).toBeInTheDocument();
   });
 
   it("renders the three scoped payload previews when debug mode is on, redacting free text at the metrics scope", async () => {
@@ -39,7 +41,9 @@ describe("SettingsPage AI payload preview", () => {
     await user.click(screen.getByRole("button", { name: "Calculer l'aperçu pour les 3 portées" }));
 
     const findSummary = (label: string) =>
-      screen.findAllByText(label).then((matches) => matches.find((node) => node.tagName === "SUMMARY")!);
+      screen
+        .findAllByText(label)
+        .then((matches) => matches.find((node) => node.tagName === "SUMMARY")!);
 
     const metricsSummary = await findSummary("metrics");
     expect(metricsSummary).toBeInTheDocument();
@@ -47,11 +51,11 @@ describe("SettingsPage AI payload preview", () => {
     expect((await findSummary("full")).tagName).toBe("SUMMARY");
 
     const metricsPre = metricsSummary.parentElement?.querySelector("pre");
-    expect(metricsPre?.textContent).not.toContain("\"notes\"");
+    expect(metricsPre?.textContent).not.toContain('"notes"');
 
     const fullSummary = await findSummary("full");
     const fullPre = fullSummary.parentElement?.querySelector("pre");
-    expect(fullPre?.textContent).toContain("\"notes\"");
+    expect(fullPre?.textContent).toContain('"notes"');
   });
 });
 
@@ -93,7 +97,7 @@ describe("SettingsPage AI cost and analytics", () => {
       tokensPrompt: 200,
       tokensCompletion: 100,
       latencyMs: null,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     });
   };
 
@@ -151,7 +155,7 @@ describe("SettingsPage AI cost and analytics", () => {
 
     expect(await screen.findByText("Analytique coach")).toBeInTheDocument();
     expect(
-      screen.getByText("Impossible de charger l'analytique coach. Réessaie plus tard.")
+      screen.getByText("Impossible de charger l'analytique coach. Réessaie plus tard."),
     ).toBeInTheDocument();
   });
 });
@@ -162,7 +166,9 @@ describe("SettingsPage backup destination", () => {
 
     expect(screen.getAllByText("Mode preview").length).toBeGreaterThan(0);
     expect(
-      screen.getByText("Choisis un dossier de backup pour activer les exports et les backups automatiques.")
+      screen.getByText(
+        "Choisis un dossier de backup pour activer les exports et les backups automatiques.",
+      ),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Exporter un backup maintenant" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Choisir le dossier Google Drive" })).toBeDisabled();
@@ -173,13 +179,15 @@ describe("SettingsPage backup destination", () => {
       contextOverrides: {
         settings: {
           ...defaultAppSettings(),
-          autoBackupEnabled: false
-        }
-      }
+          autoBackupEnabled: false,
+        },
+      },
     });
 
     expect(
-      screen.getByText("Choisis un dossier de backup pour activer les exports et les backups automatiques.")
+      screen.getByText(
+        "Choisis un dossier de backup pour activer les exports et les backups automatiques.",
+      ),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Exporter un backup maintenant" })).toBeDisabled();
   });
@@ -189,15 +197,17 @@ describe("SettingsPage backup destination", () => {
       contextOverrides: {
         settings: {
           ...defaultAppSettings(),
-          backupDestinationDir: "/Users/didia/Drive/TrackDidia"
-        }
-      }
+          backupDestinationDir: "/Users/didia/Drive/TrackDidia",
+        },
+      },
     });
 
     expect(screen.getAllByText("Mode preview").length).toBeGreaterThan(0);
     expect(screen.queryByText("/Users/didia/Drive/TrackDidia")).not.toBeInTheDocument();
     expect(
-      screen.queryByText("Choisis un dossier de backup pour activer les exports et les backups automatiques.")
+      screen.queryByText(
+        "Choisis un dossier de backup pour activer les exports et les backups automatiques.",
+      ),
     ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Exporter un backup maintenant" })).toBeDisabled();
   });
@@ -209,7 +219,7 @@ describe("SettingsPage backup destination", () => {
       databasePath: "/tmp/trackdidia.dev.db",
       connectionString: "sqlite:trackdidia.dev.db",
       environment: "development",
-      backupDir: "/Users/didia/Drive/TrackDidia/backups-dev"
+      backupDir: "/Users/didia/Drive/TrackDidia/backups-dev",
     });
 
     await renderWithApp(<SettingsPage />, {
@@ -218,12 +228,14 @@ describe("SettingsPage backup destination", () => {
         browserPreview: false,
         settings: {
           ...defaultAppSettings(),
-          backupDestinationDir: "/Users/didia/Drive/TrackDidia"
-        }
-      }
+          backupDestinationDir: "/Users/didia/Drive/TrackDidia",
+        },
+      },
     });
 
-    expect(await screen.findByText("/Users/didia/Drive/TrackDidia/backups-dev")).toBeInTheDocument();
+    expect(
+      await screen.findByText("/Users/didia/Drive/TrackDidia/backups-dev"),
+    ).toBeInTheDocument();
   });
 
   it("saves a picked Google Drive folder from the native dialog", async () => {
@@ -234,18 +246,17 @@ describe("SettingsPage backup destination", () => {
     await renderWithApp(<SettingsPage />, {
       contextOverrides: {
         browserPreview: false,
-        saveSettings
-      }
+        saveSettings,
+      },
     });
 
     await user.click(screen.getByRole("button", { name: "Choisir le dossier Google Drive" }));
 
     await waitFor(() => {
       expect(saveSettings).toHaveBeenCalledWith(
-        expect.objectContaining({ backupDestinationDir: "/Users/didia/Drive/TrackDidia" })
+        expect.objectContaining({ backupDestinationDir: "/Users/didia/Drive/TrackDidia" }),
       );
     });
     expect(screen.getByText("Dossier de backup enregistré.")).toBeInTheDocument();
   });
 });
-

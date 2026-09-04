@@ -61,7 +61,7 @@ export const buildLocalGoalPacing = (snapshot: GoalPacingSnapshot): GoalPacingRe
       gap: formatGap(goal.progressRatio, snapshot.expectedProgressRatio),
       requiredWeeklyBehaviour: weeklyBehaviour(goal.onPace, goal.progressRatio),
       riskLevel,
-      recommendation: recommendation(goal.onPace, riskLevel)
+      recommendation: recommendation(goal.onPace, riskLevel),
     };
-  })
+  }),
 });

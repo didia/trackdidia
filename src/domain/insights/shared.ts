@@ -20,7 +20,7 @@ export const daysBetweenDates = (from: string, to: string): number => {
 export const entriesInTrailingWindow = (
   entries: DailyEntry[],
   referenceDate: string,
-  windowDays: number
+  windowDays: number,
 ): DailyEntry[] => {
   const from = addDays(referenceDate, -(windowDays - 1));
   return entries.filter((entry) => entry.date >= from && entry.date <= referenceDate);
@@ -29,10 +29,13 @@ export const entriesInTrailingWindow = (
 export const buildEvidenceWindow = (from: string, to: string): EvidenceWindow => ({
   from,
   to,
-  days: daysBetweenDates(from, to) + 1
+  days: daysBetweenDates(from, to) + 1,
 });
 
-export const trailingEvidenceWindow = (referenceDate: string, windowDays: number): EvidenceWindow => {
+export const trailingEvidenceWindow = (
+  referenceDate: string,
+  windowDays: number,
+): EvidenceWindow => {
   const from = addDays(referenceDate, -(windowDays - 1));
   return buildEvidenceWindow(from, referenceDate);
 };

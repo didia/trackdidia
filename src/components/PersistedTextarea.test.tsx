@@ -7,12 +7,7 @@ describe("PersistedTextarea", () => {
     const onPersist = vi.fn();
     const user = userEvent.setup();
     const { unmount } = render(
-      <PersistedTextarea
-        aria-label="Notes"
-        savedValue=""
-        debounceMs={450}
-        onPersist={onPersist}
-      />
+      <PersistedTextarea aria-label="Notes" savedValue="" debounceMs={450} onPersist={onPersist} />,
     );
 
     await user.type(screen.getByLabelText("Notes"), "hello");

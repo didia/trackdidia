@@ -8,7 +8,15 @@ describe("resolveWeeklySnapshotInputs history boundary", () => {
     await repository.initialize();
 
     const weekStart = "2026-01-04";
-    const weekDates = ["2026-01-04", "2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08", "2026-01-09", "2026-01-10"];
+    const weekDates = [
+      "2026-01-04",
+      "2026-01-05",
+      "2026-01-06",
+      "2026-01-07",
+      "2026-01-08",
+      "2026-01-09",
+      "2026-01-10",
+    ];
 
     for (const date of weekDates) {
       const entry = createEmptyDailyEntry(date);

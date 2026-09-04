@@ -4,7 +4,9 @@ import type { DailyEntry } from "../types";
 import { computeMetricTrendFindings, computeWeeklyScoreTrend } from "./trends";
 
 const buildEntries = (startDate: string, values: number[]): DailyEntry[] =>
-  values.map((value, index) => updateMetric(createEmptyDailyEntry(addDays(startDate, index)), "course", value));
+  values.map((value, index) =>
+    updateMetric(createEmptyDailyEntry(addDays(startDate, index)), "course", value),
+  );
 
 describe("trends insight module", () => {
   it("computes 7-day and 28-day trailing averages, delta and direction per metric", () => {
@@ -34,9 +36,14 @@ describe("trends insight module", () => {
 
   it("does not report a false down trend when the trailing 7-day window has no observations", () => {
     // 14 days at 30/day, then a 7-day gap in tracking (no entries for the trailing week).
-    const entries = buildEntries("2026-01-01", Array.from({ length: 14 }, () => 30));
+    const entries = buildEntries(
+      "2026-01-01",
+      Array.from({ length: 14 }, () => 30),
+    );
 
-    const finding = computeMetricTrendFindings(entries, "2026-01-21").find((item) => item.metricKey === "course");
+    const finding = computeMetricTrendFindings(entries, "2026-01-21").find(
+      (item) => item.metricKey === "course",
+    );
 
     expect(finding?.shortSampleSize).toBe(0);
     expect(finding?.average7d).toBe(0);
@@ -50,7 +57,7 @@ describe("trends insight module", () => {
       { weekStartDate: "2026-01-04", weeklyScore: 50 },
       { weekStartDate: "2026-01-11", weeklyScore: 55 },
       { weekStartDate: "2026-01-18", weeklyScore: 60 },
-      { weekStartDate: "2026-01-25", weeklyScore: 80 }
+      { weekStartDate: "2026-01-25", weeklyScore: 80 },
     ];
 
     const finding = computeWeeklyScoreTrend(points);

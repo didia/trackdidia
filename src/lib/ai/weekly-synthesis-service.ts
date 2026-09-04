@@ -4,7 +4,7 @@ import type {
   AppSettings,
   WeeklyRitualSectionKey,
   WeeklySynthesisResponse,
-  WeeklySynthesisResult
+  WeeklySynthesisResult,
 } from "../../domain/types";
 import { createEntityId, nowIso } from "../gtd/shared";
 import type { AppRepository } from "../storage/repository";
@@ -28,7 +28,11 @@ export interface WeeklySynthesisRequest {
 const synthesisToBodyText = (synthesis: WeeklySynthesisResponse): string =>
   [synthesis.headline, synthesis.scoreExplanation].filter(Boolean).join("\n\n");
 
-const buildProposals = (messageId: string, synthesis: WeeklySynthesisResponse, createdAt: string): AiProposal[] => {
+const buildProposals = (
+  messageId: string,
+  synthesis: WeeklySynthesisResponse,
+  createdAt: string,
+): AiProposal[] => {
   const proposals: AiProposal[] = [];
 
   for (const [sectionKey, text] of Object.entries(synthesis.sectionDrafts ?? {})) {
@@ -44,7 +48,7 @@ const buildProposals = (messageId: string, synthesis: WeeklySynthesisResponse, c
       status: "pending",
       appliedEntityId: null,
       decidedAt: null,
-      createdAt
+      createdAt,
     });
   }
 
@@ -61,7 +65,7 @@ const buildProposals = (messageId: string, synthesis: WeeklySynthesisResponse, c
       status: "pending",
       appliedEntityId: null,
       decidedAt: null,
-      createdAt
+      createdAt,
     });
   }
 
@@ -78,7 +82,7 @@ const buildProposals = (messageId: string, synthesis: WeeklySynthesisResponse, c
       status: "pending",
       appliedEntityId: null,
       decidedAt: null,
-      createdAt
+      createdAt,
     });
   }
 
@@ -99,7 +103,7 @@ const resultSourceFromMessage = (message: AiMessage): WeeklySynthesisResult["sou
 
 const cachedResult = async (
   repository: AppRepository,
-  message: AiMessage
+  message: AiMessage,
 ): Promise<WeeklySynthesisResult | null> => {
   if (!message.bodyJson) {
     return null;
@@ -115,14 +119,14 @@ const cachedResult = async (
     message,
     synthesis: parsed.value,
     proposals,
-    source: resultSourceFromMessage(message)
+    source: resultSourceFromMessage(message),
   };
 };
 
 const persistResult = async (
   repository: AppRepository,
   message: AiMessage,
-  synthesis: WeeklySynthesisResponse
+  synthesis: WeeklySynthesisResponse,
 ): Promise<WeeklySynthesisResult> => {
   const proposals = buildProposals(message.id, synthesis, message.createdAt);
   const saved = await repository.saveCoachPulseEpisode(message, proposals);
@@ -131,22 +135,25 @@ const persistResult = async (
     message: saved.message,
     synthesis,
     proposals: saved.proposals,
-    source: message.status === "ok" ? "ai" : message.status === "fallback" ? "fallback" : "local"
+    source: message.status === "ok" ? "ai" : message.status === "fallback" ? "fallback" : "local",
   };
 };
 
 export class WeeklySynthesisService {
   constructor(private readonly provider: AiProvider) {}
 
-  async resultFromMessage(repository: AppRepository, message: AiMessage): Promise<WeeklySynthesisResult | null> {
+  async resultFromMessage(
+    repository: AppRepository,
+    message: AiMessage,
+  ): Promise<WeeklySynthesisResult | null> {
     return cachedResult(repository, message);
   }
 
   async buildSynthesis(
     repository: AppRepository,
-    request: WeeklySynthesisRequest
+    request: WeeklySynthesisRequest,
   ): Promise<WeeklySynthesisResult> {
-    const { weekStartDate, settings, snapshotInputs, bypassCache = false, trigger = "auto" } = request;
+    const { weekStartDate, settings, snapshotInputs, bypassCache = false } = request;
     const snapshot = buildWeeklySnapshot(snapshotInputs, settings.aiPayloadScope);
     const scopeKey = weekStartDate;
     const createdAt = nowIso();
@@ -154,17 +161,17 @@ export class WeeklySynthesisService {
 
     const activeMemories = await repository.listAiMemories({
       status: "active",
-      activeOnDate: snapshot.weekEndDate
+      activeOnDate: snapshot.weekEndDate,
     });
     const { block: memoryBlock, selected } = retrieveMemoriesForWeekly(activeMemories, settings, {
-      nowIso: createdAt
+      nowIso: createdAt,
     });
     const memoryIds = selected.map((memory) => memory.id).sort();
     const inputHash = buildAiInputHash({
       promptVersion: WEEKLY_SYNTHESIS_PROMPT_VERSION,
       scope: settings.aiPayloadScope,
       snapshot,
-      memoryIds
+      memoryIds,
     });
 
     if (!bypassCache) {
@@ -177,7 +184,11 @@ export class WeeklySynthesisService {
           }
         }
       } else {
-        const skipped = await repository.getAiMessageRecord("weekly_synthesis", scopeKey, inputHash);
+        const skipped = await repository.getAiMessageRecord(
+          "weekly_synthesis",
+          scopeKey,
+          inputHash,
+        );
         if (skipped?.status === "skipped") {
           const result = await cachedResult(repository, skipped);
           if (result) {
@@ -205,14 +216,14 @@ export class WeeklySynthesisService {
       tokensPrompt: null,
       tokensCompletion: null,
       latencyMs: null,
-      createdAt
+      createdAt,
     });
 
     if (!aiConfigured) {
       const skippedMessage = {
         ...baseMessage(),
         status: "skipped" as const,
-        model: "local"
+        model: "local",
       };
 
       return persistResult(repository, skippedMessage, localSynthesis);
@@ -223,7 +234,7 @@ export class WeeklySynthesisService {
         surface: "weekly_synthesis",
         settings,
         snapshot,
-        memoryBlock
+        memoryBlock,
       });
 
       let parsed = parseWeeklySynthesisJson(first.text);
@@ -237,14 +248,14 @@ export class WeeklySynthesisService {
           settings,
           snapshot,
           memoryBlock,
-          repairHint: parsed.error
+          repairHint: parsed.error,
         });
         parsed = parseWeeklySynthesisJson(repair.text);
         finalText = repair.text;
         usage = {
           tokensPrompt: usage.tokensPrompt + repair.usage.tokensPrompt,
           tokensCompletion: usage.tokensCompletion + repair.usage.tokensCompletion,
-          latencyMs: usage.latencyMs + repair.usage.latencyMs
+          latencyMs: usage.latencyMs + repair.usage.latencyMs,
         };
         model = repair.model;
       }
@@ -258,14 +269,14 @@ export class WeeklySynthesisService {
           bodyText: synthesisToBodyText(localSynthesis),
           tokensPrompt: usage.tokensPrompt,
           tokensCompletion: usage.tokensCompletion,
-          latencyMs: usage.latencyMs
+          latencyMs: usage.latencyMs,
         };
 
         const result = await persistResult(repository, message, localSynthesis);
         return {
           ...result,
           source: "fallback",
-          warning: parsed.error
+          warning: parsed.error,
         };
       }
 
@@ -277,33 +288,35 @@ export class WeeklySynthesisService {
         bodyText: synthesisToBodyText(parsed.value),
         tokensPrompt: usage.tokensPrompt,
         tokensCompletion: usage.tokensCompletion,
-        latencyMs: usage.latencyMs
+        latencyMs: usage.latencyMs,
       };
 
       const result = await persistResult(repository, message, parsed.value);
       return {
         ...result,
-        source: "ai"
+        source: "ai",
       };
     } catch (error) {
       const message: AiMessage = {
         ...baseMessage(),
         status: "fallback",
         bodyJson: JSON.stringify(localSynthesis),
-        bodyText: synthesisToBodyText(localSynthesis)
+        bodyText: synthesisToBodyText(localSynthesis),
       };
 
       const result = await persistResult(repository, message, localSynthesis);
       return {
         ...result,
         source: "fallback",
-        warning: error instanceof Error ? error.message : "L'IA n'a pas pu repondre."
+        warning: error instanceof Error ? error.message : "L'IA n'a pas pu repondre.",
       };
     }
   }
 }
 
-export const weeklySectionKeyFromProposal = (payloadJson: string): WeeklyRitualSectionKey | null => {
+export const weeklySectionKeyFromProposal = (
+  payloadJson: string,
+): WeeklyRitualSectionKey | null => {
   try {
     const payload = JSON.parse(payloadJson) as { sectionKey?: WeeklyRitualSectionKey };
     return payload.sectionKey ?? null;

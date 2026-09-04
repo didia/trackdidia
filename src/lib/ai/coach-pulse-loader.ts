@@ -4,7 +4,7 @@ import type { CoachPulseService } from "./coach-pulse-service";
 
 const latestPulseMessage = (
   messages: AiMessage[],
-  predicate: (message: AiMessage) => boolean
+  predicate: (message: AiMessage) => boolean,
 ): AiMessage | null => {
   const matches = messages
     .filter((message) => Boolean(message.bodyJson) && predicate(message))
@@ -24,7 +24,7 @@ export const latestClosePulseMessage = (messages: AiMessage[]): AiMessage | null
 export const loadLatestCoachPulseForDate = async (
   repository: AppRepository,
   coachService: CoachPulseService,
-  date: string
+  date: string,
 ): Promise<CoachPulseResult | null> => {
   const messages = await repository.listAiMessagesForDate(date);
   const latest = latestScheduledPulseMessage(messages);
@@ -39,7 +39,7 @@ export const loadLatestCoachPulseForDate = async (
 export const loadLatestClosePulseForDate = async (
   repository: AppRepository,
   coachService: CoachPulseService,
-  date: string
+  date: string,
 ): Promise<CoachPulseResult | null> => {
   const messages = await repository.listAiMessagesForDate(date);
   const latest = latestClosePulseMessage(messages);

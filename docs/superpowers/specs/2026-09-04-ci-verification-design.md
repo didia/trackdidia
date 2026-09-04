@@ -32,7 +32,7 @@ File: `.github/workflows/ci.yml`
 Triggers:
 
 - `pull_request` (all branches)
-- `push` to `main`
+- `push` to `master`
 
 Three parallel jobs on `ubuntu-latest`:
 

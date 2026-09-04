@@ -1,8 +1,8 @@
 import { useTranslation } from "react-i18next";
-import { metricDefinitions } from "../domain/definitions";
 import { resolveMetricValue } from "../domain/daily-entry";
-import { t as translate } from "../i18n";
+import { metricDefinitions } from "../domain/definitions";
 import type { DailyEntry, MetricKey, SuggestedMetrics } from "../domain/types";
+import { t as translate } from "../i18n";
 
 interface MetricGridProps {
   entry: DailyEntry;
@@ -12,7 +12,13 @@ interface MetricGridProps {
   onChange: (key: MetricKey, value: number | null) => void;
 }
 
-export const MetricGrid = ({ entry, keys, suggestedValues, suggestionKeys = [], onChange }: MetricGridProps) => {
+export const MetricGrid = ({
+  entry,
+  keys,
+  suggestedValues,
+  suggestionKeys = [],
+  onChange,
+}: MetricGridProps) => {
   const { t } = useTranslation("metrics");
   const definitions = keys
     ? keys.flatMap((key) => {
@@ -26,7 +32,9 @@ export const MetricGrid = ({ entry, keys, suggestedValues, suggestionKeys = [], 
     <div className="metric-grid">
       {definitions.map((definition) => (
         <label key={definition.key} className="field-card">
-          <span className="field-card__label">{translate(`${definition.key}.label`, { ns: "metrics" })}</span>
+          <span className="field-card__label">
+            {translate(`${definition.key}.label`, { ns: "metrics" })}
+          </span>
           <span className="field-card__helper">
             {translate(`${definition.key}.helper`, { ns: "metrics" })}
             {suggestionSet.has(definition.key) ? t("suggestionHint") : ""}
@@ -40,7 +48,11 @@ export const MetricGrid = ({ entry, keys, suggestedValues, suggestionKeys = [], 
               step={definition.step ?? 1}
               placeholder={
                 suggestionSet.has(definition.key)
-                  ? String(suggestedValues?.[definition.key] ?? resolveMetricValue(entry, definition.key) ?? "")
+                  ? String(
+                      suggestedValues?.[definition.key] ??
+                        resolveMetricValue(entry, definition.key) ??
+                        "",
+                    )
                   : undefined
               }
               onChange={(event) => {
@@ -48,7 +60,9 @@ export const MetricGrid = ({ entry, keys, suggestedValues, suggestionKeys = [], 
                 onChange(definition.key, value === "" ? null : Number(value));
               }}
             />
-            {definition.unit ? <small>{translate(`${definition.key}.unit`, { ns: "metrics" })}</small> : null}
+            {definition.unit ? (
+              <small>{translate(`${definition.key}.unit`, { ns: "metrics" })}</small>
+            ) : null}
           </div>
         </label>
       ))}

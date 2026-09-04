@@ -1,5 +1,5 @@
-import { createEmptyDailyEntry, defaultAppSettings } from "../../domain/daily-entry";
 import { createEmptyAnnualGoal } from "../../domain/annual-goals";
+import { createEmptyDailyEntry, defaultAppSettings } from "../../domain/daily-entry";
 import { MemoryRepository } from "../storage/memory-repository";
 import { buildMonthlySnapshot, type MonthlySnapshotInputs } from "./context/monthly-snapshot";
 import { MonthlySynthesisService } from "./monthly-synthesis-service";
@@ -27,9 +27,9 @@ const buildMonthlyInputs = (monthKey = "2026-04"): MonthlySnapshotInputs => ({
         weekEndDate: "2026-04-05",
         weeklyScore: 0.7,
         reviewStatus: "closed",
-        noteCount: 2
-      }
-    ]
+        noteCount: 2,
+      },
+    ],
   },
   review: null,
   goalSnapshots: [
@@ -41,9 +41,9 @@ const buildMonthlyInputs = (monthKey = "2026-04"): MonthlySnapshotInputs => ({
       progressRatio: 0.7,
       monthlyProgress: [{ monthKey, value: 75 }],
       linkedWeeklyMetricLabels: [],
-      linkedDailyHabitLabels: []
-    }
-  ]
+      linkedDailyHabitLabels: [],
+    },
+  ],
 });
 
 describe("buildMonthlySnapshot redaction", () => {
@@ -64,7 +64,7 @@ describe("buildMonthlySnapshot redaction", () => {
         nettoyageListes: "",
         calendrier: "",
         grosProjets: "",
-        developpement: ""
+        developpement: "",
       },
       ritualChecklist: {
         bilan: false,
@@ -76,9 +76,9 @@ describe("buildMonthlySnapshot redaction", () => {
         nettoyageListes: false,
         calendrier: false,
         grosProjets: false,
-        developpement: false
+        developpement: false,
       },
-      updatedAt: "2026-04-30T12:00:00.000Z"
+      updatedAt: "2026-04-30T12:00:00.000Z",
     };
 
     const metrics = buildMonthlySnapshot(inputs, "metrics");
@@ -99,11 +99,13 @@ describe("MonthlySynthesisService", () => {
     const settings = defaultAppSettings();
     settings.aiEnabled = false;
 
-    const service = new MonthlySynthesisService({ generateStructured: vi.fn() } as unknown as AiProvider);
+    const service = new MonthlySynthesisService({
+      generateStructured: vi.fn(),
+    } as unknown as AiProvider);
     const result = await service.buildSynthesis(repository, {
       monthKey: "2026-04",
       settings,
-      snapshotInputs: buildMonthlyInputs()
+      snapshotInputs: buildMonthlyInputs(),
     });
 
     expect(result.source).toBe("local");
@@ -119,16 +121,18 @@ describe("MonthlySynthesisService", () => {
     const settings = defaultAppSettings();
     settings.aiEnabled = false;
 
-    const service = new MonthlySynthesisService({ generateStructured: vi.fn() } as unknown as AiProvider);
+    const service = new MonthlySynthesisService({
+      generateStructured: vi.fn(),
+    } as unknown as AiProvider);
     const first = await service.buildSynthesis(repository, {
       monthKey: "2026-04",
       settings,
-      snapshotInputs: buildMonthlyInputs()
+      snapshotInputs: buildMonthlyInputs(),
     });
     const second = await service.buildSynthesis(repository, {
       monthKey: "2026-04",
       settings,
-      snapshotInputs: buildMonthlyInputs()
+      snapshotInputs: buildMonthlyInputs(),
     });
 
     expect(first.message.id).toBe(second.message.id);
@@ -148,13 +152,13 @@ describe("MonthlySynthesisService", () => {
               score: 80,
               trend: "up",
               notes: "Bien",
-              blockers: ""
-            }
-          ]
+              blockers: "",
+            },
+          ],
         }),
         model: "test-model",
-        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 }
-      }))
+        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 },
+      })),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -168,13 +172,13 @@ describe("MonthlySynthesisService", () => {
       monthKey: "2026-04",
       settings,
       snapshotInputs,
-      trigger: "explicit"
+      trigger: "explicit",
     });
     const second = await service.buildSynthesis(repository, {
       monthKey: "2026-04",
       settings,
       snapshotInputs,
-      trigger: "explicit"
+      trigger: "explicit",
     });
 
     expect(first.source).toBe("ai");
@@ -195,20 +199,20 @@ describe("MonthlySynthesisService", () => {
               score: 80,
               trend: "up",
               notes: "Hallucination",
-              blockers: ""
+              blockers: "",
             },
             {
               goalId: "goal-1",
               score: 70,
               trend: "steady",
               notes: "Reel",
-              blockers: ""
-            }
-          ]
+              blockers: "",
+            },
+          ],
         }),
         model: "test-model",
-        usage: { tokensPrompt: 1, tokensCompletion: 2, latencyMs: 3 }
-      }))
+        usage: { tokensPrompt: 1, tokensCompletion: 2, latencyMs: 3 },
+      })),
     };
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -221,10 +225,12 @@ describe("MonthlySynthesisService", () => {
       monthKey: "2026-04",
       settings,
       snapshotInputs: buildMonthlyInputs(),
-      trigger: "explicit"
+      trigger: "explicit",
     });
 
-    const goalProposals = result.proposals.filter((proposal) => proposal.type === "goal_evaluation");
+    const goalProposals = result.proposals.filter(
+      (proposal) => proposal.type === "goal_evaluation",
+    );
     expect(goalProposals).toHaveLength(1);
     expect(JSON.parse(goalProposals[0].payloadJson).goalId).toBe("goal-1");
   });

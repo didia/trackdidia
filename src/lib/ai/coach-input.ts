@@ -34,13 +34,13 @@ export const getCoachInputText = (entry: DailyEntry, partOfDay: CoachPartOfDay):
 export const buildCoachCacheKey = (
   date: string,
   partOfDay: CoachPartOfDay,
-  inputContent: string
+  inputContent: string,
 ): string => `${date}|${partOfDay}|${inputContent}`;
 
 /** Part of day used for caching a coach slot: evening coach stays evening; morning adapts to morning/afternoon. */
 export const resolveCoachCachePartOfDay = (
   kind: CoachMessage["kind"],
-  now: Date = new Date()
+  now: Date = new Date(),
 ): CoachPartOfDay => {
   if (kind === "evening") {
     return "evening";

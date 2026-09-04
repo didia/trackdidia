@@ -30,7 +30,10 @@ const loadEnvFile = () => {
         continue;
       }
       const key = trimmed.slice(0, eq).trim();
-      const value = trimmed.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
+      const value = trimmed
+        .slice(eq + 1)
+        .trim()
+        .replace(/^["']|["']$/g, "");
       if (!(key in process.env)) {
         process.env[key] = value;
       }
@@ -47,7 +50,7 @@ const parseArgs = () => {
   const options = {
     week: null,
     listKind: null,
-    objectives: []
+    objectives: [],
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -81,7 +84,9 @@ const findSecondsColumnIndex = (rowHeaders) => {
   const normalized = rowHeaders.map((header) => String(header).toLowerCase());
   const candidates = ["time spent (seconds)", "time spent", "seconds", "time_spent_seconds"];
   for (const candidate of candidates) {
-    const index = normalized.findIndex((header) => header.includes(candidate.replace(/_/g, " ")) || header === candidate);
+    const index = normalized.findIndex(
+      (header) => header.includes(candidate.replace(/_/g, " ")) || header === candidate,
+    );
     if (index >= 0) {
       return index;
     }
@@ -91,7 +96,7 @@ const findSecondsColumnIndex = (rowHeaders) => {
 
 const findNameColumnIndex = (rowHeaders) => {
   const normalized = rowHeaders.map((header) => String(header).toLowerCase());
-  const categoryIndex = normalized.findIndex((header) => header === "category");
+  const categoryIndex = normalized.indexOf("category");
   if (categoryIndex >= 0) {
     return categoryIndex;
   }
@@ -112,8 +117,8 @@ const fetchAnalyticData = async (apiKey, { kind, begin, end }) => {
 
   const response = await fetch(url, {
     headers: {
-      Authorization: `Bearer ${apiKey}`
-    }
+      Authorization: `Bearer ${apiKey}`,
+    },
   });
 
   if (!response.ok) {
@@ -139,7 +144,7 @@ const parseRankRows = (payload) => {
     return {
       name,
       seconds,
-      hours: seconds / 3600
+      hours: seconds / 3600,
     };
   });
 
@@ -171,7 +176,9 @@ const main = async () => {
   }
 
   const options = parseArgs();
-  const weekStart = options.week ? getWeekStartSunday(options.week) : getWeekStartSunday(new Date().toISOString().slice(0, 10));
+  const weekStart = options.week
+    ? getWeekStartSunday(options.week)
+    : getWeekStartSunday(new Date().toISOString().slice(0, 10));
   const weekEnd = addDays(weekStart, 6);
   const listKind = options.listKind ?? "category";
 
@@ -180,7 +187,7 @@ const main = async () => {
   const payload = await fetchAnalyticData(apiKey, {
     kind: listKind,
     begin: weekStart,
-    end: weekEnd
+    end: weekEnd,
   });
 
   const rows = parseRankRows(payload);
@@ -191,7 +198,7 @@ const main = async () => {
     for (const row of rows.slice(0, 25)) {
       console.log(`  ${row.name}: ${formatHours(row.hours)}`);
     }
-    console.log("\nPass --objective \"Category:targetHours\" to score time objectives.");
+    console.log('\nPass --objective "Category:targetHours" to score time objectives.');
     return;
   }
 
@@ -203,7 +210,7 @@ const main = async () => {
     return {
       ...objective,
       actualHours,
-      achievement
+      achievement,
     };
   });
 
@@ -214,11 +221,13 @@ const main = async () => {
   for (const item of results) {
     const found = byName.has(item.name) ? "" : " (not found in RescueTime data)";
     console.log(
-      `  ${item.name}: ${formatHours(item.actualHours)} / ${formatHours(item.targetHours)} → ${item.achievement.toFixed(2)}/1${found}`
+      `  ${item.name}: ${formatHours(item.actualHours)} / ${formatHours(item.targetHours)} → ${item.achievement.toFixed(2)}/1${found}`,
     );
   }
 
-  console.log(`\nWeekly time objectives score: ${totalAchievement.toFixed(2)} / ${results.length} = ${scorePercent.toFixed(1)}%`);
+  console.log(
+    `\nWeekly time objectives score: ${totalAchievement.toFixed(2)} / ${results.length} = ${scorePercent.toFixed(1)}%`,
+  );
 };
 
 main().catch((error) => {

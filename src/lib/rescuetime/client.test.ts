@@ -11,8 +11,8 @@ describe("HttpRescueTimeClient", () => {
     const fetchMock = vi.fn(async () =>
       Response.json({
         row_headers: ["Rank", "Time Spent (seconds)", "Category"],
-        rows: [[1, 3600, "Software Development"]]
-      })
+        rows: [[1, 3600, "Software Development"]],
+      }),
     );
     globalThis.fetch = fetchMock as typeof fetch;
 
@@ -20,7 +20,7 @@ describe("HttpRescueTimeClient", () => {
     const payload = await client.fetchAnalyticData("rt-test-key", {
       kind: "category",
       begin: "2026-08-03",
-      end: "2026-08-09"
+      end: "2026-08-09",
     });
 
     expect(payload.rows).toHaveLength(1);
@@ -35,8 +35,8 @@ describe("HttpRescueTimeClient", () => {
   });
 
   it("surfaces RescueTime error responses", async () => {
-    globalThis.fetch = vi.fn(async () =>
-      new Response("Unauthorized", { status: 401 })
+    globalThis.fetch = vi.fn(
+      async () => new Response("Unauthorized", { status: 401 }),
     ) as typeof fetch;
 
     const client = new HttpRescueTimeClient();
@@ -45,8 +45,8 @@ describe("HttpRescueTimeClient", () => {
       client.fetchAnalyticData("bad-key", {
         kind: "category",
         begin: "2026-08-03",
-        end: "2026-08-09"
-      })
+        end: "2026-08-09",
+      }),
     ).rejects.toThrow("RescueTime API 401");
   });
 });

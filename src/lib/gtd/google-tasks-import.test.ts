@@ -13,9 +13,9 @@ describe("buildGoogleTasksImport", () => {
               title: "Lire article vector db",
               status: "needsAction",
               scheduled_time: [{ current: true, start: "2026-03-31T10:00:00.000Z" }],
-              updated: "2026-03-31T10:00:00.000Z"
-            }
-          ]
+              updated: "2026-03-31T10:00:00.000Z",
+            },
+          ],
         },
         {
           id: "list-2",
@@ -25,25 +25,25 @@ describe("buildGoogleTasksImport", () => {
               id: "project-1",
               title: "Lancer la nouvelle cohort",
               status: "needsAction",
-              updated: "2026-03-31T10:00:00.000Z"
-            }
-          ]
-        }
-      ]
+              updated: "2026-03-31T10:00:00.000Z",
+            },
+          ],
+        },
+      ],
     });
 
     expect(result.tasks[0]).toMatchObject({
       bucket: "scheduled",
       contextIds: expect.arrayContaining(["context:reading", "context:tech"]),
-      scheduledFor: "2026-03-31T10:00:00.000Z"
+      scheduledFor: "2026-03-31T10:00:00.000Z",
     });
     expect(result.projects[0]).toMatchObject({
       title: "Lancer la nouvelle cohort",
       contextIds: ["context:africaheroes"],
-      statusChangedAt: "2026-03-31T10:00:00.000Z"
+      statusChangedAt: "2026-03-31T10:00:00.000Z",
     });
     expect(result.contexts.map((context) => context.name)).toEqual(
-      expect.arrayContaining(["Reading", "Tech", "AfricaHeroes"])
+      expect.arrayContaining(["Reading", "Tech", "AfricaHeroes"]),
     );
   });
 
@@ -60,7 +60,7 @@ describe("buildGoogleTasksImport", () => {
               status: "needsAction",
               task_recurrence_id: "rec-1",
               scheduled_time: [{ current: true, start: "2026-03-22T10:00:00.000Z" }],
-              updated: "2026-03-22T10:00:00.000Z"
+              updated: "2026-03-22T10:00:00.000Z",
             },
             {
               id: "task-new",
@@ -68,11 +68,11 @@ describe("buildGoogleTasksImport", () => {
               status: "needsAction",
               task_recurrence_id: "rec-1",
               scheduled_time: [{ current: true, start: "2026-03-29T10:00:00.000Z" }],
-              updated: "2026-03-29T10:00:00.000Z"
-            }
-          ]
-        }
-      ]
+              updated: "2026-03-29T10:00:00.000Z",
+            },
+          ],
+        },
+      ],
     });
 
     expect(result.tasks).toHaveLength(1);
@@ -81,7 +81,7 @@ describe("buildGoogleTasksImport", () => {
       sourceExternalId: "rec-1",
       recurrenceGroupId: "rec-1",
       pendingPastRecurrences: 1,
-      scheduledFor: "2026-03-29T10:00:00.000Z"
+      scheduledFor: "2026-03-29T10:00:00.000Z",
     });
   });
 });

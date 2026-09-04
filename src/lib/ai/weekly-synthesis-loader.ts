@@ -1,6 +1,6 @@
 import type { AiMessage, WeeklySynthesisResult } from "../../domain/types";
-import { parseWeeklySynthesisJson } from "./proposals/weekly-synthesis-validator";
 import type { AppRepository } from "../storage/repository";
+import { parseWeeklySynthesisJson } from "./proposals/weekly-synthesis-validator";
 import type { WeeklySynthesisService } from "./weekly-synthesis-service";
 
 const sourceFromMessage = (message: AiMessage): WeeklySynthesisResult["source"] => {
@@ -18,7 +18,7 @@ const sourceFromMessage = (message: AiMessage): WeeklySynthesisResult["source"] 
 export const loadLatestWeeklySynthesis = async (
   repository: AppRepository,
   synthesisService: WeeklySynthesisService,
-  weekStartDate: string
+  weekStartDate: string,
 ): Promise<WeeklySynthesisResult | null> => {
   const messages = await repository.listAiMessages("weekly_synthesis", 20);
   const latest = messages
@@ -48,6 +48,6 @@ export const loadLatestWeeklySynthesis = async (
     message: latest,
     synthesis: parsed.value,
     proposals,
-    source: sourceFromMessage(latest)
+    source: sourceFromMessage(latest),
   };
 };

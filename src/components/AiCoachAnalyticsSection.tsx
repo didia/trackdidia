@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { loadCoachAnalytics } from "../lib/ai/analytics/load-coach-analytics";
-import type { AcceptanceRateBucket, CoachAnalyticsSummary } from "../lib/ai/analytics/proposal-analytics";
-import { PROMPT_REGISTRY } from "../lib/ai/prompts/registry";
 import { t as translate } from "../i18n";
+import { loadCoachAnalytics } from "../lib/ai/analytics/load-coach-analytics";
+import type {
+  AcceptanceRateBucket,
+  CoachAnalyticsSummary,
+} from "../lib/ai/analytics/proposal-analytics";
+import { PROMPT_REGISTRY } from "../lib/ai/prompts/registry";
 import type { AppRepository } from "../lib/storage/repository";
 import { SectionCard } from "./SectionCard";
 
@@ -108,13 +111,14 @@ export const AiCoachAnalyticsSection = ({ repository }: AiCoachAnalyticsSectionP
 
   if (error) {
     return (
-      <SectionCard
-        title={t("analytics.title")}
-        subtitle={t("analytics.subtitle")}
-      >
+      <SectionCard title={t("analytics.title")} subtitle={t("analytics.subtitle")}>
         <div className="banner">{error}</div>
         <div className="form-actions">
-          <button className="button button--ghost" type="button" onClick={() => void loadAnalytics()}>
+          <button
+            className="button button--ghost"
+            type="button"
+            onClick={() => void loadAnalytics()}
+          >
             {tCommon("actions.retry")}
           </button>
         </div>
@@ -124,10 +128,7 @@ export const AiCoachAnalyticsSection = ({ repository }: AiCoachAnalyticsSectionP
 
   if (!analytics) {
     return (
-      <SectionCard
-        title={t("analytics.title")}
-        subtitle={t("analytics.subtitle")}
-      >
+      <SectionCard title={t("analytics.title")} subtitle={t("analytics.subtitle")}>
         <p className="muted-copy">{t("analytics.noData")}</p>
       </SectionCard>
     );
@@ -136,10 +137,7 @@ export const AiCoachAnalyticsSection = ({ repository }: AiCoachAnalyticsSectionP
   const dismissalTrend = analytics.dismissalTrend.filter((point) => point.decided > 0);
 
   return (
-    <SectionCard
-      title={t("analytics.title")}
-      subtitle={t("analytics.subtitleFull")}
-    >
+    <SectionCard title={t("analytics.title")} subtitle={t("analytics.subtitleFull")}>
       <BucketTable title={t("analytics.bySurface")} buckets={analytics.bySurface} />
       <BucketTable title={t("analytics.byType")} buckets={analytics.byType} />
       <BucketTable title={t("analytics.byStance")} buckets={analytics.byStance} />
@@ -181,7 +179,7 @@ export const AiCoachAnalyticsSection = ({ repository }: AiCoachAnalyticsSectionP
                 <strong>{signal.label}</strong> {tCommon("emDash")}{" "}
                 {t("analytics.acceptanceSample", {
                   percent: Math.round(signal.acceptanceRate * 100),
-                  count: signal.sampleSize
+                  count: signal.sampleSize,
                 })}{" "}
                 {signal.note}
                 {signal.promptVersion

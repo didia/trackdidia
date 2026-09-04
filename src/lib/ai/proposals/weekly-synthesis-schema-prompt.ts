@@ -6,7 +6,7 @@ const ritualSectionKeys = [
   "calendrier",
   "gtd",
   "alignement",
-  "dimanche"
+  "dimanche",
 ] as const;
 
 export const buildWeeklySynthesisSchemaPrompt = (): string => {

@@ -1,7 +1,7 @@
 import type {
   AnnualGoalTrend,
   MonthlyReviewSectionKey,
-  MonthlySynthesisResponse
+  MonthlySynthesisResponse,
 } from "../../../domain/types";
 
 const sectionKeys = new Set<MonthlyReviewSectionKey>([
@@ -14,7 +14,7 @@ const sectionKeys = new Set<MonthlyReviewSectionKey>([
   "nettoyageListes",
   "calendrier",
   "grosProjets",
-  "developpement"
+  "developpement",
 ]);
 
 const trends = new Set<AnnualGoalTrend>(["up", "steady", "down"]);
@@ -90,7 +90,7 @@ const validateGoalEvaluationDrafts = (value: unknown): string | null => {
 };
 
 export const validateMonthlySynthesisResponse = (
-  payload: unknown
+  payload: unknown,
 ): { ok: true; value: MonthlySynthesisResponse } | { ok: false; error: string } => {
   if (typeof payload !== "object" || payload === null) {
     return { ok: false, error: "Response must be a JSON object" };
@@ -116,7 +116,7 @@ export const validateMonthlySynthesisResponse = (
 };
 
 export const parseMonthlySynthesisJson = (
-  raw: string
+  raw: string,
 ): { ok: true; value: MonthlySynthesisResponse } | { ok: false; error: string } => {
   try {
     const parsed = JSON.parse(raw) as unknown;

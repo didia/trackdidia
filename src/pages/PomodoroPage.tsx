@@ -3,8 +3,14 @@ import { useTranslation } from "react-i18next";
 import { useAppContext } from "../app/app-context";
 import { usePomodoroTiming } from "../app/use-pomodoro-timing";
 import { SectionCard } from "../components/SectionCard";
-import { formatDateLong, formatDateTimeShort, formatSecondsCompact, formatTimerRemaining, getTodayDate } from "../lib/date";
 import type { PomodoroKind } from "../domain/types";
+import {
+  formatDateLong,
+  formatDateTimeShort,
+  formatSecondsCompact,
+  formatTimerRemaining,
+  getTodayDate,
+} from "../lib/date";
 
 export const PomodoroPage = () => {
   const { t } = useTranslation("pomodoro");
@@ -20,7 +26,7 @@ export const PomodoroPage = () => {
     void pomodoro.reload();
     // Intentionally omit `pomodoro.loading`: a cold start on this route already
     // runs `refreshEverything` in the controller boot effect.
-  }, [pomodoro.reload]);
+  }, [pomodoro.reload, pomodoro.loading]);
 
   useEffect(() => {
     const currentTaskId = pomodoro.currentTask?.id;
@@ -53,7 +59,7 @@ export const PomodoroPage = () => {
     pomodoro.currentTask?.id,
     pomodoro.preferredActivityLabel,
     pomodoro.preferredTask?.id,
-    pomodoro.taskOptions
+    pomodoro.taskOptions,
   ]);
 
   const activeSession = pomodoro.state.activeSession;
@@ -63,21 +69,38 @@ export const PomodoroPage = () => {
   const hasPausedSession = Boolean(hasActiveSession && activeSession?.status === "paused");
   const hasLiveFocusSession = Boolean(hasRunningSession && activeSession?.kind === "focus");
   const hasPausedFocusSession = Boolean(hasPausedSession && activeSession?.kind === "focus");
-  const nextSessionIsBreak = pomodoro.state.nextSessionKind === "short_break" || pomodoro.state.nextSessionKind === "long_break";
-  const hasLiveBreakSession = Boolean(hasRunningSession && activeSession && (activeSession.kind === "short_break" || activeSession.kind === "long_break"));
-  const hasPausedBreakSession = Boolean(hasPausedSession && activeSession && (activeSession.kind === "short_break" || activeSession.kind === "long_break"));
-  const canSkipBreak = hasLiveBreakSession || hasPausedBreakSession || (!hasActiveSession && nextSessionIsBreak);
-  const canEditManualTitle = !selectedTaskId && (!hasActiveSession || (activeSession?.kind === "focus" && activeSession.status === "running"));
+  const nextSessionIsBreak =
+    pomodoro.state.nextSessionKind === "short_break" ||
+    pomodoro.state.nextSessionKind === "long_break";
+  const hasLiveBreakSession = Boolean(
+    hasRunningSession &&
+      activeSession &&
+      (activeSession.kind === "short_break" || activeSession.kind === "long_break"),
+  );
+  const hasPausedBreakSession = Boolean(
+    hasPausedSession &&
+      activeSession &&
+      (activeSession.kind === "short_break" || activeSession.kind === "long_break"),
+  );
+  const canSkipBreak =
+    hasLiveBreakSession || hasPausedBreakSession || (!hasActiveSession && nextSessionIsBreak);
+  const canEditManualTitle =
+    !selectedTaskId &&
+    (!hasActiveSession || (activeSession?.kind === "focus" && activeSession.status === "running"));
   const canStartNextSession = !hasActiveSession;
-  const nextActionLabel = pomodoro.state.nextSessionKind === "focus" ? t("actions.startFocus") : t("actions.startBreak");
+  const nextActionLabel =
+    pomodoro.state.nextSessionKind === "focus" ? t("actions.startFocus") : t("actions.startBreak");
   const kindLabel = (kind: PomodoroKind) => t(`kind.${kind}`);
-  const sessionLabel = hasActiveSession && activeSession ? kindLabel(activeSession.kind) : kindLabel(pomodoro.state.nextSessionKind);
+  const sessionLabel =
+    hasActiveSession && activeSession
+      ? kindLabel(activeSession.kind)
+      : kindLabel(pomodoro.state.nextSessionKind);
   const taskLookup = useMemo(
     () => new Map(pomodoro.taskOptions.map((task) => [task.id, task.title] as const)),
-    [pomodoro.taskOptions]
+    [pomodoro.taskOptions],
   );
   const resolveSegmentLabel = (taskId: string | null, title: string | null) =>
-    taskId ? taskLookup.get(taskId) ?? t("unknownTask") : title?.trim() || t("untitled");
+    taskId ? (taskLookup.get(taskId) ?? t("unknownTask")) : title?.trim() || t("untitled");
 
   return (
     <div className="page">
@@ -85,9 +108,7 @@ export const PomodoroPage = () => {
         <div>
           <p className="eyebrow">{t("hero.eyebrow")}</p>
           <h2>{formatDateLong(getTodayDate())}</h2>
-          <p className="hero__copy">
-            {t("hero.copy")}
-          </p>
+          <p className="hero__copy">{t("hero.copy")}</p>
         </div>
       </header>
 
@@ -107,11 +128,20 @@ export const PomodoroPage = () => {
       >
         {pomodoro.reloadError ? <p className="empty-copy">{pomodoro.reloadError}</p> : null}
         <div className="pomodoro-panel">
-          <div className={`pomodoro-clock${activeSession ? ` pomodoro-clock--${activeSession.kind}` : ""}`}>
+          <div
+            className={`pomodoro-clock${activeSession ? ` pomodoro-clock--${activeSession.kind}` : ""}`}
+          >
             <span className="pomodoro-clock__label">{sessionLabel}</span>
-            <strong>{hasActiveSession && activeSession ? timing.valid ? formatTimerRemaining(timing.remainingMs) : t("timerPlaceholder") : t("idleTimer")}</strong>
+            <strong>
+              {hasActiveSession && activeSession
+                ? timing.valid
+                  ? formatTimerRemaining(timing.remainingMs)
+                  : t("timerPlaceholder")
+                : t("idleTimer")}
+            </strong>
             <span className="pomodoro-clock__cycle">
-              {t("sessionCycle", { n: pomodoro.state.currentCycleIndex })}{hasPausedSession ? t("pausedSuffix") : ""}
+              {t("sessionCycle", { n: pomodoro.state.currentCycleIndex })}
+              {hasPausedSession ? t("pausedSuffix") : ""}
             </span>
           </div>
 
@@ -141,7 +171,10 @@ export const PomodoroPage = () => {
               <span>{t("timer.linkedTask")}</span>
               <select
                 value={selectedTaskId}
-                disabled={Boolean(hasActiveSession && (activeSession?.kind !== "focus" || activeSession.status !== "running"))}
+                disabled={Boolean(
+                  hasActiveSession &&
+                    (activeSession?.kind !== "focus" || activeSession.status !== "running"),
+                )}
                 onChange={async (event) => {
                   const nextTaskId = event.target.value;
                   setSelectedTaskId(nextTaskId);
@@ -150,7 +183,10 @@ export const PomodoroPage = () => {
                   }
 
                   if (hasRunningSession && activeSession?.kind === "focus") {
-                    await pomodoro.switchTask(nextTaskId || null, nextTaskId ? null : (manualTitle.trim() || null));
+                    await pomodoro.switchTask(
+                      nextTaskId || null,
+                      nextTaskId ? null : manualTitle.trim() || null,
+                    );
                   }
                 }}
               >
@@ -197,11 +233,12 @@ export const PomodoroPage = () => {
                   type="button"
                   onClick={() =>
                     void pomodoro.startPomodoro({
-                      taskId: pomodoro.state.nextSessionKind === "focus" ? selectedTaskId || null : null,
+                      taskId:
+                        pomodoro.state.nextSessionKind === "focus" ? selectedTaskId || null : null,
                       title:
                         pomodoro.state.nextSessionKind === "focus" && !selectedTaskId
                           ? manualTitle.trim() || null
-                          : null
+                          : null,
                     })
                   }
                 >
@@ -210,13 +247,21 @@ export const PomodoroPage = () => {
               ) : null}
 
               {hasRunningSession ? (
-                <button className="button" type="button" onClick={() => void pomodoro.pauseCurrent()}>
+                <button
+                  className="button"
+                  type="button"
+                  onClick={() => void pomodoro.pauseCurrent()}
+                >
                   {t("actions.pause")}
                 </button>
               ) : null}
 
               {hasPausedSession ? (
-                <button className="button button--primary" type="button" onClick={() => void pomodoro.resumeCurrent()}>
+                <button
+                  className="button button--primary"
+                  type="button"
+                  onClick={() => void pomodoro.resumeCurrent()}
+                >
                   {t("actions.resume")}
                 </button>
               ) : null}
@@ -228,24 +273,41 @@ export const PomodoroPage = () => {
               ) : null}
 
               {hasLiveFocusSession && pomodoro.currentTask ? (
-                <button className="button" type="button" onClick={() => void pomodoro.completeCurrentTask()}>
+                <button
+                  className="button"
+                  type="button"
+                  onClick={() => void pomodoro.completeCurrentTask()}
+                >
                   {t("actions.completeTask")}
                 </button>
               ) : null}
 
-              {(hasLiveFocusSession || hasPausedFocusSession) ? (
+              {hasLiveFocusSession || hasPausedFocusSession ? (
                 <>
-                  <button className="button" type="button" disabled={!timing.canCompleteNow} onClick={() => void pomodoro.completeNow()}>
+                  <button
+                    className="button"
+                    type="button"
+                    disabled={!timing.canCompleteNow}
+                    onClick={() => void pomodoro.completeNow()}
+                  >
                     {t("actions.completeNow")}
                   </button>
-                  <button className="button button--ghost" type="button" onClick={() => void pomodoro.cancelCurrent()}>
+                  <button
+                    className="button button--ghost"
+                    type="button"
+                    onClick={() => void pomodoro.cancelCurrent()}
+                  >
                     {t("actions.cancel")}
                   </button>
                 </>
               ) : null}
 
-              {(hasLiveBreakSession || hasPausedBreakSession) ? (
-                <button className="button button--ghost" type="button" onClick={() => void pomodoro.cancelCurrent()}>
+              {hasLiveBreakSession || hasPausedBreakSession ? (
+                <button
+                  className="button button--ghost"
+                  type="button"
+                  onClick={() => void pomodoro.cancelCurrent()}
+                >
                   {t("actions.cancel")}
                 </button>
               ) : null}
@@ -279,7 +341,9 @@ export const PomodoroPage = () => {
                     {formatDateTimeShort(session.startedAt)} → {formatDateTimeShort(session.endsAt)}
                   </span>
                 </div>
-                <span className={`pomodoro-history__status pomodoro-history__status--${session.status}`}>
+                <span
+                  className={`pomodoro-history__status pomodoro-history__status--${session.status}`}
+                >
                   {t(`history.${session.status}`)}
                 </span>
                 <div className="pomodoro-history__segments">
@@ -305,7 +369,10 @@ export const PomodoroPage = () => {
         ) : (
           <div className="pomodoro-summary-list">
             {pomodoro.taskSummaries.map((summary) => (
-              <article key={`${summary.taskId ?? "none"}-${summary.taskTitle}`} className="status-card">
+              <article
+                key={`${summary.taskId ?? "none"}-${summary.taskTitle}`}
+                className="status-card"
+              >
                 <span>{summary.taskTitle}</span>
                 <strong>{formatSecondsCompact(summary.totalSeconds)}</strong>
                 <small>{t("summary.sessionCount", { count: summary.sessionCount })}</small>

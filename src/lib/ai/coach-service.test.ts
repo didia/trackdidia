@@ -1,16 +1,16 @@
 import { createEmptyDailyEntry, defaultAppSettings, updateNote } from "../../domain/daily-entry";
-import { AiCoachService } from "./coach-service";
 import {
   buildCoachCacheKey,
   getCoachInputText,
   resolveCoachCachePartOfDay,
-  resolvePartOfDay
+  resolvePartOfDay,
 } from "./coach-input";
+import { AiCoachService } from "./coach-service";
 
 describe("coach-input", () => {
   it("builds cache keys from date, part of day, and input content", () => {
     expect(buildCoachCacheKey("2026-07-29", "morning", "Rester net")).toBe(
-      "2026-07-29|morning|Rester net"
+      "2026-07-29|morning|Rester net",
     );
   });
 
@@ -42,11 +42,15 @@ describe("coach-input", () => {
 describe("AiCoachService", () => {
   it("falls back to local guidance when AI is disabled", async () => {
     const provider = {
-      generate: vi.fn()
+      generate: vi.fn(),
     };
     const service = new AiCoachService(provider);
     const settings = defaultAppSettings();
-    const entry = updateNote(createEmptyDailyEntry("2026-03-31"), "morningIntention", "Aller droit");
+    const entry = updateNote(
+      createEmptyDailyEntry("2026-03-31"),
+      "morningIntention",
+      "Aller droit",
+    );
 
     const result = await service.buildMessage("morning", entry, [], settings);
 
@@ -56,7 +60,7 @@ describe("AiCoachService", () => {
 
   it("calls the provider even when coach input is empty", async () => {
     const provider = {
-      generate: vi.fn(async () => "Conseil sans texte")
+      generate: vi.fn(async () => "Conseil sans texte"),
     };
     const service = new AiCoachService(provider);
     const settings = defaultAppSettings();
@@ -67,7 +71,7 @@ describe("AiCoachService", () => {
       "morning",
       createEmptyDailyEntry("2026-03-31"),
       [],
-      settings
+      settings,
     );
 
     expect(result.source).toBe("ai");
@@ -76,13 +80,17 @@ describe("AiCoachService", () => {
 
   it("caches AI responses for the same date, part of day, and input", async () => {
     const provider = {
-      generate: vi.fn(async () => "Conseil IA")
+      generate: vi.fn(async () => "Conseil IA"),
     };
     const service = new AiCoachService(provider);
     const settings = defaultAppSettings();
     settings.aiEnabled = true;
     settings.aiApiKey = "secret";
-    const entry = updateNote(createEmptyDailyEntry("2026-03-31"), "morningIntention", "Rester calme");
+    const entry = updateNote(
+      createEmptyDailyEntry("2026-03-31"),
+      "morningIntention",
+      "Rester calme",
+    );
 
     const first = await service.buildMessage("morning", entry, [], settings);
     const second = await service.buildMessage("morning", entry, [], settings);
@@ -94,7 +102,7 @@ describe("AiCoachService", () => {
 
   it("calls again when the input content changes", async () => {
     const provider = {
-      generate: vi.fn(async (_kind, context) => `AI:${context.inputContent}`)
+      generate: vi.fn(async (_kind, context) => `AI:${context.inputContent}`),
     };
     const service = new AiCoachService(provider);
     const settings = defaultAppSettings();
@@ -113,7 +121,7 @@ describe("AiCoachService", () => {
 
   it("passes timezone and part of day to the provider", async () => {
     const provider = {
-      generate: vi.fn(async () => "ok")
+      generate: vi.fn(async () => "ok"),
     };
     const service = new AiCoachService(provider);
     const settings = defaultAppSettings();
@@ -129,8 +137,8 @@ describe("AiCoachService", () => {
         timeZone: expect.any(String),
         partOfDay: expect.stringMatching(/^(morning|afternoon)$/),
         currentPartOfDay: expect.stringMatching(/^(morning|afternoon|evening)$/),
-        inputContent: "Go"
-      })
+        inputContent: "Go",
+      }),
     );
   });
 
@@ -138,7 +146,7 @@ describe("AiCoachService", () => {
     const provider = {
       generate: vi.fn(async () => {
         throw new Error("boom");
-      })
+      }),
     };
     const service = new AiCoachService(provider);
     const settings = defaultAppSettings();
@@ -147,7 +155,7 @@ describe("AiCoachService", () => {
     const entry = updateNote(
       createEmptyDailyEntry("2026-03-31"),
       "nightReflection",
-      "Journee difficile"
+      "Journee difficile",
     );
 
     const result = await service.buildMessage("evening", entry, [], settings);

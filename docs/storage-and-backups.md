@@ -339,10 +339,7 @@ code task.
   configuration.
 - `app_settings.value` may contain the OpenRouter API key and the RescueTime API key in plaintext.
 - Backups contain the same sensitive data as the source database.
-- `Tasks.json` may contain personal Google Tasks data and is intentionally
-  gitignored.
-- `dist/` may embed imported task data when built locally because `Tasks.json` is a
-  static source import. Treat locally built artifacts as sensitive.
+- Treat locally built `dist/` artifacts and database backups as sensitive.
 
 ## Related documentation
 

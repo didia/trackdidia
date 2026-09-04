@@ -3,7 +3,7 @@ import {
   applyDailyTaskStats,
   createEmptyDailyEntry,
   updateMetric,
-  updatePrinciple
+  updatePrinciple,
 } from "./daily-entry";
 import {
   applyWeeklyScoreExternalAxes,
@@ -11,7 +11,7 @@ import {
   createEmptyWeeklyReview,
   localWeeklyScoreAxes,
   updateWeeklyReviewChecklist,
-  updateWeeklyReviewNote
+  updateWeeklyReviewNote,
 } from "./weekly-review";
 
 describe("weekly review domain", () => {
@@ -23,7 +23,7 @@ describe("weekly review domain", () => {
       "2026-04-01",
       "2026-04-02",
       "2026-04-03",
-      "2026-04-04"
+      "2026-04-04",
     ];
 
     const entries = weekDates.map((date, index) => {
@@ -32,14 +32,14 @@ describe("weekly review domain", () => {
       entry = updateMetric(entry, "tempsEcranTelephone", 100);
       entry = applyDailyPomodoroStats(entry, {
         date,
-        completedFocusSessions: 4
+        completedFocusSessions: 4,
       });
       entry = applyDailyTaskStats(entry, {
         date,
         tasksAtStart: 5,
         tasksAdded: 4,
         tasksCompleted: 3,
-        tasksRemaining: 2
+        tasksRemaining: 2,
       });
 
       if (index % 2 === 0) {
@@ -75,14 +75,14 @@ describe("weekly review domain", () => {
     let entry = createEmptyDailyEntry("2026-03-29");
     entry = applyDailyPomodoroStats(entry, {
       date: "2026-03-29",
-      completedFocusSessions: 4
+      completedFocusSessions: 4,
     });
     entry = applyDailyTaskStats(entry, {
       date: "2026-03-29",
       tasksAtStart: 2,
       tasksAdded: 3,
       tasksCompleted: 1,
-      tasksRemaining: 4
+      tasksRemaining: 4,
     });
     entry = updateMetric(entry, "pomodoris", 6);
     entry = updateMetric(entry, "tachesAjoutes", 5);
@@ -95,7 +95,7 @@ describe("weekly review domain", () => {
       createEmptyDailyEntry("2026-04-01"),
       createEmptyDailyEntry("2026-04-02"),
       createEmptyDailyEntry("2026-04-03"),
-      createEmptyDailyEntry("2026-04-04")
+      createEmptyDailyEntry("2026-04-04"),
     ]);
 
     expect(summary.pomodorisTotal).toBe(6);
@@ -111,7 +111,7 @@ describe("weekly review domain", () => {
       createEmptyDailyEntry("2026-04-01"),
       createEmptyDailyEntry("2026-04-02"),
       createEmptyDailyEntry("2026-04-03"),
-      createEmptyDailyEntry("2026-04-04")
+      createEmptyDailyEntry("2026-04-04"),
     ]);
 
     expect(summary.sleepAverage).toBe(0);
@@ -141,7 +141,7 @@ describe("weekly review domain", () => {
       "2026-04-01",
       "2026-04-02",
       "2026-04-03",
-      "2026-04-04"
+      "2026-04-04",
     ];
 
     const entries = weekDates.map((date, index) => {
@@ -165,39 +165,39 @@ describe("weekly review domain", () => {
       createEmptyDailyEntry("2026-04-01"),
       createEmptyDailyEntry("2026-04-02"),
       createEmptyDailyEntry("2026-04-03"),
-      createEmptyDailyEntry("2026-04-04")
+      createEmptyDailyEntry("2026-04-04"),
     ]);
 
     const localAxes = localWeeklyScoreAxes(summary);
     const withBoth = applyWeeklyScoreExternalAxes(summary, {
       rescueTimeGoalsScore: 0.5,
-      productivityPulse: 80
+      productivityPulse: 80,
     });
     const withGoalsOnly = applyWeeklyScoreExternalAxes(summary, {
       rescueTimeGoalsScore: 0.5,
-      productivityPulse: null
+      productivityPulse: null,
     });
     const withPulseOnly = applyWeeklyScoreExternalAxes(summary, {
       rescueTimeGoalsScore: null,
-      productivityPulse: 80
+      productivityPulse: 80,
     });
     const withGoalsZero = applyWeeklyScoreExternalAxes(summary, {
       rescueTimeGoalsScore: 0,
-      productivityPulse: null
+      productivityPulse: null,
     });
 
     expect(localAxes).toHaveLength(7);
     expect(withBoth.weeklyScore).toBeCloseTo(
-      (localAxes.reduce((sum, value) => sum + value, 0) + 0.5 + 0.8) / 9
+      (localAxes.reduce((sum, value) => sum + value, 0) + 0.5 + 0.8) / 9,
     );
     expect(withGoalsOnly.weeklyScore).toBeCloseTo(
-      (localAxes.reduce((sum, value) => sum + value, 0) + 0.5) / 8
+      (localAxes.reduce((sum, value) => sum + value, 0) + 0.5) / 8,
     );
     expect(withPulseOnly.weeklyScore).toBeCloseTo(
-      (localAxes.reduce((sum, value) => sum + value, 0) + 0.8) / 8
+      (localAxes.reduce((sum, value) => sum + value, 0) + 0.8) / 8,
     );
     expect(withGoalsZero.weeklyScore).toBeCloseTo(
-      (localAxes.reduce((sum, value) => sum + value, 0) + 0) / 8
+      (localAxes.reduce((sum, value) => sum + value, 0) + 0) / 8,
     );
     expect(withBoth.rescueTimeGoalsScore).toBe(0.5);
     expect(withBoth.productivityPulse).toBe(80);
@@ -212,17 +212,17 @@ describe("weekly review domain", () => {
         createEmptyDailyEntry("2026-04-01"),
         createEmptyDailyEntry("2026-04-02"),
         createEmptyDailyEntry("2026-04-03"),
-        createEmptyDailyEntry("2026-04-04")
+        createEmptyDailyEntry("2026-04-04"),
       ]),
       {
         rescueTimeGoalsScore: 1,
-        productivityPulse: 100
-      }
+        productivityPulse: 100,
+      },
     );
 
     const reapplied = applyWeeklyScoreExternalAxes(summary, {
       rescueTimeGoalsScore: null,
-      productivityPulse: null
+      productivityPulse: null,
     });
 
     expect(reapplied.rescueTimeGoalsScore).toBeNull();

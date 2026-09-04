@@ -1,6 +1,6 @@
 import type { RescueTimeTaxonomy } from "../../domain/types";
-import type { RescueTimeAnalyticPayload } from "./parse-analytic-data";
 import { fetchRescueTimeJson } from "./http-transport";
+import type { RescueTimeAnalyticPayload } from "./parse-analytic-data";
 
 export interface RescueTimeFetchOptions {
   kind: RescueTimeTaxonomy;
@@ -10,11 +10,17 @@ export interface RescueTimeFetchOptions {
 }
 
 export interface RescueTimeClient {
-  fetchAnalyticData(apiKey: string, options: RescueTimeFetchOptions): Promise<RescueTimeAnalyticPayload>;
+  fetchAnalyticData(
+    apiKey: string,
+    options: RescueTimeFetchOptions,
+  ): Promise<RescueTimeAnalyticPayload>;
 }
 
 export class HttpRescueTimeClient implements RescueTimeClient {
-  async fetchAnalyticData(apiKey: string, options: RescueTimeFetchOptions): Promise<RescueTimeAnalyticPayload> {
+  async fetchAnalyticData(
+    apiKey: string,
+    options: RescueTimeFetchOptions,
+  ): Promise<RescueTimeAnalyticPayload> {
     const url = new URL("https://www.rescuetime.com/anapi/data");
     url.searchParams.set("format", "json");
     url.searchParams.set("perspective", "rank");

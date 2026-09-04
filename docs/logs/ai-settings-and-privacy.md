@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-04 | Settings shows GTD overview only; bundled Google Tasks re-import removed | `docs/ai-settings-and-privacy.md` | `SettingsPage.tsx` |
 | 2026-09-04 | AI max tokens default is 4096, configurable in Settings; stored factory 700 is upgraded once at bootstrap; unreadable length-truncated OpenRouter responses log a debug warn and a French fallback warning | `docs/ai-settings-and-privacy.md` | `aiMaxTokens`, `applyLegacyAiMaxTokensUpgrade`, `OpenRouterProvider`, `SettingsPage` |
 | 2026-09-03 | Evening close auto-load only reuses `ok` pulses, skip-RescueTime hash cache keeps freshness, commitments resolve with AI off, disabled reason is visible on autoload | `docs/ai-settings-and-privacy.md`, `docs/daily-routines.md` | `latestClosePulseMessage`, `EveningClosurePage`, `CoachPulsePanel`, `resolveDueCommitmentsOnClose` |
 | 2026-09-02 | Evening close coach reuses a persisted `close` pulse on page open (Today-style), instead of calling the model every visit | `docs/ai-settings-and-privacy.md`, `docs/daily-routines.md` | `loadLatestClosePulseForDate`, `EveningClosurePage` |

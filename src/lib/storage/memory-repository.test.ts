@@ -1,5 +1,5 @@
-import { createEmptyDailyEntry, defaultAppSettings } from "../../domain/daily-entry";
 import { afterEach, vi } from "vitest";
+import { createEmptyDailyEntry, defaultAppSettings } from "../../domain/daily-entry";
 import { getTodayDate } from "../date";
 import { addDays } from "../gtd/shared";
 import { MemoryRepository } from "./memory-repository";
@@ -19,7 +19,7 @@ describe("MemoryRepository", () => {
     await repository.saveDailyEntry(entry);
 
     await expect(repository.getDailyEntry("2026-03-31")).resolves.toMatchObject({
-      morningIntention: "Tenir le cap"
+      morningIntention: "Tenir le cap",
     });
   });
 
@@ -33,7 +33,7 @@ describe("MemoryRepository", () => {
 
     await expect(repository.getSettings()).resolves.toMatchObject({
       aiEnabled: true,
-      aiApiKey: "secret"
+      aiApiKey: "secret",
     });
   });
 
@@ -58,16 +58,33 @@ describe("MemoryRepository", () => {
           id: "list-1",
           title: "Next Actions - Perso (3)",
           items: [
-            { id: "task-1", title: "Appeler maman", status: "needsAction", updated: "2026-03-30T14:00:00.000Z" },
-            { id: "task-2", title: "Deja fait", status: "completed", updated: "2026-03-29T14:00:00.000Z" }
-          ]
+            {
+              id: "task-1",
+              title: "Appeler maman",
+              status: "needsAction",
+              updated: "2026-03-30T14:00:00.000Z",
+            },
+            {
+              id: "task-2",
+              title: "Deja fait",
+              status: "completed",
+              updated: "2026-03-29T14:00:00.000Z",
+            },
+          ],
         },
         {
           id: "list-2",
           title: "Projects - RDC Etudes",
-          items: [{ id: "project-1", title: "Memoire data", status: "needsAction", updated: "2026-03-30T14:00:00.000Z" }]
-        }
-      ]
+          items: [
+            {
+              id: "project-1",
+              title: "Memoire data",
+              status: "needsAction",
+              updated: "2026-03-30T14:00:00.000Z",
+            },
+          ],
+        },
+      ],
     });
 
     const tasks = await repository.listTasks();
@@ -77,16 +94,18 @@ describe("MemoryRepository", () => {
     expect(summary).toMatchObject({
       importedTasks: 1,
       importedProjects: 1,
-      skippedCompletedTasks: 1
+      skippedCompletedTasks: 1,
     });
     expect(tasks[0]).toMatchObject({
       title: "Appeler maman",
-      bucket: "next_action"
+      bucket: "next_action",
     });
     expect(projects[0]).toMatchObject({
-      title: "Memoire data"
+      title: "Memoire data",
     });
-    expect(contexts.map((context) => context.name)).toEqual(expect.arrayContaining(["Perso", "RDC Etudes"]));
+    expect(contexts.map((context) => context.name)).toEqual(
+      expect.arrayContaining(["Perso", "RDC Etudes"]),
+    );
   });
 
   it("creates and renames task contexts dynamically", async () => {
@@ -97,19 +116,19 @@ describe("MemoryRepository", () => {
       id: "context:deep-work",
       name: "Deep Work",
       createdAt: "2026-04-01T10:00:00.000Z",
-      updatedAt: "2026-04-01T10:00:00.000Z"
+      updatedAt: "2026-04-01T10:00:00.000Z",
     });
 
     const renamed = await repository.saveContext({
       ...created,
-      name: "Travail profond"
+      name: "Travail profond",
     });
 
     await expect(repository.listContexts()).resolves.toEqual([
       expect.objectContaining({
         id: "context:deep-work",
-        name: "Travail profond"
-      })
+        name: "Travail profond",
+      }),
     ]);
 
     expect(renamed.name).toBe("Travail profond");
@@ -123,7 +142,7 @@ describe("MemoryRepository", () => {
     await repository.saveSettings({
       ...settings,
       relationshipDrawChildrenActivities: ["Lire une histoire ensemble"],
-      relationshipDrawSpouseActivities: ["Boire un the ensemble"]
+      relationshipDrawSpouseActivities: ["Boire un the ensemble"],
     });
 
     const generatedCount = await repository.generateDailyRelationshipTasks("2026-04-01");
@@ -136,15 +155,15 @@ describe("MemoryRepository", () => {
           title: "Avec enfants : Lire une histoire ensemble",
           bucket: "next_action",
           contextIds: expect.arrayContaining(["context:personnel"]),
-          sourceExternalId: "relationship-draw:children:2026-04-01"
+          sourceExternalId: "relationship-draw:children:2026-04-01",
         }),
         expect.objectContaining({
           title: "Avec mon épouse : Boire un the ensemble",
           bucket: "next_action",
           contextIds: expect.arrayContaining(["context:personnel"]),
-          sourceExternalId: "relationship-draw:spouse:2026-04-01"
-        })
-      ])
+          sourceExternalId: "relationship-draw:spouse:2026-04-01",
+        }),
+      ]),
     );
   });
 
@@ -156,12 +175,14 @@ describe("MemoryRepository", () => {
     await repository.saveSettings({
       ...settings,
       relationshipDrawChildrenActivities: ["Lire une histoire ensemble"],
-      relationshipDrawSpouseActivities: ["Boire un the ensemble"]
+      relationshipDrawSpouseActivities: ["Boire un the ensemble"],
     });
 
     await repository.generateDailyRelationshipTasks("2026-04-01");
     const firstDayTasks = await repository.listTasks({ includeCompleted: true });
-    const spouseTask = firstDayTasks.find((task) => task.sourceExternalId === "relationship-draw:spouse:2026-04-01");
+    const spouseTask = firstDayTasks.find(
+      (task) => task.sourceExternalId === "relationship-draw:spouse:2026-04-01",
+    );
     if (!spouseTask) {
       throw new Error("Tache epouse manquante");
     }
@@ -172,10 +193,10 @@ describe("MemoryRepository", () => {
 
     expect(generatedCount).toBe(1);
     expect(
-      tasks.filter((task) => task.sourceExternalId?.startsWith("relationship-draw:children:"))
+      tasks.filter((task) => task.sourceExternalId?.startsWith("relationship-draw:children:")),
     ).toHaveLength(1);
     expect(
-      tasks.filter((task) => task.sourceExternalId?.startsWith("relationship-draw:spouse:"))
+      tasks.filter((task) => task.sourceExternalId?.startsWith("relationship-draw:spouse:")),
     ).toHaveLength(2);
   });
 
@@ -187,17 +208,20 @@ describe("MemoryRepository", () => {
       id: "task-reading",
       title: "Lire un essai",
       bucket: "next_action",
-      contextIds: ["context:reading"]
+      contextIds: ["context:reading"],
     });
 
     await repository.createTask({
       id: "task-other",
       title: "Faire un call",
       bucket: "next_action",
-      contextIds: ["context:call"]
+      contextIds: ["context:call"],
     });
 
-    const movedCount = await repository.moveTasksWithContextToBucket("context:reading", "reference");
+    const movedCount = await repository.moveTasksWithContextToBucket(
+      "context:reading",
+      "reference",
+    );
     const tasks = await repository.listTasks({ includeCompleted: true });
 
     expect(movedCount).toBe(1);
@@ -214,14 +238,14 @@ describe("MemoryRepository", () => {
       title: "Relire un document",
       bucket: "reference",
       contextIds: ["context:reading"],
-      scheduledFor: "2026-04-02T10:00:00.000Z"
+      scheduledFor: "2026-04-02T10:00:00.000Z",
     });
 
     await repository.createTask({
       id: "task-no-date",
       title: "Sans date",
       bucket: "reference",
-      contextIds: ["context:reading"]
+      contextIds: ["context:reading"],
     });
 
     const movedCount = await repository.moveTasksWithScheduledDatesToBucket("scheduled");
@@ -248,7 +272,7 @@ describe("MemoryRepository", () => {
               status: "needsAction",
               task_recurrence_id: "rec-1",
               scheduled_time: [{ current: true, start: "2026-03-22T10:00:00.000Z" }],
-              updated: "2026-03-22T10:00:00.000Z"
+              updated: "2026-03-22T10:00:00.000Z",
             },
             {
               id: "task-new",
@@ -256,11 +280,11 @@ describe("MemoryRepository", () => {
               status: "needsAction",
               task_recurrence_id: "rec-1",
               scheduled_time: [{ current: true, start: "2026-03-29T10:00:00.000Z" }],
-              updated: "2026-03-29T10:00:00.000Z"
-            }
-          ]
-        }
-      ]
+              updated: "2026-03-29T10:00:00.000Z",
+            },
+          ],
+        },
+      ],
     });
 
     await repository.collapseGoogleRecurringTasks({
@@ -275,7 +299,7 @@ describe("MemoryRepository", () => {
               status: "needsAction",
               task_recurrence_id: "rec-1",
               scheduled_time: [{ current: true, start: "2026-03-22T10:00:00.000Z" }],
-              updated: "2026-03-22T10:00:00.000Z"
+              updated: "2026-03-22T10:00:00.000Z",
             },
             {
               id: "task-new",
@@ -283,11 +307,11 @@ describe("MemoryRepository", () => {
               status: "needsAction",
               task_recurrence_id: "rec-1",
               scheduled_time: [{ current: true, start: "2026-03-29T10:00:00.000Z" }],
-              updated: "2026-03-29T10:00:00.000Z"
-            }
-          ]
-        }
-      ]
+              updated: "2026-03-29T10:00:00.000Z",
+            },
+          ],
+        },
+      ],
     });
 
     const tasksAfterCollapse = await repository.listTasks({ includeCompleted: true });
@@ -295,7 +319,7 @@ describe("MemoryRepository", () => {
     expect(tasksAfterCollapse[0]).toMatchObject({
       recurrenceGroupId: "rec-1",
       pendingPastRecurrences: 1,
-      scheduledFor: "2026-03-29T10:00:00.000Z"
+      scheduledFor: "2026-03-29T10:00:00.000Z",
     });
 
     await repository.clearPastRecurrences("google-recurrence:rec-1");
@@ -316,14 +340,14 @@ describe("MemoryRepository", () => {
       id: "task-start",
       title: "Action deja la",
       bucket: "next_action",
-      createdAt: `${yesterday}T08:00:00`
+      createdAt: `${yesterday}T08:00:00`,
     });
 
     await repository.createTask({
       id: "task-move",
       title: "Inbox a clarifier",
       bucket: "inbox",
-      createdAt: `${yesterday}T08:00:00`
+      createdAt: `${yesterday}T08:00:00`,
     });
 
     await repository.moveTask("task-move", "next_action", []);
@@ -333,7 +357,7 @@ describe("MemoryRepository", () => {
       title: "Call planifie",
       bucket: "scheduled",
       scheduledFor: `${today}T15:30:00`,
-      createdAt: `${today}T09:00:00`
+      createdAt: `${today}T09:00:00`,
     });
 
     await repository.completeTask("task-start", `${today}T18:00:00`);
@@ -342,17 +366,17 @@ describe("MemoryRepository", () => {
       tasksAtStart: 1,
       tasksAdded: 2,
       tasksCompleted: 1,
-      tasksRemaining: 2
+      tasksRemaining: 2,
     });
 
     await expect(repository.getDailyTaskBreakdown(today)).resolves.toEqual(
       expect.objectContaining({
         addedTasks: expect.arrayContaining([
           expect.objectContaining({ id: "task-scheduled" }),
-          expect.objectContaining({ id: "task-move" })
+          expect.objectContaining({ id: "task-move" }),
         ]),
-        completedTasks: expect.arrayContaining([expect.objectContaining({ id: "task-start" })])
-      })
+        completedTasks: expect.arrayContaining([expect.objectContaining({ id: "task-start" })]),
+      }),
     );
   });
 
@@ -370,19 +394,19 @@ describe("MemoryRepository", () => {
       source: "manual",
       sourceExternalId: null,
       createdAt: "2026-03-01T10:00:00.000Z",
-      updatedAt: "2026-03-01T10:00:00.000Z"
+      updatedAt: "2026-03-01T10:00:00.000Z",
     });
 
     const afterNotesEdit = await repository.saveProject({
       ...createdProject,
-      notes: "Note modifiee"
+      notes: "Note modifiee",
     });
 
     expect(afterNotesEdit.statusChangedAt).toBe(createdProject.statusChangedAt);
 
     const afterStatusChange = await repository.saveProject({
       ...afterNotesEdit,
-      status: "on_hold"
+      status: "on_hold",
     });
 
     expect(afterStatusChange.statusChangedAt).not.toBe(createdProject.statusChangedAt);
@@ -395,16 +419,16 @@ describe("MemoryRepository", () => {
     await repository.createTask({
       id: "task-focus",
       title: "Rediger le plan",
-      bucket: "next_action"
+      bucket: "next_action",
     });
 
     const startedState = await repository.startPomodoro({
-      taskId: "task-focus"
+      taskId: "task-focus",
     });
 
     expect(startedState.activeSession).toMatchObject({
       kind: "focus",
-      activeTaskId: "task-focus"
+      activeTaskId: "task-focus",
     });
 
     const activeSession = startedState.activeSession;
@@ -428,14 +452,14 @@ describe("MemoryRepository", () => {
       expect.arrayContaining([
         expect.objectContaining({
           taskId: "task-focus",
-          sessionCount: 1
+          sessionCount: 1,
         }),
         expect.objectContaining({
           taskId: null,
           taskTitle: "Inbox zero",
-          sessionCount: 1
-        })
-      ])
+          sessionCount: 1,
+        }),
+      ]),
     );
     expect(stats.completedFocusSessions).toBe(1);
   });
@@ -447,18 +471,20 @@ describe("MemoryRepository", () => {
     await repository.createTask({
       id: "task-focus",
       title: "Rediger le plan",
-      bucket: "next_action"
+      bucket: "next_action",
     });
 
     const startedState = await repository.startPomodoro({
-      taskId: "task-focus"
+      taskId: "task-focus",
     });
     const activeSession = startedState.activeSession;
     if (!activeSession) {
       throw new Error("Session Pomodoro manquante");
     }
 
-    const pauseAt = new Date(new Date(activeSession.startedAt).getTime() + 5 * 60 * 1000).toISOString();
+    const pauseAt = new Date(
+      new Date(activeSession.startedAt).getTime() + 5 * 60 * 1000,
+    ).toISOString();
     await repository.pausePomodoroSession(activeSession.id, pauseAt);
 
     const pausedState = await repository.getPomodoroState();
@@ -472,7 +498,9 @@ describe("MemoryRepository", () => {
     const resumedState = await repository.getPomodoroState();
     expect(resumedState.activeSession?.status).toBe("running");
     expect(resumedState.activeSession?.activeTaskId).toBe("task-focus");
-    expect(resumedState.activeSession?.endsAt).toBe(new Date(new Date(resumeAt).getTime() + 20 * 60 * 1000).toISOString());
+    expect(resumedState.activeSession?.endsAt).toBe(
+      new Date(new Date(resumeAt).getTime() + 20 * 60 * 1000).toISOString(),
+    );
   });
 
   it("generates recurring tasks once per due day and exposes previews", async () => {
@@ -504,7 +532,7 @@ describe("MemoryRepository", () => {
       pendingMissedOccurrences: 0,
       statusChangedAt: "2026-04-01T00:00:00.000Z",
       createdAt: "2026-04-01T00:00:00.000Z",
-      updatedAt: "2026-04-01T00:00:00.000Z"
+      updatedAt: "2026-04-01T00:00:00.000Z",
     });
 
     await repository.generateDueRecurringTasks("2026-04-01");
@@ -513,12 +541,18 @@ describe("MemoryRepository", () => {
     const tasks = await repository.listTasks({ includeCompleted: true });
     const previews = await repository.listRecurringPreviewOccurrences("2026-04-01", "2026-04-04");
 
-    expect(tasks.filter((task) => task.recurringTemplateId === "recurring-template:weekly-review")).toHaveLength(1);
+    expect(
+      tasks.filter((task) => task.recurringTemplateId === "recurring-template:weekly-review"),
+    ).toHaveLength(1);
     expect(tasks[0]).toMatchObject({
       isRecurringInstance: true,
-      recurrenceDueDate: "2026-04-01"
+      recurrenceDueDate: "2026-04-01",
     });
-    expect(previews.map((preview) => preview.dueDate)).toEqual(["2026-04-02", "2026-04-03", "2026-04-04"]);
+    expect(previews.map((preview) => preview.dueDate)).toEqual([
+      "2026-04-02",
+      "2026-04-03",
+      "2026-04-04",
+    ]);
   });
 
   it("increments missed recurring occurrences and lets a task edit apply to the whole series", async () => {
@@ -550,7 +584,7 @@ describe("MemoryRepository", () => {
       pendingMissedOccurrences: 0,
       statusChangedAt: "2026-04-01T00:00:00.000Z",
       createdAt: "2026-04-01T00:00:00.000Z",
-      updatedAt: "2026-04-01T00:00:00.000Z"
+      updatedAt: "2026-04-01T00:00:00.000Z",
     });
 
     await repository.generateDueRecurringTasks("2026-04-04");
@@ -559,11 +593,11 @@ describe("MemoryRepository", () => {
     let tasks = await repository.listTasks({ includeCompleted: true });
     expect(tasks[0]).toMatchObject({
       recurrenceDueDate: "2026-05-02",
-      pendingPastRecurrences: 1
+      pendingPastRecurrences: 1,
     });
 
     await repository.applyRecurringEditScope(tasks[0].id, "series", {
-      title: "Planification mensuelle revue"
+      title: "Planification mensuelle revue",
     });
 
     const templates = await repository.listRecurringTaskTemplates();
@@ -584,7 +618,7 @@ describe("MemoryRepository", () => {
       "2026-04-01",
       "2026-04-02",
       "2026-04-03",
-      "2026-04-04"
+      "2026-04-04",
     ];
 
     for (const date of weekDates) {
@@ -611,7 +645,7 @@ describe("MemoryRepository", () => {
         calendrier: "",
         gtd: "",
         alignement: "",
-        dimanche: ""
+        dimanche: "",
       },
       ritualChecklist: {
         bilan: true,
@@ -621,19 +655,19 @@ describe("MemoryRepository", () => {
         calendrier: false,
         gtd: false,
         alignement: false,
-        dimanche: true
+        dimanche: true,
       },
-      updatedAt: "2026-04-04T18:00:00.000Z"
+      updatedAt: "2026-04-04T18:00:00.000Z",
     });
 
     await expect(repository.getWeeklyReview("2026-03-29")).resolves.toMatchObject({
       status: "closed",
       notes: expect.objectContaining({
-        bilan: "Bonne semaine"
+        bilan: "Bonne semaine",
       }),
       ritualChecklist: expect.objectContaining({
-        dimanche: true
-      })
+        dimanche: true,
+      }),
     });
 
     await expect(repository.computeWeeklyReviewSummary("2026-03-29")).resolves.toMatchObject({
@@ -642,7 +676,7 @@ describe("MemoryRepository", () => {
       screenTimeTotalMinutes: 630,
       pomodorisTotal: 35,
       tasksAddedTotal: 28,
-      tasksCompletedTotal: 21
+      tasksCompletedTotal: 21,
     });
   });
 
@@ -677,7 +711,7 @@ describe("MemoryRepository", () => {
         nettoyageListes: "",
         calendrier: "",
         grosProjets: "",
-        developpement: ""
+        developpement: "",
       },
       ritualChecklist: {
         bilan: true,
@@ -689,9 +723,9 @@ describe("MemoryRepository", () => {
         nettoyageListes: false,
         calendrier: false,
         grosProjets: false,
-        developpement: false
+        developpement: false,
       },
-      updatedAt: "2026-05-02T18:00:00.000Z"
+      updatedAt: "2026-05-02T18:00:00.000Z",
     });
 
     await repository.saveAnnualGoal({
@@ -709,34 +743,34 @@ describe("MemoryRepository", () => {
           score: 75,
           trend: "up",
           notes: "Bon rythme",
-          blockers: ""
-        }
+          blockers: "",
+        },
       },
       createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z"
+      updatedAt: "2026-01-01T00:00:00.000Z",
     });
 
     await expect(repository.getMonthlyReview("2026-04")).resolves.toMatchObject({
       notes: expect.objectContaining({
-        bilan: "Cap clair"
-      })
+        bilan: "Cap clair",
+      }),
     });
 
     await expect(repository.computeMonthlyReviewSummary("2026-04")).resolves.toMatchObject({
       daysTracked: 3,
       sleepAverage: 81,
-      pomodorisTotal: 15
+      pomodorisTotal: 15,
     });
 
     await expect(repository.computeAnnualGoalSnapshots(2026)).resolves.toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           goal: expect.objectContaining({
-            title: "Sommeil annuel"
+            title: "Sommeil annuel",
           }),
-          sourceLabel: "Sommeil moyen hebdo"
-        })
-      ])
+          sourceLabel: "Sommeil moyen hebdo",
+        }),
+      ]),
     );
   });
 
@@ -753,28 +787,28 @@ describe("MemoryRepository", () => {
       rescuetimeThing: "Software Development",
       sortOrder: 0,
       createdAt: "",
-      updatedAt: ""
+      updatedAt: "",
     });
 
     await repository.saveWeeklyObjectiveResult({
       weekStartDate: "2026-08-03",
       objectiveId: saved.id,
       achieved: false,
-      updatedAt: ""
+      updatedAt: "",
     });
 
     await expect(repository.listWeeklyObjectives()).resolves.toEqual([
       expect.objectContaining({
         id: saved.id,
-        title: "Software Development"
-      })
+        title: "Software Development",
+      }),
     ]);
 
     await expect(repository.getWeeklyObjectiveResults("2026-08-03")).resolves.toEqual([
       expect.objectContaining({
         objectiveId: saved.id,
-        achieved: false
-      })
+        achieved: false,
+      }),
     ]);
 
     await repository.deleteWeeklyObjective(saved.id);
@@ -802,7 +836,7 @@ describe("MemoryRepository", () => {
       tokensPrompt: null,
       tokensCompletion: null,
       latencyMs: null,
-      createdAt: "2026-08-29T08:00:00.000Z"
+      createdAt: "2026-08-29T08:00:00.000Z",
     };
 
     const saved = await repository.saveCoachPulseEpisode(message, [
@@ -814,7 +848,7 @@ describe("MemoryRepository", () => {
         status: "pending",
         appliedEntityId: null,
         decidedAt: null,
-        createdAt: "2026-08-29T08:00:00.000Z"
+        createdAt: "2026-08-29T08:00:00.000Z",
       },
       {
         id: "ai-proposal:draft-2",
@@ -824,12 +858,14 @@ describe("MemoryRepository", () => {
         status: "pending",
         appliedEntityId: null,
         decidedAt: null,
-        createdAt: "2026-08-29T08:00:00.000Z"
-      }
+        createdAt: "2026-08-29T08:00:00.000Z",
+      },
     ]);
 
     expect(saved.proposals).toHaveLength(2);
-    expect(saved.proposals.every((proposal) => proposal.type === "review_section_draft")).toBe(true);
+    expect(saved.proposals.every((proposal) => proposal.type === "review_section_draft")).toBe(
+      true,
+    );
   });
 
   it("acceptAiWeeklyObjectiveProposal is idempotent", async () => {
@@ -844,12 +880,12 @@ describe("MemoryRepository", () => {
         kind: "manual",
         targetHours: null,
         rescuetimeKind: null,
-        rescuetimeThing: null
+        rescuetimeThing: null,
       }),
       status: "pending" as const,
       appliedEntityId: null,
       decidedAt: null,
-      createdAt: "2026-08-29T08:00:00.000Z"
+      createdAt: "2026-08-29T08:00:00.000Z",
     };
     await repository.saveAiProposal(proposal);
     const objective = {
@@ -861,7 +897,7 @@ describe("MemoryRepository", () => {
       rescuetimeThing: null,
       sortOrder: 0,
       createdAt: "2026-08-29T08:00:00.000Z",
-      updatedAt: "2026-08-29T08:00:00.000Z"
+      updatedAt: "2026-08-29T08:00:00.000Z",
     };
 
     const first = await repository.acceptAiWeeklyObjectiveProposal(proposal, objective);
@@ -882,7 +918,7 @@ describe("MemoryRepository", () => {
       status: "pending" as const,
       appliedEntityId: null,
       decidedAt: null,
-      createdAt: "2026-08-29T08:00:00.000Z"
+      createdAt: "2026-08-29T08:00:00.000Z",
     };
     await repository.saveAiProposal(proposal);
     const review = {
@@ -900,7 +936,7 @@ describe("MemoryRepository", () => {
         nettoyageListes: "",
         calendrier: "",
         grosProjets: "",
-        developpement: ""
+        developpement: "",
       },
       ritualChecklist: {
         bilan: false,
@@ -912,9 +948,9 @@ describe("MemoryRepository", () => {
         nettoyageListes: false,
         calendrier: false,
         grosProjets: false,
-        developpement: false
+        developpement: false,
       },
-      updatedAt: "2026-08-29T08:00:00.000Z"
+      updatedAt: "2026-08-29T08:00:00.000Z",
     };
 
     const first = await repository.acceptAiMonthlyReviewSectionDraftProposal(proposal, review);
@@ -924,7 +960,7 @@ describe("MemoryRepository", () => {
     expect(first.proposal.status).toBe("accepted");
     expect(second.proposal.status).toBe("accepted");
     await expect(repository.getMonthlyReview("2026-04")).resolves.toMatchObject({
-      notes: expect.objectContaining({ bilan: "Note mensuelle" })
+      notes: expect.objectContaining({ bilan: "Note mensuelle" }),
     });
   });
 
@@ -952,7 +988,7 @@ describe("MemoryRepository", () => {
       source: "manual",
       sourceExternalId: null,
       createdAt: timestamp,
-      updatedAt: timestamp
+      updatedAt: timestamp,
     });
 
     const proposal = {
@@ -963,7 +999,7 @@ describe("MemoryRepository", () => {
       status: "pending" as const,
       appliedEntityId: null,
       decidedAt: null,
-      createdAt: timestamp
+      createdAt: timestamp,
     };
     await repository.saveAiProposal(proposal);
 

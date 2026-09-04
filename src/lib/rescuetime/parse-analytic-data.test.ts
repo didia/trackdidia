@@ -6,13 +6,13 @@ describe("parseRankRows", () => {
       row_headers: ["Rank", "Time Spent (seconds)", "Number of People", "Category"],
       rows: [
         [1, 7200, 1, "Software Development"],
-        [2, 3600, 1, "Professional Networking"]
-      ]
+        [2, 3600, 1, "Professional Networking"],
+      ],
     });
 
     expect(rows).toEqual([
       { name: "Software Development", seconds: 7200, hours: 2 },
-      { name: "Professional Networking", seconds: 3600, hours: 1 }
+      { name: "Professional Networking", seconds: 3600, hours: 1 },
     ]);
   });
 
@@ -21,8 +21,8 @@ describe("parseRankRows", () => {
       row_headers: ["Rank", "Time Spent (seconds)", "Category"],
       rows: [
         [1, 7200, "Software Development"],
-        [2, 3600, "Professional Networking"]
-      ]
+        [2, 3600, "Professional Networking"],
+      ],
     });
 
     expect(resolveObjectiveSeconds(rows, "Software Development")).toBe(7200);

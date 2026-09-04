@@ -1,7 +1,7 @@
 import type { AiMessage, GoalPacingResult } from "../../domain/types";
-import { parseGoalPacingJson } from "./proposals/goal-pacing-validator";
 import type { AppRepository } from "../storage/repository";
 import type { GoalPacingService } from "./goal-pacing-service";
+import { parseGoalPacingJson } from "./proposals/goal-pacing-validator";
 
 const sourceFromMessage = (message: AiMessage): GoalPacingResult["source"] => {
   if (message.status === "ok") {
@@ -18,7 +18,7 @@ const sourceFromMessage = (message: AiMessage): GoalPacingResult["source"] => {
 export const loadLatestGoalPacing = async (
   repository: AppRepository,
   pacingService: GoalPacingService,
-  year: number
+  year: number,
 ): Promise<GoalPacingResult | null> => {
   const scopeKey = String(year);
   const messages = await repository.listAiMessages("goal_pacing", 20);
@@ -47,6 +47,6 @@ export const loadLatestGoalPacing = async (
   return {
     message: latest,
     pacing: parsed.value,
-    source: sourceFromMessage(latest)
+    source: sourceFromMessage(latest),
   };
 };

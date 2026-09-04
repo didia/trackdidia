@@ -1,5 +1,5 @@
-import { getWeekStartSunday } from "../../lib/gtd/shared";
 import { t } from "../../i18n";
+import { getWeekStartSunday } from "../../lib/gtd/shared";
 import { resolveMetricValue } from "../daily-entry";
 import { metricDefinitions, principleDefinitions } from "../definitions";
 import type { DailyEntry, MetricKey } from "../types";
@@ -41,7 +41,9 @@ const computeAnsweredDisciplineScore = (entry: DailyEntry): number | null => {
 };
 
 const resolveSubjectValue = (entry: DailyEntry, subject: AnomalySubject): number | null =>
-  subject === "discipline" ? computeAnsweredDisciplineScore(entry) : resolveMetricValue(entry, subject);
+  subject === "discipline"
+    ? computeAnsweredDisciplineScore(entry)
+    : resolveMetricValue(entry, subject);
 
 const anomalySeverity = (delta: number, baselineMean: number): AnomalyFinding["severity"] => {
   const denominator = Math.abs(baselineMean) > 0.0001 ? Math.abs(baselineMean) : 1;
@@ -62,7 +64,7 @@ const buildFinding = (
   referenceDate: string,
   currentValue: number,
   baselineValues: number[],
-  baselineFrom: string
+  baselineFrom: string,
 ): AnomalyFinding | null => {
   if (baselineValues.length < MIN_SAMPLE_DAYS) {
     return null;
@@ -79,16 +81,19 @@ const buildFinding = (
     value: currentValue,
     label: t(scope === "today" ? "anomalyToday" : "anomalyWeek", {
       ns: "insights",
-      subject: subject === "discipline" ? t("subjectDiscipline", { ns: "insights" }) : t(`${subject}.label`, { ns: "metrics" }),
+      subject:
+        subject === "discipline"
+          ? t("subjectDiscipline", { ns: "insights" })
+          : t(`${subject}.label`, { ns: "metrics" }),
       value: currentValue.toFixed(2),
       mean: baselineMean.toFixed(2),
-      count: baselineValues.length
+      count: baselineValues.length,
     }),
     subject,
     scope,
     currentValue,
     baselineMean,
-    delta
+    delta,
   };
 };
 
@@ -97,7 +102,10 @@ const buildFinding = (
  * (spec `ai-integration-v2.md` §3). Below `MIN_SAMPLE_DAYS` of baseline evidence, the
  * comparison is omitted rather than reported with low confidence.
  */
-export const computeAnomalyFindings = (entries: DailyEntry[], referenceDate?: string): AnomalyFinding[] => {
+export const computeAnomalyFindings = (
+  entries: DailyEntry[],
+  referenceDate?: string,
+): AnomalyFinding[] => {
   const ordered = sortEntriesByDate(entries);
   const reference = referenceDate ?? latestEntryDate(ordered);
 
@@ -112,7 +120,9 @@ export const computeAnomalyFindings = (entries: DailyEntry[], referenceDate?: st
   const beforeToday = ordered.filter((entry) => entry.date < reference);
 
   const weekStart = getWeekStartSunday(reference);
-  const currentWeekEntries = ordered.filter((entry) => entry.date >= weekStart && entry.date <= reference);
+  const currentWeekEntries = ordered.filter(
+    (entry) => entry.date >= weekStart && entry.date <= reference,
+  );
   const beforeWeek = ordered.filter((entry) => entry.date < weekStart);
 
   for (const subject of subjects) {
@@ -123,7 +133,14 @@ export const computeAnomalyFindings = (entries: DailyEntry[], referenceDate?: st
         .filter((value): value is number => value !== null);
 
       if (currentValue !== null && beforeToday.length > 0) {
-        const finding = buildFinding(subject, "today", reference, currentValue, baselineValues, beforeToday[0].date);
+        const finding = buildFinding(
+          subject,
+          "today",
+          reference,
+          currentValue,
+          baselineValues,
+          beforeToday[0].date,
+        );
         if (finding) {
           findings.push(finding);
         }
@@ -144,7 +161,7 @@ export const computeAnomalyFindings = (entries: DailyEntry[], referenceDate?: st
         reference,
         average(currentWeekValues),
         baselineWeekValues,
-        beforeWeek[0].date
+        beforeWeek[0].date,
       );
       if (finding) {
         findings.push(finding);

@@ -1,4 +1,3 @@
-import { createEmptyDailyEntry } from "../../domain/daily-entry";
 import type { AiMessage, CoachPulseResult } from "../../domain/types";
 import { getTodayDate } from "../date";
 import { MemoryRepository } from "../storage/memory-repository";
@@ -6,19 +5,23 @@ import {
   latestClosePulseMessage,
   latestScheduledPulseMessage,
   loadLatestClosePulseForDate,
-  loadLatestCoachPulseForDate
+  loadLatestCoachPulseForDate,
 } from "./coach-pulse-loader";
 import { CoachPulseService } from "./coach-pulse-service";
 
 const today = getTodayDate();
 
-const pulseBody = (stance: AiMessage["stance"], headline: string, extra: Record<string, unknown> = {}) =>
+const pulseBody = (
+  stance: AiMessage["stance"],
+  headline: string,
+  extra: Record<string, unknown> = {},
+) =>
   JSON.stringify({
     stance,
     headline,
     read: "Lecture",
     move: null,
-    ...extra
+    ...extra,
   });
 
 const message = (
@@ -26,7 +29,7 @@ const message = (
   stance: NonNullable<AiMessage["stance"]>,
   createdAt: string,
   headline: string,
-  status: AiMessage["status"] = "ok"
+  status: AiMessage["status"] = "ok",
 ): AiMessage => ({
   id,
   surface: "coach_pulse",
@@ -44,14 +47,14 @@ const message = (
   tokensPrompt: null,
   tokensCompletion: null,
   latencyMs: null,
-  createdAt
+  createdAt,
 });
 
 const resultFrom = (stored: AiMessage): CoachPulseResult => ({
   message: stored,
   pulse: JSON.parse(stored.bodyJson ?? "{}"),
   proposals: [],
-  source: "cache"
+  source: "cache",
 });
 
 describe("coach-pulse-loader", () => {
@@ -69,9 +72,15 @@ describe("coach-pulse-loader", () => {
       "close",
       "2026-08-29T21:00:00.000Z",
       "Local",
-      "fallback"
+      "fallback",
     );
-    const skipped = message("ai-message:skipped", "close", "2026-08-29T20:30:00.000Z", "Local", "skipped");
+    const skipped = message(
+      "ai-message:skipped",
+      "close",
+      "2026-08-29T20:30:00.000Z",
+      "Local",
+      "skipped",
+    );
     const ok = message("ai-message:ok", "close", "2026-08-29T20:00:00.000Z", "Cloture");
 
     expect(latestClosePulseMessage([fallback, skipped])).toBeNull();
@@ -86,7 +95,7 @@ describe("coach-pulse-loader", () => {
 
     const coachService = {
       resultFromMessage: vi.fn(async (_repo: unknown, stored: AiMessage) => resultFrom(stored)),
-      buildPulse: vi.fn()
+      buildPulse: vi.fn(),
     } as unknown as CoachPulseService;
 
     const loaded = await loadLatestClosePulseForDate(repository, coachService, today);
@@ -106,7 +115,7 @@ describe("coach-pulse-loader", () => {
     const loaded = await loadLatestClosePulseForDate(
       repository,
       new CoachPulseService({ generateStructured: vi.fn() }),
-      today
+      today,
     );
 
     expect(loaded).toBeNull();
@@ -115,11 +124,13 @@ describe("coach-pulse-loader", () => {
   it("does not treat a close pulse as the Today scheduled thread", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
-    await repository.saveAiMessage(message("ai-message:close", "close", "2026-08-29T20:00:00.000Z", "Cloture"));
+    await repository.saveAiMessage(
+      message("ai-message:close", "close", "2026-08-29T20:00:00.000Z", "Cloture"),
+    );
 
     const coachService = {
       resultFromMessage: vi.fn(async (_repo: unknown, stored: AiMessage) => resultFrom(stored)),
-      buildPulse: vi.fn()
+      buildPulse: vi.fn(),
     } as unknown as CoachPulseService;
 
     await expect(loadLatestCoachPulseForDate(repository, coachService, today)).resolves.toBeNull();

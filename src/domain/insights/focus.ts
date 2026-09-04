@@ -1,12 +1,16 @@
-import { toLocalDateString } from "../../lib/gtd/shared";
 import { t } from "../../i18n";
+import { toLocalDateString } from "../../lib/gtd/shared";
 import type { PomodoroTaskSummary } from "../types";
 import { POMODORO_DAILY_TARGET_SESSIONS } from "./constants";
 import { buildEvidenceWindow } from "./shared";
 import type { Finding } from "./types";
 
 export type FocusFindingKind = "focus_totals" | "task_concentration" | "focus_pulse_alignment";
-export type FocusPulseAlignment = "aligned_high" | "aligned_low" | "focus_high_pulse_low" | "pulse_high_focus_low";
+export type FocusPulseAlignment =
+  | "aligned_high"
+  | "aligned_low"
+  | "focus_high_pulse_low"
+  | "pulse_high_focus_low";
 
 export interface FocusFinding extends Finding {
   kind: FocusFindingKind;
@@ -20,7 +24,7 @@ const buildFinding = (
   sampleSize: number,
   label: string,
   severity: Finding["severity"] = "info",
-  alignment?: FocusPulseAlignment
+  alignment?: FocusPulseAlignment,
 ): FocusFinding => {
   const nowDate = toLocalDateString(now);
   return {
@@ -31,7 +35,7 @@ const buildFinding = (
     value,
     label,
     kind,
-    alignment
+    alignment,
   };
 };
 
@@ -50,7 +54,7 @@ export const computeFocusFindings = (
   taskSummaries: PomodoroTaskSummary[],
   completedFocusSessionCount: number,
   now: string,
-  productivityPulseWeekToDate?: number | null
+  productivityPulseWeekToDate?: number | null,
 ): FocusFinding[] => {
   const findings: FocusFinding[] = [];
   const totalSeconds = taskSummaries.reduce((sum, summary) => sum + summary.totalSeconds, 0);
@@ -66,9 +70,9 @@ export const computeFocusFindings = (
         ns: "insights",
         count: completedFocusSessionCount,
         sessions: completedFocusSessionCount,
-        minutes: totalMinutes
-      })
-    )
+        minutes: totalMinutes,
+      }),
+    ),
   );
 
   if (totalSeconds > 0) {
@@ -81,8 +85,8 @@ export const computeFocusFindings = (
         concentration,
         taskSummaries.length,
         t("focusConcentration", { ns: "insights", percent: Math.round(concentration * 100) }),
-        concentration >= 0.6 ? "positive" : "info"
-      )
+        concentration >= 0.6 ? "positive" : "info",
+      ),
     );
   }
 
@@ -113,11 +117,11 @@ export const computeFocusFindings = (
         t("focusPulseAlignment", {
           ns: "insights",
           pulse: Math.round(productivityPulseWeekToDate),
-          alignment: t(`alignment.${alignment}`, { ns: "insights" })
+          alignment: t(`alignment.${alignment}`, { ns: "insights" }),
         }),
         bothHigh ? "positive" : bothLow ? "watch" : "info",
-        alignment
-      )
+        alignment,
+      ),
     );
   }
 

@@ -13,7 +13,9 @@ export const useTaskSelection = (taskIds: string[]) => {
 
   const toggleTask = (taskId: string) => {
     setSelectedTaskIds((current) =>
-      current.includes(taskId) ? current.filter((candidate) => candidate !== taskId) : [...current, taskId]
+      current.includes(taskId)
+        ? current.filter((candidate) => candidate !== taskId)
+        : [...current, taskId],
     );
   };
 
@@ -36,6 +38,6 @@ export const useTaskSelection = (taskIds: string[]) => {
     isSelected: (taskId: string) => selectedSet.has(taskId),
     toggleTask,
     clearSelection,
-    toggleAll
+    toggleAll,
   };
 };

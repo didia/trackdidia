@@ -16,7 +16,7 @@ export const effectiveConfidence = (memory: AiMemory, nowIso: string): number =>
   }
 
   const ageDays = daysBetween(memory.lastConfirmedAt, nowIso);
-  const factor = Math.pow(0.5, ageDays / MEMORY_DECAY_HALF_LIFE_DAYS);
+  const factor = 0.5 ** (ageDays / MEMORY_DECAY_HALF_LIFE_DAYS);
   return memory.confidence * factor;
 };
 

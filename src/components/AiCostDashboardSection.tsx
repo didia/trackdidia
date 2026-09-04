@@ -19,10 +19,13 @@ const formatUsd = (value: number): string =>
     style: "currency",
     currency: "USD",
     minimumFractionDigits: 2,
-    maximumFractionDigits: 4
+    maximumFractionDigits: 4,
   }).format(value);
 
-export const AiCostDashboardSection = ({ repository, costPerMillionTokens }: AiCostDashboardSectionProps) => {
+export const AiCostDashboardSection = ({
+  repository,
+  costPerMillionTokens,
+}: AiCostDashboardSectionProps) => {
   const { t } = useTranslation("settings");
   const { t: tCommon } = useTranslation("common");
   const [totals, setTotals] = useState<AiUsageTotals | null>(null);
@@ -54,13 +57,10 @@ export const AiCostDashboardSection = ({ repository, costPerMillionTokens }: AiC
       ? tCommon("ellipsis")
       : costPerMillionTokens === null
         ? tCommon("emDash")
-        : formatUsd(usage!.estimatedCostUsd);
+        : formatUsd(usage?.estimatedCostUsd ?? 0);
 
   return (
-    <SectionCard
-      title={t("cost.title")}
-      subtitle={t("cost.subtitle")}
-    >
+    <SectionCard title={t("cost.title")} subtitle={t("cost.subtitle")}>
       <div className="status-grid">
         <article className="status-card">
           <span>{t("cost.month")}</span>
@@ -68,15 +68,21 @@ export const AiCostDashboardSection = ({ repository, costPerMillionTokens }: AiC
         </article>
         <article className="status-card">
           <span>{t("cost.calls")}</span>
-          <strong>{loading || !totals ? tCommon("ellipsis") : formatInteger(totals.callCount)}</strong>
+          <strong>
+            {loading || !totals ? tCommon("ellipsis") : formatInteger(totals.callCount)}
+          </strong>
         </article>
         <article className="status-card">
           <span>{t("cost.tokensPrompt")}</span>
-          <strong>{loading || !totals ? tCommon("ellipsis") : formatInteger(totals.tokensPrompt)}</strong>
+          <strong>
+            {loading || !totals ? tCommon("ellipsis") : formatInteger(totals.tokensPrompt)}
+          </strong>
         </article>
         <article className="status-card">
           <span>{t("cost.tokensCompletion")}</span>
-          <strong>{loading || !totals ? tCommon("ellipsis") : formatInteger(totals.tokensCompletion)}</strong>
+          <strong>
+            {loading || !totals ? tCommon("ellipsis") : formatInteger(totals.tokensCompletion)}
+          </strong>
         </article>
         <article className="status-card">
           <span>{t("cost.estimated")}</span>

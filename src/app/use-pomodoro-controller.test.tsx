@@ -1,15 +1,17 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { StrictMode, type PropsWithChildren } from "react";
+import { type PropsWithChildren, StrictMode } from "react";
 import type { PomodoroSession } from "../domain/types";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 
-const { announceCompletion } = vi.hoisted(() => ({ announceCompletion: vi.fn(async () => undefined) }));
+const { announceCompletion } = vi.hoisted(() => ({
+  announceCompletion: vi.fn(async () => undefined),
+}));
 
 vi.mock("../lib/pomodoro/sound", () => ({
   unlockPomodoroSound: vi.fn(async () => undefined),
   playPomodoroChime: vi.fn(async () => undefined),
   notifyPomodoroCompletion: announceCompletion,
-  resolvePomodoroChimeVariant: vi.fn(() => "focus")
+  resolvePomodoroChimeVariant: vi.fn(() => "focus"),
 }));
 
 import { usePomodoroController } from "./use-pomodoro-controller";
@@ -98,7 +100,8 @@ describe("usePomodoroController", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-01T09:00:00.000Z"));
     const repository = await createRunningRepository();
-    const sessions = (repository as unknown as { pomodoroSessions: Map<string, PomodoroSession> }).pomodoroSessions;
+    const sessions = (repository as unknown as { pomodoroSessions: Map<string, PomodoroSession> })
+      .pomodoroSessions;
     const [session] = [...sessions.values()];
     sessions.set(session.id, { ...session, endsAt: "not-a-date" });
     const { result } = renderHook(() => usePomodoroController(repository));
@@ -107,7 +110,7 @@ describe("usePomodoroController", () => {
     expect(result.current.state.activeSession).toMatchObject({
       id: session.id,
       status: "running",
-      endsAt: "not-a-date"
+      endsAt: "not-a-date",
     });
 
     await act(async () => {
@@ -256,7 +259,9 @@ describe("usePomodoroController", () => {
     const { result } = renderHook(() => usePomodoroController(repository));
     await flushControllerQueue();
 
-    vi.spyOn(repository, "generateDueRecurringTasks").mockRejectedValueOnce(new Error("sqlite busy"));
+    vi.spyOn(repository, "generateDueRecurringTasks").mockRejectedValueOnce(
+      new Error("sqlite busy"),
+    );
 
     await act(async () => {
       await result.current.reload();

@@ -1,20 +1,20 @@
-import { describe, expect, it } from "vitest";
-import userEvent from "@testing-library/user-event";
 import { screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it } from "vitest";
 import { defaultAppSettings } from "../domain/daily-entry";
-import { AiMemoryProfileSection } from "./AiMemoryProfileSection";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { renderWithApp } from "../test/test-utils";
+import { AiMemoryProfileSection } from "./AiMemoryProfileSection";
 
 describe("AiMemoryProfileSection", () => {
   it("creates, edits, and archives pinned principle memories", async () => {
     const repository = new MemoryRepository();
     const user = userEvent.setup();
 
-    await renderWithApp(
-      <AiMemoryProfileSection repository={repository} memoryEnabled={true} />,
-      { repository, contextOverrides: { settings: defaultAppSettings() } }
-    );
+    await renderWithApp(<AiMemoryProfileSection repository={repository} memoryEnabled={true} />, {
+      repository,
+      contextOverrides: { settings: defaultAppSettings() },
+    });
 
     await user.type(screen.getByPlaceholderText(/Mission personnelle/i), "Ma mission");
     await user.click(screen.getByRole("button", { name: "Ajouter" }));
@@ -36,7 +36,11 @@ describe("AiMemoryProfileSection", () => {
     await user.click(screen.getByRole("button", { name: "Supprimer" }));
 
     await waitFor(async () => {
-      const active = await repository.listAiMemories({ status: "active", kind: "principle", pinned: true });
+      const active = await repository.listAiMemories({
+        status: "active",
+        kind: "principle",
+        pinned: true,
+      });
       expect(active).toHaveLength(0);
     });
   });

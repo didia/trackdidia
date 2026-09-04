@@ -10,7 +10,10 @@ const productivityScoreFromName = (name: string | undefined): number | null => {
   if (normalized.includes("very productive") || normalized.includes("focus work")) {
     return 2;
   }
-  if (normalized.includes("other work") || (normalized.includes("productive") && !normalized.includes("distracting"))) {
+  if (
+    normalized.includes("other work") ||
+    (normalized.includes("productive") && !normalized.includes("distracting"))
+  ) {
     return 1;
   }
   if (normalized.includes("neutral")) {
@@ -45,7 +48,7 @@ const productivityScoresFromSqlEquals = (sqlEquals: string | undefined): number[
 
 export const productivitySecondsForGoal = (
   rows: ParsedProductivityRow[],
-  goal: RescueTimeGoalRecord
+  goal: RescueTimeGoalRecord,
 ): number => {
   const productivity = goal.productivity;
   const productivityId = productivity?.id ?? goal.taxon_id;
@@ -58,7 +61,7 @@ export const productivitySecondsForGoal = (
   }
 
   const sqlScores = productivityScoresFromSqlEquals(
-    (productivity as { sql_score_equals?: string } | undefined)?.sql_score_equals
+    (productivity as { sql_score_equals?: string } | undefined)?.sql_score_equals,
   );
   if (sqlScores) {
     return rows

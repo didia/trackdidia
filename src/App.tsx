@@ -1,13 +1,15 @@
-import { BrowserRouter, Navigate, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppProvider } from "./app/app-context";
 import { AppShell } from "./components/AppShell";
+import { AnnualGoalsPage } from "./pages/AnnualGoalsPage";
 import { EveningClosurePage } from "./pages/EveningClosurePage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { InboxPage } from "./pages/InboxPage";
+import { MonthlyReviewPage } from "./pages/MonthlyReviewPage";
 import { MorningRoutinePage } from "./pages/MorningRoutinePage";
 import { NextActionsPage } from "./pages/NextActionsPage";
-import { ProjectsPage } from "./pages/ProjectsPage";
 import { PomodoroPage } from "./pages/PomodoroPage";
+import { ProjectsPage } from "./pages/ProjectsPage";
 import { RecurrencesPage } from "./pages/RecurrencesPage";
 import { ReferencesPage } from "./pages/ReferencesPage";
 import { ScheduledPage } from "./pages/ScheduledPage";
@@ -16,8 +18,6 @@ import { SomedayMaybePage } from "./pages/SomedayMaybePage";
 import { TodayPage } from "./pages/TodayPage";
 import { WaitingForPage } from "./pages/WaitingForPage";
 import { WeeklyReviewPage } from "./pages/WeeklyReviewPage";
-import { MonthlyReviewPage } from "./pages/MonthlyReviewPage";
-import { AnnualGoalsPage } from "./pages/AnnualGoalsPage";
 
 export const App = () => (
   <BrowserRouter>

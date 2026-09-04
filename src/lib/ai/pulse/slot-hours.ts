@@ -43,9 +43,9 @@ export const parsePulseSlotHours = (input: string): ParsePulseSlotHoursResult =>
  * Normalize persisted slot hours: defaults when empty, cap at three unique sorted hours.
  */
 export const normalizeStoredSlotHours = (slotHours: number[]): number[] => {
-  const uniqueSorted = [...new Set(slotHours.filter((hour) => Number.isInteger(hour) && hour >= 0 && hour <= 23))].sort(
-    (left, right) => left - right
-  );
+  const uniqueSorted = [
+    ...new Set(slotHours.filter((hour) => Number.isInteger(hour) && hour >= 0 && hour <= 23)),
+  ].sort((left, right) => left - right);
 
   if (uniqueSorted.length === 0) {
     return [...DEFAULT_PULSE_SLOT_HOURS];

@@ -1,12 +1,12 @@
-import { createEmptyWeeklyObjective } from "../../../domain/weekly-objectives";
 import type { AiProposal, WeeklyObjective, WeeklyRitualSectionKey } from "../../../domain/types";
+import { createEmptyWeeklyObjective } from "../../../domain/weekly-objectives";
 
 export const weeklyObjectiveIdFromProposal = (proposalId: string): string =>
   proposalId.replace(/^ai-proposal:/, "weekly-objective:");
 
 export const buildWeeklyObjectiveFromProposal = (
   proposal: AiProposal,
-  sortOrder: number
+  sortOrder: number,
 ): WeeklyObjective | null => {
   if (proposal.type !== "weekly_objective") {
     return null;
@@ -31,12 +31,12 @@ export const buildWeeklyObjectiveFromProposal = (
     targetHours: payload.targetHours ?? null,
     rescuetimeKind: payload.rescuetimeKind ?? null,
     rescuetimeThing: payload.rescuetimeThing ?? null,
-    sortOrder
+    sortOrder,
   });
 };
 
 export const reviewSectionFromProposal = (
-  proposal: AiProposal
+  proposal: AiProposal,
 ): { sectionKey: WeeklyRitualSectionKey; text: string } | null => {
   if (proposal.type !== "review_section_draft") {
     return null;

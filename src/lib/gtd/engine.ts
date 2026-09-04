@@ -8,7 +8,7 @@ import type {
   TaskContext,
   TaskEvent,
   TaskEventType,
-  TaskFilters
+  TaskFilters,
 } from "../../domain/types";
 import {
   cloneContext,
@@ -20,7 +20,7 @@ import {
   isSunday,
   isTaskActionableForDate,
   nowIso,
-  toLocalDateString
+  toLocalDateString,
 } from "./shared";
 
 const eventFor = (
@@ -28,7 +28,7 @@ const eventFor = (
   type: TaskEventType,
   eventDate: string,
   metadata: Record<string, string> = {},
-  dedupeKey: string | null = null
+  dedupeKey: string | null = null,
 ): TaskEvent => {
   const timestamp = nowIso();
   return {
@@ -39,16 +39,22 @@ const eventFor = (
     eventAt: timestamp,
     createdAt: timestamp,
     dedupeKey,
-    metadata
+    metadata,
   };
 };
 
 export const cloneTasks = (tasks: Task[]): Task[] => tasks.map((task) => cloneTask(task));
-export const cloneProjects = (projects: Project[]): Project[] => projects.map((project) => cloneProject(project));
-export const cloneContexts = (contexts: TaskContext[]): TaskContext[] => contexts.map((context) => cloneContext(context));
+export const cloneProjects = (projects: Project[]): Project[] =>
+  projects.map((project) => cloneProject(project));
+export const cloneContexts = (contexts: TaskContext[]): TaskContext[] =>
+  contexts.map((context) => cloneContext(context));
 
 export const filterTasks = (tasks: Task[], filters: TaskFilters = {}): Task[] => {
-  const bucketFilter = Array.isArray(filters.bucket) ? filters.bucket : filters.bucket ? [filters.bucket] : null;
+  const bucketFilter = Array.isArray(filters.bucket)
+    ? filters.bucket
+    : filters.bucket
+      ? [filters.bucket]
+      : null;
   const includeCompleted = filters.includeCompleted ?? false;
   const search = filters.search?.trim().toLowerCase();
 
@@ -66,7 +72,10 @@ export const filterTasks = (tasks: Task[], filters: TaskFilters = {}): Task[] =>
         return false;
       }
 
-      if (filters.scheduledForDate && !isSameLocalDate(task.scheduledFor, filters.scheduledForDate)) {
+      if (
+        filters.scheduledForDate &&
+        !isSameLocalDate(task.scheduledFor, filters.scheduledForDate)
+      ) {
         return false;
       }
 
@@ -108,7 +117,7 @@ export const filterProjects = (projects: Project[], filters: ProjectFilters = {}
 
 export const projectsForAssignment = (
   projects: Project[],
-  currentProjectId?: string | null
+  currentProjectId?: string | null,
 ): Project[] => {
   const active = filterProjects(projects, { status: "active" });
   if (!currentProjectId || active.some((project) => project.id === currentProjectId)) {
@@ -121,16 +130,18 @@ export const projectsForAssignment = (
 const inactiveProjectLabels: Record<Exclude<ProjectStatus, "active">, string> = {
   on_hold: "En pause",
   completed: "Termine",
-  cancelled: "Retire"
+  cancelled: "Retire",
 };
 
 export const projectAssignmentLabel = (project: Project): string =>
-  project.status === "active" ? project.title : `${project.title} (${inactiveProjectLabels[project.status]})`;
+  project.status === "active"
+    ? project.title
+    : `${project.title} (${inactiveProjectLabels[project.status]})`;
 
 export const formatAssociationCopy = (
   projectTitle: string | null | undefined,
   contextNames: string[],
-  noContextLabel: string
+  noContextLabel: string,
 ): string => {
   const parts = [...(projectTitle ? [projectTitle] : []), ...contextNames];
   return parts.length > 0 ? parts.join(" • ") : noContextLabel;
@@ -138,7 +149,7 @@ export const formatAssociationCopy = (
 
 export const effectiveTaskContextIds = (
   task: Pick<Task, "contextIds" | "projectId">,
-  projects: readonly Pick<Project, "id" | "contextIds">[]
+  projects: readonly Pick<Project, "id" | "contextIds">[],
 ): string[] => {
   if (task.contextIds.length > 0) {
     return [...task.contextIds];
@@ -151,7 +162,11 @@ export const effectiveTaskContextIds = (
   return [...(projects.find((project) => project.id === task.projectId)?.contextIds ?? [])];
 };
 
-export const buildDailyTaskStats = (tasks: Task[], events: TaskEvent[], date: string): DailyTaskStats => {
+export const buildDailyTaskStats = (
+  tasks: Task[],
+  events: TaskEvent[],
+  date: string,
+): DailyTaskStats => {
   const { startMs } = getDayRange(date);
   const tasksById = new Map(tasks.map((task) => [task.id, task] as const));
   const taskEventsToday = events.filter((event) => {
@@ -165,16 +180,17 @@ export const buildDailyTaskStats = (tasks: Task[], events: TaskEvent[], date: st
 
   const addedToday = new Set(
     taskEventsToday
-      .filter((event) =>
-        event.type === "task_moved_to_next_action" ||
-        event.type === "task_scheduled_for_day" ||
-        event.type === "weekly_carryover"
+      .filter(
+        (event) =>
+          event.type === "task_moved_to_next_action" ||
+          event.type === "task_scheduled_for_day" ||
+          event.type === "weekly_carryover",
       )
-      .map((event) => event.taskId)
+      .map((event) => event.taskId),
   );
 
   const completedToday = new Set(
-    taskEventsToday.filter((event) => event.type === "task_completed").map((event) => event.taskId)
+    taskEventsToday.filter((event) => event.type === "task_completed").map((event) => event.taskId),
   );
 
   const startCount = tasks.filter((task) => {
@@ -213,7 +229,7 @@ export const buildDailyTaskStats = (tasks: Task[], events: TaskEvent[], date: st
     tasksAtStart: startCount,
     tasksAdded,
     tasksCompleted,
-    tasksRemaining: Math.max(0, startCount + tasksAdded - tasksCompleted)
+    tasksRemaining: Math.max(0, startCount + tasksAdded - tasksCompleted),
   };
 };
 
@@ -240,7 +256,7 @@ const collectTaskIdsByEventType = (events: TaskEvent[], types: TaskEventType[]):
 export const buildDailyTaskBreakdown = (
   tasks: Task[],
   events: TaskEvent[],
-  date: string
+  date: string,
 ): { date: string; addedTasks: Task[]; completedTasks: Task[] } => {
   const tasksById = new Map(tasks.map((task) => [task.id, task] as const));
   const taskEventsToday = events.filter((event) => {
@@ -255,7 +271,7 @@ export const buildDailyTaskBreakdown = (
   const addedTaskIds = collectTaskIdsByEventType(taskEventsToday, [
     "task_moved_to_next_action",
     "task_scheduled_for_day",
-    "weekly_carryover"
+    "weekly_carryover",
   ]);
   const completedTaskIds = collectTaskIdsByEventType(taskEventsToday, ["task_completed"]);
 
@@ -268,7 +284,7 @@ export const buildDailyTaskBreakdown = (
     completedTasks: completedTaskIds
       .map((taskId) => tasksById.get(taskId))
       .filter((task): task is Task => Boolean(task))
-      .map((task) => cloneTask(task))
+      .map((task) => cloneTask(task)),
   };
 };
 
@@ -281,12 +297,20 @@ export const buildLifecycleEvents = (previous: Task | null, next: Task): TaskEve
     events.push(eventFor(next.id, "task_created", creationEventDate, { bucket: next.bucket }));
 
     if (next.status === "active" && next.bucket === "next_action") {
-      events.push(eventFor(next.id, "task_moved_to_next_action", creationEventDate, { bucket: next.bucket }));
+      events.push(
+        eventFor(next.id, "task_moved_to_next_action", creationEventDate, { bucket: next.bucket }),
+      );
     }
 
-    if (next.status === "active" && next.bucket === "scheduled" && isSameLocalDate(next.scheduledFor, creationEventDate)) {
+    if (
+      next.status === "active" &&
+      next.bucket === "scheduled" &&
+      isSameLocalDate(next.scheduledFor, creationEventDate)
+    ) {
       events.push(
-        eventFor(next.id, "task_scheduled_for_day", creationEventDate, { scheduledFor: next.scheduledFor ?? "" })
+        eventFor(next.id, "task_scheduled_for_day", creationEventDate, {
+          scheduledFor: next.scheduledFor ?? "",
+        }),
       );
     }
 
@@ -294,7 +318,11 @@ export const buildLifecycleEvents = (previous: Task | null, next: Task): TaskEve
   }
 
   if (previous.status !== "completed" && next.status === "completed") {
-    events.push(eventFor(next.id, "task_completed", (next.completedAt ?? next.updatedAt).slice(0, 10), { bucket: next.bucket }));
+    events.push(
+      eventFor(next.id, "task_completed", (next.completedAt ?? next.updatedAt).slice(0, 10), {
+        bucket: next.bucket,
+      }),
+    );
   }
 
   if (
@@ -304,21 +332,31 @@ export const buildLifecycleEvents = (previous: Task | null, next: Task): TaskEve
     next.recurrenceDueDate
   ) {
     if (next.bucket === "next_action") {
-      events.push(eventFor(next.id, "task_moved_to_next_action", next.recurrenceDueDate, { recurring: "true" }));
+      events.push(
+        eventFor(next.id, "task_moved_to_next_action", next.recurrenceDueDate, {
+          recurring: "true",
+        }),
+      );
     }
 
     if (next.bucket === "scheduled") {
       events.push(
         eventFor(next.id, "task_scheduled_for_day", next.recurrenceDueDate, {
           scheduledFor: next.scheduledFor ?? "",
-          recurring: "true"
-        })
+          recurring: "true",
+        }),
       );
     }
   }
 
-  if (previous.bucket !== "next_action" && next.bucket === "next_action" && next.status === "active") {
-    events.push(eventFor(next.id, "task_moved_to_next_action", updateEventDate, { from: previous.bucket }));
+  if (
+    previous.bucket !== "next_action" &&
+    next.bucket === "next_action" &&
+    next.status === "active"
+  ) {
+    events.push(
+      eventFor(next.id, "task_moved_to_next_action", updateEventDate, { from: previous.bucket }),
+    );
   }
 
   if (
@@ -327,13 +365,21 @@ export const buildLifecycleEvents = (previous: Task | null, next: Task): TaskEve
     isSameLocalDate(next.scheduledFor, updateEventDate) &&
     (previous.bucket !== "scheduled" || previous.scheduledFor !== next.scheduledFor)
   ) {
-    events.push(eventFor(next.id, "task_scheduled_for_day", updateEventDate, { scheduledFor: next.scheduledFor ?? "" }));
+    events.push(
+      eventFor(next.id, "task_scheduled_for_day", updateEventDate, {
+        scheduledFor: next.scheduledFor ?? "",
+      }),
+    );
   }
 
   return events;
 };
 
-export const buildCarryoverEvents = (tasks: Task[], existingEvents: TaskEvent[], weekStartDate: string): TaskEvent[] => {
+export const buildCarryoverEvents = (
+  tasks: Task[],
+  existingEvents: TaskEvent[],
+  weekStartDate: string,
+): TaskEvent[] => {
   if (!isSunday(weekStartDate)) {
     return [];
   }
@@ -371,8 +417,8 @@ export const buildCarryoverEvents = (tasks: Task[], existingEvents: TaskEvent[],
         "weekly_carryover",
         weekStartDate,
         { bucket: task.bucket },
-        `weekly_carryover:${weekStartDate}:${task.id}`
-      )
+        `weekly_carryover:${weekStartDate}:${task.id}`,
+      ),
     )
     .filter((event) => !existingKeys.has(event.dedupeKey));
 };
@@ -385,7 +431,7 @@ export const createTaskFromInput = (input: CreateTaskInput): Task => {
     title: input.title.trim(),
     notes: input.notes?.trim() ?? "",
     status: "active",
-    bucket: input.scheduledFor ? "scheduled" : input.bucket ?? "inbox",
+    bucket: input.scheduledFor ? "scheduled" : (input.bucket ?? "inbox"),
     contextIds: [...(input.contextIds ?? [])],
     projectId: input.projectId ?? null,
     parentTaskId: input.parentTaskId ?? null,
@@ -400,6 +446,6 @@ export const createTaskFromInput = (input: CreateTaskInput): Task => {
     source: input.source ?? "manual",
     sourceExternalId: input.sourceExternalId ?? null,
     createdAt: input.createdAt ?? timestamp,
-    updatedAt: input.updatedAt ?? timestamp
+    updatedAt: input.updatedAt ?? timestamp,
   };
 };

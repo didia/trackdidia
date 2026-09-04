@@ -30,16 +30,12 @@ const examples: Record<CoachPulseStance, string> = {
   wind_down: `Exemple minimal wind_down:
 {"stance":"wind_down","headline":"Fin active","read":"...","move":{"what":"...","why":"...","horizon":"today"}}`,
   close: `Exemple minimal close:
-{"stance":"close","headline":"Bilan","read":"...","move":{"what":"...","why":"...","horizon":"tomorrow"},"tomorrowFocusDraft":"..."}`
+{"stance":"close","headline":"Bilan","read":"...","move":{"what":"...","why":"...","horizon":"tomorrow"},"tomorrowFocusDraft":"..."}`,
 };
 
 export const buildCoachPulseSchemaPrompt = (stance: CoachPulseStance): string => {
   const stanceFields =
-    stance === "open"
-      ? openFields
-      : stance === "close"
-        ? closeFields
-        : steerFields;
+    stance === "open" ? openFields : stance === "close" ? closeFields : steerFields;
 
   return [sharedFields, stanceFields, examples[stance]].join("\n\n");
 };

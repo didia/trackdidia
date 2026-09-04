@@ -8,7 +8,7 @@ const ritualSectionKeys = [
   "nettoyageListes",
   "calendrier",
   "grosProjets",
-  "developpement"
+  "developpement",
 ] as const;
 
 export const buildMonthlySynthesisSchemaPrompt = (goalIds: string[]): string => {

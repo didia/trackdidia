@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { useTaskSelection } from "../app/use-task-selection";
 import { useGtdWorkspace } from "../app/use-gtd";
+import { useTaskSelection } from "../app/use-task-selection";
 import { BulkTaskToolbar } from "../components/BulkTaskToolbar";
 import { GtdTaskCard } from "../components/GtdTaskCard";
 import { SectionCard } from "../components/SectionCard";
@@ -21,9 +21,12 @@ export const ReferencesPage = () => {
     cancelTask,
     cancelTasks,
     clearPastRecurrences,
-    moveTasksToBucket
+    moveTasksToBucket,
   } = useGtdWorkspace();
-  const referenceTasks = useMemo(() => tasks.filter((task) => task.bucket === "reference"), [tasks]);
+  const referenceTasks = useMemo(
+    () => tasks.filter((task) => task.bucket === "reference"),
+    [tasks],
+  );
   const selection = useTaskSelection(referenceTasks.map((task) => task.id));
 
   return (
@@ -32,13 +35,14 @@ export const ReferencesPage = () => {
         <div>
           <p className="eyebrow">{t("references.hero.eyebrow")}</p>
           <h2>{t("references.hero.title")}</h2>
-          <p className="hero__copy">
-            {t("references.hero.copy")}
-          </p>
+          <p className="hero__copy">{t("references.hero.copy")}</p>
         </div>
       </header>
 
-      <SectionCard title={t("references.list.title")} subtitle={t("references.list.subtitle", { count: referenceTasks.length })}>
+      <SectionCard
+        title={t("references.list.title")}
+        subtitle={t("references.list.subtitle", { count: referenceTasks.length })}
+      >
         <BulkTaskToolbar
           selectedCount={selection.selectedCount}
           totalCount={referenceTasks.length}

@@ -21,7 +21,10 @@ const loadEnvFile = () => {
       const eq = trimmed.indexOf("=");
       if (eq <= 0) continue;
       const key = trimmed.slice(0, eq).trim();
-      const value = trimmed.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
+      const value = trimmed
+        .slice(eq + 1)
+        .trim()
+        .replace(/^["']|["']$/g, "");
       if (!(key in process.env)) process.env[key] = value;
     }
   } catch {
@@ -78,7 +81,9 @@ const findNameColumnIndex = (rowHeaders, kind) => {
     const productivityIndex = normalized.findIndex((header) => header.includes("productivity"));
     if (productivityIndex >= 0) return productivityIndex;
   }
-  const categoryIndex = normalized.findIndex((header) => header === "category" || header.includes("overview"));
+  const categoryIndex = normalized.findIndex(
+    (header) => header === "category" || header.includes("overview"),
+  );
   if (categoryIndex >= 0) return categoryIndex;
   return normalized.length > 1 ? normalized.length - 1 : 1;
 };
@@ -90,7 +95,7 @@ const parseRankRows = (payload, kind) => {
   return (payload.rows ?? []).map((row) => ({
     name: String(row[nameIndex] ?? "").toLowerCase(),
     productivity: kind === "productivity" ? Number(row[nameIndex] ?? 0) : null,
-    seconds: Number(row[secondsIndex] ?? 0)
+    seconds: Number(row[secondsIndex] ?? 0),
   }));
 };
 
@@ -101,7 +106,10 @@ class RescueTimeGoalsClient {
   }
 
   async fetchJson(url, options = {}) {
-    const response = await fetch(url, { ...options, headers: { ...this.headers, ...options.headers } });
+    const response = await fetch(url, {
+      ...options,
+      headers: { ...this.headers, ...options.headers },
+    });
     if (!response.ok) {
       const body = await response.text();
       throw new Error(`${url} → ${response.status}: ${body.slice(0, 200)}`);
@@ -174,7 +182,11 @@ const labelsMatch = (left, right) => {
   const a = normalizeLabel(left);
   const b = normalizeLabel(right);
   if (!a || !b) return false;
-  return a.includes(b) || b.includes(a) || a.split(" ").some((token) => token.length > 3 && b.includes(token));
+  return (
+    a.includes(b) ||
+    b.includes(a) ||
+    a.split(" ").some((token) => token.length > 3 && b.includes(token))
+  );
 };
 
 const productivitySecondsForGoal = (rows, goal) => {
@@ -200,7 +212,10 @@ const productivitySecondsForGoal = (rows, goal) => {
   if (name.includes("very productive") || name.includes("focus work")) {
     return rows.filter((row) => row.productivity === 2).reduce((sum, row) => sum + row.seconds, 0);
   }
-  if (name.includes("other work") || (name.includes("productive") && !name.includes("distracting"))) {
+  if (
+    name.includes("other work") ||
+    (name.includes("productive") && !name.includes("distracting"))
+  ) {
     return rows.filter((row) => row.productivity === 1).reduce((sum, row) => sum + row.seconds, 0);
   }
   if (name.includes("neutral")) {
@@ -213,17 +228,21 @@ const productivitySecondsForGoal = (rows, goal) => {
     return rows.filter((row) => row.productivity === -1).reduce((sum, row) => sum + row.seconds, 0);
   }
 
-  return rows.filter((row) => row.productivity === productivityId).reduce((sum, row) => sum + row.seconds, 0);
+  return rows
+    .filter((row) => row.productivity === productivityId)
+    .reduce((sum, row) => sum + row.seconds, 0);
 };
 
-const overviewNameForGoal = (goal) => (goal.overview?.name ?? goal.taxon_display_name ?? "").toLowerCase();
+const overviewNameForGoal = (goal) =>
+  (goal.overview?.name ?? goal.taxon_display_name ?? "").toLowerCase();
 
 const resolveActualSeconds = async (client, goal, weekStart, weekEnd, caches) => {
   const taxonomy = goal.taxonomy?.search_name ?? goal.taxonomy_name ?? "";
 
   if (taxonomy === "projects" || goal.v2project) {
     const projectTimes =
-      caches.projectTimes ?? (caches.projectTimes = await client.fetchProjectTimesByName(weekStart, weekEnd));
+      caches.projectTimes ??
+      (caches.projectTimes = await client.fetchProjectTimesByName(weekStart, weekEnd));
     const label = goal.v2project?.name ?? goal.taxon_display_name ?? "";
     for (const [name, seconds] of projectTimes.byName) {
       if (labelsMatch(name, label)) {
@@ -235,14 +254,18 @@ const resolveActualSeconds = async (client, goal, weekStart, weekEnd, caches) =>
 
   if (taxonomy === "clients") {
     const projectTimes =
-      caches.projectTimes ?? (caches.projectTimes = await client.fetchProjectTimesByName(weekStart, weekEnd));
+      caches.projectTimes ??
+      (caches.projectTimes = await client.fetchProjectTimesByName(weekStart, weekEnd));
     return projectTimes.byClientId.get(goal.taxon_id) ?? 0;
   }
 
   if (taxonomy === "productivity") {
     const cacheKey = "productivity";
     if (!caches[cacheKey]) {
-      caches[cacheKey] = parseRankRows(await client.fetchAnalyticRank("productivity", weekStart, weekEnd), "productivity");
+      caches[cacheKey] = parseRankRows(
+        await client.fetchAnalyticRank("productivity", weekStart, weekEnd),
+        "productivity",
+      );
     }
     return productivitySecondsForGoal(caches[cacheKey], goal);
   }
@@ -250,7 +273,10 @@ const resolveActualSeconds = async (client, goal, weekStart, weekEnd, caches) =>
   if (taxonomy === "category" || taxonomy === "overviews" || goal.overview) {
     const cacheKey = "overview";
     if (!caches[cacheKey]) {
-      caches[cacheKey] = parseRankRows(await client.fetchAnalyticRank("overview", weekStart, weekEnd), "overview");
+      caches[cacheKey] = parseRankRows(
+        await client.fetchAnalyticRank("overview", weekStart, weekEnd),
+        "overview",
+      );
     }
     const needle = overviewNameForGoal(goal);
     const row = caches[cacheKey].find((item) => item.name === needle || item.name.includes(needle));
@@ -267,7 +293,9 @@ const main = async () => {
     process.exit(1);
   }
 
-  const weekArg = process.argv.includes("--week") ? process.argv[process.argv.indexOf("--week") + 1] : null;
+  const weekArg = process.argv.includes("--week")
+    ? process.argv[process.argv.indexOf("--week") + 1]
+    : null;
   const weekStart = getWeekStartSunday(weekArg ?? new Date().toISOString().slice(0, 10));
   const weekEnd = addDays(weekStart, 6);
 
@@ -292,7 +320,7 @@ const main = async () => {
       weeklyTargetHours: weeklyTargetSeconds / 3600,
       achievement,
       schedule: goal.schedule?.name ?? goal.schedule_name ?? "24x7",
-      days
+      days,
     });
   }
 
@@ -303,11 +331,13 @@ const main = async () => {
   for (const item of results) {
     console.log(
       `${item.displayName}\n` +
-        `  actual: ${item.actualHours.toFixed(2)}h / weekly target: ${item.weeklyTargetHours.toFixed(2)}h (${item.days}d × daily) → ${item.achievement.toFixed(2)}/1\n`
+        `  actual: ${item.actualHours.toFixed(2)}h / weekly target: ${item.weeklyTargetHours.toFixed(2)}h (${item.days}d × daily) → ${item.achievement.toFixed(2)}/1\n`,
     );
   }
 
-  console.log(`Weekly objectives score: ${totalAchievement.toFixed(2)} / ${results.length} = ${scorePercent.toFixed(1)}%`);
+  console.log(
+    `Weekly objectives score: ${totalAchievement.toFixed(2)} / ${results.length} = ${scorePercent.toFixed(1)}%`,
+  );
 };
 
 main().catch((error) => {

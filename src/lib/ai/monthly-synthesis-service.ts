@@ -4,7 +4,7 @@ import type {
   AppSettings,
   MonthlyReviewSectionKey,
   MonthlySynthesisResponse,
-  MonthlySynthesisResult
+  MonthlySynthesisResult,
 } from "../../domain/types";
 import { createEntityId, nowIso } from "../gtd/shared";
 import type { AppRepository } from "../storage/repository";
@@ -33,7 +33,7 @@ const buildProposals = (
   monthKey: string,
   synthesis: MonthlySynthesisResponse,
   createdAt: string,
-  knownGoalIds: Set<string>
+  knownGoalIds: Set<string>,
 ): AiProposal[] => {
   const proposals: AiProposal[] = [];
 
@@ -50,7 +50,7 @@ const buildProposals = (
       status: "pending",
       appliedEntityId: null,
       decidedAt: null,
-      createdAt
+      createdAt,
     });
   }
 
@@ -67,7 +67,7 @@ const buildProposals = (
       status: "pending",
       appliedEntityId: null,
       decidedAt: null,
-      createdAt
+      createdAt,
     });
   }
 
@@ -88,7 +88,7 @@ const resultSourceFromMessage = (message: AiMessage): MonthlySynthesisResult["so
 
 const cachedResult = async (
   repository: AppRepository,
-  message: AiMessage
+  message: AiMessage,
 ): Promise<MonthlySynthesisResult | null> => {
   if (!message.bodyJson) {
     return null;
@@ -104,7 +104,7 @@ const cachedResult = async (
     message,
     synthesis: parsed.value,
     proposals,
-    source: resultSourceFromMessage(message)
+    source: resultSourceFromMessage(message),
   };
 };
 
@@ -113,29 +113,38 @@ const persistResult = async (
   message: AiMessage,
   monthKey: string,
   synthesis: MonthlySynthesisResponse,
-  knownGoalIds: Set<string>
+  knownGoalIds: Set<string>,
 ): Promise<MonthlySynthesisResult> => {
-  const proposals = buildProposals(message.id, monthKey, synthesis, message.createdAt, knownGoalIds);
+  const proposals = buildProposals(
+    message.id,
+    monthKey,
+    synthesis,
+    message.createdAt,
+    knownGoalIds,
+  );
   const saved = await repository.saveCoachPulseEpisode(message, proposals);
 
   return {
     message: saved.message,
     synthesis,
     proposals: saved.proposals,
-    source: message.status === "ok" ? "ai" : message.status === "fallback" ? "fallback" : "local"
+    source: message.status === "ok" ? "ai" : message.status === "fallback" ? "fallback" : "local",
   };
 };
 
 export class MonthlySynthesisService {
   constructor(private readonly provider: AiProvider) {}
 
-  async resultFromMessage(repository: AppRepository, message: AiMessage): Promise<MonthlySynthesisResult | null> {
+  async resultFromMessage(
+    repository: AppRepository,
+    message: AiMessage,
+  ): Promise<MonthlySynthesisResult | null> {
     return cachedResult(repository, message);
   }
 
   async buildSynthesis(
     repository: AppRepository,
-    request: MonthlySynthesisRequest
+    request: MonthlySynthesisRequest,
   ): Promise<MonthlySynthesisResult> {
     const { monthKey, settings, snapshotInputs, bypassCache = false } = request;
     const snapshot = buildMonthlySnapshot(snapshotInputs, settings.aiPayloadScope);
@@ -146,17 +155,17 @@ export class MonthlySynthesisService {
 
     const activeMemories = await repository.listAiMemories({
       status: "active",
-      activeOnDate: snapshot.monthEndDate
+      activeOnDate: snapshot.monthEndDate,
     });
     const { block: memoryBlock, selected } = retrieveMemoriesForMonthly(activeMemories, settings, {
-      nowIso: createdAt
+      nowIso: createdAt,
     });
     const memoryIds = selected.map((memory) => memory.id).sort();
     const inputHash = buildAiInputHash({
       promptVersion: MONTHLY_SYNTHESIS_PROMPT_VERSION,
       scope: settings.aiPayloadScope,
       snapshot,
-      memoryIds
+      memoryIds,
     });
 
     if (!bypassCache) {
@@ -169,7 +178,11 @@ export class MonthlySynthesisService {
           }
         }
       } else {
-        const skipped = await repository.getAiMessageRecord("monthly_synthesis", scopeKey, inputHash);
+        const skipped = await repository.getAiMessageRecord(
+          "monthly_synthesis",
+          scopeKey,
+          inputHash,
+        );
         if (skipped?.status === "skipped") {
           const result = await cachedResult(repository, skipped);
           if (result) {
@@ -180,7 +193,11 @@ export class MonthlySynthesisService {
     }
 
     const localSynthesis = buildLocalMonthlySynthesis(snapshot);
-    const existingMessage = await repository.getAiMessageRecord("monthly_synthesis", scopeKey, inputHash);
+    const existingMessage = await repository.getAiMessageRecord(
+      "monthly_synthesis",
+      scopeKey,
+      inputHash,
+    );
     const baseMessage = (): AiMessage => ({
       id: existingMessage?.id ?? createEntityId("ai-message"),
       surface: "monthly_synthesis",
@@ -198,14 +215,14 @@ export class MonthlySynthesisService {
       tokensPrompt: null,
       tokensCompletion: null,
       latencyMs: null,
-      createdAt
+      createdAt,
     });
 
     if (!aiConfigured) {
       const skippedMessage = {
         ...baseMessage(),
         status: "skipped" as const,
-        model: "local"
+        model: "local",
       };
 
       return persistResult(repository, skippedMessage, monthKey, localSynthesis, knownGoalIds);
@@ -216,7 +233,7 @@ export class MonthlySynthesisService {
         surface: "monthly_synthesis",
         settings,
         snapshot,
-        memoryBlock
+        memoryBlock,
       });
 
       let parsed = parseMonthlySynthesisJson(first.text);
@@ -230,14 +247,14 @@ export class MonthlySynthesisService {
           settings,
           snapshot,
           memoryBlock,
-          repairHint: parsed.error
+          repairHint: parsed.error,
         });
         parsed = parseMonthlySynthesisJson(repair.text);
         finalText = repair.text;
         usage = {
           tokensPrompt: usage.tokensPrompt + repair.usage.tokensPrompt,
           tokensCompletion: usage.tokensCompletion + repair.usage.tokensCompletion,
-          latencyMs: usage.latencyMs + repair.usage.latencyMs
+          latencyMs: usage.latencyMs + repair.usage.latencyMs,
         };
         model = repair.model;
       }
@@ -251,14 +268,20 @@ export class MonthlySynthesisService {
           bodyText: synthesisToBodyText(localSynthesis),
           tokensPrompt: usage.tokensPrompt,
           tokensCompletion: usage.tokensCompletion,
-          latencyMs: usage.latencyMs
+          latencyMs: usage.latencyMs,
         };
 
-        const result = await persistResult(repository, message, monthKey, localSynthesis, knownGoalIds);
+        const result = await persistResult(
+          repository,
+          message,
+          monthKey,
+          localSynthesis,
+          knownGoalIds,
+        );
         return {
           ...result,
           source: "fallback",
-          warning: parsed.error
+          warning: parsed.error,
         };
       }
 
@@ -270,33 +293,41 @@ export class MonthlySynthesisService {
         bodyText: synthesisToBodyText(parsed.value),
         tokensPrompt: usage.tokensPrompt,
         tokensCompletion: usage.tokensCompletion,
-        latencyMs: usage.latencyMs
+        latencyMs: usage.latencyMs,
       };
 
       const result = await persistResult(repository, message, monthKey, parsed.value, knownGoalIds);
       return {
         ...result,
-        source: "ai"
+        source: "ai",
       };
     } catch (error) {
       const message: AiMessage = {
         ...baseMessage(),
         status: "fallback",
         bodyJson: JSON.stringify(localSynthesis),
-        bodyText: synthesisToBodyText(localSynthesis)
+        bodyText: synthesisToBodyText(localSynthesis),
       };
 
-      const result = await persistResult(repository, message, monthKey, localSynthesis, knownGoalIds);
+      const result = await persistResult(
+        repository,
+        message,
+        monthKey,
+        localSynthesis,
+        knownGoalIds,
+      );
       return {
         ...result,
         source: "fallback",
-        warning: error instanceof Error ? error.message : "L'IA n'a pas pu repondre."
+        warning: error instanceof Error ? error.message : "L'IA n'a pas pu repondre.",
       };
     }
   }
 }
 
-export const monthlySectionKeyFromProposal = (payloadJson: string): MonthlyReviewSectionKey | null => {
+export const monthlySectionKeyFromProposal = (
+  payloadJson: string,
+): MonthlyReviewSectionKey | null => {
   try {
     const payload = JSON.parse(payloadJson) as { sectionKey?: MonthlyReviewSectionKey };
     return payload.sectionKey ?? null;
@@ -306,7 +337,7 @@ export const monthlySectionKeyFromProposal = (payloadJson: string): MonthlyRevie
 };
 
 export const monthlyReviewSectionFromProposal = (
-  proposal: AiProposal
+  proposal: AiProposal,
 ): { sectionKey: MonthlyReviewSectionKey; text: string } | null => {
   if (proposal.type !== "review_section_draft") {
     return null;
