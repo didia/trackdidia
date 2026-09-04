@@ -44,6 +44,25 @@ button {
   cursor: pointer;
 }
 
+button:active:not(:disabled) {
+  filter: brightness(0.92);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+button:disabled:active {
+  filter: none;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 a {
   color: inherit;
   text-decoration: none;
@@ -114,6 +133,13 @@ a {
   transform: translateX(4px);
 }
 
+.nav__link:active {
+  background: var(--bg-strong);
+  color: var(--ink);
+  transform: translateX(2px);
+  transition-duration: 80ms;
+}
+
 .content {
   padding: 28px;
 }
@@ -163,11 +189,18 @@ a {
   color: var(--ink);
   border-radius: 999px;
   padding: 12px 18px;
-  transition: transform 120ms ease, background 120ms ease;
+  transition: transform 120ms ease, background 120ms ease, filter 80ms ease, opacity 120ms ease;
 }
 
-.button:hover {
+.button:hover:not(:disabled):not(:active) {
   transform: translateY(-1px);
+}
+
+.button:active:not(:disabled) {
+  transform: translateY(1px) scale(0.98);
+  background: rgba(232, 220, 200, 0.92);
+  filter: brightness(0.92);
+  transition-duration: 80ms;
 }
 
 .button--primary {
@@ -176,8 +209,29 @@ a {
   border-color: transparent;
 }
 
+.button--primary:active:not(:disabled) {
+  background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+  filter: brightness(0.9);
+}
+
 .button--ghost {
   background: transparent;
+}
+
+.button--ghost:active:not(:disabled) {
+  background: rgba(232, 220, 200, 0.55);
+}
+
+.button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.button:disabled:hover,
+.button:disabled:active {
+  transform: none;
+  filter: none;
 }
 
 .banner,
@@ -332,12 +386,25 @@ a {
   width: 100%;
   text-align: left;
   cursor: pointer;
-  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease, filter 80ms ease;
 }
 
-.status-card--interactive:hover {
+.status-card--interactive:hover:not(:disabled):not(:active) {
   transform: translateY(-1px);
   border-color: rgba(164, 79, 45, 0.28);
+}
+
+.status-card--interactive:active:not(:disabled) {
+  transform: translateY(1px) scale(0.99);
+  background: var(--accent-soft);
+  border-color: rgba(164, 79, 45, 0.32);
+  transition-duration: 80ms;
+}
+
+.status-card--interactive:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .status-card--active {
@@ -663,6 +730,11 @@ textarea {
   border-radius: 999px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.8);
+  transition: transform 80ms ease, background 120ms ease, filter 80ms ease;
+}
+
+.toggle:active:not(:disabled) {
+  transform: translateY(1px) scale(0.98);
 }
 
 .toggle--active {
@@ -959,6 +1031,13 @@ textarea {
   background: transparent;
   padding: 0;
   color: inherit;
+  border-radius: 12px;
+  transition: background 80ms ease, opacity 80ms ease, filter 80ms ease;
+}
+
+.task-card__toggle:active:not(:disabled) {
+  background: rgba(234, 211, 191, 0.55);
+  opacity: 0.82;
 }
 
 .task-card__title {
@@ -1102,6 +1181,11 @@ textarea {
   color: var(--muted);
   border-radius: 999px;
   padding: 8px 12px;
+  transition: transform 80ms ease, background 120ms ease, filter 80ms ease;
+}
+
+button.tag-chip:active:not(:disabled) {
+  transform: translateY(1px) scale(0.98);
 }
 
 .tag-chip--active {
@@ -1355,6 +1439,29 @@ textarea {
 
 .floating-pomodoro__summary strong {
   min-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button,
+  .nav__link,
+  .status-card--interactive,
+  .toggle,
+  .tag-chip,
+  .task-card__toggle {
+    transition: background 120ms ease, color 120ms ease, filter 80ms ease, opacity 120ms ease, border-color 120ms ease;
+  }
+
+  .button:hover,
+  .button:active,
+  .nav__link:hover,
+  .nav__link:active,
+  .nav__link--active,
+  .status-card--interactive:hover,
+  .status-card--interactive:active,
+  .toggle:active,
+  button.tag-chip:active {
+    transform: none;
+  }
 }
 
 @media (max-width: 1024px) {
