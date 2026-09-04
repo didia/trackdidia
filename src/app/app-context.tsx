@@ -9,7 +9,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
-import { defaultAppSettings } from "../domain/daily-entry";
+import { applyLegacyAiMaxTokensUpgrade, defaultAppSettings } from "../domain/daily-entry";
 import type { AppSettings } from "../domain/types";
 import { CoachPulseService } from "../lib/ai/coach-pulse-service";
 import { DebugPanel } from "../components/DebugPanel";
@@ -307,6 +307,14 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         const nextRepository = await createRepository();
         markStage(t("startup.loadSettings"));
         let nextSettings = await nextRepository.getSettings();
+        const upgradedAiMaxTokens = applyLegacyAiMaxTokensUpgrade(nextSettings, new Date().toISOString());
+        if (upgradedAiMaxTokens) {
+          nextSettings = upgradedAiMaxTokens;
+          await nextRepository.saveSettings(nextSettings);
+          logDebug("info", "app.bootstrap", "Migration aiMaxTokens terminee", {
+            aiMaxTokens: nextSettings.aiMaxTokens
+          });
+        }
         const gtdOverview = await nextRepository.getGtdOverview();
         const shouldImportGtd =
           !nextSettings.gtdImportDoneAt ||

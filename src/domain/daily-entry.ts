@@ -48,9 +48,22 @@ const emptyPrinciples = (): PrincipleChecks => ({
   objectifsAtteints: null
 });
 
-export const DEFAULT_AI_MAX_TOKENS = 16_384;
-/** Previous factory default; never exposed in Settings, so stored copies are upgraded. */
+export const DEFAULT_AI_MAX_TOKENS = 4_096;
+/** Previous factory default, upgraded once at bootstrap when `aiMaxTokensUpgradeDoneAt` is empty. */
 export const LEGACY_FACTORY_AI_MAX_TOKENS = 700;
+
+export const applyLegacyAiMaxTokensUpgrade = (settings: AppSettings, nowIso: string): AppSettings | null => {
+  if (settings.aiMaxTokensUpgradeDoneAt) {
+    return null;
+  }
+
+  return {
+    ...settings,
+    aiMaxTokens:
+      settings.aiMaxTokens === LEGACY_FACTORY_AI_MAX_TOKENS ? DEFAULT_AI_MAX_TOKENS : settings.aiMaxTokens,
+    aiMaxTokensUpgradeDoneAt: nowIso
+  };
+};
 
 export const defaultAppSettings = (): AppSettings => ({
   language: "fr",
@@ -81,6 +94,7 @@ export const defaultAppSettings = (): AppSettings => ({
   gtdReferencesMigrationDoneAt: "",
   gtdScheduledNormalizationDoneAt: "",
   gtdRecurringCollapseDoneAt: "",
+  aiMaxTokensUpgradeDoneAt: "",
   relationshipDrawsEnabled: true,
   relationshipDrawChildrenActivities: [...defaultChildrenActivities],
   relationshipDrawSpouseActivities: [...defaultSpouseActivities],

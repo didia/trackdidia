@@ -534,6 +534,8 @@ export interface AppSettings {
   gtdReferencesMigrationDoneAt: string;
   gtdScheduledNormalizationDoneAt: string;
   gtdRecurringCollapseDoneAt: string;
+  /** ISO timestamp set after the one-shot 700 → current default `aiMaxTokens` upgrade. */
+  aiMaxTokensUpgradeDoneAt: string;
   relationshipDrawsEnabled: boolean;
   relationshipDrawChildrenActivities: string[];
   relationshipDrawSpouseActivities: string[];

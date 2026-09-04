@@ -63,13 +63,13 @@ describe("SettingsPage AI max tokens", () => {
     await renderWithApp(<SettingsPage />, { contextOverrides: { saveSettings } });
 
     const input = screen.getByLabelText("Jetons max de réponse IA");
-    expect(input).toHaveValue(16384);
+    expect(input).toHaveValue(4096);
 
-    fireEvent.change(input, { target: { value: "8000" } });
+    fireEvent.change(input, { target: { value: "700" } });
     await user.click(screen.getByRole("button", { name: "Enregistrer les paramètres" }));
 
     await waitFor(() => {
-      expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ aiMaxTokens: 8000 }));
+      expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ aiMaxTokens: 700 }));
     });
   });
 });

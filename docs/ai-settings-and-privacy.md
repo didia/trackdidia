@@ -7,9 +7,10 @@ all core tracking, GTD, reviews, and coaching fallbacks work without a network.
 
 `AppSettings` is serialized as one JSON value in the singleton `app_settings` row.
 On every read, the saved object is merged with `defaultAppSettings()`, so newly
-added properties receive defaults on older installations. Stored `aiMaxTokens` of
-`700` (the previous factory default, never shown in Settings) is upgraded to
-`16384`.
+added properties receive defaults on older installations. A stored `aiMaxTokens` of
+`700` (the previous factory default) is upgraded once at bootstrap to `4096` when
+`aiMaxTokensUpgradeDoneAt` is empty; after that marker is set, `700` round-trips
+like any other value.
 
 Default highlights:
 
@@ -21,7 +22,7 @@ Default highlights:
 | AI base URL | `https://openrouter.ai/api/v1` |
 | AI model | `moonshotai/kimi-k2.6` |
 | AI payload scope | `full` |
-| AI max tokens | `16384` |
+| AI max tokens | `4096` |
 | AI timeout | `20000` ms |
 | AI cost estimate rate | `1` USD / million tokens (approximate) |
 | AI memory enabled | Yes |
@@ -334,7 +335,7 @@ The base URL is normalized by removing trailing slashes and accidental
 Structured `coach_pulse` requests include:
 
 - per-surface model: `settings.aiSurfaceModels[surface] ?? settings.aiModel`;
-- `max_tokens` from `settings.aiMaxTokens` (default 16384), editable under Settings → Paramètres IA;
+- `max_tokens` from `settings.aiMaxTokens` (default 4096), editable under Settings → Paramètres IA;
 - `temperature` 0.4;
 - `response_format: { type: "json_object" }`;
 - a French system prompt with stance context and optional memory block;
@@ -351,9 +352,9 @@ When a completion cannot be read because the max-token cap was hit (`finish_reas
 `native_finish_reason` of `length` or `max_tokens`, or `completion_tokens >= aiMaxTokens`)
 and the body is empty or not valid JSON, `OpenRouterProvider` logs a debug-panel warn
 (`ai.openrouter`, message `Reponse IA illisible: max_tokens atteint`) without the
-response text, then throws. Coach surfaces catch that error, show the usual fallback
-warning, and continue with the local brief. Complete JSON is still accepted even if
-the finish reason is `length`.
+response text, then throws `Réponse IA tronquée : max_tokens atteint`. Coach surfaces
+catch that error, show the usual fallback warning, and continue with the local brief.
+Complete JSON is still accepted even if the finish reason is `length`.
 
 Headers include the bearer API key, `HTTP-Referer: https://trackdidia.app`, and
 `X-Title: Trackdidia`. The key and request payloads are never logged.

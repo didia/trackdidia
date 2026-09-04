@@ -10,7 +10,7 @@ import { buildWeeklySynthesisSchemaPrompt } from "./proposals/weekly-synthesis-s
 export const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 export const DEFAULT_OPENROUTER_MODEL = "moonshotai/kimi-k2.6";
 export const DEFAULT_AI_TEMPERATURE = 0.4;
-export const AI_MAX_TOKENS_TRUNCATED_ERROR = "AI response truncated: max_tokens reached";
+export const AI_MAX_TOKENS_TRUNCATED_ERROR = "Réponse IA tronquée : max_tokens atteint";
 
 /** Strip accidental endpoint suffixes so settings can be a bare API root. */
 export const normalizeAiBaseUrl = (rawUrl: string): string => {
