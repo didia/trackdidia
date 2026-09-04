@@ -5,6 +5,7 @@ import { useGtdWorkspace } from "../app/use-gtd";
 import { BulkTaskToolbar } from "../components/BulkTaskToolbar";
 import { GtdTaskCard } from "../components/GtdTaskCard";
 import { SectionCard } from "../components/SectionCard";
+import { effectiveTaskContextIds } from "../lib/gtd/engine";
 
 export const NextActionsPage = () => {
   const { t } = useTranslation("gtd");
@@ -36,7 +37,7 @@ export const NextActionsPage = () => {
 
     const base = tasks
       .filter((task) => task.bucket === "next_action")
-      .filter((task) => (selectedContextId === "all" ? true : task.contextIds.includes(selectedContextId)))
+      .filter((task) => (selectedContextId === "all" ? true : effectiveTaskContextIds(task, projects).includes(selectedContextId)))
       .filter((task) => {
         if (deadlineFilter === "all") {
           return true;
@@ -64,7 +65,7 @@ export const NextActionsPage = () => {
       const rightKey = right.deadline ?? (sortMode === "deadline_asc" ? "9999-12-31" : "0000-01-01");
       return sortMode === "deadline_asc" ? leftKey.localeCompare(rightKey) : rightKey.localeCompare(leftKey);
     });
-  }, [deadlineFilter, selectedContextId, sortMode, tasks]);
+  }, [deadlineFilter, projects, selectedContextId, sortMode, tasks]);
   const selection = useTaskSelection(nextActionTasks.map((task) => task.id));
 
   return (

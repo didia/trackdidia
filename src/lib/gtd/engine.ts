@@ -127,13 +127,28 @@ const inactiveProjectLabels: Record<Exclude<ProjectStatus, "active">, string> = 
 export const projectAssignmentLabel = (project: Project): string =>
   project.status === "active" ? project.title : `${project.title} (${inactiveProjectLabels[project.status]})`;
 
-export const formatTaskCardAssociationCopy = (
+export const formatAssociationCopy = (
   projectTitle: string | null | undefined,
   contextNames: string[],
   noContextLabel: string
 ): string => {
   const parts = [...(projectTitle ? [projectTitle] : []), ...contextNames];
   return parts.length > 0 ? parts.join(" • ") : noContextLabel;
+};
+
+export const effectiveTaskContextIds = (
+  task: Pick<Task, "contextIds" | "projectId">,
+  projects: readonly Pick<Project, "id" | "contextIds">[]
+): string[] => {
+  if (task.contextIds.length > 0) {
+    return [...task.contextIds];
+  }
+
+  if (!task.projectId) {
+    return [];
+  }
+
+  return [...(projects.find((project) => project.id === task.projectId)?.contextIds ?? [])];
 };
 
 export const buildDailyTaskStats = (tasks: Task[], events: TaskEvent[], date: string): DailyTaskStats => {

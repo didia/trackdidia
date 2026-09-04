@@ -9,7 +9,7 @@ import {
   toLocalDateInputValue,
   toLocalTimeInputValue
 } from "../lib/date";
-import { formatTaskCardAssociationCopy, projectsForAssignment, projectAssignmentLabel } from "../lib/gtd/engine";
+import { effectiveTaskContextIds, formatAssociationCopy, projectsForAssignment, projectAssignmentLabel } from "../lib/gtd/engine";
 import { buildContextId, nowIso } from "../lib/gtd/shared";
 
 const bucketLabelKeys = {
@@ -26,6 +26,7 @@ interface GtdTaskCardProps {
   contexts: TaskContext[];
   projects: Project[];
   selected?: boolean;
+  hideProjectTitle?: boolean;
   onToggleSelected?: (taskId: string) => void;
   onSave: (task: Task) => Promise<void>;
   onSaveContext: (context: TaskContext) => Promise<TaskContext>;
@@ -52,6 +53,7 @@ export const GtdTaskCard = ({
   contexts,
   projects,
   selected = false,
+  hideProjectTitle = false,
   onToggleSelected,
   onSave,
   onSaveContext,
@@ -93,12 +95,14 @@ export const GtdTaskCard = ({
     }));
   };
 
-  const contextNames = draft.contextIds
+  const contextNames = effectiveTaskContextIds(task, projects)
     .map((contextId) => contexts.find((context) => context.id === contextId)?.name ?? contextId)
     .sort((left, right) => left.localeCompare(right));
-  const projectTitle = draft.projectId
-    ? projects.find((project) => project.id === draft.projectId)?.title ?? draft.projectId
-    : null;
+  const projectTitle = hideProjectTitle
+    ? null
+    : task.projectId
+      ? projects.find((project) => project.id === task.projectId)?.title ?? task.projectId
+      : null;
   const availableBuckets = (
     draft.isRecurringInstance
       ? (Object.keys(bucketLabelKeys) as Array<Task["bucket"]>).filter(
@@ -205,7 +209,7 @@ export const GtdTaskCard = ({
           <span className="task-card__meta-row">
             <span className="task-card__bucket">{t(bucketLabelKeys[task.bucket])}</span>
             <span className="task-card__context-copy">
-              {formatTaskCardAssociationCopy(projectTitle, contextNames, t("task.noContext"))}
+              {formatAssociationCopy(projectTitle, contextNames, t("task.noContext"))}
             </span>
             {task.scheduledFor ? (
               <span className={`task-card__date-pill${isPastDue ? " task-card__date-pill--overdue" : ""}`}>

@@ -16,11 +16,15 @@ and project records, and an event ledger used for daily statistics.
 
 The shared `GtdTaskCard` can edit title, notes, bucket, project, contexts, scheduled
 date/time, and deadline. It can also complete or cancel the task. The collapsed
-summary shows the bucket, then the assigned project title when present, then
-context names, joined with ` • `. `Sans contexte` appears only when the task has
-neither a project nor any contexts. Recurring instances restrict the bucket to
-Next Actions or Scheduled and can apply eligible edits to one occurrence or the
-full local series. Project assignment selectors on
+summary reads the persisted task (not unsaved editor draft): bucket, then the
+assigned project title when present, then context names, joined with ` • `. A
+task with no stored contexts inherits its project's contexts for that label.
+`Sans contexte` appears only when the task has no stored contexts and its
+project, if any, also has none. Nested task cards on the Projects screen omit
+the project title because the enclosing project card already shows it.
+Recurring instances restrict the bucket to Next Actions or Scheduled and can
+apply eligible edits to one occurrence or the full local series. Project
+assignment selectors on
 the task card and recurrence editor suggest active projects only. A currently
 assigned project that is on hold, completed, or cancelled stays in that one
 dropdown until the assignment changes, labeled with its status (`En pause`,
@@ -37,7 +41,10 @@ Important distinctions:
 - `status` is `active`, `completed`, or `cancelled`.
 - `scheduledFor` is an ISO instant and moving a task away from Scheduled clears it.
 - `deadline` is a date-only constraint and does not by itself move the task.
-- `contextIds` is many-to-many by stored ID array.
+- `contextIds` is many-to-many by stored ID array. A task with an empty
+  `contextIds` array inherits its project's contexts for collapsed-card labels
+  and Next Actions / Waiting For / Someday context filters. An explicit task
+  context always wins and is not overwritten.
 - `projectId` is optional.
 - `source` distinguishes manual and Google-imported records.
 - imported recurrence fields and local recurrence-template fields coexist but
@@ -56,7 +63,9 @@ context:<slugified lowercase name>
 
 The task card can create or rename contexts. Names must be non-empty and unique
 case-insensitively at the repository level. Renaming preserves the ID, so existing
-task/project arrays remain linked.
+task/project arrays remain linked. Context chips on the expanded task card still
+reflect only the task's stored `contextIds`; inherited project contexts are
+display and filter behavior, not a write to the task row.
 
 ## Projects
 
