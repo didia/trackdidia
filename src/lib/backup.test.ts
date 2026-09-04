@@ -68,4 +68,14 @@ describe("backup helpers", () => {
     const merged = mergeAppSettingsWithDefaults({}, defaultAppSettings());
     expect(merged.backupDestinationDir).toBe("");
   });
+
+  it("preserves a stored aiMaxTokens of 700 instead of rewriting it", () => {
+    const merged = mergeAppSettingsWithDefaults({ aiMaxTokens: 700 }, defaultAppSettings());
+    expect(merged.aiMaxTokens).toBe(700);
+  });
+
+  it("preserves a custom aiMaxTokens value", () => {
+    const merged = mergeAppSettingsWithDefaults({ aiMaxTokens: 8000 }, defaultAppSettings());
+    expect(merged.aiMaxTokens).toBe(8000);
+  });
 });

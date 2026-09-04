@@ -5,6 +5,7 @@ the top of the table.
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-04 | AI max tokens default is 4096, configurable in Settings; stored factory 700 is upgraded once at bootstrap; unreadable length-truncated OpenRouter responses log a debug warn and a French fallback warning | `docs/ai-settings-and-privacy.md` | `aiMaxTokens`, `applyLegacyAiMaxTokensUpgrade`, `OpenRouterProvider`, `SettingsPage` |
 | 2026-09-04 | Collapsed task summary reads the persisted assignment, nested project-card tasks omit the repeated project title, and `formatAssociationCopy` is shared with project cards | `docs/gtd.md` | `formatAssociationCopy`, `hideProjectTitle`, `GtdTaskCard` |
 | 2026-09-03 | Tasks with no stored contexts inherit their project's contexts for collapsed-card labels and context filters | `docs/gtd.md` | `effectiveTaskContextIds`, `GtdTaskCard`, Next Actions / Waiting For / Someday filters |
 | 2026-09-03 | Collapsed `GtdTaskCard` shows the assigned project title before contexts; `Sans contexte` only when neither is set | `docs/gtd.md` | `formatAssociationCopy`, `GtdTaskCard` |

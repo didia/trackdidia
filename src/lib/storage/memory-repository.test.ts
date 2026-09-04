@@ -37,6 +37,17 @@ describe("MemoryRepository", () => {
     });
   });
 
+  it("round-trips aiMaxTokens of 700 through save and read", async () => {
+    const repository = new MemoryRepository();
+    const settings = defaultAppSettings();
+    settings.aiMaxTokens = 700;
+    settings.aiMaxTokensUpgradeDoneAt = "2026-09-04T12:00:00.000Z";
+
+    await repository.saveSettings(settings);
+
+    await expect(repository.getSettings()).resolves.toMatchObject({ aiMaxTokens: 700 });
+  });
+
   it("imports Google Tasks payload and exposes normalized GTD data", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();

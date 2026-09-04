@@ -306,6 +306,22 @@ export const SettingsPage = () => {
           </label>
 
           <label>
+            <span>{t("ai.maxTokens")}</span>
+            <input
+              type="number"
+              min={1}
+              step={1}
+              value={draftSettings.aiMaxTokens}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  aiMaxTokens: Math.max(1, Math.floor(Number(event.target.value || 1)))
+                }))
+              }
+            />
+          </label>
+
+          <label>
             <span>{t("ai.costRate")}</span>
             <input
               type="number"
