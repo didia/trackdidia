@@ -104,7 +104,7 @@ import {
   relationshipDrawDefinitions,
   relationshipPersonalContextId
 } from "../relationship-draws";
-import type { AppRepository, PomodoroStartOptions } from "./repository";
+import type { AppRepository, PomodoroStartOptions, StorageInfo } from "./repository";
 
 export class MemoryRepository implements AppRepository {
   private entries = new Map<string, DailyEntry>();
@@ -719,7 +719,7 @@ export class MemoryRepository implements AppRepository {
     });
   }
 
-  async getStorageInfo() {
+  async getStorageInfo(): Promise<StorageInfo | null> {
     return null;
   }
 

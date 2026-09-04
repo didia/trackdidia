@@ -183,6 +183,9 @@ export const CoachPulsePanel = ({
         >
           {t("regenerate")}
         </button>
+        {autoloadAi && disabledReason ? (
+          <small className="coach-card__warning">{disabledReason}</small>
+        ) : null}
       </div>
     </section>
   );

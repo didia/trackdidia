@@ -82,7 +82,11 @@ import {
   syncTemplateStatusChange
 } from "../recurring/engine";
 import { addDays, cloneProject, cloneTask, createEntityId, nowIso } from "../gtd/shared";
-import { buildBackupFileName } from "../backup";
+import {
+  buildBackupFileName,
+  isBackupDestinationConfigured,
+  resolveBackupDir
+} from "../backup";
 import { formatUnknownError, logDebug } from "../debug";
 import {
   buildRelationshipDrawTaskTitle,
@@ -95,9 +99,10 @@ import {
   relationshipDrawDefinitions,
   relationshipPersonalContextId
 } from "../relationship-draws";
-import type { AppRepository, BackupResult, PomodoroStartOptions, StorageInfo } from "./repository";
+import type { AppRepository, BackupResult, NativeStoragePaths, PomodoroStartOptions, StorageInfo } from "./repository";
 import { DbSerialQueue } from "./db-serial-queue";
 import { getTodayDate } from "../date";
+import { t } from "../../i18n";
 
 /** Thin wrapper around the Rust `db_connect` / `db_execute` / `db_select` commands. */
 class Database {
@@ -2024,15 +2029,31 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async getStorageInfo(): Promise<StorageInfo> {
-    return invoke<StorageInfo>("resolve_storage_paths");
+    const native = await invoke<NativeStoragePaths>("resolve_storage_paths");
+    const settings = await this.getSettings();
+    return {
+      ...native,
+      backupDir: isBackupDestinationConfigured(settings.backupDestinationDir)
+        ? resolveBackupDir(settings.backupDestinationDir, native.environment)
+        : ""
+    };
   }
 
   async createBackup(kind: "manual" | "auto" = "manual"): Promise<BackupResult> {
     return this.runExclusive(async () => {
       const db = await this.getDb();
-      const storageInfo = await this.getStorageInfo();
+      const settings = await this.getSettings();
+      if (!isBackupDestinationConfigured(settings.backupDestinationDir)) {
+        throw new Error(t("backup.missingDestination", { ns: "settings" }));
+      }
+
+      const storageInfo = await invoke<NativeStoragePaths>("resolve_storage_paths");
+      const backupDir = await invoke<string>("ensure_backup_dir", {
+        destinationDir: settings.backupDestinationDir,
+        environment: storageInfo.environment
+      });
       const createdAt = new Date().toISOString();
-      const backupPath = `${storageInfo.backupDir}/${buildBackupFileName(createdAt, kind)}`;
+      const backupPath = `${backupDir}/${buildBackupFileName(createdAt, kind)}`;
       const escapedPath = backupPath.replace(/'/g, "''");
 
       logDebug("info", "storage.backup", "Creation d'un backup SQLite", {
@@ -2041,6 +2062,23 @@ export class TauriSqliteRepository implements AppRepository {
       });
 
       await db.execute(`VACUUM INTO '${escapedPath}'`);
+
+      try {
+        const prune = await invoke<{ deletedPaths: string[]; failed: string[]; keptCount: number }>(
+          "prune_backups",
+          {
+            destinationDir: settings.backupDestinationDir,
+            environment: storageInfo.environment
+          }
+        );
+        if (prune.failed.length > 0) {
+          logDebug("error", "storage.backup", "Retention des backups partielle", prune);
+        } else {
+          logDebug("info", "storage.backup", "Retention des backups appliquee", prune);
+        }
+      } catch (error) {
+        logDebug("error", "storage.backup", "Retention des backups echouee", formatUnknownError(error));
+      }
 
       return {
         backupPath,

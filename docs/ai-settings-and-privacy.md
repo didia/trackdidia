@@ -28,7 +28,7 @@ Default highlights:
 | Pulse slots (local hours) | `5`, `13`, `20` |
 | Pulse OS notifications | Yes (weekdays Mon–Fri, max 2/day, second consecutive stall only) |
 | RescueTime API key | Empty |
-| Automatic backup | Enabled, 24 hours |
+| Automatic backup | Enabled, 24 hours, destination folder empty until chosen |
 | Relationship draws | Enabled |
 
 The settings object also holds internal timestamps for GTD bootstrap normalizations,
@@ -86,23 +86,29 @@ this renders immediately on page load without waiting for RescueTime or OpenRout
 When AI is disabled or the API key is empty:
 
 - only the local brief renders, from a persisted pulse or the deterministic fallback;
-- **Regenerer** stays disabled with an explanatory label.
+- **Régénérer** stays disabled, and auto-load surfaces show the reason as visible text next to the actions (`disabled.aiOff` / `disabled.missingKey`).
 
-### Auto-load trigger (Today)
+### Auto-load trigger (Today and evening close)
 
 When AI is configured, Today auto-loads the coach on page open:
 
-1. if a pulse for today is already persisted, that thread is shown;
+1. if a scheduled pulse for today is already persisted (`open`/`steer`/`wind_down`, never `close`), that thread is shown;
 2. otherwise a fast local brief from snapshot inputs that skip the live RescueTime fetch;
 3. then an AI call (cache-first) once the full snapshot is ready.
 
 Scheduled pulses (`open`/`steer`/`wind_down`) also call the model when the window
-classifies as `progress` or `stall`. Evening closure still auto-runs the `close`
-stance on page open. **Regenerer** bypasses the `ai_messages` input-hash cache
-deliberately.
+classifies as `progress` or `stall`.
+
+Evening closure (`/fermeture-soir`) auto-loads the `close` stance on page open:
+
+1. due commitments for today are finalized idempotently, even when AI is off;
+2. if a `status = ok` close pulse for today is already persisted (`scopeKey` `YYYY-MM-DD#close`), that thread is shown immediately;
+3. then `buildPulse` runs cache-first with `skipRescueTimeFetch`, so a live RescueTime blip cannot bust the input hash. `fallback`/`skipped` rows are not reused; the next open retries. If journal fields, metrics, or memories changed, the hash misses and a new model call runs.
+
+**Régénérer** fetches RescueTime and bypasses the `ai_messages` input-hash cache deliberately.
 
 There is **no** gate requiring the user to write journal text first, and no
-**Demander au coach** button on Today while auto-load is active.
+**Demander au coach** button on Today or evening close while auto-load is active.
 
 ### Structured output and accept-step
 
@@ -429,12 +435,19 @@ while the application is closed.
 
 ## Backup settings
 
-The Settings screen displays the environment, absolute database path, backup
-directory, last backup, and interval. It can:
+The Settings screen displays the environment, absolute database path, chosen backup
+folder (or "Non configuré"), last backup, and interval. It can:
 
+- pick a destination folder (typically a Google Drive for Desktop folder);
 - enable/disable automatic backup;
 - set a minimum one-hour interval;
-- create a manual snapshot in desktop mode.
+- create a manual snapshot in desktop mode once a folder is set.
+
+Manual export is disabled until a folder is chosen. Automatic backup stays skipped
+until then. Desktop mode also shows an app-wide banner linking to Settings when
+automatic backup is on and no folder is set. Only the newest 30 matching snapshots
+are kept in the environment subdirectory, and a prune failure does not fail the
+snapshot.
 
 See [Storage and backups](storage-and-backups.md) for the actual backup mechanism.
 
