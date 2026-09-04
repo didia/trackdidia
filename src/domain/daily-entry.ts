@@ -48,6 +48,10 @@ const emptyPrinciples = (): PrincipleChecks => ({
   objectifsAtteints: null
 });
 
+export const DEFAULT_AI_MAX_TOKENS = 16_384;
+/** Previous factory default; never exposed in Settings, so stored copies are upgraded. */
+export const LEGACY_FACTORY_AI_MAX_TOKENS = 700;
+
 export const defaultAppSettings = (): AppSettings => ({
   language: "fr",
   storageMode: "sqlite",
@@ -57,7 +61,7 @@ export const defaultAppSettings = (): AppSettings => ({
   aiModel: "moonshotai/kimi-k2.6",
   aiPayloadScope: "full",
   aiSurfaceModels: {},
-  aiMaxTokens: 700,
+  aiMaxTokens: DEFAULT_AI_MAX_TOKENS,
   aiTimeoutMs: 20_000,
   aiMemoryEnabled: true,
   aiPulseEnabled: true,

@@ -1,5 +1,6 @@
 import type { AppSettings, AiSurface } from "../../domain/types";
 import type { CoachMessage } from "../../domain/types";
+import { logDebug } from "../debug";
 import type { AiPromptContext, AiProvider, AiStructuredRequest, AiStructuredResult } from "./provider";
 import { buildCoachPulseSchemaPrompt } from "./proposals/coach-pulse-schema-prompt";
 import { buildGoalPacingSchemaPrompt } from "./proposals/goal-pacing-schema-prompt";
@@ -9,6 +10,7 @@ import { buildWeeklySynthesisSchemaPrompt } from "./proposals/weekly-synthesis-s
 export const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 export const DEFAULT_OPENROUTER_MODEL = "moonshotai/kimi-k2.6";
 export const DEFAULT_AI_TEMPERATURE = 0.4;
+export const AI_MAX_TOKENS_TRUNCATED_ERROR = "AI response truncated: max_tokens reached";
 
 /** Strip accidental endpoint suffixes so settings can be a bare API root. */
 export const normalizeAiBaseUrl = (rawUrl: string): string => {
@@ -42,22 +44,31 @@ const toTimeoutError = (error: unknown): Error => {
   return error instanceof Error ? error : new Error("AI request failed.");
 };
 
-const extractChatCompletionText = (payload: unknown): string => {
+const firstChoiceRecord = (payload: unknown): Record<string, unknown> | null => {
   if (typeof payload !== "object" || payload === null) {
-    return "";
+    return null;
   }
 
   const record = payload as Record<string, unknown>;
   if (!Array.isArray(record.choices) || record.choices.length === 0) {
-    return "";
+    return null;
   }
 
   const firstChoice = record.choices[0];
   if (typeof firstChoice !== "object" || firstChoice === null) {
+    return null;
+  }
+
+  return firstChoice as Record<string, unknown>;
+};
+
+const extractChatCompletionText = (payload: unknown): string => {
+  const firstChoice = firstChoiceRecord(payload);
+  if (!firstChoice) {
     return "";
   }
 
-  const message = (firstChoice as Record<string, unknown>).message;
+  const message = firstChoice.message;
   if (typeof message !== "object" || message === null) {
     return "";
   }
@@ -68,6 +79,44 @@ const extractChatCompletionText = (payload: unknown): string => {
   }
 
   return "";
+};
+
+const extractFinishReasons = (payload: unknown): string[] => {
+  const firstChoice = firstChoiceRecord(payload);
+  if (!firstChoice) {
+    return [];
+  }
+
+  const reasons: string[] = [];
+  for (const key of ["finish_reason", "native_finish_reason"] as const) {
+    const value = firstChoice[key];
+    if (typeof value === "string" && value.trim()) {
+      reasons.push(value.trim());
+    }
+  }
+
+  return reasons;
+};
+
+const isMaxTokenFinishReason = (reason: string): boolean => {
+  const normalized = reason.toLowerCase();
+  return normalized === "length" || normalized === "max_tokens";
+};
+
+const hitMaxTokenCap = (finishReasons: string[], tokensCompletion: number, maxTokens: number): boolean =>
+  finishReasons.some(isMaxTokenFinishReason) || (maxTokens > 0 && tokensCompletion >= maxTokens);
+
+const isReadableJsonText = (text: string): boolean => {
+  if (!text) {
+    return false;
+  }
+
+  try {
+    JSON.parse(text);
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 const extractUsage = (payload: unknown): { tokensPrompt: number; tokensCompletion: number } => {
@@ -277,11 +326,23 @@ export class OpenRouterProvider implements AiProvider {
 
         const body = await response.json();
         const text = extractChatCompletionText(body);
+        const usage = extractUsage(body);
+        const finishReasons = extractFinishReasons(body);
+
+        if (hitMaxTokenCap(finishReasons, usage.tokensCompletion, request.settings.aiMaxTokens) && !isReadableJsonText(text)) {
+          logDebug("warn", "ai.openrouter", "Reponse IA illisible: max_tokens atteint", {
+            surface: request.surface,
+            maxTokens: request.settings.aiMaxTokens,
+            finishReason: finishReasons.join(",") || "completion_tokens",
+            tokensCompletion: usage.tokensCompletion
+          });
+          throw new Error(AI_MAX_TOKENS_TRUNCATED_ERROR);
+        }
+
         if (!text) {
           throw new Error("AI response did not contain usable text");
         }
 
-        const usage = extractUsage(body);
         return {
           text,
           model,

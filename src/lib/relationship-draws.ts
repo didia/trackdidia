@@ -1,3 +1,4 @@
+import { LEGACY_FACTORY_AI_MAX_TOKENS } from "../domain/daily-entry";
 import type { AppSettings, Task } from "../domain/types";
 import { t, tList } from "../i18n";
 import { buildContextId, toLocalDateString } from "./gtd/shared";
@@ -47,7 +48,9 @@ export const mergeAppSettingsWithDefaults = (settings: Partial<AppSettings>, def
       ? settings.aiSurfaceModels
       : defaults.aiSurfaceModels,
   aiMaxTokens:
-    typeof settings.aiMaxTokens === "number" && settings.aiMaxTokens > 0
+    typeof settings.aiMaxTokens === "number" &&
+    settings.aiMaxTokens > 0 &&
+    settings.aiMaxTokens !== LEGACY_FACTORY_AI_MAX_TOKENS
       ? settings.aiMaxTokens
       : defaults.aiMaxTokens,
   aiTimeoutMs:

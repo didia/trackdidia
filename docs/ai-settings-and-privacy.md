@@ -7,7 +7,9 @@ all core tracking, GTD, reviews, and coaching fallbacks work without a network.
 
 `AppSettings` is serialized as one JSON value in the singleton `app_settings` row.
 On every read, the saved object is merged with `defaultAppSettings()`, so newly
-added properties receive defaults on older installations.
+added properties receive defaults on older installations. Stored `aiMaxTokens` of
+`700` (the previous factory default, never shown in Settings) is upgraded to
+`16384`.
 
 Default highlights:
 
@@ -19,7 +21,7 @@ Default highlights:
 | AI base URL | `https://openrouter.ai/api/v1` |
 | AI model | `moonshotai/kimi-k2.6` |
 | AI payload scope | `full` |
-| AI max tokens | `700` |
+| AI max tokens | `16384` |
 | AI timeout | `20000` ms |
 | AI cost estimate rate | `1` USD / million tokens (approximate) |
 | AI memory enabled | Yes |
@@ -72,7 +74,8 @@ only on the **second consecutive weekday `stall`**, respects
 `aiPulseMaxNotificationsPerDay`, never fires during an active Pomodoro focus
 session, and never fires on weekends.
 
-Settings → Paramètres IA exposes pulse toggles, slot hours, and notification cap.
+Settings → Paramètres IA exposes pulse toggles, slot hours, notification cap, and
+the AI max-tokens cap.
 Pulse slot hours must be **exactly three unique local hours (0–23)**, saved sorted;
 invalid input is rejected on save with inline feedback. Extra hours in legacy stored
 settings are capped to the first three unique sorted values at scheduling time.
@@ -331,7 +334,7 @@ The base URL is normalized by removing trailing slashes and accidental
 Structured `coach_pulse` requests include:
 
 - per-surface model: `settings.aiSurfaceModels[surface] ?? settings.aiModel`;
-- `max_tokens` from `settings.aiMaxTokens` (default 700);
+- `max_tokens` from `settings.aiMaxTokens` (default 16384), editable under Settings → Paramètres IA;
 - `temperature` 0.4;
 - `response_format: { type: "json_object" }`;
 - a French system prompt with stance context and optional memory block;
@@ -341,8 +344,16 @@ Transport hardening:
 
 - abortable timeout via `settings.aiTimeoutMs` (default 20 s), mirroring RescueTime;
 - one retry with 500 ms backoff on HTTP 429 and 5xx;
-- no retry on other 4xx responses;
+- no retry on other 4xx responses, timeouts after the second attempt, or unreadable completions stopped by the max-token cap;
 - usage extracted from the OpenRouter `usage` block and stored on the message row.
+
+When a completion cannot be read because the max-token cap was hit (`finish_reason` /
+`native_finish_reason` of `length` or `max_tokens`, or `completion_tokens >= aiMaxTokens`)
+and the body is empty or not valid JSON, `OpenRouterProvider` logs a debug-panel warn
+(`ai.openrouter`, message `Reponse IA illisible: max_tokens atteint`) without the
+response text, then throws. Coach surfaces catch that error, show the usual fallback
+warning, and continue with the local brief. Complete JSON is still accepted even if
+the finish reason is `length`.
 
 Headers include the bearer API key, `HTTP-Referer: https://trackdidia.app`, and
 `X-Title: Trackdidia`. The key and request payloads are never logged.
@@ -468,6 +479,10 @@ Debug instrumentation:
 - mirrors messages to the browser console;
 - captures `window.error` and unhandled promise rejections;
 - displays a debug panel when enabled or startup fallback is active.
+
+OpenRouter also records a **warn** trace (`scope` `ai.openrouter`) when a structured
+completion is unreadable because `aiMaxTokens` was reached. The log details include
+surface, cap, finish reason, and completion-token count — never the response body.
 
 Debug is always enabled in Vite development. In other builds it can be persisted in
 `localStorage` under `trackdidia.debug.enabled`, enabled from Settings, or enabled by

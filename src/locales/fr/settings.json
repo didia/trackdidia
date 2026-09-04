@@ -33,6 +33,7 @@
     "pulseSlotsCount": "Entrez exactement trois heures locales (open, steer, wind_down).",
     "pulseSlotsUnique": "Les trois heures doivent être uniques.",
     "maxNotifications": "Notifications max par jour",
+    "maxTokens": "Jetons max de réponse IA",
     "costRate": "Tarif approximatif IA (USD / million de jetons)",
     "saving": "Enregistrement...",
     "save": "Enregistrer les paramètres",

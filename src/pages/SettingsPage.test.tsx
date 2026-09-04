@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 import { SettingsPage } from "./SettingsPage";
@@ -52,6 +52,25 @@ describe("SettingsPage AI payload preview", () => {
     const fullSummary = await findSummary("full");
     const fullPre = fullSummary.parentElement?.querySelector("pre");
     expect(fullPre?.textContent).toContain("\"notes\"");
+  });
+});
+
+describe("SettingsPage AI max tokens", () => {
+  it("shows the max-tokens field and saves a custom value", async () => {
+    const user = userEvent.setup();
+    const saveSettings = vi.fn().mockResolvedValue(undefined);
+
+    await renderWithApp(<SettingsPage />, { contextOverrides: { saveSettings } });
+
+    const input = screen.getByLabelText("Jetons max de réponse IA");
+    expect(input).toHaveValue(16384);
+
+    fireEvent.change(input, { target: { value: "8000" } });
+    await user.click(screen.getByRole("button", { name: "Enregistrer les paramètres" }));
+
+    await waitFor(() => {
+      expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ aiMaxTokens: 8000 }));
+    });
   });
 });
 
