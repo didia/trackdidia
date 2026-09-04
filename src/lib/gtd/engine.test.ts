@@ -1,5 +1,10 @@
 import type { Project, ProjectStatus } from "../../domain/types";
-import { projectsForAssignment, projectAssignmentLabel } from "./engine";
+import {
+  effectiveTaskContextIds,
+  formatAssociationCopy,
+  projectsForAssignment,
+  projectAssignmentLabel
+} from "./engine";
 
 const buildProject = (id: string, title: string, status: ProjectStatus): Project => ({
   id,
@@ -56,5 +61,54 @@ describe("projectsForAssignment", () => {
     expect(projectAssignmentLabel(completed)).toBe("Done (Termine)");
     expect(projectAssignmentLabel(cancelled)).toBe("Cancel (Retire)");
     expect(projectAssignmentLabel(activeAlpha)).toBe("Alpha");
+  });
+});
+
+describe("formatAssociationCopy", () => {
+  it("shows the project title when the task has a project and no contexts", () => {
+    expect(formatAssociationCopy("MentorIA", [], "Sans contexte")).toBe("MentorIA");
+  });
+
+  it("shows context names when the task has contexts and no project", () => {
+    expect(formatAssociationCopy(null, ["Perso"], "Sans contexte")).toBe("Perso");
+  });
+
+  it("shows project then contexts when both are present", () => {
+    expect(formatAssociationCopy("MentorIA", ["Perso"], "Sans contexte")).toBe("MentorIA • Perso");
+  });
+
+  it("falls back when the task has neither a project nor contexts", () => {
+    expect(formatAssociationCopy(null, [], "Sans contexte")).toBe("Sans contexte");
+  });
+});
+
+describe("effectiveTaskContextIds", () => {
+  const persoProject = buildProject("project:mentoria", "MentorIA", "active");
+  persoProject.contextIds = ["context:perso"];
+  const bareProject = buildProject("project:bare", "Bare", "active");
+
+  it("returns the task contexts when the task has its own", () => {
+    expect(
+      effectiveTaskContextIds(
+        { contextIds: ["context:call"], projectId: persoProject.id },
+        [persoProject]
+      )
+    ).toEqual(["context:call"]);
+  });
+
+  it("inherits the project contexts when the task has none", () => {
+    expect(
+      effectiveTaskContextIds({ contextIds: [], projectId: persoProject.id }, [persoProject])
+    ).toEqual(["context:perso"]);
+  });
+
+  it("returns an empty list when the task and project have no contexts", () => {
+    expect(
+      effectiveTaskContextIds({ contextIds: [], projectId: bareProject.id }, [bareProject])
+    ).toEqual([]);
+  });
+
+  it("returns an empty list when the task has no project", () => {
+    expect(effectiveTaskContextIds({ contextIds: [], projectId: null }, [persoProject])).toEqual([]);
   });
 });

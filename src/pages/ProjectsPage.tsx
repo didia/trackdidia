@@ -5,6 +5,7 @@ import { useGtdWorkspace } from "../app/use-gtd";
 import { GtdTaskCard } from "../components/GtdTaskCard";
 import { SectionCard } from "../components/SectionCard";
 import { createEntityId, nowIso } from "../lib/gtd/shared";
+import { formatAssociationCopy } from "../lib/gtd/engine";
 import { formatDurationSince } from "../lib/date";
 
 const projectStatusKey = {
@@ -293,7 +294,7 @@ const GtdProjectCard = ({
     setExpanded(false);
   }, [project]);
 
-  const contextNames = draft.contextIds
+  const contextNames = project.contextIds
     .map((contextId) => contexts.find((context) => context.id === contextId)?.name ?? contextId)
     .sort((left, right) => left.localeCompare(right));
 
@@ -320,11 +321,9 @@ const GtdProjectCard = ({
             <span className={`project-card__status-pill project-card__status-pill--${project.status}`}>
               {t(`projects.status.${projectStatusKey[project.status]}`)}
             </span>
-            {contextNames.length > 0 ? (
-              <span className="task-card__context-copy">{contextNames.join(" • ")}</span>
-            ) : (
-              <span className="task-card__context-copy">{t("projects.card.noContext")}</span>
-            )}
+            <span className="task-card__context-copy">
+              {formatAssociationCopy(null, contextNames, t("projects.card.noContext"))}
+            </span>
             <span className="task-card__meta">{t("projects.card.activeActions", { count: tasks.length })}</span>
             <span className="task-card__meta">{formatDurationSince(project.statusChangedAt)}</span>
           </span>
@@ -452,6 +451,7 @@ const GtdProjectCard = ({
                     task={task}
                     contexts={contexts}
                     projects={projects}
+                    hideProjectTitle
                     onSave={async (nextTask) => {
                       await onSaveTask(nextTask);
                     }}
