@@ -1,4 +1,13 @@
-import { buildBackupFileName, isAutoBackupDue } from "./backup";
+import { defaultAppSettings } from "../domain/daily-entry";
+import { mergeAppSettingsWithDefaults } from "./relationship-draws";
+import {
+  BACKUP_RETENTION_COUNT,
+  buildBackupFileName,
+  isAutoBackupDue,
+  isBackupDestinationConfigured,
+  isBackupDestinationMissing,
+  resolveBackupDir
+} from "./backup";
 
 describe("backup helpers", () => {
   it("marks auto backup as due when no previous backup exists", () => {
@@ -19,5 +28,44 @@ describe("backup helpers", () => {
     expect(buildBackupFileName("2026-03-31T10:15:22.456Z", "manual")).toBe(
       "trackdidia-manual-backup-2026-03-31T10-15-22-456Z.db"
     );
+  });
+
+  it("keeps a 30-file retention cap", () => {
+    expect(BACKUP_RETENTION_COUNT).toBe(30);
+  });
+
+  it("treats an empty destination as unconfigured", () => {
+    expect(isBackupDestinationConfigured("")).toBe(false);
+    expect(isBackupDestinationConfigured("   ")).toBe(false);
+    expect(isBackupDestinationConfigured("/Users/didia/Google Drive/TrackDidia")).toBe(true);
+  });
+
+  it("flags a missing destination only when auto-backup is enabled", () => {
+    expect(
+      isBackupDestinationMissing({ autoBackupEnabled: true, backupDestinationDir: "" })
+    ).toBe(true);
+    expect(
+      isBackupDestinationMissing({
+        autoBackupEnabled: true,
+        backupDestinationDir: "/Users/didia/Drive/TrackDidia"
+      })
+    ).toBe(false);
+    expect(
+      isBackupDestinationMissing({ autoBackupEnabled: false, backupDestinationDir: "" })
+    ).toBe(false);
+  });
+
+  it("resolves production and development backup subfolders", () => {
+    expect(resolveBackupDir("/Users/didia/Drive/TrackDidia", "production")).toBe(
+      "/Users/didia/Drive/TrackDidia/backups"
+    );
+    expect(resolveBackupDir("/Users/didia/Drive/TrackDidia", "development")).toBe(
+      "/Users/didia/Drive/TrackDidia/backups-dev"
+    );
+  });
+
+  it("defaults backupDestinationDir to empty on existing settings", () => {
+    const merged = mergeAppSettingsWithDefaults({}, defaultAppSettings());
+    expect(merged.backupDestinationDir).toBe("");
   });
 });

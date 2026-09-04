@@ -28,7 +28,7 @@ Default highlights:
 | Pulse slots (local hours) | `5`, `13`, `20` |
 | Pulse OS notifications | Yes (weekdays Mon–Fri, max 2/day, second consecutive stall only) |
 | RescueTime API key | Empty |
-| Automatic backup | Enabled, 24 hours |
+| Automatic backup | Enabled, 24 hours, destination folder empty until chosen |
 | Relationship draws | Enabled |
 
 The settings object also holds internal timestamps for GTD bootstrap normalizations,
@@ -435,12 +435,19 @@ while the application is closed.
 
 ## Backup settings
 
-The Settings screen displays the environment, absolute database path, backup
-directory, last backup, and interval. It can:
+The Settings screen displays the environment, absolute database path, chosen backup
+folder (or "Non configuré"), last backup, and interval. It can:
 
+- pick a destination folder (typically a Google Drive for Desktop folder);
 - enable/disable automatic backup;
 - set a minimum one-hour interval;
-- create a manual snapshot in desktop mode.
+- create a manual snapshot in desktop mode once a folder is set.
+
+Manual export is disabled until a folder is chosen. Automatic backup stays skipped
+until then. Desktop mode also shows an app-wide banner linking to Settings when
+automatic backup is on and no folder is set. Only the newest 30 matching snapshots
+are kept in the environment subdirectory, and a prune failure does not fail the
+snapshot.
 
 See [Storage and backups](storage-and-backups.md) for the actual backup mechanism.
 

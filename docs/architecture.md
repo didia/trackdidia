@@ -196,15 +196,15 @@ the selected task changes.
 
 The Rust host is intentionally small:
 
-- initialize the notification plugin;
-- resolve/create the application data and backup directories;
+- initialize the notification and dialog plugins;
+- resolve/create the application data directory;
 - choose development versus production database filenames;
-- expose `resolve_storage_paths` to the frontend.
+- expose `resolve_storage_paths`, `ensure_backup_dir`, and `prune_backups`.
 
 SQLite queries and migrations remain in TypeScript, sent to a single-connection sqlx
 pool through the app's own `db_connect`/`db_execute`/`db_select` commands (`src/db.rs`)
 rather than a capability-gated SQL plugin. The Tauri capability grants the main window
-default core access and notifications only.
+default core access, notifications, and dialogs.
 
 ## Current limitations
 
