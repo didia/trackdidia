@@ -1,5 +1,7 @@
 # Daily Routines
 
+See also: [changelog](logs/daily-routines.md).
+
 The daily entry is the bridge between personal reflection and automatically derived
 work evidence. One row is identified by a local calendar date.
 

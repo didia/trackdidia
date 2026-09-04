@@ -3,7 +3,8 @@
 Canonical knowledge base for contributors and coding agents. Start with
 [`AGENTS.md`](../AGENTS.md), then use this page to find the detailed subsystem.
 
-Chronological documentation activity is recorded in [`log.md`](log.md).
+Chronological documentation activity is recorded in domain logs under
+[`logs/`](logs/); [`log.md`](log.md) is the index of those logs.
 
 ## Platform
 

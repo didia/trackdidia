@@ -1,5 +1,7 @@
 # Conventions and Development Workflow
 
+See also: [changelog](logs/conventions.md).
+
 ## Verification commands
 
 Run all JavaScript commands from the repository root.
@@ -150,7 +152,10 @@ For every shipped behavior change:
 1. Update the one canonical product/technical page.
 2. Update [`index.md`](index.md) and `AGENTS.md` only if navigation or a major
    contract changed.
-3. Append a line to [`log.md`](log.md) for a material documentation change.
+3. Prepend a line to the matching domain log under [`logs/`](logs/) for a
+   material documentation change (`docs/<page>.md` → `docs/logs/<page>.md`).
+   Do not edit [`log.md`](log.md) unless you are adding a new domain log to the
+   index.
 4. Check relative links.
 5. Run tests and build.
 

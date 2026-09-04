@@ -1,5 +1,7 @@
 # AI, Settings, Relationship Draws, and Privacy
 
+See also: [changelog](logs/ai-settings-and-privacy.md).
+
 The Settings screen combines several local operational features. AI is optional;
 all core tracking, GTD, reviews, and coaching fallbacks work without a network.
 

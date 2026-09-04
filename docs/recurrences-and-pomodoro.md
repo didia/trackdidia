@@ -1,5 +1,7 @@
 # Recurring Tasks and Pomodoro
 
+See also: [changelog](logs/recurrences-and-pomodoro.md).
+
 Recurring tasks and Pomodoro both integrate with the GTD task model, but they are
 separate engines:
 

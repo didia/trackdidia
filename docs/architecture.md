@@ -1,5 +1,7 @@
 # Architecture
 
+See also: [changelog](logs/architecture.md).
+
 TrackDidia is a single-user, local-first desktop application for running a personal
 daily operating system. Its major loops are:
 
