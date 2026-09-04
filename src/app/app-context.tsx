@@ -8,6 +8,7 @@ import {
   type PropsWithChildren
 } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
 import { defaultAppSettings } from "../domain/daily-entry";
 import type { AppSettings } from "../domain/types";
 import { CoachPulseService } from "../lib/ai/coach-pulse-service";
@@ -25,7 +26,12 @@ import { MemoryRepository } from "../lib/storage/memory-repository";
 import type { AppRepository } from "../lib/storage/repository";
 import initialGoogleTasksExport from "../../Tasks.json";
 import { buildContextId } from "../lib/gtd/shared";
-import { AUTO_BACKUP_CHECK_INTERVAL_MS, isAutoBackupDue } from "../lib/backup";
+import {
+  AUTO_BACKUP_CHECK_INTERVAL_MS,
+  isAutoBackupDue,
+  isBackupDestinationConfigured,
+  isBackupDestinationMissing
+} from "../lib/backup";
 import { PULSE_CHECK_INTERVAL_MS } from "../lib/ai/pulse/constants";
 import { runPulseEngine } from "../lib/ai/pulse/pulse-engine";
 import type { AppOpenInterval } from "../domain/insights/movement";
@@ -57,6 +63,7 @@ export const useAppContext = (): AppContextValue => {
 
 export const AppProvider = ({ children }: PropsWithChildren) => {
   const { t: tCommon } = useTranslation("common");
+  const { t: tSettings } = useTranslation("settings");
   const [repository, setRepository] = useState<AppRepository | null>(null);
   const [settings, setSettings] = useState(defaultAppSettings());
   const [loading, setLoading] = useState(true);
@@ -205,6 +212,13 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
 
     const runAutoBackupIfDue = async (trigger: "startup" | "interval") => {
       if (autoBackupRunningRef.current || !settings.autoBackupEnabled) {
+        return;
+      }
+
+      if (!isBackupDestinationConfigured(settings.backupDestinationDir)) {
+        logDebug("info", "storage.backup", "Backup automatique ignore: dossier non configure", {
+          trigger
+        });
         return;
       }
 
@@ -449,6 +463,12 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
           {tCommon("startup.sqliteFallback")}
           <br />
           {tCommon("startup.detail")} {startupError}
+        </div>
+      ) : null}
+      {isTauriRuntime() && isBackupDestinationMissing(settings) ? (
+        <div className="banner">
+          {tSettings("backup.destinationMissing")}{" "}
+          <Link to="/parametres">{tSettings("backup.destinationMissingLink")}</Link>
         </div>
       ) : null}
       {children}

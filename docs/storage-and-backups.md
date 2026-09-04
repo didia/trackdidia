@@ -22,21 +22,29 @@ when SQLite startup fails.
 The native `resolve_storage_paths` command uses Tauri's application data directory.
 The Tauri identifier is `com.trackdidia.desktop`.
 
-| Build | Database | Backup directory |
+| Build | Database | Backup subdirectory |
 |---|---|---|
 | Debug / `tauri dev` | `trackdidia.dev.db` | `backups-dev/` |
 | Release | `trackdidia.db` | `backups/` |
 
-On macOS these resolve beneath:
+The live database resolves beneath:
 
 ```text
 ~/Library/Application Support/com.trackdidia.desktop/
 ```
 
+Backups are not written there. The user picks a destination folder in Settings
+(typically a Google Drive for Desktop synced folder). Snapshots go in
+`{destination}/backups/` or `{destination}/backups-dev/` so development cannot prune
+production files. Older copies under Application Support `backups/` or `backups-dev/`
+are left in place and are no longer created.
+
 `TauriSqliteRepository` opens a relative connection string (`sqlite:trackdidia.dev.db`
 or `sqlite:trackdidia.db`) through the host `db_connect` command, which resolves it
-under `app_data_dir`. `resolve_storage_paths` also returns the absolute database and
-backup paths for display and backup creation.
+under `app_data_dir`. `resolve_storage_paths` returns the absolute database path,
+connection string, and environment. The backup directory shown in Settings is
+computed in TypeScript from `AppSettings.backupDestinationDir` plus the environment
+subdirectory.
 
 SQLite may create neighboring `-wal` and `-shm` files. They are normal SQLite WAL
 artifacts and must not be treated as disposable while the database is open.
@@ -253,11 +261,33 @@ daily/review data.
 
 ## Backup behavior
 
-Manual and automatic backups call:
+Backups require a destination folder stored in `AppSettings.backupDestinationDir`.
+Until that folder is chosen, manual export is disabled and automatic backup checks
+skip without updating `lastBackupAt`. Desktop mode shows an app-wide banner linking
+to Settings when automatic backup is enabled and no folder is set. There is no
+Google OAuth or Drive API; Drive sync happens only if the chosen folder is already
+managed by Google Drive for Desktop.
+
+The chosen destination must already exist at backup time. The host creates only the
+environment subdirectory under it (`backups/` or `backups-dev/`). If Google Drive
+for Desktop is unmounted, the backup fails instead of recreating a local shadow of
+the Drive path.
+
+Manual and automatic backups then:
+
+1. Confirm the chosen destination exists, then create `{destination}/backups/` or
+   `{destination}/backups-dev/`.
+2. Call:
 
 ```sql
 VACUUM INTO '<absolute backup path>'
 ```
+
+3. Best-effort keep only the newest 30 files whose names match
+   `trackdidia-(manual|auto)-backup-*.db`. Other files in the folder are ignored.
+   Manual and automatic snapshots share the same cap. Sort uses the timestamp in the
+   filename so mixed kinds stay chronological. A prune failure does not fail the
+   backup or block `lastBackupAt`; undeletable files are skipped and logged.
 
 This creates a self-contained SQLite snapshot without copying live WAL files.
 Filenames contain the backup kind (`manual` or `auto`) and a sanitized timestamp.
@@ -271,12 +301,19 @@ Automatic backups:
 - default to enabled;
 - default interval is 24 hours;
 - are checked at startup and every hour while the app remains open;
-- run only when `lastBackupAt` is old enough;
+- run only when a destination folder is set and `lastBackupAt` is old enough;
 - use an in-memory guard to avoid concurrent backup attempts;
-- update `lastBackupAt` and `lastBackupPath` after success.
+- update `lastBackupAt` and `lastBackupPath` after a successful snapshot, even if
+  retention cannot delete older files.
 
-The Settings screen can change the enable flag/interval and create a manual backup.
-Backup buttons are disabled in browser preview.
+The Settings screen can choose the destination folder, change the enable flag and
+interval, and create a manual backup. Folder picking and backup buttons are disabled
+in browser preview. The backup-directory card shows the resolved environment
+subdirectory, or "Mode preview" in browser preview.
+
+Native helpers: `ensure_backup_dir` and `prune_backups` in `src-tauri/src/backup.rs`
+both take the chosen destination and environment; they do not accept an arbitrary
+path. Folder picking uses `tauri-plugin-dialog`.
 
 ## Recovery
 
@@ -284,7 +321,9 @@ There is no restore UI. Recovery is currently an operator/manual action:
 
 1. Fully quit TrackDidia.
 2. Preserve the current database and any `-wal`/`-shm` files before changing them.
-3. Choose a verified backup from the matching environment directory.
+3. Choose a verified backup from the matching environment subdirectory of the
+   configured destination (`backups/` or `backups-dev/`). At most 30 snapshots are
+   kept there.
 4. Replace the matching environment database file with a copy of that backup.
 5. Restart the application and verify entries, tasks, and settings.
 

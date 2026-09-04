@@ -36,11 +36,14 @@ import type {
   WeeklyObjectiveResult
 } from "../../domain/types";
 
-export interface StorageInfo {
+export interface NativeStoragePaths {
   databasePath: string;
-  backupDir: string;
   connectionString: string;
   environment: "development" | "production";
+}
+
+export interface StorageInfo extends NativeStoragePaths {
+  backupDir: string;
 }
 
 export interface BackupResult {
