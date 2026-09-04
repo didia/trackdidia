@@ -113,6 +113,14 @@ The evening screen exposes:
 
 The journal fields are debounced and flushed before closure.
 
+The close coach panel auto-loads on page open. A successful (`ok`) close pulse can
+render immediately; auto-load then re-runs cache-first with RescueTime skipped so the
+input hash stays stable. Filling evening metrics, principles, or notes changes the
+hash and generates a fresh close pulse. Failed or skipped generations are not reused.
+Due commitments resolve on open even when AI is off. **Régénérer** is the explicit
+bypass. The morning routine screen does not host a coach panel; the morning/open
+thread lives on Today.
+
 Evening-specific principles include daily retro, quality time with children, evening
 prayer, attention to spouse, TRC, and goals achieved. Anytime and morning principles
 remain editable so the full day can be corrected before closure.
