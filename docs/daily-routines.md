@@ -45,8 +45,12 @@ suggestions.
 The morning screen captures:
 
 - `morningIntention`;
+- today's `qualiteSommeil` and `pushups` (already known on waking);
 - the morning and anytime principles;
 - GTD workload values for tasks at start and tasks added.
+
+Those two metrics remain on the evening screen as well, pre-filled if entered in
+the morning, so they can still be corrected before closure.
 
 The intention field saves after a 450 ms debounce and flushes immediately before the
 "complete morning" navigation.

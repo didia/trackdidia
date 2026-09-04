@@ -5,6 +5,7 @@ the top of the table.
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-03 | Morning routine captures today's sleep quality and pushups; both remain editable on evening closure | `docs/daily-routines.md` | `morningMetricKeys`, `MorningRoutinePage` |
 | 2026-09-03 | Evening close auto-load only reuses `ok` pulses, skip-RescueTime hash cache keeps freshness, commitments resolve with AI off, disabled reason is visible on autoload | `docs/ai-settings-and-privacy.md`, `docs/daily-routines.md` | `latestClosePulseMessage`, `EveningClosurePage`, `CoachPulsePanel`, `resolveDueCommitmentsOnClose` |
 | 2026-09-03 | Backup destination must already exist; prune is best-effort; missing-folder warning is app-wide when auto-backup is on | `docs/storage-and-backups.md`, `docs/ai-settings-and-privacy.md` | `ensure_backup_directory`, `prune_backups`, `isBackupDestinationMissing` |
 | 2026-09-02 | Evening close coach reuses a persisted `close` pulse on page open (Today-style), instead of calling the model every visit | `docs/ai-settings-and-privacy.md`, `docs/daily-routines.md` | `loadLatestClosePulseForDate`, `EveningClosurePage` |

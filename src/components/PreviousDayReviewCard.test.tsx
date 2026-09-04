@@ -22,15 +22,17 @@ describe("PreviousDayReviewCard", () => {
 
     await renderWithApp(<MorningRoutinePage />, { repository });
 
-    await screen.findByText("Finaliser hier");
+    const card = (await screen.findByText("Finaliser hier")).closest("section");
+    expect(card).not.toBeNull();
+    const yesterdayCard = within(card!);
 
-    expect(screen.getByText("Marche")).toBeInTheDocument();
-    expect(screen.getByText("Dépense calorique")).toBeInTheDocument();
-    expect(screen.getByText("Rétro journalier")).toBeInTheDocument();
-    expect(screen.getByText("Réflexion du soir")).toBeInTheDocument();
+    expect(yesterdayCard.getByText("Marche")).toBeInTheDocument();
+    expect(yesterdayCard.getByText("Dépense calorique")).toBeInTheDocument();
+    expect(yesterdayCard.getByText("Rétro journalier")).toBeInTheDocument();
+    expect(yesterdayCard.getByText("Réflexion du soir")).toBeInTheDocument();
 
-    expect(screen.queryByText("Qualité du sommeil")).not.toBeInTheDocument();
-    expect(screen.queryByText("Prière du soir")).not.toBeInTheDocument();
+    expect(yesterdayCard.queryByText("Qualité du sommeil")).not.toBeInTheDocument();
+    expect(yesterdayCard.queryByText("Prière du soir")).not.toBeInTheDocument();
   });
 
   it("saves only the missing fields for yesterday and flags the settings, without touching today", async () => {
