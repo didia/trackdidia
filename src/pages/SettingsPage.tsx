@@ -672,7 +672,11 @@ export const SettingsPage = () => {
           <article className="status-card">
             <span>{t("backup.fields.backupDir")}</span>
             <strong>
-              {storageInfo?.backupDir || settings.backupDestinationDir || t("backup.notConfigured")}
+              {browserPreview
+                ? t("backup.env.preview")
+                : storageInfo === null
+                  ? t("loadingPlaceholder")
+                  : storageInfo.backupDir || t("backup.notConfigured")}
             </strong>
           </article>
           <article className="status-card">
@@ -687,7 +691,7 @@ export const SettingsPage = () => {
 
         <p className="hero__copy">{t("backup.folderHint")}</p>
 
-        {draftSettings.autoBackupEnabled && !isBackupDestinationConfigured(settings.backupDestinationDir) ? (
+        {!isBackupDestinationConfigured(settings.backupDestinationDir) ? (
           <div className="banner">{t("backup.missingFolder")}</div>
         ) : null}
         {backupMessage ? <div className="banner">{backupMessage}</div> : null}

@@ -141,7 +141,7 @@ describe("SettingsPage backup destination", () => {
   it("shows an unconfigured destination, a missing-folder warning, and a disabled export", async () => {
     await renderWithApp(<SettingsPage />);
 
-    expect(screen.getByText("Non configuré")).toBeInTheDocument();
+    expect(screen.getAllByText("Mode preview").length).toBeGreaterThan(0);
     expect(
       screen.getByText("Choisis un dossier de backup pour activer les exports et les backups automatiques.")
     ).toBeInTheDocument();
@@ -149,7 +149,23 @@ describe("SettingsPage backup destination", () => {
     expect(screen.getByRole("button", { name: "Choisir le dossier Google Drive" })).toBeDisabled();
   });
 
-  it("shows the chosen folder and keeps export disabled in browser preview", async () => {
+  it("keeps the missing-folder warning when automatic backup is disabled", async () => {
+    await renderWithApp(<SettingsPage />, {
+      contextOverrides: {
+        settings: {
+          ...defaultAppSettings(),
+          autoBackupEnabled: false
+        }
+      }
+    });
+
+    expect(
+      screen.getByText("Choisis un dossier de backup pour activer les exports et les backups automatiques.")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Exporter un backup maintenant" })).toBeDisabled();
+  });
+
+  it("shows preview labels for a chosen folder and keeps export disabled in browser preview", async () => {
     await renderWithApp(<SettingsPage />, {
       contextOverrides: {
         settings: {
@@ -159,11 +175,36 @@ describe("SettingsPage backup destination", () => {
       }
     });
 
-    expect(screen.getByText("/Users/didia/Drive/TrackDidia")).toBeInTheDocument();
+    expect(screen.getAllByText("Mode preview").length).toBeGreaterThan(0);
+    expect(screen.queryByText("/Users/didia/Drive/TrackDidia")).not.toBeInTheDocument();
     expect(
       screen.queryByText("Choisis un dossier de backup pour activer les exports et les backups automatiques.")
     ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Exporter un backup maintenant" })).toBeDisabled();
+  });
+
+  it("shows the resolved environment backup folder outside preview", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    vi.spyOn(repository, "getStorageInfo").mockResolvedValue({
+      databasePath: "/tmp/trackdidia.dev.db",
+      connectionString: "sqlite:trackdidia.dev.db",
+      environment: "development",
+      backupDir: "/Users/didia/Drive/TrackDidia/backups-dev"
+    });
+
+    await renderWithApp(<SettingsPage />, {
+      repository,
+      contextOverrides: {
+        browserPreview: false,
+        settings: {
+          ...defaultAppSettings(),
+          backupDestinationDir: "/Users/didia/Drive/TrackDidia"
+        }
+      }
+    });
+
+    expect(await screen.findByText("/Users/didia/Drive/TrackDidia/backups-dev")).toBeInTheDocument();
   });
 
   it("saves a picked Google Drive folder from the native dialog", async () => {

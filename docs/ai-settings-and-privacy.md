@@ -438,8 +438,10 @@ folder (or "Non configuré"), last backup, and interval. It can:
 - create a manual snapshot in desktop mode once a folder is set.
 
 Manual export is disabled until a folder is chosen. Automatic backup stays skipped
-until then. Only the newest 30 matching snapshots are kept in the environment
-subdirectory.
+until then. Desktop mode also shows an app-wide banner linking to Settings when
+automatic backup is on and no folder is set. Only the newest 30 matching snapshots
+are kept in the environment subdirectory, and a prune failure does not fail the
+snapshot.
 
 See [Storage and backups](storage-and-backups.md) for the actual backup mechanism.
 

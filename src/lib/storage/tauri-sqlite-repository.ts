@@ -83,8 +83,6 @@ import {
 } from "../recurring/engine";
 import { addDays, cloneProject, cloneTask, createEntityId, nowIso } from "../gtd/shared";
 import {
-  BACKUP_RETENTION_COUNT,
-  MISSING_BACKUP_DESTINATION_ERROR,
   buildBackupFileName,
   isBackupDestinationConfigured,
   resolveBackupDir
@@ -101,9 +99,10 @@ import {
   relationshipDrawDefinitions,
   relationshipPersonalContextId
 } from "../relationship-draws";
-import type { AppRepository, BackupResult, PomodoroStartOptions, StorageInfo } from "./repository";
+import type { AppRepository, BackupResult, NativeStoragePaths, PomodoroStartOptions, StorageInfo } from "./repository";
 import { DbSerialQueue } from "./db-serial-queue";
 import { getTodayDate } from "../date";
+import { t } from "../../i18n";
 
 /** Thin wrapper around the Rust `db_connect` / `db_execute` / `db_select` commands. */
 class Database {
@@ -2030,7 +2029,7 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async getStorageInfo(): Promise<StorageInfo> {
-    const native = await invoke<StorageInfo>("resolve_storage_paths");
+    const native = await invoke<NativeStoragePaths>("resolve_storage_paths");
     const settings = await this.getSettings();
     return {
       ...native,
@@ -2045,10 +2044,10 @@ export class TauriSqliteRepository implements AppRepository {
       const db = await this.getDb();
       const settings = await this.getSettings();
       if (!isBackupDestinationConfigured(settings.backupDestinationDir)) {
-        throw new Error(MISSING_BACKUP_DESTINATION_ERROR);
+        throw new Error(t("backup.missingDestination", { ns: "settings" }));
       }
 
-      const storageInfo = await invoke<StorageInfo>("resolve_storage_paths");
+      const storageInfo = await invoke<NativeStoragePaths>("resolve_storage_paths");
       const backupDir = await invoke<string>("ensure_backup_dir", {
         destinationDir: settings.backupDestinationDir,
         environment: storageInfo.environment
@@ -2064,11 +2063,22 @@ export class TauriSqliteRepository implements AppRepository {
 
       await db.execute(`VACUUM INTO '${escapedPath}'`);
 
-      const prune = await invoke<{ deletedPaths: string[]; keptCount: number }>("prune_backups", {
-        dir: backupDir,
-        keep: BACKUP_RETENTION_COUNT
-      });
-      logDebug("info", "storage.backup", "Retention des backups appliquee", prune);
+      try {
+        const prune = await invoke<{ deletedPaths: string[]; failed: string[]; keptCount: number }>(
+          "prune_backups",
+          {
+            destinationDir: settings.backupDestinationDir,
+            environment: storageInfo.environment
+          }
+        );
+        if (prune.failed.length > 0) {
+          logDebug("error", "storage.backup", "Retention des backups partielle", prune);
+        } else {
+          logDebug("info", "storage.backup", "Retention des backups appliquee", prune);
+        }
+      } catch (error) {
+        logDebug("error", "storage.backup", "Retention des backups echouee", formatUnknownError(error));
+      }
 
       return {
         backupPath,

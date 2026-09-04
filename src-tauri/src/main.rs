@@ -11,7 +11,6 @@ use tauri::Manager;
 #[serde(rename_all = "camelCase")]
 struct StoragePaths {
     database_path: String,
-    backup_dir: String,
     connection_string: String,
     environment: String,
 }
@@ -38,7 +37,6 @@ fn resolve_storage_paths(app: tauri::AppHandle) -> Result<StoragePaths, String> 
 
     Ok(StoragePaths {
         database_path: database_path.to_string_lossy().into_owned(),
-        backup_dir: String::new(),
         connection_string,
         environment: environment.to_string(),
     })

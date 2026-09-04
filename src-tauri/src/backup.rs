@@ -8,6 +8,7 @@ pub const BACKUP_RETENTION_COUNT: usize = 30;
 #[serde(rename_all = "camelCase")]
 pub struct PruneResult {
     pub deleted_paths: Vec<String>,
+    pub failed: Vec<String>,
     pub kept_count: usize,
 }
 
@@ -60,7 +61,20 @@ pub fn select_backups_to_prune(names: &[String], keep: usize) -> Vec<String> {
 }
 
 pub fn ensure_backup_directory(destination_dir: &str, environment: &str) -> Result<String, String> {
-    let backup_dir = resolve_backup_dir(destination_dir, environment)?;
+    let trimmed = destination_dir.trim().trim_end_matches(['/', '\\']);
+    if trimmed.is_empty() {
+        return Err("Le dossier de backup n'est pas configure.".to_string());
+    }
+
+    let root = PathBuf::from(trimmed);
+    if !root.is_dir() {
+        return Err(format!(
+            "Le dossier de backup {} est introuvable. Verifie que Google Drive est monte.",
+            root.display()
+        ));
+    }
+
+    let backup_dir = root.join(backup_subdir(environment)?);
     fs::create_dir_all(&backup_dir)
         .map_err(|error| format!("Impossible de creer le dossier de backups: {error}"))?;
     Ok(backup_dir.to_string_lossy().into_owned())
@@ -89,11 +103,13 @@ pub fn prune_backup_directory(dir: &Path, keep: usize) -> Result<PruneResult, St
 
     let to_delete = select_backups_to_prune(&names, keep);
     let mut deleted_paths = Vec::new();
+    let mut failed = Vec::new();
     for name in &to_delete {
         let path = dir.join(name);
-        fs::remove_file(&path)
-            .map_err(|error| format!("Impossible de supprimer le backup {}: {error}", path.display()))?;
-        deleted_paths.push(path.to_string_lossy().into_owned());
+        match fs::remove_file(&path) {
+            Ok(()) => deleted_paths.push(path.to_string_lossy().into_owned()),
+            Err(error) => failed.push(format!("{}: {error}", path.display())),
+        }
     }
 
     Ok(PruneResult {
@@ -103,6 +119,7 @@ pub fn prune_backup_directory(dir: &Path, keep: usize) -> Result<PruneResult, St
             .count()
             .saturating_sub(deleted_paths.len()),
         deleted_paths,
+        failed,
     })
 }
 
@@ -112,8 +129,9 @@ pub fn ensure_backup_dir(destination_dir: String, environment: String) -> Result
 }
 
 #[tauri::command]
-pub fn prune_backups(dir: String, keep: Option<usize>) -> Result<PruneResult, String> {
-    prune_backup_directory(Path::new(&dir), keep.unwrap_or(BACKUP_RETENTION_COUNT))
+pub fn prune_backups(destination_dir: String, environment: String) -> Result<PruneResult, String> {
+    let dir = resolve_backup_dir(&destination_dir, &environment)?;
+    prune_backup_directory(&dir, BACKUP_RETENTION_COUNT)
 }
 
 #[cfg(test)]
@@ -188,6 +206,7 @@ mod tests {
         let result = prune_backup_directory(dir.path(), 30).expect("prune");
         assert_eq!(result.kept_count, 30);
         assert_eq!(result.deleted_paths.len(), 2);
+        assert!(result.failed.is_empty());
         assert!(!dir
             .path()
             .join("trackdidia-manual-backup-2026-03-01T10-15-22-456Z.db")
@@ -209,5 +228,48 @@ mod tests {
         let created = ensure_backup_directory(dir.path().to_str().unwrap(), "development").unwrap();
         assert!(Path::new(&created).ends_with("backups-dev"));
         assert!(Path::new(&created).is_dir());
+    }
+
+    #[test]
+    fn rejects_missing_destination_root() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let missing = dir
+            .path()
+            .join("CloudStorage")
+            .join("GoogleDrive-me")
+            .join("TrackDidia");
+
+        let result = ensure_backup_directory(missing.to_str().unwrap(), "production");
+        assert!(result.is_err());
+        assert!(!missing.exists());
+        assert!(!dir.path().join("CloudStorage").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn prune_reports_undeletable_files_and_continues() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        for index in 1..=32 {
+            let kind = if index % 2 == 0 { "auto" } else { "manual" };
+            File::create(dir.path().join(format!(
+                "trackdidia-{kind}-backup-2026-03-{index:02}T10-15-22-456Z.db"
+            )))
+            .expect("create backup");
+        }
+
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o555)).expect("lock dir");
+        let result = prune_backup_directory(dir.path(), 30);
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).expect("unlock dir");
+
+        let result = result.expect("prune should not fail");
+        assert!(result.deleted_paths.is_empty());
+        assert_eq!(result.failed.len(), 2);
+        assert_eq!(result.kept_count, 32);
+        assert!(dir
+            .path()
+            .join("trackdidia-manual-backup-2026-03-01T10-15-22-456Z.db")
+            .exists());
     }
 }
