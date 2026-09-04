@@ -1,11 +1,14 @@
 import {
   applyDailyPomodoroStats,
   applyDailyTaskStats,
+  applyLegacyAiMaxTokensUpgrade,
   applyRoutineTransition,
   computeCompletionPercent,
   computeDisciplineScore,
   computeTaskCompletionPercent,
   createEmptyDailyEntry,
+  DEFAULT_AI_MAX_TOKENS,
+  defaultAppSettings,
   findMissingMetricKeys,
   findUnansweredPrincipleKeys,
   updateMetric,
@@ -134,5 +137,37 @@ describe("daily entry domain", () => {
     expect(unanswered).not.toContain("retroJournalier");
     expect(unanswered).toContain("attentionAMonEpouse");
     expect(unanswered).toHaveLength(principleDefinitions.length - 2);
+  });
+});
+
+describe("applyLegacyAiMaxTokensUpgrade", () => {
+  it("upgrades a stored factory 700 once and records the marker", () => {
+    const settings = defaultAppSettings();
+    settings.aiMaxTokens = 700;
+    settings.aiMaxTokensUpgradeDoneAt = "";
+
+    const upgraded = applyLegacyAiMaxTokensUpgrade(settings, "2026-09-04T12:00:00.000Z");
+
+    expect(upgraded?.aiMaxTokens).toBe(DEFAULT_AI_MAX_TOKENS);
+    expect(upgraded?.aiMaxTokensUpgradeDoneAt).toBe("2026-09-04T12:00:00.000Z");
+  });
+
+  it("keeps a custom value and still records the marker", () => {
+    const settings = defaultAppSettings();
+    settings.aiMaxTokens = 7000;
+    settings.aiMaxTokensUpgradeDoneAt = "";
+
+    const upgraded = applyLegacyAiMaxTokensUpgrade(settings, "2026-09-04T12:00:00.000Z");
+
+    expect(upgraded?.aiMaxTokens).toBe(7000);
+    expect(upgraded?.aiMaxTokensUpgradeDoneAt).toBe("2026-09-04T12:00:00.000Z");
+  });
+
+  it("does nothing after the marker is set, including a later 700", () => {
+    const settings = defaultAppSettings();
+    settings.aiMaxTokens = 700;
+    settings.aiMaxTokensUpgradeDoneAt = "2026-09-04T12:00:00.000Z";
+
+    expect(applyLegacyAiMaxTokensUpgrade(settings, "2026-09-05T12:00:00.000Z")).toBeNull();
   });
 });

@@ -1,5 +1,8 @@
-import { createEmptyDailyEntry, defaultAppSettings } from "../../domain/daily-entry";
+import { DEFAULT_AI_MAX_TOKENS, defaultAppSettings } from "../../domain/daily-entry";
+import * as debug from "../debug";
+import type { DailySnapshot } from "./context/daily-snapshot";
 import {
+  AI_MAX_TOKENS_TRUNCATED_ERROR,
   DEFAULT_OPENROUTER_BASE_URL,
   normalizeAiBaseUrl,
   OpenRouterProvider
@@ -38,7 +41,6 @@ describe("OpenRouterProvider", () => {
     const provider = new OpenRouterProvider();
     const settings = defaultAppSettings();
     settings.aiApiKey = "sk-or-test";
-    settings.aiMaxTokens = 700;
     settings.aiTimeoutMs = 20_000;
 
     const result = await provider.generateStructured({
@@ -83,7 +85,7 @@ describe("OpenRouterProvider", () => {
     const body = JSON.parse(String(init.body));
     expect(body).toMatchObject({
       model: settings.aiModel,
-      max_tokens: 700,
+      max_tokens: DEFAULT_AI_MAX_TOKENS,
       temperature: 0.4,
       response_format: { type: "json_object" }
     });
@@ -412,5 +414,154 @@ describe("OpenRouterProvider", () => {
       })
     ).rejects.toThrow("Insufficient credits");
     expect(globalThis.fetch).toHaveBeenCalledOnce();
+  });
+
+  const dailySnapshot = (): DailySnapshot => ({
+    surface: "daily",
+    scope: "full",
+    date: "2026-07-29",
+    status: "not_started",
+    metrics: [],
+    principles: [],
+    gtd: {
+      inboxBacklog: 0,
+      projectsWithoutNextAction: 0,
+      projectsWithoutNextActionSample: [],
+      staleNextActions: 0,
+      agingWaitingFor: 0,
+      overdueDeadlines: 0,
+      scheduledVsCompletedRatio: 0
+    },
+    pomodoro: {
+      completedFocusSessionCount: 0,
+      totalFocusMinutes: 0,
+      taskConcentration: null,
+      topTask: null
+    },
+    rescueTime: { configured: false, productivityPulseWeekToDate: null },
+    history: { daysConsidered: 0, disciplineAverage7d: 0, disciplineAverage28d: 0 },
+    weeklyScoreTrend: null,
+    findings: []
+  });
+
+  it("logs a debug warn and throws when finish_reason length truncates JSON", async () => {
+    const logSpy = vi.spyOn(debug, "logDebug");
+    globalThis.fetch = vi.fn(async () =>
+      Response.json({
+        choices: [
+          {
+            finish_reason: "length",
+            message: { content: '{"stance":"open","headline":"Tronque' }
+          }
+        ],
+        usage: { prompt_tokens: 10, completion_tokens: 700 }
+      })
+    ) as typeof fetch;
+
+    const provider = new OpenRouterProvider();
+    const settings = defaultAppSettings();
+    settings.aiApiKey = "sk-or-test";
+
+    await expect(
+      provider.generateStructured({
+        surface: "coach_pulse",
+        stance: "open",
+        settings,
+        snapshot: dailySnapshot()
+      })
+    ).rejects.toThrow(AI_MAX_TOKENS_TRUNCATED_ERROR);
+
+    expect(globalThis.fetch).toHaveBeenCalledOnce();
+    expect(logSpy).toHaveBeenCalledWith(
+      "warn",
+      "ai.openrouter",
+      "Reponse IA illisible: max_tokens atteint",
+      expect.objectContaining({
+        surface: "coach_pulse",
+        maxTokens: DEFAULT_AI_MAX_TOKENS,
+        finishReason: "length",
+        tokensCompletion: 700
+      })
+    );
+    logSpy.mockRestore();
+  });
+
+  it("returns complete JSON even when finish_reason is length", async () => {
+    const logSpy = vi.spyOn(debug, "logDebug");
+    globalThis.fetch = vi.fn(async () =>
+      Response.json({
+        choices: [
+          {
+            finish_reason: "length",
+            message: { content: '{"stance":"open","headline":"Ok","read":"Go","move":null}' }
+          }
+        ],
+        usage: { prompt_tokens: 10, completion_tokens: DEFAULT_AI_MAX_TOKENS }
+      })
+    ) as typeof fetch;
+
+    const provider = new OpenRouterProvider();
+    const settings = defaultAppSettings();
+    settings.aiApiKey = "sk-or-test";
+
+    const result = await provider.generateStructured({
+      surface: "coach_pulse",
+      stance: "open",
+      settings,
+      snapshot: dailySnapshot()
+    });
+
+    expect(result.text).toContain("Ok");
+    expect(logSpy).not.toHaveBeenCalledWith(
+      "warn",
+      "ai.openrouter",
+      "Reponse IA illisible: max_tokens atteint",
+      expect.anything()
+    );
+    logSpy.mockRestore();
+  });
+
+  it("treats completion_tokens at the cap with unreadable JSON as a max_tokens stop", async () => {
+    const logSpy = vi.spyOn(debug, "logDebug");
+    globalThis.fetch = vi.fn(async () =>
+      Response.json({
+        choices: [
+          {
+            finish_reason: "stop",
+            native_finish_reason: "MAX_TOKENS",
+            message: { content: '{"headline":' }
+          }
+        ],
+        usage: { prompt_tokens: 4, completion_tokens: 8000 }
+      })
+    ) as typeof fetch;
+
+    const provider = new OpenRouterProvider();
+    const settings = defaultAppSettings();
+    settings.aiApiKey = "sk-or-test";
+    settings.aiMaxTokens = 8000;
+
+    await expect(
+      provider.generateStructured({
+        surface: "coach_pulse",
+        stance: "open",
+        settings,
+        snapshot: dailySnapshot()
+      })
+    ).rejects.toThrow(AI_MAX_TOKENS_TRUNCATED_ERROR);
+
+    expect(globalThis.fetch).toHaveBeenCalledOnce();
+    expect(logSpy).toHaveBeenCalledWith(
+      "warn",
+      "ai.openrouter",
+      "Reponse IA illisible: max_tokens atteint",
+      expect.objectContaining({
+        surface: "coach_pulse",
+        maxTokens: 8000,
+        finishReason: "stop,MAX_TOKENS",
+        tokensCompletion: 8000
+      })
+    );
+    logSpy.mockRestore();
   });
 });

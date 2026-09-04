@@ -5,7 +5,11 @@ the top of the table.
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
-| 2026-09-03 | Morning routine captures today's sleep quality and pushups; both remain editable on evening closure | `docs/daily-routines.md` | `morningMetricKeys`, `MorningRoutinePage` |
+| 2026-09-04 | Morning routine captures today's sleep quality and pushups; both remain editable on evening closure | `docs/daily-routines.md` | `morningMetricKeys`, `MorningRoutinePage` |
+| 2026-09-04 | AI max tokens default is 4096, configurable in Settings; stored factory 700 is upgraded once at bootstrap; unreadable length-truncated OpenRouter responses log a debug warn and a French fallback warning | `docs/ai-settings-and-privacy.md` | `aiMaxTokens`, `applyLegacyAiMaxTokensUpgrade`, `OpenRouterProvider`, `SettingsPage` |
+| 2026-09-04 | Collapsed task summary reads the persisted assignment, nested project-card tasks omit the repeated project title, and `formatAssociationCopy` is shared with project cards | `docs/gtd.md` | `formatAssociationCopy`, `hideProjectTitle`, `GtdTaskCard` |
+| 2026-09-03 | Tasks with no stored contexts inherit their project's contexts for collapsed-card labels and context filters | `docs/gtd.md` | `effectiveTaskContextIds`, `GtdTaskCard`, Next Actions / Waiting For / Someday filters |
+| 2026-09-03 | Collapsed `GtdTaskCard` shows the assigned project title before contexts; `Sans contexte` only when neither is set | `docs/gtd.md` | `formatAssociationCopy`, `GtdTaskCard` |
 | 2026-09-03 | Evening close auto-load only reuses `ok` pulses, skip-RescueTime hash cache keeps freshness, commitments resolve with AI off, disabled reason is visible on autoload | `docs/ai-settings-and-privacy.md`, `docs/daily-routines.md` | `latestClosePulseMessage`, `EveningClosurePage`, `CoachPulsePanel`, `resolveDueCommitmentsOnClose` |
 | 2026-09-03 | Backup destination must already exist; prune is best-effort; missing-folder warning is app-wide when auto-backup is on | `docs/storage-and-backups.md`, `docs/ai-settings-and-privacy.md` | `ensure_backup_directory`, `prune_backups`, `isBackupDestinationMissing` |
 | 2026-09-02 | Evening close coach reuses a persisted `close` pulse on page open (Today-style), instead of calling the model every visit | `docs/ai-settings-and-privacy.md`, `docs/daily-routines.md` | `loadLatestClosePulseForDate`, `EveningClosurePage` |

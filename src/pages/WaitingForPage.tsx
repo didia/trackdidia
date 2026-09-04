@@ -5,6 +5,7 @@ import { useGtdWorkspace } from "../app/use-gtd";
 import { BulkTaskToolbar } from "../components/BulkTaskToolbar";
 import { GtdTaskCard } from "../components/GtdTaskCard";
 import { SectionCard } from "../components/SectionCard";
+import { effectiveTaskContextIds } from "../lib/gtd/engine";
 
 export const WaitingForPage = () => {
   const { t } = useTranslation("gtd");
@@ -33,8 +34,8 @@ export const WaitingForPage = () => {
       return base;
     }
 
-    return base.filter((task) => task.contextIds.includes(selectedContextId));
-  }, [selectedContextId, tasks]);
+    return base.filter((task) => effectiveTaskContextIds(task, projects).includes(selectedContextId));
+  }, [projects, selectedContextId, tasks]);
 
   const selection = useTaskSelection(waitingTasks.map((task) => task.id));
 
