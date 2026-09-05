@@ -1,4 +1,9 @@
-oici le plan que je te recommande pour la suite, dans un ordre qui garde l’app utilisable très vite tout en collant à ton process réel.
+# Roadmap
+
+- [Project Planned Tasks](specs/todo/project-planned-tasks.md) — file d’actions planifiées
+  par projet, avec promotion contrôlée vers la prochaine action. Non implémenté.
+
+Voici le plan que je te recommande pour la suite, dans un ordre qui garde l’app utilisable très vite tout en collant à ton process réel.
 
 Prochaine étape: solidifier le quotidien
 
