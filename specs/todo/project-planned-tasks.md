@@ -22,14 +22,19 @@ the user to manually maintain two lists.
 - Add `planned` to the `Task["bucket"]` union and all bucket-aware UI, repository,
   serialization, import, filtering, and test fixtures. Existing buckets keep their
   current meanings.
-- A planned task has `plannedFor: string | null`, a local `YYYY-MM-DD` date used only for
-  display. It does not schedule the task, alter the task's bucket, create a recurrence,
-  affect Today, or change promotion eligibility.
+- While a task is in `planned`, its existing `scheduledFor: string | null` ISO instant is
+  reused as an optional planned date/time for display. It does not make the task scheduled,
+  alter its bucket, create a recurrence, affect Today, or change promotion eligibility.
+  A planned task with `scheduledFor` remains planned and never appears in the Scheduled
+  view. Its date does not trigger auto-promotion or affect planned ordering.
 - A planned task has `plannedOrder: number | null`. It is meaningful only while the task
   is active, in `planned`, and attached to a project. Order is ascending and stable.
-- When an active task leaves `planned`, clear both `plannedFor` and `plannedOrder`.
-  Completed or cancelled tasks that remain in `planned` retain those fields as historical
-  planning metadata.
+- While a task remains in `planned`, retain its optional `scheduledFor` planned date/time.
+  Moving Planned -> Scheduled retains `scheduledFor`. Moving Planned -> any other bucket,
+  including manual or automatic promotion to `next_action`, clears both `scheduledFor` and
+  `plannedOrder`, so the destination retains its existing non-Planned scheduling semantics.
+  Completed or cancelled tasks that remain in `planned` retain `scheduledFor` and their
+  order as historical planning metadata.
 - Completion, cancellation, deletion/archival, project reassignment, bucket changes, and
   edits that alter eligibility must reconcile the affected project(s). Reconciliation is
   idempotent and never promotes more than one item per project invocation.
@@ -44,7 +49,6 @@ the user to manually maintain two lists.
 Append SQLite migration **26**; do not rewrite migrations 1–25.
 
 ```sql
-ALTER TABLE gtd_tasks ADD COLUMN planned_for TEXT;
 ALTER TABLE gtd_tasks ADD COLUMN planned_order INTEGER;
 CREATE INDEX IF NOT EXISTS idx_tasks_project_planned_order
   ON gtd_tasks (project_id, planned_order)
@@ -56,8 +60,6 @@ Migration 26 must also normalize pre-existing rows defensively:
 - Set `planned_order = NULL` for every row not in `planned`.
 - Preserve no legacy planned rows (the bucket is new), but make normalization safe for
   interrupted/dev databases and future imports.
-- Validate or normalize `planned_for` at the repository boundary as a local `YYYY-MM-DD`
-  string or `null`; it is never converted through UTC.
 
 Update SQLite row mappings and the browser-preview `MemoryRepository` in lockstep.
 Both must expose the same fields and enforce the same invariants. The browser repository
@@ -70,22 +72,32 @@ callers to assemble multi-write promotion sequences:
 
 - `createPlannedTask(input)` (or a validated `createTask` extension) requires a project,
   assigns the next contiguous order, and reconciles only after the insert is durable.
+- `createTaskFromInput` must treat `input.bucket` as the requested bucket and must not
+  infer or overwrite it as `scheduled` merely because `input.scheduledFor` is present.
+  In particular, creating or saving a Planned task with a planned date/time persists
+  `bucket: "planned"` and its `scheduledFor` value together; no new planned-date field or
+  migration is introduced.
 - `saveTask`, `moveTask`, `completeTask`, `cancelTask`, project status changes, and project
-  reassignment validate planned-task fields and reconcile every affected project after their
-  primary mutation. Bulk controls use these same single-task mutation operations; they do
-  not require a new cross-task repository batch API or all-or-nothing user-action
-  transaction.
+  reassignment validate `plannedOrder`, retain `scheduledFor` while a task remains Planned
+  and when it moves Planned -> Scheduled, and clear both `scheduledFor` and `plannedOrder`
+  for every other Planned -> non-Scheduled bucket change. They reconcile every affected
+  project after their primary mutation. The repository implementation of the existing
+  `scheduledFor` setter must preserve `bucket: "planned"` when setting **or clearing** that
+  value on an active Planned task; it must not coerce the task to Scheduled. This invariant
+  applies independently of the editor/UI.
+  Bulk controls use these same single-task mutation operations; they do not require a new
+  cross-task repository batch API or all-or-nothing user-action transaction.
 - `promotePlannedTask(taskId)` is the explicit manual promotion operation. It rejects a
   non-active/non-planned task or inactive project, changes the selected task to
-  `next_action`, clears both planning fields, and does not silently promote another item
-  in that same call.
+  `next_action`, clears `scheduledFor` and `plannedOrder`, and does not silently promote
+  another item in that same call.
 - `movePlannedTask(taskId, direction)` swaps with its adjacent active planned sibling in
   the same project and returns the persisted rows. It rejects cross-project moves; a
   boundary request is a harmless no-op. Reordering does not itself cause a second
   promotion when the project already has an active next action.
 - `reconcileProjectNextAction(projectId)` is private or narrowly scoped. It checks the
   project status, counts active next actions, selects one ordered active planned task only
-  when that count is zero, promotes it, clears both planning fields, and compacts the
+  when that count is zero, promotes it, clears `scheduledFor` and `plannedOrder`, and compacts the
   remaining planned orders.
 - `reconcileProjects(projectIds)` deduplicates IDs and is the only fan-out helper. It
   makes project reassignment safe by reconciling both the old and new project.
@@ -111,12 +123,13 @@ accepted result and does not promote another task.
 
 - Creation appends after the largest active planned order in its project.
 - Moving a planned task to another project appends it in the destination and compacts the
-  source. Moving an active task out of planned clears both planning fields.
+  source. Moving an active task Planned -> Scheduled retains `scheduledFor` and clears
+  `plannedOrder`; moving it to any other bucket clears both fields.
 - Editing a planned task without changing its project retains its position.
 - After any mutation, active planned tasks in each affected project are normalized to
   contiguous `0..n-1` order. Inactive/completed/cancelled rows do not consume positions.
-- Auto-promotion consumes the first item, clears both planning fields, then compacts the
-  remaining queue. The reconciliation pass promotes at most one task even if no next
+- Auto-promotion consumes the first item, clears `scheduledFor` and `plannedOrder`, then
+  compacts the remaining queue. The reconciliation pass promotes at most one task even if no next
   action remains after other malformed data is normalized.
 
 ## UI
@@ -124,14 +137,26 @@ accepted result and does not promote another task.
 Add a **Planned** group inside each project on the GTD Projects surface; do not add it to
 the global Next Actions route or generic projectless bucket selectors.
 
-- The group lists active planned tasks in `plannedOrder`, displaying `plannedFor` as a
-  human-readable local date when present and no date state when absent.
+- The group lists active planned tasks in `plannedOrder`, displaying the reused
+  `scheduledFor` value as a human-readable local date when present and no date state when
+  absent. If an active planned task's local date is before the current local date, render
+  its date with the existing red overdue date-pill styling and accessible overdue text.
+  Today, future, and no-date states are non-overdue. Derive both dates with the established
+  local date helpers, never by UTC string slicing.
 - The project task creation control offers Planned only for a selected project. Creating a
-  planned task accepts an optional display-only `plannedFor` date and appends it to the
+  planned task accepts an optional `scheduledFor` date/time for planned-date display and appends it to the
   queue.
-- The task editor shows `plannedFor` and ordering controls only when the task is planned
-  and has a project. It validates/clears fields consistently when changing bucket or
-  project.
+- The task editor shows the existing `scheduledFor` control and ordering controls when the
+  task is planned and has a project. Setting that value must keep the task Planned; it is
+  not an implicit move to Scheduled. It retains the value while the task remains Planned
+  and for Planned -> Scheduled, but clears it for every other transition out of Planned;
+  it validates/clears `plannedOrder` consistently when changing bucket or project.
+- `ScheduledPage` must categorically exclude `bucket === "planned"` from **every**
+  group/section, including planned/scheduled and deadline-matching groups. Its scheduled
+  groups select only tasks whose `bucket === "scheduled"`; a `scheduledFor` value is an
+  additional display/sort datum for that bucket, not a reason to show a task from another
+  bucket. Therefore, Planned tasks with a reused `scheduledFor` or a matching deadline
+  never appear on this view.
 - Each planned row has explicit **Promote**, **Move up**, and **Move down** actions.
   Promote invokes the repository operation; arrow controls are disabled at the first and
   last positions. Keyboard and accessible labels describe the task and resulting action.
@@ -149,15 +174,18 @@ Task lifecycle events stay event-derived as described in [`docs/gtd.md`](../../d
 Use local `YYYY-MM-DD` values from the established date helpers for user actions,
 auto-promotion, and AI-proposal acceptance; never derive event dates with UTC conversion.
 Creating, moving, promoting, completing, or cancelling tasks must continue to emit the
-same lifecycle events required by `buildDailyTaskStats`. `plannedFor` itself emits no
-schedule or completion event and has no impact on daily counts.
+  same lifecycle events required by `buildDailyTaskStats`. A `scheduledFor` update while a
+  task remains Planned emits no schedule or completion event and has no impact on daily
+  counts. Leaving Planned clears the field unless the destination is Scheduled; that clear
+  follows the existing bucket-change lifecycle behavior and does not create an independent
+  schedule event. Non-Planned tasks retain the current `scheduledFor` semantics.
 
 ## Test plan
 
 Add focused tests beside the affected repositories, domain helpers, and UI:
 
-- Migration 26 maps both new columns, preserves old task data, and safely normalizes
-  invalid/non-planned order state.
+- Migration 26 maps `planned_order`, preserves old task data (including existing
+  `scheduled_for` values), and safely normalizes invalid/non-planned order state.
 - Memory and SQLite repository parity: project-only validation, append/compact/swap order,
   project reassignment, harmless reorder boundary no-ops, completed/cancelled exclusions,
   inactive-project behavior, and deterministic tie breaking.
@@ -169,10 +197,30 @@ Add focused tests beside the affected repositories, domain helpers, and UI:
 - `acceptAiGtdActionProposal` remains idempotent and transactionally updates task,
   reconciliation, and proposal state.
 - Event dates at local midnight and around timezone boundaries remain local calendar dates;
-  `plannedFor` changes do not affect daily task statistics.
-- UI coverage verifies group visibility, project-only creation, display-only dates,
-  editor validation, manual promotion, disabled order controls, translated labels, and
-  global Next Actions exclusion.
+  `scheduledFor` updates on Planned tasks do not affect daily task statistics.
+- Creation and save-path tests cover a Planned task with `scheduledFor`: both operations
+  retain `bucket: "planned"` and the supplied value, rather than coercing the task to
+  Scheduled. Cover the existing `createTaskFromInput` path specifically. In both
+  `MemoryRepository` and `TauriSqliteRepository`, test the existing `scheduledFor` setter
+  directly: setting and clearing that value on an active Planned task preserves
+  `bucket: "planned"`.
+- Repository/domain lifecycle tests prove that `scheduledFor` survives edits while a task
+  remains Planned and a Planned -> Scheduled move, but is cleared with `plannedOrder` for
+  Planned -> `next_action` (both explicit manual and automatic promotion) and every other
+  non-Scheduled destination bucket. Test completed/cancelled tasks that remain Planned
+  retain both fields as historical data.
+- Reconciliation tests cover past, today, and future planned dates and prove none of those
+  dates independently trigger or influence automatic promotion; only project activity,
+  active-next-action presence, and planned order decide eligibility.
+- UI coverage verifies group visibility, project-only creation, reused `scheduledFor`
+  display, editor behavior that does not auto-switch Planned tasks to Scheduled, manual
+  promotion, disabled order controls, translated labels, and global Next Actions exclusion.
+  ScheduledPage coverage verifies that it shows scheduled tasks with `scheduledFor` but
+  categorically excludes Planned tasks from every group, including a Planned task with a
+  reused `scheduledFor` and a Planned task whose deadline would otherwise match a
+  deadline-matching group.
+  It also verifies the accessible red overdue date-pill state only for active planned tasks
+  whose local planned date is before today.
 
 Run `npm run test` and `npm run build` before shipping. Because this feature changes GTD
 behavior and storage, update [`docs/gtd.md`](../../docs/gtd.md),
@@ -183,7 +231,10 @@ domain logs after implementation and before moving this spec to `done/`.
 
 - A project may intentionally contain multiple active next actions; auto-promotion must
   not reduce or reorder them.
-- Planned order is per project, not global, and planned dates never become scheduling.
+- Planned order is per project, not global. While a task is Planned, its reused
+  `scheduledFor` value is only a planned date/time and never makes it scheduled. It is
+  retained only while Planned and for a Planned -> Scheduled move; every other exit from
+  Planned clears it along with `plannedOrder`.
 - Imports and future integrations must route planned writes through repository validation;
   direct SQL would violate the invariant.
 - The greatest implementation risk is re-entrant repository transactions. Keep all
