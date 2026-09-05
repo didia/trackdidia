@@ -2,9 +2,9 @@
 
 **Status:** phases 0–6 implemented (see `docs/ai-settings-and-privacy.md` and `docs/logs/ai-settings-and-privacy.md`).
 **Scope boundary:** this file is roadmap/history, not the live behavior catalog.
-Per [`AGENTS.md`](../AGENTS.md), `docs/` describes shipped behavior only. Move facts
+Per [`AGENTS.md`](../../AGENTS.md), `docs/` describes shipped behavior only. Move facts
 into the relevant `docs/` page **as each phase ships**, and prepend to the matching
-domain log under [`docs/logs/`](../docs/logs/) at that point — not before.
+domain log under [`docs/logs/`](../../docs/logs/) at that point — not before.
 
 ---
 
@@ -21,9 +21,9 @@ The AI sees almost none of it.
 
 | Aspect | Today |
 |---|---|
-| Call sites | Two, both in [`TodayPage.tsx`](../src/pages/TodayPage.tsx) (`:68`, `:100`) |
+| Call sites | Two, both in [`TodayPage.tsx`](../../src/pages/TodayPage.tsx) (`:68`, `:100`) |
 | Output | One free-text French paragraph |
-| Trigger | Only fires if the user already wrote text ([`coach-input.ts:24`](../src/lib/ai/coach-input.ts)) |
+| Trigger | Only fires if the user already wrote text ([`coach-input.ts:24`](../../src/lib/ai/coach-input.ts)) |
 | Payload | `JSON.stringify({ today: DailyEntry, recentEntries: 7 })` — raw keys, no labels, units, targets or trends |
 | Persistence | In-memory `Map` in `AiCoachService`; lost on reload |
 | Plumbing | No timeout, no `max_tokens`, no temperature, no retry, no usage recording |
@@ -79,7 +79,7 @@ network.
 Streaks, trends, correlations, GTD health, anomalies **and stall detection** are
 calculated in pure TypeScript. The model receives *findings*, not raw rows, and its job is
 to select, prioritise and phrase them. This follows the existing convention in
-[`AGENTS.md`](../AGENTS.md) ("put deterministic rules in pure functions and test them
+[`AGENTS.md`](../../AGENTS.md) ("put deterministic rules in pure functions and test them
 directly") and has four payoffs: the numbers are always right, the prompt is small, the
 **local fallback becomes genuinely useful** instead of three canned sentences, and the
 pulse (§6) can decide whether calling the model is worth it *before* spending a token.
@@ -203,7 +203,7 @@ memories into a typed, labelled, compact snapshot per surface.
 What changes versus today's raw dump:
 
 - Metrics carry their **label, unit, target and delta versus trailing average** (from
-  [`definitions.ts`](../src/domain/definitions.ts) and `trends.ts`), not bare keys.
+  [`definitions.ts`](../../src/domain/definitions.ts) and `trends.ts`), not bare keys.
 - Principles carry **label, timing and streak**, not `respectTrc: null`.
 - GTD, Pomodoro and RescueTime state appear at all.
 - Findings replace row dumps; recent-entry arrays shrink to aggregates plus the current day.
@@ -260,7 +260,7 @@ day.** One surface, one memory thread, one panel; the *stance* adapts to the slo
 `AGENTS.md` lists background scheduling while the app is closed as an explicit product
 boundary, and this spec does not change that. The pulse is therefore a **catch-up
 model**, reusing the interval pattern already established for auto-backup in
-[`app-context.tsx:122`](../src/app/app-context.tsx):
+[`app-context.tsx:122`](../../src/app/app-context.tsx):
 
 - Default slots: `05, 13, 20` local hours, configurable — `open`, one midday `steer`,
   `wind_down`. One midday steer is a deliberate density choice: enough to catch a stalled
@@ -321,7 +321,7 @@ five get ignored within a week. So:
 - **Pulses are silent by default.** They update a persistent coach panel; the user reads
   it when they look.
 - An OS notification (via the existing `sendNotification` in
-  [`sound.ts:349`](../src/lib/pomodoro/sound.ts)) fires only on the **second consecutive
+  [`sound.ts:349`](../../src/lib/pomodoro/sound.ts)) fires only on the **second consecutive
   `stall`**, or when a configured threshold is crossed.
 - **Weekdays only.** No notification fires on Saturday or Sunday, whatever the
   classification. Weekend pulses still run and still update the panel — the day is
@@ -440,7 +440,7 @@ guessing.
 
 Append-only migrations starting at **21** (20 is the last shipped). Both
 `TauriSqliteRepository` and `MemoryRepository` must implement every new method — the
-parity contract in [`AGENTS.md`](../AGENTS.md) is not optional.
+parity contract in [`AGENTS.md`](../../AGENTS.md) is not optional.
 
 **Migration 21 — `ai_messages`**
 
@@ -499,7 +499,7 @@ distilled personal statements** in addition to the API key.
 
 ## 9. Provider hardening
 
-[`OpenRouterProvider`](../src/lib/ai/openrouter-provider.ts) currently has no timeout,
+[`OpenRouterProvider`](../../src/lib/ai/openrouter-provider.ts) currently has no timeout,
 which is a real hang risk — the RescueTime client already got a 20s abortable timeout and
 the AI path did not. This matters more once calls fire unattended on a pulse.
 
@@ -569,7 +569,7 @@ Explicitly out of scope for v2; revisit after phase 6:
 
 ## 13. Testing
 
-Per [`AGENTS.md`](../AGENTS.md), calculations get pure engine tests and screens get
+Per [`AGENTS.md`](../../AGENTS.md), calculations get pure engine tests and screens get
 Testing Library.
 
 - **Insight engine:** fixture-based unit tests per module; explicit cases for the minimum
@@ -610,7 +610,7 @@ Verification before any phase is called complete: `npm run test` then `npm run b
    the panel for a day of rest. Recommend downgrading weekend no-movement to `idle`: no
    call, no message. Second, Sunday and the first Saturday of the month are *working* days
    in this system — the weekly and monthly rituals live there, and `isFirstSaturdayOfMonth`
-   already exists in [`monthly-review.ts`](../src/domain/monthly-review.ts) — so a blanket
+   already exists in [`monthly-review.ts`](../../src/domain/monthly-review.ts) — so a blanket
    weekend band also removes the one weekend nudge worth having: the ritual is not done.
    Recommend a narrow carve-out notifying only for an unstarted ritual on those two days.
 3. **Distillation cadence.** Proposing memories after *every* evening may be noisy.
