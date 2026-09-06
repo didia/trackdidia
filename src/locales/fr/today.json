@@ -67,7 +67,8 @@
     "scheduled": "Scheduled",
     "waitingFor": "Waiting For",
     "somedayMaybe": "Someday / Maybe",
-    "reference": "References"
+    "reference": "References",
+    "planned": "Planifiée (projet)"
   },
   "previousDay": {
     "title": "Finaliser hier",

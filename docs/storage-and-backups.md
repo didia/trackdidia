@@ -136,6 +136,7 @@ Never renumber or rewrite a released migration. Add the next ID.
 | 23 | `ai_messages_append_only` | Drop `(surface, scope_key, input_hash)` uniqueness so regenerations append episodes; pending proposal uniqueness per message |
 | 24 | `create_ai_memories` | Semantic coach memory (patterns, profile, commitments); pending uniqueness excludes `memory` so weekly distill can store multiple candidates |
 | 25 | `ai_proposals_repeatable_weekly_types` | Pending proposal uniqueness excludes repeatable weekly types (`review_section_draft`, `weekly_objective`, `gtd_action`) in addition to `memory` |
+| 26 | `add_gtd_task_planned_order` | Adds `gtd_tasks.planned_order`, a partial index on `(project_id, planned_order)` for active Planned rows, and normalizes `planned_order = NULL` for every non-Planned row |
 
 ## Table reference
 
@@ -206,6 +207,7 @@ settings appear on existing installations without an immediate JSON backfill.
 | Dates | `scheduled_for` (instant), `deadline` (local date) |
 | Local recurrence | `recurring_template_id`, `recurrence_due_date`, `is_recurring_instance` |
 | Imported recurrence | `recurrence_group_id`, `pending_past_recurrences` |
+| Planned queue | `planned_order` (meaningful only for an active, Planned, project-attached row; see [GTD workspace](gtd.md#planned-bucket-project-only-queue)) |
 | Provenance | `source`, unique `source_external_id` |
 
 There are no declared SQL foreign keys. Referential consistency is enforced by

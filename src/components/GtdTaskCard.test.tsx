@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { vi } from "vitest";
 import type { Project, Task, TaskContext } from "../domain/types";
 import { GtdTaskCard } from "./GtdTaskCard";
 
@@ -22,6 +23,7 @@ const buildTask = (overrides: Partial<Task> = {}): Task => ({
   completedAt: null,
   recurrenceGroupId: null,
   pendingPastRecurrences: 0,
+  plannedOrder: null,
   source: "manual",
   sourceExternalId: null,
   createdAt: now,
@@ -143,5 +145,131 @@ describe("GtdTaskCard collapsed association copy", () => {
     renderCard(buildTask({ projectId: "project:mentoria" }), [buildProject()], [], true);
     expect(associationCopy()).toHaveTextContent("Sans contexte");
     expect(associationCopy()).not.toHaveTextContent("MentorIA");
+  });
+});
+
+const futureIsoDate = () => {
+  const future = new Date();
+  future.setDate(future.getDate() + 5);
+  return future.toISOString();
+};
+
+const pastIsoDate = () => {
+  const past = new Date();
+  past.setDate(past.getDate() - 5);
+  return past.toISOString();
+};
+
+describe("GtdTaskCard planned bucket", () => {
+  it("shows the reused scheduledFor as a local date with no overdue styling when it is not in the past", () => {
+    const { container } = renderCard(
+      buildTask({
+        bucket: "planned",
+        projectId: "project:mentoria",
+        plannedOrder: 0,
+        scheduledFor: futureIsoDate(),
+      }),
+      [buildProject()],
+    );
+    const pill = container.querySelector(".task-card__date-pill");
+    expect(pill).not.toBeNull();
+    expect(pill?.className).not.toContain("task-card__date-pill--overdue");
+  });
+
+  it("shows a no-date state when the planned task has no scheduledFor", () => {
+    renderCard(buildTask({ bucket: "planned", projectId: "project:mentoria", plannedOrder: 0 }), [
+      buildProject(),
+    ]);
+    expect(screen.getByText("Sans date")).toBeInTheDocument();
+  });
+
+  it("renders the overdue pill only for an active planned task whose local date is before today", () => {
+    const { container } = renderCard(
+      buildTask({
+        bucket: "planned",
+        projectId: "project:mentoria",
+        plannedOrder: 0,
+        scheduledFor: pastIsoDate(),
+      }),
+      [buildProject()],
+    );
+    const pill = container.querySelector(".task-card__date-pill");
+    expect(pill?.className).toContain("task-card__date-pill--overdue");
+    expect(pill?.textContent).toMatch(/dépassée/);
+  });
+
+  it("does not offer Planned as a bucket choice without a project", async () => {
+    const user = userEvent.setup();
+    renderCard(buildTask());
+    await user.click(screen.getByRole("button", { name: /^Ouvrir$/ }));
+    const options = screen.getByLabelText("Bucket GTD").querySelectorAll("option");
+    expect([...options].map((option) => option.getAttribute("value"))).not.toContain("planned");
+  });
+
+  it("offers Promote / Move up / Move down with accessible labels and disabled boundaries", () => {
+    render(
+      <GtdTaskCard
+        task={buildTask({ bucket: "planned", projectId: "project:mentoria", plannedOrder: 0 })}
+        projects={[buildProject()]}
+        contexts={[]}
+        onSave={noopAsync}
+        onSaveContext={async (context) => context}
+        onComplete={noopAsync}
+        onCancel={noopAsync}
+        onClearPastRecurrences={noopAsync}
+        onPromotePlannedTask={noopAsync}
+        onMovePlannedTask={async () => undefined}
+        plannedPosition={{ isFirst: true, isLast: false }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Promouvoir en next action" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Monter Réviser les documents/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Descendre Réviser les documents/ })).toBeEnabled();
+  });
+
+  it("setting scheduledFor via the date input keeps the task Planned instead of moving it to Scheduled", async () => {
+    const user = userEvent.setup();
+    renderCard(buildTask({ bucket: "planned", projectId: "project:mentoria", plannedOrder: 0 }), [
+      buildProject(),
+    ]);
+    await user.click(screen.getByRole("button", { name: /^Ouvrir$/ }));
+
+    const dateInput = document.querySelector('input[type="date"]') as HTMLInputElement;
+    await user.type(dateInput, "2026-04-15");
+
+    expect((screen.getByLabelText("Bucket GTD") as HTMLSelectElement).value).toBe("planned");
+  });
+
+  it("clearing the project on a Planned task moves it off Planned so saving does not throw", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn(async () => undefined);
+    render(
+      <GtdTaskCard
+        task={buildTask({ bucket: "planned", projectId: "project:mentoria", plannedOrder: 0 })}
+        projects={[buildProject()]}
+        contexts={[]}
+        onSave={onSave}
+        onSaveContext={async (context) => context}
+        onComplete={noopAsync}
+        onCancel={noopAsync}
+        onClearPastRecurrences={noopAsync}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /^Ouvrir$/ }));
+    await user.selectOptions(screen.getByLabelText("Projet"), "");
+    await user.click(screen.getByRole("button", { name: /^Enregistrer$/ }));
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bucket: "next_action",
+        projectId: null,
+        scheduledFor: null,
+        plannedOrder: null,
+      }),
+    );
+    await screen.findByRole("button", { name: /^Enregistrer$/ });
+    expect(screen.queryByRole("button", { name: /Enregistrement/ })).not.toBeInTheDocument();
   });
 });

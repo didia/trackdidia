@@ -1,11 +1,13 @@
 # Spec — Project Planned Tasks
 
-**Status:** approved, unstarted.
+**Status:** implemented and shipped (see [`docs/gtd.md`](../../docs/gtd.md) and
+[`docs/storage-and-backups.md`](../../docs/storage-and-backups.md), plus their domain
+logs under [`docs/logs/`](../../docs/logs/)).
 **Plan review:** independently approved through the required `plan-review` process after
 3 iterations.
 **Scope:** add an ordered, project-only planned-task bucket that supplies the next action
-when a project has none. This is a roadmap specification, not shipped behavior; the
-live GTD contract remains [`docs/gtd.md`](../../docs/gtd.md).
+when a project has none. This file is now roadmap history; the live GTD contract lives in
+[`docs/gtd.md`](../../docs/gtd.md).
 
 ## Outcome
 

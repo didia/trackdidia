@@ -63,6 +63,11 @@ import {
   filterTasks,
 } from "../gtd/engine";
 import { buildGoogleTasksImport } from "../gtd/google-tasks-import";
+import {
+  adjustPlannedFieldsForSave,
+  reconcileProjectPlannedTasks,
+  swapPlannedOrder,
+} from "../gtd/planned";
 import { addDays, cloneProject, cloneTask, createEntityId, nowIso } from "../gtd/shared";
 import {
   buildPomodoroSessionDetails,
@@ -238,6 +243,7 @@ interface TaskRow {
   completed_at: string | null;
   recurrence_group_id: string | null;
   pending_past_recurrences: number;
+  planned_order: number | null;
   source: Task["source"];
   source_external_id: string | null;
   created_at: string;
@@ -768,6 +774,19 @@ export const migrations: Migration[] = [
         ON ai_proposals (message_id, type)
         WHERE status = 'pending'
           AND type NOT IN ('memory', 'review_section_draft', 'weekly_objective', 'gtd_action');
+    `,
+  },
+  {
+    id: 26,
+    name: "add_gtd_task_planned_order",
+    sql: `
+      ALTER TABLE gtd_tasks ADD COLUMN planned_order INTEGER;
+
+      CREATE INDEX IF NOT EXISTS idx_tasks_project_planned_order
+        ON gtd_tasks (project_id, planned_order)
+        WHERE bucket = 'planned' AND status = 'active';
+
+      UPDATE gtd_tasks SET planned_order = NULL WHERE bucket != 'planned';
     `,
   },
 ];
@@ -1932,14 +1951,42 @@ export class TauriSqliteRepository implements AppRepository {
       await db.execute("BEGIN IMMEDIATE");
 
       try {
+        // Build the requested task in-memory and mutate it through `saveTaskInternal` (which
+        // takes the already-open connection) rather than the public `scheduleTask`/`moveTask`/
+        // `cancelTask` methods: those acquire the writer and open their own transaction, which
+        // would re-enter the writer and attempt a nested `BEGIN IMMEDIATE` from within this
+        // one.
+        let requested: Task = cloneTask(task);
         if (payload.action === "schedule") {
-          await this.scheduleTask(payload.taskId, scheduledDate);
+          requested =
+            task.status === "active" && task.bucket === "planned"
+              ? { ...task, scheduledFor: scheduledDate }
+              : {
+                  ...task,
+                  bucket: scheduledDate
+                    ? "scheduled"
+                    : task.bucket === "scheduled"
+                      ? "next_action"
+                      : task.bucket,
+                  scheduledFor: scheduledDate,
+                };
         } else if (payload.action === "defer") {
-          await this.moveTask(payload.taskId, "someday_maybe", task.contextIds, task.projectId);
+          requested = { ...task, bucket: "someday_maybe", contextIds: [...task.contextIds] };
         } else if (payload.action === "delegate") {
-          await this.moveTask(payload.taskId, "waiting_for", task.contextIds, task.projectId);
+          requested = { ...task, bucket: "waiting_for", contextIds: [...task.contextIds] };
         } else if (payload.action === "drop") {
-          await this.cancelTask(payload.taskId);
+          requested = { ...task, status: "cancelled", completedAt: null };
+        }
+
+        await this.saveTaskInternal(db, requested);
+
+        if (payload.action === "drop" && task.recurringTemplateId) {
+          const template = await this.requireRecurringTemplate(task.recurringTemplateId);
+          await this.persistRecurringTemplate({
+            ...cloneRecurringTemplate(template),
+            pendingMissedOccurrences: 0,
+            updatedAt: nowIso(),
+          });
         }
 
         const decidedAt = nowIso();
@@ -2391,51 +2438,68 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async saveProject(project: Project): Promise<Project> {
-    const db = await this.getDb();
-    const timestamp = nowIso();
-    const previous = project.id ? await this.getProjectById(project.id) : null;
-    const nextProject: Project = {
-      ...cloneProject(project),
-      id: project.id || createEntityId("project"),
-      title: project.title.trim(),
-      notes: project.notes.trim(),
-      statusChangedAt:
-        previous && previous.status !== project.status
-          ? timestamp
-          : project.statusChangedAt || previous?.statusChangedAt || project.createdAt || timestamp,
-      updatedAt: timestamp,
-      createdAt: project.createdAt || timestamp,
-    };
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      await db.execute("BEGIN IMMEDIATE");
 
-    await this.ensureContextsExist(nextProject.contextIds);
-    await db.execute(
-      `INSERT INTO gtd_projects (
-        id, title, status, status_changed_at, notes, context_ids_json, source, source_external_id, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      ON CONFLICT(id) DO UPDATE SET
-        title = excluded.title,
-        status = excluded.status,
-        status_changed_at = excluded.status_changed_at,
-        notes = excluded.notes,
-        context_ids_json = excluded.context_ids_json,
-        source = excluded.source,
-        source_external_id = excluded.source_external_id,
-        updated_at = excluded.updated_at`,
-      [
-        nextProject.id,
-        nextProject.title,
-        nextProject.status,
-        nextProject.statusChangedAt,
-        nextProject.notes,
-        JSON.stringify(nextProject.contextIds),
-        nextProject.source,
-        nextProject.sourceExternalId,
-        nextProject.createdAt,
-        nextProject.updatedAt,
-      ],
-    );
+      try {
+        const timestamp = nowIso();
+        const previous = project.id ? await this.getProjectById(project.id) : null;
+        const nextProject: Project = {
+          ...cloneProject(project),
+          id: project.id || createEntityId("project"),
+          title: project.title.trim(),
+          notes: project.notes.trim(),
+          statusChangedAt:
+            previous && previous.status !== project.status
+              ? timestamp
+              : project.statusChangedAt ||
+                previous?.statusChangedAt ||
+                project.createdAt ||
+                timestamp,
+          updatedAt: timestamp,
+          createdAt: project.createdAt || timestamp,
+        };
 
-    return nextProject;
+        await this.ensureContextsExist(nextProject.contextIds);
+        await db.execute(
+          `INSERT INTO gtd_projects (
+            id, title, status, status_changed_at, notes, context_ids_json, source, source_external_id, created_at, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          ON CONFLICT(id) DO UPDATE SET
+            title = excluded.title,
+            status = excluded.status,
+            status_changed_at = excluded.status_changed_at,
+            notes = excluded.notes,
+            context_ids_json = excluded.context_ids_json,
+            source = excluded.source,
+            source_external_id = excluded.source_external_id,
+            updated_at = excluded.updated_at`,
+          [
+            nextProject.id,
+            nextProject.title,
+            nextProject.status,
+            nextProject.statusChangedAt,
+            nextProject.notes,
+            JSON.stringify(nextProject.contextIds),
+            nextProject.source,
+            nextProject.sourceExternalId,
+            nextProject.createdAt,
+            nextProject.updatedAt,
+          ],
+        );
+
+        // A status change (e.g. resuming a paused project) can make it eligible for
+        // auto-promotion; pausing/completing/cancelling it must stop future auto-promotion.
+        await this.reconcileProjectsInternal(db, [nextProject.id]);
+
+        await db.execute("COMMIT");
+        return nextProject;
+      } catch (error) {
+        await this.rollbackQuietly(db);
+        throw error;
+      }
+    });
   }
 
   async listTasks(filters = {}): Promise<Task[]> {
@@ -2611,24 +2675,68 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async createTask(input: Parameters<AppRepository["createTask"]>[0]): Promise<Task> {
-    const nextTask = createTaskFromInput(input);
-    await this.persistTask(nextTask);
-    await this.persistEvents(buildLifecycleEvents(null, nextTask));
-    return cloneTask(nextTask);
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      await db.execute("BEGIN IMMEDIATE");
+
+      try {
+        const draft = createTaskFromInput(input);
+        const allTasks = await this.getAllTasks();
+        const nextTask = adjustPlannedFieldsForSave(null, draft, allTasks);
+
+        await this.persistTask(nextTask);
+        await this.persistEvents(buildLifecycleEvents(null, nextTask));
+        await this.reconcileProjectsInternal(db, [nextTask.projectId]);
+
+        await db.execute("COMMIT");
+        const stored = await this.getTaskById(nextTask.id);
+        return cloneTask(stored ?? nextTask);
+      } catch (error) {
+        await this.rollbackQuietly(db);
+        throw error;
+      }
+    });
   }
 
   async saveTask(task: Task): Promise<Task> {
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      await db.execute("BEGIN IMMEDIATE");
+
+      try {
+        const nextTask = await this.saveTaskInternal(db, task);
+        await db.execute("COMMIT");
+        return nextTask;
+      } catch (error) {
+        await this.rollbackQuietly(db);
+        throw error;
+      }
+    });
+  }
+
+  /**
+   * Transaction-scoped task save: validates/derives Planned invariants, persists the task,
+   * emits lifecycle events, and reconciles every affected project. Callers must already hold
+   * an open `BEGIN IMMEDIATE` transaction on `db` (via `runExclusive`) and must not re-enter
+   * the writer or open a nested transaction from here.
+   */
+  private async saveTaskInternal(db: Database, task: Task): Promise<Task> {
     const previous = await this.getTaskById(task.id);
+    const allTasks = await this.getAllTasks();
+    const adjusted = adjustPlannedFieldsForSave(previous, task, allTasks);
     const nextTask: Task = {
-      ...cloneTask(task),
-      title: task.title.trim(),
-      notes: task.notes.trim(),
+      ...cloneTask(adjusted),
+      title: adjusted.title.trim(),
+      notes: adjusted.notes.trim(),
       updatedAt: nowIso(),
     };
 
     await this.persistTask(nextTask);
     await this.persistEvents(buildLifecycleEvents(previous, nextTask));
-    return cloneTask(nextTask);
+    await this.reconcileProjectsInternal(db, [previous?.projectId, nextTask.projectId]);
+
+    const stored = await this.getTaskById(nextTask.id);
+    return cloneTask(stored ?? nextTask);
   }
 
   async moveTask(
@@ -2648,6 +2756,13 @@ export class TauriSqliteRepository implements AppRepository {
 
   async scheduleTask(taskId: string, scheduledFor: string | null): Promise<Task> {
     const current = await this.requireTask(taskId);
+
+    // Reusing `scheduledFor` on an active Planned task is a planned-date display update: it
+    // must never coerce the task to Scheduled.
+    if (current.status === "active" && current.bucket === "planned") {
+      return this.saveTask({ ...current, scheduledFor });
+    }
+
     return this.saveTask({
       ...current,
       bucket: scheduledFor
@@ -2657,6 +2772,96 @@ export class TauriSqliteRepository implements AppRepository {
           : current.bucket,
       scheduledFor,
     });
+  }
+
+  async promotePlannedTask(taskId: string): Promise<Task> {
+    const task = await this.requireTask(taskId);
+    if (task.status !== "active" || task.bucket !== "planned" || !task.projectId) {
+      throw new Error(`La tache ${taskId} n'est pas planifiee et active`);
+    }
+
+    const project = await this.getProjectById(task.projectId);
+    if (!project || project.status !== "active") {
+      throw new Error("Le projet associe n'est pas actif");
+    }
+
+    return this.saveTask({ ...task, bucket: "next_action" });
+  }
+
+  async movePlannedTask(taskId: string, direction: "up" | "down"): Promise<Task[]> {
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      await db.execute("BEGIN IMMEDIATE");
+
+      try {
+        const task = await this.requireTask(taskId);
+        if (task.status !== "active" || task.bucket !== "planned" || !task.projectId) {
+          throw new Error(`La tache ${taskId} n'est pas planifiee et active`);
+        }
+
+        const allTasks = await this.getAllTasks();
+        const updates = swapPlannedOrder(allTasks, taskId, direction, nowIso());
+        if (!updates) {
+          throw new Error(`La tache ${taskId} n'est pas planifiee et active`);
+        }
+
+        if (updates.length === 0) {
+          await db.execute("COMMIT");
+          return [cloneTask(task)];
+        }
+
+        for (const updated of updates) {
+          await this.persistTask(updated);
+        }
+
+        await db.execute("COMMIT");
+        const stored = await Promise.all(updates.map((updated) => this.getTaskById(updated.id)));
+        return stored.map((row, index) => cloneTask(row ?? updates[index]));
+      } catch (error) {
+        await this.rollbackQuietly(db);
+        throw error;
+      }
+    });
+  }
+
+  /**
+   * Deduplicates project ids and reconciles each once; used after every task mutation.
+   * Transaction-scoped: `_db` documents that this must run inside a caller-owned
+   * `BEGIN IMMEDIATE` and must never re-enter the writer or open a nested transaction.
+   */
+  private async reconcileProjectsInternal(
+    _db: Database,
+    projectIds: Array<string | null | undefined>,
+  ): Promise<void> {
+    const uniqueIds = [...new Set(projectIds.filter((id): id is string => Boolean(id)))];
+    for (const projectId of uniqueIds) {
+      await this.reconcileProjectNextActionInternal(projectId);
+    }
+  }
+
+  /**
+   * Promotes at most one planned task when the project is active and has zero active next
+   * actions, then compacts the remaining planned queue.
+   */
+  private async reconcileProjectNextActionInternal(projectId: string): Promise<void> {
+    const project = await this.getProjectById(projectId);
+    const tasksSnapshot = await this.getAllTasks();
+    const outcome = reconcileProjectPlannedTasks(tasksSnapshot, project, nowIso());
+
+    if (outcome.updatedTasks.length === 0) {
+      return;
+    }
+
+    const previousById = new Map(tasksSnapshot.map((task) => [task.id, task] as const));
+
+    for (const updated of outcome.updatedTasks) {
+      await this.persistTask(updated);
+
+      if (updated.id === outcome.promotedTaskId) {
+        const previous = previousById.get(updated.id) ?? null;
+        await this.persistEvents(buildLifecycleEvents(previous, updated));
+      }
+    }
   }
 
   async completeTask(taskId: string, completedAt = nowIso()): Promise<Task> {
@@ -3200,6 +3405,10 @@ export class TauriSqliteRepository implements AppRepository {
       completedAt: row.completed_at,
       recurrenceGroupId: row.recurrence_group_id,
       pendingPastRecurrences: Number(row.pending_past_recurrences ?? 0),
+      plannedOrder:
+        row.planned_order === null || row.planned_order === undefined
+          ? null
+          : Number(row.planned_order),
       source: row.source,
       sourceExternalId: row.source_external_id,
       createdAt: row.created_at,
@@ -3290,7 +3499,7 @@ export class TauriSqliteRepository implements AppRepository {
       `SELECT
         id, title, notes, status, bucket, context_ids_json, project_id, parent_task_id,
         scheduled_for, deadline, recurring_template_id, recurrence_due_date, is_recurring_instance,
-        completed_at, recurrence_group_id, pending_past_recurrences, source, source_external_id, created_at, updated_at
+        completed_at, recurrence_group_id, pending_past_recurrences, planned_order, source, source_external_id, created_at, updated_at
       FROM gtd_tasks`,
     );
     return rows.map((row) => this.deserializeTask(row));
@@ -3345,7 +3554,7 @@ export class TauriSqliteRepository implements AppRepository {
       `SELECT
         id, title, notes, status, bucket, context_ids_json, project_id, parent_task_id,
         scheduled_for, deadline, recurring_template_id, recurrence_due_date, is_recurring_instance,
-        completed_at, recurrence_group_id, pending_past_recurrences, source, source_external_id, created_at, updated_at
+        completed_at, recurrence_group_id, pending_past_recurrences, planned_order, source, source_external_id, created_at, updated_at
       FROM gtd_tasks
       WHERE id = $1`,
       [taskId],
@@ -3498,8 +3707,8 @@ export class TauriSqliteRepository implements AppRepository {
       `INSERT INTO gtd_tasks (
         id, title, notes, status, bucket, context_ids_json, project_id, parent_task_id, scheduled_for,
         deadline, recurring_template_id, recurrence_due_date, is_recurring_instance, completed_at, recurrence_group_id,
-        pending_past_recurrences, source, source_external_id, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+        pending_past_recurrences, planned_order, source, source_external_id, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         notes = excluded.notes,
@@ -3516,6 +3725,7 @@ export class TauriSqliteRepository implements AppRepository {
         completed_at = excluded.completed_at,
         recurrence_group_id = excluded.recurrence_group_id,
         pending_past_recurrences = excluded.pending_past_recurrences,
+        planned_order = excluded.planned_order,
         source = excluded.source,
         source_external_id = excluded.source_external_id,
         updated_at = excluded.updated_at`,
@@ -3536,6 +3746,7 @@ export class TauriSqliteRepository implements AppRepository {
         task.completedAt,
         task.recurrenceGroupId,
         task.pendingPastRecurrences,
+        task.plannedOrder,
         task.source,
         task.sourceExternalId,
         task.createdAt,

@@ -231,6 +231,7 @@ export const TodayPage = () => {
     waiting_for: t("buckets.waitingFor"),
     someday_maybe: t("buckets.somedayMaybe"),
     reference: t("buckets.reference"),
+    planned: t("buckets.planned"),
   };
 
   if (loading || !entry) {

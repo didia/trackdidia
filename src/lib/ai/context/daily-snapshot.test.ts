@@ -50,6 +50,7 @@ const buildTask = (overrides: Partial<Task>): Task => ({
   completedAt: null,
   recurrenceGroupId: null,
   pendingPastRecurrences: 0,
+  plannedOrder: null,
   source: "manual",
   sourceExternalId: null,
   createdAt: now,

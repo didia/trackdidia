@@ -9,7 +9,8 @@ const bucketOptions: Array<{
     | "buckets.waitingFor"
     | "buckets.somedayMaybe"
     | "buckets.reference"
-    | "buckets.scheduled";
+    | "buckets.scheduled"
+    | "buckets.planned";
 }> = [
   { value: "next_action", labelKey: "buckets.nextActions" },
   { value: "waiting_for", labelKey: "buckets.waitingFor" },
@@ -27,6 +28,12 @@ interface BulkTaskToolbarProps {
   onComplete: () => Promise<void>;
   onRemove: () => Promise<void>;
   onMove: (bucket: Task["bucket"]) => Promise<{ movedCount: number; skippedCount: number }>;
+  /**
+   * When every selected task resolves to exactly one candidate project, callers may pass its
+   * id to offer "Planned" as a bulk destination. Omit (or pass `null`) otherwise: Planned is a
+   * project-only bucket and must never be offered as a generic bulk target.
+   */
+  plannedProjectId?: string | null;
 }
 
 export const BulkTaskToolbar = ({
@@ -38,6 +45,7 @@ export const BulkTaskToolbar = ({
   onComplete,
   onRemove,
   onMove,
+  plannedProjectId,
 }: BulkTaskToolbarProps) => {
   const { t } = useTranslation("gtd");
   const { t: tCommon } = useTranslation("common");
@@ -50,8 +58,12 @@ export const BulkTaskToolbar = ({
     return null;
   }
 
+  const availableBucketOptions = plannedProjectId
+    ? [...bucketOptions, { value: "planned" as const, labelKey: "buckets.planned" as const }]
+    : bucketOptions;
+
   const targetLabel = t(
-    bucketOptions.find((option) => option.value === targetBucket)?.labelKey ??
+    availableBucketOptions.find((option) => option.value === targetBucket)?.labelKey ??
       "buckets.nextActions",
   );
 
@@ -122,7 +134,7 @@ export const BulkTaskToolbar = ({
                   value={targetBucket}
                   onChange={(event) => setTargetBucket(event.target.value as Task["bucket"])}
                 >
-                  {bucketOptions.map((option) => (
+                  {availableBucketOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {t(option.labelKey)}
                     </option>

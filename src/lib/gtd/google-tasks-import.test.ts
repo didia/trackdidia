@@ -81,6 +81,7 @@ describe("buildGoogleTasksImport", () => {
       sourceExternalId: "rec-1",
       recurrenceGroupId: "rec-1",
       pendingPastRecurrences: 1,
+      plannedOrder: null,
       scheduledFor: "2026-03-29T10:00:00.000Z",
     });
   });

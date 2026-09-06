@@ -285,6 +285,7 @@ export const buildTaskFromRecurringTemplate = (
   completedAt: null,
   recurrenceGroupId: null,
   pendingPastRecurrences,
+  plannedOrder: null,
   source: "manual",
   sourceExternalId: null,
   createdAt: new Date().toISOString(),

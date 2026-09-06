@@ -34,13 +34,21 @@ export const ScheduledPage = () => {
   const [showDeadlines, setShowDeadlines] = useState(true);
   const [previewOccurrences, setPreviewOccurrences] = useState<RecurringPreviewOccurrence[]>([]);
 
+  // Only bucket === "scheduled" populates these groups: `scheduledFor`/`deadline` are
+  // display/sort data for that bucket, never a reason to surface a task from another
+  // bucket (in particular, Planned tasks with a reused scheduledFor or deadline).
   const plannedTasks = useMemo(
     () =>
-      tasks.filter((task) => task.scheduledFor && task.scheduledFor.slice(0, 10) === selectedDate),
+      tasks.filter(
+        (task) =>
+          task.bucket === "scheduled" &&
+          task.scheduledFor &&
+          task.scheduledFor.slice(0, 10) === selectedDate,
+      ),
     [selectedDate, tasks],
   );
   const deadlineTasks = useMemo(
-    () => tasks.filter((task) => task.deadline === selectedDate),
+    () => tasks.filter((task) => task.bucket === "scheduled" && task.deadline === selectedDate),
     [selectedDate, tasks],
   );
   const weekStartDate = useMemo(() => getWeekStartSunday(selectedDate), [selectedDate]);
@@ -54,9 +62,14 @@ export const ScheduledPage = () => {
       weekDates.map((date) => ({
         date,
         plannedTasks: tasks.filter(
-          (task) => task.scheduledFor && task.scheduledFor.slice(0, 10) === date,
+          (task) =>
+            task.bucket === "scheduled" &&
+            task.scheduledFor &&
+            task.scheduledFor.slice(0, 10) === date,
         ),
-        deadlineTasks: tasks.filter((task) => task.deadline === date),
+        deadlineTasks: tasks.filter(
+          (task) => task.bucket === "scheduled" && task.deadline === date,
+        ),
       })),
     [tasks, weekDates],
   );

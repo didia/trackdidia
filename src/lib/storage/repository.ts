@@ -159,6 +159,10 @@ export interface AppRepository {
   scheduleTask(taskId: string, scheduledFor: string | null): Promise<Task>;
   completeTask(taskId: string, completedAt?: string): Promise<Task>;
   cancelTask(taskId: string): Promise<Task>;
+  /** Explicit manual promotion of a single active Planned task to `next_action`. */
+  promotePlannedTask(taskId: string): Promise<Task>;
+  /** Swaps a Planned task with its adjacent active sibling in the same project. */
+  movePlannedTask(taskId: string, direction: "up" | "down"): Promise<Task[]>;
   clearPastRecurrences(taskId: string): Promise<Task>;
   generateDailyRelationshipTasks(date: string): Promise<number>;
   computeDailyTaskStats(date: string): Promise<DailyTaskStats>;

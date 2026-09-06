@@ -71,6 +71,15 @@ export const buildIsoFromLocalDateAndTime = (
 
 export const isPastDueDateTime = (value: string): boolean => new Date(value).getTime() < Date.now();
 
+/** Local-calendar-day comparison: true only when `value`'s local date is before today's. */
+export const isPastLocalDate = (value: string | null): boolean => {
+  if (!value) {
+    return false;
+  }
+
+  return toLocalDateInputValue(value) < getTodayDate();
+};
+
 export const formatDurationSince = (value: string): string => {
   const diffMs = Math.max(0, Date.now() - new Date(value).getTime());
   const diffMinutes = Math.floor(diffMs / 60000);
