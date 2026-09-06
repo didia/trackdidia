@@ -1055,6 +1055,56 @@ describe("MemoryRepository planned tasks", () => {
     ).rejects.toThrow();
   });
 
+  it("rejects a planned task creation referencing a project that does not exist", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    await expect(
+      repository.createTask({
+        title: "Orpheline",
+        bucket: "planned",
+        projectId: "project:missing",
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("rejects saving a task into Planned when its project does not exist", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await makeProject(repository, "project:planned-save");
+
+    const task = await repository.createTask({
+      title: "A basculer",
+      bucket: "next_action",
+      projectId: "project:planned-save",
+    });
+
+    await expect(
+      repository.saveTask({ ...task, bucket: "planned", projectId: "project:missing" }),
+    ).rejects.toThrow();
+  });
+
+  it("rejects reassigning a Planned task to a project that does not exist", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await makeProject(repository, "project:planned-reassign");
+    await repository.createTask({
+      title: "Bloqueur",
+      bucket: "next_action",
+      projectId: "project:planned-reassign",
+    });
+
+    const planned = await repository.createTask({
+      title: "A reassigner",
+      bucket: "planned",
+      projectId: "project:planned-reassign",
+    });
+
+    await expect(
+      repository.saveTask({ ...planned, projectId: "project:missing" }),
+    ).rejects.toThrow();
+  });
+
   it("does not coerce a Planned task with scheduledFor into Scheduled on create", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();

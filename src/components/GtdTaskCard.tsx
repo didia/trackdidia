@@ -287,6 +287,7 @@ export const GtdTaskCard = ({
             <button
               className="button"
               type="button"
+              aria-label={t("task.promoteAria", { title: task.title })}
               onClick={() => void onPromotePlannedTask(task.id)}
             >
               {t("task.promote")}

@@ -77,6 +77,7 @@ import {
   cloneTask,
   createEntityId,
   nowIso,
+  toLocalDateString,
 } from "../gtd/shared";
 import {
   buildPomodoroSessionDetails,
@@ -1111,6 +1112,7 @@ export class MemoryRepository implements AppRepository {
   async createTask(input: CreateTaskInput): Promise<Task> {
     const draft = createTaskFromInput(input);
     const nextTask = this.applyPlannedAdjustments(null, draft);
+    this.assertPlannedProjectExists(nextTask);
     this.ensureContextsByIds(nextTask.contextIds);
     this.tasks.set(nextTask.id, cloneTask(nextTask));
     this.persistEvents(buildLifecycleEvents(null, nextTask));
@@ -1127,6 +1129,7 @@ export class MemoryRepository implements AppRepository {
       notes: adjusted.notes.trim(),
       updatedAt: nowIso(),
     };
+    this.assertPlannedProjectExists(nextTask);
 
     this.ensureContextsByIds(nextTask.contextIds);
     this.tasks.set(nextTask.id, cloneTask(nextTask));
@@ -1676,6 +1679,21 @@ export class MemoryRepository implements AppRepository {
     return adjustPlannedFieldsForSave(previous, requested, [...this.tasks.values()]);
   }
 
+  /**
+   * A Planned task must reference a project that actually exists; a stale or unknown id
+   * would silently become an orphaned, never-promoted Planned task (reconciliation no-ops
+   * when the project lookup returns null).
+   */
+  private assertPlannedProjectExists(task: Task): void {
+    if (task.bucket !== "planned" || !task.projectId) {
+      return;
+    }
+
+    if (!this.projects.has(task.projectId)) {
+      throw new Error(`Le projet ${task.projectId} est introuvable`);
+    }
+  }
+
   /** Deduplicates project ids and reconciles each once; used after every task mutation. */
   private reconcileProjects(projectIds: Array<string | null | undefined>): void {
     const uniqueIds = [...new Set(projectIds.filter((id): id is string => Boolean(id)))];
@@ -1701,7 +1719,15 @@ export class MemoryRepository implements AppRepository {
       this.tasks.set(updated.id, cloneTask(updated));
 
       if (updated.id === outcome.promotedTaskId && previous) {
-        this.persistEvents(buildLifecycleEvents(cloneTask(previous), updated));
+        // Auto-promotion lifecycle events must use the local calendar date, never a UTC
+        // slice of the instant timestamp: near local midnight those diverge by a day.
+        const localEventDate = toLocalDateString(updated.updatedAt);
+        this.persistEvents(
+          buildLifecycleEvents(cloneTask(previous), updated).map((event) => ({
+            ...event,
+            eventDate: localEventDate,
+          })),
+        );
       }
     }
   }

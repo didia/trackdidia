@@ -223,9 +223,67 @@ describe("GtdTaskCard planned bucket", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Promouvoir en next action" })).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "Promouvoir Réviser les documents en next action" }),
+    ).toBeEnabled();
     expect(screen.getByRole("button", { name: /Monter Réviser les documents/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: /Descendre Réviser les documents/ })).toBeEnabled();
+  });
+
+  it("gives each Promote button a task-specific accessible name when several Planned rows are shown", () => {
+    const project = buildProject();
+    const firstTask = buildTask({
+      id: "task:first",
+      title: "Preparer le brief",
+      bucket: "planned",
+      projectId: project.id,
+      plannedOrder: 0,
+    });
+    const secondTask = buildTask({
+      id: "task:second",
+      title: "Relire le contrat",
+      bucket: "planned",
+      projectId: project.id,
+      plannedOrder: 1,
+    });
+
+    render(
+      <>
+        <GtdTaskCard
+          task={firstTask}
+          projects={[project]}
+          contexts={[]}
+          onSave={noopAsync}
+          onSaveContext={async (context) => context}
+          onComplete={noopAsync}
+          onCancel={noopAsync}
+          onClearPastRecurrences={noopAsync}
+          onPromotePlannedTask={noopAsync}
+          onMovePlannedTask={async () => undefined}
+          plannedPosition={{ isFirst: true, isLast: false }}
+        />
+        <GtdTaskCard
+          task={secondTask}
+          projects={[project]}
+          contexts={[]}
+          onSave={noopAsync}
+          onSaveContext={async (context) => context}
+          onComplete={noopAsync}
+          onCancel={noopAsync}
+          onClearPastRecurrences={noopAsync}
+          onPromotePlannedTask={noopAsync}
+          onMovePlannedTask={async () => undefined}
+          plannedPosition={{ isFirst: false, isLast: true }}
+        />
+      </>,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Promouvoir Preparer le brief en next action" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Promouvoir Relire le contrat en next action" }),
+    ).toBeInTheDocument();
   });
 
   it("setting scheduledFor via the date input keeps the task Planned instead of moving it to Scheduled", async () => {

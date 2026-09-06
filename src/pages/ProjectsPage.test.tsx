@@ -94,7 +94,9 @@ describe("ProjectsPage planned group", () => {
     const user = await expandProjectCard("Refonte du site");
 
     await screen.findByText("Premiere tache planifiee");
-    const promoteButtons = screen.getAllByRole("button", { name: "Promouvoir en next action" });
+    const promoteButtons = screen.getAllByRole("button", {
+      name: /^Promouvoir .* en next action$/,
+    });
     await user.click(promoteButtons[0]);
 
     await waitFor(async () => {
@@ -116,5 +118,100 @@ describe("ProjectsPage planned group", () => {
     expect(moveDownButtons[moveDownButtons.length - 1]).toBeDisabled();
     expect(moveDownButtons[0]).toBeEnabled();
     expect(moveUpButtons[moveUpButtons.length - 1]).toBeEnabled();
+  });
+
+  it("keeps a project expanded across consecutive Planned queue actions", async () => {
+    const { repository } = await setupProjectWithPlannedQueue();
+    await renderWithApp(<ProjectsPage />, { repository });
+    const user = await expandProjectCard("Refonte du site");
+
+    await screen.findByText("Premiere tache planifiee");
+    const moveDownButtons = screen.getAllByRole("button", { name: /^Descendre/ });
+    await user.click(moveDownButtons[0]);
+
+    await waitFor(async () => {
+      const tasks = await repository.listTasks({ includeCompleted: true });
+      const first = tasks.find((task) => task.title === "Premiere tache planifiee");
+      expect(first?.plannedOrder).toBe(1);
+    });
+
+    // The card must still be expanded (and its content visible) after the reorder, even
+    // though both repositories return a fresh project object on every mutation.
+    expect(await screen.findByText("Premiere tache planifiee")).toBeInTheDocument();
+    expect(await screen.findByText("Deuxieme tache planifiee")).toBeInTheDocument();
+
+    const moveUpForFirst = screen.getByRole("button", {
+      name: /^Monter Premiere tache planifiee/,
+    });
+    await user.click(moveUpForFirst);
+
+    await waitFor(async () => {
+      const tasks = await repository.listTasks({ includeCompleted: true });
+      const first = tasks.find((task) => task.title === "Premiere tache planifiee");
+      expect(first?.plannedOrder).toBe(0);
+    });
+
+    expect(await screen.findByText("Premiere tache planifiee")).toBeInTheDocument();
+    expect(await screen.findByText("Deuxieme tache planifiee")).toBeInTheDocument();
+  });
+});
+
+describe("ProjectsPage search and context filtering", () => {
+  it("finds a project by title/context of its only active Planned task", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    const today = getTodayDate();
+    const searchableProjectId = "project:only-planned";
+    await repository.saveProject({
+      id: searchableProjectId,
+      title: "Projet sans next action visible",
+      status: "active",
+      statusChangedAt: `${today}T00:00:00.000Z`,
+      notes: "",
+      contextIds: [],
+      source: "manual",
+      sourceExternalId: null,
+      createdAt: `${today}T00:00:00.000Z`,
+      updatedAt: `${today}T00:00:00.000Z`,
+    });
+    await repository.createTask({
+      title: "Contacter le fournisseur exotique",
+      bucket: "planned",
+      projectId: searchableProjectId,
+    });
+
+    const otherProjectId = "project:unrelated";
+    await repository.saveProject({
+      id: otherProjectId,
+      title: "Projet sans lien",
+      status: "active",
+      statusChangedAt: `${today}T00:00:00.000Z`,
+      notes: "",
+      contextIds: [],
+      source: "manual",
+      sourceExternalId: null,
+      createdAt: `${today}T00:00:00.000Z`,
+      updatedAt: `${today}T00:00:00.000Z`,
+    });
+    await repository.createTask({
+      title: "Tache sans rapport",
+      bucket: "next_action",
+      projectId: otherProjectId,
+    });
+
+    const user = userEvent.setup();
+    await renderWithApp(<ProjectsPage />, { repository });
+
+    expect(await screen.findByText("Projet sans next action visible")).toBeInTheDocument();
+    expect(screen.getByText("Projet sans lien")).toBeInTheDocument();
+
+    const searchInput = screen.getByPlaceholderText(
+      "Rechercher un projet, une note ou une action liée",
+    );
+    await user.type(searchInput, "fournisseur exotique");
+
+    expect(await screen.findByText("Projet sans next action visible")).toBeInTheDocument();
+    expect(screen.queryByText("Projet sans lien")).not.toBeInTheDocument();
   });
 });

@@ -76,6 +76,23 @@ export const ProjectsPage = () => {
     return map;
   }, [tasks]);
 
+  // Search/context filtering must also match a project whose only eligible active task is
+  // Planned (visibly shown in the project's card): unlike `activeTasksByProject`, this map
+  // is not used for the ordinary task list/count and therefore keeps Planned tasks in.
+  const searchableTasksByProject = useMemo(() => {
+    const map = new Map<string, Task[]>();
+
+    tasks
+      .filter((task) => task.status === "active" && task.projectId)
+      .forEach((task) => {
+        const existing = map.get(task.projectId!) ?? [];
+        existing.push(task);
+        map.set(task.projectId!, existing);
+      });
+
+    return map;
+  }, [tasks]);
+
   const plannedTasksByProject = useMemo(() => {
     const map = new Map<string, Task[]>();
 
@@ -94,7 +111,7 @@ export const ProjectsPage = () => {
 
     return projects
       .filter((project) => {
-        const relatedTasks = activeTasksByProject.get(project.id) ?? [];
+        const relatedTasks = searchableTasksByProject.get(project.id) ?? [];
 
         const matchesStatus =
           statusFilter === "all"
@@ -157,7 +174,7 @@ export const ProjectsPage = () => {
 
         return left.title.localeCompare(right.title);
       });
-  }, [activeTasksByProject, contexts, projects, query, selectedContextId, statusFilter]);
+  }, [searchableTasksByProject, contexts, projects, query, selectedContextId, statusFilter]);
 
   return (
     <div className="page">
@@ -346,8 +363,15 @@ const GtdProjectCard = ({
 
   useEffect(() => {
     setDraft(project);
-    setExpanded(false);
   }, [project]);
+
+  // Both repositories return a fresh project object (new identity) after every mutation,
+  // including Planned queue actions (reorder, promote, planned-create/save). Keying this on
+  // the whole `project` reference would collapse an already-expanded card after every such
+  // action; key on the stable id instead so only switching to a different project collapses it.
+  useEffect(() => {
+    setExpanded(false);
+  }, [project.id]);
 
   const contextNames = project.contextIds
     .map((contextId) => contexts.find((context) => context.id === contextId)?.name ?? contextId)

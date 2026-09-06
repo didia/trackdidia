@@ -289,6 +289,7 @@
     "saving": "Enregistrement...",
     "save": "Enregistrer",
     "promote": "Promouvoir en next action",
+    "promoteAria": "Promouvoir {{title}} en next action",
     "moveUp": "Monter",
     "moveDown": "Descendre",
     "moveUpAria": "Monter {{title}} dans la file planifiée",
