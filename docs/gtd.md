@@ -15,6 +15,7 @@ and project records, and an event ledger used for daily statistics.
 | `waiting_for` | `/waiting-for` | Depends on an external response/action |
 | `someday_maybe` | `/someday-maybe` | Deferred possibility |
 | `reference` | `/references` | Non-actionable material |
+| `planned` | `/projects` (per-project group only) | Project-only ordered queue; not a route/global bucket |
 
 The shared `GtdTaskCard` can edit title, notes, bucket, project, contexts, scheduled
 date/time, and deadline. It can also complete or cancel the task. The collapsed
@@ -34,14 +35,67 @@ dropdown until the assignment changes, labeled with its status (`En pause`,
 project filter still lists every project.
 
 Bulk controls complete, cancel, or move selected tasks. A bulk move to Scheduled is
-skipped for tasks without `scheduledFor`.
+skipped for tasks without `scheduledFor`. Bulk controls never offer Planned as a
+destination unless a single valid target project is known; none of today's bulk
+surfaces (Inbox, Next Actions, Scheduled, Waiting For, Someday/Maybe, References)
+resolve one, so Planned is effectively project-card-only for now.
+
+## Planned bucket (project-only queue)
+
+`planned` is a project-only bucket: a task can only be created, moved, or saved into
+it while it has a `projectId`. It supplies a project's next action automatically when
+the project has none, without asking the user to maintain two lists.
+
+- Each active project's card on `/projects` shows a **Planned** group, ordered by
+  `plannedOrder` ascending. Each row shows the reused `scheduledFor` value as a
+  human-readable local date, or a no-date state when absent. If that local date is
+  before today, the row uses the existing red overdue date-pill styling with
+  accessible overdue text; today, future, and no-date states are never treated as
+  overdue.
+- While a task is Planned, its existing `scheduledFor` field is reused as an optional
+  planned date/time. It does not change the bucket, does not affect Today, does not
+  create a recurrence, and does not affect ordering or promotion eligibility. It never
+  appears on the Scheduled screen.
+- `plannedOrder` is meaningful only for an active, Planned, project-attached task.
+  Creating a Planned task appends it after the largest active planned order in its
+  project. After any mutation, a project's active planned tasks are renumbered to a
+  contiguous `0..n-1`; inactive/completed/cancelled rows never consume a position.
+- Moving a Planned task to another project appends it at the destination and compacts
+  the source. Moving Planned -> Scheduled retains `scheduledFor` and clears
+  `plannedOrder`. Moving Planned to any other bucket, including manual or automatic
+  promotion to Next Action, clears both `scheduledFor` and `plannedOrder`. A
+  completed or cancelled task that remains Planned keeps both as historical data.
+- **Auto-promotion**: whenever a task mutation, completion, cancellation, project
+  reassignment, or project status change affects a project, the repository
+  reconciles that project: if it is active and has zero active Next Actions, the
+  earliest active planned task (by `plannedOrder`, then `createdAt`, then `id`) is
+  promoted to Next Action and the remaining queue is compacted. Reconciliation never
+  promotes more than one task per project per invocation and is idempotent. An
+  inactive project, or one that already has an active Next Action, never
+  auto-promotes.
+- **Manual promotion**: each Planned row also has an explicit Promote action that
+  moves it straight to Next Action, plus Move up/Move down actions that swap it with
+  an adjacent active Planned sibling in the same project (disabled at the first/last
+  position; cross-project moves are rejected). Manual promotion is allowed even when
+  the project already has another active Next Action.
+- The project task-creation control on `/projects` offers Planned only while a
+  project is selected, with an optional planned date/time, and appends the new task
+  to that project's queue.
+- Global Next Actions and every group on the Scheduled screen categorically exclude
+  `planned`: Scheduled's groups only ever select `bucket === "scheduled"` tasks, so a
+  reused `scheduledFor` or a matching `deadline` on a Planned task never surfaces
+  there.
 
 ## Task model
 
 Important distinctions:
 
 - `status` is `active`, `completed`, or `cancelled`.
-- `scheduledFor` is an ISO instant and moving a task away from Scheduled clears it.
+- `scheduledFor` is an ISO instant and moving a task away from Scheduled clears it,
+  except Scheduled -> Planned and Planned -> Scheduled, which retain it (see
+  [Planned bucket](#planned-bucket-project-only-queue)).
+- `plannedOrder` is `number | null`; meaningful only for an active, Planned,
+  project-attached task.
 - `deadline` is a date-only constraint and does not by itself move the task.
 - `contextIds` is many-to-many by stored ID array. A task with an empty
   `contextIds` array inherits its project's contexts for collapsed-card labels
@@ -130,6 +184,11 @@ Task writes can emit:
 
 Events hold a local business date and an ISO event timestamp. The event ledger is
 used instead of reconstructing all history from the current task row.
+
+A `scheduledFor` update while a task remains Planned emits no schedule or completion
+event and has no effect on daily task statistics. Leaving Planned clears the field
+unless the destination is Scheduled, following the existing bucket-change lifecycle
+behavior above rather than an independent schedule event.
 
 Sunday carryover events use:
 

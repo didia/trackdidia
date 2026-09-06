@@ -251,7 +251,10 @@ describe("MemoryRepository", () => {
     const movedCount = await repository.moveTasksWithScheduledDatesToBucket("scheduled");
     const tasks = await repository.listTasks({ includeCompleted: true });
 
-    expect(movedCount).toBe(0);
+    // `createTaskFromInput` now honors an explicitly requested bucket ("reference") even when
+    // `scheduledFor` is also supplied, so the dated task starts out unmoved and this call is
+    // what actually moves it into Scheduled.
+    expect(movedCount).toBe(1);
     expect(tasks.find((task) => task.id === "task-date")?.bucket).toBe("scheduled");
     expect(tasks.find((task) => task.id === "task-no-date")?.bucket).toBe("reference");
   });
@@ -319,6 +322,7 @@ describe("MemoryRepository", () => {
     expect(tasksAfterCollapse[0]).toMatchObject({
       recurrenceGroupId: "rec-1",
       pendingPastRecurrences: 1,
+      plannedOrder: null,
       scheduledFor: "2026-03-29T10:00:00.000Z",
     });
 
@@ -594,6 +598,7 @@ describe("MemoryRepository", () => {
     expect(tasks[0]).toMatchObject({
       recurrenceDueDate: "2026-05-02",
       pendingPastRecurrences: 1,
+      plannedOrder: null,
     });
 
     await repository.applyRecurringEditScope(tasks[0].id, "series", {
@@ -985,6 +990,7 @@ describe("MemoryRepository", () => {
       completedAt: timestamp,
       recurrenceGroupId: null,
       pendingPastRecurrences: 0,
+      plannedOrder: null,
       source: "manual",
       sourceExternalId: null,
       createdAt: timestamp,
@@ -1018,5 +1024,368 @@ describe("MemoryRepository", () => {
 
     const entries = await repository.listDailyEntriesOnOrBefore("2026-06-01", 10);
     expect(entries.map((entry) => entry.date)).toEqual(["2026-06-01", "2026-01-01"]);
+  });
+});
+
+describe("MemoryRepository planned tasks", () => {
+  const makeProject = async (
+    repository: MemoryRepository,
+    id: string,
+    status: "active" | "on_hold" = "active",
+  ) =>
+    repository.saveProject({
+      id,
+      title: `Projet ${id}`,
+      status,
+      statusChangedAt: "2026-01-01T00:00:00.000Z",
+      notes: "",
+      contextIds: [],
+      source: "manual",
+      sourceExternalId: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+  it("rejects a projectless planned task on create", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    await expect(
+      repository.createTask({ title: "Sans projet", bucket: "planned" }),
+    ).rejects.toThrow();
+  });
+
+  it("rejects a planned task creation referencing a project that does not exist", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    await expect(
+      repository.createTask({
+        title: "Orpheline",
+        bucket: "planned",
+        projectId: "project:missing",
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("rejects saving a task into Planned when its project does not exist", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await makeProject(repository, "project:planned-save");
+
+    const task = await repository.createTask({
+      title: "A basculer",
+      bucket: "next_action",
+      projectId: "project:planned-save",
+    });
+
+    await expect(
+      repository.saveTask({ ...task, bucket: "planned", projectId: "project:missing" }),
+    ).rejects.toThrow();
+  });
+
+  it("rejects reassigning a Planned task to a project that does not exist", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await makeProject(repository, "project:planned-reassign");
+    await repository.createTask({
+      title: "Bloqueur",
+      bucket: "next_action",
+      projectId: "project:planned-reassign",
+    });
+
+    const planned = await repository.createTask({
+      title: "A reassigner",
+      bucket: "planned",
+      projectId: "project:planned-reassign",
+    });
+
+    await expect(
+      repository.saveTask({ ...planned, projectId: "project:missing" }),
+    ).rejects.toThrow();
+  });
+
+  it("does not coerce a Planned task with scheduledFor into Scheduled on create", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await makeProject(repository, "project:planned-create");
+    // Keep an existing active next action so the new planned task is not itself
+    // immediately auto-promoted, which would otherwise obscure the bucket assertion below.
+    await repository.createTask({
+      title: "Bloqueur",
+      bucket: "next_action",
+      projectId: "project:planned-create",
+    });
+
+    const task = await repository.createTask({
+      title: "Planifiee",
+      bucket: "planned",
+      projectId: "project:planned-create",
+      scheduledFor: "2026-05-01T09:00:00.000Z",
+    });
+
+    expect(task.bucket).toBe("planned");
+    expect(task.scheduledFor).toBe("2026-05-01T09:00:00.000Z");
+    expect(task.plannedOrder).toBe(0);
+  });
+
+  it("appends new planned tasks in contiguous order and auto-promotes the first when eligible", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await makeProject(repository, "project:queue");
+
+    const first = await repository.createTask({
+      title: "Un",
+      bucket: "planned",
+      projectId: "project:queue",
+    });
+    const second = await repository.createTask({
+      title: "Deux",
+      bucket: "planned",
+      projectId: "project:queue",
+    });
+
+    // The project had zero active next actions, so the first planned task is auto-promoted
+    // immediately after being durably inserted.
+    const tasks = await repository.listTasks({
+      projectId: "project:queue",
+      includeCompleted: true,
+    });
+    const promoted = tasks.find((task) => task.id === first.id)!;
+    const remaining = tasks.find((task) => task.id === second.id)!;
+    expect(promoted.bucket).toBe("next_action");
+    expect(promoted.plannedOrder).toBeNull();
+    expect(remaining.bucket).toBe("planned");
+    expect(remaining.plannedOrder).toBe(0);
+  });
+
+  it("does not auto-promote for an inactive project", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await makeProject(repository, "project:paused", "on_hold");
+
+    const task = await repository.createTask({
+      title: "Planifiee",
+      bucket: "planned",
+      projectId: "project:paused",
+    });
+
+    expect(task.bucket).toBe("planned");
+  });
+
+  it("promotePlannedTask explicitly promotes without touching sibling order semantics", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await makeProject(repository, "project:manual");
+    await repository.createTask({
+      title: "Existante",
+      bucket: "next_action",
+      projectId: "project:manual",
+    });
+    const planned = await repository.createTask({
+      title: "Planifiee",
+      bucket: "planned",
+      projectId: "project:manual",
+    });
+
+    // A next action already exists, so creation itself must not have auto-promoted it.
+    expect(planned.bucket).toBe("planned");
+
+    const promoted = await repository.promotePlannedTask(planned.id);
+    expect(promoted.bucket).toBe("next_action");
+    expect(promoted.scheduledFor).toBeNull();
+    expect(promoted.plannedOrder).toBeNull();
+  });
+
+  it("rejects promoting a task from an inactive project", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await makeProject(repository, "project:onhold", "on_hold");
+    const planned = await repository.createTask({
+      title: "Planifiee",
+      bucket: "planned",
+      projectId: "project:onhold",
+    });
+
+    await expect(repository.promotePlannedTask(planned.id)).rejects.toThrow();
+  });
+
+  it("movePlannedTask swaps adjacent siblings and is a no-op at boundaries", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await makeProject(repository, "project:order");
+    await repository.createTask({
+      title: "Bloqueur",
+      bucket: "next_action",
+      projectId: "project:order",
+    });
+    const a = await repository.createTask({
+      title: "A",
+      bucket: "planned",
+      projectId: "project:order",
+    });
+    const b = await repository.createTask({
+      title: "B",
+      bucket: "planned",
+      projectId: "project:order",
+    });
+
+    const swapped = await repository.movePlannedTask(b.id, "up");
+    expect(swapped.find((task) => task.id === a.id)?.plannedOrder).toBe(1);
+    expect(swapped.find((task) => task.id === b.id)?.plannedOrder).toBe(0);
+
+    const boundary = await repository.movePlannedTask(b.id, "up");
+    expect(boundary).toHaveLength(1);
+  });
+
+  it("rejects a cross-project move as a no-op-safe error", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await makeProject(repository, "project:x");
+    const task = await repository.createTask({
+      title: "Solo",
+      bucket: "next_action",
+      projectId: "project:x",
+    });
+
+    await expect(repository.movePlannedTask(task.id, "up")).rejects.toThrow();
+  });
+
+  it("moving a planned task to another project appends at destination and compacts the source", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await makeProject(repository, "project:src");
+    await makeProject(repository, "project:dst");
+    await repository.createTask({
+      title: "Bloqueur",
+      bucket: "next_action",
+      projectId: "project:src",
+    });
+    await repository.createTask({
+      title: "Bloqueur2",
+      bucket: "next_action",
+      projectId: "project:dst",
+    });
+    const a = await repository.createTask({
+      title: "A",
+      bucket: "planned",
+      projectId: "project:src",
+    });
+    const b = await repository.createTask({
+      title: "B",
+      bucket: "planned",
+      projectId: "project:src",
+    });
+
+    await repository.saveTask({ ...a, projectId: "project:dst" });
+
+    const tasks = await repository.listTasks({ includeCompleted: true });
+    const movedA = tasks.find((task) => task.id === a.id)!;
+    const compactedB = tasks.find((task) => task.id === b.id)!;
+    expect(movedA.projectId).toBe("project:dst");
+    expect(movedA.plannedOrder).toBe(0);
+    expect(compactedB.plannedOrder).toBe(0);
+  });
+
+  it("completing the only next action auto-promotes the earliest planned task", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await makeProject(repository, "project:complete");
+    const active = await repository.createTask({
+      title: "Active",
+      bucket: "next_action",
+      projectId: "project:complete",
+    });
+    const planned = await repository.createTask({
+      title: "Planifiee",
+      bucket: "planned",
+      projectId: "project:complete",
+    });
+
+    await repository.completeTask(active.id);
+
+    const tasks = await repository.listTasks({
+      projectId: "project:complete",
+      includeCompleted: true,
+    });
+    expect(tasks.find((task) => task.id === planned.id)?.bucket).toBe("next_action");
+  });
+
+  it("scheduleTask on an active Planned task preserves bucket while setting or clearing the date", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await makeProject(repository, "project:sched");
+    await repository.createTask({
+      title: "Bloqueur",
+      bucket: "next_action",
+      projectId: "project:sched",
+    });
+    const planned = await repository.createTask({
+      title: "Planifiee",
+      bucket: "planned",
+      projectId: "project:sched",
+    });
+
+    const withDate = await repository.scheduleTask(planned.id, "2026-06-01T09:00:00.000Z");
+    expect(withDate.bucket).toBe("planned");
+    expect(withDate.scheduledFor).toBe("2026-06-01T09:00:00.000Z");
+
+    const cleared = await repository.scheduleTask(planned.id, null);
+    expect(cleared.bucket).toBe("planned");
+    expect(cleared.scheduledFor).toBeNull();
+  });
+
+  it("acceptAiGtdActionProposal remains idempotent and reconciles the project atomically", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await makeProject(repository, "project:ai");
+    const active = await repository.createTask({
+      title: "Active",
+      bucket: "next_action",
+      projectId: "project:ai",
+      id: "task:ai-active",
+    });
+    await repository.createTask({
+      title: "Planifiee",
+      bucket: "planned",
+      projectId: "project:ai",
+      id: "task:ai-planned",
+    });
+
+    const proposal = {
+      id: "ai-proposal:drop",
+      messageId: "ai-message:drop",
+      type: "gtd_action" as const,
+      payloadJson: JSON.stringify({ taskId: active.id, action: "drop", reason: "Obsolete" }),
+      status: "pending" as const,
+      appliedEntityId: null,
+      decidedAt: null,
+      createdAt: "2026-06-01T00:00:00.000Z",
+    };
+    await repository.saveAiProposal(proposal);
+
+    const first = await repository.acceptAiGtdActionProposal(proposal, "2026-06-01");
+    expect(first.taskId).toBe(active.id);
+    expect(first.proposal.status).toBe("accepted");
+
+    const afterDrop = await repository.listTasks({
+      projectId: "project:ai",
+      includeCompleted: true,
+    });
+    expect(afterDrop.find((task) => task.id === "task:ai-planned")?.bucket).toBe("next_action");
+
+    const second = await repository.acceptAiGtdActionProposal(proposal, "2026-06-01");
+    expect(second.proposal.status).toBe("accepted");
+    expect(second.taskId).toBe(active.id);
+
+    // A repeat call must not promote yet another planned task.
+    const afterSecond = await repository.listTasks({
+      projectId: "project:ai",
+      includeCompleted: true,
+    });
+    const activeNextActionCount = afterSecond.filter(
+      (task) => task.status === "active" && task.bucket === "next_action",
+    ).length;
+    expect(activeNextActionCount).toBe(1);
   });
 });

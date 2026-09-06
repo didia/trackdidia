@@ -564,7 +564,8 @@ export type TaskBucket =
   | "scheduled"
   | "waiting_for"
   | "someday_maybe"
-  | "reference";
+  | "reference"
+  | "planned";
 export type ProjectStatus = "active" | "on_hold" | "completed" | "cancelled";
 export type RecurringTargetBucket = Extract<TaskBucket, "next_action" | "scheduled">;
 export type RecurringRuleType = "daily" | "weekly" | "monthly";
@@ -615,6 +616,7 @@ export interface Task {
   completedAt: string | null;
   recurrenceGroupId: string | null;
   pendingPastRecurrences: number;
+  plannedOrder: number | null;
   source: "manual" | "google_import";
   sourceExternalId: string | null;
   createdAt: string;

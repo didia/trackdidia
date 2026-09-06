@@ -5,7 +5,14 @@ export const useTaskSelection = (taskIds: string[]) => {
 
   useEffect(() => {
     const allowed = new Set(taskIds);
-    setSelectedTaskIds((current) => current.filter((taskId) => allowed.has(taskId)));
+    setSelectedTaskIds((current) => {
+      const filtered = current.filter((taskId) => allowed.has(taskId));
+      // Callers frequently pass a freshly mapped array (`tasks.map((t) => t.id)`) on every
+      // render, so `taskIds` is rarely reference-stable. Returning the same `current` array
+      // when nothing was actually removed lets React bail out of re-rendering instead of
+      // looping forever on a same-content-but-new-reference dependency.
+      return filtered.length === current.length ? current : filtered;
+    });
   }, [taskIds]);
 
   const selectedSet = useMemo(() => new Set(selectedTaskIds), [selectedTaskIds]);

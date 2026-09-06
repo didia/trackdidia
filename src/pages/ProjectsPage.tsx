@@ -3,9 +3,10 @@ import { useTranslation } from "react-i18next";
 import { useGtdWorkspace } from "../app/use-gtd";
 import { GtdTaskCard } from "../components/GtdTaskCard";
 import { SectionCard } from "../components/SectionCard";
-import type { Project, ProjectStatus, Task, TaskContext } from "../domain/types";
-import { formatDurationSince } from "../lib/date";
+import type { CreateTaskInput, Project, ProjectStatus, Task, TaskContext } from "../domain/types";
+import { buildIsoFromLocalDateAndTime, formatDurationSince } from "../lib/date";
 import { formatAssociationCopy } from "../lib/gtd/engine";
+import { sortedActivePlannedTasks } from "../lib/gtd/planned";
 import { createEntityId, nowIso } from "../lib/gtd/shared";
 
 const projectStatusKey = {
@@ -47,11 +48,14 @@ export const ProjectsPage = () => {
     loading,
     saveProject,
     saveTask,
+    createTask,
     saveContext,
     applyRecurringEditScope,
     completeTask,
     cancelTask,
     clearPastRecurrences,
+    promotePlannedTask,
+    movePlannedTask,
   } = useGtdWorkspace();
   const [title, setTitle] = useState("");
   const [selectedContextId, setSelectedContextId] = useState("all");
@@ -59,6 +63,23 @@ export const ProjectsPage = () => {
   const [query, setQuery] = useState("");
 
   const activeTasksByProject = useMemo(() => {
+    const map = new Map<string, Task[]>();
+
+    tasks
+      .filter((task) => task.status === "active" && task.projectId && task.bucket !== "planned")
+      .forEach((task) => {
+        const existing = map.get(task.projectId!) ?? [];
+        existing.push(task);
+        map.set(task.projectId!, existing);
+      });
+
+    return map;
+  }, [tasks]);
+
+  // Search/context filtering must also match a project whose only eligible active task is
+  // Planned (visibly shown in the project's card): unlike `activeTasksByProject`, this map
+  // is not used for the ordinary task list/count and therefore keeps Planned tasks in.
+  const searchableTasksByProject = useMemo(() => {
     const map = new Map<string, Task[]>();
 
     tasks
@@ -72,12 +93,25 @@ export const ProjectsPage = () => {
     return map;
   }, [tasks]);
 
+  const plannedTasksByProject = useMemo(() => {
+    const map = new Map<string, Task[]>();
+
+    for (const project of projects) {
+      const ordered = sortedActivePlannedTasks(tasks, project.id);
+      if (ordered.length > 0) {
+        map.set(project.id, ordered);
+      }
+    }
+
+    return map;
+  }, [projects, tasks]);
+
   const visibleProjects = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
 
     return projects
       .filter((project) => {
-        const relatedTasks = activeTasksByProject.get(project.id) ?? [];
+        const relatedTasks = searchableTasksByProject.get(project.id) ?? [];
 
         const matchesStatus =
           statusFilter === "all"
@@ -140,7 +174,7 @@ export const ProjectsPage = () => {
 
         return left.title.localeCompare(right.title);
       });
-  }, [activeTasksByProject, contexts, projects, query, selectedContextId, statusFilter]);
+  }, [searchableTasksByProject, contexts, projects, query, selectedContextId, statusFilter]);
 
   return (
     <div className="page">
@@ -252,13 +286,17 @@ export const ProjectsPage = () => {
                 contexts={contexts}
                 projects={projects}
                 tasks={activeTasksByProject.get(project.id) ?? []}
+                plannedTasks={plannedTasksByProject.get(project.id) ?? []}
                 onSaveProject={saveProject}
                 onSaveTask={saveTask}
+                onCreateTask={createTask}
                 onSaveContext={saveContext}
                 onApplyRecurringEditScope={applyRecurringEditScope}
                 onCompleteTask={completeTask}
                 onCancelTask={cancelTask}
                 onClearPastRecurrences={clearPastRecurrences}
+                onPromotePlannedTask={promotePlannedTask}
+                onMovePlannedTask={movePlannedTask}
               />
             ))}
           </div>
@@ -273,20 +311,26 @@ const GtdProjectCard = ({
   contexts,
   projects,
   tasks,
+  plannedTasks,
   onSaveProject,
   onSaveTask,
+  onCreateTask,
   onSaveContext,
   onApplyRecurringEditScope,
   onCompleteTask,
   onCancelTask,
   onClearPastRecurrences,
+  onPromotePlannedTask,
+  onMovePlannedTask,
 }: {
   project: Project;
   contexts: TaskContext[];
   projects: Project[];
   tasks: Task[];
+  plannedTasks: Task[];
   onSaveProject: (project: Project) => Promise<Project>;
   onSaveTask: (task: Task) => Promise<unknown>;
+  onCreateTask: (input: CreateTaskInput) => Promise<Task>;
   onSaveContext: (context: TaskContext) => Promise<TaskContext>;
   onApplyRecurringEditScope: (
     taskId: string,
@@ -304,16 +348,30 @@ const GtdProjectCard = ({
   onCompleteTask: (taskId: string) => Promise<unknown>;
   onCancelTask: (taskId: string) => Promise<unknown>;
   onClearPastRecurrences: (taskId: string) => Promise<unknown>;
+  onPromotePlannedTask: (taskId: string) => Promise<unknown>;
+  onMovePlannedTask: (taskId: string, direction: "up" | "down") => Promise<unknown>;
 }) => {
   const { t } = useTranslation("gtd");
+  const [plannedTitle, setPlannedTitle] = useState("");
+  const [plannedDate, setPlannedDate] = useState("");
+  const [plannedTime, setPlannedTime] = useState("");
+  const [creatingPlanned, setCreatingPlanned] = useState(false);
+  const [plannedError, setPlannedError] = useState("");
   const [draft, setDraft] = useState(project);
   const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setDraft(project);
-    setExpanded(false);
   }, [project]);
+
+  // Both repositories return a fresh project object (new identity) after every mutation,
+  // including Planned queue actions (reorder, promote, planned-create/save). Keying this on
+  // the whole `project` reference would collapse an already-expanded card after every such
+  // action; key on the stable id instead so only switching to a different project collapses it.
+  useEffect(() => {
+    setExpanded(false);
+  }, [project.id]);
 
   const contextNames = project.contextIds
     .map((contextId) => contexts.find((context) => context.id === contextId)?.name ?? contextId)
@@ -506,6 +564,114 @@ const GtdProjectCard = ({
                     }}
                     onClearPastRecurrences={async (taskId) => {
                       await onClearPastRecurrences(taskId);
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="project-card__planned">
+            <h4 className="schedule-section__title">{t("projects.card.plannedTitle")}</h4>
+
+            <div className="inline-form">
+              <input
+                value={plannedTitle}
+                onChange={(event) => setPlannedTitle(event.target.value)}
+                placeholder={t("projects.card.plannedPlaceholder")}
+              />
+              <input
+                type="date"
+                value={plannedDate}
+                onChange={(event) => setPlannedDate(event.target.value)}
+                aria-label={t("projects.card.plannedDateAria")}
+              />
+              <input
+                type="time"
+                value={plannedTime}
+                disabled={!plannedDate}
+                onChange={(event) => setPlannedTime(event.target.value)}
+                aria-label={t("projects.card.plannedTimeAria")}
+              />
+              <button
+                className="button button--primary"
+                type="button"
+                disabled={creatingPlanned || !plannedTitle.trim()}
+                onClick={async () => {
+                  setCreatingPlanned(true);
+                  setPlannedError("");
+
+                  try {
+                    await onCreateTask({
+                      title: plannedTitle,
+                      bucket: "planned",
+                      projectId: project.id,
+                      scheduledFor: buildIsoFromLocalDateAndTime(plannedDate, plannedTime, null),
+                    });
+                    setPlannedTitle("");
+                    setPlannedDate("");
+                    setPlannedTime("");
+                  } catch (error) {
+                    setPlannedError(error instanceof Error ? error.message : t("errors.saveTask"));
+                  } finally {
+                    setCreatingPlanned(false);
+                  }
+                }}
+              >
+                {t("projects.card.plannedAdd")}
+              </button>
+            </div>
+
+            {plannedError ? <p className="task-card__context-error">{plannedError}</p> : null}
+
+            {plannedTasks.length === 0 ? (
+              <p className="empty-copy">{t("projects.card.plannedEmpty")}</p>
+            ) : (
+              <div className="task-list">
+                {plannedTasks.map((task, index) => (
+                  <GtdTaskCard
+                    key={task.id}
+                    task={task}
+                    contexts={contexts}
+                    projects={projects}
+                    hideProjectTitle
+                    onSave={async (nextTask) => {
+                      await onSaveTask(nextTask);
+                    }}
+                    onSaveContext={onSaveContext}
+                    onApplyRecurringEditScope={onApplyRecurringEditScope}
+                    onComplete={async (taskId) => {
+                      await onCompleteTask(taskId);
+                    }}
+                    onCancel={async (taskId) => {
+                      await onCancelTask(taskId);
+                    }}
+                    onClearPastRecurrences={async (taskId) => {
+                      await onClearPastRecurrences(taskId);
+                    }}
+                    onPromotePlannedTask={async (taskId) => {
+                      setPlannedError("");
+                      try {
+                        await onPromotePlannedTask(taskId);
+                      } catch (error) {
+                        setPlannedError(
+                          error instanceof Error ? error.message : t("errors.saveTask"),
+                        );
+                      }
+                    }}
+                    onMovePlannedTask={async (taskId, direction) => {
+                      setPlannedError("");
+                      try {
+                        await onMovePlannedTask(taskId, direction);
+                      } catch (error) {
+                        setPlannedError(
+                          error instanceof Error ? error.message : t("errors.saveTask"),
+                        );
+                      }
+                    }}
+                    plannedPosition={{
+                      isFirst: index === 0,
+                      isLast: index === plannedTasks.length - 1,
                     }}
                   />
                 ))}

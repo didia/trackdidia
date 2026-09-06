@@ -1,4 +1,10 @@
-import { buildIsoFromLocalDateAndTime, toLocalDateInputValue, toLocalTimeInputValue } from "./date";
+import { afterEach, vi } from "vitest";
+import {
+  buildIsoFromLocalDateAndTime,
+  isPastLocalDate,
+  toLocalDateInputValue,
+  toLocalTimeInputValue,
+} from "./date";
 
 describe("date helpers", () => {
   it("round-trips a local scheduled date and time", () => {
@@ -14,5 +20,24 @@ describe("date helpers", () => {
 
     expect(toLocalDateInputValue(nextIso)).toBe("2026-04-05");
     expect(toLocalTimeInputValue(nextIso)).toBe(toLocalTimeInputValue(fallbackIso));
+  });
+});
+
+describe("isPastLocalDate", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("returns false for null", () => {
+    expect(isPastLocalDate(null)).toBe(false);
+  });
+
+  it("is false for today's and future local dates, true only for a date strictly before today", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 5, 15, 12, 0, 0));
+
+    expect(isPastLocalDate(new Date(2026, 5, 14, 23, 59, 0).toISOString())).toBe(true);
+    expect(isPastLocalDate(new Date(2026, 5, 15, 0, 5, 0).toISOString())).toBe(false);
+    expect(isPastLocalDate(new Date(2026, 5, 16, 0, 5, 0).toISOString())).toBe(false);
   });
 });

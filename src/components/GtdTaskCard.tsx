@@ -6,6 +6,7 @@ import {
   formatDateShort,
   formatDateTimeShort,
   isPastDueDateTime,
+  isPastLocalDate,
   toLocalDateInputValue,
   toLocalTimeInputValue,
 } from "../lib/date";
@@ -24,6 +25,7 @@ const bucketLabelKeys = {
   waiting_for: "buckets.waitingFor",
   someday_maybe: "buckets.somedayMaybe",
   reference: "buckets.reference",
+  planned: "buckets.planned",
 } as const satisfies Record<Task["bucket"], string>;
 
 interface GtdTaskCardProps {
@@ -51,6 +53,9 @@ interface GtdTaskCardProps {
   onComplete: (taskId: string) => Promise<void>;
   onCancel: (taskId: string) => Promise<void>;
   onClearPastRecurrences: (taskId: string) => Promise<void>;
+  onPromotePlannedTask?: (taskId: string) => Promise<void>;
+  onMovePlannedTask?: (taskId: string, direction: "up" | "down") => Promise<void>;
+  plannedPosition?: { isFirst: boolean; isLast: boolean };
 }
 
 export const GtdTaskCard = ({
@@ -66,6 +71,9 @@ export const GtdTaskCard = ({
   onComplete,
   onCancel,
   onClearPastRecurrences,
+  onPromotePlannedTask,
+  onMovePlannedTask,
+  plannedPosition,
 }: GtdTaskCardProps) => {
   const { t } = useTranslation("gtd");
   const { t: tCommon } = useTranslation("common");
@@ -77,6 +85,7 @@ export const GtdTaskCard = ({
   const [contextDrafts, setContextDrafts] = useState<Record<string, string>>({});
   const [contextSavingId, setContextSavingId] = useState<string | null>(null);
   const [contextError, setContextError] = useState("");
+  const [saveError, setSaveError] = useState("");
   const [recurringEditScope, setRecurringEditScope] = useState<"occurrence" | "series">(
     "occurrence",
   );
@@ -85,6 +94,7 @@ export const GtdTaskCard = ({
     setDraft(task);
     setExpanded(false);
     setRecurringEditScope("occurrence");
+    setSaveError("");
   }, [task]);
 
   useEffect(() => {
@@ -112,15 +122,25 @@ export const GtdTaskCard = ({
     ? (Object.keys(bucketLabelKeys) as Array<Task["bucket"]>).filter(
         (value) => value === "next_action" || value === "scheduled",
       )
-    : (Object.keys(bucketLabelKeys) as Array<Task["bucket"]>);
+    : // `planned` is project-only: never offer it from a generic, projectless bucket selector.
+      (Object.keys(bucketLabelKeys) as Array<Task["bucket"]>).filter(
+        (value) => value !== "planned" || Boolean(draft.projectId),
+      );
+  const isPlanned = task.bucket === "planned";
+  const plannedDateValue = isPlanned ? toLocalDateInputValue(task.scheduledFor) : "";
+  const isPlannedOverdue =
+    isPlanned && task.status === "active" && isPastLocalDate(task.scheduledFor);
   const isPastDue =
-    task.status === "active" && task.scheduledFor ? isPastDueDateTime(task.scheduledFor) : false;
+    !isPlanned && task.status === "active" && task.scheduledFor
+      ? isPastDueDateTime(task.scheduledFor)
+      : false;
   const isDeadlineMissed =
     task.status === "active" && task.deadline
       ? new Date(`${task.deadline}T23:59:59`).getTime() < Date.now()
       : false;
   const scheduledDateValue = toLocalDateInputValue(draft.scheduledFor);
   const scheduledTimeValue = toLocalTimeInputValue(draft.scheduledFor);
+  const showPlannedControls = task.bucket === "planned" && Boolean(task.projectId);
 
   const saveExistingContext = async (context: TaskContext) => {
     setContextSavingId(context.id);
@@ -216,7 +236,21 @@ export const GtdTaskCard = ({
             <span className="task-card__context-copy">
               {formatAssociationCopy(projectTitle, contextNames, t("task.noContext"))}
             </span>
-            {task.scheduledFor ? (
+            {isPlanned ? (
+              plannedDateValue ? (
+                <span
+                  className={`task-card__date-pill${isPlannedOverdue ? " task-card__date-pill--overdue" : ""}`}
+                >
+                  {isPlannedOverdue
+                    ? t("task.plannedDateOverdueAria", { date: formatDateShort(plannedDateValue) })
+                    : formatDateShort(plannedDateValue)}
+                </span>
+              ) : (
+                <span className="task-card__date-pill task-card__date-pill--empty">
+                  {t("task.plannedNoDate")}
+                </span>
+              )
+            ) : task.scheduledFor ? (
               <span
                 className={`task-card__date-pill${isPastDue ? " task-card__date-pill--overdue" : ""}`}
               >
@@ -249,6 +283,38 @@ export const GtdTaskCard = ({
           >
             {expanded ? tCommon("actions.collapse") : tCommon("actions.open")}
           </button>
+          {showPlannedControls && onPromotePlannedTask ? (
+            <button
+              className="button"
+              type="button"
+              aria-label={t("task.promoteAria", { title: task.title })}
+              onClick={() => void onPromotePlannedTask(task.id)}
+            >
+              {t("task.promote")}
+            </button>
+          ) : null}
+          {showPlannedControls && onMovePlannedTask ? (
+            <>
+              <button
+                className="button"
+                type="button"
+                disabled={plannedPosition?.isFirst ?? false}
+                aria-label={t("task.moveUpAria", { title: task.title })}
+                onClick={() => void onMovePlannedTask(task.id, "up")}
+              >
+                {t("task.moveUp")}
+              </button>
+              <button
+                className="button"
+                type="button"
+                disabled={plannedPosition?.isLast ?? false}
+                aria-label={t("task.moveDownAria", { title: task.title })}
+                onClick={() => void onMovePlannedTask(task.id, "down")}
+              >
+                {t("task.moveDown")}
+              </button>
+            </>
+          ) : null}
           <button className="button" type="button" onClick={() => void onComplete(task.id)}>
             {t("task.complete")}
           </button>
@@ -291,13 +357,19 @@ export const GtdTaskCard = ({
               <span>{t("task.bucket")}</span>
               <select
                 value={draft.bucket}
-                onChange={(event) =>
+                onChange={(event) => {
+                  const nextBucket = event.target.value as Task["bucket"];
                   setDraft((current) => ({
                     ...current,
-                    bucket: event.target.value as Task["bucket"],
-                    scheduledFor: event.target.value === "scheduled" ? current.scheduledFor : null,
-                  }))
-                }
+                    bucket: nextBucket,
+                    // Reused `scheduledFor` survives for Scheduled and for staying Planned;
+                    // every other destination clears it.
+                    scheduledFor:
+                      nextBucket === "scheduled" || nextBucket === "planned"
+                        ? current.scheduledFor
+                        : null,
+                  }));
+                }}
               >
                 {availableBuckets.map((value) => (
                   <option key={value} value={value}>
@@ -311,12 +383,26 @@ export const GtdTaskCard = ({
               <span>{t("task.project")}</span>
               <select
                 value={draft.projectId ?? ""}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    projectId: event.target.value || null,
-                  }))
-                }
+                onChange={(event) => {
+                  const nextProjectId = event.target.value || null;
+                  setDraft((current) => {
+                    // Planned is project-only: clearing the project on a Planned task must
+                    // also move it off Planned, using the same Planned -> other bucket
+                    // clearing semantics as the bucket selector (scheduledFor/plannedOrder
+                    // both cleared).
+                    if (!nextProjectId && current.bucket === "planned") {
+                      return {
+                        ...current,
+                        projectId: null,
+                        bucket: "next_action",
+                        scheduledFor: null,
+                        plannedOrder: null,
+                      };
+                    }
+
+                    return { ...current, projectId: nextProjectId };
+                  });
+                }}
               >
                 <option value="">{t("task.noProject")}</option>
                 {projectsForAssignment(projects, draft.projectId).map((project) => (
@@ -328,7 +414,9 @@ export const GtdTaskCard = ({
             </label>
 
             <label className="stacked-field">
-              <span>{t("task.scheduledDate")}</span>
+              <span>
+                {draft.bucket === "planned" ? t("task.plannedDateLabel") : t("task.scheduledDate")}
+              </span>
               <div className="task-card__datetime-grid">
                 <input
                   type="date"
@@ -336,7 +424,14 @@ export const GtdTaskCard = ({
                   onChange={(event) =>
                     setDraft((current) => ({
                       ...current,
-                      bucket: event.target.value ? "scheduled" : current.bucket,
+                      // Editing the date while Planned must not implicitly move the task to
+                      // Scheduled; every other bucket keeps its existing shortcut behavior.
+                      bucket:
+                        current.bucket === "planned"
+                          ? current.bucket
+                          : event.target.value
+                            ? "scheduled"
+                            : current.bucket,
                       scheduledFor: buildIsoFromLocalDateAndTime(
                         event.target.value,
                         toLocalTimeInputValue(current.scheduledFor),
@@ -352,7 +447,12 @@ export const GtdTaskCard = ({
                   onChange={(event) =>
                     setDraft((current) => ({
                       ...current,
-                      bucket: scheduledDateValue ? "scheduled" : current.bucket,
+                      bucket:
+                        current.bucket === "planned"
+                          ? current.bucket
+                          : scheduledDateValue
+                            ? "scheduled"
+                            : current.bucket,
                       scheduledFor: buildIsoFromLocalDateAndTime(
                         toLocalDateInputValue(current.scheduledFor),
                         event.target.value,
@@ -483,29 +583,38 @@ export const GtdTaskCard = ({
               disabled={saving || !draft.title.trim()}
               onClick={async () => {
                 setSaving(true);
-                if (
-                  draft.isRecurringInstance &&
-                  draft.recurringTemplateId &&
-                  onApplyRecurringEditScope
-                ) {
-                  await onApplyRecurringEditScope(draft.id, recurringEditScope, {
-                    title: draft.title,
-                    notes: draft.notes,
-                    bucket: draft.bucket === "scheduled" ? "scheduled" : "next_action",
-                    contextIds: draft.contextIds,
-                    projectId: draft.projectId,
-                    scheduledFor: draft.scheduledFor,
-                    deadline: draft.deadline,
-                  });
-                } else {
-                  await onSave(draft);
+                setSaveError("");
+
+                try {
+                  if (
+                    draft.isRecurringInstance &&
+                    draft.recurringTemplateId &&
+                    onApplyRecurringEditScope
+                  ) {
+                    await onApplyRecurringEditScope(draft.id, recurringEditScope, {
+                      title: draft.title,
+                      notes: draft.notes,
+                      bucket: draft.bucket === "scheduled" ? "scheduled" : "next_action",
+                      contextIds: draft.contextIds,
+                      projectId: draft.projectId,
+                      scheduledFor: draft.scheduledFor,
+                      deadline: draft.deadline,
+                    });
+                  } else {
+                    await onSave(draft);
+                  }
+                } catch (error) {
+                  setSaveError(error instanceof Error ? error.message : t("errors.saveTask"));
+                } finally {
+                  setSaving(false);
                 }
-                setSaving(false);
               }}
             >
               {saving ? tCommon("actions.saving") : tCommon("actions.save")}
             </button>
           </div>
+
+          {saveError ? <p className="task-card__context-error">{saveError}</p> : null}
         </>
       ) : null}
     </article>

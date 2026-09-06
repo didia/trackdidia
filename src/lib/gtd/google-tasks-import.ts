@@ -151,6 +151,7 @@ const buildTaskFromGoogleTask = (
     completedAt: null,
     recurrenceGroupId,
     pendingPastRecurrences: Math.max(0, recurrenceTaskIds.length - 1),
+    plannedOrder: null,
     source: "google_import",
     sourceExternalId: recurrenceGroupId ?? task.id,
     createdAt: task.created ?? task.updated ?? nowIso(),

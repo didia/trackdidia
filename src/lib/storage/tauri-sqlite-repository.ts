@@ -63,7 +63,19 @@ import {
   filterTasks,
 } from "../gtd/engine";
 import { buildGoogleTasksImport } from "../gtd/google-tasks-import";
-import { addDays, cloneProject, cloneTask, createEntityId, nowIso } from "../gtd/shared";
+import {
+  adjustPlannedFieldsForSave,
+  reconcileProjectPlannedTasks,
+  swapPlannedOrder,
+} from "../gtd/planned";
+import {
+  addDays,
+  cloneProject,
+  cloneTask,
+  createEntityId,
+  nowIso,
+  toLocalDateString,
+} from "../gtd/shared";
 import {
   buildPomodoroSessionDetails,
   buildPomodoroState,
@@ -238,6 +250,7 @@ interface TaskRow {
   completed_at: string | null;
   recurrence_group_id: string | null;
   pending_past_recurrences: number;
+  planned_order: number | null;
   source: Task["source"];
   source_external_id: string | null;
   created_at: string;
@@ -770,6 +783,19 @@ export const migrations: Migration[] = [
           AND type NOT IN ('memory', 'review_section_draft', 'weekly_objective', 'gtd_action');
     `,
   },
+  {
+    id: 26,
+    name: "add_gtd_task_planned_order",
+    sql: `
+      ALTER TABLE gtd_tasks ADD COLUMN planned_order INTEGER;
+
+      CREATE INDEX IF NOT EXISTS idx_tasks_project_planned_order
+        ON gtd_tasks (project_id, planned_order)
+        WHERE bucket = 'planned' AND status = 'active';
+
+      UPDATE gtd_tasks SET planned_order = NULL WHERE bucket != 'planned';
+    `,
+  },
 ];
 
 export class TauriSqliteRepository implements AppRepository {
@@ -806,11 +832,22 @@ export class TauriSqliteRepository implements AppRepository {
       for (const migration of migrations.slice(1)) {
         if (!appliedIds.has(migration.id)) {
           logDebug("info", "storage.sqlite", `Execution migration ${migration.id}`, migration.name);
-          await db.execute(migration.sql);
-          await db.execute(
-            "INSERT OR IGNORE INTO schema_migrations (id, name, applied_at) VALUES ($1, $2, $3)",
-            [migration.id, migration.name, new Date().toISOString()],
-          );
+          // Apply the migration SQL and record it in `schema_migrations` atomically: if the
+          // process is killed between the two, an interrupted/dev database must not replay a
+          // half-applied migration (e.g. a duplicate `ALTER TABLE ADD COLUMN`) on next startup.
+          await db.execute("BEGIN IMMEDIATE");
+          try {
+            const sql = await this.resolveIdempotentMigrationSql(db, migration);
+            await db.execute(sql);
+            await db.execute(
+              "INSERT OR IGNORE INTO schema_migrations (id, name, applied_at) VALUES ($1, $2, $3)",
+              [migration.id, migration.name, new Date().toISOString()],
+            );
+            await db.execute("COMMIT");
+          } catch (error) {
+            await this.rollbackQuietly(db);
+            throw error;
+          }
         }
       }
 
@@ -828,6 +865,24 @@ export class TauriSqliteRepository implements AppRepository {
       logDebug("error", "storage.sqlite", "Echec initialisation SQLite", error);
       throw new Error(`SQLite init failed: ${formatUnknownError(error)}`);
     }
+  }
+
+  /**
+   * Guards against replaying a migration that was already partially applied before an
+   * interrupted process could record it in `schema_migrations` (e.g. `ALTER TABLE ADD
+   * COLUMN` already succeeded). Strips SQL fragments that are known not to be safely
+   * re-runnable once the migration has already made that specific change.
+   */
+  private async resolveIdempotentMigrationSql(db: Database, migration: Migration): Promise<string> {
+    if (migration.id === 26) {
+      const columns = await db.select<{ name: string }[]>("PRAGMA table_info(gtd_tasks)");
+      const alreadyHasColumn = columns.some((column) => column.name === "planned_order");
+      if (alreadyHasColumn) {
+        return migration.sql.replace("ALTER TABLE gtd_tasks ADD COLUMN planned_order INTEGER;", "");
+      }
+    }
+
+    return migration.sql;
   }
 
   async getDailyEntry(date: string): Promise<DailyEntry | null> {
@@ -851,11 +906,12 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async saveDailyEntry(entry: DailyEntry): Promise<void> {
-    const db = await this.getDb();
     const decoratedEntry = await this.decorateEntry(entry);
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
 
-    await db.execute(
-      `INSERT INTO daily_entries (
+      await db.execute(
+        `INSERT INTO daily_entries (
         date,
         status,
         metrics_json,
@@ -873,17 +929,18 @@ export class TauriSqliteRepository implements AppRepository {
         night_reflection = excluded.night_reflection,
         tomorrow_focus = excluded.tomorrow_focus,
         updated_at = excluded.updated_at`,
-      [
-        decoratedEntry.date,
-        decoratedEntry.status,
-        JSON.stringify(decoratedEntry.metrics),
-        JSON.stringify(decoratedEntry.principleChecks),
-        decoratedEntry.morningIntention,
-        decoratedEntry.nightReflection,
-        decoratedEntry.tomorrowFocus,
-        decoratedEntry.updatedAt,
-      ],
-    );
+        [
+          decoratedEntry.date,
+          decoratedEntry.status,
+          JSON.stringify(decoratedEntry.metrics),
+          JSON.stringify(decoratedEntry.principleChecks),
+          decoratedEntry.morningIntention,
+          decoratedEntry.nightReflection,
+          decoratedEntry.tomorrowFocus,
+          decoratedEntry.updatedAt,
+        ],
+      );
+    });
   }
 
   async listDailyEntries(limit = 30): Promise<DailyEntry[]> {
@@ -949,7 +1006,17 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async saveWeeklyReview(review: WeeklyReview): Promise<void> {
-    const db = await this.getDb();
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      return this.saveWeeklyReviewInternal(db, review);
+    });
+  }
+
+  /**
+   * Transaction-scoped weekly review upsert. Callers must already hold an open writer slot
+   * (via `runExclusive`) and must not re-enter the writer from here.
+   */
+  private async saveWeeklyReviewInternal(db: Database, review: WeeklyReview): Promise<void> {
     const normalized = buildWeekDates(review.weekStartDate);
     const nextReview = {
       ...cloneWeeklyReview(review),
@@ -959,19 +1026,19 @@ export class TauriSqliteRepository implements AppRepository {
 
     await db.execute(
       `INSERT INTO weekly_reviews (
-        week_start_date,
-        week_end_date,
-        status,
-        notes_json,
-        ritual_checklist_json,
-        updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6)
-      ON CONFLICT(week_start_date) DO UPDATE SET
-        week_end_date = excluded.week_end_date,
-        status = excluded.status,
-        notes_json = excluded.notes_json,
-        ritual_checklist_json = excluded.ritual_checklist_json,
-        updated_at = excluded.updated_at`,
+      week_start_date,
+      week_end_date,
+      status,
+      notes_json,
+      ritual_checklist_json,
+      updated_at
+    ) VALUES ($1, $2, $3, $4, $5, $6)
+    ON CONFLICT(week_start_date) DO UPDATE SET
+      week_end_date = excluded.week_end_date,
+      status = excluded.status,
+      notes_json = excluded.notes_json,
+      ritual_checklist_json = excluded.ritual_checklist_json,
+      updated_at = excluded.updated_at`,
       [
         nextReview.weekStartDate,
         nextReview.weekEndDate,
@@ -1023,7 +1090,17 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async saveMonthlyReview(review: MonthlyReview): Promise<void> {
-    const db = await this.getDb();
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      return this.saveMonthlyReviewInternal(db, review);
+    });
+  }
+
+  /**
+   * Transaction-scoped monthly review upsert. Callers must already hold an open writer slot
+   * (via `runExclusive`) and must not re-enter the writer from here.
+   */
+  private async saveMonthlyReviewInternal(db: Database, review: MonthlyReview): Promise<void> {
     const normalized = getMonthKey(`${review.monthKey}-01`);
     const nextReview = {
       ...cloneMonthlyReview(review),
@@ -1032,21 +1109,21 @@ export class TauriSqliteRepository implements AppRepository {
 
     await db.execute(
       `INSERT INTO monthly_reviews (
-        month_key,
-        month_start_date,
-        month_end_date,
-        status,
-        notes_json,
-        ritual_checklist_json,
-        updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-      ON CONFLICT(month_key) DO UPDATE SET
-        month_start_date = excluded.month_start_date,
-        month_end_date = excluded.month_end_date,
-        status = excluded.status,
-        notes_json = excluded.notes_json,
-        ritual_checklist_json = excluded.ritual_checklist_json,
-        updated_at = excluded.updated_at`,
+      month_key,
+      month_start_date,
+      month_end_date,
+      status,
+      notes_json,
+      ritual_checklist_json,
+      updated_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+    ON CONFLICT(month_key) DO UPDATE SET
+      month_start_date = excluded.month_start_date,
+      month_end_date = excluded.month_end_date,
+      status = excluded.status,
+      notes_json = excluded.notes_json,
+      ritual_checklist_json = excluded.ritual_checklist_json,
+      updated_at = excluded.updated_at`,
       [
         nextReview.monthKey,
         nextReview.monthStartDate,
@@ -1115,20 +1192,21 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async saveAnnualGoal(goal: AnnualGoal): Promise<AnnualGoal> {
-    const db = await this.getDb();
-    const timestamp = nowIso();
-    const nextGoal = createEmptyAnnualGoal({
-      ...cloneAnnualGoal(goal),
-      id: goal.id || createEntityId("annual-goal"),
-      title: goal.title.trim(),
-      description: goal.description.trim(),
-      unit: goal.unit.trim(),
-      createdAt: goal.createdAt || timestamp,
-      updatedAt: timestamp,
-    });
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      const timestamp = nowIso();
+      const nextGoal = createEmptyAnnualGoal({
+        ...cloneAnnualGoal(goal),
+        id: goal.id || createEntityId("annual-goal"),
+        title: goal.title.trim(),
+        description: goal.description.trim(),
+        unit: goal.unit.trim(),
+        createdAt: goal.createdAt || timestamp,
+        updatedAt: timestamp,
+      });
 
-    await db.execute(
-      `INSERT INTO annual_goals (
+      await db.execute(
+        `INSERT INTO annual_goals (
         id, title, dimension, description, target_value, unit, source_id, manual_current_value,
         evaluations_json, created_at, updated_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
@@ -1142,27 +1220,30 @@ export class TauriSqliteRepository implements AppRepository {
         manual_current_value = excluded.manual_current_value,
         evaluations_json = excluded.evaluations_json,
         updated_at = excluded.updated_at`,
-      [
-        nextGoal.id,
-        nextGoal.title,
-        nextGoal.dimension,
-        nextGoal.description,
-        nextGoal.targetValue,
-        nextGoal.unit,
-        nextGoal.sourceId,
-        nextGoal.manualCurrentValue,
-        JSON.stringify(nextGoal.evaluations),
-        nextGoal.createdAt,
-        nextGoal.updatedAt,
-      ],
-    );
+        [
+          nextGoal.id,
+          nextGoal.title,
+          nextGoal.dimension,
+          nextGoal.description,
+          nextGoal.targetValue,
+          nextGoal.unit,
+          nextGoal.sourceId,
+          nextGoal.manualCurrentValue,
+          JSON.stringify(nextGoal.evaluations),
+          nextGoal.createdAt,
+          nextGoal.updatedAt,
+        ],
+      );
 
-    return cloneAnnualGoal(nextGoal);
+      return cloneAnnualGoal(nextGoal);
+    });
   }
 
   async deleteAnnualGoal(goalId: string): Promise<void> {
-    const db = await this.getDb();
-    await db.execute("DELETE FROM annual_goals WHERE id = $1", [goalId]);
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      await db.execute("DELETE FROM annual_goals WHERE id = $1", [goalId]);
+    });
   }
 
   async computeAnnualGoalSnapshots(year: number) {
@@ -1202,7 +1283,20 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async saveWeeklyObjective(objective: WeeklyObjective): Promise<WeeklyObjective> {
-    const db = await this.getDb();
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      return this.saveWeeklyObjectiveInternal(db, objective);
+    });
+  }
+
+  /**
+   * Transaction-scoped weekly objective upsert. Callers must already hold an open writer slot
+   * (via `runExclusive`) and must not re-enter the writer from here.
+   */
+  private async saveWeeklyObjectiveInternal(
+    db: Database,
+    objective: WeeklyObjective,
+  ): Promise<WeeklyObjective> {
     const timestamp = nowIso();
     const nextObjective = createEmptyWeeklyObjective({
       ...cloneWeeklyObjective(objective),
@@ -1214,16 +1308,16 @@ export class TauriSqliteRepository implements AppRepository {
 
     await db.execute(
       `INSERT INTO weekly_objectives (
-        id, title, kind, target_hours, rescuetime_kind, rescuetime_thing, sort_order, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      ON CONFLICT(id) DO UPDATE SET
-        title = excluded.title,
-        kind = excluded.kind,
-        target_hours = excluded.target_hours,
-        rescuetime_kind = excluded.rescuetime_kind,
-        rescuetime_thing = excluded.rescuetime_thing,
-        sort_order = excluded.sort_order,
-        updated_at = excluded.updated_at`,
+      id, title, kind, target_hours, rescuetime_kind, rescuetime_thing, sort_order, created_at, updated_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    ON CONFLICT(id) DO UPDATE SET
+      title = excluded.title,
+      kind = excluded.kind,
+      target_hours = excluded.target_hours,
+      rescuetime_kind = excluded.rescuetime_kind,
+      rescuetime_thing = excluded.rescuetime_thing,
+      sort_order = excluded.sort_order,
+      updated_at = excluded.updated_at`,
       [
         nextObjective.id,
         nextObjective.title,
@@ -1241,9 +1335,13 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async deleteWeeklyObjective(objectiveId: string): Promise<void> {
-    const db = await this.getDb();
-    await db.execute("DELETE FROM weekly_objective_results WHERE objective_id = $1", [objectiveId]);
-    await db.execute("DELETE FROM weekly_objectives WHERE id = $1", [objectiveId]);
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      await db.execute("DELETE FROM weekly_objective_results WHERE objective_id = $1", [
+        objectiveId,
+      ]);
+      await db.execute("DELETE FROM weekly_objectives WHERE id = $1", [objectiveId]);
+    });
   }
 
   async getWeeklyObjectiveResults(weekStartDate: string): Promise<WeeklyObjectiveResult[]> {
@@ -1260,29 +1358,31 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async saveWeeklyObjectiveResult(result: WeeklyObjectiveResult): Promise<void> {
-    const db = await this.getDb();
-    const normalized = buildWeekDates(result.weekStartDate);
-    const timestamp = nowIso();
-    const nextResult: WeeklyObjectiveResult = {
-      weekStartDate: normalized,
-      objectiveId: result.objectiveId,
-      achieved: result.achieved,
-      updatedAt: timestamp,
-    };
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      const normalized = buildWeekDates(result.weekStartDate);
+      const timestamp = nowIso();
+      const nextResult: WeeklyObjectiveResult = {
+        weekStartDate: normalized,
+        objectiveId: result.objectiveId,
+        achieved: result.achieved,
+        updatedAt: timestamp,
+      };
 
-    await db.execute(
-      `INSERT INTO weekly_objective_results (week_start_date, objective_id, achieved, updated_at)
+      await db.execute(
+        `INSERT INTO weekly_objective_results (week_start_date, objective_id, achieved, updated_at)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT(week_start_date, objective_id) DO UPDATE SET
          achieved = excluded.achieved,
          updated_at = excluded.updated_at`,
-      [
-        nextResult.weekStartDate,
-        nextResult.objectiveId,
-        nextResult.achieved ? 1 : 0,
-        nextResult.updatedAt,
-      ],
-    );
+        [
+          nextResult.weekStartDate,
+          nextResult.objectiveId,
+          nextResult.achieved ? 1 : 0,
+          nextResult.updatedAt,
+        ],
+      );
+    });
   }
 
   async getSettings(): Promise<AppSettings> {
@@ -1567,9 +1667,10 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async saveAiProposal(proposal: AiProposal): Promise<AiProposal> {
-    const db = await this.getDb();
-    await db.execute(
-      `INSERT INTO ai_proposals (
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      await db.execute(
+        `INSERT INTO ai_proposals (
         id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       ON CONFLICT(id) DO UPDATE SET
@@ -1578,26 +1679,29 @@ export class TauriSqliteRepository implements AppRepository {
         status = excluded.status,
         applied_entity_id = excluded.applied_entity_id,
         decided_at = excluded.decided_at`,
-      [
-        proposal.id,
-        proposal.messageId,
-        proposal.type,
-        proposal.payloadJson,
-        proposal.status,
-        proposal.appliedEntityId,
-        proposal.decidedAt,
-        proposal.createdAt,
-      ],
-    );
+        [
+          proposal.id,
+          proposal.messageId,
+          proposal.type,
+          proposal.payloadJson,
+          proposal.status,
+          proposal.appliedEntityId,
+          proposal.decidedAt,
+          proposal.createdAt,
+        ],
+      );
 
-    return proposal;
+      return proposal;
+    });
   }
 
   async clearPendingAiProposals(messageId: string): Promise<void> {
-    const db = await this.getDb();
-    await db.execute("DELETE FROM ai_proposals WHERE message_id = $1 AND status = 'pending'", [
-      messageId,
-    ]);
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      await db.execute("DELETE FROM ai_proposals WHERE message_id = $1 AND status = 'pending'", [
+        messageId,
+      ]);
+    });
   }
 
   async decideAiProposal(
@@ -1605,27 +1709,29 @@ export class TauriSqliteRepository implements AppRepository {
     status: "accepted" | "dismissed",
     appliedEntityId?: string,
   ): Promise<AiProposal> {
-    const db = await this.getDb();
-    const decidedAt = nowIso();
-    await db.execute(
-      `UPDATE ai_proposals
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      const decidedAt = nowIso();
+      await db.execute(
+        `UPDATE ai_proposals
        SET status = $1, applied_entity_id = $2, decided_at = $3
        WHERE id = $4`,
-      [status, appliedEntityId ?? null, decidedAt, id],
-    );
+        [status, appliedEntityId ?? null, decidedAt, id],
+      );
 
-    const rows = await db.select<AiProposalRow[]>(
-      `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
+      const rows = await db.select<AiProposalRow[]>(
+        `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
        FROM ai_proposals
        WHERE id = $1`,
-      [id],
-    );
+        [id],
+      );
 
-    if (rows.length === 0) {
-      throw new Error(`AI proposal not found: ${id}`);
-    }
+      if (rows.length === 0) {
+        throw new Error(`AI proposal not found: ${id}`);
+      }
 
-    return this.deserializeAiProposal(rows[0]);
+      return this.deserializeAiProposal(rows[0]);
+    });
   }
 
   /** Best-effort ROLLBACK; a secondary "no transaction" error must not mask the original failure. */
@@ -1687,7 +1793,7 @@ export class TauriSqliteRepository implements AppRepository {
 
       await db.execute("BEGIN IMMEDIATE");
       try {
-        const savedMemory = existingMemory ?? (await this.saveAiMemory(memory));
+        const savedMemory = existingMemory ?? (await this.saveAiMemoryInternal(db, memory));
         const decidedAt = nowIso();
         await db.execute(
           `UPDATE ai_proposals
@@ -1753,7 +1859,7 @@ export class TauriSqliteRepository implements AppRepository {
 
       await db.execute("BEGIN IMMEDIATE");
       try {
-        const savedObjective = await this.saveWeeklyObjective(objective);
+        const savedObjective = await this.saveWeeklyObjectiveInternal(db, objective);
         const decidedAt = nowIso();
         await db.execute(
           `UPDATE ai_proposals
@@ -1808,7 +1914,7 @@ export class TauriSqliteRepository implements AppRepository {
 
       await db.execute("BEGIN IMMEDIATE");
       try {
-        await this.saveWeeklyReview(review);
+        await this.saveWeeklyReviewInternal(db, review);
         const decidedAt = nowIso();
         await db.execute(
           `UPDATE ai_proposals
@@ -1863,7 +1969,7 @@ export class TauriSqliteRepository implements AppRepository {
 
       await db.execute("BEGIN IMMEDIATE");
       try {
-        await this.saveMonthlyReview(review);
+        await this.saveMonthlyReviewInternal(db, review);
         const decidedAt = nowIso();
         await db.execute(
           `UPDATE ai_proposals
@@ -1932,14 +2038,42 @@ export class TauriSqliteRepository implements AppRepository {
       await db.execute("BEGIN IMMEDIATE");
 
       try {
+        // Build the requested task in-memory and mutate it through `saveTaskInternal` (which
+        // takes the already-open connection) rather than the public `scheduleTask`/`moveTask`/
+        // `cancelTask` methods: those acquire the writer and open their own transaction, which
+        // would re-enter the writer and attempt a nested `BEGIN IMMEDIATE` from within this
+        // one.
+        let requested: Task = cloneTask(task);
         if (payload.action === "schedule") {
-          await this.scheduleTask(payload.taskId, scheduledDate);
+          requested =
+            task.status === "active" && task.bucket === "planned"
+              ? { ...task, scheduledFor: scheduledDate }
+              : {
+                  ...task,
+                  bucket: scheduledDate
+                    ? "scheduled"
+                    : task.bucket === "scheduled"
+                      ? "next_action"
+                      : task.bucket,
+                  scheduledFor: scheduledDate,
+                };
         } else if (payload.action === "defer") {
-          await this.moveTask(payload.taskId, "someday_maybe", task.contextIds, task.projectId);
+          requested = { ...task, bucket: "someday_maybe", contextIds: [...task.contextIds] };
         } else if (payload.action === "delegate") {
-          await this.moveTask(payload.taskId, "waiting_for", task.contextIds, task.projectId);
+          requested = { ...task, bucket: "waiting_for", contextIds: [...task.contextIds] };
         } else if (payload.action === "drop") {
-          await this.cancelTask(payload.taskId);
+          requested = { ...task, status: "cancelled", completedAt: null };
+        }
+
+        await this.saveTaskInternal(db, requested);
+
+        if (payload.action === "drop" && task.recurringTemplateId) {
+          const template = await this.requireRecurringTemplate(task.recurringTemplateId);
+          await this.persistRecurringTemplate({
+            ...cloneRecurringTemplate(template),
+            pendingMissedOccurrences: 0,
+            updatedAt: nowIso(),
+          });
         }
 
         const decidedAt = nowIso();
@@ -2007,7 +2141,17 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async saveAiMemory(memory: AiMemory): Promise<AiMemory> {
-    const db = await this.getDb();
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      return this.saveAiMemoryInternal(db, memory);
+    });
+  }
+
+  /**
+   * Transaction-scoped memory upsert. Callers must already hold an open writer slot
+   * (via `runExclusive`) and must not re-enter the writer from here.
+   */
+  private async saveAiMemoryInternal(db: Database, memory: AiMemory): Promise<AiMemory> {
     await db.execute(
       `INSERT INTO ai_memories (
         id, kind, statement, detail, confidence, source, status,
@@ -2061,32 +2205,34 @@ export class TauriSqliteRepository implements AppRepository {
     id: string,
     reason: "expired" | "contradicted" | "resolved",
   ): Promise<void> {
-    const db = await this.getDb();
-    const rows = await db.select<AiMemoryRow[]>(
-      `SELECT id, kind, statement, detail, confidence, source, status,
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      const rows = await db.select<AiMemoryRow[]>(
+        `SELECT id, kind, statement, detail, confidence, source, status,
               evidence_from, evidence_to, created_at, last_confirmed_at, expires_at, pinned
        FROM ai_memories
        WHERE id = $1`,
-      [id],
-    );
+        [id],
+      );
 
-    if (rows.length === 0) {
-      throw new Error(`AI memory not found: ${id}`);
-    }
+      if (rows.length === 0) {
+        throw new Error(`AI memory not found: ${id}`);
+      }
 
-    const existing = this.deserializeAiMemory(rows[0]);
-    const status = reason === "contradicted" ? "contradicted" : "archived";
-    const detailSuffix = `[archive:${reason}]`;
-    const detail = existing.detail.includes(detailSuffix)
-      ? existing.detail
-      : `${existing.detail}${existing.detail ? " " : ""}${detailSuffix}`.trim();
+      const existing = this.deserializeAiMemory(rows[0]);
+      const status = reason === "contradicted" ? "contradicted" : "archived";
+      const detailSuffix = `[archive:${reason}]`;
+      const detail = existing.detail.includes(detailSuffix)
+        ? existing.detail
+        : `${existing.detail}${existing.detail ? " " : ""}${detailSuffix}`.trim();
 
-    await db.execute(
-      `UPDATE ai_memories
+      await db.execute(
+        `UPDATE ai_memories
        SET status = $1, detail = $2, last_confirmed_at = $3
        WHERE id = $4`,
-      [status, detail, nowIso(), id],
-    );
+        [status, detail, nowIso(), id],
+      );
+    });
   }
 
   async getStorageInfo(): Promise<StorageInfo> {
@@ -2253,77 +2399,83 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async moveTasksWithContextToBucket(contextId: string, bucket: Task["bucket"]): Promise<number> {
-    const tasks = await this.getAllTasks();
-    const matchingTasks = tasks.filter(
-      (task) =>
-        task.status === "active" && task.contextIds.includes(contextId) && task.bucket !== bucket,
-    );
+    return this.runExclusive(async () => {
+      const tasks = await this.getAllTasks();
+      const matchingTasks = tasks.filter(
+        (task) =>
+          task.status === "active" && task.contextIds.includes(contextId) && task.bucket !== bucket,
+      );
 
-    for (const task of matchingTasks) {
-      await this.persistTask({
-        ...task,
-        bucket,
-        updatedAt: nowIso(),
-      });
-    }
+      for (const task of matchingTasks) {
+        await this.persistTask({
+          ...task,
+          bucket,
+          updatedAt: nowIso(),
+        });
+      }
 
-    return matchingTasks.length;
+      return matchingTasks.length;
+    });
   }
 
   async moveTasksWithScheduledDatesToBucket(bucket: Task["bucket"]): Promise<number> {
-    const tasks = await this.getAllTasks();
-    const matchingTasks = tasks.filter(
-      (task) => task.status === "active" && Boolean(task.scheduledFor) && task.bucket !== bucket,
-    );
+    return this.runExclusive(async () => {
+      const tasks = await this.getAllTasks();
+      const matchingTasks = tasks.filter(
+        (task) => task.status === "active" && Boolean(task.scheduledFor) && task.bucket !== bucket,
+      );
 
-    for (const task of matchingTasks) {
-      await this.persistTask({
-        ...task,
-        bucket,
-        updatedAt: nowIso(),
-      });
-    }
+      for (const task of matchingTasks) {
+        await this.persistTask({
+          ...task,
+          bucket,
+          updatedAt: nowIso(),
+        });
+      }
 
-    return matchingTasks.length;
+      return matchingTasks.length;
+    });
   }
 
   async collapseGoogleRecurringTasks(rawJson: unknown): Promise<number> {
-    const payload = buildGoogleTasksImport(rawJson);
-    const tasks = await this.getAllTasks();
-    let changedCount = 0;
+    return this.runExclusive(async () => {
+      const payload = buildGoogleTasksImport(rawJson);
+      const tasks = await this.getAllTasks();
+      let changedCount = 0;
 
-    for (const context of payload.contexts) {
-      await this.ensureContextsExist([context.id]);
-    }
+      for (const context of payload.contexts) {
+        await this.ensureContextsExist([context.id]);
+      }
 
-    for (const desiredTask of payload.tasks.filter((task) => task.recurrenceGroupId)) {
-      const sourceIds = new Set(payload.recurringSourceTaskIds[desiredTask.id] ?? []);
-      const existingMatches = tasks.filter(
-        (task) =>
-          task.source === "google_import" &&
-          (task.id === desiredTask.id ||
-            task.recurrenceGroupId === desiredTask.recurrenceGroupId ||
-            (task.sourceExternalId ? sourceIds.has(task.sourceExternalId) : false)),
-      );
+      for (const desiredTask of payload.tasks.filter((task) => task.recurrenceGroupId)) {
+        const sourceIds = new Set(payload.recurringSourceTaskIds[desiredTask.id] ?? []);
+        const existingMatches = tasks.filter(
+          (task) =>
+            task.source === "google_import" &&
+            (task.id === desiredTask.id ||
+              task.recurrenceGroupId === desiredTask.recurrenceGroupId ||
+              (task.sourceExternalId ? sourceIds.has(task.sourceExternalId) : false)),
+        );
 
-      const previousPrimary =
-        existingMatches.find((task) => task.id === desiredTask.id) ?? existingMatches[0] ?? null;
-      await this.persistTask({
-        ...cloneTask(desiredTask),
-        notes: previousPrimary?.notes?.trim() ? previousPrimary.notes : desiredTask.notes,
-        projectId: previousPrimary?.projectId ?? desiredTask.projectId,
-        updatedAt: nowIso(),
-      });
-      changedCount += 1;
+        const previousPrimary =
+          existingMatches.find((task) => task.id === desiredTask.id) ?? existingMatches[0] ?? null;
+        await this.persistTask({
+          ...cloneTask(desiredTask),
+          notes: previousPrimary?.notes?.trim() ? previousPrimary.notes : desiredTask.notes,
+          projectId: previousPrimary?.projectId ?? desiredTask.projectId,
+          updatedAt: nowIso(),
+        });
+        changedCount += 1;
 
-      const duplicateIds = existingMatches
-        .filter((task) => task.id !== desiredTask.id)
-        .map((task) => task.id);
+        const duplicateIds = existingMatches
+          .filter((task) => task.id !== desiredTask.id)
+          .map((task) => task.id);
 
-      await this.deleteTasksByIds(duplicateIds);
-    }
+        await this.deleteTasksByIds(duplicateIds);
+      }
 
-    return changedCount;
+      return changedCount;
+    });
   }
 
   async listContexts(): Promise<TaskContext[]> {
@@ -2335,46 +2487,48 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async saveContext(context: TaskContext): Promise<TaskContext> {
-    const db = await this.getDb();
-    const timestamp = nowIso();
-    const nextName = context.name.trim();
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      const timestamp = nowIso();
+      const nextName = context.name.trim();
 
-    if (!nextName) {
-      throw new Error("Le nom du contexte est requis.");
-    }
+      if (!nextName) {
+        throw new Error("Le nom du contexte est requis.");
+      }
 
-    const duplicateRows = await db.select<{ id: string }[]>(
-      "SELECT id FROM gtd_contexts WHERE LOWER(name) = LOWER($1) AND id != $2 LIMIT 1",
-      [nextName, context.id],
-    );
+      const duplicateRows = await db.select<{ id: string }[]>(
+        "SELECT id FROM gtd_contexts WHERE LOWER(name) = LOWER($1) AND id != $2 LIMIT 1",
+        [nextName, context.id],
+      );
 
-    if (duplicateRows.length > 0) {
-      throw new Error(`Le contexte "${nextName}" existe deja.`);
-    }
+      if (duplicateRows.length > 0) {
+        throw new Error(`Le contexte "${nextName}" existe deja.`);
+      }
 
-    const previousRows = await db.select<ContextRow[]>(
-      "SELECT id, name, created_at, updated_at FROM gtd_contexts WHERE id = $1 LIMIT 1",
-      [context.id],
-    );
+      const previousRows = await db.select<ContextRow[]>(
+        "SELECT id, name, created_at, updated_at FROM gtd_contexts WHERE id = $1 LIMIT 1",
+        [context.id],
+      );
 
-    const previous = previousRows[0];
-    const nextContext: TaskContext = {
-      id: context.id,
-      name: nextName,
-      createdAt: previous?.created_at ?? context.createdAt ?? timestamp,
-      updatedAt: timestamp,
-    };
+      const previous = previousRows[0];
+      const nextContext: TaskContext = {
+        id: context.id,
+        name: nextName,
+        createdAt: previous?.created_at ?? context.createdAt ?? timestamp,
+        updatedAt: timestamp,
+      };
 
-    await db.execute(
-      `INSERT INTO gtd_contexts (id, name, created_at, updated_at)
+      await db.execute(
+        `INSERT INTO gtd_contexts (id, name, created_at, updated_at)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT(id) DO UPDATE SET
          name = excluded.name,
          updated_at = excluded.updated_at`,
-      [nextContext.id, nextContext.name, nextContext.createdAt, nextContext.updatedAt],
-    );
+        [nextContext.id, nextContext.name, nextContext.createdAt, nextContext.updatedAt],
+      );
 
-    return nextContext;
+      return nextContext;
+    });
   }
 
   async listProjects(filters = {}): Promise<Project[]> {
@@ -2391,51 +2545,68 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async saveProject(project: Project): Promise<Project> {
-    const db = await this.getDb();
-    const timestamp = nowIso();
-    const previous = project.id ? await this.getProjectById(project.id) : null;
-    const nextProject: Project = {
-      ...cloneProject(project),
-      id: project.id || createEntityId("project"),
-      title: project.title.trim(),
-      notes: project.notes.trim(),
-      statusChangedAt:
-        previous && previous.status !== project.status
-          ? timestamp
-          : project.statusChangedAt || previous?.statusChangedAt || project.createdAt || timestamp,
-      updatedAt: timestamp,
-      createdAt: project.createdAt || timestamp,
-    };
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      await db.execute("BEGIN IMMEDIATE");
 
-    await this.ensureContextsExist(nextProject.contextIds);
-    await db.execute(
-      `INSERT INTO gtd_projects (
-        id, title, status, status_changed_at, notes, context_ids_json, source, source_external_id, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      ON CONFLICT(id) DO UPDATE SET
-        title = excluded.title,
-        status = excluded.status,
-        status_changed_at = excluded.status_changed_at,
-        notes = excluded.notes,
-        context_ids_json = excluded.context_ids_json,
-        source = excluded.source,
-        source_external_id = excluded.source_external_id,
-        updated_at = excluded.updated_at`,
-      [
-        nextProject.id,
-        nextProject.title,
-        nextProject.status,
-        nextProject.statusChangedAt,
-        nextProject.notes,
-        JSON.stringify(nextProject.contextIds),
-        nextProject.source,
-        nextProject.sourceExternalId,
-        nextProject.createdAt,
-        nextProject.updatedAt,
-      ],
-    );
+      try {
+        const timestamp = nowIso();
+        const previous = project.id ? await this.getProjectById(project.id) : null;
+        const nextProject: Project = {
+          ...cloneProject(project),
+          id: project.id || createEntityId("project"),
+          title: project.title.trim(),
+          notes: project.notes.trim(),
+          statusChangedAt:
+            previous && previous.status !== project.status
+              ? timestamp
+              : project.statusChangedAt ||
+                previous?.statusChangedAt ||
+                project.createdAt ||
+                timestamp,
+          updatedAt: timestamp,
+          createdAt: project.createdAt || timestamp,
+        };
 
-    return nextProject;
+        await this.ensureContextsExist(nextProject.contextIds);
+        await db.execute(
+          `INSERT INTO gtd_projects (
+            id, title, status, status_changed_at, notes, context_ids_json, source, source_external_id, created_at, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          ON CONFLICT(id) DO UPDATE SET
+            title = excluded.title,
+            status = excluded.status,
+            status_changed_at = excluded.status_changed_at,
+            notes = excluded.notes,
+            context_ids_json = excluded.context_ids_json,
+            source = excluded.source,
+            source_external_id = excluded.source_external_id,
+            updated_at = excluded.updated_at`,
+          [
+            nextProject.id,
+            nextProject.title,
+            nextProject.status,
+            nextProject.statusChangedAt,
+            nextProject.notes,
+            JSON.stringify(nextProject.contextIds),
+            nextProject.source,
+            nextProject.sourceExternalId,
+            nextProject.createdAt,
+            nextProject.updatedAt,
+          ],
+        );
+
+        // A status change (e.g. resuming a paused project) can make it eligible for
+        // auto-promotion; pausing/completing/cancelling it must stop future auto-promotion.
+        await this.reconcileProjectsInternal(db, [nextProject.id]);
+
+        await db.execute("COMMIT");
+        return nextProject;
+      } catch (error) {
+        await this.rollbackQuietly(db);
+        throw error;
+      }
+    });
   }
 
   async listTasks(filters = {}): Promise<Task[]> {
@@ -2450,116 +2621,130 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async saveRecurringTaskTemplate(template: RecurringTaskTemplate): Promise<RecurringTaskTemplate> {
-    const timestamp = nowIso();
-    const previous = template.id ? await this.getRecurringTemplateById(template.id) : null;
-    const nextTemplate = createRecurringTemplate({
-      ...cloneRecurringTemplate(template),
-      id: template.id || createEntityId("recurring-template"),
-      title: template.title,
-      startDate: template.startDate,
-      createdAt: previous?.createdAt ?? template.createdAt ?? timestamp,
-      statusChangedAt:
-        previous && previous.status !== template.status
-          ? timestamp
-          : template.statusChangedAt || previous?.statusChangedAt || timestamp,
-      updatedAt: timestamp,
-    });
-
-    await this.persistRecurringTemplate(nextTemplate);
-    const activeTask = await this.findActiveRecurringTask(nextTemplate.id);
-    if (activeTask) {
-      await this.persistTask(this.syncActiveTaskWithTemplate(activeTask, nextTemplate));
-    }
-    return cloneRecurringTemplate(nextTemplate);
-  }
-
-  async pauseRecurringTaskTemplate(id: string) {
-    const template = await this.requireRecurringTemplate(id);
-    const nextTemplate = syncTemplateStatusChange(template, "paused");
-    await this.persistRecurringTemplate(nextTemplate);
-    return cloneRecurringTemplate(nextTemplate);
-  }
-
-  async resumeRecurringTaskTemplate(id: string) {
-    const template = await this.requireRecurringTemplate(id);
-    const nextTemplate = syncTemplateStatusChange(template, "active");
-    await this.persistRecurringTemplate(nextTemplate);
-    return cloneRecurringTemplate(nextTemplate);
-  }
-
-  async cancelRecurringTaskTemplate(id: string) {
-    const template = await this.requireRecurringTemplate(id);
-    const nextTemplate = syncTemplateStatusChange(template, "cancelled");
-    await this.persistRecurringTemplate(nextTemplate);
-    const activeTask = await this.findActiveRecurringTask(id);
-    if (activeTask) {
-      await this.persistTask({
-        ...cloneTask(activeTask),
-        status: "cancelled",
-        updatedAt: nowIso(),
-      });
-    }
-    return cloneRecurringTemplate(nextTemplate);
-  }
-
-  async generateDueRecurringTasks(date: string): Promise<number> {
-    const templates = await this.getAllRecurringTemplates();
-    let changedCount = 0;
-
-    for (const template of templates) {
-      if (template.status !== "active") {
-        continue;
-      }
-
-      const activeTask = await this.findActiveRecurringTask(template.id);
-      const startDate = this.findProcessingStartDate(template, activeTask);
-      const dueDates = this.listDueDatesBetween(template, startDate, date);
-
-      if (dueDates.length === 0) {
-        continue;
-      }
-
-      const latestDueDate = dueDates[dueDates.length - 1];
-      const nextPending =
-        (activeTask?.pendingPastRecurrences ?? 0) + dueDates.length - 1 + (activeTask ? 1 : 0);
-      const previousPending = activeTask?.pendingPastRecurrences ?? 0;
-      const pendingPastRecurrences = Math.max(previousPending, nextPending);
+    return this.runExclusive(async () => {
       const timestamp = nowIso();
-
-      const nextTask = activeTask
-        ? {
-            ...cloneTask(activeTask),
-            bucket: template.targetBucket,
-            contextIds: [...template.contextIds],
-            projectId: template.projectId,
-            title: activeTask.title,
-            notes: activeTask.notes,
-            scheduledFor:
-              template.targetBucket === "scheduled"
-                ? buildTaskFromRecurringTemplate(template, latestDueDate, pendingPastRecurrences)
-                    .scheduledFor
-                : null,
-            recurrenceDueDate: latestDueDate,
-            pendingPastRecurrences,
-            updatedAt: timestamp,
-          }
-        : buildTaskFromRecurringTemplate(template, latestDueDate, Math.max(0, dueDates.length - 1));
-
-      await this.persistTask(nextTask);
-      await this.persistEvents(
-        buildLifecycleEvents(activeTask ? cloneTask(activeTask) : null, nextTask),
-      );
-      await this.persistRecurringTemplate({
+      const previous = template.id ? await this.getRecurringTemplateById(template.id) : null;
+      const nextTemplate = createRecurringTemplate({
         ...cloneRecurringTemplate(template),
-        lastGeneratedForDate: latestDueDate,
-        pendingMissedOccurrences: nextTask.pendingPastRecurrences,
+        id: template.id || createEntityId("recurring-template"),
+        title: template.title,
+        startDate: template.startDate,
+        createdAt: previous?.createdAt ?? template.createdAt ?? timestamp,
+        statusChangedAt:
+          previous && previous.status !== template.status
+            ? timestamp
+            : template.statusChangedAt || previous?.statusChangedAt || timestamp,
         updatedAt: timestamp,
       });
 
-      changedCount += 1;
-    }
+      await this.persistRecurringTemplate(nextTemplate);
+      const activeTask = await this.findActiveRecurringTask(nextTemplate.id);
+      if (activeTask) {
+        await this.persistTask(this.syncActiveTaskWithTemplate(activeTask, nextTemplate));
+      }
+      return cloneRecurringTemplate(nextTemplate);
+    });
+  }
 
-    return changedCount;
+  async pauseRecurringTaskTemplate(id: string) {
+    return this.runExclusive(async () => {
+      const template = await this.requireRecurringTemplate(id);
+      const nextTemplate = syncTemplateStatusChange(template, "paused");
+      await this.persistRecurringTemplate(nextTemplate);
+      return cloneRecurringTemplate(nextTemplate);
+    });
+  }
+
+  async resumeRecurringTaskTemplate(id: string) {
+    return this.runExclusive(async () => {
+      const template = await this.requireRecurringTemplate(id);
+      const nextTemplate = syncTemplateStatusChange(template, "active");
+      await this.persistRecurringTemplate(nextTemplate);
+      return cloneRecurringTemplate(nextTemplate);
+    });
+  }
+
+  async cancelRecurringTaskTemplate(id: string) {
+    return this.runExclusive(async () => {
+      const template = await this.requireRecurringTemplate(id);
+      const nextTemplate = syncTemplateStatusChange(template, "cancelled");
+      await this.persistRecurringTemplate(nextTemplate);
+      const activeTask = await this.findActiveRecurringTask(id);
+      if (activeTask) {
+        await this.persistTask({
+          ...cloneTask(activeTask),
+          status: "cancelled",
+          updatedAt: nowIso(),
+        });
+      }
+      return cloneRecurringTemplate(nextTemplate);
+    });
+  }
+
+  async generateDueRecurringTasks(date: string): Promise<number> {
+    return this.runExclusive(async () => {
+      const templates = await this.getAllRecurringTemplates();
+      let changedCount = 0;
+
+      for (const template of templates) {
+        if (template.status !== "active") {
+          continue;
+        }
+
+        const activeTask = await this.findActiveRecurringTask(template.id);
+        const startDate = this.findProcessingStartDate(template, activeTask);
+        const dueDates = this.listDueDatesBetween(template, startDate, date);
+
+        if (dueDates.length === 0) {
+          continue;
+        }
+
+        const latestDueDate = dueDates[dueDates.length - 1];
+        const nextPending =
+          (activeTask?.pendingPastRecurrences ?? 0) + dueDates.length - 1 + (activeTask ? 1 : 0);
+        const previousPending = activeTask?.pendingPastRecurrences ?? 0;
+        const pendingPastRecurrences = Math.max(previousPending, nextPending);
+        const timestamp = nowIso();
+
+        const nextTask = activeTask
+          ? {
+              ...cloneTask(activeTask),
+              bucket: template.targetBucket,
+              contextIds: [...template.contextIds],
+              projectId: template.projectId,
+              title: activeTask.title,
+              notes: activeTask.notes,
+              scheduledFor:
+                template.targetBucket === "scheduled"
+                  ? buildTaskFromRecurringTemplate(template, latestDueDate, pendingPastRecurrences)
+                      .scheduledFor
+                  : null,
+              recurrenceDueDate: latestDueDate,
+              pendingPastRecurrences,
+              updatedAt: timestamp,
+            }
+          : buildTaskFromRecurringTemplate(
+              template,
+              latestDueDate,
+              Math.max(0, dueDates.length - 1),
+            );
+
+        await this.persistTask(nextTask);
+        await this.persistEvents(
+          buildLifecycleEvents(activeTask ? cloneTask(activeTask) : null, nextTask),
+        );
+        await this.persistRecurringTemplate({
+          ...cloneRecurringTemplate(template),
+          lastGeneratedForDate: latestDueDate,
+          pendingMissedOccurrences: nextTask.pendingPastRecurrences,
+          updatedAt: timestamp,
+        });
+
+        changedCount += 1;
+      }
+
+      return changedCount;
+    });
   }
 
   async listRecurringPreviewOccurrences(rangeStart: string, rangeEnd: string) {
@@ -2611,24 +2796,86 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async createTask(input: Parameters<AppRepository["createTask"]>[0]): Promise<Task> {
-    const nextTask = createTaskFromInput(input);
-    await this.persistTask(nextTask);
-    await this.persistEvents(buildLifecycleEvents(null, nextTask));
-    return cloneTask(nextTask);
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      await db.execute("BEGIN IMMEDIATE");
+
+      try {
+        const draft = createTaskFromInput(input);
+        const allTasks = await this.getAllTasks();
+        const nextTask = adjustPlannedFieldsForSave(null, draft, allTasks);
+        await this.assertPlannedProjectExists(nextTask);
+
+        await this.persistTask(nextTask);
+        await this.persistEvents(buildLifecycleEvents(null, nextTask));
+        await this.reconcileProjectsInternal(db, [nextTask.projectId]);
+
+        await db.execute("COMMIT");
+        const stored = await this.getTaskById(nextTask.id);
+        return cloneTask(stored ?? nextTask);
+      } catch (error) {
+        await this.rollbackQuietly(db);
+        throw error;
+      }
+    });
   }
 
   async saveTask(task: Task): Promise<Task> {
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      await db.execute("BEGIN IMMEDIATE");
+
+      try {
+        const nextTask = await this.saveTaskInternal(db, task);
+        await db.execute("COMMIT");
+        return nextTask;
+      } catch (error) {
+        await this.rollbackQuietly(db);
+        throw error;
+      }
+    });
+  }
+
+  /**
+   * Transaction-scoped task save: validates/derives Planned invariants, persists the task,
+   * emits lifecycle events, and reconciles every affected project. Callers must already hold
+   * an open `BEGIN IMMEDIATE` transaction on `db` (via `runExclusive`) and must not re-enter
+   * the writer or open a nested transaction from here.
+   */
+  private async saveTaskInternal(db: Database, task: Task): Promise<Task> {
     const previous = await this.getTaskById(task.id);
+    const allTasks = await this.getAllTasks();
+    const adjusted = adjustPlannedFieldsForSave(previous, task, allTasks);
     const nextTask: Task = {
-      ...cloneTask(task),
-      title: task.title.trim(),
-      notes: task.notes.trim(),
+      ...cloneTask(adjusted),
+      title: adjusted.title.trim(),
+      notes: adjusted.notes.trim(),
       updatedAt: nowIso(),
     };
+    await this.assertPlannedProjectExists(nextTask);
 
     await this.persistTask(nextTask);
     await this.persistEvents(buildLifecycleEvents(previous, nextTask));
-    return cloneTask(nextTask);
+    await this.reconcileProjectsInternal(db, [previous?.projectId, nextTask.projectId]);
+
+    const stored = await this.getTaskById(nextTask.id);
+    return cloneTask(stored ?? nextTask);
+  }
+
+  /**
+   * A Planned task must reference a project that actually exists; a stale or unknown id
+   * would silently become an orphaned, never-promoted Planned task (reconciliation no-ops
+   * when `getProjectById` returns null). Must run inside the caller's open transaction.
+   */
+  private async assertPlannedProjectExists(task: Task): Promise<void> {
+    if (task.bucket !== "planned" || !task.projectId) {
+      return;
+    }
+
+    const project = await this.getProjectById(task.projectId);
+    if (!project) {
+      throw new Error(`Le projet ${task.projectId} est introuvable`);
+    }
   }
 
   async moveTask(
@@ -2648,6 +2895,13 @@ export class TauriSqliteRepository implements AppRepository {
 
   async scheduleTask(taskId: string, scheduledFor: string | null): Promise<Task> {
     const current = await this.requireTask(taskId);
+
+    // Reusing `scheduledFor` on an active Planned task is a planned-date display update: it
+    // must never coerce the task to Scheduled.
+    if (current.status === "active" && current.bucket === "planned") {
+      return this.saveTask({ ...current, scheduledFor });
+    }
+
     return this.saveTask({
       ...current,
       bucket: scheduledFor
@@ -2659,47 +2913,187 @@ export class TauriSqliteRepository implements AppRepository {
     });
   }
 
-  async completeTask(taskId: string, completedAt = nowIso()): Promise<Task> {
-    const current = await this.requireTask(taskId);
-    const nextTask = await this.saveTask({
-      ...current,
-      status: "completed",
-      completedAt,
+  async promotePlannedTask(taskId: string): Promise<Task> {
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      await db.execute("BEGIN IMMEDIATE");
+
+      try {
+        // Re-read the task and project from the open connection rather than a snapshot
+        // taken before the writer slot was acquired: another queued mutation (e.g. a
+        // completion or a project pause) may have run first, and eligibility must be
+        // evaluated against current DB state, not a stale read.
+        const task = await this.getTaskById(taskId);
+        if (!task || task.status !== "active" || task.bucket !== "planned" || !task.projectId) {
+          throw new Error(`La tache ${taskId} n'est pas planifiee et active`);
+        }
+
+        const project = await this.getProjectById(task.projectId);
+        if (!project || project.status !== "active") {
+          throw new Error("Le projet associe n'est pas actif");
+        }
+
+        const nextTask = await this.saveTaskInternal(db, { ...task, bucket: "next_action" });
+        await db.execute("COMMIT");
+        return nextTask;
+      } catch (error) {
+        await this.rollbackQuietly(db);
+        throw error;
+      }
     });
-    if (current.recurringTemplateId) {
-      const template = await this.requireRecurringTemplate(current.recurringTemplateId);
-      const nextLastGeneratedForDate =
-        current.recurrenceDueDate &&
-        (!template.lastGeneratedForDate ||
-          current.recurrenceDueDate > template.lastGeneratedForDate)
-          ? current.recurrenceDueDate
-          : template.lastGeneratedForDate;
-      await this.persistRecurringTemplate({
-        ...cloneRecurringTemplate(template),
-        lastGeneratedForDate: nextLastGeneratedForDate,
-        pendingMissedOccurrences: 0,
-        updatedAt: nowIso(),
-      });
+  }
+
+  async movePlannedTask(taskId: string, direction: "up" | "down"): Promise<Task[]> {
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      await db.execute("BEGIN IMMEDIATE");
+
+      try {
+        const task = await this.requireTask(taskId);
+        if (task.status !== "active" || task.bucket !== "planned" || !task.projectId) {
+          throw new Error(`La tache ${taskId} n'est pas planifiee et active`);
+        }
+
+        const allTasks = await this.getAllTasks();
+        const updates = swapPlannedOrder(allTasks, taskId, direction, nowIso());
+        if (!updates) {
+          throw new Error(`La tache ${taskId} n'est pas planifiee et active`);
+        }
+
+        if (updates.length === 0) {
+          await db.execute("COMMIT");
+          return [cloneTask(task)];
+        }
+
+        for (const updated of updates) {
+          await this.persistTask(updated);
+        }
+
+        await db.execute("COMMIT");
+        const stored = await Promise.all(updates.map((updated) => this.getTaskById(updated.id)));
+        return stored.map((row, index) => cloneTask(row ?? updates[index]));
+      } catch (error) {
+        await this.rollbackQuietly(db);
+        throw error;
+      }
+    });
+  }
+
+  /**
+   * Deduplicates project ids and reconciles each once; used after every task mutation.
+   * Transaction-scoped: `_db` documents that this must run inside a caller-owned
+   * `BEGIN IMMEDIATE` and must never re-enter the writer or open a nested transaction.
+   */
+  private async reconcileProjectsInternal(
+    _db: Database,
+    projectIds: Array<string | null | undefined>,
+  ): Promise<void> {
+    const uniqueIds = [...new Set(projectIds.filter((id): id is string => Boolean(id)))];
+    for (const projectId of uniqueIds) {
+      await this.reconcileProjectNextActionInternal(projectId);
     }
-    return nextTask;
+  }
+
+  /**
+   * Promotes at most one planned task when the project is active and has zero active next
+   * actions, then compacts the remaining planned queue.
+   */
+  private async reconcileProjectNextActionInternal(projectId: string): Promise<void> {
+    const project = await this.getProjectById(projectId);
+    const tasksSnapshot = await this.getAllTasks();
+    const outcome = reconcileProjectPlannedTasks(tasksSnapshot, project, nowIso());
+
+    if (outcome.updatedTasks.length === 0) {
+      return;
+    }
+
+    const previousById = new Map(tasksSnapshot.map((task) => [task.id, task] as const));
+
+    for (const updated of outcome.updatedTasks) {
+      await this.persistTask(updated);
+
+      if (updated.id === outcome.promotedTaskId) {
+        const previous = previousById.get(updated.id) ?? null;
+        // Auto-promotion lifecycle events must use the local calendar date, never a UTC
+        // slice of the instant timestamp: near local midnight those diverge by a day.
+        const localEventDate = toLocalDateString(updated.updatedAt);
+        await this.persistEvents(
+          buildLifecycleEvents(previous, updated).map((event) => ({
+            ...event,
+            eventDate: localEventDate,
+          })),
+        );
+      }
+    }
+  }
+
+  async completeTask(taskId: string, completedAt = nowIso()): Promise<Task> {
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      await db.execute("BEGIN IMMEDIATE");
+
+      try {
+        const current = await this.requireTask(taskId);
+        const nextTask = await this.saveTaskInternal(db, {
+          ...current,
+          status: "completed",
+          completedAt,
+        });
+
+        if (current.recurringTemplateId) {
+          const template = await this.requireRecurringTemplate(current.recurringTemplateId);
+          const nextLastGeneratedForDate =
+            current.recurrenceDueDate &&
+            (!template.lastGeneratedForDate ||
+              current.recurrenceDueDate > template.lastGeneratedForDate)
+              ? current.recurrenceDueDate
+              : template.lastGeneratedForDate;
+          await this.persistRecurringTemplate({
+            ...cloneRecurringTemplate(template),
+            lastGeneratedForDate: nextLastGeneratedForDate,
+            pendingMissedOccurrences: 0,
+            updatedAt: nowIso(),
+          });
+        }
+
+        await db.execute("COMMIT");
+        return nextTask;
+      } catch (error) {
+        await this.rollbackQuietly(db);
+        throw error;
+      }
+    });
   }
 
   async cancelTask(taskId: string): Promise<Task> {
-    const current = await this.requireTask(taskId);
-    const nextTask = await this.saveTask({
-      ...current,
-      status: "cancelled",
-      completedAt: null,
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      await db.execute("BEGIN IMMEDIATE");
+
+      try {
+        const current = await this.requireTask(taskId);
+        const nextTask = await this.saveTaskInternal(db, {
+          ...current,
+          status: "cancelled",
+          completedAt: null,
+        });
+
+        if (current.recurringTemplateId) {
+          const template = await this.requireRecurringTemplate(current.recurringTemplateId);
+          await this.persistRecurringTemplate({
+            ...cloneRecurringTemplate(template),
+            pendingMissedOccurrences: 0,
+            updatedAt: nowIso(),
+          });
+        }
+
+        await db.execute("COMMIT");
+        return nextTask;
+      } catch (error) {
+        await this.rollbackQuietly(db);
+        throw error;
+      }
     });
-    if (current.recurringTemplateId) {
-      const template = await this.requireRecurringTemplate(current.recurringTemplateId);
-      await this.persistRecurringTemplate({
-        ...cloneRecurringTemplate(template),
-        pendingMissedOccurrences: 0,
-        updatedAt: nowIso(),
-      });
-    }
-    return nextTask;
   }
 
   async clearPastRecurrences(taskId: string): Promise<Task> {
@@ -2785,10 +3179,12 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async applyWeeklyCarryover(weekStartDate: string): Promise<number> {
-    const [tasks, events] = await Promise.all([this.getAllTasks(), this.getAllEvents()]);
-    const nextEvents = buildCarryoverEvents(tasks, events, weekStartDate);
-    await this.persistEvents(nextEvents);
-    return nextEvents.length;
+    return this.runExclusive(async () => {
+      const [tasks, events] = await Promise.all([this.getAllTasks(), this.getAllEvents()]);
+      const nextEvents = buildCarryoverEvents(tasks, events, weekStartDate);
+      await this.persistEvents(nextEvents);
+      return nextEvents.length;
+    });
   }
 
   async getPomodoroState() {
@@ -2800,34 +3196,48 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async startPomodoro(options: PomodoroStartOptions = {}) {
-    await this.completeExpiredPomodoroSessions();
-    const state = await this.getPomodoroState();
+    return this.runExclusive(async () => {
+      await this.completeExpiredPomodoroSessionsInternal();
+      const state = await this.getPomodoroState();
 
-    if (state.activeSession) {
-      return state;
-    }
+      if (state.activeSession) {
+        return state;
+      }
 
-    const startedAt = nowIso();
-    const kind = options.kind ?? state.nextSessionKind;
-    const cycleIndex =
-      kind === "focus"
-        ? state.nextFocusCycleIndex
-        : Math.max(1, state.completedFocusCountInCycle || 1);
-    const session = createPomodoroSession(kind, startedAt, cycleIndex);
+      const startedAt = nowIso();
+      const kind = options.kind ?? state.nextSessionKind;
+      const cycleIndex =
+        kind === "focus"
+          ? state.nextFocusCycleIndex
+          : Math.max(1, state.completedFocusCountInCycle || 1);
+      const session = createPomodoroSession(kind, startedAt, cycleIndex);
 
-    await this.persistPomodoroSession(session);
+      await this.persistPomodoroSession(session);
 
-    if (kind === "focus") {
-      const normalizedTitle = options.taskId ? null : (options.title ?? "").trim() || null;
-      await this.persistPomodoroSegment(
-        createPomodoroSegment(session.id, startedAt, options.taskId ?? null, normalizedTitle),
-      );
-    }
+      if (kind === "focus") {
+        const normalizedTitle = options.taskId ? null : (options.title ?? "").trim() || null;
+        await this.persistPomodoroSegment(
+          createPomodoroSegment(session.id, startedAt, options.taskId ?? null, normalizedTitle),
+        );
+      }
 
-    return this.getPomodoroState();
+      return this.getPomodoroState();
+    });
   }
 
   async stopPomodoroSession(sessionId: string, status: "completed" | "cancelled", at = nowIso()) {
+    return this.runExclusive(async () => this.stopPomodoroSessionInternal(sessionId, status, at));
+  }
+
+  /**
+   * Transaction-scoped stop of a Pomodoro session. Callers must already hold the writer
+   * slot (via `runExclusive`) and must not re-enter it from here.
+   */
+  private async stopPomodoroSessionInternal(
+    sessionId: string,
+    status: "completed" | "cancelled",
+    at = nowIso(),
+  ) {
     const session = await this.getPomodoroSessionById(sessionId);
 
     if (!session) {
@@ -2865,75 +3275,87 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async pausePomodoroSession(sessionId: string, at = nowIso()) {
-    const session = await this.getPomodoroSessionById(sessionId);
+    return this.runExclusive(async () => {
+      const session = await this.getPomodoroSessionById(sessionId);
 
-    if (!session) {
-      throw new Error(`Session Pomodoro ${sessionId} introuvable`);
-    }
+      if (!session) {
+        throw new Error(`Session Pomodoro ${sessionId} introuvable`);
+      }
 
-    if (session.status !== "running") {
-      return this.getPomodoroState();
-    }
+      if (session.status !== "running") {
+        return this.getPomodoroState();
+      }
 
-    const remainingMs = Math.max(0, new Date(session.endsAt).getTime() - new Date(at).getTime());
+      const remainingMs = Math.max(0, new Date(session.endsAt).getTime() - new Date(at).getTime());
 
-    await this.persistPomodoroSession({
-      ...session,
-      status: "paused",
-      pausedRemainingMs: remainingMs,
-    });
-
-    const openSegments = await this.getOpenPomodoroSegments(sessionId);
-    for (const segment of openSegments) {
-      await this.persistPomodoroSegment({
-        ...segment,
-        endedAt: at,
+      await this.persistPomodoroSession({
+        ...session,
+        status: "paused",
+        pausedRemainingMs: remainingMs,
       });
-    }
 
-    return this.getPomodoroState();
+      const openSegments = await this.getOpenPomodoroSegments(sessionId);
+      for (const segment of openSegments) {
+        await this.persistPomodoroSegment({
+          ...segment,
+          endedAt: at,
+        });
+      }
+
+      return this.getPomodoroState();
+    });
   }
 
   async resumePomodoroSession(sessionId: string, at = nowIso()) {
-    const session = await this.getPomodoroSessionById(sessionId);
+    return this.runExclusive(async () => {
+      const session = await this.getPomodoroSessionById(sessionId);
 
-    if (!session) {
-      throw new Error(`Session Pomodoro ${sessionId} introuvable`);
-    }
-
-    if (session.status !== "paused") {
-      return this.getPomodoroState();
-    }
-
-    const remainingMs =
-      session.pausedRemainingMs ??
-      Math.max(0, new Date(session.endsAt).getTime() - new Date(at).getTime());
-    const nextEndsAt = new Date(new Date(at).getTime() + remainingMs).toISOString();
-
-    await this.persistPomodoroSession({
-      ...session,
-      status: "running",
-      endsAt: nextEndsAt,
-      pausedRemainingMs: null,
-    });
-
-    if (session.kind === "focus") {
-      const latestSegment = (await this.getAllPomodoroSegments())
-        .filter((segment) => segment.sessionId === sessionId)
-        .sort((left, right) => left.startedAt.localeCompare(right.startedAt))
-        .at(-1);
-
-      if (latestSegment) {
-        await this.persistPomodoroSegment(
-          createPomodoroSegment(sessionId, at, latestSegment.taskId, latestSegment.title),
-        );
+      if (!session) {
+        throw new Error(`Session Pomodoro ${sessionId} introuvable`);
       }
-    }
 
-    return this.getPomodoroState();
+      if (session.status !== "paused") {
+        return this.getPomodoroState();
+      }
+
+      const remainingMs =
+        session.pausedRemainingMs ??
+        Math.max(0, new Date(session.endsAt).getTime() - new Date(at).getTime());
+      const nextEndsAt = new Date(new Date(at).getTime() + remainingMs).toISOString();
+
+      await this.persistPomodoroSession({
+        ...session,
+        status: "running",
+        endsAt: nextEndsAt,
+        pausedRemainingMs: null,
+      });
+
+      if (session.kind === "focus") {
+        const latestSegment = (await this.getAllPomodoroSegments())
+          .filter((segment) => segment.sessionId === sessionId)
+          .sort((left, right) => left.startedAt.localeCompare(right.startedAt))
+          .at(-1);
+
+        if (latestSegment) {
+          await this.persistPomodoroSegment(
+            createPomodoroSegment(sessionId, at, latestSegment.taskId, latestSegment.title),
+          );
+        }
+      }
+
+      return this.getPomodoroState();
+    });
   }
 
   async completeExpiredPomodoroSessions(now = nowIso()) {
+    return this.runExclusive(async () => this.completeExpiredPomodoroSessionsInternal(now));
+  }
+
+  /**
+   * Transaction-scoped auto-completion of expired Pomodoro sessions. Callers must
+   * already hold the writer slot (via `runExclusive`) and must not re-enter it here.
+   */
+  private async completeExpiredPomodoroSessionsInternal(now = nowIso()) {
     let sessions = await this.getAllPomodoroSessions();
     const expiredRunningSessions = sessions.filter(
       (session) =>
@@ -2942,7 +3364,7 @@ export class TauriSqliteRepository implements AppRepository {
     );
 
     for (const session of expiredRunningSessions) {
-      await this.stopPomodoroSession(session.id, "completed", session.endsAt);
+      await this.stopPomodoroSessionInternal(session.id, "completed", session.endsAt);
     }
 
     sessions = await this.getAllPomodoroSessions();
@@ -2950,7 +3372,7 @@ export class TauriSqliteRepository implements AppRepository {
       sessions,
       now,
     )) {
-      await this.stopPomodoroSession(sessionId, "completed", now);
+      await this.stopPomodoroSessionInternal(sessionId, "completed", now);
     }
 
     return this.getPomodoroState();
@@ -2962,35 +3384,37 @@ export class TauriSqliteRepository implements AppRepository {
     title: string | null = null,
     changedAt = nowIso(),
   ) {
-    const session = await this.getPomodoroSessionById(sessionId);
+    return this.runExclusive(async () => {
+      const session = await this.getPomodoroSessionById(sessionId);
 
-    if (!session) {
-      throw new Error(`Session Pomodoro ${sessionId} introuvable`);
-    }
+      if (!session) {
+        throw new Error(`Session Pomodoro ${sessionId} introuvable`);
+      }
 
-    if (session.status !== "running" || session.kind !== "focus") {
+      if (session.status !== "running" || session.kind !== "focus") {
+        return this.getPomodoroState();
+      }
+
+      const openSegments = await this.getOpenPomodoroSegments(sessionId);
+      const openSegment = openSegments[0] ?? null;
+      const normalizedTitle = taskId ? null : (title ?? "").trim() || null;
+
+      if (openSegment?.taskId === taskId && (openSegment.title ?? null) === normalizedTitle) {
+        return this.getPomodoroState();
+      }
+
+      if (openSegment) {
+        await this.persistPomodoroSegment({
+          ...openSegment,
+          endedAt: changedAt,
+        });
+      }
+
+      await this.persistPomodoroSegment(
+        createPomodoroSegment(sessionId, changedAt, taskId, normalizedTitle),
+      );
       return this.getPomodoroState();
-    }
-
-    const openSegments = await this.getOpenPomodoroSegments(sessionId);
-    const openSegment = openSegments[0] ?? null;
-    const normalizedTitle = taskId ? null : (title ?? "").trim() || null;
-
-    if (openSegment?.taskId === taskId && (openSegment.title ?? null) === normalizedTitle) {
-      return this.getPomodoroState();
-    }
-
-    if (openSegment) {
-      await this.persistPomodoroSegment({
-        ...openSegment,
-        endedAt: changedAt,
-      });
-    }
-
-    await this.persistPomodoroSegment(
-      createPomodoroSegment(sessionId, changedAt, taskId, normalizedTitle),
-    );
-    return this.getPomodoroState();
+    });
   }
 
   async listPomodoroSessions(date: string) {
@@ -3200,6 +3624,10 @@ export class TauriSqliteRepository implements AppRepository {
       completedAt: row.completed_at,
       recurrenceGroupId: row.recurrence_group_id,
       pendingPastRecurrences: Number(row.pending_past_recurrences ?? 0),
+      plannedOrder:
+        row.planned_order === null || row.planned_order === undefined
+          ? null
+          : Number(row.planned_order),
       source: row.source,
       sourceExternalId: row.source_external_id,
       createdAt: row.created_at,
@@ -3290,7 +3718,7 @@ export class TauriSqliteRepository implements AppRepository {
       `SELECT
         id, title, notes, status, bucket, context_ids_json, project_id, parent_task_id,
         scheduled_for, deadline, recurring_template_id, recurrence_due_date, is_recurring_instance,
-        completed_at, recurrence_group_id, pending_past_recurrences, source, source_external_id, created_at, updated_at
+        completed_at, recurrence_group_id, pending_past_recurrences, planned_order, source, source_external_id, created_at, updated_at
       FROM gtd_tasks`,
     );
     return rows.map((row) => this.deserializeTask(row));
@@ -3345,7 +3773,7 @@ export class TauriSqliteRepository implements AppRepository {
       `SELECT
         id, title, notes, status, bucket, context_ids_json, project_id, parent_task_id,
         scheduled_for, deadline, recurring_template_id, recurrence_due_date, is_recurring_instance,
-        completed_at, recurrence_group_id, pending_past_recurrences, source, source_external_id, created_at, updated_at
+        completed_at, recurrence_group_id, pending_past_recurrences, planned_order, source, source_external_id, created_at, updated_at
       FROM gtd_tasks
       WHERE id = $1`,
       [taskId],
@@ -3498,8 +3926,8 @@ export class TauriSqliteRepository implements AppRepository {
       `INSERT INTO gtd_tasks (
         id, title, notes, status, bucket, context_ids_json, project_id, parent_task_id, scheduled_for,
         deadline, recurring_template_id, recurrence_due_date, is_recurring_instance, completed_at, recurrence_group_id,
-        pending_past_recurrences, source, source_external_id, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+        pending_past_recurrences, planned_order, source, source_external_id, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         notes = excluded.notes,
@@ -3516,6 +3944,7 @@ export class TauriSqliteRepository implements AppRepository {
         completed_at = excluded.completed_at,
         recurrence_group_id = excluded.recurrence_group_id,
         pending_past_recurrences = excluded.pending_past_recurrences,
+        planned_order = excluded.planned_order,
         source = excluded.source,
         source_external_id = excluded.source_external_id,
         updated_at = excluded.updated_at`,
@@ -3536,6 +3965,7 @@ export class TauriSqliteRepository implements AppRepository {
         task.completedAt,
         task.recurrenceGroupId,
         task.pendingPastRecurrences,
+        task.plannedOrder,
         task.source,
         task.sourceExternalId,
         task.createdAt,

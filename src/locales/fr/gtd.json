@@ -6,7 +6,8 @@
     "scheduled": "Scheduled",
     "waitingFor": "Waiting For",
     "somedayMaybe": "Someday / Maybe",
-    "reference": "References"
+    "reference": "References",
+    "planned": "Planifiée (projet)"
   },
   "inbox": {
     "hero": {
@@ -132,7 +133,13 @@
       "footerMeta_other": "{{count}} actions actives liées • {{duration}}",
       "saving": "Enregistrement...",
       "save": "Enregistrer",
-      "tasksEmpty": "Aucune tâche active liée à ce projet."
+      "tasksEmpty": "Aucune tâche active liée à ce projet.",
+      "plannedTitle": "File planifiée",
+      "plannedPlaceholder": "Nouvelle tâche planifiée",
+      "plannedDateAria": "Date planifiée optionnelle",
+      "plannedTimeAria": "Heure planifiée optionnelle",
+      "plannedAdd": "Ajouter à la file planifiée",
+      "plannedEmpty": "Aucune tâche planifiée pour ce projet."
     }
   },
   "scheduled": {
@@ -280,7 +287,16 @@
     "scopeSeries": "Toute la série",
     "clearPast": "Marquer les récurrences passées comme complétées",
     "saving": "Enregistrement...",
-    "save": "Enregistrer"
+    "save": "Enregistrer",
+    "promote": "Promouvoir en next action",
+    "promoteAria": "Promouvoir {{title}} en next action",
+    "moveUp": "Monter",
+    "moveDown": "Descendre",
+    "moveUpAria": "Monter {{title}} dans la file planifiée",
+    "moveDownAria": "Descendre {{title}} dans la file planifiée",
+    "plannedNoDate": "Sans date",
+    "plannedDateOverdueAria": "Date planifiée dépassée : {{date}}",
+    "plannedDateLabel": "Date planifiée (optionnelle)"
   },
   "bulk": {
     "selectedCount_one": "{{count}} tâche sélectionnée sur {{total}}",
@@ -309,6 +325,7 @@
   },
   "errors": {
     "saveContext": "Impossible d'enregistrer le contexte.",
-    "createContext": "Impossible de créer le contexte."
+    "createContext": "Impossible de créer le contexte.",
+    "saveTask": "Impossible d'enregistrer la tâche."
   }
 }

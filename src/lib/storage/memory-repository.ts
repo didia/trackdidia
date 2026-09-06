@@ -66,12 +66,18 @@ import {
 } from "../gtd/engine";
 import { buildGoogleTasksImport } from "../gtd/google-tasks-import";
 import {
+  adjustPlannedFieldsForSave,
+  reconcileProjectPlannedTasks,
+  swapPlannedOrder,
+} from "../gtd/planned";
+import {
   addDays,
   buildContextId,
   cloneProject,
   cloneTask,
   createEntityId,
   nowIso,
+  toLocalDateString,
 } from "../gtd/shared";
 import {
   buildPomodoroSessionDetails,
@@ -925,7 +931,8 @@ export class MemoryRepository implements AppRepository {
 
     this.ensureContextsByIds(nextProject.contextIds);
     this.projects.set(nextProject.id, cloneProject(nextProject));
-    return cloneProject(nextProject);
+    this.reconcileProjects([nextProject.id]);
+    return cloneProject(this.projects.get(nextProject.id)!);
   }
 
   async listTasks(filters: TaskFilters = {}): Promise<Task[]> {
@@ -1103,26 +1110,32 @@ export class MemoryRepository implements AppRepository {
   }
 
   async createTask(input: CreateTaskInput): Promise<Task> {
-    const nextTask = createTaskFromInput(input);
+    const draft = createTaskFromInput(input);
+    const nextTask = this.applyPlannedAdjustments(null, draft);
+    this.assertPlannedProjectExists(nextTask);
     this.ensureContextsByIds(nextTask.contextIds);
     this.tasks.set(nextTask.id, cloneTask(nextTask));
     this.persistEvents(buildLifecycleEvents(null, nextTask));
-    return cloneTask(nextTask);
+    this.reconcileProjects([nextTask.projectId]);
+    return cloneTask(this.tasks.get(nextTask.id) ?? nextTask);
   }
 
   async saveTask(task: Task): Promise<Task> {
     const previous = this.tasks.get(task.id) ?? null;
+    const adjusted = this.applyPlannedAdjustments(previous, task);
     const nextTask: Task = {
-      ...cloneTask(task),
-      title: task.title.trim(),
-      notes: task.notes.trim(),
+      ...cloneTask(adjusted),
+      title: adjusted.title.trim(),
+      notes: adjusted.notes.trim(),
       updatedAt: nowIso(),
     };
+    this.assertPlannedProjectExists(nextTask);
 
     this.ensureContextsByIds(nextTask.contextIds);
     this.tasks.set(nextTask.id, cloneTask(nextTask));
     this.persistEvents(buildLifecycleEvents(previous ? cloneTask(previous) : null, nextTask));
-    return cloneTask(nextTask);
+    this.reconcileProjects([previous?.projectId, nextTask.projectId]);
+    return cloneTask(this.tasks.get(nextTask.id) ?? nextTask);
   }
 
   async moveTask(
@@ -1142,6 +1155,13 @@ export class MemoryRepository implements AppRepository {
 
   async scheduleTask(taskId: string, scheduledFor: string | null): Promise<Task> {
     const current = this.getExistingTask(taskId);
+
+    // Reusing `scheduledFor` on an active Planned task is a planned-date display update: it
+    // must never coerce the task to Scheduled.
+    if (current.status === "active" && current.bucket === "planned") {
+      return this.saveTask({ ...current, scheduledFor });
+    }
+
     return this.saveTask({
       ...current,
       bucket: scheduledFor
@@ -1151,6 +1171,42 @@ export class MemoryRepository implements AppRepository {
           : current.bucket,
       scheduledFor,
     });
+  }
+
+  async promotePlannedTask(taskId: string): Promise<Task> {
+    const task = this.getExistingTask(taskId);
+    if (task.status !== "active" || task.bucket !== "planned" || !task.projectId) {
+      throw new Error(`La tache ${taskId} n'est pas planifiee et active`);
+    }
+
+    const project = this.projects.get(task.projectId) ?? null;
+    if (!project || project.status !== "active") {
+      throw new Error("Le projet associe n'est pas actif");
+    }
+
+    return this.saveTask({ ...task, bucket: "next_action" });
+  }
+
+  async movePlannedTask(taskId: string, direction: "up" | "down"): Promise<Task[]> {
+    const task = this.getExistingTask(taskId);
+    if (task.status !== "active" || task.bucket !== "planned" || !task.projectId) {
+      throw new Error(`La tache ${taskId} n'est pas planifiee et active`);
+    }
+
+    const updates = swapPlannedOrder([...this.tasks.values()], taskId, direction, nowIso());
+    if (!updates) {
+      throw new Error(`La tache ${taskId} n'est pas planifiee et active`);
+    }
+
+    if (updates.length === 0) {
+      return [cloneTask(task)];
+    }
+
+    for (const updated of updates) {
+      this.tasks.set(updated.id, cloneTask(updated));
+    }
+
+    return updates.map((updated) => cloneTask(this.tasks.get(updated.id) ?? updated));
   }
 
   async completeTask(taskId: string, completedAt = nowIso()): Promise<Task> {
@@ -1617,6 +1673,63 @@ export class MemoryRepository implements AppRepository {
     }
 
     return cloneTask(task);
+  }
+
+  private applyPlannedAdjustments(previous: Task | null, requested: Task): Task {
+    return adjustPlannedFieldsForSave(previous, requested, [...this.tasks.values()]);
+  }
+
+  /**
+   * A Planned task must reference a project that actually exists; a stale or unknown id
+   * would silently become an orphaned, never-promoted Planned task (reconciliation no-ops
+   * when the project lookup returns null).
+   */
+  private assertPlannedProjectExists(task: Task): void {
+    if (task.bucket !== "planned" || !task.projectId) {
+      return;
+    }
+
+    if (!this.projects.has(task.projectId)) {
+      throw new Error(`Le projet ${task.projectId} est introuvable`);
+    }
+  }
+
+  /** Deduplicates project ids and reconciles each once; used after every task mutation. */
+  private reconcileProjects(projectIds: Array<string | null | undefined>): void {
+    const uniqueIds = [...new Set(projectIds.filter((id): id is string => Boolean(id)))];
+    for (const projectId of uniqueIds) {
+      this.reconcileProjectNextAction(projectId);
+    }
+  }
+
+  /** Promotes at most one planned task when eligible, then compacts the planned queue. */
+  private reconcileProjectNextAction(projectId: string): void {
+    const project = this.projects.get(projectId) ?? null;
+    const tasksSnapshot = [...this.tasks.values()];
+    const outcome = reconcileProjectPlannedTasks(tasksSnapshot, project, nowIso());
+
+    if (outcome.updatedTasks.length === 0) {
+      return;
+    }
+
+    const previousById = new Map(tasksSnapshot.map((task) => [task.id, task] as const));
+
+    for (const updated of outcome.updatedTasks) {
+      const previous = previousById.get(updated.id) ?? null;
+      this.tasks.set(updated.id, cloneTask(updated));
+
+      if (updated.id === outcome.promotedTaskId && previous) {
+        // Auto-promotion lifecycle events must use the local calendar date, never a UTC
+        // slice of the instant timestamp: near local midnight those diverge by a day.
+        const localEventDate = toLocalDateString(updated.updatedAt);
+        this.persistEvents(
+          buildLifecycleEvents(cloneTask(previous), updated).map((event) => ({
+            ...event,
+            eventDate: localEventDate,
+          })),
+        );
+      }
+    }
   }
 
   private persistEvents(events: TaskEvent[]): void {

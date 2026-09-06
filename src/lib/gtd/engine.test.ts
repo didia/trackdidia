@@ -1,5 +1,6 @@
 import type { Project, ProjectStatus } from "../../domain/types";
 import {
+  createTaskFromInput,
   effectiveTaskContextIds,
   formatAssociationCopy,
   projectAssignmentLabel,
@@ -17,6 +18,35 @@ const buildProject = (id: string, title: string, status: ProjectStatus): Project
   sourceExternalId: null,
   createdAt: "2026-03-01T10:00:00.000Z",
   updatedAt: "2026-03-01T10:00:00.000Z",
+});
+
+describe("createTaskFromInput", () => {
+  it("honors an explicitly requested bucket even when scheduledFor is also supplied", () => {
+    const task = createTaskFromInput({
+      title: "Planifiee",
+      bucket: "planned",
+      projectId: "project:1",
+      scheduledFor: "2026-05-01T09:00:00.000Z",
+    });
+
+    expect(task.bucket).toBe("planned");
+    expect(task.scheduledFor).toBe("2026-05-01T09:00:00.000Z");
+    expect(task.plannedOrder).toBeNull();
+  });
+
+  it("still infers Scheduled from scheduledFor only when no bucket is requested", () => {
+    const task = createTaskFromInput({
+      title: "Sans bucket explicite",
+      scheduledFor: "2026-05-01T09:00:00.000Z",
+    });
+
+    expect(task.bucket).toBe("scheduled");
+  });
+
+  it("defaults to inbox when neither bucket nor scheduledFor is provided", () => {
+    const task = createTaskFromInput({ title: "Brut" });
+    expect(task.bucket).toBe("inbox");
+  });
 });
 
 describe("projectsForAssignment", () => {

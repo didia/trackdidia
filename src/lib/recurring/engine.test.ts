@@ -68,6 +68,7 @@ describe("recurring engine", () => {
         completedAt: null,
         recurrenceGroupId: null,
         pendingPastRecurrences: 0,
+        plannedOrder: null,
         source: "manual",
         sourceExternalId: null,
         createdAt: "2026-04-01T00:00:00.000Z",

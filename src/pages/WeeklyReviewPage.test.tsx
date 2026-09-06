@@ -657,6 +657,7 @@ describe("WeeklyReviewPage", () => {
       completedAt: null,
       recurrenceGroupId: null,
       pendingPastRecurrences: 0,
+      plannedOrder: null,
       source: "manual",
       sourceExternalId: null,
       createdAt: timestamp,

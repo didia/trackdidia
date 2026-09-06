@@ -86,10 +86,15 @@ export const useGtdWorkspace = () => {
             return;
           }
 
+          if (bucket === "planned" && !task.projectId) {
+            skippedCount += 1;
+            return;
+          }
+
           await repository.saveTask({
             ...task,
             bucket,
-            scheduledFor: bucket === "scheduled" ? task.scheduledFor : null,
+            scheduledFor: bucket === "scheduled" || bucket === "planned" ? task.scheduledFor : null,
           });
           movedCount += 1;
         }),
@@ -140,6 +145,24 @@ export const useGtdWorkspace = () => {
     async (taskIds: string[]) => {
       await Promise.all(taskIds.map((taskId) => repository.cancelTask(taskId)));
       await load({ preserveVisibleState: true });
+    },
+    [load, repository],
+  );
+
+  const promotePlannedTask = useCallback(
+    async (taskId: string) => {
+      const nextTask = await repository.promotePlannedTask(taskId);
+      await load({ preserveVisibleState: true });
+      return nextTask;
+    },
+    [load, repository],
+  );
+
+  const movePlannedTask = useCallback(
+    async (taskId: string, direction: "up" | "down") => {
+      const nextTasks = await repository.movePlannedTask(taskId, direction);
+      await load({ preserveVisibleState: true });
+      return nextTasks;
     },
     [load, repository],
   );
@@ -207,6 +230,8 @@ export const useGtdWorkspace = () => {
     completeTasks,
     cancelTask,
     cancelTasks,
+    promotePlannedTask,
+    movePlannedTask,
     clearPastRecurrences,
     saveProject,
     saveContext,

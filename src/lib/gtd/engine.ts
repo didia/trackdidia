@@ -431,7 +431,10 @@ export const createTaskFromInput = (input: CreateTaskInput): Task => {
     title: input.title.trim(),
     notes: input.notes?.trim() ?? "",
     status: "active",
-    bucket: input.scheduledFor ? "scheduled" : (input.bucket ?? "inbox"),
+    // `input.bucket` is the requested bucket and always wins. Only fall back to inferring
+    // "scheduled" from a supplied `scheduledFor` when the caller did not request a bucket
+    // at all; a Planned task with a planned date/time must stay Planned.
+    bucket: input.bucket ?? (input.scheduledFor ? "scheduled" : "inbox"),
     contextIds: [...(input.contextIds ?? [])],
     projectId: input.projectId ?? null,
     parentTaskId: input.parentTaskId ?? null,
@@ -443,6 +446,7 @@ export const createTaskFromInput = (input: CreateTaskInput): Task => {
     completedAt: null,
     recurrenceGroupId: null,
     pendingPastRecurrences: 0,
+    plannedOrder: null,
     source: input.source ?? "manual",
     sourceExternalId: input.sourceExternalId ?? null,
     createdAt: input.createdAt ?? timestamp,
