@@ -163,7 +163,7 @@ export class RescueTimeGoalsService {
     caches: AnalyticCache,
     ensureProjectTimesCache: () => Promise<ReturnType<typeof aggregateProjectTimes>>,
   ): Promise<number> {
-    const taxonomy = goal.taxonomy?.search_name ?? goal.taxonomy_name ?? "";
+    const taxonomy = goal.taxonomy_name ?? goal.taxonomy?.search_name ?? "";
     const scheduleId = goalScheduleId(goal);
 
     if (taxonomy === "projects" || goal.v2project) {

@@ -237,7 +237,7 @@ const overviewNameForGoal = (goal) =>
   (goal.overview?.name ?? goal.taxon_display_name ?? "").toLowerCase();
 
 const resolveActualSeconds = async (client, goal, weekStart, weekEnd, caches) => {
-  const taxonomy = goal.taxonomy?.search_name ?? goal.taxonomy_name ?? "";
+  const taxonomy = goal.taxonomy_name ?? goal.taxonomy?.search_name ?? "";
 
   if (taxonomy === "projects" || goal.v2project) {
     const projectTimes =
@@ -270,7 +270,12 @@ const resolveActualSeconds = async (client, goal, weekStart, weekEnd, caches) =>
     return productivitySecondsForGoal(caches[cacheKey], goal);
   }
 
-  if (taxonomy === "category" || taxonomy === "overviews" || goal.overview) {
+  if (
+    taxonomy === "overview" ||
+    taxonomy === "overviews" ||
+    taxonomy === "category" ||
+    goal.overview
+  ) {
     const cacheKey = "overview";
     if (!caches[cacheKey]) {
       caches[cacheKey] = parseRankRows(

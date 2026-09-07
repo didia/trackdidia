@@ -384,7 +384,7 @@ Authorization: Bearer {rescuetimeApiKey}
 GET https://www.rescuetime.com/anapi/data
   ?format=json
   &perspective=rank
-  &restrict_kind={overview|productivity|...}
+  &restrict_kind={overview|category|activity|productivity}
   &restrict_begin={weekStartDate}
   &restrict_end={weekEndDate}
 Authorization: Bearer {rescuetimeApiKey}

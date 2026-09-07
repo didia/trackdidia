@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-06 | RescueTime overview goals use `taxonomy_name` for Analytic `restrict_kind` (RescueTime `search_name` is `category`) | `docs/reviews-and-goals.md` | `resolveAnalyticKind`, `RescueTimeGoalsService` |
 | 2026-08-31 | Weekly/monthly ritual notes survive leaving the page: textarea flush on unmount, serialized latest-wins review saves | `docs/reviews-and-goals.md`, `docs/conventions.md` | `PersistedTextarea`, `WeeklyReviewPage`, `MonthlyReviewPage` |
 | 2026-08-30 | Phase 4 PR #58 review: atomic weekly synthesis persist/accept, standing objectives UI, week-scoped synthesis, migration 25 index, S2 schema prompt, preview Goals parity, fallback retry policy | `docs/reviews-and-goals.md`, `docs/ai-settings-and-privacy.md`, `docs/storage-and-backups.md` | Migration 25, `WeeklyReviewPage`, `WeeklySynthesisService`, `acceptAi*Proposal`, `listDailyEntriesOnOrBefore` |
 | 2026-08-29 | Shipped AI Integration v2 Phase 5: S3 `monthly_synthesis` on `/mois`, S4 `goal_pacing` on `/objectifs-annuels`, monthly/annual snapshots, goal_evaluation accept-step | `docs/reviews-and-goals.md`, `docs/ai-settings-and-privacy.md` | `src/lib/ai/context/monthly-snapshot.ts`, `MonthlySynthesisService`, `GoalPacingService`, `MonthlyReviewPage`, `AnnualGoalsPage` |

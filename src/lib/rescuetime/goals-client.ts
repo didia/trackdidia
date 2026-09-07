@@ -147,7 +147,7 @@ export const aggregateProjectTimes = (payload: RescueTimeProjectTimesPayload) =>
 };
 
 export const resolveAnalyticKind = (goal: RescueTimeGoalRecord): string => {
-  const taxonomy = goal.taxonomy?.search_name ?? goal.taxonomy_name ?? "";
+  const taxonomy = goal.taxonomy_name ?? goal.taxonomy?.search_name ?? "";
   if (taxonomy === "productivity") {
     return "productivity";
   }
