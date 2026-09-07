@@ -160,7 +160,12 @@ and excluded from the displayed weekly score. A real `0` pulse is included.
 
 Goals are read-only in TrackDidia — manage them in RescueTime. Configure the API key
 under **Paramètres → RescueTime** (stored in SQLite, same as OpenRouter). Time data
-comes from the Analytic Data API and labeled project times (projects and clients).
+comes from the Analytic Data API (`restrict_kind` from the goal's `taxonomy_name`:
+overview, category, activity, or productivity) and labeled project times (projects
+and clients). RescueTime's overview taxonomy advertises `search_name: "category"`;
+TrackDidia prefers `taxonomy_name` so overview goals such as Personal match overview
+rank data, not subcategory rows.
+
 Schedule windows such as “Evening family time” are not filtered yet; v1 uses full-week
 totals with a documented approximation.
 

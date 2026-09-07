@@ -53,6 +53,56 @@ describe("RescueTimeGoalsService", () => {
     );
   });
 
+  it("scores overview goals even when RescueTime search_name is category", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveSettings({
+      ...(await repository.getSettings()),
+      rescuetimeApiKey: "rt-test-key",
+    });
+
+    const mockClient: RescueTimeGoalsClient = {
+      listGoals: vi.fn(async () => [
+        {
+          id: 1757767,
+          display_name: "more than 50m on Personal (24x7)",
+          amount_seconds: 3000,
+          is_more: true,
+          enabled: true,
+          taxon_id: 15,
+          taxon_display_name: "Personal",
+          taxonomy_name: "overview",
+          taxonomy: { search_name: "category" },
+          schedule_name: "24x7",
+          overview: { name: "Personal" },
+        },
+      ]),
+      fetchAnalyticData: vi.fn(async (_apiKey, query) => {
+        if (query.kind === "overview") {
+          return {
+            row_headers: ["Rank", "Time Spent (seconds)", "Category"],
+            rows: [[1, 2466, "Personal"]],
+          };
+        }
+        return {
+          row_headers: ["Rank", "Time Spent (seconds)", "Category"],
+          rows: [[1, 2124, "Planning"]],
+        };
+      }),
+      fetchProjectTimes: vi.fn(async () => ({ project_times: [] })),
+    };
+
+    const service = new RescueTimeGoalsService(repository, mockClient);
+    const snapshot = await service.computeGoalsSnapshot("2026-09-06");
+
+    expect(mockClient.fetchAnalyticData).toHaveBeenCalledWith(
+      "rt-test-key",
+      expect.objectContaining({ kind: "overview" }),
+    );
+    expect(snapshot.items[0]?.actualHours).toBeCloseTo(2466 / 3600);
+    expect(snapshot.items[0]?.actualHours).not.toBe(0);
+  });
+
   it("computes productivity pulse for a week without schedule filter", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
