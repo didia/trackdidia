@@ -50,6 +50,7 @@ const wrapRepository = (repository: MemoryRepository) => {
       switchTask: async () => undefined,
     },
     pulseRevision: 0,
+    calendarDay: getTodayDate(),
   };
 
   return ({ children }: PropsWithChildren) => (

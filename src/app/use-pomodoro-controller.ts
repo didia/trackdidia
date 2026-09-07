@@ -75,6 +75,7 @@ const readTodayPomodoroLists = (candidate: AppRepository) => {
 /** Shared timer state and serialized persistence orchestration for the application shell. */
 export const usePomodoroController = (
   repository: AppRepository | null,
+  calendarDay?: string,
 ): PomodoroControllerValue => {
   const [state, setState] = useState<PomodoroState>(buildIdleState());
   const [sessions, setSessions] = useState<PomodoroSessionDetails[]>([]);
@@ -254,6 +255,7 @@ export const usePomodoroController = (
 
       const today = getTodayDate();
       await candidate.generateDueRecurringTasks(today);
+      await candidate.promoteDueScheduledTasks(today);
       const nextState = await candidate.completeExpiredPomodoroSessions();
       applyState(candidate, nextState);
       let nextSessions: PomodoroSessionDetails[];
@@ -298,7 +300,7 @@ export const usePomodoroController = (
       return;
     }
     void runQueued("chargement Pomodoro", async () => refreshEverything(repository, true));
-  }, [refreshEverything, repository, runQueued]);
+  }, [calendarDay, refreshEverything, repository, runQueued]);
 
   const completeExpiredSessionIfCurrent = useCallback(
     async (candidate: AppRepository, captured: PomodoroSessionDetails): Promise<boolean> => {

@@ -8,7 +8,7 @@ import { GtdTaskCard } from "../components/GtdTaskCard";
 import { SectionCard } from "../components/SectionCard";
 import type { RecurringPreviewOccurrence } from "../domain/types";
 import { formatDateLong, formatDateTimeShort, getTodayDate } from "../lib/date";
-import { addDays, getWeekStartSunday } from "../lib/gtd/shared";
+import { addDays, getWeekStartSunday, isTaskScheduledForDate } from "../lib/gtd/shared";
 
 export const ScheduledPage = () => {
   const { t } = useTranslation("gtd");
@@ -38,13 +38,7 @@ export const ScheduledPage = () => {
   // display/sort data for that bucket, never a reason to surface a task from another
   // bucket (in particular, Planned tasks with a reused scheduledFor or deadline).
   const plannedTasks = useMemo(
-    () =>
-      tasks.filter(
-        (task) =>
-          task.bucket === "scheduled" &&
-          task.scheduledFor &&
-          task.scheduledFor.slice(0, 10) === selectedDate,
-      ),
+    () => tasks.filter((task) => isTaskScheduledForDate(task, selectedDate)),
     [selectedDate, tasks],
   );
   const deadlineTasks = useMemo(
@@ -61,12 +55,7 @@ export const ScheduledPage = () => {
     () =>
       weekDates.map((date) => ({
         date,
-        plannedTasks: tasks.filter(
-          (task) =>
-            task.bucket === "scheduled" &&
-            task.scheduledFor &&
-            task.scheduledFor.slice(0, 10) === date,
-        ),
+        plannedTasks: tasks.filter((task) => isTaskScheduledForDate(task, date)),
         deadlineTasks: tasks.filter(
           (task) => task.bucket === "scheduled" && task.deadline === date,
         ),
