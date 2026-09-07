@@ -796,6 +796,23 @@ export const migrations: Migration[] = [
       UPDATE gtd_tasks SET planned_order = NULL WHERE bucket != 'planned';
     `,
   },
+  {
+    id: 27,
+    name: "ai_proposals_repeatable_goal_evaluation",
+    sql: `
+      DROP INDEX IF EXISTS idx_ai_proposals_message_type;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_proposals_message_type
+        ON ai_proposals (message_id, type)
+        WHERE status = 'pending'
+          AND type NOT IN (
+            'memory', 'review_section_draft', 'weekly_objective', 'gtd_action', 'goal_evaluation'
+          );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_proposals_message_goal
+        ON ai_proposals (message_id, json_extract(payload_json, '$.goalId'))
+        WHERE status = 'pending' AND type = 'goal_evaluation';
+    `,
+  },
 ];
 
 export class TauriSqliteRepository implements AppRepository {
