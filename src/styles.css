@@ -148,7 +148,7 @@ a {
 }
 
 .content--with-floating-pomodoro {
-  padding-bottom: 240px;
+  padding-bottom: 200px;
 }
 
 .page {
@@ -1467,6 +1467,53 @@ button.tag-chip:active:not(:disabled) {
   min-width: 0;
 }
 
+.floating-pomodoro--idle {
+  width: min(300px, calc(100vw - 48px));
+  padding: 14px;
+  gap: 12px;
+}
+
+.floating-pomodoro--idle .floating-pomodoro__body {
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.floating-pomodoro__idle-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  color: var(--muted);
+}
+
+.floating-pomodoro__idle-summary strong {
+  color: var(--ink);
+}
+
+.floating-pomodoro__task-select {
+  display: grid;
+  gap: 4px;
+}
+
+.floating-pomodoro__task-select span {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.floating-pomodoro__task-select select {
+  width: 100%;
+}
+
+.floating-pomodoro--idle .floating-pomodoro__actions {
+  gap: 8px;
+}
+
+.floating-pomodoro--idle .floating-pomodoro__actions .button {
+  padding: 8px 12px;
+  font-size: 0.92rem;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .button,
   .nav__link,
@@ -1514,7 +1561,7 @@ button.tag-chip:active:not(:disabled) {
   }
 
   .content--with-floating-pomodoro {
-    padding-bottom: 270px;
+    padding-bottom: 220px;
   }
 
   .hero,

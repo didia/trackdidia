@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAppContext } from "../app/app-context";
+import { shouldRenderFloatingPomodoro } from "../lib/pomodoro/floating-visibility";
 import { getQuoteOfTheDay } from "../lib/quote-of-the-day";
 import { FloatingPomodoroTimer } from "./FloatingPomodoroTimer";
 
@@ -28,7 +29,12 @@ export const AppShell = () => {
   const { t } = useTranslation("nav");
   const { t: tCommon } = useTranslation("common");
   const { pomodoro } = useAppContext();
-  const hasFloatingPomodoro = Boolean(pomodoro.state.activeSession);
+  const { pathname } = useLocation();
+  const hasFloatingPomodoro = shouldRenderFloatingPomodoro(
+    pomodoro.state,
+    pomodoro.sessions,
+    pathname,
+  );
   const quoteOfTheDay = getQuoteOfTheDay();
 
   return (
