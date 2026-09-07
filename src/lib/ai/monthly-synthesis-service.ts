@@ -55,11 +55,18 @@ const buildProposals = (
     });
   }
 
+  const evaluationsByGoalId = new Map<string, MonthlySynthesisResponse["goalEvaluationDrafts"][number]>();
   for (const evaluation of synthesis.goalEvaluationDrafts ?? []) {
     if (!evaluation.goalId?.trim() || !knownGoalIds.has(evaluation.goalId)) {
       continue;
     }
 
+    // A model response can list the same goalId more than once; keep the last
+    // draft so at most one pending goal_evaluation proposal exists per goal.
+    evaluationsByGoalId.set(evaluation.goalId, evaluation);
+  }
+
+  for (const evaluation of evaluationsByGoalId.values()) {
     proposals.push({
       id: createEntityId("ai-proposal"),
       messageId,

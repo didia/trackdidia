@@ -807,6 +807,10 @@ export const migrations: Migration[] = [
           AND type NOT IN (
             'memory', 'review_section_draft', 'weekly_objective', 'gtd_action', 'goal_evaluation'
           );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_proposals_message_goal
+        ON ai_proposals (message_id, json_extract(payload_json, '$.goalId'))
+        WHERE status = 'pending' AND type = 'goal_evaluation';
     `,
   },
 ];

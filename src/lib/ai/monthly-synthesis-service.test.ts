@@ -325,4 +325,53 @@ describe("MonthlySynthesisService", () => {
     expect(goalProposals).toHaveLength(1);
     expect(JSON.parse(goalProposals[0].payloadJson).goalId).toBe("goal-1");
   });
+
+  it("keeps only the last draft when the same goal id is duplicated in the response", async () => {
+    const provider: AiProvider = {
+      generateStructured: vi.fn(async () => ({
+        text: JSON.stringify({
+          headline: "IA",
+          weekPattern: "Stable",
+          sectionDrafts: {},
+          goalEvaluationDrafts: [
+            {
+              goalId: "goal-1",
+              score: 40,
+              trend: "down",
+              notes: "Premiere version",
+              blockers: "",
+            },
+            {
+              goalId: "goal-1",
+              score: 70,
+              trend: "steady",
+              notes: "Version finale",
+              blockers: "",
+            },
+          ],
+        }),
+        model: "test-model",
+        usage: { tokensPrompt: 1, tokensCompletion: 2, latencyMs: 3 },
+      })),
+    };
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const service = new MonthlySynthesisService(provider);
+    const settings = defaultAppSettings();
+    settings.aiEnabled = true;
+    settings.aiApiKey = "secret";
+
+    const result = await service.buildSynthesis(repository, {
+      monthKey: "2026-04",
+      settings,
+      snapshotInputs: buildMonthlyInputs(),
+      trigger: "explicit",
+    });
+
+    const goalProposals = result.proposals.filter(
+      (proposal) => proposal.type === "goal_evaluation",
+    );
+    expect(goalProposals).toHaveLength(1);
+    expect(JSON.parse(goalProposals[0].payloadJson).notes).toBe("Version finale");
+  });
 });

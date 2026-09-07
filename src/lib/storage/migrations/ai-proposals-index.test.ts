@@ -23,4 +23,13 @@ describe("migration 27 ai_proposals index", () => {
       /type NOT IN \(\s*'memory', 'review_section_draft', 'weekly_objective', 'gtd_action', 'goal_evaluation'\s*\)/,
     );
   });
+
+  it("still enforces at most one pending goal_evaluation proposal per goal on one message", () => {
+    const migration = migrations.find((item) => item.id === 27);
+    expect(migration).toBeDefined();
+    expect(migration?.sql).toContain("idx_ai_proposals_message_goal");
+    expect(migration?.sql).toMatch(
+      /CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_proposals_message_goal\s+ON ai_proposals \(message_id, json_extract\(payload_json, '\$\.goalId'\)\)\s+WHERE status = 'pending' AND type = 'goal_evaluation'/,
+    );
+  });
 });
