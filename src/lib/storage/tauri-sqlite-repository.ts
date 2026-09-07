@@ -1474,7 +1474,7 @@ export class TauriSqliteRepository implements AppRepository {
                     tokens_prompt, tokens_completion, latency_ms, created_at
              FROM ai_messages
              WHERE surface = $1 AND scope_key = $2
-             ORDER BY created_at DESC
+             ORDER BY created_at DESC, id DESC
              LIMIT 1`,
             [surface, scopeKey],
           )
@@ -1484,7 +1484,7 @@ export class TauriSqliteRepository implements AppRepository {
                     tokens_prompt, tokens_completion, latency_ms, created_at
              FROM ai_messages
              WHERE surface = $1 AND scope_key = $2 AND status = $3
-             ORDER BY created_at DESC
+             ORDER BY created_at DESC, id DESC
              LIMIT 1`,
             [surface, scopeKey, status],
           );

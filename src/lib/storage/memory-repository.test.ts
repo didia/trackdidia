@@ -946,6 +946,55 @@ describe("MemoryRepository", () => {
     ).resolves.toEqual(expect.objectContaining({ id: "ai-message:older-ok" }));
   });
 
+  it("getLatestAiMessage breaks createdAt ties by id descending", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const createdAt = "2026-08-08T12:00:00.000Z";
+
+    await repository.saveAiMessage({
+      id: "ai-message:z",
+      surface: "weekly_synthesis",
+      scopeKey: "2026-08-02",
+      stance: null,
+      kind: "weekly",
+      inputHash: "hash-z",
+      promptVersion: "weekly_synthesis.v1",
+      model: "local",
+      status: "ok",
+      bodyJson: "{}",
+      bodyText: "Z",
+      deltaClass: null,
+      notified: false,
+      tokensPrompt: null,
+      tokensCompletion: null,
+      latencyMs: null,
+      createdAt,
+    });
+    await repository.saveAiMessage({
+      id: "ai-message:a",
+      surface: "weekly_synthesis",
+      scopeKey: "2026-08-02",
+      stance: null,
+      kind: "weekly",
+      inputHash: "hash-a",
+      promptVersion: "weekly_synthesis.v1",
+      model: "local",
+      status: "ok",
+      bodyJson: "{}",
+      bodyText: "A",
+      deltaClass: null,
+      notified: false,
+      tokensPrompt: null,
+      tokensCompletion: null,
+      latencyMs: null,
+      createdAt,
+    });
+
+    await expect(repository.getLatestAiMessage("weekly_synthesis", "2026-08-02")).resolves.toEqual(
+      expect.objectContaining({ id: "ai-message:z" }),
+    );
+  });
+
   it("acceptAiWeeklyObjectiveProposal is idempotent", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();

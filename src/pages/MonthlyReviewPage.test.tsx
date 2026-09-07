@@ -420,9 +420,21 @@ describe("MonthlyReviewPage", () => {
       proposals: [],
       source: "cache" as const,
     };
+    const fresh = {
+      ...stored,
+      synthesis: { ...stored.synthesis, headline: "Frais" },
+      source: "ai" as const,
+    };
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     const buildSpy = vi
       .spyOn(MonthlySynthesisService.prototype, "buildSynthesis")
-      .mockResolvedValue(stored);
+      .mockImplementation(async () => {
+        await blocked;
+        return fresh;
+      });
 
     const user = userEvent.setup();
     await renderWithApp(<MonthlyReviewPage />, {
@@ -439,6 +451,7 @@ describe("MonthlyReviewPage", () => {
     await user.click(screen.getByRole("button", { name: /charger le mois/i }));
 
     expect(await screen.findByText("Coach cache mois")).toBeInTheDocument();
+    expect(screen.queryByText("Frais")).not.toBeInTheDocument();
     await waitFor(() => {
       expect(buildSpy).toHaveBeenCalledWith(
         repository,
@@ -448,5 +461,7 @@ describe("MonthlyReviewPage", () => {
         }),
       );
     });
+    release();
+    expect(await screen.findByText("Frais")).toBeInTheDocument();
   });
 });

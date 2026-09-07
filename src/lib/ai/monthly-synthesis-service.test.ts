@@ -234,6 +234,49 @@ describe("MonthlySynthesisService", () => {
     vi.useRealTimers();
   });
 
+  it("cache hits for an ended month when the calendar advances past month end", async () => {
+    const provider: AiProvider = {
+      generateStructured: vi.fn(async () => ({
+        text: JSON.stringify({
+          headline: "IA",
+          weekPattern: "Stable",
+          sectionDrafts: {},
+          goalEvaluationDrafts: [],
+        }),
+        model: "test-model",
+        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 },
+      })),
+    };
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const service = new MonthlySynthesisService(provider);
+    const settings = defaultAppSettings();
+    settings.aiEnabled = true;
+    settings.aiApiKey = "secret";
+    const snapshotInputs = buildMonthlyInputs();
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 3, 30, 12, 0, 0));
+    await service.buildSynthesis(repository, {
+      monthKey: "2026-04",
+      settings,
+      snapshotInputs,
+      trigger: "auto",
+    });
+
+    vi.setSystemTime(new Date(2026, 4, 1, 12, 0, 0));
+    const afterMonthEnd = await service.buildSynthesis(repository, {
+      monthKey: "2026-04",
+      settings,
+      snapshotInputs,
+      trigger: "auto",
+    });
+
+    expect(afterMonthEnd.source).toBe("cache");
+    expect(provider.generateStructured).toHaveBeenCalledOnce();
+    vi.useRealTimers();
+  });
+
   it("drops goal evaluation drafts for unknown goal ids", async () => {
     const provider: AiProvider = {
       generateStructured: vi.fn(async () => ({

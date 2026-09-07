@@ -965,7 +965,7 @@ describe("WeeklyReviewPage coach cache", () => {
     vi.restoreAllMocks();
   });
 
-  it("shows a stored ok synthesis and hash-checks without live RescueTime", async () => {
+  it("shows a stored ok synthesis immediately then hash-checks after RescueTime settles", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
     for (let index = 0; index < 7; index += 1) {
@@ -974,9 +974,21 @@ describe("WeeklyReviewPage coach cache", () => {
 
     const stored = storedOk();
     vi.mocked(loadLatestWeeklySynthesis).mockResolvedValue(stored);
+    const fresh = {
+      ...stored,
+      synthesis: { ...stored.synthesis, headline: "Frais" },
+      source: "ai" as const,
+    };
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     const buildSpy = vi
       .spyOn(WeeklySynthesisService.prototype, "buildSynthesis")
-      .mockResolvedValue(stored);
+      .mockImplementation(async () => {
+        await blocked;
+        return fresh;
+      });
 
     const user = userEvent.setup();
     await renderWithApp(<WeeklyReviewPage />, {
@@ -991,6 +1003,7 @@ describe("WeeklyReviewPage coach cache", () => {
     await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
 
     expect(await screen.findByText("Coach cache")).toBeInTheDocument();
+    expect(screen.queryByText("Frais")).not.toBeInTheDocument();
     await waitFor(() => {
       expect(buildSpy).toHaveBeenCalled();
     });
@@ -998,12 +1011,10 @@ describe("WeeklyReviewPage coach cache", () => {
       repository,
       expect.objectContaining({
         trigger: "auto",
-        snapshotInputs: expect.objectContaining({
-          productivityPulse: null,
-          rescueTimeGoalsScore: null,
-        }),
       }),
     );
+    release();
+    expect(await screen.findByText("Frais")).toBeInTheDocument();
   });
 
   it("does not treat a fallback row as sticky auto-load cache", async () => {
@@ -1013,6 +1024,33 @@ describe("WeeklyReviewPage coach cache", () => {
       await repository.saveDailyEntry(createEmptyDailyEntry(addDays(weekStartDate, index)));
     }
 
+    await repository.saveAiMessage({
+      id: "ai-message-weekly-fallback",
+      surface: "weekly_synthesis",
+      scopeKey: weekStartDate,
+      stance: null,
+      kind: "weekly",
+      inputHash: "hash-fallback",
+      promptVersion: "weekly_synthesis.v1",
+      model: "local",
+      status: "fallback",
+      bodyJson: JSON.stringify({
+        headline: "Fallback local",
+        scoreExplanation: "Score",
+        strongestAxis: "Discipline",
+        weakestAxes: ["Sommeil", "Pomodoris"],
+        sectionDrafts: {},
+        nextWeekObjectives: [],
+        gtdActions: [],
+      }),
+      bodyText: "Fallback local",
+      deltaClass: null,
+      notified: false,
+      tokensPrompt: 1,
+      tokensCompletion: 2,
+      latencyMs: 3,
+      createdAt: "2026-08-08T12:00:00.000Z",
+    });
     vi.mocked(loadLatestWeeklySynthesis).mockResolvedValue(null);
     const fresh = {
       ...storedOk(),

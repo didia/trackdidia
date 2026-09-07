@@ -36,7 +36,7 @@ import {
 } from "../lib/ai/proposals/weekly-proposal-ids";
 import { loadLatestWeeklySynthesis } from "../lib/ai/weekly-synthesis-loader";
 import { WeeklySynthesisService } from "../lib/ai/weekly-synthesis-service";
-import { formatDateLong, formatDateShort, getTodayDate, stableAiNowIso } from "../lib/date";
+import { formatDateLong, formatDateShort, getTodayDate } from "../lib/date";
 import { formatPercent, formatTimestamp } from "../lib/format";
 import { addDays } from "../lib/gtd/shared";
 import {
@@ -291,6 +291,7 @@ export const WeeklyReviewPage = () => {
       weekStartDate: string;
       trigger: "auto" | "explicit";
       bypassCache?: boolean;
+      skipHashCheck?: boolean;
     }) => {
       const requestId = ++synthesisRequestSeqRef.current;
       setSynthesisLoading(true);
@@ -313,20 +314,22 @@ export const WeeklyReviewPage = () => {
           }
         }
 
-        const includeRescueTime = options.trigger !== "auto";
+        if (options.skipHashCheck) {
+          return;
+        }
+
         const goals =
-          includeRescueTime && goalsSnapshotRef.current?.weekStartDate === options.weekStartDate
+          goalsSnapshotRef.current?.weekStartDate === options.weekStartDate
             ? goalsSnapshotRef.current
             : null;
         const pulse =
-          includeRescueTime && pulseSnapshotRef.current?.weekStartDate === options.weekStartDate
+          pulseSnapshotRef.current?.weekStartDate === options.weekStartDate
             ? pulseSnapshotRef.current
             : null;
         const snapshotInputs = await resolveWeeklySnapshotInputs(
           repository,
           options.weekStartDate,
           {
-            now: stableAiNowIso(getTodayDate()),
             productivityPulse: pulse?.pulse ?? null,
             rescueTimeGoalsScore: goals?.score ?? null,
             rescuetimeConfigured: Boolean(settings.rescuetimeApiKey.trim()),
@@ -364,8 +367,12 @@ export const WeeklyReviewPage = () => {
       return;
     }
 
-    void runSynthesis({ weekStartDate: summary.weekStartDate, trigger: "auto" });
-  }, [summary?.weekStartDate, loading, runSynthesis]);
+    void runSynthesis({
+      weekStartDate: summary.weekStartDate,
+      trigger: "auto",
+      skipHashCheck: goalsLoading || pulseLoading,
+    });
+  }, [summary?.weekStartDate, loading, goalsLoading, pulseLoading, runSynthesis]);
 
   const synthesisMatchesWeek =
     synthesisResult?.message.scopeKey === summary?.weekStartDate && synthesisResult !== null;

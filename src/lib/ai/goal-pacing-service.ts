@@ -4,7 +4,7 @@ import type {
   GoalPacingResponse,
   GoalPacingResult,
 } from "../../domain/types";
-import { stableAiNowIso } from "../date";
+import { clampAiAsOfDate, stableAiNowIso } from "../date";
 import { createEntityId, nowIso } from "../gtd/shared";
 import type { AppRepository } from "../storage/repository";
 import {
@@ -94,7 +94,11 @@ export class GoalPacingService {
     request: GoalPacingRequest,
   ): Promise<GoalPacingResult> {
     const { year, settings, snapshotInputs, bypassCache = false } = request;
-    const snapshot = buildGoalPacingSnapshot(snapshotInputs, settings.aiPayloadScope);
+    const asOfDate = clampAiAsOfDate(snapshotInputs.asOfDate, `${year}-12-31`);
+    const snapshot = buildGoalPacingSnapshot(
+      { ...snapshotInputs, asOfDate },
+      settings.aiPayloadScope,
+    );
     const scopeKey = String(year);
     const createdAt = nowIso();
     const aiConfigured = settings.aiEnabled && settings.aiApiKey.trim().length > 0;

@@ -4,7 +4,8 @@ Back to [Documentation Log](../log.md). Canonical page:
 [ai-settings-and-privacy.md](../ai-settings-and-privacy.md).
 
 | Date | Change | Canonical pages | Evidence |
-|---|---|---|---|
+|---|---|---|
+| 2026-09-06 | Review: completed Pomodoro segments ignore `now` clamp; weekly auto includes RescueTime after load; `asOfDate` clamped to period end; `getLatestAiMessage` breaks `created_at` ties by `id` | `docs/ai-settings-and-privacy.md` | `buildPomodoroTaskSummaries`, `clampAiAsOfDate`, `WeeklyReviewPage`, `getLatestAiMessage` |---|
 | 2026-09-06 | Weekly/monthly/pacing auto-load hydrates latest `ok` by scope; weekly auto skips RescueTime and uses a day-stable `asOfDate` hash; Régénérer still bypasses cache | `docs/ai-settings-and-privacy.md` | `getLatestAiMessage`, `WeeklyReviewPage`, `MonthlyReviewPage`, `AnnualGoalsPage`, `stableAiNowIso` |
 | 2026-09-06 | Analytic Goals `restrict_kind` is taken from RescueTime `taxonomy_name` (overview/category/activity/productivity) | `docs/ai-settings-and-privacy.md`, `docs/reviews-and-goals.md` | `resolveAnalyticKind` |
 | 2026-09-04 | Settings shows GTD overview only; bundled Google Tasks re-import removed | `docs/ai-settings-and-privacy.md` | `SettingsPage.tsx` |

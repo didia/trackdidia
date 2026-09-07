@@ -192,7 +192,6 @@ export const previewPayload = async (
     const rescueTime =
       options.weeklyRescueTime ?? (await resolveWeeklyRescueTimeInputs(repository, weekStartDate));
     const inputs = await resolveWeeklySnapshotInputs(repository, weekStartDate, {
-      now,
       productivityPulse: rescueTime.productivityPulse,
       rescueTimeGoalsScore: rescueTime.rescueTimeGoalsScore,
       rescuetimeConfigured: rescueTime.configured,

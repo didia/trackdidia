@@ -6,7 +6,7 @@ import type {
   MonthlySynthesisResponse,
   MonthlySynthesisResult,
 } from "../../domain/types";
-import { getTodayDate, stableAiNowIso } from "../date";
+import { clampAiAsOfDate, getTodayDate, stableAiNowIso } from "../date";
 import { createEntityId, nowIso } from "../gtd/shared";
 import type { AppRepository } from "../storage/repository";
 import { buildMonthlySnapshot, type MonthlySnapshotInputs } from "./context/monthly-snapshot";
@@ -152,7 +152,7 @@ export class MonthlySynthesisService {
     const knownGoalIds = new Set(snapshot.goals.map((goal) => goal.goalId));
     const scopeKey = monthKey;
     const createdAt = nowIso();
-    const asOfDate = getTodayDate();
+    const asOfDate = clampAiAsOfDate(getTodayDate(), snapshot.monthEndDate);
     const aiConfigured = settings.aiEnabled && settings.aiApiKey.trim().length > 0;
 
     const activeMemories = await repository.listAiMemories({

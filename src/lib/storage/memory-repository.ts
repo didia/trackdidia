@@ -385,7 +385,10 @@ export class MemoryRepository implements AppRepository {
           message.scopeKey === scopeKey &&
           (status === undefined || message.status === status),
       )
-      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+      .sort((left, right) => {
+        const byCreatedAt = right.createdAt.localeCompare(left.createdAt);
+        return byCreatedAt !== 0 ? byCreatedAt : right.id.localeCompare(left.id);
+      });
 
     return matches[0] ? { ...matches[0] } : null;
   }

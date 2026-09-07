@@ -164,7 +164,23 @@ describe("AnnualGoalsPage", () => {
       },
       source: "cache" as const,
     };
-    const buildSpy = vi.spyOn(GoalPacingService.prototype, "buildPacing").mockResolvedValue(stored);
+    const fresh = {
+      ...stored,
+      pacing: {
+        goals: [{ ...stored.pacing.goals[0], gap: "Frais" }],
+      },
+      source: "ai" as const,
+    };
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const buildSpy = vi
+      .spyOn(GoalPacingService.prototype, "buildPacing")
+      .mockImplementation(async () => {
+        await blocked;
+        return fresh;
+      });
 
     await renderWithApp(<AnnualGoalsPage />, {
       repository,
@@ -175,6 +191,7 @@ describe("AnnualGoalsPage", () => {
     });
 
     expect(await screen.findByText("Ecart cache")).toBeInTheDocument();
+    expect(screen.queryByText("Frais")).not.toBeInTheDocument();
     await waitFor(() => {
       expect(buildSpy).toHaveBeenCalledWith(
         repository,
@@ -184,6 +201,8 @@ describe("AnnualGoalsPage", () => {
         }),
       );
     });
+    release();
+    expect(await screen.findByText("Frais")).toBeInTheDocument();
     buildSpy.mockRestore();
   });
 });

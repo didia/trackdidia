@@ -175,4 +175,47 @@ describe("GoalPacingService", () => {
     expect(nextDay.source).toBe("ai");
     expect(provider.generateStructured).toHaveBeenCalledTimes(2);
   });
+
+  it("cache hits for an ended year when the calendar advances past December 31", async () => {
+    const provider: AiProvider = {
+      generateStructured: vi.fn(async () => ({
+        text: JSON.stringify({
+          goals: [
+            {
+              goalId: "goal-1",
+              onPace: true,
+              gap: "Proche",
+              requiredWeeklyBehaviour: "Focus",
+              riskLevel: "low",
+              recommendation: "Continuer",
+            },
+          ],
+        }),
+        model: "test-model",
+        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 },
+      })),
+    };
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const service = new GoalPacingService(provider);
+    const settings = defaultAppSettings();
+    settings.aiEnabled = true;
+    settings.aiApiKey = "secret";
+
+    await service.buildPacing(repository, {
+      year: 2025,
+      settings,
+      snapshotInputs: { ...buildPacingInputs(2025), asOfDate: "2025-12-31" },
+      trigger: "auto",
+    });
+    const nextYear = await service.buildPacing(repository, {
+      year: 2025,
+      settings,
+      snapshotInputs: { ...buildPacingInputs(2025), asOfDate: "2026-01-02" },
+      trigger: "auto",
+    });
+
+    expect(nextYear.source).toBe("cache");
+    expect(provider.generateStructured).toHaveBeenCalledOnce();
+  });
 });

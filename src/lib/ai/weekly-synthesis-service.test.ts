@@ -350,18 +350,58 @@ describe("WeeklySynthesisService", () => {
     await service.buildSynthesis(repository, {
       weekStartDate: "2026-08-02",
       settings,
-      snapshotInputs: { ...buildWeeklyInputs(), now: "2026-08-08T12:00:00" },
+      snapshotInputs: { ...buildWeeklyInputs(), now: "2026-08-05T12:00:00" },
       trigger: "auto",
     });
     const nextDay = await service.buildSynthesis(repository, {
+      weekStartDate: "2026-08-02",
+      settings,
+      snapshotInputs: { ...buildWeeklyInputs(), now: "2026-08-06T12:00:00" },
+      trigger: "auto",
+    });
+
+    expect(nextDay.source).toBe("ai");
+    expect(provider.generateStructured).toHaveBeenCalledTimes(2);
+  });
+
+  it("cache hits for an ended week when the calendar advances past Saturday", async () => {
+    const provider: AiProvider = {
+      generateStructured: vi.fn(async () => ({
+        text: JSON.stringify({
+          headline: "IA",
+          scoreExplanation: "Score",
+          strongestAxis: "Discipline",
+          weakestAxes: ["Sommeil", "Pomodoris"],
+          sectionDrafts: {},
+          nextWeekObjectives: [],
+          gtdActions: [],
+        }),
+        model: "test-model",
+        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 },
+      })),
+    };
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const service = new WeeklySynthesisService(provider);
+    const settings = defaultAppSettings();
+    settings.aiEnabled = true;
+    settings.aiApiKey = "secret";
+
+    await service.buildSynthesis(repository, {
+      weekStartDate: "2026-08-02",
+      settings,
+      snapshotInputs: { ...buildWeeklyInputs(), now: "2026-08-08T12:00:00" },
+      trigger: "auto",
+    });
+    const afterWeekEnd = await service.buildSynthesis(repository, {
       weekStartDate: "2026-08-02",
       settings,
       snapshotInputs: { ...buildWeeklyInputs(), now: "2026-08-09T12:00:00" },
       trigger: "auto",
     });
 
-    expect(nextDay.source).toBe("ai");
-    expect(provider.generateStructured).toHaveBeenCalledTimes(2);
+    expect(afterWeekEnd.source).toBe("cache");
+    expect(provider.generateStructured).toHaveBeenCalledOnce();
   });
 
   it("cache misses when RescueTime overlays are included versus omitted", async () => {

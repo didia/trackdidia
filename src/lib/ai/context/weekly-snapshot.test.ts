@@ -54,8 +54,37 @@ describe("resolveWeeklySnapshotInputs history boundary", () => {
     expect(second.now).toBe(first.now);
 
     vi.setSystemTime(new Date(2026, 7, 9, 8, 0, 0));
-    const nextDay = await resolveWeeklySnapshotInputs(repository, weekStart);
-    expect(nextDay.now).toBe("2026-08-09T12:00:00");
+    const afterWeekEnd = await resolveWeeklySnapshotInputs(repository, weekStart);
+    expect(afterWeekEnd.now).toBe("2026-08-08T12:00:00");
+  });
+
+  it("advances now across calendar days while the week is still in progress", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const weekStart = "2026-08-02";
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 5, 9, 0, 0));
+    const wednesday = await resolveWeeklySnapshotInputs(repository, weekStart);
+    vi.setSystemTime(new Date(2026, 7, 6, 9, 0, 0));
+    const thursday = await resolveWeeklySnapshotInputs(repository, weekStart);
+
+    expect(wednesday.now).toBe("2026-08-05T12:00:00");
+    expect(thursday.now).toBe("2026-08-06T12:00:00");
+  });
+
+  it("bounds pomodoro summaries per calendar day instead of pinning every day to noon", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const spy = vi.spyOn(repository, "listPomodoroTaskSummaries");
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 5, 16, 0, 0));
+    await resolveWeeklySnapshotInputs(repository, "2026-08-02");
+
+    expect(spy).toHaveBeenCalledWith("2026-08-02", "2026-08-02T23:59:59");
+    expect(spy).toHaveBeenCalledWith("2026-08-05", new Date().toISOString());
+    expect(spy).toHaveBeenCalledWith("2026-08-06", "2026-08-06T00:00:00");
   });
 });
 
