@@ -55,7 +55,10 @@ const buildProposals = (
     });
   }
 
-  const evaluationsByGoalId = new Map<string, MonthlySynthesisResponse["goalEvaluationDrafts"][number]>();
+  const evaluationsByGoalId = new Map<
+    string,
+    MonthlySynthesisResponse["goalEvaluationDrafts"][number]
+  >();
   for (const evaluation of synthesis.goalEvaluationDrafts ?? []) {
     if (!evaluation.goalId?.trim() || !knownGoalIds.has(evaluation.goalId)) {
       continue;
