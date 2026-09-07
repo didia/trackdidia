@@ -75,9 +75,17 @@ displayed past count.
 Due recurrence generation runs:
 
 - during application bootstrap;
+- when the local calendar day changes while the app is already open (next midnight,
+  window focus, or becoming visible);
 - before GTD workspace loads;
 - before daily task statistics/breakdowns;
+- when listing tasks;
 - when the Pomodoro controller loads eligible tasks.
+
+Each of those passes then promotes due Scheduled tasks to Next Actions (see
+[gtd.md](gtd.md#scheduled)). A generated instance whose destination is Scheduled is
+immediately eligible: when its local `scheduledFor` date is today or earlier, it
+moves to Next Actions and `scheduledFor` is cleared.
 
 It does not run as an operating-system background job while TrackDidia is closed.
 

@@ -8,6 +8,12 @@ export const getTodayDate = (): string => {
   return `${year}-${month}-${day}`;
 };
 
+/** Milliseconds until the next local midnight, at least 1ms to avoid a 0-delay loop. */
+export const msUntilNextLocalMidnight = (now = new Date()): number => {
+  const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  return Math.max(1, nextMidnight.getTime() - now.getTime());
+};
+
 /** Local-noon instant for AI hashes so same-day revisits stay cache-stable. */
 export const stableAiNowIso = (asOfDate: string): string => `${asOfDate}T12:00:00`;
 

@@ -93,7 +93,9 @@ Important distinctions:
 - `status` is `active`, `completed`, or `cancelled`.
 - `scheduledFor` is an ISO instant and moving a task away from Scheduled clears it,
   except Scheduled -> Planned and Planned -> Scheduled, which retain it (see
-  [Planned bucket](#planned-bucket-project-only-queue)).
+  [Planned bucket](#planned-bucket-project-only-queue)). An active Scheduled task
+  whose local `scheduledFor` date is today or earlier is auto-promoted to Next
+  Actions; that move also clears the field.
 - `plannedOrder` is `number | null`; meaningful only for an active, Planned,
   project-attached task.
 - `deadline` is a date-only constraint and does not by itself move the task.
@@ -161,7 +163,21 @@ hold, completed, or cancelled projects as new choices.
 - independent inclusion of planned dates and deadlines;
 - deduplication when a task appears in both groups;
 - local recurrence previews, requested from the selected date through 30 days later;
-- editing/completing/cancelling actual tasks from the calendar.
+- editing/completing/cancelling actual tasks from the calendar;
+- **Auto-promotion**: after due recurrences are generated (bootstrap, GTD workspace
+  load, `listTasks`, Pomodoro refresh, daily stats, and local-day rollover while the
+  app stays open), every **active** task with `bucket === "scheduled"` whose local
+  `scheduledFor` calendar date is today or earlier is moved to Next Actions.
+  Overdue items and recurring Scheduled instances are included. `scheduledFor` is
+  cleared. Planned tasks that reuse `scheduledFor` as a display date are ignored.
+  Deadlines never trigger a move. Comparison uses the local calendar date, not the
+  clock time and not the UTC prefix of the stored ISO string. The Scheduled page
+  groups the same way (`isTaskScheduledForDate`). Daily stats generate recurrences
+  for the **stats** date, then promote as of **today**, so viewing a future history
+  day cannot promote early. The pass is idempotent. If Next Actions, Scheduled, or
+  Pomodoro stay mounted overnight, a local-day boundary (next midnight, window
+  focus, becoming visible) repeats generation and promotion and reloads those
+  views.
 
 Previews are not task rows and cannot be completed from this screen.
 
@@ -202,9 +218,10 @@ as a unique dedupe key, making repeated calculations for that week idempotent.
 
 Before computing a day, the repository:
 
-1. generates due recurring tasks;
-2. applies weekly carryover when the date is Sunday;
-3. loads all tasks and events.
+1. generates due recurring tasks for the stats date;
+2. promotes due Scheduled tasks as of today's local date;
+3. applies weekly carryover when the date is Sunday;
+4. loads all tasks and events.
 
 `tasksAdded` is the unique task count from move-to-next-action,
 scheduled-for-day, and weekly-carryover events on the date.
