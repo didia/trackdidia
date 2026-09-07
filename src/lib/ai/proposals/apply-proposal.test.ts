@@ -62,7 +62,10 @@ describe("applyCoachProposal gtd_action", () => {
 
     expect(applied.taskId).toBe("task-schedule");
     const tasks = await repository.listTasks({ includeCompleted: true });
-    expect(tasks.find((task) => task.id === "task-schedule")?.scheduledFor).toBe("2026-08-29");
+    expect(tasks.find((task) => task.id === "task-schedule")).toMatchObject({
+      bucket: "next_action",
+      scheduledFor: null,
+    });
   });
 
   it("returns no taskId when the task is missing", async () => {
