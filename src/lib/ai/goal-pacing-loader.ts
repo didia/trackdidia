@@ -20,23 +20,15 @@ export const loadLatestGoalPacing = async (
   pacingService: GoalPacingService,
   year: number,
 ): Promise<GoalPacingResult | null> => {
-  const scopeKey = String(year);
-  const messages = await repository.listAiMessages("goal_pacing", 20);
-  const latest = messages
-    .filter((message) => message.scopeKey === scopeKey && message.bodyJson)
-    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+  const latest = await repository.getLatestAiMessage("goal_pacing", String(year), "ok");
 
-  if (!latest) {
+  if (!latest?.bodyJson) {
     return null;
   }
 
   const fromService = await pacingService.resultFromMessage(repository, latest);
   if (fromService) {
     return fromService;
-  }
-
-  if (!latest.bodyJson) {
-    return null;
   }
 
   const parsed = parseGoalPacingJson(latest.bodyJson);

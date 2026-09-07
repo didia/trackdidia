@@ -6,7 +6,8 @@ import type {
   WeeklySynthesisResponse,
   WeeklySynthesisResult,
 } from "../../domain/types";
-import { createEntityId, nowIso } from "../gtd/shared";
+import { clampAiAsOfDate, stableAiNowIso } from "../date";
+import { createEntityId, nowIso, toLocalDateString } from "../gtd/shared";
 import type { AppRepository } from "../storage/repository";
 import { buildWeeklySnapshot, type WeeklySnapshotInputs } from "./context/weekly-snapshot";
 import { buildAiInputHash } from "./input-hash";
@@ -154,7 +155,14 @@ export class WeeklySynthesisService {
     request: WeeklySynthesisRequest,
   ): Promise<WeeklySynthesisResult> {
     const { weekStartDate, settings, snapshotInputs, bypassCache = false } = request;
-    const snapshot = buildWeeklySnapshot(snapshotInputs, settings.aiPayloadScope);
+    const asOfDate = clampAiAsOfDate(
+      toLocalDateString(snapshotInputs.now),
+      snapshotInputs.summary.weekEndDate,
+    );
+    const snapshot = buildWeeklySnapshot(
+      { ...snapshotInputs, now: stableAiNowIso(asOfDate) },
+      settings.aiPayloadScope,
+    );
     const scopeKey = weekStartDate;
     const createdAt = nowIso();
     const aiConfigured = settings.aiEnabled && settings.aiApiKey.trim().length > 0;
@@ -164,7 +172,7 @@ export class WeeklySynthesisService {
       activeOnDate: snapshot.weekEndDate,
     });
     const { block: memoryBlock, selected } = retrieveMemoriesForWeekly(activeMemories, settings, {
-      nowIso: createdAt,
+      nowIso: stableAiNowIso(asOfDate),
     });
     const memoryIds = selected.map((memory) => memory.id).sort();
     const inputHash = buildAiInputHash({
@@ -172,6 +180,7 @@ export class WeeklySynthesisService {
       scope: settings.aiPayloadScope,
       snapshot,
       memoryIds,
+      asOfDate,
     });
 
     if (!bypassCache) {

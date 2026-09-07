@@ -159,9 +159,20 @@ When AI is disabled or the API key is empty:
 - the deterministic local brief still renders from insight findings;
 - the **« Demander au coach »** button is disabled with an explanatory label.
 
-Weekly synthesis cache policy: only `ok` results (and `skipped` while AI remains off) are
-sticky cache hits. Persisted `fallback`/`error` episodes are shown as last-resort local
-briefs but do not block retries when AI is configured.
+Weekly synthesis auto-load hydrates a stored `ok` episode immediately, then
+hash-checks with the **same snapshot shape** as **« Demander au coach »** (including
+RescueTime pulse and Goals once those fetches settle). The hash uses a **day-stable**
+`now` (`stableAiNowIso`) whose local `asOfDate` is `clampAiAsOfDate(today, weekEndDate)`:
+an in-progress week can miss on the next calendar day; a closed week stays pinned to
+Saturday and does not re-bill daily.
+
+**Régénérer** bypasses the `ai_messages` input-hash cache and still includes RescueTime.
+Auto-load and **« Demander au coach »** share that RescueTime-inclusive hash, so an
+explicit call does not force a refetch on the next page open.
+Only `ok` results (and `skipped` while AI remains off) are sticky cache hits.
+`fallback`/`error` rows are not reused as auto-load; the next open retries.
+If ritual notes, metrics, GTD, memories, RescueTime overlays, or `asOfDate` changed,
+the hash misses and a new model call runs.
 
 ### Monthly synthesis (`monthly_synthesis`)
 
@@ -181,8 +192,13 @@ including allowed section keys, snapshot goal ids, and `score` on a 0–100 scal
 
 When AI is disabled, the deterministic local brief still renders from month aggregates.
 
-Monthly synthesis cache policy matches weekly: only `ok` results (and `skipped` while AI
-remains off) are sticky cache hits. Proposals for unknown `goalId`s are dropped at persist
+Monthly synthesis auto-load matches weekly: hydrate the latest `ok` episode for the
+month immediately, then cache-first `buildSynthesis`. The input hash includes local
+`asOfDate` clamped with `clampAiAsOfDate(today, monthEndDate)`, so the next calendar
+day can miss while the month is open and a closed month does not rehash after month
+end. Only `ok` results (and `skipped` while AI remains off) are sticky cache hits.
+**Régénérer** bypasses the hash cache.
+Proposals for unknown `goalId`s are dropped at persist
 time. Accepting a `goal_evaluation` for a missing goal dismisses the proposal and shows
 **Objectif introuvable, suggestion ignoree.**
 
@@ -195,9 +211,14 @@ the proposal message `scopeKey` does not match the displayed month.
 The `/objectifs-annuels` screen runs S4 `goal_pacing` on page open and on explicit
 **« Demander au coach »** / **« Régénérer »**. Output is display-only (no proposals).
 The snapshot reuses annual goal domain calculations (`progressRatio`,
-`computeYearProgressFraction`, `isAnnualGoalOnPace`). `asOfDate` uses local `getTodayDate()`.
+`computeYearProgressFraction`, `isAnnualGoalOnPace`). `asOfDate` is
+`clampAiAsOfDate(today, YYYY-12-31)` so an ended year stays pinned to December 31.
 
 The OpenRouter system prompt includes the full S4 schema (`buildGoalPacingSchemaPrompt`).
+
+Pacing auto-load hydrates the latest `ok` episode for the selected year, then
+cache-first `buildPacing`. While the year is in progress, the next local day can miss.
+**Régénérer** bypasses the hash cache.
 
 Pacing auto-runs only when the year is between 2000 and 2100 and the evaluation month
 matches `YYYY-MM`. Changing the year clears the on-screen pacing panel until the new
@@ -260,9 +281,13 @@ Every coach result is persisted in SQLite (migrations 21–24):
 
 - `ai_messages` stores the structured body, usage (`tokens_prompt`,
   `tokens_completion`, `latency_ms`), model, stance, and an input-hash cache key.
-  Regenerations append a new row (migration 23). Cache lookup for coach pulse and weekly
-  synthesis returns the latest `status = ok` row for a given hash when AI is configured;
-  weekly synthesis also caches `skipped` when AI is off. Non-ok markers (e.g. weekly distill,
+  Regenerations append a new row (migration 23). Cache lookup for weekly
+  synthesis, monthly synthesis, and goal pacing returns the latest `status = ok` row for
+  a given hash when AI is configured; those three surfaces also cache `skipped` when AI
+  is off. Coach pulse looks up `status = ok` only (`getAiMessage`) and does not treat
+  `skipped` as a sticky cache hit. Auto-load hydration uses
+  `getLatestAiMessage(surface, scopeKey, "ok")` so a later
+  `fallback` cannot hide an earlier success. Non-ok markers (e.g. weekly distill,
   retryable fallback) use `getAiMessageRecord` for display but not as sticky AI cache hits.
 - `ai_proposals` stores accept-step rows linked to a message.
 - `ai_memories` stores semantic memory rows (`active | archived | contradicted`).

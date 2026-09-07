@@ -286,4 +286,59 @@ describe("pomodoro engine", () => {
     ]);
     expect(computeDailyPomodoroStats([session], "2026-04-01").completedFocusSessions).toBe(1);
   });
+
+  it("counts a completed segment that ended after the provided now", () => {
+    const session = {
+      ...createPomodoroSession("focus", "2026-04-01T14:00:00.000Z", 1),
+      status: "completed" as const,
+      completedAt: "2026-04-01T14:25:00.000Z",
+      endsAt: "2026-04-01T14:25:00.000Z",
+    };
+    const tasks: Task[] = [
+      {
+        id: "task-1",
+        title: "Project Dash",
+        notes: "",
+        status: "active",
+        bucket: "next_action",
+        contextIds: [],
+        projectId: null,
+        parentTaskId: null,
+        scheduledFor: null,
+        deadline: null,
+        recurringTemplateId: null,
+        recurrenceDueDate: null,
+        isRecurringInstance: false,
+        completedAt: null,
+        recurrenceGroupId: null,
+        pendingPastRecurrences: 0,
+        plannedOrder: null,
+        source: "manual",
+        sourceExternalId: null,
+        createdAt: "2026-04-01T10:00:00.000Z",
+        updatedAt: "2026-04-01T10:00:00.000Z",
+      },
+    ];
+    const segments = [
+      {
+        ...createPomodoroSegment(session.id, "2026-04-01T14:00:00.000Z", "task-1"),
+        endedAt: "2026-04-01T14:25:00.000Z",
+      },
+    ];
+
+    const summaries = buildPomodoroTaskSummaries(
+      [session],
+      segments,
+      tasks,
+      "2026-04-01",
+      "2026-04-01T12:00:00.000Z",
+    );
+
+    expect(summaries).toEqual([
+      expect.objectContaining({
+        taskId: "task-1",
+        totalSeconds: 1500,
+      }),
+    ]);
+  });
 });

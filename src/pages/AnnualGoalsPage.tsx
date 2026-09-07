@@ -332,6 +332,9 @@ export const AnnualGoalsPage = () => {
     async (options: { year: number; trigger: "auto" | "explicit"; bypassCache?: boolean }) => {
       const requestId = ++pacingRequestSeqRef.current;
       setPacingLoading(true);
+      if (options.trigger !== "auto") {
+        setPacingResult(null);
+      }
       try {
         const snapshotInputs = await resolveGoalPacingSnapshotInputs(repository, options.year, {
           asOfDate: getTodayDate(),
@@ -359,7 +362,7 @@ export const AnnualGoalsPage = () => {
 
   useEffect(() => {
     setPacingResult(null);
-  }, []);
+  }, [selectedYear]);
 
   useEffect(() => {
     if (loading || !hasValidSelectedYear || !hasValidEvaluationMonth) {

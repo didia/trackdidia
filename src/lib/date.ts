@@ -8,6 +8,13 @@ export const getTodayDate = (): string => {
   return `${year}-${month}-${day}`;
 };
 
+/** Local-noon instant for AI hashes so same-day revisits stay cache-stable. */
+export const stableAiNowIso = (asOfDate: string): string => `${asOfDate}T12:00:00`;
+
+/** Freeze AI `asOfDate` at the period end so closed weeks/months/years do not rehash daily. */
+export const clampAiAsOfDate = (today: string, periodEndDate: string): string =>
+  today < periodEndDate ? today : periodEndDate;
+
 export const formatDateLong = (date: string): string =>
   new Intl.DateTimeFormat("fr-CA", {
     weekday: "long",

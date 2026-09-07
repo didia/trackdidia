@@ -20,22 +20,15 @@ export const loadLatestMonthlySynthesis = async (
   synthesisService: MonthlySynthesisService,
   monthKey: string,
 ): Promise<MonthlySynthesisResult | null> => {
-  const messages = await repository.listAiMessages("monthly_synthesis", 20);
-  const latest = messages
-    .filter((message) => message.scopeKey === monthKey && message.bodyJson)
-    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+  const latest = await repository.getLatestAiMessage("monthly_synthesis", monthKey, "ok");
 
-  if (!latest) {
+  if (!latest?.bodyJson) {
     return null;
   }
 
   const fromService = await synthesisService.resultFromMessage(repository, latest);
   if (fromService) {
     return fromService;
-  }
-
-  if (!latest.bodyJson) {
-    return null;
   }
 
   const parsed = parseMonthlySynthesisJson(latest.bodyJson);

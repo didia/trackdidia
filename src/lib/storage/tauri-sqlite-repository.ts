@@ -1460,6 +1460,42 @@ export class TauriSqliteRepository implements AppRepository {
     return this.deserializeAiMessage(rows[0]);
   }
 
+  async getLatestAiMessage(
+    surface: AiSurface,
+    scopeKey: string,
+    status?: AiMessage["status"],
+  ): Promise<AiMessage | null> {
+    const db = await this.getDb();
+    const rows =
+      status === undefined
+        ? await db.select<AiMessageRow[]>(
+            `SELECT id, surface, scope_key, stance, kind, input_hash, prompt_version, model,
+                    status, body_json, body_text, delta_class, notified,
+                    tokens_prompt, tokens_completion, latency_ms, created_at
+             FROM ai_messages
+             WHERE surface = $1 AND scope_key = $2
+             ORDER BY created_at DESC, id DESC
+             LIMIT 1`,
+            [surface, scopeKey],
+          )
+        : await db.select<AiMessageRow[]>(
+            `SELECT id, surface, scope_key, stance, kind, input_hash, prompt_version, model,
+                    status, body_json, body_text, delta_class, notified,
+                    tokens_prompt, tokens_completion, latency_ms, created_at
+             FROM ai_messages
+             WHERE surface = $1 AND scope_key = $2 AND status = $3
+             ORDER BY created_at DESC, id DESC
+             LIMIT 1`,
+            [surface, scopeKey, status],
+          );
+
+    if (rows.length === 0) {
+      return null;
+    }
+
+    return this.deserializeAiMessage(rows[0]);
+  }
+
   private async insertAiMessage(db: Database, message: AiMessage): Promise<AiMessage> {
     await db.execute(
       `INSERT INTO ai_messages (

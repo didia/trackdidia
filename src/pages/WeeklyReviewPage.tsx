@@ -113,6 +113,10 @@ export const WeeklyReviewPage = () => {
   const pulseRequestSeqRef = useRef(0);
   const standingObjectivesRequestSeqRef = useRef(0);
   const synthesisRequestSeqRef = useRef(0);
+  const goalsSnapshotRef = useRef(goalsSnapshot);
+  const pulseSnapshotRef = useRef(pulseSnapshot);
+  goalsSnapshotRef.current = goalsSnapshot;
+  pulseSnapshotRef.current = pulseSnapshot;
 
   const loadGoalsSnapshot = useCallback(
     async (requestedWeekStart: string, options?: { refreshing?: boolean }) => {
@@ -236,6 +240,7 @@ export const WeeklyReviewPage = () => {
       const requestId = ++weekRequestSeqRef.current;
       const normalized = buildWeekDates(requestedWeekStart);
       setLoading(true);
+      setSynthesisResult(null);
       try {
         const [existingReview, computedSummary] = await Promise.all([
           repository.getWeeklyReview(normalized),
@@ -286,10 +291,13 @@ export const WeeklyReviewPage = () => {
       weekStartDate: string;
       trigger: "auto" | "explicit";
       bypassCache?: boolean;
+      skipHashCheck?: boolean;
     }) => {
       const requestId = ++synthesisRequestSeqRef.current;
       setSynthesisLoading(true);
-      setSynthesisResult(null);
+      if (options.trigger !== "auto") {
+        setSynthesisResult(null);
+      }
 
       try {
         if (options.trigger === "auto") {
@@ -306,8 +314,18 @@ export const WeeklyReviewPage = () => {
           }
         }
 
-        const goals = goalsSnapshot?.weekStartDate === options.weekStartDate ? goalsSnapshot : null;
-        const pulse = pulseSnapshot?.weekStartDate === options.weekStartDate ? pulseSnapshot : null;
+        if (options.skipHashCheck) {
+          return;
+        }
+
+        const goals =
+          goalsSnapshotRef.current?.weekStartDate === options.weekStartDate
+            ? goalsSnapshotRef.current
+            : null;
+        const pulse =
+          pulseSnapshotRef.current?.weekStartDate === options.weekStartDate
+            ? pulseSnapshotRef.current
+            : null;
         const snapshotInputs = await resolveWeeklySnapshotInputs(
           repository,
           options.weekStartDate,
@@ -341,16 +359,19 @@ export const WeeklyReviewPage = () => {
         }
       }
     },
-    [goalsSnapshot, pulseSnapshot, repository, settings, synthesisService],
+    [repository, settings, synthesisService],
   );
 
   useEffect(() => {
-    if (!summary || loading || goalsLoading || pulseLoading) {
+    if (!summary || loading) {
       return;
     }
 
-    setSynthesisResult(null);
-    void runSynthesis({ weekStartDate: summary.weekStartDate, trigger: "auto" });
+    void runSynthesis({
+      weekStartDate: summary.weekStartDate,
+      trigger: "auto",
+      skipHashCheck: goalsLoading || pulseLoading,
+    });
   }, [summary?.weekStartDate, loading, goalsLoading, pulseLoading, runSynthesis]);
 
   const synthesisMatchesWeek =

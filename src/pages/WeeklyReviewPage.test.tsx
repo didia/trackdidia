@@ -1,6 +1,6 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createEmptyDailyEntry, updatePrinciple } from "../domain/daily-entry";
+import { createEmptyDailyEntry, defaultAppSettings, updatePrinciple } from "../domain/daily-entry";
 import { principleDefinitions } from "../domain/definitions";
 import {
   applyWeeklyScoreExternalAxes,
@@ -8,6 +8,7 @@ import {
   localWeeklyScoreAxes,
 } from "../domain/weekly-review";
 import { createWeeklyMemoryProposals } from "../lib/ai/memory/weekly-distillation";
+import { loadLatestWeeklySynthesis } from "../lib/ai/weekly-synthesis-loader";
 import { WeeklySynthesisService } from "../lib/ai/weekly-synthesis-service";
 import * as dateModule from "../lib/date";
 import { formatPercent } from "../lib/format";
@@ -904,6 +905,214 @@ describe("WeeklyReviewPage local synthesis integration", () => {
       expect(messages.length).toBeGreaterThan(0);
       const proposals = await repository.listAiProposals(messages[0].id);
       expect(proposals.some((item) => item.status === "accepted")).toBe(true);
+    });
+  });
+});
+
+describe("WeeklyReviewPage coach cache", () => {
+  const weekStartDate = "2026-08-02";
+
+  const enabledAiSettings = () => {
+    const settings = defaultAppSettings();
+    settings.aiEnabled = true;
+    settings.aiApiKey = "secret";
+    return settings;
+  };
+
+  const storedOk = () => ({
+    message: {
+      id: "ai-message-weekly-ok",
+      surface: "weekly_synthesis" as const,
+      scopeKey: weekStartDate,
+      stance: null,
+      kind: "weekly",
+      inputHash: "hash-ok",
+      promptVersion: "weekly_synthesis.v1",
+      model: "test-model",
+      status: "ok" as const,
+      bodyJson: JSON.stringify({
+        headline: "Coach cache",
+        scoreExplanation: "Score",
+        strongestAxis: "Discipline",
+        weakestAxes: ["Sommeil", "Pomodoris"],
+        sectionDrafts: {},
+        nextWeekObjectives: [],
+        gtdActions: [],
+      }),
+      bodyText: "Coach cache",
+      deltaClass: null,
+      notified: false,
+      tokensPrompt: 1,
+      tokensCompletion: 2,
+      latencyMs: 3,
+      createdAt: "2026-08-08T12:00:00.000Z",
+    },
+    synthesis: {
+      headline: "Coach cache",
+      scoreExplanation: "Score",
+      strongestAxis: "Discipline",
+      weakestAxes: ["Sommeil", "Pomodoris"],
+      sectionDrafts: {},
+      nextWeekObjectives: [],
+      gtdActions: [],
+    },
+    proposals: [],
+    source: "cache" as const,
+  });
+
+  afterEach(() => {
+    vi.mocked(loadLatestWeeklySynthesis).mockResolvedValue(null);
+    vi.restoreAllMocks();
+  });
+
+  it("shows a stored ok synthesis immediately then hash-checks after RescueTime settles", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    for (let index = 0; index < 7; index += 1) {
+      await repository.saveDailyEntry(createEmptyDailyEntry(addDays(weekStartDate, index)));
+    }
+
+    const stored = storedOk();
+    vi.mocked(loadLatestWeeklySynthesis).mockResolvedValue(stored);
+    const fresh = {
+      ...stored,
+      synthesis: { ...stored.synthesis, headline: "Frais" },
+      source: "ai" as const,
+    };
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const buildSpy = vi
+      .spyOn(WeeklySynthesisService.prototype, "buildSynthesis")
+      .mockImplementation(async () => {
+        await blocked;
+        return fresh;
+      });
+
+    const user = userEvent.setup();
+    await renderWithApp(<WeeklyReviewPage />, {
+      repository,
+      route: "/semaine",
+      contextOverrides: { settings: enabledAiSettings() },
+    });
+
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
+    await user.clear(dateInput);
+    await user.type(dateInput, weekStartDate);
+    await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
+
+    expect(await screen.findByText("Coach cache")).toBeInTheDocument();
+    expect(screen.queryByText("Frais")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(buildSpy).toHaveBeenCalled();
+    });
+    expect(buildSpy).toHaveBeenCalledWith(
+      repository,
+      expect.objectContaining({
+        trigger: "auto",
+      }),
+    );
+    release();
+    expect(await screen.findByText("Frais")).toBeInTheDocument();
+  });
+
+  it("does not treat a fallback row as sticky auto-load cache", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    for (let index = 0; index < 7; index += 1) {
+      await repository.saveDailyEntry(createEmptyDailyEntry(addDays(weekStartDate, index)));
+    }
+
+    await repository.saveAiMessage({
+      id: "ai-message-weekly-fallback",
+      surface: "weekly_synthesis",
+      scopeKey: weekStartDate,
+      stance: null,
+      kind: "weekly",
+      inputHash: "hash-fallback",
+      promptVersion: "weekly_synthesis.v1",
+      model: "local",
+      status: "fallback",
+      bodyJson: JSON.stringify({
+        headline: "Fallback local",
+        scoreExplanation: "Score",
+        strongestAxis: "Discipline",
+        weakestAxes: ["Sommeil", "Pomodoris"],
+        sectionDrafts: {},
+        nextWeekObjectives: [],
+        gtdActions: [],
+      }),
+      bodyText: "Fallback local",
+      deltaClass: null,
+      notified: false,
+      tokensPrompt: 1,
+      tokensCompletion: 2,
+      latencyMs: 3,
+      createdAt: "2026-08-08T12:00:00.000Z",
+    });
+    vi.mocked(loadLatestWeeklySynthesis).mockResolvedValue(null);
+    const fresh = {
+      ...storedOk(),
+      synthesis: { ...storedOk().synthesis, headline: "Nouveau brief" },
+      source: "ai" as const,
+    };
+    const buildSpy = vi
+      .spyOn(WeeklySynthesisService.prototype, "buildSynthesis")
+      .mockResolvedValue(fresh);
+
+    const user = userEvent.setup();
+    await renderWithApp(<WeeklyReviewPage />, {
+      repository,
+      route: "/semaine",
+      contextOverrides: { settings: enabledAiSettings() },
+    });
+
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
+    await user.clear(dateInput);
+    await user.type(dateInput, weekStartDate);
+    await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
+
+    expect(await screen.findByText("Nouveau brief")).toBeInTheDocument();
+    expect(screen.queryByText("Fallback local")).not.toBeInTheDocument();
+    expect(buildSpy).toHaveBeenCalled();
+  });
+
+  it("regenerates with bypassCache", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    for (let index = 0; index < 7; index += 1) {
+      await repository.saveDailyEntry(createEmptyDailyEntry(addDays(weekStartDate, index)));
+    }
+
+    const stored = storedOk();
+    vi.mocked(loadLatestWeeklySynthesis).mockResolvedValue(stored);
+    const buildSpy = vi
+      .spyOn(WeeklySynthesisService.prototype, "buildSynthesis")
+      .mockResolvedValue(stored);
+
+    const user = userEvent.setup();
+    await renderWithApp(<WeeklyReviewPage />, {
+      repository,
+      route: "/semaine",
+      contextOverrides: { settings: enabledAiSettings() },
+    });
+
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
+    await user.clear(dateInput);
+    await user.type(dateInput, weekStartDate);
+    await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
+    expect(await screen.findByText("Coach cache")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /régénérer/i }));
+    await waitFor(() => {
+      expect(buildSpy).toHaveBeenCalledWith(
+        repository,
+        expect.objectContaining({
+          trigger: "explicit",
+          bypassCache: true,
+        }),
+      );
     });
   });
 });

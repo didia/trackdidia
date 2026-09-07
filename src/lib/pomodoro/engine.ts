@@ -369,7 +369,8 @@ export const buildPomodoroTaskSummaries = (
     }
 
     const startMs = new Date(segment.startedAt).getTime();
-    const endMs = new Date(segment.endedAt ?? now).getTime();
+    const rawEndMs = new Date(segment.endedAt ?? now).getTime();
+    const endMs = segment.endedAt ? rawEndMs : Math.min(rawEndMs, nowMs);
 
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
       continue;
@@ -382,7 +383,7 @@ export const buildPomodoroTaskSummaries = (
       sessionIds: new Set<string>(),
       label: segment.taskId ? null : (segment.title ?? "").trim() || null,
     };
-    current.totalSeconds += Math.max(0, Math.min(endMs, nowMs) - startMs) / 1000;
+    current.totalSeconds += Math.max(0, endMs - startMs) / 1000;
     current.sessionIds.add(segment.sessionId);
     totals.set(key, current);
   }

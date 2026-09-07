@@ -1,7 +1,9 @@
 import { afterEach, vi } from "vitest";
 import {
   buildIsoFromLocalDateAndTime,
+  clampAiAsOfDate,
   isPastLocalDate,
+  stableAiNowIso,
   toLocalDateInputValue,
   toLocalTimeInputValue,
 } from "./date";
@@ -20,6 +22,24 @@ describe("date helpers", () => {
 
     expect(toLocalDateInputValue(nextIso)).toBe("2026-04-05");
     expect(toLocalTimeInputValue(nextIso)).toBe(toLocalTimeInputValue(fallbackIso));
+  });
+});
+
+describe("stableAiNowIso", () => {
+  it("pins the clock to local noon for the given calendar date", () => {
+    expect(stableAiNowIso("2026-08-08")).toBe("2026-08-08T12:00:00");
+  });
+});
+
+describe("clampAiAsOfDate", () => {
+  it("keeps today while the period is still open", () => {
+    expect(clampAiAsOfDate("2026-08-05", "2026-08-08")).toBe("2026-08-05");
+  });
+
+  it("freezes at the period end after it closes", () => {
+    expect(clampAiAsOfDate("2026-08-09", "2026-08-08")).toBe("2026-08-08");
+    expect(clampAiAsOfDate("2026-05-01", "2026-04-30")).toBe("2026-04-30");
+    expect(clampAiAsOfDate("2027-01-02", "2026-12-31")).toBe("2026-12-31");
   });
 });
 

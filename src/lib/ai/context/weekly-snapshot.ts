@@ -27,6 +27,7 @@ import {
   phoneScreenTargetMinutes,
   pomodoroTarget,
 } from "../../../domain/weekly-review";
+import { clampAiAsOfDate, getTodayDate, stableAiNowIso } from "../../date";
 import type { Surface } from "./types";
 
 const metricWeeklyTargets: Partial<Record<MetricKey, number>> = {
@@ -342,6 +343,16 @@ export const buildWeeklySnapshot = (
   };
 };
 
+const pomodoroNowIsoForDate = (date: string, today: string, wallNowIso: string): string => {
+  if (date < today) {
+    return `${date}T23:59:59`;
+  }
+  if (date > today) {
+    return `${date}T00:00:00`;
+  }
+  return wallNowIso;
+};
+
 export const resolveWeeklySnapshotInputs = async (
   repository: import("../../storage/repository").AppRepository,
   weekStartDate: string,
@@ -355,7 +366,9 @@ export const resolveWeeklySnapshotInputs = async (
   const normalized = buildWeekDates(weekStartDate);
   const weekDates = listWeekDates(normalized);
   const weekEndDate = weekDates[weekDates.length - 1];
-  const now = options.now ?? new Date().toISOString();
+  const today = getTodayDate();
+  const now = options.now ?? stableAiNowIso(clampAiAsOfDate(today, weekEndDate));
+  const pomodoroWallNow = new Date().toISOString();
 
   const [summary, review, historyEntries, tasks, projects, ...weekEntryRows] = await Promise.all([
     repository.computeWeeklyReviewSummary(normalized),
@@ -374,7 +387,10 @@ export const resolveWeeklySnapshotInputs = async (
 
   for (const date of weekDates) {
     const [summaries, stats] = await Promise.all([
-      repository.listPomodoroTaskSummaries(date, now),
+      repository.listPomodoroTaskSummaries(
+        date,
+        pomodoroNowIsoForDate(date, today, pomodoroWallNow),
+      ),
       repository.computeDailyPomodoroStats(date),
     ]);
     pomodoroSummariesByDay.push(summaries);

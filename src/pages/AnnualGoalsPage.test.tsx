@@ -101,4 +101,108 @@ describe("AnnualGoalsPage", () => {
       expect(screen.queryByText(/dans les clous|hors rythme/i)).not.toBeInTheDocument();
     });
   });
+
+  it("shows stored ok pacing on auto-load then hash-checks", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveAnnualGoal(
+      createEmptyAnnualGoal({
+        id: "goal-1",
+        title: "Discipline",
+        targetValue: 100,
+        manualCurrentValue: 80,
+        unit: "%",
+      }),
+    );
+
+    const year = new Date().getFullYear();
+    const message = {
+      id: "ai-message-pacing-ok",
+      surface: "goal_pacing" as const,
+      scopeKey: String(year),
+      stance: null,
+      kind: "annual",
+      inputHash: "hash-ok",
+      promptVersion: "goal_pacing.v1",
+      model: "test-model",
+      status: "ok" as const,
+      bodyJson: JSON.stringify({
+        goals: [
+          {
+            goalId: "goal-1",
+            onPace: true,
+            gap: "Ecart cache",
+            requiredWeeklyBehaviour: "Focus",
+            riskLevel: "low",
+            recommendation: "Continuer",
+          },
+        ],
+      }),
+      bodyText: "Ecart cache",
+      deltaClass: null,
+      notified: false,
+      tokensPrompt: 1,
+      tokensCompletion: 2,
+      latencyMs: 3,
+      createdAt: "2026-08-29T12:00:00.000Z",
+    };
+    await repository.saveAiMessage(message);
+
+    const stored = {
+      message,
+      pacing: {
+        goals: [
+          {
+            goalId: "goal-1",
+            onPace: true,
+            gap: "Ecart cache",
+            requiredWeeklyBehaviour: "Focus",
+            riskLevel: "low" as const,
+            recommendation: "Continuer",
+          },
+        ],
+      },
+      source: "cache" as const,
+    };
+    const fresh = {
+      ...stored,
+      pacing: {
+        goals: [{ ...stored.pacing.goals[0], gap: "Frais" }],
+      },
+      source: "ai" as const,
+    };
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const buildSpy = vi
+      .spyOn(GoalPacingService.prototype, "buildPacing")
+      .mockImplementation(async () => {
+        await blocked;
+        return fresh;
+      });
+
+    await renderWithApp(<AnnualGoalsPage />, {
+      repository,
+      route: "/objectifs-annuels",
+      contextOverrides: {
+        settings: { ...defaultAppSettings(), aiEnabled: true, aiApiKey: "secret" },
+      },
+    });
+
+    expect(await screen.findByText("Ecart cache")).toBeInTheDocument();
+    expect(screen.queryByText("Frais")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(buildSpy).toHaveBeenCalledWith(
+        repository,
+        expect.objectContaining({
+          year,
+          trigger: "auto",
+        }),
+      );
+    });
+    release();
+    expect(await screen.findByText("Frais")).toBeInTheDocument();
+    buildSpy.mockRestore();
+  });
 });

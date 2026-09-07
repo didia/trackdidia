@@ -127,7 +127,9 @@ export const MonthlyReviewPage = () => {
     async (options: { monthKey: string; trigger: "auto" | "explicit"; bypassCache?: boolean }) => {
       const requestId = ++synthesisRequestSeqRef.current;
       setSynthesisLoading(true);
-      setSynthesisResult(null);
+      if (options.trigger !== "auto") {
+        setSynthesisResult(null);
+      }
 
       try {
         if (options.trigger === "auto") {
