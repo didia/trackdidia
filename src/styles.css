@@ -880,6 +880,12 @@ textarea {
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
 }
 
+.monthly-ritual-stack {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr;
+}
+
 .weekly-ritual-card {
   display: grid;
   gap: 12px;
