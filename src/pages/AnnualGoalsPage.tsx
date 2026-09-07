@@ -264,7 +264,6 @@ const AnnualGoalCard = ({
           <PersistedTextarea
             key={`${goal.id}-${evaluationMonthKey}-notes`}
             rows={3}
-            debounceMs={0}
             savedValue={evaluation.notes}
             onPersist={(value) => void onSaveEvaluation(goal, evaluationMonthKey, { notes: value })}
           />
@@ -274,7 +273,6 @@ const AnnualGoalCard = ({
           <PersistedTextarea
             key={`${goal.id}-${evaluationMonthKey}-blockers`}
             rows={3}
-            debounceMs={0}
             savedValue={evaluation.blockers}
             onPersist={(value) =>
               void onSaveEvaluation(goal, evaluationMonthKey, { blockers: value })
@@ -313,14 +311,19 @@ export const AnnualGoalsPage = () => {
     }),
   );
 
+  const hasLoadedOnceRef = useRef(false);
+
   const load = useCallback(async () => {
-    setLoading(true);
+    if (!hasLoadedOnceRef.current) {
+      setLoading(true);
+    }
     const [nextGoals, nextSnapshots] = await Promise.all([
       repository.listAnnualGoals(),
       repository.computeAnnualGoalSnapshots(selectedYear),
     ]);
     setGoals(nextGoals);
     setSnapshots(nextSnapshots);
+    hasLoadedOnceRef.current = true;
     setLoading(false);
   }, [repository, selectedYear]);
 
