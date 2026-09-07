@@ -13,3 +13,14 @@ describe("migration 25 ai_proposals index", () => {
     );
   });
 });
+
+describe("migration 27 ai_proposals index", () => {
+  it("allows multiple pending goal_evaluation proposals on one monthly message", () => {
+    const migration = migrations.find((item) => item.id === 27);
+    expect(migration).toBeDefined();
+    expect(migration?.sql).toContain("goal_evaluation");
+    expect(migration?.sql).toMatch(
+      /type NOT IN \(\s*'memory', 'review_section_draft', 'weekly_objective', 'gtd_action', 'goal_evaluation'\s*\)/,
+    );
+  });
+});

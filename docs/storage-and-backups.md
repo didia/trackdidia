@@ -137,6 +137,7 @@ Never renumber or rewrite a released migration. Add the next ID.
 | 24 | `create_ai_memories` | Semantic coach memory (patterns, profile, commitments); pending uniqueness excludes `memory` so weekly distill can store multiple candidates |
 | 25 | `ai_proposals_repeatable_weekly_types` | Pending proposal uniqueness excludes repeatable weekly types (`review_section_draft`, `weekly_objective`, `gtd_action`) in addition to `memory` |
 | 26 | `add_gtd_task_planned_order` | Adds `gtd_tasks.planned_order`, a partial index on `(project_id, planned_order)` for active Planned rows, and normalizes `planned_order = NULL` for every non-Planned row |
+| 27 | `ai_proposals_repeatable_goal_evaluation` | Pending proposal uniqueness also excludes `goal_evaluation`, since a monthly synthesis can propose one evaluation per evaluated goal on the same message |
 
 ## Table reference
 
