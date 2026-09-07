@@ -39,6 +39,40 @@ describe("AnnualGoalsPage", () => {
     });
   });
 
+  it("does not remount the page while autosaving a monthly evaluation", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveAnnualGoal(
+      createEmptyAnnualGoal({
+        id: "goal-autosave",
+        title: "Discipline autosave",
+        targetValue: 100,
+        manualCurrentValue: 80,
+        unit: "%",
+      }),
+    );
+    const user = userEvent.setup();
+
+    await renderWithApp(<AnnualGoalsPage />, {
+      repository,
+      route: "/objectifs-annuels",
+      contextOverrides: { settings: { ...defaultAppSettings(), aiEnabled: false } },
+    });
+
+    const notesField = await screen.findByLabelText(/notes/i);
+    await user.click(notesField);
+    await user.type(notesField, "Semaine correcte");
+
+    await waitFor(async () => {
+      const goals = await repository.listAnnualGoals();
+      const evaluationMonthKey = Object.keys(goals[0].evaluations)[0];
+      expect(goals[0].evaluations[evaluationMonthKey]?.notes).toBe("Semaine correcte");
+    });
+
+    expect(screen.queryByText(/^chargement/i)).not.toBeInTheDocument();
+    expect(notesField).toHaveValue("Semaine correcte");
+  });
+
   it("does not run pacing while the year field is an incomplete value", async () => {
     const buildPacingSpy = vi.spyOn(GoalPacingService.prototype, "buildPacing");
     const repository = new MemoryRepository();
