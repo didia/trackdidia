@@ -165,14 +165,19 @@ hold, completed, or cancelled projects as new choices.
 - local recurrence previews, requested from the selected date through 30 days later;
 - editing/completing/cancelling actual tasks from the calendar;
 - **Auto-promotion**: after due recurrences are generated (bootstrap, GTD workspace
-  load, `listTasks`, Pomodoro refresh, and daily stats), every **active** task with
-  `bucket === "scheduled"` whose local `scheduledFor` calendar date is today or
-  earlier is moved to Next Actions. Overdue items and recurring Scheduled instances
-  are included. `scheduledFor` is cleared. Planned tasks that reuse `scheduledFor`
-  as a display date are ignored. Deadlines never trigger a move. Comparison uses the
-  local calendar date, not the clock time. Daily stats generate recurrences for the
-  **stats** date, then promote as of **today**, so viewing a future history day
-  cannot promote early. The pass is idempotent.
+  load, `listTasks`, Pomodoro refresh, daily stats, and local-day rollover while the
+  app stays open), every **active** task with `bucket === "scheduled"` whose local
+  `scheduledFor` calendar date is today or earlier is moved to Next Actions.
+  Overdue items and recurring Scheduled instances are included. `scheduledFor` is
+  cleared. Planned tasks that reuse `scheduledFor` as a display date are ignored.
+  Deadlines never trigger a move. Comparison uses the local calendar date, not the
+  clock time and not the UTC prefix of the stored ISO string. The Scheduled page
+  groups the same way (`isTaskScheduledForDate`). Daily stats generate recurrences
+  for the **stats** date, then promote as of **today**, so viewing a future history
+  day cannot promote early. The pass is idempotent. If Next Actions, Scheduled, or
+  Pomodoro stay mounted overnight, a local-day boundary (next midnight, window
+  focus, becoming visible) repeats generation and promotion and reloads those
+  views.
 
 Previews are not task rows and cannot be completed from this screen.
 

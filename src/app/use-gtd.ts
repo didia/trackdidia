@@ -4,7 +4,7 @@ import { getTodayDate } from "../lib/date";
 import { useAppContext } from "./app-context";
 
 export const useGtdWorkspace = () => {
-  const { repository } = useAppContext();
+  const { repository, calendarDay } = useAppContext();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [contexts, setContexts] = useState<TaskContext[]>([]);
@@ -33,8 +33,8 @@ export const useGtdWorkspace = () => {
   );
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void load({ preserveVisibleState: true });
+  }, [calendarDay, load]);
 
   const createTask = useCallback(
     async (input: CreateTaskInput) => {

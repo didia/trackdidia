@@ -3,6 +3,7 @@ import {
   buildIsoFromLocalDateAndTime,
   clampAiAsOfDate,
   isPastLocalDate,
+  msUntilNextLocalMidnight,
   stableAiNowIso,
   toLocalDateInputValue,
   toLocalTimeInputValue,
@@ -40,6 +41,19 @@ describe("clampAiAsOfDate", () => {
     expect(clampAiAsOfDate("2026-08-09", "2026-08-08")).toBe("2026-08-08");
     expect(clampAiAsOfDate("2026-05-01", "2026-04-30")).toBe("2026-04-30");
     expect(clampAiAsOfDate("2027-01-02", "2026-12-31")).toBe("2026-12-31");
+  });
+});
+
+describe("msUntilNextLocalMidnight", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("is the remaining local time until the next calendar day", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 8, 7, 23, 59, 0, 0));
+
+    expect(msUntilNextLocalMidnight()).toBe(60_000);
   });
 });
 

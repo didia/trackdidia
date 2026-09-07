@@ -34,6 +34,7 @@ import {
 import { PULSE_CHECK_INTERVAL_MS } from "../lib/ai/pulse/constants";
 import { runPulseEngine } from "../lib/ai/pulse/pulse-engine";
 import type { AppOpenInterval } from "../domain/insights/movement";
+import { useLocalDayReconciliation } from "./use-local-day-reconciliation";
 import { usePomodoroController, type PomodoroControllerValue } from "./use-pomodoro-controller";
 import { getTodayDate } from "../lib/date";
 
@@ -48,6 +49,8 @@ export interface AppContextValue {
   pomodoro: PomodoroControllerValue;
   /** Increments when the pulse engine persists a new coach message for today. */
   pulseRevision: number;
+  /** Current local `YYYY-MM-DD`. Changes when the local-day boundary reconciles. */
+  calendarDay: string;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -77,7 +80,8 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   const appOpenStartedAtRef = useRef<string | null>(null);
   const appOpenIntervalsRef = useRef<AppOpenInterval[]>([]);
   const [pulseRevision, setPulseRevision] = useState(0);
-  const pomodoro = usePomodoroController(repository);
+  const calendarDay = useLocalDayReconciliation(repository);
+  const pomodoro = usePomodoroController(repository, calendarDay);
 
   const enqueueStartupWork = (work: () => Promise<void>) => {
     startupWorkQueueRef.current = startupWorkQueueRef.current.then(work).catch((error) => {
@@ -450,6 +454,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         setDebugEnabled,
         pomodoro,
         pulseRevision,
+        calendarDay,
       }}
     >
       {startupError ? (

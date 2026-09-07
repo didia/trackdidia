@@ -75,6 +75,8 @@ displayed past count.
 Due recurrence generation runs:
 
 - during application bootstrap;
+- when the local calendar day changes while the app is already open (next midnight,
+  window focus, or becoming visible);
 - before GTD workspace loads;
 - before daily task statistics/breakdowns;
 - when listing tasks;

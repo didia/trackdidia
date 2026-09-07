@@ -145,6 +145,12 @@ The startup operation has an eight-second timeout. An exception or timeout activ
 a new `MemoryRepository`, shows a warning banner, and keeps the UI usable. Data
 entered in that fallback is lost when the application reloads.
 
+After bootstrap, `AppProvider` keeps `calendarDay` (the current local `YYYY-MM-DD`)
+in context. A timeout until the next local midnight, plus window `focus` and
+`visibilitychange` when the document becomes visible, regenerates due recurrences,
+promotes due Scheduled tasks, and republishes the new date so already-mounted GTD
+and Pomodoro consumers reload without navigation.
+
 ## Repository boundary
 
 `AppRepository` is the persistence contract. It covers daily entries, reviews,
