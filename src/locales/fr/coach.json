@@ -131,7 +131,19 @@
     "weeklyCatchUp": "Bloquer un créneau hebdomadaire dédié et réduire l'écart par petits incréments mesurables.",
     "recLow": "Conserver la cadence actuelle et noter ce qui fonctionne pour le répéter.",
     "recHigh": "Recalibrer la cible ou le plan d'exécution ce mois-ci — l'écart risque de se cristalliser.",
-    "recMedium": "Ajuster une habitude hebdomadaire concrète plutôt que revoir toute la cible annuelle."
+    "recMedium": "Ajuster une habitude hebdomadaire concrète plutôt que revoir toute la cible annuelle.",
+    "cadenceWeek": "semaine",
+    "cadenceMonth": "mois",
+    "gapNoPeriodsElapsed": "Aucune période écoulée pour mesurer l'adhérence pour l'instant.",
+    "gapAdherence": "Adhérence de {{count}}% sur les périodes écoulées (série actuelle : {{streak}}).",
+    "gapMilestones": "{{completed}}/{{total}} jalons complétés.",
+    "gapAchieved": "Objectif atteint.",
+    "gapNotAchieved": "Pas encore atteint.",
+    "gapCumulativeRemaining": "{{current}}/{{target}} {{unit}} à date.",
+    "weeklyRecurringOnPace": "Maintenir la cadence de {{target}}x par {{period}}.",
+    "weeklyRecurringCatchUp": "Reprendre la cadence de {{target}}x par {{period}} dès cette période.",
+    "weeklyMilestoneNext": "Avancer le prochain jalon cette semaine.",
+    "weeklyAchieved": "Objectif déjà atteint, rien à planifier."
   },
   "risk": {
     "low": "Faible",

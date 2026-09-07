@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-07 | Annual goals gain four measurement types (binary, numeric, cumulative, recurring) with per-type progress/pacing math, plus cross-cutting milestones, status, and deadline; `goal_pacing` payload bumped to v2 | `docs/reviews-and-goals.md`, `docs/storage-and-backups.md` | Migration 27 `add_annual_goal_measurement_fields`, `src/domain/annual-goal-measurement.ts`, `computeAnnualGoalExpectedRatio`, `GOAL_PACING_PROMPT_VERSION` |
 | 2026-09-06 | RescueTime overview goals use `taxonomy_name` for Analytic `restrict_kind` (RescueTime `search_name` is `category`) | `docs/reviews-and-goals.md` | `resolveAnalyticKind`, `RescueTimeGoalsService` |
 | 2026-08-31 | Weekly/monthly ritual notes survive leaving the page: textarea flush on unmount, serialized latest-wins review saves | `docs/reviews-and-goals.md`, `docs/conventions.md` | `PersistedTextarea`, `WeeklyReviewPage`, `MonthlyReviewPage` |
 | 2026-08-30 | Phase 4 PR #58 review: atomic weekly synthesis persist/accept, standing objectives UI, week-scoped synthesis, migration 25 index, S2 schema prompt, preview Goals parity, fallback retry policy | `docs/reviews-and-goals.md`, `docs/ai-settings-and-privacy.md`, `docs/storage-and-backups.md` | Migration 25, `WeeklyReviewPage`, `WeeklySynthesisService`, `acceptAi*Proposal`, `listDailyEntriesOnOrBefore` |

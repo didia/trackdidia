@@ -14,13 +14,29 @@
       "target": "Cible",
       "unit": "Unité",
       "manualCurrent": "État actuel manuel",
-      "description": "Description"
+      "description": "Description",
+      "measurementType": "Type de mesure",
+      "status": "Statut",
+      "deadline": "Échéance",
+      "startingValue": "Valeur de départ",
+      "direction": "Direction",
+      "directionAuto": "Auto (déduit)",
+      "cadenceTarget": "Cadence cible",
+      "cadencePeriod": "Période de cadence",
+      "principle": "Principe lié"
     },
     "sourceManualOption": "Manuel",
+    "principleNoneOption": "Aucun (saisie manuelle)",
     "metrics": {
       "current": "État actuel",
       "progress": "Progression",
-      "source": "Source"
+      "source": "Source",
+      "binaryAchieved": "Atteint",
+      "binaryNotAchieved": "Non atteint",
+      "cumulativeProgress": "{{current}}/{{target}} {{unit}}",
+      "recurringThisPeriod": "Cette période : {{count}}/{{target}}",
+      "adherence": "Adhérence YTD",
+      "streak": "Série en cours"
     },
     "sourceLabelManual": "Manuelle",
     "scoreLabel": "Score {{monthKey}}",
@@ -28,6 +44,42 @@
     "trendNone": "Aucune",
     "notes": "Notes mensuelles",
     "blockers": "Blocages"
+  },
+  "measurementTypes": {
+    "binary": "Binaire",
+    "numeric": "Numérique",
+    "cumulative": "Cumulatif",
+    "recurring": "Récurrent"
+  },
+  "statuses": {
+    "active": "Actif",
+    "paused": "En pause",
+    "achieved": "Atteint",
+    "abandoned": "Abandonné"
+  },
+  "cadence": {
+    "week": "Semaine",
+    "month": "Mois"
+  },
+  "directions": {
+    "increase": "À la hausse",
+    "decrease": "À la baisse"
+  },
+  "milestones": {
+    "title": "Jalons",
+    "empty": "Aucun jalon pour l'instant.",
+    "addPlaceholder": "Nouveau jalon",
+    "add": "Ajouter",
+    "remove": "Supprimer",
+    "completedCount": "{{completed}}/{{total}} jalons"
+  },
+  "log": {
+    "title": "Journal de progression",
+    "increment": "Incrément",
+    "periodCount": "Compte",
+    "runningTotal": "Total cumulé",
+    "addOne": "+1",
+    "currentPeriod": "Période en cours"
   },
   "loading": "Chargement des objectifs annuels...",
   "hero": {
@@ -54,7 +106,8 @@
   "list": {
     "title": "Objectifs actifs",
     "subtitle": "Chaque objectif affiche sa progression annuelle, sa trajectoire mensuelle et son évaluation du mois choisi.",
-    "empty": "Aucun objectif annuel pour l'instant."
+    "empty": "Aucun objectif annuel pour l'instant.",
+    "showAll": "Afficher tous les statuts"
   },
   "sources": {
     "manual": "Manuel",

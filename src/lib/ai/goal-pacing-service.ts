@@ -17,7 +17,7 @@ import { buildLocalGoalPacing } from "./proposals/goal-pacing-fallback";
 import { parseGoalPacingJson } from "./proposals/goal-pacing-validator";
 import type { AiProvider } from "./provider";
 
-export const GOAL_PACING_PROMPT_VERSION = "goal_pacing.v1";
+export const GOAL_PACING_PROMPT_VERSION = "goal_pacing.v2";
 
 export interface GoalPacingRequest {
   year: number;

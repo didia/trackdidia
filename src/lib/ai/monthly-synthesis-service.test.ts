@@ -1,10 +1,28 @@
 import { afterEach, vi } from "vitest";
 import { createEmptyAnnualGoal } from "../../domain/annual-goals";
 import { createEmptyDailyEntry, defaultAppSettings } from "../../domain/daily-entry";
+import type { AnnualGoalMeasurement } from "../../domain/types";
 import { MemoryRepository } from "../storage/memory-repository";
 import { buildMonthlySnapshot, type MonthlySnapshotInputs } from "./context/monthly-snapshot";
 import { MonthlySynthesisService } from "./monthly-synthesis-service";
 import type { AiProvider } from "./provider";
+
+const numericMeasurement: AnnualGoalMeasurement = {
+  measurementType: "numeric",
+  direction: "increase",
+  currentPeriodKey: null,
+  currentPeriodCount: null,
+  cadenceTarget: null,
+  adherenceRatio: null,
+  periodsMet: 0,
+  periodsElapsed: 0,
+  currentStreak: 0,
+  milestonesCompleted: 0,
+  milestonesTotal: 0,
+  milestoneProgressRatio: null,
+  expectedProgressRatio: null,
+  onPace: true,
+};
 
 const buildMonthlyInputs = (monthKey = "2026-04"): MonthlySnapshotInputs => ({
   monthKey,
@@ -43,6 +61,7 @@ const buildMonthlyInputs = (monthKey = "2026-04"): MonthlySnapshotInputs => ({
       monthlyProgress: [{ monthKey, value: 75 }],
       linkedWeeklyMetricLabels: [],
       linkedDailyHabitLabels: [],
+      measurement: numericMeasurement,
     },
   ],
 });

@@ -1,5 +1,6 @@
 import { createEmptyAnnualGoal } from "../../domain/annual-goals";
 import { defaultAppSettings } from "../../domain/daily-entry";
+import type { AnnualGoalMeasurement } from "../../domain/types";
 import { MemoryRepository } from "../storage/memory-repository";
 import {
   buildGoalPacingSnapshot,
@@ -7,6 +8,26 @@ import {
 } from "./context/goal-pacing-snapshot";
 import { GoalPacingService } from "./goal-pacing-service";
 import type { AiProvider } from "./provider";
+
+const buildNumericMeasurement = (
+  progressRatio: number,
+  expectedProgressRatio: number,
+): AnnualGoalMeasurement => ({
+  measurementType: "numeric",
+  direction: "increase",
+  currentPeriodKey: null,
+  currentPeriodCount: null,
+  cadenceTarget: null,
+  adherenceRatio: null,
+  periodsMet: 0,
+  periodsElapsed: 0,
+  currentStreak: 0,
+  milestonesCompleted: 0,
+  milestonesTotal: 0,
+  milestoneProgressRatio: null,
+  expectedProgressRatio,
+  onPace: progressRatio >= expectedProgressRatio - 0.1,
+});
 
 const buildPacingInputs = (year = 2026, progressRatio = 0.6): GoalPacingSnapshotInputs => ({
   year,
@@ -19,6 +40,7 @@ const buildPacingInputs = (year = 2026, progressRatio = 0.6): GoalPacingSnapshot
         title: "Discipline",
         targetValue: 100,
         unit: "%",
+        status: "active",
       }),
       sourceType: "manual",
       sourceLabel: null,
@@ -27,6 +49,7 @@ const buildPacingInputs = (year = 2026, progressRatio = 0.6): GoalPacingSnapshot
       monthlyProgress: [{ monthKey: "2026-08", value: 65 }],
       linkedWeeklyMetricLabels: [],
       linkedDailyHabitLabels: [],
+      measurement: buildNumericMeasurement(progressRatio, 0.65),
     },
   ],
 });

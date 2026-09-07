@@ -256,7 +256,15 @@
         "current": "Actuel :",
         "target": "Cible :",
         "month": "Mois :",
-        "evaluation": "Évaluation :"
+        "evaluation": "Évaluation :",
+        "binaryStatus": "Statut :",
+        "binaryAchieved": "Atteint",
+        "binaryNotAchieved": "Non atteint",
+        "milestones": "Jalons :",
+        "cumulativeProgress": "Progression :",
+        "recurringThisPeriod": "Cette période :",
+        "recurringAdherence": "Adhérence YTD :",
+        "recurringStreak": "Série :"
       },
       "manage": "Gérer les objectifs annuels"
     },

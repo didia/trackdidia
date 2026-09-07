@@ -137,6 +137,7 @@ Never renumber or rewrite a released migration. Add the next ID.
 | 24 | `create_ai_memories` | Semantic coach memory (patterns, profile, commitments); pending uniqueness excludes `memory` so weekly distill can store multiple candidates |
 | 25 | `ai_proposals_repeatable_weekly_types` | Pending proposal uniqueness excludes repeatable weekly types (`review_section_draft`, `weekly_objective`, `gtd_action`) in addition to `memory` |
 | 26 | `add_gtd_task_planned_order` | Adds `gtd_tasks.planned_order`, a partial index on `(project_id, planned_order)` for active Planned rows, and normalizes `planned_order = NULL` for every non-Planned row |
+| 27 | `add_annual_goal_measurement_fields` | Adds `measurement_type` (default `numeric`), `status` (default `active`), `deadline`, `starting_value`, `direction`, `cadence_target`, `cadence_period` (default `week`), `principle_key`, `progress_log_json` (default `{}`), `milestones_json` (default `[]`) to `annual_goals` |
 
 ## Table reference
 
@@ -258,7 +259,10 @@ Each row is one contiguous activity slice within a session: `session_id`, option
 - `weekly_objectives`: standing objective definitions (`kind`, optional RescueTime mapping, target hours, sort order).
 - `weekly_objective_results`: per-week manual achievement (`achieved` 0/1) keyed by `(week_start_date, objective_id)` with `ON DELETE CASCADE` from objectives.
 - `monthly_reviews`: month key/start/end, status, notes JSON, checklist JSON.
-- `annual_goals`: target/source/manual value plus evaluations JSON keyed by month.
+- `annual_goals`: target/source/manual value, `measurement_type`/`status`/`deadline`,
+  numeric baseline/direction, recurring cadence/principle binding,
+  `progress_log_json` (cumulative and recurring period amounts), `milestones_json`
+  (ordered checklist, any measurement type), plus evaluations JSON keyed by month.
 
 Computed summaries and goal snapshots are not persisted; they are rebuilt from
 daily/review data.

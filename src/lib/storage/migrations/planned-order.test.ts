@@ -9,7 +9,7 @@ const fakeDbWithColumns = (columnNames: string[]) => ({
 describe("migration 26 add_gtd_task_planned_order", () => {
   it("appends planned_order without rewriting earlier migrations", () => {
     expect(migrations.map((migration) => migration.id)).toEqual(expect.arrayContaining([25, 26]));
-    expect(Math.max(...migrations.map((migration) => migration.id))).toBe(26);
+    expect(migrations.map((migration) => migration.id)).toContain(26);
   });
 
   it("adds the column, the partial index, and normalizes non-planned rows", () => {
