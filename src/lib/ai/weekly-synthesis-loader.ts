@@ -20,22 +20,15 @@ export const loadLatestWeeklySynthesis = async (
   synthesisService: WeeklySynthesisService,
   weekStartDate: string,
 ): Promise<WeeklySynthesisResult | null> => {
-  const messages = await repository.listAiMessages("weekly_synthesis", 20);
-  const latest = messages
-    .filter((message) => message.scopeKey === weekStartDate && message.bodyJson)
-    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+  const latest = await repository.getLatestAiMessage("weekly_synthesis", weekStartDate, "ok");
 
-  if (!latest) {
+  if (!latest?.bodyJson) {
     return null;
   }
 
   const fromService = await synthesisService.resultFromMessage(repository, latest);
   if (fromService) {
     return fromService;
-  }
-
-  if (!latest.bodyJson) {
-    return null;
   }
 
   const parsed = parseWeeklySynthesisJson(latest.bodyJson);

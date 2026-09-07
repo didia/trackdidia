@@ -188,7 +188,7 @@ describe("MonthlyReviewPage", () => {
       inputHash: "hash",
       promptVersion: "monthly_synthesis.v1",
       model: "local",
-      status: "skipped" as const,
+      status: "ok" as const,
       bodyJson: JSON.stringify({
         headline: "Mois solide",
         weekPattern: "Rythme stable",
@@ -373,6 +373,80 @@ describe("MonthlyReviewPage", () => {
 
     await waitFor(() => {
       expect(screen.queryByText("Headline Avril Unique")).not.toBeInTheDocument();
+    });
+  });
+
+  it("shows a stored ok monthly synthesis on auto-load then hash-checks", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    for (const date of ["2026-04-01", "2026-04-02"]) {
+      await repository.saveDailyEntry(createEmptyDailyEntry(date));
+    }
+
+    const message = {
+      id: "ai-message-monthly-ok",
+      surface: "monthly_synthesis" as const,
+      scopeKey: "2026-04",
+      stance: null,
+      kind: "monthly",
+      inputHash: "hash-ok",
+      promptVersion: "monthly_synthesis.v1",
+      model: "test-model",
+      status: "ok" as const,
+      bodyJson: JSON.stringify({
+        headline: "Coach cache mois",
+        weekPattern: "Stable",
+        sectionDrafts: {},
+        goalEvaluationDrafts: [],
+      }),
+      bodyText: "Coach cache mois",
+      deltaClass: null,
+      notified: false,
+      tokensPrompt: 1,
+      tokensCompletion: 2,
+      latencyMs: 3,
+      createdAt: "2026-04-30T12:00:00.000Z",
+    };
+    await repository.saveAiMessage(message);
+
+    const stored = {
+      message,
+      synthesis: {
+        headline: "Coach cache mois",
+        weekPattern: "Stable",
+        sectionDrafts: {},
+        goalEvaluationDrafts: [],
+      },
+      proposals: [],
+      source: "cache" as const,
+    };
+    const buildSpy = vi
+      .spyOn(MonthlySynthesisService.prototype, "buildSynthesis")
+      .mockResolvedValue(stored);
+
+    const user = userEvent.setup();
+    await renderWithApp(<MonthlyReviewPage />, {
+      repository,
+      route: "/mois",
+      contextOverrides: {
+        settings: { ...defaultAppSettings(), aiEnabled: true, aiApiKey: "secret" },
+      },
+    });
+
+    const monthInput = await screen.findByLabelText(/mois à relire/i);
+    await user.clear(monthInput);
+    await user.type(monthInput, "2026-04");
+    await user.click(screen.getByRole("button", { name: /charger le mois/i }));
+
+    expect(await screen.findByText("Coach cache mois")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(buildSpy).toHaveBeenCalledWith(
+        repository,
+        expect.objectContaining({
+          monthKey: "2026-04",
+          trigger: "auto",
+        }),
+      );
     });
   });
 });

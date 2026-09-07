@@ -95,6 +95,12 @@ export interface AppRepository {
     scopeKey: string,
     inputHash: string,
   ): Promise<AiMessage | null>;
+  /** Latest row for a surface+scopeKey, optionally restricted to one status. */
+  getLatestAiMessage(
+    surface: AiSurface,
+    scopeKey: string,
+    status?: AiMessage["status"],
+  ): Promise<AiMessage | null>;
   saveAiMessage(message: AiMessage): Promise<AiMessage>;
   saveCoachPulseEpisode(
     message: AiMessage,

@@ -132,4 +132,47 @@ describe("GoalPacingService", () => {
     expect(second.source).toBe("cache");
     expect(provider.generateStructured).toHaveBeenCalledOnce();
   });
+
+  it("cache misses when asOfDate changes", async () => {
+    const provider: AiProvider = {
+      generateStructured: vi.fn(async () => ({
+        text: JSON.stringify({
+          goals: [
+            {
+              goalId: "goal-1",
+              onPace: true,
+              gap: "Proche",
+              requiredWeeklyBehaviour: "Focus",
+              riskLevel: "low",
+              recommendation: "Continuer",
+            },
+          ],
+        }),
+        model: "test-model",
+        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 },
+      })),
+    };
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const service = new GoalPacingService(provider);
+    const settings = defaultAppSettings();
+    settings.aiEnabled = true;
+    settings.aiApiKey = "secret";
+
+    await service.buildPacing(repository, {
+      year: 2026,
+      settings,
+      snapshotInputs: buildPacingInputs(),
+      trigger: "auto",
+    });
+    const nextDay = await service.buildPacing(repository, {
+      year: 2026,
+      settings,
+      snapshotInputs: { ...buildPacingInputs(), asOfDate: "2026-08-30" },
+      trigger: "auto",
+    });
+
+    expect(nextDay.source).toBe("ai");
+    expect(provider.generateStructured).toHaveBeenCalledTimes(2);
+  });
 });

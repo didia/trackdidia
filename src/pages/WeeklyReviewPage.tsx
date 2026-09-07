@@ -36,7 +36,7 @@ import {
 } from "../lib/ai/proposals/weekly-proposal-ids";
 import { loadLatestWeeklySynthesis } from "../lib/ai/weekly-synthesis-loader";
 import { WeeklySynthesisService } from "../lib/ai/weekly-synthesis-service";
-import { formatDateLong, formatDateShort, getTodayDate } from "../lib/date";
+import { formatDateLong, formatDateShort, getTodayDate, stableAiNowIso } from "../lib/date";
 import { formatPercent, formatTimestamp } from "../lib/format";
 import { addDays } from "../lib/gtd/shared";
 import {
@@ -113,6 +113,10 @@ export const WeeklyReviewPage = () => {
   const pulseRequestSeqRef = useRef(0);
   const standingObjectivesRequestSeqRef = useRef(0);
   const synthesisRequestSeqRef = useRef(0);
+  const goalsSnapshotRef = useRef(goalsSnapshot);
+  const pulseSnapshotRef = useRef(pulseSnapshot);
+  goalsSnapshotRef.current = goalsSnapshot;
+  pulseSnapshotRef.current = pulseSnapshot;
 
   const loadGoalsSnapshot = useCallback(
     async (requestedWeekStart: string, options?: { refreshing?: boolean }) => {
@@ -236,6 +240,7 @@ export const WeeklyReviewPage = () => {
       const requestId = ++weekRequestSeqRef.current;
       const normalized = buildWeekDates(requestedWeekStart);
       setLoading(true);
+      setSynthesisResult(null);
       try {
         const [existingReview, computedSummary] = await Promise.all([
           repository.getWeeklyReview(normalized),
@@ -289,7 +294,9 @@ export const WeeklyReviewPage = () => {
     }) => {
       const requestId = ++synthesisRequestSeqRef.current;
       setSynthesisLoading(true);
-      setSynthesisResult(null);
+      if (options.trigger !== "auto") {
+        setSynthesisResult(null);
+      }
 
       try {
         if (options.trigger === "auto") {
@@ -306,12 +313,20 @@ export const WeeklyReviewPage = () => {
           }
         }
 
-        const goals = goalsSnapshot?.weekStartDate === options.weekStartDate ? goalsSnapshot : null;
-        const pulse = pulseSnapshot?.weekStartDate === options.weekStartDate ? pulseSnapshot : null;
+        const includeRescueTime = options.trigger !== "auto";
+        const goals =
+          includeRescueTime && goalsSnapshotRef.current?.weekStartDate === options.weekStartDate
+            ? goalsSnapshotRef.current
+            : null;
+        const pulse =
+          includeRescueTime && pulseSnapshotRef.current?.weekStartDate === options.weekStartDate
+            ? pulseSnapshotRef.current
+            : null;
         const snapshotInputs = await resolveWeeklySnapshotInputs(
           repository,
           options.weekStartDate,
           {
+            now: stableAiNowIso(getTodayDate()),
             productivityPulse: pulse?.pulse ?? null,
             rescueTimeGoalsScore: goals?.score ?? null,
             rescuetimeConfigured: Boolean(settings.rescuetimeApiKey.trim()),
@@ -341,17 +356,16 @@ export const WeeklyReviewPage = () => {
         }
       }
     },
-    [goalsSnapshot, pulseSnapshot, repository, settings, synthesisService],
+    [repository, settings, synthesisService],
   );
 
   useEffect(() => {
-    if (!summary || loading || goalsLoading || pulseLoading) {
+    if (!summary || loading) {
       return;
     }
 
-    setSynthesisResult(null);
     void runSynthesis({ weekStartDate: summary.weekStartDate, trigger: "auto" });
-  }, [summary?.weekStartDate, loading, goalsLoading, pulseLoading, runSynthesis]);
+  }, [summary?.weekStartDate, loading, runSynthesis]);
 
   const synthesisMatchesWeek =
     synthesisResult?.message.scopeKey === summary?.weekStartDate && synthesisResult !== null;

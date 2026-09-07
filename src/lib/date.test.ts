@@ -2,6 +2,7 @@ import { afterEach, vi } from "vitest";
 import {
   buildIsoFromLocalDateAndTime,
   isPastLocalDate,
+  stableAiNowIso,
   toLocalDateInputValue,
   toLocalTimeInputValue,
 } from "./date";
@@ -20,6 +21,12 @@ describe("date helpers", () => {
 
     expect(toLocalDateInputValue(nextIso)).toBe("2026-04-05");
     expect(toLocalTimeInputValue(nextIso)).toBe(toLocalTimeInputValue(fallbackIso));
+  });
+});
+
+describe("stableAiNowIso", () => {
+  it("pins the clock to local noon for the given calendar date", () => {
+    expect(stableAiNowIso("2026-08-08")).toBe("2026-08-08T12:00:00");
   });
 });
 

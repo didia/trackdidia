@@ -4,6 +4,7 @@ import type {
   GoalPacingResponse,
   GoalPacingResult,
 } from "../../domain/types";
+import { stableAiNowIso } from "../date";
 import { createEntityId, nowIso } from "../gtd/shared";
 import type { AppRepository } from "../storage/repository";
 import {
@@ -106,7 +107,7 @@ export class GoalPacingService {
       activeMemories,
       settings,
       {
-        nowIso: createdAt,
+        nowIso: stableAiNowIso(snapshot.asOfDate),
       },
     );
     const memoryIds = selected.map((memory) => memory.id).sort();

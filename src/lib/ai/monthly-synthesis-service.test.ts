@@ -1,3 +1,4 @@
+import { afterEach, vi } from "vitest";
 import { createEmptyAnnualGoal } from "../../domain/annual-goals";
 import { createEmptyDailyEntry, defaultAppSettings } from "../../domain/daily-entry";
 import { MemoryRepository } from "../storage/memory-repository";
@@ -92,6 +93,10 @@ describe("buildMonthlySnapshot redaction", () => {
 });
 
 describe("MonthlySynthesisService", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("persists local synthesis when AI is disabled", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -184,6 +189,49 @@ describe("MonthlySynthesisService", () => {
     expect(first.source).toBe("ai");
     expect(second.source).toBe("cache");
     expect(provider.generateStructured).toHaveBeenCalledOnce();
+  });
+
+  it("cache misses when the local asOfDate changes", async () => {
+    const provider: AiProvider = {
+      generateStructured: vi.fn(async () => ({
+        text: JSON.stringify({
+          headline: "IA",
+          weekPattern: "Stable",
+          sectionDrafts: {},
+          goalEvaluationDrafts: [],
+        }),
+        model: "test-model",
+        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 },
+      })),
+    };
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const service = new MonthlySynthesisService(provider);
+    const settings = defaultAppSettings();
+    settings.aiEnabled = true;
+    settings.aiApiKey = "secret";
+    const snapshotInputs = buildMonthlyInputs();
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 3, 15, 12, 0, 0));
+    await service.buildSynthesis(repository, {
+      monthKey: "2026-04",
+      settings,
+      snapshotInputs,
+      trigger: "auto",
+    });
+
+    vi.setSystemTime(new Date(2026, 3, 16, 12, 0, 0));
+    const nextDay = await service.buildSynthesis(repository, {
+      monthKey: "2026-04",
+      settings,
+      snapshotInputs,
+      trigger: "auto",
+    });
+
+    expect(nextDay.source).toBe("ai");
+    expect(provider.generateStructured).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
   });
 
   it("drops goal evaluation drafts for unknown goal ids", async () => {

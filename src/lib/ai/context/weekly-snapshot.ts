@@ -27,6 +27,7 @@ import {
   phoneScreenTargetMinutes,
   pomodoroTarget,
 } from "../../../domain/weekly-review";
+import { getTodayDate, stableAiNowIso } from "../../date";
 import type { Surface } from "./types";
 
 const metricWeeklyTargets: Partial<Record<MetricKey, number>> = {
@@ -355,7 +356,7 @@ export const resolveWeeklySnapshotInputs = async (
   const normalized = buildWeekDates(weekStartDate);
   const weekDates = listWeekDates(normalized);
   const weekEndDate = weekDates[weekDates.length - 1];
-  const now = options.now ?? new Date().toISOString();
+  const now = options.now ?? stableAiNowIso(getTodayDate());
 
   const [summary, review, historyEntries, tasks, projects, ...weekEntryRows] = await Promise.all([
     repository.computeWeeklyReviewSummary(normalized),

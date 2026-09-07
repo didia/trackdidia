@@ -323,4 +323,90 @@ describe("WeeklySynthesisService", () => {
     );
     expect(sectionDrafts.length).toBeGreaterThanOrEqual(2);
   });
+
+  it("cache misses when the local asOfDate changes", async () => {
+    const provider: AiProvider = {
+      generateStructured: vi.fn(async () => ({
+        text: JSON.stringify({
+          headline: "IA",
+          scoreExplanation: "Score",
+          strongestAxis: "Discipline",
+          weakestAxes: ["Sommeil", "Pomodoris"],
+          sectionDrafts: {},
+          nextWeekObjectives: [],
+          gtdActions: [],
+        }),
+        model: "test-model",
+        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 },
+      })),
+    };
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const service = new WeeklySynthesisService(provider);
+    const settings = defaultAppSettings();
+    settings.aiEnabled = true;
+    settings.aiApiKey = "secret";
+
+    await service.buildSynthesis(repository, {
+      weekStartDate: "2026-08-02",
+      settings,
+      snapshotInputs: { ...buildWeeklyInputs(), now: "2026-08-08T12:00:00" },
+      trigger: "auto",
+    });
+    const nextDay = await service.buildSynthesis(repository, {
+      weekStartDate: "2026-08-02",
+      settings,
+      snapshotInputs: { ...buildWeeklyInputs(), now: "2026-08-09T12:00:00" },
+      trigger: "auto",
+    });
+
+    expect(nextDay.source).toBe("ai");
+    expect(provider.generateStructured).toHaveBeenCalledTimes(2);
+  });
+
+  it("cache misses when RescueTime overlays are included versus omitted", async () => {
+    const provider: AiProvider = {
+      generateStructured: vi.fn(async () => ({
+        text: JSON.stringify({
+          headline: "IA",
+          scoreExplanation: "Score",
+          strongestAxis: "Discipline",
+          weakestAxes: ["Sommeil", "Pomodoris"],
+          sectionDrafts: {},
+          nextWeekObjectives: [],
+          gtdActions: [],
+        }),
+        model: "test-model",
+        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 },
+      })),
+    };
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const service = new WeeklySynthesisService(provider);
+    const settings = defaultAppSettings();
+    settings.aiEnabled = true;
+    settings.aiApiKey = "secret";
+    const withoutRescueTime = buildWeeklyInputs();
+
+    await service.buildSynthesis(repository, {
+      weekStartDate: "2026-08-02",
+      settings,
+      snapshotInputs: withoutRescueTime,
+      trigger: "auto",
+    });
+    const withRescueTime = await service.buildSynthesis(repository, {
+      weekStartDate: "2026-08-02",
+      settings,
+      snapshotInputs: {
+        ...withoutRescueTime,
+        productivityPulse: 72,
+        rescueTimeGoalsScore: 0.8,
+        rescuetimeConfigured: true,
+      },
+      trigger: "explicit",
+    });
+
+    expect(withRescueTime.source).toBe("ai");
+    expect(provider.generateStructured).toHaveBeenCalledTimes(2);
+  });
 });

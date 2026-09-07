@@ -873,6 +873,79 @@ describe("MemoryRepository", () => {
     );
   });
 
+  it("getLatestAiMessage returns the newest matching scope even when many other rows exist", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    for (let index = 0; index < 25; index += 1) {
+      await repository.saveAiMessage({
+        id: `ai-message:other-${index}`,
+        surface: "weekly_synthesis",
+        scopeKey: "2026-07-05",
+        stance: null,
+        kind: "weekly",
+        inputHash: `hash-other-${index}`,
+        promptVersion: "weekly_synthesis.v1",
+        model: "local",
+        status: "ok",
+        bodyJson: "{}",
+        bodyText: "Other",
+        deltaClass: null,
+        notified: false,
+        tokensPrompt: null,
+        tokensCompletion: null,
+        latencyMs: null,
+        createdAt: `2026-08-29T09:00:${String(index).padStart(2, "0")}.000Z`,
+      });
+    }
+
+    await repository.saveAiMessage({
+      id: "ai-message:older-ok",
+      surface: "weekly_synthesis",
+      scopeKey: "2026-08-02",
+      stance: null,
+      kind: "weekly",
+      inputHash: "hash-older",
+      promptVersion: "weekly_synthesis.v1",
+      model: "local",
+      status: "ok",
+      bodyJson: "{}",
+      bodyText: "Older",
+      deltaClass: null,
+      notified: false,
+      tokensPrompt: null,
+      tokensCompletion: null,
+      latencyMs: null,
+      createdAt: "2026-08-08T10:00:00.000Z",
+    });
+    await repository.saveAiMessage({
+      id: "ai-message:fallback",
+      surface: "weekly_synthesis",
+      scopeKey: "2026-08-02",
+      stance: null,
+      kind: "weekly",
+      inputHash: "hash-fallback",
+      promptVersion: "weekly_synthesis.v1",
+      model: "local",
+      status: "fallback",
+      bodyJson: "{}",
+      bodyText: "Fallback",
+      deltaClass: null,
+      notified: false,
+      tokensPrompt: null,
+      tokensCompletion: null,
+      latencyMs: null,
+      createdAt: "2026-08-08T12:00:00.000Z",
+    });
+
+    await expect(repository.getLatestAiMessage("weekly_synthesis", "2026-08-02")).resolves.toEqual(
+      expect.objectContaining({ id: "ai-message:fallback" }),
+    );
+    await expect(
+      repository.getLatestAiMessage("weekly_synthesis", "2026-08-02", "ok"),
+    ).resolves.toEqual(expect.objectContaining({ id: "ai-message:older-ok" }));
+  });
+
   it("acceptAiWeeklyObjectiveProposal is idempotent", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();

@@ -373,6 +373,23 @@ export class MemoryRepository implements AppRepository {
     return matches[0] ? { ...matches[0] } : null;
   }
 
+  async getLatestAiMessage(
+    surface: AiSurface,
+    scopeKey: string,
+    status?: AiMessage["status"],
+  ): Promise<AiMessage | null> {
+    const matches = [...this.aiMessages.values()]
+      .filter(
+        (message) =>
+          message.surface === surface &&
+          message.scopeKey === scopeKey &&
+          (status === undefined || message.status === status),
+      )
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+
+    return matches[0] ? { ...matches[0] } : null;
+  }
+
   async saveAiMessage(message: AiMessage): Promise<AiMessage> {
     const persisted = { ...message };
     this.aiMessages.set(message.id, persisted);
