@@ -1,5 +1,6 @@
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { getTodayDate } from "../lib/date";
+import { addDays } from "../lib/gtd/shared";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { renderWithApp } from "../test/test-utils";
 import { ScheduledPage } from "./ScheduledPage";
@@ -10,6 +11,7 @@ describe("ScheduledPage planned-bucket exclusion", () => {
     await repository.initialize();
 
     const today = getTodayDate();
+    const tomorrow = addDays(today, 1);
     const projectId = "project:scheduled-exclusion";
     await repository.saveProject({
       id: projectId,
@@ -33,7 +35,7 @@ describe("ScheduledPage planned-bucket exclusion", () => {
     await repository.createTask({
       title: "Tache vraiment planifiee (bucket scheduled)",
       bucket: "scheduled",
-      scheduledFor: `${today}T09:00:00.000Z`,
+      scheduledFor: `${tomorrow}T12:00:00`,
     });
 
     await repository.createTask({
@@ -51,6 +53,8 @@ describe("ScheduledPage planned-bucket exclusion", () => {
     });
 
     await renderWithApp(<ScheduledPage />, { repository });
+
+    fireEvent.change(screen.getByDisplayValue(today), { target: { value: tomorrow } });
 
     await waitFor(() => {
       expect(screen.getByText("Tache vraiment planifiee (bucket scheduled)")).toBeInTheDocument();

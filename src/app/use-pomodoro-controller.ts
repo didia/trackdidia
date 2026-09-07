@@ -254,6 +254,7 @@ export const usePomodoroController = (
 
       const today = getTodayDate();
       await candidate.generateDueRecurringTasks(today);
+      await candidate.promoteDueScheduledTasks(today);
       const nextState = await candidate.completeExpiredPomodoroSessions();
       applyState(candidate, nextState);
       let nextSessions: PomodoroSessionDetails[];

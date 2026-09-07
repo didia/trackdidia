@@ -136,8 +136,10 @@ screen.
    - move the `Reading` context to References,
    - move dated work to Scheduled.
 7. Generate due recurring tasks for the current local date.
-8. Generate enabled relationship activity tasks for the current local date.
-9. Expose the repository and settings to the UI.
+8. Promote active Scheduled tasks whose local `scheduledFor` date is today or
+   earlier to Next Actions.
+9. Generate enabled relationship activity tasks for the current local date.
+10. Expose the repository and settings to the UI.
 
 The startup operation has an eight-second timeout. An exception or timeout activates
 a new `MemoryRepository`, shows a warning banner, and keeps the UI usable. Data

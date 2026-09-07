@@ -17,6 +17,7 @@ export const useGtdWorkspace = () => {
       }
 
       await repository.generateDueRecurringTasks(getTodayDate());
+      await repository.promoteDueScheduledTasks(getTodayDate());
       await repository.generateDailyRelationshipTasks(getTodayDate());
       const [nextTasks, nextProjects, nextContexts] = await Promise.all([
         repository.listTasks({ includeCompleted: false }),
