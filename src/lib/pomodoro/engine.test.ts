@@ -8,6 +8,7 @@ import {
   createPomodoroSession,
   getPomodoroRunningBreakSessionIdsToAutoCompleteWhenReset,
   getPomodoroTiming,
+  shouldShowFloatingPomodoro,
 } from "./engine";
 
 describe("pomodoro engine", () => {
@@ -285,6 +286,48 @@ describe("pomodoro engine", () => {
       }),
     ]);
     expect(computeDailyPomodoroStats([session], "2026-04-01").completedFocusSessions).toBe(1);
+  });
+
+  it("shows the floating overlay during a live session and after recent completion", () => {
+    const running = createPomodoroSession("focus", "2026-04-01T09:00:00.000Z", 1);
+    const completedFocus = {
+      ...createPomodoroSession("focus", "2026-04-01T09:00:00.000Z", 1),
+      status: "completed" as const,
+      completedAt: "2026-04-01T09:25:00.000Z",
+      endsAt: "2026-04-01T09:25:00.000Z",
+    };
+
+    expect(
+      shouldShowFloatingPomodoro(
+        buildPomodoroState([running], [], "2026-04-01T09:10:00.000Z"),
+        [running],
+        "2026-04-01T09:10:00.000Z",
+      ),
+    ).toBe(true);
+
+    expect(
+      shouldShowFloatingPomodoro(
+        buildPomodoroState([completedFocus], [], "2026-04-01T09:26:00.000Z"),
+        [completedFocus],
+        "2026-04-01T09:26:00.000Z",
+      ),
+    ).toBe(true);
+  });
+
+  it("hides the floating overlay on cold start and after idle reset", () => {
+    const completedFocus = {
+      ...createPomodoroSession("focus", "2026-04-01T09:00:00.000Z", 2),
+      status: "completed" as const,
+      completedAt: "2026-04-01T09:25:00.000Z",
+      endsAt: "2026-04-01T09:25:00.000Z",
+    };
+    const idleState = buildPomodoroState([], [], "2026-04-01T10:00:00.000Z");
+    const resetState = buildPomodoroState([completedFocus], [], "2026-04-01T09:51:00.000Z");
+
+    expect(shouldShowFloatingPomodoro(idleState, [], "2026-04-01T10:00:00.000Z")).toBe(false);
+    expect(
+      shouldShowFloatingPomodoro(resetState, [completedFocus], "2026-04-01T09:51:00.000Z"),
+    ).toBe(false);
   });
 
   it("counts a completed segment that ended after the provided now", () => {

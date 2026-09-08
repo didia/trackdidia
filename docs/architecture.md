@@ -83,7 +83,10 @@ The application uses React hooks and this context instead of a global store.
 
 `AppShell` owns the persistent navigation, renders a deterministic quote of the day
 from `quotes.json` (local-date hash with a built-in fallback), and mounts the
-floating Pomodoro timer whenever a live session exists.
+floating Pomodoro timer while a session is running or paused, or while the current
+cycle is still idle after a recent completion. The overlay hides on `/pomodoro`,
+where the full timer controls already live, and after the usual 25-minute idle
+cycle reset.
 
 ```text
 React page

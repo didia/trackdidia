@@ -8,6 +8,7 @@
   "unknownTask": "Tâche inconnue",
   "noTaskAssigned": "Sans tâche assignée",
   "activeLabel": "Pomodoro actif",
+  "idleLabel": "Cycle Pomodoro",
   "sessionCycle": "Session {{n}}/4",
   "pausedSuffix": " • En pause",
   "timerPlaceholder": "--:--",

@@ -243,6 +243,13 @@ const shouldResetPomodoroCycleAfterIdle = (
   return !latestCompleted || idleResets;
 };
 
+/** True when the floating overlay should stay visible for the current cycle (live or recent idle). */
+export const shouldShowFloatingPomodoro = (
+  state: PomodoroState,
+  sessions: PomodoroSession[],
+  nowIso = new Date().toISOString(),
+): boolean => Boolean(state.activeSession) || !shouldResetPomodoroCycleAfterIdle(sessions, nowIso);
+
 /** Running breaks to close in storage when {@link shouldResetPomodoroCycleAfterIdle} applies. */
 export const getPomodoroRunningBreakSessionIdsToAutoCompleteWhenReset = (
   sessions: PomodoroSession[],

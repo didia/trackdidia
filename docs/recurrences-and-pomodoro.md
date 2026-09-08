@@ -207,6 +207,30 @@ Pomodoro page share state.
 The sound is synthesized as WAV/PCM in the frontend; no external audio asset is
 required.
 
+### Floating overlay
+
+`AppShell` mounts a compact floating timer on every route except `/pomodoro`. It
+appears while a session is running or paused, and remains visible after a
+completed focus or break until the 25-minute idle reset clears the cycle. On cold
+start with no recent cycle, the overlay stays hidden.
+
+While idle inside that window, the overlay shows the next expected step, a task
+selector backed by the same eligible GTD tasks as the Pomodoro page, and compact
+actions to start the pending break or start the next focus on the selected task.
+Starting focus while a break is pending passes an explicit focus kind so the break
+is skipped without creating a dummy session or playing a second chime. The full
+Pomodoro page keeps history, manual titles, skip-break-without-focus, and the
+remaining recovery controls.
+
+The overlay ticks its own idle clock every 30 seconds (`AppShell` and
+`FloatingPomodoroTimer` each hold this independently) so it hides itself once the
+25-minute window elapses even with no other app activity. Session lookups behind
+`shouldShowFloatingPomodoro` are scoped to the local calendar day, so a completion in
+the last few minutes before local midnight can lose overlay visibility earlier than
+25 minutes once the day rolls over, since the prior day's session drops out of the
+"today" list the reconciliation pass fetches. This is a narrow, accepted edge case,
+not a bug to route around.
+
 ### User actions
 
 - Start the next expected focus/break.
