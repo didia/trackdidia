@@ -17,7 +17,7 @@ import { buildLocalGoalPacing } from "./proposals/goal-pacing-fallback";
 import { parseGoalPacingJson } from "./proposals/goal-pacing-validator";
 import type { AiProvider } from "./provider";
 
-export const GOAL_PACING_PROMPT_VERSION = "goal_pacing.v1";
+export const GOAL_PACING_PROMPT_VERSION = "goal_pacing.v2";
 
 export interface GoalPacingRequest {
   year: number;
@@ -49,7 +49,10 @@ const cachedResult = async (
   _repository: AppRepository,
   message: AiMessage,
 ): Promise<GoalPacingResult | null> => {
-  if (!message.bodyJson) {
+  if (!message.bodyJson || message.promptVersion !== GOAL_PACING_PROMPT_VERSION) {
+    // A stale prompt version (e.g. hydrated on page load via `loadLatestGoalPacing`, which only
+    // filters by surface/scope/status) may be shaped for an older schema. Fall through to a fresh
+    // `buildPacing` run instead of rendering it as-is.
     return null;
   }
 

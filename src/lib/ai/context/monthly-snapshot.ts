@@ -1,5 +1,6 @@
 import type {
   AiPayloadScope,
+  AnnualGoalMeasurementType,
   AnnualGoalSnapshot,
   MonthlyReview,
   MonthlyReviewSectionKey,
@@ -20,6 +21,7 @@ export interface MonthlySnapshotGoal {
   goalId: string;
   title?: string;
   dimension: string;
+  measurementType: AnnualGoalMeasurementType;
   currentValue: number | null;
   targetValue: number | null;
   unit: string;
@@ -70,6 +72,7 @@ const sanitizeGoal = (
     goalId: snapshot.goal.id,
     ...(includeStructure ? { title: snapshot.goal.title } : {}),
     dimension: snapshot.goal.dimension,
+    measurementType: snapshot.measurement.measurementType,
     currentValue: snapshot.currentValue,
     targetValue: snapshot.goal.targetValue,
     unit: snapshot.goal.unit,

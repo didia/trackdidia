@@ -85,7 +85,7 @@ export interface AppRepository {
   listAnnualGoals(): Promise<AnnualGoal[]>;
   saveAnnualGoal(goal: AnnualGoal): Promise<AnnualGoal>;
   deleteAnnualGoal(goalId: string): Promise<void>;
-  computeAnnualGoalSnapshots(year: number): Promise<AnnualGoalSnapshot[]>;
+  computeAnnualGoalSnapshots(year: number, asOfDate?: string): Promise<AnnualGoalSnapshot[]>;
   getSettings(): Promise<AppSettings>;
   saveSettings(settings: AppSettings): Promise<void>;
   getAiMessage(surface: AiSurface, scopeKey: string, inputHash: string): Promise<AiMessage | null>;

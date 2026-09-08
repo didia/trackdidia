@@ -194,6 +194,18 @@ export interface AnnualGoalEvaluation {
 
 export type AnnualGoalEvaluations = Record<string, AnnualGoalEvaluation>;
 
+export type AnnualGoalMeasurementType = "binary" | "numeric" | "cumulative" | "recurring";
+export type AnnualGoalDirection = "increase" | "decrease";
+export type AnnualGoalStatus = "active" | "paused" | "achieved" | "abandoned";
+export type AnnualGoalCadencePeriod = "week" | "month";
+
+export interface AnnualGoalMilestone {
+  id: string;
+  title: string;
+  completedAt: string | null;
+  sortOrder: number;
+}
+
 export interface AnnualGoal {
   id: string;
   title: string;
@@ -204,6 +216,16 @@ export interface AnnualGoal {
   sourceId: AnnualGoalSourceId | null;
   manualCurrentValue: number | null;
   evaluations: AnnualGoalEvaluations;
+  measurementType: AnnualGoalMeasurementType;
+  status: AnnualGoalStatus;
+  deadline: string | null;
+  startingValue: number | null;
+  direction: AnnualGoalDirection | null;
+  cadenceTarget: number | null;
+  cadencePeriod: AnnualGoalCadencePeriod;
+  principleKey: PrincipleKey | null;
+  progressLog: Record<string, number>;
+  milestones: AnnualGoalMilestone[];
   createdAt: string;
   updatedAt: string;
 }
@@ -211,6 +233,26 @@ export interface AnnualGoal {
 export interface AnnualGoalProgressPoint {
   monthKey: string;
   value: number | null;
+}
+
+export interface AnnualGoalMeasurement {
+  measurementType: AnnualGoalMeasurementType;
+  direction: AnnualGoalDirection;
+  // recurring
+  currentPeriodKey: string | null;
+  currentPeriodCount: number | null;
+  cadenceTarget: number | null;
+  adherenceRatio: number | null;
+  periodsMet: number;
+  periodsElapsed: number;
+  currentStreak: number;
+  // milestones (any type)
+  milestonesCompleted: number;
+  milestonesTotal: number;
+  milestoneProgressRatio: number | null;
+  // pacing
+  expectedProgressRatio: number | null;
+  onPace: boolean;
 }
 
 export interface AnnualGoalSnapshot {
@@ -222,6 +264,7 @@ export interface AnnualGoalSnapshot {
   monthlyProgress: AnnualGoalProgressPoint[];
   linkedWeeklyMetricLabels: string[];
   linkedDailyHabitLabels: string[];
+  measurement: AnnualGoalMeasurement;
 }
 
 export type WeeklyObjectiveKind = "time" | "manual";

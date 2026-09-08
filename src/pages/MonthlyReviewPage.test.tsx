@@ -33,6 +33,7 @@ const mockBuildSynthesisPreferStored = () => {
 describe("MonthlyReviewPage", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it("loads a month and saves ritual notes", async () => {
@@ -463,5 +464,98 @@ describe("MonthlyReviewPage", () => {
     });
     release();
     expect(await screen.findByText("Frais")).toBeInTheDocument();
+  });
+
+  it("renders a distinct metrics summary for each of the four goal measurement types", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 3, 15, 12, 0, 0));
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    await repository.saveAnnualGoal(
+      createEmptyAnnualGoal({
+        id: "goal-binary",
+        title: "Lancer le produit",
+        measurementType: "binary",
+        status: "active",
+        milestones: [
+          { id: "m1", title: "MVP livré", completedAt: "2026-01-01", sortOrder: 0 },
+          { id: "m2", title: "Lancement public", completedAt: null, sortOrder: 1 },
+        ],
+      }),
+    );
+    await repository.saveAnnualGoal(
+      createEmptyAnnualGoal({
+        id: "goal-numeric",
+        title: "Poids",
+        measurementType: "numeric",
+        targetValue: 70,
+        unit: "kg",
+        manualCurrentValue: 75,
+      }),
+    );
+    await repository.saveAnnualGoal(
+      createEmptyAnnualGoal({
+        id: "goal-cumulative",
+        title: "Lire des livres",
+        measurementType: "cumulative",
+        targetValue: 24,
+        unit: "livres",
+        progressLog: { "2026-04": 3 },
+      }),
+    );
+    await repository.saveAnnualGoal(
+      createEmptyAnnualGoal({
+        id: "goal-recurring",
+        title: "Sport",
+        measurementType: "recurring",
+        cadencePeriod: "month",
+        cadenceTarget: 3,
+        progressLog: { "2026-03": 3 },
+      }),
+    );
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    await renderWithApp(<MonthlyReviewPage />, {
+      repository,
+      route: "/mois",
+      contextOverrides: { settings: { ...defaultAppSettings(), aiEnabled: false } },
+    });
+
+    const monthInput = await screen.findByLabelText(/mois à relire/i);
+    await user.clear(monthInput);
+    await user.type(monthInput, "2026-04");
+    await user.click(screen.getByRole("button", { name: /charger le mois/i }));
+
+    const binaryArticle = (await screen.findByText("Lancer le produit")).closest("article");
+    expect(binaryArticle).not.toBeNull();
+    expect(
+      within(binaryArticle as HTMLElement).getByText(/statut :\s*non atteint/i),
+    ).toBeInTheDocument();
+    expect(within(binaryArticle as HTMLElement).getByText(/jalons :\s*1\/2/i)).toBeInTheDocument();
+
+    const numericArticle = (await screen.findByText("Poids")).closest("article");
+    expect(numericArticle).not.toBeNull();
+    expect(
+      within(numericArticle as HTMLElement).getByText(/actuel :\s*75 kg/i),
+    ).toBeInTheDocument();
+    expect(within(numericArticle as HTMLElement).getByText(/cible :\s*70 kg/i)).toBeInTheDocument();
+
+    const cumulativeArticle = (await screen.findByText("Lire des livres")).closest("article");
+    expect(cumulativeArticle).not.toBeNull();
+    expect(
+      within(cumulativeArticle as HTMLElement).getByText(/progression :\s*3\/24 livres/i),
+    ).toBeInTheDocument();
+
+    const recurringArticle = (await screen.findByText("Sport")).closest("article");
+    expect(recurringArticle).not.toBeNull();
+    expect(
+      within(recurringArticle as HTMLElement).getByText(/cette période :\s*0\/3/i),
+    ).toBeInTheDocument();
+    expect(
+      within(recurringArticle as HTMLElement).getByText(/adhérence ytd :\s*33%/i),
+    ).toBeInTheDocument();
+    expect(within(recurringArticle as HTMLElement).getByText(/série :\s*1/i)).toBeInTheDocument();
   });
 });

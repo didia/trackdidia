@@ -25,6 +25,7 @@ import type {
   AiSurface,
   AiUsageTotals,
   AnnualGoal,
+  AnnualGoalSnapshot,
   AppSettings,
   CoachPulseStance,
   DailyEntry,
@@ -147,6 +148,19 @@ interface Migration {
   sql: string;
 }
 
+/** Parses a JSON column, falling back to `fallback` for legacy/null/malformed values. */
+const safeParseJson = <T>(value: string | null | undefined, fallback: T): T => {
+  if (!value) {
+    return fallback;
+  }
+
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+};
+
 interface DailyEntryRow {
   date: string;
   status: DailyEntry["status"];
@@ -210,6 +224,16 @@ interface AnnualGoalRow {
   source_id: AnnualGoal["sourceId"];
   manual_current_value: number | null;
   evaluations_json: string;
+  measurement_type: AnnualGoal["measurementType"];
+  status: AnnualGoal["status"];
+  deadline: string | null;
+  starting_value: number | null;
+  direction: AnnualGoal["direction"];
+  cadence_target: number | null;
+  cadence_period: AnnualGoal["cadencePeriod"];
+  principle_key: AnnualGoal["principleKey"];
+  progress_log_json: string;
+  milestones_json: string;
   created_at: string;
   updated_at: string;
 }
@@ -814,6 +838,22 @@ export const migrations: Migration[] = [
         WHERE status = 'pending' AND type = 'goal_evaluation';
     `,
   },
+  {
+    id: 28,
+    name: "add_annual_goal_measurement_fields",
+    sql: `
+      ALTER TABLE annual_goals ADD COLUMN measurement_type TEXT NOT NULL DEFAULT 'numeric';
+      ALTER TABLE annual_goals ADD COLUMN status TEXT NOT NULL DEFAULT 'active';
+      ALTER TABLE annual_goals ADD COLUMN deadline TEXT;
+      ALTER TABLE annual_goals ADD COLUMN starting_value REAL;
+      ALTER TABLE annual_goals ADD COLUMN direction TEXT;
+      ALTER TABLE annual_goals ADD COLUMN cadence_target REAL;
+      ALTER TABLE annual_goals ADD COLUMN cadence_period TEXT NOT NULL DEFAULT 'week';
+      ALTER TABLE annual_goals ADD COLUMN principle_key TEXT;
+      ALTER TABLE annual_goals ADD COLUMN progress_log_json TEXT NOT NULL DEFAULT '{}';
+      ALTER TABLE annual_goals ADD COLUMN milestones_json TEXT NOT NULL DEFAULT '[]';
+    `,
+  },
 ];
 
 export class TauriSqliteRepository implements AppRepository {
@@ -1201,7 +1241,9 @@ export class TauriSqliteRepository implements AppRepository {
     const rows = await db.select<AnnualGoalRow[]>(
       `SELECT
         id, title, dimension, description, target_value, unit, source_id, manual_current_value,
-        evaluations_json, created_at, updated_at
+        evaluations_json, measurement_type, status, deadline, starting_value, direction,
+        cadence_target, cadence_period, principle_key, progress_log_json, milestones_json,
+        created_at, updated_at
       FROM annual_goals
       ORDER BY title ASC`,
     );
@@ -1226,8 +1268,13 @@ export class TauriSqliteRepository implements AppRepository {
       await db.execute(
         `INSERT INTO annual_goals (
         id, title, dimension, description, target_value, unit, source_id, manual_current_value,
-        evaluations_json, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        evaluations_json, measurement_type, status, deadline, starting_value, direction,
+        cadence_target, cadence_period, principle_key, progress_log_json, milestones_json,
+        created_at, updated_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
+        $20, $21
+      )
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         dimension = excluded.dimension,
@@ -1237,6 +1284,16 @@ export class TauriSqliteRepository implements AppRepository {
         source_id = excluded.source_id,
         manual_current_value = excluded.manual_current_value,
         evaluations_json = excluded.evaluations_json,
+        measurement_type = excluded.measurement_type,
+        status = excluded.status,
+        deadline = excluded.deadline,
+        starting_value = excluded.starting_value,
+        direction = excluded.direction,
+        cadence_target = excluded.cadence_target,
+        cadence_period = excluded.cadence_period,
+        principle_key = excluded.principle_key,
+        progress_log_json = excluded.progress_log_json,
+        milestones_json = excluded.milestones_json,
         updated_at = excluded.updated_at`,
         [
           nextGoal.id,
@@ -1248,6 +1305,16 @@ export class TauriSqliteRepository implements AppRepository {
           nextGoal.sourceId,
           nextGoal.manualCurrentValue,
           JSON.stringify(nextGoal.evaluations),
+          nextGoal.measurementType,
+          nextGoal.status,
+          nextGoal.deadline,
+          nextGoal.startingValue,
+          nextGoal.direction,
+          nextGoal.cadenceTarget,
+          nextGoal.cadencePeriod,
+          nextGoal.principleKey,
+          JSON.stringify(nextGoal.progressLog),
+          JSON.stringify(nextGoal.milestones),
           nextGoal.createdAt,
           nextGoal.updatedAt,
         ],
@@ -1264,7 +1331,10 @@ export class TauriSqliteRepository implements AppRepository {
     });
   }
 
-  async computeAnnualGoalSnapshots(year: number) {
+  async computeAnnualGoalSnapshots(
+    year: number,
+    asOfDate: string = getTodayDate(),
+  ): Promise<AnnualGoalSnapshot[]> {
     const goals = await this.listAnnualGoals();
     const entries = (await this.listDailyEntries(5000)).filter((entry) =>
       entry.date.startsWith(`${year}-`),
@@ -1273,7 +1343,7 @@ export class TauriSqliteRepository implements AppRepository {
     const weeklySummaries = await Promise.all(
       weekStarts.map((weekStartDate) => this.computeWeeklyReviewSummary(weekStartDate)),
     );
-    return buildAnnualGoalSnapshots(goals, year, entries, weeklySummaries);
+    return buildAnnualGoalSnapshots(goals, year, entries, weeklySummaries, asOfDate);
   }
 
   async computeWeeklyReviewSummary(weekStartDate: string) {
@@ -3674,6 +3744,16 @@ export class TauriSqliteRepository implements AppRepository {
       manualCurrentValue:
         row.manual_current_value === null ? null : Number(row.manual_current_value),
       evaluations: JSON.parse(row.evaluations_json),
+      measurementType: row.measurement_type ?? "numeric",
+      status: row.status ?? "active",
+      deadline: row.deadline ?? null,
+      startingValue: row.starting_value === null ? null : Number(row.starting_value),
+      direction: row.direction ?? null,
+      cadenceTarget: row.cadence_target === null ? null : Number(row.cadence_target),
+      cadencePeriod: row.cadence_period ?? "week",
+      principleKey: row.principle_key ?? null,
+      progressLog: safeParseJson(row.progress_log_json, {}),
+      milestones: safeParseJson(row.milestones_json, []),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };

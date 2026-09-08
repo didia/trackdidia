@@ -216,13 +216,36 @@ cached in `ai_messages` keyed by `(surface, monthKey, input_hash)`.
 Opening `/objectifs-annuels` triggers the S4 `goal_pacing` surface for the selected year
 when the year is between 2000 and 2100 and the evaluation month is a valid `YYYY-MM`
 value. Changing the year clears the pacing panel until the new year's result loads.
-The panel is **informational only** — it compares each goal's progress ratio to the
-expected year-to-date fraction (from `computeYearProgressFraction`) and surfaces gap,
-required weekly behaviour, risk level, and recommendations. Goals marked on pace use the
-same tolerance as `ANNUAL_GOAL_PACE_TOLERANCE` (0.1); local fallback risk levels align
-with that band so on-pace goals are never labeled medium risk. No accept-step.
+The panel is **informational only** — no accept-step. Only `active` goals are sent to
+the AI payload; `paused` and `abandoned` goals do not generate coaching.
 
-Results are cached in `ai_messages` keyed by `(surface, year, input_hash)`.
+The pacing expectation is per measurement type (`computeAnnualGoalExpectedRatio`):
+
+- **numeric / cumulative** — the year-to-date fraction elapsed (from
+  `computeYearProgressFraction`), or, when the goal has a `deadline`, the fraction
+  elapsed from January 1 to the deadline instead.
+- **recurring** — always `1`. Adherence is expected to be 100% from week one; it is
+  never graded against how much of the calendar year has passed.
+- **binary** — the deadline/year fraction compared against the *milestone* completion
+  ratio, when the goal has milestones. Without milestones there is nothing to
+  interpolate between "not done" and "done", so no percentage is manufactured: the
+  expectation is `null` and the goal is only reported off-pace once its deadline (if
+  any) has passed and it is still not achieved.
+
+Goals marked on pace use the same tolerance as `ANNUAL_GOAL_PACE_TOLERANCE` (0.1);
+local fallback risk levels align with that band so on-pace goals are never labeled
+medium risk. A brand-new recurring goal with `periodsElapsed === 0` is a special case
+of this: `onPace` is `true` (nothing has been due yet), and the local fallback's
+`riskLevelFor` reports `"low"` to match, so the card never shows a contradictory
+"on pace" / "medium risk" pairing.
+
+Results are cached in `ai_messages` keyed by `(surface, year, input_hash)`; the prompt
+version (`goal_pacing.v2`) changed when per-type measurement fields were added, so any
+cached v1 result is never reused against the new payload shape. This applies to the
+page-load fast path too: `loadLatestGoalPacing` (`src/lib/ai/goal-pacing-loader.ts`)
+hydrates the newest `ok` row by `(surface, scopeKey, status)` only, so it separately
+rejects a stored row whose `promptVersion` does not match the current prompt version,
+falling through to a fresh `runPacing` instead of rendering a stale-shaped result.
 
 ## Monthly review (`/mois`)
 
@@ -283,8 +306,16 @@ The summary reports:
 Because overlapping weekly summaries synthesize missing days, `weeklyScoreAverage`
 may include boundary days and empty days outside the month. This is current behavior.
 
-The screen also loads annual goal snapshots for the selected year and displays the
-selected month's point for each goal.
+The screen also loads annual goal snapshots for the selected year and displays a
+per-measurement-type readout for each goal (achieved/milestones for binary,
+current/target/month for numeric, running total for cumulative, this-period/adherence/
+streak for recurring) alongside the month's evaluation. This is a read-only summary
+with its own JSX and `reviews` locale keys — it does not reuse the editable
+`AnnualGoalFields` form from `/objectifs-annuels` (that component only makes sense for
+an editable card), but its cumulative/recurring readouts are interpolated through the
+same `t(...)` value-and-fallback shape as the `/objectifs-annuels` card so the two
+pages report identical numbers for identical goal data. Coverage for all four
+measurement types lives in `src/pages/MonthlyReviewPage.test.tsx`.
 
 ## Annual goals (`/objectifs-annuels`)
 
@@ -294,28 +325,128 @@ An annual goal contains:
 
 - title and description;
 - dimension: physical, spiritual, social, intellectual, or global;
+- `measurementType`: `binary`, `numeric`, `cumulative`, or `recurring` (defaults to
+  `numeric`);
+- `status`: `active`, `paused`, `achieved`, or `abandoned` (defaults to `active`);
+  for a **binary** goal, `status === "achieved"` *is* the achievement flag — there is
+  no separate boolean, so there is exactly one source of truth;
+- optional `deadline` (local `YYYY-MM-DD`) that narrows the pacing expectation when
+  set, for any measurement type;
 - optional numeric target and unit;
 - optional automatic source ID;
 - optional manual current value;
+- `startingValue` and `direction` (numeric only) — see below;
+- `cadenceTarget`, `cadencePeriod` (`week` or `month`, defaults to `week`), and an
+  optional `principleKey` binding (recurring only);
+- `progressLog`: a `{ periodKey: amount }` map shared by cumulative and recurring
+  goals — `YYYY-MM` keys for cumulative and month-cadence recurring goals, Sunday
+  week-start `YYYY-MM-DD` keys for week-cadence recurring goals;
+- `milestones`: an ordered checklist (`id`, `title`, `completedAt`, `sortOrder`)
+  available to **any** measurement type — a binary "get a new job" goal keeps binary
+  measurement and carries `CV ready → applications → interviews → offer` as
+  milestones rather than becoming a fifth type;
 - monthly evaluations keyed by `YYYY-MM`;
 - created/updated timestamps.
 
-Deleting a goal is a hard delete in the current local database.
+**`sourceId`/`manualCurrentValue` scoping** — `sourceId` only drives **numeric** and
+**cumulative** goals; the source selector is hidden in the UI for binary and recurring
+goals, and any legacy value is ignored for those types. `manualCurrentValue` is only
+read by **numeric** goals; for cumulative goals the progress log supersedes it.
+
+Every goal created before these fields existed backfills to `measurementType:
+"numeric"` with `startingValue: null`, which reproduces the pre-existing
+`currentValue / targetValue` math exactly (see Progress below).
+
+**Switching measurement type clears the other types' fields.** Changing the
+measurement-type select on `/objectifs-annuels` runs
+`resetAnnualGoalMeasurementFields` (`src/domain/annual-goals.ts`), which nulls out the
+fields that belong only to the type being left (e.g. switching a numeric goal to
+binary clears `sourceId`, `startingValue`, `direction`, `manualCurrentValue`,
+`targetValue`, and `unit`) so stale cross-type data cannot linger invisibly, resurface
+if the user switches back, or leak into the AI goal-pacing payload. `title`,
+`dimension`, `description`, `status`, `deadline`, and `milestones` are cross-cutting
+and are never touched by this reset. `progressLog` is cleared when switching to
+`binary` or `numeric` (neither type reads it); cumulative and recurring intentionally
+keep it as-is when switching between each other, since stale entries are simply
+ignored by the other type's key format.
+
+Each goal card buffers field edits in local `draft` state until "Enregistrer" is
+clicked (see `AnnualGoalFields`/`AnnualGoalCard` in `AnnualGoalsPage.tsx`). Milestone
+and cumulative/recurring log actions on the same card build their patch off that same
+`draft` — not the (possibly stale) saved goal — so checking off a milestone or logging
+a period never silently discards an unsaved field edit in progress on the card.
+
+Deleting a goal is a hard delete in the current local database. The goals list on
+`/objectifs-annuels` defaults to showing only `active` goals, with a toggle to show
+every status.
 
 ### Progress
 
-For an automatic goal:
+Progress math is per measurement type (`computeAnnualGoalMeasurement`,
+`src/domain/annual-goal-measurement.ts`):
+
+**Binary** — `currentValue`/`progressRatio` are `1` when `status === "achieved"`,
+else `0`. Milestone completion is reported separately as `milestoneProgressRatio` and
+is never folded into `progressRatio`: a binary goal is not "60% done" because 3 of 5
+milestones are ticked.
+
+**Numeric** —
 
 ```text
-currentValue = source calculation over selected year
-progressRatio = currentValue / targetValue
+startingValue set and startingValue !== targetValue:
+  progressRatio = (currentValue - startingValue) / (targetValue - startingValue)
+  floored at 0, uncapped above 1
+
+startingValue null (or startingValue === targetValue), direction "increase" (default):
+  progressRatio = currentValue / targetValue      # byte-identical to the legacy formula
+startingValue null (or startingValue === targetValue), direction "decrease":
+  progressRatio = targetValue / currentValue      # e.g. a screen-time goal reads correctly
 ```
 
-The ratio is `null` when the target is absent/non-positive or current value is
-missing. It is not capped at 100%.
+`direction` is explicit when set; otherwise it is inferred as `decrease` when
+`targetValue < startingValue`, else `increase`. The ratio is `null` when the target or
+current value is absent, or non-positive where required by the formula above.
 
-For a manual goal, `manualCurrentValue` supplies the current value. Manual goals do
-not automatically populate the 12 monthly progress points.
+The no-baseline `decrease` fallback (`targetValue / currentValue`) is undefined at
+`targetValue === 0` (a "reduce X to 0" goal, e.g. "0 cigarettes/day", with no
+`startingValue` set). That case is handled explicitly instead: `progressRatio` is `1`
+once `currentValue <= 0` (goal achieved), else `null` (no honest percentage can be
+stated without a baseline to interpolate from) — never `0`, which would misreport an
+in-progress goal as having made no progress at all.
+
+**Cumulative** — `currentValue` is the source's value when `sourceId` is set, else the
+sum of `progressLog` entries whose month key falls in the selected year.
+`progressRatio = currentValue / targetValue`. The 12-month `monthlyProgress` row is a
+**running total** (month *N* = sum of increments through month *N*), including for
+source-backed goals whose registry source normally reports each month independently
+(e.g. `daily_pomodoris_sum`). This is the first time manual (no-`sourceId`) goals
+populate the 12-month row at all.
+
+**Recurring** — never "finished"; the goal is measured by adherence to a cadence
+(e.g. "≥3×/week") rather than a target total:
+
+- Period keys are enumerated for the whole year: all Sunday week-starts overlapping
+  the year for `cadencePeriod: "week"`, or the 12 month keys for `"month"`.
+- Per-period count is `progressLog[periodKey]` when present; else, when
+  `principleKey` is set, the number of `true` days for that principle inside the
+  period; else the period is "not logged".
+- A period is *met* when its count is `>= cadenceTarget` (a `null` or non-positive
+  `cadenceTarget` means no period can ever be met).
+- `periodsElapsed` counts periods whose end date is on or before the reference date,
+  **excluding** the in-progress current period. `adherenceRatio = periodsMet /
+  periodsElapsed` (`null` when nothing has elapsed yet); `progressRatio =
+  adherenceRatio`. This denominator is "elapsed periods", the recurring analogue of
+  `computePrincipleRate`'s "all saved entries" denominator below — a missed week counts
+  against you, unlike the answered-only denominator used by `rate28d` in
+  [`src/domain/insights/streaks.ts`](../src/domain/insights/streaks.ts).
+- `currentStreak` counts consecutive met periods back from the most recent elapsed
+  period, **skipping a trailing unlogged period** rather than breaking on it — this
+  mirrors `StreakFinding.currentStreak`'s "not logged yet" ≠ "failed" semantics. A
+  period that was explicitly logged as a miss still breaks the streak, even if it is
+  trailing.
+- The in-progress period is exposed separately as `currentPeriodKey`/
+  `currentPeriodCount` (e.g. for a "This week: 3/3" readout) and is not counted in
+  `periodsElapsed`.
 
 ### Automatic source registry
 

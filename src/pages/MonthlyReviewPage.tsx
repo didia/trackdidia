@@ -503,6 +503,7 @@ export const MonthlyReviewPage = () => {
                 snapshot.monthlyProgress.find((point) => point.monthKey === selectedMonthKey) ??
                 null;
               const evaluation = snapshot.goal.evaluations[selectedMonthKey] ?? null;
+              const { measurement } = snapshot;
               return (
                 <article key={snapshot.goal.id} className="schedule-day-group">
                   <div className="schedule-day-group__header">
@@ -510,24 +511,70 @@ export const MonthlyReviewPage = () => {
                     <span>{snapshot.goal.dimension}</span>
                   </div>
                   <div className="weekly-day-card__metrics">
-                    <span>
-                      {t("monthly.goals.metrics.current")}{" "}
-                      {snapshot.currentValue === null
-                        ? "—"
-                        : `${Math.round(snapshot.currentValue)} ${snapshot.goal.unit}`.trim()}
-                    </span>
-                    <span>
-                      {t("monthly.goals.metrics.target")}{" "}
-                      {snapshot.goal.targetValue === null
-                        ? "—"
-                        : `${snapshot.goal.targetValue} ${snapshot.goal.unit}`.trim()}
-                    </span>
-                    <span>
-                      {t("monthly.goals.metrics.month")}{" "}
-                      {monthPoint?.value === null || monthPoint?.value === undefined
-                        ? "—"
-                        : `${Math.round(monthPoint.value)} ${snapshot.goal.unit}`.trim()}
-                    </span>
+                    {snapshot.goal.measurementType === "binary" ? (
+                      <>
+                        <span>
+                          {t("monthly.goals.metrics.binaryStatus")}{" "}
+                          {snapshot.goal.status === "achieved"
+                            ? t("monthly.goals.metrics.binaryAchieved")
+                            : t("monthly.goals.metrics.binaryNotAchieved")}
+                        </span>
+                        <span>
+                          {t("monthly.goals.metrics.milestones")} {measurement.milestonesCompleted}/
+                          {measurement.milestonesTotal}
+                        </span>
+                      </>
+                    ) : snapshot.goal.measurementType === "recurring" ? (
+                      <>
+                        <span>
+                          {t("monthly.goals.metrics.recurringThisPeriod", {
+                            count: measurement.currentPeriodCount ?? 0,
+                            target: measurement.cadenceTarget ?? 0,
+                          })}
+                        </span>
+                        <span>
+                          {t("monthly.goals.metrics.recurringAdherence")}{" "}
+                          {measurement.adherenceRatio === null
+                            ? "—"
+                            : `${Math.round(measurement.adherenceRatio * 100)}%`}
+                        </span>
+                        <span>
+                          {t("monthly.goals.metrics.recurringStreak")} {measurement.currentStreak}
+                        </span>
+                      </>
+                    ) : snapshot.goal.measurementType === "cumulative" ? (
+                      <span>
+                        {t("monthly.goals.metrics.cumulativeProgress", {
+                          current:
+                            snapshot.currentValue === null
+                              ? "—"
+                              : Math.round(snapshot.currentValue),
+                          target: snapshot.goal.targetValue ?? "—",
+                          unit: snapshot.goal.unit,
+                        })}
+                      </span>
+                    ) : (
+                      <>
+                        <span>
+                          {t("monthly.goals.metrics.current")}{" "}
+                          {snapshot.currentValue === null
+                            ? "—"
+                            : `${Math.round(snapshot.currentValue)} ${snapshot.goal.unit}`.trim()}
+                        </span>
+                        <span>
+                          {t("monthly.goals.metrics.target")}{" "}
+                          {snapshot.goal.targetValue === null
+                            ? "—"
+                            : `${snapshot.goal.targetValue} ${snapshot.goal.unit}`.trim()}
+                        </span>
+                        <span>
+                          {t("monthly.goals.metrics.month")}{" "}
+                          {monthPoint?.value === null || monthPoint?.value === undefined
+                            ? "—"
+                            : `${Math.round(monthPoint.value)} ${snapshot.goal.unit}`.trim()}
+                        </span>
+                      </>
+                    )}
                     <span>
                       {t("monthly.goals.metrics.evaluation")}{" "}
                       {evaluation?.score === null || evaluation?.score === undefined

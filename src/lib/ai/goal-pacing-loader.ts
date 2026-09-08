@@ -1,6 +1,6 @@
 import type { AiMessage, GoalPacingResult } from "../../domain/types";
 import type { AppRepository } from "../storage/repository";
-import type { GoalPacingService } from "./goal-pacing-service";
+import { GOAL_PACING_PROMPT_VERSION, type GoalPacingService } from "./goal-pacing-service";
 import { parseGoalPacingJson } from "./proposals/goal-pacing-validator";
 
 const sourceFromMessage = (message: AiMessage): GoalPacingResult["source"] => {
@@ -22,7 +22,10 @@ export const loadLatestGoalPacing = async (
 ): Promise<GoalPacingResult | null> => {
   const latest = await repository.getLatestAiMessage("goal_pacing", String(year), "ok");
 
-  if (!latest?.bodyJson) {
+  if (!latest?.bodyJson || latest.promptVersion !== GOAL_PACING_PROMPT_VERSION) {
+    // `getLatestAiMessage` only filters by (surface, scope, status) — it has no idea whether the
+    // row still matches the current prompt/schema. Reject a stale prompt version here so a v1
+    // cached row is never rendered as-is; `runPacing` will regenerate it fresh.
     return null;
   }
 

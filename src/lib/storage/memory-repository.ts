@@ -313,7 +313,7 @@ export class MemoryRepository implements AppRepository {
     this.annualGoals.delete(goalId);
   }
 
-  async computeAnnualGoalSnapshots(year: number) {
+  async computeAnnualGoalSnapshots(year: number, asOfDate: string = getTodayDate()) {
     const entries = await Promise.all(
       [...this.entries.values()]
         .filter((entry) => entry.date.startsWith(`${year}-`))
@@ -328,6 +328,7 @@ export class MemoryRepository implements AppRepository {
       year,
       entries,
       weeklySummaries,
+      asOfDate,
     );
   }
 

@@ -1,17 +1,33 @@
 import { t } from "../i18n";
+import {
+  buildMonthKeysForYear,
+  computeAnnualGoalExpectedRatio,
+  computeAnnualGoalMeasurement,
+} from "./annual-goal-measurement";
+import { principleDefinitions } from "./definitions";
 import { resolveMetricValue } from "./daily-entry";
+import { getTodayDate } from "../lib/date";
 import { getMonthKey, getMonthStartDate } from "./monthly-review";
 import type {
   AnnualGoal,
+  AnnualGoalCadencePeriod,
   AnnualGoalDimension,
+  AnnualGoalDirection,
   AnnualGoalEvaluation,
+  AnnualGoalMeasurementType,
+  AnnualGoalMilestone,
   AnnualGoalSnapshot,
   AnnualGoalSourceId,
   AnnualGoalSourceType,
+  AnnualGoalStatus,
   AnnualGoalTrend,
   DailyEntry,
+  PrincipleKey,
   WeeklyReviewSummary,
 } from "./types";
+import { createEntityId } from "../lib/gtd/shared";
+
+export { computeAnnualGoalExpectedRatio };
 
 interface AnnualGoalSourceDefinition {
   id: AnnualGoalSourceId;
@@ -289,6 +305,42 @@ export const annualGoalSourceOptions = sourceDefinitions.map((definition) => ({
   type: definition.type,
 }));
 
+export const annualGoalMeasurementTypeOptions: Array<{
+  value: AnnualGoalMeasurementType;
+  label: string;
+}> = [
+  { value: "binary", label: t("measurementTypes.binary", { ns: "goals" }) },
+  { value: "numeric", label: t("measurementTypes.numeric", { ns: "goals" }) },
+  { value: "cumulative", label: t("measurementTypes.cumulative", { ns: "goals" }) },
+  { value: "recurring", label: t("measurementTypes.recurring", { ns: "goals" }) },
+];
+
+export const annualGoalStatusOptions: Array<{ value: AnnualGoalStatus; label: string }> = [
+  { value: "active", label: t("statuses.active", { ns: "goals" }) },
+  { value: "paused", label: t("statuses.paused", { ns: "goals" }) },
+  { value: "achieved", label: t("statuses.achieved", { ns: "goals" }) },
+  { value: "abandoned", label: t("statuses.abandoned", { ns: "goals" }) },
+];
+
+export const annualGoalCadencePeriodOptions: Array<{
+  value: AnnualGoalCadencePeriod;
+  label: string;
+}> = [
+  { value: "week", label: t("cadence.week", { ns: "goals" }) },
+  { value: "month", label: t("cadence.month", { ns: "goals" }) },
+];
+
+export const annualGoalDirectionOptions: Array<{ value: AnnualGoalDirection; label: string }> = [
+  { value: "increase", label: t("directions.increase", { ns: "goals" }) },
+  { value: "decrease", label: t("directions.decrease", { ns: "goals" }) },
+];
+
+export const annualGoalPrincipleOptions: Array<{ value: PrincipleKey; label: string }> =
+  principleDefinitions.map((definition) => ({
+    value: definition.key,
+    label: definition.label,
+  }));
+
 export const createEmptyAnnualGoal = (overrides: Partial<AnnualGoal> = {}): AnnualGoal => {
   const timestamp = new Date().toISOString();
   return {
@@ -301,6 +353,16 @@ export const createEmptyAnnualGoal = (overrides: Partial<AnnualGoal> = {}): Annu
     sourceId: overrides.sourceId ?? null,
     manualCurrentValue: overrides.manualCurrentValue ?? null,
     evaluations: overrides.evaluations ?? {},
+    measurementType: overrides.measurementType ?? "numeric",
+    status: overrides.status ?? "active",
+    deadline: overrides.deadline ?? null,
+    startingValue: overrides.startingValue ?? null,
+    direction: overrides.direction ?? null,
+    cadenceTarget: overrides.cadenceTarget ?? null,
+    cadencePeriod: overrides.cadencePeriod ?? "week",
+    principleKey: overrides.principleKey ?? null,
+    progressLog: overrides.progressLog ?? {},
+    milestones: overrides.milestones ?? [],
     createdAt: overrides.createdAt ?? timestamp,
     updatedAt: overrides.updatedAt ?? timestamp,
   };
@@ -311,6 +373,8 @@ export const cloneAnnualGoal = (goal: AnnualGoal): AnnualGoal => ({
   evaluations: Object.fromEntries(
     Object.entries(goal.evaluations).map(([monthKey, evaluation]) => [monthKey, { ...evaluation }]),
   ),
+  progressLog: { ...goal.progressLog },
+  milestones: goal.milestones.map((milestone) => ({ ...milestone })),
 });
 
 export const updateAnnualGoalEvaluation = (
@@ -339,8 +403,136 @@ export const updateAnnualGoalEvaluation = (
   };
 };
 
-const buildMonthKeysForYear = (year: number): string[] =>
-  Array.from({ length: 12 }, (_, index) => `${year}-${String(index + 1).padStart(2, "0")}`);
+export const setAnnualGoalProgressLogEntry = (
+  goal: AnnualGoal,
+  periodKey: string,
+  value: number | null,
+): AnnualGoal => {
+  const nextGoal = cloneAnnualGoal(goal);
+  const nextProgressLog = { ...nextGoal.progressLog };
+
+  if (value === null) {
+    delete nextProgressLog[periodKey];
+  } else {
+    nextProgressLog[periodKey] = value;
+  }
+
+  return {
+    ...nextGoal,
+    progressLog: nextProgressLog,
+    updatedAt: new Date().toISOString(),
+  };
+};
+
+export const addAnnualGoalMilestone = (goal: AnnualGoal, title: string): AnnualGoal => {
+  const nextGoal = cloneAnnualGoal(goal);
+  const sortOrder = nextGoal.milestones.length;
+  const milestone: AnnualGoalMilestone = {
+    id: createEntityId("annual-goal-milestone"),
+    title,
+    completedAt: null,
+    sortOrder,
+  };
+
+  return {
+    ...nextGoal,
+    milestones: [...nextGoal.milestones, milestone],
+    updatedAt: new Date().toISOString(),
+  };
+};
+
+export const updateAnnualGoalMilestone = (
+  goal: AnnualGoal,
+  milestoneId: string,
+  changes: Partial<Pick<AnnualGoalMilestone, "title" | "completedAt">>,
+): AnnualGoal => {
+  const nextGoal = cloneAnnualGoal(goal);
+
+  return {
+    ...nextGoal,
+    milestones: nextGoal.milestones.map((milestone) =>
+      milestone.id === milestoneId ? { ...milestone, ...changes } : milestone,
+    ),
+    updatedAt: new Date().toISOString(),
+  };
+};
+
+export const removeAnnualGoalMilestone = (goal: AnnualGoal, milestoneId: string): AnnualGoal => {
+  const nextGoal = cloneAnnualGoal(goal);
+
+  return {
+    ...nextGoal,
+    milestones: nextGoal.milestones.filter((milestone) => milestone.id !== milestoneId),
+    updatedAt: new Date().toISOString(),
+  };
+};
+
+/**
+ * Returns a copy of `goal` with the measurement fields irrelevant to `nextType` reset to their
+ * empty defaults. Used when the measurement type select changes, so stale cross-type data (e.g. a
+ * numeric goal's `sourceId`/`startingValue`/`direction`) doesn't linger invisibly, come back if the
+ * user switches types again, or leak into the AI goal-pacing payload.
+ *
+ * `title`, `dimension`, `description`, `status`, `deadline`, and `milestones` are cross-cutting and
+ * are never touched here. `progressLog` is only reset for `binary` — cumulative and recurring both
+ * use it (with different key formats), so switching between those two intentionally leaves any
+ * existing entries alone; they are simply ignored by the other type's key format.
+ */
+export const resetAnnualGoalMeasurementFields = (
+  goal: AnnualGoal,
+  nextType: AnnualGoalMeasurementType,
+): AnnualGoal => {
+  const base: AnnualGoal = { ...cloneAnnualGoal(goal), measurementType: nextType };
+
+  if (nextType === "binary") {
+    return {
+      ...base,
+      sourceId: null,
+      targetValue: null,
+      unit: "",
+      startingValue: null,
+      direction: null,
+      manualCurrentValue: null,
+      cadenceTarget: null,
+      cadencePeriod: "week",
+      principleKey: null,
+      progressLog: {},
+    };
+  }
+
+  if (nextType === "numeric") {
+    return {
+      ...base,
+      cadenceTarget: null,
+      cadencePeriod: "week",
+      principleKey: null,
+      progressLog: {},
+    };
+  }
+
+  if (nextType === "cumulative") {
+    return {
+      ...base,
+      startingValue: null,
+      direction: null,
+      manualCurrentValue: null,
+      cadenceTarget: null,
+      cadencePeriod: "week",
+      principleKey: null,
+    };
+  }
+
+  // recurring
+  return {
+    ...base,
+    sourceId: null,
+    targetValue: null,
+    unit: "",
+    startingValue: null,
+    direction: null,
+    manualCurrentValue: null,
+  };
+};
 
 export const getAnnualGoalSourceDefinition = (
   sourceId: AnnualGoalSourceId | null,
@@ -399,6 +591,7 @@ export const buildAnnualGoalSnapshots = (
   year: number,
   entries: DailyEntry[],
   weeklySummaries: WeeklyReviewSummary[],
+  asOfDate: string = getTodayDate(),
 ): AnnualGoalSnapshot[] => {
   const yearEntries = entries.filter((entry) => entry.date.startsWith(`${year}-`));
   const yearWeeklySummaries = weeklySummaries.filter(
@@ -408,13 +601,22 @@ export const buildAnnualGoalSnapshots = (
 
   return goals.map((rawGoal) => {
     const goal = cloneAnnualGoal(rawGoal);
-    const source = getAnnualGoalSourceDefinition(goal.sourceId);
-    const currentValue =
-      source?.computeCurrent(yearEntries, yearWeeklySummaries) ?? goal.manualCurrentValue ?? null;
-    const progressRatio =
-      goal.targetValue && goal.targetValue > 0 && currentValue !== null
-        ? currentValue / goal.targetValue
+    // sourceId only drives numeric and cumulative goals — binary and recurring goals are always
+    // measured from status/milestones or from the progress log / principle binding.
+    const source =
+      goal.measurementType === "numeric" || goal.measurementType === "cumulative"
+        ? getAnnualGoalSourceDefinition(goal.sourceId)
         : null;
+    const sourceValues = {
+      currentValue: source?.computeCurrent(yearEntries, yearWeeklySummaries) ?? null,
+      monthlyValues: buildMonthKeysForYear(year).map((monthKey) => ({
+        monthKey,
+        value: source?.computeMonth(monthKey, yearEntries, yearWeeklySummaries) ?? null,
+      })),
+    };
+
+    const { currentValue, progressRatio, monthlyProgress, measurement } =
+      computeAnnualGoalMeasurement(goal, year, asOfDate, sourceValues, yearEntries);
 
     return {
       goal,
@@ -422,12 +624,10 @@ export const buildAnnualGoalSnapshots = (
       sourceLabel: source?.label ?? null,
       currentValue,
       progressRatio,
-      monthlyProgress: buildMonthKeysForYear(year).map((monthKey) => ({
-        monthKey,
-        value: source?.computeMonth(monthKey, yearEntries, yearWeeklySummaries) ?? null,
-      })),
+      monthlyProgress,
       linkedWeeklyMetricLabels: source?.weeklyMetricLabels ?? [],
       linkedDailyHabitLabels: source?.dailyHabitLabels ?? [],
+      measurement,
     };
   });
 };

@@ -754,6 +754,16 @@ describe("MemoryRepository", () => {
           blockers: "",
         },
       },
+      measurementType: "numeric",
+      status: "active",
+      deadline: null,
+      startingValue: null,
+      direction: null,
+      cadenceTarget: null,
+      cadencePeriod: "week",
+      principleKey: null,
+      progressLog: {},
+      milestones: [],
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
@@ -780,6 +790,45 @@ describe("MemoryRepository", () => {
         }),
       ]),
     );
+  });
+
+  it("round-trips progressLog and milestones on an annual goal", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    await repository.saveAnnualGoal({
+      id: "goal-cumulative",
+      title: "Lire 24 livres",
+      dimension: "intellectuelle",
+      description: "",
+      targetValue: 24,
+      unit: "livres",
+      sourceId: null,
+      manualCurrentValue: null,
+      evaluations: {},
+      measurementType: "cumulative",
+      status: "active",
+      deadline: null,
+      startingValue: null,
+      direction: null,
+      cadenceTarget: null,
+      cadencePeriod: "week",
+      principleKey: null,
+      progressLog: { "2026-01": 2, "2026-02": 3 },
+      milestones: [
+        { id: "milestone-1", title: "10 livres", completedAt: "2026-02-01", sortOrder: 0 },
+        { id: "milestone-2", title: "24 livres", completedAt: null, sortOrder: 1 },
+      ],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    const goals = await repository.listAnnualGoals();
+    expect(goals[0].progressLog).toEqual({ "2026-01": 2, "2026-02": 3 });
+    expect(goals[0].milestones).toEqual([
+      { id: "milestone-1", title: "10 livres", completedAt: "2026-02-01", sortOrder: 0 },
+      { id: "milestone-2", title: "24 livres", completedAt: null, sortOrder: 1 },
+    ]);
   });
 
   it("persists weekly objectives and per-week manual results", async () => {
