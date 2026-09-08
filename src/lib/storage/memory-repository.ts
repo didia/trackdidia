@@ -70,6 +70,7 @@ import {
   reconcileProjectPlannedTasks,
   swapPlannedOrder,
 } from "../gtd/planned";
+import { promoteDueScheduledTasks as selectDueScheduledPromotions } from "../gtd/scheduled";
 import {
   addDays,
   buildContextId,
@@ -958,6 +959,7 @@ export class MemoryRepository implements AppRepository {
 
   async listTasks(filters: TaskFilters = {}): Promise<Task[]> {
     await this.generateDueRecurringTasks(getTodayDate());
+    await this.promoteDueScheduledTasks(getTodayDate());
     return filterTasks([...this.tasks.values()], filters);
   }
 
@@ -1078,6 +1080,28 @@ export class MemoryRepository implements AppRepository {
     }
 
     return changedCount;
+  }
+
+  async promoteDueScheduledTasks(date: string): Promise<number> {
+    const now = nowIso();
+    const snapshot = [...this.tasks.values()];
+    const updated = selectDueScheduledPromotions(snapshot, date, now);
+    const previousById = new Map(snapshot.map((task) => [task.id, task] as const));
+
+    for (const next of updated) {
+      const previous = previousById.get(next.id) ?? null;
+      this.tasks.set(next.id, cloneTask(next));
+      const localEventDate = toLocalDateString(next.updatedAt);
+      this.persistEvents(
+        buildLifecycleEvents(previous, next).map((event) => ({
+          ...event,
+          eventDate: localEventDate,
+        })),
+      );
+    }
+
+    this.reconcileProjects(updated.map((task) => task.projectId));
+    return updated.length;
   }
 
   async listRecurringPreviewOccurrences(rangeStart: string, rangeEnd: string) {
@@ -1337,6 +1361,7 @@ export class MemoryRepository implements AppRepository {
 
   async computeDailyTaskStats(date: string): Promise<DailyTaskStats> {
     await this.generateDueRecurringTasks(date);
+    await this.promoteDueScheduledTasks(getTodayDate());
     if (new Date(`${date}T12:00:00`).getDay() === 0) {
       await this.applyWeeklyCarryover(date);
     }
@@ -1346,6 +1371,7 @@ export class MemoryRepository implements AppRepository {
 
   async getDailyTaskBreakdown(date: string) {
     await this.generateDueRecurringTasks(date);
+    await this.promoteDueScheduledTasks(getTodayDate());
     if (new Date(`${date}T12:00:00`).getDay() === 0) {
       await this.applyWeeklyCarryover(date);
     }

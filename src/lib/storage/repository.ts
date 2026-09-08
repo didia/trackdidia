@@ -199,6 +199,8 @@ export interface AppRepository {
   resumeRecurringTaskTemplate(id: string): Promise<RecurringTaskTemplate>;
   cancelRecurringTaskTemplate(id: string): Promise<RecurringTaskTemplate>;
   generateDueRecurringTasks(date: string, now?: string): Promise<number>;
+  /** Moves due/overdue Scheduled tasks to Next Actions; returns how many were promoted. */
+  promoteDueScheduledTasks(date: string): Promise<number>;
   listRecurringPreviewOccurrences(
     rangeStart: string,
     rangeEnd: string,

@@ -238,7 +238,7 @@ describe("MemoryRepository", () => {
       title: "Relire un document",
       bucket: "reference",
       contextIds: ["context:reading"],
-      scheduledFor: "2026-04-02T10:00:00.000Z",
+      scheduledFor: "2099-04-02T10:00:00.000Z",
     });
 
     await repository.createTask({
@@ -260,6 +260,9 @@ describe("MemoryRepository", () => {
   });
 
   it("collapses imported recurring tasks and can clear past recurrences", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-21T12:00:00.000Z"));
+
     const repository = new MemoryRepository();
     await repository.initialize();
 
@@ -1558,5 +1561,154 @@ describe("MemoryRepository planned tasks", () => {
       (task) => task.status === "active" && task.bucket === "next_action",
     ).length;
     expect(activeNextActionCount).toBe(1);
+  });
+});
+
+describe("MemoryRepository scheduled date promotion", () => {
+  const makeProject = async (repository: MemoryRepository, id: string) =>
+    repository.saveProject({
+      id,
+      title: `Projet ${id}`,
+      status: "active",
+      statusChangedAt: "2026-01-01T00:00:00.000Z",
+      notes: "",
+      contextIds: [],
+      source: "manual",
+      sourceExternalId: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+  it("promotes due and overdue scheduled tasks, clears scheduledFor, and is idempotent", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-12T18:00:00.000Z"));
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const due = await repository.createTask({
+      title: "Due today",
+      bucket: "scheduled",
+      scheduledFor: "2026-01-12T15:00:00",
+    });
+    const overdue = await repository.createTask({
+      title: "Overdue",
+      bucket: "scheduled",
+      scheduledFor: "2026-01-05T09:00:00",
+    });
+    const future = await repository.createTask({
+      title: "Tomorrow",
+      bucket: "scheduled",
+      scheduledFor: "2026-01-13T09:00:00",
+    });
+
+    const firstCount = await repository.promoteDueScheduledTasks("2026-01-12");
+    expect(firstCount).toBe(2);
+    const secondCount = await repository.promoteDueScheduledTasks("2026-01-12");
+    expect(secondCount).toBe(0);
+
+    const tasks = await repository.listTasks({ includeCompleted: true });
+    expect(tasks.find((task) => task.id === due.id)).toMatchObject({
+      bucket: "next_action",
+      scheduledFor: null,
+    });
+    expect(tasks.find((task) => task.id === overdue.id)).toMatchObject({
+      bucket: "next_action",
+      scheduledFor: null,
+    });
+    expect(tasks.find((task) => task.id === future.id)).toMatchObject({
+      bucket: "scheduled",
+      scheduledFor: "2026-01-13T09:00:00",
+    });
+
+    const breakdown = await repository.getDailyTaskBreakdown("2026-01-12");
+    expect(breakdown.addedTasks.map((task) => task.id)).toEqual(
+      expect.arrayContaining([due.id, overdue.id]),
+    );
+  });
+
+  it("does not promote a planned task whose reused date has arrived", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-12T18:00:00.000Z"));
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await makeProject(repository, "project:planned-date");
+    await repository.createTask({
+      title: "Bloqueur",
+      bucket: "next_action",
+      projectId: "project:planned-date",
+    });
+    const planned = await repository.createTask({
+      title: "Planifiee",
+      bucket: "planned",
+      projectId: "project:planned-date",
+      scheduledFor: "2026-01-12T15:00:00",
+    });
+
+    expect(await repository.promoteDueScheduledTasks("2026-01-12")).toBe(0);
+    const stored = await repository.listTasks({ includeCompleted: true });
+    expect(stored.find((task) => task.id === planned.id)).toMatchObject({
+      bucket: "planned",
+      scheduledFor: "2026-01-12T15:00:00",
+    });
+  });
+
+  it("promotes a just-generated due scheduled recurrence when run after generation", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-12T18:00:00.000Z"));
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveRecurringTaskTemplate({
+      id: "recurring-template:standup",
+      title: "Standup",
+      notes: "",
+      targetBucket: "scheduled",
+      contextIds: [],
+      projectId: null,
+      ruleType: "daily",
+      dailyInterval: 1,
+      weeklyInterval: 1,
+      weeklyDays: [0],
+      monthlyMode: "day_of_month",
+      dayOfMonth: 1,
+      nthWeek: 1,
+      weekday: 6,
+      scheduledTime: "09:00",
+      startDate: "2026-01-12",
+      status: "active",
+      lastGeneratedForDate: null,
+      pendingMissedOccurrences: 0,
+      statusChangedAt: "2026-01-12T00:00:00.000Z",
+      createdAt: "2026-01-12T00:00:00.000Z",
+      updatedAt: "2026-01-12T00:00:00.000Z",
+    });
+
+    await repository.generateDueRecurringTasks("2026-01-12");
+    expect(await repository.promoteDueScheduledTasks("2026-01-12")).toBe(1);
+    const after = await repository.listTasks({ includeCompleted: true });
+    expect(after[0]).toMatchObject({
+      bucket: "next_action",
+      scheduledFor: null,
+      isRecurringInstance: true,
+      recurrenceDueDate: "2026-01-12",
+    });
+  });
+
+  it("does not promote a future scheduled task when computing stats for that future date", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-12T18:00:00.000Z"));
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.createTask({
+      title: "Future",
+      bucket: "scheduled",
+      scheduledFor: "2026-01-20T09:00:00",
+    });
+
+    await repository.computeDailyTaskStats("2026-01-20");
+
+    expect(await repository.promoteDueScheduledTasks("2026-01-20")).toBe(1);
   });
 });

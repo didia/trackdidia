@@ -588,7 +588,7 @@ export const MonthlyReviewPage = () => {
       </SectionCard>
 
       <SectionCard title={t("monthly.ritual.title")} subtitle={t("monthly.ritual.subtitle")}>
-        <div className="weekly-ritual-grid">
+        <div className="monthly-ritual-stack">
           {monthlySections.map((section) => (
             <article key={section.key} className="weekly-ritual-card">
               <div className="weekly-ritual-card__header">

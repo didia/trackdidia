@@ -111,7 +111,11 @@ All application data access goes through `AppRepository` in
 - SQLite is initialized before settings and GTD data are read.
 - One-time GTD normalizations (Reading → References, dated work → Scheduled) remain
   idempotent via settings markers.
-- Due recurrences and daily relationship activities are generated at startup.
+- Due recurrences are generated, due Scheduled tasks are promoted to Next Actions,
+  and daily relationship activities are generated at startup.
+- After startup, a local-day boundary (next midnight, window focus, and becoming
+  visible) repeats recurrence generation and Scheduled promotion, then republishes
+  the new calendar day so mounted GTD and Pomodoro views reload.
 - An eight-second failure/timeout activates an in-memory fallback and a visible
   warning rather than blocking the UI forever.
 - Automatic backup checks must not run concurrently.

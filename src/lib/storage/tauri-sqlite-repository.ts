@@ -69,6 +69,7 @@ import {
   reconcileProjectPlannedTasks,
   swapPlannedOrder,
 } from "../gtd/planned";
+import { promoteDueScheduledTasks as selectDueScheduledPromotions } from "../gtd/scheduled";
 import {
   addDays,
   cloneProject,
@@ -822,6 +823,23 @@ export const migrations: Migration[] = [
   },
   {
     id: 27,
+    name: "ai_proposals_repeatable_goal_evaluation",
+    sql: `
+      DROP INDEX IF EXISTS idx_ai_proposals_message_type;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_proposals_message_type
+        ON ai_proposals (message_id, type)
+        WHERE status = 'pending'
+          AND type NOT IN (
+            'memory', 'review_section_draft', 'weekly_objective', 'gtd_action', 'goal_evaluation'
+          );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_proposals_message_goal
+        ON ai_proposals (message_id, json_extract(payload_json, '$.goalId'))
+        WHERE status = 'pending' AND type = 'goal_evaluation';
+    `,
+  },
+  {
+    id: 28,
     name: "add_annual_goal_measurement_fields",
     sql: `
       ALTER TABLE annual_goals ADD COLUMN measurement_type TEXT NOT NULL DEFAULT 'numeric';
@@ -2717,6 +2735,7 @@ export class TauriSqliteRepository implements AppRepository {
 
   async listTasks(filters = {}): Promise<Task[]> {
     await this.generateDueRecurringTasks(getTodayDate());
+    await this.promoteDueScheduledTasks(getTodayDate());
     const tasks = await this.getAllTasks();
     return filterTasks(tasks, filters);
   }
@@ -2850,6 +2869,46 @@ export class TauriSqliteRepository implements AppRepository {
       }
 
       return changedCount;
+    });
+  }
+
+  async promoteDueScheduledTasks(date: string): Promise<number> {
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      await db.execute("BEGIN IMMEDIATE");
+
+      try {
+        const snapshot = await this.getAllTasks();
+        const updated = selectDueScheduledPromotions(snapshot, date, nowIso());
+        if (updated.length === 0) {
+          await db.execute("COMMIT");
+          return 0;
+        }
+
+        const previousById = new Map(snapshot.map((task) => [task.id, task] as const));
+
+        for (const next of updated) {
+          const previous = previousById.get(next.id) ?? null;
+          await this.persistTask(next);
+          const localEventDate = toLocalDateString(next.updatedAt);
+          await this.persistEvents(
+            buildLifecycleEvents(previous, next).map((event) => ({
+              ...event,
+              eventDate: localEventDate,
+            })),
+          );
+        }
+
+        await this.reconcileProjectsInternal(
+          db,
+          updated.map((task) => task.projectId),
+        );
+        await db.execute("COMMIT");
+        return updated.length;
+      } catch (error) {
+        await this.rollbackQuietly(db);
+        throw error;
+      }
     });
   }
 
@@ -3266,6 +3325,7 @@ export class TauriSqliteRepository implements AppRepository {
 
   async computeDailyTaskStats(date: string) {
     await this.generateDueRecurringTasks(date);
+    await this.promoteDueScheduledTasks(getTodayDate());
     if (new Date(`${date}T12:00:00`).getDay() === 0) {
       await this.applyWeeklyCarryover(date);
     }
@@ -3276,6 +3336,7 @@ export class TauriSqliteRepository implements AppRepository {
 
   async getDailyTaskBreakdown(date: string) {
     await this.generateDueRecurringTasks(date);
+    await this.promoteDueScheduledTasks(getTodayDate());
     if (new Date(`${date}T12:00:00`).getDay() === 0) {
       await this.applyWeeklyCarryover(date);
     }

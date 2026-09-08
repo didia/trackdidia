@@ -736,9 +736,10 @@ describe("WeeklyReviewPage", () => {
 
     await waitFor(async () => {
       const tasks = await repository.listTasks({ includeCompleted: true });
-      expect(tasks.find((task) => task.id === "task-gtd-schedule")?.scheduledFor).toBe(
-        "2026-08-29",
-      );
+      expect(tasks.find((task) => task.id === "task-gtd-schedule")).toMatchObject({
+        bucket: "next_action",
+        scheduledFor: null,
+      });
       const updated = await repository.listAiProposals(message.id);
       expect(updated[0]?.status).toBe("accepted");
     });

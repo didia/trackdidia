@@ -5,6 +5,7 @@ import { AppContext, type AppContextValue } from "../app/app-context";
 import { defaultAppSettings } from "../domain/daily-entry";
 import { CoachPulseService } from "../lib/ai/coach-pulse-service";
 import type { AiProvider } from "../lib/ai/provider";
+import { getTodayDate } from "../lib/date";
 import { buildPomodoroSessionDetails, buildPomodoroState } from "../lib/pomodoro/engine";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 
@@ -63,6 +64,7 @@ export const renderWithApp = async (ui: ReactElement, options: RenderOptions = {
       switchTask: async () => undefined,
     },
     pulseRevision: 0,
+    calendarDay: getTodayDate(),
     ...options.contextOverrides,
   };
 
