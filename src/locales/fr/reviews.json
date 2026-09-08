@@ -261,8 +261,8 @@
         "binaryAchieved": "Atteint",
         "binaryNotAchieved": "Non atteint",
         "milestones": "Jalons :",
-        "cumulativeProgress": "Progression :",
-        "recurringThisPeriod": "Cette période :",
+        "cumulativeProgress": "Progression : {{current}}/{{target}} {{unit}}",
+        "recurringThisPeriod": "Cette période : {{count}}/{{target}}",
         "recurringAdherence": "Adhérence YTD :",
         "recurringStreak": "Série :"
       },

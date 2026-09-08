@@ -154,6 +154,11 @@ const computeNumericRatio = (
   // target, exactly reproducing legacy `current / target` math when direction is "increase".
   const direction = resolveNumericDirection(goal);
   if (direction === "decrease") {
+    if (targetValue === 0) {
+      // "Reduce X to 0" with no baseline: `target / current` is undefined at target 0. Treat
+      // reaching (or passing) 0 as fully achieved; otherwise there is no honest ratio to report.
+      return currentValue <= 0 ? 1 : null;
+    }
     return currentValue > 0 ? targetValue / currentValue : null;
   }
 

@@ -16,6 +16,7 @@ import {
   annualGoalTrendOptions,
   createEmptyAnnualGoal,
   removeAnnualGoalMilestone,
+  resetAnnualGoalMeasurementFields,
   setAnnualGoalProgressLogEntry,
   updateAnnualGoalEvaluation,
   updateAnnualGoalMilestone,
@@ -84,9 +85,10 @@ const AnnualGoalFields = ({
         <span>{t("card.fields.measurementType")}</span>
         <select
           value={goal.measurementType}
-          onChange={(event) =>
-            set("measurementType", event.target.value as AnnualGoalMeasurementType)
-          }
+          onChange={(event) => {
+            const nextType = event.target.value as AnnualGoalMeasurementType;
+            onChange((current) => resetAnnualGoalMeasurementFields(current, nextType));
+          }}
         >
           {annualGoalMeasurementTypeOptions.map((option) => (
             <option key={option.value} value={option.value}>
@@ -584,6 +586,15 @@ const AnnualGoalCard = ({
     setScoreDraft(evaluation.score === null ? "" : String(evaluation.score));
   }, [evaluation.score]);
 
+  // Builds the next goal off `draft` (not the possibly-stale `goal` prop) so a milestone/log
+  // change never discards an unsaved field edit in progress on the same card, then keeps `draft`
+  // in sync with what was just persisted.
+  const applyGoalPatch = async (updater: (current: AnnualGoal) => AnnualGoal) => {
+    const updated = updater(draft);
+    setDraft(updated);
+    await onSaveGoal(updated);
+  };
+
   return (
     <article className="goal-card">
       <div className="goal-card__header">
@@ -647,39 +658,45 @@ const AnnualGoalCard = ({
         </div>
       ) : null}
 
-      {goal.measurementType === "cumulative" ? (
+      {draft.measurementType === "cumulative" ? (
         <CumulativeLogEditor
-          goal={goal}
+          goal={draft}
           year={year}
           snapshot={snapshot}
           onLogChange={(periodKey, value) =>
-            void onSaveGoal(setAnnualGoalProgressLogEntry(goal, periodKey, value))
+            void applyGoalPatch((current) =>
+              setAnnualGoalProgressLogEntry(current, periodKey, value),
+            )
           }
         />
       ) : null}
 
-      {goal.measurementType === "recurring" ? (
+      {draft.measurementType === "recurring" ? (
         <RecurringLogEditor
-          goal={goal}
+          goal={draft}
           year={year}
           snapshot={snapshot}
           onLogChange={(periodKey, value) =>
-            void onSaveGoal(setAnnualGoalProgressLogEntry(goal, periodKey, value))
+            void applyGoalPatch((current) =>
+              setAnnualGoalProgressLogEntry(current, periodKey, value),
+            )
           }
         />
       ) : null}
 
       <AnnualGoalMilestonesEditor
-        goal={goal}
-        onAdd={(title) => void onSaveGoal(addAnnualGoalMilestone(goal, title))}
+        goal={draft}
+        onAdd={(title) => void applyGoalPatch((current) => addAnnualGoalMilestone(current, title))}
         onToggle={(milestoneId, completed) =>
-          void onSaveGoal(
-            updateAnnualGoalMilestone(goal, milestoneId, {
+          void applyGoalPatch((current) =>
+            updateAnnualGoalMilestone(current, milestoneId, {
               completedAt: completed ? getTodayDate() : null,
             }),
           )
         }
-        onRemove={(milestoneId) => void onSaveGoal(removeAnnualGoalMilestone(goal, milestoneId))}
+        onRemove={(milestoneId) =>
+          void applyGoalPatch((current) => removeAnnualGoalMilestone(current, milestoneId))
+        }
       />
 
       <div className="goal-card__evaluation">

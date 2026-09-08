@@ -467,6 +467,73 @@ export const removeAnnualGoalMilestone = (goal: AnnualGoal, milestoneId: string)
   };
 };
 
+/**
+ * Returns a copy of `goal` with the measurement fields irrelevant to `nextType` reset to their
+ * empty defaults. Used when the measurement type select changes, so stale cross-type data (e.g. a
+ * numeric goal's `sourceId`/`startingValue`/`direction`) doesn't linger invisibly, come back if the
+ * user switches types again, or leak into the AI goal-pacing payload.
+ *
+ * `title`, `dimension`, `description`, `status`, `deadline`, and `milestones` are cross-cutting and
+ * are never touched here. `progressLog` is only reset for `binary` — cumulative and recurring both
+ * use it (with different key formats), so switching between those two intentionally leaves any
+ * existing entries alone; they are simply ignored by the other type's key format.
+ */
+export const resetAnnualGoalMeasurementFields = (
+  goal: AnnualGoal,
+  nextType: AnnualGoalMeasurementType,
+): AnnualGoal => {
+  const base: AnnualGoal = { ...cloneAnnualGoal(goal), measurementType: nextType };
+
+  if (nextType === "binary") {
+    return {
+      ...base,
+      sourceId: null,
+      targetValue: null,
+      unit: "",
+      startingValue: null,
+      direction: null,
+      manualCurrentValue: null,
+      cadenceTarget: null,
+      cadencePeriod: "week",
+      principleKey: null,
+      progressLog: {},
+    };
+  }
+
+  if (nextType === "numeric") {
+    return {
+      ...base,
+      cadenceTarget: null,
+      cadencePeriod: "week",
+      principleKey: null,
+      progressLog: {},
+    };
+  }
+
+  if (nextType === "cumulative") {
+    return {
+      ...base,
+      startingValue: null,
+      direction: null,
+      manualCurrentValue: null,
+      cadenceTarget: null,
+      cadencePeriod: "week",
+      principleKey: null,
+    };
+  }
+
+  // recurring
+  return {
+    ...base,
+    sourceId: null,
+    targetValue: null,
+    unit: "",
+    startingValue: null,
+    direction: null,
+    manualCurrentValue: null,
+  };
+};
+
 export const getAnnualGoalSourceDefinition = (
   sourceId: AnnualGoalSourceId | null,
 ): AnnualGoalSourceDefinition | null =>

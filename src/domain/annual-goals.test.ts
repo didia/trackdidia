@@ -8,6 +8,7 @@ import {
   createEmptyAnnualGoal,
   isAnnualGoalOnPace,
   removeAnnualGoalMilestone,
+  resetAnnualGoalMeasurementFields,
   setAnnualGoalProgressLogEntry,
   updateAnnualGoalEvaluation,
   updateAnnualGoalMilestone,
@@ -217,5 +218,110 @@ describe("annual goals domain", () => {
     for (const option of annualGoalPrincipleOptions) {
       expect(option.label.startsWith("habit.")).toBe(false);
     }
+  });
+
+  describe("resetAnnualGoalMeasurementFields", () => {
+    const fullyPopulatedGoal = () =>
+      createEmptyAnnualGoal({
+        id: "goal-1",
+        title: "Objectif",
+        measurementType: "numeric",
+        sourceId: "daily_pomodoris_sum",
+        targetValue: 100,
+        unit: "min",
+        startingValue: 10,
+        direction: "increase",
+        manualCurrentValue: 42,
+        cadenceTarget: 4,
+        cadencePeriod: "month",
+        principleKey: "respectTrc",
+        progressLog: { "2026-01": 3 },
+      });
+
+    it("clears every type-specific field when switching to binary", () => {
+      const next = resetAnnualGoalMeasurementFields(fullyPopulatedGoal(), "binary");
+
+      expect(next.measurementType).toBe("binary");
+      expect(next.sourceId).toBeNull();
+      expect(next.targetValue).toBeNull();
+      expect(next.unit).toBe("");
+      expect(next.startingValue).toBeNull();
+      expect(next.direction).toBeNull();
+      expect(next.manualCurrentValue).toBeNull();
+      expect(next.cadenceTarget).toBeNull();
+      expect(next.cadencePeriod).toBe("week");
+      expect(next.principleKey).toBeNull();
+      expect(next.progressLog).toEqual({});
+    });
+
+    it("keeps numeric-relevant fields and clears cadence/principle/progressLog when switching to numeric", () => {
+      const next = resetAnnualGoalMeasurementFields(fullyPopulatedGoal(), "numeric");
+
+      expect(next.measurementType).toBe("numeric");
+      expect(next.sourceId).toBe("daily_pomodoris_sum");
+      expect(next.targetValue).toBe(100);
+      expect(next.unit).toBe("min");
+      expect(next.startingValue).toBe(10);
+      expect(next.direction).toBe("increase");
+      expect(next.manualCurrentValue).toBe(42);
+      expect(next.cadenceTarget).toBeNull();
+      expect(next.cadencePeriod).toBe("week");
+      expect(next.principleKey).toBeNull();
+      expect(next.progressLog).toEqual({});
+    });
+
+    it("keeps sourceId/targetValue/unit/progressLog and clears the rest when switching to cumulative", () => {
+      const next = resetAnnualGoalMeasurementFields(fullyPopulatedGoal(), "cumulative");
+
+      expect(next.measurementType).toBe("cumulative");
+      expect(next.sourceId).toBe("daily_pomodoris_sum");
+      expect(next.targetValue).toBe(100);
+      expect(next.unit).toBe("min");
+      expect(next.progressLog).toEqual({ "2026-01": 3 });
+      expect(next.startingValue).toBeNull();
+      expect(next.direction).toBeNull();
+      expect(next.manualCurrentValue).toBeNull();
+      expect(next.cadenceTarget).toBeNull();
+      expect(next.cadencePeriod).toBe("week");
+      expect(next.principleKey).toBeNull();
+    });
+
+    it("keeps cadence/principle/progressLog and clears the rest when switching to recurring", () => {
+      const next = resetAnnualGoalMeasurementFields(fullyPopulatedGoal(), "recurring");
+
+      expect(next.measurementType).toBe("recurring");
+      expect(next.cadenceTarget).toBe(4);
+      expect(next.cadencePeriod).toBe("month");
+      expect(next.principleKey).toBe("respectTrc");
+      expect(next.progressLog).toEqual({ "2026-01": 3 });
+      expect(next.sourceId).toBeNull();
+      expect(next.targetValue).toBeNull();
+      expect(next.unit).toBe("");
+      expect(next.startingValue).toBeNull();
+      expect(next.direction).toBeNull();
+      expect(next.manualCurrentValue).toBeNull();
+    });
+
+    it("never touches title, dimension, description, status, deadline, or milestones", () => {
+      const goal = createEmptyAnnualGoal({
+        id: "goal-1",
+        title: "Objectif",
+        dimension: "sociale",
+        description: "Description",
+        status: "paused",
+        deadline: "2026-12-31",
+        measurementType: "numeric",
+        milestones: [{ id: "m1", title: "Etape", completedAt: null, sortOrder: 0 }],
+      });
+
+      const next = resetAnnualGoalMeasurementFields(goal, "binary");
+
+      expect(next.title).toBe("Objectif");
+      expect(next.dimension).toBe("sociale");
+      expect(next.description).toBe("Description");
+      expect(next.status).toBe("paused");
+      expect(next.deadline).toBe("2026-12-31");
+      expect(next.milestones).toEqual(goal.milestones);
+    });
   });
 });

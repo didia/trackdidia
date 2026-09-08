@@ -527,8 +527,10 @@ export const MonthlyReviewPage = () => {
                     ) : snapshot.goal.measurementType === "recurring" ? (
                       <>
                         <span>
-                          {t("monthly.goals.metrics.recurringThisPeriod")}{" "}
-                          {measurement.currentPeriodCount ?? "—"}/{measurement.cadenceTarget ?? "—"}
+                          {t("monthly.goals.metrics.recurringThisPeriod", {
+                            count: measurement.currentPeriodCount ?? 0,
+                            target: measurement.cadenceTarget ?? 0,
+                          })}
                         </span>
                         <span>
                           {t("monthly.goals.metrics.recurringAdherence")}{" "}
@@ -542,9 +544,14 @@ export const MonthlyReviewPage = () => {
                       </>
                     ) : snapshot.goal.measurementType === "cumulative" ? (
                       <span>
-                        {t("monthly.goals.metrics.cumulativeProgress")}{" "}
-                        {snapshot.currentValue === null ? "—" : Math.round(snapshot.currentValue)}/
-                        {snapshot.goal.targetValue ?? "—"} {snapshot.goal.unit}
+                        {t("monthly.goals.metrics.cumulativeProgress", {
+                          current:
+                            snapshot.currentValue === null
+                              ? "—"
+                              : Math.round(snapshot.currentValue),
+                          target: snapshot.goal.targetValue ?? "—",
+                          unit: snapshot.goal.unit,
+                        })}
                       </span>
                     ) : (
                       <>

@@ -178,6 +178,44 @@ describe("computeAnnualGoalMeasurement — numeric", () => {
     expect(result.progressRatio).toBeCloseTo(0.5);
   });
 
+  it("treats a decrease-to-zero goal with no baseline as achieved once current reaches 0", () => {
+    const achievedGoal = createEmptyAnnualGoal({
+      measurementType: "numeric",
+      direction: "decrease",
+      targetValue: 0,
+      manualCurrentValue: 0,
+    });
+
+    const achieved = computeAnnualGoalMeasurement(
+      achievedGoal,
+      2026,
+      "2026-06-01",
+      emptySourceValues,
+      noEntries,
+    );
+
+    expect(achieved.progressRatio).toBe(1);
+  });
+
+  it("reports null (not 0) progress for a decrease-to-zero goal with no baseline before it is achieved", () => {
+    const inProgressGoal = createEmptyAnnualGoal({
+      measurementType: "numeric",
+      direction: "decrease",
+      targetValue: 0,
+      manualCurrentValue: 5,
+    });
+
+    const inProgress = computeAnnualGoalMeasurement(
+      inProgressGoal,
+      2026,
+      "2026-06-01",
+      emptySourceValues,
+      noEntries,
+    );
+
+    expect(inProgress.progressRatio).toBeNull();
+  });
+
   it("floors at 0 but leaves progress uncapped above 1", () => {
     const overshootGoal = createEmptyAnnualGoal({
       measurementType: "numeric",

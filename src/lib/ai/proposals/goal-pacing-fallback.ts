@@ -50,7 +50,9 @@ const riskLevelFor = (
 ): GoalPacingRiskLevel => {
   if (goal.measurementType === "recurring") {
     if (goal.periodsElapsed === 0) {
-      return "medium";
+      // Nothing has been due yet — mirrors computeAnnualGoalMeasurement's onPace === true for a
+      // brand-new recurring goal, so the risk level and pace read consistently in the same card.
+      return "low";
     }
     return riskFromRatio(goal.adherenceRatio, 1);
   }

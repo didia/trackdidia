@@ -234,11 +234,18 @@ The pacing expectation is per measurement type (`computeAnnualGoalExpectedRatio`
 
 Goals marked on pace use the same tolerance as `ANNUAL_GOAL_PACE_TOLERANCE` (0.1);
 local fallback risk levels align with that band so on-pace goals are never labeled
-medium risk.
+medium risk. A brand-new recurring goal with `periodsElapsed === 0` is a special case
+of this: `onPace` is `true` (nothing has been due yet), and the local fallback's
+`riskLevelFor` reports `"low"` to match, so the card never shows a contradictory
+"on pace" / "medium risk" pairing.
 
 Results are cached in `ai_messages` keyed by `(surface, year, input_hash)`; the prompt
 version (`goal_pacing.v2`) changed when per-type measurement fields were added, so any
-cached v1 result is never reused against the new payload shape.
+cached v1 result is never reused against the new payload shape. This applies to the
+page-load fast path too: `loadLatestGoalPacing` (`src/lib/ai/goal-pacing-loader.ts`)
+hydrates the newest `ok` row by `(surface, scopeKey, status)` only, so it separately
+rejects a stored row whose `promptVersion` does not match the current prompt version,
+falling through to a fresh `runPacing` instead of rendering a stale-shaped result.
 
 ## Monthly review (`/mois`)
 
@@ -302,7 +309,13 @@ may include boundary days and empty days outside the month. This is current beha
 The screen also loads annual goal snapshots for the selected year and displays a
 per-measurement-type readout for each goal (achieved/milestones for binary,
 current/target/month for numeric, running total for cumulative, this-period/adherence/
-streak for recurring) alongside the month's evaluation.
+streak for recurring) alongside the month's evaluation. This is a read-only summary
+with its own JSX and `reviews` locale keys — it does not reuse the editable
+`AnnualGoalFields` form from `/objectifs-annuels` (that component only makes sense for
+an editable card), but its cumulative/recurring readouts are interpolated through the
+same `t(...)` value-and-fallback shape as the `/objectifs-annuels` card so the two
+pages report identical numbers for identical goal data. Coverage for all four
+measurement types lives in `src/pages/MonthlyReviewPage.test.tsx`.
 
 ## Annual goals (`/objectifs-annuels`)
 
@@ -340,9 +353,28 @@ An annual goal contains:
 goals, and any legacy value is ignored for those types. `manualCurrentValue` is only
 read by **numeric** goals; for cumulative goals the progress log supersedes it.
 
-Every goal created before this fields existed backfills to `measurementType:
+Every goal created before these fields existed backfills to `measurementType:
 "numeric"` with `startingValue: null`, which reproduces the pre-existing
 `currentValue / targetValue` math exactly (see Progress below).
+
+**Switching measurement type clears the other types' fields.** Changing the
+measurement-type select on `/objectifs-annuels` runs
+`resetAnnualGoalMeasurementFields` (`src/domain/annual-goals.ts`), which nulls out the
+fields that belong only to the type being left (e.g. switching a numeric goal to
+binary clears `sourceId`, `startingValue`, `direction`, `manualCurrentValue`,
+`targetValue`, and `unit`) so stale cross-type data cannot linger invisibly, resurface
+if the user switches back, or leak into the AI goal-pacing payload. `title`,
+`dimension`, `description`, `status`, `deadline`, and `milestones` are cross-cutting
+and are never touched by this reset. `progressLog` is cleared when switching to
+`binary` or `numeric` (neither type reads it); cumulative and recurring intentionally
+keep it as-is when switching between each other, since stale entries are simply
+ignored by the other type's key format.
+
+Each goal card buffers field edits in local `draft` state until "Enregistrer" is
+clicked (see `AnnualGoalFields`/`AnnualGoalCard` in `AnnualGoalsPage.tsx`). Milestone
+and cumulative/recurring log actions on the same card build their patch off that same
+`draft` — not the (possibly stale) saved goal — so checking off a milestone or logging
+a period never silently discards an unsaved field edit in progress on the card.
 
 Deleting a goal is a hard delete in the current local database. The goals list on
 `/objectifs-annuels` defaults to showing only `active` goals, with a toggle to show
@@ -374,6 +406,13 @@ startingValue null (or startingValue === targetValue), direction "decrease":
 `direction` is explicit when set; otherwise it is inferred as `decrease` when
 `targetValue < startingValue`, else `increase`. The ratio is `null` when the target or
 current value is absent, or non-positive where required by the formula above.
+
+The no-baseline `decrease` fallback (`targetValue / currentValue`) is undefined at
+`targetValue === 0` (a "reduce X to 0" goal, e.g. "0 cigarettes/day", with no
+`startingValue` set). That case is handled explicitly instead: `progressRatio` is `1`
+once `currentValue <= 0` (goal achieved), else `null` (no honest percentage can be
+stated without a baseline to interpolate from) — never `0`, which would misreport an
+in-progress goal as having made no progress at all.
 
 **Cumulative** — `currentValue` is the source's value when `sourceId` is set, else the
 sum of `progressLog` entries whose month key falls in the selected year.
