@@ -1264,6 +1264,40 @@ button.tag-chip:active:not(:disabled) {
   background: var(--accent-soft);
 }
 
+.journal-feed {
+  display: grid;
+  gap: 16px;
+}
+
+.journal-feed-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.66);
+}
+
+.journal-feed-card__header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.journal-feed-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.journal-feed-card__text {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
 .splash {
   min-height: 100vh;
   display: grid;

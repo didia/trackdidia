@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useAppContext } from "../app/app-context";
 import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
 import { SectionCard } from "../components/SectionCard";
@@ -83,7 +83,13 @@ export const WeeklyReviewPage = () => {
   const goalsService = useMemo(() => new RescueTimeGoalsService(repository), [repository]);
   const objectivesService = useMemo(() => new WeeklyObjectivesService(repository), [repository]);
   const synthesisService = useMemo(() => new WeeklySynthesisService(new OpenRouterProvider()), []);
-  const [selectedWeekStart, setSelectedWeekStart] = useState(buildWeekDates(getTodayDate()));
+  const [searchParams] = useSearchParams();
+  const dateFromQuery = searchParams.get("date");
+  const [selectedWeekStart, setSelectedWeekStart] = useState(() =>
+    buildWeekDates(
+      dateFromQuery && /^\d{4}-\d{2}-\d{2}$/.test(dateFromQuery) ? dateFromQuery : getTodayDate(),
+    ),
+  );
   const [review, setReview] = useState<WeeklyReview | null>(null);
   const [summary, setSummary] = useState<WeeklyReviewSummary | null>(null);
   const [goalsSnapshot, setGoalsSnapshot] = useState<RescueTimeGoalsSnapshot | null>(null);

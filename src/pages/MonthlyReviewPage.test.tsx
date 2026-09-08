@@ -3,9 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, vi } from "vitest";
 import { createEmptyAnnualGoal } from "../domain/annual-goals";
 import { createEmptyDailyEntry, defaultAppSettings } from "../domain/daily-entry";
+import { createEmptyMonthlyReview, updateMonthlyReviewNote } from "../domain/monthly-review";
 import { loadLatestMonthlySynthesis } from "../lib/ai/monthly-synthesis-loader";
 import { MonthlySynthesisService } from "../lib/ai/monthly-synthesis-service";
 import type { AiProvider } from "../lib/ai/provider";
+import * as dateModule from "../lib/date";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { renderWithApp } from "../test/test-utils";
 import { MonthlyReviewPage } from "./MonthlyReviewPage";
@@ -70,6 +72,24 @@ describe("MonthlyReviewPage", () => {
         }),
       });
     });
+  });
+
+  it("opens the month from the query string", async () => {
+    vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-09-08");
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    let review = createEmptyMonthlyReview("2026-04");
+    review = updateMonthlyReviewNote(review, "bilan", "Note mensuelle via lien");
+    await repository.saveMonthlyReview(review);
+
+    await renderWithApp(<MonthlyReviewPage />, {
+      repository,
+      route: "/mois?month=2026-04",
+    });
+
+    expect(await screen.findByLabelText(/mois à relire/i)).toHaveValue("2026-04");
+    expect(await screen.findByDisplayValue("Note mensuelle via lien")).toBeInTheDocument();
   });
 
   it("accepts a goal evaluation proposal from the monthly coach", async () => {

@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-08 | Added `/journal` read-only timeline of daily, weekly, and monthly notes with period/kind/sort filters | `docs/architecture.md` | `JournalPage`, `src/App.tsx` |
 | 2026-09-07 | Floating Pomodoro overlay stays visible for the current cycle after completion until idle reset; hidden on `/pomodoro` | `docs/architecture.md`, `docs/recurrences-and-pomodoro.md` | `FloatingPomodoroTimer`, `shouldShowFloatingPomodoro` |
 | 2026-09-07 | Boot sequence promotes due Scheduled tasks to Next Actions after generating recurrences; a local-day boundary plus focus/visibility repeats that pass and republishes `calendarDay` | `docs/architecture.md` | `app-context.tsx`, `use-local-day-reconciliation.ts`, `promoteDueScheduledTasks` |
 | 2026-09-04 | Boot sequence no longer imports or collapses against a bundled `Tasks.json` | `docs/architecture.md` | `app-context.tsx` |

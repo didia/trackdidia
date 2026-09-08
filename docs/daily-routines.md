@@ -227,7 +227,40 @@ History lists up to 120 saved entries. The user can:
 - mark a day closed.
 
 Unlike the morning/evening flows, history textareas update local draft state
-immediately and persist when the explicit save action is used.
+immediately and persist when the explicit save action is used. A `?date=YYYY-MM-DD`
+query opens that day on load.
+
+## Journal
+
+The Journal screen (`/journal`) is a read-only timeline of authored notes across
+daily, weekly, and monthly records. Each card is one period (a calendar day, a
+Sunday-Saturday week, or a calendar month) and shows only non-empty note fields.
+Metrics, principles, and ritual checklists stay on their own screens.
+
+Filters:
+
+- period: This Week (default), Last Week, This Month, Last Month, or an inclusive
+  custom start/end;
+- kind: All (default), Daily, Weekly, or Monthly;
+- sort: Newer first (default) or Older first.
+
+Weeks run Sunday through Saturday. A weekly or monthly review is included when its
+calendar span overlaps the selected date range. Empty or whitespace-only notes are
+omitted. Sort uses the period calendar date (`date`, `weekStartDate`, or
+`monthStartDate`), not `updatedAt`. Same-date ties are daily, then weekly, then
+monthly for Older first, and the reverse for Newer first.
+
+The page follows `calendarDay` from `AppProvider`, so a local-day boundary reloads
+the default This Week / This Month windows.
+
+Opening a card follows a query-string deep link:
+
+- daily → `/historique?date=YYYY-MM-DD`
+- weekly → `/semaine?date=YYYY-MM-DD` (any day in the week, normalized to Sunday)
+- monthly → `/mois?month=YYYY-MM`
+
+`/historique`, `/semaine`, and `/mois` remain the editors. See
+[Reviews and goals](reviews-and-goals.md) for weekly and monthly ritual notes.
 
 ## Creation and persistence
 

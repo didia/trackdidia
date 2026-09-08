@@ -5,6 +5,7 @@ import type today from "../locales/fr/today.json";
 import type morning from "../locales/fr/morning.json";
 import type evening from "../locales/fr/evening.json";
 import type history from "../locales/fr/history.json";
+import type journal from "../locales/fr/journal.json";
 import type gtd from "../locales/fr/gtd.json";
 import type pomodoro from "../locales/fr/pomodoro.json";
 import type recurrences from "../locales/fr/recurrences.json";
@@ -30,6 +31,7 @@ declare module "i18next" {
       morning: typeof morning;
       evening: typeof evening;
       history: typeof history;
+      journal: typeof journal;
       gtd: typeof gtd;
       pomodoro: typeof pomodoro;
       recurrences: typeof recurrences;

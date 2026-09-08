@@ -6,6 +6,7 @@ import {
   applyWeeklyScoreExternalAxes,
   createEmptyWeeklyReview,
   localWeeklyScoreAxes,
+  updateWeeklyReviewNote,
 } from "../domain/weekly-review";
 import { createWeeklyMemoryProposals } from "../lib/ai/memory/weekly-distillation";
 import { loadLatestWeeklySynthesis } from "../lib/ai/weekly-synthesis-loader";
@@ -128,6 +129,24 @@ describe("WeeklyReviewPage", () => {
         }),
       });
     });
+  });
+
+  it("opens the week from the query string even when it is not this week", async () => {
+    vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-04-12");
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    let review = createEmptyWeeklyReview("2026-03-29");
+    review = updateWeeklyReviewNote(review, "bilan", "Note via lien");
+    await repository.saveWeeklyReview(review);
+
+    await renderWithApp(<WeeklyReviewPage />, {
+      repository,
+      route: "/semaine?date=2026-03-31",
+    });
+
+    expect(await screen.findByLabelText(/début de semaine/i)).toHaveValue("2026-03-29");
+    expect(await screen.findByDisplayValue("Note via lien")).toBeInTheDocument();
   });
 
   it("keeps the latest ritual notes after leaving the page even if an earlier save is still in flight", async () => {

@@ -14,6 +14,7 @@ const navigation = [
   { to: "/mois", labelKey: "month" },
   { to: "/objectifs-annuels", labelKey: "annualGoals" },
   { to: "/historique", labelKey: "dailyHistory" },
+  { to: "/journal", labelKey: "journal" },
   { to: "/inbox", labelKey: "gtdInbox" },
   { to: "/next-actions", labelKey: "nextActions" },
   { to: "/projects", labelKey: "projects" },

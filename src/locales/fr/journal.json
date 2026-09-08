@@ -1,0 +1,40 @@
+{
+  "loading": "Chargement du journal...",
+  "hero": {
+    "eyebrow": "Journal",
+    "title": "Relire toutes les entrées en une vue.",
+    "copy": "Daily, hebdomadaire et mensuel, filtrés par période et triés par date d'entrée."
+  },
+  "filters": {
+    "title": "Filtres",
+    "subtitle": "Limiter la vue à une période, un type de journal, et un ordre de lecture.",
+    "period": "Période",
+    "thisWeek": "This Week",
+    "lastWeek": "Last Week",
+    "thisMonth": "This Month",
+    "lastMonth": "Last Month",
+    "custom": "Dates personnalisées",
+    "startDate": "Date de début",
+    "endDate": "Date de fin",
+    "kind": "Journaux",
+    "all": "All",
+    "daily": "Daily",
+    "weekly": "Weekly",
+    "monthly": "Monthly",
+    "sort": "Tri",
+    "newerFirst": "Newer first",
+    "olderFirst": "Older first"
+  },
+  "list": {
+    "title": "Entrées",
+    "subtitle": "{{count}} période(s) avec du texte.",
+    "empty": "Aucune entrée de journal pour cette période."
+  },
+  "card": {
+    "daily": "Daily",
+    "weekly": "Weekly",
+    "monthly": "Monthly",
+    "weekPeriod": "Semaine du {{start}} au {{end}}",
+    "open": "Ouvrir"
+  }
+}

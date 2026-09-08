@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router-dom";
 import {
   applyDailyPomodoroStats,
   applyRoutineTransition,
@@ -25,8 +26,12 @@ type DailyNoteKey = "morningIntention" | "nightReflection" | "tomorrowFocus";
 export const HistoryPage = () => {
   const { t } = useTranslation("history");
   const { repository } = useAppContext();
+  const [searchParams] = useSearchParams();
+  const dateFromQuery = searchParams.get("date");
   const [entries, setEntries] = useState<DailyEntry[]>([]);
-  const [selectedDate, setSelectedDate] = useState(getTodayDate());
+  const [selectedDate, setSelectedDate] = useState(
+    dateFromQuery && /^\d{4}-\d{2}-\d{2}$/.test(dateFromQuery) ? dateFromQuery : getTodayDate(),
+  );
   const [selectedEntry, setSelectedEntry] = useState<DailyEntry | null>(null);
 
   const loadEntries = async () => {

@@ -16,7 +16,12 @@ are computed on demand and are not persisted.
 ### Calendar model
 
 The business week always begins Sunday and ends Saturday. Any selected date is
-normalized to its Sunday with `getWeekStartSunday()`.
+normalized to its Sunday with `getWeekStartSunday()`. A `?date=YYYY-MM-DD` query
+opens that week on load.
+
+Reading daily, weekly, and monthly notes together lives on
+[`/journal`](daily-routines.md#journal). That page is read-only;
+`/semaine` remains the editor.
 
 When a weekly summary is requested, the repository constructs all seven days.
 Missing days become empty daily entries for that calculation. This means weekly
@@ -254,7 +259,10 @@ falling through to a fresh `runPacing` instead of rendering a stale-shaped resul
 Monthly reviews use a `YYYY-MM` key and the calendar month's first/last day.
 The Today screen prompts on the first Saturday of a month and the Monthly screen
 initially selects the previous month on that day; otherwise it selects the current
-month.
+month. A `?month=YYYY-MM` query opens that month on load.
+
+Reading those notes together with daily and weekly journals lives on
+[`/journal`](daily-routines.md#journal). `/mois` remains the editor.
 
 Weeks are included when their Sunday start is on or before the month end, beginning
 with the Sunday containing the first day. Therefore a month covers four to six

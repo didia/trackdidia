@@ -1,5 +1,7 @@
 import { afterEach, vi } from "vitest";
 import { createEmptyDailyEntry, defaultAppSettings } from "../../domain/daily-entry";
+import { createEmptyMonthlyReview } from "../../domain/monthly-review";
+import { createEmptyWeeklyReview } from "../../domain/weekly-review";
 import { getTodayDate } from "../date";
 import { addDays } from "../gtd/shared";
 import { MemoryRepository } from "./memory-repository";
@@ -1198,6 +1200,41 @@ describe("MemoryRepository", () => {
 
     const entries = await repository.listDailyEntriesOnOrBefore("2026-06-01", 10);
     expect(entries.map((entry) => entry.date)).toEqual(["2026-06-01", "2026-01-01"]);
+  });
+
+  it("listDailyEntriesInRange returns inclusive dates inside the window", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    for (const date of ["2026-03-31", "2026-04-01", "2026-04-30", "2026-05-01"]) {
+      await repository.saveDailyEntry(createEmptyDailyEntry(date));
+    }
+
+    const entries = await repository.listDailyEntriesInRange("2026-04-01", "2026-04-30");
+    expect(entries.map((entry) => entry.date)).toEqual(["2026-04-30", "2026-04-01"]);
+  });
+
+  it("listWeeklyReviewsOverlapping includes a week that started the previous month", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    await repository.saveWeeklyReview(createEmptyWeeklyReview("2026-03-22"));
+    await repository.saveWeeklyReview(createEmptyWeeklyReview("2026-03-29"));
+
+    const reviews = await repository.listWeeklyReviewsOverlapping("2026-04-01", "2026-04-30");
+    expect(reviews.map((review) => review.weekStartDate)).toEqual(["2026-03-29"]);
+  });
+
+  it("listMonthlyReviewsOverlapping includes months that touch the window", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    await repository.saveMonthlyReview(createEmptyMonthlyReview("2026-03"));
+    await repository.saveMonthlyReview(createEmptyMonthlyReview("2026-04"));
+    await repository.saveMonthlyReview(createEmptyMonthlyReview("2026-05"));
+
+    const reviews = await repository.listMonthlyReviewsOverlapping("2026-04-01", "2026-04-30");
+    expect(reviews.map((review) => review.monthKey)).toEqual(["2026-04"]);
   });
 });
 

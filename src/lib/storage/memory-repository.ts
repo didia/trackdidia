@@ -10,6 +10,7 @@ import {
   createEmptyDailyEntry,
   defaultAppSettings,
 } from "../../domain/daily-entry";
+import { journalPeriodOverlaps } from "../../domain/journal-feed";
 import {
   buildMonthlyReviewSummary,
   cloneMonthlyReview,
@@ -161,6 +162,14 @@ export class MemoryRepository implements AppRepository {
     return Promise.all(sorted.map((entry) => this.decorateEntry(entry)));
   }
 
+  async listDailyEntriesInRange(startDate: string, endDate: string): Promise<DailyEntry[]> {
+    const sorted = [...this.entries.values()]
+      .filter((entry) => entry.date >= startDate && entry.date <= endDate)
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+    return Promise.all(sorted.map((entry) => this.decorateEntry(entry)));
+  }
+
   async getWeeklyReview(weekStartDate: string): Promise<WeeklyReview | null> {
     const normalized = buildWeekDates(weekStartDate);
     const existing = this.weeklyReviews.get(normalized);
@@ -181,6 +190,15 @@ export class MemoryRepository implements AppRepository {
     return [...this.weeklyReviews.values()]
       .sort((left, right) => right.weekStartDate.localeCompare(left.weekStartDate))
       .slice(0, limit)
+      .map((review) => cloneWeeklyReview(review));
+  }
+
+  async listWeeklyReviewsOverlapping(startDate: string, endDate: string): Promise<WeeklyReview[]> {
+    return [...this.weeklyReviews.values()]
+      .filter((review) =>
+        journalPeriodOverlaps(review.weekStartDate, review.weekEndDate, startDate, endDate),
+      )
+      .sort((left, right) => right.weekStartDate.localeCompare(left.weekStartDate))
       .map((review) => cloneWeeklyReview(review));
   }
 
@@ -263,6 +281,18 @@ export class MemoryRepository implements AppRepository {
     return [...this.monthlyReviews.values()]
       .sort((left, right) => right.monthKey.localeCompare(left.monthKey))
       .slice(0, limit)
+      .map((review) => cloneMonthlyReview(review));
+  }
+
+  async listMonthlyReviewsOverlapping(
+    startDate: string,
+    endDate: string,
+  ): Promise<MonthlyReview[]> {
+    return [...this.monthlyReviews.values()]
+      .filter((review) =>
+        journalPeriodOverlaps(review.monthStartDate, review.monthEndDate, startDate, endDate),
+      )
+      .sort((left, right) => right.monthKey.localeCompare(left.monthKey))
       .map((review) => cloneMonthlyReview(review));
   }
 
