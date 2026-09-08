@@ -1,7 +1,9 @@
 # Roadmap
 
-- [Project Planned Tasks](specs/todo/project-planned-tasks.md) — file d’actions planifiées
-  par projet, avec promotion contrôlée vers la prochaine action. Non implémenté.
+- [Project Planned Tasks](specs/done/project-planned-tasks.md) — file d’actions planifiées
+  par projet, avec promotion contrôlée vers la prochaine action. Implémenté.
+- [Triage d’emails multi-comptes](specs/todo/email-triage.md) — collecte locale, tri IA et
+  création contrôlée de tâches GTD pour Gmail, Microsoft 365 et Yahoo. Non implémenté.
 
 Voici le plan que je te recommande pour la suite, dans un ordre qui garde l’app utilisable très vite tout en collant à ton process réel.
 
