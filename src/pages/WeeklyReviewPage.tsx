@@ -1084,7 +1084,7 @@ export const WeeklyReviewPage = () => {
       </SectionCard>
 
       <SectionCard title={t("weekly.ritual.title")} subtitle={t("weekly.ritual.subtitle")}>
-        <div className="weekly-ritual-grid">
+        <div className="weekly-ritual-stack">
           {ritualSections.map((section) => (
             <article key={section.key} className="weekly-ritual-card">
               <div className="weekly-ritual-card__header">
