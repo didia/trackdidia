@@ -20,8 +20,28 @@ export const FloatingPomodoroTimer = () => {
   const hasActiveSession = Boolean(activeSession);
   const [selectedTaskId, setSelectedTaskId] = useState<string>("");
   const lastSyncedSourceRef = useRef<string>("");
+  const [idleNowMs, setIdleNowMs] = useState<number>(() => Date.now());
 
-  const visible = shouldRenderFloatingPomodoro(pomodoro.state, pomodoro.sessions, pathname);
+  // Nothing else re-renders this component on a timer while idle, so the 25-minute cycle
+  // reset (see shouldResetPomodoroCycleAfterIdle) would otherwise only be picked up whenever
+  // some unrelated app state happens to change. Tick periodically so the overlay hides itself
+  // once idle, instead of staying visible with stale next-step/task-selector state.
+  useEffect(() => {
+    if (hasActiveSession) {
+      return;
+    }
+    setIdleNowMs(Date.now());
+    const intervalId = window.setInterval(() => setIdleNowMs(Date.now()), 30_000);
+    return () => window.clearInterval(intervalId);
+  }, [hasActiveSession]);
+
+  const idleNowIso = new Date(idleNowMs).toISOString();
+  const visible = shouldRenderFloatingPomodoro(
+    pomodoro.state,
+    pomodoro.sessions,
+    pathname,
+    idleNowIso,
+  );
 
   useEffect(() => {
     if (hasActiveSession) {

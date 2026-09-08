@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAppContext } from "../app/app-context";
@@ -30,10 +31,25 @@ export const AppShell = () => {
   const { t: tCommon } = useTranslation("common");
   const { pomodoro } = useAppContext();
   const { pathname } = useLocation();
+  const hasActivePomodoroSession = Boolean(pomodoro.state.activeSession);
+  const [idleNowMs, setIdleNowMs] = useState<number>(() => Date.now());
+
+  // Keeps the content padding in sync with FloatingPomodoroTimer's own idle tick, so the
+  // reserved bottom space disappears at the same 25-minute idle reset as the overlay itself.
+  useEffect(() => {
+    if (hasActivePomodoroSession) {
+      return;
+    }
+    setIdleNowMs(Date.now());
+    const intervalId = window.setInterval(() => setIdleNowMs(Date.now()), 30_000);
+    return () => window.clearInterval(intervalId);
+  }, [hasActivePomodoroSession]);
+
   const hasFloatingPomodoro = shouldRenderFloatingPomodoro(
     pomodoro.state,
     pomodoro.sessions,
     pathname,
+    new Date(idleNowMs).toISOString(),
   );
   const quoteOfTheDay = getQuoteOfTheDay();
 

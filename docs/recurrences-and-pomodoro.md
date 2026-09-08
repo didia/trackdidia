@@ -222,6 +222,15 @@ is skipped without creating a dummy session or playing a second chime. The full
 Pomodoro page keeps history, manual titles, skip-break-without-focus, and the
 remaining recovery controls.
 
+The overlay ticks its own idle clock every 30 seconds (`AppShell` and
+`FloatingPomodoroTimer` each hold this independently) so it hides itself once the
+25-minute window elapses even with no other app activity. Session lookups behind
+`shouldShowFloatingPomodoro` are scoped to the local calendar day, so a completion in
+the last few minutes before local midnight can lose overlay visibility earlier than
+25 minutes once the day rolls over, since the prior day's session drops out of the
+"today" list the reconciliation pass fetches. This is a narrow, accepted edge case,
+not a bug to route around.
+
 ### User actions
 
 - Start the next expected focus/break.

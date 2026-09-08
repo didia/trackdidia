@@ -1,6 +1,6 @@
-import { screen } from "@testing-library/react";
+import { act, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Task } from "../domain/types";
 import {
   buildPomodoroSessionDetails,
@@ -48,6 +48,62 @@ const idleAfterFocusState = buildPomodoroState([completedFocus], []);
 const idleAfterFocusSessions = buildPomodoroSessionDetails([completedFocus], []);
 
 describe("FloatingPomodoroTimer", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("hides itself once the 25-minute idle window elapses, with no other trigger", async () => {
+    vi.useFakeTimers();
+
+    const startedAt = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+    const completedAt = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+    const recentCompletedFocus = {
+      ...createPomodoroSession("focus", startedAt, 1),
+      status: "completed" as const,
+      completedAt,
+      endsAt: completedAt,
+    };
+    const state = buildPomodoroState([recentCompletedFocus], []);
+    const sessions = buildPomodoroSessionDetails([recentCompletedFocus], []);
+
+    await renderWithApp(<FloatingPomodoroTimer />, {
+      contextOverrides: {
+        pomodoro: {
+          state,
+          sessions,
+          taskSummaries: [],
+          taskOptions: [taskFixture()],
+          currentTask: null,
+          currentActivityLabel: null,
+          preferredTask: null,
+          preferredActivityLabel: null,
+          loading: false,
+          reloadError: null,
+          reload: async () => undefined,
+          startPomodoro: async () => undefined,
+          pauseCurrent: async () => undefined,
+          resumeCurrent: async () => undefined,
+          skipBreak: async () => undefined,
+          completeCurrentTask: async () => undefined,
+          completeNow: async () => undefined,
+          cancelCurrent: async () => undefined,
+          switchTask: async () => undefined,
+        },
+      },
+    });
+
+    // 20 minutes since completion: still inside the idle window.
+    expect(screen.getByLabelText("Cycle Pomodoro")).toBeInTheDocument();
+
+    // Advance past the 25-minute mark with no other state change (no click, no navigation,
+    // no unrelated context update) — only the widget's own idle tick should move.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6 * 60 * 1000);
+    });
+
+    expect(screen.queryByLabelText("Cycle Pomodoro")).not.toBeInTheDocument();
+  });
+
   it("stays hidden on a cold start with no sessions", async () => {
     await renderWithApp(<FloatingPomodoroTimer />);
 
