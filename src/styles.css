@@ -886,6 +886,12 @@ textarea {
   grid-template-columns: 1fr;
 }
 
+.weekly-ritual-stack {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr;
+}
+
 .weekly-ritual-card {
   display: grid;
   gap: 12px;
