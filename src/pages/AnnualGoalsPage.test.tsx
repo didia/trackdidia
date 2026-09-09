@@ -89,6 +89,46 @@ describe("AnnualGoalsPage", () => {
     expect(notesField).toHaveValue("Semaine correcte");
   });
 
+  it("does not reload goal pacing when evaluation notes are saved", async () => {
+    const buildPacingSpy = vi.spyOn(GoalPacingService.prototype, "buildPacing");
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveAnnualGoal(
+      createEmptyAnnualGoal({
+        id: "goal-autosave",
+        title: "Discipline autosave",
+        targetValue: 100,
+        manualCurrentValue: 80,
+        unit: "%",
+      }),
+    );
+    const user = userEvent.setup();
+
+    await renderWithApp(<AnnualGoalsPage />, {
+      repository,
+      route: "/objectifs-annuels",
+      contextOverrides: { settings: { ...defaultAppSettings(), aiEnabled: false } },
+    });
+
+    const notesField = await screen.findByLabelText(/notes/i);
+    await waitFor(() => {
+      expect(buildPacingSpy).toHaveBeenCalled();
+    });
+    const callsAfterLoad = buildPacingSpy.mock.calls.length;
+
+    await user.click(notesField);
+    await user.type(notesField, "Semaine correcte");
+    await user.tab();
+
+    await waitFor(async () => {
+      const goals = await repository.listAnnualGoals();
+      const evaluationMonthKey = Object.keys(goals[0].evaluations)[0];
+      expect(goals[0].evaluations[evaluationMonthKey]?.notes).toBe("Semaine correcte");
+    });
+    expect(buildPacingSpy.mock.calls.length).toBe(callsAfterLoad);
+    buildPacingSpy.mockRestore();
+  });
+
   it("does not run pacing while the year field is an incomplete value", async () => {
     const buildPacingSpy = vi.spyOn(GoalPacingService.prototype, "buildPacing");
     const repository = new MemoryRepository();

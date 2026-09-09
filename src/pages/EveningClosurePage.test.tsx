@@ -213,6 +213,95 @@ describe("EveningClosurePage coach proposals", () => {
     expect(coachService.resultFromMessage).not.toHaveBeenCalled();
   });
 
+  it("does not reload the close pulse when evening fields are saved", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const proposal = tomorrowProposal();
+    const stored = buildCoachResult(proposal);
+    await repository.saveAiMessage(stored.message);
+    await repository.saveAiProposal(proposal);
+    const saveDailyEntry = vi.spyOn(repository, "saveDailyEntry");
+
+    const coachService = {
+      resultFromMessage: vi.fn(async () => stored),
+      buildPulse: vi.fn(async () => stored),
+    } as unknown as CoachPulseService;
+
+    const user = userEvent.setup();
+    await renderWithApp(<EveningClosurePage />, {
+      repository,
+      route: "/fermeture-soir",
+      contextOverrides: { coachService, settings: enabledAiSettings() },
+    });
+
+    expect(await screen.findByText("Cloture")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(coachService.buildPulse).toHaveBeenCalledOnce();
+    });
+    expect(await screen.findByRole("button", { name: /régénérer/i })).toBeEnabled();
+    vi.mocked(coachService.buildPulse).mockClear();
+    saveDailyEntry.mockClear();
+
+    await user.type(screen.getByRole("spinbutton", { name: /course/i }), "30");
+
+    await waitFor(() => {
+      expect(saveDailyEntry).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("spinbutton", { name: /course/i })).toHaveValue(30);
+    });
+    expect(coachService.buildPulse).not.toHaveBeenCalled();
+  });
+
+  it("reloads the close pulse when regenerate is clicked after evening edits", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const proposal = tomorrowProposal();
+    const stored = buildCoachResult(proposal);
+    await repository.saveAiMessage(stored.message);
+    await repository.saveAiProposal(proposal);
+    const saveDailyEntry = vi.spyOn(repository, "saveDailyEntry");
+
+    const coachService = {
+      resultFromMessage: vi.fn(async () => stored),
+      buildPulse: vi.fn(async () => stored),
+    } as unknown as CoachPulseService;
+
+    const user = userEvent.setup();
+    await renderWithApp(<EveningClosurePage />, {
+      repository,
+      route: "/fermeture-soir",
+      contextOverrides: { coachService, settings: enabledAiSettings() },
+    });
+
+    expect(await screen.findByText("Cloture")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(coachService.buildPulse).toHaveBeenCalledOnce();
+    });
+    expect(await screen.findByRole("button", { name: /régénérer/i })).toBeEnabled();
+    vi.mocked(coachService.buildPulse).mockClear();
+
+    await user.type(screen.getByRole("spinbutton", { name: /course/i }), "30");
+    await waitFor(() => {
+      expect(saveDailyEntry).toHaveBeenCalled();
+    });
+    expect(await screen.findByRole("button", { name: /régénérer/i })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: /régénérer/i }));
+
+    await waitFor(() => {
+      expect(coachService.buildPulse).toHaveBeenCalledOnce();
+    });
+    expect(coachService.buildPulse).toHaveBeenCalledWith(
+      repository,
+      expect.objectContaining({
+        stance: "close",
+        trigger: "explicit",
+        bypassCache: true,
+      }),
+    );
+  });
+
   it("resolves due commitments on open when AI is disabled", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();

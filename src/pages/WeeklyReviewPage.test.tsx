@@ -1135,4 +1135,47 @@ describe("WeeklyReviewPage coach cache", () => {
       );
     });
   });
+
+  it("does not reload weekly synthesis when ritual notes are saved", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    for (let index = 0; index < 7; index += 1) {
+      await repository.saveDailyEntry(createEmptyDailyEntry(addDays(weekStartDate, index)));
+    }
+
+    const stored = storedOk();
+    vi.mocked(loadLatestWeeklySynthesis).mockResolvedValue(stored);
+    const buildSpy = vi
+      .spyOn(WeeklySynthesisService.prototype, "buildSynthesis")
+      .mockResolvedValue(stored);
+
+    const user = userEvent.setup();
+    await renderWithApp(<WeeklyReviewPage />, {
+      repository,
+      route: "/semaine",
+      contextOverrides: { settings: enabledAiSettings() },
+    });
+
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
+    await user.clear(dateInput);
+    await user.type(dateInput, weekStartDate);
+    await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
+    expect(await screen.findByText("Coach cache")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(buildSpy).toHaveBeenCalled();
+    });
+    expect(await screen.findByRole("button", { name: /régénérer/i })).toBeEnabled();
+    buildSpy.mockClear();
+
+    const bilanField = screen.getByLabelText(/notes bilan/i);
+    await user.type(bilanField, "Semaine solide.");
+    await waitFor(async () => {
+      await expect(repository.getWeeklyReview(weekStartDate)).resolves.toMatchObject({
+        notes: expect.objectContaining({
+          bilan: "Semaine solide.",
+        }),
+      });
+    });
+    expect(buildSpy).not.toHaveBeenCalled();
+  });
 });
