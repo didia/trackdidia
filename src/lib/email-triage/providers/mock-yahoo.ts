@@ -1,5 +1,9 @@
 import type { EmailTriageTransientMessage } from "../../../domain/email-triage";
 import { EMAIL_TRIAGE_YAHOO_IGNORE_FOLDER, EMAIL_TRIAGE_YAHOO_INBOX_FOLDER } from "../constants";
+import {
+  resolveYahooConversationKeySync,
+  type YahooConversationResolver,
+} from "./yahoo-conversation";
 import type { EmailTriageProviderAdapter, ProviderMarkerRequest, ProviderSyncPage } from "./types";
 
 export interface MockYahooMessage {
@@ -24,34 +28,14 @@ export interface MockYahooState {
   lastConfirmedUid: number | null;
 }
 
-export const resolveYahooConversationKey = (
-  message: MockYahooMessage,
-  aliasMap: Map<string, string>,
-): string => {
-  if (message.messageId && aliasMap.has(message.messageId)) {
-    return aliasMap.get(message.messageId)!;
-  }
-  if (message.inReplyTo && aliasMap.has(message.inReplyTo)) {
-    return aliasMap.get(message.inReplyTo)!;
-  }
-  for (const reference of message.references) {
-    if (aliasMap.has(reference)) {
-      return aliasMap.get(reference)!;
-    }
-  }
-  if (message.messageId) {
-    const key = message.messageId;
-    aliasMap.set(message.messageId, key);
-    return key;
-  }
-  return `orphan:${message.uid}`;
-};
+export { resolveYahooConversationKeySync as resolveYahooConversationKey } from "./yahoo-conversation";
 
 export const mockYahooMessageToTransient = (
   message: MockYahooMessage,
   conversationKey: string,
+  uidvalidity = 1,
 ): EmailTriageTransientMessage => ({
-  providerMessageId: String(message.uid),
+  providerMessageId: `${uidvalidity}:${message.uid}`,
   conversationKey,
   messageIdHeader: message.messageId,
   references: message.references,
@@ -119,8 +103,15 @@ export class MockYahooAdapter implements EmailTriageProviderAdapter {
     );
     const page = batch.slice(0, 10);
     const transient: EmailTriageTransientMessage[] = page.map((message) => {
-      const conversationKey = resolveYahooConversationKey(message, this.aliasMap);
-      return mockYahooMessageToTransient(message, conversationKey);
+      const conversationKey = resolveYahooConversationKeySync(
+        {
+          messageIdHeader: message.messageId,
+          references: message.references,
+          inReplyTo: message.inReplyTo,
+        },
+        this.aliasMap,
+      );
+      return mockYahooMessageToTransient(message, conversationKey, state.uidvalidity);
     });
 
     const lastUid = page.at(-1)?.uid ?? cursor;
@@ -142,11 +133,46 @@ export class MockYahooAdapter implements EmailTriageProviderAdapter {
         ? EMAIL_TRIAGE_YAHOO_INBOX_FOLDER
         : `${EMAIL_TRIAGE_YAHOO_IGNORE_FOLDER}${delimiter}${request.ignoreReason ?? "other"}`;
     for (const messageId of request.messageIds) {
-      this.movedMessages.set(Number(messageId), targetFolder);
+      const { uid } = parseMockProviderMessageId(messageId);
+      this.movedMessages.set(uid, targetFolder);
     }
   }
 
   getMovedFolder(uid: number): string | undefined {
     return this.movedMessages.get(uid);
+  }
+
+  getAliasMap(): Map<string, string> {
+    return this.aliasMap;
+  }
+}
+
+const parseMockProviderMessageId = (providerMessageId: string): { uid: number } => {
+  const parts = providerMessageId.split(":");
+  return { uid: Number(parts.at(-1)) };
+};
+
+export class RepositoryBackedYahooConversationResolver implements YahooConversationResolver {
+  constructor(
+    private readonly accountId: string,
+    private readonly repository: {
+      emailTriageFindConversationKeyByMessageId(
+        accountId: string,
+        messageIdHeader: string,
+      ): Promise<string | null>;
+      emailTriageSaveAlias(
+        accountId: string,
+        conversationKey: string,
+        messageIdHeader: string,
+      ): Promise<void>;
+    },
+  ) {}
+
+  findConversationKeyByMessageId(messageId: string): Promise<string | null> {
+    return this.repository.emailTriageFindConversationKeyByMessageId(this.accountId, messageId);
+  }
+
+  registerAlias(messageIdHeader: string, conversationKey: string): Promise<void> {
+    return this.repository.emailTriageSaveAlias(this.accountId, conversationKey, messageIdHeader);
   }
 }

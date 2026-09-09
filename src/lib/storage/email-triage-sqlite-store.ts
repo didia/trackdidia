@@ -1117,4 +1117,56 @@ export class EmailTriageSqliteStore {
       createdAt: row.created_at,
     }));
   }
+
+  async findConversationKeyByMessageId(
+    accountId: string,
+    messageIdHeader: string,
+  ): Promise<string | null> {
+    const db = await this.getDb();
+    const rows = await db.select<Array<{ conversation_key: string }>>(
+      `SELECT c.conversation_key
+       FROM email_triage_aliases a
+       JOIN email_triage_conversations c ON c.id = a.conversation_id
+       WHERE c.account_id = $1 AND a.message_id_header = $2
+       LIMIT 1`,
+      [accountId, messageIdHeader],
+    );
+    return rows[0]?.conversation_key ?? null;
+  }
+
+  async saveAlias(
+    accountId: string,
+    conversationKey: string,
+    messageIdHeader: string,
+  ): Promise<void> {
+    const db = await this.getDb();
+    let conversations = await db.select<Array<{ id: string }>>(
+      "SELECT id FROM email_triage_conversations WHERE account_id = $1 AND conversation_key = $2 LIMIT 1",
+      [accountId, conversationKey],
+    );
+    if (conversations.length === 0) {
+      const conversationId = createEntityId("email-conversation");
+      const timestamp = nowIso();
+      await db.execute(
+        `INSERT INTO email_triage_conversations (
+          id, account_id, conversation_key, decision_version, routing_state, task_id,
+          last_generated_title, managed_notes_revision, managed_notes_hash, source_url, created_at, updated_at
+        ) VALUES ($1,$2,$3,0,'pending',NULL,NULL,0,NULL,NULL,$4,$4)`,
+        [conversationId, accountId, conversationKey, timestamp],
+      );
+      conversations = [{ id: conversationId }];
+    }
+    const conversationId = conversations[0]!.id;
+    const existing = await db.select<Array<{ id: string }>>(
+      "SELECT id FROM email_triage_aliases WHERE conversation_id = $1 AND message_id_header = $2 LIMIT 1",
+      [conversationId, messageIdHeader],
+    );
+    if (existing.length > 0) {
+      return;
+    }
+    await db.execute(
+      "INSERT INTO email_triage_aliases (id, conversation_id, message_id_header, created_at) VALUES ($1, $2, $3, $4)",
+      [createEntityId("email-alias"), conversationId, messageIdHeader, nowIso()],
+    );
+  }
 }

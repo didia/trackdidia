@@ -21,6 +21,7 @@ import { resolveMicrosoftOAuthClientId } from "../lib/email-triage/oauth/microso
 import {
   connectGmailAccount,
   connectMicrosoftAccount,
+  connectYahooAccount,
   disconnectEmailTriageAccount,
   openExternalUrl,
   syncEmailTriageAccountNow,
@@ -50,6 +51,8 @@ export const EmailTriagePage = () => {
   const [triageKeyDraft, setTriageKeyDraft] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [yahooEmail, setYahooEmail] = useState("");
+  const [yahooAppPassword, setYahooAppPassword] = useState("");
   const [accountActionError, setAccountActionError] = useState<Record<string, string>>({});
   const [previewReviewId, setPreviewReviewId] = useState<string | null>(null);
   const [ignoreReasonByReviewId, setIgnoreReasonByReviewId] = useState<
@@ -73,6 +76,12 @@ export const EmailTriagePage = () => {
   const canConnectGmail = !browserPreview && vaultAvailable && Boolean(resolvedGmailClientId);
   const canConnectMicrosoft =
     !browserPreview && vaultAvailable && Boolean(resolvedMicrosoftClientId);
+  const canConnectYahoo = !browserPreview && vaultAvailable;
+
+  const accountById = useMemo(
+    () => new Map(accounts.map((account) => [account.id, account])),
+    [accounts],
+  );
 
   const ignoreReasonOptions: Exclude<EmailTriageIgnoreReason, null>[] = [
     "newsletter",
@@ -203,6 +212,28 @@ export const EmailTriagePage = () => {
       });
       if (!result.ok) {
         setConnectError(result.error ?? "connect_failed");
+      }
+      await load();
+    } catch {
+      setConnectError("connect_failed");
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const handleConnectYahoo = async (reconnectAccountId?: string) => {
+    setConnecting(true);
+    setConnectError(null);
+    try {
+      const result = await connectYahooAccount(repository, {
+        email: yahooEmail,
+        appPassword: yahooAppPassword,
+        reconnectAccountId,
+      });
+      if (!result.ok) {
+        setConnectError(result.error ?? "connect_failed");
+      } else {
+        setYahooAppPassword("");
       }
       await load();
     } catch {
@@ -491,6 +522,45 @@ export const EmailTriagePage = () => {
             {t("connectMicrosoft")}
           </button>
         </div>
+        <div className="form-grid">
+          <label>
+            <span>{t("yahooEmail")}</span>
+            <input
+              type="email"
+              value={yahooEmail}
+              disabled={!canConnectYahoo || connecting || !settings.enabled}
+              onChange={(event) => setYahooEmail(event.target.value)}
+              placeholder={t("yahooEmailPlaceholder")}
+            />
+          </label>
+          <label>
+            <span>{t("yahooAppPassword")}</span>
+            <input
+              type="password"
+              value={yahooAppPassword}
+              disabled={!canConnectYahoo || connecting || !settings.enabled}
+              onChange={(event) => setYahooAppPassword(event.target.value)}
+              placeholder={t("yahooAppPasswordPlaceholder")}
+            />
+          </label>
+        </div>
+        <p>{t("yahooAppPasswordHelp")}</p>
+        <div className="actions-row">
+          <button
+            type="button"
+            className="button button--primary"
+            disabled={
+              !canConnectYahoo ||
+              connecting ||
+              !settings.enabled ||
+              !yahooEmail.trim() ||
+              !yahooAppPassword.trim()
+            }
+            onClick={() => void handleConnectYahoo()}
+          >
+            {t("connectYahoo")}
+          </button>
+        </div>
         {connectError ? (
           <p>{t(`connectErrors.${connectError}`, { defaultValue: connectError })}</p>
         ) : null}
@@ -529,7 +599,9 @@ export const EmailTriagePage = () => {
                 >
                   {account.paused ? t("resume") : t("pause")}
                 </button>
-                {(account.provider === "gmail" || account.provider === "microsoft_graph") &&
+                {(account.provider === "gmail" ||
+                  account.provider === "microsoft_graph" ||
+                  account.provider === "yahoo") &&
                 !browserPreview ? (
                   <>
                     <button
@@ -546,15 +618,23 @@ export const EmailTriagePage = () => {
                       disabled={
                         account.provider === "gmail"
                           ? !canConnectGmail || connecting
-                          : !canConnectMicrosoft || connecting
+                          : account.provider === "microsoft_graph"
+                            ? !canConnectMicrosoft || connecting
+                            : !canConnectYahoo || connecting
                       }
                       onClick={() =>
                         void (account.provider === "gmail"
                           ? handleConnectGmail(account.id)
-                          : handleConnectMicrosoft(account.id))
+                          : account.provider === "microsoft_graph"
+                            ? handleConnectMicrosoft(account.id)
+                            : handleConnectYahoo(account.id))
                       }
                     >
-                      {account.provider === "gmail" ? t("reconnectGmail") : t("reconnectMicrosoft")}
+                      {account.provider === "gmail"
+                        ? t("reconnectGmail")
+                        : account.provider === "microsoft_graph"
+                          ? t("reconnectMicrosoft")
+                          : t("reconnectYahoo")}
                     </button>
                     <button
                       type="button"
@@ -608,6 +688,22 @@ export const EmailTriagePage = () => {
                     {t("openSource")}
                   </button>
                 )
+              ) : accountById.get(review.accountId)?.provider === "yahoo" &&
+                review.sanitizedPreview ? (
+                <>
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={() => void openExternalUrl("https://mail.yahoo.com", browserPreview)}
+                  >
+                    {t("openSource")}
+                  </button>
+                  <p>{t("yahooSearchHint")}</p>
+                  <code>
+                    {review.sanitizedPreview.sender} · {review.sanitizedPreview.subject} ·{" "}
+                    {formatDateTimeShort(review.sanitizedPreview.receivedAt)}
+                  </code>
+                </>
               ) : null}
               <label>
                 <span>{t("ignoreReasonLabel")}</span>

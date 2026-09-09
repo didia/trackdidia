@@ -89,7 +89,7 @@ export const useEmailTriageCoordinator = (
       repository: buildEmailTriageRepositoryPort(repository),
       createAdapter: async (account) => {
         const settings = await repository.getEmailTriageGlobalSettings();
-        return createEmailTriageAdapter(account, settings);
+        return createEmailTriageAdapter(account, settings, repository);
       },
       classifierProvider: {
         completeStructured: async (request) => {

@@ -21,8 +21,16 @@
   "disconnect": "Déconnecter",
   "connectGmail": "Connecter Gmail",
   "connectMicrosoft": "Connecter Microsoft",
+  "connectYahoo": "Connecter Yahoo",
   "reconnectGmail": "Reconnecter Gmail",
   "reconnectMicrosoft": "Reconnecter Microsoft",
+  "reconnectYahoo": "Reconnecter Yahoo",
+  "yahooEmail": "Courriel Yahoo",
+  "yahooEmailPlaceholder": "vous@yahoo.com",
+  "yahooAppPassword": "Mot de passe d'application Yahoo",
+  "yahooAppPasswordPlaceholder": "Mot de passe d'application (16 caractères)",
+  "yahooAppPasswordHelp": "Yahoo exige un mot de passe d'application dédié avec IMAP activé — n'utilisez jamais le mot de passe principal du compte.",
+  "yahooSearchHint": "Yahoo ne fournit pas de lien direct fiable : ouvrez Yahoo Mail et recherchez avec l'expéditeur, l'objet et la date ci-dessous.",
   "globalEnabled": "Activer le triage courriel",
   "globalMutation": "Mutation fournisseur (désactivée)",
   "pollInterval": "Intervalle de sondage (minutes)",
@@ -65,7 +73,10 @@
     "reconnect_account_mismatch": "Le compte connecté ne correspond pas à ce compte TrackDidia.",
     "reconnect_cancelled": "La reconnexion a été annulée pendant l'autorisation.",
     "connect_failed": "La connexion au compte courriel a échoué.",
-    "vault_save_failed": "Impossible d'enregistrer dans le coffre OS."
+    "vault_save_failed": "Impossible d'enregistrer dans le coffre OS.",
+    "missing_credentials": "Courriel et mot de passe d'application Yahoo requis.",
+    "vault_unavailable": "Coffre OS indisponible — connexion Yahoo impossible.",
+    "reconnect_required": "Identifiants Yahoo invalides — reconnectez le compte."
   },
   "vaultErrors": {
     "disconnect_failed": "Impossible de supprimer les identifiants du coffre OS."

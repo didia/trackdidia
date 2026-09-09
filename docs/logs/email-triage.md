@@ -18,6 +18,10 @@
   repairs missing GTD/effects after a persist crash, reviews no longer store
   body excerpts, resolving a review commits the message/conversation decision,
   and enable/resume reconfigures the coordinator.
+- 2026-09-08: Yahoo slice — live IMAP adapter on desktop (`imap.mail.yahoo.com:993`, app password
+  vault JSON, Tauri `yahoo_imap_*` commands with native-tls), UIDVALIDITY baseline/sync/recovery,
+  Message-ID alias persistence, French Connect Yahoo form and Yahoo Mail search hint in reviews.
+  Mock Yahoo adapter retained for browser preview/tests; automatic mutation still off.
 - 2026-09-08: Microsoft Graph slice — live multitenant OAuth (PKCE, loopback,
   `Mail.ReadWrite` + `MailboxSettings.ReadWrite`), Graph inbox delta baseline/replay/invalid-delta
   reseed, message-level Outlook categories, French Connect/Reconnect Microsoft, migration 31 for

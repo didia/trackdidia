@@ -6,31 +6,17 @@ describe("mock yahoo adapter", () => {
     const aliasMap = new Map<string, string>();
     const parentKey = resolveYahooConversationKey(
       {
-        uid: 1,
-        messageId: "<parent@mail>",
+        messageIdHeader: "<parent@mail>",
         references: [],
         inReplyTo: null,
-        subject: "Parent",
-        from: "a@b.com",
-        to: ["me@example.com"],
-        internalDate: "2026-01-01T00:00:00Z",
-        body: "",
-        folder: "INBOX",
       },
       aliasMap,
     );
     const childKey = resolveYahooConversationKey(
       {
-        uid: 2,
-        messageId: "<child@mail>",
+        messageIdHeader: "<child@mail>",
         references: ["<parent@mail>"],
         inReplyTo: "<parent@mail>",
-        subject: "Re: Parent",
-        from: "a@b.com",
-        to: ["me@example.com"],
-        internalDate: "2026-01-02T00:00:00Z",
-        body: "",
-        folder: "INBOX",
       },
       aliasMap,
     );
