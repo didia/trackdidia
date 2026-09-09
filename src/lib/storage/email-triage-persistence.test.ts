@@ -289,7 +289,6 @@ describe("email triage persistence", () => {
         subject: "s",
         sender: "a@b.com",
         receivedAt: "2026-01-01T00:00:00.000Z",
-        bodyExcerpt: "excerpt",
         sourceUrl: null,
       },
     });
@@ -318,7 +317,6 @@ describe("email triage persistence", () => {
         subject: "s",
         sender: "a@b.com",
         receivedAt: "2026-01-01T00:00:00.000Z",
-        bodyExcerpt: "excerpt",
         sourceUrl: null,
       },
     });

@@ -1,5 +1,9 @@
 # Email triage log
 
+- 2026-09-09: Review follow-up — pagination carries the updated cursor, replay
+  repairs missing GTD/effects after a persist crash, reviews no longer store
+  body excerpts, resolving a review commits the message/conversation decision,
+  and enable/resume reconfigures the coordinator.
 - 2026-09-08: Review follow-up — idempotent reviews and message upserts on page
   replay, inverted evaluation automation gate, review resolve error handling,
   matching managed-notes hashes, Graph gap reseed, account-scoped effect

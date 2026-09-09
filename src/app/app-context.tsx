@@ -52,6 +52,8 @@ export interface AppContextValue {
   pulseRevision: number;
   /** Current local `YYYY-MM-DD`. Changes when the local-day boundary reconciles. */
   calendarDay: string;
+  /** Restarts email-triage polling after enable/pause/interval changes. */
+  reconfigureEmailTriage: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -84,7 +86,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   const calendarDay = useLocalDayReconciliation(repository);
   const pomodoro = usePomodoroController(repository, calendarDay);
   const browserPreview = !isTauriRuntime();
-  useEmailTriageCoordinator(repository, {
+  const { reconfigure: reconfigureEmailTriage } = useEmailTriageCoordinator(repository, {
     browserPreview,
     allowStart: !loading && !startupError,
   });
@@ -461,6 +463,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         pomodoro,
         pulseRevision,
         calendarDay,
+        reconfigureEmailTriage,
       }}
     >
       {startupError ? (

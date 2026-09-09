@@ -21,7 +21,7 @@ import {
 
 export const EmailTriagePage = () => {
   const { t } = useTranslation("emailTriage");
-  const { repository, browserPreview } = useAppContext();
+  const { repository, browserPreview, reconfigureEmailTriage } = useAppContext();
   const [accounts, setAccounts] = useState<EmailTriageAccount[]>([]);
   const [reviews, setReviews] = useState<EmailTriageReview[]>([]);
   const [settings, setSettings] = useState<EmailTriageGlobalSettings>(
@@ -92,6 +92,7 @@ export const EmailTriagePage = () => {
         ),
         updatedAt: nowIso(),
       });
+      await reconfigureEmailTriage();
       await load();
     } finally {
       setSaving(false);
@@ -104,6 +105,7 @@ export const EmailTriagePage = () => {
       paused: !account.paused,
       updatedAt: nowIso(),
     });
+    await reconfigureEmailTriage();
     await load();
   };
 
@@ -381,7 +383,12 @@ export const EmailTriagePage = () => {
             ) : null}
             {resolveErrorByReviewId[review.id] ? <p>{resolveErrorByReviewId[review.id]}</p> : null}
             {previewReview?.id === review.id && previewReview.sanitizedPreview ? (
-              <pre className="code-block">{previewReview.sanitizedPreview.bodyExcerpt}</pre>
+              <div>
+                <p>{previewReview.sanitizedPreview.subject}</p>
+                <p>{previewReview.sanitizedPreview.sender}</p>
+                <p>{previewReview.sanitizedPreview.receivedAt}</p>
+                <p>{t("bodyNotStored")}</p>
+              </div>
             ) : null}
           </article>
         ))}

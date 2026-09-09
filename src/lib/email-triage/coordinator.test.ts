@@ -115,4 +115,95 @@ describe("EmailTriageCoordinator", () => {
     expect(runSpy).not.toHaveBeenCalled();
     vi.useRealTimers();
   });
+
+  it("starts polling after reconfigure when the feature is enabled", async () => {
+    let enabled = false;
+    let listedAccounts = false;
+    const coordinator = new EmailTriageCoordinator({
+      repository: {
+        ...unusedPort,
+        getGlobalSettings: async () => ({
+          ...defaultEmailTriageGlobalSettings(),
+          enabled,
+        }),
+        listAccounts: async () => {
+          listedAccounts = true;
+          return [];
+        },
+        recoverStaleEffects: async () => 0,
+      },
+      createAdapter: () => null,
+      classifierProvider: { completeStructured: async () => "" },
+      browserPreview: false,
+    });
+    await coordinator.start();
+    expect(listedAccounts).toBe(false);
+    enabled = true;
+    await coordinator.reconfigure();
+    expect(listedAccounts).toBe(true);
+  });
+
+  it("advances the saved cursor between pages in one run", async () => {
+    const seenStates: Array<Record<string, unknown>> = [];
+    const account = {
+      id: "acct-1",
+      provider: "gmail" as const,
+      providerAccountId: "user-1",
+      label: "Test",
+      maskedAddress: "t***@example.com",
+      generation: 1,
+      enabled: true,
+      mutationEnabled: false,
+      paused: false,
+      state: "active" as const,
+      recoveryState: "none" as const,
+      lastSuccessAt: null,
+      lastError: null,
+      pollIntervalMinutes: 5,
+      syncState: {} as Record<string, unknown>,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const coordinator = new EmailTriageCoordinator({
+      repository: {
+        ...unusedPort,
+        getGlobalSettings: async () => ({
+          ...defaultEmailTriageGlobalSettings(),
+          enabled: true,
+        }),
+        getAccount: async () => account,
+        updateAccountSyncState: async (_accountId, syncState) => {
+          account.syncState = { ...syncState };
+          return { ...account, syncState: { ...syncState } };
+        },
+        listAccounts: async () => [account],
+        recoverStaleEffects: async () => 0,
+      },
+      createAdapter: () => ({
+        provider: "gmail",
+        fetchPage: async (syncState) => {
+          seenStates.push({ ...syncState });
+          if (!syncState.page) {
+            return {
+              messages: [],
+              cursorUpdate: { page: 1 },
+              hasMore: true,
+              gapDetected: false,
+            };
+          }
+          return {
+            messages: [],
+            cursorUpdate: { page: 2 },
+            hasMore: false,
+            gapDetected: false,
+          };
+        },
+      }),
+      classifierProvider: { completeStructured: async () => "" },
+      browserPreview: false,
+    });
+    await coordinator.start();
+    await coordinator.runAccountSync("acct-1");
+    expect(seenStates).toEqual([{}, { page: 1 }]);
+  });
 });

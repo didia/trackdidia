@@ -14,6 +14,7 @@ export const EMAIL_TRIAGE_DEFAULT_IGNORE_THRESHOLD = 0.9;
 export const EMAIL_TRIAGE_MIN_POLL_MINUTES = 5;
 export const EMAIL_TRIAGE_MAX_POLL_MINUTES = 60;
 export const EMAIL_TRIAGE_DEFAULT_POLL_MINUTES = 5;
+export const EMAIL_TRIAGE_MAX_PAGES_PER_RUN = 20;
 
 export const clampPollInterval = (minutes: number): number =>
   Math.min(

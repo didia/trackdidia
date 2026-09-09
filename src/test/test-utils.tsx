@@ -65,6 +65,7 @@ export const renderWithApp = async (ui: ReactElement, options: RenderOptions = {
     },
     pulseRevision: 0,
     calendarDay: getTodayDate(),
+    reconfigureEmailTriage: async () => undefined,
     ...options.contextOverrides,
   };
 

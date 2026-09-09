@@ -27,7 +27,12 @@ and exposes a French UI for settings, account cards, and the review queue.
   preview and the eight-second in-memory storage fallback both skip polling. Vault
   availability is probed only when the feature is enabled, using a read-only keychain
   check.
-- Classifier body text is transient; raw MIME and bodies are never persisted
+- Classifier body text is transient; raw MIME and bodies are never persisted.
+  Reviews store subject/sender/received-at/source URL only. Body preview is not
+  durable in this slice.
+- Enabling triage or pausing/resuming an account from the page reconfigures the
+  coordinator without restarting the app. Pagination reloads the saved cursor
+  after each page, with a per-run page cap.
 
 ## GTD linkage
 

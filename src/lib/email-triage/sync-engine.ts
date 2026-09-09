@@ -20,7 +20,6 @@ import {
   buildManagedNotesInnerBody,
 } from "./gtd-ownership";
 import { mergeSyncState, type EmailTriageProviderAdapter } from "./providers/types";
-import { buildSanitizedPreviewExcerpt } from "./sanitize";
 
 export interface EmailTriageRepositoryPort {
   getGlobalSettings(): Promise<EmailTriageGlobalSettings>;
@@ -107,7 +106,6 @@ export interface CreateReviewInput {
     subject: string;
     sender: string;
     receivedAt: string;
-    bodyExcerpt: string;
     sourceUrl: string | null;
   };
 }
@@ -124,25 +122,26 @@ export interface SyncEngineOptions {
 
 export const processProviderPage = async (
   options: SyncEngineOptions,
-): Promise<{ hasMore: boolean; gapDetected: boolean }> => {
+): Promise<{ hasMore: boolean; gapDetected: boolean; account: EmailTriageAccount }> => {
   const page = await options.adapter.fetchPage(options.account.syncState);
 
   for (const transient of page.messages) {
     await processTransientMessage(options, transient);
   }
 
+  let account = options.account;
   if (page.cursorUpdate || page.gapDetected) {
     const mergedState = page.cursorUpdate
       ? mergeSyncState(options.account.syncState, page.cursorUpdate)
       : options.account.syncState;
-    await options.repository.updateAccountSyncState(
+    account = await options.repository.updateAccountSyncState(
       options.account.id,
       mergedState,
       page.gapDetected ? { state: "gap_review_required", recoveryState: "in_progress" } : undefined,
     );
   }
 
-  return { hasMore: page.hasMore, gapDetected: page.gapDetected };
+  return { hasMore: page.hasMore, gapDetected: page.gapDetected, account };
 };
 
 const buildPersistAttempt = (
@@ -164,6 +163,98 @@ const buildPersistAttempt = (
   rawValid: classifyResult.rawValid,
   reviewReasons: classifyResult.reviewReasons,
 });
+
+const isTerminalRoutingDecision = (
+  decision: EmailTriageClassifierDecision | null | undefined,
+): decision is "relevant" | "ignore" => decision === "relevant" || decision === "ignore";
+
+const buildReviewPreview = (
+  transient: EmailTriageTransientMessage,
+): CreateReviewInput["preview"] => ({
+  subject: transient.subject,
+  sender: transient.sender,
+  receivedAt: transient.receivedAt,
+  sourceUrl: transient.sourceUrl,
+});
+
+const ensureCommittedDecision = async (
+  options: SyncEngineOptions,
+  conversation: EmailTriageConversation,
+  transient: EmailTriageTransientMessage,
+  decision: "relevant" | "ignore",
+  classifyResult: ClassifyEmailResult | null,
+): Promise<void> => {
+  const nextRoutingState = routingStateFor(decision);
+  const extraPatch: Partial<EmailTriageConversation> = {};
+  if (classifyResult) {
+    extraPatch.lastGeneratedTitle = classifyResult.output?.suggestedTaskTitle ?? transient.subject;
+    extraPatch.managedNotesRevision = conversation.managedNotesRevision + 1;
+    extraPatch.managedNotesHash = hashManagedNotesBody(
+      buildManagedNotesInnerBody(
+        classifyResult.output?.summary ?? "",
+        classifyResult.output?.rationale ?? "",
+      ),
+    );
+  }
+  const nextConversation = await bumpConversationIfRoutingChanged(
+    options,
+    conversation,
+    transient,
+    nextRoutingState,
+    extraPatch,
+  );
+  const externalId = buildEmailTriageTaskExternalId(options.account.id, transient.conversationKey);
+  const existingTask = await options.repository.getTaskByExternalId(externalId);
+  const plan = planGtdOwnershipUpdate({
+    conversation: nextConversation,
+    existingTask,
+    routedDecision: decision,
+    suggestedTitle:
+      classifyResult?.output?.suggestedTaskTitle ??
+      nextConversation.lastGeneratedTitle ??
+      transient.subject,
+    summary: classifyResult?.output?.summary ?? "",
+    rationale: classifyResult?.output?.rationale ?? "",
+    sourceUrl: transient.sourceUrl,
+  });
+  if (plan.reviewRequired) {
+    return;
+  }
+  if (decision === "relevant") {
+    await options.repository.applyEmailTriageGtdUpdate({
+      externalId,
+      plan,
+      conversation: nextConversation,
+      accountId: options.account.id,
+    });
+  }
+  const gtdEffect = createDesiredEffect({
+    accountId: options.account.id,
+    accountGeneration: options.account.generation,
+    conversationId: nextConversation.id,
+    decisionVersion: nextConversation.decisionVersion,
+    effectType: "gtd_task",
+    targetMessageIds: [transient.providerMessageId],
+  });
+  await options.repository.saveDesiredEffect(gtdEffect);
+  if (
+    options.mutationEnabled &&
+    options.globalSettings.mutationEnabled &&
+    options.account.mutationEnabled &&
+    options.adapter.applyMarkers
+  ) {
+    const providerEffect = createDesiredEffect({
+      accountId: options.account.id,
+      accountGeneration: options.account.generation,
+      conversationId: nextConversation.id,
+      decisionVersion: nextConversation.decisionVersion,
+      effectType: "provider_marker",
+      targetMessageIds: [transient.providerMessageId],
+      dependencies: [gtdEffect.id],
+    });
+    await options.repository.saveDesiredEffect(providerEffect);
+  }
+};
 
 const persistClassifiedMessage = async (
   options: SyncEngineOptions,
@@ -240,6 +331,21 @@ const processTransientMessage = async (
       sourceUrl: transient.sourceUrl,
     }));
 
+  const existingMessage = await options.repository.getMessageByProviderId(
+    options.account.id,
+    transient.providerMessageId,
+  );
+  if (existingMessage && isTerminalRoutingDecision(existingMessage.routingDecision)) {
+    await ensureCommittedDecision(
+      options,
+      conversation,
+      transient,
+      existingMessage.routingDecision,
+      null,
+    );
+    return;
+  }
+
   const classifyResult =
     options.apiKey !== null
       ? await classifyEmailMessage({
@@ -267,13 +373,7 @@ const processTransientMessage = async (
         };
 
   const routedDecision = classifyResult.routedDecision;
-  const existingMessage = await options.repository.getMessageByProviderId(
-    options.account.id,
-    transient.providerMessageId,
-  );
   const alreadyProcessed = existingMessage?.routingDecision === routedDecision;
-  const externalId = buildEmailTriageTaskExternalId(options.account.id, transient.conversationKey);
-  const existingTask = await options.repository.getTaskByExternalId(externalId);
 
   if (!alreadyProcessed) {
     await persistClassifiedMessage(options, transient, classifyResult, routedDecision);
@@ -294,17 +394,14 @@ const processTransientMessage = async (
       messageId: transient.providerMessageId,
       expectedDecisionVersion: conversation.decisionVersion,
       reason: classifyResult.reviewReasons.join(",") || "review",
-      preview: {
-        subject: transient.subject,
-        sender: transient.sender,
-        receivedAt: transient.receivedAt,
-        bodyExcerpt: buildSanitizedPreviewExcerpt(transient.bodyText),
-        sourceUrl: transient.sourceUrl,
-      },
+      preview: buildReviewPreview(transient),
     });
     return;
   }
 
+  const existingTask = await options.repository.getTaskByExternalId(
+    buildEmailTriageTaskExternalId(options.account.id, transient.conversationKey),
+  );
   const plan = planGtdOwnershipUpdate({
     conversation,
     existingTask,
@@ -330,76 +427,18 @@ const processTransientMessage = async (
       messageId: transient.providerMessageId,
       expectedDecisionVersion: conversation.decisionVersion,
       reason: plan.reviewReason ?? "review",
-      preview: {
-        subject: transient.subject,
-        sender: transient.sender,
-        receivedAt: transient.receivedAt,
-        bodyExcerpt: buildSanitizedPreviewExcerpt(transient.bodyText),
-        sourceUrl: transient.sourceUrl,
-      },
+      preview: buildReviewPreview(transient),
     });
     return;
   }
 
-  if (alreadyProcessed) {
-    return;
-  }
-
-  const nextRoutingState = routingStateFor(routedDecision);
-  const nextRevision = conversation.managedNotesRevision + 1;
-  conversation = await bumpConversationIfRoutingChanged(
+  await ensureCommittedDecision(
     options,
     conversation,
     transient,
-    nextRoutingState,
-    {
-      lastGeneratedTitle: plan.title,
-      managedNotesRevision: nextRevision,
-      managedNotesHash: hashManagedNotesBody(
-        buildManagedNotesInnerBody(
-          classifyResult.output?.summary ?? "",
-          classifyResult.output?.rationale ?? "",
-        ),
-      ),
-    },
+    routedDecision,
+    alreadyProcessed ? null : classifyResult,
   );
-
-  if (routedDecision === "relevant") {
-    await options.repository.applyEmailTriageGtdUpdate({
-      externalId,
-      plan,
-      conversation,
-      accountId: options.account.id,
-    });
-  }
-
-  const gtdEffect = createDesiredEffect({
-    accountId: options.account.id,
-    accountGeneration: options.account.generation,
-    conversationId: conversation.id,
-    decisionVersion: conversation.decisionVersion,
-    effectType: "gtd_task",
-    targetMessageIds: [transient.providerMessageId],
-  });
-  await options.repository.saveDesiredEffect(gtdEffect);
-
-  if (
-    options.mutationEnabled &&
-    options.globalSettings.mutationEnabled &&
-    options.account.mutationEnabled &&
-    options.adapter.applyMarkers
-  ) {
-    const providerEffect = createDesiredEffect({
-      accountId: options.account.id,
-      accountGeneration: options.account.generation,
-      conversationId: conversation.id,
-      decisionVersion: conversation.decisionVersion,
-      effectType: "provider_marker",
-      targetMessageIds: [transient.providerMessageId],
-      dependencies: [gtdEffect.id],
-    });
-    await options.repository.saveDesiredEffect(providerEffect);
-  }
 };
 
 export const reconcilePendingEffects = async (

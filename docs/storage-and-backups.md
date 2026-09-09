@@ -289,6 +289,8 @@ message bodies are never stored; classifier input is transient.
   message.
 - `email_triage_reviews`: pending/resolved/dismissed queue; a partial unique
   index keeps at most one pending review per `(conversation_id, message_id)`.
+  `sanitized_preview_json` stores subject, sender, received time, and source URL
+  only — never message body.
 - `email_triage_evaluations`: corpus run results used as an automation safety
   gate.
 - `email_triage_desired_effects`: idempotent GTD/provider mutations keyed by

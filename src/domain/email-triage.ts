@@ -150,7 +150,6 @@ export interface EmailTriageSanitizedPreview {
   subject: string;
   sender: string;
   receivedAt: string;
-  bodyExcerpt: string;
   sourceUrl: string | null;
 }
 

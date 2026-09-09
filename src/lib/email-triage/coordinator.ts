@@ -5,7 +5,7 @@ import type { EmailTriageRepositoryPort } from "./sync-engine";
 import { processProviderPage, reconcilePendingEffects } from "./sync-engine";
 import type { EmailTriageProviderAdapter } from "./providers/types";
 import { checkVaultAvailability, loadVaultSecret } from "./vault";
-import { clampPollInterval } from "./constants";
+import { clampPollInterval, EMAIL_TRIAGE_MAX_PAGES_PER_RUN } from "./constants";
 
 export interface EmailTriageCoordinatorDeps {
   repository: EmailTriageRepositoryPort & {
@@ -58,6 +58,11 @@ export class EmailTriageCoordinator {
     this.timers.clear();
   }
 
+  async reconfigure(): Promise<void> {
+    this.stop();
+    await this.start();
+  }
+
   scheduleAccount(account: EmailTriageAccount, settings: EmailTriageGlobalSettings): void {
     if (!this.running) {
       return;
@@ -99,18 +104,27 @@ export class EmailTriageCoordinator {
       const apiKey = await loadVaultSecret("triage_api_key");
       let hasMore = true;
       let backoffAttempt = 0;
-      while (hasMore && this.running && backoffAttempt < 5) {
+      let pagesProcessed = 0;
+      let currentAccount = account;
+      while (
+        hasMore &&
+        this.running &&
+        backoffAttempt < 5 &&
+        pagesProcessed < EMAIL_TRIAGE_MAX_PAGES_PER_RUN
+      ) {
         try {
           const result = await processProviderPage({
             repository: this.deps.repository,
-            account,
+            account: currentAccount,
             adapter,
             classifierProvider: this.deps.classifierProvider,
             apiKey,
             globalSettings: settings,
             mutationEnabled: false,
           });
+          currentAccount = result.account;
           hasMore = result.hasMore;
+          pagesProcessed += 1;
           backoffAttempt = 0;
           if (result.gapDetected) {
             break;
@@ -124,7 +138,7 @@ export class EmailTriageCoordinator {
       await reconcilePendingEffects(
         {
           repository: this.deps.repository,
-          account,
+          account: currentAccount,
           adapter,
           classifierProvider: this.deps.classifierProvider,
           apiKey,
@@ -134,7 +148,7 @@ export class EmailTriageCoordinator {
         accountId,
       );
       if (this.running) {
-        this.scheduleAccount(account, settings);
+        this.scheduleAccount(currentAccount, settings);
       }
     });
   }

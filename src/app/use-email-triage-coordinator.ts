@@ -80,11 +80,12 @@ const buildEmailTriageRepositoryPort = (repository: AppRepository) => ({
 export const useEmailTriageCoordinator = (
   repository: AppRepository | null,
   options: { browserPreview: boolean; allowStart: boolean },
-): void => {
+): { reconfigure: () => Promise<void> } => {
   const coordinatorRef = useRef<EmailTriageCoordinator | null>(null);
 
   useEffect(() => {
     if (!repository || options.browserPreview || !options.allowStart) {
+      coordinatorRef.current = null;
       return;
     }
 
@@ -102,4 +103,10 @@ export const useEmailTriageCoordinator = (
       coordinatorRef.current = null;
     };
   }, [repository, options.browserPreview, options.allowStart]);
+
+  return {
+    reconfigure: async () => {
+      await coordinatorRef.current?.reconfigure();
+    },
+  };
 };

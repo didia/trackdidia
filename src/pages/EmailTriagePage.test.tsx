@@ -49,7 +49,6 @@ describe("EmailTriagePage", () => {
         subject: "Hello",
         sender: "a@b.com",
         receivedAt: timestamp,
-        bodyExcerpt: "Excerpt only",
         sourceUrl: null,
       },
     });
@@ -107,7 +106,6 @@ describe("EmailTriagePage", () => {
         subject: "Hello",
         sender: "a@b.com",
         receivedAt: timestamp,
-        bodyExcerpt: "Excerpt only",
         sourceUrl: null,
       },
     });
@@ -165,7 +163,6 @@ describe("EmailTriagePage", () => {
         subject: "Hello",
         sender: "a@b.com",
         receivedAt: timestamp,
-        bodyExcerpt: "Excerpt only",
         sourceUrl: null,
       },
     });

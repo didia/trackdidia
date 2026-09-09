@@ -1,5 +1,6 @@
 import type { Database } from "./email-triage-sqlite-db";
 import {
+  buildEmailTriageTaskExternalId,
   defaultEmailTriageGlobalSettings,
   type EmailTriageAccount,
   type EmailTriageAuditEvent,
@@ -20,6 +21,7 @@ import {
   EMAIL_TRIAGE_DEFAULT_IGNORE_THRESHOLD,
   EMAIL_TRIAGE_DEFAULT_RELEVANT_THRESHOLD,
 } from "../email-triage/constants";
+import { planGtdOwnershipUpdate } from "../email-triage/gtd-ownership";
 import type {
   ApplyGtdUpdateInput,
   CreateReviewInput,
@@ -708,12 +710,15 @@ export class EmailTriageSqliteStore {
         resolved_at: string | null;
         created_at: string;
       }>
-    >(
-      "SELECT * FROM email_triage_reviews WHERE conversation_id = $1 AND message_id = $2 AND status = 'pending'",
-      [input.conversationId, input.messageId],
-    );
-    if (existing[0]) {
-      const row = existing[0];
+    >("SELECT * FROM email_triage_reviews WHERE conversation_id = $1 AND message_id = $2", [
+      input.conversationId,
+      input.messageId,
+    ]);
+    const pending = existing.find((row) => row.status === "pending");
+    const resolved = existing.find((row) => row.status === "resolved");
+    const reuse = pending ?? resolved;
+    if (reuse) {
+      const row = reuse;
       return {
         id: row.id,
         accountId: row.account_id,
@@ -885,6 +890,46 @@ export class EmailTriageSqliteStore {
           resolvedAt,
         ],
       );
+    }
+    const nextDecision = input.resolution === "ignore" ? "ignore" : "relevant";
+    const nextRoutingState = input.resolution === "ignore" ? "ignored" : "relevant";
+    await this.dismissPendingReviews(conversation.id);
+    const nextConversation = await this.upsertConversation(
+      conversation.accountId,
+      conversation.conversationKey,
+      {
+        decisionVersion: conversation.decisionVersion + 1,
+        routingState: nextRoutingState,
+      },
+    );
+    await db.execute(
+      "UPDATE email_triage_messages SET routing_decision = $1 WHERE account_id = $2 AND provider_message_id = $3",
+      [nextDecision, review.accountId, review.messageId],
+    );
+    if (nextDecision === "relevant") {
+      const externalId = buildEmailTriageTaskExternalId(
+        conversation.accountId,
+        conversation.conversationKey,
+      );
+      const existingTask = await this.getTaskByExternalId(externalId);
+      const message = await this.getMessageByProviderId(review.accountId, review.messageId);
+      const plan = planGtdOwnershipUpdate({
+        conversation: nextConversation,
+        existingTask,
+        routedDecision: "relevant",
+        suggestedTitle: nextConversation.lastGeneratedTitle ?? message?.subject ?? "Email",
+        summary: message?.summary ?? "",
+        rationale: "",
+        sourceUrl: nextConversation.sourceUrl,
+      });
+      if (!plan.reviewRequired) {
+        await this.applyGtdUpdate({
+          externalId,
+          plan,
+          conversation: nextConversation,
+          accountId: conversation.accountId,
+        });
+      }
     }
     return {
       ...review,
