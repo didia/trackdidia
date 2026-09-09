@@ -2030,11 +2030,7 @@ export class MemoryRepository implements AppRepository {
     );
   }
 
-  async emailTriageSaveAlias(
-    accountId: string,
-    conversationKey: string,
-    messageIdHeader: string,
-  ) {
+  async emailTriageSaveAlias(accountId: string, conversationKey: string, messageIdHeader: string) {
     this.emailTriage.saveAlias(accountId, conversationKey, messageIdHeader);
     return Promise.resolve();
   }

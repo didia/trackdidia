@@ -78,9 +78,9 @@ describe("email triage alias repository parity", () => {
           const conversation = conversations.find(
             (item) => item.id === alias.conversation_id && item.account_id === accountId,
           );
-          return (conversation
-            ? [{ conversation_key: conversation.conversation_key as string }]
-            : []) as T;
+          return (
+            conversation ? [{ conversation_key: conversation.conversation_key as string }] : []
+          ) as T;
         }
         if (query.includes("SELECT id FROM email_triage_aliases")) {
           return [] as T;

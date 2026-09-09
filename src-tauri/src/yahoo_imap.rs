@@ -3,7 +3,7 @@ use imap_proto::types::Capability;
 use mailparse::MailHeaderMap;
 use native_tls::TlsConnector;
 use serde::{Deserialize, Serialize};
-use std::net::TcpStream;
+use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 type ImapSession = Session<native_tls::TlsStream<TcpStream>>;
@@ -33,6 +33,13 @@ pub struct YahooImapDiscoverResponse {
     pub supports_uidplus: bool,
     pub supports_uid_expunge: bool,
     pub capabilities: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct YahooImapFetchInboxResponse {
+    pub messages: Vec<YahooImapMessageResponse>,
+    pub uidvalidity: u32,
 }
 
 #[derive(Serialize)]
@@ -121,20 +128,46 @@ fn sanitize_error(message: String, secret: &str) -> String {
         .collect()
 }
 
-fn quote_mailbox(name: &str) -> String {
-    if name.contains(' ') || name.contains('"') {
-        format!("\"{}\"", name.replace('"', "\\\""))
+fn escape_imap_quoted_string(value: &str) -> Result<String, String> {
+    if value.contains('\r') || value.contains('\n') {
+        return Err("invalid_imap_string".to_string());
+    }
+    Ok(value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+fn quote_mailbox(name: &str) -> Result<String, String> {
+    if name.contains(' ') || name.contains('"') || name.contains('\\') {
+        Ok(format!("\"{}\"", escape_imap_quoted_string(name)?))
     } else {
-        name.to_string()
+        Ok(name.to_string())
     }
 }
 
 fn connect_session(credentials: &YahooCredentials) -> Result<ImapSession, String> {
+    let timeout = Duration::from_secs(COMMAND_TIMEOUT_SECS);
     let tls = TlsConnector::builder()
         .build()
         .map_err(|error| sanitize_error(format!("TLS setup failed: {error}"), &credentials.app_password))?;
-    let tcp = TcpStream::connect((IMAP_HOST, IMAP_PORT)).map_err(|error| {
+    let socket_addr = (IMAP_HOST, IMAP_PORT)
+        .to_socket_addrs()
+        .map_err(|error| {
+            sanitize_error(format!("DNS resolution failed: {error}"), &credentials.app_password)
+        })?
+        .next()
+        .ok_or_else(|| {
+            sanitize_error(
+                "DNS resolution failed: no addresses".to_string(),
+                &credentials.app_password,
+            )
+        })?;
+    let tcp = TcpStream::connect_timeout(&socket_addr, timeout).map_err(|error| {
         sanitize_error(format!("TCP connect failed: {error}"), &credentials.app_password)
+    })?;
+    tcp.set_read_timeout(Some(timeout)).map_err(|error| {
+        sanitize_error(format!("TCP read timeout failed: {error}"), &credentials.app_password)
+    })?;
+    tcp.set_write_timeout(Some(timeout)).map_err(|error| {
+        sanitize_error(format!("TCP write timeout failed: {error}"), &credentials.app_password)
     })?;
     let tls_stream = tls.connect(IMAP_HOST, tcp).map_err(|error| {
         sanitize_error(format!("TLS handshake failed: {error}"), &credentials.app_password)
@@ -297,6 +330,28 @@ fn extract_message_id_from_header_bytes(header_bytes: &[u8]) -> Result<Option<St
         .filter(|value| !value.is_empty()))
 }
 
+fn find_mimetype_body(part: &mailparse::ParsedMail<'_>, mimetype: &str) -> Option<String> {
+    if part.ctype.mimetype == mimetype {
+        return part.get_body().ok();
+    }
+    for subpart in &part.subparts {
+        if let Some(body) = find_mimetype_body(subpart, mimetype) {
+            return Some(body);
+        }
+    }
+    None
+}
+
+fn extract_body_text(parsed: &mailparse::ParsedMail<'_>) -> String {
+    find_mimetype_body(parsed, "text/plain")
+        .or_else(|| find_mimetype_body(parsed, "text/html"))
+        .or_else(|| parsed.get_body().ok())
+        .unwrap_or_default()
+        .chars()
+        .take(MAX_BODY_BYTES)
+        .collect()
+}
+
 fn parse_fetch_message(fetch: &imap::types::Fetch) -> Result<YahooImapMessageResponse, String> {
     let uid = fetch
         .uid
@@ -322,21 +377,7 @@ fn parse_fetch_message(fetch: &imap::types::Fetch) -> Result<YahooImapMessageRes
     let from = parsed.headers.get_first_value("From").unwrap_or_default();
     let to = parse_address_list(parsed.headers.get_first_value("To").as_deref());
     let received_at = parse_received_at(parsed.headers.get_first_value("Date").as_deref());
-    let body_text = parsed
-        .subparts
-        .iter()
-        .find_map(|part| {
-            if part.ctype.mimetype == "text/plain" {
-                part.get_body().ok()
-            } else {
-                None
-            }
-        })
-        .or_else(|| parsed.get_body().ok())
-        .unwrap_or_default()
-        .chars()
-        .take(MAX_BODY_BYTES)
-        .collect();
+    let body_text = extract_body_text(&parsed);
     Ok(YahooImapMessageResponse {
         uid,
         message_id,
@@ -413,7 +454,7 @@ pub async fn yahoo_imap_discover(
 #[tauri::command]
 pub async fn yahoo_imap_fetch_inbox(
     request: YahooImapFetchInboxRequest,
-) -> Result<Vec<YahooImapMessageResponse>, String> {
+) -> Result<YahooImapFetchInboxResponse, String> {
     let credentials = YahooCredentials {
         email: request.email.clone(),
         app_password: request.app_password.clone(),
@@ -424,7 +465,8 @@ pub async fn yahoo_imap_fetch_inbox(
     let secret = credentials.app_password.clone();
     run_blocking(move || {
         with_session(&credentials, |session| {
-            select_inbox(session, &inbox_name)?;
+            let mailbox = select_inbox(session, &inbox_name)?;
+            let uidvalidity = mailbox.uid_validity.unwrap_or(1);
             let query = format!("UID {}:*", after_uid.saturating_add(1));
             let mut uids: Vec<u32> = session
                 .uid_search(&query)
@@ -435,7 +477,10 @@ pub async fn yahoo_imap_fetch_inbox(
             uids.sort_unstable();
             uids.truncate(limit);
             if uids.is_empty() {
-                return Ok(Vec::new());
+                return Ok(YahooImapFetchInboxResponse {
+                    messages: Vec::new(),
+                    uidvalidity,
+                });
             }
             let uid_set = uids
                 .iter()
@@ -455,7 +500,10 @@ pub async fn yahoo_imap_fetch_inbox(
                 messages.push(parse_fetch_message(fetch)?);
             }
             messages.sort_by_key(|message| message.uid);
-            Ok(messages)
+            Ok(YahooImapFetchInboxResponse {
+                messages,
+                uidvalidity,
+            })
         })
         .map_err(|error| sanitize_error(error, &secret))
     })
@@ -476,7 +524,7 @@ pub async fn yahoo_imap_search_message_id(
     run_blocking(move || {
         with_session(&credentials, |session| {
             select_inbox(session, &inbox_name)?;
-            let escaped = message_id.replace('"', "\\\"");
+            let escaped = escape_imap_quoted_string(&message_id)?;
             let query = format!("HEADER Message-ID \"{escaped}\"");
             let mut uids: Vec<u32> = session
                 .uid_search(&query)
@@ -539,7 +587,7 @@ pub async fn yahoo_imap_move_uid(
             let command = format!(
                 "UID MOVE {} {}",
                 uid,
-                quote_mailbox(&mailbox_name)
+                quote_mailbox(&mailbox_name)?
             );
             let response = session
                 .run_command_and_read_response(&command)
@@ -572,7 +620,7 @@ pub async fn yahoo_imap_copy_uid(
             let command = format!(
                 "UID COPY {} {}",
                 uid,
-                quote_mailbox(&mailbox_name)
+                quote_mailbox(&mailbox_name)?
             );
             let response = session
                 .run_command_and_read_response(&command)
@@ -640,6 +688,53 @@ pub async fn yahoo_imap_fetch_uid_message_id(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn escape_imap_quoted_string_escapes_backslash_before_quote() {
+        assert_eq!(
+            escape_imap_quoted_string(r#"say "hello\world""#).unwrap(),
+            r#"say \"hello\\world\""#
+        );
+    }
+
+    #[test]
+    fn escape_imap_quoted_string_rejects_newlines() {
+        assert!(escape_imap_quoted_string("line1\r\nline2").is_err());
+        assert!(escape_imap_quoted_string("line1\nline2").is_err());
+    }
+
+    #[test]
+    fn quote_mailbox_escapes_embedded_quotes_and_backslashes() {
+        assert_eq!(
+            quote_mailbox(r#"Trackdidia "Inbox\Special""#).unwrap(),
+            r#""Trackdidia \"Inbox\\Special\"""#
+        );
+    }
+
+    #[test]
+    fn extract_body_text_recurses_nested_multipart() {
+        let raw = concat!(
+            "Content-Type: multipart/mixed; boundary=\"outer\"\r\n",
+            "\r\n",
+            "--outer\r\n",
+            "Content-Type: multipart/alternative; boundary=\"inner\"\r\n",
+            "\r\n",
+            "--inner\r\n",
+            "Content-Type: text/plain; charset=utf-8\r\n",
+            "\r\n",
+            "Nested plain body\r\n",
+            "--inner--\r\n",
+            "--outer\r\n",
+            "Content-Type: application/pdf\r\n",
+            "Content-Disposition: attachment; filename=\"doc.pdf\"\r\n",
+            "\r\n",
+            "%PDF-1.4\r\n",
+            "--outer--\r\n",
+        );
+        let parsed = mailparse::parse_mail(raw.as_bytes()).expect("fixture should parse");
+        let body = extract_body_text(&parsed);
+        assert!(body.contains("Nested plain body"));
+    }
 
     #[test]
     fn extract_message_id_from_header_fields_response() {

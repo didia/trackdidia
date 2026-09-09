@@ -53,6 +53,7 @@ const collectLinkedKeys = async (
 
 export const resolveYahooConversationKey = async (
   input: {
+    providerMessageId: string;
     messageIdHeader: string | null;
     references: string[];
     inReplyTo: string | null;
@@ -80,14 +81,14 @@ export const resolveYahooConversationKey = async (
     return linkedKeys[0]!;
   }
   if (linkedKeys.length > 1) {
-    const conversationKey = ownMessageId ?? `orphan:${referenceIds[0] ?? "unknown"}`;
+    const conversationKey = ownMessageId ?? `orphan:${input.providerMessageId}`;
     if (ownMessageId) {
       await resolver.registerAlias(ownMessageId, conversationKey);
     }
     return conversationKey;
   }
 
-  const conversationKey = ownMessageId ?? `orphan:${Date.now()}`;
+  const conversationKey = ownMessageId ?? `orphan:${input.providerMessageId}`;
   if (ownMessageId) {
     await resolver.registerAlias(ownMessageId, conversationKey);
   }
@@ -96,6 +97,7 @@ export const resolveYahooConversationKey = async (
 
 export const resolveYahooConversationKeySync = (
   input: {
+    providerMessageId: string;
     messageIdHeader: string | null;
     references: string[];
     inReplyTo: string | null;
@@ -126,14 +128,14 @@ export const resolveYahooConversationKeySync = (
     return linkedKeys[0]!;
   }
   if (linkedKeys.length > 1) {
-    const conversationKey = ownMessageId ?? `orphan:${referenceIds[0] ?? "unknown"}`;
+    const conversationKey = ownMessageId ?? `orphan:${input.providerMessageId}`;
     if (ownMessageId) {
       aliasMap.set(ownMessageId, conversationKey);
     }
     return conversationKey;
   }
 
-  const conversationKey = ownMessageId ?? `orphan:${Date.now()}`;
+  const conversationKey = ownMessageId ?? `orphan:${input.providerMessageId}`;
   if (ownMessageId) {
     aliasMap.set(ownMessageId, conversationKey);
   }

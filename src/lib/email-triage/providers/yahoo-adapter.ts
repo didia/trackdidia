@@ -1,14 +1,12 @@
 import type { EmailTriageAccount } from "../../../domain/email-triage";
-import {
-  EMAIL_TRIAGE_YAHOO_IGNORE_FOLDER,
-  EMAIL_TRIAGE_YAHOO_INBOX_FOLDER,
-} from "../constants";
+import { EMAIL_TRIAGE_YAHOO_IGNORE_FOLDER, EMAIL_TRIAGE_YAHOO_INBOX_FOLDER } from "../constants";
 import {
   normalizeMessageId,
   resolveYahooConversationKey,
   type YahooConversationResolver,
 } from "./yahoo-conversation";
 import {
+  buildYahooProviderMessageId,
   parseYahooProviderMessageId,
   type YahooImapClient,
   type YahooImapClientCredentials,
@@ -79,11 +77,6 @@ export class YahooAdapter implements EmailTriageProviderAdapter {
       return this.baselineDiscover();
     }
 
-    const discovered = await this.imap.discover(this.credentialsWithInbox(state.inboxName));
-    if (discovered.uidvalidity !== state.uidvalidity) {
-      return this.handleUidvalidityChange(state, discovered.uidvalidity);
-    }
-
     const cursor = state.cursorUid ?? state.baselineUid ?? 0;
     const fetched = await this.imap.fetchInbox({
       credentials: this.credentialsWithInbox(state.inboxName),
@@ -91,9 +84,13 @@ export class YahooAdapter implements EmailTriageProviderAdapter {
       limit: PAGE_SIZE,
     });
 
+    if (fetched.uidvalidity !== state.uidvalidity) {
+      return this.handleUidvalidityChange(state, fetched.uidvalidity);
+    }
+
     const tracked = new Set(state.trackedMessageIds);
-    const messages = await this.mapFetchedMessages(fetched, discovered.uidvalidity, tracked);
-    const lastMessage = fetched.at(-1);
+    const messages = await this.mapFetchedMessages(fetched.messages, fetched.uidvalidity, tracked);
+    const lastMessage = fetched.messages.at(-1);
     const lastConfirmedMessageId =
       lastMessage?.messageId !== null && lastMessage?.messageId !== undefined
         ? normalizeMessageId(lastMessage.messageId)
@@ -106,14 +103,9 @@ export class YahooAdapter implements EmailTriageProviderAdapter {
         lastConfirmedUid: lastMessage?.uid ?? state.lastConfirmedUid,
         lastConfirmedMessageId,
         trackedMessageIds: [...tracked],
-        uidvalidity: discovered.uidvalidity,
-        inboxName: discovered.inboxName,
-        delimiter: discovered.delimiter,
-        supportsMove: discovered.supportsMove,
-        supportsUidplus: discovered.supportsUidplus,
-        supportsUidExpunge: discovered.supportsUidExpunge,
+        uidvalidity: fetched.uidvalidity,
       },
-      hasMore: fetched.length >= PAGE_SIZE,
+      hasMore: fetched.messages.length >= PAGE_SIZE,
       gapDetected: false,
     };
   }
@@ -210,8 +202,10 @@ export class YahooAdapter implements EmailTriageProviderAdapter {
   ) {
     const messages = [];
     for (const message of fetched) {
+      const providerMessageId = buildYahooProviderMessageId(uidvalidity, message.uid);
       const conversationKey = await resolveYahooConversationKey(
         {
+          providerMessageId,
           messageIdHeader: message.messageId,
           references: message.references,
           inReplyTo: message.inReplyTo,
@@ -286,8 +280,11 @@ export class YahooAdapter implements EmailTriageProviderAdapter {
     supportsUidExpunge: boolean,
     destination: YahooMarkerDestination | null,
   ): Promise<void> {
-    if (!supportsUidExpunge || !destination) {
+    if (!destination) {
       return;
+    }
+    if (!supportsUidExpunge) {
+      throw new Error("uidplus_unavailable");
     }
     await this.imap.uidExpunge({
       credentials: this.credentialsWithInbox(inboxName),
@@ -313,10 +310,11 @@ export class YahooAdapter implements EmailTriageProviderAdapter {
     await this.ensureTrackDidiaMailboxes(delimiter, request);
 
     for (const providerMessageId of request.messageIds) {
-      const { uid } = parseYahooProviderMessageId(providerMessageId);
-      const messageIdHeader = normalizeMessageId(
-        await this.getMessageIdHeader(providerMessageId),
-      );
+      const { uidvalidity, uid } = parseYahooProviderMessageId(providerMessageId);
+      if (uidvalidity !== discovered.uidvalidity) {
+        throw new Error("uidvalidity_changed");
+      }
+      const messageIdHeader = normalizeMessageId(await this.getMessageIdHeader(providerMessageId));
 
       if (messageIdHeader) {
         const existingInDestination = await this.imap.searchMessageId({

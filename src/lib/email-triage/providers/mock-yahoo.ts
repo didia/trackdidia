@@ -105,6 +105,7 @@ export class MockYahooAdapter implements EmailTriageProviderAdapter {
     const transient: EmailTriageTransientMessage[] = page.map((message) => {
       const conversationKey = resolveYahooConversationKeySync(
         {
+          providerMessageId: `${state.uidvalidity}:${message.uid}`,
           messageIdHeader: message.messageId,
           references: message.references,
           inReplyTo: message.inReplyTo,

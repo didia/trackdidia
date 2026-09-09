@@ -11,6 +11,11 @@
   oversized Gmail messages are quarantined so history can advance, obsolete
   coordinator startups cannot clear the live instance, and vault credentials are
   rolled back when account persistence fails.
+- 2026-09-09: Yahoo review follow-up — sync pages reuse SELECT UIDVALIDITY (no per-page discover),
+  stable orphan conversation keys from `providerMessageId`, marker UIDVALIDITY guard,
+  nested MIME body extraction, IMAP quoted-string escaping and socket timeouts,
+  verified COPY fails with `uidplus_unavailable` when UID EXPUNGE is missing, reconnect preserves
+  sync cursor.
 - 2026-09-09: Graph review follow-up — `$deltatoken=latest` first-connect baseline, invalid-delta
   reseed keeps `baselineAt`, rotated Microsoft refresh tokens persisted, reconnect preserves sync
   cursor, 410 reseed during snapshot/`nextLink`, Microsoft hosts on the Tauri HTTP allowlist.

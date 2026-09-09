@@ -37,13 +37,18 @@ export interface YahooImapClientCredentials {
   inboxName?: string | null;
 }
 
+export interface YahooImapFetchInboxResult {
+  messages: YahooImapMessage[];
+  uidvalidity: number;
+}
+
 export interface YahooImapClient {
   discover(credentials: YahooImapClientCredentials): Promise<YahooImapDiscoverResult>;
   fetchInbox(input: {
     credentials: YahooImapClientCredentials;
     afterUid: number;
     limit: number;
-  }): Promise<YahooImapMessage[]>;
+  }): Promise<YahooImapFetchInboxResult>;
   searchMessageId(input: {
     credentials: YahooImapClientCredentials;
     messageId: string;
@@ -62,10 +67,7 @@ export interface YahooImapClient {
     uid: number;
     mailboxName: string;
   }): Promise<YahooImapUidActionResult>;
-  uidExpunge(input: {
-    credentials: YahooImapClientCredentials;
-    uid: number;
-  }): Promise<void>;
+  uidExpunge(input: { credentials: YahooImapClientCredentials; uid: number }): Promise<void>;
   fetchUidMessageId(input: {
     credentials: YahooImapClientCredentials;
     uid: number;
@@ -90,7 +92,7 @@ export const createTauriYahooImapClient = (): YahooImapClient => ({
   },
   fetchInbox: async ({ credentials, afterUid, limit }) => {
     try {
-      return await invoke<YahooImapMessage[]>("yahoo_imap_fetch_inbox", {
+      return await invoke<YahooImapFetchInboxResult>("yahoo_imap_fetch_inbox", {
         request: {
           email: credentials.email,
           appPassword: credentials.appPassword,

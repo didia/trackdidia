@@ -47,12 +47,16 @@ The **Yahoo slice** adds live Yahoo IMAP synchronization on desktop via app pass
 - Tauri IMAP commands (`yahoo_imap_*`): discover, inbox fetch (`BODY.PEEK`), Message-ID search,
   mailbox ensure, MOVE / COPY + UID EXPUNGE (never mailbox-wide EXPUNGE)
 - Baseline records durable `(UIDVALIDITY, highest UID)` without fetching existing mail; sync fetches
-  UIDs `> cursorUid` in pages of 10; `providerMessageId` = `{uidvalidity}:{uid}`
-- Conversation grouping via normalized RFC Message-ID aliases persisted in `email_triage_aliases`
+  UIDs `> cursorUid` in pages of 10 and reads UIDVALIDITY from each SELECT (no per-page discover);
+  `providerMessageId` = `{uidvalidity}:{uid}`
+- Conversation grouping via normalized RFC Message-ID aliases persisted in `email_triage_aliases`;
+  Message-ID-less messages use stable `orphan:{uidvalidity}:{uid}` keys
 - UIDVALIDITY change recovery from `lastConfirmedMessageId` watermark; otherwise
   `gap_review_required` / `recoveryState: uidvalidity_changed`
 - `sourceUrl` is null; review UI opens Yahoo Mail with copyable sender, subject, and receipt time
-- IMAP LOGIN failure sets `reconnect_required` for that account only
+- IMAP LOGIN failure sets `reconnect_required` for that account only; Yahoo reconnect preserves
+  sync cursor; verified COPY without UID EXPUNGE fails with `uidplus_unavailable` rather than
+  leaving an Inbox duplicate
 
 ### Shared
 

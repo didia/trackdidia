@@ -47,7 +47,7 @@ describe("EmailTriagePage", () => {
       enabled: true,
       updatedAt: nowIso(),
     });
-    await renderWithApp(<EmailTriagePage />);
+    await renderWithApp(<EmailTriagePage />, { repository });
     expect(await screen.findByRole("button", { name: /Connecter Yahoo/i })).toBeDisabled();
   });
 

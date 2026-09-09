@@ -482,8 +482,6 @@ export const connectYahooAccount = async (
       lastError: null,
       syncState: {
         ...target.syncState,
-        baselineUid: null,
-        cursorUid: null,
       },
       updatedAt: timestamp,
     });
@@ -509,27 +507,36 @@ export const connectYahooAccount = async (
   );
   setCachedYahooAppPassword(accountId, input.appPassword.trim());
 
-  const account: EmailTriageAccount = {
-    id: accountId,
-    provider: "yahoo",
-    providerAccountId: email,
-    label: email,
-    maskedAddress: maskEmailAddress(email),
-    generation: existing?.generation ?? 1,
-    enabled: true,
-    mutationEnabled: false,
-    paused: false,
-    state: "baselining",
-    recoveryState: "none",
-    lastSuccessAt: null,
-    lastError: null,
-    pollIntervalMinutes: settings.pollIntervalMinutes,
-    syncState: {
-      trackedMessageIds: [],
-    },
-    createdAt: existing?.createdAt ?? timestamp,
-    updatedAt: timestamp,
-  };
+  const account: EmailTriageAccount = existing
+    ? {
+        ...existing,
+        enabled: true,
+        state: "active",
+        lastError: null,
+        recoveryState: "none",
+        updatedAt: timestamp,
+      }
+    : {
+        id: accountId,
+        provider: "yahoo",
+        providerAccountId: email,
+        label: email,
+        maskedAddress: maskEmailAddress(email),
+        generation: 1,
+        enabled: true,
+        mutationEnabled: false,
+        paused: false,
+        state: "baselining",
+        recoveryState: "none",
+        lastSuccessAt: null,
+        lastError: null,
+        pollIntervalMinutes: settings.pollIntervalMinutes,
+        syncState: {
+          trackedMessageIds: [],
+        },
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
   await repository.saveEmailTriageAccount(account);
   coordinator?.scheduleAccount(account, settings);
   void coordinator?.runAccountSync(accountId);
