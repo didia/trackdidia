@@ -94,6 +94,7 @@ export class EmailTriageSqliteStore {
         classifier_schema_version: string;
         automation_enabled: number;
         gmail_oauth_client_id: string;
+        microsoft_oauth_client_id: string;
         updated_at: string;
       }>
     >("SELECT * FROM email_triage_settings WHERE id = 'global'");
@@ -112,6 +113,7 @@ export class EmailTriageSqliteStore {
       classifierSchemaVersion: row.classifier_schema_version,
       automationEnabled: Boolean(row.automation_enabled),
       gmailOAuthClientId: row.gmail_oauth_client_id ?? "",
+      microsoftOAuthClientId: row.microsoft_oauth_client_id ?? "",
       updatedAt: row.updated_at,
     };
   }
@@ -122,8 +124,8 @@ export class EmailTriageSqliteStore {
       `INSERT INTO email_triage_settings (
         id, enabled, mutation_enabled, poll_interval_minutes, relevant_threshold, ignore_threshold,
         classifier_model, classifier_prompt_version, classifier_schema_version, automation_enabled,
-        gmail_oauth_client_id, updated_at
-      ) VALUES ('global', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        gmail_oauth_client_id, microsoft_oauth_client_id, updated_at
+      ) VALUES ('global', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       ON CONFLICT(id) DO UPDATE SET
         enabled = excluded.enabled,
         mutation_enabled = excluded.mutation_enabled,
@@ -135,6 +137,7 @@ export class EmailTriageSqliteStore {
         classifier_schema_version = excluded.classifier_schema_version,
         automation_enabled = excluded.automation_enabled,
         gmail_oauth_client_id = excluded.gmail_oauth_client_id,
+        microsoft_oauth_client_id = excluded.microsoft_oauth_client_id,
         updated_at = excluded.updated_at`,
       [
         settings.enabled ? 1 : 0,
@@ -150,6 +153,7 @@ export class EmailTriageSqliteStore {
         settings.classifierSchemaVersion,
         settings.automationEnabled ? 1 : 0,
         settings.gmailOAuthClientId,
+        settings.microsoftOAuthClientId,
         settings.updatedAt,
       ],
     );

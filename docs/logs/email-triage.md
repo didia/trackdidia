@@ -10,6 +10,10 @@
   repairs missing GTD/effects after a persist crash, reviews no longer store
   body excerpts, resolving a review commits the message/conversation decision,
   and enable/resume reconfigures the coordinator.
+- 2026-09-08: Microsoft Graph slice — live multitenant OAuth (PKCE, loopback,
+  `Mail.ReadWrite` + `MailboxSettings.ReadWrite`), Graph inbox delta baseline/replay/invalid-delta
+  reseed, message-level Outlook categories, French Connect/Reconnect Microsoft, migration 31 for
+  `microsoftOAuthClientId`. Yahoo remains mocked; automatic mutation still off.
 - 2026-09-08: Gmail slice — live installed-app OAuth (PKCE, loopback, `gmail.modify`), Tauri
   HTTP + opener plugin, live Gmail adapter with history sync/recovery/markers, vault-backed
   refresh tokens, triage OpenRouter key UI, French Connect/Reconnect/Disconnect/Sync now,

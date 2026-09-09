@@ -57,6 +57,7 @@ export interface EmailTriageGlobalSettings {
   classifierSchemaVersion: string;
   automationEnabled: boolean;
   gmailOAuthClientId: string;
+  microsoftOAuthClientId: string;
   updatedAt: string;
 }
 
@@ -250,5 +251,6 @@ export const defaultEmailTriageGlobalSettings = (): EmailTriageGlobalSettings =>
   classifierSchemaVersion: "1",
   automationEnabled: false,
   gmailOAuthClientId: "",
+  microsoftOAuthClientId: "",
   updatedAt: new Date(0).toISOString(),
 });

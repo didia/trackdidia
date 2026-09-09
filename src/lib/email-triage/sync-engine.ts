@@ -156,10 +156,16 @@ export const processProviderPage = async (
     const mergedState = page.cursorUpdate
       ? mergeSyncState(options.account.syncState, page.cursorUpdate)
       : options.account.syncState;
+    const accountPatch = {
+      ...(page.gapDetected
+        ? { state: "gap_review_required" as const, recoveryState: "in_progress" as const }
+        : {}),
+      ...page.accountPatch,
+    };
     account = await options.repository.updateAccountSyncState(
       options.account.id,
       mergedState,
-      page.gapDetected ? { state: "gap_review_required", recoveryState: "in_progress" } : undefined,
+      Object.keys(accountPatch).length > 0 ? accountPatch : undefined,
     );
   }
 

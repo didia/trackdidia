@@ -25,6 +25,19 @@ describe("EmailTriagePage", () => {
     expect(await screen.findByRole("button", { name: /Connecter Gmail/i })).toBeDisabled();
   });
 
+  it("disables Connect Microsoft in browser preview", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveEmailTriageGlobalSettings({
+      ...(await repository.getEmailTriageGlobalSettings()),
+      enabled: true,
+      microsoftOAuthClientId: "client-id",
+      updatedAt: nowIso(),
+    });
+    await renderWithApp(<EmailTriagePage />);
+    expect(await screen.findByRole("button", { name: /Connecter Microsoft/i })).toBeDisabled();
+  });
+
   it("shows sync and disconnect controls for gmail accounts outside preview", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
