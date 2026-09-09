@@ -52,7 +52,8 @@ export const cleanBodyText = (body: string): string => {
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<[^>]+>/g, " ")
-    .replace(/\u0000/g, " ");
+    .split("\0")
+    .join(" ");
   const collapsed = withoutTags.replace(/\s+/g, " ").trim();
   return truncateText(collapsed, EMAIL_TRIAGE_MAX_BODY_CHARS);
 };

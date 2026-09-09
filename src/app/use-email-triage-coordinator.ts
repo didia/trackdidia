@@ -49,16 +49,16 @@ const buildEmailTriageRepositoryPort = (repository: AppRepository) => ({
   ) => repository.emailTriageUpsertConversation(accountId, conversationKey, patch),
   getConversationByKey: (accountId: string, conversationKey: string) =>
     repository.emailTriageGetConversationByKey(accountId, conversationKey),
-  persistMessageBatch: (input: import("../lib/email-triage/sync-engine").PersistMessageBatchInput) =>
-    repository.emailTriagePersistMessageBatch(input),
+  persistMessageBatch: (
+    input: import("../lib/email-triage/sync-engine").PersistMessageBatchInput,
+  ) => repository.emailTriagePersistMessageBatch(input),
   listPendingEffects: (conversationId: string) =>
     repository.emailTriageListPendingEffects(conversationId),
-  saveDesiredEffect: async (
-    effect: import("../domain/email-triage").EmailTriageDesiredEffect,
-  ) => {
+  saveDesiredEffect: async (effect: import("../domain/email-triage").EmailTriageDesiredEffect) => {
     await repository.emailTriageSaveDesiredEffect(effect);
   },
-  getTaskByExternalId: (externalId: string) => repository.emailTriageGetTaskByExternalId(externalId),
+  getTaskByExternalId: (externalId: string) =>
+    repository.emailTriageGetTaskByExternalId(externalId),
   applyEmailTriageGtdUpdate: (
     input: import("../lib/email-triage/sync-engine").ApplyGtdUpdateInput,
   ) => repository.emailTriageApplyGtdUpdate(input),

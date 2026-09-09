@@ -1,8 +1,5 @@
 import type { EmailTriageTransientMessage } from "../../../domain/email-triage";
-import {
-  EMAIL_TRIAGE_YAHOO_IGNORE_FOLDER,
-  EMAIL_TRIAGE_YAHOO_INBOX_FOLDER,
-} from "../constants";
+import { EMAIL_TRIAGE_YAHOO_IGNORE_FOLDER, EMAIL_TRIAGE_YAHOO_INBOX_FOLDER } from "../constants";
 import type { EmailTriageProviderAdapter, ProviderMarkerRequest, ProviderSyncPage } from "./types";
 
 export interface MockYahooMessage {

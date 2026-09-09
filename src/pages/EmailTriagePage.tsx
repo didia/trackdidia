@@ -2,7 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppContext } from "../app/app-context";
 import { SectionCard } from "../components/SectionCard";
-import { defaultEmailTriageGlobalSettings, type EmailTriageAccount, type EmailTriageGlobalSettings, type EmailTriageIgnoreReason, type EmailTriageReview } from "../domain/email-triage";
+import {
+  defaultEmailTriageGlobalSettings,
+  type EmailTriageAccount,
+  type EmailTriageGlobalSettings,
+  type EmailTriageIgnoreReason,
+  type EmailTriageReview,
+} from "../domain/email-triage";
 import { formatDateTimeShort } from "../lib/date";
 import { checkVaultAvailability } from "../lib/email-triage/vault";
 import { createEntityId, nowIso } from "../lib/gtd/shared";
@@ -12,10 +18,14 @@ export const EmailTriagePage = () => {
   const { repository, browserPreview } = useAppContext();
   const [accounts, setAccounts] = useState<EmailTriageAccount[]>([]);
   const [reviews, setReviews] = useState<EmailTriageReview[]>([]);
-  const [settings, setSettings] = useState<EmailTriageGlobalSettings>(defaultEmailTriageGlobalSettings());
+  const [settings, setSettings] = useState<EmailTriageGlobalSettings>(
+    defaultEmailTriageGlobalSettings(),
+  );
   const [vaultAvailable, setVaultAvailable] = useState(true);
   const [previewReviewId, setPreviewReviewId] = useState<string | null>(null);
-  const [ignoreReasonByReviewId, setIgnoreReasonByReviewId] = useState<Record<string, EmailTriageIgnoreReason>>({});
+  const [ignoreReasonByReviewId, setIgnoreReasonByReviewId] = useState<
+    Record<string, EmailTriageIgnoreReason>
+  >({});
   const [ignoreReasonError, setIgnoreReasonError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -201,12 +211,19 @@ export const EmailTriagePage = () => {
             <input
               type="text"
               value={settings.classifierModel}
-              onChange={(event) => setSettings({ ...settings, classifierModel: event.target.value })}
+              onChange={(event) =>
+                setSettings({ ...settings, classifierModel: event.target.value })
+              }
             />
           </label>
         </div>
         <div className="actions-row">
-          <button type="button" className="button button--primary" disabled={saving} onClick={() => void saveSettings()}>
+          <button
+            type="button"
+            className="button button--primary"
+            disabled={saving}
+            onClick={() => void saveSettings()}
+          >
             {t("saveSettings")}
           </button>
         </div>
@@ -230,9 +247,17 @@ export const EmailTriagePage = () => {
                   {t("lastSuccess")}: {formatDateTimeShort(account.lastSuccessAt)}
                 </p>
               ) : null}
-              {account.lastError ? <p>{t("error")}: {account.lastError}</p> : null}
+              {account.lastError ? (
+                <p>
+                  {t("error")}: {account.lastError}
+                </p>
+              ) : null}
               <div className="actions-row">
-                <button type="button" className="button" onClick={() => void toggleAccountPause(account)}>
+                <button
+                  type="button"
+                  className="button"
+                  onClick={() => void toggleAccountPause(account)}
+                >
                   {account.paused ? t("resume") : t("pause")}
                 </button>
               </div>
@@ -248,9 +273,15 @@ export const EmailTriagePage = () => {
         {reviews.length === 0 ? <p>{t("noReviews")}</p> : null}
         {reviews.map((review) => (
           <article key={review.id} className="list-card">
-            <p>{t("reviewReason")}: {review.reason}</p>
+            <p>
+              {t("reviewReason")}: {review.reason}
+            </p>
             <div className="actions-row">
-              <button type="button" className="button" onClick={() => setPreviewReviewId(review.id)}>
+              <button
+                type="button"
+                className="button"
+                onClick={() => setPreviewReviewId(review.id)}
+              >
                 {t("previewBody")}
               </button>
               <label>
@@ -272,10 +303,18 @@ export const EmailTriagePage = () => {
                   ))}
                 </select>
               </label>
-              <button type="button" className="button button--primary" onClick={() => void resolveReview(review, "relevant")}>
+              <button
+                type="button"
+                className="button button--primary"
+                onClick={() => void resolveReview(review, "relevant")}
+              >
                 {t("markRelevant")}
               </button>
-              <button type="button" className="button" onClick={() => void resolveReview(review, "ignore")}>
+              <button
+                type="button"
+                className="button"
+                onClick={() => void resolveReview(review, "ignore")}
+              >
                 {t("markIgnore")}
               </button>
             </div>

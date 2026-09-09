@@ -50,8 +50,7 @@ export const shouldSupersedeEffect = (
   incomingVersion: number,
   incomingGeneration: number,
 ): boolean =>
-  existing.accountGeneration !== incomingGeneration ||
-  existing.decisionVersion < incomingVersion;
+  existing.accountGeneration !== incomingGeneration || existing.decisionVersion < incomingVersion;
 
 export const markEffectSuperseded = (
   effect: EmailTriageDesiredEffect,

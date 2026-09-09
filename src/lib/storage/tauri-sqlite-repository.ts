@@ -1022,15 +1022,12 @@ export class TauriSqliteRepository implements AppRepository {
 
   private getEmailTriageStore(): EmailTriageSqliteStore {
     if (!this.emailTriageStore) {
-      this.emailTriageStore = new EmailTriageSqliteStore(
-        () => this.getDb(),
-        {
-          getTaskByExternalId: (externalId) => this.getTaskByExternalId(externalId),
-          createTask: (input) => this.createTask(input),
-          saveTask: (task) => this.saveTask(task),
-          persistEvents: (events) => this.persistEvents(events),
-        },
-      );
+      this.emailTriageStore = new EmailTriageSqliteStore(() => this.getDb(), {
+        getTaskByExternalId: (externalId) => this.getTaskByExternalId(externalId),
+        createTask: (input) => this.createTask(input),
+        saveTask: (task) => this.saveTask(task),
+        persistEvents: (events) => this.persistEvents(events),
+      });
     }
     return this.emailTriageStore;
   }
@@ -4547,7 +4544,9 @@ export class TauriSqliteRepository implements AppRepository {
     await this.getEmailTriageStore().deleteAccount(accountId);
   }
 
-  async listEmailTriageReviews(status?: import("../../domain/email-triage").EmailTriageReview["status"]) {
+  async listEmailTriageReviews(
+    status?: import("../../domain/email-triage").EmailTriageReview["status"],
+  ) {
     return this.getEmailTriageStore().listReviews(status);
   }
 
@@ -4564,7 +4563,9 @@ export class TauriSqliteRepository implements AppRepository {
     return this.getEmailTriageStore().listEvaluations(limit);
   }
 
-  async saveEmailTriageEvaluation(evaluation: import("../../domain/email-triage").EmailTriageEvaluation) {
+  async saveEmailTriageEvaluation(
+    evaluation: import("../../domain/email-triage").EmailTriageEvaluation,
+  ) {
     return this.getEmailTriageStore().saveEvaluation(evaluation);
   }
 
@@ -4616,7 +4617,9 @@ export class TauriSqliteRepository implements AppRepository {
     return this.getEmailTriageStore().getTaskByExternalId(externalId);
   }
 
-  async emailTriageApplyGtdUpdate(input: import("../email-triage/sync-engine").ApplyGtdUpdateInput) {
+  async emailTriageApplyGtdUpdate(
+    input: import("../email-triage/sync-engine").ApplyGtdUpdateInput,
+  ) {
     return this.getEmailTriageStore().applyGtdUpdate(input);
   }
 

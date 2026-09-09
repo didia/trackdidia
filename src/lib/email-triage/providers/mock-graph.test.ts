@@ -35,7 +35,10 @@ describe("mock graph adapter", () => {
 
   it("invalid delta token triggers reseed state", async () => {
     const adapter = new MockGraphAdapter([], { invalidDeltaToken: true });
-    const page = await adapter.fetchPage({ baselineAt: "2026-01-01T00:00:00Z", deltaLink: "stale" });
+    const page = await adapter.fetchPage({
+      baselineAt: "2026-01-01T00:00:00Z",
+      deltaLink: "stale",
+    });
     expect(page.cursorUpdate?.reseedRequired).toBe(true);
     expect(page.cursorUpdate?.deltaLink).toBeNull();
     expect(page.hasMore).toBe(true);

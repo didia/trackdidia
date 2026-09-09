@@ -1884,7 +1884,9 @@ export class MemoryRepository implements AppRepository {
     return Promise.resolve();
   }
 
-  async listEmailTriageReviews(status?: import("../../domain/email-triage").EmailTriageReview["status"]) {
+  async listEmailTriageReviews(
+    status?: import("../../domain/email-triage").EmailTriageReview["status"],
+  ) {
     return Promise.resolve(this.emailTriage.listReviews(status));
   }
 
@@ -1901,7 +1903,9 @@ export class MemoryRepository implements AppRepository {
     return Promise.resolve(this.emailTriage.listEvaluations(limit));
   }
 
-  async saveEmailTriageEvaluation(evaluation: import("../../domain/email-triage").EmailTriageEvaluation) {
+  async saveEmailTriageEvaluation(
+    evaluation: import("../../domain/email-triage").EmailTriageEvaluation,
+  ) {
     return Promise.resolve(this.emailTriage.saveEvaluation(evaluation));
   }
 
@@ -1953,7 +1957,9 @@ export class MemoryRepository implements AppRepository {
     return Promise.resolve(this.emailTriage.getTaskByExternalId(externalId));
   }
 
-  async emailTriageApplyGtdUpdate(input: import("../email-triage/sync-engine").ApplyGtdUpdateInput) {
+  async emailTriageApplyGtdUpdate(
+    input: import("../email-triage/sync-engine").ApplyGtdUpdateInput,
+  ) {
     return Promise.resolve(this.emailTriage.applyGtdUpdate(input));
   }
 

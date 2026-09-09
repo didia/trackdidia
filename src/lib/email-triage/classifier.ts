@@ -131,10 +131,7 @@ export const classifyEmailMessage = async (
     ),
   };
 
-  const allReviewReasons = [
-    ...reviewSignals,
-    ...detectReviewSignals(envelope, clamped),
-  ];
+  const allReviewReasons = [...reviewSignals, ...detectReviewSignals(envelope, clamped)];
   const routedDecision = applyClassifierThresholds({
     output: clamped,
     reviewReasons: allReviewReasons,

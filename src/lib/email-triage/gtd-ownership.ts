@@ -1,9 +1,6 @@
 import type { Task } from "../../domain/types";
 import type { EmailTriageConversation } from "../../domain/email-triage";
-import {
-  EMAIL_TRIAGE_MANAGED_NOTES_BEGIN,
-  EMAIL_TRIAGE_MANAGED_NOTES_END,
-} from "./constants";
+import { EMAIL_TRIAGE_MANAGED_NOTES_BEGIN, EMAIL_TRIAGE_MANAGED_NOTES_END } from "./constants";
 
 export interface ManagedNotesState {
   revision: number;
@@ -32,7 +29,9 @@ export const buildManagedNotesSection = (
   ].join("\n");
 };
 
-export const parseManagedNotes = (notes: string): {
+export const parseManagedNotes = (
+  notes: string,
+): {
   userNotes: string;
   managed: ManagedNotesState | null;
 } => {
@@ -49,7 +48,8 @@ export const parseManagedNotes = (notes: string): {
   const revision = revisionMatch ? Number(revisionMatch[1]) : 0;
   const bodyStart = notes.indexOf("-->", beginIndex) + 3;
   const body = notes.slice(bodyStart, endIndex).trim();
-  const userNotes = `${notes.slice(0, beginIndex)}${notes.slice(endIndex + EMAIL_TRIAGE_MANAGED_NOTES_END.length)}`.trim();
+  const userNotes =
+    `${notes.slice(0, beginIndex)}${notes.slice(endIndex + EMAIL_TRIAGE_MANAGED_NOTES_END.length)}`.trim();
   return {
     userNotes,
     managed: {

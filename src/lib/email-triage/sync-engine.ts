@@ -7,9 +7,17 @@ import type {
 } from "../../domain/email-triage";
 import { buildEmailTriageTaskExternalId } from "../../domain/email-triage";
 import type { Task } from "../../domain/types";
-import { classifyEmailMessage, type ClassifyEmailResult, type EmailTriageClassifierProvider } from "./classifier";
+import {
+  classifyEmailMessage,
+  type ClassifyEmailResult,
+  type EmailTriageClassifierProvider,
+} from "./classifier";
 import { createDesiredEffect } from "./desired-effects";
-import { planGtdOwnershipUpdate, hashManagedNotesBody, buildManagedNotesSection } from "./gtd-ownership";
+import {
+  planGtdOwnershipUpdate,
+  hashManagedNotesBody,
+  buildManagedNotesSection,
+} from "./gtd-ownership";
 import { mergeSyncState, type EmailTriageProviderAdapter } from "./providers/types";
 import { buildSanitizedPreviewExcerpt } from "./sanitize";
 
@@ -31,7 +39,9 @@ export interface EmailTriageRepositoryPort {
     conversationKey: string,
   ): Promise<EmailTriageConversation | null>;
   persistMessageBatch(input: PersistMessageBatchInput): Promise<PersistMessageBatchResult>;
-  listPendingEffects(conversationId: string): Promise<import("../../domain/email-triage").EmailTriageDesiredEffect[]>;
+  listPendingEffects(
+    conversationId: string,
+  ): Promise<import("../../domain/email-triage").EmailTriageDesiredEffect[]>;
   saveDesiredEffect(
     effect: import("../../domain/email-triage").EmailTriageDesiredEffect,
   ): Promise<void>;
@@ -118,9 +128,7 @@ export const processProviderPage = async (
     await options.repository.updateAccountSyncState(
       options.account.id,
       mergedState,
-      page.gapDetected
-        ? { state: "gap_review_required", recoveryState: "in_progress" }
-        : undefined,
+      page.gapDetected ? { state: "gap_review_required", recoveryState: "in_progress" } : undefined,
     );
   }
 
@@ -176,7 +184,10 @@ const processTransientMessage = async (
   }
 
   let conversation =
-    (await options.repository.getConversationByKey(options.account.id, transient.conversationKey)) ??
+    (await options.repository.getConversationByKey(
+      options.account.id,
+      transient.conversationKey,
+    )) ??
     (await options.repository.upsertConversation(options.account.id, transient.conversationKey, {
       decisionVersion: 0,
       routingState: "pending",
@@ -214,10 +225,7 @@ const processTransientMessage = async (
         };
 
   const routedDecision = classifyResult.routedDecision;
-  const externalId = buildEmailTriageTaskExternalId(
-    options.account.id,
-    transient.conversationKey,
-  );
+  const externalId = buildEmailTriageTaskExternalId(options.account.id, transient.conversationKey);
   const existingTask = await options.repository.getTaskByExternalId(externalId);
 
   if (routedDecision === "review") {

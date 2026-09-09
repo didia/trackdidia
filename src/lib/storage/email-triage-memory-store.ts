@@ -12,7 +12,7 @@ import {
   type EmailTriageReview,
 } from "../../domain/email-triage";
 import type { Task } from "../../domain/types";
-import { buildLifecycleEvents, createTaskFromInput } from "../gtd/engine";
+import { buildLifecycleEvents, type createTaskFromInput } from "../gtd/engine";
 import { cloneTask, createEntityId, nowIso } from "../gtd/shared";
 import type {
   ApplyGtdUpdateInput,
@@ -51,9 +51,7 @@ export class EmailTriageMemoryStore {
   }
 
   listAccounts(): EmailTriageAccount[] {
-    return [...this.accounts.values()].sort((left, right) =>
-      left.label.localeCompare(right.label),
-    );
+    return [...this.accounts.values()].sort((left, right) => left.label.localeCompare(right.label));
   }
 
   getAccount(accountId: string): EmailTriageAccount | null {
@@ -343,7 +341,10 @@ export class EmailTriageMemoryStore {
   }
 
   saveEvaluation(evaluation: EmailTriageEvaluation): EmailTriageEvaluation {
-    this.evaluations.set(evaluation.id, { ...evaluation, results: { ...evaluation.results, failures: [...evaluation.results.failures] } });
+    this.evaluations.set(evaluation.id, {
+      ...evaluation,
+      results: { ...evaluation.results, failures: [...evaluation.results.failures] },
+    });
     if (evaluation.passed) {
       this.globalSettings = {
         ...this.globalSettings,

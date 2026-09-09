@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import { defaultEmailTriageGlobalSettings } from "../../domain/email-triage";
 import type { EmailTriageAccount } from "../../domain/email-triage";
 import { processProviderPage, type EmailTriageRepositoryPort } from "./sync-engine";
-import { MockGmailAdapter, type MockGmailHistoryEntry, type MockGmailMessage } from "./providers/mock-gmail";
+import {
+  MockGmailAdapter,
+  type MockGmailHistoryEntry,
+  type MockGmailMessage,
+} from "./providers/mock-gmail";
 import type { EmailTriageClassifierProvider } from "./classifier";
 
 const baseAccount = (): EmailTriageAccount => ({
@@ -20,7 +24,12 @@ const baseAccount = (): EmailTriageAccount => ({
   lastSuccessAt: null,
   lastError: null,
   pollIntervalMinutes: 5,
-  syncState: { baselineHistoryId: "1", cursorHistoryId: "1", pagesConsumed: 0, trackedMessageIds: [] },
+  syncState: {
+    baselineHistoryId: "1",
+    cursorHistoryId: "1",
+    pagesConsumed: 0,
+    trackedMessageIds: [],
+  },
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
 });

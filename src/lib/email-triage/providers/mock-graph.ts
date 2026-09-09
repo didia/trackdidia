@@ -31,7 +31,9 @@ export interface MockGraphState {
   snapshotComplete: boolean;
 }
 
-export const mockGraphMessageToTransient = (message: MockGraphMessage): EmailTriageTransientMessage => ({
+export const mockGraphMessageToTransient = (
+  message: MockGraphMessage,
+): EmailTriageTransientMessage => ({
   providerMessageId: message.id,
   conversationKey: message.conversationId,
   messageIdHeader: null,
@@ -111,7 +113,7 @@ export class MockGraphAdapter implements EmailTriageProviderAdapter {
       cursorUpdate: {
         pageIndex: nextPageIndex,
         nextLink: page.nextLink ?? null,
-        deltaLink: isLastPage ? page.deltaLink ?? null : state.deltaLink,
+        deltaLink: isLastPage ? (page.deltaLink ?? null) : state.deltaLink,
         snapshotComplete: isLastPage,
       },
       hasMore: Boolean(page.nextLink) || nextPageIndex < this.pages.length,

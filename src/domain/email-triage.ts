@@ -21,10 +21,7 @@ export type EmailTriageRoutingState = "pending" | "relevant" | "ignored" | "revi
 
 export type EmailTriageClassifierDecision = "relevant" | "ignore" | "review";
 
-export type EmailTriageRelevance =
-  | "action_required"
-  | "information_to_retain"
-  | null;
+export type EmailTriageRelevance = "action_required" | "information_to_retain" | null;
 
 export type EmailTriageIgnoreReason =
   | "newsletter"

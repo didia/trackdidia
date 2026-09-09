@@ -5,9 +5,9 @@ import { EMAIL_TRIAGE_MAX_BODY_CHARS, EMAIL_TRIAGE_MAX_PAYLOAD_BYTES } from "./c
 describe("email triage sanitize", () => {
   it("truncates oversized subject and body", () => {
     expect(truncateText("a".repeat(600), 500).length).toBeLessThanOrEqual(500);
-    expect(cleanBodyText(`<script>alert(1)</script>${"x".repeat(20_000)}`).length).toBeLessThanOrEqual(
-      EMAIL_TRIAGE_MAX_BODY_CHARS,
-    );
+    expect(
+      cleanBodyText(`<script>alert(1)</script>${"x".repeat(20_000)}`).length,
+    ).toBeLessThanOrEqual(EMAIL_TRIAGE_MAX_BODY_CHARS);
   });
 
   it("keeps classifier payload under 16 KiB", () => {

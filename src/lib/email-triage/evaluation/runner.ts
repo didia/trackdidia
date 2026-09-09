@@ -1,4 +1,7 @@
-import type { EmailTriageEvaluation, EmailTriageEvaluationResult } from "../../../domain/email-triage";
+import type {
+  EmailTriageEvaluation,
+  EmailTriageEvaluationResult,
+} from "../../../domain/email-triage";
 import { EMAIL_TRIAGE_EVALUATION_CORPUS_VERSION } from "../constants";
 import type { ClassifyEmailResult } from "../classifier";
 import { classifyEmailMessage, type EmailTriageClassifierProvider } from "../classifier";
@@ -69,9 +72,7 @@ export const runEvaluationCorpus = async (
   };
 
   const passed =
-    validSchemaCount === totalCases &&
-    safetyViolations === 0 &&
-    exactRoutingRate >= 0.9;
+    validSchemaCount === totalCases && safetyViolations === 0 && exactRoutingRate >= 0.9;
 
   return {
     id: createEntityId("email-eval"),

@@ -12,7 +12,7 @@ import {
   type EmailTriageReview,
 } from "../../domain/email-triage";
 import type { Task } from "../../domain/types";
-import { buildLifecycleEvents, createTaskFromInput } from "../gtd/engine";
+import { buildLifecycleEvents, type createTaskFromInput } from "../gtd/engine";
 import { cloneTask, createEntityId, nowIso } from "../gtd/shared";
 import type {
   ApplyGtdUpdateInput,
@@ -132,7 +132,9 @@ export class EmailTriageSqliteStore {
 
   async listAccounts(): Promise<EmailTriageAccount[]> {
     const db = await this.getDb();
-    const rows = await db.select<AccountRow[]>("SELECT * FROM email_triage_accounts ORDER BY label");
+    const rows = await db.select<AccountRow[]>(
+      "SELECT * FROM email_triage_accounts ORDER BY label",
+    );
     return rows.map(mapAccount);
   }
 
@@ -281,10 +283,10 @@ export class EmailTriageSqliteStore {
         created_at: string;
         updated_at: string;
       }>
-    >(
-      "SELECT * FROM email_triage_conversations WHERE account_id = $1 AND conversation_key = $2",
-      [accountId, conversationKey],
-    );
+    >("SELECT * FROM email_triage_conversations WHERE account_id = $1 AND conversation_key = $2", [
+      accountId,
+      conversationKey,
+    ]);
     const row = rows[0];
     if (!row) {
       return null;
@@ -507,9 +509,13 @@ export class EmailTriageSqliteStore {
         sourceExternalId: input.externalId,
         sourceUrl: input.plan.sourceUrl,
       });
-      await this.upsertConversation(input.conversation.accountId, input.conversation.conversationKey, {
-        taskId: created.id,
-      });
+      await this.upsertConversation(
+        input.conversation.accountId,
+        input.conversation.conversationKey,
+        {
+          taskId: created.id,
+        },
+      );
       return cloneTask(created);
     }
     if (!existing) {
@@ -531,9 +537,13 @@ export class EmailTriageSqliteStore {
     }
     const saved = await this.taskOps.saveTask(next);
     await this.taskOps.persistEvents(buildLifecycleEvents(previous, saved));
-    await this.upsertConversation(input.conversation.accountId, input.conversation.conversationKey, {
-      taskId: saved.id,
-    });
+    await this.upsertConversation(
+      input.conversation.accountId,
+      input.conversation.conversationKey,
+      {
+        taskId: saved.id,
+      },
+    );
     return cloneTask(saved);
   }
 

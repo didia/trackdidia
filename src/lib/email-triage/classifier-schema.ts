@@ -62,12 +62,19 @@ export const parseClassifierJson = (raw: string): ClassifierValidationResult => 
   }
 
   const decision = record.decision;
-  if (typeof decision !== "string" || !VALID_DECISIONS.has(decision as EmailTriageClassifierDecision)) {
+  if (
+    typeof decision !== "string" ||
+    !VALID_DECISIONS.has(decision as EmailTriageClassifierDecision)
+  ) {
     errors.push("invalid_decision");
   }
 
   const relevance = record.relevance;
-  if (relevance !== null && (typeof relevance !== "string" || !VALID_RELEVANCE.has(relevance as NonNullable<EmailTriageRelevance>))) {
+  if (
+    relevance !== null &&
+    (typeof relevance !== "string" ||
+      !VALID_RELEVANCE.has(relevance as NonNullable<EmailTriageRelevance>))
+  ) {
     errors.push("invalid_relevance");
   }
 
@@ -81,7 +88,12 @@ export const parseClassifierJson = (raw: string): ClassifierValidationResult => 
   }
 
   const confidence = record.confidence;
-  if (typeof confidence !== "number" || !Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
+  if (
+    typeof confidence !== "number" ||
+    !Number.isFinite(confidence) ||
+    confidence < 0 ||
+    confidence > 1
+  ) {
     errors.push("invalid_confidence");
   }
 

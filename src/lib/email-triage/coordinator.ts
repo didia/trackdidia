@@ -71,9 +71,12 @@ export class EmailTriageCoordinator {
       account.pollIntervalMinutes || settings.pollIntervalMinutes,
     );
     const jitterMs = Math.floor(Math.random() * 5_000);
-    const timer = setTimeout(() => {
-      void this.runAccountSync(account.id);
-    }, intervalMinutes * 60_000 + jitterMs);
+    const timer = setTimeout(
+      () => {
+        void this.runAccountSync(account.id);
+      },
+      intervalMinutes * 60_000 + jitterMs,
+    );
     this.timers.set(account.id, timer);
   }
 
@@ -146,4 +149,7 @@ export class EmailTriageCoordinator {
 }
 
 export const clampPollInterval = (minutes: number): number =>
-  Math.min(EMAIL_TRIAGE_MAX_POLL_MINUTES, Math.max(EMAIL_TRIAGE_MIN_POLL_MINUTES, minutes || EMAIL_TRIAGE_DEFAULT_POLL_MINUTES));
+  Math.min(
+    EMAIL_TRIAGE_MAX_POLL_MINUTES,
+    Math.max(EMAIL_TRIAGE_MIN_POLL_MINUTES, minutes || EMAIL_TRIAGE_DEFAULT_POLL_MINUTES),
+  );

@@ -11,11 +11,7 @@ describe("desired effects", () => {
       effectType: "provider_marker",
       targetMessageIds: ["m1"],
     });
-    expect(
-      shouldSupersedeEffect(effect, 2, 1),
-    ).toBe(true);
-    expect(
-      shouldSupersedeEffect(effect, 1, 2),
-    ).toBe(true);
+    expect(shouldSupersedeEffect(effect, 2, 1)).toBe(true);
+    expect(shouldSupersedeEffect(effect, 1, 2)).toBe(true);
   });
 });

@@ -210,7 +210,9 @@ export interface AppRepository {
     scope: RecurringEditScope,
     changes: RecurringTaskChanges,
   ): Promise<Task>;
-  getEmailTriageGlobalSettings(): Promise<import("../../domain/email-triage").EmailTriageGlobalSettings>;
+  getEmailTriageGlobalSettings(): Promise<
+    import("../../domain/email-triage").EmailTriageGlobalSettings
+  >;
   saveEmailTriageGlobalSettings(
     settings: import("../../domain/email-triage").EmailTriageGlobalSettings,
   ): Promise<void>;

@@ -1,8 +1,5 @@
 import type { EmailTriageTransientMessage } from "../../../domain/email-triage";
-import {
-  EMAIL_TRIAGE_GMAIL_IGNORE_LABEL,
-  EMAIL_TRIAGE_GMAIL_INBOX_LABEL,
-} from "../constants";
+import { EMAIL_TRIAGE_GMAIL_IGNORE_LABEL, EMAIL_TRIAGE_GMAIL_INBOX_LABEL } from "../constants";
 import type { EmailTriageProviderAdapter, ProviderMarkerRequest, ProviderSyncPage } from "./types";
 
 export interface MockGmailHistoryEntry {
@@ -52,15 +49,15 @@ const headerValue = (
   return match?.value ?? null;
 };
 
-export const mockGmailMessageToTransient = (message: MockGmailMessage): EmailTriageTransientMessage => {
+export const mockGmailMessageToTransient = (
+  message: MockGmailMessage,
+): EmailTriageTransientMessage => {
   const headers = message.payload.headers;
   return {
     providerMessageId: message.id,
     conversationKey: message.threadId,
     messageIdHeader: headerValue(headers, "Message-ID"),
-    references: (headerValue(headers, "References") ?? "")
-      .split(/\s+/)
-      .filter(Boolean),
+    references: (headerValue(headers, "References") ?? "").split(/\s+/).filter(Boolean),
     inReplyTo: headerValue(headers, "In-Reply-To"),
     subject: headerValue(headers, "Subject") ?? "",
     sender: headerValue(headers, "From") ?? "",
@@ -124,8 +121,7 @@ export class MockGmailAdapter implements EmailTriageProviderAdapter {
     const entry = pageEntries[0];
     const addedIds = (entry.messagesAdded ?? []).map((item) => item.id);
     const labelOnly =
-      !addedIds.length &&
-      Boolean(entry.labelsAdded?.length || entry.labelsRemoved?.length);
+      !addedIds.length && Boolean(entry.labelsAdded?.length || entry.labelsRemoved?.length);
     if (labelOnly) {
       return {
         messages: [],
