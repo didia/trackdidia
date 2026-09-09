@@ -21,7 +21,11 @@ export interface MicrosoftOAuthTokens {
   scope: string;
 }
 
-export { maskEmailAddress, parseProviderCredentials, serializeProviderCredentials } from "./gmail-oauth";
+export {
+  maskEmailAddress,
+  parseProviderCredentials,
+  serializeProviderCredentials,
+} from "./gmail-oauth";
 
 export const buildMicrosoftAuthorizationUrl = (options: {
   clientId: string;
@@ -130,7 +134,12 @@ export const refreshMicrosoftAccessToken = async (
     }): Promise<{ status: number; body: string }>;
   },
   options: { clientId: string; refreshToken: string },
-): Promise<{ accessToken: string; expiresIn: number; tokenType: string }> => {
+): Promise<{
+  accessToken: string;
+  refreshToken: string | null;
+  expiresIn: number;
+  tokenType: string;
+}> => {
   const body = new URLSearchParams({
     client_id: options.clientId,
     refresh_token: options.refreshToken,
@@ -146,6 +155,7 @@ export const refreshMicrosoftAccessToken = async (
   const tokens = parseTokenResponse(response);
   return {
     accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
     expiresIn: tokens.expiresIn,
     tokenType: tokens.tokenType,
   };

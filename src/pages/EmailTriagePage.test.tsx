@@ -34,7 +34,7 @@ describe("EmailTriagePage", () => {
       microsoftOAuthClientId: "client-id",
       updatedAt: nowIso(),
     });
-    await renderWithApp(<EmailTriagePage />);
+    await renderWithApp(<EmailTriagePage />, { repository });
     expect(await screen.findByRole("button", { name: /Connecter Microsoft/i })).toBeDisabled();
   });
 

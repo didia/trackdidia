@@ -6,6 +6,9 @@
   oversized Gmail messages are quarantined so history can advance, obsolete
   coordinator startups cannot clear the live instance, and vault credentials are
   rolled back when account persistence fails.
+- 2026-09-09: Graph review follow-up — `$deltatoken=latest` first-connect baseline, invalid-delta
+  reseed keeps `baselineAt`, rotated Microsoft refresh tokens persisted, reconnect preserves sync
+  cursor, 410 reseed during snapshot/`nextLink`, Microsoft hosts on the Tauri HTTP allowlist.
 - 2026-09-09: Review follow-up — pagination carries the updated cursor, replay
   repairs missing GTD/effects after a persist crash, reviews no longer store
   body excerpts, resolving a review commits the message/conversation decision,

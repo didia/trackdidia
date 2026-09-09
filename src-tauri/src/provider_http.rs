@@ -13,6 +13,8 @@ const ALLOWED_HOSTS: &[&str] = &[
     "gmail.googleapis.com",
     "www.googleapis.com",
     "accounts.google.com",
+    "login.microsoftonline.com",
+    "graph.microsoft.com",
     "openrouter.ai",
     "api.openrouter.ai",
 ];

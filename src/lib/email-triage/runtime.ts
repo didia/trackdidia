@@ -5,7 +5,7 @@ import type { AppRepository } from "../storage/repository";
 import { isTauriRuntime } from "../storage/factory";
 import { createEntityId, nowIso } from "../gtd/shared";
 import { GmailApiClient } from "./providers/gmail-api";
-import { GraphApiClient } from "./providers/graph-api";
+import { GraphApiClient, type GraphMeProfile } from "./providers/graph-api";
 import { createTauriHttpClient } from "./provider-http";
 import {
   exchangeGmailAuthorizationCode,
@@ -198,12 +198,21 @@ export const connectGmailAccount = async (
 
 export const connectMicrosoftAccount = async (
   repository: AppRepository,
-  options: { reconnectAccountId?: string | null } = {},
+  options: { reconnectAccountId?: string | null; clientId?: string | null } = {},
 ): Promise<MicrosoftConnectResult> => {
   if (!isTauriRuntime()) {
     return { ok: false, error: "browser_preview" };
   }
-  const settings = await repository.getEmailTriageGlobalSettings();
+  let settings = await repository.getEmailTriageGlobalSettings();
+  const draftClientId = options.clientId?.trim();
+  if (draftClientId && draftClientId !== settings.microsoftOAuthClientId.trim()) {
+    settings = {
+      ...settings,
+      microsoftOAuthClientId: draftClientId,
+      updatedAt: nowIso(),
+    };
+    await repository.saveEmailTriageGlobalSettings(settings);
+  }
   const clientId = resolveMicrosoftOAuthClientId(settings.microsoftOAuthClientId);
   if (!clientId) {
     return { ok: false, error: "missing_client_id" };
@@ -254,7 +263,13 @@ export const connectMicrosoftAccount = async (
 
   setCachedAccessToken("oauth-bootstrap", tokens.accessToken, tokens.expiresIn);
   const bootstrapApi = new GraphApiClient(http, async () => tokens.accessToken);
-  const profile = await bootstrapApi.getMe();
+  let profile: GraphMeProfile;
+  try {
+    profile = await bootstrapApi.getMe();
+  } catch {
+    clearCachedAccessToken("oauth-bootstrap");
+    return { ok: false, error: "connect_failed" };
+  }
   clearCachedAccessToken("oauth-bootstrap");
 
   const providerAccountId = profile.id;
@@ -280,15 +295,11 @@ export const connectMicrosoftAccount = async (
       account: {
         ...target,
         enabled: true,
-        state: "baselining",
+        state: "active",
         recoveryState: "none",
         lastError: null,
         syncState: {
           ...target.syncState,
-          baselineAt: null,
-          deltaLink: null,
-          nextLink: null,
-          snapshotComplete: false,
         },
         updatedAt: timestamp,
       },
@@ -311,31 +322,42 @@ export const connectMicrosoftAccount = async (
   }
 
   const accountId = existing?.id ?? createEntityId("email-account");
-  const account: EmailTriageAccount = {
-    id: accountId,
-    provider: "microsoft_graph",
-    providerAccountId,
-    label: displayAddress,
-    maskedAddress: maskEmailAddress(displayAddress),
-    generation: existing?.generation ?? 1,
-    enabled: true,
-    mutationEnabled: false,
-    paused: false,
-    state: "baselining",
-    recoveryState: "none",
-    lastSuccessAt: null,
-    lastError: null,
-    pollIntervalMinutes: settings.pollIntervalMinutes,
-    syncState: {
-      baselineAt: null,
-      deltaLink: null,
-      nextLink: null,
-      snapshotComplete: false,
-      trackedMessageIds: [],
-    },
-    createdAt: existing?.createdAt ?? timestamp,
-    updatedAt: timestamp,
-  };
+  const account: EmailTriageAccount = existing
+    ? {
+        ...existing,
+        label: displayAddress,
+        maskedAddress: maskEmailAddress(displayAddress),
+        enabled: true,
+        state: "active",
+        lastError: null,
+        recoveryState: "none",
+        updatedAt: timestamp,
+      }
+    : {
+        id: accountId,
+        provider: "microsoft_graph",
+        providerAccountId,
+        label: displayAddress,
+        maskedAddress: maskEmailAddress(displayAddress),
+        generation: 1,
+        enabled: true,
+        mutationEnabled: false,
+        paused: false,
+        state: "baselining",
+        recoveryState: "none",
+        lastSuccessAt: null,
+        lastError: null,
+        pollIntervalMinutes: settings.pollIntervalMinutes,
+        syncState: {
+          baselineAt: null,
+          deltaLink: null,
+          nextLink: null,
+          snapshotComplete: false,
+          trackedMessageIds: [],
+        },
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
   await persistGmailAccountCredentials({
     repository,
     account,

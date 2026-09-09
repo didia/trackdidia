@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildMicrosoftAuthorizationUrl,
   MICROSOFT_OAUTH_SCOPE,
+  refreshMicrosoftAccessToken,
   resolveMicrosoftOAuthClientId,
 } from "./microsoft-oauth";
 
@@ -33,5 +34,28 @@ describe("microsoft oauth helpers", () => {
     expect(resolveMicrosoftOAuthClientId(" settings-id ", "env-id")).toBe("settings-id");
     expect(resolveMicrosoftOAuthClientId("", "env-id")).toBe("env-id");
     expect(resolveMicrosoftOAuthClientId("  ", "")).toBe("");
+  });
+
+  it("returns rotated refresh token from refreshMicrosoftAccessToken", async () => {
+    const http = {
+      request: async () => ({
+        status: 200,
+        body: JSON.stringify({
+          access_token: "new-access",
+          refresh_token: "rotated-refresh",
+          expires_in: 3600,
+          token_type: "Bearer",
+          scope: MICROSOFT_OAUTH_SCOPE,
+        }),
+      }),
+    };
+    const tokens = await refreshMicrosoftAccessToken(http, {
+      clientId: "client-id",
+      refreshToken: "old-refresh",
+    });
+    expect(tokens.accessToken).toBe("new-access");
+    expect(tokens.refreshToken).toBe("rotated-refresh");
+    expect(tokens.expiresIn).toBe(3600);
+    expect(tokens.tokenType).toBe("Bearer");
   });
 });

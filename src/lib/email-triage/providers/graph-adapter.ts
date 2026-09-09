@@ -5,7 +5,7 @@ import {
 } from "../constants";
 import { ProviderHttpError } from "../provider-http";
 import {
-  GraphApiClient,
+  type GraphApiClient,
   graphMessageToTransient,
   isDeltaInvalidError,
   isTrackDidiaGraphCategory,
@@ -61,7 +61,7 @@ const filterEligibleMessages = (
 
 export class GraphAdapter implements EmailTriageProviderAdapter {
   readonly provider = "microsoft_graph" as const;
-  private masterCategoriesEnsured = false;
+  private ensuredCategories = new Set<string>();
 
   constructor(
     private readonly api: GraphApiClient,
@@ -72,32 +72,40 @@ export class GraphAdapter implements EmailTriageProviderAdapter {
     const state = readSyncState(syncState);
 
     if (!state.baselineAt) {
-      return {
-        messages: [],
-        cursorUpdate: {
-          baselineAt: new Date().toISOString(),
-          deltaLink: null,
-          nextLink: null,
-          snapshotComplete: false,
-          trackedMessageIds: state.trackedMessageIds,
-        },
-        hasMore: true,
-        gapDetected: false,
-      };
+      return this.establishLatestBaseline(state);
     }
 
     const requestUrl = this.resolveRequestUrl(state);
     try {
       return await this.fetchAndProcessPage(state, requestUrl);
     } catch (error) {
-      if (!state.snapshotComplete || state.nextLink) {
-        throw error;
-      }
       if (!isDeltaInvalidError(error)) {
         throw error;
       }
       return this.beginInvalidDeltaReseed(state);
     }
+  }
+
+  private async establishLatestBaseline(state: GraphSyncState): Promise<ProviderSyncPage> {
+    const page = await this.api.fetchDeltaPage(this.api.buildLatestDeltaUrl());
+    const baselineAt = new Date().toISOString();
+    const deltaLink = page["@odata.deltaLink"] ?? null;
+    return {
+      messages: [],
+      cursorUpdate: {
+        baselineAt,
+        deltaLink,
+        nextLink: null,
+        snapshotComplete: true,
+        trackedMessageIds: state.trackedMessageIds,
+      },
+      hasMore: false,
+      gapDetected: false,
+      accountPatch: {
+        recoveryState: "none",
+        state: "active",
+      } satisfies Partial<EmailTriageAccount>,
+    };
   }
 
   private resolveRequestUrl(state: GraphSyncState): string {
@@ -114,7 +122,7 @@ export class GraphAdapter implements EmailTriageProviderAdapter {
     return {
       messages: [],
       cursorUpdate: {
-        baselineAt: new Date().toISOString(),
+        baselineAt: state.baselineAt,
         deltaLink: null,
         nextLink: null,
         snapshotComplete: false,
@@ -184,7 +192,6 @@ export class GraphAdapter implements EmailTriageProviderAdapter {
         gapDetected: false,
         accountPatch: {
           recoveryState: "none",
-          state: "active",
         } satisfies Partial<EmailTriageAccount>,
       };
     }
@@ -232,11 +239,6 @@ export class GraphAdapter implements EmailTriageProviderAdapter {
   }
 
   private async ensureMasterCategories(request: ProviderMarkerRequest): Promise<void> {
-    if (this.masterCategoriesEnsured) {
-      return;
-    }
-    const existing = await this.api.listMasterCategories();
-    const names = new Set(existing.map((category) => category.displayName));
     const required =
       request.decision === "relevant"
         ? [EMAIL_TRIAGE_GRAPH_INBOX_CATEGORY]
@@ -244,12 +246,17 @@ export class GraphAdapter implements EmailTriageProviderAdapter {
             EMAIL_TRIAGE_GRAPH_IGNORE_CATEGORY,
             `${EMAIL_TRIAGE_GRAPH_IGNORE_CATEGORY}:${request.ignoreReason ?? "other"}`,
           ];
+    if (required.every((name) => this.ensuredCategories.has(name))) {
+      return;
+    }
+    const existing = await this.api.listMasterCategories();
+    const names = new Set(existing.map((category) => category.displayName));
     for (const displayName of required) {
       if (!names.has(displayName)) {
         await this.api.createMasterCategory(displayName);
       }
+      this.ensuredCategories.add(displayName);
     }
-    this.masterCategoriesEnsured = true;
   }
 
   private buildTargetCategories(request: ProviderMarkerRequest): string[] {
@@ -278,12 +285,10 @@ export class GraphAdapter implements EmailTriageProviderAdapter {
     try {
       await this.api.patchMessageCategories(messageId, merged, etag);
     } catch (error) {
-      if (
-        error instanceof ProviderHttpError &&
-        error.message === "category_concurrency_conflict"
-      ) {
+      if (error instanceof ProviderHttpError && error.message === "category_concurrency_conflict") {
         const refreshed = await this.api.getMessage(messageId);
         const retryMerged = this.mergeCategories(refreshed.categories ?? [], target);
+        // Last-write-wins on retry is intentional when If-Match fails.
         await this.api.patchMessageCategories(messageId, retryMerged);
         return;
       }

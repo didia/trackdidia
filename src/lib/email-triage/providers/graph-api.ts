@@ -10,8 +10,7 @@ export const GRAPH_INBOX_DELTA_URL =
 export const GRAPH_MESSAGE_SELECT =
   "id,conversationId,internetMessageId,receivedDateTime,subject,from,toRecipients,body,categories,webLink,parentFolderId";
 
-export const GRAPH_PREFER_HEADERS =
-  'IdType="ImmutableId", outlook.body-content-type="text"';
+export const GRAPH_PREFER_HEADERS = 'IdType="ImmutableId", outlook.body-content-type="text"';
 
 export interface GraphEmailAddress {
   address: string;
@@ -133,7 +132,10 @@ export class GraphApiClient {
     }
     if (response.status >= 400) {
       const payload = parseJsonBody<GraphDeltaPage>(response);
-      if (payload.error?.code === "SyncStateNotFound" || payload.error?.code === "syncStateNotFound") {
+      if (
+        payload.error?.code === "SyncStateNotFound" ||
+        payload.error?.code === "syncStateNotFound"
+      ) {
         throw new ProviderHttpError("graph_delta_invalid", response.status, response.body);
       }
       assertHttpSuccess(response, "graph_delta");
@@ -147,9 +149,16 @@ export class GraphApiClient {
     return url.toString();
   }
 
+  buildLatestDeltaUrl(): string {
+    const url = new URL(GRAPH_INBOX_DELTA_URL);
+    url.searchParams.set("$select", GRAPH_MESSAGE_SELECT);
+    url.searchParams.set("$deltatoken", "latest");
+    return url.toString();
+  }
+
   async getMessage(messageId: string): Promise<GraphMessage> {
     const url = new URL(`${GRAPH_API_BASE}/me/messages/${encodeURIComponent(messageId)}`);
-    url.searchParams.set("$select", `${GRAPH_MESSAGE_SELECT},@odata.etag`);
+    url.searchParams.set("$select", GRAPH_MESSAGE_SELECT);
     const response = await this.authorizedRequest("GET", url.toString());
     assertHttpSuccess(response, "graph_message");
     return parseJsonBody<GraphMessage & { "@odata.etag"?: string }>(response);

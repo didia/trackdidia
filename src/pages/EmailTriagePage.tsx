@@ -197,7 +197,10 @@ export const EmailTriagePage = () => {
     setConnecting(true);
     setConnectError(null);
     try {
-      const result = await connectMicrosoftAccount(repository, { reconnectAccountId });
+      const result = await connectMicrosoftAccount(repository, {
+        reconnectAccountId,
+        clientId: settings.microsoftOAuthClientId,
+      });
       if (!result.ok) {
         setConnectError(result.error ?? "connect_failed");
       }

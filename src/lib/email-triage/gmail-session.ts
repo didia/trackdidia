@@ -14,6 +14,7 @@ import {
   parseProviderCredentials,
   refreshGmailAccessToken,
   resolveGmailOAuthClientId,
+  serializeProviderCredentials,
 } from "./oauth/gmail-oauth";
 import {
   refreshMicrosoftAccessToken,
@@ -94,6 +95,17 @@ const createMicrosoftAccessTokenGetter = (
         refreshToken: credentials.refreshToken,
       });
       setCachedAccessToken(account.id, refreshed.accessToken, refreshed.expiresIn);
+      if (refreshed.refreshToken) {
+        await storeVaultSecret(
+          "provider_credentials",
+          serializeProviderCredentials({
+            refreshToken: refreshed.refreshToken,
+            tokenType: refreshed.tokenType,
+            scope: credentials.scope,
+          }),
+          account.id,
+        );
+      }
       return refreshed.accessToken;
     } catch (error) {
       if (
