@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppProvider } from "./app/app-context";
 import { AppShell } from "./components/AppShell";
 import { AnnualGoalsPage } from "./pages/AnnualGoalsPage";
+import { EmailTriagePage } from "./pages/EmailTriagePage";
 import { EveningClosurePage } from "./pages/EveningClosurePage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { InboxPage } from "./pages/InboxPage";
@@ -36,6 +37,7 @@ export const App = () => (
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="pomodoro" element={<PomodoroPage />} />
           <Route path="recurrences" element={<RecurrencesPage />} />
+          <Route path="email-triage" element={<EmailTriagePage />} />
           <Route path="references" element={<ReferencesPage />} />
           <Route path="scheduled" element={<ScheduledPage />} />
           <Route path="waiting-for" element={<WaitingForPage />} />

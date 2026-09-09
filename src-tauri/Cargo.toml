@@ -26,6 +26,7 @@ tauri-plugin-dialog = "2"
 # before the later COMMIT runs. See src/db.rs for the custom db_connect/db_execute/db_select
 # commands that replace it.
 sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runtime-tokio"] }
+keyring = "3"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time"] }

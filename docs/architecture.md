@@ -116,6 +116,7 @@ floating Pomodoro timer.
 | `/projects` | Projects | Multi-step outcomes and status management |
 | `/pomodoro` | Pomodoro | Focus/break timer, task switching, daily history |
 | `/recurrences` | Recurrences | Create, filter, pause/resume/cancel recurring series |
+| `/email-triage` | Email triage | Account cards, review queue, disabled-by-default settings |
 | `/references` | References | Non-actionable material |
 | `/scheduled` | Scheduled | Day/week planning, deadlines, recurrence previews |
 | `/waiting-for` | Waiting For | Work awaiting external action |

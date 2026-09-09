@@ -111,6 +111,7 @@ import {
   relationshipPersonalContextId,
 } from "../relationship-draws";
 import type { AppRepository, PomodoroStartOptions, StorageInfo } from "./repository";
+import { EmailTriageMemoryStore } from "./email-triage-memory-store";
 
 export class MemoryRepository implements AppRepository {
   private entries = new Map<string, DailyEntry>();
@@ -130,6 +131,28 @@ export class MemoryRepository implements AppRepository {
   private aiMessages = new Map<string, AiMessage>();
   private aiProposals = new Map<string, AiProposal>();
   private aiMemories = new Map<string, AiMemory>();
+  private readonly emailTriage = new EmailTriageMemoryStore({
+    getTaskByExternalId: (externalId) =>
+      [...this.tasks.values()].find((task) => task.sourceExternalId === externalId),
+    createTask: (input) => {
+      const task = createTaskFromInput(input);
+      this.tasks.set(task.id, task);
+      for (const event of buildLifecycleEvents(null, task)) {
+        this.events.set(event.id, event);
+      }
+      return task;
+    },
+    saveTask: (task) => {
+      this.tasks.set(task.id, task);
+      return task;
+    },
+    persistEvents: (events) => {
+      for (const event of events) {
+        this.events.set(event.id, event);
+      }
+    },
+    getTaskById: (id) => this.tasks.get(id),
+  });
 
   async initialize(): Promise<void> {
     return Promise.resolve();
@@ -1831,5 +1854,118 @@ export class MemoryRepository implements AppRepository {
     };
     this.contexts.set(id, context);
     return context;
+  }
+
+  async getEmailTriageGlobalSettings() {
+    return Promise.resolve(this.emailTriage.getGlobalSettings());
+  }
+
+  async saveEmailTriageGlobalSettings(
+    settings: import("../../domain/email-triage").EmailTriageGlobalSettings,
+  ) {
+    this.emailTriage.saveGlobalSettings(settings);
+    return Promise.resolve();
+  }
+
+  async listEmailTriageAccounts() {
+    return Promise.resolve(this.emailTriage.listAccounts());
+  }
+
+  async getEmailTriageAccount(accountId: string) {
+    return Promise.resolve(this.emailTriage.getAccount(accountId));
+  }
+
+  async saveEmailTriageAccount(account: import("../../domain/email-triage").EmailTriageAccount) {
+    return Promise.resolve(this.emailTriage.saveAccount(account));
+  }
+
+  async deleteEmailTriageAccount(accountId: string) {
+    this.emailTriage.deleteAccount(accountId);
+    return Promise.resolve();
+  }
+
+  async listEmailTriageReviews(status?: import("../../domain/email-triage").EmailTriageReview["status"]) {
+    return Promise.resolve(this.emailTriage.listReviews(status));
+  }
+
+  async resolveEmailTriageReview(input: {
+    reviewId: string;
+    expectedDecisionVersion: number;
+    resolution: import("../../domain/email-triage").EmailTriageReview["resolution"];
+    ignoreReason?: string | null;
+  }) {
+    return Promise.resolve(this.emailTriage.resolveReview(input));
+  }
+
+  async listEmailTriageEvaluations(limit?: number) {
+    return Promise.resolve(this.emailTriage.listEvaluations(limit));
+  }
+
+  async saveEmailTriageEvaluation(evaluation: import("../../domain/email-triage").EmailTriageEvaluation) {
+    return Promise.resolve(this.emailTriage.saveEvaluation(evaluation));
+  }
+
+  async listEmailTriageAuditEvents(accountId?: string, limit?: number) {
+    return Promise.resolve(this.emailTriage.listAuditEvents(accountId, limit));
+  }
+
+  async recoverEmailTriageStaleEffects() {
+    return Promise.resolve(this.emailTriage.recoverStaleEffects());
+  }
+
+  async emailTriageUpsertConversation(
+    accountId: string,
+    conversationKey: string,
+    patch: Partial<import("../../domain/email-triage").EmailTriageConversation>,
+  ) {
+    return Promise.resolve(this.emailTriage.upsertConversation(accountId, conversationKey, patch));
+  }
+
+  async emailTriageGetConversationByKey(accountId: string, conversationKey: string) {
+    return Promise.resolve(this.emailTriage.getConversationByKey(accountId, conversationKey));
+  }
+
+  async emailTriageUpdateAccountSyncState(
+    accountId: string,
+    syncState: Record<string, unknown>,
+    patch?: Partial<import("../../domain/email-triage").EmailTriageAccount>,
+  ) {
+    return Promise.resolve(this.emailTriage.updateAccountSyncState(accountId, syncState, patch));
+  }
+
+  async emailTriagePersistMessageBatch(
+    input: import("../email-triage/sync-engine").PersistMessageBatchInput,
+  ) {
+    return Promise.resolve(this.emailTriage.persistMessageBatch(input));
+  }
+
+  async emailTriageListPendingEffects(conversationId: string) {
+    return Promise.resolve(this.emailTriage.listPendingEffects(conversationId));
+  }
+
+  async emailTriageSaveDesiredEffect(
+    effect: import("../../domain/email-triage").EmailTriageDesiredEffect,
+  ) {
+    return Promise.resolve(this.emailTriage.saveDesiredEffect(effect));
+  }
+
+  async emailTriageGetTaskByExternalId(externalId: string) {
+    return Promise.resolve(this.emailTriage.getTaskByExternalId(externalId));
+  }
+
+  async emailTriageApplyGtdUpdate(input: import("../email-triage/sync-engine").ApplyGtdUpdateInput) {
+    return Promise.resolve(this.emailTriage.applyGtdUpdate(input));
+  }
+
+  async emailTriageCreateReview(input: import("../email-triage/sync-engine").CreateReviewInput) {
+    return Promise.resolve(this.emailTriage.createReview(input));
+  }
+
+  async listEmailTriageMessages(accountId: string, limit?: number) {
+    return Promise.resolve(this.emailTriage.listMessages(accountId, limit));
+  }
+
+  async listEmailTriageClassificationAttempts(messageId: string) {
+    return Promise.resolve(this.emailTriage.listClassificationAttempts(messageId));
   }
 }

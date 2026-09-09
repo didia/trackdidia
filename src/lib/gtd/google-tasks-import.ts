@@ -154,6 +154,7 @@ const buildTaskFromGoogleTask = (
     plannedOrder: null,
     source: "google_import",
     sourceExternalId: recurrenceGroupId ?? task.id,
+    sourceUrl: null,
     createdAt: task.created ?? task.updated ?? nowIso(),
     updatedAt: task.updated ?? task.created ?? nowIso(),
   };

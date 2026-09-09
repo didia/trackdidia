@@ -19,6 +19,7 @@ import relationship from "../locales/fr/relationship.json";
 import relativeTime from "../locales/fr/relativeTime.json";
 import reviews from "../locales/fr/reviews.json";
 import settings from "../locales/fr/settings.json";
+import emailTriage from "../locales/fr/emailTriage.json";
 import today from "../locales/fr/today.json";
 
 export const defaultNS = "common";
@@ -37,6 +38,7 @@ export const resources = {
     reviews,
     goals,
     settings,
+    emailTriage,
     coach,
     metrics,
     principles,

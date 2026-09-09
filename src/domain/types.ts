@@ -660,8 +660,9 @@ export interface Task {
   recurrenceGroupId: string | null;
   pendingPastRecurrences: number;
   plannedOrder: number | null;
-  source: "manual" | "google_import";
+  source: "manual" | "google_import" | "email_triage";
   sourceExternalId: string | null;
+  sourceUrl: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -811,8 +812,9 @@ export interface CreateTaskInput {
   recurringTemplateId?: string | null;
   recurrenceDueDate?: string | null;
   isRecurringInstance?: boolean;
-  source?: "manual" | "google_import";
+  source?: "manual" | "google_import" | "email_triage";
   sourceExternalId?: string | null;
+  sourceUrl?: string | null;
   createdAt?: string;
   updatedAt?: string;
   id?: string;

@@ -139,6 +139,7 @@ Never renumber or rewrite a released migration. Add the next ID.
 | 26 | `add_gtd_task_planned_order` | Adds `gtd_tasks.planned_order`, a partial index on `(project_id, planned_order)` for active Planned rows, and normalizes `planned_order = NULL` for every non-Planned row |
 | 27 | `ai_proposals_repeatable_goal_evaluation` | Pending proposal uniqueness also excludes `goal_evaluation`, since a monthly synthesis can propose one evaluation per evaluated goal on the same message; adds a second partial unique index on `(message_id, json_extract(payload_json, '$.goalId'))` so at most one pending `goal_evaluation` proposal can still exist per goal |
 | 28 | `add_annual_goal_measurement_fields` | Adds `measurement_type` (default `numeric`), `status` (default `active`), `deadline`, `starting_value`, `direction`, `cadence_target`, `cadence_period` (default `week`), `principle_key`, `progress_log_json` (default `{}`), `milestones_json` (default `[]`) to `annual_goals` |
+| 29 | `add_email_triage_foundation` | Adds `source_url` to `gtd_tasks`; creates email triage settings, accounts, conversations, messages, reviews, evaluations, desired effects, and audit tables |
 
 ## Table reference
 

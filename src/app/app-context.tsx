@@ -35,6 +35,7 @@ import { PULSE_CHECK_INTERVAL_MS } from "../lib/ai/pulse/constants";
 import { runPulseEngine } from "../lib/ai/pulse/pulse-engine";
 import type { AppOpenInterval } from "../domain/insights/movement";
 import { useLocalDayReconciliation } from "./use-local-day-reconciliation";
+import { useEmailTriageCoordinator } from "./use-email-triage-coordinator";
 import { usePomodoroController, type PomodoroControllerValue } from "./use-pomodoro-controller";
 import { getTodayDate } from "../lib/date";
 
@@ -82,6 +83,8 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   const [pulseRevision, setPulseRevision] = useState(0);
   const calendarDay = useLocalDayReconciliation(repository);
   const pomodoro = usePomodoroController(repository, calendarDay);
+  const browserPreview = !isTauriRuntime();
+  useEmailTriageCoordinator(repository, browserPreview);
 
   const enqueueStartupWork = (work: () => Promise<void>) => {
     startupWorkQueueRef.current = startupWorkQueueRef.current.then(work).catch((error) => {
@@ -449,7 +452,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         settings,
         saveSettings,
         coachService,
-        browserPreview: !isTauriRuntime(),
+        browserPreview,
         debugEnabled,
         setDebugEnabled,
         pomodoro,

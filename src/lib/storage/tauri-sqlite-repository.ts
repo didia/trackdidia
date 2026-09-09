@@ -109,6 +109,7 @@ import {
   relationshipPersonalContextId,
 } from "../relationship-draws";
 import { DbSerialQueue } from "./db-serial-queue";
+import { EmailTriageSqliteStore } from "./email-triage-sqlite-store";
 import type {
   AppRepository,
   BackupResult,
@@ -278,6 +279,7 @@ interface TaskRow {
   planned_order: number | null;
   source: Task["source"];
   source_external_id: string | null;
+  source_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -854,13 +856,197 @@ export const migrations: Migration[] = [
       ALTER TABLE annual_goals ADD COLUMN milestones_json TEXT NOT NULL DEFAULT '[]';
     `,
   },
+  {
+    id: 29,
+    name: "add_email_triage_foundation",
+    sql: `
+      ALTER TABLE gtd_tasks ADD COLUMN source_url TEXT;
+
+      CREATE TABLE IF NOT EXISTS email_triage_settings (
+        id TEXT PRIMARY KEY,
+        enabled INTEGER NOT NULL DEFAULT 0,
+        mutation_enabled INTEGER NOT NULL DEFAULT 0,
+        poll_interval_minutes INTEGER NOT NULL DEFAULT 5,
+        relevant_threshold REAL NOT NULL DEFAULT 0.8,
+        ignore_threshold REAL NOT NULL DEFAULT 0.9,
+        classifier_model TEXT NOT NULL DEFAULT 'moonshotai/kimi-k2.6',
+        classifier_prompt_version TEXT NOT NULL DEFAULT '1',
+        classifier_schema_version TEXT NOT NULL DEFAULT '1',
+        automation_enabled INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+      );
+
+      INSERT OR IGNORE INTO email_triage_settings (
+        id, enabled, mutation_enabled, poll_interval_minutes, relevant_threshold, ignore_threshold,
+        classifier_model, classifier_prompt_version, classifier_schema_version, automation_enabled, updated_at
+      ) VALUES ('global', 0, 0, 5, 0.8, 0.9, 'moonshotai/kimi-k2.6', '1', '1', 0, '1970-01-01T00:00:00.000Z');
+
+      CREATE TABLE IF NOT EXISTS email_triage_accounts (
+        id TEXT PRIMARY KEY,
+        provider TEXT NOT NULL,
+        provider_account_id TEXT NOT NULL,
+        label TEXT NOT NULL,
+        masked_address TEXT NOT NULL,
+        generation INTEGER NOT NULL DEFAULT 1,
+        enabled INTEGER NOT NULL DEFAULT 0,
+        mutation_enabled INTEGER NOT NULL DEFAULT 0,
+        paused INTEGER NOT NULL DEFAULT 0,
+        state TEXT NOT NULL DEFAULT 'disconnected',
+        recovery_state TEXT NOT NULL DEFAULT 'none',
+        last_success_at TEXT,
+        last_error TEXT,
+        poll_interval_minutes INTEGER NOT NULL DEFAULT 5,
+        sync_state_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(provider, provider_account_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS email_triage_conversations (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL,
+        conversation_key TEXT NOT NULL,
+        decision_version INTEGER NOT NULL DEFAULT 0,
+        routing_state TEXT NOT NULL DEFAULT 'pending',
+        task_id TEXT,
+        last_generated_title TEXT,
+        managed_notes_revision INTEGER NOT NULL DEFAULT 0,
+        managed_notes_hash TEXT,
+        source_url TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(account_id, conversation_key)
+      );
+
+      CREATE TABLE IF NOT EXISTS email_triage_aliases (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        message_id_header TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS email_triage_messages (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL,
+        conversation_id TEXT NOT NULL,
+        provider_message_id TEXT NOT NULL,
+        received_at TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        sender TEXT NOT NULL,
+        summary TEXT,
+        routing_decision TEXT,
+        created_at TEXT NOT NULL,
+        UNIQUE(account_id, provider_message_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS email_triage_classification_attempts (
+        id TEXT PRIMARY KEY,
+        message_id TEXT NOT NULL,
+        model TEXT NOT NULL,
+        prompt_version TEXT NOT NULL,
+        schema_version TEXT NOT NULL,
+        decision TEXT NOT NULL,
+        relevance TEXT,
+        ignore_reason TEXT,
+        confidence REAL NOT NULL,
+        summary TEXT NOT NULL,
+        rationale TEXT NOT NULL,
+        suggested_task_title TEXT NOT NULL,
+        raw_valid INTEGER NOT NULL DEFAULT 1,
+        review_reasons_json TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS email_triage_reviews (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL,
+        conversation_id TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        expected_decision_version INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        reason TEXT NOT NULL,
+        sanitized_preview_json TEXT,
+        resolution TEXT,
+        resolved_at TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS email_triage_evaluations (
+        id TEXT PRIMARY KEY,
+        model TEXT NOT NULL,
+        prompt_version TEXT NOT NULL,
+        schema_version TEXT NOT NULL,
+        corpus_version TEXT NOT NULL,
+        relevant_threshold REAL NOT NULL,
+        ignore_threshold REAL NOT NULL,
+        passed INTEGER NOT NULL DEFAULT 0,
+        results_json TEXT NOT NULL,
+        evaluated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS email_triage_desired_effects (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL,
+        account_generation INTEGER NOT NULL,
+        conversation_id TEXT NOT NULL,
+        decision_version INTEGER NOT NULL,
+        effect_type TEXT NOT NULL,
+        target_message_ids_json TEXT NOT NULL DEFAULT '[]',
+        dedupe_key TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL DEFAULT 'pending',
+        dependencies_json TEXT NOT NULL DEFAULT '[]',
+        superseded_by TEXT,
+        last_error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS email_triage_audit_events (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL,
+        conversation_id TEXT,
+        event_type TEXT NOT NULL,
+        details_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL
+      );
+    `,
+  },
 ];
 
 export class TauriSqliteRepository implements AppRepository {
   private dbPromise: Promise<Database> | null = null;
   private readonly writeQueue = new DbSerialQueue();
+  private emailTriageStore: EmailTriageSqliteStore | null = null;
 
   constructor(private readonly connectionString = "sqlite:trackdidia.db") {}
+
+  private getEmailTriageStore(): EmailTriageSqliteStore {
+    if (!this.emailTriageStore) {
+      this.emailTriageStore = new EmailTriageSqliteStore(
+        () => this.getDb(),
+        {
+          getTaskByExternalId: (externalId) => this.getTaskByExternalId(externalId),
+          createTask: (input) => this.createTask(input),
+          saveTask: (task) => this.saveTask(task),
+          persistEvents: (events) => this.persistEvents(events),
+        },
+      );
+    }
+    return this.emailTriageStore;
+  }
+
+  private async getTaskByExternalId(externalId: string): Promise<Task | null> {
+    const db = await this.getDb();
+    const rows = await db.select<TaskRow[]>(
+      `SELECT
+        id, title, notes, status, bucket, context_ids_json, project_id, parent_task_id,
+        scheduled_for, deadline, recurring_template_id, recurrence_due_date, is_recurring_instance,
+        completed_at, recurrence_group_id, pending_past_recurrences, planned_order, source, source_external_id, source_url, created_at, updated_at
+      FROM gtd_tasks WHERE source_external_id = $1`,
+      [externalId],
+    );
+    return rows[0] ? this.deserializeTask(rows[0]) : null;
+  }
 
   private runExclusive<T>(operation: () => Promise<T>): Promise<T> {
     return this.writeQueue.run(operation);
@@ -3807,6 +3993,7 @@ export class TauriSqliteRepository implements AppRepository {
           : Number(row.planned_order),
       source: row.source,
       sourceExternalId: row.source_external_id,
+      sourceUrl: row.source_url ?? null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -3895,7 +4082,7 @@ export class TauriSqliteRepository implements AppRepository {
       `SELECT
         id, title, notes, status, bucket, context_ids_json, project_id, parent_task_id,
         scheduled_for, deadline, recurring_template_id, recurrence_due_date, is_recurring_instance,
-        completed_at, recurrence_group_id, pending_past_recurrences, planned_order, source, source_external_id, created_at, updated_at
+        completed_at, recurrence_group_id, pending_past_recurrences, planned_order, source, source_external_id, source_url, created_at, updated_at
       FROM gtd_tasks`,
     );
     return rows.map((row) => this.deserializeTask(row));
@@ -3950,7 +4137,7 @@ export class TauriSqliteRepository implements AppRepository {
       `SELECT
         id, title, notes, status, bucket, context_ids_json, project_id, parent_task_id,
         scheduled_for, deadline, recurring_template_id, recurrence_due_date, is_recurring_instance,
-        completed_at, recurrence_group_id, pending_past_recurrences, planned_order, source, source_external_id, created_at, updated_at
+        completed_at, recurrence_group_id, pending_past_recurrences, planned_order, source, source_external_id, source_url, created_at, updated_at
       FROM gtd_tasks
       WHERE id = $1`,
       [taskId],
@@ -4103,8 +4290,8 @@ export class TauriSqliteRepository implements AppRepository {
       `INSERT INTO gtd_tasks (
         id, title, notes, status, bucket, context_ids_json, project_id, parent_task_id, scheduled_for,
         deadline, recurring_template_id, recurrence_due_date, is_recurring_instance, completed_at, recurrence_group_id,
-        pending_past_recurrences, planned_order, source, source_external_id, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+        pending_past_recurrences, planned_order, source, source_external_id, source_url, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         notes = excluded.notes,
@@ -4124,6 +4311,7 @@ export class TauriSqliteRepository implements AppRepository {
         planned_order = excluded.planned_order,
         source = excluded.source,
         source_external_id = excluded.source_external_id,
+        source_url = excluded.source_url,
         updated_at = excluded.updated_at`,
       [
         task.id,
@@ -4145,6 +4333,7 @@ export class TauriSqliteRepository implements AppRepository {
         task.plannedOrder,
         task.source,
         task.sourceExternalId,
+        task.sourceUrl,
         task.createdAt,
         task.updatedAt,
       ],
@@ -4330,5 +4519,116 @@ export class TauriSqliteRepository implements AppRepository {
         [contextId, name, timestamp, timestamp],
       );
     }
+  }
+
+  async getEmailTriageGlobalSettings() {
+    return this.getEmailTriageStore().getGlobalSettings();
+  }
+
+  async saveEmailTriageGlobalSettings(
+    settings: import("../../domain/email-triage").EmailTriageGlobalSettings,
+  ) {
+    await this.getEmailTriageStore().saveGlobalSettings(settings);
+  }
+
+  async listEmailTriageAccounts() {
+    return this.getEmailTriageStore().listAccounts();
+  }
+
+  async getEmailTriageAccount(accountId: string) {
+    return this.getEmailTriageStore().getAccount(accountId);
+  }
+
+  async saveEmailTriageAccount(account: import("../../domain/email-triage").EmailTriageAccount) {
+    return this.getEmailTriageStore().saveAccount(account);
+  }
+
+  async deleteEmailTriageAccount(accountId: string) {
+    await this.getEmailTriageStore().deleteAccount(accountId);
+  }
+
+  async listEmailTriageReviews(status?: import("../../domain/email-triage").EmailTriageReview["status"]) {
+    return this.getEmailTriageStore().listReviews(status);
+  }
+
+  async resolveEmailTriageReview(input: {
+    reviewId: string;
+    expectedDecisionVersion: number;
+    resolution: import("../../domain/email-triage").EmailTriageReview["resolution"];
+    ignoreReason?: string | null;
+  }) {
+    return this.getEmailTriageStore().resolveReview(input);
+  }
+
+  async listEmailTriageEvaluations(limit?: number) {
+    return this.getEmailTriageStore().listEvaluations(limit);
+  }
+
+  async saveEmailTriageEvaluation(evaluation: import("../../domain/email-triage").EmailTriageEvaluation) {
+    return this.getEmailTriageStore().saveEvaluation(evaluation);
+  }
+
+  async listEmailTriageAuditEvents(accountId?: string, limit?: number) {
+    return this.getEmailTriageStore().listAuditEvents(accountId, limit);
+  }
+
+  async recoverEmailTriageStaleEffects() {
+    return this.getEmailTriageStore().recoverStaleEffects();
+  }
+
+  async emailTriageUpsertConversation(
+    accountId: string,
+    conversationKey: string,
+    patch: Partial<import("../../domain/email-triage").EmailTriageConversation>,
+  ) {
+    return this.getEmailTriageStore().upsertConversation(accountId, conversationKey, patch);
+  }
+
+  async emailTriageGetConversationByKey(accountId: string, conversationKey: string) {
+    return this.getEmailTriageStore().getConversationByKey(accountId, conversationKey);
+  }
+
+  async emailTriageUpdateAccountSyncState(
+    accountId: string,
+    syncState: Record<string, unknown>,
+    patch?: Partial<import("../../domain/email-triage").EmailTriageAccount>,
+  ) {
+    return this.getEmailTriageStore().updateAccountSyncState(accountId, syncState, patch);
+  }
+
+  async emailTriagePersistMessageBatch(
+    input: import("../email-triage/sync-engine").PersistMessageBatchInput,
+  ) {
+    return this.getEmailTriageStore().persistMessageBatch(input);
+  }
+
+  async emailTriageListPendingEffects(conversationId: string) {
+    return this.getEmailTriageStore().listPendingEffects(conversationId);
+  }
+
+  async emailTriageSaveDesiredEffect(
+    effect: import("../../domain/email-triage").EmailTriageDesiredEffect,
+  ) {
+    return this.getEmailTriageStore().saveDesiredEffect(effect);
+  }
+
+  async emailTriageGetTaskByExternalId(externalId: string) {
+    return this.getEmailTriageStore().getTaskByExternalId(externalId);
+  }
+
+  async emailTriageApplyGtdUpdate(input: import("../email-triage/sync-engine").ApplyGtdUpdateInput) {
+    return this.getEmailTriageStore().applyGtdUpdate(input);
+  }
+
+  async emailTriageCreateReview(input: import("../email-triage/sync-engine").CreateReviewInput) {
+    return this.getEmailTriageStore().createReview(input);
+  }
+
+  async listEmailTriageMessages(accountId: string, limit?: number) {
+    return this.getEmailTriageStore().listMessages(accountId, limit);
+  }
+
+  async listEmailTriageClassificationAttempts(messageId: string) {
+    return this.getEmailTriageStore().listClassificationAttempts(messageId);
   }
 }

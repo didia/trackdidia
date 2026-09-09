@@ -71,6 +71,7 @@ describe("recurring engine", () => {
         plannedOrder: null,
         source: "manual",
         sourceExternalId: null,
+        sourceUrl: null,
         createdAt: "2026-04-01T00:00:00.000Z",
         updatedAt: "2026-04-01T00:00:00.000Z",
       },

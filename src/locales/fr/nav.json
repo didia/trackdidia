@@ -15,6 +15,7 @@
   "scheduled": "Scheduled",
   "waitingFor": "Waiting For",
   "somedayMaybe": "Someday / Maybe",
+  "emailTriage": "Triage courriel",
   "settings": "Paramètres",
   "authorPrefix": "Auteur : {{author}}"
 }

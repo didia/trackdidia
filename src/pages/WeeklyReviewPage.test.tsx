@@ -661,6 +661,7 @@ describe("WeeklyReviewPage", () => {
       plannedOrder: null,
       source: "manual",
       sourceExternalId: null,
+      sourceUrl: null,
       createdAt: timestamp,
       updatedAt: timestamp,
     });
