@@ -1,13 +1,20 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createEmptyDailyEntry, defaultAppSettings } from "../domain/daily-entry";
-import type { AiProposal, CoachPulseResult } from "../domain/types";
+import type { AiProposal, AppSettings, CoachPulseResult } from "../domain/types";
 import type { CoachPulseService } from "../lib/ai/coach-pulse-service";
 import { getTodayDate } from "../lib/date";
 import { addDays } from "../lib/gtd/shared";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { renderWithApp } from "../test/test-utils";
 import { TodayPage } from "./TodayPage";
+
+const enabledAiSettings = (): AppSettings => {
+  const settings = defaultAppSettings();
+  settings.aiEnabled = true;
+  settings.aiApiKey = "secret";
+  return settings;
+};
 
 const buildCoachResult = (proposal: AiProposal): CoachPulseResult => ({
   message: {
@@ -331,6 +338,111 @@ describe("TodayPage", () => {
         expect(saved?.nightReflection).toBe("Ma reflexion");
       },
       { timeout: 3000 },
+    );
+  });
+
+  it("does not reload the coach pulse when journal fields are saved", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const today = getTodayDate();
+    const proposal: AiProposal = {
+      id: "ai-proposal:intention",
+      messageId: "ai-message:test",
+      type: "intention_draft",
+      payloadJson: JSON.stringify({ text: "Focus profond" }),
+      status: "pending",
+      appliedEntityId: null,
+      decidedAt: null,
+      createdAt: "2026-08-29T08:00:00.000Z",
+    };
+    const stored = buildCoachResult(proposal);
+    stored.message.status = "ok";
+    stored.source = "cache";
+    await repository.saveAiMessage(stored.message);
+    await repository.saveAiProposal(proposal);
+    const saveDailyEntry = vi.spyOn(repository, "saveDailyEntry");
+
+    const coachService = {
+      resultFromMessage: vi.fn(async () => stored),
+      buildPulse: vi.fn(async () => stored),
+    } as unknown as CoachPulseService;
+
+    const user = userEvent.setup();
+    await renderWithApp(<TodayPage />, {
+      repository,
+      route: "/",
+      contextOverrides: { coachService, settings: enabledAiSettings() },
+    });
+
+    expect(await screen.findByText("Coach")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /régénérer/i })).toBeEnabled();
+    vi.mocked(coachService.buildPulse).mockClear();
+    saveDailyEntry.mockClear();
+
+    const field = screen.getByRole("textbox", { name: /réflexion/i });
+    await user.type(field, "Reflexion du jour");
+    await user.tab();
+
+    await waitFor(() => {
+      expect(saveDailyEntry).toHaveBeenCalled();
+    });
+    expect(coachService.buildPulse).not.toHaveBeenCalled();
+  });
+
+  it("reloads the coach pulse when regenerate is clicked after journal edits", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const proposal: AiProposal = {
+      id: "ai-proposal:intention",
+      messageId: "ai-message:test",
+      type: "intention_draft",
+      payloadJson: JSON.stringify({ text: "Focus profond" }),
+      status: "pending",
+      appliedEntityId: null,
+      decidedAt: null,
+      createdAt: "2026-08-29T08:00:00.000Z",
+    };
+    const stored = buildCoachResult(proposal);
+    stored.message.status = "ok";
+    stored.source = "cache";
+    await repository.saveAiMessage(stored.message);
+    await repository.saveAiProposal(proposal);
+    const saveDailyEntry = vi.spyOn(repository, "saveDailyEntry");
+
+    const coachService = {
+      resultFromMessage: vi.fn(async () => stored),
+      buildPulse: vi.fn(async () => stored),
+    } as unknown as CoachPulseService;
+
+    const user = userEvent.setup();
+    await renderWithApp(<TodayPage />, {
+      repository,
+      route: "/",
+      contextOverrides: { coachService, settings: enabledAiSettings() },
+    });
+
+    expect(await screen.findByText("Coach")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /régénérer/i })).toBeEnabled();
+    vi.mocked(coachService.buildPulse).mockClear();
+
+    const field = screen.getByRole("textbox", { name: /réflexion/i });
+    await user.type(field, "Reflexion du jour");
+    await user.tab();
+    await waitFor(() => {
+      expect(saveDailyEntry).toHaveBeenCalled();
+    });
+    expect(await screen.findByRole("button", { name: /régénérer/i })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: /régénérer/i }));
+    await waitFor(() => {
+      expect(coachService.buildPulse).toHaveBeenCalledOnce();
+    });
+    expect(coachService.buildPulse).toHaveBeenCalledWith(
+      repository,
+      expect.objectContaining({
+        trigger: "explicit",
+        bypassCache: true,
+      }),
     );
   });
 });
