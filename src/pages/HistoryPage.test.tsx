@@ -53,4 +53,20 @@ describe("HistoryPage", () => {
     const saved = await repository.getDailyEntry("2026-03-29");
     expect(saved?.nightReflection).toBe("Reflexion mise a jour");
   });
+
+  it("opens the date from the query string", async () => {
+    const seeded = createEmptyDailyEntry("2026-03-29");
+    seeded.morningIntention = "Intention via lien";
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveDailyEntry(seeded);
+
+    await renderWithApp(<HistoryPage />, {
+      repository,
+      route: "/historique?date=2026-03-29",
+    });
+
+    expect(await screen.findByDisplayValue("Intention via lien")).toBeInTheDocument();
+    expect(screen.getByLabelText(/date à ouvrir/i)).toHaveValue("2026-03-29");
+  });
 });

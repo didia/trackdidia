@@ -227,7 +227,45 @@ History lists up to 120 saved entries. The user can:
 - mark a day closed.
 
 Unlike the morning/evening flows, history textareas update local draft state
-immediately and persist when the explicit save action is used.
+immediately and persist when the explicit save action is used. A `?date=YYYY-MM-DD`
+query opens that day on load.
+
+## Journal
+
+The Journal screen (`/journal`) is a read-only timeline of authored notes across
+daily, weekly, and monthly records. Each card is one period (a calendar day, a
+Sunday-Saturday week, or a calendar month) and shows only non-empty note fields.
+Metrics, principles, and ritual checklists stay on their own screens. Daily rows
+are loaded without GTD/Pomodoro decoration, so opening the timeline does not
+recompute stats or write recurrence/carryover side effects.
+
+Filters:
+
+- period: Cette semaine (default), Semaine dernière, Ce mois-ci, Le mois dernier,
+  or an inclusive custom start/end;
+- kind: Tous (default), Quotidien, Hebdomadaire, or Mensuel;
+- sort: Plus récent d'abord (default) or Plus ancien d'abord.
+
+Weeks run Sunday through Saturday. A weekly or monthly review is included when its
+calendar span overlaps the selected date range. Empty or whitespace-only notes are
+omitted. An incomplete custom range (missing start or end) shows a prompt to choose
+both dates instead of falling back to another period. Sort uses the period calendar
+date (`date`, `weekStartDate`, or `monthStartDate`), not `updatedAt`. Same-date ties
+are daily, then weekly, then monthly for Plus ancien d'abord, and the reverse for
+Plus récent d'abord. After the first load, filter changes keep the hero and filter
+controls mounted and show loading inside the entries card.
+
+The page follows `calendarDay` from `AppProvider`, so a local-day boundary reloads
+the default Cette semaine / Ce mois-ci windows.
+
+Opening a card follows a query-string deep link:
+
+- daily → `/historique?date=YYYY-MM-DD`
+- weekly → `/semaine?date=YYYY-MM-DD` (any day in the week, normalized to Sunday)
+- monthly → `/mois?month=YYYY-MM`
+
+`/historique`, `/semaine`, and `/mois` remain the editors. See
+[Reviews and goals](reviews-and-goals.md) for weekly and monthly ritual notes.
 
 ## Creation and persistence
 

@@ -86,7 +86,14 @@ It groups:
 - AI messages, proposals, and memories;
 - standing weekly objectives and per-week manual results.
 
-Repository helpers include `listDailyEntriesOnOrBefore(endDate, limit)` for bounded history ending at a calendar date, and atomic accept methods for synthesis proposals (`acceptAiWeeklyObjectiveProposal`, `acceptAiReviewSectionDraftProposal`, `acceptAiMonthlyReviewSectionDraftProposal`, `acceptAiGtdActionProposal`).
+Repository helpers include `listDailyEntriesOnOrBefore(endDate, limit)` for bounded
+history ending at a calendar date, `listDailyEntriesInRange(startDate, endDate)`
+(persisted daily rows without GTD/Pomodoro decoration, unlike the capped list
+helpers), `listWeeklyReviewsOverlapping(startDate, endDate)`, and
+`listMonthlyReviewsOverlapping(startDate, endDate)` for the Journal timeline, and
+atomic accept methods for synthesis proposals (`acceptAiWeeklyObjectiveProposal`,
+`acceptAiReviewSectionDraftProposal`, `acceptAiMonthlyReviewSectionDraftProposal`,
+`acceptAiGtdActionProposal`).
 
 The SQLite and memory implementations must remain behaviorally aligned, except for
 native-only storage information and backup creation.

@@ -5,6 +5,7 @@ import { AnnualGoalsPage } from "./pages/AnnualGoalsPage";
 import { EveningClosurePage } from "./pages/EveningClosurePage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { InboxPage } from "./pages/InboxPage";
+import { JournalPage } from "./pages/JournalPage";
 import { MonthlyReviewPage } from "./pages/MonthlyReviewPage";
 import { MorningRoutinePage } from "./pages/MorningRoutinePage";
 import { NextActionsPage } from "./pages/NextActionsPage";
@@ -31,6 +32,7 @@ export const App = () => (
           <Route path="mois" element={<MonthlyReviewPage />} />
           <Route path="objectifs-annuels" element={<AnnualGoalsPage />} />
           <Route path="historique" element={<HistoryPage />} />
+          <Route path="journal" element={<JournalPage />} />
           <Route path="inbox" element={<InboxPage />} />
           <Route path="next-actions" element={<NextActionsPage />} />
           <Route path="projects" element={<ProjectsPage />} />

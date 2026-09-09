@@ -1044,6 +1044,29 @@ export class TauriSqliteRepository implements AppRepository {
     return Promise.all(rows.map((row) => this.decorateEntry(this.deserializeEntry(row))));
   }
 
+  async listDailyEntriesInRange(startDate: string, endDate: string): Promise<DailyEntry[]> {
+    const db = await this.getDb();
+    const rows = await db.select<DailyEntryRow[]>(
+      `SELECT
+        date,
+        status,
+        metrics_json,
+        principles_json,
+        morning_intention,
+        night_reflection,
+        tomorrow_focus,
+        updated_at
+      FROM daily_entries
+      WHERE date >= $1 AND date <= $2
+      ORDER BY date DESC`,
+      [startDate, endDate],
+    );
+
+    // Journal only reads note text. Skip decorateEntry so a wide range cannot
+    // fan out into per-day GTD/Pomodoro writes and full-table scans.
+    return rows.map((row) => this.deserializeEntry(row));
+  }
+
   async getWeeklyReview(weekStartDate: string): Promise<WeeklyReview | null> {
     const db = await this.getDb();
     const normalized = buildWeekDates(weekStartDate);
@@ -1122,6 +1145,25 @@ export class TauriSqliteRepository implements AppRepository {
       ORDER BY week_start_date DESC
       LIMIT $1`,
       [limit],
+    );
+
+    return rows.map((row) => this.deserializeWeeklyReview(row));
+  }
+
+  async listWeeklyReviewsOverlapping(startDate: string, endDate: string): Promise<WeeklyReview[]> {
+    const db = await this.getDb();
+    const rows = await db.select<WeeklyReviewRow[]>(
+      `SELECT
+        week_start_date,
+        week_end_date,
+        status,
+        notes_json,
+        ritual_checklist_json,
+        updated_at
+      FROM weekly_reviews
+      WHERE week_start_date <= $2 AND week_end_date >= $1
+      ORDER BY week_start_date DESC`,
+      [startDate, endDate],
     );
 
     return rows.map((row) => this.deserializeWeeklyReview(row));
@@ -1209,6 +1251,29 @@ export class TauriSqliteRepository implements AppRepository {
       ORDER BY month_key DESC
       LIMIT $1`,
       [limit],
+    );
+
+    return rows.map((row) => this.deserializeMonthlyReview(row));
+  }
+
+  async listMonthlyReviewsOverlapping(
+    startDate: string,
+    endDate: string,
+  ): Promise<MonthlyReview[]> {
+    const db = await this.getDb();
+    const rows = await db.select<MonthlyReviewRow[]>(
+      `SELECT
+        month_key,
+        month_start_date,
+        month_end_date,
+        status,
+        notes_json,
+        ritual_checklist_json,
+        updated_at
+      FROM monthly_reviews
+      WHERE month_start_date <= $2 AND month_end_date >= $1
+      ORDER BY month_key DESC`,
+      [startDate, endDate],
     );
 
     return rows.map((row) => this.deserializeMonthlyReview(row));
