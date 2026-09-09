@@ -86,6 +86,12 @@ const kindRank: Record<JournalKind, number> = {
 const isLocalDate = (value: string | undefined): value is string =>
   Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
 
+export const isCompleteJournalCustomRange = (custom?: {
+  startDate: string;
+  endDate: string;
+}): custom is { startDate: string; endDate: string } =>
+  isLocalDate(custom?.startDate) && isLocalDate(custom?.endDate);
+
 const hasJournalText = (value: string): boolean => value.trim().length > 0;
 
 const collectNoteFields = (
@@ -134,7 +140,7 @@ export const resolveJournalDateRange = (
     return { startDate: getMonthStartDate(monthKey), endDate: getMonthEndDate(monthKey) };
   }
 
-  if (!isLocalDate(custom?.startDate) || !isLocalDate(custom?.endDate)) {
+  if (!isCompleteJournalCustomRange(custom)) {
     return thisWeekRange(today);
   }
 

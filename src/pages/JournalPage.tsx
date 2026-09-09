@@ -5,6 +5,7 @@ import { useAppContext } from "../app/app-context";
 import { SectionCard } from "../components/SectionCard";
 import {
   buildJournalFeed,
+  isCompleteJournalCustomRange,
   resolveJournalDateRange,
   type JournalFeedItem,
   type JournalKind,
@@ -33,18 +34,31 @@ export const JournalPage = () => {
   const [sort, setSort] = useState<JournalSortOrder>("newerFirst");
   const [items, setItems] = useState<JournalFeedItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
-  const range = useMemo(
-    () =>
-      resolveJournalDateRange(period, calendarDay, {
-        startDate: customStartDate,
-        endDate: customEndDate,
-      }),
-    [calendarDay, customEndDate, customStartDate, period],
-  );
+  const range = useMemo(() => {
+    if (
+      period === "custom" &&
+      !isCompleteJournalCustomRange({ startDate: customStartDate, endDate: customEndDate })
+    ) {
+      return null;
+    }
+
+    return resolveJournalDateRange(period, calendarDay, {
+      startDate: customStartDate,
+      endDate: customEndDate,
+    });
+  }, [calendarDay, customEndDate, customStartDate, period]);
 
   useEffect(() => {
     let cancelled = false;
+
+    if (!range) {
+      setItems([]);
+      setLoading(false);
+      setHasLoaded(true);
+      return;
+    }
 
     const load = async () => {
       setLoading(true);
@@ -78,6 +92,7 @@ export const JournalPage = () => {
         }),
       );
       setLoading(false);
+      setHasLoaded(true);
     };
 
     void load();
@@ -121,7 +136,7 @@ export const JournalPage = () => {
     return formatMonthYear(item.periodStartDate);
   };
 
-  if (loading && items.length === 0) {
+  if (loading && !hasLoaded) {
     return (
       <div className="page">
         <p>{t("loading")}</p>
@@ -205,29 +220,45 @@ export const JournalPage = () => {
       </SectionCard>
 
       <SectionCard title={t("list.title")} subtitle={t("list.subtitle", { count: items.length })}>
-        {items.length === 0 ? (
-          <p className="empty-copy">{t("list.empty")}</p>
+        {loading ? (
+          <p>{t("loading")}</p>
+        ) : items.length === 0 ? (
+          <p className="empty-copy">
+            {period === "custom" && !range ? t("list.incompleteCustom") : t("list.empty")}
+          </p>
         ) : (
           <div className="journal-feed">
-            {items.map((item) => (
-              <article key={`${item.kind}-${item.id}`} className="journal-feed-card">
-                <header className="journal-feed-card__header">
-                  <div className="journal-feed-card__meta">
-                    <span className="tag-chip tag-chip--active">{t(`card.${item.kind}`)}</span>
-                    <strong>{periodLabel(item)}</strong>
-                  </div>
-                  <Link className="button" to={item.href}>
-                    {t("card.open")}
-                  </Link>
-                </header>
-                {item.fields.map((field) => (
-                  <div key={field.key} className="stacked-field">
-                    <span>{fieldLabel(item.kind, field.key)}</span>
-                    <p className="journal-feed-card__text">{field.text}</p>
-                  </div>
-                ))}
-              </article>
-            ))}
+            {items.map((item) => {
+              const periodText = periodLabel(item);
+              const periodHeadingId = `journal-period-${item.kind}-${item.id}`;
+              return (
+                <article
+                  key={`${item.kind}-${item.id}`}
+                  className="journal-feed-card"
+                  aria-labelledby={periodHeadingId}
+                >
+                  <header className="journal-feed-card__header">
+                    <div className="journal-feed-card__meta">
+                      <span className="tag-chip tag-chip--active">{t(`card.${item.kind}`)}</span>
+                      <strong id={periodHeadingId}>{periodText}</strong>
+                    </div>
+                    <Link
+                      className="button"
+                      to={item.href}
+                      aria-label={t("card.openPeriod", { period: periodText })}
+                    >
+                      {t("card.open")}
+                    </Link>
+                  </header>
+                  {item.fields.map((field) => (
+                    <div key={field.key} className="stacked-field">
+                      <span>{fieldLabel(item.kind, field.key)}</span>
+                      <p className="journal-feed-card__text">{field.text}</p>
+                    </div>
+                  ))}
+                </article>
+              );
+            })}
           </div>
         )}
       </SectionCard>

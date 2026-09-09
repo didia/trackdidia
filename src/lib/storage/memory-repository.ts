@@ -167,7 +167,9 @@ export class MemoryRepository implements AppRepository {
       .filter((entry) => entry.date >= startDate && entry.date <= endDate)
       .sort((a, b) => b.date.localeCompare(a.date));
 
-    return Promise.all(sorted.map((entry) => this.decorateEntry(entry)));
+    // Journal only reads note text. Skip decorateEntry so a wide range cannot
+    // fan out into per-day GTD/Pomodoro writes and full-table scans.
+    return sorted.map((entry) => cloneEntry(entry));
   }
 
   async getWeeklyReview(weekStartDate: string): Promise<WeeklyReview | null> {

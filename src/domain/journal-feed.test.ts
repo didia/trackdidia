@@ -1,5 +1,10 @@
 import { createEmptyDailyEntry, updateNote } from "./daily-entry";
-import { buildJournalFeed, journalPeriodOverlaps, resolveJournalDateRange } from "./journal-feed";
+import {
+  buildJournalFeed,
+  isCompleteJournalCustomRange,
+  journalPeriodOverlaps,
+  resolveJournalDateRange,
+} from "./journal-feed";
 import { createEmptyMonthlyReview, updateMonthlyReviewNote } from "./monthly-review";
 import { createEmptyWeeklyReview, updateWeeklyReviewNote } from "./weekly-review";
 
@@ -32,6 +37,18 @@ describe("resolveJournalDateRange", () => {
     });
   });
 
+  it("falls back to this week when custom dates are incomplete", () => {
+    expect(
+      resolveJournalDateRange("custom", "2026-04-01", {
+        startDate: "",
+        endDate: "2026-04-10",
+      }),
+    ).toEqual({
+      startDate: "2026-03-29",
+      endDate: "2026-04-04",
+    });
+  });
+
   it("uses inclusive custom dates and swaps them when start is after end", () => {
     expect(
       resolveJournalDateRange("custom", "2026-04-01", {
@@ -42,6 +59,18 @@ describe("resolveJournalDateRange", () => {
       startDate: "2026-04-02",
       endDate: "2026-04-10",
     });
+  });
+});
+
+describe("isCompleteJournalCustomRange", () => {
+  it("requires both local dates", () => {
+    expect(isCompleteJournalCustomRange({ startDate: "2026-04-01", endDate: "2026-04-30" })).toBe(
+      true,
+    );
+    expect(isCompleteJournalCustomRange({ startDate: "", endDate: "2026-04-30" })).toBe(false);
+    expect(isCompleteJournalCustomRange({ startDate: "2026-04-01", endDate: "2026-04" })).toBe(
+      false,
+    );
   });
 });
 

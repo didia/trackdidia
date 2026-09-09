@@ -87,8 +87,9 @@ It groups:
 - standing weekly objectives and per-week manual results.
 
 Repository helpers include `listDailyEntriesOnOrBefore(endDate, limit)` for bounded
-history ending at a calendar date, `listDailyEntriesInRange(startDate, endDate)`,
-`listWeeklyReviewsOverlapping(startDate, endDate)`, and
+history ending at a calendar date, `listDailyEntriesInRange(startDate, endDate)`
+(persisted daily rows without GTD/Pomodoro decoration, unlike the capped list
+helpers), `listWeeklyReviewsOverlapping(startDate, endDate)`, and
 `listMonthlyReviewsOverlapping(startDate, endDate)` for the Journal timeline, and
 atomic accept methods for synthesis proposals (`acceptAiWeeklyObjectiveProposal`,
 `acceptAiReviewSectionDraftProposal`, `acceptAiMonthlyReviewSectionDraftProposal`,

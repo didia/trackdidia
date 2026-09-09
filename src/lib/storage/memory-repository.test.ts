@@ -1214,6 +1214,23 @@ describe("MemoryRepository", () => {
     expect(entries.map((entry) => entry.date)).toEqual(["2026-04-30", "2026-04-01"]);
   });
 
+  it("listDailyEntriesInRange does not recompute daily task or pomodoro stats", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    for (const date of ["2026-04-01", "2026-04-02"]) {
+      await repository.saveDailyEntry(createEmptyDailyEntry(date));
+    }
+
+    const taskSpy = vi.spyOn(repository, "computeDailyTaskStats");
+    const pomodoroSpy = vi.spyOn(repository, "computeDailyPomodoroStats");
+
+    await repository.listDailyEntriesInRange("2026-04-01", "2026-04-02");
+
+    expect(taskSpy).not.toHaveBeenCalled();
+    expect(pomodoroSpy).not.toHaveBeenCalled();
+  });
+
   it("listWeeklyReviewsOverlapping includes a week that started the previous month", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();

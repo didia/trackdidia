@@ -3,38 +3,40 @@
   "hero": {
     "eyebrow": "Journal",
     "title": "Relire toutes les entrées en une vue.",
-    "copy": "Daily, hebdomadaire et mensuel, filtrés par période et triés par date d'entrée."
+    "copy": "Quotidien, hebdomadaire et mensuel, filtrés par période et triés par date d'entrée."
   },
   "filters": {
     "title": "Filtres",
     "subtitle": "Limiter la vue à une période, un type de journal, et un ordre de lecture.",
     "period": "Période",
-    "thisWeek": "This Week",
-    "lastWeek": "Last Week",
-    "thisMonth": "This Month",
-    "lastMonth": "Last Month",
+    "thisWeek": "Cette semaine",
+    "lastWeek": "Semaine dernière",
+    "thisMonth": "Ce mois-ci",
+    "lastMonth": "Le mois dernier",
     "custom": "Dates personnalisées",
     "startDate": "Date de début",
     "endDate": "Date de fin",
     "kind": "Journaux",
-    "all": "All",
-    "daily": "Daily",
-    "weekly": "Weekly",
-    "monthly": "Monthly",
+    "all": "Tous",
+    "daily": "Quotidien",
+    "weekly": "Hebdomadaire",
+    "monthly": "Mensuel",
     "sort": "Tri",
-    "newerFirst": "Newer first",
-    "olderFirst": "Older first"
+    "newerFirst": "Plus récent d'abord",
+    "olderFirst": "Plus ancien d'abord"
   },
   "list": {
     "title": "Entrées",
     "subtitle": "{{count}} période(s) avec du texte.",
-    "empty": "Aucune entrée de journal pour cette période."
+    "empty": "Aucune entrée de journal pour cette période.",
+    "incompleteCustom": "Choisissez une date de début et une date de fin."
   },
   "card": {
-    "daily": "Daily",
-    "weekly": "Weekly",
-    "monthly": "Monthly",
+    "daily": "Quotidien",
+    "weekly": "Hebdomadaire",
+    "monthly": "Mensuel",
     "weekPeriod": "Semaine du {{start}} au {{end}}",
-    "open": "Ouvrir"
+    "open": "Ouvrir",
+    "openPeriod": "Ouvrir {{period}}"
   }
 }

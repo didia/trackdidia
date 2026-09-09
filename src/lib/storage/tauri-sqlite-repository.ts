@@ -1062,7 +1062,9 @@ export class TauriSqliteRepository implements AppRepository {
       [startDate, endDate],
     );
 
-    return Promise.all(rows.map((row) => this.decorateEntry(this.deserializeEntry(row))));
+    // Journal only reads note text. Skip decorateEntry so a wide range cannot
+    // fan out into per-day GTD/Pomodoro writes and full-table scans.
+    return rows.map((row) => this.deserializeEntry(row));
   }
 
   async getWeeklyReview(weekStartDate: string): Promise<WeeklyReview | null> {
