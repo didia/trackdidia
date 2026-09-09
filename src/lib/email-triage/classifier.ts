@@ -9,6 +9,7 @@ import {
   EMAIL_TRIAGE_CLASSIFIER_TIMEOUT_MS,
   EMAIL_TRIAGE_CONSEQUENTIAL_KEYWORDS,
   EMAIL_TRIAGE_PROMPT_INJECTION_PATTERNS,
+  EMAIL_TRIAGE_MAX_PAYLOAD_BYTES,
 } from "./constants";
 import { applyClassifierThresholds, parseClassifierJson } from "./classifier-schema";
 import {
@@ -83,8 +84,18 @@ export const classifyEmailMessage = async (
   options: ClassifyEmailOptions,
 ): Promise<ClassifyEmailResult> => {
   const payload = buildSanitizedClassifierPayload(options.input);
+  if (payload.payloadBytes > EMAIL_TRIAGE_MAX_PAYLOAD_BYTES) {
+    return {
+      rawValid: false,
+      reviewReasons: ["oversized_payload"],
+      routedDecision: "review",
+      output: null,
+      promptVersion: EMAIL_TRIAGE_CLASSIFIER_PROMPT_VERSION,
+      schemaVersion: EMAIL_TRIAGE_CLASSIFIER_SCHEMA_VERSION,
+      validationErrors: ["oversized_payload"],
+    };
+  }
   const envelope = buildClassifierPromptEnvelope(payload);
-  const reviewSignals = detectReviewSignals(envelope, null);
 
   let raw = "";
   try {
@@ -131,7 +142,7 @@ export const classifyEmailMessage = async (
     ),
   };
 
-  const allReviewReasons = [...reviewSignals, ...detectReviewSignals(envelope, clamped)];
+  const allReviewReasons = detectReviewSignals(envelope, clamped);
   const routedDecision = applyClassifierThresholds({
     output: clamped,
     reviewReasons: allReviewReasons,

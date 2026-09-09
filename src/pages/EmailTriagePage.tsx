@@ -12,6 +12,12 @@ import {
 import { formatDateTimeShort } from "../lib/date";
 import { checkVaultAvailability } from "../lib/email-triage/vault";
 import { createEntityId, nowIso } from "../lib/gtd/shared";
+import {
+  clampConfidenceThreshold,
+  clampPollInterval,
+  EMAIL_TRIAGE_DEFAULT_IGNORE_THRESHOLD,
+  EMAIL_TRIAGE_DEFAULT_RELEVANT_THRESHOLD,
+} from "../lib/email-triage/constants";
 
 export const EmailTriagePage = () => {
   const { t } = useTranslation("emailTriage");
@@ -26,7 +32,11 @@ export const EmailTriagePage = () => {
   const [ignoreReasonByReviewId, setIgnoreReasonByReviewId] = useState<
     Record<string, EmailTriageIgnoreReason>
   >({});
-  const [ignoreReasonError, setIgnoreReasonError] = useState<string | null>(null);
+  const [ignoreReasonErrorByReviewId, setIgnoreReasonErrorByReviewId] = useState<
+    Record<string, string>
+  >({});
+  const [resolveErrorByReviewId, setResolveErrorByReviewId] = useState<Record<string, string>>({});
+  const [resolvingReviewId, setResolvingReviewId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const ignoreReasonOptions: Exclude<EmailTriageIgnoreReason, null>[] = [
@@ -41,16 +51,20 @@ export const EmailTriagePage = () => {
   ];
 
   const load = useCallback(async () => {
-    const [nextAccounts, nextReviews, nextSettings, vault] = await Promise.all([
+    const [nextAccounts, nextReviews, nextSettings] = await Promise.all([
       repository.listEmailTriageAccounts(),
       repository.listEmailTriageReviews("pending"),
       repository.getEmailTriageGlobalSettings(),
-      checkVaultAvailability(),
     ]);
     setAccounts(nextAccounts);
     setReviews(nextReviews);
     setSettings(nextSettings);
-    setVaultAvailable(vault.available);
+    if (nextSettings.enabled) {
+      const vault = await checkVaultAvailability();
+      setVaultAvailable(vault.available);
+    } else {
+      setVaultAvailable(true);
+    }
   }, [repository]);
 
   useEffect(() => {
@@ -65,7 +79,19 @@ export const EmailTriagePage = () => {
   const saveSettings = async () => {
     setSaving(true);
     try {
-      await repository.saveEmailTriageGlobalSettings({ ...settings, updatedAt: nowIso() });
+      await repository.saveEmailTriageGlobalSettings({
+        ...settings,
+        pollIntervalMinutes: clampPollInterval(settings.pollIntervalMinutes),
+        relevantThreshold: clampConfidenceThreshold(
+          settings.relevantThreshold,
+          EMAIL_TRIAGE_DEFAULT_RELEVANT_THRESHOLD,
+        ),
+        ignoreThreshold: clampConfidenceThreshold(
+          settings.ignoreThreshold,
+          EMAIL_TRIAGE_DEFAULT_IGNORE_THRESHOLD,
+        ),
+        updatedAt: nowIso(),
+      });
       await load();
     } finally {
       setSaving(false);
@@ -106,27 +132,46 @@ export const EmailTriagePage = () => {
   };
 
   const resolveReview = async (review: EmailTriageReview, resolution: "relevant" | "ignore") => {
+    if (resolvingReviewId) {
+      return;
+    }
     if (resolution === "ignore") {
       const ignoreReason = ignoreReasonByReviewId[review.id];
       if (!ignoreReason) {
-        setIgnoreReasonError(t("ignoreReasonRequired"));
+        setIgnoreReasonErrorByReviewId((current) => ({
+          ...current,
+          [review.id]: t("ignoreReasonRequired"),
+        }));
         return;
       }
-      setIgnoreReasonError(null);
-      await repository.resolveEmailTriageReview({
-        reviewId: review.id,
-        expectedDecisionVersion: review.expectedDecisionVersion,
-        resolution,
-        ignoreReason,
-      });
-    } else {
-      await repository.resolveEmailTriageReview({
-        reviewId: review.id,
-        expectedDecisionVersion: review.expectedDecisionVersion,
-        resolution,
-      });
     }
-    await load();
+    setIgnoreReasonErrorByReviewId((current) => {
+      const next = { ...current };
+      delete next[review.id];
+      return next;
+    });
+    setResolveErrorByReviewId((current) => {
+      const next = { ...current };
+      delete next[review.id];
+      return next;
+    });
+    setResolvingReviewId(review.id);
+    try {
+      await repository.resolveEmailTriageReview({
+        reviewId: review.id,
+        expectedDecisionVersion: review.expectedDecisionVersion,
+        resolution,
+        ignoreReason: resolution === "ignore" ? ignoreReasonByReviewId[review.id] : null,
+      });
+      await load();
+    } catch (error) {
+      setResolveErrorByReviewId((current) => ({
+        ...current,
+        [review.id]: error instanceof Error ? error.message : t("resolveFailed"),
+      }));
+    } finally {
+      setResolvingReviewId(null);
+    }
   };
 
   return (
@@ -265,7 +310,7 @@ export const EmailTriagePage = () => {
           ))}
         </div>
         <button type="button" className="button" onClick={() => void addMockAccount()}>
-          + Compte mock
+          {t("addMockAccount")}
         </button>
       </SectionCard>
 
@@ -280,7 +325,10 @@ export const EmailTriagePage = () => {
               <button
                 type="button"
                 className="button"
-                onClick={() => setPreviewReviewId(review.id)}
+                aria-expanded={previewReview?.id === review.id}
+                onClick={() =>
+                  setPreviewReviewId((current) => (current === review.id ? null : review.id))
+                }
               >
                 {t("previewBody")}
               </button>
@@ -288,12 +336,20 @@ export const EmailTriagePage = () => {
                 <span>{t("ignoreReasonLabel")}</span>
                 <select
                   value={ignoreReasonByReviewId[review.id] ?? ""}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    const value = event.target.value as EmailTriageIgnoreReason;
                     setIgnoreReasonByReviewId((current) => ({
                       ...current,
-                      [review.id]: event.target.value as EmailTriageIgnoreReason,
-                    }))
-                  }
+                      [review.id]: value,
+                    }));
+                    if (value) {
+                      setIgnoreReasonErrorByReviewId((current) => {
+                        const next = { ...current };
+                        delete next[review.id];
+                        return next;
+                      });
+                    }
+                  }}
                 >
                   <option value="">{t("ignoreReasonPlaceholder")}</option>
                   {ignoreReasonOptions.map((reason) => (
@@ -306,6 +362,7 @@ export const EmailTriagePage = () => {
               <button
                 type="button"
                 className="button button--primary"
+                disabled={resolvingReviewId !== null}
                 onClick={() => void resolveReview(review, "relevant")}
               >
                 {t("markRelevant")}
@@ -313,12 +370,16 @@ export const EmailTriagePage = () => {
               <button
                 type="button"
                 className="button"
+                disabled={resolvingReviewId !== null}
                 onClick={() => void resolveReview(review, "ignore")}
               >
                 {t("markIgnore")}
               </button>
             </div>
-            {ignoreReasonError ? <p>{ignoreReasonError}</p> : null}
+            {ignoreReasonErrorByReviewId[review.id] ? (
+              <p>{ignoreReasonErrorByReviewId[review.id]}</p>
+            ) : null}
+            {resolveErrorByReviewId[review.id] ? <p>{resolveErrorByReviewId[review.id]}</p> : null}
             {previewReview?.id === review.id && previewReview.sanitizedPreview ? (
               <pre className="code-block">{previewReview.sanitizedPreview.bodyExcerpt}</pre>
             ) : null}

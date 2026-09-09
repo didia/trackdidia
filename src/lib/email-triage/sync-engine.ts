@@ -6,17 +6,18 @@ import type {
   EmailTriageTransientMessage,
 } from "../../domain/email-triage";
 import { buildEmailTriageTaskExternalId } from "../../domain/email-triage";
+import { createEntityId } from "../gtd/shared";
 import type { Task } from "../../domain/types";
 import {
   classifyEmailMessage,
   type ClassifyEmailResult,
   type EmailTriageClassifierProvider,
 } from "./classifier";
-import { createDesiredEffect } from "./desired-effects";
+import { createDesiredEffect, pickNextPendingEffect, updateEffectStatus } from "./desired-effects";
 import {
   planGtdOwnershipUpdate,
   hashManagedNotesBody,
-  buildManagedNotesSection,
+  buildManagedNotesInnerBody,
 } from "./gtd-ownership";
 import { mergeSyncState, type EmailTriageProviderAdapter } from "./providers/types";
 import { buildSanitizedPreviewExcerpt } from "./sanitize";
@@ -39,8 +40,17 @@ export interface EmailTriageRepositoryPort {
     conversationKey: string,
   ): Promise<EmailTriageConversation | null>;
   persistMessageBatch(input: PersistMessageBatchInput): Promise<PersistMessageBatchResult>;
+  getMessageByProviderId(
+    accountId: string,
+    providerMessageId: string,
+  ): Promise<import("../../domain/email-triage").EmailTriageMessage | null>;
+  getConversation(conversationId: string): Promise<EmailTriageConversation | null>;
+  dismissPendingReviews(conversationId: string): Promise<void>;
   listPendingEffects(
     conversationId: string,
+  ): Promise<import("../../domain/email-triage").EmailTriageDesiredEffect[]>;
+  listPendingEffectsForAccount(
+    accountId: string,
   ): Promise<import("../../domain/email-triage").EmailTriageDesiredEffect[]>;
   saveDesiredEffect(
     effect: import("../../domain/email-triage").EmailTriageDesiredEffect,
@@ -161,7 +171,7 @@ const persistClassifiedMessage = async (
   classifyResult: ClassifyEmailResult,
   routedDecision: EmailTriageClassifierDecision,
 ): Promise<void> => {
-  const attemptId = `attempt-${transient.providerMessageId}`;
+  const attemptId = createEntityId("email-attempt");
   await options.repository.persistMessageBatch({
     accountId: options.account.id,
     messages: [
@@ -172,6 +182,38 @@ const persistClassifiedMessage = async (
         attempt: buildPersistAttempt(attemptId, classifyResult, options.globalSettings),
       },
     ],
+  });
+};
+
+const routingStateFor = (
+  decision: EmailTriageClassifierDecision,
+): EmailTriageConversation["routingState"] => {
+  if (decision === "relevant") {
+    return "relevant";
+  }
+  if (decision === "ignore") {
+    return "ignored";
+  }
+  return "review";
+};
+
+const bumpConversationIfRoutingChanged = async (
+  options: SyncEngineOptions,
+  conversation: EmailTriageConversation,
+  transient: EmailTriageTransientMessage,
+  nextRoutingState: EmailTriageConversation["routingState"],
+  extraPatch: Partial<EmailTriageConversation> = {},
+): Promise<EmailTriageConversation> => {
+  const routingChanged = conversation.routingState !== nextRoutingState;
+  if (routingChanged) {
+    await options.repository.dismissPendingReviews(conversation.id);
+  }
+  return options.repository.upsertConversation(options.account.id, transient.conversationKey, {
+    ...(routingChanged
+      ? { decisionVersion: conversation.decisionVersion + 1, routingState: nextRoutingState }
+      : {}),
+    sourceUrl: transient.sourceUrl,
+    ...extraPatch,
   });
 };
 
@@ -225,19 +267,27 @@ const processTransientMessage = async (
         };
 
   const routedDecision = classifyResult.routedDecision;
+  const existingMessage = await options.repository.getMessageByProviderId(
+    options.account.id,
+    transient.providerMessageId,
+  );
+  const alreadyProcessed = existingMessage?.routingDecision === routedDecision;
   const externalId = buildEmailTriageTaskExternalId(options.account.id, transient.conversationKey);
   const existingTask = await options.repository.getTaskByExternalId(externalId);
 
+  if (!alreadyProcessed) {
+    await persistClassifiedMessage(options, transient, classifyResult, routedDecision);
+  }
+
   if (routedDecision === "review") {
-    conversation = await options.repository.upsertConversation(
-      options.account.id,
-      transient.conversationKey,
-      {
-        decisionVersion: conversation.decisionVersion + 1,
-        routingState: "review",
-        sourceUrl: transient.sourceUrl,
-      },
-    );
+    if (!alreadyProcessed) {
+      conversation = await bumpConversationIfRoutingChanged(
+        options,
+        conversation,
+        transient,
+        "review",
+      );
+    }
     await options.repository.createReview({
       accountId: options.account.id,
       conversationId: conversation.id,
@@ -252,7 +302,6 @@ const processTransientMessage = async (
         sourceUrl: transient.sourceUrl,
       },
     });
-    await persistClassifiedMessage(options, transient, classifyResult, routedDecision);
     return;
   }
 
@@ -267,15 +316,14 @@ const processTransientMessage = async (
   });
 
   if (plan.reviewRequired) {
-    conversation = await options.repository.upsertConversation(
-      options.account.id,
-      transient.conversationKey,
-      {
-        decisionVersion: conversation.decisionVersion + 1,
-        routingState: "review",
-        sourceUrl: transient.sourceUrl,
-      },
-    );
+    if (!alreadyProcessed) {
+      conversation = await bumpConversationIfRoutingChanged(
+        options,
+        conversation,
+        transient,
+        "review",
+      );
+    }
     await options.repository.createReview({
       accountId: options.account.id,
       conversationId: conversation.id,
@@ -290,27 +338,29 @@ const processTransientMessage = async (
         sourceUrl: transient.sourceUrl,
       },
     });
-    await persistClassifiedMessage(options, transient, classifyResult, routedDecision);
     return;
   }
 
-  const nextRoutingState = routedDecision === "relevant" ? "relevant" : "ignored";
-  conversation = await options.repository.upsertConversation(
-    options.account.id,
-    transient.conversationKey,
+  if (alreadyProcessed) {
+    return;
+  }
+
+  const nextRoutingState = routingStateFor(routedDecision);
+  const nextRevision = conversation.managedNotesRevision + 1;
+  conversation = await bumpConversationIfRoutingChanged(
+    options,
+    conversation,
+    transient,
+    nextRoutingState,
     {
-      decisionVersion: conversation.decisionVersion + 1,
-      routingState: nextRoutingState,
       lastGeneratedTitle: plan.title,
-      managedNotesRevision: conversation.managedNotesRevision + 1,
+      managedNotesRevision: nextRevision,
       managedNotesHash: hashManagedNotesBody(
-        buildManagedNotesSection(
-          conversation.managedNotesRevision + 1,
+        buildManagedNotesInnerBody(
           classifyResult.output?.summary ?? "",
           classifyResult.output?.rationale ?? "",
         ),
       ),
-      sourceUrl: transient.sourceUrl,
     },
   );
 
@@ -350,24 +400,50 @@ const processTransientMessage = async (
     });
     await options.repository.saveDesiredEffect(providerEffect);
   }
-
-  await persistClassifiedMessage(options, transient, classifyResult, routedDecision);
 };
 
 export const reconcilePendingEffects = async (
   options: SyncEngineOptions,
-  conversationId: string,
+  accountId: string,
 ): Promise<void> => {
-  const effects = await options.repository.listPendingEffects(conversationId);
-  for (const effect of effects) {
-    if (effect.effectType === "provider_marker" && options.adapter.applyMarkers) {
-      if (!options.mutationEnabled) {
-        continue;
-      }
-      await options.adapter.applyMarkers({
-        messageIds: effect.targetMessageIds,
-        decision: "relevant",
-      });
-    }
+  const effects = await options.repository.listPendingEffectsForAccount(accountId);
+  const next = pickNextPendingEffect(effects);
+  if (!next) {
+    return;
+  }
+  const conversation = await options.repository.getConversation(next.conversationId);
+  if (!conversation) {
+    await options.repository.saveDesiredEffect(
+      updateEffectStatus(next, "failed", "conversation_missing"),
+    );
+    return;
+  }
+  if (next.effectType !== "provider_marker" || !options.adapter.applyMarkers) {
+    await options.repository.saveDesiredEffect(updateEffectStatus(next, "completed"));
+    return;
+  }
+  if (!options.mutationEnabled) {
+    return;
+  }
+  const markerDecision = conversation.routingState === "ignored" ? "ignore" : "relevant";
+  if (conversation.routingState === "review" || conversation.routingState === "pending") {
+    return;
+  }
+  const inProgress = updateEffectStatus(next, "in_progress");
+  await options.repository.saveDesiredEffect(inProgress);
+  try {
+    await options.adapter.applyMarkers({
+      messageIds: next.targetMessageIds,
+      decision: markerDecision,
+    });
+    await options.repository.saveDesiredEffect(updateEffectStatus(inProgress, "completed"));
+  } catch (error) {
+    await options.repository.saveDesiredEffect(
+      updateEffectStatus(
+        inProgress,
+        "failed",
+        error instanceof Error ? error.message : "apply_markers_failed",
+      ),
+    );
   }
 };

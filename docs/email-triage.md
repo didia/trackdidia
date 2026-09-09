@@ -1,14 +1,19 @@
 # Email triage (foundation slice)
 
+See also: [changelog](logs/email-triage.md).
+
 TrackDidia ships a **disabled-by-default** local email triage foundation. This slice
 persists accounts, conversations, classification metadata, reviews, desired effects, and
-audit data; stores provider credentials and a dedicated OpenRouter classifier key in the
-OS credential vault; runs mocked Gmail, Microsoft Graph, and Yahoo protocol adapters in
-tests; and exposes a French UI for settings, account cards, and the review queue.
+audit data; exposes OS-vault *commands* for a dedicated OpenRouter classifier key (nothing
+writes a secret in this slice, so classification currently takes the `missing_api_key`
+review path); runs mocked Gmail, Microsoft Graph, and Yahoo protocol adapters in tests;
+and exposes a French UI for settings, account cards, and the review queue.
 
 ## Not shipped in this slice
 
 - Live OAuth / IMAP mailbox connections
+- Storing provider credentials or the triage API key from the UI (vault load/store
+  commands exist, but have no settings form yet)
 - Automatic provider mutation (global and per-account flags default off)
 - System tray hide-on-close, autostart, or launch-at-login
 - Historical import, sending, attachment inspection
@@ -18,8 +23,10 @@ tests; and exposes a French UI for settings, account cards, and the review queue
 - Subsystem: [`src/lib/email-triage/`](../src/lib/email-triage/)
 - Domain types: [`src/domain/email-triage.ts`](../src/domain/email-triage.ts)
 - SQLite migration `29_add_email_triage_foundation`
-- Coordinator starts after normal `AppProvider` bootstrap, outside the eight-second storage
-  fallback; browser preview disables vault access and polling
+- Coordinator starts only after `AppProvider` bootstrap finishes successfully. Browser
+  preview and the eight-second in-memory storage fallback both skip polling. Vault
+  availability is probed only when the feature is enabled, using a read-only keychain
+  check.
 - Classifier body text is transient; raw MIME and bodies are never persisted
 
 ## GTD linkage

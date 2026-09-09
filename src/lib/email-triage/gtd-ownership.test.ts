@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { planGtdOwnershipUpdate } from "./gtd-ownership";
+import {
+  buildManagedNotesInnerBody,
+  buildManagedNotesSection,
+  hashManagedNotesBody,
+  parseManagedNotes,
+  planGtdOwnershipUpdate,
+} from "./gtd-ownership";
 import type { EmailTriageConversation } from "../../domain/email-triage";
 import type { Task } from "../../domain/types";
 
@@ -107,5 +113,30 @@ describe("gtd ownership", () => {
     });
     expect(plan.title).toBe("Titre modifié par l'utilisateur");
     expect(plan.notes).toBe(userNotes);
+  });
+
+  it("hashes managed notes the same way parse and persist do", () => {
+    const inner = buildManagedNotesInnerBody("sum", "rat");
+    const stored = hashManagedNotesBody(inner);
+    const parsed = parseManagedNotes(buildManagedNotesSection(1, "sum", "rat"));
+    expect(parsed.managed?.hash).toBe(stored);
+    const plan = planGtdOwnershipUpdate({
+      conversation: {
+        ...baseConversation(),
+        lastGeneratedTitle: "Old title",
+        managedNotesHash: stored,
+        managedNotesRevision: 1,
+      },
+      existingTask: {
+        ...baseTask(),
+        notes: buildManagedNotesSection(1, "sum", "rat"),
+      },
+      routedDecision: "relevant",
+      suggestedTitle: "Old title",
+      summary: "new summary",
+      rationale: "new rationale",
+      sourceUrl: "https://example.com/3",
+    });
+    expect(plan.notes).toContain("new summary");
   });
 });

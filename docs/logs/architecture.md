@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-08 | Coordinator starts only after a successful bootstrap, skips browser preview and the in-memory startup fallback, and probes the vault only when email triage is enabled | `docs/architecture.md`, `docs/email-triage.md` | `use-email-triage-coordinator.ts`, `coordinator.ts` |
 | 2026-09-08 | Added `/email-triage` route and post-bootstrap email triage coordinator (disabled by default; browser preview disables polling) | `docs/architecture.md`, `docs/email-triage.md` | `EmailTriagePage`, `use-email-triage-coordinator.ts`, `coordinator.ts` |
 | 2026-09-07 | Floating Pomodoro overlay stays visible for the current cycle after completion until idle reset; hidden on `/pomodoro` | `docs/architecture.md`, `docs/recurrences-and-pomodoro.md` | `FloatingPomodoroTimer`, `shouldShowFloatingPomodoro` |
 | 2026-09-07 | Boot sequence promotes due Scheduled tasks to Next Actions after generating recurrences; a local-day boundary plus focus/visibility repeats that pass and republishes `calendarDay` | `docs/architecture.md` | `app-context.tsx`, `use-local-day-reconciliation.ts`, `promoteDueScheduledTasks` |

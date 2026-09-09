@@ -211,7 +211,7 @@ settings appear on existing installations without an immediate JSON backfill.
 | Local recurrence | `recurring_template_id`, `recurrence_due_date`, `is_recurring_instance` |
 | Imported recurrence | `recurrence_group_id`, `pending_past_recurrences` |
 | Planned queue | `planned_order` (meaningful only for an active, Planned, project-attached row; see [GTD workspace](gtd.md#planned-bucket-project-only-queue)) |
-| Provenance | `source`, unique `source_external_id` |
+| Provenance | `source`, unique `source_external_id`, nullable `source_url` |
 
 There are no declared SQL foreign keys. Referential consistency is enforced by
 repository/domain behavior.
@@ -268,6 +268,36 @@ Each row is one contiguous activity slice within a session: `session_id`, option
 
 Computed summaries and goal snapshots are not persisted; they are rebuilt from
 daily/review data.
+
+### Email triage tables
+
+Migration 29 adds a nullable `gtd_tasks.source_url` plus nine tables. Raw MIME and
+message bodies are never stored; classifier input is transient.
+
+- `email_triage_settings`: singleton `id = 'global'` for enable/mutation flags,
+  poll interval, classifier model/versions, confidence thresholds, and
+  `automation_enabled` (evaluation failures set this to 0; a passing evaluation
+  does not turn it on).
+- `email_triage_accounts`: provider connection cards, generation, pause/state,
+  recovery, and `sync_state_json`.
+- `email_triage_conversations`: per-account thread key, `decision_version`,
+  routing state, optional linked task, managed-notes revision/hash, source URL.
+- `email_triage_aliases`: Message-ID header aliases for a conversation.
+- `email_triage_messages`: unique `(account_id, provider_message_id)`, subject,
+  sender, optional summary, routing decision. No body column.
+- `email_triage_classification_attempts`: append-only classifier metadata per
+  message.
+- `email_triage_reviews`: pending/resolved/dismissed queue; a partial unique
+  index keeps at most one pending review per `(conversation_id, message_id)`.
+- `email_triage_evaluations`: corpus run results used as an automation safety
+  gate.
+- `email_triage_desired_effects`: idempotent GTD/provider mutations keyed by
+  `dedupe_key`.
+- `email_triage_audit_events`: append-only account/conversation events.
+
+OS vault commands (`vault_*` in `src-tauri/src/vault.rs`) can store a dedicated
+classifier key and provider credentials outside SQLite. This slice exposes the
+commands but does not write secrets from the UI.
 
 ## Backup behavior
 
@@ -354,4 +384,5 @@ code task.
 - [Architecture](architecture.md)
 - [GTD](gtd.md)
 - [AI, settings, and privacy](ai-settings-and-privacy.md)
+- [Email triage](email-triage.md)
 - [Desktop builds](desktop-builds.md)

@@ -84,7 +84,10 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   const calendarDay = useLocalDayReconciliation(repository);
   const pomodoro = usePomodoroController(repository, calendarDay);
   const browserPreview = !isTauriRuntime();
-  useEmailTriageCoordinator(repository, browserPreview);
+  useEmailTriageCoordinator(repository, {
+    browserPreview,
+    allowStart: !loading && !startupError,
+  });
 
   const enqueueStartupWork = (work: () => Promise<void>) => {
     startupWorkQueueRef.current = startupWorkQueueRef.current.then(work).catch((error) => {

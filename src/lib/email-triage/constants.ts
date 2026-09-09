@@ -15,6 +15,19 @@ export const EMAIL_TRIAGE_MIN_POLL_MINUTES = 5;
 export const EMAIL_TRIAGE_MAX_POLL_MINUTES = 60;
 export const EMAIL_TRIAGE_DEFAULT_POLL_MINUTES = 5;
 
+export const clampPollInterval = (minutes: number): number =>
+  Math.min(
+    EMAIL_TRIAGE_MAX_POLL_MINUTES,
+    Math.max(EMAIL_TRIAGE_MIN_POLL_MINUTES, minutes || EMAIL_TRIAGE_DEFAULT_POLL_MINUTES),
+  );
+
+export const clampConfidenceThreshold = (value: number, fallback: number): number => {
+  if (!Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.min(1, Math.max(0, value));
+};
+
 export const EMAIL_TRIAGE_GMAIL_INBOX_LABEL = "Trackdidia-Inbox";
 export const EMAIL_TRIAGE_GMAIL_IGNORE_LABEL = "Trackdidia-Triage-Ignore";
 export const EMAIL_TRIAGE_GRAPH_INBOX_CATEGORY = "Trackdidia-Inbox";

@@ -59,15 +59,27 @@ class FakeClassificationDb implements Database {
   attempts: Array<Record<string, unknown>> = [];
 
   async execute(query: string, bindValues: unknown[] = []) {
-    if (query.includes("INSERT OR IGNORE INTO email_triage_messages")) {
+    if (query.includes("INSERT INTO email_triage_messages")) {
+      const providerMessageId = bindValues[3];
+      const existing = this.messages.find(
+        (message) => message.provider_message_id === providerMessageId,
+      );
+      if (existing) {
+        existing.subject = bindValues[5];
+        existing.sender = bindValues[6];
+        existing.summary = bindValues[7];
+        existing.routing_decision = bindValues[8];
+        return { rowsAffected: 1 };
+      }
       this.messages.push({
         id: bindValues[0],
         account_id: bindValues[1],
         conversation_id: bindValues[2],
         provider_message_id: bindValues[3],
-        subject: bindValues[6],
-        sender: bindValues[7],
-        summary: bindValues[8],
+        subject: bindValues[5],
+        sender: bindValues[6],
+        summary: bindValues[7],
+        routing_decision: bindValues[8],
       });
     }
     if (query.includes("INSERT INTO email_triage_classification_attempts")) {
@@ -93,6 +105,14 @@ class FakeClassificationDb implements Database {
   }
 
   async select<T>(query: string, bindValues: unknown[] = []): Promise<T> {
+    if (query.includes("FROM email_triage_messages WHERE account_id")) {
+      const accountId = bindValues[0];
+      const providerMessageId = bindValues[1];
+      return this.messages.filter(
+        (message) =>
+          message.account_id === accountId && message.provider_message_id === providerMessageId,
+      ) as T;
+    }
     if (query.includes("FROM email_triage_conversations WHERE account_id")) {
       return [
         {
@@ -180,6 +200,77 @@ describe("email triage persistence", () => {
       reviewReasons: ["prompt_injection"],
     } satisfies Partial<EmailTriageClassificationAttempt>);
     expect(JSON.stringify(attempts)).not.toContain("RAW MIME BODY");
+  });
+
+  it("reuses the persisted message id when the same provider message is upserted", async () => {
+    const fakeDb = new FakeClassificationDb();
+    const sqliteStore = new EmailTriageSqliteStore(async () => fakeDb, {
+      getTaskByExternalId: async () => null,
+      createTask: async (input) => createTaskFromInput(input),
+      saveTask: async (task) => task,
+      persistEvents: async () => undefined,
+    });
+    await sqliteStore.upsertConversation("acct-1", "thread-1", {
+      decisionVersion: 1,
+      routingState: "review",
+    });
+    await sqliteStore.persistMessageBatch(sampleBatch("acct-1", "thread-1"));
+    const firstId = fakeDb.messages[0]?.id as string;
+    const updated = sampleBatch("acct-1", "thread-1");
+    updated.messages[0]!.summary = "Updated summary";
+    updated.messages[0]!.attempt.id = "attempt-gmail-msg-1-b";
+    await sqliteStore.persistMessageBatch(updated);
+    expect(fakeDb.messages).toHaveLength(1);
+    expect(fakeDb.messages[0]?.id).toBe(firstId);
+    expect(fakeDb.messages[0]?.summary).toBe("Updated summary");
+    expect(fakeDb.attempts).toHaveLength(2);
+    expect(fakeDb.attempts.every((attempt) => attempt.message_id === firstId)).toBe(true);
+  });
+
+  it("turns automation off only when an evaluation fails", () => {
+    const store = createMemoryStore();
+    store.saveGlobalSettings({
+      ...store.getGlobalSettings(),
+      automationEnabled: true,
+    });
+    store.saveEvaluation({
+      id: "eval-pass",
+      model: "m",
+      promptVersion: "1",
+      schemaVersion: "1",
+      corpusVersion: "1",
+      relevantThreshold: 0.8,
+      ignoreThreshold: 0.9,
+      passed: true,
+      results: {
+        totalCases: 1,
+        validSchemaCount: 1,
+        exactRoutingCount: 1,
+        safetyViolations: 0,
+        failures: [],
+      },
+      evaluatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    expect(store.getGlobalSettings().automationEnabled).toBe(true);
+    store.saveEvaluation({
+      id: "eval-fail",
+      model: "m",
+      promptVersion: "1",
+      schemaVersion: "1",
+      corpusVersion: "1",
+      relevantThreshold: 0.8,
+      ignoreThreshold: 0.9,
+      passed: false,
+      results: {
+        totalCases: 1,
+        validSchemaCount: 0,
+        exactRoutingCount: 0,
+        safetyViolations: 1,
+        failures: [{ caseId: "x", reason: "safety_ignore_violation" }],
+      },
+      evaluatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    expect(store.getGlobalSettings().automationEnabled).toBe(false);
   });
 
   it("rejects stale conversation version on review resolve", () => {

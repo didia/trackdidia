@@ -78,12 +78,9 @@ export class MockGraphAdapter implements EmailTriageProviderAdapter {
           nextLink: null,
           pageIndex: 0,
           snapshotComplete: false,
-          baselineAt: new Date().toISOString(),
-          gapDetected: false,
-          reseedRequired: true,
         },
         hasMore: true,
-        gapDetected: false,
+        gapDetected: true,
       };
     }
 

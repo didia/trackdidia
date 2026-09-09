@@ -1,6 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isTauriRuntime } from "../storage/factory";
-import { EMAIL_TRIAGE_VAULT_SERVICE, EMAIL_TRIAGE_VAULT_TRIAGE_KEY } from "./constants";
 
 export type EmailTriageVaultEntryKind = "triage_api_key" | "provider_credentials";
 
@@ -20,13 +19,6 @@ export const checkVaultAvailability = async (): Promise<VaultAvailability> => {
   }
 };
 
-const vaultKeyFor = (accountId: string | null, kind: EmailTriageVaultEntryKind): string => {
-  if (kind === "triage_api_key") {
-    return EMAIL_TRIAGE_VAULT_TRIAGE_KEY;
-  }
-  return `${EMAIL_TRIAGE_VAULT_SERVICE}:provider:${accountId}`;
-};
-
 export const storeVaultSecret = async (
   kind: EmailTriageVaultEntryKind,
   secret: string,
@@ -36,9 +28,9 @@ export const storeVaultSecret = async (
     throw new Error("Vault unavailable in browser preview");
   }
   await invoke("vault_store_secret", {
-    service: EMAIL_TRIAGE_VAULT_SERVICE,
-    key: vaultKeyFor(accountId, kind),
+    kind,
     secret,
+    accountId,
   });
 };
 
@@ -51,8 +43,8 @@ export const loadVaultSecret = async (
   }
   try {
     return await invoke<string | null>("vault_load_secret", {
-      service: EMAIL_TRIAGE_VAULT_SERVICE,
-      key: vaultKeyFor(accountId, kind),
+      kind,
+      accountId,
     });
   } catch {
     return null;
@@ -67,7 +59,7 @@ export const deleteVaultSecret = async (
     return;
   }
   await invoke("vault_delete_secret", {
-    service: EMAIL_TRIAGE_VAULT_SERVICE,
-    key: vaultKeyFor(accountId, kind),
+    kind,
+    accountId,
   });
 };

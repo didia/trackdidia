@@ -10,6 +10,11 @@ describe("email triage sanitize", () => {
     ).toBeLessThanOrEqual(EMAIL_TRIAGE_MAX_BODY_CHARS);
   });
 
+  it("treats a zero or negative max as empty instead of a no-op", () => {
+    expect(truncateText("hello", 0)).toBe("");
+    expect(truncateText("hello", -1)).toBe("");
+  });
+
   it("keeps classifier payload under 16 KiB", () => {
     const payload = buildSanitizedClassifierPayload({
       subject: "Hello",

@@ -39,8 +39,9 @@ describe("mock graph adapter", () => {
       baselineAt: "2026-01-01T00:00:00Z",
       deltaLink: "stale",
     });
-    expect(page.cursorUpdate?.reseedRequired).toBe(true);
+    expect(page.gapDetected).toBe(true);
     expect(page.cursorUpdate?.deltaLink).toBeNull();
+    expect(page.cursorUpdate?.baselineAt).toBeUndefined();
     expect(page.hasMore).toBe(true);
   });
 });

@@ -14,6 +14,12 @@ import {
 import type { Task } from "../../domain/types";
 import { buildLifecycleEvents, type createTaskFromInput } from "../gtd/engine";
 import { cloneTask, createEntityId, nowIso } from "../gtd/shared";
+import {
+  clampConfidenceThreshold,
+  clampPollInterval,
+  EMAIL_TRIAGE_DEFAULT_IGNORE_THRESHOLD,
+  EMAIL_TRIAGE_DEFAULT_RELEVANT_THRESHOLD,
+} from "../email-triage/constants";
 import type {
   ApplyGtdUpdateInput,
   CreateReviewInput,
@@ -47,7 +53,18 @@ export class EmailTriageMemoryStore {
   }
 
   saveGlobalSettings(settings: EmailTriageGlobalSettings): void {
-    this.globalSettings = { ...settings };
+    this.globalSettings = {
+      ...settings,
+      pollIntervalMinutes: clampPollInterval(settings.pollIntervalMinutes),
+      relevantThreshold: clampConfidenceThreshold(
+        settings.relevantThreshold,
+        EMAIL_TRIAGE_DEFAULT_RELEVANT_THRESHOLD,
+      ),
+      ignoreThreshold: clampConfidenceThreshold(
+        settings.ignoreThreshold,
+        EMAIL_TRIAGE_DEFAULT_IGNORE_THRESHOLD,
+      ),
+    };
   }
 
   listAccounts(): EmailTriageAccount[] {
@@ -65,6 +82,31 @@ export class EmailTriageMemoryStore {
 
   deleteAccount(accountId: string): void {
     this.accounts.delete(accountId);
+    for (const conversation of [...this.conversations.values()]) {
+      if (conversation.accountId === accountId) {
+        this.conversations.delete(conversation.id);
+      }
+    }
+    for (const message of [...this.messages.values()]) {
+      if (message.accountId === accountId) {
+        this.messages.delete(message.id);
+      }
+    }
+    for (const review of [...this.reviews.values()]) {
+      if (review.accountId === accountId) {
+        this.reviews.delete(review.id);
+      }
+    }
+    for (const effect of [...this.effects.values()]) {
+      if (effect.accountId === accountId) {
+        this.effects.delete(effect.id);
+      }
+    }
+    for (const event of [...this.auditEvents.values()]) {
+      if (event.accountId === accountId) {
+        this.auditEvents.delete(event.id);
+      }
+    }
   }
 
   upsertConversation(
@@ -148,18 +190,31 @@ export class EmailTriageMemoryStore {
           `Conversation not found for key ${item.transient.conversationKey} on account ${input.accountId}`,
         );
       }
-      const message: EmailTriageMessage = {
-        id: createEntityId("email-message"),
-        accountId: input.accountId,
-        conversationId: conversation.id,
-        providerMessageId: item.transient.providerMessageId,
-        receivedAt: item.transient.receivedAt,
-        subject: item.transient.subject,
-        sender: item.transient.sender,
-        summary: item.summary,
-        routingDecision: item.routedDecision,
-        createdAt: nowIso(),
-      };
+      const existingMessage = [...this.messages.values()].find(
+        (message) =>
+          message.accountId === input.accountId &&
+          message.providerMessageId === item.transient.providerMessageId,
+      );
+      const message: EmailTriageMessage = existingMessage
+        ? {
+            ...existingMessage,
+            summary: item.summary,
+            routingDecision: item.routedDecision,
+            subject: item.transient.subject,
+            sender: item.transient.sender,
+          }
+        : {
+            id: createEntityId("email-message"),
+            accountId: input.accountId,
+            conversationId: conversation.id,
+            providerMessageId: item.transient.providerMessageId,
+            receivedAt: item.transient.receivedAt,
+            subject: item.transient.subject,
+            sender: item.transient.sender,
+            summary: item.summary,
+            routingDecision: item.routedDecision,
+            createdAt: nowIso(),
+          };
       this.messages.set(message.id, message);
       const attempt: EmailTriageClassificationAttempt = {
         id: item.attempt.id,
@@ -184,6 +239,23 @@ export class EmailTriageMemoryStore {
     return { conversations };
   }
 
+  getMessageByProviderId(accountId: string, providerMessageId: string): EmailTriageMessage | null {
+    return (
+      [...this.messages.values()].find(
+        (message) =>
+          message.accountId === accountId && message.providerMessageId === providerMessageId,
+      ) ?? null
+    );
+  }
+
+  dismissPendingReviews(conversationId: string): void {
+    for (const review of this.reviews.values()) {
+      if (review.conversationId === conversationId && review.status === "pending") {
+        this.reviews.set(review.id, { ...review, status: "dismissed" });
+      }
+    }
+  }
+
   listPendingEffects(conversationId: string): EmailTriageDesiredEffect[] {
     return [...this.effects.values()].filter(
       (effect) =>
@@ -192,9 +264,22 @@ export class EmailTriageMemoryStore {
     );
   }
 
+  listPendingEffectsForAccount(accountId: string): EmailTriageDesiredEffect[] {
+    return [...this.effects.values()].filter(
+      (effect) =>
+        effect.accountId === accountId &&
+        (effect.status === "pending" || effect.status === "failed"),
+    );
+  }
+
   saveDesiredEffect(effect: EmailTriageDesiredEffect): EmailTriageDesiredEffect {
-    this.effects.set(effect.id, { ...effect });
-    return { ...effect };
+    const existing = [...this.effects.values()].find((item) => item.dedupeKey === effect.dedupeKey);
+    const stored = { ...effect, id: existing?.id ?? effect.id };
+    this.effects.set(stored.id, stored);
+    if (existing && existing.id !== stored.id) {
+      this.effects.delete(existing.id);
+    }
+    return { ...stored };
   }
 
   getTaskByExternalId(externalId: string): Task | null {
@@ -213,14 +298,9 @@ export class EmailTriageMemoryStore {
         sourceExternalId: input.externalId,
         sourceUrl: input.plan.sourceUrl,
       });
-      const conversation = this.conversations.get(input.conversation.id);
-      if (conversation) {
-        this.conversations.set(conversation.id, {
-          ...conversation,
-          taskId: created.id,
-          updatedAt: nowIso(),
-        });
-      }
+      this.upsertConversation(input.conversation.accountId, input.conversation.conversationKey, {
+        taskId: created.id,
+      });
       return cloneTask(created);
     }
     if (!existing) {
@@ -251,18 +331,22 @@ export class EmailTriageMemoryStore {
     }
     const saved = this.taskAccess.saveTask(next);
     this.taskAccess.persistEvents(buildLifecycleEvents(previous, saved));
-    const conversation = this.conversations.get(input.conversation.id);
-    if (conversation) {
-      this.conversations.set(conversation.id, {
-        ...conversation,
-        taskId: saved.id,
-        updatedAt: nowIso(),
-      });
-    }
+    this.upsertConversation(input.conversation.accountId, input.conversation.conversationKey, {
+      taskId: saved.id,
+    });
     return cloneTask(saved);
   }
 
   createReview(input: CreateReviewInput): EmailTriageReview {
+    const existing = [...this.reviews.values()].find(
+      (review) =>
+        review.conversationId === input.conversationId &&
+        review.messageId === input.messageId &&
+        review.status === "pending",
+    );
+    if (existing) {
+      return existing;
+    }
     const review: EmailTriageReview = {
       id: createEntityId("email-review"),
       accountId: input.accountId,
@@ -345,7 +429,7 @@ export class EmailTriageMemoryStore {
       ...evaluation,
       results: { ...evaluation.results, failures: [...evaluation.results.failures] },
     });
-    if (evaluation.passed) {
+    if (!evaluation.passed) {
       this.globalSettings = {
         ...this.globalSettings,
         automationEnabled: false,

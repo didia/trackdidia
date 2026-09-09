@@ -261,8 +261,19 @@ export interface AppRepository {
   emailTriagePersistMessageBatch(
     input: import("../email-triage/sync-engine").PersistMessageBatchInput,
   ): Promise<import("../email-triage/sync-engine").PersistMessageBatchResult>;
+  emailTriageGetMessageByProviderId(
+    accountId: string,
+    providerMessageId: string,
+  ): Promise<import("../../domain/email-triage").EmailTriageMessage | null>;
+  emailTriageGetConversation(
+    conversationId: string,
+  ): Promise<import("../../domain/email-triage").EmailTriageConversation | null>;
+  emailTriageDismissPendingReviews(conversationId: string): Promise<void>;
   emailTriageListPendingEffects(
     conversationId: string,
+  ): Promise<import("../../domain/email-triage").EmailTriageDesiredEffect[]>;
+  emailTriageListPendingEffectsForAccount(
+    accountId: string,
   ): Promise<import("../../domain/email-triage").EmailTriageDesiredEffect[]>;
   emailTriageSaveDesiredEffect(
     effect: import("../../domain/email-triage").EmailTriageDesiredEffect,

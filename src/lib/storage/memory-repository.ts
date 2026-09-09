@@ -1943,8 +1943,25 @@ export class MemoryRepository implements AppRepository {
     return Promise.resolve(this.emailTriage.persistMessageBatch(input));
   }
 
+  async emailTriageGetMessageByProviderId(accountId: string, providerMessageId: string) {
+    return Promise.resolve(this.emailTriage.getMessageByProviderId(accountId, providerMessageId));
+  }
+
+  async emailTriageGetConversation(conversationId: string) {
+    return Promise.resolve(this.emailTriage.getConversation(conversationId));
+  }
+
+  async emailTriageDismissPendingReviews(conversationId: string) {
+    this.emailTriage.dismissPendingReviews(conversationId);
+    return Promise.resolve();
+  }
+
   async emailTriageListPendingEffects(conversationId: string) {
     return Promise.resolve(this.emailTriage.listPendingEffects(conversationId));
+  }
+
+  async emailTriageListPendingEffectsForAccount(accountId: string) {
+    return Promise.resolve(this.emailTriage.listPendingEffectsForAccount(accountId));
   }
 
   async emailTriageSaveDesiredEffect(

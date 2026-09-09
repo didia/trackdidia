@@ -1009,6 +1009,24 @@ export const migrations: Migration[] = [
         details_json TEXT NOT NULL DEFAULT '{}',
         created_at TEXT NOT NULL
       );
+
+      CREATE INDEX IF NOT EXISTS idx_email_triage_reviews_status
+        ON email_triage_reviews (status);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_email_triage_reviews_pending_message
+        ON email_triage_reviews (conversation_id, message_id)
+        WHERE status = 'pending';
+      CREATE INDEX IF NOT EXISTS idx_email_triage_effects_conversation_status
+        ON email_triage_desired_effects (conversation_id, status);
+      CREATE INDEX IF NOT EXISTS idx_email_triage_effects_status
+        ON email_triage_desired_effects (status);
+      CREATE INDEX IF NOT EXISTS idx_email_triage_attempts_message
+        ON email_triage_classification_attempts (message_id);
+      CREATE INDEX IF NOT EXISTS idx_email_triage_audit_account_created
+        ON email_triage_audit_events (account_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_email_triage_aliases_conversation
+        ON email_triage_aliases (conversation_id);
+      CREATE INDEX IF NOT EXISTS idx_email_triage_aliases_message_id
+        ON email_triage_aliases (message_id_header);
     `,
   },
 ];
@@ -4603,8 +4621,24 @@ export class TauriSqliteRepository implements AppRepository {
     return this.getEmailTriageStore().persistMessageBatch(input);
   }
 
+  async emailTriageGetMessageByProviderId(accountId: string, providerMessageId: string) {
+    return this.getEmailTriageStore().getMessageByProviderId(accountId, providerMessageId);
+  }
+
+  async emailTriageGetConversation(conversationId: string) {
+    return this.getEmailTriageStore().getConversation(conversationId);
+  }
+
+  async emailTriageDismissPendingReviews(conversationId: string) {
+    await this.getEmailTriageStore().dismissPendingReviews(conversationId);
+  }
+
   async emailTriageListPendingEffects(conversationId: string) {
     return this.getEmailTriageStore().listPendingEffects(conversationId);
+  }
+
+  async emailTriageListPendingEffectsForAccount(accountId: string) {
+    return this.getEmailTriageStore().listPendingEffectsForAccount(accountId);
   }
 
   async emailTriageSaveDesiredEffect(

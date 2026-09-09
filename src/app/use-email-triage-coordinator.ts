@@ -52,8 +52,16 @@ const buildEmailTriageRepositoryPort = (repository: AppRepository) => ({
   persistMessageBatch: (
     input: import("../lib/email-triage/sync-engine").PersistMessageBatchInput,
   ) => repository.emailTriagePersistMessageBatch(input),
+  getMessageByProviderId: (accountId: string, providerMessageId: string) =>
+    repository.emailTriageGetMessageByProviderId(accountId, providerMessageId),
+  getConversation: (conversationId: string) =>
+    repository.emailTriageGetConversation(conversationId),
+  dismissPendingReviews: (conversationId: string) =>
+    repository.emailTriageDismissPendingReviews(conversationId),
   listPendingEffects: (conversationId: string) =>
     repository.emailTriageListPendingEffects(conversationId),
+  listPendingEffectsForAccount: (accountId: string) =>
+    repository.emailTriageListPendingEffectsForAccount(accountId),
   saveDesiredEffect: async (effect: import("../domain/email-triage").EmailTriageDesiredEffect) => {
     await repository.emailTriageSaveDesiredEffect(effect);
   },
@@ -71,12 +79,12 @@ const buildEmailTriageRepositoryPort = (repository: AppRepository) => ({
 
 export const useEmailTriageCoordinator = (
   repository: AppRepository | null,
-  browserPreview: boolean,
+  options: { browserPreview: boolean; allowStart: boolean },
 ): void => {
   const coordinatorRef = useRef<EmailTriageCoordinator | null>(null);
 
   useEffect(() => {
-    if (!repository || browserPreview) {
+    if (!repository || options.browserPreview || !options.allowStart) {
       return;
     }
 
@@ -84,7 +92,7 @@ export const useEmailTriageCoordinator = (
       repository: buildEmailTriageRepositoryPort(repository),
       createAdapter: createMockAdapter,
       classifierProvider: mockClassifierProvider,
-      browserPreview,
+      browserPreview: options.browserPreview,
     });
     coordinatorRef.current = coordinator;
     void coordinator.start();
@@ -93,5 +101,5 @@ export const useEmailTriageCoordinator = (
       coordinator.stop();
       coordinatorRef.current = null;
     };
-  }, [repository, browserPreview]);
+  }, [repository, options.browserPreview, options.allowStart]);
 };

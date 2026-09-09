@@ -5,11 +5,7 @@ import type { EmailTriageRepositoryPort } from "./sync-engine";
 import { processProviderPage, reconcilePendingEffects } from "./sync-engine";
 import type { EmailTriageProviderAdapter } from "./providers/types";
 import { checkVaultAvailability, loadVaultSecret } from "./vault";
-import {
-  EMAIL_TRIAGE_DEFAULT_POLL_MINUTES,
-  EMAIL_TRIAGE_MAX_POLL_MINUTES,
-  EMAIL_TRIAGE_MIN_POLL_MINUTES,
-} from "./constants";
+import { clampPollInterval } from "./constants";
 
 export interface EmailTriageCoordinatorDeps {
   repository: EmailTriageRepositoryPort & {
@@ -36,16 +32,16 @@ export class EmailTriageCoordinator {
     if (this.running || this.browserPreview) {
       return;
     }
+    const settings = await this.deps.repository.getGlobalSettings();
+    if (!settings.enabled) {
+      return;
+    }
     const vault = await checkVaultAvailability();
     if (!vault.available) {
       return;
     }
     this.running = true;
     await this.deps.repository.recoverStaleEffects();
-    const settings = await this.deps.repository.getGlobalSettings();
-    if (!settings.enabled) {
-      return;
-    }
     const accounts = await this.deps.repository.listAccounts();
     for (const account of accounts) {
       if (account.enabled && !account.paused) {
@@ -63,6 +59,9 @@ export class EmailTriageCoordinator {
   }
 
   scheduleAccount(account: EmailTriageAccount, settings: EmailTriageGlobalSettings): void {
+    if (!this.running) {
+      return;
+    }
     const existing = this.timers.get(account.id);
     if (existing) {
       clearTimeout(existing);
@@ -82,6 +81,9 @@ export class EmailTriageCoordinator {
 
   async runAccountSync(accountId: string): Promise<void> {
     await this.withAccountMutex(accountId, async () => {
+      if (!this.running) {
+        return;
+      }
       const settings = await this.deps.repository.getGlobalSettings();
       if (!settings.enabled) {
         return;
@@ -97,7 +99,7 @@ export class EmailTriageCoordinator {
       const apiKey = await loadVaultSecret("triage_api_key");
       let hasMore = true;
       let backoffAttempt = 0;
-      while (hasMore && this.running) {
+      while (hasMore && this.running && backoffAttempt < 5) {
         try {
           const result = await processProviderPage({
             repository: this.deps.repository,
@@ -117,12 +119,7 @@ export class EmailTriageCoordinator {
           backoffAttempt += 1;
           const delayMs = Math.min(60_000, 1_000 * 2 ** backoffAttempt);
           await new Promise((resolve) => setTimeout(resolve, delayMs));
-          break;
         }
-      }
-      const conversations = await this.deps.repository.listAccounts();
-      for (const item of conversations.filter((entry) => entry.id === accountId)) {
-        void item;
       }
       await reconcilePendingEffects(
         {
@@ -136,7 +133,9 @@ export class EmailTriageCoordinator {
         },
         accountId,
       );
-      this.scheduleAccount(account, settings);
+      if (this.running) {
+        this.scheduleAccount(account, settings);
+      }
     });
   }
 
@@ -148,8 +147,4 @@ export class EmailTriageCoordinator {
   }
 }
 
-export const clampPollInterval = (minutes: number): number =>
-  Math.min(
-    EMAIL_TRIAGE_MAX_POLL_MINUTES,
-    Math.max(EMAIL_TRIAGE_MIN_POLL_MINUTES, minutes || EMAIL_TRIAGE_DEFAULT_POLL_MINUTES),
-  );
+export { clampPollInterval, clampConfidenceThreshold } from "./constants";

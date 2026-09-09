@@ -13,7 +13,11 @@ const normalizeAddress = (raw: string): string | null => {
   if (!trimmed || trimmed.length > 320) {
     return null;
   }
-  const match = trimmed.match(/<?([^<>\s]+@[^<>\s]+)>?/);
+  const angle = trimmed.match(/<([^<>\s]+@[^<>\s]+)>/);
+  if (angle?.[1]) {
+    return angle[1];
+  }
+  const match = trimmed.match(/([^<>\s]+@[^<>\s]+)/);
   return match?.[1] ?? trimmed;
 };
 
@@ -40,6 +44,9 @@ export const sanitizeRecipientList = (recipients: string[]): string[] => {
 };
 
 export const truncateText = (value: string, maxChars: number): string => {
+  if (maxChars <= 0) {
+    return "";
+  }
   const trimmed = value.replace(/\s+/g, " ").trim();
   if (trimmed.length <= maxChars) {
     return trimmed;
@@ -81,18 +88,23 @@ export const buildSanitizedClassifierPayload = (
     receivedAt: input.receivedAt,
     bodyText,
   };
-  const serialized = JSON.stringify(payload);
-  let payloadBytes = new TextEncoder().encode(serialized).length;
-  if (payloadBytes <= EMAIL_TRIAGE_MAX_PAYLOAD_BYTES) {
-    return { ...payload, payloadBytes };
+  let nextBody = payload.bodyText;
+  let nextRecipients = payload.recipients;
+  let payloadBytes = new TextEncoder().encode(JSON.stringify(payload)).length;
+  while (payloadBytes > EMAIL_TRIAGE_MAX_PAYLOAD_BYTES) {
+    const overage = payloadBytes - EMAIL_TRIAGE_MAX_PAYLOAD_BYTES;
+    if (nextBody.length > 0) {
+      nextBody = truncateText(nextBody, Math.max(0, nextBody.length - overage));
+    } else if (nextRecipients.length > 0) {
+      nextRecipients = nextRecipients.slice(0, -1);
+    } else {
+      break;
+    }
+    payloadBytes = new TextEncoder().encode(
+      JSON.stringify({ ...payload, bodyText: nextBody, recipients: nextRecipients }),
+    ).length;
   }
-  const reducedBody = truncateText(
-    bodyText,
-    Math.max(0, bodyText.length - (payloadBytes - EMAIL_TRIAGE_MAX_PAYLOAD_BYTES)),
-  );
-  const reduced = { ...payload, bodyText: reducedBody };
-  payloadBytes = new TextEncoder().encode(JSON.stringify(reduced)).length;
-  return { ...reduced, payloadBytes };
+  return { ...payload, bodyText: nextBody, recipients: nextRecipients, payloadBytes };
 };
 
 export const buildClassifierPromptEnvelope = (payload: SanitizedClassifierPayload): string => {

@@ -8,26 +8,27 @@ export interface ManagedNotesState {
   body: string;
 }
 
-const hashString = (value: string): string => {
+export const hashManagedNotesBody = (body: string): string => {
   let hash = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  for (let index = 0; index < body.length; index += 1) {
+    hash = (hash * 31 + body.charCodeAt(index)) >>> 0;
   }
   return hash.toString(16);
 };
+
+export const buildManagedNotesInnerBody = (summary: string, rationale: string): string =>
+  [`Summary: ${summary}`, `Rationale: ${rationale}`].join("\n");
 
 export const buildManagedNotesSection = (
   revision: number,
   summary: string,
   rationale: string,
-): string => {
-  const body = [`Summary: ${summary}`, `Rationale: ${rationale}`].join("\n");
-  return [
+): string =>
+  [
     `${EMAIL_TRIAGE_MANAGED_NOTES_BEGIN}${revision} -->`,
-    body,
+    buildManagedNotesInnerBody(summary, rationale),
     EMAIL_TRIAGE_MANAGED_NOTES_END,
   ].join("\n");
-};
 
 export const parseManagedNotes = (
   notes: string,
@@ -54,7 +55,7 @@ export const parseManagedNotes = (
     userNotes,
     managed: {
       revision,
-      hash: hashString(body),
+      hash: hashManagedNotesBody(body),
       body,
     },
   };
@@ -173,7 +174,7 @@ export const planGtdOwnershipUpdate = (input: GtdOwnershipInput): GtdUpdatePlan 
     };
   }
 
-  if (existingTask.status === "cancelled" || !existingTask.id) {
+  if (existingTask.status === "cancelled") {
     return {
       title: existingTask.title,
       notes: existingTask.notes,
@@ -212,12 +213,4 @@ export const planGtdOwnershipUpdate = (input: GtdOwnershipInput): GtdUpdatePlan 
     reviewRequired: false,
     reviewReason: null,
   };
-};
-
-export const hashManagedNotesBody = (body: string): string => {
-  let hash = 0;
-  for (let index = 0; index < body.length; index += 1) {
-    hash = (hash * 31 + body.charCodeAt(index)) >>> 0;
-  }
-  return hash.toString(16);
 };
