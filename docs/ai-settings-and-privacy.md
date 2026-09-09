@@ -96,7 +96,8 @@ When AI is disabled or the API key is empty:
 
 ### Auto-load trigger (Today and evening close)
 
-When AI is configured, Today auto-loads the coach on page open:
+When AI is configured, Today auto-loads the coach on page open
+(journal edits on the page do not retrigger this):
 
 1. if a scheduled pulse for today is already persisted (`open`/`steer`/`wind_down`, never `close`), that thread is shown;
 2. otherwise a fast local brief from snapshot inputs that skip the live RescueTime fetch;
@@ -109,7 +110,7 @@ Evening closure (`/fermeture-soir`) auto-loads the `close` stance on page open:
 
 1. due commitments for today are finalized idempotently, even when AI is off;
 2. if a `status = ok` close pulse for today is already persisted (`scopeKey` `YYYY-MM-DD#close`), that thread is shown immediately;
-3. then `buildPulse` runs cache-first with `skipRescueTimeFetch`, so a live RescueTime blip cannot bust the input hash. `fallback`/`skipped` rows are not reused; the next open retries. If journal fields, metrics, or memories changed, the hash misses and a new model call runs.
+3. then `buildPulse` runs cache-first with `skipRescueTimeFetch`, so a live RescueTime blip cannot bust the input hash. `fallback`/`skipped` rows are not reused; the next open retries. If journal fields, metrics, or memories already changed since that pulse, the hash misses and a new model call runs. Edits made while the page is open do not retrigger auto-load.
 
 **Régénérer** fetches RescueTime and bypasses the `ai_messages` input-hash cache deliberately.
 

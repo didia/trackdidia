@@ -34,6 +34,7 @@ The Today screen is the daily control center. It:
   (450 ms debounce, flush on blur/unmount, same as the other daily screens);
   `useDailyEntry.save` applies updates against the latest in-memory entry and
   serializes persists so overlapping field writes cannot clobber each other;
+  those in-page journal saves do not retrigger the coach panel;
 - summarizes completed focus sessions and focused time;
 - lists tasks added/completed today from the event ledger;
 - shows the GTD-derived start/added/completed/remaining counts;
@@ -122,11 +123,12 @@ The journal fields are debounced and flushed before closure.
 
 The close coach panel auto-loads on page open. A successful (`ok`) close pulse can
 render immediately; auto-load then re-runs cache-first with RescueTime skipped so the
-input hash stays stable. Filling evening metrics, principles, or notes changes the
-hash and generates a fresh close pulse. Failed or skipped generations are not reused.
-Due commitments resolve on open even when AI is off. **Régénérer** is the explicit
-bypass. The morning routine screen does not host a coach panel; the morning/open
-thread lives on Today.
+input hash stays stable. If journal fields, metrics, or memories already changed
+since that pulse, the hash misses and a new model call runs. Edits made while the
+page is open do not retrigger auto-load; **Régénérer** is the explicit bypass.
+Failed or skipped generations are not reused. Due commitments resolve on open even
+when AI is off. The morning routine screen does not host a coach panel; the
+morning/open thread lives on Today.
 
 Evening-specific principles include daily retro, quality time with children, evening
 prayer, attention to spouse, TRC, and goals achieved. Anytime and morning principles

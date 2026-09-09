@@ -140,13 +140,14 @@ export const TodayPage = () => {
     [coachService, repository, settings],
   );
 
+  const entryDate = entry?.date;
   useEffect(() => {
-    if (!entry) {
+    if (!entryDate) {
       return;
     }
 
     void loadCoachFromStore();
-  }, [entry?.date, loadCoachFromStore, entry]);
+  }, [entryDate, loadCoachFromStore]);
 
   useEffect(() => {
     if (!entry) {
