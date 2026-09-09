@@ -32,14 +32,16 @@ export const hasMaterialClassifierChange = (
   previous.relevantThreshold !== next.relevantThreshold ||
   previous.ignoreThreshold !== next.ignoreThreshold;
 
-export const canEnableGlobalMutation = (
+export const canEnableAutomation = (
   settings: EmailTriageGlobalSettings,
   evaluation: EmailTriageEvaluation | null,
 ): boolean =>
-  settings.automationEnabled &&
-  evaluation !== null &&
-  evaluation.passed &&
-  evaluationMatchesSettings(settings, evaluation);
+  evaluation !== null && evaluation.passed && evaluationMatchesSettings(settings, evaluation);
+
+export const canEnableGlobalMutation = (
+  settings: EmailTriageGlobalSettings,
+  evaluation: EmailTriageEvaluation | null,
+): boolean => settings.automationEnabled && canEnableAutomation(settings, evaluation);
 
 export const canMutateProvider = (
   settings: EmailTriageGlobalSettings,
@@ -65,14 +67,24 @@ export const prepareEmailTriageGlobalSettingsSave = (
   previous: EmailTriageGlobalSettings,
   next: EmailTriageGlobalSettings,
   latestMatchingEvaluation: EmailTriageEvaluation | null,
-): { settings: EmailTriageGlobalSettings; mutationRejected: boolean } => {
+): {
+  settings: EmailTriageGlobalSettings;
+  mutationRejected: boolean;
+  automationRejected: boolean;
+} => {
   let settings: EmailTriageGlobalSettings = { ...next };
+  let mutationRejected = false;
+  let automationRejected = false;
   if (hasMaterialClassifierChange(previous, settings)) {
     settings = { ...settings, automationEnabled: false };
   }
+  if (settings.automationEnabled && !canEnableAutomation(settings, latestMatchingEvaluation)) {
+    settings = { ...settings, automationEnabled: false };
+    automationRejected = true;
+  }
   if (settings.mutationEnabled && !canEnableGlobalMutation(settings, latestMatchingEvaluation)) {
     settings = { ...settings, mutationEnabled: false };
-    return { settings, mutationRejected: true };
+    mutationRejected = true;
   }
-  return { settings, mutationRejected: false };
+  return { settings, mutationRejected, automationRejected };
 };

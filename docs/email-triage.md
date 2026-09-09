@@ -21,15 +21,21 @@ adds system-tray hide-on-close, launch-at-login, and gated automatic provider mu
 ### Gated automatic mutation (slice 5)
 
 - Provider mutation remains **off by default** at global and per-account levels
+- **Automatisation** and **Mutation fournisseur** are separate gates: a passing evaluation unlocks
+  automation (`canEnableAutomation`) but does not turn it on; the user enables automation and
+  mutation independently once evaluation matches persisted model/prompt/schema/thresholds
 - Automatic markers run only when `canMutateProvider` passes: global `mutationEnabled` and
-  `automationEnabled`, per-account `mutationEnabled`, account active/unpaused, and a **passed**
-  evaluation matching the current model, prompt/schema version, corpus version, and thresholds
+  `automationEnabled`, per-account `mutationEnabled`, account active/unpaused (not
+  `gap_review_required`), and a **passed** evaluation matching the current model, prompt/schema
+  version, corpus version, and thresholds
+- The coordinator recomputes `mutationEnabled` on each sync page and before effect reconciliation
 - Changing model, prompt/schema version, or thresholds clears `automationEnabled` until
-  reevaluation
-- **Lancer l'évaluation** runs the packaged mutation-free corpus (OpenRouter, temperature 0),
-  persists results, and enables automation when the corpus passes
-- Per-account mutation checkbox on account cards; review queue supports **Laisser pour plus tard**
-  (dismissed, no provider change)
+  reevaluation; a failing evaluation also clears `automationEnabled`
+- **Lancer l'évaluation** evaluates **persisted** settings only; the button is disabled while the
+  settings draft differs from the last saved classifier/threshold values
+- Per-account mutation checkbox on account cards; review queue supports **Retirer de la file**
+  (permanent dismiss: review removed, conversation `routingState: dismissed`, no provider mutation)
+- Tray and autostart preference apply failures surface independently and do not abort settings save
 
 ### Gmail (slice 2)
 

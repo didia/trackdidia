@@ -6,6 +6,7 @@ import {
 } from "../../domain/email-triage";
 import { EMAIL_TRIAGE_EVALUATION_CORPUS_VERSION } from "./constants";
 import {
+  canEnableAutomation,
   canMutateProvider,
   hasMaterialClassifierChange,
   prepareEmailTriageGlobalSettingsSave,
@@ -52,6 +53,25 @@ const matchingEvaluation = (): EmailTriageEvaluation => {
     evaluatedAt: "2026-01-01T00:00:00.000Z",
   };
 };
+
+describe("canEnableAutomation", () => {
+  it("is true with a matching passed evaluation", () => {
+    const settings = defaultEmailTriageGlobalSettings();
+    expect(canEnableAutomation(settings, matchingEvaluation())).toBe(true);
+  });
+
+  it("is false without a matching evaluation", () => {
+    expect(canEnableAutomation(defaultEmailTriageGlobalSettings(), null)).toBe(false);
+  });
+
+  it("is false when automationEnabled is already false on settings", () => {
+    const settings = {
+      ...defaultEmailTriageGlobalSettings(),
+      automationEnabled: false,
+    };
+    expect(canEnableAutomation(settings, matchingEvaluation())).toBe(true);
+  });
+});
 
 describe("canMutateProvider", () => {
   it("is true only when all gates match", () => {
@@ -103,7 +123,11 @@ describe("canMutateProvider", () => {
       automationEnabled: true,
     };
     expect(
-      canMutateProvider(settings, { ...baseAccount(), mutationEnabled: false }, matchingEvaluation()),
+      canMutateProvider(
+        settings,
+        { ...baseAccount(), mutationEnabled: false },
+        matchingEvaluation(),
+      ),
     ).toBe(false);
   });
 
@@ -131,11 +155,7 @@ describe("prepareEmailTriageGlobalSettingsSave", () => {
       updatedAt: "2026-01-02T00:00:00.000Z",
     };
     expect(hasMaterialClassifierChange(previous, next)).toBe(true);
-    const { settings } = prepareEmailTriageGlobalSettingsSave(
-      previous,
-      next,
-      matchingEvaluation(),
-    );
+    const { settings } = prepareEmailTriageGlobalSettingsSave(previous, next, matchingEvaluation());
     expect(settings.automationEnabled).toBe(false);
   });
 
@@ -153,5 +173,21 @@ describe("prepareEmailTriageGlobalSettingsSave", () => {
     );
     expect(mutationRejected).toBe(true);
     expect(settings.mutationEnabled).toBe(false);
+  });
+
+  it("rejects automation without a matching passed evaluation", () => {
+    const previous = defaultEmailTriageGlobalSettings();
+    const next = {
+      ...previous,
+      automationEnabled: true,
+      updatedAt: "2026-01-02T00:00:00.000Z",
+    };
+    const { settings, automationRejected } = prepareEmailTriageGlobalSettingsSave(
+      previous,
+      next,
+      null,
+    );
+    expect(automationRejected).toBe(true);
+    expect(settings.automationEnabled).toBe(false);
   });
 });

@@ -387,6 +387,10 @@ const processTransientMessage = async (
       sourceUrl: transient.sourceUrl,
     }));
 
+  if (conversation.routingState === "dismissed") {
+    return;
+  }
+
   const existingMessage = await options.repository.getMessageByProviderId(
     options.account.id,
     transient.providerMessageId,
@@ -533,7 +537,11 @@ export const reconcilePendingEffects = async (
     return;
   }
   const markerDecision = conversation.routingState === "ignored" ? "ignore" : "relevant";
-  if (conversation.routingState === "review" || conversation.routingState === "pending") {
+  if (
+    conversation.routingState === "review" ||
+    conversation.routingState === "pending" ||
+    conversation.routingState === "dismissed"
+  ) {
     return;
   }
   const inProgress = updateEffectStatus(next, "in_progress");

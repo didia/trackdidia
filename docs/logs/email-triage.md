@@ -16,6 +16,9 @@
   oversized Gmail messages are quarantined so history can advance, obsolete
   coordinator startups cannot clear the live instance, and vault credentials are
   rolled back when account persistence fails.
+- 2026-09-09: PR #94 review — separate automation from evaluation pass, automation checkbox,
+  persisted-settings evaluation, per-page mutation recompute, tray invoke isolated from save,
+  review dismiss renamed to **Retirer de la file** with terminal `dismissed` routing state.
 - 2026-09-09: Yahoo review follow-up — sync pages reuse SELECT UIDVALIDITY (no per-page discover),
   stable orphan conversation keys from `providerMessageId`, marker UIDVALIDITY guard,
   nested MIME body extraction, IMAP quoted-string escaping and socket timeouts,

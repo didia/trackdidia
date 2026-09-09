@@ -1000,6 +1000,10 @@ export class EmailTriageSqliteStore {
     if (row.status !== "pending") {
       throw new Error("Review not pending");
     }
+    const conversation = await this.getConversation(row.conversation_id);
+    if (!conversation) {
+      throw new Error("Conversation not found");
+    }
     const resolvedAt = nowIso();
     const result = await db.execute(
       `UPDATE email_triage_reviews
@@ -1010,6 +1014,14 @@ export class EmailTriageSqliteStore {
     if (!result.rowsAffected) {
       throw new Error("Review dismiss failed");
     }
+    await this.upsertConversation(conversation.accountId, conversation.conversationKey, {
+      decisionVersion: conversation.decisionVersion + 1,
+      routingState: "dismissed",
+    });
+    await db.execute(
+      "UPDATE email_triage_messages SET routing_decision = 'ignore' WHERE account_id = $1 AND provider_message_id = $2",
+      [row.account_id, row.message_id],
+    );
     return {
       id: row.id,
       accountId: row.account_id,
@@ -1080,9 +1092,6 @@ export class EmailTriageSqliteStore {
     if (!evaluation.passed) {
       const settings = await this.getGlobalSettings();
       await this.saveGlobalSettings({ ...settings, automationEnabled: false, updatedAt: nowIso() });
-    } else {
-      const settings = await this.getGlobalSettings();
-      await this.saveGlobalSettings({ ...settings, automationEnabled: true, updatedAt: nowIso() });
     }
     return evaluation;
   }

@@ -81,9 +81,7 @@ export class EmailTriageMemoryStore {
     };
   }
 
-  getLatestMatchingEvaluation(
-    settings: EmailTriageGlobalSettings,
-  ): EmailTriageEvaluation | null {
+  getLatestMatchingEvaluation(settings: EmailTriageGlobalSettings): EmailTriageEvaluation | null {
     return findLatestMatchingEvaluation(settings, this.listEvaluations(50));
   }
 
@@ -488,12 +486,24 @@ export class EmailTriageMemoryStore {
     if (review.status !== "pending") {
       throw new Error("Review not pending");
     }
+    const conversation = this.getConversation(review.conversationId);
+    if (!conversation) {
+      throw new Error("Conversation not found");
+    }
     const updated: EmailTriageReview = {
       ...review,
       status: "dismissed",
       resolvedAt: nowIso(),
     };
     this.reviews.set(review.id, updated);
+    this.upsertConversation(conversation.accountId, conversation.conversationKey, {
+      decisionVersion: conversation.decisionVersion + 1,
+      routingState: "dismissed",
+    });
+    const message = this.getMessageByProviderId(review.accountId, review.messageId);
+    if (message) {
+      this.messages.set(message.id, { ...message, routingDecision: "ignore" });
+    }
     return updated;
   }
 
@@ -512,12 +522,6 @@ export class EmailTriageMemoryStore {
       this.saveGlobalSettings({
         ...this.globalSettings,
         automationEnabled: false,
-        updatedAt: nowIso(),
-      });
-    } else {
-      this.saveGlobalSettings({
-        ...this.globalSettings,
-        automationEnabled: true,
         updatedAt: nowIso(),
       });
     }

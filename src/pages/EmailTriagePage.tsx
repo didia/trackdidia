@@ -20,7 +20,9 @@ import {
 import { applyEmailTriageDesktopPrefs } from "../lib/email-triage/desktop-prefs";
 import { runEvaluationCorpus } from "../lib/email-triage/evaluation/runner";
 import {
+  canEnableAutomation,
   canEnableGlobalMutation,
+  hasMaterialClassifierChange,
   prepareEmailTriageGlobalSettingsSave,
 } from "../lib/email-triage/mutation-gate";
 import { createOpenRouterClassifierProvider } from "../lib/email-triage/openrouter-classifier";
@@ -77,6 +79,10 @@ export const EmailTriagePage = () => {
   const [evaluationMessage, setEvaluationMessage] = useState<string | null>(null);
   const [evaluationRunning, setEvaluationRunning] = useState(false);
   const [autostartError, setAutostartError] = useState<string | null>(null);
+  const [trayError, setTrayError] = useState<string | null>(null);
+  const [persistedSettings, setPersistedSettings] = useState<EmailTriageGlobalSettings>(
+    defaultEmailTriageGlobalSettings(),
+  );
 
   const resolvedGmailClientId = useMemo(
     () => resolveGmailOAuthClientId(settings.gmailOAuthClientId),
@@ -116,6 +122,7 @@ export const EmailTriagePage = () => {
     setAccounts(nextAccounts);
     setReviews(nextReviews);
     setSettings(nextSettings);
+    setPersistedSettings(nextSettings);
     const matchingEvaluation =
       await repository.getLatestMatchingEmailTriageEvaluation(nextSettings);
     setLatestEvaluation(matchingEvaluation);
@@ -144,6 +151,7 @@ export const EmailTriagePage = () => {
     setSaving(true);
     setSettingsError(null);
     setAutostartError(null);
+    setTrayError(null);
     try {
       const previous = await repository.getEmailTriageGlobalSettings();
       const draft = {
@@ -159,13 +167,17 @@ export const EmailTriagePage = () => {
         ),
         updatedAt: nowIso(),
       };
-      const { settings: prepared, mutationRejected } = prepareEmailTriageGlobalSettingsSave(
-        previous,
-        draft,
-        latestEvaluation,
-      );
+      const {
+        settings: prepared,
+        mutationRejected,
+        automationRejected,
+      } = prepareEmailTriageGlobalSettingsSave(previous, draft, latestEvaluation);
       if (mutationRejected) {
         setSettingsError(t("evaluationRequiredForMutation"));
+      } else if (automationRejected) {
+        setSettingsError(t("evaluationRequiredForAutomation"));
+      }
+      if (mutationRejected || automationRejected) {
         setSettings({ ...prepared });
       }
       await repository.saveEmailTriageGlobalSettings(prepared);
@@ -174,9 +186,14 @@ export const EmailTriagePage = () => {
         if (desktopResult.autostartError) {
           setAutostartError(t("autostartError"));
         }
+        if (desktopResult.trayError) {
+          setTrayError(t("trayError"));
+        }
       }
       await reconfigureEmailTriage();
       await load();
+    } catch (error) {
+      setSettingsError(error instanceof Error ? error.message : t("saveSettingsFailed"));
     } finally {
       setSaving(false);
     }
@@ -194,15 +211,16 @@ export const EmailTriagePage = () => {
         setEvaluationMessage(t("evaluationMissingKey"));
         return;
       }
+      const persisted = await repository.getEmailTriageGlobalSettings();
       const provider = createOpenRouterClassifierProvider(appSettings.aiBaseUrl);
       const evaluation = await runEvaluationCorpus({
         provider,
         apiKey,
-        model: settings.classifierModel,
-        promptVersion: settings.classifierPromptVersion,
-        schemaVersion: settings.classifierSchemaVersion,
-        relevantThreshold: settings.relevantThreshold,
-        ignoreThreshold: settings.ignoreThreshold,
+        model: persisted.classifierModel,
+        promptVersion: persisted.classifierPromptVersion,
+        schemaVersion: persisted.classifierSchemaVersion,
+        relevantThreshold: persisted.relevantThreshold,
+        ignoreThreshold: persisted.ignoreThreshold,
       });
       await repository.saveEmailTriageEvaluation(evaluation);
       setEvaluationMessage(
@@ -250,7 +268,9 @@ export const EmailTriagePage = () => {
     }
   };
 
+  const automationCheckboxEnabled = canEnableAutomation(settings, latestEvaluation);
   const mutationCheckboxEnabled = canEnableGlobalMutation(settings, latestEvaluation);
+  const evaluationSettingsDirty = hasMaterialClassifierChange(persistedSettings, settings);
 
   const saveTriageApiKey = async () => {
     if (browserPreview || !triageKeyDraft.trim()) {
@@ -490,6 +510,22 @@ export const EmailTriagePage = () => {
             />
           </label>
           <label>
+            <span>{t("automationEnabled")}</span>
+            <input
+              type="checkbox"
+              checked={settings.automationEnabled}
+              disabled={
+                browserPreview || (!settings.automationEnabled && !automationCheckboxEnabled)
+              }
+              onChange={(event) =>
+                setSettings({ ...settings, automationEnabled: event.target.checked })
+              }
+            />
+          </label>
+          {!automationCheckboxEnabled && !settings.automationEnabled ? (
+            <p>{t("automationDisabledHint")}</p>
+          ) : null}
+          <label>
             <span>{t("globalMutation")}</span>
             <input
               type="checkbox"
@@ -637,7 +673,7 @@ export const EmailTriagePage = () => {
               <button
                 type="button"
                 className="button"
-                disabled={evaluationRunning}
+                disabled={evaluationRunning || evaluationSettingsDirty}
                 onClick={() => void runEvaluation()}
               >
                 {evaluationRunning ? t("evaluationRunning") : t("runEvaluation")}
@@ -647,6 +683,8 @@ export const EmailTriagePage = () => {
         </div>
         {settingsError ? <p>{settingsError}</p> : null}
         {autostartError ? <p>{autostartError}</p> : null}
+        {trayError ? <p>{trayError}</p> : null}
+        {evaluationSettingsDirty ? <p>{t("evaluationDirtyDraft")}</p> : null}
         {evaluationMessage ? <p>{evaluationMessage}</p> : null}
         {triageKeySaved ? <p>{t("triageApiKeySaved")}</p> : null}
       </SectionCard>
@@ -912,7 +950,7 @@ export const EmailTriagePage = () => {
                 disabled={resolvingReviewId !== null}
                 onClick={() => void dismissReview(review)}
               >
-                {t("leaveForLater")}
+                {t("removeFromQueue")}
               </button>
             </div>
             {ignoreReasonErrorByReviewId[review.id] ? (

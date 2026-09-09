@@ -17,7 +17,7 @@ export type EmailTriageRecoveryState =
   | "uidvalidity_changed"
   | "in_progress";
 
-export type EmailTriageRoutingState = "pending" | "relevant" | "ignored" | "review";
+export type EmailTriageRoutingState = "pending" | "relevant" | "ignored" | "review" | "dismissed";
 
 export type EmailTriageClassifierDecision = "relevant" | "ignore" | "review";
 

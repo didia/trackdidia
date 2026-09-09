@@ -68,8 +68,9 @@ const buildEmailTriageRepositoryPort = (repository: AppRepository) => ({
   },
   listAccounts: () => repository.listEmailTriageAccounts(),
   recoverStaleEffects: () => repository.recoverEmailTriageStaleEffects(),
-  getLatestMatchingEvaluation: (settings: import("../domain/email-triage").EmailTriageGlobalSettings) =>
-    repository.getLatestMatchingEmailTriageEvaluation(settings),
+  getLatestMatchingEvaluation: (
+    settings: import("../domain/email-triage").EmailTriageGlobalSettings,
+  ) => repository.getLatestMatchingEmailTriageEvaluation(settings),
 });
 
 export const useEmailTriageCoordinator = (
@@ -90,7 +91,7 @@ export const useEmailTriageCoordinator = (
 
     void repository.getEmailTriageGlobalSettings().then((settings) => {
       if (!cancelled) {
-        void applyEmailTriageDesktopPrefs(settings, options.browserPreview);
+        void applyEmailTriageDesktopPrefs(settings, options.browserPreview).catch(() => undefined);
       }
     });
 
