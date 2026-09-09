@@ -28,6 +28,10 @@
   repairs missing GTD/effects after a persist crash, reviews no longer store
   body excerpts, resolving a review commits the message/conversation decision,
   and enable/resume reconfigures the coordinator.
+- 2026-09-08: Final slice — system tray hide-on-close (`runInTray`), launch-at-login
+  (`tauri-plugin-autostart`), migration 32 desktop prefs, `canMutateProvider` gate,
+  evaluation corpus UI, per-account mutation toggle, review dismiss (leave for later),
+  coordinator passes live `mutationEnabled` only when evaluation + flags match.
 - 2026-09-08: Yahoo slice — live IMAP adapter on desktop (`imap.mail.yahoo.com:993`, app password
   vault JSON, Tauri `yahoo_imap_*` commands with native-tls), UIDVALIDITY baseline/sync/recovery,
   Message-ID alias persistence, French Connect Yahoo form and Yahoo Mail search hint in reviews.

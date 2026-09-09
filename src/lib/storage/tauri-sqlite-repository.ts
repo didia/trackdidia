@@ -1043,6 +1043,14 @@ export const migrations: Migration[] = [
       ALTER TABLE email_triage_settings ADD COLUMN microsoft_oauth_client_id TEXT NOT NULL DEFAULT '';
     `,
   },
+  {
+    id: 32,
+    name: "add_email_triage_desktop_prefs",
+    sql: `
+      ALTER TABLE email_triage_settings ADD COLUMN run_in_tray INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE email_triage_settings ADD COLUMN launch_at_login INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];
 
 export class TauriSqliteRepository implements AppRepository {
@@ -4664,6 +4672,16 @@ export class TauriSqliteRepository implements AppRepository {
     evaluation: import("../../domain/email-triage").EmailTriageEvaluation,
   ) {
     return this.getEmailTriageStore().saveEvaluation(evaluation);
+  }
+
+  async getLatestMatchingEmailTriageEvaluation(
+    settings: import("../../domain/email-triage").EmailTriageGlobalSettings,
+  ) {
+    return this.getEmailTriageStore().getLatestMatchingEvaluation(settings);
+  }
+
+  async dismissEmailTriageReview(reviewId: string) {
+    return this.getEmailTriageStore().dismissReview(reviewId);
   }
 
   async listEmailTriageAuditEvents(accountId?: string, limit?: number) {

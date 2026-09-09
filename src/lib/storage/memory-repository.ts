@@ -1941,6 +1941,16 @@ export class MemoryRepository implements AppRepository {
     return Promise.resolve(this.emailTriage.saveEvaluation(evaluation));
   }
 
+  async getLatestMatchingEmailTriageEvaluation(
+    settings: import("../../domain/email-triage").EmailTriageGlobalSettings,
+  ) {
+    return Promise.resolve(this.emailTriage.getLatestMatchingEvaluation(settings));
+  }
+
+  async dismissEmailTriageReview(reviewId: string) {
+    return Promise.resolve(this.emailTriage.dismissReview(reviewId));
+  }
+
   async listEmailTriageAuditEvents(accountId?: string, limit?: number) {
     return Promise.resolve(this.emailTriage.listAuditEvents(accountId, limit));
   }

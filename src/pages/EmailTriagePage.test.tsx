@@ -303,4 +303,65 @@ describe("EmailTriagePage", () => {
     expect((await repository.listEmailTriageReviews("pending")).length).toBe(0);
     expect((await repository.listEmailTriageReviews("resolved")).length).toBe(1);
   });
+
+  it("shows tray and autostart checkboxes outside browser preview", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveEmailTriageGlobalSettings({
+      ...(await repository.getEmailTriageGlobalSettings()),
+      enabled: true,
+      updatedAt: nowIso(),
+    });
+    await renderWithApp(<EmailTriagePage />, {
+      repository,
+      contextOverrides: { browserPreview: false },
+    });
+    expect(await screen.findByLabelText(/Réduire dans la barre système/i)).toBeInTheDocument();
+    expect(await screen.findByLabelText(/Lancer TrackDidia à l'ouverture/i)).toBeInTheDocument();
+  });
+
+  it("hides tray and autostart checkboxes in browser preview", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveEmailTriageGlobalSettings({
+      ...(await repository.getEmailTriageGlobalSettings()),
+      enabled: true,
+      updatedAt: nowIso(),
+    });
+    await renderWithApp(<EmailTriagePage />);
+    expect(screen.queryByLabelText(/Réduire dans la barre système/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Lancer TrackDidia à l'ouverture/i)).not.toBeInTheDocument();
+  });
+
+  it("disables global mutation without a passed evaluation", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveEmailTriageGlobalSettings({
+      ...(await repository.getEmailTriageGlobalSettings()),
+      enabled: true,
+      updatedAt: nowIso(),
+    });
+    await renderWithApp(<EmailTriagePage />, {
+      repository,
+      contextOverrides: { browserPreview: false },
+    });
+    const mutationCheckbox = await screen.findByLabelText(/^Mutation fournisseur$/i);
+    expect(mutationCheckbox).toBeDisabled();
+    expect(await screen.findByText(/évaluation réussie/i)).toBeInTheDocument();
+  });
+
+  it("shows run evaluation control outside browser preview", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveEmailTriageGlobalSettings({
+      ...(await repository.getEmailTriageGlobalSettings()),
+      enabled: true,
+      updatedAt: nowIso(),
+    });
+    await renderWithApp(<EmailTriagePage />, {
+      repository,
+      contextOverrides: { browserPreview: false },
+    });
+    expect(await screen.findByRole("button", { name: /Lancer l'évaluation/i })).toBeInTheDocument();
+  });
 });

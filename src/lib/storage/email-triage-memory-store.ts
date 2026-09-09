@@ -22,6 +22,10 @@ import {
   EMAIL_TRIAGE_DEFAULT_RELEVANT_THRESHOLD,
 } from "../email-triage/constants";
 import { planGtdOwnershipUpdate } from "../email-triage/gtd-ownership";
+import {
+  findLatestMatchingEvaluation,
+  prepareEmailTriageGlobalSettingsSave,
+} from "../email-triage/mutation-gate";
 import type {
   ApplyGtdUpdateInput,
   CreateReviewInput,
@@ -56,18 +60,31 @@ export class EmailTriageMemoryStore {
   }
 
   saveGlobalSettings(settings: EmailTriageGlobalSettings): void {
+    const previous = this.getGlobalSettings();
+    const latestMatching = this.getLatestMatchingEvaluation(settings);
+    const { settings: prepared } = prepareEmailTriageGlobalSettingsSave(
+      previous,
+      settings,
+      latestMatching,
+    );
     this.globalSettings = {
-      ...settings,
-      pollIntervalMinutes: clampPollInterval(settings.pollIntervalMinutes),
+      ...prepared,
+      pollIntervalMinutes: clampPollInterval(prepared.pollIntervalMinutes),
       relevantThreshold: clampConfidenceThreshold(
-        settings.relevantThreshold,
+        prepared.relevantThreshold,
         EMAIL_TRIAGE_DEFAULT_RELEVANT_THRESHOLD,
       ),
       ignoreThreshold: clampConfidenceThreshold(
-        settings.ignoreThreshold,
+        prepared.ignoreThreshold,
         EMAIL_TRIAGE_DEFAULT_IGNORE_THRESHOLD,
       ),
     };
+  }
+
+  getLatestMatchingEvaluation(
+    settings: EmailTriageGlobalSettings,
+  ): EmailTriageEvaluation | null {
+    return findLatestMatchingEvaluation(settings, this.listEvaluations(50));
   }
 
   listAccounts(): EmailTriageAccount[] {
@@ -463,6 +480,23 @@ export class EmailTriageMemoryStore {
     return updated;
   }
 
+  dismissReview(reviewId: string): EmailTriageReview {
+    const review = this.reviews.get(reviewId);
+    if (!review) {
+      throw new Error("Review not found");
+    }
+    if (review.status !== "pending") {
+      throw new Error("Review not pending");
+    }
+    const updated: EmailTriageReview = {
+      ...review,
+      status: "dismissed",
+      resolvedAt: nowIso(),
+    };
+    this.reviews.set(review.id, updated);
+    return updated;
+  }
+
   listEvaluations(limit = 20): EmailTriageEvaluation[] {
     return [...this.evaluations.values()]
       .sort((left, right) => right.evaluatedAt.localeCompare(left.evaluatedAt))
@@ -475,10 +509,17 @@ export class EmailTriageMemoryStore {
       results: { ...evaluation.results, failures: [...evaluation.results.failures] },
     });
     if (!evaluation.passed) {
-      this.globalSettings = {
+      this.saveGlobalSettings({
         ...this.globalSettings,
         automationEnabled: false,
-      };
+        updatedAt: nowIso(),
+      });
+    } else {
+      this.saveGlobalSettings({
+        ...this.globalSettings,
+        automationEnabled: true,
+        updatedAt: nowIso(),
+      });
     }
     return evaluation;
   }

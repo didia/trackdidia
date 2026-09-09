@@ -1,11 +1,9 @@
 # Multi-account email triage
 
-**Status:** Approved — unimplemented
+**Status:** Implemented
 
-This is an approved implementation specification, not a description of shipped
-behavior. Until the feature is implemented, tested, and moved to `specs/done/`,
-the canonical documentation in [`docs/`](../../docs/) remains the source of truth
-for TrackDidia's current behavior.
+This specification describes the shipped email triage feature. For canonical
+runtime documentation see [`docs/email-triage.md`](../../docs/email-triage.md).
 
 ## Goal
 

@@ -7,6 +7,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 |---|---|---|---|
 | 2026-09-09 | Email triage reviews persist metadata only (no body); coordinator pagination uses the saved cursor and a per-run page cap; enable/resume reconfigures polling | `docs/email-triage.md`, `docs/storage-and-backups.md`, `docs/architecture.md` | `sync-engine.ts`, `coordinator.ts`, `EmailTriagePage` |
 | 2026-09-08 | Yahoo slice: coordinator uses live IMAP adapter on desktop when vault credentials exist | `docs/architecture.md`, `docs/email-triage.md` | `runtime.ts`, `yahoo-adapter.ts`, `yahoo_imap.rs` |
+| 2026-09-08 | Email triage coordinator passes live `mutationEnabled` only when evaluation corpus and flags match | `docs/architecture.md`, `docs/email-triage.md` | `coordinator.ts`, `mutation-gate.ts` |
 | 2026-09-08 | Microsoft Graph slice: coordinator uses live Graph adapter on desktop when vault credentials exist; Yahoo remains mocked | `docs/architecture.md`, `docs/email-triage.md` | `runtime.ts`, `graph-adapter.ts` |
 | 2026-09-08 | Gmail slice: coordinator uses live Gmail adapter on desktop when vault credentials exist; Graph/Yahoo remain mocked | `docs/architecture.md`, `docs/email-triage.md` | `runtime.ts`, `use-email-triage-coordinator.ts` |
 | 2026-09-08 | Added `/email-triage` route and post-bootstrap email triage coordinator (disabled by default; browser preview disables polling) | `docs/architecture.md`, `docs/email-triage.md` | `EmailTriagePage`, `use-email-triage-coordinator.ts`, `coordinator.ts` |

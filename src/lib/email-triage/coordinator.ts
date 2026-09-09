@@ -1,6 +1,7 @@
 import type { EmailTriageAccount, EmailTriageGlobalSettings } from "../../domain/email-triage";
 import { isTauriRuntime } from "../storage/factory";
 import type { EmailTriageClassifierProvider } from "./classifier";
+import { canMutateProvider } from "./mutation-gate";
 import type { EmailTriageRepositoryPort } from "./sync-engine";
 import { processProviderPage, reconcilePendingEffects } from "./sync-engine";
 import type { EmailTriageProviderAdapter } from "./providers/types";
@@ -26,6 +27,9 @@ export interface EmailTriageCoordinatorDeps {
   repository: EmailTriageRepositoryPort & {
     listAccounts(): Promise<EmailTriageAccount[]>;
     getGlobalSettings(): Promise<EmailTriageGlobalSettings>;
+    getLatestMatchingEvaluation(
+      settings: EmailTriageGlobalSettings,
+    ): Promise<import("../../domain/email-triage").EmailTriageEvaluation | null>;
     recoverStaleEffects(): Promise<number>;
   };
   createAdapter(
@@ -191,6 +195,9 @@ export class EmailTriageCoordinator {
           return syncResult;
         }
         const apiKey = await loadVaultSecret("triage_api_key");
+        const latestEvaluation = await this.deps.repository.getLatestMatchingEvaluation(settings);
+        const mutationEnabled =
+          !this.browserPreview && canMutateProvider(settings, account, latestEvaluation);
         let hasMore = true;
         let backoffAttempt = 0;
         let pagesProcessed = 0;
@@ -215,7 +222,7 @@ export class EmailTriageCoordinator {
               classifierProvider: this.deps.classifierProvider,
               apiKey,
               globalSettings: settings,
-              mutationEnabled: false,
+              mutationEnabled,
               shouldContinue,
             });
             currentAccount = result.account;
@@ -288,7 +295,7 @@ export class EmailTriageCoordinator {
               classifierProvider: this.deps.classifierProvider,
               apiKey,
               globalSettings: settings,
-              mutationEnabled: false,
+              mutationEnabled,
             },
             accountId,
           );

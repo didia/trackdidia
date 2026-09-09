@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { EmailTriageCoordinator } from "../lib/email-triage/coordinator";
 import type { EmailTriageAccount } from "../domain/email-triage";
 import type { AppRepository } from "../lib/storage/repository";
+import { applyEmailTriageDesktopPrefs } from "../lib/email-triage/desktop-prefs";
 import { createOpenRouterClassifierProvider } from "../lib/email-triage/openrouter-classifier";
 import {
   createEmailTriageAdapter,
@@ -67,6 +68,8 @@ const buildEmailTriageRepositoryPort = (repository: AppRepository) => ({
   },
   listAccounts: () => repository.listEmailTriageAccounts(),
   recoverStaleEffects: () => repository.recoverEmailTriageStaleEffects(),
+  getLatestMatchingEvaluation: (settings: import("../domain/email-triage").EmailTriageGlobalSettings) =>
+    repository.getLatestMatchingEmailTriageEvaluation(settings),
 });
 
 export const useEmailTriageCoordinator = (
@@ -84,6 +87,12 @@ export const useEmailTriageCoordinator = (
 
     let cancelled = false;
     const classifierProvider = createOpenRouterClassifierProvider(options.settings.aiBaseUrl);
+
+    void repository.getEmailTriageGlobalSettings().then((settings) => {
+      if (!cancelled) {
+        void applyEmailTriageDesktopPrefs(settings, options.browserPreview);
+      }
+    });
 
     const coordinator = new EmailTriageCoordinator({
       repository: buildEmailTriageRepositoryPort(repository),

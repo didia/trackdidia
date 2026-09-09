@@ -2,6 +2,7 @@
 
 mod backup;
 mod db;
+mod email_triage_desktop;
 mod oauth_loopback;
 mod provider_http;
 mod vault;
@@ -81,8 +82,17 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![]),
+        ))
         .manage(db::DbState::default())
         .manage(oauth_loopback::OAuthLoopbackState::default())
+        .manage(email_triage_desktop::EmailTriageDesktopState::default())
+        .setup(|app| {
+            email_triage_desktop::register_close_handler(app.handle());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             resolve_storage_paths,
             rescuetime_http_get,
@@ -105,7 +115,8 @@ fn main() {
             yahoo_imap::yahoo_imap_move_uid,
             yahoo_imap::yahoo_imap_copy_uid,
             yahoo_imap::yahoo_imap_uid_expunge,
-            yahoo_imap::yahoo_imap_fetch_uid_message_id
+            yahoo_imap::yahoo_imap_fetch_uid_message_id,
+            email_triage_desktop::email_triage_set_desktop_prefs
         ])
         .run(tauri::generate_context!())
         .expect("error while running Trackdidia");

@@ -242,6 +242,12 @@ export interface AppRepository {
   saveEmailTriageEvaluation(
     evaluation: import("../../domain/email-triage").EmailTriageEvaluation,
   ): Promise<import("../../domain/email-triage").EmailTriageEvaluation>;
+  getLatestMatchingEmailTriageEvaluation(
+    settings: import("../../domain/email-triage").EmailTriageGlobalSettings,
+  ): Promise<import("../../domain/email-triage").EmailTriageEvaluation | null>;
+  dismissEmailTriageReview(
+    reviewId: string,
+  ): Promise<import("../../domain/email-triage").EmailTriageReview>;
   listEmailTriageAuditEvents(
     accountId?: string,
     limit?: number,
