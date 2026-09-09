@@ -111,6 +111,7 @@ floating Pomodoro timer.
 | `/mois` | Monthly review | Monthly aggregates, linked weeks/goals, ten-part ritual |
 | `/objectifs-annuels` | Annual goals | Targets, data sources, monthly trend/evaluation |
 | `/historique` | Daily history | Create/edit/reopen/close any calendar day |
+| `/journal` | Journal | Read-only timeline of daily, weekly, and monthly notes |
 | `/inbox` | GTD Inbox | Capture and clarify |
 | `/next-actions` | Next Actions | Executable work, context/deadline filters |
 | `/projects` | Projects | Multi-step outcomes and status management |

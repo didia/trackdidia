@@ -96,7 +96,8 @@ When AI is disabled or the API key is empty:
 
 ### Auto-load trigger (Today and evening close)
 
-When AI is configured, Today auto-loads the coach on page open:
+When AI is configured, Today auto-loads the coach on page open
+(journal edits on the page do not retrigger this):
 
 1. if a scheduled pulse for today is already persisted (`open`/`steer`/`wind_down`, never `close`), that thread is shown;
 2. otherwise a fast local brief from snapshot inputs that skip the live RescueTime fetch;
@@ -109,7 +110,7 @@ Evening closure (`/fermeture-soir`) auto-loads the `close` stance on page open:
 
 1. due commitments for today are finalized idempotently, even when AI is off;
 2. if a `status = ok` close pulse for today is already persisted (`scopeKey` `YYYY-MM-DD#close`), that thread is shown immediately;
-3. then `buildPulse` runs cache-first with `skipRescueTimeFetch`, so a live RescueTime blip cannot bust the input hash. `fallback`/`skipped` rows are not reused; the next open retries. If journal fields, metrics, or memories changed, the hash misses and a new model call runs.
+3. then `buildPulse` runs cache-first with `skipRescueTimeFetch`, so a live RescueTime blip cannot bust the input hash. `fallback`/`skipped` rows are not reused; the next open retries. If journal fields, metrics, or memories already changed since that pulse, the hash misses and a new model call runs. Edits made while the page is open do not retrigger auto-load.
 
 **Régénérer** fetches RescueTime and bypasses the `ai_messages` input-hash cache deliberately.
 
@@ -171,8 +172,10 @@ Auto-load and **« Demander au coach »** share that RescueTime-inclusive hash, 
 explicit call does not force a refetch on the next page open.
 Only `ok` results (and `skipped` while AI remains off) are sticky cache hits.
 `fallback`/`error` rows are not reused as auto-load; the next open retries.
-If ritual notes, metrics, GTD, memories, RescueTime overlays, or `asOfDate` changed,
-the hash misses and a new model call runs.
+If ritual notes, metrics, GTD, memories, RescueTime overlays, or `asOfDate` already
+changed since that episode, the hash misses on the next page open and a new model
+call runs. Edits made while the page is open do not retrigger auto-load;
+**Régénérer** is the explicit bypass.
 
 ### Monthly synthesis (`monthly_synthesis`)
 
@@ -197,7 +200,8 @@ month immediately, then cache-first `buildSynthesis`. The input hash includes lo
 `asOfDate` clamped with `clampAiAsOfDate(today, monthEndDate)`, so the next calendar
 day can miss while the month is open and a closed month does not rehash after month
 end. Only `ok` results (and `skipped` while AI remains off) are sticky cache hits.
-**Régénérer** bypasses the hash cache.
+**Régénérer** bypasses the hash cache. Ritual-note edits while the page is open do
+not retrigger auto-load.
 Proposals for unknown `goalId`s are dropped at persist
 time. Accepting a `goal_evaluation` for a missing goal dismisses the proposal and shows
 **Objectif introuvable, suggestion ignoree.**
@@ -218,7 +222,9 @@ The OpenRouter system prompt includes the full S4 schema (`buildGoalPacingSchema
 
 Pacing auto-load hydrates the latest `ok` episode for the selected year, then
 cache-first `buildPacing`. While the year is in progress, the next local day can miss.
-**Régénérer** bypasses the hash cache.
+**Régénérer** bypasses the hash cache. Goal and evaluation edits while the page is
+open do not retrigger auto-load; changing the selected year or evaluation month
+does, because those are a new scope.
 
 Pacing auto-runs only when the year is between 2000 and 2100 and the evaluation month
 matches `YYYY-MM`. Changing the year clears the on-screen pacing panel until the new

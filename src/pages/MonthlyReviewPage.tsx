@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useAppContext } from "../app/app-context";
 import {
   applyMonthlyReviewTransition,
@@ -76,9 +76,14 @@ export const MonthlyReviewPage = () => {
   const { repository, settings } = useAppContext();
   const synthesisService = useMemo(() => new MonthlySynthesisService(new OpenRouterProvider()), []);
   const today = getTodayDate();
-  const initialMonth = isFirstSaturdayOfMonth(today)
-    ? getPreviousMonthKey(today)
-    : getMonthKey(today);
+  const [searchParams] = useSearchParams();
+  const monthFromQuery = searchParams.get("month");
+  const initialMonth =
+    monthFromQuery && /^\d{4}-\d{2}$/.test(monthFromQuery)
+      ? getMonthKey(`${monthFromQuery}-01`)
+      : isFirstSaturdayOfMonth(today)
+        ? getPreviousMonthKey(today)
+        : getMonthKey(today);
   const [selectedMonthKey, setSelectedMonthKey] = useState(initialMonth);
   const [review, setReview] = useState<MonthlyReview | null>(null);
   const [summary, setSummary] = useState<MonthlyReviewSummary | null>(null);

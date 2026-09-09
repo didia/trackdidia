@@ -5,6 +5,8 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-08 | Weekly, monthly, and goal-pacing coaches keep the same mount-or-Régénérer auto-load contract as evening/Today: in-page ritual/evaluation edits do not retrigger | `docs/ai-settings-and-privacy.md` | `WeeklyReviewPage.test.tsx`, `MonthlyReviewPage.test.tsx`, `AnnualGoalsPage.test.tsx` |
+| 2026-09-08 | Evening close (and Today) coach auto-load is mount/date-scoped; in-page daily-entry edits no longer retrigger `buildPulse` | `docs/ai-settings-and-privacy.md`, `docs/daily-routines.md` | `EveningClosurePage`, `TodayPage` |
 | 2026-09-06 | Review: completed Pomodoro segments ignore `now` clamp; weekly auto includes RescueTime after load; `asOfDate` clamped to period end; `getLatestAiMessage` breaks `created_at` ties by `id` | `docs/ai-settings-and-privacy.md` | `buildPomodoroTaskSummaries`, `clampAiAsOfDate`, `WeeklyReviewPage`, `getLatestAiMessage` |
 | 2026-09-06 | Weekly/monthly/pacing auto-load hydrates latest `ok` by scope; weekly auto skips RescueTime and uses a day-stable `asOfDate` hash; Régénérer still bypasses cache | `docs/ai-settings-and-privacy.md` | `getLatestAiMessage`, `WeeklyReviewPage`, `MonthlyReviewPage`, `AnnualGoalsPage`, `stableAiNowIso` |
 | 2026-09-06 | Analytic Goals `restrict_kind` is taken from RescueTime `taxonomy_name` (overview/category/activity/productivity) | `docs/ai-settings-and-privacy.md`, `docs/reviews-and-goals.md` | `resolveAnalyticKind` |

@@ -6,6 +6,7 @@ import {
   applyWeeklyScoreExternalAxes,
   createEmptyWeeklyReview,
   localWeeklyScoreAxes,
+  updateWeeklyReviewNote,
 } from "../domain/weekly-review";
 import { createWeeklyMemoryProposals } from "../lib/ai/memory/weekly-distillation";
 import { loadLatestWeeklySynthesis } from "../lib/ai/weekly-synthesis-loader";
@@ -128,6 +129,24 @@ describe("WeeklyReviewPage", () => {
         }),
       });
     });
+  });
+
+  it("opens the week from the query string even when it is not this week", async () => {
+    vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-04-12");
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    let review = createEmptyWeeklyReview("2026-03-29");
+    review = updateWeeklyReviewNote(review, "bilan", "Note via lien");
+    await repository.saveWeeklyReview(review);
+
+    await renderWithApp(<WeeklyReviewPage />, {
+      repository,
+      route: "/semaine?date=2026-03-31",
+    });
+
+    expect(await screen.findByLabelText(/début de semaine/i)).toHaveValue("2026-03-29");
+    expect(await screen.findByDisplayValue("Note via lien")).toBeInTheDocument();
   });
 
   it("keeps the latest ritual notes after leaving the page even if an earlier save is still in flight", async () => {
@@ -1116,5 +1135,48 @@ describe("WeeklyReviewPage coach cache", () => {
         }),
       );
     });
+  });
+
+  it("does not reload weekly synthesis when ritual notes are saved", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    for (let index = 0; index < 7; index += 1) {
+      await repository.saveDailyEntry(createEmptyDailyEntry(addDays(weekStartDate, index)));
+    }
+
+    const stored = storedOk();
+    vi.mocked(loadLatestWeeklySynthesis).mockResolvedValue(stored);
+    const buildSpy = vi
+      .spyOn(WeeklySynthesisService.prototype, "buildSynthesis")
+      .mockResolvedValue(stored);
+
+    const user = userEvent.setup();
+    await renderWithApp(<WeeklyReviewPage />, {
+      repository,
+      route: "/semaine",
+      contextOverrides: { settings: enabledAiSettings() },
+    });
+
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
+    await user.clear(dateInput);
+    await user.type(dateInput, weekStartDate);
+    await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
+    expect(await screen.findByText("Coach cache")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(buildSpy).toHaveBeenCalled();
+    });
+    expect(await screen.findByRole("button", { name: /régénérer/i })).toBeEnabled();
+    buildSpy.mockClear();
+
+    const bilanField = screen.getByLabelText(/notes bilan/i);
+    await user.type(bilanField, "Semaine solide.");
+    await waitFor(async () => {
+      await expect(repository.getWeeklyReview(weekStartDate)).resolves.toMatchObject({
+        notes: expect.objectContaining({
+          bilan: "Semaine solide.",
+        }),
+      });
+    });
+    expect(buildSpy).not.toHaveBeenCalled();
   });
 });

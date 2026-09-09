@@ -3,9 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, vi } from "vitest";
 import { createEmptyAnnualGoal } from "../domain/annual-goals";
 import { createEmptyDailyEntry, defaultAppSettings } from "../domain/daily-entry";
+import { createEmptyMonthlyReview, updateMonthlyReviewNote } from "../domain/monthly-review";
 import { loadLatestMonthlySynthesis } from "../lib/ai/monthly-synthesis-loader";
 import { MonthlySynthesisService } from "../lib/ai/monthly-synthesis-service";
 import type { AiProvider } from "../lib/ai/provider";
+import * as dateModule from "../lib/date";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { renderWithApp } from "../test/test-utils";
 import { MonthlyReviewPage } from "./MonthlyReviewPage";
@@ -70,6 +72,24 @@ describe("MonthlyReviewPage", () => {
         }),
       });
     });
+  });
+
+  it("opens the month from the query string", async () => {
+    vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-09-08");
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    let review = createEmptyMonthlyReview("2026-04");
+    review = updateMonthlyReviewNote(review, "bilan", "Note mensuelle via lien");
+    await repository.saveMonthlyReview(review);
+
+    await renderWithApp(<MonthlyReviewPage />, {
+      repository,
+      route: "/mois?month=2026-04",
+    });
+
+    expect(await screen.findByLabelText(/mois à relire/i)).toHaveValue("2026-04");
+    expect(await screen.findByDisplayValue("Note mensuelle via lien")).toBeInTheDocument();
   });
 
   it("accepts a goal evaluation proposal from the monthly coach", async () => {
@@ -464,6 +484,85 @@ describe("MonthlyReviewPage", () => {
     });
     release();
     expect(await screen.findByText("Frais")).toBeInTheDocument();
+  });
+
+  it("does not reload monthly synthesis when ritual notes are saved", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    for (const date of ["2026-04-01", "2026-04-02"]) {
+      await repository.saveDailyEntry(createEmptyDailyEntry(date));
+    }
+
+    const stored = {
+      message: {
+        id: "ai-message-monthly-ok",
+        surface: "monthly_synthesis" as const,
+        scopeKey: "2026-04",
+        stance: null,
+        kind: "monthly",
+        inputHash: "hash-ok",
+        promptVersion: "monthly_synthesis.v1",
+        model: "test-model",
+        status: "ok" as const,
+        bodyJson: JSON.stringify({
+          headline: "Coach cache mois",
+          weekPattern: "Stable",
+          sectionDrafts: {},
+          goalEvaluationDrafts: [],
+        }),
+        bodyText: "Coach cache mois",
+        deltaClass: null,
+        notified: false,
+        tokensPrompt: 1,
+        tokensCompletion: 2,
+        latencyMs: 3,
+        createdAt: "2026-04-30T12:00:00.000Z",
+      },
+      synthesis: {
+        headline: "Coach cache mois",
+        weekPattern: "Stable",
+        sectionDrafts: {},
+        goalEvaluationDrafts: [],
+      },
+      proposals: [],
+      source: "cache" as const,
+    };
+    await repository.saveAiMessage(stored.message);
+    const buildSpy = vi
+      .spyOn(MonthlySynthesisService.prototype, "buildSynthesis")
+      .mockResolvedValue(stored);
+
+    const user = userEvent.setup();
+    await renderWithApp(<MonthlyReviewPage />, {
+      repository,
+      route: "/mois",
+      contextOverrides: {
+        settings: { ...defaultAppSettings(), aiEnabled: true, aiApiKey: "secret" },
+      },
+    });
+
+    const monthInput = await screen.findByLabelText(/mois à relire/i);
+    await user.clear(monthInput);
+    await user.type(monthInput, "2026-04");
+    await user.click(screen.getByRole("button", { name: /charger le mois/i }));
+
+    expect(await screen.findByText("Coach cache mois")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(buildSpy).toHaveBeenCalled();
+    });
+    expect(await screen.findByRole("button", { name: /régénérer/i })).toBeEnabled();
+    buildSpy.mockClear();
+
+    const notesField = screen.getByLabelText(/notes bilan/i);
+    await user.type(notesField, "Mois intense.");
+    await waitFor(async () => {
+      await expect(repository.getMonthlyReview("2026-04")).resolves.toMatchObject({
+        notes: expect.objectContaining({
+          bilan: "Mois intense.",
+        }),
+      });
+    });
+    expect(buildSpy).not.toHaveBeenCalled();
   });
 
   it("renders a distinct metrics summary for each of the four goal measurement types", async () => {

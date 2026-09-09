@@ -8,6 +8,7 @@ import goals from "../locales/fr/goals.json";
 import gtd from "../locales/fr/gtd.json";
 import history from "../locales/fr/history.json";
 import insights from "../locales/fr/insights.json";
+import journal from "../locales/fr/journal.json";
 import metrics from "../locales/fr/metrics.json";
 import morning from "../locales/fr/morning.json";
 import nav from "../locales/fr/nav.json";
@@ -32,6 +33,7 @@ export const resources = {
     morning,
     evening,
     history,
+    journal,
     gtd,
     pomodoro,
     recurrences,

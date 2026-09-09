@@ -5,6 +5,9 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-08 | Evening close coach auto-loads on page open (hash-check) only; in-page metric/principle/journal edits no longer retrigger a pulse | `docs/daily-routines.md`, `docs/ai-settings-and-privacy.md` | `EveningClosurePage` |
+| 2026-09-08 | Journal range listing stays read-only (no per-row decoration), keeps filters mounted after first load, and prompts when a custom range is incomplete | `docs/daily-routines.md` | `listDailyEntriesInRange`, `JournalPage` |
+| 2026-09-08 | Added `/journal` to consult daily, weekly, and monthly notes in one filtered timeline; History accepts `?date=` | `docs/daily-routines.md` | `JournalPage`, `journal-feed.ts`, `HistoryPage` |
 | 2026-09-04 | Morning routine captures today's sleep quality and pushups; both remain editable on evening closure | `docs/daily-routines.md` | `morningMetricKeys`, `MorningRoutinePage` |
 | 2026-09-02 | Daily journal saves serialize through `useDailyEntry`; Pomodoro manual refresh shows loading and failure; inactive assigned projects are labeled in selectors | `docs/daily-routines.md`, `docs/conventions.md`, `docs/recurrences-and-pomodoro.md`, `docs/gtd.md` | `useDailyEntry`, `usePomodoroController`, `projectAssignmentLabel` |
 | 2026-08-31 | Morning anchors list trimmed to six principles in ritual order | `docs/daily-routines.md` | `morningPrincipleKeys`, `PrincipleChecklist` |

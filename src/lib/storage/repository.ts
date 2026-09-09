@@ -69,9 +69,11 @@ export interface AppRepository {
   saveDailyEntry(entry: DailyEntry): Promise<void>;
   listDailyEntries(limit?: number): Promise<DailyEntry[]>;
   listDailyEntriesOnOrBefore(endDate: string, limit?: number): Promise<DailyEntry[]>;
+  listDailyEntriesInRange(startDate: string, endDate: string): Promise<DailyEntry[]>;
   getWeeklyReview(weekStartDate: string): Promise<WeeklyReview | null>;
   saveWeeklyReview(review: WeeklyReview): Promise<void>;
   listWeeklyReviews(limit?: number): Promise<WeeklyReview[]>;
+  listWeeklyReviewsOverlapping(startDate: string, endDate: string): Promise<WeeklyReview[]>;
   computeWeeklyReviewSummary(weekStartDate: string): Promise<WeeklyReviewSummary>;
   listWeeklyObjectives(): Promise<WeeklyObjective[]>;
   saveWeeklyObjective(objective: WeeklyObjective): Promise<WeeklyObjective>;
@@ -81,6 +83,7 @@ export interface AppRepository {
   getMonthlyReview(monthKey: string): Promise<MonthlyReview | null>;
   saveMonthlyReview(review: MonthlyReview): Promise<void>;
   listMonthlyReviews(limit?: number): Promise<MonthlyReview[]>;
+  listMonthlyReviewsOverlapping(startDate: string, endDate: string): Promise<MonthlyReview[]>;
   computeMonthlyReviewSummary(monthKey: string): Promise<MonthlyReviewSummary>;
   listAnnualGoals(): Promise<AnnualGoal[]>;
   saveAnnualGoal(goal: AnnualGoal): Promise<AnnualGoal>;
