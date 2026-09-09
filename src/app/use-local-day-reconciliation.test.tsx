@@ -74,6 +74,7 @@ const MountedGtdView = ({ repository }: { repository: MemoryRepository }) => {
       pomodoro: idlePomodoro,
       pulseRevision: 0,
       calendarDay,
+      reconfigureEmailTriage: async () => undefined,
     }),
     [calendarDay, repository],
   );

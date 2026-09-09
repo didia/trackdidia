@@ -5,6 +5,8 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-09 | Email triage review rows store subject/sender/received-at/source URL only; message bodies remain transient | `docs/storage-and-backups.md`, `docs/email-triage.md` | `email_triage_reviews.sanitized_preview_json`, `sync-engine.ts` |
+| 2026-09-08 | Migration 29 adds email triage tables and `gtd_tasks.source_url`; OS vault commands are available for a later settings UI | `docs/storage-and-backups.md`, `docs/email-triage.md` | Migration `add_email_triage_foundation`, `src-tauri/src/vault.rs` |
 | 2026-09-08 | `listDailyEntriesInRange` returns persisted rows without GTD/Pomodoro decoration so the Journal timeline stays a note-only read | `docs/storage-and-backups.md` | `MemoryRepository`, `TauriSqliteRepository` |
 | 2026-09-08 | Repository range helpers for the Journal timeline: `listDailyEntriesInRange`, `listWeeklyReviewsOverlapping`, `listMonthlyReviewsOverlapping` | `docs/storage-and-backups.md` | `AppRepository`, `MemoryRepository`, `TauriSqliteRepository` |
 | 2026-09-08 | Migration 28 adds ten nullable/defaulted columns to `annual_goals` for measurement type, status, deadline, numeric baseline/direction, recurring cadence/principle, and JSON progress log/milestones; all existing rows backfill to `measurement_type = 'numeric'` | `docs/storage-and-backups.md`, `docs/reviews-and-goals.md` | Migration `add_annual_goal_measurement_fields`, `src/lib/storage/tauri-sqlite-repository.ts` |

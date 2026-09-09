@@ -117,6 +117,7 @@ floating Pomodoro timer.
 | `/projects` | Projects | Multi-step outcomes and status management |
 | `/pomodoro` | Pomodoro | Focus/break timer, task switching, daily history |
 | `/recurrences` | Recurrences | Create, filter, pause/resume/cancel recurring series |
+| `/email-triage` | Email triage | Account cards, review queue, disabled-by-default settings |
 | `/references` | References | Non-actionable material |
 | `/scheduled` | Scheduled | Day/week planning, deadlines, recurrence previews |
 | `/waiting-for` | Waiting For | Work awaiting external action |
@@ -144,10 +145,14 @@ screen.
    earlier to Next Actions.
 9. Generate enabled relationship activity tasks for the current local date.
 10. Expose the repository and settings to the UI.
+11. After a successful bootstrap (not browser preview and not the startup
+    fallback), start the email triage coordinator. It still no-ops while the
+    feature flag is off, and it probes the OS vault only after that flag is on.
 
 The startup operation has an eight-second timeout. An exception or timeout activates
 a new `MemoryRepository`, shows a warning banner, and keeps the UI usable. Data
-entered in that fallback is lost when the application reloads.
+entered in that fallback is lost when the application reloads. The email triage
+coordinator does not start in that fallback path.
 
 After bootstrap, `AppProvider` keeps `calendarDay` (the current local `YYYY-MM-DD`)
 in context. A timeout until the next local midnight, plus window `focus` and
@@ -159,7 +164,7 @@ and Pomodoro consumers reload without navigation.
 
 `AppRepository` is the persistence contract. It covers daily entries, reviews,
 annual goals, settings/backups, GTD entities, recurrence templates, task-derived
-statistics, and Pomodoro sessions.
+statistics, Pomodoro sessions, and the email triage foundation tables.
 
 The two implementations intentionally share pure functions:
 
@@ -235,3 +240,4 @@ default core access, notifications, and dialogs.
 - [GTD](gtd.md)
 - [Recurrences and Pomodoro](recurrences-and-pomodoro.md)
 - [AI, settings, and privacy](ai-settings-and-privacy.md)
+- [Email triage](email-triage.md)

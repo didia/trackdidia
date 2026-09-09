@@ -26,6 +26,7 @@ Quick reference:
 | GTD buckets, task events, import, projects, contexts | [docs/gtd.md](docs/gtd.md) |
 | Recurring tasks and Pomodoro behavior | [docs/recurrences-and-pomodoro.md](docs/recurrences-and-pomodoro.md) |
 | AI coach, settings, relationship draws, debug mode | [docs/ai-settings-and-privacy.md](docs/ai-settings-and-privacy.md) |
+| Email triage foundation (disabled by default) | [docs/email-triage.md](docs/email-triage.md) |
 | Code conventions and test workflow | [docs/conventions.md](docs/conventions.md) |
 | Desktop development, builds, and release data safety | [docs/desktop-builds.md](docs/desktop-builds.md) |
 

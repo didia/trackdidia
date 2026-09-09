@@ -51,6 +51,7 @@ const wrapRepository = (repository: MemoryRepository) => {
     },
     pulseRevision: 0,
     calendarDay: getTodayDate(),
+    reconfigureEmailTriage: async () => undefined,
   };
 
   return ({ children }: PropsWithChildren) => (

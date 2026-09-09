@@ -2,6 +2,7 @@
 
 mod backup;
 mod db;
+mod vault;
 
 use serde::Serialize;
 use std::fs;
@@ -84,7 +85,11 @@ fn main() {
             backup::prune_backups,
             db::db_connect,
             db::db_execute,
-            db::db_select
+            db::db_select,
+            vault::vault_check_availability,
+            vault::vault_store_secret,
+            vault::vault_load_secret,
+            vault::vault_delete_secret
         ])
         .run(tauri::generate_context!())
         .expect("error while running Trackdidia");

@@ -104,7 +104,8 @@ Important distinctions:
   and Next Actions / Waiting For / Someday context filters. An explicit task
   context always wins and is not overwritten.
 - `projectId` is optional.
-- `source` distinguishes manual and Google-imported records.
+- `source` distinguishes manual, Google-imported, and email-triage records.
+- Email-triage tasks use `sourceExternalId` `email-triage:<accountId>:<conversationKey>` and optional `sourceUrl`.
 - imported recurrence fields and local recurrence-template fields coexist but
   represent different mechanisms.
 
