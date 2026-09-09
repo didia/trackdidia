@@ -13,7 +13,9 @@ export interface EmailTriageCoordinatorDeps {
     getGlobalSettings(): Promise<EmailTriageGlobalSettings>;
     recoverStaleEffects(): Promise<number>;
   };
-  createAdapter(account: EmailTriageAccount): EmailTriageProviderAdapter | null;
+  createAdapter(
+    account: EmailTriageAccount,
+  ): EmailTriageProviderAdapter | null | Promise<EmailTriageProviderAdapter | null>;
   classifierProvider: EmailTriageClassifierProvider;
   browserPreview?: boolean;
 }
@@ -63,6 +65,21 @@ export class EmailTriageCoordinator {
     await this.start();
   }
 
+  isRunning(): boolean {
+    return this.running;
+  }
+
+  async syncNow(accountId: string): Promise<{ ok: boolean; reason?: string }> {
+    if (this.browserPreview) {
+      return { ok: false, reason: "browser_preview" };
+    }
+    if (!this.running) {
+      return { ok: false, reason: "coordinator_not_running" };
+    }
+    await this.runAccountSync(accountId);
+    return { ok: true };
+  }
+
   scheduleAccount(account: EmailTriageAccount, settings: EmailTriageGlobalSettings): void {
     if (!this.running) {
       return;
@@ -97,7 +114,7 @@ export class EmailTriageCoordinator {
       if (!account || !account.enabled || account.paused) {
         return;
       }
-      const adapter = this.deps.createAdapter(account);
+      const adapter = await Promise.resolve(this.deps.createAdapter(account));
       if (!adapter) {
         return;
       }

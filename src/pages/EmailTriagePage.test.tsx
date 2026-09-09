@@ -12,6 +12,55 @@ describe("EmailTriagePage", () => {
     expect((await screen.findAllByText(/prévisualisation navigateur/i)).length).toBeGreaterThan(0);
   });
 
+  it("disables Connect Gmail in browser preview", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveEmailTriageGlobalSettings({
+      ...(await repository.getEmailTriageGlobalSettings()),
+      enabled: true,
+      gmailOAuthClientId: "client-id",
+      updatedAt: nowIso(),
+    });
+    await renderWithApp(<EmailTriagePage />);
+    expect(await screen.findByRole("button", { name: /Connecter Gmail/i })).toBeDisabled();
+  });
+
+  it("shows sync and disconnect controls for gmail accounts outside preview", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const timestamp = nowIso();
+    await repository.saveEmailTriageAccount({
+      id: createEntityId("email-account"),
+      provider: "gmail",
+      providerAccountId: "me@example.com",
+      label: "Gmail",
+      maskedAddress: "m***@example.com",
+      generation: 1,
+      enabled: true,
+      mutationEnabled: false,
+      paused: false,
+      state: "active",
+      recoveryState: "none",
+      lastSuccessAt: null,
+      lastError: null,
+      pollIntervalMinutes: 5,
+      syncState: {},
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    await repository.saveEmailTriageGlobalSettings({
+      ...(await repository.getEmailTriageGlobalSettings()),
+      enabled: true,
+      updatedAt: timestamp,
+    });
+    await renderWithApp(<EmailTriagePage />, {
+      repository,
+      contextOverrides: { browserPreview: false },
+    });
+    expect(await screen.findByRole("button", { name: /Synchroniser/i })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Déconnecter/i })).toBeInTheDocument();
+  });
+
   it("keeps ignore review pending when no ignore reason is selected", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
