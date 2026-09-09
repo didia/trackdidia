@@ -344,7 +344,6 @@ describe("TodayPage", () => {
   it("does not reload the coach pulse when journal fields are saved", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
-    const today = getTodayDate();
     const proposal: AiProposal = {
       id: "ai-proposal:intention",
       messageId: "ai-message:test",
@@ -377,6 +376,7 @@ describe("TodayPage", () => {
     expect(await screen.findByText("Coach")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /régénérer/i })).toBeEnabled();
     vi.mocked(coachService.buildPulse).mockClear();
+    vi.mocked(coachService.resultFromMessage).mockClear();
     saveDailyEntry.mockClear();
 
     const field = screen.getByRole("textbox", { name: /réflexion/i });
@@ -387,6 +387,7 @@ describe("TodayPage", () => {
       expect(saveDailyEntry).toHaveBeenCalled();
     });
     expect(coachService.buildPulse).not.toHaveBeenCalled();
+    expect(coachService.resultFromMessage).not.toHaveBeenCalled();
   });
 
   it("reloads the coach pulse when regenerate is clicked after journal edits", async () => {
@@ -424,6 +425,7 @@ describe("TodayPage", () => {
     expect(await screen.findByText("Coach")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /régénérer/i })).toBeEnabled();
     vi.mocked(coachService.buildPulse).mockClear();
+    vi.mocked(coachService.resultFromMessage).mockClear();
 
     const field = screen.getByRole("textbox", { name: /réflexion/i });
     await user.type(field, "Reflexion du jour");
@@ -431,6 +433,7 @@ describe("TodayPage", () => {
     await waitFor(() => {
       expect(saveDailyEntry).toHaveBeenCalled();
     });
+    expect(coachService.resultFromMessage).not.toHaveBeenCalled();
     expect(await screen.findByRole("button", { name: /régénérer/i })).toBeEnabled();
 
     await user.click(screen.getByRole("button", { name: /régénérer/i }));
