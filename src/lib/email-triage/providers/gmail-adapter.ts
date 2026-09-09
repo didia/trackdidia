@@ -1,14 +1,11 @@
 import type { EmailTriageTransientMessage } from "../../../domain/email-triage";
+import { EMAIL_TRIAGE_GMAIL_IGNORE_LABEL, EMAIL_TRIAGE_GMAIL_INBOX_LABEL } from "../constants";
 import {
-  EMAIL_TRIAGE_GMAIL_IGNORE_LABEL,
-  EMAIL_TRIAGE_GMAIL_INBOX_LABEL,
-} from "../constants";
-import {
-  GmailApiClient,
+  type GmailHistoryRecord,
+  type GmailApiClient,
   gmailMessageToTransient,
   historyEntryHasOnlyLabelChanges,
   isHistoryExpiredError,
-  type GmailHistoryRecord,
 } from "./gmail-api";
 import type { EmailTriageProviderAdapter, ProviderMarkerRequest, ProviderSyncPage } from "./types";
 
@@ -23,6 +20,7 @@ export interface GmailSyncState {
   trackedMessageIds: string[];
   lastConfirmedMessageId: string | null;
   lastConfirmedInternalDate: string | null;
+  recoveryMaxInternalDate: string | null;
 }
 
 const readSyncState = (syncState: Record<string, unknown>): GmailSyncState => ({
@@ -36,6 +34,7 @@ const readSyncState = (syncState: Record<string, unknown>): GmailSyncState => ({
   trackedMessageIds: (syncState.trackedMessageIds as string[]) ?? [],
   lastConfirmedMessageId: (syncState.lastConfirmedMessageId as string | null) ?? null,
   lastConfirmedInternalDate: (syncState.lastConfirmedInternalDate as string | null) ?? null,
+  recoveryMaxInternalDate: (syncState.recoveryMaxInternalDate as string | null) ?? null,
 });
 
 const toCursorUpdate = (state: GmailSyncState): Record<string, unknown> => ({ ...state });
@@ -84,7 +83,11 @@ export class GmailAdapter implements EmailTriageProviderAdapter {
       return this.beginExpiredHistoryRecovery(state);
     }
 
-    const page = await this.processHistoryPage(state, historyResponse.history ?? [], historyResponse);
+    const page = await this.processHistoryPage(
+      state,
+      historyResponse.history ?? [],
+      historyResponse,
+    );
 
     if (
       state.recoveryPhase === "replaying" &&
@@ -111,9 +114,10 @@ export class GmailAdapter implements EmailTriageProviderAdapter {
       return {
         messages: [],
         cursorUpdate: {
+          baselineHistoryId: profile.historyId,
+          cursorHistoryId: profile.historyId,
           recoveryStartHistoryId: profile.historyId,
           recoveryPhase: "none",
-          gapDetected: true,
         },
         hasMore: false,
         gapDetected: true,
@@ -141,7 +145,11 @@ export class GmailAdapter implements EmailTriageProviderAdapter {
     });
     const messages: EmailTriageTransientMessage[] = [];
     const tracked = new Set(state.trackedMessageIds);
-    let maxInternalDate = watermark;
+    let maxInternalDate = Math.max(
+      watermark,
+      Number(state.recoveryMaxInternalDate ?? state.lastConfirmedInternalDate),
+    );
+    let maxMessageId = state.lastConfirmedMessageId;
 
     for (const item of listResponse.messages ?? []) {
       const message = await this.api.getMessage(item.id);
@@ -157,21 +165,24 @@ export class GmailAdapter implements EmailTriageProviderAdapter {
       }
       messages.push(gmailMessageToTransient(message, this.email));
       tracked.add(message.id);
-      maxInternalDate = Math.max(maxInternalDate, internalDate);
+      if (internalDate >= maxInternalDate) {
+        maxInternalDate = internalDate;
+        maxMessageId = message.id;
+      }
     }
 
     const nextPageToken = listResponse.nextPageToken ?? null;
     const scanComplete = !nextPageToken;
-    const lastMessage = messages.at(-1);
 
     return {
       messages,
       cursorUpdate: toCursorUpdate({
         ...state,
         trackedMessageIds: [...tracked],
-        lastConfirmedMessageId: lastMessage?.providerMessageId ?? state.lastConfirmedMessageId,
-        lastConfirmedInternalDate: lastMessage
-          ? String(new Date(lastMessage.receivedAt).getTime())
+        recoveryMaxInternalDate: scanComplete ? null : String(maxInternalDate),
+        lastConfirmedMessageId: scanComplete ? maxMessageId : state.lastConfirmedMessageId,
+        lastConfirmedInternalDate: scanComplete
+          ? String(maxInternalDate)
           : state.lastConfirmedInternalDate,
         recoveryScanPageToken: nextPageToken,
         recoveryScanComplete: scanComplete,
@@ -255,7 +266,7 @@ export class GmailAdapter implements EmailTriageProviderAdapter {
       request.decision === "ignore" ? await this.ensureLabel(reasonLabelName) : null;
 
     for (const messageId of request.messageIds) {
-      const message = await this.api.getMessage(messageId);
+      const message = await this.api.getMessage(messageId, { format: "minimal" });
       const currentLabels = message.labelIds ?? [];
       const obsoleteTrackDidia = currentLabels.filter((labelId) => {
         const labelName = this.labelNameForId(labelId);

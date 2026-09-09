@@ -206,4 +206,108 @@ describe("EmailTriageCoordinator", () => {
     await coordinator.runAccountSync("acct-1");
     expect(seenStates).toEqual([{}, { page: 1 }]);
   });
+
+  it("marks reconnect_required without retrying on invalid grant", async () => {
+    vi.useFakeTimers();
+    const account = {
+      id: "acct-1",
+      provider: "gmail" as const,
+      providerAccountId: "user-1",
+      label: "Test",
+      maskedAddress: "t***@example.com",
+      generation: 1,
+      enabled: true,
+      mutationEnabled: false,
+      paused: false,
+      state: "active" as const,
+      recoveryState: "none" as const,
+      lastSuccessAt: null,
+      lastError: null,
+      pollIntervalMinutes: 5,
+      syncState: {} as Record<string, unknown>,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    let fetchAttempts = 0;
+    const coordinator = new EmailTriageCoordinator({
+      repository: {
+        ...unusedPort,
+        getGlobalSettings: async () => ({
+          ...defaultEmailTriageGlobalSettings(),
+          enabled: true,
+        }),
+        getAccount: async () => account,
+        updateAccountSyncState: async (_accountId, syncState, patch) => {
+          Object.assign(account, patch ?? {});
+          account.syncState = { ...syncState };
+          return { ...account };
+        },
+        listAccounts: async () => [account],
+        recoverStaleEffects: async () => 0,
+      },
+      createAdapter: () => ({
+        provider: "gmail",
+        fetchPage: async () => {
+          fetchAttempts += 1;
+          throw new Error("reconnect_required");
+        },
+      }),
+      classifierProvider: { completeStructured: async () => "" },
+      browserPreview: false,
+    });
+    await coordinator.start();
+    const result = await coordinator.runAccountSync("acct-1");
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(result).toEqual({ ok: false, reason: "reconnect_required" });
+    expect(fetchAttempts).toBe(1);
+    expect(account.state).toBe("reconnect_required");
+    expect(account.lastError).toBe("reconnect_required");
+    vi.useRealTimers();
+  });
+
+  it("marks reconnect_required when gmail adapter creation fails", async () => {
+    const account = {
+      id: "acct-1",
+      provider: "gmail" as const,
+      providerAccountId: "user-1",
+      label: "Test",
+      maskedAddress: "t***@example.com",
+      generation: 1,
+      enabled: true,
+      mutationEnabled: false,
+      paused: false,
+      state: "active" as const,
+      recoveryState: "none" as const,
+      lastSuccessAt: null,
+      lastError: null,
+      pollIntervalMinutes: 5,
+      syncState: {} as Record<string, unknown>,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const coordinator = new EmailTriageCoordinator({
+      repository: {
+        ...unusedPort,
+        getGlobalSettings: async () => ({
+          ...defaultEmailTriageGlobalSettings(),
+          enabled: true,
+        }),
+        getAccount: async () => account,
+        updateAccountSyncState: async (_accountId, syncState, patch) => {
+          Object.assign(account, patch ?? {});
+          account.syncState = { ...syncState };
+          return { ...account };
+        },
+        listAccounts: async () => [account],
+        recoverStaleEffects: async () => 0,
+      },
+      createAdapter: () => null,
+      classifierProvider: { completeStructured: async () => "" },
+      browserPreview: false,
+    });
+    await coordinator.start();
+    const result = await coordinator.runAccountSync("acct-1");
+    expect(result).toEqual({ ok: false, reason: "reconnect_required" });
+    expect(account.state).toBe("reconnect_required");
+  });
 });

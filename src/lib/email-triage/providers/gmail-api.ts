@@ -23,6 +23,12 @@ export interface GmailHistoryListResponse {
   error?: { code?: number; message?: string; status?: string };
 }
 
+export interface GmailMessagePart {
+  mimeType?: string;
+  body?: { data?: string };
+  parts?: GmailMessagePart[];
+}
+
 export interface GmailMessagePayload {
   id: string;
   threadId: string;
@@ -30,8 +36,9 @@ export interface GmailMessagePayload {
   labelIds?: string[];
   payload?: {
     headers?: Array<{ name: string; value: string }>;
+    mimeType?: string;
     body?: { data?: string };
-    parts?: Array<{ mimeType?: string; body?: { data?: string } }>;
+    parts?: GmailMessagePart[];
   };
 }
 
@@ -50,26 +57,44 @@ const decodeBody = (data: string | undefined): string => {
     return "";
   }
   try {
-    return atob(data.replace(/-/g, "+").replace(/_/g, "/"));
+    const binary = atob(data.replace(/-/g, "+").replace(/_/g, "/"));
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return new TextDecoder("utf-8").decode(bytes);
   } catch {
     return "";
   }
 };
 
-const extractBodyText = (message: GmailMessagePayload): string => {
-  const direct = decodeBody(message.payload?.body?.data);
-  if (direct) {
-    return direct;
+const findPartText = (part: GmailMessagePart, mimeType: string): string => {
+  if (part.mimeType === mimeType) {
+    const text = decodeBody(part.body?.data);
+    if (text) {
+      return text;
+    }
   }
-  for (const part of message.payload?.parts ?? []) {
-    if (part.mimeType === "text/plain") {
-      const text = decodeBody(part.body?.data);
-      if (text) {
-        return text;
-      }
+  for (const child of part.parts ?? []) {
+    const found = findPartText(child, mimeType);
+    if (found) {
+      return found;
     }
   }
   return "";
+};
+
+const extractBodyText = (message: GmailMessagePayload): string => {
+  const payload = message.payload;
+  if (!payload) {
+    return "";
+  }
+  const direct = decodeBody(payload.body?.data);
+  if (direct) {
+    return direct;
+  }
+  const plain = findPartText(payload, "text/plain");
+  if (plain) {
+    return plain;
+  }
+  return findPartText(payload, "text/html");
 };
 
 const headerValue = (
@@ -111,7 +136,10 @@ export const gmailMessageToTransient = (
     subject: headerValue(headers, "Subject") ?? "",
     sender: headerValue(headers, "From") ?? "",
     recipients: (headerValue(headers, "To") ?? "").split(",").map((value) => value.trim()),
-    receivedAt: new Date(Number(message.internalDate)).toISOString(),
+    receivedAt:
+      message.internalDate && Number.isFinite(Number(message.internalDate))
+        ? new Date(Number(message.internalDate)).toISOString()
+        : new Date(0).toISOString(),
     bodyText: extractBodyText(message),
     sourceUrl: buildGmailSourceUrl(email, message.threadId, messageIdHeader),
     inInbox: (message.labelIds ?? []).includes("INBOX"),
@@ -181,9 +209,12 @@ export class GmailApiClient {
     return parseJsonBody<GmailHistoryListResponse>(response);
   }
 
-  async getMessage(messageId: string): Promise<GmailMessagePayload> {
+  async getMessage(
+    messageId: string,
+    options: { format?: "full" | "minimal" } = {},
+  ): Promise<GmailMessagePayload> {
     const response = await this.authorizedRequest("GET", `/users/me/messages/${messageId}`, {
-      query: { format: "full" },
+      query: { format: options.format ?? "full" },
     });
     assertHttpSuccess(response, "gmail_message");
     return parseJsonBody<GmailMessagePayload>(response);
@@ -228,9 +259,13 @@ export class GmailApiClient {
     addLabelIds: string[],
     removeLabelIds: string[],
   ): Promise<void> {
-    const response = await this.authorizedRequest("POST", `/users/me/messages/${messageId}/modify`, {
-      body: { addLabelIds, removeLabelIds },
-    });
+    const response = await this.authorizedRequest(
+      "POST",
+      `/users/me/messages/${messageId}/modify`,
+      {
+        body: { addLabelIds, removeLabelIds },
+      },
+    );
     assertHttpSuccess(response, "gmail_modify");
   }
 }

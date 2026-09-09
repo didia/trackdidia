@@ -1,6 +1,7 @@
 use serde::Serialize;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -26,6 +27,8 @@ pub struct OAuthLoopbackCallback {
 
 struct LoopbackSession {
     callback: Option<OAuthLoopbackCallback>,
+    generation: u64,
+    cancelled: Arc<AtomicBool>,
 }
 
 #[derive(Clone, Default)]
@@ -103,6 +106,24 @@ pub fn oauth_loopback_start(
         return Err("expected_state required".to_string());
     }
 
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let generation = {
+        let mut session = state
+            .session
+            .lock()
+            .map_err(|_| "Loopback state lock poisoned".to_string())?;
+        if let Some(active) = session.as_ref() {
+            active.cancelled.store(true, Ordering::SeqCst);
+        }
+        let next_generation = session.as_ref().map(|active| active.generation + 1).unwrap_or(1);
+        *session = Some(LoopbackSession {
+            callback: None,
+            generation: next_generation,
+            cancelled: cancelled.clone(),
+        });
+        next_generation
+    };
+
     let listener = TcpListener::bind("127.0.0.1:0")
         .map_err(|error| format!("Loopback bind failed: {error}"))?;
     listener
@@ -119,12 +140,20 @@ pub fn oauth_loopback_start(
     thread::spawn(move || {
         let deadline = Instant::now() + Duration::from_secs(LOOPBACK_TIMEOUT_SECS);
         while Instant::now() < deadline {
+            if cancelled.load(Ordering::SeqCst) {
+                return;
+            }
             match listener.accept() {
                 Ok((stream, _)) => {
                     let callback = handle_connection(stream, expected.clone());
+                    if cancelled.load(Ordering::SeqCst) {
+                        return;
+                    }
                     if let Ok(mut session) = state_handle.session.lock() {
                         if let Some(active) = session.as_mut() {
-                            active.callback = Some(callback);
+                            if active.generation == generation {
+                                active.callback = Some(callback);
+                            }
                         }
                     }
                     break;
@@ -136,14 +165,6 @@ pub fn oauth_loopback_start(
             }
         }
     });
-
-    {
-        let mut session = state
-            .session
-            .lock()
-            .map_err(|_| "Loopback state lock poisoned".to_string())?;
-        *session = Some(LoopbackSession { callback: None });
-    }
 
     Ok(OAuthLoopbackStartResult { port, redirect_uri })
 }

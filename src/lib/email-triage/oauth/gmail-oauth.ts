@@ -16,9 +16,8 @@ export interface GmailProviderCredentials {
   scope: string;
 }
 
-export const serializeProviderCredentials = (
-  credentials: GmailProviderCredentials,
-): string => JSON.stringify(credentials);
+export const serializeProviderCredentials = (credentials: GmailProviderCredentials): string =>
+  JSON.stringify(credentials);
 
 export const parseProviderCredentials = (raw: string | null): GmailProviderCredentials | null => {
   if (!raw) {

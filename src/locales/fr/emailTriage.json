@@ -55,11 +55,17 @@
     "oauth_state_mismatch": "État OAuth invalide. Réessayez.",
     "missing_refresh_token": "Google n'a pas renvoyé de jeton d'actualisation.",
     "reconnect_account_mismatch": "Le compte Google ne correspond pas à ce compte TrackDidia.",
-    "connect_failed": "La connexion Gmail a échoué."
+    "connect_failed": "La connexion Gmail a échoué.",
+    "vault_save_failed": "Impossible d'enregistrer dans le coffre OS."
+  },
+  "vaultErrors": {
+    "disconnect_failed": "Impossible de supprimer les identifiants du coffre OS."
   },
   "syncErrors": {
     "coordinator_not_running": "Activez le triage courriel et attendez le démarrage du coordinateur.",
     "browser_preview": "Synchronisation indisponible en prévisualisation navigateur.",
+    "reconnect_required": "Reconnexion Gmail requise pour ce compte.",
+    "sync_failed": "La synchronisation a échoué. Consultez l'erreur du compte.",
     "unknown": "Synchronisation impossible pour le moment."
   },
   "states": {

@@ -378,12 +378,12 @@ describe("sync-engine processProviderPage", () => {
       mutationEnabled: false,
     };
 
-    await processProviderPage(options);
-    await processProviderPage(options);
+    const first = await processProviderPage(options);
+    await processProviderPage({ ...options, account: first.account });
 
     expect(fetchCalls[1]?.historyPageToken).toBe("token-2");
     expect(fetchCalls[1]?.recoveryPhase).toBe("scanning");
-    expect(account.syncState.historyPageToken).toBe("token-2");
-    expect(account.syncState.recoveryPhase).toBe("scanning");
+    expect(first.account.syncState.historyPageToken).toBe("token-2");
+    expect(first.account.syncState.recoveryPhase).toBe("scanning");
   });
 });

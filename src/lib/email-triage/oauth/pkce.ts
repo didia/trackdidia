@@ -28,5 +28,7 @@ export const createPkceChallenge = async (verifier: string): Promise<string> => 
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 };
 
-export const validateOAuthState = (expected: string, received: string | null | undefined): boolean =>
-  Boolean(received) && expected === received;
+export const validateOAuthState = (
+  expected: string,
+  received: string | null | undefined,
+): boolean => Boolean(received) && expected === received;

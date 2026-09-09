@@ -23,13 +23,21 @@ import {
   openExternalUrl,
   syncEmailTriageAccountNow,
 } from "../lib/email-triage/runtime";
-import { checkVaultAvailability, loadVaultSecret, storeVaultSecret } from "../lib/email-triage/vault";
+import {
+  checkVaultAvailability,
+  loadVaultSecret,
+  storeVaultSecret,
+} from "../lib/email-triage/vault";
 import { createEntityId, nowIso } from "../lib/gtd/shared";
 
 export const EmailTriagePage = () => {
   const { t } = useTranslation("emailTriage");
-  const { repository, browserPreview, settings: appSettings, reconfigureEmailTriage } =
-    useAppContext();
+  const {
+    repository,
+    browserPreview,
+    settings: appSettings,
+    reconfigureEmailTriage,
+  } = useAppContext();
   const [accounts, setAccounts] = useState<EmailTriageAccount[]>([]);
   const [reviews, setReviews] = useState<EmailTriageReview[]>([]);
   const [settings, setSettings] = useState<EmailTriageGlobalSettings>(
@@ -126,18 +134,26 @@ export const EmailTriagePage = () => {
     if (browserPreview || !triageKeyDraft.trim()) {
       return;
     }
-    await storeVaultSecret("triage_api_key", triageKeyDraft.trim());
-    setTriageKeyDraft("");
-    setTriageKeySaved(true);
+    try {
+      await storeVaultSecret("triage_api_key", triageKeyDraft.trim());
+      setTriageKeyDraft("");
+      setTriageKeySaved(true);
+    } catch {
+      setConnectError("vault_save_failed");
+    }
   };
 
   const copyCoachKeyToVault = async () => {
     if (browserPreview || !appSettings.aiApiKey.trim()) {
       return;
     }
-    await storeVaultSecret("triage_api_key", appSettings.aiApiKey.trim());
-    setTriageKeyDraft("");
-    setTriageKeySaved(true);
+    try {
+      await storeVaultSecret("triage_api_key", appSettings.aiApiKey.trim());
+      setTriageKeyDraft("");
+      setTriageKeySaved(true);
+    } catch {
+      setConnectError("vault_save_failed");
+    }
   };
 
   const toggleAccountPause = async (account: EmailTriageAccount) => {
@@ -154,7 +170,10 @@ export const EmailTriagePage = () => {
     setConnecting(true);
     setConnectError(null);
     try {
-      const result = await connectGmailAccount(repository, { reconnectAccountId });
+      const result = await connectGmailAccount(repository, {
+        reconnectAccountId,
+        clientId: settings.gmailOAuthClientId,
+      });
       if (!result.ok) {
         setConnectError(result.error ?? "connect_failed");
       }
@@ -172,8 +191,15 @@ export const EmailTriagePage = () => {
       delete next[account.id];
       return next;
     });
-    await disconnectGmailAccount(repository, account.id);
-    await load();
+    try {
+      await disconnectGmailAccount(repository, account.id);
+      await load();
+    } catch {
+      setAccountActionError((current) => ({
+        ...current,
+        [account.id]: t("vaultErrors.disconnect_failed"),
+      }));
+    }
   };
 
   const handleSyncNow = async (account: EmailTriageAccount) => {
@@ -185,12 +211,15 @@ export const EmailTriagePage = () => {
           ? t("syncErrors.coordinator_not_running")
           : reason === "browser_preview"
             ? t("syncErrors.browser_preview")
-            : t("syncErrors.unknown");
+            : reason === "reconnect_required"
+              ? t("syncErrors.reconnect_required")
+              : reason === "sync_failed"
+                ? t("syncErrors.sync_failed")
+                : t("syncErrors.unknown");
       setAccountActionError((current) => ({
         ...current,
         [account.id]: message,
       }));
-      return;
     }
     await load();
   };
@@ -361,17 +390,15 @@ export const EmailTriagePage = () => {
             />
           </label>
           {!browserPreview ? (
-            <>
-              <label>
-                <span>{t("triageApiKey")}</span>
-                <input
-                  type="password"
-                  value={triageKeyDraft}
-                  onChange={(event) => setTriageKeyDraft(event.target.value)}
-                  placeholder={triageKeySaved ? t("triageApiKeySaved") : t("triageApiKeyPlaceholder")}
-                />
-              </label>
-            </>
+            <label>
+              <span>{t("triageApiKey")}</span>
+              <input
+                type="password"
+                value={triageKeyDraft}
+                onChange={(event) => setTriageKeyDraft(event.target.value)}
+                placeholder={triageKeySaved ? t("triageApiKeySaved") : t("triageApiKeyPlaceholder")}
+              />
+            </label>
           ) : null}
         </div>
         <div className="actions-row">
@@ -418,7 +445,9 @@ export const EmailTriagePage = () => {
             {t("connectGmail")}
           </button>
         </div>
-        {connectError ? <p>{t(`connectErrors.${connectError}`, { defaultValue: connectError })}</p> : null}
+        {connectError ? (
+          <p>{t(`connectErrors.${connectError}`, { defaultValue: connectError })}</p>
+        ) : null}
         {!resolvedClientId && !browserPreview ? <p>{t("missingClientId")}</p> : null}
         {accounts.length === 0 ? <p>{t("noAccounts")}</p> : null}
         <div className="stack">

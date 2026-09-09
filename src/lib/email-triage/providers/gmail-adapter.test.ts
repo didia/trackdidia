@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { GmailAdapter } from "./gmail-adapter";
-import { GmailApiClient, type GmailHistoryRecord, type GmailMessagePayload } from "./gmail-api";
+import type { GmailApiClient, GmailHistoryRecord, GmailMessagePayload } from "./gmail-api";
 
 const sampleMessage = (
   id: string,
@@ -43,7 +43,8 @@ const createFakeApi = (handlers: {
   ) => Promise<void>;
 }) => {
   const api = {
-    getProfile: handlers.getProfile ?? (async () => ({ emailAddress: "me@example.com", historyId: "500" })),
+    getProfile:
+      handlers.getProfile ?? (async () => ({ emailAddress: "me@example.com", historyId: "500" })),
     listHistory:
       handlers.listHistory ??
       (async () => ({
@@ -59,8 +60,7 @@ const createFakeApi = (handlers: {
         { id: "lbl-ignore", name: "Trackdidia-Triage-Ignore" },
       ]),
     createLabel: handlers.createLabel ?? (async (name: string) => ({ id: `lbl-${name}`, name })),
-    modifyMessageLabels:
-      handlers.modifyMessageLabels ?? (async () => undefined),
+    modifyMessageLabels: handlers.modifyMessageLabels ?? (async () => undefined),
   };
   return api as unknown as GmailApiClient;
 };
@@ -165,14 +165,15 @@ describe("GmailAdapter", () => {
   });
 
   it("persists history page tokens in cursor updates", async () => {
-    const listHistory = vi.fn(async ({ startHistoryId, pageToken }: { startHistoryId: string; pageToken?: string }) =>
-      pageToken
-        ? { history: [], historyId: "999" }
-        : {
-            history: [{ id: "101", messagesAdded: [{ message: { id: "m1" } }] }],
-            historyId: "101",
-            nextPageToken: "token-2",
-          },
+    const listHistory = vi.fn(
+      async ({ pageToken }: { startHistoryId: string; pageToken?: string }) =>
+        pageToken
+          ? { history: [], historyId: "999" }
+          : {
+              history: [{ id: "101", messagesAdded: [{ message: { id: "m1" } }] }],
+              historyId: "101",
+              nextPageToken: "token-2",
+            },
     );
     const adapter = new GmailAdapter(
       createFakeApi({
@@ -208,24 +209,98 @@ describe("GmailAdapter", () => {
     });
   });
 
-  it("enters gap review when history expires without watermark", async () => {
+  it("enters gap review when history expires without watermark and advances cursor", async () => {
+    const listHistory = vi.fn(async ({ startHistoryId }: { startHistoryId: string }) =>
+      startHistoryId === "100"
+        ? { error: { code: 404, status: "NOT_FOUND", message: "History not found" } }
+        : { history: [], historyId: "901" },
+    );
+    const adapter = new GmailAdapter(
+      createFakeApi({
+        listHistory,
+        getProfile: async () => ({ emailAddress: "me@example.com", historyId: "900" }),
+      }),
+      "me@example.com",
+      () => [],
+    );
+    const syncState = {
+      baselineHistoryId: "100",
+      cursorHistoryId: "100",
+      trackedMessageIds: [] as string[],
+    };
+    const page = await adapter.fetchPage(syncState);
+    expect(page.gapDetected).toBe(true);
+    expect(page.cursorUpdate?.recoveryStartHistoryId).toBe("900");
+    expect(page.cursorUpdate?.baselineHistoryId).toBe("900");
+    expect(page.cursorUpdate?.cursorHistoryId).toBe("900");
+    expect(page.cursorUpdate).not.toHaveProperty("gapDetected");
+
+    const next = await adapter.fetchPage({
+      ...syncState,
+      ...(page.cursorUpdate ?? {}),
+    });
+    expect(next.gapDetected).toBe(false);
+    expect(listHistory).toHaveBeenCalledTimes(2);
+    expect(listHistory).toHaveBeenLastCalledWith({
+      startHistoryId: "900",
+      pageToken: undefined,
+    });
+  });
+
+  it("recovers all inbox pages after expired history without advancing watermark mid-scan", async () => {
+    const getMessage = vi.fn(async (messageId: string) =>
+      sampleMessage(messageId, {
+        internalDate:
+          messageId === "m1"
+            ? "5000"
+            : messageId === "m2"
+              ? "4000"
+              : messageId === "m3"
+                ? "3000"
+                : "2000",
+      }),
+    );
     const adapter = new GmailAdapter(
       createFakeApi({
         listHistory: async () => ({
           error: { code: 404, status: "NOT_FOUND", message: "History not found" },
         }),
         getProfile: async () => ({ emailAddress: "me@example.com", historyId: "900" }),
+        listInboxMessages: async ({ pageToken }) =>
+          pageToken
+            ? { messages: [{ id: "m3" }, { id: "m4" }] }
+            : { messages: [{ id: "m1" }, { id: "m2" }], nextPageToken: "page-2" },
+        getMessage,
       }),
       "me@example.com",
       () => [],
     );
-    const page = await adapter.fetchPage({
+    const baseState = {
       baselineHistoryId: "100",
       cursorHistoryId: "100",
-      trackedMessageIds: [],
+      lastConfirmedInternalDate: "1000",
+      trackedMessageIds: [] as string[],
+    };
+    const expired = await adapter.fetchPage(baseState);
+    expect(expired.cursorUpdate?.recoveryPhase).toBe("scanning");
+
+    const page1 = await adapter.fetchPage({
+      ...baseState,
+      ...(expired.cursorUpdate ?? {}),
     });
-    expect(page.gapDetected).toBe(true);
-    expect(page.cursorUpdate?.recoveryStartHistoryId).toBe("900");
+    expect(page1.messages.map((message) => message.providerMessageId)).toEqual(["m1", "m2"]);
+    expect(page1.cursorUpdate?.lastConfirmedInternalDate).toBe("1000");
+    expect(page1.cursorUpdate?.recoveryMaxInternalDate).toBe("5000");
+    expect(page1.cursorUpdate?.recoveryPhase).toBe("scanning");
+
+    const page2 = await adapter.fetchPage({
+      ...baseState,
+      ...(page1.cursorUpdate ?? {}),
+    });
+    expect(page2.messages.map((message) => message.providerMessageId)).toEqual(["m3", "m4"]);
+    expect(page2.cursorUpdate?.lastConfirmedInternalDate).toBe("5000");
+    expect(page2.cursorUpdate?.recoveryMaxInternalDate).toBeNull();
+    expect(page2.cursorUpdate?.recoveryPhase).toBe("replaying");
   });
 
   it("scans inbox after expired history when watermark exists, then replays history", async () => {

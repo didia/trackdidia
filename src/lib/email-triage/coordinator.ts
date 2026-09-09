@@ -7,6 +7,21 @@ import type { EmailTriageProviderAdapter } from "./providers/types";
 import { checkVaultAvailability, loadVaultSecret } from "./vault";
 import { clampPollInterval, EMAIL_TRIAGE_MAX_PAGES_PER_RUN } from "./constants";
 
+export interface AccountSyncResult {
+  ok: boolean;
+  reason?: string;
+}
+
+const isReconnectRequiredError = (error: unknown): boolean =>
+  error instanceof Error && error.message === "reconnect_required";
+
+const formatSyncError = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+};
+
 export interface EmailTriageCoordinatorDeps {
   repository: EmailTriageRepositoryPort & {
     listAccounts(): Promise<EmailTriageAccount[]>;
@@ -69,15 +84,14 @@ export class EmailTriageCoordinator {
     return this.running;
   }
 
-  async syncNow(accountId: string): Promise<{ ok: boolean; reason?: string }> {
+  async syncNow(accountId: string): Promise<AccountSyncResult> {
     if (this.browserPreview) {
       return { ok: false, reason: "browser_preview" };
     }
     if (!this.running) {
       return { ok: false, reason: "coordinator_not_running" };
     }
-    await this.runAccountSync(accountId);
-    return { ok: true };
+    return this.runAccountSync(accountId);
   }
 
   scheduleAccount(account: EmailTriageAccount, settings: EmailTriageGlobalSettings): void {
@@ -101,21 +115,32 @@ export class EmailTriageCoordinator {
     this.timers.set(account.id, timer);
   }
 
-  async runAccountSync(accountId: string): Promise<void> {
+  async runAccountSync(accountId: string): Promise<AccountSyncResult> {
+    let syncResult: AccountSyncResult = { ok: true };
     await this.withAccountMutex(accountId, async () => {
       if (!this.running) {
+        syncResult = { ok: false, reason: "coordinator_not_running" };
         return;
       }
       const settings = await this.deps.repository.getGlobalSettings();
       if (!settings.enabled) {
+        syncResult = { ok: false, reason: "feature_disabled" };
         return;
       }
       const account = await this.deps.repository.getAccount(accountId);
       if (!account || !account.enabled || account.paused) {
+        syncResult = { ok: false, reason: "account_unavailable" };
         return;
       }
       const adapter = await Promise.resolve(this.deps.createAdapter(account));
       if (!adapter) {
+        if (account.provider === "gmail" && !this.browserPreview) {
+          await this.deps.repository.updateAccountSyncState(account.id, account.syncState, {
+            state: "reconnect_required",
+            lastError: "reconnect_required",
+          });
+          syncResult = { ok: false, reason: "reconnect_required" };
+        }
         return;
       }
       const apiKey = await loadVaultSecret("triage_api_key");
@@ -123,6 +148,7 @@ export class EmailTriageCoordinator {
       let backoffAttempt = 0;
       let pagesProcessed = 0;
       let currentAccount = account;
+      let syncFailed = false;
       while (
         hasMore &&
         this.running &&
@@ -146,28 +172,69 @@ export class EmailTriageCoordinator {
           if (result.gapDetected) {
             break;
           }
-        } catch {
+        } catch (error) {
+          if (isReconnectRequiredError(error)) {
+            currentAccount = await this.deps.repository.updateAccountSyncState(
+              currentAccount.id,
+              currentAccount.syncState,
+              {
+                state: "reconnect_required",
+                lastError: "reconnect_required",
+              },
+            );
+            syncResult = { ok: false, reason: "reconnect_required" };
+            syncFailed = true;
+            break;
+          }
           backoffAttempt += 1;
+          if (backoffAttempt >= 5) {
+            const message = formatSyncError(error);
+            currentAccount = await this.deps.repository.updateAccountSyncState(
+              currentAccount.id,
+              currentAccount.syncState,
+              {
+                state: "error",
+                lastError: message,
+              },
+            );
+            syncResult = { ok: false, reason: "sync_failed" };
+            syncFailed = true;
+            break;
+          }
           const delayMs = Math.min(60_000, 1_000 * 2 ** backoffAttempt);
           await new Promise((resolve) => setTimeout(resolve, delayMs));
         }
       }
-      await reconcilePendingEffects(
-        {
-          repository: this.deps.repository,
-          account: currentAccount,
-          adapter,
-          classifierProvider: this.deps.classifierProvider,
-          apiKey,
-          globalSettings: settings,
-          mutationEnabled: false,
-        },
-        accountId,
-      );
+      if (!syncFailed && pagesProcessed > 0 && currentAccount.state !== "reconnect_required") {
+        const patch: Partial<EmailTriageAccount> = { lastError: null };
+        if (currentAccount.state === "error") {
+          patch.state = "active";
+        }
+        currentAccount = await this.deps.repository.updateAccountSyncState(
+          currentAccount.id,
+          currentAccount.syncState,
+          patch,
+        );
+      }
+      if (!syncFailed) {
+        await reconcilePendingEffects(
+          {
+            repository: this.deps.repository,
+            account: currentAccount,
+            adapter,
+            classifierProvider: this.deps.classifierProvider,
+            apiKey,
+            globalSettings: settings,
+            mutationEnabled: false,
+          },
+          accountId,
+        );
+      }
       if (this.running) {
         this.scheduleAccount(currentAccount, settings);
       }
     });
+    return syncResult;
   }
 
   private async withAccountMutex(accountId: string, work: () => Promise<void>): Promise<void> {

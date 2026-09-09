@@ -20,12 +20,13 @@ import {
   serializeProviderCredentials,
   buildGmailAuthorizationUrl,
 } from "./oauth/gmail-oauth";
-import { createPkceChallenge, generateOAuthState, generatePkceVerifier, validateOAuthState } from "./oauth/pkce";
 import {
-  clearCachedAccessToken,
-  getCachedAccessToken,
-  setCachedAccessToken,
-} from "./token-cache";
+  createPkceChallenge,
+  generateOAuthState,
+  generatePkceVerifier,
+  validateOAuthState,
+} from "./oauth/pkce";
+import { clearCachedAccessToken, getCachedAccessToken, setCachedAccessToken } from "./token-cache";
 import { deleteVaultSecret, loadVaultSecret, storeVaultSecret } from "./vault";
 import type { EmailTriageCoordinator } from "./coordinator";
 
@@ -44,11 +45,7 @@ export const syncEmailTriageAccountNow = async (
   if (!coordinator) {
     return { ok: false, reason: "coordinator_not_running" };
   }
-  if (!coordinator.isRunning()) {
-    return { ok: false, reason: "coordinator_not_running" };
-  }
-  await coordinator.runAccountSync(accountId);
-  return { ok: true };
+  return coordinator.syncNow(accountId);
 };
 
 const createGmailAccessTokenGetter = (
@@ -73,7 +70,10 @@ const createGmailAccessTokenGetter = (
       setCachedAccessToken(account.id, refreshed.accessToken, refreshed.expiresIn);
       return refreshed.accessToken;
     } catch (error) {
-      if (isInvalidGrantError(error) || (error instanceof Error && error.message.includes("invalid_grant"))) {
+      if (
+        isInvalidGrantError(error) ||
+        (error instanceof Error && error.message.includes("invalid_grant"))
+      ) {
         throw new Error("reconnect_required");
       }
       throw error;
@@ -101,11 +101,11 @@ export const createEmailTriageAdapter = async (
     await loadVaultSecret("provider_credentials", account.id),
   );
   if (!credentials) {
-    return new MockGmailAdapter([], new Map());
+    return null;
   }
   const clientId = resolveGmailOAuthClientId(settings.gmailOAuthClientId);
   if (!clientId) {
-    return new MockGmailAdapter([], new Map());
+    return null;
   }
   const http = createTauriHttpClient();
   const getAccessToken = createGmailAccessTokenGetter(account, clientId);
@@ -126,12 +126,21 @@ export interface GmailConnectResult {
 
 export const connectGmailAccount = async (
   repository: AppRepository,
-  options: { reconnectAccountId?: string | null } = {},
+  options: { reconnectAccountId?: string | null; clientId?: string | null } = {},
 ): Promise<GmailConnectResult> => {
   if (!isTauriRuntime()) {
     return { ok: false, error: "browser_preview" };
   }
-  const settings = await repository.getEmailTriageGlobalSettings();
+  let settings = await repository.getEmailTriageGlobalSettings();
+  const draftClientId = options.clientId?.trim();
+  if (draftClientId && draftClientId !== settings.gmailOAuthClientId.trim()) {
+    settings = {
+      ...settings,
+      gmailOAuthClientId: draftClientId,
+      updatedAt: nowIso(),
+    };
+    await repository.saveEmailTriageGlobalSettings(settings);
+  }
   const clientId = resolveGmailOAuthClientId(settings.gmailOAuthClientId);
   if (!clientId) {
     return { ok: false, error: "missing_client_id" };
@@ -209,8 +218,6 @@ export const connectGmailAccount = async (
       lastError: null,
       syncState: {
         ...target.syncState,
-        baselineHistoryId: profile.historyId,
-        cursorHistoryId: profile.historyId,
       },
       updatedAt: timestamp,
     });
@@ -251,7 +258,7 @@ export const connectGmailAccount = async (
     lastSuccessAt: null,
     lastError: null,
     pollIntervalMinutes: settings.pollIntervalMinutes,
-    syncState: {
+    syncState: existing?.syncState ?? {
       baselineHistoryId: profile.historyId,
       cursorHistoryId: profile.historyId,
       trackedMessageIds: [],
@@ -287,6 +294,15 @@ export const disconnectGmailAccount = async (
 
 export const openExternalUrl = async (url: string, browserPreview: boolean): Promise<void> => {
   if (browserPreview || !isTauriRuntime()) {
+    return;
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     return;
   }
   await openUrl(url);
