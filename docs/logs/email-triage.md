@@ -1,15 +1,27 @@
 # Email triage log
 
+- 2026-09-10: Graph review follow-up — `User.Read` scope, filtered inbox delta
+  (`receivedDateTime ge baselineAt`) replaces unsupported `$deltatoken=latest`,
+  metadata delta + per-message bodies + oversized quarantine, reconnect generation
+  guard, loopback `error_description` admin-consent classification, empty-page sync
+  cancellation, and provider-neutral French connect/sync errors.
 - 2026-09-10: Review follow-up — revoked Google grants map `invalid_grant` to
   reconnect, disable/pause/disconnect cancel remaining in-page classifier work,
   coordinator failures outside page retries are recorded and rescheduled,
   oversized Gmail messages are quarantined so history can advance, obsolete
   coordinator startups cannot clear the live instance, and vault credentials are
   rolled back when account persistence fails.
+- 2026-09-09: Graph review follow-up — `$deltatoken=latest` first-connect baseline, invalid-delta
+  reseed keeps `baselineAt`, rotated Microsoft refresh tokens persisted, reconnect preserves sync
+  cursor, 410 reseed during snapshot/`nextLink`, Microsoft hosts on the Tauri HTTP allowlist.
 - 2026-09-09: Review follow-up — pagination carries the updated cursor, replay
   repairs missing GTD/effects after a persist crash, reviews no longer store
   body excerpts, resolving a review commits the message/conversation decision,
   and enable/resume reconfigures the coordinator.
+- 2026-09-08: Microsoft Graph slice — live multitenant OAuth (PKCE, loopback,
+  `Mail.ReadWrite` + `MailboxSettings.ReadWrite`), Graph inbox delta baseline/replay/invalid-delta
+  reseed, message-level Outlook categories, French Connect/Reconnect Microsoft, migration 31 for
+  `microsoftOAuthClientId`. Yahoo remains mocked; automatic mutation still off.
 - 2026-09-08: Gmail slice — live installed-app OAuth (PKCE, loopback, `gmail.modify`), Tauri
   HTTP + opener plugin, live Gmail adapter with history sync/recovery/markers, vault-backed
   refresh tokens, triage OpenRouter key UI, French Connect/Reconnect/Disconnect/Sync now,

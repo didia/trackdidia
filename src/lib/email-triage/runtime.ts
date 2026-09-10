@@ -5,6 +5,7 @@ import type { AppRepository } from "../storage/repository";
 import { isTauriRuntime } from "../storage/factory";
 import { createEntityId, nowIso } from "../gtd/shared";
 import { GmailApiClient } from "./providers/gmail-api";
+import { GraphApiClient, type GraphMeProfile } from "./providers/graph-api";
 import { createTauriHttpClient } from "./provider-http";
 import {
   exchangeGmailAuthorizationCode,
@@ -13,6 +14,18 @@ import {
   serializeProviderCredentials,
   buildGmailAuthorizationUrl,
 } from "./oauth/gmail-oauth";
+import {
+  buildMicrosoftAuthorizationUrl,
+  classifyMicrosoftAuthorizationCallbackError,
+  exchangeMicrosoftAuthorizationCode,
+  type MicrosoftOAuthTokens,
+  resolveMicrosoftOAuthClientId,
+} from "./oauth/microsoft-oauth";
+import {
+  snapshotReconnectTarget,
+  type ReconnectTargetSnapshot,
+  validateReconnectCanProceed,
+} from "./reconnect-guard";
 import {
   createPkceChallenge,
   generateOAuthState,
@@ -31,12 +44,15 @@ export {
   syncEmailTriageAccountNow,
 } from "./gmail-session";
 
-export interface GmailConnectResult {
+export interface ProviderConnectResult {
   ok: boolean;
   accountId?: string;
   error?: string;
   reconnectMismatch?: boolean;
 }
+
+export type GmailConnectResult = ProviderConnectResult;
+export type MicrosoftConnectResult = ProviderConnectResult;
 
 export const connectGmailAccount = async (
   repository: AppRepository,
@@ -58,6 +74,15 @@ export const connectGmailAccount = async (
   const clientId = resolveGmailOAuthClientId(settings.gmailOAuthClientId);
   if (!clientId) {
     return { ok: false, error: "missing_client_id" };
+  }
+
+  let reconnectSnapshot: ReconnectTargetSnapshot | null = null;
+  if (options.reconnectAccountId) {
+    const target = await repository.getEmailTriageAccount(options.reconnectAccountId);
+    if (!target) {
+      return { ok: false, error: "account_not_found" };
+    }
+    reconnectSnapshot = snapshotReconnectTarget(target);
   }
 
   const oauthState = generateOAuthState();
@@ -107,14 +132,20 @@ export const connectGmailAccount = async (
   );
   const coordinator = getEmailTriageCoordinator();
 
-  if (options.reconnectAccountId) {
-    const target = await repository.getEmailTriageAccount(options.reconnectAccountId);
-    if (!target) {
-      return { ok: false, error: "account_not_found" };
+  if (reconnectSnapshot) {
+    const validation = validateReconnectCanProceed({
+      snapshot: reconnectSnapshot,
+      currentAccount: await repository.getEmailTriageAccount(reconnectSnapshot.id),
+      authenticatedProviderAccountId: providerAccountId,
+    });
+    if (!validation.ok) {
+      return {
+        ok: false,
+        error: validation.error,
+        reconnectMismatch: validation.error === "reconnect_account_mismatch",
+      };
     }
-    if (target.providerAccountId !== providerAccountId) {
-      return { ok: false, error: "reconnect_account_mismatch", reconnectMismatch: true };
-    }
+    const target = (await repository.getEmailTriageAccount(reconnectSnapshot.id))!;
     await persistGmailAccountCredentials({
       repository,
       account: {
@@ -186,7 +217,205 @@ export const connectGmailAccount = async (
   return { ok: true, accountId };
 };
 
-export const disconnectGmailAccount = async (
+export const connectMicrosoftAccount = async (
+  repository: AppRepository,
+  options: { reconnectAccountId?: string | null; clientId?: string | null } = {},
+): Promise<MicrosoftConnectResult> => {
+  if (!isTauriRuntime()) {
+    return { ok: false, error: "browser_preview" };
+  }
+  let settings = await repository.getEmailTriageGlobalSettings();
+  const draftClientId = options.clientId?.trim();
+  if (draftClientId && draftClientId !== settings.microsoftOAuthClientId.trim()) {
+    settings = {
+      ...settings,
+      microsoftOAuthClientId: draftClientId,
+      updatedAt: nowIso(),
+    };
+    await repository.saveEmailTriageGlobalSettings(settings);
+  }
+  const clientId = resolveMicrosoftOAuthClientId(settings.microsoftOAuthClientId);
+  if (!clientId) {
+    return { ok: false, error: "missing_client_id" };
+  }
+
+  let reconnectSnapshot: ReconnectTargetSnapshot | null = null;
+  if (options.reconnectAccountId) {
+    const target = await repository.getEmailTriageAccount(options.reconnectAccountId);
+    if (!target) {
+      return { ok: false, error: "account_not_found" };
+    }
+    reconnectSnapshot = snapshotReconnectTarget(target);
+  }
+
+  const oauthState = generateOAuthState();
+  const verifier = generatePkceVerifier();
+  const challenge = await createPkceChallenge(verifier);
+  const loopback = await invoke<{ port: number; redirectUri: string }>("oauth_loopback_start", {
+    expectedState: oauthState,
+  });
+  const authUrl = buildMicrosoftAuthorizationUrl({
+    clientId,
+    redirectUri: loopback.redirectUri,
+    state: oauthState,
+    codeChallenge: challenge,
+  });
+  await openUrl(authUrl);
+  const callback = await invoke<{
+    code?: string;
+    state?: string;
+    error?: string;
+    errorDescription?: string;
+  }>("oauth_loopback_wait", { timeoutMs: 180_000 });
+  if (callback.error) {
+    return {
+      ok: false,
+      error: classifyMicrosoftAuthorizationCallbackError(callback.error, callback.errorDescription),
+    };
+  }
+  if (!validateOAuthState(oauthState, callback.state) || !callback.code) {
+    return { ok: false, error: "oauth_state_mismatch" };
+  }
+
+  const http = createTauriHttpClient();
+  let tokens: MicrosoftOAuthTokens;
+  try {
+    tokens = await exchangeMicrosoftAuthorizationCode(http, {
+      clientId,
+      code: callback.code,
+      redirectUri: loopback.redirectUri,
+      codeVerifier: verifier,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "admin_consent_required") {
+      return { ok: false, error: "admin_consent_required" };
+    }
+    return { ok: false, error: "connect_failed" };
+  }
+  if (!tokens.refreshToken) {
+    return { ok: false, error: "missing_refresh_token" };
+  }
+
+  setCachedAccessToken("oauth-bootstrap", tokens.accessToken, tokens.expiresIn);
+  const bootstrapApi = new GraphApiClient(http, async () => tokens.accessToken);
+  let profile: GraphMeProfile;
+  try {
+    profile = await bootstrapApi.getMe();
+  } catch {
+    clearCachedAccessToken("oauth-bootstrap");
+    return { ok: false, error: "connect_failed" };
+  }
+  clearCachedAccessToken("oauth-bootstrap");
+
+  const providerAccountId = profile.id;
+  const displayAddress =
+    profile.userPrincipalName ?? profile.mail ?? profile.displayName ?? profile.id;
+  const timestamp = nowIso();
+  const existing = (await repository.listEmailTriageAccounts()).find(
+    (account) =>
+      account.provider === "microsoft_graph" && account.providerAccountId === providerAccountId,
+  );
+  const coordinator = getEmailTriageCoordinator();
+
+  if (reconnectSnapshot) {
+    const validation = validateReconnectCanProceed({
+      snapshot: reconnectSnapshot,
+      currentAccount: await repository.getEmailTriageAccount(reconnectSnapshot.id),
+      authenticatedProviderAccountId: providerAccountId,
+    });
+    if (!validation.ok) {
+      return {
+        ok: false,
+        error: validation.error,
+        reconnectMismatch: validation.error === "reconnect_account_mismatch",
+      };
+    }
+    const target = (await repository.getEmailTriageAccount(reconnectSnapshot.id))!;
+    await persistGmailAccountCredentials({
+      repository,
+      account: {
+        ...target,
+        enabled: true,
+        state: "active",
+        recoveryState: "none",
+        lastError: null,
+        syncState: {
+          ...target.syncState,
+        },
+        updatedAt: timestamp,
+      },
+      credentials: serializeProviderCredentials({
+        refreshToken: tokens.refreshToken,
+        tokenType: tokens.tokenType,
+        scope: tokens.scope,
+      }),
+      accessToken: tokens.accessToken,
+      expiresIn: tokens.expiresIn,
+    });
+    coordinator?.scheduleAccount(
+      {
+        ...(await repository.getEmailTriageAccount(target.id))!,
+      },
+      settings,
+    );
+    void coordinator?.runAccountSync(target.id);
+    return { ok: true, accountId: target.id };
+  }
+
+  const accountId = existing?.id ?? createEntityId("email-account");
+  const account: EmailTriageAccount = existing
+    ? {
+        ...existing,
+        label: displayAddress,
+        maskedAddress: maskEmailAddress(displayAddress),
+        enabled: true,
+        state: "active",
+        lastError: null,
+        recoveryState: "none",
+        updatedAt: timestamp,
+      }
+    : {
+        id: accountId,
+        provider: "microsoft_graph",
+        providerAccountId,
+        label: displayAddress,
+        maskedAddress: maskEmailAddress(displayAddress),
+        generation: 1,
+        enabled: true,
+        mutationEnabled: false,
+        paused: false,
+        state: "baselining",
+        recoveryState: "none",
+        lastSuccessAt: null,
+        lastError: null,
+        pollIntervalMinutes: settings.pollIntervalMinutes,
+        syncState: {
+          baselineAt: null,
+          deltaLink: null,
+          nextLink: null,
+          snapshotComplete: false,
+          trackedMessageIds: [],
+        },
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+  await persistGmailAccountCredentials({
+    repository,
+    account,
+    credentials: serializeProviderCredentials({
+      refreshToken: tokens.refreshToken,
+      tokenType: tokens.tokenType,
+      scope: tokens.scope,
+    }),
+    accessToken: tokens.accessToken,
+    expiresIn: tokens.expiresIn,
+  });
+  coordinator?.scheduleAccount(account, settings);
+  void coordinator?.runAccountSync(accountId);
+  return { ok: true, accountId };
+};
+
+export const disconnectEmailTriageAccount = async (
   repository: AppRepository,
   accountId: string,
 ): Promise<void> => {
@@ -206,6 +435,8 @@ export const disconnectGmailAccount = async (
     updatedAt: nowIso(),
   });
 };
+
+export const disconnectGmailAccount = disconnectEmailTriageAccount;
 
 export const openExternalUrl = async (url: string, browserPreview: boolean): Promise<void> => {
   if (browserPreview || !isTauriRuntime()) {

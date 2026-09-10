@@ -172,7 +172,10 @@ export class EmailTriageCoordinator {
         };
         const adapter = await Promise.resolve(this.deps.createAdapter(account));
         if (!adapter) {
-          if (account.provider === "gmail" && !this.browserPreview) {
+          if (
+            (account.provider === "gmail" || account.provider === "microsoft_graph") &&
+            !this.browserPreview
+          ) {
             currentAccount = await this.deps.repository.updateAccountSyncState(
               account.id,
               account.syncState,

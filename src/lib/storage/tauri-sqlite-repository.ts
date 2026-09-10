@@ -1036,6 +1036,13 @@ export const migrations: Migration[] = [
       ALTER TABLE email_triage_settings ADD COLUMN gmail_oauth_client_id TEXT NOT NULL DEFAULT '';
     `,
   },
+  {
+    id: 31,
+    name: "add_email_triage_microsoft_oauth_client_id",
+    sql: `
+      ALTER TABLE email_triage_settings ADD COLUMN microsoft_oauth_client_id TEXT NOT NULL DEFAULT '';
+    `,
+  },
 ];
 
 export class TauriSqliteRepository implements AppRepository {

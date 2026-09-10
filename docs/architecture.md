@@ -148,8 +148,8 @@ screen.
 11. After a successful bootstrap (not browser preview and not the startup
     fallback), start the email triage coordinator. It still no-ops while the
     feature flag is off, and it probes the OS vault only after that flag is on.
-    On desktop, connected Gmail accounts use the live adapter when vault
-    credentials exist; Graph and Yahoo remain mocked in this slice.
+    On desktop, connected Gmail and Microsoft Graph accounts use the live adapter
+    when vault credentials exist; Yahoo remains mocked in this slice.
 
 The startup operation has an eight-second timeout. An exception or timeout activates
 a new `MemoryRepository`, shows a warning banner, and keeps the UI usable. Data

@@ -17,9 +17,11 @@ import {
   EMAIL_TRIAGE_DEFAULT_RELEVANT_THRESHOLD,
 } from "../lib/email-triage/constants";
 import { resolveGmailOAuthClientId } from "../lib/email-triage/oauth/gmail-oauth";
+import { resolveMicrosoftOAuthClientId } from "../lib/email-triage/oauth/microsoft-oauth";
 import {
   connectGmailAccount,
-  disconnectGmailAccount,
+  connectMicrosoftAccount,
+  disconnectEmailTriageAccount,
   openExternalUrl,
   syncEmailTriageAccountNow,
 } from "../lib/email-triage/runtime";
@@ -60,11 +62,17 @@ export const EmailTriagePage = () => {
   const [resolvingReviewId, setResolvingReviewId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const resolvedClientId = useMemo(
+  const resolvedGmailClientId = useMemo(
     () => resolveGmailOAuthClientId(settings.gmailOAuthClientId),
     [settings.gmailOAuthClientId],
   );
-  const canConnectGmail = !browserPreview && vaultAvailable && Boolean(resolvedClientId);
+  const resolvedMicrosoftClientId = useMemo(
+    () => resolveMicrosoftOAuthClientId(settings.microsoftOAuthClientId),
+    [settings.microsoftOAuthClientId],
+  );
+  const canConnectGmail = !browserPreview && vaultAvailable && Boolean(resolvedGmailClientId);
+  const canConnectMicrosoft =
+    !browserPreview && vaultAvailable && Boolean(resolvedMicrosoftClientId);
 
   const ignoreReasonOptions: Exclude<EmailTriageIgnoreReason, null>[] = [
     "newsletter",
@@ -185,6 +193,25 @@ export const EmailTriagePage = () => {
     }
   };
 
+  const handleConnectMicrosoft = async (reconnectAccountId?: string) => {
+    setConnecting(true);
+    setConnectError(null);
+    try {
+      const result = await connectMicrosoftAccount(repository, {
+        reconnectAccountId,
+        clientId: settings.microsoftOAuthClientId,
+      });
+      if (!result.ok) {
+        setConnectError(result.error ?? "connect_failed");
+      }
+      await load();
+    } catch {
+      setConnectError("connect_failed");
+    } finally {
+      setConnecting(false);
+    }
+  };
+
   const handleDisconnect = async (account: EmailTriageAccount) => {
     setAccountActionError((current) => {
       const next = { ...current };
@@ -192,7 +219,7 @@ export const EmailTriagePage = () => {
       return next;
     });
     try {
-      await disconnectGmailAccount(repository, account.id);
+      await disconnectEmailTriageAccount(repository, account.id);
       await load();
     } catch {
       setAccountActionError((current) => ({
@@ -389,6 +416,17 @@ export const EmailTriagePage = () => {
               placeholder={t("gmailOAuthClientIdPlaceholder")}
             />
           </label>
+          <label>
+            <span>{t("microsoftOAuthClientId")}</span>
+            <input
+              type="text"
+              value={settings.microsoftOAuthClientId}
+              onChange={(event) =>
+                setSettings({ ...settings, microsoftOAuthClientId: event.target.value })
+              }
+              placeholder={t("microsoftOAuthClientIdPlaceholder")}
+            />
+          </label>
           {!browserPreview ? (
             <label>
               <span>{t("triageApiKey")}</span>
@@ -444,11 +482,22 @@ export const EmailTriagePage = () => {
           >
             {t("connectGmail")}
           </button>
+          <button
+            type="button"
+            className="button button--primary"
+            disabled={!canConnectMicrosoft || connecting || !settings.enabled}
+            onClick={() => void handleConnectMicrosoft()}
+          >
+            {t("connectMicrosoft")}
+          </button>
         </div>
         {connectError ? (
           <p>{t(`connectErrors.${connectError}`, { defaultValue: connectError })}</p>
         ) : null}
-        {!resolvedClientId && !browserPreview ? <p>{t("missingClientId")}</p> : null}
+        {!resolvedGmailClientId && !browserPreview ? <p>{t("missingGmailClientId")}</p> : null}
+        {!resolvedMicrosoftClientId && !browserPreview ? (
+          <p>{t("missingMicrosoftClientId")}</p>
+        ) : null}
         {accounts.length === 0 ? <p>{t("noAccounts")}</p> : null}
         <div className="stack">
           {accounts.map((account) => (
@@ -480,7 +529,8 @@ export const EmailTriagePage = () => {
                 >
                   {account.paused ? t("resume") : t("pause")}
                 </button>
-                {account.provider === "gmail" && !browserPreview ? (
+                {(account.provider === "gmail" || account.provider === "microsoft_graph") &&
+                !browserPreview ? (
                   <>
                     <button
                       type="button"
@@ -493,10 +543,18 @@ export const EmailTriagePage = () => {
                     <button
                       type="button"
                       className="button"
-                      disabled={!canConnectGmail || connecting}
-                      onClick={() => void handleConnectGmail(account.id)}
+                      disabled={
+                        account.provider === "gmail"
+                          ? !canConnectGmail || connecting
+                          : !canConnectMicrosoft || connecting
+                      }
+                      onClick={() =>
+                        void (account.provider === "gmail"
+                          ? handleConnectGmail(account.id)
+                          : handleConnectMicrosoft(account.id))
+                      }
                     >
-                      {t("reconnectGmail")}
+                      {account.provider === "gmail" ? t("reconnectGmail") : t("reconnectMicrosoft")}
                     </button>
                     <button
                       type="button"

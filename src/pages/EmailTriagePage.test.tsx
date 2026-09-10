@@ -1,10 +1,11 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { EmailTriagePage } from "./EmailTriagePage";
 import { renderWithApp } from "../test/test-utils";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { createEntityId, nowIso } from "../lib/gtd/shared";
+import * as runtime from "../lib/email-triage/runtime";
 
 describe("EmailTriagePage", () => {
   it("shows browser preview notice in non-tauri mode", async () => {
@@ -23,6 +24,19 @@ describe("EmailTriagePage", () => {
     });
     await renderWithApp(<EmailTriagePage />, { repository });
     expect(await screen.findByRole("button", { name: /Connecter Gmail/i })).toBeDisabled();
+  });
+
+  it("disables Connect Microsoft in browser preview", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveEmailTriageGlobalSettings({
+      ...(await repository.getEmailTriageGlobalSettings()),
+      enabled: true,
+      microsoftOAuthClientId: "client-id",
+      updatedAt: nowIso(),
+    });
+    await renderWithApp(<EmailTriagePage />, { repository });
+    expect(await screen.findByRole("button", { name: /Connecter Microsoft/i })).toBeDisabled();
   });
 
   it("shows sync and disconnect controls for gmail accounts outside preview", async () => {
@@ -173,6 +187,51 @@ describe("EmailTriagePage", () => {
     await user.click(await screen.findByRole("button", { name: /Pertinent/i }));
     expect(await screen.findByText(/Conversation version mismatch/i)).toBeInTheDocument();
     expect((await repository.listEmailTriageReviews("pending")).length).toBe(1);
+  });
+
+  it("shows provider-neutral reconnect copy for Microsoft accounts", async () => {
+    vi.spyOn(runtime, "syncEmailTriageAccountNow").mockResolvedValue({
+      ok: false,
+      reason: "reconnect_required",
+    });
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const timestamp = nowIso();
+    await repository.saveEmailTriageAccount({
+      id: createEntityId("email-account"),
+      provider: "microsoft_graph",
+      providerAccountId: "oid-1",
+      label: "Outlook",
+      maskedAddress: "o***@example.com",
+      generation: 1,
+      enabled: true,
+      mutationEnabled: false,
+      paused: false,
+      state: "reconnect_required",
+      recoveryState: "none",
+      lastSuccessAt: null,
+      lastError: "reconnect_required",
+      pollIntervalMinutes: 5,
+      syncState: {},
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    await repository.saveEmailTriageGlobalSettings({
+      ...(await repository.getEmailTriageGlobalSettings()),
+      enabled: true,
+      microsoftOAuthClientId: "client-id",
+      updatedAt: timestamp,
+    });
+    await renderWithApp(<EmailTriagePage />, {
+      repository,
+      contextOverrides: { browserPreview: false },
+    });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Synchroniser/i }));
+    const message = await screen.findByText(/Reconnexion requise pour ce compte courriel/i);
+    expect(message).toBeInTheDocument();
+    expect(message.textContent?.includes("Gmail")).toBe(false);
+    vi.restoreAllMocks();
   });
 
   it("resolves a matching review as relevant", async () => {

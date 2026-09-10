@@ -386,4 +386,54 @@ describe("sync-engine processProviderPage", () => {
     expect(first.account.syncState.historyPageToken).toBe("token-2");
     expect(first.account.syncState.recoveryPhase).toBe("scanning");
   });
+
+  it("does not persist cursor updates when cancelled after an empty fetchPage", async () => {
+    const updateAccountSyncState = vi.fn();
+    const adapter = {
+      provider: "microsoft_graph" as const,
+      fetchPage: async () => ({
+        messages: [],
+        cursorUpdate: {
+          baselineAt: "2026-01-01T00:00:00.000Z",
+          deltaLink: "https://graph.microsoft.com/delta/final",
+          snapshotComplete: true,
+        },
+        hasMore: false,
+        gapDetected: false,
+        accountPatch: { state: "active" as const },
+      }),
+    };
+    const account = baseAccount();
+    const repository: EmailTriageRepositoryPort = {
+      getGlobalSettings: async () => defaultEmailTriageGlobalSettings(),
+      getAccount: async () => account,
+      updateAccountSyncState,
+      upsertConversation: async () => {
+        throw new Error("not used");
+      },
+      getConversationByKey: async () => null,
+      persistMessageBatch: async () => ({ conversations: [] }),
+      getMessageByProviderId: async () => null,
+      getConversation: async () => null,
+      dismissPendingReviews: async () => undefined,
+      listPendingEffects: async () => [],
+      listPendingEffectsForAccount: async () => [],
+      saveDesiredEffect: async () => undefined,
+      getTaskByExternalId: async () => null,
+      applyEmailTriageGtdUpdate: async () => null,
+      createReview: async () => undefined,
+    };
+    const result = await processProviderPage({
+      repository,
+      account,
+      adapter,
+      classifierProvider: { completeStructured: async () => "" },
+      apiKey: null,
+      globalSettings: defaultEmailTriageGlobalSettings(),
+      mutationEnabled: false,
+      shouldContinue: () => false,
+    });
+    expect(result.cancelled).toBe(true);
+    expect(updateAccountSyncState).not.toHaveBeenCalled();
+  });
 });

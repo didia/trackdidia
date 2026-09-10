@@ -1,10 +1,11 @@
-import type { EmailTriageTransientMessage } from "../../../domain/email-triage";
+import type { EmailTriageAccount, EmailTriageTransientMessage } from "../../../domain/email-triage";
 
 export interface ProviderSyncPage {
   messages: EmailTriageTransientMessage[];
   cursorUpdate: Record<string, unknown> | null;
   hasMore: boolean;
   gapDetected: boolean;
+  accountPatch?: Partial<EmailTriageAccount>;
 }
 
 export interface ProviderMarkerRequest {

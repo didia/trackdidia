@@ -131,6 +131,15 @@ export const processProviderPage = async (
 }> => {
   const page = await options.adapter.fetchPage(options.account.syncState);
 
+  if (!(await isSyncStillAllowed(options))) {
+    return {
+      hasMore: true,
+      gapDetected: false,
+      account: options.account,
+      cancelled: true,
+    };
+  }
+
   for (const transient of page.messages) {
     if (!(await isSyncStillAllowed(options))) {
       return {
@@ -151,15 +160,30 @@ export const processProviderPage = async (
     }
   }
 
+  if (!(await isSyncStillAllowed(options))) {
+    return {
+      hasMore: true,
+      gapDetected: false,
+      account: options.account,
+      cancelled: true,
+    };
+  }
+
   let account = options.account;
   if (page.cursorUpdate || page.gapDetected) {
     const mergedState = page.cursorUpdate
       ? mergeSyncState(options.account.syncState, page.cursorUpdate)
       : options.account.syncState;
+    const accountPatch = {
+      ...(page.gapDetected
+        ? { state: "gap_review_required" as const, recoveryState: "in_progress" as const }
+        : {}),
+      ...page.accountPatch,
+    };
     account = await options.repository.updateAccountSyncState(
       options.account.id,
       mergedState,
-      page.gapDetected ? { state: "gap_review_required", recoveryState: "in_progress" } : undefined,
+      Object.keys(accountPatch).length > 0 ? accountPatch : undefined,
     );
   }
 
