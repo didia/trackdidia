@@ -1,11 +1,16 @@
 import { useEffect, useRef } from "react";
 import { EmailTriageCoordinator } from "../lib/email-triage/coordinator";
-import { MockGmailAdapter } from "../lib/email-triage/providers/mock-gmail";
-import { MockGraphAdapter } from "../lib/email-triage/providers/mock-graph";
-import { MockYahooAdapter } from "../lib/email-triage/providers/mock-yahoo";
 import type { EmailTriageAccount } from "../domain/email-triage";
 import type { AppRepository } from "../lib/storage/repository";
+import { createOpenRouterClassifierProvider } from "../lib/email-triage/openrouter-classifier";
+import {
+  createEmailTriageAdapter,
+  getEmailTriageCoordinator,
+  setEmailTriageCoordinator,
+} from "../lib/email-triage/gmail-session";
+import { loadVaultSecret } from "../lib/email-triage/vault";
 import type { EmailTriageClassifierProvider } from "../lib/email-triage/classifier";
+import type { AppSettings } from "../domain/types";
 
 const mockClassifierProvider: EmailTriageClassifierProvider = {
   async completeStructured() {
@@ -15,23 +20,10 @@ const mockClassifierProvider: EmailTriageClassifierProvider = {
       ignoreReason: null,
       confidence: 0.5,
       summary: "Mock",
-      rationale: "Mock classifier in foundation slice",
+      rationale: "Mock classifier in browser preview",
       suggestedTaskTitle: "Review email",
     });
   },
-};
-
-const createMockAdapter = (account: EmailTriageAccount) => {
-  switch (account.provider) {
-    case "gmail":
-      return new MockGmailAdapter([], new Map());
-    case "microsoft_graph":
-      return new MockGraphAdapter([]);
-    case "yahoo":
-      return new MockYahooAdapter([]);
-    default:
-      return null;
-  }
 };
 
 const buildEmailTriageRepositoryPort = (repository: AppRepository) => ({
@@ -79,30 +71,58 @@ const buildEmailTriageRepositoryPort = (repository: AppRepository) => ({
 
 export const useEmailTriageCoordinator = (
   repository: AppRepository | null,
-  options: { browserPreview: boolean; allowStart: boolean },
+  options: { browserPreview: boolean; allowStart: boolean; settings: AppSettings },
 ): { reconfigure: () => Promise<void> } => {
   const coordinatorRef = useRef<EmailTriageCoordinator | null>(null);
 
   useEffect(() => {
     if (!repository || options.browserPreview || !options.allowStart) {
       coordinatorRef.current = null;
+      setEmailTriageCoordinator(null);
       return;
     }
 
+    let cancelled = false;
+    const classifierProvider = createOpenRouterClassifierProvider(options.settings.aiBaseUrl);
+
     const coordinator = new EmailTriageCoordinator({
       repository: buildEmailTriageRepositoryPort(repository),
-      createAdapter: createMockAdapter,
-      classifierProvider: mockClassifierProvider,
+      createAdapter: async (account) => {
+        const settings = await repository.getEmailTriageGlobalSettings();
+        return createEmailTriageAdapter(account, settings);
+      },
+      classifierProvider: {
+        completeStructured: async (request) => {
+          const triageKey = await loadVaultSecret("triage_api_key");
+          if (!triageKey) {
+            return mockClassifierProvider.completeStructured(request);
+          }
+          return classifierProvider.completeStructured({
+            ...request,
+            apiKey: triageKey,
+          });
+        },
+      },
       browserPreview: options.browserPreview,
     });
     coordinatorRef.current = coordinator;
-    void coordinator.start();
+    setEmailTriageCoordinator(coordinator);
+    void coordinator.start().then(() => {
+      if (cancelled) {
+        coordinator.stop();
+        if (getEmailTriageCoordinator() === coordinator) {
+          setEmailTriageCoordinator(null);
+        }
+      }
+    });
 
     return () => {
+      cancelled = true;
       coordinator.stop();
       coordinatorRef.current = null;
+      setEmailTriageCoordinator(null);
     };
-  }, [repository, options.browserPreview, options.allowStart]);
+  }, [repository, options.browserPreview, options.allowStart, options.settings.aiBaseUrl]);
 
   return {
     reconfigure: async () => {

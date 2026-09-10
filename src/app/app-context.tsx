@@ -89,6 +89,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   const { reconfigure: reconfigureEmailTriage } = useEmailTriageCoordinator(repository, {
     browserPreview,
     allowStart: !loading && !startupError,
+    settings,
   });
 
   const enqueueStartupWork = (work: () => Promise<void>) => {

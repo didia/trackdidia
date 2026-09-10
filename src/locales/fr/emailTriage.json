@@ -19,12 +19,22 @@
   "resume": "Reprendre",
   "syncNow": "Synchroniser",
   "disconnect": "Déconnecter",
+  "connectGmail": "Connecter Gmail",
+  "reconnectGmail": "Reconnecter Gmail",
   "globalEnabled": "Activer le triage courriel",
   "globalMutation": "Mutation fournisseur (désactivée)",
   "pollInterval": "Intervalle de sondage (minutes)",
   "relevantThreshold": "Seuil Pertinent",
   "ignoreThreshold": "Seuil Ignorer",
   "classifierModel": "Modèle classificateur",
+  "gmailOAuthClientId": "Identifiant client OAuth Gmail (avancé)",
+  "gmailOAuthClientIdPlaceholder": "Client ID Google Cloud (application de bureau)",
+  "missingClientId": "Renseignez un identifiant client OAuth Gmail avant de connecter un compte.",
+  "triageApiKey": "Clé API triage (coffre OS)",
+  "triageApiKeyPlaceholder": "Clé OpenRouter dédiée au triage",
+  "triageApiKeySaved": "Clé enregistrée dans le coffre OS.",
+  "saveTriageApiKey": "Enregistrer la clé triage",
+  "copyCoachKey": "Copier la clé coach",
   "saveSettings": "Enregistrer les paramètres",
   "runEvaluation": "Lancer l'évaluation",
   "addMockAccount": "Ajouter un compte test",
@@ -39,6 +49,25 @@
   "ignoreReasonPlaceholder": "Choisir un motif",
   "leaveForLater": "Laisser pour plus tard",
   "openSource": "Ouvrir / rechercher",
+  "connectErrors": {
+    "browser_preview": "Connexion indisponible en prévisualisation navigateur.",
+    "missing_client_id": "Identifiant client OAuth Gmail manquant.",
+    "oauth_state_mismatch": "État OAuth invalide. Réessayez.",
+    "missing_refresh_token": "Google n'a pas renvoyé de jeton d'actualisation.",
+    "reconnect_account_mismatch": "Le compte Google ne correspond pas à ce compte TrackDidia.",
+    "connect_failed": "La connexion Gmail a échoué.",
+    "vault_save_failed": "Impossible d'enregistrer dans le coffre OS."
+  },
+  "vaultErrors": {
+    "disconnect_failed": "Impossible de supprimer les identifiants du coffre OS."
+  },
+  "syncErrors": {
+    "coordinator_not_running": "Activez le triage courriel et attendez le démarrage du coordinateur.",
+    "browser_preview": "Synchronisation indisponible en prévisualisation navigateur.",
+    "reconnect_required": "Reconnexion Gmail requise pour ce compte.",
+    "sync_failed": "La synchronisation a échoué. Consultez l'erreur du compte.",
+    "unknown": "Synchronisation impossible pour le moment."
+  },
   "states": {
     "disconnected": "Déconnecté",
     "connecting": "Connexion",

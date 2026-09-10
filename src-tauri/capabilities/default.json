@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Capacites par defaut de l'application",
   "windows": ["main"],
-  "permissions": ["core:default", "notification:default", "dialog:default"]
+  "permissions": ["core:default", "notification:default", "dialog:default", "opener:default"]
 }

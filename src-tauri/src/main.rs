@@ -2,6 +2,8 @@
 
 mod backup;
 mod db;
+mod oauth_loopback;
+mod provider_http;
 mod vault;
 
 use serde::Serialize;
@@ -77,7 +79,9 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(db::DbState::default())
+        .manage(oauth_loopback::OAuthLoopbackState::default())
         .invoke_handler(tauri::generate_handler![
             resolve_storage_paths,
             rescuetime_http_get,
@@ -89,7 +93,10 @@ fn main() {
             vault::vault_check_availability,
             vault::vault_store_secret,
             vault::vault_load_secret,
-            vault::vault_delete_secret
+            vault::vault_delete_secret,
+            oauth_loopback::oauth_loopback_start,
+            oauth_loopback::oauth_loopback_wait,
+            provider_http::provider_http_request
         ])
         .run(tauri::generate_context!())
         .expect("error while running Trackdidia");

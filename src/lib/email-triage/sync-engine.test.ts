@@ -320,4 +320,70 @@ describe("sync-engine processProviderPage", () => {
     const message = await repository.emailTriageGetMessageByProviderId(account.id, "m1");
     expect(message?.routingDecision).toBe("relevant");
   });
+
+  it("updates in-memory account syncState before the next fetchPage", async () => {
+    const fetchCalls: Record<string, unknown>[] = [];
+    const adapter = {
+      provider: "gmail" as const,
+      fetchPage: async (syncState: Record<string, unknown>) => {
+        fetchCalls.push({ ...syncState });
+        if (fetchCalls.length === 1) {
+          return {
+            messages: [],
+            cursorUpdate: {
+              historyPageToken: "token-2",
+              recoveryPhase: "scanning",
+            },
+            hasMore: true,
+            gapDetected: false,
+          };
+        }
+        return {
+          messages: [],
+          cursorUpdate: null,
+          hasMore: false,
+          gapDetected: false,
+        };
+      },
+    };
+    const account = baseAccount();
+    const repository: EmailTriageRepositoryPort = {
+      getGlobalSettings: async () => defaultEmailTriageGlobalSettings(),
+      getAccount: async () => account,
+      updateAccountSyncState: async (_accountId, syncState) => {
+        return { ...account, syncState: { ...syncState } };
+      },
+      upsertConversation: async () => {
+        throw new Error("not used");
+      },
+      getConversationByKey: async () => null,
+      persistMessageBatch: async () => ({ conversations: [] }),
+      getMessageByProviderId: async () => null,
+      getConversation: async () => null,
+      dismissPendingReviews: async () => undefined,
+      listPendingEffects: async () => [],
+      listPendingEffectsForAccount: async () => [],
+      saveDesiredEffect: async () => undefined,
+      getTaskByExternalId: async () => null,
+      applyEmailTriageGtdUpdate: async () => null,
+      createReview: async () => undefined,
+    };
+    const options = {
+      repository,
+      account,
+      adapter,
+      classifierProvider: { completeStructured: async () => "" },
+      apiKey: null,
+      globalSettings: defaultEmailTriageGlobalSettings(),
+      mutationEnabled: false,
+    };
+
+    const first = await processProviderPage(options);
+    await processProviderPage({ ...options, account: first.account });
+
+    expect(fetchCalls[1]?.historyPageToken).toBe("token-2");
+    expect(fetchCalls[1]?.recoveryPhase).toBe("scanning");
+    expect(first.account.syncState.historyPageToken).toBe("token-2");
+    expect(first.account.syncState.recoveryPhase).toBe("scanning");
+  });
 });

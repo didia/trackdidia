@@ -10,24 +10,45 @@ import {
   type EmailTriageReview,
 } from "../domain/email-triage";
 import { formatDateTimeShort } from "../lib/date";
-import { checkVaultAvailability } from "../lib/email-triage/vault";
-import { createEntityId, nowIso } from "../lib/gtd/shared";
 import {
   clampConfidenceThreshold,
   clampPollInterval,
   EMAIL_TRIAGE_DEFAULT_IGNORE_THRESHOLD,
   EMAIL_TRIAGE_DEFAULT_RELEVANT_THRESHOLD,
 } from "../lib/email-triage/constants";
+import { resolveGmailOAuthClientId } from "../lib/email-triage/oauth/gmail-oauth";
+import {
+  connectGmailAccount,
+  disconnectGmailAccount,
+  openExternalUrl,
+  syncEmailTriageAccountNow,
+} from "../lib/email-triage/runtime";
+import {
+  checkVaultAvailability,
+  loadVaultSecret,
+  storeVaultSecret,
+} from "../lib/email-triage/vault";
+import { createEntityId, nowIso } from "../lib/gtd/shared";
 
 export const EmailTriagePage = () => {
   const { t } = useTranslation("emailTriage");
-  const { repository, browserPreview, reconfigureEmailTriage } = useAppContext();
+  const {
+    repository,
+    browserPreview,
+    settings: appSettings,
+    reconfigureEmailTriage,
+  } = useAppContext();
   const [accounts, setAccounts] = useState<EmailTriageAccount[]>([]);
   const [reviews, setReviews] = useState<EmailTriageReview[]>([]);
   const [settings, setSettings] = useState<EmailTriageGlobalSettings>(
     defaultEmailTriageGlobalSettings(),
   );
   const [vaultAvailable, setVaultAvailable] = useState(true);
+  const [triageKeySaved, setTriageKeySaved] = useState(false);
+  const [triageKeyDraft, setTriageKeyDraft] = useState("");
+  const [connecting, setConnecting] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
+  const [accountActionError, setAccountActionError] = useState<Record<string, string>>({});
   const [previewReviewId, setPreviewReviewId] = useState<string | null>(null);
   const [ignoreReasonByReviewId, setIgnoreReasonByReviewId] = useState<
     Record<string, EmailTriageIgnoreReason>
@@ -38,6 +59,12 @@ export const EmailTriagePage = () => {
   const [resolveErrorByReviewId, setResolveErrorByReviewId] = useState<Record<string, string>>({});
   const [resolvingReviewId, setResolvingReviewId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const resolvedClientId = useMemo(
+    () => resolveGmailOAuthClientId(settings.gmailOAuthClientId),
+    [settings.gmailOAuthClientId],
+  );
+  const canConnectGmail = !browserPreview && vaultAvailable && Boolean(resolvedClientId);
 
   const ignoreReasonOptions: Exclude<EmailTriageIgnoreReason, null>[] = [
     "newsletter",
@@ -65,7 +92,11 @@ export const EmailTriagePage = () => {
     } else {
       setVaultAvailable(true);
     }
-  }, [repository]);
+    if (!browserPreview) {
+      const storedKey = await loadVaultSecret("triage_api_key");
+      setTriageKeySaved(Boolean(storedKey));
+    }
+  }, [repository, browserPreview]);
 
   useEffect(() => {
     void load();
@@ -99,6 +130,32 @@ export const EmailTriagePage = () => {
     }
   };
 
+  const saveTriageApiKey = async () => {
+    if (browserPreview || !triageKeyDraft.trim()) {
+      return;
+    }
+    try {
+      await storeVaultSecret("triage_api_key", triageKeyDraft.trim());
+      setTriageKeyDraft("");
+      setTriageKeySaved(true);
+    } catch {
+      setConnectError("vault_save_failed");
+    }
+  };
+
+  const copyCoachKeyToVault = async () => {
+    if (browserPreview || !appSettings.aiApiKey.trim()) {
+      return;
+    }
+    try {
+      await storeVaultSecret("triage_api_key", appSettings.aiApiKey.trim());
+      setTriageKeyDraft("");
+      setTriageKeySaved(true);
+    } catch {
+      setConnectError("vault_save_failed");
+    }
+  };
+
   const toggleAccountPause = async (account: EmailTriageAccount) => {
     await repository.saveEmailTriageAccount({
       ...account,
@@ -106,6 +163,64 @@ export const EmailTriagePage = () => {
       updatedAt: nowIso(),
     });
     await reconfigureEmailTriage();
+    await load();
+  };
+
+  const handleConnectGmail = async (reconnectAccountId?: string) => {
+    setConnecting(true);
+    setConnectError(null);
+    try {
+      const result = await connectGmailAccount(repository, {
+        reconnectAccountId,
+        clientId: settings.gmailOAuthClientId,
+      });
+      if (!result.ok) {
+        setConnectError(result.error ?? "connect_failed");
+      }
+      await load();
+    } catch {
+      setConnectError("connect_failed");
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const handleDisconnect = async (account: EmailTriageAccount) => {
+    setAccountActionError((current) => {
+      const next = { ...current };
+      delete next[account.id];
+      return next;
+    });
+    try {
+      await disconnectGmailAccount(repository, account.id);
+      await load();
+    } catch {
+      setAccountActionError((current) => ({
+        ...current,
+        [account.id]: t("vaultErrors.disconnect_failed"),
+      }));
+    }
+  };
+
+  const handleSyncNow = async (account: EmailTriageAccount) => {
+    const result = await syncEmailTriageAccountNow(account.id);
+    if (!result.ok && result.reason !== "cancelled") {
+      const reason = result.reason ?? "unknown";
+      const message =
+        reason === "coordinator_not_running"
+          ? t("syncErrors.coordinator_not_running")
+          : reason === "browser_preview"
+            ? t("syncErrors.browser_preview")
+            : reason === "reconnect_required"
+              ? t("syncErrors.reconnect_required")
+              : reason === "sync_failed"
+                ? t("syncErrors.sync_failed")
+                : t("syncErrors.unknown");
+      setAccountActionError((current) => ({
+        ...current,
+        [account.id]: message,
+      }));
+    }
     await load();
   };
 
@@ -263,6 +378,28 @@ export const EmailTriagePage = () => {
               }
             />
           </label>
+          <label>
+            <span>{t("gmailOAuthClientId")}</span>
+            <input
+              type="text"
+              value={settings.gmailOAuthClientId}
+              onChange={(event) =>
+                setSettings({ ...settings, gmailOAuthClientId: event.target.value })
+              }
+              placeholder={t("gmailOAuthClientIdPlaceholder")}
+            />
+          </label>
+          {!browserPreview ? (
+            <label>
+              <span>{t("triageApiKey")}</span>
+              <input
+                type="password"
+                value={triageKeyDraft}
+                onChange={(event) => setTriageKeyDraft(event.target.value)}
+                placeholder={triageKeySaved ? t("triageApiKeySaved") : t("triageApiKeyPlaceholder")}
+              />
+            </label>
+          ) : null}
         </div>
         <div className="actions-row">
           <button
@@ -273,10 +410,45 @@ export const EmailTriagePage = () => {
           >
             {t("saveSettings")}
           </button>
+          {!browserPreview ? (
+            <>
+              <button
+                type="button"
+                className="button"
+                disabled={!triageKeyDraft.trim()}
+                onClick={() => void saveTriageApiKey()}
+              >
+                {t("saveTriageApiKey")}
+              </button>
+              <button
+                type="button"
+                className="button"
+                disabled={!appSettings.aiApiKey.trim()}
+                onClick={() => void copyCoachKeyToVault()}
+              >
+                {t("copyCoachKey")}
+              </button>
+            </>
+          ) : null}
         </div>
+        {triageKeySaved ? <p>{t("triageApiKeySaved")}</p> : null}
       </SectionCard>
 
       <SectionCard title={t("accountsTitle")}>
+        <div className="actions-row">
+          <button
+            type="button"
+            className="button button--primary"
+            disabled={!canConnectGmail || connecting || !settings.enabled}
+            onClick={() => void handleConnectGmail()}
+          >
+            {t("connectGmail")}
+          </button>
+        </div>
+        {connectError ? (
+          <p>{t(`connectErrors.${connectError}`, { defaultValue: connectError })}</p>
+        ) : null}
+        {!resolvedClientId && !browserPreview ? <p>{t("missingClientId")}</p> : null}
         {accounts.length === 0 ? <p>{t("noAccounts")}</p> : null}
         <div className="stack">
           {accounts.map((account) => (
@@ -299,6 +471,7 @@ export const EmailTriagePage = () => {
                   {t("error")}: {account.lastError}
                 </p>
               ) : null}
+              {accountActionError[account.id] ? <p>{accountActionError[account.id]}</p> : null}
               <div className="actions-row">
                 <button
                   type="button"
@@ -307,13 +480,42 @@ export const EmailTriagePage = () => {
                 >
                   {account.paused ? t("resume") : t("pause")}
                 </button>
+                {account.provider === "gmail" && !browserPreview ? (
+                  <>
+                    <button
+                      type="button"
+                      className="button"
+                      disabled={!settings.enabled}
+                      onClick={() => void handleSyncNow(account)}
+                    >
+                      {t("syncNow")}
+                    </button>
+                    <button
+                      type="button"
+                      className="button"
+                      disabled={!canConnectGmail || connecting}
+                      onClick={() => void handleConnectGmail(account.id)}
+                    >
+                      {t("reconnectGmail")}
+                    </button>
+                    <button
+                      type="button"
+                      className="button"
+                      onClick={() => void handleDisconnect(account)}
+                    >
+                      {t("disconnect")}
+                    </button>
+                  </>
+                ) : null}
               </div>
             </article>
           ))}
         </div>
-        <button type="button" className="button" onClick={() => void addMockAccount()}>
-          {t("addMockAccount")}
-        </button>
+        {import.meta.env.DEV ? (
+          <button type="button" className="button" onClick={() => void addMockAccount()}>
+            {t("addMockAccount")}
+          </button>
+        ) : null}
       </SectionCard>
 
       <SectionCard title={t("reviewsTitle")}>
@@ -334,6 +536,21 @@ export const EmailTriagePage = () => {
               >
                 {t("previewBody")}
               </button>
+              {review.sanitizedPreview?.sourceUrl ? (
+                browserPreview ? (
+                  <code>{review.sanitizedPreview.sourceUrl}</code>
+                ) : (
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={() =>
+                      void openExternalUrl(review.sanitizedPreview?.sourceUrl ?? "", browserPreview)
+                    }
+                  >
+                    {t("openSource")}
+                  </button>
+                )
+              ) : null}
               <label>
                 <span>{t("ignoreReasonLabel")}</span>
                 <select

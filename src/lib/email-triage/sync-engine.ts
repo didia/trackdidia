@@ -118,15 +118,37 @@ export interface SyncEngineOptions {
   apiKey: string | null;
   globalSettings: EmailTriageGlobalSettings;
   mutationEnabled: boolean;
+  shouldContinue?: () => boolean | Promise<boolean>;
 }
 
 export const processProviderPage = async (
   options: SyncEngineOptions,
-): Promise<{ hasMore: boolean; gapDetected: boolean; account: EmailTriageAccount }> => {
+): Promise<{
+  hasMore: boolean;
+  gapDetected: boolean;
+  account: EmailTriageAccount;
+  cancelled: boolean;
+}> => {
   const page = await options.adapter.fetchPage(options.account.syncState);
 
   for (const transient of page.messages) {
-    await processTransientMessage(options, transient);
+    if (!(await isSyncStillAllowed(options))) {
+      return {
+        hasMore: true,
+        gapDetected: false,
+        account: options.account,
+        cancelled: true,
+      };
+    }
+    const outcome = await processTransientMessage(options, transient);
+    if (outcome === "cancelled") {
+      return {
+        hasMore: true,
+        gapDetected: false,
+        account: options.account,
+        cancelled: true,
+      };
+    }
   }
 
   let account = options.account;
@@ -141,7 +163,14 @@ export const processProviderPage = async (
     );
   }
 
-  return { hasMore: page.hasMore, gapDetected: page.gapDetected, account };
+  return { hasMore: page.hasMore, gapDetected: page.gapDetected, account, cancelled: false };
+};
+
+const isSyncStillAllowed = async (options: SyncEngineOptions): Promise<boolean> => {
+  if (!options.shouldContinue) {
+    return true;
+  }
+  return options.shouldContinue();
 };
 
 const buildPersistAttempt = (
@@ -311,9 +340,12 @@ const bumpConversationIfRoutingChanged = async (
 const processTransientMessage = async (
   options: SyncEngineOptions,
   transient: EmailTriageTransientMessage,
-): Promise<void> => {
+): Promise<"ok" | "cancelled"> => {
   if (!transient.inInbox) {
-    return;
+    return "ok";
+  }
+  if (!(await isSyncStillAllowed(options))) {
+    return "cancelled";
   }
 
   let conversation =
@@ -336,6 +368,9 @@ const processTransientMessage = async (
     transient.providerMessageId,
   );
   if (existingMessage && isTerminalRoutingDecision(existingMessage.routingDecision)) {
+    if (!(await isSyncStillAllowed(options))) {
+      return "cancelled";
+    }
     await ensureCommittedDecision(
       options,
       conversation,
@@ -343,7 +378,11 @@ const processTransientMessage = async (
       existingMessage.routingDecision,
       null,
     );
-    return;
+    return "ok";
+  }
+
+  if (!(await isSyncStillAllowed(options))) {
+    return "cancelled";
   }
 
   const classifyResult =
@@ -375,6 +414,10 @@ const processTransientMessage = async (
   const routedDecision = classifyResult.routedDecision;
   const alreadyProcessed = existingMessage?.routingDecision === routedDecision;
 
+  if (!(await isSyncStillAllowed(options))) {
+    return "cancelled";
+  }
+
   if (!alreadyProcessed) {
     await persistClassifiedMessage(options, transient, classifyResult, routedDecision);
   }
@@ -396,7 +439,7 @@ const processTransientMessage = async (
       reason: classifyResult.reviewReasons.join(",") || "review",
       preview: buildReviewPreview(transient),
     });
-    return;
+    return "ok";
   }
 
   const existingTask = await options.repository.getTaskByExternalId(
@@ -429,7 +472,7 @@ const processTransientMessage = async (
       reason: plan.reviewReason ?? "review",
       preview: buildReviewPreview(transient),
     });
-    return;
+    return "ok";
   }
 
   await ensureCommittedDecision(
@@ -439,6 +482,7 @@ const processTransientMessage = async (
     routedDecision,
     alreadyProcessed ? null : classifyResult,
   );
+  return "ok";
 };
 
 export const reconcilePendingEffects = async (
