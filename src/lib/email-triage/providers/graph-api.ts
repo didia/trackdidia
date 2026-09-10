@@ -7,10 +7,14 @@ const GRAPH_API_BASE = "https://graph.microsoft.com/v1.0";
 export const GRAPH_INBOX_DELTA_URL =
   "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta";
 
-export const GRAPH_MESSAGE_SELECT =
-  "id,conversationId,internetMessageId,receivedDateTime,subject,from,toRecipients,body,categories,webLink,parentFolderId";
+export const GRAPH_MESSAGE_DELTA_SELECT =
+  "id,conversationId,internetMessageId,receivedDateTime,subject,from,toRecipients,categories,webLink,parentFolderId";
+
+export const GRAPH_MESSAGE_BODY_SELECT = `${GRAPH_MESSAGE_DELTA_SELECT},body`;
 
 export const GRAPH_PREFER_HEADERS = 'IdType="ImmutableId", outlook.body-content-type="text"';
+
+export const GRAPH_DELTA_PREFER_HEADERS = `${GRAPH_PREFER_HEADERS}, odata.maxpagesize=25`;
 
 export interface GraphEmailAddress {
   address: string;
@@ -126,7 +130,9 @@ export class GraphApiClient {
   }
 
   async fetchDeltaPage(url: string): Promise<GraphDeltaPage> {
-    const response = await this.authorizedRequest("GET", url);
+    const response = await this.authorizedRequest("GET", url, {
+      headers: { Prefer: GRAPH_DELTA_PREFER_HEADERS },
+    });
     if (response.status === 410) {
       throw new ProviderHttpError("graph_delta_invalid", 410, response.body);
     }
@@ -143,22 +149,16 @@ export class GraphApiClient {
     return parseJsonBody<GraphDeltaPage>(response);
   }
 
-  buildInitialDeltaUrl(): string {
+  buildFilteredDeltaUrl(sinceIso: string): string {
     const url = new URL(GRAPH_INBOX_DELTA_URL);
-    url.searchParams.set("$select", GRAPH_MESSAGE_SELECT);
-    return url.toString();
-  }
-
-  buildLatestDeltaUrl(): string {
-    const url = new URL(GRAPH_INBOX_DELTA_URL);
-    url.searchParams.set("$select", GRAPH_MESSAGE_SELECT);
-    url.searchParams.set("$deltatoken", "latest");
+    url.searchParams.set("$select", GRAPH_MESSAGE_DELTA_SELECT);
+    url.searchParams.set("$filter", `receivedDateTime ge ${sinceIso}`);
     return url.toString();
   }
 
   async getMessage(messageId: string): Promise<GraphMessage> {
     const url = new URL(`${GRAPH_API_BASE}/me/messages/${encodeURIComponent(messageId)}`);
-    url.searchParams.set("$select", GRAPH_MESSAGE_SELECT);
+    url.searchParams.set("$select", GRAPH_MESSAGE_BODY_SELECT);
     const response = await this.authorizedRequest("GET", url.toString());
     assertHttpSuccess(response, "graph_message");
     return parseJsonBody<GraphMessage & { "@odata.etag"?: string }>(response);

@@ -3,6 +3,7 @@ export const MICROSOFT_OAUTH_AUTH_URL = `${MICROSOFT_OAUTH_AUTHORITY}/oauth2/v2.
 export const MICROSOFT_OAUTH_TOKEN_URL = `${MICROSOFT_OAUTH_AUTHORITY}/oauth2/v2.0/token`;
 
 export const MICROSOFT_OAUTH_SCOPES = [
+  "User.Read",
   "Mail.ReadWrite",
   "MailboxSettings.ReadWrite",
   "offline_access",
@@ -49,6 +50,17 @@ export const buildMicrosoftAuthorizationUrl = (options: {
 
 export const isAdminConsentRequiredError = (body: string): boolean =>
   body.includes("AADSTS65001") || body.toLowerCase().includes("admin_consent");
+
+export const classifyMicrosoftAuthorizationCallbackError = (
+  error: string,
+  errorDescription?: string | null,
+): string => {
+  const combined = `${error} ${errorDescription ?? ""}`;
+  if (isAdminConsentRequiredError(combined)) {
+    return "admin_consent_required";
+  }
+  return error;
+};
 
 export const isMicrosoftReconnectRequiredError = (body: string, status: number): boolean =>
   status === 401 ||

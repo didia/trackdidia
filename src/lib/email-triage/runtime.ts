@@ -16,10 +16,16 @@ import {
 } from "./oauth/gmail-oauth";
 import {
   buildMicrosoftAuthorizationUrl,
+  classifyMicrosoftAuthorizationCallbackError,
   exchangeMicrosoftAuthorizationCode,
   type MicrosoftOAuthTokens,
   resolveMicrosoftOAuthClientId,
 } from "./oauth/microsoft-oauth";
+import {
+  snapshotReconnectTarget,
+  type ReconnectTargetSnapshot,
+  validateReconnectCanProceed,
+} from "./reconnect-guard";
 import {
   createPkceChallenge,
   generateOAuthState,
@@ -70,6 +76,15 @@ export const connectGmailAccount = async (
     return { ok: false, error: "missing_client_id" };
   }
 
+  let reconnectSnapshot: ReconnectTargetSnapshot | null = null;
+  if (options.reconnectAccountId) {
+    const target = await repository.getEmailTriageAccount(options.reconnectAccountId);
+    if (!target) {
+      return { ok: false, error: "account_not_found" };
+    }
+    reconnectSnapshot = snapshotReconnectTarget(target);
+  }
+
   const oauthState = generateOAuthState();
   const verifier = generatePkceVerifier();
   const challenge = await createPkceChallenge(verifier);
@@ -117,14 +132,20 @@ export const connectGmailAccount = async (
   );
   const coordinator = getEmailTriageCoordinator();
 
-  if (options.reconnectAccountId) {
-    const target = await repository.getEmailTriageAccount(options.reconnectAccountId);
-    if (!target) {
-      return { ok: false, error: "account_not_found" };
+  if (reconnectSnapshot) {
+    const validation = validateReconnectCanProceed({
+      snapshot: reconnectSnapshot,
+      currentAccount: await repository.getEmailTriageAccount(reconnectSnapshot.id),
+      authenticatedProviderAccountId: providerAccountId,
+    });
+    if (!validation.ok) {
+      return {
+        ok: false,
+        error: validation.error,
+        reconnectMismatch: validation.error === "reconnect_account_mismatch",
+      };
     }
-    if (target.providerAccountId !== providerAccountId) {
-      return { ok: false, error: "reconnect_account_mismatch", reconnectMismatch: true };
-    }
+    const target = (await repository.getEmailTriageAccount(reconnectSnapshot.id))!;
     await persistGmailAccountCredentials({
       repository,
       account: {
@@ -218,6 +239,15 @@ export const connectMicrosoftAccount = async (
     return { ok: false, error: "missing_client_id" };
   }
 
+  let reconnectSnapshot: ReconnectTargetSnapshot | null = null;
+  if (options.reconnectAccountId) {
+    const target = await repository.getEmailTriageAccount(options.reconnectAccountId);
+    if (!target) {
+      return { ok: false, error: "account_not_found" };
+    }
+    reconnectSnapshot = snapshotReconnectTarget(target);
+  }
+
   const oauthState = generateOAuthState();
   const verifier = generatePkceVerifier();
   const challenge = await createPkceChallenge(verifier);
@@ -231,12 +261,17 @@ export const connectMicrosoftAccount = async (
     codeChallenge: challenge,
   });
   await openUrl(authUrl);
-  const callback = await invoke<{ code?: string; state?: string; error?: string }>(
-    "oauth_loopback_wait",
-    { timeoutMs: 180_000 },
-  );
+  const callback = await invoke<{
+    code?: string;
+    state?: string;
+    error?: string;
+    errorDescription?: string;
+  }>("oauth_loopback_wait", { timeoutMs: 180_000 });
   if (callback.error) {
-    return { ok: false, error: callback.error };
+    return {
+      ok: false,
+      error: classifyMicrosoftAuthorizationCallbackError(callback.error, callback.errorDescription),
+    };
   }
   if (!validateOAuthState(oauthState, callback.state) || !callback.code) {
     return { ok: false, error: "oauth_state_mismatch" };
@@ -282,14 +317,20 @@ export const connectMicrosoftAccount = async (
   );
   const coordinator = getEmailTriageCoordinator();
 
-  if (options.reconnectAccountId) {
-    const target = await repository.getEmailTriageAccount(options.reconnectAccountId);
-    if (!target) {
-      return { ok: false, error: "account_not_found" };
+  if (reconnectSnapshot) {
+    const validation = validateReconnectCanProceed({
+      snapshot: reconnectSnapshot,
+      currentAccount: await repository.getEmailTriageAccount(reconnectSnapshot.id),
+      authenticatedProviderAccountId: providerAccountId,
+    });
+    if (!validation.ok) {
+      return {
+        ok: false,
+        error: validation.error,
+        reconnectMismatch: validation.error === "reconnect_account_mismatch",
+      };
     }
-    if (target.providerAccountId !== providerAccountId) {
-      return { ok: false, error: "reconnect_account_mismatch", reconnectMismatch: true };
-    }
+    const target = (await repository.getEmailTriageAccount(reconnectSnapshot.id))!;
     await persistGmailAccountCredentials({
       repository,
       account: {

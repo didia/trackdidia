@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { GraphAdapter } from "./graph-adapter";
 import type { GraphApiClient, GraphDeltaPage, GraphMessage } from "./graph-api";
 import { ProviderHttpError } from "../provider-http";
@@ -27,8 +27,7 @@ const createFakeApi = (handlers: {
   ) => Promise<void>;
   listMasterCategories?: () => Promise<Array<{ displayName: string }>>;
   createMasterCategory?: (displayName: string) => Promise<{ displayName: string }>;
-  buildInitialDeltaUrl?: () => string;
-  buildLatestDeltaUrl?: () => string;
+  buildFilteredDeltaUrl?: (sinceIso: string) => string;
 }) => {
   const api = {
     fetchDeltaPage:
@@ -43,45 +42,78 @@ const createFakeApi = (handlers: {
       handlers.listMasterCategories ?? (async () => [{ displayName: "Trackdidia-Inbox" }]),
     createMasterCategory:
       handlers.createMasterCategory ?? (async (displayName: string) => ({ displayName })),
-    buildInitialDeltaUrl:
-      handlers.buildInitialDeltaUrl ??
-      (() => "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta"),
-    buildLatestDeltaUrl:
-      handlers.buildLatestDeltaUrl ??
-      (() =>
-        "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=latest"),
+    buildFilteredDeltaUrl:
+      handlers.buildFilteredDeltaUrl ??
+      ((sinceIso: string) =>
+        `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$filter=receivedDateTime ge ${sinceIso}`),
   };
   return api as unknown as GraphApiClient;
 };
 
 describe("GraphAdapter", () => {
-  it("uses $deltatoken=latest on first fetch without surfacing historical messages", async () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("uses receivedDateTime filter on first fetch and captures baseline before request", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T12:00:00.000Z"));
+
     const fetchDeltaPage = vi.fn(async (url: string): Promise<GraphDeltaPage> => {
-      expect(url).toContain("$deltatoken=latest");
+      expect(url).toContain("receivedDateTime");
+      expect(url).not.toContain("$deltatoken=latest");
+      vi.setSystemTime(new Date("2026-01-02T00:00:00.000Z"));
       return {
         value: [sampleMessage("old", { receivedDateTime: "2025-12-31T10:00:00.000Z" })],
-        "@odata.deltaLink": "https://graph.microsoft.com/delta/baseline",
+        "@odata.nextLink": "https://graph.microsoft.com/next-page",
       };
     });
-    const buildLatestDeltaUrl = vi.fn(
-      () =>
-        "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=latest",
+    const buildFilteredDeltaUrl = vi.fn(
+      (sinceIso: string) =>
+        `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$filter=receivedDateTime ge ${sinceIso}`,
     );
     const adapter = new GraphAdapter(
-      createFakeApi({ fetchDeltaPage, buildLatestDeltaUrl }),
+      createFakeApi({ fetchDeltaPage, buildFilteredDeltaUrl }),
       () => [],
     );
     const page = await adapter.fetchPage({});
-    expect(buildLatestDeltaUrl).toHaveBeenCalled();
-    expect(fetchDeltaPage).toHaveBeenCalledWith(
-      "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=latest",
-    );
+    expect(buildFilteredDeltaUrl).toHaveBeenCalledWith("2026-01-01T12:00:00.000Z");
     expect(page.messages).toEqual([]);
-    expect(page.cursorUpdate?.baselineAt).toBeTruthy();
-    expect(page.cursorUpdate?.deltaLink).toBe("https://graph.microsoft.com/delta/baseline");
-    expect(page.cursorUpdate?.snapshotComplete).toBe(true);
-    expect(page.hasMore).toBe(false);
-    expect(page.accountPatch?.state).toBe("active");
+    expect(page.cursorUpdate?.baselineAt).toBe("2026-01-01T12:00:00.000Z");
+    expect(page.cursorUpdate?.deltaLink).toBeNull();
+    expect(page.cursorUpdate?.nextLink).toBe("https://graph.microsoft.com/next-page");
+    expect(page.cursorUpdate?.snapshotComplete).toBe(false);
+    expect(page.hasMore).toBe(true);
+    expect(page.accountPatch?.state).toBeUndefined();
+  });
+
+  it("marks snapshot complete only when a real deltaLink arrives", async () => {
+    const fetchDeltaPage = vi.fn(async (url: string): Promise<GraphDeltaPage> => {
+      if (url.includes("next-page")) {
+        return {
+          value: [],
+          "@odata.deltaLink": "https://graph.microsoft.com/delta/baseline",
+        };
+      }
+      return {
+        value: [],
+        "@odata.nextLink": "https://graph.microsoft.com/next-page",
+      };
+    });
+    const adapter = new GraphAdapter(createFakeApi({ fetchDeltaPage }), () => []);
+    const first = await adapter.fetchPage({});
+    expect(first.cursorUpdate?.snapshotComplete).toBe(false);
+    expect(first.accountPatch?.state).toBeUndefined();
+
+    const second = await adapter.fetchPage({
+      baselineAt: first.cursorUpdate?.baselineAt as string,
+      snapshotComplete: false,
+      nextLink: "https://graph.microsoft.com/next-page",
+      trackedMessageIds: [],
+    });
+    expect(second.cursorUpdate?.deltaLink).toBe("https://graph.microsoft.com/delta/baseline");
+    expect(second.cursorUpdate?.snapshotComplete).toBe(true);
+    expect(second.accountPatch?.state).toBe("active");
   });
 
   it("paginates snapshot pages and stores deltaLink only on the last snapshot page", async () => {
@@ -123,11 +155,11 @@ describe("GraphAdapter", () => {
     expect(second.cursorUpdate?.deltaLink).toBe("https://graph.microsoft.com/delta/final");
     expect(second.cursorUpdate?.snapshotComplete).toBe(true);
     expect(second.accountPatch?.recoveryState).toBe("none");
-    expect(second.accountPatch?.state).toBeUndefined();
+    expect(second.accountPatch?.state).toBe("active");
     expect(second.hasMore).toBe(true);
   });
 
-  it("drops pre-baseline messages on post-snapshot delta replay", async () => {
+  it("surfaces untracked post-snapshot delta rows even when receivedDateTime is before baselineAt", async () => {
     const fetchDeltaPage = vi.fn(
       async (): Promise<GraphDeltaPage> => ({
         value: [
@@ -144,8 +176,38 @@ describe("GraphAdapter", () => {
       deltaLink: "https://graph.microsoft.com/delta/final",
       trackedMessageIds: [],
     });
+    expect(page.messages).toHaveLength(2);
+    expect(page.messages.map((message) => message.providerMessageId)).toEqual([
+      "old-delta",
+      "new-delta",
+    ]);
+  });
+
+  it("quarantines oversized getMessage responses and still advances cursor", async () => {
+    const fetchDeltaPage = vi.fn(
+      async (): Promise<GraphDeltaPage> => ({
+        value: [
+          sampleMessage("big"),
+          sampleMessage("ok", { receivedDateTime: "2026-01-02T11:00:00.000Z" }),
+        ],
+        "@odata.deltaLink": "https://graph.microsoft.com/delta/final",
+      }),
+    );
+    const getMessage = vi.fn(async (messageId: string) => {
+      if (messageId === "big") {
+        throw new Error("HTTP response too large");
+      }
+      return sampleMessage(messageId);
+    });
+    const adapter = new GraphAdapter(createFakeApi({ fetchDeltaPage, getMessage }), () => []);
+    const page = await adapter.fetchPage({
+      baselineAt: "2026-01-01T00:00:00.000Z",
+      snapshotComplete: false,
+      trackedMessageIds: [],
+    });
     expect(page.messages).toHaveLength(1);
-    expect(page.messages[0]?.providerMessageId).toBe("new-delta");
+    expect(page.messages[0]?.providerMessageId).toBe("ok");
+    expect(page.cursorUpdate?.trackedMessageIds).toEqual(expect.arrayContaining(["big", "ok"]));
   });
 
   it("replays delta after snapshot until caught up", async () => {
@@ -184,7 +246,7 @@ describe("GraphAdapter", () => {
     expect(caughtUp.cursorUpdate?.deltaLink).toBe("https://graph.microsoft.com/delta/caught-up");
   });
 
-  it("invalid 410 delta keeps baselineAt and reseeds with full snapshot URL", async () => {
+  it("invalid 410 delta keeps baselineAt and reseeds with filtered snapshot URL", async () => {
     const fetchDeltaPage = vi.fn(async (url: string): Promise<GraphDeltaPage> => {
       if (url.includes("delta/stale")) {
         throw new ProviderHttpError("graph_delta_invalid", 410, "syncStateNotFound");
@@ -194,11 +256,12 @@ describe("GraphAdapter", () => {
         "@odata.nextLink": "https://graph.microsoft.com/reseed-next",
       };
     });
-    const buildInitialDeltaUrl = vi.fn(
-      () => "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta",
+    const buildFilteredDeltaUrl = vi.fn(
+      (sinceIso: string) =>
+        `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$filter=receivedDateTime ge ${sinceIso}`,
     );
     const adapter = new GraphAdapter(
-      createFakeApi({ fetchDeltaPage, buildInitialDeltaUrl }),
+      createFakeApi({ fetchDeltaPage, buildFilteredDeltaUrl }),
       () => [],
     );
     const originalBaseline = "2026-01-01T00:00:00.000Z";
@@ -236,7 +299,7 @@ describe("GraphAdapter", () => {
       snapshotComplete: false,
       trackedMessageIds: [],
     });
-    expect(buildInitialDeltaUrl).toHaveBeenCalled();
+    expect(buildFilteredDeltaUrl).toHaveBeenCalledWith(originalBaseline);
     expect(fetchDeltaPage).not.toHaveBeenCalledWith(expect.stringContaining("$deltatoken=latest"));
     expect(reseedStart.messages).toHaveLength(0);
     expect(reseedStart.cursorUpdate?.nextLink).toBe("https://graph.microsoft.com/reseed-next");

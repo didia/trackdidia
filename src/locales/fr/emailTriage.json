@@ -61,9 +61,10 @@
     "missing_microsoft_client_id": "Identifiant client OAuth Microsoft manquant.",
     "admin_consent_required": "Votre organisation Microsoft exige l'approbation d'un administrateur pour cette application.",
     "oauth_state_mismatch": "État OAuth invalide. Réessayez.",
-    "missing_refresh_token": "Google n'a pas renvoyé de jeton d'actualisation.",
-    "reconnect_account_mismatch": "Le compte Google ne correspond pas à ce compte TrackDidia.",
-    "connect_failed": "La connexion Gmail a échoué.",
+    "missing_refresh_token": "Le fournisseur n'a pas renvoyé de jeton d'actualisation.",
+    "reconnect_account_mismatch": "Le compte connecté ne correspond pas à ce compte TrackDidia.",
+    "reconnect_cancelled": "La reconnexion a été annulée pendant l'autorisation.",
+    "connect_failed": "La connexion au compte courriel a échoué.",
     "vault_save_failed": "Impossible d'enregistrer dans le coffre OS."
   },
   "vaultErrors": {
@@ -72,7 +73,7 @@
   "syncErrors": {
     "coordinator_not_running": "Activez le triage courriel et attendez le démarrage du coordinateur.",
     "browser_preview": "Synchronisation indisponible en prévisualisation navigateur.",
-    "reconnect_required": "Reconnexion Gmail requise pour ce compte.",
+    "reconnect_required": "Reconnexion requise pour ce compte courriel.",
     "sync_failed": "La synchronisation a échoué. Consultez l'erreur du compte.",
     "unknown": "Synchronisation impossible pour le moment."
   },

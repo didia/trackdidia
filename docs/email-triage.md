@@ -21,19 +21,24 @@ Yahoo remains a mocked protocol adapter.
 ### Microsoft Graph (slice 3)
 
 - Multitenant public-desktop OAuth with PKCE, system browser, loopback callback, and scopes
-  `Mail.ReadWrite`, `MailboxSettings.ReadWrite`, `offline_access`, `openid`, `profile`, `email`
-- Live Graph adapter: one-shot `$deltatoken=latest` baseline on first connect (`baselineAt` +
-  `@odata.deltaLink`, no historical inbox walk), paginated full snapshot only after invalid-delta
-  reseed (preserving the original `baselineAt`), post-baseline filtering, delta-link storage only
-  after complete snapshot, immediate delta replay, invalid-delta reseed from any cursor state,
-  message-level Outlook categories, and immutable IDs via `Prefer: IdType="ImmutableId"`
+  `User.Read`, `Mail.ReadWrite`, `MailboxSettings.ReadWrite`, `offline_access`, `openid`, `profile`,
+  `email`
+- Live Graph adapter: first connect and invalid-delta reseed use inbox delta with
+  `$filter=receivedDateTime ge {baselineAt}` (metadata-only `$select`, no `body`), paginated via
+  `@odata.nextLink` until a real `@odata.deltaLink` arrives, per-message body fetch for
+  classification, oversized message quarantine (tracked id, cursor still advances), immediate delta
+  replay after snapshot, message-level Outlook categories, immutable IDs via
+  `Prefer: IdType="ImmutableId"`, and `Prefer: odata.maxpagesize=25` on delta pages
 - Microsoft reconnect preserves sync cursor (`baselineAt`, `deltaLink`, `nextLink`,
-  `snapshotComplete`, `trackedMessageIds`); stale tokens 410 into the lossless reseed path
+  `snapshotComplete`, `trackedMessageIds`) and ignores late OAuth completion when the account was
+  disconnected during the loopback window (generation guard); stale tokens 410 into the filtered
+  reseed path with the original `baselineAt`
 - Azure AD refresh responses rotate the refresh token; TrackDidia persists the new value in the
   vault on every refresh
 - `providerAccountId` is the Microsoft object ID (`/me.id`); display label uses
   `userPrincipalName` or `mail`
-- Admin-consent-required tenant errors surface as a distinct French message (`AADSTS65001`)
+- Admin-consent-required tenant errors surface as a distinct French message (`AADSTS65001`), including
+  loopback `error_description` values classified from authorization callbacks (never shown raw in UI)
 
 ### Shared
 
@@ -70,13 +75,13 @@ Yahoo remains a mocked protocol adapter.
 - Enabling triage or pausing/resuming an account from the page reconfigures the
   coordinator without restarting the app. Disable, pause, and disconnect also
   invalidate the in-flight account generation so later messages on an already
-  fetched page are not classified or committed. Pagination reloads the saved
-  cursor after each completed page, with a per-run page cap. A revoked Google
+  fetched page are not classified or committed. Empty provider pages also skip
+  cursor writes when sync is cancelled mid-page. Pagination reloads the saved
+  cursor after each completed page, with a per-run page cap. A revoked provider
   grant (`invalid_grant`) moves that account to `reconnect_required`. Oversized
-  Gmail payloads stay under the native 2 MiB HTTP cap by falling back to
-  metadata and quarantining the message id so the cursor can still advance.
-  Connect and reconnect vault writes are rolled back if the account row fails
-  to persist.
+  Gmail and Graph payloads stay under the native 2 MiB HTTP cap by quarantining
+  the message id so the cursor can still advance. Connect and reconnect vault
+  writes are rolled back if the account row fails to persist.
 
 ## OAuth client IDs
 

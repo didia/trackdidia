@@ -1,9 +1,9 @@
-import type { EmailTriageAccount } from "../../../domain/email-triage";
+import type { EmailTriageAccount, EmailTriageTransientMessage } from "../../../domain/email-triage";
 import {
   EMAIL_TRIAGE_GRAPH_IGNORE_CATEGORY,
   EMAIL_TRIAGE_GRAPH_INBOX_CATEGORY,
 } from "../constants";
-import { ProviderHttpError } from "../provider-http";
+import { isResponseTooLargeError, ProviderHttpError } from "../provider-http";
 import {
   type GraphApiClient,
   graphMessageToTransient,
@@ -40,8 +40,9 @@ const isOnOrBeforeBaseline = (receivedAt: string | undefined, baselineAt: string
 
 const filterEligibleMessages = (
   messages: GraphMessage[],
-  baselineAt: string,
+  baselineAt: string | null,
   tracked: Set<string>,
+  snapshotComplete: boolean,
 ): GraphMessage[] => {
   const eligible: GraphMessage[] = [];
   for (const message of messages) {
@@ -51,7 +52,11 @@ const filterEligibleMessages = (
     if (!message.id || tracked.has(message.id)) {
       continue;
     }
-    if (isOnOrBeforeBaseline(message.receivedDateTime, baselineAt)) {
+    if (
+      !snapshotComplete &&
+      baselineAt &&
+      isOnOrBeforeBaseline(message.receivedDateTime, baselineAt)
+    ) {
       continue;
     }
     eligible.push(message);
@@ -69,10 +74,20 @@ export class GraphAdapter implements EmailTriageProviderAdapter {
   ) {}
 
   async fetchPage(syncState: Record<string, unknown>): Promise<ProviderSyncPage> {
-    const state = readSyncState(syncState);
+    let state = readSyncState(syncState);
 
     if (!state.baselineAt) {
-      return this.establishLatestBaseline(state);
+      const baselineAt = new Date().toISOString();
+      state = { ...state, baselineAt };
+      const requestUrl = this.api.buildFilteredDeltaUrl(baselineAt);
+      try {
+        return await this.fetchAndProcessPage(state, requestUrl);
+      } catch (error) {
+        if (!isDeltaInvalidError(error)) {
+          throw error;
+        }
+        return this.beginInvalidDeltaReseed(state);
+      }
     }
 
     const requestUrl = this.resolveRequestUrl(state);
@@ -86,28 +101,6 @@ export class GraphAdapter implements EmailTriageProviderAdapter {
     }
   }
 
-  private async establishLatestBaseline(state: GraphSyncState): Promise<ProviderSyncPage> {
-    const page = await this.api.fetchDeltaPage(this.api.buildLatestDeltaUrl());
-    const baselineAt = new Date().toISOString();
-    const deltaLink = page["@odata.deltaLink"] ?? null;
-    return {
-      messages: [],
-      cursorUpdate: {
-        baselineAt,
-        deltaLink,
-        nextLink: null,
-        snapshotComplete: true,
-        trackedMessageIds: state.trackedMessageIds,
-      },
-      hasMore: false,
-      gapDetected: false,
-      accountPatch: {
-        recoveryState: "none",
-        state: "active",
-      } satisfies Partial<EmailTriageAccount>,
-    };
-  }
-
   private resolveRequestUrl(state: GraphSyncState): string {
     if (state.nextLink) {
       return state.nextLink;
@@ -115,7 +108,7 @@ export class GraphAdapter implements EmailTriageProviderAdapter {
     if (state.snapshotComplete && state.deltaLink) {
       return state.deltaLink;
     }
-    return this.api.buildInitialDeltaUrl();
+    return this.api.buildFilteredDeltaUrl(state.baselineAt!);
   }
 
   private beginInvalidDeltaReseed(state: GraphSyncState): ProviderSyncPage {
@@ -134,6 +127,26 @@ export class GraphAdapter implements EmailTriageProviderAdapter {
     };
   }
 
+  private async hydrateMessages(
+    eligible: GraphMessage[],
+    tracked: Set<string>,
+  ): Promise<EmailTriageTransientMessage[]> {
+    const messages: EmailTriageTransientMessage[] = [];
+    for (const metadata of eligible) {
+      try {
+        const full = await this.api.getMessage(metadata.id);
+        messages.push(graphMessageToTransient(full));
+      } catch (error) {
+        if (isResponseTooLargeError(error)) {
+          tracked.add(metadata.id);
+          continue;
+        }
+        throw error;
+      }
+    }
+    return messages;
+  }
+
   private async fetchAndProcessPage(
     state: GraphSyncState,
     requestUrl: string,
@@ -141,11 +154,16 @@ export class GraphAdapter implements EmailTriageProviderAdapter {
     const page = await this.api.fetchDeltaPage(requestUrl);
     const duringSnapshot = !state.snapshotComplete;
     const tracked = new Set(state.trackedMessageIds);
-    const eligible = filterEligibleMessages(page.value ?? [], state.baselineAt!, tracked);
+    const eligible = filterEligibleMessages(
+      page.value ?? [],
+      state.baselineAt,
+      tracked,
+      state.snapshotComplete,
+    );
 
-    const messages = eligible.map(graphMessageToTransient);
-    for (const message of eligible) {
-      tracked.add(message.id);
+    const messages = await this.hydrateMessages(eligible, tracked);
+    for (const message of messages) {
+      tracked.add(message.providerMessageId);
     }
 
     const nextLink = page["@odata.nextLink"] ?? null;
@@ -192,6 +210,7 @@ export class GraphAdapter implements EmailTriageProviderAdapter {
         gapDetected: false,
         accountPatch: {
           recoveryState: "none",
+          state: "active",
         } satisfies Partial<EmailTriageAccount>,
       };
     }

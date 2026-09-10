@@ -23,6 +23,7 @@ pub struct OAuthLoopbackCallback {
     pub code: Option<String>,
     pub state: Option<String>,
     pub error: Option<String>,
+    pub error_description: Option<String>,
 }
 
 struct LoopbackSession {
@@ -89,12 +90,18 @@ fn handle_connection(mut stream: TcpStream, expected_state: String) -> OAuthLoop
     let code = parse_query_value(path_and_query, "code");
     let state = parse_query_value(path_and_query, "state");
     let error = parse_query_value(path_and_query, "error");
+    let error_description = parse_query_value(path_and_query, "error_description");
 
     let success =
         error.is_none() && code.is_some() && state.as_deref() == Some(expected_state.as_str());
     write_callback_response(&mut stream, success);
 
-    OAuthLoopbackCallback { code, state, error }
+    OAuthLoopbackCallback {
+        code,
+        state,
+        error,
+        error_description,
+    }
 }
 
 #[tauri::command]

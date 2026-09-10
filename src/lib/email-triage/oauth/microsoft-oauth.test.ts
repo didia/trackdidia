@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildMicrosoftAuthorizationUrl,
+  classifyMicrosoftAuthorizationCallbackError,
   MICROSOFT_OAUTH_SCOPE,
   refreshMicrosoftAccessToken,
   resolveMicrosoftOAuthClientId,
@@ -25,9 +26,19 @@ describe("microsoft oauth helpers", () => {
     expect(url.searchParams.get("code_challenge_method")).toBe("S256");
     expect(url.searchParams.get("code_challenge")).toBe("challenge");
     expect(url.searchParams.get("prompt")).toBe("select_account");
+    expect(url.searchParams.get("scope")).toContain("User.Read");
     expect(url.searchParams.get("scope")).toContain("Mail.ReadWrite");
     expect(url.searchParams.get("scope")).toContain("MailboxSettings.ReadWrite");
     expect(url.searchParams.get("scope")).toContain("offline_access");
+  });
+
+  it("classifies admin consent from authorization callback error_description", () => {
+    expect(
+      classifyMicrosoftAuthorizationCallbackError("access_denied", "AADSTS65001: consent required"),
+    ).toBe("admin_consent_required");
+    expect(classifyMicrosoftAuthorizationCallbackError("access_denied", null)).toBe(
+      "access_denied",
+    );
   });
 
   it("resolves client id from settings then env fallback", () => {

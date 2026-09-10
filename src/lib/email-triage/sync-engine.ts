@@ -131,6 +131,15 @@ export const processProviderPage = async (
 }> => {
   const page = await options.adapter.fetchPage(options.account.syncState);
 
+  if (!(await isSyncStillAllowed(options))) {
+    return {
+      hasMore: true,
+      gapDetected: false,
+      account: options.account,
+      cancelled: true,
+    };
+  }
+
   for (const transient of page.messages) {
     if (!(await isSyncStillAllowed(options))) {
       return {
@@ -149,6 +158,15 @@ export const processProviderPage = async (
         cancelled: true,
       };
     }
+  }
+
+  if (!(await isSyncStillAllowed(options))) {
+    return {
+      hasMore: true,
+      gapDetected: false,
+      account: options.account,
+      cancelled: true,
+    };
   }
 
   let account = options.account;

@@ -1,5 +1,10 @@
 # Email triage log
 
+- 2026-09-10: Graph review follow-up — `User.Read` scope, filtered inbox delta
+  (`receivedDateTime ge baselineAt`) replaces unsupported `$deltatoken=latest`,
+  metadata delta + per-message bodies + oversized quarantine, reconnect generation
+  guard, loopback `error_description` admin-consent classification, empty-page sync
+  cancellation, and provider-neutral French connect/sync errors.
 - 2026-09-10: Review follow-up — revoked Google grants map `invalid_grant` to
   reconnect, disable/pause/disconnect cancel remaining in-page classifier work,
   coordinator failures outside page retries are recorded and rescheduled,
