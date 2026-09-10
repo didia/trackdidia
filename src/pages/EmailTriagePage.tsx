@@ -204,7 +204,7 @@ export const EmailTriagePage = () => {
 
   const handleSyncNow = async (account: EmailTriageAccount) => {
     const result = await syncEmailTriageAccountNow(account.id);
-    if (!result.ok) {
+    if (!result.ok && result.reason !== "cancelled") {
       const reason = result.reason ?? "unknown";
       const message =
         reason === "coordinator_not_running"

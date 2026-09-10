@@ -3,7 +3,11 @@ import { EmailTriageCoordinator } from "../lib/email-triage/coordinator";
 import type { EmailTriageAccount } from "../domain/email-triage";
 import type { AppRepository } from "../lib/storage/repository";
 import { createOpenRouterClassifierProvider } from "../lib/email-triage/openrouter-classifier";
-import { createEmailTriageAdapter, setEmailTriageCoordinator } from "../lib/email-triage/runtime";
+import {
+  createEmailTriageAdapter,
+  getEmailTriageCoordinator,
+  setEmailTriageCoordinator,
+} from "../lib/email-triage/gmail-session";
 import { loadVaultSecret } from "../lib/email-triage/vault";
 import type { EmailTriageClassifierProvider } from "../lib/email-triage/classifier";
 import type { AppSettings } from "../domain/types";
@@ -106,7 +110,9 @@ export const useEmailTriageCoordinator = (
     void coordinator.start().then(() => {
       if (cancelled) {
         coordinator.stop();
-        setEmailTriageCoordinator(null);
+        if (getEmailTriageCoordinator() === coordinator) {
+          setEmailTriageCoordinator(null);
+        }
       }
     });
 

@@ -68,3 +68,8 @@ export const isInvalidGrantError = (error: unknown): boolean => {
     error.body.includes("invalid_token")
   );
 };
+
+export const isResponseTooLargeError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("HTTP response too large");
+};

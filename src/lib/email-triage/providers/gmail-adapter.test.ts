@@ -422,4 +422,34 @@ describe("GmailAdapter", () => {
       adapter.applyMarkers({ messageIds: ["m1"], decision: "relevant" }),
     ).rejects.toThrow(/untracked_message_id/);
   });
+
+  it("quarantines an oversized message and still advances the history cursor", async () => {
+    const adapter = new GmailAdapter(
+      createFakeApi({
+        listHistory: async () => ({
+          history: [
+            { id: "101", messagesAdded: [{ message: { id: "huge" } }] },
+            { id: "102", messagesAdded: [{ message: { id: "m2" } }] },
+          ],
+          historyId: "102",
+        }),
+        getMessage: async (messageId) => {
+          if (messageId === "huge") {
+            throw new Error("HTTP response too large");
+          }
+          return sampleMessage(messageId);
+        },
+      }),
+      "me@example.com",
+      () => [],
+    );
+    const page = await adapter.fetchPage({
+      baselineHistoryId: "100",
+      cursorHistoryId: "100",
+      trackedMessageIds: [],
+    });
+    expect(page.messages.map((message) => message.providerMessageId)).toEqual(["m2"]);
+    expect(page.cursorUpdate?.trackedMessageIds).toEqual(["huge", "m2"]);
+    expect(page.cursorUpdate?.cursorHistoryId).toBe("102");
+  });
 });

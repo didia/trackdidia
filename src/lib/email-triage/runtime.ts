@@ -1,21 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { EmailTriageAccount, EmailTriageGlobalSettings } from "../../domain/email-triage";
+import type { EmailTriageAccount } from "../../domain/email-triage";
 import type { AppRepository } from "../storage/repository";
 import { isTauriRuntime } from "../storage/factory";
 import { createEntityId, nowIso } from "../gtd/shared";
-import { MockGmailAdapter } from "./providers/mock-gmail";
-import { MockGraphAdapter } from "./providers/mock-graph";
-import { MockYahooAdapter } from "./providers/mock-yahoo";
-import type { EmailTriageProviderAdapter } from "./providers/types";
-import { GmailAdapter } from "./providers/gmail-adapter";
 import { GmailApiClient } from "./providers/gmail-api";
-import { createTauriHttpClient, isInvalidGrantError } from "./provider-http";
+import { createTauriHttpClient } from "./provider-http";
 import {
   exchangeGmailAuthorizationCode,
   maskEmailAddress,
-  parseProviderCredentials,
-  refreshGmailAccessToken,
   resolveGmailOAuthClientId,
   serializeProviderCredentials,
   buildGmailAuthorizationUrl,
@@ -26,96 +19,17 @@ import {
   generatePkceVerifier,
   validateOAuthState,
 } from "./oauth/pkce";
-import { clearCachedAccessToken, getCachedAccessToken, setCachedAccessToken } from "./token-cache";
-import { deleteVaultSecret, loadVaultSecret, storeVaultSecret } from "./vault";
-import type { EmailTriageCoordinator } from "./coordinator";
+import { clearCachedAccessToken, setCachedAccessToken } from "./token-cache";
+import { deleteVaultSecret } from "./vault";
+import { getEmailTriageCoordinator, persistGmailAccountCredentials } from "./gmail-session";
 
-let coordinatorRef: EmailTriageCoordinator | null = null;
-
-export const setEmailTriageCoordinator = (coordinator: EmailTriageCoordinator | null): void => {
-  coordinatorRef = coordinator;
-};
-
-export const getEmailTriageCoordinator = (): EmailTriageCoordinator | null => coordinatorRef;
-
-export const syncEmailTriageAccountNow = async (
-  accountId: string,
-): Promise<{ ok: boolean; reason?: string }> => {
-  const coordinator = coordinatorRef;
-  if (!coordinator) {
-    return { ok: false, reason: "coordinator_not_running" };
-  }
-  return coordinator.syncNow(accountId);
-};
-
-const createGmailAccessTokenGetter = (
-  account: EmailTriageAccount,
-  clientId: string,
-): (() => Promise<string>) => {
-  return async () => {
-    const cached = getCachedAccessToken(account.id);
-    if (cached) {
-      return cached;
-    }
-    const raw = await loadVaultSecret("provider_credentials", account.id);
-    const credentials = parseProviderCredentials(raw);
-    if (!credentials) {
-      throw new Error("reconnect_required");
-    }
-    try {
-      const refreshed = await refreshGmailAccessToken(createTauriHttpClient(), {
-        clientId,
-        refreshToken: credentials.refreshToken,
-      });
-      setCachedAccessToken(account.id, refreshed.accessToken, refreshed.expiresIn);
-      return refreshed.accessToken;
-    } catch (error) {
-      if (
-        isInvalidGrantError(error) ||
-        (error instanceof Error && error.message.includes("invalid_grant"))
-      ) {
-        throw new Error("reconnect_required");
-      }
-      throw error;
-    }
-  };
-};
-
-export const createEmailTriageAdapter = async (
-  account: EmailTriageAccount,
-  settings: EmailTriageGlobalSettings,
-): Promise<EmailTriageProviderAdapter | null> => {
-  if (account.provider === "microsoft_graph") {
-    return new MockGraphAdapter([]);
-  }
-  if (account.provider === "yahoo") {
-    return new MockYahooAdapter([]);
-  }
-  if (account.provider !== "gmail") {
-    return null;
-  }
-  if (!isTauriRuntime()) {
-    return new MockGmailAdapter([], new Map());
-  }
-  const credentials = parseProviderCredentials(
-    await loadVaultSecret("provider_credentials", account.id),
-  );
-  if (!credentials) {
-    return null;
-  }
-  const clientId = resolveGmailOAuthClientId(settings.gmailOAuthClientId);
-  if (!clientId) {
-    return null;
-  }
-  const http = createTauriHttpClient();
-  const getAccessToken = createGmailAccessTokenGetter(account, clientId);
-  const api = new GmailApiClient(http, getAccessToken);
-  const email = account.providerAccountId;
-  return new GmailAdapter(api, email, () => {
-    const tracked = account.syncState.trackedMessageIds;
-    return Array.isArray(tracked) ? (tracked as string[]) : [];
-  });
-};
+export {
+  createEmailTriageAdapter,
+  getEmailTriageCoordinator,
+  persistGmailAccountCredentials,
+  setEmailTriageCoordinator,
+  syncEmailTriageAccountNow,
+} from "./gmail-session";
 
 export interface GmailConnectResult {
   ok: boolean;
@@ -191,6 +105,7 @@ export const connectGmailAccount = async (
   const existing = (await repository.listEmailTriageAccounts()).find(
     (account) => account.provider === "gmail" && account.providerAccountId === providerAccountId,
   );
+  const coordinator = getEmailTriageCoordinator();
 
   if (options.reconnectAccountId) {
     const target = await repository.getEmailTriageAccount(options.reconnectAccountId);
@@ -200,49 +115,38 @@ export const connectGmailAccount = async (
     if (target.providerAccountId !== providerAccountId) {
       return { ok: false, error: "reconnect_account_mismatch", reconnectMismatch: true };
     }
-    await storeVaultSecret(
-      "provider_credentials",
-      serializeProviderCredentials({
+    await persistGmailAccountCredentials({
+      repository,
+      account: {
+        ...target,
+        enabled: true,
+        state: "active",
+        recoveryState: "none",
+        lastError: null,
+        syncState: {
+          ...target.syncState,
+        },
+        updatedAt: timestamp,
+      },
+      credentials: serializeProviderCredentials({
         refreshToken: tokens.refreshToken,
         tokenType: tokens.tokenType,
         scope: tokens.scope,
       }),
-      target.id,
-    );
-    setCachedAccessToken(target.id, tokens.accessToken, tokens.expiresIn);
-    await repository.saveEmailTriageAccount({
-      ...target,
-      enabled: true,
-      state: "active",
-      recoveryState: "none",
-      lastError: null,
-      syncState: {
-        ...target.syncState,
-      },
-      updatedAt: timestamp,
+      accessToken: tokens.accessToken,
+      expiresIn: tokens.expiresIn,
     });
-    coordinatorRef?.scheduleAccount(
+    coordinator?.scheduleAccount(
       {
         ...(await repository.getEmailTriageAccount(target.id))!,
       },
       settings,
     );
-    void coordinatorRef?.runAccountSync(target.id);
+    void coordinator?.runAccountSync(target.id);
     return { ok: true, accountId: target.id };
   }
 
   const accountId = existing?.id ?? createEntityId("email-account");
-  await storeVaultSecret(
-    "provider_credentials",
-    serializeProviderCredentials({
-      refreshToken: tokens.refreshToken,
-      tokenType: tokens.tokenType,
-      scope: tokens.scope,
-    }),
-    accountId,
-  );
-  setCachedAccessToken(accountId, tokens.accessToken, tokens.expiresIn);
-
   const account: EmailTriageAccount = {
     id: accountId,
     provider: "gmail",
@@ -266,9 +170,19 @@ export const connectGmailAccount = async (
     createdAt: existing?.createdAt ?? timestamp,
     updatedAt: timestamp,
   };
-  await repository.saveEmailTriageAccount(account);
-  coordinatorRef?.scheduleAccount(account, settings);
-  void coordinatorRef?.runAccountSync(accountId);
+  await persistGmailAccountCredentials({
+    repository,
+    account,
+    credentials: serializeProviderCredentials({
+      refreshToken: tokens.refreshToken,
+      tokenType: tokens.tokenType,
+      scope: tokens.scope,
+    }),
+    accessToken: tokens.accessToken,
+    expiresIn: tokens.expiresIn,
+  });
+  coordinator?.scheduleAccount(account, settings);
+  void coordinator?.runAccountSync(accountId);
   return { ok: true, accountId };
 };
 
@@ -280,6 +194,7 @@ export const disconnectGmailAccount = async (
   if (!account) {
     return;
   }
+  getEmailTriageCoordinator()?.invalidateAccount(accountId);
   await deleteVaultSecret("provider_credentials", accountId);
   clearCachedAccessToken(accountId);
   await repository.saveEmailTriageAccount({

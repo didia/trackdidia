@@ -1,6 +1,6 @@
 import type { EmailTriageTransientMessage } from "../../../domain/email-triage";
 import type { GmailHttpClient } from "../provider-http";
-import { assertHttpSuccess, parseJsonBody } from "../provider-http";
+import { assertHttpSuccess, isResponseTooLargeError, parseJsonBody } from "../provider-http";
 
 const GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1";
 
@@ -211,10 +211,25 @@ export class GmailApiClient {
 
   async getMessage(
     messageId: string,
-    options: { format?: "full" | "minimal" } = {},
+    options: { format?: "full" | "minimal" | "metadata" } = {},
+  ): Promise<GmailMessagePayload> {
+    const format = options.format ?? "full";
+    try {
+      return await this.fetchMessage(messageId, format);
+    } catch (error) {
+      if (format === "full" && isResponseTooLargeError(error)) {
+        return this.fetchMessage(messageId, "metadata");
+      }
+      throw error;
+    }
+  }
+
+  private async fetchMessage(
+    messageId: string,
+    format: "full" | "minimal" | "metadata",
   ): Promise<GmailMessagePayload> {
     const response = await this.authorizedRequest("GET", `/users/me/messages/${messageId}`, {
-      query: { format: options.format ?? "full" },
+      query: { format },
     });
     assertHttpSuccess(response, "gmail_message");
     return parseJsonBody<GmailMessagePayload>(response);

@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { ProviderHttpError, isInvalidGrantError } from "../provider-http";
 import {
   buildGmailAuthorizationUrl,
   GMAIL_OAUTH_SCOPE,
   maskEmailAddress,
   parseProviderCredentials,
+  refreshGmailAccessToken,
   serializeProviderCredentials,
 } from "./gmail-oauth";
 
@@ -39,5 +41,21 @@ describe("gmail oauth helpers", () => {
   it("masks email addresses safely", () => {
     expect(maskEmailAddress("alice@example.com")).toBe("a***@example.com");
     expect(maskEmailAddress("a@example.com")).toBe("a***@example.com");
+  });
+
+  it("preserves invalid_grant from a non-2xx refresh response", async () => {
+    const http = {
+      request: async () => ({
+        status: 400,
+        body: JSON.stringify({ error: "invalid_grant", error_description: "Token revoked" }),
+      }),
+    };
+    const caught = await refreshGmailAccessToken(http, {
+      clientId: "client-id",
+      refreshToken: "refresh-token",
+    }).catch((error: unknown) => error);
+    expect(caught).toBeInstanceOf(ProviderHttpError);
+    expect(isInvalidGrantError(caught)).toBe(true);
+    expect((caught as ProviderHttpError).message).toBe("invalid_grant");
   });
 });

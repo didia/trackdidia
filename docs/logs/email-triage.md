@@ -1,5 +1,11 @@
 # Email triage log
 
+- 2026-09-10: Review follow-up — revoked Google grants map `invalid_grant` to
+  reconnect, disable/pause/disconnect cancel remaining in-page classifier work,
+  coordinator failures outside page retries are recorded and rescheduled,
+  oversized Gmail messages are quarantined so history can advance, obsolete
+  coordinator startups cannot clear the live instance, and vault credentials are
+  rolled back when account persistence fails.
 - 2026-09-09: Review follow-up — pagination carries the updated cursor, replay
   repairs missing GTD/effects after a persist crash, reviews no longer store
   body excerpts, resolving a review commits the message/conversation decision,

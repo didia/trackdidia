@@ -44,8 +44,15 @@ Microsoft Graph and Yahoo remain mocked protocol adapters.
   Reviews store subject/sender/received-at/source URL only. Body preview is not
   durable in this slice.
 - Enabling triage or pausing/resuming an account from the page reconfigures the
-  coordinator without restarting the app. Pagination reloads the saved cursor
-  after each page, with a per-run page cap.
+  coordinator without restarting the app. Disable, pause, and disconnect also
+  invalidate the in-flight account generation so later messages on an already
+  fetched page are not classified or committed. Pagination reloads the saved
+  cursor after each completed page, with a per-run page cap. A revoked Google
+  grant (`invalid_grant`) moves that account to `reconnect_required`. Oversized
+  Gmail payloads stay under the native 2 MiB HTTP cap by falling back to
+  metadata and quarantining the message id so the cursor can still advance.
+  Connect and reconnect vault writes are rolled back if the account row fails
+  to persist.
 
 ## Gmail OAuth client ID
 

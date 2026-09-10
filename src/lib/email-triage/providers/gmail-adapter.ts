@@ -1,8 +1,10 @@
 import type { EmailTriageTransientMessage } from "../../../domain/email-triage";
 import { EMAIL_TRIAGE_GMAIL_IGNORE_LABEL, EMAIL_TRIAGE_GMAIL_INBOX_LABEL } from "../constants";
+import { isResponseTooLargeError } from "../provider-http";
 import {
   type GmailHistoryRecord,
   type GmailApiClient,
+  type GmailMessagePayload,
   gmailMessageToTransient,
   historyEntryHasOnlyLabelChanges,
   isHistoryExpiredError,
@@ -152,7 +154,10 @@ export class GmailAdapter implements EmailTriageProviderAdapter {
     let maxMessageId = state.lastConfirmedMessageId;
 
     for (const item of listResponse.messages ?? []) {
-      const message = await this.api.getMessage(item.id);
+      const message = await this.readMessageOrQuarantine(item.id, tracked);
+      if (!message) {
+        continue;
+      }
       const internalDate = Number(message.internalDate);
       if (internalDate <= watermark) {
         continue;
@@ -213,7 +218,10 @@ export class GmailAdapter implements EmailTriageProviderAdapter {
           continue;
         }
         seenAdded.add(messageId);
-        const message = await this.api.getMessage(messageId);
+        const message = await this.readMessageOrQuarantine(messageId, tracked);
+        if (!message) {
+          continue;
+        }
         if (!message.labelIds?.includes("INBOX")) {
           continue;
         }
@@ -280,6 +288,21 @@ export class GmailAdapter implements EmailTriageProviderAdapter {
       const removeLabelIds = obsoleteTrackDidia.filter((labelId) => !addLabelIds.includes(labelId));
 
       await this.api.modifyMessageLabels(messageId, addLabelIds, removeLabelIds);
+    }
+  }
+
+  private async readMessageOrQuarantine(
+    messageId: string,
+    tracked: Set<string>,
+  ): Promise<GmailMessagePayload | null> {
+    try {
+      return await this.api.getMessage(messageId);
+    } catch (error) {
+      if (isResponseTooLargeError(error)) {
+        tracked.add(messageId);
+        return null;
+      }
+      throw error;
     }
   }
 

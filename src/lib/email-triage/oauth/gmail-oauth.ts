@@ -1,6 +1,17 @@
+import { ProviderHttpError } from "../provider-http";
+
 export const GMAIL_OAUTH_SCOPE = "https://www.googleapis.com/auth/gmail.modify";
 export const GMAIL_TOKEN_URL = "https://oauth2.googleapis.com/token";
 export const GMAIL_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
+
+const readOAuthErrorCode = (body: string): string | null => {
+  try {
+    const payload = JSON.parse(body) as { error?: unknown };
+    return typeof payload.error === "string" && payload.error.trim() ? payload.error.trim() : null;
+  } catch {
+    return null;
+  }
+};
 
 export interface GmailOAuthTokens {
   accessToken: string;
@@ -133,7 +144,11 @@ export const refreshGmailAccessToken = async (
     body,
   });
   if (response.status < 200 || response.status >= 300) {
-    throw new Error("gmail_token_refresh_failed");
+    throw new ProviderHttpError(
+      readOAuthErrorCode(response.body) ?? "gmail_token_refresh_failed",
+      response.status,
+      response.body,
+    );
   }
   const payload = JSON.parse(response.body) as {
     access_token?: string;
@@ -142,7 +157,11 @@ export const refreshGmailAccessToken = async (
     error?: string;
   };
   if (!payload.access_token) {
-    throw new Error(payload.error ?? "gmail_token_refresh_failed");
+    throw new ProviderHttpError(
+      payload.error ?? "gmail_token_refresh_failed",
+      response.status,
+      response.body,
+    );
   }
   return {
     accessToken: payload.access_token,
