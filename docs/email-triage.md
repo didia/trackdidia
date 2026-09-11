@@ -1,14 +1,48 @@
-# Email triage (Gmail + Microsoft Graph + Yahoo slices)
+# Email triage (Gmail + Microsoft Graph + Yahoo)
 
 See also: [changelog](logs/email-triage.md).
 
 TrackDidia ships a **disabled-by-default** local email triage subsystem. The foundation
 slice persists accounts, conversations, classification metadata, reviews, desired effects,
-and audit data. The **Gmail slice** adds live Gmail OAuth and synchronization on desktop.
-The **Microsoft Graph slice** adds live Outlook / Microsoft 365 OAuth and inbox delta sync.
-The **Yahoo slice** adds live Yahoo IMAP synchronization on desktop via app password.
+and audit data. Live Gmail, Microsoft Graph, and Yahoo adapters sync on desktop. **Slice 5**
+adds system-tray hide-on-close, launch-at-login, and gated automatic provider mutation.
 
 ## Shipped in this slice
+
+### Tray and launch-at-login (slice 5)
+
+- Optional **run in tray**: when enabled, closing the main window hides it instead of
+  quitting; **Quitter** in the tray menu exits the process
+- Optional **launch at login** via `tauri-plugin-autostart` (macOS LaunchAgent)
+- Settings persist in SQLite migration `32_add_email_triage_desktop_prefs` (`runInTray`,
+  `launchAtLogin`)
+- Browser preview: no tray, no autostart, no live provider mutation
+
+### Gated automatic mutation (slice 5)
+
+- Provider mutation remains **off by default** at global and per-account levels
+- **Automatisation** and **Mutation fournisseur** are separate gates: a passing evaluation unlocks
+  automation (`canEnableAutomation`) but does not turn it on; the user enables automation and
+  mutation independently once evaluation matches persisted model/prompt/schema/thresholds
+- Automatic markers run only when `canMutateProvider` passes: global `mutationEnabled` and
+  `automationEnabled`, per-account `mutationEnabled`, account active/unpaused (not
+  `gap_review_required`), and a **passed** evaluation matching the current model, prompt/schema
+  version, corpus version, and thresholds
+- The coordinator reloads the account (preserving the latest cursor) and recomputes
+  `mutationEnabled` on each sync page and before every provider-marker effect
+- Reconciliation drains a bounded batch of pending effects per run, honors effect
+  dependencies, and verifies account generation plus conversation decision version
+  immediately before and after `applyMarkers` (stale effects are superseded; a
+  kill-switch leaves markers pending)
+- Changing model, prompt/schema version, or thresholds clears `automationEnabled` until
+  reevaluation; a failing evaluation also clears `automationEnabled`
+- **Lancer l'évaluation** evaluates **persisted** settings only; the button is disabled while the
+  settings draft differs from the last saved classifier/threshold values. Completing an
+  evaluation refreshes evaluation state without discarding unrelated unsaved settings.
+- Per-account mutation checkbox on account cards; review queue supports **Retirer de la file**
+  (permanent dismiss: all pending reviews for that conversation, `routingState: dismissed`,
+  no provider mutation)
+- Tray and autostart preference apply failures surface independently and do not abort settings save
 
 ### Gmail (slice 2)
 
@@ -64,34 +98,37 @@ The **Yahoo slice** adds live Yahoo IMAP synchronization on desktop via app pass
 ### Shared
 
 - Refresh tokens stored in the OS vault per account; access tokens cached in memory only
-- French UI: Connect / Reconnect / Disconnect Gmail, Microsoft, and Yahoo, Sync now, advanced OAuth
-  client IDs, dedicated triage OpenRouter key vault form with explicit copy-from-coach-key
+- French UI: Connect / Reconnect / Disconnect, Sync now, advanced OAuth client IDs, triage key
+  vault form, evaluation, tray/autostart, global/per-account mutation toggles
 - OpenRouter classifier (temperature 0, no tools) when the triage vault key exists; otherwise
   the existing `missing_api_key` review path
 - Coordinator wires live adapters when Tauri runtime + vault credentials exist (plus OAuth client
   IDs for Gmail/Microsoft)
 
-## Still not shipped
+## Product boundaries (not shipped)
 
-- Automatic provider mutation (global and per-account `mutationEnabled` remain off; coordinator
-  passes `mutationEnabled: false`)
-- System tray hide-on-close, autostart, or launch-at-login
+- Cloud sync or multi-device conflict resolution
 - Historical import, sending, attachment inspection
+- Background execution after the desktop process exits (unless launch-at-login + tray keep it running)
+- Restore-from-backup UI
 
 ## Architecture
 
 - Subsystem: [`src/lib/email-triage/`](../src/lib/email-triage/)
 - Domain types: [`src/domain/email-triage.ts`](../src/domain/email-triage.ts)
+- Mutation gate: [`src/lib/email-triage/mutation-gate.ts`](../src/lib/email-triage/mutation-gate.ts)
 - SQLite migrations `29_add_email_triage_foundation`, `30_add_email_triage_gmail_oauth_client_id`,
-  and `31_add_email_triage_microsoft_oauth_client_id`
+  `31_add_email_triage_microsoft_oauth_client_id`, and `32_add_email_triage_desktop_prefs`
 - Tauri commands: `oauth_loopback_start`, `oauth_loopback_wait`, `provider_http_request`
   (HTTPS allowlist includes Google, Microsoft Graph/OAuth, and OpenRouter hosts),
   `yahoo_imap_discover`, `yahoo_imap_fetch_inbox`, `yahoo_imap_search_message_id`,
   `yahoo_imap_ensure_mailbox`, `yahoo_imap_move_uid`, `yahoo_imap_copy_uid`,
-  `yahoo_imap_uid_expunge`; system URLs open via `tauri-plugin-opener`
+  `yahoo_imap_uid_expunge`, `email_triage_set_desktop_prefs`; plugins: opener, autostart,
+  tray icon; system URLs open via `tauri-plugin-opener`
 - Coordinator starts only after `AppProvider` bootstrap finishes successfully. Browser
   preview and the eight-second in-memory storage fallback both skip polling, OAuth, IMAP,
-  and vault writes. Vault availability is probed only when the feature is enabled.
+  vault writes, tray, autostart, and live mutation. Vault availability is probed only when
+  the feature is enabled.
 - Classifier body text is transient; raw MIME and bodies are never persisted.
   Reviews store subject/sender/received-at/source URL only. Body preview is not
   durable in this slice.
@@ -119,12 +156,4 @@ the matching client ID resolves. No client secret is stored or transmitted from 
 - Nullable `sourceUrl` on tasks
 - Unique external id: `email-triage:<accountId>:<conversationKey>`
 
-## Rollout order
-
-1. Persistence, evaluation corpus, vault, mocked adapters (foundation slice)
-2. Gmail live adapter
-3. Microsoft Graph live adapter
-4. **Yahoo live adapter (this slice)**
-5. Tray/autostart and automatic mutation after tests pass
-
-See the full specification in [`specs/todo/email-triage.md`](../specs/todo/email-triage.md).
+See the implemented specification in [`specs/done/email-triage.md`](../specs/done/email-triage.md).

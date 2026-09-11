@@ -1,8 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { defaultEmailTriageGlobalSettings } from "../../domain/email-triage";
+import {
+  defaultEmailTriageGlobalSettings,
+  type EmailTriageEvaluation,
+} from "../../domain/email-triage";
 import type { EmailTriageAccount, EmailTriageTransientMessage } from "../../domain/email-triage";
+import { EMAIL_TRIAGE_EVALUATION_CORPUS_VERSION } from "./constants";
 import { EmailTriageCoordinator } from "./coordinator";
 import type { EmailTriageRepositoryPort } from "./sync-engine";
+import * as syncEngine from "./sync-engine";
 import { loadVaultSecret } from "./vault";
 
 vi.mock("./vault", () => ({
@@ -29,7 +34,52 @@ const unusedPort = {
   getTaskByExternalId: async () => null,
   applyEmailTriageGtdUpdate: async () => null,
   createReview: async () => undefined,
-} satisfies Omit<EmailTriageRepositoryPort, "getGlobalSettings">;
+  getLatestMatchingEvaluation: async () => null,
+} satisfies Omit<EmailTriageRepositoryPort, "getGlobalSettings"> & {
+  getLatestMatchingEvaluation(): Promise<null>;
+};
+
+const matchingEvaluation = (): EmailTriageEvaluation => {
+  const settings = defaultEmailTriageGlobalSettings();
+  return {
+    id: "eval-1",
+    model: settings.classifierModel,
+    promptVersion: settings.classifierPromptVersion,
+    schemaVersion: settings.classifierSchemaVersion,
+    corpusVersion: EMAIL_TRIAGE_EVALUATION_CORPUS_VERSION,
+    relevantThreshold: settings.relevantThreshold,
+    ignoreThreshold: settings.ignoreThreshold,
+    passed: true,
+    results: {
+      totalCases: 10,
+      validSchemaCount: 10,
+      exactRoutingCount: 9,
+      safetyViolations: 0,
+      failures: [],
+    },
+    evaluatedAt: "2026-01-01T00:00:00.000Z",
+  };
+};
+
+const activeAccount = () => ({
+  id: "acct-1",
+  provider: "gmail" as const,
+  providerAccountId: "user-1",
+  label: "Test",
+  maskedAddress: "t***@example.com",
+  generation: 1,
+  enabled: true,
+  mutationEnabled: true,
+  paused: false,
+  state: "active" as const,
+  recoveryState: "none" as const,
+  lastSuccessAt: null,
+  lastError: null,
+  pollIntervalMinutes: 5,
+  syncState: {},
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+});
 
 const baseCoordinatorAccount = (): EmailTriageAccount => ({
   id: "acct-1",
@@ -483,5 +533,188 @@ describe("EmailTriageCoordinator", () => {
     expect(classifyCount).toBe(1);
     expect(persistCalls).toEqual([]);
     expect(account.syncState.cursorHistoryId).toBeUndefined();
+  });
+
+  it("passes mutationEnabled true when evaluation and flags match", async () => {
+    const spy = vi.spyOn(syncEngine, "processProviderPage");
+    const coordinator = new EmailTriageCoordinator({
+      repository: {
+        ...unusedPort,
+        getGlobalSettings: async () => ({
+          ...defaultEmailTriageGlobalSettings(),
+          enabled: true,
+          mutationEnabled: true,
+          automationEnabled: true,
+        }),
+        getAccount: async () => activeAccount(),
+        updateAccountSyncState: async (_accountId, syncState) => ({
+          ...activeAccount(),
+          syncState,
+        }),
+        listAccounts: async () => [activeAccount()],
+        recoverStaleEffects: async () => 0,
+        getLatestMatchingEvaluation: async () => matchingEvaluation(),
+      },
+      createAdapter: () => ({
+        provider: "gmail" as const,
+        fetchPage: async () => ({
+          messages: [],
+          hasMore: false,
+          gapDetected: false,
+          cursorUpdate: null,
+        }),
+        applyMarkers: async () => undefined,
+      }),
+      classifierProvider: { completeStructured: async () => "" },
+      browserPreview: false,
+    });
+    await coordinator.start();
+    await coordinator.runAccountSync("acct-1");
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ mutationEnabled: true }));
+    coordinator.stop();
+    spy.mockRestore();
+  });
+
+  it("recomputes mutationEnabled false when settings change mid-run", async () => {
+    const spy = vi.spyOn(syncEngine, "processProviderPage");
+    const account = activeAccount();
+    const coordinator = new EmailTriageCoordinator({
+      repository: {
+        ...unusedPort,
+        getGlobalSettings: async () => ({
+          ...defaultEmailTriageGlobalSettings(),
+          enabled: true,
+          mutationEnabled: spy.mock.calls.length === 0,
+          automationEnabled: true,
+        }),
+        getAccount: async () => account,
+        updateAccountSyncState: async (_accountId, syncState) => ({
+          ...account,
+          syncState,
+        }),
+        listAccounts: async () => [account],
+        recoverStaleEffects: async () => 0,
+        getLatestMatchingEvaluation: async () => matchingEvaluation(),
+      },
+      createAdapter: () => ({
+        provider: "gmail" as const,
+        fetchPage: async (syncState) => {
+          if (!syncState.page) {
+            return {
+              messages: [],
+              hasMore: true,
+              gapDetected: false,
+              cursorUpdate: { page: 1 },
+            };
+          }
+          return {
+            messages: [],
+            hasMore: false,
+            gapDetected: false,
+            cursorUpdate: { page: 2 },
+          };
+        },
+      }),
+      classifierProvider: { completeStructured: async () => "" },
+      browserPreview: false,
+    });
+    await coordinator.start();
+    await coordinator.runAccountSync("acct-1");
+    expect(spy.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ mutationEnabled: true }));
+    expect(spy.mock.calls[1]?.[0]).toEqual(expect.objectContaining({ mutationEnabled: false }));
+    coordinator.stop();
+    spy.mockRestore();
+  });
+
+  it("recomputes mutationEnabled false when the account mutation switch flips mid-run", async () => {
+    const spy = vi.spyOn(syncEngine, "processProviderPage");
+    const account = activeAccount();
+    const coordinator = new EmailTriageCoordinator({
+      repository: {
+        ...unusedPort,
+        getGlobalSettings: async () => ({
+          ...defaultEmailTriageGlobalSettings(),
+          enabled: true,
+          mutationEnabled: true,
+          automationEnabled: true,
+        }),
+        getAccount: async () =>
+          spy.mock.calls.length === 0 ? account : { ...account, mutationEnabled: false },
+        updateAccountSyncState: async (_accountId, syncState) => ({
+          ...account,
+          syncState,
+        }),
+        listAccounts: async () => [account],
+        recoverStaleEffects: async () => 0,
+        getLatestMatchingEvaluation: async () => matchingEvaluation(),
+      },
+      createAdapter: () => ({
+        provider: "gmail" as const,
+        fetchPage: async (syncState) => {
+          if (!syncState.page) {
+            return {
+              messages: [],
+              hasMore: true,
+              gapDetected: false,
+              cursorUpdate: { page: 1 },
+            };
+          }
+          return {
+            messages: [],
+            hasMore: false,
+            gapDetected: false,
+            cursorUpdate: { page: 2 },
+          };
+        },
+      }),
+      classifierProvider: { completeStructured: async () => "" },
+      browserPreview: false,
+    });
+    await coordinator.start();
+    await coordinator.runAccountSync("acct-1");
+    expect(spy.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ mutationEnabled: true }));
+    expect(spy.mock.calls[1]?.[0]).toEqual(expect.objectContaining({ mutationEnabled: false }));
+    coordinator.stop();
+    spy.mockRestore();
+  });
+
+  it("passes mutationEnabled false without a matching evaluation", async () => {
+    const spy = vi.spyOn(syncEngine, "processProviderPage");
+    const coordinator = new EmailTriageCoordinator({
+      repository: {
+        ...unusedPort,
+        getGlobalSettings: async () => ({
+          ...defaultEmailTriageGlobalSettings(),
+          enabled: true,
+          mutationEnabled: true,
+          automationEnabled: true,
+        }),
+        getAccount: async () => activeAccount(),
+        updateAccountSyncState: async (_accountId, syncState) => ({
+          ...activeAccount(),
+          syncState,
+        }),
+        listAccounts: async () => [activeAccount()],
+        recoverStaleEffects: async () => 0,
+        getLatestMatchingEvaluation: async () => null,
+      },
+      createAdapter: () => ({
+        provider: "gmail" as const,
+        fetchPage: async () => ({
+          messages: [],
+          hasMore: false,
+          gapDetected: false,
+          cursorUpdate: null,
+        }),
+        applyMarkers: async () => undefined,
+      }),
+      classifierProvider: { completeStructured: async () => "" },
+      browserPreview: false,
+    });
+    await coordinator.start();
+    await coordinator.runAccountSync("acct-1");
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ mutationEnabled: false }));
+    coordinator.stop();
+    spy.mockRestore();
   });
 });

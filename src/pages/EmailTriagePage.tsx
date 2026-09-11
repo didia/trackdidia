@@ -5,6 +5,7 @@ import { SectionCard } from "../components/SectionCard";
 import {
   defaultEmailTriageGlobalSettings,
   type EmailTriageAccount,
+  type EmailTriageEvaluation,
   type EmailTriageGlobalSettings,
   type EmailTriageIgnoreReason,
   type EmailTriageReview,
@@ -16,6 +17,15 @@ import {
   EMAIL_TRIAGE_DEFAULT_IGNORE_THRESHOLD,
   EMAIL_TRIAGE_DEFAULT_RELEVANT_THRESHOLD,
 } from "../lib/email-triage/constants";
+import { applyEmailTriageDesktopPrefs } from "../lib/email-triage/desktop-prefs";
+import { runEvaluationCorpus } from "../lib/email-triage/evaluation/runner";
+import {
+  canEnableAutomation,
+  canEnableGlobalMutation,
+  hasMaterialClassifierChange,
+  prepareEmailTriageGlobalSettingsSave,
+} from "../lib/email-triage/mutation-gate";
+import { createOpenRouterClassifierProvider } from "../lib/email-triage/openrouter-classifier";
 import { resolveGmailOAuthClientId } from "../lib/email-triage/oauth/gmail-oauth";
 import { resolveMicrosoftOAuthClientId } from "../lib/email-triage/oauth/microsoft-oauth";
 import {
@@ -64,6 +74,15 @@ export const EmailTriagePage = () => {
   const [resolveErrorByReviewId, setResolveErrorByReviewId] = useState<Record<string, string>>({});
   const [resolvingReviewId, setResolvingReviewId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [latestEvaluation, setLatestEvaluation] = useState<EmailTriageEvaluation | null>(null);
+  const [evaluationMessage, setEvaluationMessage] = useState<string | null>(null);
+  const [evaluationRunning, setEvaluationRunning] = useState(false);
+  const [autostartError, setAutostartError] = useState<string | null>(null);
+  const [trayError, setTrayError] = useState<string | null>(null);
+  const [persistedSettings, setPersistedSettings] = useState<EmailTriageGlobalSettings>(
+    defaultEmailTriageGlobalSettings(),
+  );
 
   const resolvedGmailClientId = useMemo(
     () => resolveGmailOAuthClientId(settings.gmailOAuthClientId),
@@ -103,6 +122,10 @@ export const EmailTriagePage = () => {
     setAccounts(nextAccounts);
     setReviews(nextReviews);
     setSettings(nextSettings);
+    setPersistedSettings(nextSettings);
+    const matchingEvaluation =
+      await repository.getLatestMatchingEmailTriageEvaluation(nextSettings);
+    setLatestEvaluation(matchingEvaluation);
     if (nextSettings.enabled) {
       const vault = await checkVaultAvailability();
       setVaultAvailable(vault.available);
@@ -126,8 +149,12 @@ export const EmailTriagePage = () => {
 
   const saveSettings = async () => {
     setSaving(true);
+    setSettingsError(null);
+    setAutostartError(null);
+    setTrayError(null);
     try {
-      await repository.saveEmailTriageGlobalSettings({
+      const previous = await repository.getEmailTriageGlobalSettings();
+      const draft = {
         ...settings,
         pollIntervalMinutes: clampPollInterval(settings.pollIntervalMinutes),
         relevantThreshold: clampConfidenceThreshold(
@@ -139,13 +166,113 @@ export const EmailTriagePage = () => {
           EMAIL_TRIAGE_DEFAULT_IGNORE_THRESHOLD,
         ),
         updatedAt: nowIso(),
-      });
+      };
+      const {
+        settings: prepared,
+        mutationRejected,
+        automationRejected,
+      } = prepareEmailTriageGlobalSettingsSave(previous, draft, latestEvaluation);
+      if (mutationRejected) {
+        setSettingsError(t("evaluationRequiredForMutation"));
+      } else if (automationRejected) {
+        setSettingsError(t("evaluationRequiredForAutomation"));
+      }
+      if (mutationRejected || automationRejected) {
+        setSettings({ ...prepared });
+      }
+      await repository.saveEmailTriageGlobalSettings(prepared);
+      if (!browserPreview) {
+        const desktopResult = await applyEmailTriageDesktopPrefs(prepared, browserPreview);
+        if (desktopResult.autostartError) {
+          setAutostartError(t("autostartError"));
+        }
+        if (desktopResult.trayError) {
+          setTrayError(t("trayError"));
+        }
+      }
       await reconfigureEmailTriage();
       await load();
+    } catch (error) {
+      setSettingsError(error instanceof Error ? error.message : t("saveSettingsFailed"));
     } finally {
       setSaving(false);
     }
   };
+
+  const runEvaluation = async () => {
+    if (browserPreview) {
+      return;
+    }
+    setEvaluationRunning(true);
+    setEvaluationMessage(null);
+    try {
+      const apiKey = await loadVaultSecret("triage_api_key");
+      if (!apiKey) {
+        setEvaluationMessage(t("evaluationMissingKey"));
+        return;
+      }
+      const persisted = await repository.getEmailTriageGlobalSettings();
+      const provider = createOpenRouterClassifierProvider(appSettings.aiBaseUrl);
+      const evaluation = await runEvaluationCorpus({
+        provider,
+        apiKey,
+        model: persisted.classifierModel,
+        promptVersion: persisted.classifierPromptVersion,
+        schemaVersion: persisted.classifierSchemaVersion,
+        relevantThreshold: persisted.relevantThreshold,
+        ignoreThreshold: persisted.ignoreThreshold,
+      });
+      await repository.saveEmailTriageEvaluation(evaluation);
+      setEvaluationMessage(
+        evaluation.passed
+          ? t("evaluationPassed")
+          : t("evaluationResults", {
+              validSchema: evaluation.results.validSchemaCount,
+              exactRouting: evaluation.results.exactRoutingCount,
+              total: evaluation.results.totalCases,
+              safetyViolations: evaluation.results.safetyViolations,
+            }),
+      );
+      const draftSettings = settings;
+      await load();
+      setSettings(draftSettings);
+    } catch {
+      setEvaluationMessage(t("evaluationFailed"));
+    } finally {
+      setEvaluationRunning(false);
+    }
+  };
+
+  const toggleAccountMutation = async (account: EmailTriageAccount) => {
+    await repository.saveEmailTriageAccount({
+      ...account,
+      mutationEnabled: !account.mutationEnabled,
+      updatedAt: nowIso(),
+    });
+    await load();
+  };
+
+  const dismissReview = async (review: EmailTriageReview) => {
+    if (resolvingReviewId) {
+      return;
+    }
+    setResolvingReviewId(review.id);
+    try {
+      await repository.dismissEmailTriageReview(review.id);
+      await load();
+    } catch (error) {
+      setResolveErrorByReviewId((current) => ({
+        ...current,
+        [review.id]: error instanceof Error ? error.message : t("resolveFailed"),
+      }));
+    } finally {
+      setResolvingReviewId(null);
+    }
+  };
+
+  const automationCheckboxEnabled = canEnableAutomation(settings, latestEvaluation);
+  const mutationCheckboxEnabled = canEnableGlobalMutation(settings, latestEvaluation);
+  const evaluationSettingsDirty = hasMaterialClassifierChange(persistedSettings, settings);
 
   const saveTriageApiKey = async () => {
     if (browserPreview || !triageKeyDraft.trim()) {
@@ -385,9 +512,57 @@ export const EmailTriagePage = () => {
             />
           </label>
           <label>
-            <span>{t("globalMutation")}</span>
-            <input type="checkbox" checked={settings.mutationEnabled} disabled readOnly />
+            <span>{t("automationEnabled")}</span>
+            <input
+              type="checkbox"
+              checked={settings.automationEnabled}
+              disabled={
+                browserPreview || (!settings.automationEnabled && !automationCheckboxEnabled)
+              }
+              onChange={(event) =>
+                setSettings({ ...settings, automationEnabled: event.target.checked })
+              }
+            />
           </label>
+          {!automationCheckboxEnabled && !settings.automationEnabled ? (
+            <p>{t("automationDisabledHint")}</p>
+          ) : null}
+          <label>
+            <span>{t("globalMutation")}</span>
+            <input
+              type="checkbox"
+              checked={settings.mutationEnabled}
+              disabled={browserPreview || !mutationCheckboxEnabled}
+              onChange={(event) =>
+                setSettings({ ...settings, mutationEnabled: event.target.checked })
+              }
+            />
+          </label>
+          {!mutationCheckboxEnabled ? <p>{t("globalMutationDisabledHint")}</p> : null}
+          {!browserPreview ? (
+            <>
+              <label>
+                <span>{t("runInTray")}</span>
+                <input
+                  type="checkbox"
+                  checked={settings.runInTray}
+                  onChange={(event) =>
+                    setSettings({ ...settings, runInTray: event.target.checked })
+                  }
+                />
+              </label>
+              <label>
+                <span>{t("launchAtLogin")}</span>
+                <input
+                  type="checkbox"
+                  checked={settings.launchAtLogin}
+                  onChange={(event) =>
+                    setSettings({ ...settings, launchAtLogin: event.target.checked })
+                  }
+                />
+              </label>
+            </>
+          ) : null}
           <label>
             <span>{t("pollInterval")}</span>
             <input
@@ -497,9 +672,22 @@ export const EmailTriagePage = () => {
               >
                 {t("copyCoachKey")}
               </button>
+              <button
+                type="button"
+                className="button"
+                disabled={evaluationRunning || evaluationSettingsDirty}
+                onClick={() => void runEvaluation()}
+              >
+                {evaluationRunning ? t("evaluationRunning") : t("runEvaluation")}
+              </button>
             </>
           ) : null}
         </div>
+        {settingsError ? <p>{settingsError}</p> : null}
+        {autostartError ? <p>{autostartError}</p> : null}
+        {trayError ? <p>{trayError}</p> : null}
+        {evaluationSettingsDirty ? <p>{t("evaluationDirtyDraft")}</p> : null}
+        {evaluationMessage ? <p>{evaluationMessage}</p> : null}
         {triageKeySaved ? <p>{t("triageApiKeySaved")}</p> : null}
       </SectionCard>
 
@@ -591,6 +779,15 @@ export const EmailTriagePage = () => {
                 </p>
               ) : null}
               {accountActionError[account.id] ? <p>{accountActionError[account.id]}</p> : null}
+              <label>
+                <span>{t("accountMutation")}</span>
+                <input
+                  type="checkbox"
+                  checked={account.mutationEnabled}
+                  disabled={browserPreview}
+                  onChange={() => void toggleAccountMutation(account)}
+                />
+              </label>
               <div className="actions-row">
                 <button
                   type="button"
@@ -748,6 +945,14 @@ export const EmailTriagePage = () => {
                 onClick={() => void resolveReview(review, "ignore")}
               >
                 {t("markIgnore")}
+              </button>
+              <button
+                type="button"
+                className="button"
+                disabled={resolvingReviewId !== null}
+                onClick={() => void dismissReview(review)}
+              >
+                {t("removeFromQueue")}
               </button>
             </div>
             {ignoreReasonErrorByReviewId[review.id] ? (

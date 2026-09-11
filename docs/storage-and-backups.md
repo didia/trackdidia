@@ -147,6 +147,9 @@ Never renumber or rewrite a released migration. Add the next ID.
 | 27 | `ai_proposals_repeatable_goal_evaluation` | Pending proposal uniqueness also excludes `goal_evaluation`, since a monthly synthesis can propose one evaluation per evaluated goal on the same message; adds a second partial unique index on `(message_id, json_extract(payload_json, '$.goalId'))` so at most one pending `goal_evaluation` proposal can still exist per goal |
 | 28 | `add_annual_goal_measurement_fields` | Adds `measurement_type` (default `numeric`), `status` (default `active`), `deadline`, `starting_value`, `direction`, `cadence_target`, `cadence_period` (default `week`), `principle_key`, `progress_log_json` (default `{}`), `milestones_json` (default `[]`) to `annual_goals` |
 | 29 | `add_email_triage_foundation` | Adds `source_url` to `gtd_tasks`; creates email triage settings, accounts, conversations, messages, reviews, evaluations, desired effects, and audit tables |
+| 30 | `add_email_triage_gmail_oauth_client_id` | Adds `gmail_oauth_client_id` to `email_triage_settings` |
+| 31 | `add_email_triage_microsoft_oauth_client_id` | Adds `microsoft_oauth_client_id` to `email_triage_settings` |
+| 32 | `add_email_triage_desktop_prefs` | Adds `run_in_tray` and `launch_at_login` to `email_triage_settings` |
 
 ## Table reference
 
@@ -282,9 +285,10 @@ Migration 29 adds a nullable `gtd_tasks.source_url` plus nine tables. Raw MIME a
 message bodies are never stored; classifier input is transient.
 
 - `email_triage_settings`: singleton `id = 'global'` for enable/mutation flags,
-  poll interval, classifier model/versions, confidence thresholds, and
-  `automation_enabled` (evaluation failures set this to 0; a passing evaluation
-  does not turn it on).
+  poll interval, classifier model/versions, confidence thresholds,
+  `run_in_tray`, `launch_at_login`, and `automation_enabled` (a failed evaluation
+  sets this to 0; a passing evaluation unlocks the automation checkbox but does not
+  turn it on).
 - `email_triage_accounts`: provider connection cards, generation, pause/state,
   recovery, and `sync_state_json`.
 - `email_triage_conversations`: per-account thread key, `decision_version`,

@@ -79,7 +79,12 @@ export const pickNextPendingEffect = (
   const pending = effects
     .filter((effect) => effect.status === "pending" || effect.status === "failed")
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
-  return pending[0] ?? null;
+  const pendingIds = new Set(pending.map((effect) => effect.id));
+  return (
+    pending.find((effect) =>
+      effect.dependencies.every((dependencyId) => !pendingIds.has(dependencyId)),
+    ) ?? null
+  );
 };
 
 export interface EffectVerificationContext {

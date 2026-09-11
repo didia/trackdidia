@@ -1,13 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 import { defaultEmailTriageGlobalSettings } from "../../domain/email-triage";
-import type { EmailTriageAccount } from "../../domain/email-triage";
-import { processProviderPage, type EmailTriageRepositoryPort } from "./sync-engine";
+import type { EmailTriageAccount, EmailTriageEvaluation } from "../../domain/email-triage";
+import {
+  processProviderPage,
+  reconcilePendingEffects,
+  type EmailTriageRepositoryPort,
+} from "./sync-engine";
 import {
   MockGmailAdapter,
   type MockGmailHistoryEntry,
   type MockGmailMessage,
 } from "./providers/mock-gmail";
 import type { EmailTriageClassifierProvider } from "./classifier";
+import { createDesiredEffect } from "./desired-effects";
+import { EMAIL_TRIAGE_EVALUATION_CORPUS_VERSION } from "./constants";
 
 const baseAccount = (): EmailTriageAccount => ({
   id: "acct-1",
@@ -435,5 +441,275 @@ describe("sync-engine processProviderPage", () => {
     });
     expect(result.cancelled).toBe(true);
     expect(updateAccountSyncState).not.toHaveBeenCalled();
+  });
+});
+
+const matchingEvaluation = (): EmailTriageEvaluation => {
+  const settings = defaultEmailTriageGlobalSettings();
+  return {
+    id: "eval-1",
+    model: settings.classifierModel,
+    promptVersion: settings.classifierPromptVersion,
+    schemaVersion: settings.classifierSchemaVersion,
+    corpusVersion: EMAIL_TRIAGE_EVALUATION_CORPUS_VERSION,
+    relevantThreshold: settings.relevantThreshold,
+    ignoreThreshold: settings.ignoreThreshold,
+    passed: true,
+    results: {
+      totalCases: 10,
+      validSchemaCount: 10,
+      exactRoutingCount: 9,
+      safetyViolations: 0,
+      failures: [],
+    },
+    evaluatedAt: "2026-01-01T00:00:00.000Z",
+  };
+};
+
+const mutationSettings = () => ({
+  ...defaultEmailTriageGlobalSettings(),
+  enabled: true,
+  mutationEnabled: true,
+  automationEnabled: true,
+});
+
+describe("sync-engine reconcilePendingEffects", () => {
+  it("supersedes a provider marker when the conversation version changed", async () => {
+    const { MemoryRepository } = await import("../storage/memory-repository");
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const account = await repository.saveEmailTriageAccount({
+      ...baseAccount(),
+      mutationEnabled: true,
+    });
+    await repository.saveEmailTriageEvaluation(matchingEvaluation());
+    await repository.saveEmailTriageGlobalSettings(mutationSettings());
+    const conversation = await repository.emailTriageUpsertConversation(account.id, "thread-1", {
+      decisionVersion: 2,
+      routingState: "relevant",
+    });
+    const effect = createDesiredEffect({
+      accountId: account.id,
+      accountGeneration: account.generation,
+      conversationId: conversation.id,
+      decisionVersion: 1,
+      effectType: "provider_marker",
+      targetMessageIds: ["m1"],
+    });
+    await repository.emailTriageSaveDesiredEffect(effect);
+    const applyMarkers = vi.fn();
+    await reconcilePendingEffects(
+      {
+        repository: memoryPort(repository),
+        account,
+        adapter: {
+          provider: "gmail",
+          fetchPage: async () => ({
+            messages: [],
+            hasMore: false,
+            gapDetected: false,
+            cursorUpdate: null,
+          }),
+          applyMarkers,
+        },
+        classifierProvider: { completeStructured: async () => "" },
+        apiKey: "key",
+        globalSettings: mutationSettings(),
+        mutationEnabled: true,
+        latestEvaluation: matchingEvaluation(),
+      },
+      account.id,
+    );
+    expect(applyMarkers).not.toHaveBeenCalled();
+    const pending = await repository.emailTriageListPendingEffectsForAccount(account.id);
+    expect(pending).toHaveLength(0);
+  });
+
+  it("does not apply a marker after mutation is disabled", async () => {
+    const { MemoryRepository } = await import("../storage/memory-repository");
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const account = await repository.saveEmailTriageAccount({
+      ...baseAccount(),
+      mutationEnabled: false,
+    });
+    await repository.saveEmailTriageGlobalSettings(mutationSettings());
+    const conversation = await repository.emailTriageUpsertConversation(account.id, "thread-1", {
+      decisionVersion: 1,
+      routingState: "relevant",
+    });
+    const effect = createDesiredEffect({
+      accountId: account.id,
+      accountGeneration: account.generation,
+      conversationId: conversation.id,
+      decisionVersion: 1,
+      effectType: "provider_marker",
+      targetMessageIds: ["m1"],
+    });
+    await repository.emailTriageSaveDesiredEffect(effect);
+    const applyMarkers = vi.fn();
+    await reconcilePendingEffects(
+      {
+        repository: memoryPort(repository),
+        account: { ...account, mutationEnabled: true },
+        adapter: {
+          provider: "gmail",
+          fetchPage: async () => ({
+            messages: [],
+            hasMore: false,
+            gapDetected: false,
+            cursorUpdate: null,
+          }),
+          applyMarkers,
+        },
+        classifierProvider: { completeStructured: async () => "" },
+        apiKey: "key",
+        globalSettings: mutationSettings(),
+        mutationEnabled: true,
+        latestEvaluation: matchingEvaluation(),
+      },
+      account.id,
+    );
+    expect(applyMarkers).not.toHaveBeenCalled();
+    const pending = await repository.emailTriageListPendingEffectsForAccount(account.id);
+    expect(pending).toHaveLength(1);
+  });
+
+  it("drains a bounded batch of pending effects in one run", async () => {
+    const { MemoryRepository } = await import("../storage/memory-repository");
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const account = await repository.saveEmailTriageAccount({
+      ...baseAccount(),
+      mutationEnabled: true,
+    });
+    await repository.saveEmailTriageEvaluation(matchingEvaluation());
+    await repository.saveEmailTriageGlobalSettings(mutationSettings());
+    const first = await repository.emailTriageUpsertConversation(account.id, "thread-1", {
+      decisionVersion: 1,
+      routingState: "relevant",
+    });
+    const second = await repository.emailTriageUpsertConversation(account.id, "thread-2", {
+      decisionVersion: 1,
+      routingState: "relevant",
+    });
+    await repository.emailTriageSaveDesiredEffect(
+      createDesiredEffect({
+        accountId: account.id,
+        accountGeneration: account.generation,
+        conversationId: first.id,
+        decisionVersion: 1,
+        effectType: "gtd_task",
+        targetMessageIds: ["m1"],
+      }),
+    );
+    await repository.emailTriageSaveDesiredEffect(
+      createDesiredEffect({
+        accountId: account.id,
+        accountGeneration: account.generation,
+        conversationId: first.id,
+        decisionVersion: 1,
+        effectType: "provider_marker",
+        targetMessageIds: ["m1"],
+      }),
+    );
+    await repository.emailTriageSaveDesiredEffect(
+      createDesiredEffect({
+        accountId: account.id,
+        accountGeneration: account.generation,
+        conversationId: second.id,
+        decisionVersion: 1,
+        effectType: "provider_marker",
+        targetMessageIds: ["m2"],
+      }),
+    );
+    const applyMarkers = vi.fn();
+    await reconcilePendingEffects(
+      {
+        repository: memoryPort(repository),
+        account,
+        adapter: {
+          provider: "gmail",
+          fetchPage: async () => ({
+            messages: [],
+            hasMore: false,
+            gapDetected: false,
+            cursorUpdate: null,
+          }),
+          applyMarkers,
+        },
+        classifierProvider: { completeStructured: async () => "" },
+        apiKey: "key",
+        globalSettings: mutationSettings(),
+        mutationEnabled: true,
+        latestEvaluation: matchingEvaluation(),
+      },
+      account.id,
+    );
+    expect(applyMarkers).toHaveBeenCalledTimes(2);
+    expect(await repository.emailTriageListPendingEffectsForAccount(account.id)).toHaveLength(0);
+  });
+
+  it("records when the account generation changes during applyMarkers", async () => {
+    const { MemoryRepository } = await import("../storage/memory-repository");
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const account = await repository.saveEmailTriageAccount({
+      ...baseAccount(),
+      mutationEnabled: true,
+    });
+    await repository.saveEmailTriageEvaluation(matchingEvaluation());
+    await repository.saveEmailTriageGlobalSettings(mutationSettings());
+    const conversation = await repository.emailTriageUpsertConversation(account.id, "thread-1", {
+      decisionVersion: 1,
+      routingState: "relevant",
+    });
+    const effect = createDesiredEffect({
+      accountId: account.id,
+      accountGeneration: account.generation,
+      conversationId: conversation.id,
+      decisionVersion: 1,
+      effectType: "provider_marker",
+      targetMessageIds: ["m1"],
+    });
+    await repository.emailTriageSaveDesiredEffect(effect);
+    const applyMarkers = vi.fn(async () => {
+      await repository.saveEmailTriageAccount({
+        ...account,
+        mutationEnabled: true,
+        generation: account.generation + 1,
+        updatedAt: "2026-01-02T00:00:00.000Z",
+      });
+    });
+    const port = memoryPort(repository);
+    const saved: Array<{ lastError: string | null; status: string }> = [];
+    port.saveDesiredEffect = async (effect) => {
+      saved.push({ lastError: effect.lastError, status: effect.status });
+      await repository.emailTriageSaveDesiredEffect(effect);
+    };
+    await reconcilePendingEffects(
+      {
+        repository: port,
+        account,
+        adapter: {
+          provider: "gmail",
+          fetchPage: async () => ({
+            messages: [],
+            hasMore: false,
+            gapDetected: false,
+            cursorUpdate: null,
+          }),
+          applyMarkers,
+        },
+        classifierProvider: { completeStructured: async () => "" },
+        apiKey: "key",
+        globalSettings: mutationSettings(),
+        mutationEnabled: true,
+        latestEvaluation: matchingEvaluation(),
+      },
+      account.id,
+    );
+    expect(applyMarkers).toHaveBeenCalledOnce();
+    expect(saved.at(-1)).toEqual({ lastError: "context_changed_in_flight", status: "completed" });
   });
 });

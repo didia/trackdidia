@@ -22,6 +22,10 @@ import {
   EMAIL_TRIAGE_DEFAULT_RELEVANT_THRESHOLD,
 } from "../email-triage/constants";
 import { planGtdOwnershipUpdate } from "../email-triage/gtd-ownership";
+import {
+  findLatestMatchingEvaluation,
+  prepareEmailTriageGlobalSettingsSave,
+} from "../email-triage/mutation-gate";
 import type {
   ApplyGtdUpdateInput,
   CreateReviewInput,
@@ -93,6 +97,8 @@ export class EmailTriageSqliteStore {
         classifier_prompt_version: string;
         classifier_schema_version: string;
         automation_enabled: number;
+        run_in_tray: number;
+        launch_at_login: number;
         gmail_oauth_client_id: string;
         microsoft_oauth_client_id: string;
         updated_at: string;
@@ -112,6 +118,8 @@ export class EmailTriageSqliteStore {
       classifierPromptVersion: row.classifier_prompt_version,
       classifierSchemaVersion: row.classifier_schema_version,
       automationEnabled: Boolean(row.automation_enabled),
+      runInTray: Boolean(row.run_in_tray ?? 0),
+      launchAtLogin: Boolean(row.launch_at_login ?? 0),
       gmailOAuthClientId: row.gmail_oauth_client_id ?? "",
       microsoftOAuthClientId: row.microsoft_oauth_client_id ?? "",
       updatedAt: row.updated_at,
@@ -119,13 +127,21 @@ export class EmailTriageSqliteStore {
   }
 
   async saveGlobalSettings(settings: EmailTriageGlobalSettings): Promise<void> {
+    const previous = await this.getGlobalSettings();
+    const latestMatching = await this.getLatestMatchingEvaluation(settings);
+    const { settings: prepared } = prepareEmailTriageGlobalSettingsSave(
+      previous,
+      settings,
+      latestMatching,
+    );
     const db = await this.getDb();
     await db.execute(
       `INSERT INTO email_triage_settings (
         id, enabled, mutation_enabled, poll_interval_minutes, relevant_threshold, ignore_threshold,
         classifier_model, classifier_prompt_version, classifier_schema_version, automation_enabled,
+        run_in_tray, launch_at_login,
         gmail_oauth_client_id, microsoft_oauth_client_id, updated_at
-      ) VALUES ('global', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      ) VALUES ('global', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       ON CONFLICT(id) DO UPDATE SET
         enabled = excluded.enabled,
         mutation_enabled = excluded.mutation_enabled,
@@ -136,27 +152,38 @@ export class EmailTriageSqliteStore {
         classifier_prompt_version = excluded.classifier_prompt_version,
         classifier_schema_version = excluded.classifier_schema_version,
         automation_enabled = excluded.automation_enabled,
+        run_in_tray = excluded.run_in_tray,
+        launch_at_login = excluded.launch_at_login,
         gmail_oauth_client_id = excluded.gmail_oauth_client_id,
         microsoft_oauth_client_id = excluded.microsoft_oauth_client_id,
         updated_at = excluded.updated_at`,
       [
-        settings.enabled ? 1 : 0,
-        settings.mutationEnabled ? 1 : 0,
-        clampPollInterval(settings.pollIntervalMinutes),
+        prepared.enabled ? 1 : 0,
+        prepared.mutationEnabled ? 1 : 0,
+        clampPollInterval(prepared.pollIntervalMinutes),
         clampConfidenceThreshold(
-          settings.relevantThreshold,
+          prepared.relevantThreshold,
           EMAIL_TRIAGE_DEFAULT_RELEVANT_THRESHOLD,
         ),
-        clampConfidenceThreshold(settings.ignoreThreshold, EMAIL_TRIAGE_DEFAULT_IGNORE_THRESHOLD),
-        settings.classifierModel,
-        settings.classifierPromptVersion,
-        settings.classifierSchemaVersion,
-        settings.automationEnabled ? 1 : 0,
-        settings.gmailOAuthClientId,
-        settings.microsoftOAuthClientId,
-        settings.updatedAt,
+        clampConfidenceThreshold(prepared.ignoreThreshold, EMAIL_TRIAGE_DEFAULT_IGNORE_THRESHOLD),
+        prepared.classifierModel,
+        prepared.classifierPromptVersion,
+        prepared.classifierSchemaVersion,
+        prepared.automationEnabled ? 1 : 0,
+        prepared.runInTray ? 1 : 0,
+        prepared.launchAtLogin ? 1 : 0,
+        prepared.gmailOAuthClientId,
+        prepared.microsoftOAuthClientId,
+        prepared.updatedAt,
       ],
     );
+  }
+
+  async getLatestMatchingEvaluation(
+    settings: EmailTriageGlobalSettings,
+  ): Promise<EmailTriageEvaluation | null> {
+    const evaluations = await this.listEvaluations(50);
+    return findLatestMatchingEvaluation(settings, evaluations);
   }
 
   async listAccounts(): Promise<EmailTriageAccount[]> {
@@ -949,6 +976,89 @@ export class EmailTriageSqliteStore {
     };
   }
 
+  async dismissReview(reviewId: string): Promise<EmailTriageReview> {
+    const db = await this.getDb();
+    const rows = await db.select<
+      Array<{
+        id: string;
+        account_id: string;
+        conversation_id: string;
+        message_id: string;
+        expected_decision_version: number;
+        status: EmailTriageReview["status"];
+        reason: string;
+        sanitized_preview_json: string | null;
+        resolution: EmailTriageReview["resolution"];
+        resolved_at: string | null;
+        created_at: string;
+      }>
+    >("SELECT * FROM email_triage_reviews WHERE id = $1", [reviewId]);
+    const row = rows[0];
+    if (!row) {
+      throw new Error("Review not found");
+    }
+    if (row.status !== "pending") {
+      throw new Error("Review not pending");
+    }
+    const conversation = await this.getConversation(row.conversation_id);
+    if (!conversation) {
+      throw new Error("Conversation not found");
+    }
+    if (conversation.decisionVersion !== row.expected_decision_version) {
+      throw new Error("Conversation version mismatch");
+    }
+    const resolvedAt = nowIso();
+    const pendingRows = await db.select<
+      Array<{
+        id: string;
+        account_id: string;
+        message_id: string;
+      }>
+    >(
+      "SELECT id, account_id, message_id FROM email_triage_reviews WHERE conversation_id = $1 AND status = 'pending'",
+      [row.conversation_id],
+    );
+    const dismissResult = await db.execute(
+      `UPDATE email_triage_reviews
+       SET status = 'dismissed', resolved_at = $1
+       WHERE conversation_id = $2 AND status = 'pending'`,
+      [resolvedAt, row.conversation_id],
+    );
+    if (!dismissResult.rowsAffected) {
+      throw new Error("Review dismiss failed");
+    }
+    const conversationResult = await db.execute(
+      `UPDATE email_triage_conversations
+       SET decision_version = $1, routing_state = 'dismissed', updated_at = $2
+       WHERE id = $3 AND decision_version = $4`,
+      [conversation.decisionVersion + 1, resolvedAt, conversation.id, conversation.decisionVersion],
+    );
+    if (!conversationResult.rowsAffected) {
+      throw new Error("Conversation version mismatch");
+    }
+    for (const pending of pendingRows) {
+      await db.execute(
+        "UPDATE email_triage_messages SET routing_decision = 'ignore' WHERE account_id = $1 AND provider_message_id = $2",
+        [pending.account_id, pending.message_id],
+      );
+    }
+    return {
+      id: row.id,
+      accountId: row.account_id,
+      conversationId: row.conversation_id,
+      messageId: row.message_id,
+      expectedDecisionVersion: row.expected_decision_version,
+      status: "dismissed",
+      reason: row.reason,
+      sanitizedPreview: row.sanitized_preview_json
+        ? (JSON.parse(row.sanitized_preview_json) as EmailTriageReview["sanitizedPreview"])
+        : null,
+      resolution: row.resolution,
+      resolvedAt,
+      createdAt: row.created_at,
+    };
+  }
+
   async listEvaluations(limit = 20): Promise<EmailTriageEvaluation[]> {
     const db = await this.getDb();
     const rows = await db.select<
@@ -1001,7 +1111,7 @@ export class EmailTriageSqliteStore {
     );
     if (!evaluation.passed) {
       const settings = await this.getGlobalSettings();
-      await this.saveGlobalSettings({ ...settings, automationEnabled: false });
+      await this.saveGlobalSettings({ ...settings, automationEnabled: false, updatedAt: nowIso() });
     }
     return evaluation;
   }

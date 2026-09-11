@@ -22,6 +22,10 @@ import {
   EMAIL_TRIAGE_DEFAULT_RELEVANT_THRESHOLD,
 } from "../email-triage/constants";
 import { planGtdOwnershipUpdate } from "../email-triage/gtd-ownership";
+import {
+  findLatestMatchingEvaluation,
+  prepareEmailTriageGlobalSettingsSave,
+} from "../email-triage/mutation-gate";
 import type {
   ApplyGtdUpdateInput,
   CreateReviewInput,
@@ -56,18 +60,29 @@ export class EmailTriageMemoryStore {
   }
 
   saveGlobalSettings(settings: EmailTriageGlobalSettings): void {
+    const previous = this.getGlobalSettings();
+    const latestMatching = this.getLatestMatchingEvaluation(settings);
+    const { settings: prepared } = prepareEmailTriageGlobalSettingsSave(
+      previous,
+      settings,
+      latestMatching,
+    );
     this.globalSettings = {
-      ...settings,
-      pollIntervalMinutes: clampPollInterval(settings.pollIntervalMinutes),
+      ...prepared,
+      pollIntervalMinutes: clampPollInterval(prepared.pollIntervalMinutes),
       relevantThreshold: clampConfidenceThreshold(
-        settings.relevantThreshold,
+        prepared.relevantThreshold,
         EMAIL_TRIAGE_DEFAULT_RELEVANT_THRESHOLD,
       ),
       ignoreThreshold: clampConfidenceThreshold(
-        settings.ignoreThreshold,
+        prepared.ignoreThreshold,
         EMAIL_TRIAGE_DEFAULT_IGNORE_THRESHOLD,
       ),
     };
+  }
+
+  getLatestMatchingEvaluation(settings: EmailTriageGlobalSettings): EmailTriageEvaluation | null {
+    return findLatestMatchingEvaluation(settings, this.listEvaluations(50));
   }
 
   listAccounts(): EmailTriageAccount[] {
@@ -463,6 +478,47 @@ export class EmailTriageMemoryStore {
     return updated;
   }
 
+  dismissReview(reviewId: string): EmailTriageReview {
+    const review = this.reviews.get(reviewId);
+    if (!review) {
+      throw new Error("Review not found");
+    }
+    if (review.status !== "pending") {
+      throw new Error("Review not pending");
+    }
+    const conversation = this.getConversation(review.conversationId);
+    if (!conversation) {
+      throw new Error("Conversation not found");
+    }
+    if (conversation.decisionVersion !== review.expectedDecisionVersion) {
+      throw new Error("Conversation version mismatch");
+    }
+    const resolvedAt = nowIso();
+    let dismissedReview = review;
+    for (const item of this.reviews.values()) {
+      if (item.conversationId === conversation.id && item.status === "pending") {
+        const updated: EmailTriageReview = {
+          ...item,
+          status: "dismissed",
+          resolvedAt,
+        };
+        this.reviews.set(item.id, updated);
+        if (item.id === review.id) {
+          dismissedReview = updated;
+        }
+        const message = this.getMessageByProviderId(item.accountId, item.messageId);
+        if (message) {
+          this.messages.set(message.id, { ...message, routingDecision: "ignore" });
+        }
+      }
+    }
+    this.upsertConversation(conversation.accountId, conversation.conversationKey, {
+      decisionVersion: conversation.decisionVersion + 1,
+      routingState: "dismissed",
+    });
+    return dismissedReview;
+  }
+
   listEvaluations(limit = 20): EmailTriageEvaluation[] {
     return [...this.evaluations.values()]
       .sort((left, right) => right.evaluatedAt.localeCompare(left.evaluatedAt))
@@ -475,10 +531,11 @@ export class EmailTriageMemoryStore {
       results: { ...evaluation.results, failures: [...evaluation.results.failures] },
     });
     if (!evaluation.passed) {
-      this.globalSettings = {
+      this.saveGlobalSettings({
         ...this.globalSettings,
         automationEnabled: false,
-      };
+        updatedAt: nowIso(),
+      });
     }
     return evaluation;
   }

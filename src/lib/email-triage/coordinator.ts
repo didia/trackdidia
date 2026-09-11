@@ -1,6 +1,7 @@
 import type { EmailTriageAccount, EmailTriageGlobalSettings } from "../../domain/email-triage";
 import { isTauriRuntime } from "../storage/factory";
 import type { EmailTriageClassifierProvider } from "./classifier";
+import { canMutateProvider } from "./mutation-gate";
 import type { EmailTriageRepositoryPort } from "./sync-engine";
 import { processProviderPage, reconcilePendingEffects } from "./sync-engine";
 import type { EmailTriageProviderAdapter } from "./providers/types";
@@ -26,6 +27,9 @@ export interface EmailTriageCoordinatorDeps {
   repository: EmailTriageRepositoryPort & {
     listAccounts(): Promise<EmailTriageAccount[]>;
     getGlobalSettings(): Promise<EmailTriageGlobalSettings>;
+    getLatestMatchingEvaluation(
+      settings: EmailTriageGlobalSettings,
+    ): Promise<import("../../domain/email-triage").EmailTriageEvaluation | null>;
     recoverStaleEffects(): Promise<number>;
   };
   createAdapter(
@@ -191,6 +195,7 @@ export class EmailTriageCoordinator {
           return syncResult;
         }
         const apiKey = await loadVaultSecret("triage_api_key");
+        const latestEvaluation = await this.deps.repository.getLatestMatchingEvaluation(settings);
         let hasMore = true;
         let backoffAttempt = 0;
         let pagesProcessed = 0;
@@ -208,14 +213,26 @@ export class EmailTriageCoordinator {
             break;
           }
           try {
+            const pageSettings = await this.deps.repository.getGlobalSettings();
+            const latestAccount =
+              (await this.deps.repository.getAccount(accountId)) ?? currentAccount;
+            const pageAccount = {
+              ...latestAccount,
+              syncState: currentAccount.syncState,
+            };
+            const mutationEnabled =
+              !this.browserPreview &&
+              pageAccount.state !== "gap_review_required" &&
+              canMutateProvider(pageSettings, pageAccount, latestEvaluation);
             const result = await processProviderPage({
               repository: this.deps.repository,
-              account: currentAccount,
+              account: pageAccount,
               adapter,
               classifierProvider: this.deps.classifierProvider,
               apiKey,
-              globalSettings: settings,
-              mutationEnabled: false,
+              globalSettings: pageSettings,
+              mutationEnabled,
+              latestEvaluation,
               shouldContinue,
             });
             currentAccount = result.account;
@@ -230,6 +247,28 @@ export class EmailTriageCoordinator {
             if (result.gapDetected) {
               break;
             }
+            const pageReconcileSettings = await this.deps.repository.getGlobalSettings();
+            const pageReconcileAccount =
+              (await this.deps.repository.getAccount(accountId)) ?? currentAccount;
+            await reconcilePendingEffects(
+              {
+                repository: this.deps.repository,
+                account: {
+                  ...pageReconcileAccount,
+                  syncState: currentAccount.syncState,
+                },
+                adapter,
+                classifierProvider: this.deps.classifierProvider,
+                apiKey,
+                globalSettings: pageReconcileSettings,
+                mutationEnabled:
+                  !this.browserPreview &&
+                  pageReconcileAccount.state !== "gap_review_required" &&
+                  canMutateProvider(pageReconcileSettings, pageReconcileAccount, latestEvaluation),
+                latestEvaluation,
+              },
+              accountId,
+            );
           } catch (error) {
             if (isReconnectRequiredError(error)) {
               currentAccount = await this.deps.repository.updateAccountSyncState(
@@ -280,15 +319,23 @@ export class EmailTriageCoordinator {
           );
         }
         if (!syncFailed && !cancelled) {
+          const reconcileSettings = await this.deps.repository.getGlobalSettings();
+          const reconcileAccount =
+            (await this.deps.repository.getAccount(currentAccount.id)) ?? currentAccount;
+          const reconcileMutationEnabled =
+            !this.browserPreview &&
+            reconcileAccount.state !== "gap_review_required" &&
+            canMutateProvider(reconcileSettings, reconcileAccount, latestEvaluation);
           await reconcilePendingEffects(
             {
               repository: this.deps.repository,
-              account: currentAccount,
+              account: reconcileAccount,
               adapter,
               classifierProvider: this.deps.classifierProvider,
               apiKey,
-              globalSettings: settings,
-              mutationEnabled: false,
+              globalSettings: reconcileSettings,
+              mutationEnabled: reconcileMutationEnabled,
+              latestEvaluation,
             },
             accountId,
           );

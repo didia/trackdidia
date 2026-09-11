@@ -227,11 +227,11 @@ describe("email triage persistence", () => {
     expect(fakeDb.attempts.every((attempt) => attempt.message_id === firstId)).toBe(true);
   });
 
-  it("turns automation off only when an evaluation fails", () => {
+  it("does not enable automation when an evaluation passes", () => {
     const store = createMemoryStore();
     store.saveGlobalSettings({
       ...store.getGlobalSettings(),
-      automationEnabled: true,
+      automationEnabled: false,
     });
     store.saveEvaluation({
       id: "eval-pass",
@@ -251,7 +251,15 @@ describe("email triage persistence", () => {
       },
       evaluatedAt: "2026-01-01T00:00:00.000Z",
     });
-    expect(store.getGlobalSettings().automationEnabled).toBe(true);
+    expect(store.getGlobalSettings().automationEnabled).toBe(false);
+  });
+
+  it("turns automation off when an evaluation fails", () => {
+    const store = createMemoryStore();
+    store.saveGlobalSettings({
+      ...store.getGlobalSettings(),
+      automationEnabled: true,
+    });
     store.saveEvaluation({
       id: "eval-fail",
       model: "m",
@@ -299,6 +307,110 @@ describe("email triage persistence", () => {
         resolution: "relevant",
       }),
     ).toThrow(/Conversation version mismatch/);
+  });
+
+  it("dismisses a review without leaving the conversation pending", () => {
+    const store = createMemoryStore();
+    const conversation = store.upsertConversation("acct-1", "thread-1", {
+      decisionVersion: 1,
+      routingState: "review",
+    });
+    const review = store.createReview({
+      accountId: "acct-1",
+      conversationId: conversation.id,
+      messageId: "gmail-msg-1",
+      expectedDecisionVersion: 1,
+      reason: "test",
+      preview: {
+        subject: "s",
+        sender: "a@b.com",
+        receivedAt: "2026-01-01T00:00:00.000Z",
+        sourceUrl: null,
+      },
+    });
+    store.persistMessageBatch({
+      accountId: "acct-1",
+      messages: [
+        {
+          transient: {
+            providerMessageId: "gmail-msg-1",
+            conversationKey: "thread-1",
+            messageIdHeader: "<msg@example.com>",
+            references: [],
+            inReplyTo: null,
+            subject: "s",
+            sender: "a@b.com",
+            recipients: ["me@example.com"],
+            receivedAt: "2026-01-01T00:00:00.000Z",
+            bodyText: "body",
+            sourceUrl: null,
+            inInbox: true,
+          },
+          routedDecision: "review",
+          summary: "summary",
+          attempt: {
+            id: "attempt-1",
+            model: "m",
+            promptVersion: "1",
+            schemaVersion: "1",
+            decision: "review",
+            relevance: null,
+            ignoreReason: null,
+            confidence: 0.5,
+            summary: "summary",
+            rationale: "r",
+            suggestedTaskTitle: "t",
+            rawValid: true,
+            reviewReasons: ["uncertain"],
+          },
+        },
+      ],
+    });
+    store.dismissReview(review.id);
+    const nextConversation = store.getConversation(conversation.id);
+    expect(nextConversation?.routingState).toBe("dismissed");
+    expect(nextConversation?.decisionVersion).toBe(2);
+    expect(store.getMessageByProviderId("acct-1", "gmail-msg-1")?.routingDecision).toBe("ignore");
+    expect(store.listReviews("pending")).toHaveLength(0);
+  });
+
+  it("dismisses every pending review for the conversation", () => {
+    const store = createMemoryStore();
+    const conversation = store.upsertConversation("acct-1", "thread-1", {
+      decisionVersion: 1,
+      routingState: "review",
+    });
+    store.createReview({
+      accountId: "acct-1",
+      conversationId: conversation.id,
+      messageId: "gmail-msg-1",
+      expectedDecisionVersion: 1,
+      reason: "test",
+      preview: {
+        subject: "s",
+        sender: "a@b.com",
+        receivedAt: "2026-01-01T00:00:00.000Z",
+        sourceUrl: null,
+      },
+    });
+    const sibling = store.createReview({
+      accountId: "acct-1",
+      conversationId: conversation.id,
+      messageId: "gmail-msg-2",
+      expectedDecisionVersion: 1,
+      reason: "test",
+      preview: {
+        subject: "s2",
+        sender: "a@b.com",
+        receivedAt: "2026-01-01T00:00:00.000Z",
+        sourceUrl: null,
+      },
+    });
+    store.dismissReview(sibling.id);
+    expect(store.listReviews("pending")).toHaveLength(0);
+    expect(store.listReviews("dismissed")).toHaveLength(2);
+    expect(store.getConversation(conversation.id)?.routingState).toBe("dismissed");
+    expect(store.getConversation(conversation.id)?.decisionVersion).toBe(2);
   });
 
   it("requires ignore reason when resolving ignore", () => {

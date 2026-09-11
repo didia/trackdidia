@@ -1,5 +1,10 @@
 # Email triage log
 
+- 2026-09-11: PR #94 follow-up — reload the live account on each sync page, drain a
+  bounded effect batch with pre/post `applyMarkers` context checks, dismiss every pending
+  review for a conversation atomically, and keep unsaved non-classifier settings after
+  evaluation.
+
 - 2026-09-10: Yahoo review follow-up — skip attachment-disposition MIME parts,
   quarantine oversized IMAP messages so the UID cursor still advances, destination-first
   marker retries after crash, vault compensation on Yahoo connect/reconnect, generation
@@ -16,6 +21,9 @@
   oversized Gmail messages are quarantined so history can advance, obsolete
   coordinator startups cannot clear the live instance, and vault credentials are
   rolled back when account persistence fails.
+- 2026-09-09: PR #94 review — separate automation from evaluation pass, automation checkbox,
+  persisted-settings evaluation, per-page mutation recompute, tray invoke isolated from save,
+  review dismiss renamed to **Retirer de la file** with terminal `dismissed` routing state.
 - 2026-09-09: Yahoo review follow-up — sync pages reuse SELECT UIDVALIDITY (no per-page discover),
   stable orphan conversation keys from `providerMessageId`, marker UIDVALIDITY guard,
   nested MIME body extraction, IMAP quoted-string escaping and socket timeouts,
@@ -28,6 +36,10 @@
   repairs missing GTD/effects after a persist crash, reviews no longer store
   body excerpts, resolving a review commits the message/conversation decision,
   and enable/resume reconfigures the coordinator.
+- 2026-09-08: Final slice — system tray hide-on-close (`runInTray`), launch-at-login
+  (`tauri-plugin-autostart`), migration 32 desktop prefs, `canMutateProvider` gate,
+  evaluation corpus UI, per-account mutation toggle, review dismiss (leave for later),
+  coordinator passes live `mutationEnabled` only when evaluation + flags match.
 - 2026-09-08: Yahoo slice — live IMAP adapter on desktop (`imap.mail.yahoo.com:993`, app password
   vault JSON, Tauri `yahoo_imap_*` commands with native-tls), UIDVALIDITY baseline/sync/recovery,
   Message-ID alias persistence, French Connect Yahoo form and Yahoo Mail search hint in reviews.

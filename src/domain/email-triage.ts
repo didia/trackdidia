@@ -17,7 +17,7 @@ export type EmailTriageRecoveryState =
   | "uidvalidity_changed"
   | "in_progress";
 
-export type EmailTriageRoutingState = "pending" | "relevant" | "ignored" | "review";
+export type EmailTriageRoutingState = "pending" | "relevant" | "ignored" | "review" | "dismissed";
 
 export type EmailTriageClassifierDecision = "relevant" | "ignore" | "review";
 
@@ -56,6 +56,8 @@ export interface EmailTriageGlobalSettings {
   classifierPromptVersion: string;
   classifierSchemaVersion: string;
   automationEnabled: boolean;
+  runInTray: boolean;
+  launchAtLogin: boolean;
   gmailOAuthClientId: string;
   microsoftOAuthClientId: string;
   updatedAt: string;
@@ -250,6 +252,8 @@ export const defaultEmailTriageGlobalSettings = (): EmailTriageGlobalSettings =>
   classifierPromptVersion: "1",
   classifierSchemaVersion: "1",
   automationEnabled: false,
+  runInTray: false,
+  launchAtLogin: false,
   gmailOAuthClientId: "",
   microsoftOAuthClientId: "",
   updatedAt: new Date(0).toISOString(),
