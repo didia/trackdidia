@@ -626,6 +626,58 @@ describe("EmailTriageCoordinator", () => {
     spy.mockRestore();
   });
 
+  it("recomputes mutationEnabled false when the account mutation switch flips mid-run", async () => {
+    const spy = vi.spyOn(syncEngine, "processProviderPage");
+    const account = activeAccount();
+    const coordinator = new EmailTriageCoordinator({
+      repository: {
+        ...unusedPort,
+        getGlobalSettings: async () => ({
+          ...defaultEmailTriageGlobalSettings(),
+          enabled: true,
+          mutationEnabled: true,
+          automationEnabled: true,
+        }),
+        getAccount: async () =>
+          spy.mock.calls.length === 0 ? account : { ...account, mutationEnabled: false },
+        updateAccountSyncState: async (_accountId, syncState) => ({
+          ...account,
+          syncState,
+        }),
+        listAccounts: async () => [account],
+        recoverStaleEffects: async () => 0,
+        getLatestMatchingEvaluation: async () => matchingEvaluation(),
+      },
+      createAdapter: () => ({
+        provider: "gmail" as const,
+        fetchPage: async (syncState) => {
+          if (!syncState.page) {
+            return {
+              messages: [],
+              hasMore: true,
+              gapDetected: false,
+              cursorUpdate: { page: 1 },
+            };
+          }
+          return {
+            messages: [],
+            hasMore: false,
+            gapDetected: false,
+            cursorUpdate: { page: 2 },
+          };
+        },
+      }),
+      classifierProvider: { completeStructured: async () => "" },
+      browserPreview: false,
+    });
+    await coordinator.start();
+    await coordinator.runAccountSync("acct-1");
+    expect(spy.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ mutationEnabled: true }));
+    expect(spy.mock.calls[1]?.[0]).toEqual(expect.objectContaining({ mutationEnabled: false }));
+    coordinator.stop();
+    spy.mockRestore();
+  });
+
   it("passes mutationEnabled false without a matching evaluation", async () => {
     const spy = vi.spyOn(syncEngine, "processProviderPage");
     const coordinator = new EmailTriageCoordinator({

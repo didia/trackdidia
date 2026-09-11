@@ -233,7 +233,9 @@ export const EmailTriagePage = () => {
               safetyViolations: evaluation.results.safetyViolations,
             }),
       );
+      const draftSettings = settings;
       await load();
+      setSettings(draftSettings);
     } catch {
       setEvaluationMessage(t("evaluationFailed"));
     } finally {

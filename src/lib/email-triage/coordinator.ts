@@ -214,10 +214,12 @@ export class EmailTriageCoordinator {
           }
           try {
             const pageSettings = await this.deps.repository.getGlobalSettings();
-            const pageAccount =
-              currentAccount.id === account.id
-                ? currentAccount
-                : ((await this.deps.repository.getAccount(currentAccount.id)) ?? currentAccount);
+            const latestAccount =
+              (await this.deps.repository.getAccount(accountId)) ?? currentAccount;
+            const pageAccount = {
+              ...latestAccount,
+              syncState: currentAccount.syncState,
+            };
             const mutationEnabled =
               !this.browserPreview &&
               pageAccount.state !== "gap_review_required" &&
@@ -230,6 +232,7 @@ export class EmailTriageCoordinator {
               apiKey,
               globalSettings: pageSettings,
               mutationEnabled,
+              latestEvaluation,
               shouldContinue,
             });
             currentAccount = result.account;
@@ -244,6 +247,28 @@ export class EmailTriageCoordinator {
             if (result.gapDetected) {
               break;
             }
+            const pageReconcileSettings = await this.deps.repository.getGlobalSettings();
+            const pageReconcileAccount =
+              (await this.deps.repository.getAccount(accountId)) ?? currentAccount;
+            await reconcilePendingEffects(
+              {
+                repository: this.deps.repository,
+                account: {
+                  ...pageReconcileAccount,
+                  syncState: currentAccount.syncState,
+                },
+                adapter,
+                classifierProvider: this.deps.classifierProvider,
+                apiKey,
+                globalSettings: pageReconcileSettings,
+                mutationEnabled:
+                  !this.browserPreview &&
+                  pageReconcileAccount.state !== "gap_review_required" &&
+                  canMutateProvider(pageReconcileSettings, pageReconcileAccount, latestEvaluation),
+                latestEvaluation,
+              },
+              accountId,
+            );
           } catch (error) {
             if (isReconnectRequiredError(error)) {
               currentAccount = await this.deps.repository.updateAccountSyncState(
@@ -310,6 +335,7 @@ export class EmailTriageCoordinator {
               apiKey,
               globalSettings: reconcileSettings,
               mutationEnabled: reconcileMutationEnabled,
+              latestEvaluation,
             },
             accountId,
           );

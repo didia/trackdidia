@@ -224,7 +224,8 @@ success, recovery state, error, pause/reconnect/disconnect/Sync now); settings f
 polling, thresholds, model/evaluation, global/per-account enablement, tray, and
 launch-at-login; a redacted audit; and a review queue. The review queue supports an
 on-demand discarded sanitized-body preview, safe link/search action, Relevant, Ignore
-with required reason, and Leave for later. Distinguish pending task/provider work,
+with required reason, and Retirer de la file (permanent conversation-level removal).
+Distinguish pending task/provider work,
 retryable/permanent failure, reconnect-required, and cursor-gap states.
 
 Use supported Tauri system-tray, autostart, and opener capabilities. Closing hides

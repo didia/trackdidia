@@ -374,6 +374,45 @@ describe("email triage persistence", () => {
     expect(store.listReviews("pending")).toHaveLength(0);
   });
 
+  it("dismisses every pending review for the conversation", () => {
+    const store = createMemoryStore();
+    const conversation = store.upsertConversation("acct-1", "thread-1", {
+      decisionVersion: 1,
+      routingState: "review",
+    });
+    store.createReview({
+      accountId: "acct-1",
+      conversationId: conversation.id,
+      messageId: "gmail-msg-1",
+      expectedDecisionVersion: 1,
+      reason: "test",
+      preview: {
+        subject: "s",
+        sender: "a@b.com",
+        receivedAt: "2026-01-01T00:00:00.000Z",
+        sourceUrl: null,
+      },
+    });
+    const sibling = store.createReview({
+      accountId: "acct-1",
+      conversationId: conversation.id,
+      messageId: "gmail-msg-2",
+      expectedDecisionVersion: 1,
+      reason: "test",
+      preview: {
+        subject: "s2",
+        sender: "a@b.com",
+        receivedAt: "2026-01-01T00:00:00.000Z",
+        sourceUrl: null,
+      },
+    });
+    store.dismissReview(sibling.id);
+    expect(store.listReviews("pending")).toHaveLength(0);
+    expect(store.listReviews("dismissed")).toHaveLength(2);
+    expect(store.getConversation(conversation.id)?.routingState).toBe("dismissed");
+    expect(store.getConversation(conversation.id)?.decisionVersion).toBe(2);
+  });
+
   it("requires ignore reason when resolving ignore", () => {
     const store = createMemoryStore();
     const conversation = store.upsertConversation("acct-1", "thread-1", {

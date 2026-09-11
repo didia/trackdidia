@@ -6,6 +6,10 @@ import { renderWithApp } from "../test/test-utils";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { createEntityId, nowIso } from "../lib/gtd/shared";
 import * as runtime from "../lib/email-triage/runtime";
+import * as vault from "../lib/email-triage/vault";
+import * as evaluationRunner from "../lib/email-triage/evaluation/runner";
+import { defaultEmailTriageGlobalSettings } from "../domain/email-triage";
+import { EMAIL_TRIAGE_EVALUATION_CORPUS_VERSION } from "../lib/email-triage/constants";
 
 describe("EmailTriagePage", () => {
   it("shows browser preview notice in non-tauri mode", async () => {
@@ -464,5 +468,53 @@ describe("EmailTriagePage", () => {
       contextOverrides: { browserPreview: false },
     });
     expect(await screen.findByRole("button", { name: /Lancer l'évaluation/i })).toBeInTheDocument();
+  });
+
+  it("keeps an unsaved tray setting after evaluation completes", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveEmailTriageGlobalSettings({
+      ...(await repository.getEmailTriageGlobalSettings()),
+      enabled: true,
+      updatedAt: nowIso(),
+    });
+    const settings = defaultEmailTriageGlobalSettings();
+    vi.spyOn(vault, "loadVaultSecret").mockResolvedValue("test-key");
+    vi.spyOn(vault, "checkVaultAvailability").mockResolvedValue({
+      available: true,
+      reason: null,
+    });
+    vi.spyOn(evaluationRunner, "runEvaluationCorpus").mockResolvedValue({
+      id: "eval-1",
+      model: settings.classifierModel,
+      promptVersion: settings.classifierPromptVersion,
+      schemaVersion: settings.classifierSchemaVersion,
+      corpusVersion: EMAIL_TRIAGE_EVALUATION_CORPUS_VERSION,
+      relevantThreshold: settings.relevantThreshold,
+      ignoreThreshold: settings.ignoreThreshold,
+      passed: true,
+      results: {
+        totalCases: 1,
+        validSchemaCount: 1,
+        exactRoutingCount: 1,
+        safetyViolations: 0,
+        failures: [],
+      },
+      evaluatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    await renderWithApp(<EmailTriagePage />, {
+      repository,
+      contextOverrides: { browserPreview: false },
+    });
+    const user = userEvent.setup();
+    const trayCheckbox = await screen.findByLabelText(/Réduire dans la barre système/i);
+    await user.click(trayCheckbox);
+    expect(trayCheckbox).toBeChecked();
+    await user.click(await screen.findByRole("button", { name: /Lancer l'évaluation/i }));
+    expect(
+      await screen.findByText(/vous pouvez activer l'automatisation et la mutation fournisseur/i),
+    ).toBeInTheDocument();
+    expect(await screen.findByLabelText(/Réduire dans la barre système/i)).toBeChecked();
+    vi.restoreAllMocks();
   });
 });

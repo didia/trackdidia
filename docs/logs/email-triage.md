@@ -1,5 +1,10 @@
 # Email triage log
 
+- 2026-09-11: PR #94 follow-up — reload the live account on each sync page, drain a
+  bounded effect batch with pre/post `applyMarkers` context checks, dismiss every pending
+  review for a conversation atomically, and keep unsaved non-classifier settings after
+  evaluation.
+
 - 2026-09-10: Yahoo review follow-up — skip attachment-disposition MIME parts,
   quarantine oversized IMAP messages so the UID cursor still advances, destination-first
   marker retries after crash, vault compensation on Yahoo connect/reconnect, generation

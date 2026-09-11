@@ -1004,24 +1004,44 @@ export class EmailTriageSqliteStore {
     if (!conversation) {
       throw new Error("Conversation not found");
     }
+    if (conversation.decisionVersion !== row.expected_decision_version) {
+      throw new Error("Conversation version mismatch");
+    }
     const resolvedAt = nowIso();
-    const result = await db.execute(
+    const pendingRows = await db.select<
+      Array<{
+        id: string;
+        account_id: string;
+        message_id: string;
+      }>
+    >(
+      "SELECT id, account_id, message_id FROM email_triage_reviews WHERE conversation_id = $1 AND status = 'pending'",
+      [row.conversation_id],
+    );
+    const dismissResult = await db.execute(
       `UPDATE email_triage_reviews
        SET status = 'dismissed', resolved_at = $1
-       WHERE id = $2 AND status = 'pending'`,
-      [resolvedAt, reviewId],
+       WHERE conversation_id = $2 AND status = 'pending'`,
+      [resolvedAt, row.conversation_id],
     );
-    if (!result.rowsAffected) {
+    if (!dismissResult.rowsAffected) {
       throw new Error("Review dismiss failed");
     }
-    await this.upsertConversation(conversation.accountId, conversation.conversationKey, {
-      decisionVersion: conversation.decisionVersion + 1,
-      routingState: "dismissed",
-    });
-    await db.execute(
-      "UPDATE email_triage_messages SET routing_decision = 'ignore' WHERE account_id = $1 AND provider_message_id = $2",
-      [row.account_id, row.message_id],
+    const conversationResult = await db.execute(
+      `UPDATE email_triage_conversations
+       SET decision_version = $1, routing_state = 'dismissed', updated_at = $2
+       WHERE id = $3 AND decision_version = $4`,
+      [conversation.decisionVersion + 1, resolvedAt, conversation.id, conversation.decisionVersion],
     );
+    if (!conversationResult.rowsAffected) {
+      throw new Error("Conversation version mismatch");
+    }
+    for (const pending of pendingRows) {
+      await db.execute(
+        "UPDATE email_triage_messages SET routing_decision = 'ignore' WHERE account_id = $1 AND provider_message_id = $2",
+        [pending.account_id, pending.message_id],
+      );
+    }
     return {
       id: row.id,
       accountId: row.account_id,

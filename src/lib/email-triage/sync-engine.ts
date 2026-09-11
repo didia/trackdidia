@@ -2,6 +2,7 @@ import type {
   EmailTriageAccount,
   EmailTriageClassifierDecision,
   EmailTriageConversation,
+  EmailTriageEvaluation,
   EmailTriageGlobalSettings,
   EmailTriageTransientMessage,
 } from "../../domain/email-triage";
@@ -13,13 +14,21 @@ import {
   type ClassifyEmailResult,
   type EmailTriageClassifierProvider,
 } from "./classifier";
-import { createDesiredEffect, pickNextPendingEffect, updateEffectStatus } from "./desired-effects";
+import {
+  createDesiredEffect,
+  markEffectSuperseded,
+  pickNextPendingEffect,
+  updateEffectStatus,
+  verifyEffectContext,
+} from "./desired-effects";
 import {
   planGtdOwnershipUpdate,
   hashManagedNotesBody,
   buildManagedNotesInnerBody,
 } from "./gtd-ownership";
 import { mergeSyncState, type EmailTriageProviderAdapter } from "./providers/types";
+import { canMutateProvider } from "./mutation-gate";
+import { EMAIL_TRIAGE_MAX_EFFECTS_PER_RUN } from "./constants";
 
 export interface EmailTriageRepositoryPort {
   getGlobalSettings(): Promise<EmailTriageGlobalSettings>;
@@ -118,6 +127,7 @@ export interface SyncEngineOptions {
   apiKey: string | null;
   globalSettings: EmailTriageGlobalSettings;
   mutationEnabled: boolean;
+  latestEvaluation?: EmailTriageEvaluation | null;
   shouldContinue?: () => boolean | Promise<boolean>;
 }
 
@@ -517,48 +527,95 @@ export const reconcilePendingEffects = async (
   options: SyncEngineOptions,
   accountId: string,
 ): Promise<void> => {
-  const effects = await options.repository.listPendingEffectsForAccount(accountId);
-  const next = pickNextPendingEffect(effects);
-  if (!next) {
-    return;
-  }
-  const conversation = await options.repository.getConversation(next.conversationId);
-  if (!conversation) {
-    await options.repository.saveDesiredEffect(
-      updateEffectStatus(next, "failed", "conversation_missing"),
+  const skippedIds = new Set<string>();
+  for (let processed = 0; processed < EMAIL_TRIAGE_MAX_EFFECTS_PER_RUN; processed += 1) {
+    const effects = (await options.repository.listPendingEffectsForAccount(accountId)).filter(
+      (effect) => !skippedIds.has(effect.id),
     );
-    return;
-  }
-  if (next.effectType !== "provider_marker" || !options.adapter.applyMarkers) {
-    await options.repository.saveDesiredEffect(updateEffectStatus(next, "completed"));
-    return;
-  }
-  if (!options.mutationEnabled) {
-    return;
-  }
-  const markerDecision = conversation.routingState === "ignored" ? "ignore" : "relevant";
-  if (
-    conversation.routingState === "review" ||
-    conversation.routingState === "pending" ||
-    conversation.routingState === "dismissed"
-  ) {
-    return;
-  }
-  const inProgress = updateEffectStatus(next, "in_progress");
-  await options.repository.saveDesiredEffect(inProgress);
-  try {
-    await options.adapter.applyMarkers({
-      messageIds: next.targetMessageIds,
-      decision: markerDecision,
-    });
-    await options.repository.saveDesiredEffect(updateEffectStatus(inProgress, "completed"));
-  } catch (error) {
-    await options.repository.saveDesiredEffect(
-      updateEffectStatus(
-        inProgress,
-        "failed",
-        error instanceof Error ? error.message : "apply_markers_failed",
-      ),
-    );
+    const next = pickNextPendingEffect(effects);
+    if (!next) {
+      return;
+    }
+    const conversation = await options.repository.getConversation(next.conversationId);
+    if (!conversation) {
+      await options.repository.saveDesiredEffect(
+        updateEffectStatus(next, "failed", "conversation_missing"),
+      );
+      continue;
+    }
+    if (next.effectType !== "provider_marker" || !options.adapter.applyMarkers) {
+      await options.repository.saveDesiredEffect(updateEffectStatus(next, "completed"));
+      continue;
+    }
+    if (conversation.routingState === "dismissed") {
+      await options.repository.saveDesiredEffect(markEffectSuperseded(next, "stale_context"));
+      continue;
+    }
+    if (conversation.routingState === "review" || conversation.routingState === "pending") {
+      skippedIds.add(next.id);
+      continue;
+    }
+
+    const settings = await options.repository.getGlobalSettings();
+    const account = (await options.repository.getAccount(accountId)) ?? options.account;
+    const mutationEnabled =
+      canMutateProvider(settings, account, options.latestEvaluation ?? null) &&
+      account.state !== "gap_review_required";
+    if (
+      !verifyEffectContext(next, {
+        accountGeneration: account.generation,
+        enabled: mutationEnabled,
+        decisionVersion: conversation.decisionVersion,
+      })
+    ) {
+      if (
+        next.accountGeneration !== account.generation ||
+        next.decisionVersion !== conversation.decisionVersion
+      ) {
+        await options.repository.saveDesiredEffect(markEffectSuperseded(next, "stale_context"));
+      } else {
+        skippedIds.add(next.id);
+      }
+      continue;
+    }
+
+    const markerDecision = conversation.routingState === "ignored" ? "ignore" : "relevant";
+    const inProgress = updateEffectStatus(next, "in_progress");
+    await options.repository.saveDesiredEffect(inProgress);
+    try {
+      await options.adapter.applyMarkers({
+        messageIds: next.targetMessageIds,
+        decision: markerDecision,
+      });
+      const latestConversation = await options.repository.getConversation(next.conversationId);
+      const latestAccount = (await options.repository.getAccount(accountId)) ?? account;
+      const latestSettings = await options.repository.getGlobalSettings();
+      const latestMutationEnabled =
+        canMutateProvider(latestSettings, latestAccount, options.latestEvaluation ?? null) &&
+        latestAccount.state !== "gap_review_required";
+      const stillValid = Boolean(
+        latestConversation &&
+          verifyEffectContext(next, {
+            accountGeneration: latestAccount.generation,
+            enabled: latestMutationEnabled,
+            decisionVersion: latestConversation.decisionVersion,
+          }),
+      );
+      await options.repository.saveDesiredEffect(
+        updateEffectStatus(
+          inProgress,
+          "completed",
+          stillValid ? null : "context_changed_in_flight",
+        ),
+      );
+    } catch (error) {
+      await options.repository.saveDesiredEffect(
+        updateEffectStatus(
+          inProgress,
+          "failed",
+          error instanceof Error ? error.message : "apply_markers_failed",
+        ),
+      );
+    }
   }
 };

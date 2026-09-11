@@ -28,13 +28,20 @@ adds system-tray hide-on-close, launch-at-login, and gated automatic provider mu
   `automationEnabled`, per-account `mutationEnabled`, account active/unpaused (not
   `gap_review_required`), and a **passed** evaluation matching the current model, prompt/schema
   version, corpus version, and thresholds
-- The coordinator recomputes `mutationEnabled` on each sync page and before effect reconciliation
+- The coordinator reloads the account (preserving the latest cursor) and recomputes
+  `mutationEnabled` on each sync page and before every provider-marker effect
+- Reconciliation drains a bounded batch of pending effects per run, honors effect
+  dependencies, and verifies account generation plus conversation decision version
+  immediately before and after `applyMarkers` (stale effects are superseded; a
+  kill-switch leaves markers pending)
 - Changing model, prompt/schema version, or thresholds clears `automationEnabled` until
   reevaluation; a failing evaluation also clears `automationEnabled`
 - **Lancer l'évaluation** evaluates **persisted** settings only; the button is disabled while the
-  settings draft differs from the last saved classifier/threshold values
+  settings draft differs from the last saved classifier/threshold values. Completing an
+  evaluation refreshes evaluation state without discarding unrelated unsaved settings.
 - Per-account mutation checkbox on account cards; review queue supports **Retirer de la file**
-  (permanent dismiss: review removed, conversation `routingState: dismissed`, no provider mutation)
+  (permanent dismiss: all pending reviews for that conversation, `routingState: dismissed`,
+  no provider mutation)
 - Tray and autostart preference apply failures surface independently and do not abort settings save
 
 ### Gmail (slice 2)

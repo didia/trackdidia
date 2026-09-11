@@ -287,7 +287,8 @@ message bodies are never stored; classifier input is transient.
 - `email_triage_settings`: singleton `id = 'global'` for enable/mutation flags,
   poll interval, classifier model/versions, confidence thresholds,
   `run_in_tray`, `launch_at_login`, and `automation_enabled` (a failed evaluation
-  sets this to 0; a passing evaluation sets it to 1).
+  sets this to 0; a passing evaluation unlocks the automation checkbox but does not
+  turn it on).
 - `email_triage_accounts`: provider connection cards, generation, pause/state,
   recovery, and `sync_state_json`.
 - `email_triage_conversations`: per-account thread key, `decision_version`,
