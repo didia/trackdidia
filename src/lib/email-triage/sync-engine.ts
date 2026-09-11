@@ -388,7 +388,7 @@ const processTransientMessage = async (
     }));
 
   if (conversation.routingState === "dismissed") {
-    return;
+    return "ok";
   }
 
   const existingMessage = await options.repository.getMessageByProviderId(
