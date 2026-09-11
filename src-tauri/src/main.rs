@@ -5,6 +5,7 @@ mod db;
 mod oauth_loopback;
 mod provider_http;
 mod vault;
+mod yahoo_imap;
 
 use serde::Serialize;
 use std::fs;
@@ -96,7 +97,15 @@ fn main() {
             vault::vault_delete_secret,
             oauth_loopback::oauth_loopback_start,
             oauth_loopback::oauth_loopback_wait,
-            provider_http::provider_http_request
+            provider_http::provider_http_request,
+            yahoo_imap::yahoo_imap_discover,
+            yahoo_imap::yahoo_imap_fetch_inbox,
+            yahoo_imap::yahoo_imap_search_message_id,
+            yahoo_imap::yahoo_imap_ensure_mailbox,
+            yahoo_imap::yahoo_imap_move_uid,
+            yahoo_imap::yahoo_imap_copy_uid,
+            yahoo_imap::yahoo_imap_uid_expunge,
+            yahoo_imap::yahoo_imap_fetch_uid_message_id
         ])
         .run(tauri::generate_context!())
         .expect("error while running Trackdidia");

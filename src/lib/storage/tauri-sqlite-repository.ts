@@ -4747,4 +4747,12 @@ export class TauriSqliteRepository implements AppRepository {
   async listEmailTriageClassificationAttempts(messageId: string) {
     return this.getEmailTriageStore().listClassificationAttempts(messageId);
   }
+
+  async emailTriageFindConversationKeyByMessageId(accountId: string, messageIdHeader: string) {
+    return this.getEmailTriageStore().findConversationKeyByMessageId(accountId, messageIdHeader);
+  }
+
+  async emailTriageSaveAlias(accountId: string, conversationKey: string, messageIdHeader: string) {
+    return this.getEmailTriageStore().saveAlias(accountId, conversationKey, messageIdHeader);
+  }
 }

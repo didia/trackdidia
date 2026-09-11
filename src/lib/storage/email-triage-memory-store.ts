@@ -3,6 +3,7 @@ import {
   defaultEmailTriageGlobalSettings,
   type EmailTriageAccount,
   type EmailTriageAuditEvent,
+  type EmailTriageAlias,
   type EmailTriageClassificationAttempt,
   type EmailTriageConversation,
   type EmailTriageDesiredEffect,
@@ -38,6 +39,7 @@ export class EmailTriageMemoryStore {
   evaluations = new Map<string, EmailTriageEvaluation>();
   effects = new Map<string, EmailTriageDesiredEffect>();
   auditEvents = new Map<string, EmailTriageAuditEvent>();
+  aliases = new Map<string, EmailTriageAlias>();
 
   constructor(
     private readonly taskAccess: {
@@ -508,6 +510,48 @@ export class EmailTriageMemoryStore {
 
   listClassificationAttempts(messageId: string): EmailTriageClassificationAttempt[] {
     return [...this.attempts.values()].filter((attempt) => attempt.messageId === messageId);
+  }
+
+  findConversationKeyByMessageId(accountId: string, messageIdHeader: string): string | null {
+    for (const alias of this.aliases.values()) {
+      if (alias.messageIdHeader !== messageIdHeader) {
+        continue;
+      }
+      const conversation = this.conversations.get(alias.conversationId);
+      if (conversation?.accountId === accountId) {
+        return conversation.conversationKey;
+      }
+    }
+    return null;
+  }
+
+  saveAlias(accountId: string, conversationKey: string, messageIdHeader: string): void {
+    let conversation = this.getConversationByKey(accountId, conversationKey);
+    if (!conversation) {
+      conversation = this.upsertConversation(accountId, conversationKey, {
+        decisionVersion: 0,
+        routingState: "pending",
+        taskId: null,
+        lastGeneratedTitle: null,
+        managedNotesRevision: 0,
+        managedNotesHash: null,
+        sourceUrl: null,
+      });
+    }
+    const existing = [...this.aliases.values()].find(
+      (alias) =>
+        alias.conversationId === conversation!.id && alias.messageIdHeader === messageIdHeader,
+    );
+    if (existing) {
+      return;
+    }
+    const alias: EmailTriageAlias = {
+      id: createEntityId("email-alias"),
+      conversationId: conversation.id,
+      messageIdHeader,
+      createdAt: nowIso(),
+    };
+    this.aliases.set(alias.id, alias);
   }
 }
 

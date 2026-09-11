@@ -17,8 +17,13 @@ tauri = { version = "2.10.3", features = [] }
 tauri-plugin-notification = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
-tokio = { version = "1", features = ["time"] }
+tokio = { version = "1", features = ["time", "rt-multi-thread"] }
 urlencoding = "2"
+imap = { version = "2.4", default-features = false, features = ["native-tls"] }
+imap-proto = "0.10.2"
+mailparse = "0.14"
+native-tls = "0.2"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
 # Rust-side sqlite pool pinned to a single physical connection that never gets reaped
 # (max_connections(1) + min_connections(1) + idle_timeout(None) + max_lifetime(None), see
 # db::build_pool_options), replacing tauri-plugin-sql: that plugin's pool has no options hook

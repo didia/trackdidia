@@ -2023,4 +2023,15 @@ export class MemoryRepository implements AppRepository {
   async listEmailTriageClassificationAttempts(messageId: string) {
     return Promise.resolve(this.emailTriage.listClassificationAttempts(messageId));
   }
+
+  async emailTriageFindConversationKeyByMessageId(accountId: string, messageIdHeader: string) {
+    return Promise.resolve(
+      this.emailTriage.findConversationKeyByMessageId(accountId, messageIdHeader),
+    );
+  }
+
+  async emailTriageSaveAlias(accountId: string, conversationKey: string, messageIdHeader: string) {
+    this.emailTriage.saveAlias(accountId, conversationKey, messageIdHeader);
+    return Promise.resolve();
+  }
 }

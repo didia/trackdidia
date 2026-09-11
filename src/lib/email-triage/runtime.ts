@@ -6,6 +6,8 @@ import { isTauriRuntime } from "../storage/factory";
 import { createEntityId, nowIso } from "../gtd/shared";
 import { GmailApiClient } from "./providers/gmail-api";
 import { GraphApiClient, type GraphMeProfile } from "./providers/graph-api";
+import { createTauriYahooImapClient } from "./providers/yahoo-api";
+import { clearCachedYahooAppPassword, serializeYahooCredentials } from "./oauth/yahoo-credentials";
 import { createTauriHttpClient } from "./provider-http";
 import {
   exchangeGmailAuthorizationCode,
@@ -33,13 +35,18 @@ import {
   validateOAuthState,
 } from "./oauth/pkce";
 import { clearCachedAccessToken, setCachedAccessToken } from "./token-cache";
-import { deleteVaultSecret } from "./vault";
-import { getEmailTriageCoordinator, persistGmailAccountCredentials } from "./gmail-session";
+import { checkVaultAvailability, deleteVaultSecret } from "./vault";
+import {
+  getEmailTriageCoordinator,
+  persistGmailAccountCredentials,
+  persistYahooAccountCredentials,
+} from "./gmail-session";
 
 export {
   createEmailTriageAdapter,
   getEmailTriageCoordinator,
   persistGmailAccountCredentials,
+  persistYahooAccountCredentials,
   setEmailTriageCoordinator,
   syncEmailTriageAccountNow,
 } from "./gmail-session";
@@ -53,6 +60,7 @@ export interface ProviderConnectResult {
 
 export type GmailConnectResult = ProviderConnectResult;
 export type MicrosoftConnectResult = ProviderConnectResult;
+export type YahooConnectResult = ProviderConnectResult;
 
 export const connectGmailAccount = async (
   repository: AppRepository,
@@ -415,6 +423,137 @@ export const connectMicrosoftAccount = async (
   return { ok: true, accountId };
 };
 
+export const connectYahooAccount = async (
+  repository: AppRepository,
+  input: { email: string; appPassword: string; reconnectAccountId?: string | null },
+): Promise<YahooConnectResult> => {
+  if (!isTauriRuntime()) {
+    return { ok: false, error: "browser_preview" };
+  }
+  const vault = await checkVaultAvailability();
+  if (!vault.available) {
+    return { ok: false, error: "vault_unavailable" };
+  }
+
+  const email = input.email.trim().toLowerCase();
+  const appPassword = input.appPassword.trim();
+  if (!email || !appPassword) {
+    return { ok: false, error: "missing_credentials" };
+  }
+
+  let reconnectSnapshot: ReconnectTargetSnapshot | null = null;
+  if (input.reconnectAccountId) {
+    const target = await repository.getEmailTriageAccount(input.reconnectAccountId);
+    if (!target) {
+      return { ok: false, error: "account_not_found" };
+    }
+    reconnectSnapshot = snapshotReconnectTarget(target);
+  }
+
+  const imap = createTauriYahooImapClient();
+  try {
+    await imap.discover({ email, appPassword });
+  } catch (error) {
+    if (error instanceof Error && error.message === "reconnect_required") {
+      return { ok: false, error: "reconnect_required" };
+    }
+    return { ok: false, error: "connect_failed" };
+  }
+
+  const settings = await repository.getEmailTriageGlobalSettings();
+  const timestamp = nowIso();
+  const existing = (await repository.listEmailTriageAccounts()).find(
+    (account) => account.provider === "yahoo" && account.providerAccountId === email,
+  );
+  const coordinator = getEmailTriageCoordinator();
+  const credentials = serializeYahooCredentials({
+    email,
+    appPassword,
+    kind: "yahoo_app_password",
+  });
+
+  if (reconnectSnapshot) {
+    const validation = validateReconnectCanProceed({
+      snapshot: reconnectSnapshot,
+      currentAccount: await repository.getEmailTriageAccount(reconnectSnapshot.id),
+      authenticatedProviderAccountId: email,
+    });
+    if (!validation.ok) {
+      return {
+        ok: false,
+        error: validation.error,
+        reconnectMismatch: validation.error === "reconnect_account_mismatch",
+      };
+    }
+    const target = (await repository.getEmailTriageAccount(reconnectSnapshot.id))!;
+    await persistYahooAccountCredentials({
+      repository,
+      account: {
+        ...target,
+        enabled: true,
+        state: "active",
+        recoveryState: "none",
+        lastError: null,
+        syncState: {
+          ...target.syncState,
+        },
+        updatedAt: timestamp,
+      },
+      credentials,
+      appPassword,
+    });
+    coordinator?.scheduleAccount(
+      {
+        ...(await repository.getEmailTriageAccount(target.id))!,
+      },
+      settings,
+    );
+    void coordinator?.runAccountSync(target.id);
+    return { ok: true, accountId: target.id };
+  }
+
+  const accountId = existing?.id ?? createEntityId("email-account");
+  const account: EmailTriageAccount = existing
+    ? {
+        ...existing,
+        enabled: true,
+        state: "active",
+        lastError: null,
+        recoveryState: "none",
+        updatedAt: timestamp,
+      }
+    : {
+        id: accountId,
+        provider: "yahoo",
+        providerAccountId: email,
+        label: email,
+        maskedAddress: maskEmailAddress(email),
+        generation: 1,
+        enabled: true,
+        mutationEnabled: false,
+        paused: false,
+        state: "baselining",
+        recoveryState: "none",
+        lastSuccessAt: null,
+        lastError: null,
+        pollIntervalMinutes: settings.pollIntervalMinutes,
+        syncState: {
+          trackedMessageIds: [],
+        },
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+  await persistYahooAccountCredentials({
+    repository,
+    account,
+    credentials,
+    appPassword,
+  });
+  coordinator?.scheduleAccount(account, settings);
+  void coordinator?.runAccountSync(accountId);
+  return { ok: true, accountId };
+};
+
 export const disconnectEmailTriageAccount = async (
   repository: AppRepository,
   accountId: string,
@@ -426,6 +565,7 @@ export const disconnectEmailTriageAccount = async (
   getEmailTriageCoordinator()?.invalidateAccount(accountId);
   await deleteVaultSecret("provider_credentials", accountId);
   clearCachedAccessToken(accountId);
+  clearCachedYahooAppPassword(accountId);
   await repository.saveEmailTriageAccount({
     ...account,
     enabled: false,

@@ -170,7 +170,7 @@ export const processProviderPage = async (
   }
 
   let account = options.account;
-  if (page.cursorUpdate || page.gapDetected) {
+  if (page.cursorUpdate || page.gapDetected || page.accountPatch) {
     const mergedState = page.cursorUpdate
       ? mergeSyncState(options.account.syncState, page.cursorUpdate)
       : options.account.syncState;

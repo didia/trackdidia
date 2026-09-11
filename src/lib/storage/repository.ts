@@ -295,4 +295,13 @@ export interface AppRepository {
   listEmailTriageClassificationAttempts(
     messageId: string,
   ): Promise<import("../../domain/email-triage").EmailTriageClassificationAttempt[]>;
+  emailTriageFindConversationKeyByMessageId(
+    accountId: string,
+    messageIdHeader: string,
+  ): Promise<string | null>;
+  emailTriageSaveAlias(
+    accountId: string,
+    conversationKey: string,
+    messageIdHeader: string,
+  ): Promise<void>;
 }

@@ -39,6 +39,18 @@ describe("EmailTriagePage", () => {
     expect(await screen.findByRole("button", { name: /Connecter Microsoft/i })).toBeDisabled();
   });
 
+  it("disables Connect Yahoo in browser preview", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveEmailTriageGlobalSettings({
+      ...(await repository.getEmailTriageGlobalSettings()),
+      enabled: true,
+      updatedAt: nowIso(),
+    });
+    await renderWithApp(<EmailTriagePage />, { repository });
+    expect(await screen.findByRole("button", { name: /Connecter Yahoo/i })).toBeDisabled();
+  });
+
   it("shows sync and disconnect controls for gmail accounts outside preview", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();

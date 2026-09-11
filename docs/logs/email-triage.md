@@ -1,5 +1,10 @@
 # Email triage log
 
+- 2026-09-10: Yahoo review follow-up — skip attachment-disposition MIME parts,
+  quarantine oversized IMAP messages so the UID cursor still advances, destination-first
+  marker retries after crash, vault compensation on Yahoo connect/reconnect, generation
+  guard plus disabled Disconnect while connecting, UIDVALIDITY always enters gap review,
+  and TCP connect tries every resolved address under one deadline.
 - 2026-09-10: Graph review follow-up — `User.Read` scope, filtered inbox delta
   (`receivedDateTime ge baselineAt`) replaces unsupported `$deltatoken=latest`,
   metadata delta + per-message bodies + oversized quarantine, reconnect generation
@@ -11,6 +16,11 @@
   oversized Gmail messages are quarantined so history can advance, obsolete
   coordinator startups cannot clear the live instance, and vault credentials are
   rolled back when account persistence fails.
+- 2026-09-09: Yahoo review follow-up — sync pages reuse SELECT UIDVALIDITY (no per-page discover),
+  stable orphan conversation keys from `providerMessageId`, marker UIDVALIDITY guard,
+  nested MIME body extraction, IMAP quoted-string escaping and socket timeouts,
+  verified COPY fails with `uidplus_unavailable` when UID EXPUNGE is missing, reconnect preserves
+  sync cursor.
 - 2026-09-09: Graph review follow-up — `$deltatoken=latest` first-connect baseline, invalid-delta
   reseed keeps `baselineAt`, rotated Microsoft refresh tokens persisted, reconnect preserves sync
   cursor, 410 reseed during snapshot/`nextLink`, Microsoft hosts on the Tauri HTTP allowlist.
@@ -18,6 +28,10 @@
   repairs missing GTD/effects after a persist crash, reviews no longer store
   body excerpts, resolving a review commits the message/conversation decision,
   and enable/resume reconfigures the coordinator.
+- 2026-09-08: Yahoo slice — live IMAP adapter on desktop (`imap.mail.yahoo.com:993`, app password
+  vault JSON, Tauri `yahoo_imap_*` commands with native-tls), UIDVALIDITY baseline/sync/recovery,
+  Message-ID alias persistence, French Connect Yahoo form and Yahoo Mail search hint in reviews.
+  Mock Yahoo adapter retained for browser preview/tests; automatic mutation still off.
 - 2026-09-08: Microsoft Graph slice — live multitenant OAuth (PKCE, loopback,
   `Mail.ReadWrite` + `MailboxSettings.ReadWrite`), Graph inbox delta baseline/replay/invalid-delta
   reseed, message-level Outlook categories, French Connect/Reconnect Microsoft, migration 31 for
