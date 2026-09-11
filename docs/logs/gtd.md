@@ -4,6 +4,7 @@ Back to [Documentation Log](../log.md). Canonical page: [gtd.md](../gtd.md).
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-11 | Next Actions collapsed cards show calendar-day age since the task entered the bucket | `docs/gtd.md` | `nextActionAgeDays`, `GtdTaskCard`, `listTaskEvents` |
 | 2026-09-11 | Next Actions defaults to FIFO order by `createdAt` (oldest first), with deadline and last-update sorts still available | `docs/gtd.md` | `sortNextActionTasks`, `NextActionsPage.tsx` |
 | 2026-09-08 | Tasks may use `source = email_triage`, nullable `sourceUrl`, and external id `email-triage:<accountId>:<conversationKey>` | `docs/gtd.md`, `docs/email-triage.md` | `src/domain/types.ts`, migration 29 |
 | 2026-09-07 | Active Scheduled tasks whose local date is today or earlier auto-promote to Next Actions after due recurrence generation, including when the local day rolls over in an already-mounted view | `docs/gtd.md` | `src/lib/gtd/scheduled.ts`, `promoteDueScheduledTasks`, `use-local-day-reconciliation.ts`, bootstrap / GTD load / Pomodoro / daily stats |

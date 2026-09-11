@@ -29,6 +29,8 @@ import type {
   RecurringTemplateFilters,
   Task,
   TaskContext,
+  TaskEvent,
+  TaskEventFilters,
   TaskFilters,
   WeeklyObjective,
   WeeklyObjectiveResult,
@@ -157,6 +159,7 @@ export interface AppRepository {
   listProjects(filters?: ProjectFilters): Promise<Project[]>;
   saveProject(project: Project): Promise<Project>;
   listTasks(filters?: TaskFilters): Promise<Task[]>;
+  listTaskEvents(filters?: TaskEventFilters): Promise<TaskEvent[]>;
   createTask(input: CreateTaskInput): Promise<Task>;
   saveTask(task: Task): Promise<Task>;
   moveTask(

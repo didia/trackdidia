@@ -89,6 +89,9 @@ const visibleTitles = () =>
   [...document.querySelectorAll(".task-card__title")].map((node) => node.textContent);
 
 describe("NextActionsPage default order", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
   it("lists next actions oldest-first by default and reorders when nearest deadline is selected", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -122,6 +125,30 @@ describe("NextActionsPage default order", () => {
 
     await waitFor(() => {
       expect(visibleTitles()).toEqual(["Recente action", "Ancienne action"]);
+    });
+  });
+
+  it("shows calendar days since each task entered next actions", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 8, 9, 12, 0, 0));
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const settings = await repository.getSettings();
+    await repository.saveSettings({ ...settings, relationshipDrawsEnabled: false });
+    await repository.createTask({
+      title: "Action de deux jours",
+      bucket: "next_action",
+    });
+
+    vi.setSystemTime(new Date(2026, 8, 11, 12, 0, 0));
+    await renderWithApp(<NextActionsPage />, {
+      repository,
+      contextOverrides: { calendarDay: "2026-09-11" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Depuis 2 jours")).toBeInTheDocument();
     });
   });
 });

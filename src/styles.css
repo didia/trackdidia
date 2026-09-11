@@ -1134,6 +1134,16 @@ textarea {
   color: #a42626;
 }
 
+.task-card__age-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  background: rgba(15, 23, 42, 0.08);
+  color: var(--muted);
+}
+
 .task-card__recurrence-pill {
   display: inline-flex;
   align-items: center;

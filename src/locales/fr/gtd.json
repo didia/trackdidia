@@ -297,7 +297,10 @@
     "moveDownAria": "Descendre {{title}} dans la file planifiée",
     "plannedNoDate": "Sans date",
     "plannedDateOverdueAria": "Date planifiée dépassée : {{date}}",
-    "plannedDateLabel": "Date planifiée (optionnelle)"
+    "plannedDateLabel": "Date planifiée (optionnelle)",
+    "nextActionAge_zero": "Aujourd'hui",
+    "nextActionAge_one": "Depuis {{count}} jour",
+    "nextActionAge_other": "Depuis {{count}} jours"
   },
   "bulk": {
     "selectedCount_one": "{{count}} tâche sélectionnée sur {{total}}",

@@ -38,6 +38,7 @@ import type {
   Task,
   TaskContext,
   TaskEvent,
+  TaskEventFilters,
   WeeklyObjective,
   WeeklyObjectiveResult,
   WeeklyReview,
@@ -3026,6 +3027,12 @@ export class TauriSqliteRepository implements AppRepository {
     await this.promoteDueScheduledTasks(getTodayDate());
     const tasks = await this.getAllTasks();
     return filterTasks(tasks, filters);
+  }
+
+  async listTaskEvents(filters: TaskEventFilters = {}): Promise<TaskEvent[]> {
+    const events = await this.getAllEvents();
+    const types = filters.types;
+    return types ? events.filter((event) => types.includes(event.type)) : events;
   }
 
   async listRecurringTaskTemplates(filters = {}) {

@@ -156,6 +156,7 @@ hold, completed, or cancelled projects as new choices.
 - context filtering;
 - deadline filters (all, with, without, today, overdue);
 - sorting by insertion date (FIFO, oldest first by default), nearest/farthest deadline, or last update;
+- collapsed cards show how many local calendar days the task has been in Next Actions (`Aujourd'hui` / `Depuis N jour(s)`), using the latest `task_moved_to_next_action` event and falling back to `createdAt`;
 - bulk actions.
 
 ### Scheduled

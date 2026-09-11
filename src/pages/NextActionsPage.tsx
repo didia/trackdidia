@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useAppContext } from "../app/app-context";
 import { useGtdWorkspace } from "../app/use-gtd";
 import { useTaskSelection } from "../app/use-task-selection";
 import { BulkTaskToolbar } from "../components/BulkTaskToolbar";
@@ -7,6 +8,7 @@ import { GtdTaskCard } from "../components/GtdTaskCard";
 import { SectionCard } from "../components/SectionCard";
 import type { Task } from "../domain/types";
 import { effectiveTaskContextIds } from "../lib/gtd/engine";
+import { nextActionAgeDays } from "../lib/gtd/next-action-age";
 
 export type NextActionSortMode = "created" | "updated" | "deadline_asc" | "deadline_desc";
 
@@ -27,10 +29,12 @@ export const sortNextActionTasks = (tasks: Task[], sortMode: NextActionSortMode)
 
 export const NextActionsPage = () => {
   const { t } = useTranslation("gtd");
+  const { calendarDay } = useAppContext();
   const {
     tasks,
     projects,
     contexts,
+    taskEvents,
     loading,
     createTask,
     saveTask,
@@ -83,6 +87,13 @@ export const NextActionsPage = () => {
 
     return sortNextActionTasks(base, sortMode);
   }, [deadlineFilter, projects, selectedContextId, sortMode, tasks]);
+  const ageByTaskId = useMemo(() => {
+    const ages = new Map<string, number>();
+    for (const task of nextActionTasks) {
+      ages.set(task.id, nextActionAgeDays(task, taskEvents, calendarDay));
+    }
+    return ages;
+  }, [calendarDay, nextActionTasks, taskEvents]);
   const selection = useTaskSelection(nextActionTasks.map((task) => task.id));
 
   return (
@@ -212,6 +223,7 @@ export const NextActionsPage = () => {
                 contexts={contexts}
                 projects={projects}
                 selected={selection.isSelected(task.id)}
+                nextActionAgeDays={ageByTaskId.get(task.id)}
                 onToggleSelected={selection.toggleTask}
                 onSave={async (nextTask) => {
                   await saveTask(nextTask);

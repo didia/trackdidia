@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { CreateTaskInput, Project, Task, TaskContext } from "../domain/types";
+import type { CreateTaskInput, Project, Task, TaskContext, TaskEvent } from "../domain/types";
 import { getTodayDate } from "../lib/date";
 import { useAppContext } from "./app-context";
 
@@ -8,6 +8,7 @@ export const useGtdWorkspace = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [contexts, setContexts] = useState<TaskContext[]>([]);
+  const [taskEvents, setTaskEvents] = useState<TaskEvent[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(
@@ -19,14 +20,16 @@ export const useGtdWorkspace = () => {
       await repository.generateDueRecurringTasks(getTodayDate());
       await repository.promoteDueScheduledTasks(getTodayDate());
       await repository.generateDailyRelationshipTasks(getTodayDate());
-      const [nextTasks, nextProjects, nextContexts] = await Promise.all([
+      const [nextTasks, nextProjects, nextContexts, nextEvents] = await Promise.all([
         repository.listTasks({ includeCompleted: false }),
         repository.listProjects(),
         repository.listContexts(),
+        repository.listTaskEvents({ types: ["task_moved_to_next_action"] }),
       ]);
       setTasks(nextTasks);
       setProjects(nextProjects);
       setContexts(nextContexts);
+      setTaskEvents(nextEvents);
       setLoading(false);
     },
     [repository],
@@ -220,6 +223,7 @@ export const useGtdWorkspace = () => {
     tasks,
     projects,
     contexts,
+    taskEvents,
     loading,
     reload: load,
     createTask,

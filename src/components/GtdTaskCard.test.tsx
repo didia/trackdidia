@@ -332,3 +332,41 @@ describe("GtdTaskCard planned bucket", () => {
     expect(screen.queryByRole("button", { name: /Enregistrement/ })).not.toBeInTheDocument();
   });
 });
+
+describe("GtdTaskCard next-action age", () => {
+  const renderWithAge = (nextActionAgeDays: number | undefined) =>
+    render(
+      <GtdTaskCard
+        task={buildTask({ bucket: "next_action" })}
+        projects={[]}
+        contexts={[]}
+        nextActionAgeDays={nextActionAgeDays}
+        onSave={noopAsync}
+        onSaveContext={async (context) => context}
+        onComplete={noopAsync}
+        onCancel={noopAsync}
+        onClearPastRecurrences={noopAsync}
+      />,
+    );
+
+  it("omits the age pill when nextActionAgeDays is not provided", () => {
+    renderWithAge(undefined);
+    expect(screen.queryByText("Aujourd'hui")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Depuis/)).not.toBeInTheDocument();
+  });
+
+  it("shows Aujourd'hui when the task entered next actions today", () => {
+    renderWithAge(0);
+    expect(screen.getByText("Aujourd'hui")).toBeInTheDocument();
+  });
+
+  it("shows a singular day count", () => {
+    renderWithAge(1);
+    expect(screen.getByText("Depuis 1 jour")).toBeInTheDocument();
+  });
+
+  it("shows a plural day count", () => {
+    renderWithAge(3);
+    expect(screen.getByText("Depuis 3 jours")).toBeInTheDocument();
+  });
+});
