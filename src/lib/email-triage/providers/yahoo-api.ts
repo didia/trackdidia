@@ -24,6 +24,7 @@ export interface YahooImapMessage {
   to: string[];
   receivedAt: string;
   bodyText: string;
+  oversized?: boolean;
 }
 
 export interface YahooImapUidActionResult {

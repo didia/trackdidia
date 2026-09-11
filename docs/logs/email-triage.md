@@ -1,5 +1,10 @@
 # Email triage log
 
+- 2026-09-10: Yahoo review follow-up — skip attachment-disposition MIME parts,
+  quarantine oversized IMAP messages so the UID cursor still advances, destination-first
+  marker retries after crash, vault compensation on Yahoo connect/reconnect, generation
+  guard plus disabled Disconnect while connecting, UIDVALIDITY always enters gap review,
+  and TCP connect tries every resolved address under one deadline.
 - 2026-09-10: Graph review follow-up — `User.Read` scope, filtered inbox delta
   (`receivedDateTime ge baselineAt`) replaces unsupported `$deltatoken=latest`,
   metadata delta + per-message bodies + oversized quarantine, reconnect generation

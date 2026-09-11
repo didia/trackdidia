@@ -120,6 +120,38 @@ describe("YahooAdapter", () => {
     });
   });
 
+  it("quarantines oversized messages and still advances the UID cursor", async () => {
+    const adapter = new YahooAdapter(
+      createFakeImap({
+        fetchInbox: async () => ({
+          messages: [
+            sampleMessage(11, { oversized: true, bodyText: "should not classify" }),
+            sampleMessage(12),
+          ],
+          uidvalidity: 42,
+        }),
+      }),
+      { email: "me@yahoo.com", appPassword: "secret", inboxName: "INBOX" },
+      new InMemoryYahooConversationResolver(new Map()),
+      () => [],
+      async () => null,
+    );
+    const page = await adapter.fetchPage({
+      baselineUid: 10,
+      cursorUid: 10,
+      uidvalidity: 42,
+      inboxName: "INBOX",
+    });
+    expect(page.messages.map((message) => message.providerMessageId)).toEqual([
+      buildYahooProviderMessageId(42, 12),
+    ]);
+    expect(page.cursorUpdate?.trackedMessageIds).toEqual([
+      buildYahooProviderMessageId(42, 11),
+      buildYahooProviderMessageId(42, 12),
+    ]);
+    expect(page.cursorUpdate?.cursorUid).toBe(12);
+  });
+
   it("links conversations through shared Message-ID resolver", async () => {
     const aliasMap = new Map<string, string>();
     const resolver = new InMemoryYahooConversationResolver(aliasMap);
@@ -183,7 +215,7 @@ describe("YahooAdapter", () => {
     expect(page.messages[0]?.conversationKey).toBe("<child@mail>");
   });
 
-  it("recovers UIDVALIDITY changes when watermark Message-ID exists", async () => {
+  it("enters gap review when UIDVALIDITY changes even if a watermark Message-ID still exists", async () => {
     const searchMessageId = vi.fn(async () => 25);
     const discover = vi.fn(async () => ({
       delimiter: "/",
@@ -214,11 +246,12 @@ describe("YahooAdapter", () => {
       inboxName: "INBOX",
       lastConfirmedMessageId: "<watermark@mail>",
     });
-    expect(searchMessageId).toHaveBeenCalled();
+    expect(searchMessageId).not.toHaveBeenCalled();
     expect(discover).not.toHaveBeenCalled();
-    expect(page.gapDetected).toBe(false);
-    expect(page.cursorUpdate?.cursorUid).toBe(25);
-    expect(page.cursorUpdate?.uidvalidity).toBe(99);
+    expect(page.gapDetected).toBe(true);
+    expect(page.accountPatch?.state).toBe("gap_review_required");
+    expect(page.accountPatch?.recoveryState).toBe("uidvalidity_changed");
+    expect(page.cursorUpdate?.cursorUid).toBeUndefined();
   });
 
   it("enters gap review when UIDVALIDITY changes without watermark", async () => {
@@ -364,9 +397,10 @@ describe("YahooAdapter", () => {
       ignoreReason: "other",
     });
     expect(copyUid).toHaveBeenCalled();
-    expect(persistMarkerDestination).toHaveBeenCalledWith("42:7", {
+    expect(persistMarkerDestination).toHaveBeenLastCalledWith("42:7", {
       mailbox: "Trackdidia-Triage-Ignore/other",
       uid: 5,
+      messageId: "<msg@mail>",
     });
     expect(uidExpunge).toHaveBeenCalled();
     expect(moveUid).not.toHaveBeenCalled();
@@ -430,6 +464,7 @@ describe("YahooAdapter", () => {
     expect(persistMarkerDestination).toHaveBeenCalledWith("42:7", {
       mailbox: "Trackdidia-Inbox",
       uid: 99,
+      messageId: "<msg@mail>",
     });
     expect(uidExpunge).toHaveBeenCalled();
   });
@@ -523,5 +558,39 @@ describe("YahooAdapter", () => {
     ).rejects.toThrow("uidplus_unavailable");
     expect(copyUid).toHaveBeenCalled();
     expect(uidExpunge).not.toHaveBeenCalled();
+  });
+
+  it("treats a destination-only retry as completed after MOVE succeeded", async () => {
+    const moveUid = vi.fn(async () => ({
+      destinationUid: 5,
+      destinationMailbox: "Trackdidia-Inbox",
+    }));
+    const persistMarkerDestination = vi.fn(async () => undefined);
+    const adapter = new YahooAdapter(
+      createFakeImap({
+        moveUid,
+        searchMessageId: async ({ credentials, messageId }) =>
+          credentials.inboxName === "Trackdidia-Inbox" && messageId === "<msg@mail>" ? 5 : null,
+      }),
+      { email: "me@yahoo.com", appPassword: "secret" },
+      new InMemoryYahooConversationResolver(new Map()),
+      () => ["42:7"],
+      async () => {
+        throw new Error("Missing FETCH response");
+      },
+      persistMarkerDestination,
+      async () => ({
+        mailbox: "Trackdidia-Inbox",
+        uid: 5,
+        messageId: "<msg@mail>",
+      }),
+    );
+    await adapter.applyMarkers({ messageIds: ["42:7"], decision: "relevant" });
+    expect(moveUid).not.toHaveBeenCalled();
+    expect(persistMarkerDestination).toHaveBeenCalledWith("42:7", {
+      mailbox: "Trackdidia-Inbox",
+      uid: 5,
+      messageId: "<msg@mail>",
+    });
   });
 });

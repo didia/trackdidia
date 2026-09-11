@@ -7,11 +7,7 @@ import { createEntityId, nowIso } from "../gtd/shared";
 import { GmailApiClient } from "./providers/gmail-api";
 import { GraphApiClient, type GraphMeProfile } from "./providers/graph-api";
 import { createTauriYahooImapClient } from "./providers/yahoo-api";
-import {
-  clearCachedYahooAppPassword,
-  serializeYahooCredentials,
-  setCachedYahooAppPassword,
-} from "./oauth/yahoo-credentials";
+import { clearCachedYahooAppPassword, serializeYahooCredentials } from "./oauth/yahoo-credentials";
 import { createTauriHttpClient } from "./provider-http";
 import {
   exchangeGmailAuthorizationCode,
@@ -39,13 +35,18 @@ import {
   validateOAuthState,
 } from "./oauth/pkce";
 import { clearCachedAccessToken, setCachedAccessToken } from "./token-cache";
-import { checkVaultAvailability, deleteVaultSecret, storeVaultSecret } from "./vault";
-import { getEmailTriageCoordinator, persistGmailAccountCredentials } from "./gmail-session";
+import { checkVaultAvailability, deleteVaultSecret } from "./vault";
+import {
+  getEmailTriageCoordinator,
+  persistGmailAccountCredentials,
+  persistYahooAccountCredentials,
+} from "./gmail-session";
 
 export {
   createEmailTriageAdapter,
   getEmailTriageCoordinator,
   persistGmailAccountCredentials,
+  persistYahooAccountCredentials,
   setEmailTriageCoordinator,
   syncEmailTriageAccountNow,
 } from "./gmail-session";
@@ -435,13 +436,23 @@ export const connectYahooAccount = async (
   }
 
   const email = input.email.trim().toLowerCase();
-  if (!email || !input.appPassword.trim()) {
+  const appPassword = input.appPassword.trim();
+  if (!email || !appPassword) {
     return { ok: false, error: "missing_credentials" };
+  }
+
+  let reconnectSnapshot: ReconnectTargetSnapshot | null = null;
+  if (input.reconnectAccountId) {
+    const target = await repository.getEmailTriageAccount(input.reconnectAccountId);
+    if (!target) {
+      return { ok: false, error: "account_not_found" };
+    }
+    reconnectSnapshot = snapshotReconnectTarget(target);
   }
 
   const imap = createTauriYahooImapClient();
   try {
-    await imap.discover({ email, appPassword: input.appPassword.trim() });
+    await imap.discover({ email, appPassword });
   } catch (error) {
     if (error instanceof Error && error.message === "reconnect_required") {
       return { ok: false, error: "reconnect_required" };
@@ -455,35 +466,41 @@ export const connectYahooAccount = async (
     (account) => account.provider === "yahoo" && account.providerAccountId === email,
   );
   const coordinator = getEmailTriageCoordinator();
+  const credentials = serializeYahooCredentials({
+    email,
+    appPassword,
+    kind: "yahoo_app_password",
+  });
 
-  if (input.reconnectAccountId) {
-    const target = await repository.getEmailTriageAccount(input.reconnectAccountId);
-    if (!target) {
-      return { ok: false, error: "account_not_found" };
+  if (reconnectSnapshot) {
+    const validation = validateReconnectCanProceed({
+      snapshot: reconnectSnapshot,
+      currentAccount: await repository.getEmailTriageAccount(reconnectSnapshot.id),
+      authenticatedProviderAccountId: email,
+    });
+    if (!validation.ok) {
+      return {
+        ok: false,
+        error: validation.error,
+        reconnectMismatch: validation.error === "reconnect_account_mismatch",
+      };
     }
-    if (target.providerAccountId !== email) {
-      return { ok: false, error: "reconnect_account_mismatch", reconnectMismatch: true };
-    }
-    await storeVaultSecret(
-      "provider_credentials",
-      serializeYahooCredentials({
-        email,
-        appPassword: input.appPassword.trim(),
-        kind: "yahoo_app_password",
-      }),
-      target.id,
-    );
-    setCachedYahooAppPassword(target.id, input.appPassword.trim());
-    await repository.saveEmailTriageAccount({
-      ...target,
-      enabled: true,
-      state: "active",
-      recoveryState: "none",
-      lastError: null,
-      syncState: {
-        ...target.syncState,
+    const target = (await repository.getEmailTriageAccount(reconnectSnapshot.id))!;
+    await persistYahooAccountCredentials({
+      repository,
+      account: {
+        ...target,
+        enabled: true,
+        state: "active",
+        recoveryState: "none",
+        lastError: null,
+        syncState: {
+          ...target.syncState,
+        },
+        updatedAt: timestamp,
       },
-      updatedAt: timestamp,
+      credentials,
+      appPassword,
     });
     coordinator?.scheduleAccount(
       {
@@ -496,17 +513,6 @@ export const connectYahooAccount = async (
   }
 
   const accountId = existing?.id ?? createEntityId("email-account");
-  await storeVaultSecret(
-    "provider_credentials",
-    serializeYahooCredentials({
-      email,
-      appPassword: input.appPassword.trim(),
-      kind: "yahoo_app_password",
-    }),
-    accountId,
-  );
-  setCachedYahooAppPassword(accountId, input.appPassword.trim());
-
   const account: EmailTriageAccount = existing
     ? {
         ...existing,
@@ -537,7 +543,12 @@ export const connectYahooAccount = async (
         createdAt: timestamp,
         updatedAt: timestamp,
       };
-  await repository.saveEmailTriageAccount(account);
+  await persistYahooAccountCredentials({
+    repository,
+    account,
+    credentials,
+    appPassword,
+  });
   coordinator?.scheduleAccount(account, settings);
   void coordinator?.runAccountSync(accountId);
   return { ok: true, accountId };

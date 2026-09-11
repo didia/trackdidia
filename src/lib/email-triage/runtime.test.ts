@@ -1,7 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultEmailTriageGlobalSettings } from "../../domain/email-triage";
-import { createEmailTriageAdapter, persistGmailAccountCredentials } from "./gmail-session";
+import {
+  createEmailTriageAdapter,
+  persistGmailAccountCredentials,
+  persistYahooAccountCredentials,
+} from "./gmail-session";
 import { serializeProviderCredentials } from "./oauth/gmail-oauth";
+import {
+  serializeYahooCredentials,
+  clearAllCachedYahooAppPasswords,
+} from "./oauth/yahoo-credentials";
 import { clearAllCachedAccessTokens, __tokenCacheForTests } from "./token-cache";
 import { deleteVaultSecret, loadVaultSecret, storeVaultSecret } from "./vault";
 
@@ -158,5 +166,85 @@ describe("persistGmailAccountCredentials", () => {
     );
     expect(deleteVaultSecret).not.toHaveBeenCalled();
     expect(__tokenCacheForTests.has(gmailAccount.id)).toBe(false);
+  });
+});
+
+const yahooAccount = {
+  ...gmailAccount,
+  provider: "yahoo" as const,
+  providerAccountId: "me@yahoo.com",
+  label: "Yahoo",
+  maskedAddress: "m***@yahoo.com",
+  syncState: {
+    trackedMessageIds: ["42:1"],
+  },
+};
+
+describe("persistYahooAccountCredentials", () => {
+  beforeEach(() => {
+    vi.mocked(loadVaultSecret).mockReset();
+    vi.mocked(storeVaultSecret).mockReset();
+    vi.mocked(deleteVaultSecret).mockReset();
+    vi.mocked(storeVaultSecret).mockResolvedValue(undefined);
+    vi.mocked(deleteVaultSecret).mockResolvedValue(undefined);
+    clearAllCachedYahooAppPasswords();
+  });
+
+  it("deletes the vault secret if a new account row fails to save", async () => {
+    vi.mocked(loadVaultSecret).mockResolvedValue(null);
+    const repository = {
+      saveEmailTriageAccount: vi.fn(async () => {
+        throw new Error("disk full");
+      }),
+    };
+    await expect(
+      persistYahooAccountCredentials({
+        repository,
+        account: yahooAccount,
+        credentials: "new-yahoo-creds",
+        appPassword: "new-pass",
+      }),
+    ).rejects.toThrow(/disk full/);
+    expect(storeVaultSecret).toHaveBeenCalledWith(
+      "provider_credentials",
+      "new-yahoo-creds",
+      yahooAccount.id,
+    );
+    expect(deleteVaultSecret).toHaveBeenCalledWith("provider_credentials", yahooAccount.id);
+  });
+
+  it("restores the previous vault secret if reconnect persistence fails", async () => {
+    const previous = serializeYahooCredentials({
+      email: "me@yahoo.com",
+      appPassword: "old-pass",
+      kind: "yahoo_app_password",
+    });
+    vi.mocked(loadVaultSecret).mockResolvedValue(previous);
+    const repository = {
+      saveEmailTriageAccount: vi.fn(async () => {
+        throw new Error("sqlite failed");
+      }),
+    };
+    await expect(
+      persistYahooAccountCredentials({
+        repository,
+        account: yahooAccount,
+        credentials: "new-yahoo-creds",
+        appPassword: "new-pass",
+      }),
+    ).rejects.toThrow(/sqlite failed/);
+    expect(storeVaultSecret).toHaveBeenNthCalledWith(
+      1,
+      "provider_credentials",
+      "new-yahoo-creds",
+      yahooAccount.id,
+    );
+    expect(storeVaultSecret).toHaveBeenNthCalledWith(
+      2,
+      "provider_credentials",
+      previous,
+      yahooAccount.id,
+    );
+    expect(deleteVaultSecret).not.toHaveBeenCalled();
   });
 });

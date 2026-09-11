@@ -3,8 +3,9 @@ use imap_proto::types::Capability;
 use mailparse::MailHeaderMap;
 use native_tls::TlsConnector;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::net::{TcpStream, ToSocketAddrs};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 type ImapSession = Session<native_tls::TlsStream<TcpStream>>;
 type ImapCapabilities = imap::types::Capabilities;
@@ -54,6 +55,7 @@ pub struct YahooImapMessageResponse {
     pub to: Vec<String>,
     pub received_at: String,
     pub body_text: String,
+    pub oversized: bool,
 }
 
 #[derive(Serialize)]
@@ -148,21 +150,7 @@ fn connect_session(credentials: &YahooCredentials) -> Result<ImapSession, String
     let tls = TlsConnector::builder()
         .build()
         .map_err(|error| sanitize_error(format!("TLS setup failed: {error}"), &credentials.app_password))?;
-    let socket_addr = (IMAP_HOST, IMAP_PORT)
-        .to_socket_addrs()
-        .map_err(|error| {
-            sanitize_error(format!("DNS resolution failed: {error}"), &credentials.app_password)
-        })?
-        .next()
-        .ok_or_else(|| {
-            sanitize_error(
-                "DNS resolution failed: no addresses".to_string(),
-                &credentials.app_password,
-            )
-        })?;
-    let tcp = TcpStream::connect_timeout(&socket_addr, timeout).map_err(|error| {
-        sanitize_error(format!("TCP connect failed: {error}"), &credentials.app_password)
-    })?;
+    let tcp = connect_tcp(&credentials.app_password, timeout)?;
     tcp.set_read_timeout(Some(timeout)).map_err(|error| {
         sanitize_error(format!("TCP read timeout failed: {error}"), &credentials.app_password)
     })?;
@@ -186,6 +174,34 @@ fn connect_session(credentials: &YahooCredentials) -> Result<ImapSession, String
                 sanitize_error(format!("IMAP login failed: {message}"), &credentials.app_password)
             }
         })
+}
+
+fn connect_tcp(secret: &str, timeout: Duration) -> Result<TcpStream, String> {
+    let addrs: Vec<_> = (IMAP_HOST, IMAP_PORT)
+        .to_socket_addrs()
+        .map_err(|error| sanitize_error(format!("DNS resolution failed: {error}"), secret))?
+        .collect();
+    if addrs.is_empty() {
+        return Err(sanitize_error(
+            "DNS resolution failed: no addresses".to_string(),
+            secret,
+        ));
+    }
+    let deadline = Instant::now() + timeout;
+    let mut last_error = "TCP connect failed".to_string();
+    for addr in addrs {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        match TcpStream::connect_timeout(&addr, remaining) {
+            Ok(tcp) => return Ok(tcp),
+            Err(error) => {
+                last_error = format!("TCP connect failed: {error}");
+            }
+        }
+    }
+    Err(sanitize_error(last_error, secret))
 }
 
 fn with_session<T>(
@@ -330,9 +346,20 @@ fn extract_message_id_from_header_bytes(header_bytes: &[u8]) -> Result<Option<St
         .filter(|value| !value.is_empty()))
 }
 
+fn is_attachment_part(part: &mailparse::ParsedMail<'_>) -> bool {
+    part.get_content_disposition().disposition == mailparse::DispositionType::Attachment
+}
+
 fn find_mimetype_body(part: &mailparse::ParsedMail<'_>, mimetype: &str) -> Option<String> {
-    if part.ctype.mimetype == mimetype {
-        return part.get_body().ok();
+    if is_attachment_part(part) {
+        return None;
+    }
+    if part.ctype.mimetype.eq_ignore_ascii_case(mimetype) {
+        if let Ok(body) = part.get_body() {
+            if !body.trim().is_empty() {
+                return Some(body);
+            }
+        }
     }
     for subpart in &part.subparts {
         if let Some(body) = find_mimetype_body(subpart, mimetype) {
@@ -345,23 +372,24 @@ fn find_mimetype_body(part: &mailparse::ParsedMail<'_>, mimetype: &str) -> Optio
 fn extract_body_text(parsed: &mailparse::ParsedMail<'_>) -> String {
     find_mimetype_body(parsed, "text/plain")
         .or_else(|| find_mimetype_body(parsed, "text/html"))
-        .or_else(|| parsed.get_body().ok())
+        .or_else(|| {
+            if parsed.subparts.is_empty() && !is_attachment_part(parsed) {
+                parsed.get_body().ok()
+            } else {
+                None
+            }
+        })
         .unwrap_or_default()
         .chars()
         .take(MAX_BODY_BYTES)
         .collect()
 }
 
-fn parse_fetch_message(fetch: &imap::types::Fetch) -> Result<YahooImapMessageResponse, String> {
-    let uid = fetch
-        .uid
-        .ok_or_else(|| "Missing UID in FETCH response".to_string())?;
-    let body = fetch.body().unwrap_or_default();
-    if body.len() > MAX_TOTAL_RESPONSE_BYTES {
-        return Err("IMAP response too large".to_string());
-    }
-    let parsed =
-        mailparse::parse_mail(body).map_err(|error| format!("Failed to parse message: {error}"))?;
+fn message_from_parsed(
+    uid: u32,
+    parsed: &mailparse::ParsedMail<'_>,
+    oversized: bool,
+) -> YahooImapMessageResponse {
     let message_id = parsed
         .headers
         .get_first_value("Message-ID")
@@ -377,8 +405,12 @@ fn parse_fetch_message(fetch: &imap::types::Fetch) -> Result<YahooImapMessageRes
     let from = parsed.headers.get_first_value("From").unwrap_or_default();
     let to = parse_address_list(parsed.headers.get_first_value("To").as_deref());
     let received_at = parse_received_at(parsed.headers.get_first_value("Date").as_deref());
-    let body_text = extract_body_text(&parsed);
-    Ok(YahooImapMessageResponse {
+    let body_text = if oversized {
+        String::new()
+    } else {
+        extract_body_text(parsed)
+    };
+    YahooImapMessageResponse {
         uid,
         message_id,
         references,
@@ -388,7 +420,108 @@ fn parse_fetch_message(fetch: &imap::types::Fetch) -> Result<YahooImapMessageRes
         to,
         received_at,
         body_text,
-    })
+        oversized,
+    }
+}
+
+fn quarantined_stub(uid: u32) -> YahooImapMessageResponse {
+    YahooImapMessageResponse {
+        uid,
+        message_id: None,
+        references: Vec::new(),
+        in_reply_to: None,
+        subject: String::new(),
+        from: String::new(),
+        to: Vec::new(),
+        received_at: chrono::Utc::now().to_rfc3339(),
+        body_text: String::new(),
+        oversized: true,
+    }
+}
+
+fn parse_fetch_message(fetch: &imap::types::Fetch) -> Result<YahooImapMessageResponse, String> {
+    let uid = fetch
+        .uid
+        .ok_or_else(|| "Missing UID in FETCH response".to_string())?;
+    let body = fetch.body().unwrap_or_default();
+    if body.len() > MAX_TOTAL_RESPONSE_BYTES {
+        return Err("IMAP response too large".to_string());
+    }
+    let parsed =
+        mailparse::parse_mail(body).map_err(|error| format!("Failed to parse message: {error}"))?;
+    Ok(message_from_parsed(uid, &parsed, false))
+}
+
+fn fetch_quarantined_message(
+    session: &mut ImapSession,
+    uid: u32,
+) -> Result<YahooImapMessageResponse, String> {
+    let fetches = session
+        .uid_fetch(format!("{uid}"), "(UID BODY.PEEK[HEADER])")
+        .map_err(|error| format!("IMAP FETCH failed: {error}"))?;
+    let Some(fetch) = fetches.iter().next() else {
+        return Ok(quarantined_stub(uid));
+    };
+    let Some(header) = fetch.header() else {
+        return Ok(quarantined_stub(uid));
+    };
+    match mailparse::parse_mail(header) {
+        Ok(parsed) => Ok(message_from_parsed(uid, &parsed, true)),
+        Err(_) => Ok(quarantined_stub(uid)),
+    }
+}
+
+fn fetch_one_body_message(
+    session: &mut ImapSession,
+    uid: u32,
+) -> Result<YahooImapMessageResponse, String> {
+    let fetches = session
+        .uid_fetch(format!("{uid}"), "(UID BODY.PEEK[])")
+        .map_err(|error| format!("IMAP FETCH failed: {error}"))?;
+    let fetch = fetches
+        .iter()
+        .next()
+        .ok_or_else(|| "Missing FETCH response".to_string())?;
+    parse_fetch_message(fetch)
+}
+
+fn fetch_inbox_messages(
+    session: &mut ImapSession,
+    uids: &[u32],
+) -> Result<Vec<YahooImapMessageResponse>, String> {
+    if uids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let uid_set = uids
+        .iter()
+        .map(|uid| uid.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    let size_fetches = session
+        .uid_fetch(&uid_set, "(UID RFC822.SIZE)")
+        .map_err(|error| format!("IMAP FETCH failed: {error}"))?;
+    let mut sizes = HashMap::new();
+    for fetch in size_fetches.iter() {
+        if let Some(uid) = fetch.uid {
+            sizes.insert(uid, fetch.size);
+        }
+    }
+    let mut messages = Vec::new();
+    for uid in uids {
+        let known_size = sizes.get(uid).copied().flatten();
+        if known_size.is_some_and(|bytes| bytes as usize > MAX_TOTAL_RESPONSE_BYTES) {
+            messages.push(fetch_quarantined_message(session, *uid)?);
+            continue;
+        }
+        match fetch_one_body_message(session, *uid) {
+            Ok(message) => messages.push(message),
+            Err(error) if error == "IMAP response too large" => {
+                messages.push(fetch_quarantined_message(session, *uid)?);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(messages)
 }
 
 fn select_inbox(session: &mut ImapSession, inbox_name: &str) -> Result<imap::types::Mailbox, String> {
@@ -482,23 +615,7 @@ pub async fn yahoo_imap_fetch_inbox(
                     uidvalidity,
                 });
             }
-            let uid_set = uids
-                .iter()
-                .map(|uid| uid.to_string())
-                .collect::<Vec<_>>()
-                .join(",");
-            let fetches = session
-                .uid_fetch(&uid_set, "(UID BODY.PEEK[])")
-                .map_err(|error| format!("IMAP FETCH failed: {error}"))?;
-            let mut messages = Vec::new();
-            let mut total_bytes = 0usize;
-            for fetch in fetches.iter() {
-                total_bytes += fetch.body().map(|body| body.len()).unwrap_or(0);
-                if total_bytes > MAX_TOTAL_RESPONSE_BYTES {
-                    return Err("IMAP response too large".to_string());
-                }
-                messages.push(parse_fetch_message(fetch)?);
-            }
+            let mut messages = fetch_inbox_messages(session, &uids)?;
             messages.sort_by_key(|message| message.uid);
             Ok(YahooImapFetchInboxResponse {
                 messages,
@@ -734,6 +851,29 @@ mod tests {
         let parsed = mailparse::parse_mail(raw.as_bytes()).expect("fixture should parse");
         let body = extract_body_text(&parsed);
         assert!(body.contains("Nested plain body"));
+    }
+
+    #[test]
+    fn extract_body_text_skips_text_attachments() {
+        let raw = concat!(
+            "Content-Type: multipart/mixed; boundary=\"outer\"\r\n",
+            "\r\n",
+            "--outer\r\n",
+            "Content-Type: text/html; charset=utf-8\r\n",
+            "Content-Disposition: inline\r\n",
+            "\r\n",
+            "<p>Actual message body</p>\r\n",
+            "--outer\r\n",
+            "Content-Type: text/plain; charset=utf-8\r\n",
+            "Content-Disposition: attachment; filename=\"notes.txt\"\r\n",
+            "\r\n",
+            "PRIVATE ATTACHMENT CONTENT\r\n",
+            "--outer--\r\n",
+        );
+        let parsed = mailparse::parse_mail(raw.as_bytes()).expect("fixture should parse");
+        let body = extract_body_text(&parsed);
+        assert!(body.contains("<p>Actual message body</p>"));
+        assert!(!body.contains("PRIVATE ATTACHMENT CONTENT"));
     }
 
     #[test]

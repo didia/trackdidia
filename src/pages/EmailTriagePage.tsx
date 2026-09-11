@@ -639,6 +639,7 @@ export const EmailTriagePage = () => {
                     <button
                       type="button"
                       className="button"
+                      disabled={connecting}
                       onClick={() => void handleDisconnect(account)}
                     >
                       {t("disconnect")}

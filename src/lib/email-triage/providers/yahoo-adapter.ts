@@ -10,7 +10,6 @@ import {
   parseYahooProviderMessageId,
   type YahooImapClient,
   type YahooImapClientCredentials,
-  type YahooImapMessage,
   type YahooImapUidActionResult,
   yahooImapMessageToTransient,
 } from "./yahoo-api";
@@ -34,6 +33,7 @@ export interface YahooSyncState {
 export interface YahooMarkerDestination {
   mailbox: string;
   uid: number | null;
+  messageId?: string | null;
 }
 
 const PAGE_SIZE = 10;
@@ -68,6 +68,9 @@ export class YahooAdapter implements EmailTriageProviderAdapter {
       providerMessageId: string,
       destination: YahooMarkerDestination,
     ) => Promise<void>,
+    private readonly getMarkerDestination?: (
+      providerMessageId: string,
+    ) => Promise<YahooMarkerDestination | null>,
   ) {}
 
   async fetchPage(syncState: Record<string, unknown>): Promise<ProviderSyncPage> {
@@ -89,18 +92,41 @@ export class YahooAdapter implements EmailTriageProviderAdapter {
     }
 
     const tracked = new Set(state.trackedMessageIds);
-    const messages = await this.mapFetchedMessages(fetched.messages, fetched.uidvalidity, tracked);
-    const lastMessage = fetched.messages.at(-1);
+    const classified = [];
+    for (const message of fetched.messages) {
+      const providerMessageId = buildYahooProviderMessageId(fetched.uidvalidity, message.uid);
+      if (message.oversized) {
+        tracked.add(providerMessageId);
+        continue;
+      }
+      const conversationKey = await resolveYahooConversationKey(
+        {
+          providerMessageId,
+          messageIdHeader: message.messageId,
+          references: message.references,
+          inReplyTo: message.inReplyTo,
+        },
+        this.conversationResolver,
+      );
+      const transient = yahooImapMessageToTransient(message, fetched.uidvalidity, conversationKey);
+      if (!tracked.has(transient.providerMessageId)) {
+        tracked.add(transient.providerMessageId);
+        classified.push(transient);
+      }
+    }
+    const lastFetched = fetched.messages.at(-1);
+    const lastClassified = classified.at(-1);
     const lastConfirmedMessageId =
-      lastMessage?.messageId !== null && lastMessage?.messageId !== undefined
-        ? normalizeMessageId(lastMessage.messageId)
-        : state.lastConfirmedMessageId;
+      lastClassified?.messageIdHeader ??
+      (lastFetched?.messageId
+        ? normalizeMessageId(lastFetched.messageId)
+        : state.lastConfirmedMessageId);
 
     return {
-      messages,
+      messages: classified,
       cursorUpdate: {
-        cursorUid: lastMessage?.uid ?? cursor,
-        lastConfirmedUid: lastMessage?.uid ?? state.lastConfirmedUid,
+        cursorUid: lastFetched?.uid ?? cursor,
+        lastConfirmedUid: lastFetched?.uid ?? state.lastConfirmedUid,
         lastConfirmedMessageId,
         trackedMessageIds: [...tracked],
         uidvalidity: fetched.uidvalidity,
@@ -142,83 +168,21 @@ export class YahooAdapter implements EmailTriageProviderAdapter {
   }
 
   private async handleUidvalidityChange(
-    state: YahooSyncState,
+    _state: YahooSyncState,
     nextUidvalidity: number,
   ): Promise<ProviderSyncPage> {
-    if (!state.lastConfirmedMessageId) {
-      return {
-        messages: [],
-        cursorUpdate: {
-          uidvalidity: nextUidvalidity,
-        },
-        hasMore: false,
-        gapDetected: true,
-        accountPatch: {
-          state: "gap_review_required",
-          recoveryState: "uidvalidity_changed",
-        } satisfies Partial<EmailTriageAccount>,
-      };
-    }
-
-    const recoveredUid = await this.imap.searchMessageId({
-      credentials: this.credentialsWithInbox(state.inboxName),
-      messageId: state.lastConfirmedMessageId,
-    });
-    if (!recoveredUid) {
-      return {
-        messages: [],
-        cursorUpdate: {
-          uidvalidity: nextUidvalidity,
-        },
-        hasMore: false,
-        gapDetected: true,
-        accountPatch: {
-          state: "gap_review_required",
-          recoveryState: "uidvalidity_changed",
-        } satisfies Partial<EmailTriageAccount>,
-      };
-    }
-
     return {
       messages: [],
       cursorUpdate: {
         uidvalidity: nextUidvalidity,
-        cursorUid: recoveredUid,
-        lastConfirmedUid: recoveredUid,
       },
-      hasMore: true,
-      gapDetected: false,
+      hasMore: false,
+      gapDetected: true,
       accountPatch: {
-        recoveryState: "none",
-        state: "active",
+        state: "gap_review_required",
+        recoveryState: "uidvalidity_changed",
       } satisfies Partial<EmailTriageAccount>,
     };
-  }
-
-  private async mapFetchedMessages(
-    fetched: YahooImapMessage[],
-    uidvalidity: number,
-    tracked: Set<string>,
-  ) {
-    const messages = [];
-    for (const message of fetched) {
-      const providerMessageId = buildYahooProviderMessageId(uidvalidity, message.uid);
-      const conversationKey = await resolveYahooConversationKey(
-        {
-          providerMessageId,
-          messageIdHeader: message.messageId,
-          references: message.references,
-          inReplyTo: message.inReplyTo,
-        },
-        this.conversationResolver,
-      );
-      const transient = yahooImapMessageToTransient(message, uidvalidity, conversationKey);
-      if (!tracked.has(transient.providerMessageId)) {
-        tracked.add(transient.providerMessageId);
-        messages.push(transient);
-      }
-    }
-    return messages;
   }
 
   private async ensureTrackDidiaMailboxes(
@@ -250,6 +214,7 @@ export class YahooAdapter implements EmailTriageProviderAdapter {
       return {
         mailbox: actionResult.destinationMailbox ?? targetFolder,
         uid: actionResult.destinationUid,
+        messageId: messageIdHeader,
       };
     }
     if (messageIdHeader) {
@@ -261,7 +226,7 @@ export class YahooAdapter implements EmailTriageProviderAdapter {
         messageId: messageIdHeader,
       });
       if (foundUid) {
-        return { mailbox: targetFolder, uid: foundUid };
+        return { mailbox: targetFolder, uid: foundUid, messageId: messageIdHeader };
       }
     }
     return null;
@@ -272,6 +237,70 @@ export class YahooAdapter implements EmailTriageProviderAdapter {
     destination: YahooMarkerDestination,
   ): Promise<void> {
     await this.persistMarkerDestination?.(providerMessageId, destination);
+  }
+
+  private async readSourceMessageId(providerMessageId: string): Promise<{
+    messageId: string | null;
+    sourcePresent: boolean;
+  }> {
+    try {
+      return {
+        messageId: normalizeMessageId(await this.getMessageIdHeader(providerMessageId)),
+        sourcePresent: true,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("Missing FETCH") || message.includes("Missing header")) {
+        return { messageId: null, sourcePresent: false };
+      }
+      throw error;
+    }
+  }
+
+  private async recoverCompletedDestination(
+    providerMessageId: string,
+    targetFolder: string,
+    messageIdHeader: string | null,
+    persisted: YahooMarkerDestination | null,
+    sourcePresent: boolean,
+    inboxName: string,
+    sourceUid: number,
+    supportsUidExpunge: boolean,
+  ): Promise<boolean> {
+    const destMailbox = persisted?.mailbox ?? targetFolder;
+    let foundUid: number | null = persisted?.uid ?? null;
+    if (messageIdHeader) {
+      const searched = await this.imap.searchMessageId({
+        credentials: {
+          ...this.credentials,
+          inboxName: destMailbox,
+        },
+        messageId: messageIdHeader,
+      });
+      if (searched) {
+        foundUid = searched;
+      }
+    }
+    if (foundUid) {
+      const destination = {
+        mailbox: destMailbox,
+        uid: foundUid,
+        messageId: messageIdHeader ?? persisted?.messageId ?? null,
+      };
+      await this.persistDestination(providerMessageId, destination);
+      if (sourcePresent) {
+        await this.expungeVerifiedSource(inboxName, sourceUid, supportsUidExpunge, destination);
+      }
+      return true;
+    }
+    if (!sourcePresent && persisted) {
+      await this.persistDestination(providerMessageId, {
+        ...persisted,
+        messageId: messageIdHeader ?? persisted.messageId ?? null,
+      });
+      return true;
+    }
+    return false;
   }
 
   private async expungeVerifiedSource(
@@ -311,31 +340,36 @@ export class YahooAdapter implements EmailTriageProviderAdapter {
 
     for (const providerMessageId of request.messageIds) {
       const { uidvalidity, uid } = parseYahooProviderMessageId(providerMessageId);
+      const persisted = (await this.getMarkerDestination?.(providerMessageId)) ?? null;
+      const source = await this.readSourceMessageId(providerMessageId);
+      const messageIdHeader = source.messageId ?? normalizeMessageId(persisted?.messageId);
+
+      const recovered = await this.recoverCompletedDestination(
+        providerMessageId,
+        targetFolder,
+        messageIdHeader,
+        persisted,
+        source.sourcePresent,
+        discovered.inboxName,
+        uid,
+        discovered.supportsUidExpunge,
+      );
+      if (recovered) {
+        continue;
+      }
+
       if (uidvalidity !== discovered.uidvalidity) {
         throw new Error("uidvalidity_changed");
       }
-      const messageIdHeader = normalizeMessageId(await this.getMessageIdHeader(providerMessageId));
-
-      if (messageIdHeader) {
-        const existingInDestination = await this.imap.searchMessageId({
-          credentials: {
-            ...this.credentials,
-            inboxName: targetFolder,
-          },
-          messageId: messageIdHeader,
-        });
-        if (existingInDestination) {
-          const destination = { mailbox: targetFolder, uid: existingInDestination };
-          await this.persistDestination(providerMessageId, destination);
-          await this.expungeVerifiedSource(
-            discovered.inboxName,
-            uid,
-            discovered.supportsUidExpunge,
-            destination,
-          );
-          continue;
-        }
+      if (!source.sourcePresent) {
+        throw new Error("missing_source_message");
       }
+
+      await this.persistDestination(providerMessageId, {
+        mailbox: targetFolder,
+        uid: null,
+        messageId: messageIdHeader,
+      });
 
       if (discovered.supportsMove) {
         const moveResult = await this.imap.moveUid({

@@ -15,6 +15,7 @@ import { GraphApiClient } from "./providers/graph-api";
 import { YahooAdapter } from "./providers/yahoo-adapter";
 import { createTauriYahooImapClient, parseYahooProviderMessageId } from "./providers/yahoo-api";
 import {
+  clearCachedYahooAppPassword,
   getCachedYahooAppPassword,
   parseYahooCredentials,
   setCachedYahooAppPassword,
@@ -189,7 +190,7 @@ export const createEmailTriageAdapter = async (
             const markerDestinations = {
               ...((current.syncState.markerDestinations as Record<
                 string,
-                { mailbox: string; uid: number | null }
+                { mailbox: string; uid: number | null; messageId?: string | null }
               >) ?? {}),
               [providerMessageId]: destination,
             };
@@ -197,6 +198,15 @@ export const createEmailTriageAdapter = async (
               ...current.syncState,
               markerDestinations,
             });
+          }
+        : undefined,
+      repository
+        ? async (providerMessageId) => {
+            const current = await repository.getEmailTriageAccount(account.id);
+            const destinations = current?.syncState.markerDestinations as
+              | Record<string, { mailbox: string; uid: number | null; messageId?: string | null }>
+              | undefined;
+            return destinations?.[providerMessageId] ?? null;
           }
         : undefined,
     );
@@ -266,6 +276,36 @@ export const persistGmailAccountCredentials = async (options: {
     try {
       if (previous) {
         await storeVaultSecret("provider_credentials", previous, options.account.id);
+      } else {
+        await deleteVaultSecret("provider_credentials", options.account.id);
+      }
+    } catch {
+      // Prefer the original persistence error over a compensating-vault failure.
+    }
+    throw error;
+  }
+};
+
+export const persistYahooAccountCredentials = async (options: {
+  repository: Pick<AppRepository, "saveEmailTriageAccount">;
+  account: EmailTriageAccount;
+  credentials: string;
+  appPassword: string;
+}): Promise<void> => {
+  const previous = await loadVaultSecret("provider_credentials", options.account.id);
+  await storeVaultSecret("provider_credentials", options.credentials, options.account.id);
+  setCachedYahooAppPassword(options.account.id, options.appPassword);
+  try {
+    await options.repository.saveEmailTriageAccount(options.account);
+  } catch (error) {
+    clearCachedYahooAppPassword(options.account.id);
+    try {
+      if (previous) {
+        await storeVaultSecret("provider_credentials", previous, options.account.id);
+        const parsed = parseYahooCredentials(previous);
+        if (parsed) {
+          setCachedYahooAppPassword(options.account.id, parsed.appPassword);
+        }
       } else {
         await deleteVaultSecret("provider_credentials", options.account.id);
       }

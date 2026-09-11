@@ -48,15 +48,18 @@ The **Yahoo slice** adds live Yahoo IMAP synchronization on desktop via app pass
   mailbox ensure, MOVE / COPY + UID EXPUNGE (never mailbox-wide EXPUNGE)
 - Baseline records durable `(UIDVALIDITY, highest UID)` without fetching existing mail; sync fetches
   UIDs `> cursorUid` in pages of 10 and reads UIDVALIDITY from each SELECT (no per-page discover);
-  `providerMessageId` = `{uidvalidity}:{uid}`
+  `providerMessageId` = `{uidvalidity}:{uid}`. Messages over the 2 MiB IMAP cap are quarantined
+  (tracked id, no body sent to the classifier) so the cursor still advances.
 - Conversation grouping via normalized RFC Message-ID aliases persisted in `email_triage_aliases`;
   Message-ID-less messages use stable `orphan:{uidvalidity}:{uid}` keys
-- UIDVALIDITY change recovery from `lastConfirmedMessageId` watermark; otherwise
-  `gap_review_required` / `recoveryState: uidvalidity_changed`
+- UIDVALIDITY change enters `gap_review_required` / `recoveryState: uidvalidity_changed` because
+  UIDs in the new epoch are not an ordered continuation of the previous mailbox
 - `sourceUrl` is null; review UI opens Yahoo Mail with copyable sender, subject, and receipt time
 - IMAP LOGIN failure sets `reconnect_required` for that account only; Yahoo reconnect preserves
-  sync cursor; verified COPY without UID EXPUNGE fails with `uidplus_unavailable` rather than
-  leaving an Inbox duplicate
+  sync cursor and uses the same generation guard as Gmail/Graph; verified COPY without UID EXPUNGE
+  fails with `uidplus_unavailable` rather than leaving an Inbox duplicate
+- Inline MIME body extraction prefers `text/plain` then HTML and skips `Content-Disposition:
+  attachment` parts (and their descendants)
 
 ### Shared
 
@@ -99,7 +102,7 @@ The **Yahoo slice** adds live Yahoo IMAP synchronization on desktop via app pass
   cursor writes when sync is cancelled mid-page. Pagination reloads the saved
   cursor after each completed page, with a per-run page cap. A revoked provider
   grant (`invalid_grant`) moves that account to `reconnect_required`. Oversized
-  Gmail and Graph payloads stay under the native 2 MiB HTTP cap by quarantining
+  Gmail, Graph, and Yahoo payloads stay under the native 2 MiB cap by quarantining
   the message id so the cursor can still advance. Connect and reconnect vault
   writes are rolled back if the account row fails to persist.
 
