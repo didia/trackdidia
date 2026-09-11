@@ -49,7 +49,7 @@
     },
     "deadlines": {
       "title": "Deadlines",
-      "subtitle": "Filtre et tri rapide par date limite.",
+      "subtitle": "Filtre par deadline et tri de la liste.",
       "filterLabel": "Filtre deadline",
       "filter": {
         "all": "Toutes",
@@ -60,6 +60,7 @@
       },
       "sortLabel": "Trier par",
       "sort": {
+        "created": "Date d'ajout (plus ancien d'abord)",
         "asc": "Deadline (proche d'abord)",
         "desc": "Deadline (loin d'abord)",
         "updated": "Dernière mise à jour"

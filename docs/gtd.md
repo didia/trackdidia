@@ -154,7 +154,7 @@ hold, completed, or cancelled projects as new choices.
 - direct creation;
 - context filtering;
 - deadline filters (all, with, without, today, overdue);
-- sorting by nearest/farthest deadline or last update;
+- sorting by insertion date (FIFO, oldest first by default), nearest/farthest deadline, or last update;
 - bulk actions.
 
 ### Scheduled
