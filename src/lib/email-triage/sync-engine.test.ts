@@ -1,0 +1,715 @@
+import { describe, expect, it, vi } from "vitest";
+import { defaultEmailTriageGlobalSettings } from "../../domain/email-triage";
+import type { EmailTriageAccount, EmailTriageEvaluation } from "../../domain/email-triage";
+import {
+  processProviderPage,
+  reconcilePendingEffects,
+  type EmailTriageRepositoryPort,
+} from "./sync-engine";
+import {
+  MockGmailAdapter,
+  type MockGmailHistoryEntry,
+  type MockGmailMessage,
+} from "./providers/mock-gmail";
+import type { EmailTriageClassifierProvider } from "./classifier";
+import { createDesiredEffect } from "./desired-effects";
+import { EMAIL_TRIAGE_EVALUATION_CORPUS_VERSION } from "./constants";
+
+const baseAccount = (): EmailTriageAccount => ({
+  id: "acct-1",
+  provider: "gmail",
+  providerAccountId: "user-1",
+  label: "Test",
+  maskedAddress: "t***@example.com",
+  generation: 1,
+  enabled: true,
+  mutationEnabled: false,
+  paused: false,
+  state: "active",
+  recoveryState: "none",
+  lastSuccessAt: null,
+  lastError: null,
+  pollIntervalMinutes: 5,
+  syncState: {
+    baselineHistoryId: "1",
+    cursorHistoryId: "1",
+    pagesConsumed: 0,
+    trackedMessageIds: [],
+  },
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+});
+
+const gmailMessage = (id: string, threadId: string, body = "SECRET_BODY"): MockGmailMessage => ({
+  id,
+  threadId,
+  historyId: "2",
+  internalDate: "1700000000000",
+  labelIds: ["INBOX"],
+  payload: {
+    headers: [
+      { name: "Subject", value: "Hello" },
+      { name: "From", value: "a@b.com" },
+    ],
+    body: { data: btoa(body) },
+  },
+});
+
+const memoryPort = (
+  repository: import("../storage/memory-repository").MemoryRepository,
+): EmailTriageRepositoryPort => ({
+  getGlobalSettings: () => repository.getEmailTriageGlobalSettings(),
+  getAccount: (accountId: string) => repository.getEmailTriageAccount(accountId),
+  updateAccountSyncState: (
+    accountId: string,
+    syncState: Record<string, unknown>,
+    patch?: Partial<EmailTriageAccount>,
+  ) => repository.emailTriageUpdateAccountSyncState(accountId, syncState, patch),
+  upsertConversation: (
+    accountId: string,
+    conversationKey: string,
+    patch: Partial<import("../../domain/email-triage").EmailTriageConversation>,
+  ) => repository.emailTriageUpsertConversation(accountId, conversationKey, patch),
+  getConversationByKey: (accountId: string, conversationKey: string) =>
+    repository.emailTriageGetConversationByKey(accountId, conversationKey),
+  persistMessageBatch: (input: import("./sync-engine").PersistMessageBatchInput) =>
+    repository.emailTriagePersistMessageBatch(input),
+  getMessageByProviderId: (accountId: string, providerMessageId: string) =>
+    repository.emailTriageGetMessageByProviderId(accountId, providerMessageId),
+  getConversation: (conversationId: string) =>
+    repository.emailTriageGetConversation(conversationId),
+  dismissPendingReviews: (conversationId: string) =>
+    repository.emailTriageDismissPendingReviews(conversationId),
+  listPendingEffects: (conversationId: string) =>
+    repository.emailTriageListPendingEffects(conversationId),
+  listPendingEffectsForAccount: (accountId: string) =>
+    repository.emailTriageListPendingEffectsForAccount(accountId),
+  saveDesiredEffect: async (
+    effect: import("../../domain/email-triage").EmailTriageDesiredEffect,
+  ) => {
+    await repository.emailTriageSaveDesiredEffect(effect);
+  },
+  getTaskByExternalId: (externalId: string) =>
+    repository.emailTriageGetTaskByExternalId(externalId),
+  applyEmailTriageGtdUpdate: (input: import("./sync-engine").ApplyGtdUpdateInput) =>
+    repository.emailTriageApplyGtdUpdate(input),
+  createReview: async (input: import("./sync-engine").CreateReviewInput) => {
+    await repository.emailTriageCreateReview(input);
+  },
+});
+
+describe("sync-engine processProviderPage", () => {
+  it("updates cursor only after page persistence work completes", async () => {
+    const callOrder: string[] = [];
+    const repository: EmailTriageRepositoryPort = {
+      getGlobalSettings: async () => defaultEmailTriageGlobalSettings(),
+      getAccount: async () => baseAccount(),
+      updateAccountSyncState: async (_accountId, syncState) => {
+        callOrder.push("updateAccountSyncState");
+        return { ...baseAccount(), syncState };
+      },
+      upsertConversation: async (accountId, conversationKey, patch) => {
+        callOrder.push("upsertConversation");
+        return {
+          id: "conv-1",
+          accountId,
+          conversationKey,
+          decisionVersion: patch.decisionVersion ?? 1,
+          routingState: patch.routingState ?? "review",
+          taskId: null,
+          lastGeneratedTitle: null,
+          managedNotesRevision: 0,
+          managedNotesHash: null,
+          sourceUrl: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        };
+      },
+      getConversationByKey: async () => null,
+      persistMessageBatch: async () => {
+        callOrder.push("persistMessageBatch");
+        return { conversations: [] };
+      },
+      getMessageByProviderId: async () => null,
+      getConversation: async () => null,
+      dismissPendingReviews: async () => undefined,
+      listPendingEffects: async () => [],
+      listPendingEffectsForAccount: async () => [],
+      saveDesiredEffect: async () => undefined,
+      getTaskByExternalId: async () => null,
+      applyEmailTriageGtdUpdate: async () => null,
+      createReview: async () => {
+        callOrder.push("createReview");
+      },
+    };
+
+    const messages = new Map<string, MockGmailMessage>([
+      [
+        "m1",
+        {
+          id: "m1",
+          threadId: "t1",
+          historyId: "2",
+          internalDate: "1700000000000",
+          labelIds: ["INBOX"],
+          payload: {
+            headers: [
+              { name: "Subject", value: "Hello" },
+              { name: "From", value: "a@b.com" },
+            ],
+            body: { data: btoa("Body") },
+          },
+        },
+      ],
+    ]);
+    const history: MockGmailHistoryEntry[] = [
+      { historyId: "2", messagesAdded: [{ id: "m1", threadId: "t1" }] },
+    ];
+    const adapter = new MockGmailAdapter(history, messages);
+    const classifierProvider: EmailTriageClassifierProvider = {
+      completeStructured: vi.fn(async () =>
+        JSON.stringify({
+          decision: "review",
+          relevance: null,
+          ignoreReason: null,
+          confidence: 0.5,
+          summary: "s",
+          rationale: "r",
+          suggestedTaskTitle: "t",
+        }),
+      ),
+    };
+
+    await processProviderPage({
+      repository,
+      account: baseAccount(),
+      adapter,
+      classifierProvider,
+      apiKey: "test-key",
+      globalSettings: defaultEmailTriageGlobalSettings(),
+      mutationEnabled: false,
+    });
+
+    expect(callOrder).toContain("persistMessageBatch");
+    expect(callOrder.indexOf("updateAccountSyncState")).toBeGreaterThan(
+      callOrder.indexOf("persistMessageBatch"),
+    );
+  });
+
+  it("does not duplicate reviews when the same page is replayed", async () => {
+    const { MemoryRepository } = await import("../storage/memory-repository");
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const account = await repository.saveEmailTriageAccount(baseAccount());
+    const history: MockGmailHistoryEntry[] = [
+      { historyId: "2", messagesAdded: [{ id: "m1", threadId: "t1" }] },
+    ];
+    const adapter = new MockGmailAdapter(history, new Map([["m1", gmailMessage("m1", "t1")]]));
+    const classifierProvider: EmailTriageClassifierProvider = {
+      completeStructured: async () =>
+        JSON.stringify({
+          decision: "review",
+          relevance: null,
+          ignoreReason: null,
+          confidence: 0.5,
+          summary: "s",
+          rationale: "r",
+          suggestedTaskTitle: "t",
+        }),
+    };
+    const port = memoryPort(repository);
+
+    const options = {
+      repository: port,
+      account,
+      adapter,
+      classifierProvider,
+      apiKey: "test-key",
+      globalSettings: defaultEmailTriageGlobalSettings(),
+      mutationEnabled: false,
+    };
+    await processProviderPage(options);
+    await processProviderPage(options);
+    const reviews = await repository.listEmailTriageReviews("pending");
+    expect(reviews).toHaveLength(1);
+    expect(JSON.stringify(reviews)).not.toContain("SECRET_BODY");
+    expect(reviews[0]?.sanitizedPreview).not.toHaveProperty("bodyExcerpt");
+  });
+
+  it("creates the GTD task on replay if persist succeeded and the task write failed", async () => {
+    const { MemoryRepository } = await import("../storage/memory-repository");
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const account = await repository.saveEmailTriageAccount(baseAccount());
+    const history: MockGmailHistoryEntry[] = [
+      { historyId: "2", messagesAdded: [{ id: "m1", threadId: "t1" }] },
+    ];
+    const adapter = new MockGmailAdapter(history, new Map([["m1", gmailMessage("m1", "t1")]]));
+    const port = memoryPort(repository);
+    let failGtd = true;
+    port.applyEmailTriageGtdUpdate = async (input) => {
+      if (failGtd) {
+        failGtd = false;
+        throw new Error("gtd fail");
+      }
+      return repository.emailTriageApplyGtdUpdate(input);
+    };
+    const options = {
+      repository: port,
+      account,
+      adapter,
+      classifierProvider: {
+        completeStructured: async () =>
+          JSON.stringify({
+            decision: "relevant",
+            relevance: "action_required",
+            ignoreReason: null,
+            confidence: 0.95,
+            summary: "s",
+            rationale: "r",
+            suggestedTaskTitle: "Follow up",
+          }),
+      },
+      apiKey: "test-key",
+      globalSettings: defaultEmailTriageGlobalSettings(),
+      mutationEnabled: false,
+    };
+    await expect(processProviderPage(options)).rejects.toThrow(/gtd fail/);
+    expect(await repository.emailTriageGetTaskByExternalId("email-triage:acct-1:t1")).toBeNull();
+    await processProviderPage(options);
+    expect(
+      await repository.emailTriageGetTaskByExternalId("email-triage:acct-1:t1"),
+    ).not.toBeNull();
+  });
+
+  it("does not recreate a pending review after the user resolves it", async () => {
+    const { MemoryRepository } = await import("../storage/memory-repository");
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const account = await repository.saveEmailTriageAccount(baseAccount());
+    const history: MockGmailHistoryEntry[] = [
+      { historyId: "2", messagesAdded: [{ id: "m1", threadId: "t1" }] },
+    ];
+    const adapter = new MockGmailAdapter(history, new Map([["m1", gmailMessage("m1", "t1")]]));
+    const port = memoryPort(repository);
+    const options = {
+      repository: port,
+      account,
+      adapter,
+      classifierProvider: {
+        completeStructured: async () =>
+          JSON.stringify({
+            decision: "review",
+            relevance: null,
+            ignoreReason: null,
+            confidence: 0.5,
+            summary: "s",
+            rationale: "r",
+            suggestedTaskTitle: "t",
+          }),
+      },
+      apiKey: "test-key",
+      globalSettings: defaultEmailTriageGlobalSettings(),
+      mutationEnabled: false,
+    };
+    await processProviderPage(options);
+    const pending = await repository.listEmailTriageReviews("pending");
+    expect(pending).toHaveLength(1);
+    await repository.resolveEmailTriageReview({
+      reviewId: pending[0]!.id,
+      expectedDecisionVersion: pending[0]!.expectedDecisionVersion,
+      resolution: "relevant",
+    });
+    await processProviderPage(options);
+    expect(await repository.listEmailTriageReviews("pending")).toHaveLength(0);
+    expect(await repository.listEmailTriageReviews("resolved")).toHaveLength(1);
+    const message = await repository.emailTriageGetMessageByProviderId(account.id, "m1");
+    expect(message?.routingDecision).toBe("relevant");
+  });
+
+  it("updates in-memory account syncState before the next fetchPage", async () => {
+    const fetchCalls: Record<string, unknown>[] = [];
+    const adapter = {
+      provider: "gmail" as const,
+      fetchPage: async (syncState: Record<string, unknown>) => {
+        fetchCalls.push({ ...syncState });
+        if (fetchCalls.length === 1) {
+          return {
+            messages: [],
+            cursorUpdate: {
+              historyPageToken: "token-2",
+              recoveryPhase: "scanning",
+            },
+            hasMore: true,
+            gapDetected: false,
+          };
+        }
+        return {
+          messages: [],
+          cursorUpdate: null,
+          hasMore: false,
+          gapDetected: false,
+        };
+      },
+    };
+    const account = baseAccount();
+    const repository: EmailTriageRepositoryPort = {
+      getGlobalSettings: async () => defaultEmailTriageGlobalSettings(),
+      getAccount: async () => account,
+      updateAccountSyncState: async (_accountId, syncState) => {
+        return { ...account, syncState: { ...syncState } };
+      },
+      upsertConversation: async () => {
+        throw new Error("not used");
+      },
+      getConversationByKey: async () => null,
+      persistMessageBatch: async () => ({ conversations: [] }),
+      getMessageByProviderId: async () => null,
+      getConversation: async () => null,
+      dismissPendingReviews: async () => undefined,
+      listPendingEffects: async () => [],
+      listPendingEffectsForAccount: async () => [],
+      saveDesiredEffect: async () => undefined,
+      getTaskByExternalId: async () => null,
+      applyEmailTriageGtdUpdate: async () => null,
+      createReview: async () => undefined,
+    };
+    const options = {
+      repository,
+      account,
+      adapter,
+      classifierProvider: { completeStructured: async () => "" },
+      apiKey: null,
+      globalSettings: defaultEmailTriageGlobalSettings(),
+      mutationEnabled: false,
+    };
+
+    const first = await processProviderPage(options);
+    await processProviderPage({ ...options, account: first.account });
+
+    expect(fetchCalls[1]?.historyPageToken).toBe("token-2");
+    expect(fetchCalls[1]?.recoveryPhase).toBe("scanning");
+    expect(first.account.syncState.historyPageToken).toBe("token-2");
+    expect(first.account.syncState.recoveryPhase).toBe("scanning");
+  });
+
+  it("does not persist cursor updates when cancelled after an empty fetchPage", async () => {
+    const updateAccountSyncState = vi.fn();
+    const adapter = {
+      provider: "microsoft_graph" as const,
+      fetchPage: async () => ({
+        messages: [],
+        cursorUpdate: {
+          baselineAt: "2026-01-01T00:00:00.000Z",
+          deltaLink: "https://graph.microsoft.com/delta/final",
+          snapshotComplete: true,
+        },
+        hasMore: false,
+        gapDetected: false,
+        accountPatch: { state: "active" as const },
+      }),
+    };
+    const account = baseAccount();
+    const repository: EmailTriageRepositoryPort = {
+      getGlobalSettings: async () => defaultEmailTriageGlobalSettings(),
+      getAccount: async () => account,
+      updateAccountSyncState,
+      upsertConversation: async () => {
+        throw new Error("not used");
+      },
+      getConversationByKey: async () => null,
+      persistMessageBatch: async () => ({ conversations: [] }),
+      getMessageByProviderId: async () => null,
+      getConversation: async () => null,
+      dismissPendingReviews: async () => undefined,
+      listPendingEffects: async () => [],
+      listPendingEffectsForAccount: async () => [],
+      saveDesiredEffect: async () => undefined,
+      getTaskByExternalId: async () => null,
+      applyEmailTriageGtdUpdate: async () => null,
+      createReview: async () => undefined,
+    };
+    const result = await processProviderPage({
+      repository,
+      account,
+      adapter,
+      classifierProvider: { completeStructured: async () => "" },
+      apiKey: null,
+      globalSettings: defaultEmailTriageGlobalSettings(),
+      mutationEnabled: false,
+      shouldContinue: () => false,
+    });
+    expect(result.cancelled).toBe(true);
+    expect(updateAccountSyncState).not.toHaveBeenCalled();
+  });
+});
+
+const matchingEvaluation = (): EmailTriageEvaluation => {
+  const settings = defaultEmailTriageGlobalSettings();
+  return {
+    id: "eval-1",
+    model: settings.classifierModel,
+    promptVersion: settings.classifierPromptVersion,
+    schemaVersion: settings.classifierSchemaVersion,
+    corpusVersion: EMAIL_TRIAGE_EVALUATION_CORPUS_VERSION,
+    relevantThreshold: settings.relevantThreshold,
+    ignoreThreshold: settings.ignoreThreshold,
+    passed: true,
+    results: {
+      totalCases: 10,
+      validSchemaCount: 10,
+      exactRoutingCount: 9,
+      safetyViolations: 0,
+      failures: [],
+    },
+    evaluatedAt: "2026-01-01T00:00:00.000Z",
+  };
+};
+
+const mutationSettings = () => ({
+  ...defaultEmailTriageGlobalSettings(),
+  enabled: true,
+  mutationEnabled: true,
+  automationEnabled: true,
+});
+
+describe("sync-engine reconcilePendingEffects", () => {
+  it("supersedes a provider marker when the conversation version changed", async () => {
+    const { MemoryRepository } = await import("../storage/memory-repository");
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const account = await repository.saveEmailTriageAccount({
+      ...baseAccount(),
+      mutationEnabled: true,
+    });
+    await repository.saveEmailTriageEvaluation(matchingEvaluation());
+    await repository.saveEmailTriageGlobalSettings(mutationSettings());
+    const conversation = await repository.emailTriageUpsertConversation(account.id, "thread-1", {
+      decisionVersion: 2,
+      routingState: "relevant",
+    });
+    const effect = createDesiredEffect({
+      accountId: account.id,
+      accountGeneration: account.generation,
+      conversationId: conversation.id,
+      decisionVersion: 1,
+      effectType: "provider_marker",
+      targetMessageIds: ["m1"],
+    });
+    await repository.emailTriageSaveDesiredEffect(effect);
+    const applyMarkers = vi.fn();
+    await reconcilePendingEffects(
+      {
+        repository: memoryPort(repository),
+        account,
+        adapter: {
+          provider: "gmail",
+          fetchPage: async () => ({
+            messages: [],
+            hasMore: false,
+            gapDetected: false,
+            cursorUpdate: null,
+          }),
+          applyMarkers,
+        },
+        classifierProvider: { completeStructured: async () => "" },
+        apiKey: "key",
+        globalSettings: mutationSettings(),
+        mutationEnabled: true,
+        latestEvaluation: matchingEvaluation(),
+      },
+      account.id,
+    );
+    expect(applyMarkers).not.toHaveBeenCalled();
+    const pending = await repository.emailTriageListPendingEffectsForAccount(account.id);
+    expect(pending).toHaveLength(0);
+  });
+
+  it("does not apply a marker after mutation is disabled", async () => {
+    const { MemoryRepository } = await import("../storage/memory-repository");
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const account = await repository.saveEmailTriageAccount({
+      ...baseAccount(),
+      mutationEnabled: false,
+    });
+    await repository.saveEmailTriageGlobalSettings(mutationSettings());
+    const conversation = await repository.emailTriageUpsertConversation(account.id, "thread-1", {
+      decisionVersion: 1,
+      routingState: "relevant",
+    });
+    const effect = createDesiredEffect({
+      accountId: account.id,
+      accountGeneration: account.generation,
+      conversationId: conversation.id,
+      decisionVersion: 1,
+      effectType: "provider_marker",
+      targetMessageIds: ["m1"],
+    });
+    await repository.emailTriageSaveDesiredEffect(effect);
+    const applyMarkers = vi.fn();
+    await reconcilePendingEffects(
+      {
+        repository: memoryPort(repository),
+        account: { ...account, mutationEnabled: true },
+        adapter: {
+          provider: "gmail",
+          fetchPage: async () => ({
+            messages: [],
+            hasMore: false,
+            gapDetected: false,
+            cursorUpdate: null,
+          }),
+          applyMarkers,
+        },
+        classifierProvider: { completeStructured: async () => "" },
+        apiKey: "key",
+        globalSettings: mutationSettings(),
+        mutationEnabled: true,
+        latestEvaluation: matchingEvaluation(),
+      },
+      account.id,
+    );
+    expect(applyMarkers).not.toHaveBeenCalled();
+    const pending = await repository.emailTriageListPendingEffectsForAccount(account.id);
+    expect(pending).toHaveLength(1);
+  });
+
+  it("drains a bounded batch of pending effects in one run", async () => {
+    const { MemoryRepository } = await import("../storage/memory-repository");
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const account = await repository.saveEmailTriageAccount({
+      ...baseAccount(),
+      mutationEnabled: true,
+    });
+    await repository.saveEmailTriageEvaluation(matchingEvaluation());
+    await repository.saveEmailTriageGlobalSettings(mutationSettings());
+    const first = await repository.emailTriageUpsertConversation(account.id, "thread-1", {
+      decisionVersion: 1,
+      routingState: "relevant",
+    });
+    const second = await repository.emailTriageUpsertConversation(account.id, "thread-2", {
+      decisionVersion: 1,
+      routingState: "relevant",
+    });
+    await repository.emailTriageSaveDesiredEffect(
+      createDesiredEffect({
+        accountId: account.id,
+        accountGeneration: account.generation,
+        conversationId: first.id,
+        decisionVersion: 1,
+        effectType: "gtd_task",
+        targetMessageIds: ["m1"],
+      }),
+    );
+    await repository.emailTriageSaveDesiredEffect(
+      createDesiredEffect({
+        accountId: account.id,
+        accountGeneration: account.generation,
+        conversationId: first.id,
+        decisionVersion: 1,
+        effectType: "provider_marker",
+        targetMessageIds: ["m1"],
+      }),
+    );
+    await repository.emailTriageSaveDesiredEffect(
+      createDesiredEffect({
+        accountId: account.id,
+        accountGeneration: account.generation,
+        conversationId: second.id,
+        decisionVersion: 1,
+        effectType: "provider_marker",
+        targetMessageIds: ["m2"],
+      }),
+    );
+    const applyMarkers = vi.fn();
+    await reconcilePendingEffects(
+      {
+        repository: memoryPort(repository),
+        account,
+        adapter: {
+          provider: "gmail",
+          fetchPage: async () => ({
+            messages: [],
+            hasMore: false,
+            gapDetected: false,
+            cursorUpdate: null,
+          }),
+          applyMarkers,
+        },
+        classifierProvider: { completeStructured: async () => "" },
+        apiKey: "key",
+        globalSettings: mutationSettings(),
+        mutationEnabled: true,
+        latestEvaluation: matchingEvaluation(),
+      },
+      account.id,
+    );
+    expect(applyMarkers).toHaveBeenCalledTimes(2);
+    expect(await repository.emailTriageListPendingEffectsForAccount(account.id)).toHaveLength(0);
+  });
+
+  it("records when the account generation changes during applyMarkers", async () => {
+    const { MemoryRepository } = await import("../storage/memory-repository");
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const account = await repository.saveEmailTriageAccount({
+      ...baseAccount(),
+      mutationEnabled: true,
+    });
+    await repository.saveEmailTriageEvaluation(matchingEvaluation());
+    await repository.saveEmailTriageGlobalSettings(mutationSettings());
+    const conversation = await repository.emailTriageUpsertConversation(account.id, "thread-1", {
+      decisionVersion: 1,
+      routingState: "relevant",
+    });
+    const effect = createDesiredEffect({
+      accountId: account.id,
+      accountGeneration: account.generation,
+      conversationId: conversation.id,
+      decisionVersion: 1,
+      effectType: "provider_marker",
+      targetMessageIds: ["m1"],
+    });
+    await repository.emailTriageSaveDesiredEffect(effect);
+    const applyMarkers = vi.fn(async () => {
+      await repository.saveEmailTriageAccount({
+        ...account,
+        mutationEnabled: true,
+        generation: account.generation + 1,
+        updatedAt: "2026-01-02T00:00:00.000Z",
+      });
+    });
+    const port = memoryPort(repository);
+    const saved: Array<{ lastError: string | null; status: string }> = [];
+    port.saveDesiredEffect = async (effect) => {
+      saved.push({ lastError: effect.lastError, status: effect.status });
+      await repository.emailTriageSaveDesiredEffect(effect);
+    };
+    await reconcilePendingEffects(
+      {
+        repository: port,
+        account,
+        adapter: {
+          provider: "gmail",
+          fetchPage: async () => ({
+            messages: [],
+            hasMore: false,
+            gapDetected: false,
+            cursorUpdate: null,
+          }),
+          applyMarkers,
+        },
+        classifierProvider: { completeStructured: async () => "" },
+        apiKey: "key",
+        globalSettings: mutationSettings(),
+        mutationEnabled: true,
+        latestEvaluation: matchingEvaluation(),
+      },
+      account.id,
+    );
+    expect(applyMarkers).toHaveBeenCalledOnce();
+    expect(saved.at(-1)).toEqual({ lastError: "context_changed_in_flight", status: "completed" });
+  });
+});

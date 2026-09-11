@@ -42,6 +42,7 @@ const buildTask = (overrides: Partial<Task>): Task => ({
   plannedOrder: null,
   source: "manual",
   sourceExternalId: null,
+  sourceUrl: null,
   createdAt: sinceIso,
   updatedAt: sinceIso,
   ...overrides,

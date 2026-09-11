@@ -16,6 +16,7 @@ is only the catalog and write rules — day-to-day work should not edit it.
 | [logs/ai-settings-and-privacy.md](logs/ai-settings-and-privacy.md) | [ai-settings-and-privacy.md](ai-settings-and-privacy.md) |
 | [logs/conventions.md](logs/conventions.md) | [conventions.md](conventions.md) |
 | [logs/desktop-builds.md](logs/desktop-builds.md) | [desktop-builds.md](desktop-builds.md) |
+| [logs/email-triage.md](logs/email-triage.md) | [email-triage.md](email-triage.md) |
 
 Path rule: `docs/<page>.md` → `docs/logs/<page>.md`. Documentation-process
 changes (`AGENTS.md`, this index, conventions workflow) land in

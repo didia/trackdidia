@@ -449,6 +449,7 @@ export const createTaskFromInput = (input: CreateTaskInput): Task => {
     plannedOrder: null,
     source: input.source ?? "manual",
     sourceExternalId: input.sourceExternalId ?? null,
+    sourceUrl: input.sourceUrl ?? null,
     createdAt: input.createdAt ?? timestamp,
     updatedAt: input.updatedAt ?? timestamp,
   };

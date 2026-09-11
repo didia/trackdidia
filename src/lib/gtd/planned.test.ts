@@ -31,6 +31,7 @@ const baseTask = (overrides: Partial<Task> = {}): Task => ({
   plannedOrder: overrides.plannedOrder === undefined ? 0 : overrides.plannedOrder,
   source: "manual",
   sourceExternalId: null,
+  sourceUrl: null,
   createdAt: overrides.createdAt ?? "2026-01-01T00:00:00.000Z",
   updatedAt: overrides.updatedAt ?? "2026-01-01T00:00:00.000Z",
   ...overrides,

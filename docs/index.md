@@ -24,6 +24,7 @@ Chronological documentation activity is recorded in domain logs under
 | [gtd.md](gtd.md) | Buckets, contexts, projects, task lifecycle events, Google Tasks import, daily counts |
 | [recurrences-and-pomodoro.md](recurrences-and-pomodoro.md) | Recurrence templates/generation/previews and Pomodoro sessions/segments/notifications |
 | [ai-settings-and-privacy.md](ai-settings-and-privacy.md) | Local/AI coaching, OpenRouter request data, relationship draws, debug and settings |
+| [email-triage.md](email-triage.md) | Disabled-by-default local email triage (Gmail, Graph, Yahoo; gated mutation; tray) |
 
 ## Source map
 

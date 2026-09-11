@@ -118,9 +118,14 @@ The Rust host registers:
 
 - `tauri-plugin-notification`;
 - `tauri-plugin-dialog`;
+- `tauri-plugin-opener` (system browser for Gmail OAuth and message links);
+- `tauri-plugin-autostart` (optional launch-at-login for email triage);
+- system tray (`tray-icon` feature) for optional hide-on-close email triage polling;
 - the custom `resolve_storage_paths` command;
 - the custom `ensure_backup_dir` and `prune_backups` commands;
 - the custom `rescuetime_http_get` command;
+- the custom `provider_http_request`, `oauth_loopback_start`, and `oauth_loopback_wait`
+  commands (Gmail OAuth and provider HTTP from the Rust host);
 - the custom `db_connect`, `db_execute`, and `db_select` commands (`src-tauri/src/db.rs`),
   a hand-rolled single-connection sqlx pool that replaces `tauri-plugin-sql`.
 
@@ -128,7 +133,12 @@ The default main-window capability grants:
 
 - `core:default`;
 - `notification:default`;
-- `dialog:default`.
+- `dialog:default`;
+- `opener:default`;
+- `autostart:default`.
+
+The tray icon is created at runtime when email triage **run in tray** is enabled;
+closing the main window hides it until **Afficher** or **Quitter** from the tray menu.
 
 New native APIs require both plugin initialization and capability review.
 

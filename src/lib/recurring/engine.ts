@@ -288,6 +288,7 @@ export const buildTaskFromRecurringTemplate = (
   plannedOrder: null,
   source: "manual",
   sourceExternalId: null,
+  sourceUrl: null,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
 });

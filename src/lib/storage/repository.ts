@@ -213,4 +213,101 @@ export interface AppRepository {
     scope: RecurringEditScope,
     changes: RecurringTaskChanges,
   ): Promise<Task>;
+  getEmailTriageGlobalSettings(): Promise<
+    import("../../domain/email-triage").EmailTriageGlobalSettings
+  >;
+  saveEmailTriageGlobalSettings(
+    settings: import("../../domain/email-triage").EmailTriageGlobalSettings,
+  ): Promise<void>;
+  listEmailTriageAccounts(): Promise<import("../../domain/email-triage").EmailTriageAccount[]>;
+  getEmailTriageAccount(
+    accountId: string,
+  ): Promise<import("../../domain/email-triage").EmailTriageAccount | null>;
+  saveEmailTriageAccount(
+    account: import("../../domain/email-triage").EmailTriageAccount,
+  ): Promise<import("../../domain/email-triage").EmailTriageAccount>;
+  deleteEmailTriageAccount(accountId: string): Promise<void>;
+  listEmailTriageReviews(
+    status?: import("../../domain/email-triage").EmailTriageReview["status"],
+  ): Promise<import("../../domain/email-triage").EmailTriageReview[]>;
+  resolveEmailTriageReview(input: {
+    reviewId: string;
+    expectedDecisionVersion: number;
+    resolution: import("../../domain/email-triage").EmailTriageReview["resolution"];
+    ignoreReason?: string | null;
+  }): Promise<import("../../domain/email-triage").EmailTriageReview>;
+  listEmailTriageEvaluations(
+    limit?: number,
+  ): Promise<import("../../domain/email-triage").EmailTriageEvaluation[]>;
+  saveEmailTriageEvaluation(
+    evaluation: import("../../domain/email-triage").EmailTriageEvaluation,
+  ): Promise<import("../../domain/email-triage").EmailTriageEvaluation>;
+  getLatestMatchingEmailTriageEvaluation(
+    settings: import("../../domain/email-triage").EmailTriageGlobalSettings,
+  ): Promise<import("../../domain/email-triage").EmailTriageEvaluation | null>;
+  dismissEmailTriageReview(
+    reviewId: string,
+  ): Promise<import("../../domain/email-triage").EmailTriageReview>;
+  listEmailTriageAuditEvents(
+    accountId?: string,
+    limit?: number,
+  ): Promise<import("../../domain/email-triage").EmailTriageAuditEvent[]>;
+  recoverEmailTriageStaleEffects(): Promise<number>;
+  emailTriageUpsertConversation(
+    accountId: string,
+    conversationKey: string,
+    patch: Partial<import("../../domain/email-triage").EmailTriageConversation>,
+  ): Promise<import("../../domain/email-triage").EmailTriageConversation>;
+  emailTriageGetConversationByKey(
+    accountId: string,
+    conversationKey: string,
+  ): Promise<import("../../domain/email-triage").EmailTriageConversation | null>;
+  emailTriageUpdateAccountSyncState(
+    accountId: string,
+    syncState: Record<string, unknown>,
+    patch?: Partial<import("../../domain/email-triage").EmailTriageAccount>,
+  ): Promise<import("../../domain/email-triage").EmailTriageAccount>;
+  emailTriagePersistMessageBatch(
+    input: import("../email-triage/sync-engine").PersistMessageBatchInput,
+  ): Promise<import("../email-triage/sync-engine").PersistMessageBatchResult>;
+  emailTriageGetMessageByProviderId(
+    accountId: string,
+    providerMessageId: string,
+  ): Promise<import("../../domain/email-triage").EmailTriageMessage | null>;
+  emailTriageGetConversation(
+    conversationId: string,
+  ): Promise<import("../../domain/email-triage").EmailTriageConversation | null>;
+  emailTriageDismissPendingReviews(conversationId: string): Promise<void>;
+  emailTriageListPendingEffects(
+    conversationId: string,
+  ): Promise<import("../../domain/email-triage").EmailTriageDesiredEffect[]>;
+  emailTriageListPendingEffectsForAccount(
+    accountId: string,
+  ): Promise<import("../../domain/email-triage").EmailTriageDesiredEffect[]>;
+  emailTriageSaveDesiredEffect(
+    effect: import("../../domain/email-triage").EmailTriageDesiredEffect,
+  ): Promise<import("../../domain/email-triage").EmailTriageDesiredEffect>;
+  emailTriageGetTaskByExternalId(externalId: string): Promise<Task | null>;
+  emailTriageApplyGtdUpdate(
+    input: import("../email-triage/sync-engine").ApplyGtdUpdateInput,
+  ): Promise<Task | null>;
+  emailTriageCreateReview(
+    input: import("../email-triage/sync-engine").CreateReviewInput,
+  ): Promise<import("../../domain/email-triage").EmailTriageReview>;
+  listEmailTriageMessages(
+    accountId: string,
+    limit?: number,
+  ): Promise<import("../../domain/email-triage").EmailTriageMessage[]>;
+  listEmailTriageClassificationAttempts(
+    messageId: string,
+  ): Promise<import("../../domain/email-triage").EmailTriageClassificationAttempt[]>;
+  emailTriageFindConversationKeyByMessageId(
+    accountId: string,
+    messageIdHeader: string,
+  ): Promise<string | null>;
+  emailTriageSaveAlias(
+    accountId: string,
+    conversationKey: string,
+    messageIdHeader: string,
+  ): Promise<void>;
 }

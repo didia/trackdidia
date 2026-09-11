@@ -19,6 +19,7 @@ import type notifications from "../locales/fr/notifications.json";
 import type relativeTime from "../locales/fr/relativeTime.json";
 import type insights from "../locales/fr/insights.json";
 import type relationship from "../locales/fr/relationship.json";
+import type emailTriage from "../locales/fr/emailTriage.json";
 
 declare module "i18next" {
   interface CustomTypeOptions {
@@ -45,6 +46,7 @@ declare module "i18next" {
       relativeTime: typeof relativeTime;
       insights: typeof insights;
       relationship: typeof relationship;
+      emailTriage: typeof emailTriage;
     };
   }
 }

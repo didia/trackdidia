@@ -544,6 +544,16 @@ skip RescueTime. If either weekly resolution fails, the panel shows a non-blocki
 warning banner and the preview still renders (with missing RescueTime data) rather
 than failing outright.
 
+## Email triage classifier key (optional)
+
+Email triage uses a **separate** OpenRouter key stored in the OS vault (`triage_api_key`),
+not the coach key in SQLite settings. The French `/email-triage` page offers an explicit
+**copy coach key** action; nothing migrates or clears the coach key automatically. Gmail
+refresh tokens live in the same vault under per-account `provider_credentials` entries.
+Access tokens stay in memory only. Browser preview disables vault writes, OAuth, provider
+HTTP, tray, autostart, and live provider mutation. Automatic mutation requires a passed
+evaluation corpus matching the current model and thresholds. See [Email triage](email-triage.md).
+
 ## Related documentation
 
 - [Architecture](architecture.md)
