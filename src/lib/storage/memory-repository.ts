@@ -41,6 +41,7 @@ import type {
   Task,
   TaskContext,
   TaskEvent,
+  TaskEventFilters,
   TaskFilters,
   WeeklyObjective,
   WeeklyObjectiveResult,
@@ -1016,6 +1017,17 @@ export class MemoryRepository implements AppRepository {
     await this.generateDueRecurringTasks(getTodayDate());
     await this.promoteDueScheduledTasks(getTodayDate());
     return filterTasks([...this.tasks.values()], filters);
+  }
+
+  async listTaskEvents(filters: TaskEventFilters = {}): Promise<TaskEvent[]> {
+    const types = filters.types;
+    return [...this.events.values()]
+      .filter((event) => !types || types.includes(event.type))
+      .map((event) => ({
+        ...event,
+        metadata: { ...event.metadata },
+      }))
+      .sort((left, right) => left.eventAt.localeCompare(right.eventAt));
   }
 
   async listRecurringTaskTemplates(filters: RecurringTemplateFilters = {}) {

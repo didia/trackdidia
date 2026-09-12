@@ -56,6 +56,7 @@ interface GtdTaskCardProps {
   onPromotePlannedTask?: (taskId: string) => Promise<void>;
   onMovePlannedTask?: (taskId: string, direction: "up" | "down") => Promise<void>;
   plannedPosition?: { isFirst: boolean; isLast: boolean };
+  nextActionAgeDays?: number;
 }
 
 export const GtdTaskCard = ({
@@ -74,6 +75,7 @@ export const GtdTaskCard = ({
   onPromotePlannedTask,
   onMovePlannedTask,
   plannedPosition,
+  nextActionAgeDays,
 }: GtdTaskCardProps) => {
   const { t } = useTranslation("gtd");
   const { t: tCommon } = useTranslation("common");
@@ -262,6 +264,11 @@ export const GtdTaskCard = ({
                 className={`task-card__date-pill${isDeadlineMissed ? " task-card__date-pill--overdue" : ""}`}
               >
                 {t("task.deadlinePrefix", { date: formatDateShort(task.deadline) })}
+              </span>
+            ) : null}
+            {typeof nextActionAgeDays === "number" ? (
+              <span className="task-card__age-pill">
+                {t("task.nextActionAge", { count: nextActionAgeDays })}
               </span>
             ) : null}
             {task.pendingPastRecurrences > 0 ? (

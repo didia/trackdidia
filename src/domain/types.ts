@@ -787,6 +787,10 @@ export interface TaskFilters {
   search?: string;
 }
 
+export interface TaskEventFilters {
+  types?: TaskEventType[];
+}
+
 export interface ProjectFilters {
   status?: ProjectStatus;
 }

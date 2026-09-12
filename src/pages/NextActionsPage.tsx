@@ -1,18 +1,40 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useAppContext } from "../app/app-context";
 import { useGtdWorkspace } from "../app/use-gtd";
 import { useTaskSelection } from "../app/use-task-selection";
 import { BulkTaskToolbar } from "../components/BulkTaskToolbar";
 import { GtdTaskCard } from "../components/GtdTaskCard";
 import { SectionCard } from "../components/SectionCard";
+import type { Task } from "../domain/types";
 import { effectiveTaskContextIds } from "../lib/gtd/engine";
+import { nextActionAgeDays } from "../lib/gtd/next-action-age";
+
+export type NextActionSortMode = "created" | "updated" | "deadline_asc" | "deadline_desc";
+
+export const sortNextActionTasks = (tasks: Task[], sortMode: NextActionSortMode): Task[] =>
+  [...tasks].sort((left, right) => {
+    if (sortMode === "created") {
+      return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
+    }
+    if (sortMode === "updated") {
+      return right.updatedAt.localeCompare(left.updatedAt);
+    }
+    const leftKey = left.deadline ?? (sortMode === "deadline_asc" ? "9999-12-31" : "0000-01-01");
+    const rightKey = right.deadline ?? (sortMode === "deadline_asc" ? "9999-12-31" : "0000-01-01");
+    return sortMode === "deadline_asc"
+      ? leftKey.localeCompare(rightKey)
+      : rightKey.localeCompare(leftKey);
+  });
 
 export const NextActionsPage = () => {
   const { t } = useTranslation("gtd");
+  const { calendarDay } = useAppContext();
   const {
     tasks,
     projects,
     contexts,
+    taskEvents,
     loading,
     createTask,
     saveTask,
@@ -30,9 +52,7 @@ export const NextActionsPage = () => {
   const [deadlineFilter, setDeadlineFilter] = useState<
     "all" | "with" | "without" | "today" | "overdue"
   >("all");
-  const [sortMode, setSortMode] = useState<"updated" | "deadline_asc" | "deadline_desc">(
-    "deadline_asc",
-  );
+  const [sortMode, setSortMode] = useState<NextActionSortMode>("created");
 
   const nextActionTasks = useMemo(() => {
     const today = new Date();
@@ -65,18 +85,15 @@ export const NextActionsPage = () => {
         return new Date(`${task.deadline}T23:59:59`).getTime() < Date.now();
       });
 
-    return [...base].sort((left, right) => {
-      if (sortMode === "updated") {
-        return right.updatedAt.localeCompare(left.updatedAt);
-      }
-      const leftKey = left.deadline ?? (sortMode === "deadline_asc" ? "9999-12-31" : "0000-01-01");
-      const rightKey =
-        right.deadline ?? (sortMode === "deadline_asc" ? "9999-12-31" : "0000-01-01");
-      return sortMode === "deadline_asc"
-        ? leftKey.localeCompare(rightKey)
-        : rightKey.localeCompare(leftKey);
-    });
+    return sortNextActionTasks(base, sortMode);
   }, [deadlineFilter, projects, selectedContextId, sortMode, tasks]);
+  const ageByTaskId = useMemo(() => {
+    const ages = new Map<string, number>();
+    for (const task of nextActionTasks) {
+      ages.set(task.id, nextActionAgeDays(task, taskEvents, calendarDay));
+    }
+    return ages;
+  }, [calendarDay, nextActionTasks, taskEvents]);
   const selection = useTaskSelection(nextActionTasks.map((task) => task.id));
 
   return (
@@ -159,6 +176,7 @@ export const NextActionsPage = () => {
               value={sortMode}
               onChange={(event) => setSortMode(event.target.value as typeof sortMode)}
             >
+              <option value="created">{t("nextActions.deadlines.sort.created")}</option>
               <option value="deadline_asc">{t("nextActions.deadlines.sort.asc")}</option>
               <option value="deadline_desc">{t("nextActions.deadlines.sort.desc")}</option>
               <option value="updated">{t("nextActions.deadlines.sort.updated")}</option>
@@ -205,6 +223,7 @@ export const NextActionsPage = () => {
                 contexts={contexts}
                 projects={projects}
                 selected={selection.isSelected(task.id)}
+                nextActionAgeDays={ageByTaskId.get(task.id)}
                 onToggleSelected={selection.toggleTask}
                 onSave={async (nextTask) => {
                   await saveTask(nextTask);
