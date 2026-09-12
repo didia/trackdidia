@@ -16,6 +16,9 @@ export const POMODORO_DURATIONS_MS: Record<PomodoroKind, number> = {
   short_break: 5 * 60 * 1000,
   long_break: 25 * 60 * 1000,
 };
+
+export const isPomodoroTaskEligible = (task: Pick<Task, "status" | "bucket">): boolean =>
+  task.status === "active" && task.bucket === "next_action";
 const POMODORO_CYCLE_RESET_IDLE_MS = 25 * 60 * 1000;
 
 export const clonePomodoroSession = (session: PomodoroSession): PomodoroSession => ({ ...session });

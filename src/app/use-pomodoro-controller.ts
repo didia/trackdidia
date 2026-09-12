@@ -8,7 +8,11 @@ import type {
 import { t } from "../i18n";
 import { getTodayDate } from "../lib/date";
 import { logDebug } from "../lib/debug";
-import { getPomodoroTiming, getPomodoroKindLabel } from "../lib/pomodoro/engine";
+import {
+  getPomodoroKindLabel,
+  getPomodoroTiming,
+  isPomodoroTaskEligible,
+} from "../lib/pomodoro/engine";
 import {
   notifyPomodoroCompletion,
   playPomodoroChime,
@@ -38,9 +42,6 @@ export interface PomodoroControllerValue {
   cancelCurrent: () => Promise<void>;
   switchTask: (taskId: string | null, title?: string | null) => Promise<void>;
 }
-
-const isPomodoroTaskEligible = (task: Task): boolean =>
-  task.status === "active" && (task.bucket === "next_action" || task.bucket === "scheduled");
 
 const buildIdleState = (): PomodoroState => ({
   activeSession: null,

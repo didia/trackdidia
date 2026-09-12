@@ -253,6 +253,31 @@ describe("usePomodoroController", () => {
     expect(result.current.loading).toBe(false);
   });
 
+  it("excludes scheduled tasks from pomodoro task options", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const nextAction = await repository.createTask({
+      title: "Do now",
+      bucket: "next_action",
+    });
+    const scheduled = await repository.createTask({
+      title: "Later",
+      bucket: "scheduled",
+      scheduledFor: "2099-01-15T09:00:00",
+    });
+    await repository.createTask({
+      title: "Inbox capture",
+      bucket: "inbox",
+    });
+
+    const { result } = renderHook(() => usePomodoroController(repository));
+    await flushControllerQueue();
+
+    expect(result.current.taskOptions.map((task) => task.id)).toContain(nextAction.id);
+    expect(result.current.taskOptions.map((task) => task.id)).not.toContain(scheduled.id);
+    expect(result.current.taskOptions.every((task) => task.bucket === "next_action")).toBe(true);
+  });
+
   it("records a reload error and clears loading when a manual refresh fails", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();

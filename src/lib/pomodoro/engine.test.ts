@@ -8,10 +8,44 @@ import {
   createPomodoroSession,
   getPomodoroRunningBreakSessionIdsToAutoCompleteWhenReset,
   getPomodoroTiming,
+  isPomodoroTaskEligible,
   shouldShowFloatingPomodoro,
 } from "./engine";
 
+const taskFixture = (overrides: Partial<Task> = {}): Task => ({
+  id: "task-1",
+  title: "Rédiger le plan",
+  notes: "",
+  status: "active",
+  bucket: "next_action",
+  contextIds: [],
+  projectId: null,
+  parentTaskId: null,
+  scheduledFor: null,
+  deadline: null,
+  recurringTemplateId: null,
+  recurrenceDueDate: null,
+  isRecurringInstance: false,
+  completedAt: null,
+  recurrenceGroupId: null,
+  pendingPastRecurrences: 0,
+  plannedOrder: null,
+  source: "manual",
+  sourceExternalId: null,
+  sourceUrl: null,
+  createdAt: "2026-04-01T10:00:00.000Z",
+  updatedAt: "2026-04-01T10:00:00.000Z",
+  ...overrides,
+});
+
 describe("pomodoro engine", () => {
+  it("treats only active next actions as eligible pomodoro choices", () => {
+    expect(isPomodoroTaskEligible(taskFixture())).toBe(true);
+    expect(isPomodoroTaskEligible(taskFixture({ bucket: "scheduled" }))).toBe(false);
+    expect(isPomodoroTaskEligible(taskFixture({ bucket: "inbox" }))).toBe(false);
+    expect(isPomodoroTaskEligible(taskFixture({ status: "completed" }))).toBe(false);
+  });
+
   it("calculates running and paused timing at the focus completion boundary", () => {
     const running = createPomodoroSession("focus", "2026-04-01T09:00:00.000Z", 1);
     const halfway = new Date("2026-04-01T09:12:30.000Z").getTime();
