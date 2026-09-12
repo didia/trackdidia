@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { RescueTimeGoalRecord } from "../../domain/rescuetime-goals";
 import {
   HttpRescueTimeGoalsClient,
+  aggregateProjectTimes,
   matchRankRowSeconds,
   resolveAnalyticKind,
 } from "./goals-client";
@@ -100,5 +101,35 @@ describe("HttpRescueTimeGoalsClient.fetchAnalyticData", () => {
     expect(parsed.searchParams.get("restrict_schedule_id")).toBeNull();
 
     fetchSpy.mockRestore();
+  });
+});
+
+describe("aggregateProjectTimes", () => {
+  it("excludes timesheet draft suggestions from project and client totals", () => {
+    const aggregated = aggregateProjectTimes({
+      project_times: [
+        {
+          duration: 45 * 60,
+          extra: { draft: true, provenance: "clear_historical_plurality" },
+          project: {
+            id: 27632,
+            name: "Développement Plateforme Pigeons",
+            timesheets_client_id: 7781,
+          },
+        },
+        {
+          duration: 65 * 60,
+          extra: { comment: "" },
+          project: {
+            id: 27632,
+            name: "Développement Plateforme Pigeons",
+            timesheets_client_id: 7781,
+          },
+        },
+      ],
+    });
+
+    expect(aggregated.byName.get("développement plateforme pigeons")).toBe(65 * 60);
+    expect(aggregated.byClientId.get(7781)).toBe(65 * 60);
   });
 });

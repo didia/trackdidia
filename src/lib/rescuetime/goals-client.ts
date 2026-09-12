@@ -12,6 +12,7 @@ export interface RescueTimeProjectTimesPayload {
   job_id?: string | number | null;
   project_times?: Array<{
     duration?: number;
+    extra?: { draft?: boolean; comment?: string | null; provenance?: string };
     project?: {
       id?: number;
       name?: string;
@@ -126,11 +127,18 @@ export const parseProductivityRows = (
   }));
 };
 
+export const isConfirmedLabeledTime = (entry: { extra?: { draft?: boolean } }): boolean =>
+  entry.extra?.draft !== true;
+
 export const aggregateProjectTimes = (payload: RescueTimeProjectTimesPayload) => {
   const byName = new Map<string, number>();
   const byClientId = new Map<number, number>();
 
   for (const entry of payload.project_times ?? []) {
+    if (!isConfirmedLabeledTime(entry)) {
+      continue;
+    }
+
     const projectName = (entry.project?.name ?? "").toLowerCase().trim();
     const clientId = entry.project?.timesheets_client_id;
     const duration = Number(entry.duration ?? 0);
