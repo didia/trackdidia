@@ -170,7 +170,8 @@ segments:
 - resuming opens a new segment with the latest task/title;
 - completing/cancelling closes every open segment.
 
-Eligible GTD tasks are active Next Actions and Scheduled tasks.
+Eligible GTD tasks are active Next Actions. Scheduled tasks stay off the picker
+until they are promoted to Next Actions.
 
 ### Timer orchestration
 
