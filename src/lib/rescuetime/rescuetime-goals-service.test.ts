@@ -150,4 +150,51 @@ describe("RescueTimeGoalsService", () => {
     expect(snapshot.rescuetimeConfigured).toBe(false);
     expect(snapshot.pulse).toBeNull();
   });
+
+  it("scores project goals from reviewed timesheet time only", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveSettings({
+      ...(await repository.getSettings()),
+      rescuetimeApiKey: "rt-test-key",
+    });
+
+    const mockClient: RescueTimeGoalsClient = {
+      listGoals: vi.fn(async () => [
+        {
+          id: 1961159,
+          display_name: "more than 25m on Développement Plateforme Pigeons (Weekdays)",
+          taxon_display_name: "Développement Plateforme Pigeons",
+          amount_seconds: 1500,
+          is_more: true,
+          enabled: true,
+          taxon_id: 27632,
+          taxonomy_name: "projects",
+          schedule_name: "Weekdays",
+          v2project: { name: "Développement Plateforme Pigeons" },
+        },
+      ]),
+      fetchAnalyticData: vi.fn(async () => ({ row_headers: [], rows: [] })),
+      fetchProjectTimes: vi.fn(async () => ({
+        project_times: [
+          {
+            duration: 45 * 60,
+            extra: { draft: true },
+            project: { name: "Développement Plateforme Pigeons" },
+          },
+          {
+            duration: 65 * 60,
+            extra: { comment: "" },
+            project: { name: "Développement Plateforme Pigeons" },
+          },
+        ],
+      })),
+    };
+
+    const service = new RescueTimeGoalsService(repository, mockClient);
+    const snapshot = await service.computeGoalsSnapshot("2026-09-06");
+
+    expect(snapshot.items[0]?.actualHours).toBeCloseTo(65 / 60);
+    expect(snapshot.items[0]?.weeklyTargetHours).toBeCloseTo(2.08);
+  });
 });

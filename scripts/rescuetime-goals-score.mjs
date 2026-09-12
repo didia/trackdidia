@@ -147,6 +147,9 @@ class RescueTimeGoalsClient {
         const payload = await this.fetchJson(url);
         if (payload.is_complete !== false) {
           for (const entry of payload.project_times ?? []) {
+            if (entry.extra?.draft === true) {
+              continue;
+            }
             const projectName = normalizeLabel(entry.project?.name ?? "");
             const clientId = entry.project?.timesheets_client_id;
             const duration = Number(entry.duration ?? 0);

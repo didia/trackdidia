@@ -167,7 +167,10 @@ Goals are read-only in TrackDidia — manage them in RescueTime. Configure the A
 under **Paramètres → RescueTime** (stored in SQLite, same as OpenRouter). Time data
 comes from the Analytic Data API (`restrict_kind` from the goal's `taxonomy_name`:
 overview, category, activity, or productivity) and labeled project times (projects
-and clients). RescueTime's overview taxonomy advertises `search_name: "category"`;
+and clients). Project and client goals count **reviewed** timesheet blocks only:
+RescueTime marks unconfirmed autocompletions with `extra.draft: true`, and those
+suggestions are excluded so TrackDidia matches Goals and default Timesheets reports.
+RescueTime's overview taxonomy advertises `search_name: "category"`;
 TrackDidia prefers `taxonomy_name` so overview goals such as Personal match overview
 rank data, not subcategory rows.
 
