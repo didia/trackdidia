@@ -32,6 +32,7 @@ Default highlights:
 | Pulse enabled | Yes |
 | Pulse slots (local hours) | `5`, `13`, `20` |
 | Pulse OS notifications | Yes (weekdays Mon–Fri, max 2/day, second consecutive stall only) |
+| Pasteur IA (`aiPastorEnabled`) | No |
 | RescueTime API key | Empty |
 | Automatic backup | Enabled, 24 hours, destination folder empty until chosen |
 | Relationship draws | Enabled |
@@ -230,6 +231,66 @@ Pacing auto-runs only when the year is between 2000 and 2100 and the evaluation 
 matches `YYYY-MM`. Changing the year clears the on-screen pacing panel until the new
 year's result loads.
 
+### Pasteur IA (`pastor_verse`)
+
+A feature-flagged card (`aiPastorEnabled`, default off) on the Today page suggests one
+Bible verse plus a short French reflection per local day. It works fully **without**
+AI: when the flag is on but AI is off/unconfigured, a deterministic local pick renders
+instead and the regenerate button is disabled with the usual `disabled.aiOff` /
+`disabled.missingKey` reason.
+
+**Catalog.** The checked-in root file `verses.json` holds curated entries (`id`,
+`reference` with a book code/chapter/verse range, 1–3 `principleKeys`, optional
+`themes`, an optional `translations` map, and an original French `note` — never a
+Scripture quotation). `src/lib/pastor/verse-catalog.ts` parses and validates the file
+at runtime (`parseVerseCatalog`), dropping any invalid entry with a `logDebug` warning
+rather than crashing; a unit test asserts the checked-in file parses with **zero
+errors**. `src/lib/pastor/bible-books.ts` defines all 66 protocanonical plus 7
+deuterocanonical books with lenient `maxChapters` (the wider of NRSVue/Catholic
+numbering — see the verse-text policy below for why this matters).
+
+**Journal window.** `resolvePastorSnapshotInputs` loads the last 7 days plus the
+target day of daily entries (principle checks and non-empty journal notes, capped at
+1,200 characters each) and up to 120 prior `pastor_verse` messages for history.
+`buildPastorSnapshot` is the single redaction point: `full` scope includes journal
+notes, `metrics`/`metrics_and_structure` strip all free text but keep principle
+signals and history (never verse text or catalog notes at any scope).
+
+**History and blocking (`src/lib/pastor/history.ts`).** Verses shown in the last 7
+days (including today) are blocked from being picked again; if that would leave fewer
+than 3 catalog verses eligible, the window relaxes to 3 days, then to today only —
+always blocking today's verses unless doing so would block the entire catalog. An
+off-list (model-chosen, outside the catalog) pick is allowed only if none happened in
+the previous 6 days.
+
+**Cache, regenerate, and cooldown.** One verse is generated per local day, cached
+under scope key `pastor:YYYY-MM-DD` (**not** the `YYYY-MM-DD` / `YYYY-MM-DD#N` shape
+the coach pulse engine reads via `listAiMessagesForDate`, so a pastor row is never
+mistaken for a coach pulse slot). On page open: a stored `ok` verse for today is shown
+immediately with no model call; otherwise a local pick renders instantly and, once,
+an auto AI attempt runs in the background — skipped if a `fallback` row for today is
+under 60 minutes old or an auto attempt already ran this session for that date.
+**Nouveau verset** always calls the model explicitly, excluding every verse already
+shown today plus the one on screen; on failure the current verse stays with a warning
+rather than being replaced, and — unlike a failed background auto attempt — that
+failure does **not** persist a `fallback` row, since the local pick it would have
+stored was never actually shown and must not count as "shown today" for future
+history blocking (`summarizePastorHistory`).
+
+**Off-list picks.** The model never returns raw Scripture text for an off-list pick —
+only a validated reference plus a `paraphraseFr`, shown behind a **Paraphrase IA —
+lis le passage dans ta Bible** label, never presented as a direct quotation.
+
+**Verse-text policy.** No agent may write Bible verse text from memory in any
+translation, including public-domain Louis Segond 1910 — see
+[Conventions](conventions.md). `verses.json` entries ship with `translations` empty or
+absent by default, and the card falls back to **Lis le passage dans ta Bible** when no
+text is stored. To add verified text: paste it from an authoritative edition into the
+matching entry's `translations` object (`LSG1910` is public domain and safe to add
+freely; `NRSVue`, `NABRE`, and `AELF` require confirming quotation terms first for a
+public repository — see `TRANSLATION_NOTICES` in `src/lib/pastor/translations.ts`).
+Preference order for display is NRSVue → NABRE → AELF → LSG1910.
+
 ### Semantic memory (`ai_memories`)
 
 Migration 24 adds durable, human-readable coach memory:
@@ -352,6 +413,7 @@ stored on each `ai_messages.prompt_version` row:
 | `weekly_synthesis` | `weekly_synthesis.v1` |
 | `monthly_synthesis` | `monthly_synthesis.v1` |
 | `goal_pacing` | `goal_pacing.v1` |
+| `pastor_verse` | `pastor_verse.v1` |
 
 The analytics section lists active versions and surfaces low-acceptance areas as
 prompt-revision candidates.
@@ -442,7 +504,9 @@ Enabling AI can transmit highly personal information:
 - principle responses;
 - life metrics;
 - task-derived and Pomodoro-derived suggested values;
-- insight findings assembled from local history.
+- insight findings assembled from local history;
+- when Pasteur IA is on and scope is `full`, up to 8 days of journal notes and
+  principle checks are sent for a verse pick — see [Pasteur IA](#pasteur-ia-pastor_verse) above.
 
 The user should treat the configured endpoint/model provider as a data processor.
 Changing the base URL may send data and the bearer key to a different service.
@@ -532,17 +596,17 @@ adds titles back, and `full` includes everything.
 
 When debug mode is enabled, Settings also shows a payload-preview panel with controls
 for **surface** (`daily` coach snapshot, `weekly` synthesis snapshot, `monthly`
-synthesis snapshot, or `annual` goal-pacing snapshot), a reference date or month
-(week start normalizes to Sunday for weekly; month uses `YYYY-MM`), and a button
-that renders the exact typed snapshot that would be sent to the model — one
-collapsible block per scope, built from real repository data. This is a debug-only
-affordance; it is hidden when debug mode is off. A single preview action resolves
-RescueTime once per surface: weekly previews fetch productivity pulse and Goals score
-together via `resolveWeeklyRescueTimeInputs` and reuse the result across all three
-scopes; daily previews fetch the week-to-date pulse only. Monthly and annual previews
-skip RescueTime. If either weekly resolution fails, the panel shows a non-blocking
-warning banner and the preview still renders (with missing RescueTime data) rather
-than failing outright.
+synthesis snapshot, `annual` goal-pacing snapshot, or `pastor` pastor-verse snapshot),
+a reference date or month (week start normalizes to Sunday for weekly; month uses
+`YYYY-MM`), and a button that renders the exact typed snapshot that would be sent to
+the model — one collapsible block per scope, built from real repository data. This is
+a debug-only affordance; it is hidden when debug mode is off. A single preview action
+resolves RescueTime once per surface: weekly previews fetch productivity pulse and
+Goals score together via `resolveWeeklyRescueTimeInputs` and reuse the result across
+all three scopes; daily previews fetch the week-to-date pulse only. Monthly, annual,
+and pastor previews skip RescueTime. If either weekly resolution fails, the panel
+shows a non-blocking warning banner and the preview still renders (with missing
+RescueTime data) rather than failing outright.
 
 ## Email triage classifier key (optional)
 

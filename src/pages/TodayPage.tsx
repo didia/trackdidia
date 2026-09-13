@@ -3,8 +3,10 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { useAppContext } from "../app/app-context";
 import { useDailyEntry } from "../app/use-daily-entry";
+import { usePastorVerse } from "../app/use-pastor-verse";
 import { CoachPulsePanel } from "../components/CoachPulsePanel";
 import { EntrySummaryStrip } from "../components/EntrySummaryStrip";
+import { PastorVerseCard } from "../components/PastorVerseCard";
 import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
 import { SectionCard } from "../components/SectionCard";
 import { resolveMetricValue, updateNote } from "../domain/daily-entry";
@@ -23,6 +25,7 @@ export const TodayPage = () => {
   const today = getTodayDate();
   const { entry, loading, save } = useDailyEntry(today);
   const { repository, settings, coachService, browserPreview, pomodoro } = useAppContext();
+  const pastorVerse = usePastorVerse(today, settings, repository);
   const [coachResult, setCoachResult] = useState<CoachPulseResult | null>(null);
   const [coachLoading, setCoachLoading] = useState(true);
   const [taskBreakdown, setTaskBreakdown] = useState<DailyTaskBreakdown | null>(null);
@@ -306,6 +309,18 @@ export const TodayPage = () => {
             </Link>
           </div>
         </SectionCard>
+      ) : null}
+
+      {settings.aiPastorEnabled ? (
+        <PastorVerseCard
+          title={t("pastor.title")}
+          result={pastorVerse.result}
+          loading={pastorVerse.loading}
+          regenerating={pastorVerse.regenerating}
+          settings={settings}
+          aiConfigured={pastorVerse.aiConfigured}
+          onRegenerate={() => void pastorVerse.regenerate()}
+        />
       ) : null}
 
       <CoachPulsePanel

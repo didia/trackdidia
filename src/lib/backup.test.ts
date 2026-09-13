@@ -74,4 +74,9 @@ describe("backup helpers", () => {
     const merged = mergeAppSettingsWithDefaults({ aiMaxTokens: 8000 }, defaultAppSettings());
     expect(merged.aiMaxTokens).toBe(8000);
   });
+
+  it("defaults aiPastorEnabled to false on existing settings rows", () => {
+    const merged = mergeAppSettingsWithDefaults({}, defaultAppSettings());
+    expect(merged.aiPastorEnabled).toBe(false);
+  });
 });

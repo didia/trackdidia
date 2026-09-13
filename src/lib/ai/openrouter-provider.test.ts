@@ -319,6 +319,72 @@ describe("OpenRouterProvider", () => {
     expect(systemPrompt).toContain("requiredWeeklyBehaviour");
   });
 
+  it("includes pastor_verse schema fields and allowed ids in the system prompt", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                pick: "list",
+                verseId: "php-4-6-7",
+                principleKey: null,
+                intent: "reinforcement",
+                title: "Titre",
+                explanation: "Explication",
+              }),
+            },
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 2 },
+      }),
+    );
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const provider = new OpenRouterProvider();
+    const settings = defaultAppSettings();
+    settings.aiApiKey = "sk-or-test";
+    settings.aiSurfaceModels.pastor_verse = "pastor-model";
+
+    await provider.generateStructured({
+      surface: "pastor_verse",
+      settings,
+      snapshot: {
+        surface: "pastor",
+        scope: "full",
+        date: "2026-08-29",
+        days: [],
+        principleSignals: { signals: [], struggling: [] },
+        catalog: [
+          {
+            id: "php-4-6-7",
+            label: "Philippiens 4, 6-7",
+            principleKeys: [],
+            themes: [],
+            lastShownDate: null,
+            timesShown30: 0,
+          },
+        ],
+        recentVerses: [],
+        blockedVerseIds: ["blocked-verse"],
+        offListAllowed: true,
+      },
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    expect(body.model).toBe("pastor-model");
+    const systemPrompt = body.messages[0].content as string;
+    expect(systemPrompt).toContain("Schema pastor_verse");
+    expect(systemPrompt).toContain("php-4-6-7");
+    expect(systemPrompt).not.toContain("blocked-verse");
+    expect(systemPrompt).not.toContain("Schema coach_pulse");
+    // Off-list is allowed here, so the model must be told the accepted `reference.book` codes.
+    expect(systemPrompt).toContain("PHP=Philippiens");
+    expect(systemPrompt).toContain("Ne cite jamais le journal");
+    expect(systemPrompt).toContain("Ne moralise pas");
+  });
+
   it("retries once on 429 responses", async () => {
     vi.useFakeTimers();
     const fetchMock = vi

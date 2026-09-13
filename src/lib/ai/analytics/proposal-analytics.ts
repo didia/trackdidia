@@ -60,6 +60,7 @@ const SURFACE_LABELS: Record<AiSurface, string> = {
   weekly_synthesis: t("analytics.surface.weekly_synthesis", { ns: "coach" }),
   monthly_synthesis: t("analytics.surface.monthly_synthesis", { ns: "coach" }),
   goal_pacing: t("analytics.surface.goal_pacing", { ns: "coach" }),
+  pastor_verse: t("analytics.surface.pastor_verse", { ns: "coach" }),
 };
 
 const TYPE_LABELS: Record<AiProposalType, string> = {
