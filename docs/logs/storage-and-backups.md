@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-12 | `pastor_verse` is a new `ai_messages.surface` value with no migration needed (`surface` is `TEXT NOT NULL` without a `CHECK`); backups include those rows like any other AI message. `verses.json` lives in the repo, not SQLite, so it is not part of a backup | `docs/storage-and-backups.md`, `docs/ai-settings-and-privacy.md` | `pastor-verse-service.ts`, `memory-repository.test.ts` |
 | 2026-09-11 | A passing evaluation no longer writes `automation_enabled = 1`; automation stays opt-in after the checkbox is unlocked | `docs/storage-and-backups.md`, `docs/email-triage.md` | `saveEvaluation`, `canEnableAutomation` |
 | 2026-09-09 | Email triage review rows store subject/sender/received-at/source URL only; message bodies remain transient | `docs/storage-and-backups.md`, `docs/email-triage.md` | `email_triage_reviews.sanitized_preview_json`, `sync-engine.ts` |
 | 2026-09-08 | Migration 32 adds `run_in_tray` and `launch_at_login` to `email_triage_settings`; a passing evaluation sets `automation_enabled` to 1 and a failed run clears it | `docs/storage-and-backups.md`, `docs/email-triage.md` | Migration `add_email_triage_desktop_prefs`, `saveEvaluation` |

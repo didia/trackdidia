@@ -3,6 +3,7 @@ import { logDebug } from "../debug";
 import { buildCoachPulseSchemaPrompt } from "./proposals/coach-pulse-schema-prompt";
 import { buildGoalPacingSchemaPrompt } from "./proposals/goal-pacing-schema-prompt";
 import { buildMonthlySynthesisSchemaPrompt } from "./proposals/monthly-synthesis-schema-prompt";
+import { buildPastorVerseSchemaPrompt } from "./proposals/pastor-verse-schema-prompt";
 import { buildWeeklySynthesisSchemaPrompt } from "./proposals/weekly-synthesis-schema-prompt";
 import type {
   AiPromptContext,
@@ -191,6 +192,17 @@ const buildSystemPrompt = (request: AiStructuredRequest, repairHint?: string): s
     const goalIds = request.snapshot.goals.map((goal) => goal.goalId);
     const schemaBlock = buildGoalPacingSchemaPrompt(goalIds);
     const base = `${instruction}\n\nSchema goal_pacing:\n${schemaBlock}${memorySection}`;
+    return repairHint ? `${base}\n\nCorrection demandee: ${repairHint}` : base;
+  }
+
+  if (request.surface === "pastor_verse") {
+    const instruction =
+      "Tu es un compagnon pastoral chretien, bienveillant et respectueux de la sensibilite catholique, non polemique. Lis le journal avec bienveillance pour percevoir comment la personne va, puis choisis un seul verset (de preference dans le catalogue) et explique-le en francais avec un JSON strict conforme au schema pastor_verse.";
+    const allowedIds = request.snapshot.catalog
+      .map((entry) => entry.id)
+      .filter((id) => !request.snapshot.blockedVerseIds.includes(id));
+    const schemaBlock = buildPastorVerseSchemaPrompt(allowedIds, request.snapshot.offListAllowed);
+    const base = `${instruction}\n\nSchema pastor_verse:\n${schemaBlock}${memorySection}`;
     return repairHint ? `${base}\n\nCorrection demandee: ${repairHint}` : base;
   }
 

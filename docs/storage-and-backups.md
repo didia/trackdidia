@@ -347,7 +347,11 @@ Filenames contain the backup kind (`manual` or `auto`) and a sanitized timestamp
 
 Backups include all AI tables (`ai_messages`, `ai_proposals`, `ai_memories`) plus
 settings JSON (OpenRouter and RescueTime keys). Distilled personal statements in
-`ai_memories` are therefore part of every backup copy.
+`ai_memories` are therefore part of every backup copy. `pastor_verse` rows in
+`ai_messages` (surface for the "Pasteur IA" verse-of-the-day card) are ordinary rows
+in the same table — no migration was needed to add that surface, since `surface` is
+`TEXT NOT NULL` without a `CHECK` constraint. The checked-in `verses.json` catalog
+itself lives in the repository, not in SQLite, so it is not part of a backup.
 
 Automatic backups:
 

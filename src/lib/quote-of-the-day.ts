@@ -1,5 +1,6 @@
 import quotes from "../../quotes.json";
 import { t } from "../i18n";
+import { hashString } from "./hash";
 
 type Quote = {
   quote: string;
@@ -16,16 +17,6 @@ const getDateKey = (date: Date) => {
   const day = String(date.getDate()).padStart(2, "0");
 
   return `${year}-${month}-${day}`;
-};
-
-const hashString = (value: string) => {
-  let hash = 0;
-
-  for (const character of value) {
-    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
-  }
-
-  return hash;
 };
 
 export const getQuoteOfTheDay = (date = new Date()) => {

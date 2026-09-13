@@ -1,0 +1,485 @@
+[
+  {
+    "id": "mrk-1-35",
+    "reference": { "book": "MRK", "chapter": 1, "verseStart": 35, "verseEnd": 35 },
+    "principleKeys": ["priereDuMatin", "respectReveil"],
+    "themes": ["prière", "matin", "discipline"],
+    "note": "Avant l'aube, Jésus s'isole pour prier : un rappel que la journée se construit d'abord dans le silence avec Dieu, pas dans l'agitation immédiate."
+  },
+  {
+    "id": "mat-6-6",
+    "reference": { "book": "MAT", "chapter": 6, "verseStart": 6, "verseEnd": 6 },
+    "principleKeys": ["priereDuMatin"],
+    "themes": ["prière", "intimité"],
+    "note": "Prier dans le secret plutôt que pour être vu : la qualité de la prière du matin ne se mesure pas à sa durée mais à sa sincérité."
+  },
+  {
+    "id": "1th-5-17",
+    "reference": { "book": "1TH", "chapter": 5, "verseStart": 17, "verseEnd": 17 },
+    "principleKeys": ["priereDuMatin", "priereDuSoir"],
+    "themes": ["prière continue"],
+    "note": "Une invitation à faire de la prière un rythme de fond de la journée, du réveil jusqu'au coucher, plutôt qu'un moment isolé."
+  },
+  {
+    "id": "lam-3-22-23",
+    "reference": { "book": "LAM", "chapter": 3, "verseStart": 22, "verseEnd": 23 },
+    "principleKeys": ["priereDuMatin", "oxytocineDuMatin"],
+    "themes": ["renouveau", "espérance"],
+    "note": "Chaque matin est présenté comme une nouvelle occasion, un espace de grâce qui ne dépend pas de la réussite de la veille."
+  },
+  {
+    "id": "rom-12-10",
+    "reference": { "book": "ROM", "chapter": 12, "verseStart": 10, "verseEnd": 10 },
+    "principleKeys": ["oxytocineDuMatin", "attentionAMonEpouse"],
+    "themes": ["affection", "priorité de l'autre"],
+    "note": "L'affection fraternelle est présentée comme un choix actif : honorer l'autre avant soi, dès les premiers échanges du jour."
+  },
+  {
+    "id": "1jn-4-7",
+    "reference": { "book": "1JN", "chapter": 4, "verseStart": 7, "verseEnd": 7 },
+    "principleKeys": ["oxytocineDuMatin", "attentionAMonEpouse"],
+    "themes": ["amour", "source divine"],
+    "note": "Aimer est relié à la connaissance de Dieu lui-même : la connexion affective du matin prend racine dans une source plus grande que la seule volonté."
+  },
+  {
+    "id": "gal-5-22-23",
+    "reference": { "book": "GAL", "chapter": 5, "verseStart": 22, "verseEnd": 23 },
+    "principleKeys": ["oxytocineDuMatin", "respectDeVieCommeJesus"],
+    "themes": ["fruit de l'Esprit", "caractère"],
+    "note": "Une liste de qualités intérieures présentées comme un fruit qui mûrit avec le temps, pas comme une performance à produire par le seul effort."
+  },
+  {
+    "id": "jos-1-8",
+    "reference": { "book": "JOS", "chapter": 1, "verseStart": 8, "verseEnd": 8 },
+    "principleKeys": ["avoirLuMesPrincipes", "apprentissage"],
+    "themes": ["méditation", "constance"],
+    "note": "La répétition régulière d'un texte fondateur est liée ici à la solidité du chemin emprunté, jour après jour."
+  },
+  {
+    "id": "pro-4-20-22",
+    "reference": { "book": "PRO", "chapter": 4, "verseStart": 20, "verseEnd": 22 },
+    "principleKeys": ["avoirLuMesPrincipes"],
+    "themes": ["attention", "vie"],
+    "note": "Garder des paroles justes proches du cœur est décrit comme une source de vie, pas seulement une discipline intellectuelle."
+  },
+  {
+    "id": "2ti-3-16-17",
+    "reference": { "book": "2TI", "chapter": 3, "verseStart": 16, "verseEnd": 17 },
+    "principleKeys": ["avoirLuMesPrincipes", "apprentissage"],
+    "themes": ["formation", "utilité"],
+    "note": "Le texte fondateur est présenté comme utile pour former et corriger, pas seulement pour informer."
+  },
+  {
+    "id": "deu-6-6-7",
+    "reference": { "book": "DEU", "chapter": 6, "verseStart": 6, "verseEnd": 7 },
+    "principleKeys": ["avoirLuMesPrincipes", "tempsDeQualiteAvecEnfants"],
+    "themes": ["transmission", "quotidien"],
+    "note": "Les principes de vie sont faits pour être répétés et transmis dans les gestes ordinaires du foyer, pas réservés à des moments solennels."
+  },
+  {
+    "id": "hab-2-2",
+    "reference": { "book": "HAB", "chapter": 2, "verseStart": 2, "verseEnd": 2 },
+    "principleKeys": ["ecriture"],
+    "themes": ["clarté", "vision"],
+    "note": "Écrire ce qui doit être retenu rend une intuition ou une conviction plus claire et plus facile à partager."
+  },
+  {
+    "id": "rev-1-19",
+    "reference": { "book": "REV", "chapter": 1, "verseStart": 19, "verseEnd": 19 },
+    "principleKeys": ["ecriture", "retroJournalier"],
+    "themes": ["mémoire", "témoignage"],
+    "note": "L'ordre de consigner ce qui a été vu et vécu montre la valeur donnée à la mémoire écrite d'une expérience."
+  },
+  {
+    "id": "jer-30-2",
+    "reference": { "book": "JER", "chapter": 30, "verseStart": 2, "verseEnd": 2 },
+    "principleKeys": ["ecriture"],
+    "themes": ["mémoire", "promesse"],
+    "note": "Mettre par écrit une parole reçue permet de la garder intacte au fil du temps, au-delà de la seule mémoire."
+  },
+  {
+    "id": "pro-1-5",
+    "reference": { "book": "PRO", "chapter": 1, "verseStart": 5, "verseEnd": 5 },
+    "principleKeys": ["apprentissage"],
+    "themes": ["sagesse", "écoute"],
+    "note": "La sagesse est décrite comme un mouvement continu : celui qui écoute grandit encore, même après un premier apprentissage."
+  },
+  {
+    "id": "pro-9-9",
+    "reference": { "book": "PRO", "chapter": 9, "verseStart": 9, "verseEnd": 9 },
+    "principleKeys": ["apprentissage"],
+    "themes": ["instruction"],
+    "note": "Recevoir une remarque ou un conseil est présenté comme un moyen de croître, non comme une remise en question de sa valeur."
+  },
+  {
+    "id": "jas-1-5",
+    "reference": { "book": "JAS", "chapter": 1, "verseStart": 5, "verseEnd": 5 },
+    "principleKeys": ["apprentissage", "priereDuMatin"],
+    "themes": ["sagesse", "demande"],
+    "note": "Manquer de discernement n'est pas une honte : le texte invite à le demander simplement, avec confiance."
+  },
+  {
+    "id": "pro-18-15",
+    "reference": { "book": "PRO", "chapter": 18, "verseStart": 15, "verseEnd": 15 },
+    "principleKeys": ["apprentissage"],
+    "themes": ["curiosité"],
+    "note": "Un cœur attentif est décrit comme celui qui va chercher la connaissance plutôt que d'attendre qu'elle vienne."
+  },
+  {
+    "id": "mrk-6-31",
+    "reference": { "book": "MRK", "chapter": 6, "verseStart": 31, "verseEnd": 31 },
+    "principleKeys": ["managedSolitude"],
+    "themes": ["repos", "retrait"],
+    "note": "Jésus invite ses disciples fatigués à se retirer un moment à l'écart, avant même de répondre à toute la demande autour d'eux."
+  },
+  {
+    "id": "luk-5-16",
+    "reference": { "book": "LUK", "chapter": 5, "verseStart": 16, "verseEnd": 16 },
+    "principleKeys": ["managedSolitude", "priereDuSoir"],
+    "themes": ["retrait", "prière"],
+    "note": "Le retrait régulier dans des lieux déserts pour prier est montré comme une pratique répétée, pas un événement isolé."
+  },
+  {
+    "id": "mat-14-23",
+    "reference": { "book": "MAT", "chapter": 14, "verseStart": 23, "verseEnd": 23 },
+    "principleKeys": ["managedSolitude", "priereDuSoir"],
+    "themes": ["solitude choisie"],
+    "note": "Après une journée intense, un moment seul est délibérément choisi plutôt que subi."
+  },
+  {
+    "id": "1jn-2-6",
+    "reference": { "book": "1JN", "chapter": 2, "verseStart": 6, "verseEnd": 6 },
+    "principleKeys": ["respectDeVieCommeJesus"],
+    "themes": ["imitation", "cohérence"],
+    "note": "Se réclamer d'un modèle de vie implique une cohérence concrète entre la conviction affichée et la manière de marcher au quotidien."
+  },
+  {
+    "id": "php-2-5-8",
+    "reference": { "book": "PHP", "chapter": 2, "verseStart": 5, "verseEnd": 8 },
+    "principleKeys": ["respectDeVieCommeJesus"],
+    "themes": ["humilité"],
+    "note": "Une disposition intérieure d'humilité est présentée comme la véritable mesure d'un style de vie inspiré de ce modèle."
+  },
+  {
+    "id": "1pe-2-21",
+    "reference": { "book": "1PE", "chapter": 2, "verseStart": 21, "verseEnd": 21 },
+    "principleKeys": ["respectDeVieCommeJesus"],
+    "themes": ["exemple", "chemin"],
+    "note": "Un exemple laissé pour être suivi, pas seulement admiré : le texte insiste sur l'action de marcher sur les mêmes traces."
+  },
+  {
+    "id": "rom-8-29",
+    "reference": { "book": "ROM", "chapter": 8, "verseStart": 29, "verseEnd": 29 },
+    "principleKeys": ["respectDeVieCommeJesus", "objectifsAtteints"],
+    "themes": ["transformation", "but"],
+    "note": "Un objectif à long terme est esquissé : une ressemblance progressive, plus qu'une performance ponctuelle."
+  },
+  {
+    "id": "lam-3-40",
+    "reference": { "book": "LAM", "chapter": 3, "verseStart": 40, "verseEnd": 40 },
+    "principleKeys": ["retroJournalier"],
+    "themes": ["examen", "retour"],
+    "note": "Examiner ses propres chemins est présenté comme un préalable nécessaire avant tout ajustement réel."
+  },
+  {
+    "id": "2co-13-5",
+    "reference": { "book": "2CO", "chapter": 13, "verseStart": 5, "verseEnd": 5 },
+    "principleKeys": ["retroJournalier"],
+    "themes": ["examen de soi"],
+    "note": "L'invitation à s'examiner soi-même précède toute évaluation extérieure : un regard honnête sur sa propre trajectoire."
+  },
+  {
+    "id": "gal-6-4",
+    "reference": { "book": "GAL", "chapter": 6, "verseStart": 4, "verseEnd": 4 },
+    "principleKeys": ["retroJournalier", "objectifsAtteints"],
+    "themes": ["évaluation personnelle"],
+    "note": "Chacun est invité à évaluer sa propre action, sans se mesurer d'abord aux autres."
+  },
+  {
+    "id": "gal-6-2",
+    "reference": { "book": "GAL", "chapter": 6, "verseStart": 2, "verseEnd": 2 },
+    "principleKeys": ["attentionAMonEpouse", "respectDeVieCommeJesus"],
+    "themes": ["fardeau", "entraide"],
+    "note": "Porter le fardeau de l'autre plutôt que le lui laisser porter seul : une mesure concrète de l'attention portée à ceux qu'on aime."
+  },
+  {
+    "id": "pro-22-6",
+    "reference": { "book": "PRO", "chapter": 22, "verseStart": 6, "verseEnd": 6 },
+    "principleKeys": ["tempsDeQualiteAvecEnfants"],
+    "themes": ["éducation", "durée"],
+    "note": "Ce qui est semé tôt dans la formation d'un enfant est décrit comme portant fruit sur le long terme."
+  },
+  {
+    "id": "eph-6-4",
+    "reference": { "book": "EPH", "chapter": 6, "verseStart": 4, "verseEnd": 4 },
+    "principleKeys": ["tempsDeQualiteAvecEnfants"],
+    "themes": ["paternité", "patience"],
+    "note": "L'éducation des enfants est reliée ici à la patience du parent, pas seulement à l'exigence envers l'enfant."
+  },
+  {
+    "id": "mrk-10-14",
+    "reference": { "book": "MRK", "chapter": 10, "verseStart": 14, "verseEnd": 14 },
+    "principleKeys": ["tempsDeQualiteAvecEnfants"],
+    "themes": ["accueil", "présence"],
+    "note": "Accueillir les enfants sans les repousser est présenté comme une priorité, pas une interruption gênante."
+  },
+  {
+    "id": "3jn-1-4",
+    "reference": { "book": "3JN", "chapter": 1, "verseStart": 4, "verseEnd": 4 },
+    "principleKeys": ["tempsDeQualiteAvecEnfants", "objectifsAtteints"],
+    "themes": ["joie", "transmission"],
+    "note": "Voir ceux que l'on a formés avancer dans une vie juste est décrit comme une joie particulièrement profonde."
+  },
+  {
+    "id": "eph-4-26",
+    "reference": { "book": "EPH", "chapter": 4, "verseStart": 26, "verseEnd": 26 },
+    "principleKeys": ["priereDuSoir", "retroJournalier"],
+    "themes": ["réconciliation", "clôture"],
+    "note": "Ne pas laisser une tension irrésolue s'installer jusqu'au lendemain est présenté comme une manière saine de clore la journée."
+  },
+  {
+    "id": "luk-6-12",
+    "reference": { "book": "LUK", "chapter": 6, "verseStart": 12, "verseEnd": 12 },
+    "principleKeys": ["priereDuSoir"],
+    "themes": ["persévérance", "nuit"],
+    "note": "Une nuit entière passée en prière avant une décision importante montre la place donnée à ce temps, même coûteux en repos."
+  },
+  {
+    "id": "dan-6-10",
+    "reference": { "book": "DAN", "chapter": 6, "verseStart": 10, "verseEnd": 10 },
+    "principleKeys": ["priereDuSoir", "respectDeVieCommeJesus"],
+    "themes": ["fidélité", "régularité"],
+    "note": "Une habitude de prière maintenue plusieurs fois par jour, même sous pression extérieure, illustre une fidélité de fond plutôt que de circonstance."
+  },
+  {
+    "id": "eph-5-25",
+    "reference": { "book": "EPH", "chapter": 5, "verseStart": 25, "verseEnd": 25 },
+    "principleKeys": ["attentionAMonEpouse"],
+    "themes": ["amour sacrificiel"],
+    "note": "L'amour envers l'épouse est mesuré ici à l'aune d'un don de soi total, pas d'un sentiment passager."
+  },
+  {
+    "id": "col-3-19",
+    "reference": { "book": "COL", "chapter": 3, "verseStart": 19, "verseEnd": 19 },
+    "principleKeys": ["attentionAMonEpouse"],
+    "themes": ["douceur"],
+    "note": "La douceur envers l'épouse est explicitement opposée à la dureté, comme un choix quotidien à renouveler."
+  },
+  {
+    "id": "1pe-3-7",
+    "reference": { "book": "1PE", "chapter": 3, "verseStart": 7, "verseEnd": 7 },
+    "principleKeys": ["attentionAMonEpouse"],
+    "themes": ["respect", "attention"],
+    "note": "Vivre avec sa femme de façon attentive et respectueuse est relié directement à la qualité de la vie de prière du couple."
+  },
+  {
+    "id": "1co-13-4-7",
+    "reference": { "book": "1CO", "chapter": 13, "verseStart": 4, "verseEnd": 7 },
+    "principleKeys": ["attentionAMonEpouse", "respectDeVieCommeJesus"],
+    "themes": ["patience", "amour"],
+    "note": "Une description de l'amour par ses effets concrets — patience, absence de rancune — plutôt que par un sentiment simplement déclaré."
+  },
+  {
+    "id": "exo-20-8-10",
+    "reference": { "book": "EXO", "chapter": 20, "verseStart": 8, "verseEnd": 10 },
+    "principleKeys": ["respectTrc"],
+    "themes": ["repos", "rythme"],
+    "note": "Un jour mis à part pour cesser le travail habituel est inscrit comme un rythme fondateur, pas une option secondaire."
+  },
+  {
+    "id": "mrk-2-27",
+    "reference": { "book": "MRK", "chapter": 2, "verseStart": 27, "verseEnd": 27 },
+    "principleKeys": ["respectTrc"],
+    "themes": ["repos", "liberté"],
+    "note": "Le repos hebdomadaire est présenté comme un cadeau fait pour la personne, pas une contrainte qui l'écrase."
+  },
+  {
+    "id": "heb-4-9-11",
+    "reference": { "book": "HEB", "chapter": 4, "verseStart": 9, "verseEnd": 11 },
+    "principleKeys": ["respectTrc"],
+    "themes": ["repos", "persévérance"],
+    "note": "Entrer dans un repos véritable demande, presque paradoxalement, un effort de constance."
+  },
+  {
+    "id": "pro-25-28",
+    "reference": { "book": "PRO", "chapter": 25, "verseStart": 28, "verseEnd": 28 },
+    "principleKeys": ["respectTrc", "respectReveil"],
+    "themes": ["maîtrise de soi"],
+    "note": "L'absence de maîtrise de soi est comparée à une ville sans muraille : exposée et fragile, faute d'un cadre tenu."
+  },
+  {
+    "id": "pro-6-9-11",
+    "reference": { "book": "PRO", "chapter": 6, "verseStart": 9, "verseEnd": 11 },
+    "principleKeys": ["respectReveil"],
+    "themes": ["discipline", "sommeil"],
+    "note": "Trop de sommeil non maîtrisé est associé ici à un manque qui s'installe insensiblement."
+  },
+  {
+    "id": "rom-13-11",
+    "reference": { "book": "ROM", "chapter": 13, "verseStart": 11, "verseEnd": 11 },
+    "principleKeys": ["respectReveil"],
+    "themes": ["éveil", "urgence"],
+    "note": "L'image du réveil est utilisée pour appeler à ne pas se rendormir sur ce qui compte vraiment."
+  },
+  {
+    "id": "pro-20-13",
+    "reference": { "book": "PRO", "chapter": 20, "verseStart": 13, "verseEnd": 13 },
+    "principleKeys": ["respectReveil", "objectifsAtteints"],
+    "themes": ["vigilance"],
+    "note": "Rester éveillé et actif est associé à la possibilité de bien pourvoir à ses besoins."
+  },
+  {
+    "id": "php-3-14",
+    "reference": { "book": "PHP", "chapter": 3, "verseStart": 14, "verseEnd": 14 },
+    "principleKeys": ["objectifsAtteints"],
+    "themes": ["persévérance", "but"],
+    "note": "Le regard reste tourné vers un but à venir, sans s'attarder indéfiniment sur le chemin déjà parcouru."
+  },
+  {
+    "id": "php-4-13",
+    "reference": { "book": "PHP", "chapter": 4, "verseStart": 13, "verseEnd": 13 },
+    "principleKeys": ["objectifsAtteints"],
+    "themes": ["force", "dépendance"],
+    "note": "La capacité à tenir dans toutes les situations est reliée à une force reçue, pas seulement à la volonté personnelle."
+  },
+  {
+    "id": "2ti-4-7",
+    "reference": { "book": "2TI", "chapter": 4, "verseStart": 7, "verseEnd": 7 },
+    "principleKeys": ["objectifsAtteints", "respectDeVieCommeJesus"],
+    "themes": ["fidélité", "achèvement"],
+    "note": "Arriver au bout d'un engagement tenu avec fidélité est décrit comme une victoire en soi, indépendamment du résultat visible."
+  },
+  {
+    "id": "pro-16-3",
+    "reference": { "book": "PRO", "chapter": 16, "verseStart": 3, "verseEnd": 3 },
+    "principleKeys": ["objectifsAtteints", "priereDuMatin"],
+    "themes": ["confiance", "projets"],
+    "note": "Confier ses projets avant de les réaliser est présenté comme une condition à leur solidité future."
+  },
+  {
+    "id": "col-3-23",
+    "reference": { "book": "COL", "chapter": 3, "verseStart": 23, "verseEnd": 23 },
+    "principleKeys": ["objectifsAtteints", "respectDeVieCommeJesus"],
+    "themes": ["travail", "intégrité"],
+    "note": "Faire son travail avec sérieux, même sans regard extérieur, est présenté comme une question d'intégrité plus que de performance."
+  },
+  {
+    "id": "jer-29-11",
+    "reference": { "book": "JER", "chapter": 29, "verseStart": 11, "verseEnd": 11 },
+    "principleKeys": ["objectifsAtteints", "priereDuSoir"],
+    "themes": ["espérance", "avenir"],
+    "note": "Un avenir porteur d'espérance est promis, y compris au cœur d'une période d'attente incertaine."
+  },
+  {
+    "id": "isa-40-31",
+    "reference": { "book": "ISA", "chapter": 40, "verseStart": 31, "verseEnd": 31 },
+    "principleKeys": ["managedSolitude", "objectifsAtteints"],
+    "themes": ["force renouvelée"],
+    "note": "Une force renouvelée est associée à l'attitude d'attente confiante, plus qu'à l'agitation permanente."
+  },
+  {
+    "id": "mat-11-28-30",
+    "reference": { "book": "MAT", "chapter": 11, "verseStart": 28, "verseEnd": 30 },
+    "principleKeys": ["managedSolitude", "priereDuSoir"],
+    "themes": ["repos", "fardeau"],
+    "note": "Un repos réel est proposé à qui porte une charge trop lourde, sans condition de mérite préalable."
+  },
+  {
+    "id": "jhn-15-5",
+    "reference": { "book": "JHN", "chapter": 15, "verseStart": 5, "verseEnd": 5 },
+    "principleKeys": ["respectDeVieCommeJesus", "apprentissage"],
+    "themes": ["dépendance", "fruit"],
+    "note": "La fécondité durable est reliée à une connexion maintenue, plutôt qu'à un effort isolé et autosuffisant."
+  },
+  {
+    "id": "rom-8-28",
+    "reference": { "book": "ROM", "chapter": 8, "verseStart": 28, "verseEnd": 28 },
+    "principleKeys": ["retroJournalier", "objectifsAtteints"],
+    "themes": ["sens", "épreuves"],
+    "note": "Même les circonstances difficiles sont envisagées comme pouvant concourir à un bien plus large, avec le recul."
+  },
+  {
+    "id": "php-4-6-7",
+    "reference": { "book": "PHP", "chapter": 4, "verseStart": 6, "verseEnd": 7 },
+    "principleKeys": ["priereDuSoir", "retroJournalier"],
+    "themes": ["anxiété", "paix"],
+    "note": "Remettre ses inquiétudes plutôt que les garder pour soi est présenté comme le chemin vers une paix qui dépasse la simple explication rationnelle."
+  },
+  {
+    "id": "gal-6-9",
+    "reference": { "book": "GAL", "chapter": 6, "verseStart": 9, "verseEnd": 9 },
+    "principleKeys": ["objectifsAtteints", "respectDeVieCommeJesus"],
+    "themes": ["persévérance"],
+    "note": "Ne pas se décourager de bien agir est présenté comme la condition pour recueillir un fruit qui vient en son temps."
+  },
+  {
+    "id": "jas-1-22",
+    "reference": { "book": "JAS", "chapter": 1, "verseStart": 22, "verseEnd": 22 },
+    "principleKeys": ["avoirLuMesPrincipes", "objectifsAtteints"],
+    "themes": ["mise en pratique"],
+    "note": "Écouter un principe sans le mettre en pratique est décrit comme une forme d'auto-illusion."
+  },
+  {
+    "id": "pro-3-5-6",
+    "reference": { "book": "PRO", "chapter": 3, "verseStart": 5, "verseEnd": 6 },
+    "principleKeys": ["apprentissage", "objectifsAtteints"],
+    "themes": ["confiance", "discernement"],
+    "note": "Faire confiance au-delà de sa propre compréhension est présenté comme ce qui rend le chemin plus droit."
+  },
+  {
+    "id": "mat-6-33",
+    "reference": { "book": "MAT", "chapter": 6, "verseStart": 33, "verseEnd": 33 },
+    "principleKeys": ["objectifsAtteints", "respectDeVieCommeJesus"],
+    "themes": ["priorités"],
+    "note": "Chercher d'abord ce qui compte le plus est présenté comme la clé pour que le reste trouve sa juste place."
+  },
+  {
+    "id": "1co-10-31",
+    "reference": { "book": "1CO", "chapter": 10, "verseStart": 31, "verseEnd": 31 },
+    "principleKeys": ["respectDeVieCommeJesus"],
+    "themes": ["intention", "quotidien"],
+    "note": "Même les gestes les plus ordinaires du quotidien sont reliés à une intention plus large qui les dépasse."
+  },
+  {
+    "id": "rom-12-1-2",
+    "reference": { "book": "ROM", "chapter": 12, "verseStart": 1, "verseEnd": 2 },
+    "principleKeys": ["respectDeVieCommeJesus", "apprentissage"],
+    "themes": ["transformation", "discernement"],
+    "note": "Un renouvellement de la pensée est présenté comme la voie d'une transformation réelle, plutôt qu'un simple ajustement de surface."
+  },
+  {
+    "id": "wis-7-7",
+    "reference": { "book": "WIS", "chapter": 7, "verseStart": 7, "verseEnd": 7 },
+    "principleKeys": ["apprentissage", "priereDuMatin"],
+    "themes": ["sagesse", "prière"],
+    "note": "Le discernement demandé dans la prière est reçu comme un don, plus que comme le seul fruit de l'effort personnel."
+  },
+  {
+    "id": "tob-4-5-6",
+    "reference": { "book": "TOB", "chapter": 4, "verseStart": 5, "verseEnd": 6 },
+    "principleKeys": ["respectDeVieCommeJesus", "priereDuMatin"],
+    "themes": ["fidélité", "droiture"],
+    "note": "Rester fidèle à ses convictions tous les jours de sa vie est présenté comme une conduite qui porte du fruit sur la durée."
+  },
+  {
+    "id": "sir-6-14-16",
+    "reference": { "book": "SIR", "chapter": 6, "verseStart": 14, "verseEnd": 16 },
+    "principleKeys": ["managedSolitude", "oxytocineDuMatin"],
+    "themes": ["amitié fidèle"],
+    "note": "Un ami fidèle est comparé à un abri sûr, une richesse rare qu'il faut savoir reconnaître et cultiver."
+  },
+  {
+    "id": "gal-5-13",
+    "reference": { "book": "GAL", "chapter": 5, "verseStart": 13, "verseEnd": 13 },
+    "principleKeys": ["tempsDeQualiteAvecEnfants", "attentionAMonEpouse"],
+    "themes": ["service", "liberté"],
+    "note": "La liberté reçue est mise au service des autres par amour, plutôt qu'utilisée pour soi seul."
+  },
+  {
+    "id": "1jn-3-18",
+    "reference": { "book": "1JN", "chapter": 3, "verseStart": 18, "verseEnd": 18 },
+    "principleKeys": ["attentionAMonEpouse", "tempsDeQualiteAvecEnfants"],
+    "themes": ["actes", "vérité"],
+    "note": "Aimer en actes concrets et vérifiables est distingué d'un amour qui resterait seulement dans les mots."
+  }
+]

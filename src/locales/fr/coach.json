@@ -162,7 +162,8 @@
       "coach_pulse": "Pulse coach",
       "weekly_synthesis": "Synthèse hebdomadaire",
       "monthly_synthesis": "Synthèse mensuelle",
-      "goal_pacing": "Rythme objectifs"
+      "goal_pacing": "Rythme objectifs",
+      "pastor_verse": "Pasteur IA (verset)"
     },
     "type": {
       "intention_draft": "Intention du matin",

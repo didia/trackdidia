@@ -56,7 +56,14 @@ New UI copy goes in the matching namespace file under `src/locales/fr/`, not
 inline in components. Non-React user-facing strings (notifications, relative
 dates, local coach fallbacks, insight labels) use `t(key, { ns })` from
 `src/i18n`. Do not i18n AI system prompts, `logDebug` messages, `quotes.json`,
-or user-authored content.
+`verses.json`, or user-authored content.
+
+`verses.json` (the "Pasteur IA" catalog) never ships Bible verse text written or
+paraphrased from an agent's memory, in any translation — including public-domain
+Louis Segond 1910. Verse text must be pasted from an authoritative edition and
+human-verified before being added to an entry's `translations` object; never
+generate or scrape it. See
+[AI settings and privacy](ai-settings-and-privacy.md#pasteur-ia-pastor_verse).
 
 ## TypeScript and React
 

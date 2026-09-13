@@ -927,6 +927,52 @@ describe("MemoryRepository", () => {
     );
   });
 
+  it("round-trips a pastor_verse message and keeps it out of listAiMessagesForDate", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const message = {
+      id: "ai-message:pastor",
+      surface: "pastor_verse" as const,
+      scopeKey: "pastor:2026-08-29",
+      stance: null,
+      kind: "daily",
+      inputHash: "hash",
+      promptVersion: "pastor_verse.v1",
+      model: "local",
+      status: "ok" as const,
+      bodyJson: JSON.stringify({
+        pick: "list",
+        verseId: "php-4-6-7",
+        reference: { book: "PHP", chapter: 4, verseStart: 6, verseEnd: 7 },
+        paraphraseFr: null,
+        principleKey: null,
+        intent: "reinforcement",
+        title: "Philippiens 4, 6-7",
+        explanation: "Texte",
+        practice: null,
+      }),
+      bodyText: "Philippiens 4, 6-7 — Titre",
+      deltaClass: null,
+      notified: false,
+      tokensPrompt: null,
+      tokensCompletion: null,
+      latencyMs: null,
+      createdAt: "2026-08-29T08:00:00.000Z",
+    };
+
+    const saved = await repository.saveCoachPulseEpisode(message, []);
+    expect(saved.message.surface).toBe("pastor_verse");
+
+    const latest = await repository.getLatestAiMessage("pastor_verse", "pastor:2026-08-29", "ok");
+    expect(latest?.id).toBe("ai-message:pastor");
+
+    // Regression: `listAiMessagesForDate` matches `scope_key = date OR LIKE 'date#%'`. A
+    // `pastor:YYYY-MM-DD` scope key must never match, so the coach pulse engine never treats a
+    // pastor row as one of its own slots for the day.
+    const forDate = await repository.listAiMessagesForDate("2026-08-29");
+    expect(forDate.find((item) => item.surface === "pastor_verse")).toBeUndefined();
+  });
+
   it("getLatestAiMessage returns the newest matching scope even when many other rows exist", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();

@@ -23,6 +23,27 @@
     "openGoals": "Ouvrir les objectifs annuels"
   },
   "coachTitle": "Coach du jour",
+  "pastor": {
+    "title": "Verset du jour",
+    "preparing": "Préparation du verset...",
+    "disclaimer": "Suggestion IA — à lire et prier avec discernement, pas un message divin.",
+    "emptyCatalog": "Le catalogue de versets est vide pour l'instant.",
+    "emptyCatalogTitle": "Catalogue vide",
+    "emptyCatalogExplanation": "Ajoute des versets dans verses.json pour activer le verset du jour.",
+    "paraphraseLabel": "Paraphrase IA — lis le passage dans ta Bible.",
+    "readInBible": "Lis le passage dans ta Bible.",
+    "practice": "Pratique concrète :",
+    "intent": {
+      "reinforcement": "Renforcement",
+      "new_teaching": "Nouvel enseignement",
+      "both": "Renforcement et nouvel enseignement"
+    },
+    "regenerate": "Nouveau verset",
+    "regenerating": "Nouveau verset...",
+    "addToList": "Ajouter à ma liste",
+    "addingToList": "Ajout en cours...",
+    "addedToList": "Ajoutée à ma liste ✓"
+  },
   "state": {
     "title": "État de la journée",
     "subtitle": "Point de repère avant de replonger dans la routine.",

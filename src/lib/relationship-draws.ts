@@ -63,6 +63,9 @@ export const mergeAppSettingsWithDefaults = (
   relationshipDrawSpouseActivities: Array.isArray(settings.relationshipDrawSpouseActivities)
     ? settings.relationshipDrawSpouseActivities
     : defaults.relationshipDrawSpouseActivities,
+  aiPastorCustomVerses: Array.isArray(settings.aiPastorCustomVerses)
+    ? settings.aiPastorCustomVerses
+    : defaults.aiPastorCustomVerses,
   aiPulseSlots:
     Array.isArray(settings.aiPulseSlots) && settings.aiPulseSlots.length > 0
       ? settings.aiPulseSlots

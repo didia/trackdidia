@@ -649,6 +649,75 @@ a {
   margin-top: 16px;
 }
 
+.pastor-verse__body {
+  display: grid;
+  gap: 10px;
+}
+
+.pastor-verse__disclaimer {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.pastor-verse__reference {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.pastor-verse__reference small {
+  color: var(--muted);
+}
+
+.pastor-verse__paraphrase-label {
+  margin: 0;
+  font-size: 0.8rem;
+  font-style: italic;
+  color: var(--muted);
+}
+
+.pastor-verse__quote {
+  margin: 0;
+  padding: 12px 16px;
+  border-left: 3px solid rgba(164, 79, 45, 0.35);
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 0 14px 14px 0;
+  font-style: italic;
+}
+
+.pastor-verse__quote--paraphrase {
+  border-left-style: dashed;
+}
+
+.pastor-verse__hint {
+  margin: 0;
+  color: var(--muted);
+}
+
+.pastor-verse__notice {
+  color: var(--muted);
+}
+
+.pastor-verse__title {
+  margin: 4px 0 0;
+  font-size: 1rem;
+}
+
+.pastor-verse__practice {
+  margin: 0;
+}
+
+.pastor-verse__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pastor-verse__add-to-catalog {
+  margin-top: 4px;
+}
+
 .field-card__helper,
 .empty-copy {
   color: var(--muted);

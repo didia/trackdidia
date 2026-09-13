@@ -1,5 +1,5 @@
 import { act, render } from "@testing-library/react";
-import type { PropsWithChildren, ReactElement } from "react";
+import { StrictMode, type PropsWithChildren, type ReactElement } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { AppContext, type AppContextValue } from "../app/app-context";
 import { defaultAppSettings } from "../domain/daily-entry";
@@ -28,6 +28,8 @@ interface RenderOptions {
   repository?: MemoryRepository;
   route?: string;
   contextOverrides?: Partial<AppContextValue>;
+  /** Wraps the tree in `React.StrictMode` to exercise the dev-only double-effect-invoke behavior. */
+  strictMode?: boolean;
 }
 
 export const renderWithApp = async (ui: ReactElement, options: RenderOptions = {}) => {
@@ -69,14 +71,18 @@ export const renderWithApp = async (ui: ReactElement, options: RenderOptions = {
     ...options.contextOverrides,
   };
 
-  const Wrapper = ({ children }: PropsWithChildren) => (
-    <MemoryRouter
-      initialEntries={[options.route ?? "/"]}
-      future={{ v7_relativeSplatPath: true, v7_startTransition: true }}
-    >
-      <AppContext.Provider value={contextValue}>{children}</AppContext.Provider>
-    </MemoryRouter>
-  );
+  const Wrapper = ({ children }: PropsWithChildren) => {
+    const tree = (
+      <MemoryRouter
+        initialEntries={[options.route ?? "/"]}
+        future={{ v7_relativeSplatPath: true, v7_startTransition: true }}
+      >
+        <AppContext.Provider value={contextValue}>{children}</AppContext.Provider>
+      </MemoryRouter>
+    );
+
+    return options.strictMode ? <StrictMode>{tree}</StrictMode> : tree;
+  };
 
   let rendered!: ReturnType<typeof render>;
 

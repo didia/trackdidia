@@ -169,3 +169,27 @@ describe("resolveProductivityPulse", () => {
     expect(result.fetchError).toContain("401");
   });
 });
+
+describe("previewPayload pastor surface", () => {
+  it("renders a pastor snapshot with scope redaction applied", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    let entry = createEmptyDailyEntry("2026-08-29");
+    entry = updateNote(entry, "morningIntention", "Texte libre du jour.");
+    await repository.saveDailyEntry(entry);
+
+    const metricsSnapshot = (await previewPayload(repository, "metrics", {
+      surface: "pastor",
+      date: "2026-08-29",
+    })) as import("./pastor-snapshot").PastorSnapshot;
+    const fullSnapshot = (await previewPayload(repository, "full", {
+      surface: "pastor",
+      date: "2026-08-29",
+    })) as import("./pastor-snapshot").PastorSnapshot;
+
+    expect(metricsSnapshot.surface).toBe("pastor");
+    expect(JSON.stringify(metricsSnapshot)).not.toContain("Texte libre du jour.");
+    expect(JSON.stringify(fullSnapshot)).toContain("Texte libre du jour.");
+    expect(fullSnapshot.catalog.length).toBeGreaterThan(0);
+  });
+});
