@@ -9,7 +9,7 @@ import { addDays } from "../../gtd/shared";
 import { formatReferenceFr } from "../../pastor/bible-books";
 import { type PastorHistorySummary, summarizePastorHistory } from "../../pastor/history";
 import { computePrincipleSignals, type PrincipleSignals } from "../../pastor/signals";
-import { loadVerseCatalog } from "../../pastor/verse-catalog";
+import { buildCatalogWithCustomVerses } from "../../pastor/verse-catalog";
 import type { AppRepository } from "../../storage/repository";
 import type { Surface } from "./types";
 
@@ -77,19 +77,21 @@ export interface PastorSnapshotInputs {
 /**
  * Shared by `PastorVerseService` and the Settings payload preview. `promptVersion` is passed in
  * (rather than imported from `pastor-verse-service.ts`) to avoid a circular import between the
- * service and this snapshot module.
+ * service and this snapshot module. `customVerses` is the raw `settings.aiPastorCustomVerses`
+ * value, merged with the checked-in catalog via `buildCatalogWithCustomVerses`.
  */
 export const resolvePastorSnapshotInputs = async (
   repository: AppRepository,
   date: string,
   promptVersion: string,
+  customVerses: unknown = [],
 ): Promise<PastorSnapshotInputs> => {
   const startDate = addDays(date, -HISTORY_LOOKBACK_DAYS);
   const [entries, messages] = await Promise.all([
     repository.listDailyEntriesInRange(startDate, date),
     repository.listAiMessages("pastor_verse", HISTORY_MESSAGE_LIMIT),
   ]);
-  const catalog = loadVerseCatalog();
+  const catalog = buildCatalogWithCustomVerses(customVerses).verses;
 
   const days: PastorSnapshotDay[] = entries
     .filter((entry) => entry.date >= startDate && entry.date <= date)

@@ -1,6 +1,6 @@
 import versesJson from "../../../verses.json";
 import { principleDefinitions } from "../../domain/definitions";
-import { loadVerseCatalog, parseVerseCatalog } from "./verse-catalog";
+import { buildCatalogWithCustomVerses, loadVerseCatalog, parseVerseCatalog } from "./verse-catalog";
 
 const validEntry = () => ({
   id: "test-verse",
@@ -129,5 +129,53 @@ describe("loadVerseCatalog", () => {
     const second = loadVerseCatalog();
     expect(first).toBe(second);
     expect(first.length).toBeGreaterThan(0);
+  });
+});
+
+describe("buildCatalogWithCustomVerses", () => {
+  it("returns the checked-in catalog unchanged when there are no custom verses", () => {
+    const { verses, errors } = buildCatalogWithCustomVerses(undefined);
+    expect(errors).toEqual([]);
+    expect(verses).toEqual(loadVerseCatalog());
+  });
+
+  it("appends a valid custom verse", () => {
+    const custom = validEntry();
+    custom.id = "custom-php-4-6-7";
+    custom.reference = { book: "PHP", chapter: 4, verseStart: 20, verseEnd: 20 };
+
+    const { verses, errors } = buildCatalogWithCustomVerses([custom]);
+    expect(errors).toEqual([]);
+    expect(verses).toHaveLength(loadVerseCatalog().length + 1);
+    expect(verses.some((verse) => verse.id === "custom-php-4-6-7")).toBe(true);
+  });
+
+  it("drops a custom verse whose reference duplicates a checked-in one", () => {
+    const base = loadVerseCatalog()[0];
+    const custom = validEntry();
+    custom.id = "custom-duplicate";
+    custom.reference = { ...base.reference };
+
+    const { verses, errors } = buildCatalogWithCustomVerses([custom]);
+    expect(errors.length).toBeGreaterThan(0);
+    expect(verses.some((verse) => verse.id === "custom-duplicate")).toBe(false);
+    expect(verses).toHaveLength(loadVerseCatalog().length);
+  });
+
+  it("drops an invalid custom verse without throwing", () => {
+    const invalid = {
+      id: "custom-bad",
+      reference: { book: "XYZ", chapter: 1, verseStart: 1, verseEnd: 1 },
+    };
+
+    const { verses, errors } = buildCatalogWithCustomVerses([invalid]);
+    expect(errors.length).toBeGreaterThan(0);
+    expect(verses).toEqual(loadVerseCatalog());
+  });
+
+  it("ignores a non-array value", () => {
+    const { verses, errors } = buildCatalogWithCustomVerses("not-an-array");
+    expect(errors).toEqual([]);
+    expect(verses).toEqual(loadVerseCatalog());
   });
 });

@@ -7,7 +7,7 @@ import type {
 import { createEntityId, nowIso } from "../gtd/shared";
 import { formatReferenceFr } from "../pastor/bible-books";
 import { pickLocalVerse } from "../pastor/local-pick";
-import { loadVerseCatalog } from "../pastor/verse-catalog";
+import { buildCatalogWithCustomVerses } from "../pastor/verse-catalog";
 import type { AppRepository } from "../storage/repository";
 import { buildPastorSnapshot, resolvePastorSnapshotInputs } from "./context/pastor-snapshot";
 import { buildAiInputHash } from "./input-hash";
@@ -50,7 +50,7 @@ export class PastorVerseService {
   constructor(private readonly provider: AiProvider) {}
 
   async resultFromMessage(
-    _repository: AppRepository,
+    repository: AppRepository,
     message: AiMessage,
   ): Promise<PastorVerseResult | null> {
     if (message.promptVersion !== PASTOR_VERSE_PROMPT_VERSION) {
@@ -63,7 +63,8 @@ export class PastorVerseService {
       return null;
     }
 
-    const catalog = loadVerseCatalog();
+    const settings = await repository.getSettings();
+    const catalog = buildCatalogWithCustomVerses(settings.aiPastorCustomVerses).verses;
     const verse = body.verseId ? (catalog.find((item) => item.id === body.verseId) ?? null) : null;
 
     return {
@@ -80,7 +81,12 @@ export class PastorVerseService {
   ): Promise<PastorVerseResult> {
     const { date, settings, trigger, excludeVerseIds = [], localOnly = false } = request;
     const promptVersion = PASTOR_VERSE_PROMPT_VERSION;
-    const inputs = await resolvePastorSnapshotInputs(repository, date, promptVersion);
+    const inputs = await resolvePastorSnapshotInputs(
+      repository,
+      date,
+      promptVersion,
+      settings.aiPastorCustomVerses,
+    );
     const blockedVerseIds = [...new Set([...inputs.history.blockedVerseIds, ...excludeVerseIds])];
     const history = { ...inputs.history, blockedVerseIds };
     const snapshot = buildPastorSnapshot({ ...inputs, history }, settings.aiPayloadScope);

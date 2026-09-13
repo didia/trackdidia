@@ -117,3 +117,7 @@ export const formatReferenceFr = (reference: BibleReference): string => {
  */
 export const formatBibleBookCodeList = (): string =>
   bibleBooks.map((book) => `${book.code}=${book.nameFr}`).join(", ");
+
+/** Identity key for a reference (book/chapter/verse span), used to detect duplicate verses. */
+export const referenceKey = (reference: BibleReference): string =>
+  `${reference.book}:${reference.chapter}:${reference.verseStart}-${reference.verseEnd}`;

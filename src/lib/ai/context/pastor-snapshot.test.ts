@@ -58,4 +58,26 @@ describe("resolvePastorSnapshotInputs + buildPastorSnapshot", () => {
     expect(serialized).not.toContain('"note"');
     expect(serialized).not.toContain('"translations"');
   });
+
+  it("merges settings.aiPastorCustomVerses into the catalog", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const customVerses = [
+      {
+        id: "custom-job-42-10",
+        reference: { book: "JOB", chapter: 42, verseStart: 10, verseEnd: 10 },
+        principleKeys: ["managedSolitude"],
+        note: "Reflexion personnalisee ajoutee depuis un verset hors catalogue.",
+      },
+    ];
+
+    const inputs = await resolvePastorSnapshotInputs(
+      repository,
+      "2026-08-29",
+      PROMPT_VERSION,
+      customVerses,
+    );
+
+    expect(inputs.catalog.some((verse) => verse.id === "custom-job-42-10")).toBe(true);
+  });
 });

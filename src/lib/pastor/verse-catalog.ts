@@ -7,7 +7,7 @@ import type {
   TranslationCode,
 } from "../../domain/types";
 import { logDebug } from "../debug";
-import { isKnownBibleBook, maxChaptersForBook } from "./bible-books";
+import { isKnownBibleBook, maxChaptersForBook, referenceKey } from "./bible-books";
 
 const principleKeySet = new Set<PrincipleKey>(
   principleDefinitions.map((definition) => definition.key),
@@ -108,9 +108,9 @@ export const parseVerseCatalog = (raw: unknown): VerseCatalogParseResult => {
       return;
     }
     const reference = referenceResult.value;
-    const referenceKey = `${reference.book}:${reference.chapter}:${reference.verseStart}-${reference.verseEnd}`;
-    if (seenReferences.has(referenceKey)) {
-      errors.push(`${label} (${id}): duplicate reference ${referenceKey}`);
+    const refKey = referenceKey(reference);
+    if (seenReferences.has(refKey)) {
+      errors.push(`${label} (${id}): duplicate reference ${refKey}`);
       return;
     }
 
@@ -169,7 +169,7 @@ export const parseVerseCatalog = (raw: unknown): VerseCatalogParseResult => {
     }
 
     seenIds.add(id);
-    seenReferences.add(referenceKey);
+    seenReferences.add(refKey);
     verses.push({
       id,
       reference,
@@ -194,4 +194,25 @@ export const loadVerseCatalog = (): CatalogVerse[] => {
     }
   }
   return cachedCatalog.verses;
+};
+
+/**
+ * Merges the checked-in catalog with `customVerses` (the raw `settings.aiPastorCustomVerses`
+ * value — validated the same way as `verses.json`, since it's user/AI-populated at runtime via
+ * "Ajouter à ma liste"). A custom entry whose id or reference duplicates one already in the
+ * checked-in catalog is dropped as a duplicate (the checked-in entry wins); invalid entries are
+ * dropped with a `logDebug` warning, same as the static file.
+ */
+export const buildCatalogWithCustomVerses = (customVerses: unknown): VerseCatalogParseResult => {
+  const base = loadVerseCatalog();
+  const rawCustom = Array.isArray(customVerses) ? customVerses : [];
+  if (rawCustom.length === 0) {
+    return { verses: base, errors: [] };
+  }
+
+  const merged = parseVerseCatalog([...base, ...rawCustom]);
+  for (const error of merged.errors) {
+    logDebug("warn", "pastor.catalog", "Verset personnalisé invalide ignoré", error);
+  }
+  return merged;
 };

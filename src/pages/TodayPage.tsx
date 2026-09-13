@@ -24,8 +24,9 @@ export const TodayPage = () => {
   const { t } = useTranslation("today");
   const today = getTodayDate();
   const { entry, loading, save } = useDailyEntry(today);
-  const { repository, settings, coachService, browserPreview, pomodoro } = useAppContext();
-  const pastorVerse = usePastorVerse(today, settings, repository);
+  const { repository, settings, saveSettings, coachService, browserPreview, pomodoro } =
+    useAppContext();
+  const pastorVerse = usePastorVerse(today, settings, repository, saveSettings);
   const [coachResult, setCoachResult] = useState<CoachPulseResult | null>(null);
   const [coachLoading, setCoachLoading] = useState(true);
   const [taskBreakdown, setTaskBreakdown] = useState<DailyTaskBreakdown | null>(null);
@@ -320,6 +321,9 @@ export const TodayPage = () => {
           settings={settings}
           aiConfigured={pastorVerse.aiConfigured}
           onRegenerate={() => void pastorVerse.regenerate()}
+          onAddToCatalog={() => void pastorVerse.addToCatalog()}
+          addingToCatalog={pastorVerse.addingToCatalog}
+          addedToCatalog={pastorVerse.addedToCatalog}
         />
       ) : null}
 

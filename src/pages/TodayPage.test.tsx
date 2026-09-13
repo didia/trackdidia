@@ -731,4 +731,80 @@ describe("TodayPage pastor verse card", () => {
     expect(await screen.findByText("Une paraphrase du debut de la Genese.")).toBeInTheDocument();
     expect(screen.getByText("Paraphrase IA — lis le passage dans ta Bible.")).toBeInTheDocument();
   });
+
+  it("hides the add-to-list button for an off-list pick with no principle key", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveAiMessage(
+      storedPastorMessage({
+        bodyJson: JSON.stringify({
+          pick: "outside",
+          verseId: null,
+          reference: { book: "GEN", chapter: 1, verseStart: 1, verseEnd: 1 },
+          paraphraseFr: "Une paraphrase du debut de la Genese.",
+          principleKey: null,
+          intent: "new_teaching",
+          title: "Genèse 1, 1",
+          explanation: "Explication hors catalogue",
+          practice: null,
+        }),
+      }),
+    );
+
+    await renderWithApp(<TodayPage />, {
+      repository,
+      contextOverrides: { settings: pastorSettings({ aiEnabled: true, aiApiKey: "secret" }) },
+    });
+
+    await screen.findByText("Une paraphrase du debut de la Genese.");
+    expect(screen.queryByRole("button", { name: /ajouter à ma liste/i })).not.toBeInTheDocument();
+  });
+
+  it("adds an off-list pick to the preferred list and disables the button after", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveAiMessage(
+      storedPastorMessage({
+        bodyJson: JSON.stringify({
+          pick: "outside",
+          verseId: null,
+          reference: { book: "JOB", chapter: 42, verseStart: 10, verseEnd: 10 },
+          paraphraseFr: "Une paraphrase de la restauration de Job.",
+          principleKey: "managedSolitude",
+          intent: "new_teaching",
+          title: "Job 42, 10",
+          explanation: "Apres l'epreuve, une restauration est possible.",
+          practice: null,
+        }),
+      }),
+    );
+    const saveSettings = vi.fn(async () => undefined);
+
+    const user = userEvent.setup();
+    await renderWithApp(<TodayPage />, {
+      repository,
+      contextOverrides: {
+        settings: pastorSettings({ aiEnabled: true, aiApiKey: "secret" }),
+        saveSettings,
+      },
+    });
+
+    const addButton = await screen.findByRole("button", { name: /ajouter à ma liste/i });
+    await user.click(addButton);
+
+    await waitFor(() => {
+      expect(saveSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          aiPastorCustomVerses: [
+            expect.objectContaining({
+              id: "custom-job-42-10",
+              reference: { book: "JOB", chapter: 42, verseStart: 10, verseEnd: 10 },
+              principleKeys: ["managedSolitude"],
+            }),
+          ],
+        }),
+      );
+    });
+    expect(await screen.findByRole("button", { name: /ajoutée à ma liste/i })).toBeDisabled();
+  });
 });

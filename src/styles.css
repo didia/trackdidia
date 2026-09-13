@@ -714,6 +714,10 @@ a {
   gap: 8px;
 }
 
+.pastor-verse__add-to-catalog {
+  margin-top: 4px;
+}
+
 .field-card__helper,
 .empty-copy {
   color: var(--muted);

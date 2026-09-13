@@ -220,7 +220,13 @@ export const previewPayload = async (
 
   if (surface === "pastor") {
     const date = options.date ?? getTodayDate();
-    const inputs = await resolvePastorSnapshotInputs(repository, date, PASTOR_VERSE_PROMPT_VERSION);
+    const settings = await repository.getSettings();
+    const inputs = await resolvePastorSnapshotInputs(
+      repository,
+      date,
+      PASTOR_VERSE_PROMPT_VERSION,
+      settings.aiPastorCustomVerses,
+    );
     return buildPastorSnapshot(inputs, scope);
   }
 

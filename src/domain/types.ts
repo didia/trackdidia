@@ -627,6 +627,12 @@ export interface AppSettings {
   aiPulseMaxNotificationsPerDay: number;
   /** Feature flag for the "Pasteur IA" verse-of-the-day card on Today. Works without AI. */
   aiPastorEnabled: boolean;
+  /**
+   * User-added verses, in the same shape as `verses.json`, merged with the checked-in catalog
+   * at read time (`buildCatalogWithCustomVerses`). Populated via "Ajouter à ma liste" on an
+   * off-list pick; never includes verse text the app itself generated (see `CatalogVerse`).
+   */
+  aiPastorCustomVerses: CatalogVerse[];
   /** Rough USD estimate per 1M tokens (prompt + completion combined). OpenRouter pricing varies by model. */
   aiCostPerMillionTokens: number;
   /** ISO timestamps keyed by local YYYY-MM-DD for first app open anchoring. */

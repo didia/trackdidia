@@ -17,6 +17,9 @@ interface PastorVerseCardProps {
   settings: AppSettings;
   aiConfigured: boolean;
   onRegenerate: () => void;
+  onAddToCatalog: () => void;
+  addingToCatalog: boolean;
+  addedToCatalog: boolean;
 }
 
 const principleLabel = (key: PrincipleKey | null | undefined): string | null => {
@@ -35,6 +38,9 @@ export const PastorVerseCard = ({
   settings,
   aiConfigured,
   onRegenerate,
+  onAddToCatalog,
+  addingToCatalog,
+  addedToCatalog,
 }: PastorVerseCardProps) => {
   const { t } = useTranslation("today");
   const { t: tCoach } = useTranslation("coach");
@@ -52,6 +58,10 @@ export const PastorVerseCard = ({
   const resolvedText = result?.verse ? resolveVerseText(result.verse) : null;
   const referenceLabel = body?.reference ? formatReferenceFr(body.reference) : null;
   const principle = principleLabel(body?.principleKey);
+  // Mirrors `buildCustomVerseFromOffListPick`'s eligibility check so the button never renders for
+  // a pick that "Ajouter à ma liste" would silently no-op on (e.g. no principle to tag it with).
+  const canAddToCatalog =
+    body?.pick === "outside" && body.reference != null && body.principleKey != null;
 
   return (
     <section className="coach-card pastor-verse">
@@ -110,6 +120,23 @@ export const PastorVerseCard = ({
             {principle ? <span className="tag-chip">{principle}</span> : null}
             <span className="tag-chip">{t(`pastor.intent.${body.intent}`)}</span>
           </div>
+
+          {canAddToCatalog ? (
+            <div className="section-actions pastor-verse__add-to-catalog">
+              <button
+                className="button"
+                type="button"
+                disabled={addingToCatalog || addedToCatalog}
+                onClick={onAddToCatalog}
+              >
+                {addedToCatalog
+                  ? t("pastor.addedToList")
+                  : addingToCatalog
+                    ? t("pastor.addingToList")
+                    : t("pastor.addToList")}
+              </button>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

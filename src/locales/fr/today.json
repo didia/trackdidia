@@ -39,7 +39,10 @@
       "both": "Renforcement et nouvel enseignement"
     },
     "regenerate": "Nouveau verset",
-    "regenerating": "Nouveau verset..."
+    "regenerating": "Nouveau verset...",
+    "addToList": "Ajouter à ma liste",
+    "addingToList": "Ajout en cours...",
+    "addedToList": "Ajoutée à ma liste ✓"
   },
   "state": {
     "title": "État de la journée",

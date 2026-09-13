@@ -33,6 +33,7 @@ Default highlights:
 | Pulse slots (local hours) | `5`, `13`, `20` |
 | Pulse OS notifications | Yes (weekdays Mon–Fri, max 2/day, second consecutive stall only) |
 | Pasteur IA (`aiPastorEnabled`) | No |
+| Pasteur IA custom verses (`aiPastorCustomVerses`) | `[]` |
 | RescueTime API key | Empty |
 | Automatic backup | Enabled, 24 hours, destination folder empty until chosen |
 | Relationship draws | Enabled |
@@ -280,6 +281,20 @@ history blocking (`summarizePastorHistory`).
 **Off-list picks.** The model never returns raw Scripture text for an off-list pick —
 only a validated reference plus a `paraphraseFr`, shown behind a **Paraphrase IA —
 lis le passage dans ta Bible** label, never presented as a direct quotation.
+
+**Adding an off-list pick to the preferred list.** When an off-list pick carries a
+`principleKey` (the model is asked for one, but it may be absent), the card shows an
+**Ajouter à ma liste** button. Clicking it builds a catalog-shaped entry — reference,
+`principleKeys: [principleKey]`, and a `note` reused from the AI's own explanation
+(never the `paraphraseFr`, and never any text as `translations` — see the verse-text
+policy below) — and appends it to `settings.aiPastorCustomVerses` via `saveSettings`
+(`addCustomVerse` in `src/lib/pastor/custom-verse.ts`; a reference already covered by
+the checked-in catalog or a prior custom verse is a no-op, not a duplicate row).
+`aiPastorCustomVerses` is merged with the checked-in `verses.json` at every read
+(`buildCatalogWithCustomVerses`), so a future pick can select a custom verse exactly
+like a checked-in one, and `resultFromMessage` resolves stored picks against the same
+merged catalog. No SQLite migration or new repository method is involved — like
+`aiPastorEnabled`, it's a plain field on the `AppSettings` JSON blob.
 
 **Verse-text policy.** No agent may write Bible verse text from memory in any
 translation, including public-domain Louis Segond 1910 — see

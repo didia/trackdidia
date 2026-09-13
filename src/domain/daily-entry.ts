@@ -93,6 +93,7 @@ export const defaultAppSettings = (): AppSettings => ({
   aiPulseNotifyDays: [1, 2, 3, 4, 5],
   aiPulseMaxNotificationsPerDay: 2,
   aiPastorEnabled: false,
+  aiPastorCustomVerses: [],
   aiCostPerMillionTokens: 1,
   aiPulseFirstOpenAt: {},
   rescuetimeApiKey: "",

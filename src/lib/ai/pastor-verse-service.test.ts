@@ -76,6 +76,45 @@ describe("PastorVerseService", () => {
     expect(provider.generateStructured).toHaveBeenCalledOnce();
   });
 
+  it("accepts and resolves a pick from settings.aiPastorCustomVerses", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const settings = configuredSettings();
+    settings.aiPastorCustomVerses = [
+      {
+        id: "custom-job-42-10",
+        reference: { book: "JOB", chapter: 42, verseStart: 10, verseEnd: 10 },
+        principleKeys: ["managedSolitude"],
+        note: "Verset ajoute depuis une suggestion hors catalogue.",
+      },
+    ];
+    // `resultFromMessage` (used by the loader) reads settings from the repository, not from the
+    // in-memory `settings` object passed to `buildVerse` — persist it so both paths agree.
+    await repository.saveSettings(settings);
+
+    const provider: AiProvider = {
+      generateStructured: vi.fn(async () => ({
+        text: validAiPayload("custom-job-42-10"),
+        model: "test-model",
+        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 5 },
+      })),
+    };
+    const service = new PastorVerseService(provider);
+
+    const result = await service.buildVerse(repository, {
+      date: "2026-08-29",
+      settings,
+      trigger: "auto",
+    });
+
+    expect(result.source).toBe("ai");
+    expect(result.verse?.id).toBe("custom-job-42-10");
+
+    // resultFromMessage (used by the loader) must resolve the same custom verse on a later read.
+    const reloaded = await service.resultFromMessage(repository, result.message!);
+    expect(reloaded?.verse?.id).toBe("custom-job-42-10");
+  });
+
   it("repairs an invalid response once before accepting it", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();

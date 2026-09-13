@@ -3,6 +3,8 @@ import type { AppSettings, PastorVerseResult } from "../domain/types";
 import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
 import { latestPastorFallbackAt, loadLatestPastorVerse } from "../lib/ai/pastor-verse-loader";
 import { PastorVerseService } from "../lib/ai/pastor-verse-service";
+import { referenceKey } from "../lib/pastor/bible-books";
+import { addCustomVerse, buildCustomVerseFromOffListPick } from "../lib/pastor/custom-verse";
 import type { AppRepository } from "../lib/storage/repository";
 
 const FALLBACK_COOLDOWN_MS = 60 * 60 * 1000;
@@ -29,17 +31,25 @@ export interface UsePastorVerseValue {
   regenerating: boolean;
   regenerate: () => Promise<void>;
   aiConfigured: boolean;
+  /** Saves the current off-list pick to `settings.aiPastorCustomVerses` ("Ajouter à ma liste"). */
+  addToCatalog: () => Promise<void>;
+  addingToCatalog: boolean;
+  /** True once the verse currently on screen has been added (or was already present). */
+  addedToCatalog: boolean;
 }
 
 export const usePastorVerse = (
   date: string,
   settings: AppSettings,
   repository: AppRepository,
+  saveSettings: (settings: AppSettings) => Promise<void>,
 ): UsePastorVerseValue => {
   const service = useMemo(() => new PastorVerseService(new OpenRouterProvider()), []);
   const [result, setResult] = useState<PastorVerseResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [regenerating, setRegenerating] = useState(false);
+  const [addingToCatalog, setAddingToCatalog] = useState(false);
+  const [addedReferenceKey, setAddedReferenceKey] = useState<string | null>(null);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const resultRef = useRef<PastorVerseResult | null>(null);
@@ -59,11 +69,11 @@ export const usePastorVerse = (
     }
 
     // `cancelled` (not a shared ref) is what makes this StrictMode-safe: the dev mount → unmount
-    // → remount cycle discards the first invocation's state updates via its own `cancelled` flag
-    // while the second invocation runs its own independent, uncancelled request. A ref shared
-    // across invocations that *blocks* a new run while a stale one is still in flight would
-    // instead leave the component stuck in `loading: true` forever, because the stale run's
-    // `cancelled` guard also suppresses the `setLoading(false)` that would clear the ref.
+    // → remount cycle discards the first invocation's state updates via its own `cancelled` flag,
+    // while the actual model call is shared across both invocations via `autoAttemptsByDate`
+    // below, so only one is ever made. A ref that instead *blocks* a new run while a stale one is
+    // still in flight would leave the component stuck in `loading: true` forever, because the
+    // stale run's `cancelled` guard also suppresses the `setLoading(false)` that would clear it.
     let cancelled = false;
     setLoading(true);
 
@@ -167,5 +177,47 @@ export const usePastorVerse = (
     }
   }, [date, repository, service]);
 
-  return { result, loading, regenerating, regenerate, aiConfigured };
+  const addToCatalog = useCallback(async () => {
+    const body = resultRef.current?.body;
+    if (!body) {
+      return;
+    }
+
+    const candidate = buildCustomVerseFromOffListPick(body);
+    if (!candidate) {
+      return;
+    }
+
+    setAddingToCatalog(true);
+    try {
+      const currentSettings = settingsRef.current;
+      const { added, customVerses } = addCustomVerse(
+        currentSettings.aiPastorCustomVerses,
+        candidate,
+      );
+      // Mark the reference as "added" whether it was newly appended or already present — both
+      // mean the user's preferred list now covers this verse, which is what the button reports.
+      setAddedReferenceKey(referenceKey(candidate.reference));
+      if (!added) {
+        return;
+      }
+      await saveSettings({ ...currentSettings, aiPastorCustomVerses: customVerses });
+    } finally {
+      setAddingToCatalog(false);
+    }
+  }, [saveSettings]);
+
+  const addedToCatalog =
+    result?.body.reference != null && addedReferenceKey === referenceKey(result.body.reference);
+
+  return {
+    result,
+    loading,
+    regenerating,
+    regenerate,
+    aiConfigured,
+    addToCatalog,
+    addingToCatalog,
+    addedToCatalog,
+  };
 };

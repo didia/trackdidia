@@ -196,6 +196,13 @@
     "note": "Chacun est invité à évaluer sa propre action, sans se mesurer d'abord aux autres."
   },
   {
+    "id": "gal-6-2",
+    "reference": { "book": "GAL", "chapter": 6, "verseStart": 2, "verseEnd": 2 },
+    "principleKeys": ["attentionAMonEpouse", "respectDeVieCommeJesus"],
+    "themes": ["fardeau", "entraide"],
+    "note": "Porter le fardeau de l'autre plutôt que le lui laisser porter seul : une mesure concrète de l'attention portée à ceux qu'on aime."
+  },
+  {
     "id": "pro-22-6",
     "reference": { "book": "PRO", "chapter": 22, "verseStart": 6, "verseEnd": 6 },
     "principleKeys": ["tempsDeQualiteAvecEnfants"],
