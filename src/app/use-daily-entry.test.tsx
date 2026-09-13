@@ -24,6 +24,7 @@ const wrapRepository = (repository: MemoryRepository) => {
     repository,
     settings: defaultAppSettings(),
     saveSettings: async () => undefined,
+    syncSettings: () => undefined,
     coachService: new CoachPulseService(new FakeProvider()),
     browserPreview: true,
     debugEnabled: false,

@@ -19,7 +19,6 @@ const okMessage = (overrides: Partial<Parameters<MemoryRepository["saveAiMessage
     pick: "list",
     verseId: "php-4-6-7",
     reference: { book: "PHP", chapter: 4, verseStart: 6, verseEnd: 7 },
-    paraphraseFr: null,
     principleKey: null,
     intent: "reinforcement",
     title: "Philippiens 4, 6-7",

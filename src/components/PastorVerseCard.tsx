@@ -20,6 +20,7 @@ interface PastorVerseCardProps {
   onAddToCatalog: () => void;
   addingToCatalog: boolean;
   addedToCatalog: boolean;
+  addToCatalogError: string | null;
 }
 
 const principleLabel = (key: PrincipleKey | null | undefined): string | null => {
@@ -41,6 +42,7 @@ export const PastorVerseCard = ({
   onAddToCatalog,
   addingToCatalog,
   addedToCatalog,
+  addToCatalogError,
 }: PastorVerseCardProps) => {
   const { t } = useTranslation("today");
   const { t: tCoach } = useTranslation("coach");
@@ -87,16 +89,8 @@ export const PastorVerseCard = ({
             <p className="empty-copy">{t("pastor.emptyCatalog")}</p>
           )}
 
-          {body.pick === "outside" ? (
-            <p className="pastor-verse__paraphrase-label">{t("pastor.paraphraseLabel")}</p>
-          ) : null}
-
           {resolvedText ? (
             <blockquote className="pastor-verse__quote">{resolvedText.text}</blockquote>
-          ) : body.paraphraseFr ? (
-            <blockquote className="pastor-verse__quote pastor-verse__quote--paraphrase">
-              {body.paraphraseFr}
-            </blockquote>
           ) : referenceLabel ? (
             <p className="pastor-verse__hint">{t("pastor.readInBible")}</p>
           ) : null}
@@ -135,6 +129,9 @@ export const PastorVerseCard = ({
                     ? t("pastor.addingToList")
                     : t("pastor.addToList")}
               </button>
+              {addToCatalogError ? (
+                <small className="coach-card__warning">{addToCatalogError}</small>
+              ) : null}
             </div>
           ) : null}
         </div>

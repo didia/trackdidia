@@ -103,13 +103,9 @@ export class PastorVerseService {
     const verseForBody = (body: PastorVerseBody) =>
       body.verseId ? (inputs.catalog.find((item) => item.id === body.verseId) ?? null) : null;
 
-    if (localOnly || !aiConfigured) {
-      return { message: null, body: localBody, verse: verseForBody(localBody), source: "local" };
-    }
-
     // `inputHash` is audit-only here: unlike `goal_pacing`, pastor caching is scope-key/date
     // sticky (one row per day), driven entirely by `pastor-verse-loader.ts` reading the latest
-    // `ok` row for `scopeKey`.
+    // `ok`/`local` row for `scopeKey`.
     const inputHash = buildAiInputHash({ promptVersion, scope: settings.aiPayloadScope, snapshot });
     const baseMessage = (): AiMessage => ({
       id: createEntityId("ai-message"),
@@ -130,6 +126,32 @@ export class PastorVerseService {
       latencyMs: null,
       createdAt,
     });
+
+    if (localOnly) {
+      // Ephemeral instant paint while the real AI attempt runs in the background — never
+      // persisted, since it's about to be replaced and must not count as "shown today".
+      return { message: null, body: localBody, verse: verseForBody(localBody), source: "local" };
+    }
+
+    if (!aiConfigured) {
+      // No AI configured: this local pick is the final result for today, so it's durably
+      // recorded (`status: "local"`, never `"ok"`/`"fallback"`) so the 7-day no-repeat rule holds
+      // without AI. `status: "local"` keeps it out of `computeAiUsageForMonth`'s call count and
+      // off any analytics that assume `ok`/`fallback` mean an AI outcome — no model was called,
+      // so there is nothing to charge or count as a call.
+      const message: AiMessage = {
+        ...baseMessage(),
+        status: "local",
+        model: "local",
+      };
+      const saved = await repository.saveCoachPulseEpisode(message, []);
+      return {
+        message: saved.message,
+        body: localBody,
+        verse: verseForBody(localBody),
+        source: "local",
+      };
+    }
 
     const ctx: PastorVerseValidationContext = {
       catalog: inputs.catalog,

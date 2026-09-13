@@ -30,8 +30,9 @@
     "emptyCatalog": "Le catalogue de versets est vide pour l'instant.",
     "emptyCatalogTitle": "Catalogue vide",
     "emptyCatalogExplanation": "Ajoute des versets dans verses.json pour activer le verset du jour.",
-    "paraphraseLabel": "Paraphrase IA — lis le passage dans ta Bible.",
     "readInBible": "Lis le passage dans ta Bible.",
+    "loadError": "Le verset n'a pas pu être chargé. Réessaie plus tard.",
+    "addToListError": "L'ajout à ta liste a échoué. Réessaie.",
     "practice": "Pratique concrète :",
     "intent": {
       "reinforcement": "Renforcement",

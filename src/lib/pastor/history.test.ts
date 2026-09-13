@@ -14,7 +14,6 @@ const body = (overrides: Partial<PastorVerseBody> = {}): PastorVerseBody => ({
   pick: "list",
   verseId: "verse-0",
   reference: { book: "PHP", chapter: 4, verseStart: 1, verseEnd: 1 },
-  paraphraseFr: null,
   principleKey: null,
   intent: "reinforcement",
   title: "Titre",
@@ -96,7 +95,6 @@ describe("summarizePastorHistory", () => {
           body({
             pick: "outside",
             verseId: null,
-            paraphraseFr: "Paraphrase",
             reference: { book: "GEN", chapter: 1, verseStart: 1, verseEnd: 1 },
           }),
         ),

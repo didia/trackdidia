@@ -40,6 +40,7 @@ export const renderWithApp = async (ui: ReactElement, options: RenderOptions = {
     repository,
     settings: defaultAppSettings(),
     saveSettings: async () => undefined,
+    syncSettings: () => undefined,
     coachService: new CoachPulseService(new FakeProvider()),
     browserPreview: true,
     debugEnabled: false,

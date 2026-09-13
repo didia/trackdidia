@@ -477,7 +477,6 @@ describe("TodayPage pastor verse card", () => {
       pick: "list",
       verseId: "php-4-6-7",
       reference: { book: "PHP", chapter: 4, verseStart: 6, verseEnd: 7 },
-      paraphraseFr: null,
       principleKey: null,
       intent: "reinforcement",
       title: "Philippiens 4, 6-7",
@@ -622,6 +621,111 @@ describe("TodayPage pastor verse card", () => {
     });
   });
 
+  it("renders inside StrictMode with AI off with exactly one persisting call and one local row", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const buildVerseSpy = vi.spyOn(PastorVerseService.prototype, "buildVerse");
+
+    await renderWithApp(<TodayPage />, {
+      repository,
+      strictMode: true,
+      contextOverrides: { settings: pastorSettings({ aiEnabled: false }) },
+    });
+
+    await screen.findByText("Verset du jour");
+    await waitFor(() => {
+      // The no-AI path's persisting call (no `localOnly` flag) must be deduped across
+      // StrictMode's double effect invocation exactly like the AI-configured auto attempt above
+      // — otherwise two concurrent calls would race to insert two `ai_messages` rows for the same
+      // deterministic `(surface, scopeKey, inputHash)`.
+      const persistingCalls = buildVerseSpy.mock.calls.filter(
+        ([, request]) => request.trigger === "auto" && !request.localOnly,
+      );
+      expect(persistingCalls).toHaveLength(1);
+    });
+
+    await waitFor(async () => {
+      const messages = await repository.listAiMessages("pastor_verse");
+      const localRows = messages.filter((message) => message.status === "local");
+      expect(localRows).toHaveLength(1);
+    });
+  });
+
+  it("still shows a verse with a visible warning when the initial repository read rejects (no prior result)", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    // Fails before anything has ever been shown for today — `run()`'s catch has no `latestResult`
+    // yet, so it must fall back to `buildOfflineFallbackResult` rather than leaving the card null.
+    vi.spyOn(repository, "getLatestAiMessage").mockRejectedValueOnce(new Error("SQLITE_BUSY"));
+
+    await renderWithApp(<TodayPage />, {
+      repository,
+      contextOverrides: { settings: pastorSettings({ aiEnabled: false }) },
+    });
+
+    const title = await screen.findByText("Verset du jour");
+    const pastorSection = title.closest("section") as HTMLElement;
+    // A verse still renders (the card never returns null just because a repository read failed).
+    await waitFor(() => {
+      expect(within(pastorSection).getByRole("heading", { level: 3 })).toBeInTheDocument();
+    });
+    expect(within(pastorSection).getByText(/Le verset n'a pas pu être chargé/)).toBeInTheDocument();
+  });
+
+  it("keeps the already-shown verse with a visible warning when a later repository call rejects", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    mockOpenRouterFetch();
+    // The first two calls are the `loadLatestPastorVerse` "ok"/"local" cache checks (nothing
+    // stored yet); the third is the auto-attempt's `latestPastorFallbackAt` cooldown check, which
+    // runs only after the ephemeral local paint already set a result via `applyResult`. Failing
+    // it there exercises the catch's "has a prior `latestResult`" branch.
+    vi.spyOn(repository, "getLatestAiMessage")
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockRejectedValueOnce(new Error("SQLITE_BUSY"));
+
+    await renderWithApp(<TodayPage />, {
+      repository,
+      contextOverrides: { settings: pastorSettings({ aiEnabled: true, aiApiKey: "secret" }) },
+    });
+
+    const title = await screen.findByText("Verset du jour");
+    const pastorSection = title.closest("section") as HTMLElement;
+    await waitFor(() => {
+      expect(
+        within(pastorSection).getByText(/Le verset n'a pas pu être chargé/),
+      ).toBeInTheDocument();
+    });
+    // The verse shown is still the one already painted before the failure — the card must not
+    // clear it in favor of an empty/null state.
+    expect(within(pastorSection).getByRole("heading", { level: 3 })).toBeInTheDocument();
+  });
+
+  it("keeps the current verse with a visible warning when regenerate rejects", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveAiMessage(storedPastorMessage());
+    vi.spyOn(PastorVerseService.prototype, "buildVerse").mockRejectedValueOnce(
+      new Error("network down"),
+    );
+
+    const user = userEvent.setup();
+    await renderWithApp(<TodayPage />, {
+      repository,
+      contextOverrides: { settings: pastorSettings({ aiEnabled: true, aiApiKey: "secret" }) },
+    });
+
+    await screen.findByText("Explication stockee");
+    await user.click(screen.getByRole("button", { name: /nouveau verset/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Le verset n'a pas pu être chargé/)).toBeInTheDocument();
+    });
+    // The verse on screen is unchanged — a failed regenerate must never blank the card.
+    expect(screen.getByText("Explication stockee")).toBeInTheDocument();
+  });
+
   it("does not attempt AI again when a fallback row is less than 60 minutes old", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -704,7 +808,7 @@ describe("TodayPage pastor verse card", () => {
     });
   });
 
-  it("shows the off-list paraphrase label for an outside pick", async () => {
+  it("shows only the reference and read-in-Bible hint for an off-list pick, never model-authored text", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
     await repository.saveAiMessage(
@@ -713,7 +817,6 @@ describe("TodayPage pastor verse card", () => {
           pick: "outside",
           verseId: null,
           reference: { book: "GEN", chapter: 1, verseStart: 1, verseEnd: 1 },
-          paraphraseFr: "Une paraphrase du debut de la Genese.",
           principleKey: null,
           intent: "new_teaching",
           title: "Genèse 1, 1",
@@ -728,8 +831,9 @@ describe("TodayPage pastor verse card", () => {
       contextOverrides: { settings: pastorSettings({ aiEnabled: true, aiApiKey: "secret" }) },
     });
 
-    expect(await screen.findByText("Une paraphrase du debut de la Genese.")).toBeInTheDocument();
-    expect(screen.getByText("Paraphrase IA — lis le passage dans ta Bible.")).toBeInTheDocument();
+    expect(await screen.findByText("Explication hors catalogue")).toBeInTheDocument();
+    expect((await screen.findAllByText("Genèse 1, 1")).length).toBeGreaterThan(0);
+    expect(screen.getByText("Lis le passage dans ta Bible.")).toBeInTheDocument();
   });
 
   it("hides the add-to-list button for an off-list pick with no principle key", async () => {
@@ -741,7 +845,6 @@ describe("TodayPage pastor verse card", () => {
           pick: "outside",
           verseId: null,
           reference: { book: "GEN", chapter: 1, verseStart: 1, verseEnd: 1 },
-          paraphraseFr: "Une paraphrase du debut de la Genese.",
           principleKey: null,
           intent: "new_teaching",
           title: "Genèse 1, 1",
@@ -756,7 +859,7 @@ describe("TodayPage pastor verse card", () => {
       contextOverrides: { settings: pastorSettings({ aiEnabled: true, aiApiKey: "secret" }) },
     });
 
-    await screen.findByText("Une paraphrase du debut de la Genese.");
+    await screen.findByText("Explication hors catalogue");
     expect(screen.queryByRole("button", { name: /ajouter à ma liste/i })).not.toBeInTheDocument();
   });
 
@@ -769,7 +872,6 @@ describe("TodayPage pastor verse card", () => {
           pick: "outside",
           verseId: null,
           reference: { book: "JOB", chapter: 42, verseStart: 10, verseEnd: 10 },
-          paraphraseFr: "Une paraphrase de la restauration de Job.",
           principleKey: "managedSolitude",
           intent: "new_teaching",
           title: "Job 42, 10",
@@ -778,33 +880,66 @@ describe("TodayPage pastor verse card", () => {
         }),
       }),
     );
-    const saveSettings = vi.fn(async () => undefined);
 
     const user = userEvent.setup();
     await renderWithApp(<TodayPage />, {
       repository,
-      contextOverrides: {
-        settings: pastorSettings({ aiEnabled: true, aiApiKey: "secret" }),
-        saveSettings,
-      },
+      contextOverrides: { settings: pastorSettings({ aiEnabled: true, aiApiKey: "secret" }) },
     });
 
     const addButton = await screen.findByRole("button", { name: /ajouter à ma liste/i });
     await user.click(addButton);
 
-    await waitFor(() => {
-      expect(saveSettings).toHaveBeenCalledWith(
+    // Persisted through the atomic `AppRepository.addPastorCustomVerse` (not a full-settings
+    // `saveSettings` replace-all) — see the concurrency fix in `use-pastor-verse.ts`.
+    await waitFor(async () => {
+      const settings = await repository.getSettings();
+      expect(settings.aiPastorCustomVerses).toEqual([
         expect.objectContaining({
-          aiPastorCustomVerses: [
-            expect.objectContaining({
-              id: "custom-job-42-10",
-              reference: { book: "JOB", chapter: 42, verseStart: 10, verseEnd: 10 },
-              principleKeys: ["managedSolitude"],
-            }),
-          ],
+          id: "custom-job-42-10",
+          reference: { book: "JOB", chapter: 42, verseStart: 10, verseEnd: 10 },
+          principleKeys: ["managedSolitude"],
         }),
-      );
+      ]);
     });
     expect(await screen.findByRole("button", { name: /ajoutée à ma liste/i })).toBeDisabled();
+  });
+
+  it("surfaces a visible, retryable warning when adding to the catalog fails", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveAiMessage(
+      storedPastorMessage({
+        bodyJson: JSON.stringify({
+          pick: "outside",
+          verseId: null,
+          reference: { book: "JOB", chapter: 42, verseStart: 10, verseEnd: 10 },
+          principleKey: "managedSolitude",
+          intent: "new_teaching",
+          title: "Job 42, 10",
+          explanation: "Apres l'epreuve, une restauration est possible.",
+          practice: null,
+        }),
+      }),
+    );
+    vi.spyOn(repository, "addPastorCustomVerse").mockRejectedValueOnce(
+      // The raw technical message (e.g. a SQLite `UNIQUE constraint failed: ...`) must never
+      // reach the French UI — only a translated warning does (see `pastor.addToListError`).
+      new Error("UNIQUE constraint failed: app_settings.id"),
+    );
+
+    const user = userEvent.setup();
+    await renderWithApp(<TodayPage />, {
+      repository,
+      contextOverrides: { settings: pastorSettings({ aiEnabled: true, aiApiKey: "secret" }) },
+    });
+
+    const addButton = await screen.findByRole("button", { name: /ajouter à ma liste/i });
+    await user.click(addButton);
+
+    expect(await screen.findByText("L'ajout à ta liste a échoué. Réessaie.")).toBeInTheDocument();
+    expect(screen.queryByText(/UNIQUE constraint failed/i)).not.toBeInTheDocument();
+    // Failure must leave the action retryable, never optimistically marked as done.
+    expect(screen.getByRole("button", { name: /ajouter à ma liste/i })).toBeEnabled();
   });
 });

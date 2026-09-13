@@ -27,6 +27,7 @@ import type {
   AnnualGoal,
   AnnualGoalSnapshot,
   AppSettings,
+  CatalogVerse,
   CoachPulseStance,
   DailyEntry,
   GtdImportSummary,
@@ -65,6 +66,7 @@ import {
   filterTasks,
 } from "../gtd/engine";
 import { buildGoogleTasksImport } from "../gtd/google-tasks-import";
+import { addCustomVerse } from "../pastor/custom-verse";
 import {
   adjustPlannedFieldsForSave,
   reconcileProjectPlannedTasks,
@@ -1779,13 +1781,43 @@ export class TauriSqliteRepository implements AppRepository {
   async saveSettings(settings: AppSettings): Promise<void> {
     return this.runExclusive(async () => {
       const db = await this.getDb();
-      const normalized = mergeAppSettingsWithDefaults(settings, defaultAppSettings());
-      await db.execute(
-        `INSERT INTO app_settings (id, value)
-         VALUES (1, $1)
-         ON CONFLICT(id) DO UPDATE SET value = excluded.value`,
-        [JSON.stringify(normalized)],
-      );
+      await this.writeSettingsRow(db, settings);
+    });
+  }
+
+  /** Shared by `saveSettings` and `addPastorCustomVerse` — callers must already hold `writeQueue`. */
+  private async writeSettingsRow(db: Database, settings: AppSettings): Promise<AppSettings> {
+    const normalized = mergeAppSettingsWithDefaults(settings, defaultAppSettings());
+    await db.execute(
+      `INSERT INTO app_settings (id, value)
+       VALUES (1, $1)
+       ON CONFLICT(id) DO UPDATE SET value = excluded.value`,
+      [JSON.stringify(normalized)],
+    );
+    return normalized;
+  }
+
+  /**
+   * Atomically merges `candidate` into `aiPastorCustomVerses`: the read and write both happen
+   * inside one `runExclusive` operation, so no other queued `saveSettings`/settings-mutating call
+   * can interleave between the read and the write (see the interface doc comment).
+   */
+  async addPastorCustomVerse(
+    candidate: CatalogVerse,
+  ): Promise<{ added: boolean; settings: AppSettings }> {
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      const current = await this.getSettings();
+      const { added, customVerses } = addCustomVerse(current.aiPastorCustomVerses, candidate);
+      if (!added) {
+        return { added: false, settings: current };
+      }
+
+      const next = await this.writeSettingsRow(db, {
+        ...current,
+        aiPastorCustomVerses: customVerses,
+      });
+      return { added: true, settings: next };
     });
   }
 
@@ -2062,7 +2094,7 @@ export class TauriSqliteRepository implements AppRepository {
               COALESCE(SUM(tokens_prompt), 0) AS tokens_prompt,
               COALESCE(SUM(tokens_completion), 0) AS tokens_completion
        FROM ai_messages
-       WHERE created_at >= $1 AND created_at < $2`,
+       WHERE created_at >= $1 AND created_at < $2 AND status != 'local'`,
       [startIso, endIso],
     );
 

@@ -248,7 +248,14 @@ at runtime (`parseVerseCatalog`), dropping any invalid entry with a `logDebug` w
 rather than crashing; a unit test asserts the checked-in file parses with **zero
 errors**. `src/lib/pastor/bible-books.ts` defines all 66 protocanonical plus 7
 deuterocanonical books with lenient `maxChapters` (the wider of NRSVue/Catholic
-numbering — see the verse-text policy below for why this matters).
+numbering — see the verse-text policy below for why this matters). An off-list
+reference's `verseStart`/`verseEnd` are additionally checked against a single global
+verse-number ceiling in `src/lib/pastor/bible-verse-counts.ts` — 176, Psalm 119's verse
+count and the longest chapter in the entire Bible — so a fabricated `{ book: "GEN",
+chapter: 1, verseStart: 999 }` is rejected while no real reference in any book can ever
+be. An earlier per-book table was replaced with this single constant after roughly 20
+of its 73 hand-authored ceilings turned out to be tighter than their book's real
+longest chapter and silently rejected real references; see that file's doc comment.
 
 **Journal window.** `resolvePastorSnapshotInputs` loads the last 7 days plus the
 target day of daily entries (principle checks and non-empty journal notes, capped at
@@ -262,39 +269,92 @@ days (including today) are blocked from being picked again; if that would leave 
 than 3 catalog verses eligible, the window relaxes to 3 days, then to today only —
 always blocking today's verses unless doing so would block the entire catalog. An
 off-list (model-chosen, outside the catalog) pick is allowed only if none happened in
-the previous 6 days.
+the previous 6 days. `summarizePastorHistory` treats `ok`, `fallback`, and `local`
+`pastor_verse` rows alike for this blocking window (see below for `local`).
 
 **Cache, regenerate, and cooldown.** One verse is generated per local day, cached
 under scope key `pastor:YYYY-MM-DD` (**not** the `YYYY-MM-DD` / `YYYY-MM-DD#N` shape
 the coach pulse engine reads via `listAiMessagesForDate`, so a pastor row is never
-mistaken for a coach pulse slot). On page open: a stored `ok` verse for today is shown
-immediately with no model call; otherwise a local pick renders instantly and, once,
-an auto AI attempt runs in the background — skipped if a `fallback` row for today is
-under 60 minutes old or an auto attempt already ran this session for that date.
-**Nouveau verset** always calls the model explicitly, excluding every verse already
-shown today plus the one on screen; on failure the current verse stays with a warning
-rather than being replaced, and — unlike a failed background auto attempt — that
-failure does **not** persist a `fallback` row, since the local pick it would have
-stored was never actually shown and must not count as "shown today" for future
-history blocking (`summarizePastorHistory`).
+mistaken for a coach pulse slot). On page open: a stored `ok` row for today is shown
+immediately with no model call; if none exists, a stored `local` row (see below) is
+shown instead, still with no model call. Otherwise, when AI is configured, a local
+pick renders instantly and, once, an auto AI attempt runs in the background — skipped
+if a `fallback` row for today is under 60 minutes old or an auto attempt already ran
+this session for that date. **Nouveau verset** always calls the model explicitly,
+excluding every verse already shown today plus the one on screen; on failure the
+current verse stays with a warning rather than being replaced, and — unlike a failed
+background auto attempt — that failure does **not** persist a `fallback` row, since
+the local pick it would have stored was never actually shown and must not count as
+"shown today" for future history blocking (`summarizePastorHistory`).
+
+**No-AI persistence (`status: "local"`).** When AI is off/unconfigured, the local pick
+shown for the day is durably recorded as an `ai_messages` row with `status: "local"`
+(never `"ok"`/`"fallback"`) — one row per local day, reused on the next mount via
+`loadLatestPastorVerse` (which checks the latest `ok` row, falling back to the latest
+`local` row) instead of regenerating and re-persisting on every mount. `status:
+"local"` keeps this row out of the cost dashboard's call count
+(`computeAiUsageForMonth` excludes it) and out of any analytics that assume
+`ok`/`fallback` mean an AI outcome, while still counting for `summarizePastorHistory`'s
+7-day no-repeat blocking — without this, the fully-supported no-AI mode could repeat a
+verse every few days instead of honoring the documented rule. The ephemeral instant
+local paint shown while an AI attempt is in flight (AI configured) is never persisted
+this way — only the no-AI case, where the local pick is the final result for the day.
+The one persisting `buildVerse` call per date — the no-AI local pick or the AI auto
+attempt — is deduped per date through the same module-level shared-promise map
+regardless of which branch it is, so React StrictMode's double effect invocation (or
+any other concurrent mount for the same date) can never race to insert two `ai_messages`
+rows for the same date (`use-pastor-verse.ts`, `autoAttemptsByDate`).
 
 **Off-list picks.** The model never returns raw Scripture text for an off-list pick —
-only a validated reference plus a `paraphraseFr`, shown behind a **Paraphrase IA —
-lis le passage dans ta Bible** label, never presented as a direct quotation.
+only a validated reference (see the per-book verse-count check above). The card shows
+just the reference plus **Lis le passage dans ta Bible**, exactly like a catalog verse
+with no stored `translations` text; there is no model-authored paraphrase field at all
+(`PastorVerseBody` has no `paraphraseFr`), so there is nothing to algorithmically
+detect as "too close to a real quotation" — the hard "no agent/model writes Scripture
+text" guarantee doesn't depend on the model's cooperation.
 
 **Adding an off-list pick to the preferred list.** When an off-list pick carries a
 `principleKey` (the model is asked for one, but it may be absent), the card shows an
 **Ajouter à ma liste** button. Clicking it builds a catalog-shaped entry — reference,
-`principleKeys: [principleKey]`, and a `note` reused from the AI's own explanation
-(never the `paraphraseFr`, and never any text as `translations` — see the verse-text
-policy below) — and appends it to `settings.aiPastorCustomVerses` via `saveSettings`
-(`addCustomVerse` in `src/lib/pastor/custom-verse.ts`; a reference already covered by
-the checked-in catalog or a prior custom verse is a no-op, not a duplicate row).
+`principleKeys: [principleKey]`, and a `note` reused from the AI's own explanation —
+and merges it into `settings.aiPastorCustomVerses` via the atomic repository method
+`AppRepository.addPastorCustomVerse` (`addCustomVerse` in
+`src/lib/pastor/custom-verse.ts` for the merge itself; a reference already covered by
+the checked-in catalog or a prior custom verse is a no-op, not a duplicate row). This
+method reads the settings row and writes the merged result as a single serialized
+operation (inside SQLite's existing write queue on desktop), rather than building a
+full `AppSettings` snapshot in the UI and replacing the whole row — see "Settings save
+concurrency" below for why that distinction matters. The UI marks the button as
+"Ajoutée" only once this call resolves; a failure surfaces a visible, retryable
+warning on the card instead of optimistically reporting success.
 `aiPastorCustomVerses` is merged with the checked-in `verses.json` at every read
 (`buildCatalogWithCustomVerses`), so a future pick can select a custom verse exactly
 like a checked-in one, and `resultFromMessage` resolves stored picks against the same
-merged catalog. No SQLite migration or new repository method is involved — like
-`aiPastorEnabled`, it's a plain field on the `AppSettings` JSON blob.
+merged catalog. No SQLite migration is involved — like `aiPastorEnabled`, it's a plain
+field on the `AppSettings` JSON blob; `addPastorCustomVerse` is a new repository
+method, not a new table.
+
+**Settings save concurrency.** `AppRepository.saveSettings` is a full replace-all
+write: a caller reads `settings`, builds `{ ...settings, someField: x }`, and awaits
+the save. Two such calls in flight at once (e.g. the pastor card's own "Ajouter à ma
+liste" alongside the startup pulse persisting `aiPulseFirstOpenAt`, or an automatic
+backup persisting `lastBackupAt`) can each hold a snapshot that predates the other's
+write; whichever save lands second silently overwrites the first caller's change,
+because SQLite's write queue orders the two `saveSettings` calls but does not merge
+their snapshots. `addPastorCustomVerse` closes this gap **for its one field only**: it
+re-reads the settings row immediately before writing, inside one serialized operation,
+so `addPastorCustomVerse` itself never overwrites a concurrent `saveSettings` write:
+whichever one runs first in the write queue, the other still sees it. What it does
+**not** protect against: a `saveSettings` call elsewhere that captured its full
+snapshot *before* `addPastorCustomVerse` ran, and then executes *after* it — that call
+still blindly replaces the whole row with its stale snapshot and would clobber the
+just-added custom verse, because plain `saveSettings` never re-reads current state
+before writing. Closing that direction too — for `aiPastorCustomVerses` and every
+other settings field — needs every writer (pulse, backup, evening close, etc.) to
+route through the same kind of read-immediately-before-write operation, e.g. a generic
+serialized read-modify-write updater for all of `AppSettings`. That remains a known
+gap and a candidate follow-up; this fix closes it for the pastor card's own writes
+only, per the review's suggested narrower scope.
 
 **Verse-text policy.** No agent may write Bible verse text from memory in any
 translation, including public-domain Louis Segond 1910 — see
@@ -384,7 +444,7 @@ calendar month (`created_at` boundaries in local time):
 
 | Metric | Source |
 |---|---|
-| Appels enregistres | Row count in the month |
+| Appels enregistres | Row count in the month, excluding `status = 'local'` rows (no model call happened — see the Pasteur IA no-AI persistence above) |
 | Jetons entree / sortie | Sum of `tokens_prompt` / `tokens_completion` (null → 0) |
 | Cout estime | `(prompt + completion) / 1_000_000 × aiCostPerMillionTokens` (computed in UI via `applyCostEstimate`, not in the repository) |
 

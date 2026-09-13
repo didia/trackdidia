@@ -11,6 +11,7 @@ import {
   isKnownBibleBook,
   maxChaptersForBook,
 } from "../../pastor/bible-books";
+import { maxVerseCeilingForBook } from "../../pastor/bible-verse-counts";
 
 const principleKeys = new Set<PrincipleKey>(
   principleDefinitions.map((definition) => definition.key),
@@ -22,7 +23,6 @@ const MAX_OFF_LIST_VERSE_SPAN = 10;
 const MAX_TITLE_LENGTH = 80;
 const MAX_EXPLANATION_LENGTH = 900;
 const MAX_PRACTICE_LENGTH = 160;
-const MAX_PARAPHRASE_LENGTH = 400;
 
 export interface PastorVerseValidationContext {
   catalog: CatalogVerse[];
@@ -76,6 +76,11 @@ const validateReferenceShape = (
 
   if (verseEnd - verseStart > MAX_OFF_LIST_VERSE_SPAN) {
     return { ok: false, error: "reference span is too large" };
+  }
+
+  const maxVerse = maxVerseCeilingForBook(book);
+  if (verseEnd > maxVerse) {
+    return { ok: false, error: "reference.verseEnd exceeds the book's verse count" };
   }
 
   return { ok: true, value: { book, chapter, verseStart, verseEnd } };
@@ -162,7 +167,6 @@ export const validatePastorVerseResponse = (
         pick: "list",
         verseId,
         reference: verse.reference,
-        paraphraseFr: null,
         principleKey,
         intent,
         title,
@@ -179,16 +183,6 @@ export const validatePastorVerseResponse = (
   const referenceResult = validateReferenceShape(record.reference);
   if (!referenceResult.ok) {
     return referenceResult;
-  }
-
-  if (
-    !isNonEmptyString(record.paraphraseFr) ||
-    !isWithinLength(record.paraphraseFr, MAX_PARAPHRASE_LENGTH)
-  ) {
-    return {
-      ok: false,
-      error: `paraphraseFr is required for an off-list pick and must be at most ${MAX_PARAPHRASE_LENGTH} characters`,
-    };
   }
 
   const exactMatch = ctx.catalog.find((verse) =>
@@ -208,7 +202,6 @@ export const validatePastorVerseResponse = (
         pick: "list",
         verseId: exactMatch.id,
         reference: exactMatch.reference,
-        paraphraseFr: null,
         principleKey,
         intent,
         title,
@@ -218,13 +211,15 @@ export const validatePastorVerseResponse = (
     };
   }
 
+  // Off-list, no exact catalog match: the response is a validated reference only — never
+  // model-authored passage text. The card shows the reference plus "read it in your Bible",
+  // exactly like a catalog verse with no stored `translations` text (see `PastorVerseCard.tsx`).
   return {
     ok: true,
     value: {
       pick: "outside",
       verseId: null,
       reference: referenceResult.value,
-      paraphraseFr: record.paraphraseFr.trim(),
       principleKey,
       intent,
       title,
@@ -290,7 +285,6 @@ export const parseStoredPastorBody = (raw: string | null): PastorVerseBody | nul
       pick: parsed.pick as PastorVerseBody["pick"],
       verseId: typeof parsed.verseId === "string" ? parsed.verseId : null,
       reference,
-      paraphraseFr: typeof parsed.paraphraseFr === "string" ? parsed.paraphraseFr : null,
       principleKey:
         parsed.principleKey && principleKeys.has(String(parsed.principleKey) as PrincipleKey)
           ? (parsed.principleKey as PrincipleKey)

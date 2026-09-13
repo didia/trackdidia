@@ -10,14 +10,13 @@ export const buildPastorVerseSchemaPrompt = (
       : "(aucun verset disponible dans le catalogue pour l'instant)";
 
   const offListRule = offListAllowed
-    ? `Tu peux exceptionnellement choisir un verset hors catalogue ("pick":"outside") si aucun verset du catalogue ne convient vraiment. Dans ce cas fournis "reference" ({book, chapter, verseStart, verseEnd}, numérotation NRSVue/anglaise) et un "paraphraseFr". Codes de livres valides pour reference.book : ${formatBibleBookCodeList()}.`
+    ? `Tu peux exceptionnellement choisir un verset hors catalogue ("pick":"outside") si aucun verset du catalogue ne convient vraiment. Dans ce cas fournis uniquement "reference" ({book, chapter, verseStart, verseEnd}, numérotation NRSVue/anglaise) — jamais de texte du verset lui-même, ni citation ni paraphrase : l'app affiche seulement la référence et invite à lire le passage dans une Bible. Codes de livres valides pour reference.book : ${formatBibleBookCodeList()}.`
     : `Un verset hors catalogue a déjà été proposé récemment : choisis obligatoirement "pick":"list" avec un verseId de la liste ci-dessus.`;
 
   const fields = `Champs requis (pastor_verse.v1):
 - pick: "list" | "outside"
 - verseId: obligatoire si pick="list", un des identifiants suivants : ${idList}
-- reference: obligatoire si pick="outside" — {book, chapter, verseStart, verseEnd}
-- paraphraseFr: obligatoire si pick="outside" (<= 400 caractères) ; jamais une citation mot pour mot
+- reference: obligatoire si pick="outside" — {book, chapter, verseStart, verseEnd} ; ne fournis jamais le texte du verset
 - principleKey: une clé de principe pertinente, ou null
 - intent: "reinforcement" | "new_teaching" | "both"
 - title (<= 80 caractères) : référence ou titre court en français

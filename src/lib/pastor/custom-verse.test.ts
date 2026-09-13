@@ -6,7 +6,6 @@ const offListBody = (overrides: Partial<PastorVerseBody> = {}): PastorVerseBody 
   pick: "outside",
   verseId: null,
   reference: { book: "GEN", chapter: 50, verseStart: 20, verseEnd: 20 },
-  paraphraseFr: "Une paraphrase.",
   principleKey: "managedSolitude",
   intent: "new_teaching",
   title: "Genèse 50, 20",

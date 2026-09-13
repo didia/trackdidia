@@ -327,7 +327,12 @@ export type AiSurface =
 
 export type CoachPulseStance = "open" | "steer" | "wind_down" | "close";
 
-export type AiMessageStatus = "ok" | "fallback" | "error" | "skipped";
+/**
+ * `local` marks a `pastor_verse` row that was displayed without any model call (AI disabled or
+ * unconfigured) — durable so the 7-day no-repeat rule still holds without AI, but excluded from
+ * `computeAiUsageForMonth`'s call count and never treated as an `ok`/`fallback` AI outcome.
+ */
+export type AiMessageStatus = "ok" | "fallback" | "error" | "skipped" | "local";
 
 export type AiDeltaClass = "progress" | "stall" | "unknown" | "idle";
 
@@ -585,14 +590,16 @@ export type PastorVersePick = "list" | "outside";
 export type PastorVerseIntent = "reinforcement" | "new_teaching" | "both";
 
 /**
- * Normalized shape stored in `bodyJson` for both `ok` and `fallback` `pastor_verse` rows.
+ * Normalized shape stored in `bodyJson` for `ok`, `fallback`, and `local` `pastor_verse` rows.
  * `reference` is `null` only for the empty-catalog local fallback, which has no verse at all.
+ * An off-list (`pick: "outside"`) body never carries model-authored passage text: the card shows
+ * only the validated `reference` plus the "read in your Bible" instruction, exactly like a
+ * catalog verse with no stored `translations` text (see `pastor-verse-validator.ts`).
  */
 export interface PastorVerseBody {
   pick: PastorVersePick;
   verseId: string | null;
   reference: BibleReference | null;
-  paraphraseFr: string | null;
   principleKey: PrincipleKey | null;
   intent: PastorVerseIntent;
   title: string;

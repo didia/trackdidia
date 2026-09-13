@@ -1,5 +1,6 @@
-import { defaultAppSettings } from "../../domain/daily-entry";
+import { createEmptyDailyEntry, defaultAppSettings } from "../../domain/daily-entry";
 import { MemoryRepository } from "../storage/memory-repository";
+import { getCurrentMonthKey } from "./analytics/month-range";
 import { PASTOR_VERSE_PROMPT_VERSION, PastorVerseService } from "./pastor-verse-service";
 import type { AiProvider } from "./provider";
 
@@ -22,7 +23,7 @@ const validAiPayload = (verseId: string) =>
   });
 
 describe("PastorVerseService", () => {
-  it("returns a local pick without saving a row when AI is disabled", async () => {
+  it("saves a local row when AI is disabled, so the 7-day no-repeat rule holds without AI", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
     const settings = defaultAppSettings();
@@ -39,11 +40,85 @@ describe("PastorVerseService", () => {
     });
 
     expect(result.source).toBe("local");
-    expect(result.message).toBeNull();
+    expect(result.message?.status).toBe("local");
     expect(provider.generateStructured).not.toHaveBeenCalled();
 
     const messages = await repository.listAiMessages("pastor_verse");
-    expect(messages).toHaveLength(0);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].status).toBe("local");
+
+    // `local` rows never called the model, so they must not count toward the cost dashboard.
+    // `createdAt` uses the real wall clock (`nowIso()`), not the `date` request field, hence the
+    // current month rather than "2026-08".
+    const usage = await repository.computeAiUsageForMonth(getCurrentMonthKey());
+    expect(usage.callCount).toBe(0);
+  });
+
+  it("does not persist an ephemeral `localOnly` placeholder", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const settings = configuredSettings();
+
+    const provider = { generateStructured: vi.fn() } as unknown as AiProvider;
+    const service = new PastorVerseService(provider);
+
+    const result = await service.buildVerse(repository, {
+      date: "2026-08-29",
+      settings,
+      trigger: "auto",
+      localOnly: true,
+    });
+
+    expect(result.source).toBe("local");
+    expect(result.message).toBeNull();
+    expect(provider.generateStructured).not.toHaveBeenCalled();
+    expect(await repository.listAiMessages("pastor_verse")).toHaveLength(0);
+  });
+
+  it("proves sequential no-AI days do not repeat a hash-collided verse (offline history)", async () => {
+    // Reproduces the exact scenario from the original review comment: with "ecriture" as the
+    // sole struggling principle, the checked-in catalog's 3 matching entries
+    // (`hab-2-2`, `rev-1-19`, `jer-30-2`, in that order) are small enough that the date-hash
+    // alone (`pickLocalVerse`) picks the same verse ("rev-1-19") on both 2026-08-01 and
+    // 2026-08-04 — proven by `hashString(date) % 3` below, and previously unblocked because a
+    // no-AI local pick was never persisted into history at all.
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const settings = defaultAppSettings();
+    settings.aiPastorEnabled = true;
+    settings.aiEnabled = false;
+
+    // Two "ecriture: false" checks inside every test date's 7-day-plus-today window make
+    // "ecriture" the sole struggling principle throughout (>= 2 false, 0 true — see
+    // `computePrincipleSignals`), without touching any other principle.
+    const strugglingDay1 = createEmptyDailyEntry("2026-07-30");
+    strugglingDay1.principleChecks.ecriture = false;
+    const strugglingDay2 = createEmptyDailyEntry("2026-07-31");
+    strugglingDay2.principleChecks.ecriture = false;
+    await repository.saveDailyEntry(strugglingDay1);
+    await repository.saveDailyEntry(strugglingDay2);
+
+    const provider = { generateStructured: vi.fn() } as unknown as AiProvider;
+    const service = new PastorVerseService(provider);
+
+    const pick = async (date: string) => {
+      const result = await service.buildVerse(repository, { date, settings, trigger: "auto" });
+      return result.body.verseId;
+    };
+
+    const day1 = await pick("2026-08-01");
+    const day2 = await pick("2026-08-02");
+    const day3 = await pick("2026-08-03");
+    const day4 = await pick("2026-08-04");
+
+    // Without the fix (no persisted history to block against), 2026-08-01 and 2026-08-04 both
+    // hash to the same index into the 3-verse "ecriture" pool and 2026-08-04 would repeat
+    // "rev-1-19". With the fix, all four prior picks are blocked by the time 2026-08-04 runs (the
+    // struggling pool is exhausted, so `pickLocalVerse` falls back to the full catalog minus
+    // everything already blocked), so it can never repeat any of the first three.
+    expect(day1).toBe("rev-1-19");
+    expect(day4).not.toBe("rev-1-19");
+    expect(new Set([day1, day2, day3, day4]).size).toBe(4);
   });
 
   it("saves an ok row and resolves the catalog verse when AI returns a valid pick", async () => {
@@ -244,7 +319,6 @@ describe("PastorVerseService", () => {
         pick: "list",
         verseId: "php-4-6-7",
         reference: { book: "PHP", chapter: 4, verseStart: 6, verseEnd: 7 },
-        paraphraseFr: null,
         principleKey: null,
         intent: "reinforcement",
         title: "Philippiens 4, 6-7",

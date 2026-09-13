@@ -30,10 +30,12 @@ const scopeKeyDate = (scopeKey: string): string | null =>
   scopeKey.startsWith(PASTOR_SCOPE_PREFIX) ? scopeKey.slice(PASTOR_SCOPE_PREFIX.length) : null;
 
 /**
- * Derives blocking/recency data from prior `pastor_verse` messages (spec §7). Only `ok`/`fallback`
- * rows on the current prompt version and `pastor:`-prefixed scope keys count — this deliberately
- * excludes `coach_pulse` rows sharing the same day (see the scope-key regression test) and stale
- * schema versions from before a prompt revision.
+ * Derives blocking/recency data from prior `pastor_verse` messages (spec §7). `ok`/`fallback`/
+ * `local` rows on the current prompt version and `pastor:`-prefixed scope keys count — `local`
+ * rows are displayed local picks made without AI (see `PastorVerseService.buildVerse`) and must
+ * still block repeats, or the documented 7-day no-repeat rule wouldn't hold without AI. This
+ * deliberately excludes `coach_pulse` rows sharing the same day (see the scope-key regression
+ * test) and stale schema versions from before a prompt revision.
  */
 export const summarizePastorHistory = (
   messages: AiMessage[],
@@ -43,7 +45,7 @@ export const summarizePastorHistory = (
 ): PastorHistorySummary => {
   const eligible = messages.filter(
     (message) =>
-      (message.status === "ok" || message.status === "fallback") &&
+      (message.status === "ok" || message.status === "fallback" || message.status === "local") &&
       message.promptVersion === promptVersion &&
       Boolean(message.bodyJson),
   );

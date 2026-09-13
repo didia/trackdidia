@@ -7,10 +7,10 @@ import { buildCatalogWithCustomVerses } from "./verse-catalog";
  * `settings.aiPastorCustomVerses` ("Ajouter à ma liste"). Returns `null` when the body isn't an
  * eligible off-list pick (not `"outside"`, no reference, no principle, or an empty explanation).
  *
- * `note` reuses the AI's own explanation, never `paraphraseFr` as `translations` text: the
- * `pastor_verse` prompt forbids quoting Scripture verbatim in the explanation, but `translations`
- * is reserved for verified Scripture text pasted in by the user (see `verse-catalog.ts`), and a
- * model paraphrase must never be stored as if it were that.
+ * `note` reuses the AI's own explanation; `PastorVerseBody` carries no model-authored passage
+ * text at all (an off-list pick is a validated reference only — see `pastor-verse-validator.ts`).
+ * `translations` is reserved for verified Scripture text pasted in by the user (see
+ * `verse-catalog.ts`) and is never populated here.
  */
 export const buildCustomVerseFromOffListPick = (body: PastorVerseBody): CatalogVerse | null => {
   if (body.pick !== "outside" || !body.reference || !body.principleKey) {
