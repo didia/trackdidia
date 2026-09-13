@@ -28,6 +28,7 @@
   "focusTotals": "{{sessions}} session de focus complétée, {{minutes}} minute au total.",
   "focusTotals_other": "{{sessions}} sessions de focus complétées, {{minutes}} minutes au total.",
   "focusConcentration": "{{percent}}% du temps de focus concentré sur une seule tâche.",
+  "focusConcentrationProject": "{{percent}}% du temps de focus concentré sur un même projet ({{count}} tâches) — ce n'est pas de la dispersion.",
   "focusPulseAlignment": "Sessions focus du jour comparées (approximation, périodes différentes) au pulse RescueTime de la semaine en cours à ce jour ({{pulse}}/100) (alignement : {{alignment}}).",
   "alignment": {
     "aligned_high": "aligné haut",

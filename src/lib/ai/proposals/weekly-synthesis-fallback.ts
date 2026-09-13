@@ -43,12 +43,11 @@ const sectionForFinding = (finding: Finding): WeeklyRitualSectionKey | null => {
 };
 
 const buildSectionDrafts = (
-  findings: Finding[],
-  axes: WeeklySnapshotAxis[],
+  snapshot: WeeklySnapshot,
 ): Partial<Record<WeeklyRitualSectionKey, string>> => {
   const drafts: Partial<Record<WeeklyRitualSectionKey, string>> = {};
-  const topFinding = pickTopFinding(findings);
-  const weakest = sortAxesByScore(axes).slice(-2);
+  const topFinding = pickTopFinding(snapshot.findings as Finding[]);
+  const weakest = sortAxesByScore(snapshot.axes).slice(-2);
 
   if (topFinding) {
     const section = sectionForFinding(topFinding);
@@ -64,21 +63,35 @@ const buildSectionDrafts = (
     });
   }
 
+  const weakestRescueTimeGoal = [...snapshot.rescueTimeGoals]
+    .sort((left, right) => left.achievement - right.achievement)
+    .find((goal) => goal.achievement < 1);
+  if (weakestRescueTimeGoal) {
+    const rescueTimeSentence = t("weekly.sectionRescueTimeGoalsWatch", {
+      ns: "coach",
+      title: weakestRescueTimeGoal.title,
+      percent: Math.round(weakestRescueTimeGoal.achievement * 100),
+      actual: weakestRescueTimeGoal.actualHours.toFixed(1),
+      target: weakestRescueTimeGoal.weeklyTargetHours.toFixed(1),
+    });
+    drafts.tempsEtPlan = drafts.tempsEtPlan
+      ? `${drafts.tempsEtPlan} ${rescueTimeSentence}`
+      : rescueTimeSentence;
+  }
+
   drafts.dimanche = t("weekly.sectionSunday", { ns: "coach" });
 
   return drafts;
 };
 
 const buildGtdActions = (snapshot: WeeklySnapshot): WeeklySynthesisResponse["gtdActions"] => {
-  const staleFinding = snapshot.findings.find(
-    (finding) => "kind" in finding && finding.kind === "stale_next_actions",
-  ) as (Finding & { taskIds?: string[] }) | undefined;
-  const taskId = staleFinding?.taskIds?.[0];
+  const sample = snapshot.gtd.staleNextActionsSample[0];
 
-  if (taskId) {
+  if (sample) {
     return [
       {
-        taskId,
+        taskId: sample.id,
+        taskTitle: sample.title ?? sample.id,
         action: "defer",
         reason: t("weekly.staleDeferReason", { ns: "coach" }),
       },
@@ -111,7 +124,7 @@ export const buildLocalWeeklySynthesis = (snapshot: WeeklySnapshot): WeeklySynth
       : t("weekly.scorePartial", { ns: "coach", score: scorePercent }),
     strongestAxis: strongest,
     weakestAxes: paddedWeakest,
-    sectionDrafts: buildSectionDrafts(snapshot.findings as Finding[], snapshot.axes),
+    sectionDrafts: buildSectionDrafts(snapshot),
     nextWeekObjectives: [],
     gtdActions: buildGtdActions(snapshot),
   };

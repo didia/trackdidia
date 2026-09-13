@@ -169,10 +169,11 @@ const validateGtdActions = (value: unknown): string | null => {
     const item = action as Record<string, unknown>;
     if (
       !isNonEmptyString(item.taskId) ||
+      !isNonEmptyString(item.taskTitle) ||
       !gtdActions.has(String(item.action) as WeeklySynthesisGtdAction) ||
       !isNonEmptyString(item.reason)
     ) {
-      return "gtdAction requires taskId, action, and reason";
+      return "gtdAction requires taskId, taskTitle, action, and reason";
     }
   }
 

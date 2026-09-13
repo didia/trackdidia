@@ -363,6 +363,7 @@ export const buildPomodoroTaskSummaries = (
   now = new Date().toISOString(),
 ): PomodoroTaskSummary[] => {
   const taskTitles = new Map(tasks.map((task) => [task.id, task.title] as const));
+  const taskProjectIds = new Map(tasks.map((task) => [task.id, task.projectId] as const));
   const sessionDateSet = new Set(
     sessions.filter((session) => session.date === date).map((session) => session.id),
   );
@@ -406,6 +407,7 @@ export const buildPomodoroTaskSummaries = (
           ? t("untitled", { ns: "pomodoro" })
           : (value.label ?? t("untitled", { ns: "pomodoro" }))
         : (taskTitles.get(key) ?? t("unknownTask", { ns: "pomodoro" })),
+      projectId: key.startsWith("manual:") ? null : (taskProjectIds.get(key) ?? null),
       totalSeconds: Math.round(value.totalSeconds),
       sessionCount: value.sessionIds.size,
     }))

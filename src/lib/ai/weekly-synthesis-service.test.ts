@@ -55,6 +55,7 @@ const buildWeeklyInputs = (weekStartDate = "2026-08-02"): WeeklySnapshotInputs =
     completedFocusSessionCount: 0,
     productivityPulse: null,
     rescueTimeGoalsScore: null,
+    rescueTimeGoalItems: [],
     rescuetimeConfigured: false,
     now: "2026-08-08T12:00:00.000Z",
   };

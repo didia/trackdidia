@@ -71,7 +71,7 @@ const buildProposals = (
   }
 
   for (const action of synthesis.gtdActions ?? []) {
-    if (!action.taskId?.trim() || !action.reason?.trim()) {
+    if (!action.taskId?.trim() || !action.taskTitle?.trim() || !action.reason?.trim()) {
       continue;
     }
 

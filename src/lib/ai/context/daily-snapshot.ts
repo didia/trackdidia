@@ -90,6 +90,8 @@ export interface DailySnapshotPomodoroTopTask {
   taskId: string | null;
   /** Present only at `metrics_and_structure` scope and above. */
   title?: string;
+  /** Number of tasks merged into this unit when it represents a shared project. */
+  taskCount?: number;
 }
 
 export interface DailySnapshotPomodoro {
@@ -292,6 +294,12 @@ export const buildDailySnapshot = (
     (sum, summary) => sum + summary.totalSeconds,
     0,
   );
+  const topUnitTaskCount = taskConcentrationFinding?.taskCount ?? 0;
+  const topUnitProjectId = taskConcentrationFinding?.projectId ?? null;
+  const topUnitTitle =
+    topUnitTaskCount > 1 && topUnitProjectId
+      ? (projectTitles.get(topUnitProjectId) ?? topUnitProjectId)
+      : topTaskSummary?.taskTitle;
 
   const pomodoro: DailySnapshotPomodoro = {
     completedFocusSessionCount: focusTotalsFinding?.value ?? inputs.completedFocusSessionCount,
@@ -299,8 +307,9 @@ export const buildDailySnapshot = (
     taskConcentration: taskConcentrationFinding?.value ?? null,
     topTask: topTaskSummary
       ? {
-          taskId: topTaskSummary.taskId,
-          ...(includeStructure ? { title: topTaskSummary.taskTitle } : {}),
+          taskId: topUnitTaskCount > 1 ? null : topTaskSummary.taskId,
+          ...(includeStructure ? { title: topUnitTitle } : {}),
+          ...(topUnitTaskCount > 1 ? { taskCount: topUnitTaskCount } : {}),
         }
       : null,
   };

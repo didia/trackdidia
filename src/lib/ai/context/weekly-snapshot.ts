@@ -5,6 +5,7 @@ import { computeFocusFindings } from "../../../domain/insights/focus";
 import { computeGtdHealthFindings } from "../../../domain/insights/gtd-health";
 import { computeStreakFindings } from "../../../domain/insights/streaks";
 import type { Finding } from "../../../domain/insights/types";
+import type { RescueTimeGoalItemSnapshot } from "../../../domain/rescuetime-goals";
 import type {
   AiPayloadScope,
   DailyEntry,
@@ -69,6 +70,7 @@ export interface WeeklySnapshotGtd {
   projectsWithoutNextAction: number;
   projectsWithoutNextActionSample: WeeklySnapshotGtdSample[];
   staleNextActions: number;
+  staleNextActionsSample: WeeklySnapshotGtdSample[];
   agingWaitingFor: number;
   overdueDeadlines: number;
   scheduledVsCompletedRatio: number;
@@ -78,9 +80,17 @@ export interface WeeklySnapshotFocus {
   completedFocusSessionCount: number;
   totalFocusMinutes: number;
   taskConcentration: number | null;
-  topTask: { taskId: string | null; title?: string } | null;
+  topTask: { taskId: string | null; title?: string; taskCount?: number } | null;
   productivityPulse: number | null;
   rescueTimeConfigured: boolean;
+}
+
+export interface WeeklySnapshotRescueTimeGoal {
+  title: string;
+  isMore: boolean;
+  actualHours: number;
+  weeklyTargetHours: number;
+  achievement: number;
 }
 
 export interface WeeklySnapshotReviewNotes {
@@ -99,6 +109,7 @@ export interface WeeklySnapshot {
   principles: WeeklySnapshotPrinciple[];
   gtd: WeeklySnapshotGtd;
   focus: WeeklySnapshotFocus;
+  rescueTimeGoals: WeeklySnapshotRescueTimeGoal[];
   notes?: Partial<Record<WeeklyRitualSectionKey, string>>;
   findings: Finding[];
 }
@@ -115,6 +126,7 @@ export interface WeeklySnapshotInputs {
   completedFocusSessionCount: number;
   productivityPulse: number | null;
   rescueTimeGoalsScore: number | null;
+  rescueTimeGoalItems: RescueTimeGoalItemSnapshot[];
   rescuetimeConfigured: boolean;
   now: string;
 }
@@ -151,6 +163,9 @@ const axisDefinitions = (
 
 const projectTitleById = (projects: Project[]): Map<string, string> =>
   new Map(projects.map((project) => [project.id, project.title]));
+
+const taskTitleById = (tasks: Task[]): Map<string, string> =>
+  new Map(tasks.map((task) => [task.id, task.title]));
 
 const sanitizeFindingForScope = (finding: Finding, includeStructure: boolean): Finding => {
   if (includeStructure) {
@@ -267,6 +282,7 @@ export const buildWeeklySnapshot = (
     (finding) => finding.kind === "scheduled_vs_completed_ratio",
   );
   const projectTitles = projectTitleById(inputs.projects);
+  const taskTitles = taskTitleById(inputs.tasks);
 
   const gtd: WeeklySnapshotGtd = {
     inboxBacklog: inboxBacklogFinding?.value ?? 0,
@@ -278,6 +294,10 @@ export const buildWeeklySnapshot = (
         ...(includeStructure ? { title: projectTitles.get(id) ?? id } : {}),
       })),
     staleNextActions: staleNextActionsFinding?.value ?? 0,
+    staleNextActionsSample: (staleNextActionsFinding?.taskIds ?? []).slice(0, 3).map((id) => ({
+      id,
+      ...(includeStructure ? { title: taskTitles.get(id) ?? id } : {}),
+    })),
     agingWaitingFor: agingWaitingForFinding?.value ?? 0,
     overdueDeadlines: overdueDeadlinesFinding?.value ?? 0,
     scheduledVsCompletedRatio: scheduledVsCompletedFinding?.value ?? 0,
@@ -300,6 +320,12 @@ export const buildWeeklySnapshot = (
     (sum, summary) => sum + summary.totalSeconds,
     0,
   );
+  const topUnitTaskCount = taskConcentrationFinding?.taskCount ?? 0;
+  const topUnitProjectId = taskConcentrationFinding?.projectId ?? null;
+  const topUnitTitle =
+    topUnitTaskCount > 1 && topUnitProjectId
+      ? (projectTitles.get(topUnitProjectId) ?? topUnitProjectId)
+      : topTaskSummary?.taskTitle;
 
   const focus: WeeklySnapshotFocus = {
     completedFocusSessionCount: focusTotalsFinding?.value ?? inputs.completedFocusSessionCount,
@@ -307,13 +333,24 @@ export const buildWeeklySnapshot = (
     taskConcentration: taskConcentrationFinding?.value ?? null,
     topTask: topTaskSummary
       ? {
-          taskId: topTaskSummary.taskId,
-          ...(includeStructure ? { title: topTaskSummary.taskTitle } : {}),
+          taskId: topUnitTaskCount > 1 ? null : topTaskSummary.taskId,
+          ...(includeStructure ? { title: topUnitTitle } : {}),
+          ...(topUnitTaskCount > 1 ? { taskCount: topUnitTaskCount } : {}),
         }
       : null,
     productivityPulse: inputs.productivityPulse,
     rescueTimeConfigured: inputs.rescuetimeConfigured,
   };
+
+  const rescueTimeGoals: WeeklySnapshotRescueTimeGoal[] = includeStructure
+    ? inputs.rescueTimeGoalItems.map((item) => ({
+        title: item.title,
+        isMore: item.isMore,
+        actualHours: item.actualHours,
+        weeklyTargetHours: item.weeklyTargetHours,
+        achievement: item.achievement,
+      }))
+    : [];
 
   const findings: Finding[] = [
     ...streakFindings,
@@ -334,6 +371,7 @@ export const buildWeeklySnapshot = (
     principles,
     gtd,
     focus,
+    rescueTimeGoals,
     ...(includeFreeText && inputs.review
       ? {
           notes: { ...inputs.review.notes },
@@ -360,6 +398,7 @@ export const resolveWeeklySnapshotInputs = async (
     now?: string;
     productivityPulse?: number | null;
     rescueTimeGoalsScore?: number | null;
+    rescueTimeGoalItems?: RescueTimeGoalItemSnapshot[];
     rescuetimeConfigured?: boolean;
   } = {},
 ): Promise<WeeklySnapshotInputs> => {
@@ -411,6 +450,7 @@ export const resolveWeeklySnapshotInputs = async (
     completedFocusSessionCount,
     productivityPulse: options.productivityPulse ?? null,
     rescueTimeGoalsScore: options.rescueTimeGoalsScore ?? null,
+    rescueTimeGoalItems: options.rescueTimeGoalItems ?? [],
     rescuetimeConfigured: options.rescuetimeConfigured ?? false,
     now,
   };

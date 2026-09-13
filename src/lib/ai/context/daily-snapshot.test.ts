@@ -77,10 +77,17 @@ const buildInputs = (): DailySnapshotInputs => {
     {
       taskId: "task:next-action",
       taskTitle: "Tache prioritaire",
+      projectId: projectWithNextAction.id,
       totalSeconds: 3000,
       sessionCount: 4,
     },
-    { taskId: "task:other", taskTitle: "Autre tache", totalSeconds: 600, sessionCount: 1 },
+    {
+      taskId: "task:other",
+      taskTitle: "Autre tache",
+      projectId: null,
+      totalSeconds: 600,
+      sessionCount: 1,
+    },
   ];
 
   return {

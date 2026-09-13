@@ -702,7 +702,14 @@ describe("WeeklyReviewPage", () => {
         weakestAxes: ["Sommeil", "Pomodoris"],
         sectionDrafts: {},
         nextWeekObjectives: [],
-        gtdActions: [{ taskId: "task-gtd-schedule", action: "schedule", reason: "Planifier" }],
+        gtdActions: [
+          {
+            taskId: "task-gtd-schedule",
+            taskTitle: "Tache GTD",
+            action: "schedule",
+            reason: "Planifier",
+          },
+        ],
       }),
       bodyText: "Semaine",
       deltaClass: null,
@@ -738,7 +745,14 @@ describe("WeeklyReviewPage", () => {
         weakestAxes: ["Sommeil", "Pomodoris"],
         sectionDrafts: {},
         nextWeekObjectives: [],
-        gtdActions: [{ taskId: "task-gtd-schedule", action: "schedule", reason: "Planifier" }],
+        gtdActions: [
+          {
+            taskId: "task-gtd-schedule",
+            taskTitle: "Tache GTD",
+            action: "schedule",
+            reason: "Planifier",
+          },
+        ],
       },
       proposals: [proposal],
       source: "local",

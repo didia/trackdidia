@@ -92,6 +92,7 @@ export const WeeklySynthesisPanel = ({
               text?: string;
               title?: string;
               sectionKey?: string;
+              taskTitle?: string;
               action?: string;
               reason?: string;
             };
@@ -101,7 +102,7 @@ export const WeeklySynthesisPanel = ({
                 : proposal.type === "weekly_objective"
                   ? (payload.title ?? t("proposal.objectiveFallback"))
                   : proposal.type === "gtd_action"
-                    ? `${payload.action ?? t("proposal.actionFallback")} ${tCommon("emDash")} ${payload.reason ?? ""}`
+                    ? `${payload.taskTitle ?? t("proposal.taskFallback")} ${tCommon("emDash")} ${payload.action ?? t("proposal.actionFallback")} ${tCommon("emDash")} ${payload.reason ?? ""}`
                     : (payload.text ?? "");
             return (
               <article key={proposal.id} className="coach-pulse__proposal">

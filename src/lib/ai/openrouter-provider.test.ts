@@ -139,6 +139,7 @@ describe("OpenRouterProvider", () => {
           projectsWithoutNextAction: 0,
           projectsWithoutNextActionSample: [],
           staleNextActions: 0,
+          staleNextActionsSample: [],
           agingWaitingFor: 0,
           overdueDeadlines: 0,
           scheduledVsCompletedRatio: 0,
@@ -151,6 +152,7 @@ describe("OpenRouterProvider", () => {
           productivityPulse: null,
           rescueTimeConfigured: false,
         },
+        rescueTimeGoals: [],
         findings: [],
       },
     });
