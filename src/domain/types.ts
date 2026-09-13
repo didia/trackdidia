@@ -318,11 +318,21 @@ export interface RescueTimeTaxonomyEntry {
 
 export type AiPayloadScope = "metrics" | "metrics_and_structure" | "full";
 
-export type AiSurface = "coach_pulse" | "weekly_synthesis" | "monthly_synthesis" | "goal_pacing";
+export type AiSurface =
+  | "coach_pulse"
+  | "weekly_synthesis"
+  | "monthly_synthesis"
+  | "goal_pacing"
+  | "pastor_verse";
 
 export type CoachPulseStance = "open" | "steer" | "wind_down" | "close";
 
-export type AiMessageStatus = "ok" | "fallback" | "error" | "skipped";
+/**
+ * `local` marks a `pastor_verse` row that was displayed without any model call (AI disabled or
+ * unconfigured) — durable so the 7-day no-repeat rule still holds without AI, but excluded from
+ * `computeAiUsageForMonth`'s call count and never treated as an `ok`/`fallback` AI outcome.
+ */
+export type AiMessageStatus = "ok" | "fallback" | "error" | "skipped" | "local";
 
 export type AiDeltaClass = "progress" | "stall" | "unknown" | "idle";
 
@@ -551,6 +561,60 @@ export interface GoalPacingResult {
   warning?: string;
 }
 
+/** Bible book code from `src/lib/pastor/bible-books.ts` (e.g. `"PHP"`), not free text. */
+export interface BibleReference {
+  book: string;
+  chapter: number;
+  verseStart: number;
+  verseEnd: number;
+}
+
+/** Preferred translation order is NRSVue → NABRE → AELF → LSG1910 (`src/lib/pastor/translations.ts`). */
+export type TranslationCode = "NRSVue" | "NABRE" | "AELF" | "LSG1910";
+
+/**
+ * One entry of the checked-in `verses.json` catalog (`src/lib/pastor/verse-catalog.ts`).
+ * `translations` may be empty/absent — no verse text is shipped by default; the user pastes
+ * verified text later. `note` is an original French reflection, never a Scripture quotation.
+ */
+export interface CatalogVerse {
+  id: string;
+  reference: BibleReference;
+  principleKeys: PrincipleKey[];
+  themes?: string[];
+  translations?: Partial<Record<TranslationCode, string>>;
+  note: string;
+}
+
+export type PastorVersePick = "list" | "outside";
+export type PastorVerseIntent = "reinforcement" | "new_teaching" | "both";
+
+/**
+ * Normalized shape stored in `bodyJson` for `ok`, `fallback`, and `local` `pastor_verse` rows.
+ * `reference` is `null` only for the empty-catalog local fallback, which has no verse at all.
+ * An off-list (`pick: "outside"`) body never carries model-authored passage text: the card shows
+ * only the validated `reference` plus the "read in your Bible" instruction, exactly like a
+ * catalog verse with no stored `translations` text (see `pastor-verse-validator.ts`).
+ */
+export interface PastorVerseBody {
+  pick: PastorVersePick;
+  verseId: string | null;
+  reference: BibleReference | null;
+  principleKey: PrincipleKey | null;
+  intent: PastorVerseIntent;
+  title: string;
+  explanation: string;
+  practice: string | null;
+}
+
+export interface PastorVerseResult {
+  message: AiMessage | null;
+  body: PastorVerseBody;
+  verse: CatalogVerse | null;
+  source: "ai" | "local" | "fallback" | "cache";
+  warning?: string;
+}
+
 export interface AppSettings {
   language: "fr";
   storageMode: "sqlite";
@@ -568,6 +632,14 @@ export interface AppSettings {
   aiPulseNotifyEnabled: boolean;
   aiPulseNotifyDays: number[];
   aiPulseMaxNotificationsPerDay: number;
+  /** Feature flag for the "Pasteur IA" verse-of-the-day card on Today. Works without AI. */
+  aiPastorEnabled: boolean;
+  /**
+   * User-added verses, in the same shape as `verses.json`, merged with the checked-in catalog
+   * at read time (`buildCatalogWithCustomVerses`). Populated via "Ajouter à ma liste" on an
+   * off-list pick; never includes verse text the app itself generated (see `CatalogVerse`).
+   */
+  aiPastorCustomVerses: CatalogVerse[];
   /** Rough USD estimate per 1M tokens (prompt + completion combined). OpenRouter pricing varies by model. */
   aiCostPerMillionTokens: number;
   /** ISO timestamps keyed by local YYYY-MM-DD for first app open anchoring. */

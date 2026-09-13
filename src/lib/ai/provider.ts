@@ -8,6 +8,7 @@ import type {
 import type { DailySnapshot } from "./context/daily-snapshot";
 import type { GoalPacingSnapshot } from "./context/goal-pacing-snapshot";
 import type { MonthlySnapshot } from "./context/monthly-snapshot";
+import type { PastorSnapshot } from "./context/pastor-snapshot";
 import type { WeeklySnapshot } from "./context/weekly-snapshot";
 
 export interface AiPromptContext {
@@ -58,11 +59,17 @@ export interface GoalPacingStructuredRequest extends AiStructuredRequestBase {
   snapshot: GoalPacingSnapshot;
 }
 
+export interface PastorVerseStructuredRequest extends AiStructuredRequestBase {
+  surface: "pastor_verse";
+  snapshot: PastorSnapshot;
+}
+
 export type AiStructuredRequest =
   | CoachPulseStructuredRequest
   | WeeklySynthesisStructuredRequest
   | MonthlySynthesisStructuredRequest
-  | GoalPacingStructuredRequest;
+  | GoalPacingStructuredRequest
+  | PastorVerseStructuredRequest;
 
 export interface AiStructuredResult {
   text: string;

@@ -4,11 +4,13 @@ import type { AiPayloadScope } from "../../../domain/types";
 import { buildWeekDates } from "../../../domain/weekly-review";
 import { getTodayDate } from "../../date";
 import { getWeekStartSunday } from "../../gtd/shared";
+import { PASTOR_VERSE_PROMPT_VERSION } from "../pastor-verse-service";
 import { RescueTimeGoalsService } from "../../rescuetime/rescuetime-goals-service";
 import type { AppRepository } from "../../storage/repository";
 import { buildDailySnapshot, type DailySnapshot } from "./daily-snapshot";
 import { buildGoalPacingSnapshot, resolveGoalPacingSnapshotInputs } from "./goal-pacing-snapshot";
 import { buildMonthlySnapshot, resolveMonthlySnapshotInputs } from "./monthly-snapshot";
+import { buildPastorSnapshot, resolvePastorSnapshotInputs } from "./pastor-snapshot";
 import type { Surface } from "./types";
 import { buildWeeklySnapshot, resolveWeeklySnapshotInputs } from "./weekly-snapshot";
 
@@ -172,7 +174,8 @@ export type PreviewSnapshot =
   | DailySnapshot
   | import("./weekly-snapshot").WeeklySnapshot
   | import("./monthly-snapshot").MonthlySnapshot
-  | import("./goal-pacing-snapshot").GoalPacingSnapshot;
+  | import("./goal-pacing-snapshot").GoalPacingSnapshot
+  | import("./pastor-snapshot").PastorSnapshot;
 
 /**
  * Renders the exact snapshot that would be sent to the model for a given scope, built from
@@ -213,6 +216,18 @@ export const previewPayload = async (
       evaluationMonthKey: getMonthKey(asOfDate),
     });
     return buildGoalPacingSnapshot(inputs, scope);
+  }
+
+  if (surface === "pastor") {
+    const date = options.date ?? getTodayDate();
+    const settings = await repository.getSettings();
+    const inputs = await resolvePastorSnapshotInputs(
+      repository,
+      date,
+      PASTOR_VERSE_PROMPT_VERSION,
+      settings.aiPastorCustomVerses,
+    );
+    return buildPastorSnapshot(inputs, scope);
   }
 
   if (surface !== "daily") {

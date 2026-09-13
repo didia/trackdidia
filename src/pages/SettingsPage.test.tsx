@@ -78,6 +78,27 @@ describe("SettingsPage AI max tokens", () => {
   });
 });
 
+describe("SettingsPage AI pastor toggle", () => {
+  it("persists the aiPastorEnabled toggle", async () => {
+    const user = userEvent.setup();
+    const saveSettings = vi.fn().mockResolvedValue(undefined);
+
+    await renderWithApp(<SettingsPage />, { contextOverrides: { saveSettings } });
+
+    const checkbox = screen.getByRole("checkbox", {
+      name: "Activer le pasteur IA (verset du jour)",
+    });
+    expect(checkbox).not.toBeChecked();
+
+    await user.click(checkbox);
+    await user.click(screen.getByRole("button", { name: "Enregistrer les paramètres" }));
+
+    await waitFor(() => {
+      expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ aiPastorEnabled: true }));
+    });
+  });
+});
+
 describe("SettingsPage AI cost and analytics", () => {
   const seedUsageMessage = async (repository: MemoryRepository) => {
     await repository.saveAiMessage({

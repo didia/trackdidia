@@ -28,6 +28,9 @@ The Today screen is the daily control center. It:
 - opens the morning and evening screens;
 - shows completion, discipline, and task-completion summaries;
 - displays local or AI morning/evening coaching;
+- optionally shows a "Pasteur IA" verse-of-the-day card (`aiPastorEnabled`, off by
+  default) above the coach panel — see
+  [AI settings and privacy](ai-settings-and-privacy.md#pasteur-ia-pastor_verse);
 - reminds the user about the weekly ritual on Sunday;
 - reminds the user about the previous month's review on the first Saturday;
 - edits `morningIntention` and `nightReflection` in matching persisted textareas

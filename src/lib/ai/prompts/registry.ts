@@ -3,6 +3,7 @@ import { t } from "../../../i18n";
 import { COACH_PULSE_PROMPT_VERSION } from "../coach-pulse-service";
 import { GOAL_PACING_PROMPT_VERSION } from "../goal-pacing-service";
 import { MONTHLY_SYNTHESIS_PROMPT_VERSION } from "../monthly-synthesis-service";
+import { PASTOR_VERSE_PROMPT_VERSION } from "../pastor-verse-service";
 import { WEEKLY_SYNTHESIS_PROMPT_VERSION } from "../weekly-synthesis-service";
 
 export interface PromptRegistryEntry {
@@ -31,6 +32,11 @@ export const PROMPT_REGISTRY: PromptRegistryEntry[] = [
     surface: "goal_pacing",
     version: GOAL_PACING_PROMPT_VERSION,
     description: t("analytics.prompt.goal_pacing", { ns: "settings" }),
+  },
+  {
+    surface: "pastor_verse",
+    version: PASTOR_VERSE_PROMPT_VERSION,
+    description: t("analytics.prompt.pastor_verse", { ns: "settings" }),
   },
 ];
 
