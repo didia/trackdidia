@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-12 | Today can show an optional "Pasteur IA" verse-of-the-day card above the coach panel, flag-gated by `aiPastorEnabled` (off by default) | `docs/daily-routines.md`, `docs/ai-settings-and-privacy.md` | `TodayPage.tsx`, `PastorVerseCard.tsx` |
 | 2026-09-08 | Evening close coach auto-loads on page open (hash-check) only; in-page metric/principle/journal edits no longer retrigger a pulse | `docs/daily-routines.md`, `docs/ai-settings-and-privacy.md` | `EveningClosurePage` |
 | 2026-09-08 | Journal range listing stays read-only (no per-row decoration), keeps filters mounted after first load, and prompts when a custom range is incomplete | `docs/daily-routines.md` | `listDailyEntriesInRange`, `JournalPage` |
 | 2026-09-08 | Added `/journal` to consult daily, weekly, and monthly notes in one filtered timeline; History accepts `?date=` | `docs/daily-routines.md` | `JournalPage`, `journal-feed.ts`, `HistoryPage` |

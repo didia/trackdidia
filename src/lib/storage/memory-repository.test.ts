@@ -1,9 +1,11 @@
 import { afterEach, vi } from "vitest";
 import { createEmptyDailyEntry, defaultAppSettings } from "../../domain/daily-entry";
 import { createEmptyMonthlyReview } from "../../domain/monthly-review";
+import type { CatalogVerse } from "../../domain/types";
 import { createEmptyWeeklyReview } from "../../domain/weekly-review";
 import { getTodayDate } from "../date";
 import { addDays } from "../gtd/shared";
+import { loadVerseCatalog } from "../pastor/verse-catalog";
 import { MemoryRepository } from "./memory-repository";
 
 describe("MemoryRepository", () => {
@@ -925,6 +927,129 @@ describe("MemoryRepository", () => {
     expect(saved.proposals.every((proposal) => proposal.type === "review_section_draft")).toBe(
       true,
     );
+  });
+
+  it("round-trips a pastor_verse message and keeps it out of listAiMessagesForDate", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const message = {
+      id: "ai-message:pastor",
+      surface: "pastor_verse" as const,
+      scopeKey: "pastor:2026-08-29",
+      stance: null,
+      kind: "daily",
+      inputHash: "hash",
+      promptVersion: "pastor_verse.v1",
+      model: "local",
+      status: "ok" as const,
+      bodyJson: JSON.stringify({
+        pick: "list",
+        verseId: "php-4-6-7",
+        reference: { book: "PHP", chapter: 4, verseStart: 6, verseEnd: 7 },
+        principleKey: null,
+        intent: "reinforcement",
+        title: "Philippiens 4, 6-7",
+        explanation: "Texte",
+        practice: null,
+      }),
+      bodyText: "Philippiens 4, 6-7 — Titre",
+      deltaClass: null,
+      notified: false,
+      tokensPrompt: null,
+      tokensCompletion: null,
+      latencyMs: null,
+      createdAt: "2026-08-29T08:00:00.000Z",
+    };
+
+    const saved = await repository.saveCoachPulseEpisode(message, []);
+    expect(saved.message.surface).toBe("pastor_verse");
+
+    const latest = await repository.getLatestAiMessage("pastor_verse", "pastor:2026-08-29", "ok");
+    expect(latest?.id).toBe("ai-message:pastor");
+
+    // Regression: `listAiMessagesForDate` matches `scope_key = date OR LIKE 'date#%'`. A
+    // `pastor:YYYY-MM-DD` scope key must never match, so the coach pulse engine never treats a
+    // pastor row as one of its own slots for the day.
+    const forDate = await repository.listAiMessagesForDate("2026-08-29");
+    expect(forDate.find((item) => item.surface === "pastor_verse")).toBeUndefined();
+  });
+
+  describe("addPastorCustomVerse", () => {
+    const candidate: CatalogVerse = {
+      id: "custom-job-42-10",
+      reference: { book: "JOB", chapter: 42, verseStart: 10, verseEnd: 10 },
+      principleKeys: ["managedSolitude"],
+      note: "Apres l'epreuve, une restauration est possible.",
+    };
+
+    it("appends a new reference and returns added: true with the merged settings", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+
+      const result = await repository.addPastorCustomVerse(candidate);
+
+      expect(result.added).toBe(true);
+      expect(result.settings.aiPastorCustomVerses).toEqual([candidate]);
+      // The write is durable, not just returned — a fresh read sees the same merged settings.
+      await expect(repository.getSettings()).resolves.toMatchObject({
+        aiPastorCustomVerses: [candidate],
+      });
+    });
+
+    it("is a no-op (added: false, settings unchanged) when the reference is already a custom verse", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      await repository.addPastorCustomVerse(candidate);
+
+      const result = await repository.addPastorCustomVerse(candidate);
+
+      expect(result.added).toBe(false);
+      expect(result.settings.aiPastorCustomVerses).toEqual([candidate]);
+      const settings = await repository.getSettings();
+      expect(settings.aiPastorCustomVerses).toEqual([candidate]);
+    });
+
+    it("is a no-op (added: false, settings unchanged) when the reference already exists in the checked-in catalog", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      const checkedIn = loadVerseCatalog()[0];
+      const duplicate: CatalogVerse = {
+        id: "custom-duplicate",
+        reference: checkedIn.reference,
+        principleKeys: ["managedSolitude"],
+        note: "Une note differente pour la meme reference.",
+      };
+
+      const result = await repository.addPastorCustomVerse(duplicate);
+
+      expect(result.added).toBe(false);
+      expect(result.settings.aiPastorCustomVerses).toEqual([]);
+      const settings = await repository.getSettings();
+      expect(settings.aiPastorCustomVerses).toEqual([]);
+    });
+
+    it("preserves an unrelated settings field written between the caller's snapshot and the call", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+
+      // Simulates the exact race this method exists to close: some other feature (pulse/backup)
+      // reads settings, then — before it saves — this call reads-and-writes settings with a
+      // freshly appended custom verse. The other feature's later `saveSettings` (built from its
+      // now-stale snapshot) is a separate, still-open race (see docs/ai-settings-and-privacy.md's
+      // "Settings save concurrency"); what `addPastorCustomVerse` itself must guarantee is that
+      // its own write reflects the latest committed state, not a snapshot taken before some
+      // other write already landed.
+      const staleSnapshot = await repository.getSettings();
+      await repository.saveSettings({ ...staleSnapshot, lastBackupAt: "2026-09-13T08:00:00.000Z" });
+
+      const result = await repository.addPastorCustomVerse(candidate);
+
+      expect(result.settings.lastBackupAt).toBe("2026-09-13T08:00:00.000Z");
+      expect(result.settings.aiPastorCustomVerses).toEqual([candidate]);
+      const settings = await repository.getSettings();
+      expect(settings.lastBackupAt).toBe("2026-09-13T08:00:00.000Z");
+      expect(settings.aiPastorCustomVerses).toEqual([candidate]);
+    });
   });
 
   it("getLatestAiMessage returns the newest matching scope even when many other rows exist", async () => {

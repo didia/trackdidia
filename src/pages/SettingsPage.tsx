@@ -262,6 +262,21 @@ export const SettingsPage = () => {
           <label className="switch-row">
             <input
               type="checkbox"
+              checked={draftSettings.aiPastorEnabled}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  aiPastorEnabled: event.target.checked,
+                }))
+              }
+            />
+            <span>{t("ai.pastor")}</span>
+          </label>
+          <p className="field-card__helper">{t("ai.pastorHelper")}</p>
+
+          <label className="switch-row">
+            <input
+              type="checkbox"
               checked={draftSettings.aiPulseNotifyEnabled}
               onChange={(event) =>
                 setDraftSettings((current) => ({
@@ -386,6 +401,7 @@ export const SettingsPage = () => {
                 <option value="weekly">{t("payloadPreview.surfaceOption.weekly")}</option>
                 <option value="monthly">{t("payloadPreview.surfaceOption.monthly")}</option>
                 <option value="annual">{t("payloadPreview.surfaceOption.annual")}</option>
+                <option value="pastor">{t("payloadPreview.surfaceOption.pastor")}</option>
               </select>
             </label>
             <label className="stacked-field">

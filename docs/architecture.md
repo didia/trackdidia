@@ -39,6 +39,7 @@ framework or external state-management library.
   README.md                     short developer entry point
   PRD.md                        roadmap/history, not current truth
   quotes.json                   local quote-of-the-day catalog
+  verses.json                   curated Bible verse catalog ("Pasteur IA")
   src/
     App.tsx                     route table
     main.tsx                    React entry point
@@ -51,6 +52,7 @@ framework or external state-management library.
     lib/
       ai/                       coach input/service/OpenRouter provider
       gtd/                      task filtering, lifecycle events, import
+      pastor/                   verse catalog, history, and local pick for "Pasteur IA"
       pomodoro/                 timer state and sound/notification support
       recurring/                recurrence rules and previews
       storage/                  repository API, memory and SQLite adapters

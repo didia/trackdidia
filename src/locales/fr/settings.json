@@ -24,6 +24,8 @@
     },
     "memory": "Activer la mémoire IA (continuité entre les pulses)",
     "pulse": "Activer le pulse coach (open / steer / wind_down)",
+    "pastor": "Activer le pasteur IA (verset du jour)",
+    "pastorHelper": "Ajoute une carte « Verset du jour » sur Aujourd'hui, tirée de verses.json. Fonctionne aussi sans IA : un verset choisi localement selon tes principes en difficulté.",
     "pulseNotify": "Notifications OS sur deuxième stall consécutif (jours ouvrables)",
     "pulseSlots": "Heures de pulse (local, trois heures uniques 0–23, séparées par des virgules)",
     "pulseSlotsPlaceholder": "5, 13, 20",
@@ -48,13 +50,15 @@
       "daily": "Quotidien (coach_pulse)",
       "weekly": "Hebdomadaire (weekly_synthesis)",
       "monthly": "Mensuel (monthly_synthesis)",
-      "annual": "Annuel (goal_pacing)"
+      "annual": "Annuel (goal_pacing)",
+      "pastor": "Pasteur (pastor_verse)"
     },
     "dateLabel": {
       "weekly": "Dimanche de la semaine",
       "monthly": "Mois",
       "annual": "Date de référence",
-      "daily": "Date"
+      "daily": "Date",
+      "pastor": "Date"
     },
     "dateAria": "Date aperçu payload IA",
     "pulseWarningWeekly": "Pulse RescueTime indisponible pour cet aperçu ({{error}}). L'aperçu affichera \"pas de donnée\" à la place.",
@@ -192,7 +196,8 @@
       "coach_pulse": "Pulse quotidien (open, steer, wind_down, close) avec propositions acceptables.",
       "weekly_synthesis": "Synthèse hebdomadaire : sections, objectifs et actions GTD.",
       "monthly_synthesis": "Synthèse mensuelle : sections et évaluations d'objectifs annuels.",
-      "goal_pacing": "Rythme annuel des objectifs (affichage seulement, sans propositions)."
+      "goal_pacing": "Rythme annuel des objectifs (affichage seulement, sans propositions).",
+      "pastor_verse": "Verset du jour « Pasteur IA » : un verset et une explication en deux temps, sans propositions."
     }
   },
   "cost": {

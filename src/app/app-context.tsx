@@ -43,6 +43,12 @@ export interface AppContextValue {
   repository: AppRepository;
   settings: AppSettings;
   saveSettings: (settings: AppSettings) => Promise<void>;
+  /**
+   * Syncs local settings state after a caller already persisted `settings` atomically elsewhere
+   * (e.g. `AppRepository.addPastorCustomVerse`), without issuing a second replace-all write —
+   * unlike `saveSettings`, this never calls `repository.saveSettings`.
+   */
+  syncSettings: (settings: AppSettings) => void;
   coachService: CoachPulseService;
   browserPreview: boolean;
   debugEnabled: boolean;
@@ -445,6 +451,10 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     await repository.saveSettings(nextSettings);
   };
 
+  const syncSettings = (nextSettings: AppSettings) => {
+    setSettings(nextSettings);
+  };
+
   const setDebugEnabled = (enabled: boolean) => {
     persistDebugEnabled(enabled);
     setDebugEnabledState(enabled);
@@ -457,6 +467,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         repository,
         settings,
         saveSettings,
+        syncSettings,
         coachService,
         browserPreview,
         debugEnabled,

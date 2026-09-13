@@ -26,6 +26,7 @@ import type {
   AiUsageTotals,
   AnnualGoal,
   AppSettings,
+  CatalogVerse,
   CreateTaskInput,
   DailyEntry,
   DailyTaskStats,
@@ -56,6 +57,7 @@ import {
 } from "../../domain/weekly-review";
 import { monthKeyToLocalRange } from "../ai/analytics/month-range";
 import { getTodayDate } from "../date";
+import { addCustomVerse } from "../pastor/custom-verse";
 import {
   buildCarryoverEvents,
   buildDailyTaskBreakdown,
@@ -396,6 +398,23 @@ export class MemoryRepository implements AppRepository {
     this.settings = mergeAppSettingsWithDefaults(settings, defaultAppSettings());
   }
 
+  async addPastorCustomVerse(
+    candidate: CatalogVerse,
+  ): Promise<{ added: boolean; settings: AppSettings }> {
+    // No `await` between reading `this.settings` and writing it back — nothing else can run in
+    // between, so this is race-free the same way the SQLite implementation's single serialized
+    // read-then-write transaction is.
+    const current = mergeAppSettingsWithDefaults(this.settings, defaultAppSettings());
+    const { added, customVerses } = addCustomVerse(current.aiPastorCustomVerses, candidate);
+    if (!added) {
+      return { added: false, settings: current };
+    }
+
+    const next = { ...current, aiPastorCustomVerses: customVerses };
+    this.settings = next;
+    return { added: true, settings: next };
+  }
+
   async getAiMessage(
     surface: AiSurface,
     scopeKey: string,
@@ -519,7 +538,12 @@ export class MemoryRepository implements AppRepository {
   async computeAiUsageForMonth(monthKey: string): Promise<AiUsageTotals> {
     const { startIso, endIso } = monthKeyToLocalRange(monthKey);
     const messages = [...this.aiMessages.values()].filter(
-      (message) => message.createdAt >= startIso && message.createdAt < endIso,
+      (message) =>
+        message.createdAt >= startIso &&
+        message.createdAt < endIso &&
+        // `local` rows never called the model (no AI configured) — they must not count as a
+        // "call" in the cost dashboard.
+        message.status !== "local",
     );
 
     const tokensPrompt = messages.reduce(
