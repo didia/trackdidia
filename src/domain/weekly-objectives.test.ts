@@ -105,7 +105,10 @@ describe("weekly-objectives scoring", () => {
       { rescuetimeConfigured: false },
     );
 
-    expect(beforeStart.items.map((item) => item.objective.id).sort()).toEqual(["current", "legacy"]);
+    expect(beforeStart.items.map((item) => item.objective.id).sort()).toEqual([
+      "current",
+      "legacy",
+    ]);
     expect(afterStart.items.map((item) => item.objective.id).sort()).toEqual([
       "current",
       "later",
