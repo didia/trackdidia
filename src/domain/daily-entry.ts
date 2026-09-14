@@ -179,7 +179,11 @@ export const prefillMorningIntentionFromYesterday = (
     return entry;
   }
 
-  return updateNote(entry, "morningIntention", carriedFocus);
+  // In-memory only: keep the prior updatedAt until a real user mutation/save.
+  return {
+    ...cloneEntry(entry),
+    morningIntention: carriedFocus,
+  };
 };
 
 export const computeDisciplineScore = (entry: DailyEntry): number => {

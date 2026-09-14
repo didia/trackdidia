@@ -155,6 +155,7 @@ describe("applyLegacyAiMaxTokensUpgrade", () => {
 
   it("copies yesterday's tomorrow focus into an empty morning intention", () => {
     const today = createEmptyDailyEntry("2026-09-14");
+    const previousUpdatedAt = today.updatedAt;
     const yesterday = updateNote(
       createEmptyDailyEntry("2026-09-13"),
       "tomorrowFocus",
@@ -165,6 +166,7 @@ describe("applyLegacyAiMaxTokensUpgrade", () => {
 
     expect(prefilled.morningIntention).toBe("Tenir le premier bloc");
     expect(prefilled.date).toBe("2026-09-14");
+    expect(prefilled.updatedAt).toBe(previousUpdatedAt);
   });
 
   it("does not overwrite an existing morning intention", () => {

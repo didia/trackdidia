@@ -30,27 +30,30 @@ export const useDailyEntry = (date: string) => {
 
   const load = useCallback(async () => {
     setLoading(true);
-    if (date === getTodayDate()) {
+    const isToday = date === getTodayDate();
+    if (isToday) {
       await repository.generateDailyRelationshipTasks(date);
     }
     const [existing, yesterday, stats, nextPomodoroStats] = await Promise.all([
       repository.getDailyEntry(date),
-      repository.getDailyEntry(addDays(date, -1)),
+      isToday ? repository.getDailyEntry(addDays(date, -1)) : Promise.resolve(null),
       repository.computeDailyTaskStats(date),
       repository.computeDailyPomodoroStats(date),
     ]);
     setTaskStats(stats);
     setPomodoroStats(nextPomodoroStats);
 
-    const nextEntry = prefillMorningIntentionFromYesterday(
-      existing
-        ? applyDailyPomodoroStats(applyDailyTaskStats(existing, stats), nextPomodoroStats)
-        : applyDailyPomodoroStats(
-            applyDailyTaskStats(createEmptyDailyEntry(date), stats),
-            nextPomodoroStats,
-          ),
-      yesterday,
-    );
+    const decorated = existing
+      ? applyDailyPomodoroStats(applyDailyTaskStats(existing, stats), nextPomodoroStats)
+      : applyDailyPomodoroStats(
+          applyDailyTaskStats(createEmptyDailyEntry(date), stats),
+          nextPomodoroStats,
+        );
+    // Carry-forward is today-only so historical catch-up (e.g. Finaliser hier) cannot
+    // silently persist a synthesized intention the user never saw.
+    const nextEntry = isToday
+      ? prefillMorningIntentionFromYesterday(decorated, yesterday)
+      : decorated;
     publishEntry(nextEntry);
     setLoading(false);
   }, [date, repository]);

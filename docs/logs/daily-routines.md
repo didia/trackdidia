@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-14 | Morning intention carry-forward is today-only, preserves `updatedAt`, and overlays the effective entry into Today coach snapshots | `docs/daily-routines.md` | `useDailyEntry`, `resolveDailySnapshotInputs`, `TodayPage` |
 | 2026-09-14 | An empty morning intention is prefilled from yesterday's tomorrow focus on load, without persisting a row | `docs/daily-routines.md` | `prefillMorningIntentionFromYesterday`, `useDailyEntry` |
 | 2026-09-12 | Today can show an optional "Pasteur IA" verse-of-the-day card above the coach panel, flag-gated by `aiPastorEnabled` (off by default) | `docs/daily-routines.md`, `docs/ai-settings-and-privacy.md` | `TodayPage.tsx`, `PastorVerseCard.tsx` |
 | 2026-09-08 | Evening close coach auto-loads on page open (hash-check) only; in-page metric/principle/journal edits no longer retrigger a pulse | `docs/daily-routines.md`, `docs/ai-settings-and-privacy.md` | `EveningClosurePage` |

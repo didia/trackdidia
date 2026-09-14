@@ -62,9 +62,10 @@ the morning, so they can still be corrected before closure.
 The intention field saves after a 450 ms debounce and flushes immediately before the
 "complete morning" navigation.
 
-When today's `morningIntention` is still empty, loading the day copies yesterday's
+When today's `morningIntention` is still empty, loading **today** copies yesterday's
 trimmed `tomorrowFocus` into the field. That copy stays in memory until a real save
-or morning completion; an existing intention is never overwritten.
+or morning completion; an existing intention is never overwritten. Historical dates
+(including Finaliser hier) do not receive this carry-forward.
 
 Morning/anytime principles shown on the morning screen (`morningPrincipleKeys`):
 
@@ -280,9 +281,10 @@ Opening a card follows a query-string deep link:
 
 Loading an absent date creates an in-memory empty entry for display. The row becomes
 durable only after a save/transition. Every saved entry gets an updated ISO
-timestamp. If the loaded day's `morningIntention` is empty, the hook copies the
-previous day's trimmed `tomorrowFocus` into it in memory only; a later save is
-what persists the carried text. An existing intention is left unchanged.
+timestamp. When loading **today** with an empty `morningIntention`, the hook copies
+the previous day's trimmed `tomorrowFocus` into it in memory only, without advancing
+`updatedAt`; a later save is what persists the carried text. An existing intention
+is left unchanged. Non-today dates never receive this carry-forward.
 
 When loading today's entry, the hook also:
 
@@ -290,6 +292,10 @@ When loading today's entry, the hook also:
 - computes task statistics;
 - computes completed focus sessions;
 - decorates the entry with those suggestions.
+
+Today's coach snapshot builders receive the hook's effective in-memory entry (including
+a carried intention), so auto-load and Régénérer reason from the same text shown on
+screen.
 
 Saves accept either a full entry or an updater `(current) => next`. The updater is
 applied immediately to the hook's current entry, then persists run one at a time

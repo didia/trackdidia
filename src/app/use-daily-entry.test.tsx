@@ -147,4 +147,29 @@ describe("useDailyEntry", () => {
 
     expect(result.current.entry?.morningIntention).toBe("Déjà choisi");
   });
+
+  it("does not prefill a historical day from the previous day's focus", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const today = getTodayDate();
+    const historical = addDays(today, -1);
+    await repository.saveDailyEntry(
+      updateNote(
+        createEmptyDailyEntry(addDays(historical, -1)),
+        "tomorrowFocus",
+        "Focus de dimanche",
+      ),
+    );
+    await repository.saveDailyEntry(createEmptyDailyEntry(historical));
+
+    const { result } = renderHook(() => useDailyEntry(historical), {
+      wrapper: wrapRepository(repository),
+    });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.entry?.morningIntention).toBe("");
+  });
 });
