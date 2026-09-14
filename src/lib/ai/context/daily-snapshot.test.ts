@@ -271,6 +271,39 @@ describe("daily snapshot context builder", () => {
     expect(snapshot.pomodoro.totalFocusMinutes).toBe(60);
   });
 
+  it("includes yesterday's notes at full scope and strips them at metrics scope", () => {
+    const yesterday = createEmptyDailyEntry("2026-01-31");
+    const previousEntry = updateNote(
+      updateNote(yesterday, "tomorrowFocus", "Finir le module"),
+      "nightReflection",
+      "Journee courte.",
+    );
+    const inputs = { ...buildInputs(), previousEntry };
+
+    const full = buildDailySnapshot(inputs, "full");
+    const metrics = buildDailySnapshot(inputs, "metrics");
+
+    expect(full.previousDay).toMatchObject({
+      date: "2026-01-31",
+      notes: {
+        tomorrowFocus: "Finir le module",
+        nightReflection: "Journee courte.",
+      },
+    });
+    expect(full.previousDay?.metrics.some((metric) => metric.key === "pomodoris")).toBe(true);
+    expect(metrics.previousDay?.date).toBe("2026-01-31");
+    expect(metrics.previousDay?.metrics.length).toBeGreaterThan(0);
+    expect(metrics.previousDay?.principles.length).toBeGreaterThan(0);
+    expect(metrics.previousDay?.notes).toBeUndefined();
+    expect(JSON.stringify(metrics.previousDay)).not.toContain("Finir le module");
+  });
+
+  it("omits previousDay when yesterday has no saved row", () => {
+    const snapshot = buildDailySnapshot(buildInputs(), "full");
+
+    expect(snapshot.previousDay).toBeNull();
+  });
+
   it("labels the RescueTime pulse as week-to-date rather than a same-day figure", () => {
     const snapshot = buildDailySnapshot(buildInputs(), "full");
 

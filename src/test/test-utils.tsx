@@ -1,5 +1,5 @@
 import { act, render } from "@testing-library/react";
-import { StrictMode, type PropsWithChildren, type ReactElement } from "react";
+import { StrictMode, useEffect, useState, type PropsWithChildren, type ReactElement } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { AppContext, type AppContextValue } from "../app/app-context";
 import { defaultAppSettings } from "../domain/daily-entry";
@@ -36,7 +36,9 @@ export const renderWithApp = async (ui: ReactElement, options: RenderOptions = {
   const repository = options.repository ?? new MemoryRepository();
   await repository.initialize();
 
-  const contextValue: AppContextValue = {
+  const initialPulseRevision = options.contextOverrides?.pulseRevision ?? 0;
+  let setPulseRevisionState: (value: number) => void = () => undefined;
+  const contextBase: Omit<AppContextValue, "pulseRevision"> = {
     repository,
     settings: defaultAppSettings(),
     saveSettings: async () => undefined,
@@ -66,13 +68,22 @@ export const renderWithApp = async (ui: ReactElement, options: RenderOptions = {
       cancelCurrent: async () => undefined,
       switchTask: async () => undefined,
     },
-    pulseRevision: 0,
     calendarDay: getTodayDate(),
     reconfigureEmailTriage: async () => undefined,
     ...options.contextOverrides,
   };
 
   const Wrapper = ({ children }: PropsWithChildren) => {
+    const [pulseRevision, setPulseRevision] = useState(initialPulseRevision);
+    useEffect(() => {
+      setPulseRevisionState = setPulseRevision;
+    });
+
+    const contextValue: AppContextValue = {
+      ...contextBase,
+      pulseRevision,
+    };
+
     const tree = (
       <MemoryRouter
         initialEntries={[options.route ?? "/"]}
@@ -93,6 +104,11 @@ export const renderWithApp = async (ui: ReactElement, options: RenderOptions = {
 
   return {
     repository,
+    setPulseRevision: (value: number) => {
+      act(() => {
+        setPulseRevisionState(value);
+      });
+    },
     ...rendered,
   };
 };

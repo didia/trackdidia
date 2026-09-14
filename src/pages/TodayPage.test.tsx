@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { resetPastorVerseAutoAttemptsForTesting } from "../app/use-pastor-verse";
-import { createEmptyDailyEntry, defaultAppSettings } from "../domain/daily-entry";
+import { createEmptyDailyEntry, defaultAppSettings, updateNote } from "../domain/daily-entry";
 import type { AiMessage, AiProposal, AppSettings, CoachPulseResult } from "../domain/types";
 import type { CoachPulseService } from "../lib/ai/coach-pulse-service";
 import { PASTOR_VERSE_PROMPT_VERSION, PastorVerseService } from "../lib/ai/pastor-verse-service";
@@ -449,6 +449,222 @@ describe("TodayPage", () => {
         bypassCache: true,
       }),
     );
+  });
+
+  it("passes the carried intention into coach snapshot inputs on auto-load and regenerate", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const today = getTodayDate();
+    await repository.saveDailyEntry(
+      updateNote(createEmptyDailyEntry(addDays(today, -1)), "tomorrowFocus", "Finish taxes"),
+    );
+
+    const localResult = {
+      message: {
+        id: "ai-message:local",
+        surface: "coach_pulse" as const,
+        scopeKey: today,
+        stance: "open" as const,
+        kind: "open",
+        inputHash: "local",
+        promptVersion: "coach_pulse.v1",
+        model: "local",
+        status: "skipped" as const,
+        bodyJson: null,
+        bodyText: null,
+        deltaClass: null,
+        notified: false,
+        tokensPrompt: null,
+        tokensCompletion: null,
+        latencyMs: null,
+        createdAt: "2026-08-29T08:00:00.000Z",
+      },
+      pulse: {
+        stance: "open" as const,
+        headline: "Local",
+        read: "Brief local",
+        move: null,
+      },
+      proposals: [],
+      source: "local" as const,
+    };
+
+    const coachService = {
+      buildPulse: vi.fn(async () => localResult),
+    } as unknown as CoachPulseService;
+
+    const user = userEvent.setup();
+    await renderWithApp(<TodayPage />, {
+      repository,
+      route: "/",
+      contextOverrides: {
+        coachService,
+        settings: { ...enabledAiSettings(), aiPulseEnabled: false },
+      },
+    });
+
+    expect(await screen.findByRole("textbox", { name: /intention/i })).toHaveValue("Finish taxes");
+    await waitFor(() => {
+      expect(coachService.buildPulse).toHaveBeenCalled();
+    });
+    expect(coachService.buildPulse).toHaveBeenCalledWith(
+      repository,
+      expect.objectContaining({
+        trigger: "auto",
+        snapshotInputs: expect.objectContaining({
+          entry: expect.objectContaining({ morningIntention: "Finish taxes" }),
+        }),
+      }),
+    );
+
+    vi.mocked(coachService.buildPulse).mockClear();
+    await user.click(await screen.findByRole("button", { name: /régénérer/i }));
+    await waitFor(() => {
+      expect(coachService.buildPulse).toHaveBeenCalledOnce();
+    });
+    expect(coachService.buildPulse).toHaveBeenCalledWith(
+      repository,
+      expect.objectContaining({
+        trigger: "explicit",
+        bypassCache: true,
+        snapshotInputs: expect.objectContaining({
+          entry: expect.objectContaining({ morningIntention: "Finish taxes" }),
+        }),
+      }),
+    );
+  });
+
+  it("reloads the coach pulse when pulseRevision changes", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const proposal: AiProposal = {
+      id: "ai-proposal:intention",
+      messageId: "ai-message:test",
+      type: "intention_draft",
+      payloadJson: JSON.stringify({ text: "Focus profond" }),
+      status: "pending",
+      appliedEntityId: null,
+      decidedAt: null,
+      createdAt: "2026-08-29T08:00:00.000Z",
+    };
+    const localResult = buildCoachResult(proposal);
+    localResult.source = "local";
+    localResult.pulse = {
+      stance: "open",
+      headline: "Brief instantane",
+      read: "En attente",
+      move: null,
+    };
+    const stored = buildCoachResult(proposal);
+    stored.message.status = "ok";
+    stored.source = "cache";
+    stored.pulse = {
+      stance: "open",
+      headline: "Cap d'hier",
+      read: "Focus d'hier",
+      move: null,
+    };
+    stored.message.bodyJson = JSON.stringify(stored.pulse);
+    stored.message.bodyText = "Cap d'hier";
+
+    const coachService = {
+      resultFromMessage: vi.fn(async () => stored),
+      buildPulse: vi.fn(async () => localResult),
+    } as unknown as CoachPulseService;
+
+    const view = await renderWithApp(<TodayPage />, {
+      repository,
+      route: "/",
+      contextOverrides: { coachService, settings: enabledAiSettings() },
+    });
+
+    expect(await screen.findByRole("heading", { name: "Brief instantane" })).toBeInTheDocument();
+    vi.mocked(coachService.buildPulse).mockClear();
+    vi.mocked(coachService.resultFromMessage).mockClear();
+
+    await repository.saveAiMessage(stored.message);
+    view.setPulseRevision(1);
+
+    expect(await screen.findByRole("heading", { name: "Cap d'hier" })).toBeInTheDocument();
+    expect(coachService.buildPulse).not.toHaveBeenCalled();
+    expect(coachService.resultFromMessage).toHaveBeenCalled();
+  });
+
+  it("keeps an in-flight regenerate when pulseRevision changes", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const proposal: AiProposal = {
+      id: "ai-proposal:intention",
+      messageId: "ai-message:test",
+      type: "intention_draft",
+      payloadJson: JSON.stringify({ text: "Focus profond" }),
+      status: "pending",
+      appliedEntityId: null,
+      decidedAt: null,
+      createdAt: "2026-08-29T08:00:00.000Z",
+    };
+    const localResult = buildCoachResult(proposal);
+    localResult.source = "local";
+    localResult.pulse = {
+      stance: "open",
+      headline: "Brief instantane",
+      read: "En attente",
+      move: null,
+    };
+    const stored = buildCoachResult(proposal);
+    stored.message.status = "ok";
+    stored.source = "cache";
+    stored.pulse = {
+      stance: "open",
+      headline: "Pulse planifie",
+      read: "Ancien",
+      move: null,
+    };
+    stored.message.bodyJson = JSON.stringify(stored.pulse);
+    stored.message.bodyText = "Pulse planifie";
+    const regenerated = buildCoachResult(proposal);
+    regenerated.source = "ai";
+    regenerated.pulse = {
+      stance: "open",
+      headline: "Regenere maintenant",
+      read: "Explicit",
+      move: null,
+    };
+
+    let resolveExplicit: ((result: CoachPulseResult) => void) | null = null;
+    const coachService = {
+      resultFromMessage: vi.fn(async () => stored),
+      buildPulse: vi.fn((_repository, request: { trigger?: string }) => {
+        if (request.trigger === "explicit") {
+          return new Promise<CoachPulseResult>((resolve) => {
+            resolveExplicit = resolve;
+          });
+        }
+        return Promise.resolve(localResult);
+      }),
+    } as unknown as CoachPulseService;
+
+    const user = userEvent.setup();
+    const view = await renderWithApp(<TodayPage />, {
+      repository,
+      route: "/",
+      contextOverrides: { coachService, settings: enabledAiSettings() },
+    });
+
+    expect(await screen.findByRole("heading", { name: "Brief instantane" })).toBeInTheDocument();
+    await repository.saveAiMessage(stored.message);
+    await user.click(screen.getByRole("button", { name: /régénérer/i }));
+    view.setPulseRevision(1);
+    const finishExplicit = resolveExplicit as unknown as
+      | ((result: CoachPulseResult) => void)
+      | null;
+    if (!finishExplicit) {
+      throw new Error("Expected regenerate to start a model call");
+    }
+    finishExplicit(regenerated);
+
+    expect(await screen.findByRole("heading", { name: "Regenere maintenant" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Pulse planifie" })).not.toBeInTheDocument();
   });
 });
 

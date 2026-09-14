@@ -3,9 +3,11 @@ import {
   applyDailyPomodoroStats,
   applyDailyTaskStats,
   createEmptyDailyEntry,
+  prefillMorningIntentionFromYesterday,
 } from "../domain/daily-entry";
 import type { DailyEntry, DailyPomodoroStats, DailyTaskStats } from "../domain/types";
 import { getTodayDate } from "../lib/date";
+import { addDays } from "../lib/gtd/shared";
 import { useAppContext } from "./app-context";
 
 export type DailyEntrySaveInput = DailyEntry | ((current: DailyEntry) => DailyEntry);
@@ -28,23 +30,30 @@ export const useDailyEntry = (date: string) => {
 
   const load = useCallback(async () => {
     setLoading(true);
-    if (date === getTodayDate()) {
+    const isToday = date === getTodayDate();
+    if (isToday) {
       await repository.generateDailyRelationshipTasks(date);
     }
-    const [existing, stats, nextPomodoroStats] = await Promise.all([
+    const [existing, yesterday, stats, nextPomodoroStats] = await Promise.all([
       repository.getDailyEntry(date),
+      isToday ? repository.getDailyEntry(addDays(date, -1)) : Promise.resolve(null),
       repository.computeDailyTaskStats(date),
       repository.computeDailyPomodoroStats(date),
     ]);
     setTaskStats(stats);
     setPomodoroStats(nextPomodoroStats);
 
-    const nextEntry = existing
+    const decorated = existing
       ? applyDailyPomodoroStats(applyDailyTaskStats(existing, stats), nextPomodoroStats)
       : applyDailyPomodoroStats(
           applyDailyTaskStats(createEmptyDailyEntry(date), stats),
           nextPomodoroStats,
         );
+    // Carry-forward is today-only so historical catch-up (e.g. Finaliser hier) cannot
+    // silently persist a synthesized intention the user never saw.
+    const nextEntry = isToday
+      ? prefillMorningIntentionFromYesterday(decorated, yesterday)
+      : decorated;
     publishEntry(nextEntry);
     setLoading(false);
   }, [date, repository]);

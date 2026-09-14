@@ -3,7 +3,7 @@ import { RescueTimeGoalsService } from "../../rescuetime/rescuetime-goals-servic
 import { MemoryRepository } from "../../storage/memory-repository";
 import type { DailySnapshot } from "./daily-snapshot";
 import type { MonthlySnapshot } from "./monthly-snapshot";
-import { previewPayload, resolveProductivityPulse } from "./preview";
+import { previewPayload, resolveDailySnapshotInputs, resolveProductivityPulse } from "./preview";
 import type { WeeklySnapshot } from "./weekly-snapshot";
 
 describe("previewPayload", () => {
@@ -194,6 +194,29 @@ describe("resolveProductivityPulse", () => {
     expect(result.pulseWeekToDate).toBeNull();
     expect(result.fetchError).toBeDefined();
     expect(result.fetchError).toContain("401");
+  });
+});
+
+describe("resolveDailySnapshotInputs", () => {
+  it("overlays an effective in-memory entry over the stored row and history slot", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const date = "2026-09-14";
+    await repository.saveDailyEntry(createEmptyDailyEntry(date));
+    const effective = updateNote(createEmptyDailyEntry(date), "morningIntention", "Finish taxes");
+
+    const inputs = await resolveDailySnapshotInputs(
+      repository,
+      date,
+      `${date}T12:00:00.000Z`,
+      undefined,
+      { skipRescueTimeFetch: true, entry: effective },
+    );
+
+    expect(inputs.entry.morningIntention).toBe("Finish taxes");
+    expect(inputs.historyEntries.find((item) => item.date === date)?.morningIntention).toBe(
+      "Finish taxes",
+    );
   });
 });
 

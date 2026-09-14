@@ -1,9 +1,9 @@
 import { createEmptyDailyEntry } from "../../../domain/daily-entry";
 import { getMonthKey } from "../../../domain/monthly-review";
-import type { AiPayloadScope } from "../../../domain/types";
+import type { AiPayloadScope, DailyEntry } from "../../../domain/types";
 import { buildWeekDates } from "../../../domain/weekly-review";
 import { getTodayDate } from "../../date";
-import { getWeekStartSunday } from "../../gtd/shared";
+import { addDays, getWeekStartSunday } from "../../gtd/shared";
 import type { RescueTimeGoalItemSnapshot } from "../../../domain/rescuetime-goals";
 import { PASTOR_VERSE_PROMPT_VERSION } from "../pastor-verse-service";
 import { RescueTimeGoalsService } from "../../rescuetime/rescuetime-goals-service";
@@ -117,6 +117,11 @@ export const resolveProductivityPulse = async (
 export interface ResolveDailySnapshotInputsOptions {
   /** When true, skip the live RescueTime request and leave pulse null. */
   skipRescueTimeFetch?: boolean;
+  /**
+   * Effective in-memory entry for this date (e.g. carried morning intention).
+   * Wins over the stored row for both `entry` and the same-date history slot.
+   */
+  entry?: DailyEntry;
 }
 
 export const resolveDailySnapshotInputs = async (
@@ -137,8 +142,10 @@ export const resolveDailySnapshotInputs = async (
         })
       : resolveProductivityPulse(repository, date));
 
+  const yesterday = addDays(date, -1);
   const [
-    entry,
+    storedEntry,
+    previousEntry,
     historyEntries,
     tasks,
     projects,
@@ -147,6 +154,7 @@ export const resolveDailySnapshotInputs = async (
     resolvedPulse,
   ] = await Promise.all([
     repository.getDailyEntry(date),
+    repository.getDailyEntry(yesterday),
     repository.listDailyEntries(INSIGHT_HISTORY_LOOKBACK_DAYS),
     repository.listTasks({ includeCompleted: true }),
     repository.listProjects(),
@@ -155,14 +163,15 @@ export const resolveDailySnapshotInputs = async (
     resolvedPulsePromise,
   ]);
 
-  const resolvedEntry = entry ?? createEmptyDailyEntry(date);
+  const resolvedEntry = options.entry ?? storedEntry ?? createEmptyDailyEntry(date);
   const historyEntriesWithToday = historyEntries.some((item) => item.date === date)
-    ? historyEntries
+    ? historyEntries.map((item) => (item.date === date ? resolvedEntry : item))
     : [...historyEntries, resolvedEntry];
 
   return {
     date,
     entry: resolvedEntry,
+    previousEntry,
     historyEntries: historyEntriesWithToday,
     tasks,
     projects,
