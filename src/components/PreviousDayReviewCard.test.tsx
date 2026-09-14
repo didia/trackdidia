@@ -1,6 +1,6 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createEmptyDailyEntry, defaultAppSettings } from "../domain/daily-entry";
+import { createEmptyDailyEntry, defaultAppSettings, updateNote } from "../domain/daily-entry";
 import { getTodayDate } from "../lib/date";
 import { addDays } from "../lib/gtd/shared";
 import { MemoryRepository } from "../lib/storage/memory-repository";
@@ -84,6 +84,38 @@ describe("PreviousDayReviewCard", () => {
     expect(
       (savedSettings as { previousDayReviewDoneDate: string } | null)?.previousDayReviewDoneDate,
     ).toBe(yesterday);
+  });
+
+  it("does not persist a carried intention when saving yesterday catch-up fields", async () => {
+    const user = userEvent.setup();
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveDailyEntry(
+      updateNote(
+        createEmptyDailyEntry(addDays(yesterday, -1)),
+        "tomorrowFocus",
+        "Focus de dimanche",
+      ),
+    );
+    const seeded = createEmptyDailyEntry(yesterday);
+    seeded.metrics.qualiteSommeil = 80;
+    seeded.principleChecks.priereDuSoir = false;
+    seeded.nightReflection = "";
+    await repository.saveDailyEntry(seeded);
+
+    await renderWithApp(<MorningRoutinePage />, { repository });
+
+    await screen.findByText("Finaliser hier");
+    const reflection = screen
+      .getByText("Réflexion du soir")
+      .closest("label")
+      ?.querySelector("textarea")!;
+    await user.type(reflection, "Bonne journee.");
+    await user.click(screen.getByRole("button", { name: /enregistrer hier/i }));
+
+    const savedYesterday = await repository.getDailyEntry(yesterday);
+    expect(savedYesterday?.nightReflection).toBe("Bonne journee.");
+    expect(savedYesterday?.morningIntention).toBe("");
   });
 
   it("hides the card when the flag already covers yesterday", async () => {

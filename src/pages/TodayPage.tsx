@@ -71,7 +71,7 @@ export const TodayPage = () => {
         currentEntry.date,
         new Date().toISOString(),
         undefined,
-        { skipRescueTimeFetch: true },
+        { skipRescueTimeFetch: true, entry: currentEntry },
       );
       const localResult = await coachService.buildPulse(repository, {
         stance: "open",
@@ -95,7 +95,13 @@ export const TodayPage = () => {
         return;
       }
 
-      const fullInputs = await resolveDailySnapshotInputs(repository, currentEntry.date);
+      const fullInputs = await resolveDailySnapshotInputs(
+        repository,
+        currentEntry.date,
+        new Date().toISOString(),
+        undefined,
+        { entry: currentEntry },
+      );
       const aiResult = await coachService.buildPulse(repository, {
         stance: "open",
         entry: currentEntry,
@@ -138,7 +144,7 @@ export const TodayPage = () => {
           currentEntry.date,
           new Date().toISOString(),
           undefined,
-          { skipRescueTimeFetch: options.skipRescueTimeFetch ?? false },
+          { skipRescueTimeFetch: options.skipRescueTimeFetch ?? false, entry: currentEntry },
         );
         const latest = await loadLatestCoachPulseForDate(
           repository,

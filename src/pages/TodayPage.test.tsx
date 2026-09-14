@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { resetPastorVerseAutoAttemptsForTesting } from "../app/use-pastor-verse";
-import { createEmptyDailyEntry, defaultAppSettings } from "../domain/daily-entry";
+import { createEmptyDailyEntry, defaultAppSettings, updateNote } from "../domain/daily-entry";
 import type { AiMessage, AiProposal, AppSettings, CoachPulseResult } from "../domain/types";
 import type { CoachPulseService } from "../lib/ai/coach-pulse-service";
 import { PASTOR_VERSE_PROMPT_VERSION, PastorVerseService } from "../lib/ai/pastor-verse-service";
@@ -447,6 +447,89 @@ describe("TodayPage", () => {
       expect.objectContaining({
         trigger: "explicit",
         bypassCache: true,
+      }),
+    );
+  });
+
+  it("passes the carried intention into coach snapshot inputs on auto-load and regenerate", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const today = getTodayDate();
+    await repository.saveDailyEntry(
+      updateNote(createEmptyDailyEntry(addDays(today, -1)), "tomorrowFocus", "Finish taxes"),
+    );
+
+    const localResult = {
+      message: {
+        id: "ai-message:local",
+        surface: "coach_pulse" as const,
+        scopeKey: today,
+        stance: "open" as const,
+        kind: "open",
+        inputHash: "local",
+        promptVersion: "coach_pulse.v1",
+        model: "local",
+        status: "skipped" as const,
+        bodyJson: null,
+        bodyText: null,
+        deltaClass: null,
+        notified: false,
+        tokensPrompt: null,
+        tokensCompletion: null,
+        latencyMs: null,
+        createdAt: "2026-08-29T08:00:00.000Z",
+      },
+      pulse: {
+        stance: "open" as const,
+        headline: "Local",
+        read: "Brief local",
+        move: null,
+      },
+      proposals: [],
+      source: "local" as const,
+    };
+
+    const coachService = {
+      buildPulse: vi.fn(async () => localResult),
+    } as unknown as CoachPulseService;
+
+    const user = userEvent.setup();
+    await renderWithApp(<TodayPage />, {
+      repository,
+      route: "/",
+      contextOverrides: {
+        coachService,
+        settings: { ...enabledAiSettings(), aiPulseEnabled: false },
+      },
+    });
+
+    expect(await screen.findByRole("textbox", { name: /intention/i })).toHaveValue("Finish taxes");
+    await waitFor(() => {
+      expect(coachService.buildPulse).toHaveBeenCalled();
+    });
+    expect(coachService.buildPulse).toHaveBeenCalledWith(
+      repository,
+      expect.objectContaining({
+        trigger: "auto",
+        snapshotInputs: expect.objectContaining({
+          entry: expect.objectContaining({ morningIntention: "Finish taxes" }),
+        }),
+      }),
+    );
+
+    vi.mocked(coachService.buildPulse).mockClear();
+    await user.click(await screen.findByRole("button", { name: /régénérer/i }));
+    await waitFor(() => {
+      expect(coachService.buildPulse).toHaveBeenCalledOnce();
+    });
+    expect(coachService.buildPulse).toHaveBeenCalledWith(
+      repository,
+      expect.objectContaining({
+        trigger: "explicit",
+        bypassCache: true,
+        snapshotInputs: expect.objectContaining({
+          entry: expect.objectContaining({ morningIntention: "Finish taxes" }),
+        }),
       }),
     );
   });

@@ -1,6 +1,6 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createEmptyDailyEntry, defaultAppSettings } from "../domain/daily-entry";
+import { createEmptyDailyEntry, defaultAppSettings, updateNote } from "../domain/daily-entry";
 import { getTodayDate } from "../lib/date";
 import { addDays } from "../lib/gtd/shared";
 import { MemoryRepository } from "../lib/storage/memory-repository";
@@ -100,5 +100,23 @@ describe("MorningRoutinePage", () => {
     const saved = await repository.getDailyEntry(getTodayDate());
     expect(saved?.morningIntention).toContain("Je garde un rythme calme.");
     expect(saved?.status).toBe("morning_done");
+  });
+
+  it("shows yesterday's tomorrow focus as today's intention when it is still empty", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveDailyEntry(
+      updateNote(
+        createEmptyDailyEntry(addDays(getTodayDate(), -1)),
+        "tomorrowFocus",
+        "Tenir le premier bloc",
+      ),
+    );
+
+    await renderWithApp(<MorningRoutinePage />, { repository });
+
+    expect(await screen.findByRole("textbox", { name: /intention/i })).toHaveValue(
+      "Tenir le premier bloc",
+    );
   });
 });
