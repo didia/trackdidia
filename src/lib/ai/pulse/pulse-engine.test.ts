@@ -1,6 +1,6 @@
-import { defaultAppSettings } from "../../../domain/daily-entry";
+import { createEmptyDailyEntry, defaultAppSettings, updateNote } from "../../../domain/daily-entry";
 import type { AiMessage } from "../../../domain/types";
-import { createEntityId, toLocalDateString } from "../../gtd/shared";
+import { addDays, createEntityId, toLocalDateString } from "../../gtd/shared";
 import { MemoryRepository } from "../../storage/memory-repository";
 import { CoachPulseService } from "../coach-pulse-service";
 import * as preview from "../context/preview";
@@ -95,6 +95,100 @@ describe("pulse-engine integration", () => {
     });
 
     expect(resolveSpy).not.toHaveBeenCalled();
+  });
+
+  it("calls the provider for a weekday open pulse with no movement", async () => {
+    const provider: AiProvider = {
+      generateStructured: vi.fn(async () => ({
+        text: JSON.stringify({
+          stance: "open",
+          headline: "Cap",
+          read: "Hier",
+          move: null,
+        }),
+        model: "test-model",
+        usage: { tokensPrompt: 1, tokensCompletion: 1, latencyMs: 1 },
+      })),
+    };
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const yesterday = addDays(weekday, -1);
+    await repository.saveDailyEntry(
+      updateNote(createEmptyDailyEntry(yesterday), "tomorrowFocus", "Finir le module"),
+    );
+    const coachService = new CoachPulseService(provider);
+    const settings = defaultAppSettings();
+    settings.aiEnabled = true;
+    settings.aiApiKey = "secret";
+
+    const result = await runPulseEngine({
+      repository,
+      coachService,
+      settings,
+      saveSettings: async () => undefined,
+      nowIso: `${weekday}T08:00:00`,
+      appOpenIntervals: [
+        {
+          startedAt: `${weekday}T07:55:00.000`,
+          endedAt: `${weekday}T08:00:00.000`,
+        },
+      ],
+      focusSessionActive: false,
+    });
+
+    expect(result.ranSlot?.stance).toBe("open");
+    expect(result.result?.source).toBe("ai");
+    expect(result.result?.message.deltaClass).toBe("unknown");
+    expect(provider.generateStructured).toHaveBeenCalledOnce();
+    const request = vi.mocked(provider.generateStructured).mock.calls[0]?.[0];
+    expect(request?.snapshot).toMatchObject({
+      previousDay: {
+        date: yesterday,
+        notes: { tomorrowFocus: "Finir le module" },
+      },
+    });
+  });
+
+  it("calls the provider for a weekend open pulse with no movement", async () => {
+    const sunday = "2026-08-30";
+    const provider: AiProvider = {
+      generateStructured: vi.fn(async () => ({
+        text: JSON.stringify({
+          stance: "open",
+          headline: "Cap",
+          read: "Hier",
+          move: null,
+        }),
+        model: "test-model",
+        usage: { tokensPrompt: 1, tokensCompletion: 1, latencyMs: 1 },
+      })),
+    };
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const coachService = new CoachPulseService(provider);
+    const settings = defaultAppSettings();
+    settings.aiEnabled = true;
+    settings.aiApiKey = "secret";
+
+    const result = await runPulseEngine({
+      repository,
+      coachService,
+      settings,
+      saveSettings: async () => undefined,
+      nowIso: `${sunday}T08:00:00`,
+      appOpenIntervals: [
+        {
+          startedAt: `${sunday}T07:55:00.000`,
+          endedAt: `${sunday}T08:00:00.000`,
+        },
+      ],
+      focusSessionActive: false,
+    });
+
+    expect(result.ranSlot?.stance).toBe("open");
+    expect(result.result?.source).toBe("ai");
+    expect(result.result?.message.deltaClass).toBe("idle");
+    expect(provider.generateStructured).toHaveBeenCalledOnce();
   });
 
   it("classifies a completed task as progress even when listTasks excludes completed by default", async () => {

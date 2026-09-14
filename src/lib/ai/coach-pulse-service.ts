@@ -26,7 +26,7 @@ import { buildLocalCoachPulse } from "./proposals/coach-pulse-fallback";
 import { parseCoachPulseJson } from "./proposals/coach-pulse-validator";
 import type { AiProvider } from "./provider";
 
-export const COACH_PULSE_PROMPT_VERSION = "coach_pulse.v1";
+export const COACH_PULSE_PROMPT_VERSION = "coach_pulse.v2";
 
 export interface CoachPulseRequest {
   stance: CoachPulseStance;
@@ -294,11 +294,21 @@ export class CoachPulseService {
     }
 
     const findings = snapshot.findings as Finding[];
-    const localPulse = buildLocalCoachPulse(stance, findings, deltaClass ?? undefined);
+    const localPulse = buildLocalCoachPulse(stance, findings, deltaClass ?? undefined, {
+      previousDayTomorrowFocus:
+        stance === "open" ? snapshotInputs.previousEntry?.tomorrowFocus : undefined,
+    });
     const aiConfigured = settings.aiEnabled && settings.aiApiKey.trim().length > 0;
+    // Morning open is allowed even on idle/unknown: there is no today-delta yet,
+    // and the brief is anchored on yesterday. Other stances stay gated.
+    const openIgnoresDeltaGate =
+      stance === "open" && (deltaClass === "idle" || deltaClass === "unknown");
     const autoMayCallProvider =
       trigger === "auto" &&
-      (deltaClass === null || deltaClass === "progress" || deltaClass === "stall");
+      (deltaClass === null ||
+        deltaClass === "progress" ||
+        deltaClass === "stall" ||
+        openIgnoresDeltaGate);
     const shouldCallProvider =
       !localOnly && aiConfigured && (trigger === "explicit" || autoMayCallProvider);
     const baseMessage = (): AiMessage => ({

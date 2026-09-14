@@ -25,4 +25,14 @@ describe("coach-pulse-fallback", () => {
     expect(pulse.read).toContain("Pas assez de signal");
     expect(pulse.intentionDraft).toBeUndefined();
   });
+
+  it("uses yesterday's tomorrowFocus as the open intention draft", () => {
+    const pulse = buildLocalCoachPulse("open", [zeroSampleFinding("priereDuMatin")], undefined, {
+      previousDayTomorrowFocus: "Finir le module",
+    });
+
+    expect(pulse.intentionDraft).toBe("Finir le module");
+    expect(pulse.read).toContain("Finir le module");
+    expect(pulse.move?.what).toBe("Finir le module");
+  });
 });

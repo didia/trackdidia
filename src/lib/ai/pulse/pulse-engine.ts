@@ -201,7 +201,13 @@ export const runPulseEngine = async (context: PulseEngineContext): Promise<Pulse
     dayOfWeek,
   });
 
-  if (window.deltaClass === "idle" || window.deltaClass === "unknown") {
+  // Morning `open` always reaches the model when AI is configured, even with no
+  // movement yet — the brief is anchored on yesterday, not today's delta.
+  // Midday/evening slots stay gated.
+  if (
+    (window.deltaClass === "idle" || window.deltaClass === "unknown") &&
+    dueSlot.stance !== "open"
+  ) {
     const localPulse =
       window.deltaClass === "unknown"
         ? buildLocalUnknownPulse(dueSlot.stance)

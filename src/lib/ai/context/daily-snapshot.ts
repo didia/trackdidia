@@ -119,6 +119,27 @@ export interface DailySnapshotNotes {
   tomorrowFocus: string;
 }
 
+export interface DailySnapshotPreviousDayMetric {
+  key: MetricKey;
+  label: string;
+  value: number | null;
+}
+
+export interface DailySnapshotPreviousDayPrinciple {
+  key: PrincipleKey;
+  label: string;
+  value: boolean | null;
+}
+
+/** Calendar yesterday (`date - 1`). Notes exist only at `full` scope. */
+export interface DailySnapshotPreviousDay {
+  date: string;
+  status: DailyStatus;
+  metrics: DailySnapshotPreviousDayMetric[];
+  principles: DailySnapshotPreviousDayPrinciple[];
+  notes?: DailySnapshotNotes;
+}
+
 export interface DailySnapshot {
   surface: Surface;
   scope: AiPayloadScope;
@@ -132,6 +153,8 @@ export interface DailySnapshot {
   pomodoro: DailySnapshotPomodoro;
   rescueTime: DailySnapshotRescueTime;
   history: DailySnapshotHistory;
+  /** Strict calendar yesterday, or `null` when that date has no saved row. */
+  previousDay: DailySnapshotPreviousDay | null;
   weeklyScoreTrend: WeeklyScoreTrendFinding | null;
   findings: Finding[];
 }
@@ -140,6 +163,8 @@ export interface DailySnapshotInputs {
   /** Local `YYYY-MM-DD` date the snapshot is built for. */
   date: string;
   entry: DailyEntry;
+  /** Saved row for `addDays(date, -1)`, or null when yesterday was never persisted. */
+  previousEntry?: DailyEntry | null;
   /** History used for streaks/trends/correlations/anomalies. Should include `entry` itself. */
   historyEntries: DailyEntry[];
   weeklyScoreHistory?: WeeklyScoreTrendPoint[];
@@ -156,6 +181,39 @@ export interface DailySnapshotInputs {
 
 const projectTitleById = (projects: Project[]): Map<string, string> =>
   new Map(projects.map((project) => [project.id, project.title]));
+
+const buildPreviousDay = (
+  entry: DailyEntry | null | undefined,
+  includeFreeText: boolean,
+): DailySnapshotPreviousDay | null => {
+  if (!entry) {
+    return null;
+  }
+
+  return {
+    date: entry.date,
+    status: entry.status,
+    metrics: metricDefinitions.map((definition) => ({
+      key: definition.key,
+      label: definition.label,
+      value: resolveMetricValue(entry, definition.key),
+    })),
+    principles: principleDefinitions.map((definition) => ({
+      key: definition.key,
+      label: definition.label,
+      value: entry.principleChecks[definition.key],
+    })),
+    ...(includeFreeText
+      ? {
+          notes: {
+            morningIntention: entry.morningIntention,
+            nightReflection: entry.nightReflection,
+            tomorrowFocus: entry.tomorrowFocus,
+          },
+        }
+      : {}),
+  };
+};
 
 /**
  * Strips finding fields that are safe to *compute* but not safe to *expose* below
@@ -371,6 +429,7 @@ export const buildDailySnapshot = (
     pomodoro,
     rescueTime,
     history,
+    previousDay: buildPreviousDay(inputs.previousEntry, includeFreeText),
     weeklyScoreTrend,
     findings,
   };

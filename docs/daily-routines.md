@@ -27,7 +27,10 @@ The Today screen is the daily control center. It:
 
 - opens the morning and evening screens;
 - shows completion, discipline, and task-completion summaries;
-- displays local or AI morning/evening coaching;
+- displays local or AI morning/evening coaching; the morning `open` pulse runs even
+  when today has no journal or movement yet, using yesterday's saved entry
+  (especially `tomorrowFocus`) as context — see
+  [AI settings and privacy](ai-settings-and-privacy.md#delta-gate-before-any-model-call);
 - optionally shows a "Pasteur IA" verse-of-the-day card (`aiPastorEnabled`, off by
   default) above the coach panel — see
   [AI settings and privacy](ai-settings-and-privacy.md#pasteur-ia-pastor_verse);

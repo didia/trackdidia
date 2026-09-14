@@ -3,7 +3,7 @@ import { getMonthKey } from "../../../domain/monthly-review";
 import type { AiPayloadScope, DailyEntry } from "../../../domain/types";
 import { buildWeekDates } from "../../../domain/weekly-review";
 import { getTodayDate } from "../../date";
-import { getWeekStartSunday } from "../../gtd/shared";
+import { addDays, getWeekStartSunday } from "../../gtd/shared";
 import type { RescueTimeGoalItemSnapshot } from "../../../domain/rescuetime-goals";
 import { PASTOR_VERSE_PROMPT_VERSION } from "../pastor-verse-service";
 import { RescueTimeGoalsService } from "../../rescuetime/rescuetime-goals-service";
@@ -142,8 +142,10 @@ export const resolveDailySnapshotInputs = async (
         })
       : resolveProductivityPulse(repository, date));
 
+  const yesterday = addDays(date, -1);
   const [
     storedEntry,
+    previousEntry,
     historyEntries,
     tasks,
     projects,
@@ -152,6 +154,7 @@ export const resolveDailySnapshotInputs = async (
     resolvedPulse,
   ] = await Promise.all([
     repository.getDailyEntry(date),
+    repository.getDailyEntry(yesterday),
     repository.listDailyEntries(INSIGHT_HISTORY_LOOKBACK_DAYS),
     repository.listTasks({ includeCompleted: true }),
     repository.listProjects(),
@@ -168,6 +171,7 @@ export const resolveDailySnapshotInputs = async (
   return {
     date,
     entry: resolvedEntry,
+    previousEntry,
     historyEntries: historyEntriesWithToday,
     tasks,
     projects,

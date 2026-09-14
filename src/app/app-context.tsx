@@ -89,6 +89,8 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   const appOpenStartedAtRef = useRef<string | null>(null);
   const appOpenIntervalsRef = useRef<AppOpenInterval[]>([]);
   const [pulseRevision, setPulseRevision] = useState(0);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
   const calendarDay = useLocalDayReconciliation(repository);
   const pomodoro = usePomodoroController(repository, calendarDay);
   const browserPreview = !isTauriRuntime();
@@ -150,9 +152,9 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       logDebug("info", "ai.pulse", "Evaluation pulse", { trigger });
 
       try {
+        const activeSession = pomodoro.state.activeSession;
         const focusSessionActive =
-          pomodoro.state.activeSession?.kind === "focus" &&
-          pomodoro.state.activeSession.status === "running";
+          activeSession?.kind === "focus" && activeSession.status === "running";
 
         const openIntervals = [...appOpenIntervalsRef.current];
         if (appOpenStartedAtRef.current) {
@@ -165,8 +167,9 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         const result = await runPulseEngine({
           repository,
           coachService,
-          settings,
+          settings: settingsRef.current,
           saveSettings: async (nextSettings) => {
+            settingsRef.current = nextSettings;
             await repository.saveSettings(nextSettings);
             if (!cancelled) {
               setSettings(nextSettings);
@@ -176,7 +179,10 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
           focusSessionActive,
         });
 
-        if ((result.result || result.recordedMissed > 0) && !cancelled) {
+        // Publish even if this effect was cleaned up mid-flight (settings or
+        // session changed). Today otherwise keeps the local brief after the
+        // first-open settings write cancels the invocation that persisted the AI pulse.
+        if (result.result || result.recordedMissed > 0) {
           setPulseRevision((current) => current + 1);
         }
 
@@ -219,7 +225,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       window.clearInterval(intervalId);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [repository, settings, coachService, pomodoro.state.activeSession]);
+  }, [repository, coachService, pomodoro.state.activeSession]);
 
   useEffect(() => {
     if (!repository) {
