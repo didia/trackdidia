@@ -24,8 +24,15 @@ export const TodayPage = () => {
   const { t } = useTranslation("today");
   const today = getTodayDate();
   const { entry, loading, save } = useDailyEntry(today);
-  const { repository, settings, syncSettings, coachService, browserPreview, pomodoro } =
-    useAppContext();
+  const {
+    repository,
+    settings,
+    syncSettings,
+    coachService,
+    browserPreview,
+    pomodoro,
+    pulseRevision,
+  } = useAppContext();
   const pastorVerse = usePastorVerse(today, settings, repository, syncSettings);
   const [coachResult, setCoachResult] = useState<CoachPulseResult | null>(null);
   const [coachLoading, setCoachLoading] = useState(true);
@@ -33,17 +40,27 @@ export const TodayPage = () => {
   const [openTaskPanel, setOpenTaskPanel] = useState<"added" | "completed" | null>(null);
   const entryRef = useRef(entry);
   const morningIntentionRef = useRef<PersistedTextareaHandle>(null);
+  const passiveRequestIdRef = useRef(0);
+  const explicitRequestIdRef = useRef(0);
+  const explicitInFlightRef = useRef(false);
   entryRef.current = entry;
+
+  const isCurrentPassiveRequest = (requestId: number) =>
+    requestId === passiveRequestIdRef.current && !explicitInFlightRef.current;
 
   const loadCoachFromStore = useCallback(async () => {
     const currentEntry = entryRef.current;
-    if (!currentEntry) {
+    if (!currentEntry || explicitInFlightRef.current) {
       return;
     }
 
+    const requestId = ++passiveRequestIdRef.current;
     setCoachLoading(true);
     try {
       const stored = await loadLatestCoachPulseForDate(repository, coachService, currentEntry.date);
+      if (!isCurrentPassiveRequest(requestId)) {
+        return;
+      }
       if (stored) {
         setCoachResult(stored);
         return;
@@ -64,6 +81,9 @@ export const TodayPage = () => {
         trigger: "auto",
         localOnly: true,
       });
+      if (!isCurrentPassiveRequest(requestId)) {
+        return;
+      }
       setCoachResult(localResult);
 
       // Scheduled pulses own persistence when the pulse engine is enabled.
@@ -83,11 +103,16 @@ export const TodayPage = () => {
         snapshotInputs: fullInputs,
         trigger: "auto",
       });
+      if (!isCurrentPassiveRequest(requestId)) {
+        return;
+      }
       setCoachResult(aiResult);
     } catch (error) {
       console.error("Failed to load coach pulse", error);
     } finally {
-      setCoachLoading(false);
+      if (isCurrentPassiveRequest(requestId)) {
+        setCoachLoading(false);
+      }
     }
   }, [coachService, repository, settings]);
 
@@ -104,6 +129,8 @@ export const TodayPage = () => {
         return;
       }
 
+      const requestId = ++explicitRequestIdRef.current;
+      explicitInFlightRef.current = true;
       setCoachLoading(true);
       try {
         const snapshotInputs = await resolveDailySnapshotInputs(
@@ -134,11 +161,17 @@ export const TodayPage = () => {
           bypassCache: options.bypassCache ?? false,
           slotHour: Number.isFinite(slotHour) ? slotHour : undefined,
         });
+        if (requestId !== explicitRequestIdRef.current) {
+          return;
+        }
         setCoachResult(result);
       } catch (error) {
         console.error("Failed to load coach pulse", error);
       } finally {
-        setCoachLoading(false);
+        if (requestId === explicitRequestIdRef.current) {
+          explicitInFlightRef.current = false;
+          setCoachLoading(false);
+        }
       }
     },
     [coachService, repository, settings],
@@ -150,8 +183,12 @@ export const TodayPage = () => {
       return;
     }
 
+    if (explicitInFlightRef.current) {
+      return;
+    }
+
     void loadCoachFromStore();
-  }, [entryDate, loadCoachFromStore]);
+  }, [entryDate, loadCoachFromStore, pulseRevision]);
 
   useEffect(() => {
     if (!entry) {

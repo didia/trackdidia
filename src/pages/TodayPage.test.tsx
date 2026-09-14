@@ -450,6 +450,139 @@ describe("TodayPage", () => {
       }),
     );
   });
+
+  it("reloads the coach pulse when pulseRevision changes", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const proposal: AiProposal = {
+      id: "ai-proposal:intention",
+      messageId: "ai-message:test",
+      type: "intention_draft",
+      payloadJson: JSON.stringify({ text: "Focus profond" }),
+      status: "pending",
+      appliedEntityId: null,
+      decidedAt: null,
+      createdAt: "2026-08-29T08:00:00.000Z",
+    };
+    const localResult = buildCoachResult(proposal);
+    localResult.source = "local";
+    localResult.pulse = {
+      stance: "open",
+      headline: "Brief instantane",
+      read: "En attente",
+      move: null,
+    };
+    const stored = buildCoachResult(proposal);
+    stored.message.status = "ok";
+    stored.source = "cache";
+    stored.pulse = {
+      stance: "open",
+      headline: "Cap d'hier",
+      read: "Focus d'hier",
+      move: null,
+    };
+    stored.message.bodyJson = JSON.stringify(stored.pulse);
+    stored.message.bodyText = "Cap d'hier";
+
+    const coachService = {
+      resultFromMessage: vi.fn(async () => stored),
+      buildPulse: vi.fn(async () => localResult),
+    } as unknown as CoachPulseService;
+
+    const view = await renderWithApp(<TodayPage />, {
+      repository,
+      route: "/",
+      contextOverrides: { coachService, settings: enabledAiSettings() },
+    });
+
+    expect(await screen.findByRole("heading", { name: "Brief instantane" })).toBeInTheDocument();
+    vi.mocked(coachService.buildPulse).mockClear();
+    vi.mocked(coachService.resultFromMessage).mockClear();
+
+    await repository.saveAiMessage(stored.message);
+    view.setPulseRevision(1);
+
+    expect(await screen.findByRole("heading", { name: "Cap d'hier" })).toBeInTheDocument();
+    expect(coachService.buildPulse).not.toHaveBeenCalled();
+    expect(coachService.resultFromMessage).toHaveBeenCalled();
+  });
+
+  it("keeps an in-flight regenerate when pulseRevision changes", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const proposal: AiProposal = {
+      id: "ai-proposal:intention",
+      messageId: "ai-message:test",
+      type: "intention_draft",
+      payloadJson: JSON.stringify({ text: "Focus profond" }),
+      status: "pending",
+      appliedEntityId: null,
+      decidedAt: null,
+      createdAt: "2026-08-29T08:00:00.000Z",
+    };
+    const localResult = buildCoachResult(proposal);
+    localResult.source = "local";
+    localResult.pulse = {
+      stance: "open",
+      headline: "Brief instantane",
+      read: "En attente",
+      move: null,
+    };
+    const stored = buildCoachResult(proposal);
+    stored.message.status = "ok";
+    stored.source = "cache";
+    stored.pulse = {
+      stance: "open",
+      headline: "Pulse planifie",
+      read: "Ancien",
+      move: null,
+    };
+    stored.message.bodyJson = JSON.stringify(stored.pulse);
+    stored.message.bodyText = "Pulse planifie";
+    const regenerated = buildCoachResult(proposal);
+    regenerated.source = "ai";
+    regenerated.pulse = {
+      stance: "open",
+      headline: "Regenere maintenant",
+      read: "Explicit",
+      move: null,
+    };
+
+    let resolveExplicit: ((result: CoachPulseResult) => void) | null = null;
+    const coachService = {
+      resultFromMessage: vi.fn(async () => stored),
+      buildPulse: vi.fn((_repository, request: { trigger?: string }) => {
+        if (request.trigger === "explicit") {
+          return new Promise<CoachPulseResult>((resolve) => {
+            resolveExplicit = resolve;
+          });
+        }
+        return Promise.resolve(localResult);
+      }),
+    } as unknown as CoachPulseService;
+
+    const user = userEvent.setup();
+    const view = await renderWithApp(<TodayPage />, {
+      repository,
+      route: "/",
+      contextOverrides: { coachService, settings: enabledAiSettings() },
+    });
+
+    expect(await screen.findByRole("heading", { name: "Brief instantane" })).toBeInTheDocument();
+    await repository.saveAiMessage(stored.message);
+    await user.click(screen.getByRole("button", { name: /régénérer/i }));
+    view.setPulseRevision(1);
+    const finishExplicit = resolveExplicit as unknown as
+      | ((result: CoachPulseResult) => void)
+      | null;
+    if (!finishExplicit) {
+      throw new Error("Expected regenerate to start a model call");
+    }
+    finishExplicit(regenerated);
+
+    expect(await screen.findByRole("heading", { name: "Regenere maintenant" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Pulse planifie" })).not.toBeInTheDocument();
+  });
 });
 
 describe("TodayPage pastor verse card", () => {
