@@ -76,8 +76,10 @@ export const listWeekDates = (weekStartDate: string): string[] => {
 
 /**
  * Dimanche notes describe the week that is starting, not the one being closed.
- * A past week edits the following week's notes; the current or a future week
- * edits its own, so last Sunday's kickoff text is still there during the week.
+ * `dimancheNotesWeekStart` is only the ritual write target: reviewing a past
+ * week writes the following Sunday. The opened week's stored kickoff is always
+ * that week itself, even when both weeks are already past — do not use this
+ * helper to decide which notes to display.
  */
 const localTodayDate = (): string => {
   const now = new Date();
@@ -133,9 +135,10 @@ export const updateWeeklyReviewNote = (
 const hasDimancheNote = (review: WeeklyReview): boolean => review.notes.dimanche.trim().length > 0;
 
 /**
- * One-shot move: Dimanche notes written on week W belong on W+7 when that week
- * does not already have text. Sources are cleared. Destinations that already
- * have text are left alone.
+ * One-shot move decided from an immutable snapshot. Isolated Dimanche notes
+ * move from week W onto W+7 when that week is empty. A consecutive run of
+ * weeks that already have notes is frozen: if W has text and W+7 has text,
+ * both stay. The later note is not shifted to W+14.
  */
 export const relocateDimancheNotesToNextWeek = (reviews: WeeklyReview[]): WeeklyReview[] => {
   const byWeek = new Map<string, WeeklyReview>();
@@ -144,28 +147,37 @@ export const relocateDimancheNotesToNextWeek = (reviews: WeeklyReview[]): Weekly
     byWeek.set(weekStartDate, cloneWeeklyReview({ ...review, weekStartDate }));
   }
 
-  const originalNotes = new Map(
-    [...byWeek.entries()].map(([weekStartDate, review]) => [weekStartDate, review.notes.dimanche]),
+  const occupied = new Set(
+    [...byWeek.entries()]
+      .filter(([, review]) => hasDimancheNote(review))
+      .map(([weekStartDate]) => weekStartDate),
   );
+  const moves: Array<{ sourceWeek: string; text: string }> = [];
+
+  for (const weekStartDate of occupied) {
+    const previousWeek = addDays(weekStartDate, -7);
+    const targetWeek = addDays(weekStartDate, 7);
+    if (occupied.has(previousWeek) || occupied.has(targetWeek)) {
+      continue;
+    }
+
+    const review = byWeek.get(weekStartDate);
+    if (!review) {
+      continue;
+    }
+    moves.push({ sourceWeek: weekStartDate, text: review.notes.dimanche });
+  }
+
   const changed = new Map<string, WeeklyReview>();
-
-  for (const [weekStartDate, review] of [...byWeek.entries()]) {
-    if (!hasDimancheNote(review)) {
+  for (const move of moves) {
+    const source = byWeek.get(move.sourceWeek);
+    if (!source) {
       continue;
     }
-
-    const targetWeekStart = addDays(weekStartDate, 7);
-    if ((originalNotes.get(targetWeekStart) ?? "").trim().length > 0) {
-      continue;
-    }
-
-    const target = byWeek.get(targetWeekStart) ?? createEmptyWeeklyReview(targetWeekStart);
-    const nextTarget = updateWeeklyReviewNote(target, "dimanche", review.notes.dimanche);
-    const nextSource = updateWeeklyReviewNote(review, "dimanche", "");
-    byWeek.set(targetWeekStart, nextTarget);
-    byWeek.set(weekStartDate, nextSource);
-    changed.set(weekStartDate, nextSource);
-    changed.set(targetWeekStart, nextTarget);
+    const targetWeek = addDays(move.sourceWeek, 7);
+    const target = byWeek.get(targetWeek) ?? createEmptyWeeklyReview(targetWeek);
+    changed.set(move.sourceWeek, updateWeeklyReviewNote(source, "dimanche", ""));
+    changed.set(targetWeek, updateWeeklyReviewNote(target, "dimanche", move.text));
   }
 
   return [...changed.values()];

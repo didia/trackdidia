@@ -253,7 +253,7 @@ describe("weekly review domain", () => {
     expect(byWeek.get("2026-08-09")).toBe("Porter le calme");
   });
 
-  it("does not clobber Dimanche notes that already exist on the next week", () => {
+  it("freezes a collision chain instead of shifting the later note forward", () => {
     const source = updateWeeklyReviewNote(
       createEmptyWeeklyReview("2026-08-02"),
       "dimanche",
@@ -266,12 +266,35 @@ describe("weekly review domain", () => {
     );
 
     const changed = relocateDimancheNotesToNextWeek([source, occupied]);
+
+    expect(changed).toEqual([]);
+    expect(source.notes.dimanche).toBe("Laisser en place");
+    expect(occupied.notes.dimanche).toBe("Deja pose");
+  });
+
+  it("still moves an isolated Dimanche note that is not part of a collision chain", () => {
+    const frozenSource = updateWeeklyReviewNote(
+      createEmptyWeeklyReview("2026-08-02"),
+      "dimanche",
+      "Laisser A",
+    );
+    const frozenNext = updateWeeklyReviewNote(
+      createEmptyWeeklyReview("2026-08-09"),
+      "dimanche",
+      "Laisser B",
+    );
+    const isolated = updateWeeklyReviewNote(
+      createEmptyWeeklyReview("2026-08-23"),
+      "dimanche",
+      "Deplacer",
+    );
+
+    const changed = relocateDimancheNotesToNextWeek([frozenSource, frozenNext, isolated]);
     const byWeek = new Map(changed.map((review) => [review.weekStartDate, review.notes.dimanche]));
 
     expect(byWeek.has("2026-08-02")).toBe(false);
-    expect(byWeek.get("2026-08-09")).toBe("");
-    expect(byWeek.get("2026-08-16")).toBe("Deja pose");
-    expect(source.notes.dimanche).toBe("Laisser en place");
-    expect(occupied.notes.dimanche).toBe("Deja pose");
+    expect(byWeek.has("2026-08-09")).toBe(false);
+    expect(byWeek.get("2026-08-23")).toBe("");
+    expect(byWeek.get("2026-08-30")).toBe("Deplacer");
   });
 });

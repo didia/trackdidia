@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { AppContext, useAppContext } from "../app/app-context";
 import { createEmptyDailyEntry, defaultAppSettings, updatePrinciple } from "../domain/daily-entry";
 import { principleDefinitions } from "../domain/definitions";
 import {
@@ -679,8 +681,8 @@ describe("WeeklyReviewPage", () => {
     await user.type(dateInput, weekStartDate);
     await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
 
-    const dimancheField = await screen.findByLabelText(/notes dimanche/i);
-    await user.type(dimancheField, "Porter le calme");
+    const nextWeekField = await screen.findByLabelText(/notes pour la semaine suivante/i);
+    await user.type(nextWeekField, "Porter le calme");
 
     await waitFor(async () => {
       await expect(repository.getWeeklyReview(nextWeekStartDate)).resolves.toMatchObject({
@@ -774,7 +776,7 @@ describe("WeeklyReviewPage", () => {
     await user.click(acceptButtons[0]);
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/notes dimanche/i)).toHaveValue("Ton pose");
+      expect(screen.getByLabelText(/notes pour la semaine suivante/i)).toHaveValue("Ton pose");
     });
     await waitFor(async () => {
       await expect(repository.getWeeklyReview(nextWeekStartDate)).resolves.toMatchObject({
@@ -784,6 +786,127 @@ describe("WeeklyReviewPage", () => {
       });
     });
     expect(await repository.getWeeklyReview(weekStartDate)).toBeNull();
+  });
+
+  it("shows stored Dimanche notes when the opened week is also in the past", async () => {
+    vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-09-14");
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const storedWeek = "2026-08-09";
+
+    for (let index = 0; index < 7; index += 1) {
+      await repository.saveDailyEntry(createEmptyDailyEntry(addDays(storedWeek, index)));
+    }
+    await repository.saveWeeklyReview(
+      updateWeeklyReviewNote(createEmptyWeeklyReview(storedWeek), "dimanche", "Deja pose"),
+    );
+
+    const user = userEvent.setup();
+    await renderWithApp(<WeeklyReviewPage />, { repository, route: "/semaine" });
+
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
+    await user.clear(dateInput);
+    await user.type(dateInput, storedWeek);
+    await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
+
+    expect(await screen.findByLabelText(/notes dimanche/i)).toHaveValue("Deja pose");
+    expect(screen.getByLabelText(/notes pour la semaine suivante/i)).toHaveValue("");
+  });
+
+  it("keeps a delayed Dimanche write when the next week is edited afterward", async () => {
+    vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-08-10");
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const weekStartDate = "2026-08-02";
+    const nextWeekStartDate = addDays(weekStartDate, 7);
+
+    for (let index = 0; index < 7; index += 1) {
+      await repository.saveDailyEntry(createEmptyDailyEntry(addDays(weekStartDate, index)));
+    }
+
+    const originalSave = repository.saveWeeklyReview.bind(repository);
+    let startedSaves = 0;
+    let releaseFirstSave: () => void = () => undefined;
+    const firstSaveGate = new Promise<void>((resolve) => {
+      releaseFirstSave = resolve;
+    });
+    repository.saveWeeklyReview = async (review) => {
+      startedSaves += 1;
+      if (startedSaves === 1) {
+        await firstSaveGate;
+      }
+      return originalSave(review);
+    };
+
+    const user = userEvent.setup();
+    await renderWithApp(<WeeklyReviewPage />, { repository, route: "/semaine" });
+
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
+    await user.clear(dateInput);
+    await user.type(dateInput, weekStartDate);
+    await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
+
+    await user.type(await screen.findByLabelText(/notes pour la semaine suivante/i), "Porter");
+    await user.click(screen.getByRole("button", { name: /semaine suivante/i }));
+    releaseFirstSave();
+
+    const bilanField = await screen.findByLabelText(/notes bilan/i);
+    await user.type(bilanField, "Suite");
+
+    await waitFor(async () => {
+      await expect(repository.getWeeklyReview(nextWeekStartDate)).resolves.toMatchObject({
+        notes: expect.objectContaining({
+          dimanche: "Porter",
+          bilan: "Suite",
+        }),
+      });
+    });
+  });
+
+  it("keeps in-progress Dimanche edits when the local day rolls into a past week", async () => {
+    vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-08-08");
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const weekStartDate = "2026-08-02";
+
+    for (let index = 0; index < 7; index += 1) {
+      await repository.saveDailyEntry(createEmptyDailyEntry(addDays(weekStartDate, index)));
+    }
+
+    const DayBridge = () => {
+      const parent = useAppContext();
+      const [day, setDay] = useState("2026-08-08");
+      return (
+        <AppContext.Provider value={{ ...parent, calendarDay: day }}>
+          <button type="button" onClick={() => setDay("2026-08-09")}>
+            Passer minuit
+          </button>
+          <WeeklyReviewPage />
+        </AppContext.Provider>
+      );
+    };
+
+    const user = userEvent.setup();
+    await renderWithApp(<DayBridge />, { repository, route: "/semaine" });
+
+    const dimancheField = await screen.findByLabelText(/notes dimanche/i);
+    await user.type(dimancheField, "Calme");
+    await waitFor(async () => {
+      await expect(repository.getWeeklyReview(weekStartDate)).resolves.toMatchObject({
+        notes: expect.objectContaining({ dimanche: "Calme" }),
+      });
+    });
+
+    await user.click(screen.getByRole("button", { name: /passer minuit/i }));
+
+    expect(await screen.findByLabelText(/notes dimanche/i)).toHaveValue("Calme");
+    expect(screen.getByLabelText(/notes pour la semaine suivante/i)).toHaveValue("");
+    await expect(repository.getWeeklyReview(weekStartDate)).resolves.toMatchObject({
+      notes: expect.objectContaining({ dimanche: "Calme" }),
+    });
   });
 
   it("accepts a gtd_action schedule proposal for today", async () => {

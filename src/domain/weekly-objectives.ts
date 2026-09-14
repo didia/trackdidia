@@ -47,6 +47,15 @@ export const cloneWeeklyObjective = (objective: WeeklyObjective): WeeklyObjectiv
   ...objective,
 });
 
+/** Null `startsOnWeekStartDate` means the objective applies to every week. */
+export const isObjectiveActiveForWeek = (
+  objective: WeeklyObjective,
+  weekStartDate: string,
+): boolean => {
+  const normalized = buildWeekDates(weekStartDate);
+  return objective.startsOnWeekStartDate === null || objective.startsOnWeekStartDate <= normalized;
+};
+
 export const createEmptyWeeklyObjective = (
   partial: Partial<WeeklyObjective> = {},
   timestamp = new Date().toISOString(),
@@ -78,10 +87,7 @@ export const buildWeeklyObjectivesSnapshot = (
   const weekEndDate = addDays(normalized, 6);
   const resultsByObjectiveId = new Map(results.map((result) => [result.objectiveId, result]));
   const sortedObjectives = [...objectives]
-    .filter(
-      (objective) =>
-        objective.startsOnWeekStartDate === null || objective.startsOnWeekStartDate <= normalized,
-    )
+    .filter((objective) => isObjectiveActiveForWeek(objective, normalized))
     .sort(
       (left, right) => left.sortOrder - right.sortOrder || left.title.localeCompare(right.title),
     );
