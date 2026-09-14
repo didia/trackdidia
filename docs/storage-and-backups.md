@@ -150,6 +150,7 @@ Never renumber or rewrite a released migration. Add the next ID.
 | 30 | `add_email_triage_gmail_oauth_client_id` | Adds `gmail_oauth_client_id` to `email_triage_settings` |
 | 31 | `add_email_triage_microsoft_oauth_client_id` | Adds `microsoft_oauth_client_id` to `email_triage_settings` |
 | 32 | `add_email_triage_desktop_prefs` | Adds `run_in_tray` and `launch_at_login` to `email_triage_settings` |
+| 33 | `add_weekly_objective_starts_on_week_start_date` | Adds nullable `starts_on_week_start_date` to `weekly_objectives` (null means the objective applies to every week) |
 
 ## Table reference
 
@@ -268,7 +269,7 @@ Each row is one contiguous activity slice within a session: `session_id`, option
 ### Review and goal tables
 
 - `weekly_reviews`: Sunday start, Saturday end, status, notes JSON, checklist JSON.
-- `weekly_objectives`: standing objective definitions (`kind`, optional RescueTime mapping, target hours, sort order).
+- `weekly_objectives`: standing objective definitions (`kind`, optional RescueTime mapping, target hours, sort order, optional `starts_on_week_start_date`).
 - `weekly_objective_results`: per-week manual achievement (`achieved` 0/1) keyed by `(week_start_date, objective_id)` with `ON DELETE CASCADE` from objectives.
 - `monthly_reviews`: month key/start/end, status, notes JSON, checklist JSON.
 - `annual_goals`: target/source/manual value, `measurement_type`/`status`/`deadline`,

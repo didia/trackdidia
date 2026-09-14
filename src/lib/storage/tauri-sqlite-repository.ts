@@ -50,6 +50,7 @@ import {
   buildWeeklyReviewSummary,
   cloneWeeklyReview,
   listWeekDates,
+  relocateDimancheNotesToNextWeek,
 } from "../../domain/weekly-review";
 import { t } from "../../i18n";
 import { monthKeyToLocalRange } from "../ai/analytics/month-range";
@@ -197,9 +198,13 @@ interface WeeklyObjectiveRow {
   rescuetime_kind: WeeklyObjective["rescuetimeKind"];
   rescuetime_thing: string | null;
   sort_order: number;
+  starts_on_week_start_date: string | null;
   created_at: string;
   updated_at: string;
 }
+
+export const weeklyObjectiveSelectColumns =
+  "id, title, kind, target_hours, rescuetime_kind, rescuetime_thing, sort_order, starts_on_week_start_date, created_at, updated_at";
 
 interface WeeklyObjectiveResultRow {
   week_start_date: string;
@@ -1054,6 +1059,13 @@ export const migrations: Migration[] = [
       ALTER TABLE email_triage_settings ADD COLUMN launch_at_login INTEGER NOT NULL DEFAULT 0;
     `,
   },
+  {
+    id: 33,
+    name: "add_weekly_objective_starts_on_week_start_date",
+    sql: `
+      ALTER TABLE weekly_objectives ADD COLUMN starts_on_week_start_date TEXT;
+    `,
+  },
 ];
 
 export class TauriSqliteRepository implements AppRepository {
@@ -1145,6 +1157,7 @@ export class TauriSqliteRepository implements AppRepository {
       }
 
       logDebug("info", "storage.sqlite", "SQLite pret");
+      await this.relocateDimancheNotesOnce();
     } catch (error) {
       logDebug("error", "storage.sqlite", "Echec initialisation SQLite", error);
       throw new Error(`SQLite init failed: ${formatUnknownError(error)}`);
@@ -1166,7 +1179,55 @@ export class TauriSqliteRepository implements AppRepository {
       }
     }
 
+    if (migration.id === 33) {
+      const columns = await db.select<{ name: string }[]>("PRAGMA table_info(weekly_objectives)");
+      const alreadyHasColumn = columns.some(
+        (column) => column.name === "starts_on_week_start_date",
+      );
+      if (alreadyHasColumn) {
+        return "SELECT 1;";
+      }
+    }
+
     return migration.sql;
+  }
+
+  private async relocateDimancheNotesOnce(): Promise<void> {
+    await this.runExclusive(async () => {
+      const db = await this.getDb();
+      const settings = await this.getSettings();
+      if (settings.dimancheNotesRelocatedAt) {
+        return;
+      }
+
+      const rows = await db.select<WeeklyReviewRow[]>(
+        `SELECT
+          week_start_date,
+          week_end_date,
+          status,
+          notes_json,
+          ritual_checklist_json,
+          updated_at
+        FROM weekly_reviews`,
+      );
+      const changed = relocateDimancheNotesToNextWeek(
+        rows.map((row) => this.deserializeWeeklyReview(row)),
+      );
+      await db.execute("BEGIN IMMEDIATE");
+      try {
+        for (const review of changed) {
+          await this.saveWeeklyReviewInternal(db, review);
+        }
+        await this.writeSettingsRow(db, {
+          ...settings,
+          dimancheNotesRelocatedAt: new Date().toISOString(),
+        });
+        await db.execute("COMMIT");
+      } catch (error) {
+        await this.rollbackQuietly(db);
+        throw error;
+      }
+    });
   }
 
   async getDailyEntry(date: string): Promise<DailyEntry | null> {
@@ -1652,8 +1713,7 @@ export class TauriSqliteRepository implements AppRepository {
   async listWeeklyObjectives(): Promise<WeeklyObjective[]> {
     const db = await this.getDb();
     const rows = await db.select<WeeklyObjectiveRow[]>(
-      `SELECT
-        id, title, kind, target_hours, rescuetime_kind, rescuetime_thing, sort_order, created_at, updated_at
+      `SELECT ${weeklyObjectiveSelectColumns}
       FROM weekly_objectives
       ORDER BY sort_order ASC, title ASC`,
     );
@@ -1687,8 +1747,8 @@ export class TauriSqliteRepository implements AppRepository {
 
     await db.execute(
       `INSERT INTO weekly_objectives (
-      id, title, kind, target_hours, rescuetime_kind, rescuetime_thing, sort_order, created_at, updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      id, title, kind, target_hours, rescuetime_kind, rescuetime_thing, sort_order, starts_on_week_start_date, created_at, updated_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
     ON CONFLICT(id) DO UPDATE SET
       title = excluded.title,
       kind = excluded.kind,
@@ -1696,6 +1756,7 @@ export class TauriSqliteRepository implements AppRepository {
       rescuetime_kind = excluded.rescuetime_kind,
       rescuetime_thing = excluded.rescuetime_thing,
       sort_order = excluded.sort_order,
+      starts_on_week_start_date = excluded.starts_on_week_start_date,
       updated_at = excluded.updated_at`,
       [
         nextObjective.id,
@@ -1705,6 +1766,7 @@ export class TauriSqliteRepository implements AppRepository {
         nextObjective.rescuetimeKind,
         nextObjective.rescuetimeThing,
         nextObjective.sortOrder,
+        nextObjective.startsOnWeekStartDate,
         nextObjective.createdAt,
         nextObjective.updatedAt,
       ],
@@ -2286,7 +2348,7 @@ export class TauriSqliteRepository implements AppRepository {
       if (existingProposal.status === "accepted") {
         const objectiveId = existingProposal.appliedEntityId ?? objective.id;
         const objectiveRows = await db.select<WeeklyObjectiveRow[]>(
-          `SELECT id, title, kind, target_hours, rescuetime_kind, rescuetime_thing, sort_order, created_at, updated_at
+          `SELECT ${weeklyObjectiveSelectColumns}
            FROM weekly_objectives
            WHERE id = $1`,
           [objectiveId],
@@ -4033,6 +4095,7 @@ export class TauriSqliteRepository implements AppRepository {
       rescuetimeKind: row.rescuetime_kind,
       rescuetimeThing: row.rescuetime_thing,
       sortOrder: Number(row.sort_order),
+      startsOnWeekStartDate: row.starts_on_week_start_date?.trim() || null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };

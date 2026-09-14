@@ -1,5 +1,7 @@
 import type { AiProposal, WeeklyObjective, WeeklyRitualSectionKey } from "../../../domain/types";
 import { createEmptyWeeklyObjective } from "../../../domain/weekly-objectives";
+import { buildWeekDates } from "../../../domain/weekly-review";
+import { addDays } from "../../gtd/shared";
 
 export const weeklyObjectiveIdFromProposal = (proposalId: string): string =>
   proposalId.replace(/^ai-proposal:/, "weekly-objective:");
@@ -7,6 +9,7 @@ export const weeklyObjectiveIdFromProposal = (proposalId: string): string =>
 export const buildWeeklyObjectiveFromProposal = (
   proposal: AiProposal,
   sortOrder: number,
+  reviewedWeekStartDate: string,
 ): WeeklyObjective | null => {
   if (proposal.type !== "weekly_objective") {
     return null;
@@ -32,6 +35,7 @@ export const buildWeeklyObjectiveFromProposal = (
     rescuetimeKind: payload.rescuetimeKind ?? null,
     rescuetimeThing: payload.rescuetimeThing ?? null,
     sortOrder,
+    startsOnWeekStartDate: addDays(buildWeekDates(reviewedWeekStartDate), 7),
   });
 };
 

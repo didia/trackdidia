@@ -106,6 +106,7 @@ export const defaultAppSettings = (): AppSettings => ({
   gtdReferencesMigrationDoneAt: "",
   gtdScheduledNormalizationDoneAt: "",
   gtdRecurringCollapseDoneAt: "",
+  dimancheNotesRelocatedAt: "",
   aiMaxTokensUpgradeDoneAt: "",
   relationshipDrawsEnabled: true,
   relationshipDrawChildrenActivities: [...defaultChildrenActivities],

@@ -279,6 +279,11 @@ export interface WeeklyObjective {
   rescuetimeKind: RescueTimeTaxonomy | null;
   rescuetimeThing: string | null;
   sortOrder: number;
+  /**
+   * Sunday the objective first counts. Null means a pre-existing row that
+   * applies to every week.
+   */
+  startsOnWeekStartDate: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -655,6 +660,8 @@ export interface AppSettings {
   gtdReferencesMigrationDoneAt: string;
   gtdScheduledNormalizationDoneAt: string;
   gtdRecurringCollapseDoneAt: string;
+  /** ISO timestamp set after the one-shot Dimanche-notes move onto the following week. */
+  dimancheNotesRelocatedAt: string;
   /** ISO timestamp set after the one-shot 700 → current default `aiMaxTokens` upgrade. */
   aiMaxTokensUpgradeDoneAt: string;
   relationshipDrawsEnabled: boolean;

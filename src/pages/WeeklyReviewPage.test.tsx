@@ -552,10 +552,13 @@ describe("WeeklyReviewPage", () => {
     });
   });
 
-  it("accepting a weekly objective proposal shows it in standing objectives", async () => {
+  it("accepting a weekly objective proposal starts it on the following week", async () => {
+    vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-08-10");
+
     const repository = new MemoryRepository();
     await repository.initialize();
     const weekStartDate = "2026-08-02";
+    const nextWeekStartDate = addDays(weekStartDate, 7);
 
     for (let index = 0; index < 7; index += 1) {
       const date = addDays(weekStartDate, index);
@@ -642,10 +645,145 @@ describe("WeeklyReviewPage", () => {
     const acceptButtons = await screen.findAllByRole("button", { name: /^accepter$/i });
     await user.click(acceptButtons[0]);
 
-    await waitFor(() => {
-      expect(screen.getByText("Lire 2h")).toBeInTheDocument();
-      expect(screen.getByText("Objectifs permanents")).toBeInTheDocument();
+    await waitFor(async () => {
+      await expect(repository.listWeeklyObjectives()).resolves.toEqual([
+        expect.objectContaining({
+          title: "Lire 2h",
+          startsOnWeekStartDate: nextWeekStartDate,
+        }),
+      ]);
     });
+    expect(screen.queryByRole("heading", { name: "Lire 2h" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /semaine suivante/i }));
+    expect(await screen.findByRole("heading", { name: "Lire 2h" })).toBeInTheDocument();
+  });
+
+  it("saves Dimanche notes onto the following week and shows them there", async () => {
+    vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-08-10");
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const weekStartDate = "2026-08-02";
+    const nextWeekStartDate = addDays(weekStartDate, 7);
+
+    for (let index = 0; index < 7; index += 1) {
+      await repository.saveDailyEntry(createEmptyDailyEntry(addDays(weekStartDate, index)));
+    }
+
+    const user = userEvent.setup();
+    await renderWithApp(<WeeklyReviewPage />, { repository, route: "/semaine" });
+
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
+    await user.clear(dateInput);
+    await user.type(dateInput, weekStartDate);
+    await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
+
+    const dimancheField = await screen.findByLabelText(/notes dimanche/i);
+    await user.type(dimancheField, "Porter le calme");
+
+    await waitFor(async () => {
+      await expect(repository.getWeeklyReview(nextWeekStartDate)).resolves.toMatchObject({
+        notes: expect.objectContaining({
+          dimanche: "Porter le calme",
+        }),
+      });
+    });
+    await expect(repository.getWeeklyReview(weekStartDate)).resolves.toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /semaine suivante/i }));
+    expect(await screen.findByLabelText(/notes dimanche/i)).toHaveValue("Porter le calme");
+  });
+
+  it("accepts a Dimanche draft onto the following week", async () => {
+    vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-08-10");
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const weekStartDate = "2026-08-02";
+    const nextWeekStartDate = addDays(weekStartDate, 7);
+
+    for (let index = 0; index < 7; index += 1) {
+      await repository.saveDailyEntry(createEmptyDailyEntry(addDays(weekStartDate, index)));
+    }
+
+    const message = {
+      id: "ai-message-dimanche",
+      surface: "weekly_synthesis" as const,
+      scopeKey: weekStartDate,
+      stance: null,
+      kind: "weekly",
+      inputHash: "hash",
+      promptVersion: "weekly_synthesis.v1",
+      model: "local",
+      status: "skipped" as const,
+      bodyJson: JSON.stringify({
+        headline: "Semaine",
+        scoreExplanation: "Score",
+        strongestAxis: "Discipline",
+        weakestAxes: ["Sommeil", "Pomodoris"],
+        sectionDrafts: { dimanche: "Ton pose" },
+        nextWeekObjectives: [],
+        gtdActions: [],
+      }),
+      bodyText: "Local",
+      deltaClass: null,
+      notified: false,
+      tokensPrompt: null,
+      tokensCompletion: null,
+      latencyMs: null,
+      createdAt: new Date().toISOString(),
+    };
+    const proposal = {
+      id: "proposal-dimanche",
+      messageId: message.id,
+      type: "review_section_draft" as const,
+      payloadJson: JSON.stringify({ sectionKey: "dimanche", text: "Ton pose" }),
+      status: "pending" as const,
+      appliedEntityId: null,
+      decidedAt: null,
+      createdAt: new Date().toISOString(),
+    };
+    await repository.saveAiMessage(message);
+    await repository.saveAiProposal(proposal);
+
+    vi.spyOn(WeeklySynthesisService.prototype, "buildSynthesis").mockResolvedValue({
+      message,
+      synthesis: {
+        headline: "Semaine",
+        scoreExplanation: "Score",
+        strongestAxis: "Discipline",
+        weakestAxes: ["Sommeil", "Pomodoris"],
+        sectionDrafts: { dimanche: "Ton pose" },
+        nextWeekObjectives: [],
+        gtdActions: [],
+      },
+      proposals: [proposal],
+      source: "local",
+    });
+
+    const user = userEvent.setup();
+    await renderWithApp(<WeeklyReviewPage />, { repository, route: "/semaine" });
+
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
+    await user.clear(dateInput);
+    await user.type(dateInput, weekStartDate);
+    await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
+
+    const acceptButtons = await screen.findAllByRole("button", { name: /^accepter$/i });
+    await user.click(acceptButtons[0]);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/notes dimanche/i)).toHaveValue("Ton pose");
+    });
+    await waitFor(async () => {
+      await expect(repository.getWeeklyReview(nextWeekStartDate)).resolves.toMatchObject({
+        notes: expect.objectContaining({
+          dimanche: "Ton pose",
+        }),
+      });
+    });
+    expect(await repository.getWeeklyReview(weekStartDate)).toBeNull();
   });
 
   it("accepts a gtd_action schedule proposal for today", async () => {

@@ -34,7 +34,8 @@ averages and rates intentionally include zero-valued empty days in several axes.
 - `weekStartDate`;
 - `weekEndDate`;
 - `status`: `draft` or `closed`;
-- eight note fields;
+- eight note fields, except Dimanche notes, which are stored on the week they
+  apply to (see below);
 - eight completion booleans;
 - `updatedAt`.
 
@@ -51,7 +52,17 @@ The eight ritual sections are:
 
 Notes and checklist changes persist immediately, including when leaving the
 page. Saves are serialized so the latest draft wins if several writes overlap.
-Closing does not require all sections to be checked.
+The Dimanche **checklist** stays on the displayed review (it marks that the
+step was done). The Dimanche **textarea** is the kickoff for the week that is
+starting:
+
+- reviewing a past week writes those notes on the following Sunday;
+- opening the current or a future week edits that week's own Dimanche notes,
+  so last Sunday's kickoff is still visible while living that week.
+
+A one-time startup move copies pre-existing Dimanche text from week W onto W+7
+when W+7's Dimanche note is empty, then clears W. If W+7 already has text, both
+are left as-is. Closing does not require all sections to be checked.
 
 ### Daily inputs
 
@@ -115,7 +126,7 @@ only (calories included; RescueTime excluded).
 The `/semaine` screen tracks **two distinct objective systems**:
 
 1. **RescueTime Goals** (read-only): enabled goals from the RescueTime API feed optional RescueTime score axes on the weekly overview. Manage goals in RescueTime; configure the API key under **Paramètres → RescueTime**.
-2. **Standing objectives** (`weekly_objectives`): durable TrackDidia objectives the coach can propose via `weekly_objective` accept-step. The page lists them with a per-week score, lets you toggle manual achievement (`saveWeeklyObjectiveResult`), and delete objectives. Time-based objectives score against RescueTime Analytic Data when configured.
+2. **Standing objectives** (`weekly_objectives`): durable TrackDidia objectives the coach can propose via `weekly_objective` accept-step. Accepting one during week N sets `startsOnWeekStartDate` to the following Sunday, so it does not score against the week being closed. Objectives with a null start date (created before that field) still apply to every week. The page lists the objectives active for the displayed week with a per-week score, lets you toggle manual achievement (`saveWeeklyObjectiveResult`), and delete objectives. Time-based objectives score against RescueTime Analytic Data when configured.
 
 RescueTime Goals remain the optional weekly-score axis described below. Standing objectives use `WeeklyObjectivesService.computeWeeklyObjectivesSnapshot()` and are separate from RescueTime Goals.
 
@@ -192,8 +203,10 @@ invalidates in-flight loads, hides mismatched results, and rejects accept/dismis
 the proposal message `scopeKey` does not match the displayed week.
 
 Accepting a section draft **persists the note** on the weekly review immediately (the
-textarea is also prefilled). Accepting an objective creates a row in `weekly_objectives`
-via an idempotent atomic accept. GTD accepts are atomic and skip terminal tasks.
+textarea is also prefilled). A Dimanche draft follows the same next-week rule as
+the textarea. Accepting an objective creates a row in `weekly_objectives` that
+starts the Sunday after the reviewed week, via an idempotent atomic accept. GTD
+accepts are atomic and skip terminal tasks.
 
 Successful AI results (`status = ok`) cache on `(surface, weekStartDate, input_hash)`.
 `skipped` rows cache while AI is off. `fallback` and `error` rows are retryable and

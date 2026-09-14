@@ -847,6 +847,7 @@ describe("MemoryRepository", () => {
       rescuetimeKind: "category",
       rescuetimeThing: "Software Development",
       sortOrder: 0,
+      startsOnWeekStartDate: "2026-08-09",
       createdAt: "",
       updatedAt: "",
     });
@@ -862,6 +863,7 @@ describe("MemoryRepository", () => {
       expect.objectContaining({
         id: saved.id,
         title: "Software Development",
+        startsOnWeekStartDate: "2026-08-09",
       }),
     ]);
 
@@ -1202,6 +1204,7 @@ describe("MemoryRepository", () => {
       rescuetimeKind: null,
       rescuetimeThing: null,
       sortOrder: 0,
+      startsOnWeekStartDate: null,
       createdAt: "2026-08-29T08:00:00.000Z",
       updatedAt: "2026-08-29T08:00:00.000Z",
     };

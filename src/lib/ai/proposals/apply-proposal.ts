@@ -8,8 +8,10 @@ import type {
   WeeklyRitualSectionKey,
 } from "../../../domain/types";
 import { createEmptyWeeklyObjective } from "../../../domain/weekly-objectives";
+import { buildWeekDates } from "../../../domain/weekly-review";
 import { t } from "../../../i18n";
 import { getTodayDate } from "../../date";
+import { addDays } from "../../gtd/shared";
 import type { AppRepository } from "../../storage/repository";
 import { applyAcceptedProposal } from "../memory/apply-proposal";
 
@@ -62,6 +64,7 @@ export const applyCoachProposal = async (
         rescuetimeKind: payload.rescuetimeKind ?? null,
         rescuetimeThing: payload.rescuetimeThing ?? null,
         sortOrder: objectives.length,
+        startsOnWeekStartDate: addDays(buildWeekDates(acceptedDate), 7),
       }),
     );
     return { objectiveId: saved.id };

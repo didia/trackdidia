@@ -72,7 +72,7 @@
     },
     "standing": {
       "title": "Objectifs permanents",
-      "subtitle": "Objectifs TrackDidia suivis semaine après semaine (manuels ou basés sur RescueTime). Le coach peut en proposer de nouveaux.",
+      "subtitle": "Objectifs TrackDidia suivis semaine après semaine (manuels ou basés sur RescueTime). Ceux acceptés depuis le coach commencent la semaine suivante.",
       "loading": "Chargement des objectifs permanents...",
       "empty": "Aucun objectif permanent pour l'instant.",
       "kind": {

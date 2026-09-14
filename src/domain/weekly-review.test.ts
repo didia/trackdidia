@@ -9,7 +9,9 @@ import {
   applyWeeklyScoreExternalAxes,
   buildWeeklyReviewSummary,
   createEmptyWeeklyReview,
+  dimancheNotesWeekStart,
   localWeeklyScoreAxes,
+  relocateDimancheNotesToNextWeek,
   updateWeeklyReviewChecklist,
   updateWeeklyReviewNote,
 } from "./weekly-review";
@@ -229,5 +231,47 @@ describe("weekly review domain", () => {
     expect(reapplied.productivityPulse).toBeNull();
     expect(reapplied.weeklyScore).toBeLessThan(summary.weeklyScore);
     expect(localWeeklyScoreAxes(summary)).toEqual(localWeeklyScoreAxes(reapplied));
+  });
+
+  it("stores Dimanche notes on the following week when the displayed week is past", () => {
+    expect(dimancheNotesWeekStart("2026-08-02", "2026-09-14")).toBe("2026-08-09");
+    expect(dimancheNotesWeekStart("2026-09-13", "2026-09-14")).toBe("2026-09-13");
+    expect(dimancheNotesWeekStart("2026-09-20", "2026-09-14")).toBe("2026-09-20");
+  });
+
+  it("moves Dimanche notes onto the next week when that week is empty", () => {
+    const source = updateWeeklyReviewNote(
+      createEmptyWeeklyReview("2026-08-02"),
+      "dimanche",
+      "Porter le calme",
+    );
+
+    const changed = relocateDimancheNotesToNextWeek([source]);
+    const byWeek = new Map(changed.map((review) => [review.weekStartDate, review.notes.dimanche]));
+
+    expect(byWeek.get("2026-08-02")).toBe("");
+    expect(byWeek.get("2026-08-09")).toBe("Porter le calme");
+  });
+
+  it("does not clobber Dimanche notes that already exist on the next week", () => {
+    const source = updateWeeklyReviewNote(
+      createEmptyWeeklyReview("2026-08-02"),
+      "dimanche",
+      "Laisser en place",
+    );
+    const occupied = updateWeeklyReviewNote(
+      createEmptyWeeklyReview("2026-08-09"),
+      "dimanche",
+      "Deja pose",
+    );
+
+    const changed = relocateDimancheNotesToNextWeek([source, occupied]);
+    const byWeek = new Map(changed.map((review) => [review.weekStartDate, review.notes.dimanche]));
+
+    expect(byWeek.has("2026-08-02")).toBe(false);
+    expect(byWeek.get("2026-08-09")).toBe("");
+    expect(byWeek.get("2026-08-16")).toBe("Deja pose");
+    expect(source.notes.dimanche).toBe("Laisser en place");
+    expect(occupied.notes.dimanche).toBe("Deja pose");
   });
 });
