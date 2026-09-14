@@ -11,6 +11,7 @@ import type {
   AiStructuredRequest,
   AiStructuredResult,
 } from "./provider";
+import type { DailySnapshot } from "./context/daily-snapshot";
 
 export const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 export const DEFAULT_OPENROUTER_MODEL = "moonshotai/kimi-k2.6";
@@ -164,6 +165,22 @@ const shouldRetryStatus = (status: number): boolean => status === 429 || status 
 const resolveModel = (settings: AppSettings, surface: AiSurface): string =>
   settings.aiSurfaceModels[surface]?.trim() || settings.aiModel;
 
+const openStanceBase =
+  "Tu es un coach de discipline pour l'ouverture de journee. Reponds en francais avec un JSON strict conforme au schema coach_pulse.";
+
+const buildOpenStanceInstruction = (snapshot: DailySnapshot): string => {
+  const yesterdayFocus = snapshot.previousDay?.notes?.tomorrowFocus.trim() ?? "";
+  if (yesterdayFocus) {
+    return `${openStanceBase} Si les notes du jour sont vides, ancre intentionDraft et move sur previousDay.notes.tomorrowFocus (l'intention posee hier pour aujourd'hui) et tiens compte de previousDay.notes.nightReflection ainsi que des metriques et principes de la veille.`;
+  }
+
+  if (snapshot.previousDay) {
+    return `${openStanceBase} previousDay est present mais ses notes ne sont pas dans ce payload. Utilise seulement les metriques et principes de la veille. N'invente pas d'intention. Omets intentionDraft.`;
+  }
+
+  return `${openStanceBase} previousDay est null. N'invente pas d'intention. Omets intentionDraft.`;
+};
+
 const buildSystemPrompt = (request: AiStructuredRequest, repairHint?: string): string => {
   const memorySection = request.memoryBlock?.trim()
     ? `\n\nContexte memoire durable:\n${request.memoryBlock.trim()}`
@@ -207,8 +224,8 @@ const buildSystemPrompt = (request: AiStructuredRequest, repairHint?: string): s
   }
 
   const stanceInstruction =
-    request.stance === "open"
-      ? "Tu es un coach de discipline pour l'ouverture de journee. Reponds en francais avec un JSON strict conforme au schema coach_pulse. Si les notes du jour sont vides, ancre intentionDraft et move sur previousDay.notes.tomorrowFocus (l'intention posee hier pour aujourd'hui) et tiens compte de previousDay.notes.nightReflection ainsi que des metriques et principes de la veille. N'invente pas d'intention si previousDay est null."
+    request.surface === "coach_pulse" && request.stance === "open"
+      ? buildOpenStanceInstruction(request.snapshot)
       : request.stance === "steer"
         ? "Tu es un coach de discipline pour un ajustement de mi-journee. Reponds en francais avec un JSON strict conforme au schema coach_pulse."
         : request.stance === "wind_down"

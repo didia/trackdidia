@@ -100,8 +100,103 @@ describe("OpenRouterProvider", () => {
     const systemPrompt = body.messages[0].content as string;
     expect(systemPrompt).toContain("Schema coach_pulse");
     expect(systemPrompt).toContain("intentionDraft");
-    expect(systemPrompt).toContain("previousDay.notes.tomorrowFocus");
-    expect(systemPrompt).toContain("N'invente pas d'intention si previousDay est null");
+    expect(systemPrompt).toContain("previousDay est null");
+    expect(systemPrompt).toContain("Omets intentionDraft");
+    expect(systemPrompt).not.toContain("ancre intentionDraft");
+  });
+
+  it("anchors the open prompt on yesterday's focus only when notes are in the payload", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        choices: [
+          {
+            message: { content: '{"stance":"open","headline":"Bonjour","read":"Go","move":null}' },
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      }),
+    );
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const provider = new OpenRouterProvider();
+    const settings = defaultAppSettings();
+    settings.aiApiKey = "sk-or-test";
+    const base = {
+      surface: "daily" as const,
+      date: "2026-07-29",
+      status: "not_started" as const,
+      metrics: [],
+      principles: [],
+      gtd: {
+        inboxBacklog: 0,
+        projectsWithoutNextAction: 0,
+        projectsWithoutNextActionSample: [],
+        staleNextActions: 0,
+        agingWaitingFor: 0,
+        overdueDeadlines: 0,
+        scheduledVsCompletedRatio: 0,
+      },
+      pomodoro: {
+        completedFocusSessionCount: 0,
+        totalFocusMinutes: 0,
+        taskConcentration: null,
+        topTask: null,
+      },
+      rescueTime: { configured: false, productivityPulseWeekToDate: null },
+      history: { daysConsidered: 0, disciplineAverage7d: 0, disciplineAverage28d: 0 },
+      weeklyScoreTrend: null,
+      findings: [],
+    };
+
+    await provider.generateStructured({
+      surface: "coach_pulse",
+      stance: "open",
+      settings,
+      snapshot: {
+        ...base,
+        scope: "full",
+        previousDay: {
+          date: "2026-07-28",
+          status: "closed",
+          metrics: [],
+          principles: [],
+          notes: {
+            morningIntention: "",
+            nightReflection: "Soir calme",
+            tomorrowFocus: "Finir le module",
+          },
+        },
+      },
+    });
+    await provider.generateStructured({
+      surface: "coach_pulse",
+      stance: "open",
+      settings,
+      snapshot: {
+        ...base,
+        scope: "metrics",
+        previousDay: {
+          date: "2026-07-28",
+          status: "closed",
+          metrics: [],
+          principles: [],
+        },
+      },
+    });
+
+    const promptFor = (callIndex: number) => {
+      const [, init] = fetchMock.mock.calls[callIndex] as unknown as [string, RequestInit];
+      const body = JSON.parse(String(init.body));
+      return body.messages[0].content as string;
+    };
+
+    const fullPrompt = promptFor(0);
+    const restrictedPrompt = promptFor(1);
+    expect(fullPrompt).toContain("previousDay.notes.tomorrowFocus");
+    expect(fullPrompt).toContain("ancre intentionDraft");
+    expect(restrictedPrompt).toContain("Omets intentionDraft");
+    expect(restrictedPrompt).not.toContain("ancre intentionDraft");
+    expect(restrictedPrompt).not.toContain("Finir le module");
   });
 
   it("includes weekly synthesis schema fields in the system prompt", async () => {

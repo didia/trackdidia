@@ -40,27 +40,25 @@ export const TodayPage = () => {
   const [openTaskPanel, setOpenTaskPanel] = useState<"added" | "completed" | null>(null);
   const entryRef = useRef(entry);
   const morningIntentionRef = useRef<PersistedTextareaHandle>(null);
-  const coachRequestIdRef = useRef(0);
+  const passiveRequestIdRef = useRef(0);
+  const explicitRequestIdRef = useRef(0);
+  const explicitInFlightRef = useRef(false);
   entryRef.current = entry;
 
-  const beginCoachRequest = () => {
-    coachRequestIdRef.current += 1;
-    return coachRequestIdRef.current;
-  };
-
-  const isCurrentCoachRequest = (requestId: number) => requestId === coachRequestIdRef.current;
+  const isCurrentPassiveRequest = (requestId: number) =>
+    requestId === passiveRequestIdRef.current && !explicitInFlightRef.current;
 
   const loadCoachFromStore = useCallback(async () => {
     const currentEntry = entryRef.current;
-    if (!currentEntry) {
+    if (!currentEntry || explicitInFlightRef.current) {
       return;
     }
 
-    const requestId = beginCoachRequest();
+    const requestId = ++passiveRequestIdRef.current;
     setCoachLoading(true);
     try {
       const stored = await loadLatestCoachPulseForDate(repository, coachService, currentEntry.date);
-      if (!isCurrentCoachRequest(requestId)) {
+      if (!isCurrentPassiveRequest(requestId)) {
         return;
       }
       if (stored) {
@@ -83,7 +81,7 @@ export const TodayPage = () => {
         trigger: "auto",
         localOnly: true,
       });
-      if (!isCurrentCoachRequest(requestId)) {
+      if (!isCurrentPassiveRequest(requestId)) {
         return;
       }
       setCoachResult(localResult);
@@ -105,14 +103,14 @@ export const TodayPage = () => {
         snapshotInputs: fullInputs,
         trigger: "auto",
       });
-      if (!isCurrentCoachRequest(requestId)) {
+      if (!isCurrentPassiveRequest(requestId)) {
         return;
       }
       setCoachResult(aiResult);
     } catch (error) {
       console.error("Failed to load coach pulse", error);
     } finally {
-      if (isCurrentCoachRequest(requestId)) {
+      if (isCurrentPassiveRequest(requestId)) {
         setCoachLoading(false);
       }
     }
@@ -131,7 +129,8 @@ export const TodayPage = () => {
         return;
       }
 
-      const requestId = beginCoachRequest();
+      const requestId = ++explicitRequestIdRef.current;
+      explicitInFlightRef.current = true;
       setCoachLoading(true);
       try {
         const snapshotInputs = await resolveDailySnapshotInputs(
@@ -162,14 +161,15 @@ export const TodayPage = () => {
           bypassCache: options.bypassCache ?? false,
           slotHour: Number.isFinite(slotHour) ? slotHour : undefined,
         });
-        if (!isCurrentCoachRequest(requestId)) {
+        if (requestId !== explicitRequestIdRef.current) {
           return;
         }
         setCoachResult(result);
       } catch (error) {
         console.error("Failed to load coach pulse", error);
       } finally {
-        if (isCurrentCoachRequest(requestId)) {
+        if (requestId === explicitRequestIdRef.current) {
+          explicitInFlightRef.current = false;
           setCoachLoading(false);
         }
       }
@@ -180,6 +180,10 @@ export const TodayPage = () => {
   const entryDate = entry?.date;
   useEffect(() => {
     if (!entryDate) {
+      return;
+    }
+
+    if (explicitInFlightRef.current) {
       return;
     }
 

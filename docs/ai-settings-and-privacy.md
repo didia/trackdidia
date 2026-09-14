@@ -79,9 +79,10 @@ The daily snapshot includes `previousDay`: the calendar day before the pulse dat
 (`addDays(date, -1)`), or `null` when that date has no saved row. At `full` scope,
 `previousDay.notes` includes yesterday's `tomorrowFocus` (the intention set for today),
 `nightReflection`, and `morningIntention`. Metric and principle values are included at
-every scope; free text is stripped below `full`. The `open` prompt asks the model to
-anchor `intentionDraft` and `move` on `tomorrowFocus` when today's notes are empty, and
-not to invent an intention when `previousDay` is `null`.
+every scope; free text is stripped below `full`. The `open` prompt anchors
+`intentionDraft` and `move` on `tomorrowFocus` only when that note is present in the
+payload. When `previousDay` is missing, or present without notes (restricted scopes),
+the model is told to omit `intentionDraft` and not invent one.
 
 On **Saturday and Sunday**, no-movement windows still downgrade to `idle`. That skips
 the model for `steer` and `wind_down` only; the due `open` slot still calls it. Pulses
