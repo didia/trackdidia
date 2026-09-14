@@ -6,6 +6,7 @@ import type {
   WeeklySynthesisResponse,
   WeeklySynthesisResult,
 } from "../../domain/types";
+import { computeGtdHealthFindings } from "../../domain/insights/gtd-health";
 import { clampAiAsOfDate, stableAiNowIso } from "../date";
 import { createEntityId, nowIso, toLocalDateString } from "../gtd/shared";
 import type { AppRepository } from "../storage/repository";
@@ -29,10 +30,34 @@ export interface WeeklySynthesisRequest {
 const synthesisToBodyText = (synthesis: WeeklySynthesisResponse): string =>
   [synthesis.headline, synthesis.scoreExplanation].filter(Boolean).join("\n\n");
 
+/**
+ * Titles keyed by the ids of tasks the coach is actually allowed to name in a `gtd_action`
+ * proposal (currently: tasks the deterministic `stale_next_actions` finding flagged), resolved
+ * from the unredacted repository data rather than the (possibly title-redacted) model-facing
+ * snapshot. A `gtd_action` whose `taskId` isn't a key here is dropped, and the title used to
+ * persist/render an accepted action always comes from this map, never from the model's own
+ * `taskTitle` — the model only chooses which eligible task to act on, not what it's called or
+ * whether it exists, so a hallucinated or mismatched id/title pair can never reach acceptance.
+ */
+const resolveEligibleGtdTaskTitles = (
+  inputs: WeeklySnapshotInputs,
+  now: string,
+): Map<string, string> => {
+  const staleFinding = computeGtdHealthFindings(inputs.tasks, inputs.projects, now).find(
+    (finding) => finding.kind === "stale_next_actions",
+  );
+  const taskTitleById = new Map(inputs.tasks.map((task) => [task.id, task.title] as const));
+
+  return new Map(
+    (staleFinding?.taskIds ?? []).map((id) => [id, taskTitleById.get(id) ?? id] as const),
+  );
+};
+
 const buildProposals = (
   messageId: string,
   synthesis: WeeklySynthesisResponse,
   createdAt: string,
+  eligibleGtdTaskTitles: Map<string, string>,
 ): AiProposal[] => {
   const proposals: AiProposal[] = [];
 
@@ -71,7 +96,8 @@ const buildProposals = (
   }
 
   for (const action of synthesis.gtdActions ?? []) {
-    if (!action.taskId?.trim() || !action.taskTitle?.trim() || !action.reason?.trim()) {
+    const canonicalTitle = action.taskId ? eligibleGtdTaskTitles.get(action.taskId) : undefined;
+    if (!action.taskId?.trim() || !canonicalTitle || !action.reason?.trim()) {
       continue;
     }
 
@@ -79,7 +105,7 @@ const buildProposals = (
       id: createEntityId("ai-proposal"),
       messageId,
       type: "gtd_action",
-      payloadJson: JSON.stringify(action),
+      payloadJson: JSON.stringify({ ...action, taskTitle: canonicalTitle }),
       status: "pending",
       appliedEntityId: null,
       decidedAt: null,
@@ -128,8 +154,9 @@ const persistResult = async (
   repository: AppRepository,
   message: AiMessage,
   synthesis: WeeklySynthesisResponse,
+  eligibleGtdTaskTitles: Map<string, string>,
 ): Promise<WeeklySynthesisResult> => {
-  const proposals = buildProposals(message.id, synthesis, message.createdAt);
+  const proposals = buildProposals(message.id, synthesis, message.createdAt, eligibleGtdTaskTitles);
   const saved = await repository.saveCoachPulseEpisode(message, proposals);
 
   return {
@@ -166,6 +193,10 @@ export class WeeklySynthesisService {
     const scopeKey = weekStartDate;
     const createdAt = nowIso();
     const aiConfigured = settings.aiEnabled && settings.aiApiKey.trim().length > 0;
+    const eligibleGtdTaskTitles = resolveEligibleGtdTaskTitles(
+      snapshotInputs,
+      stableAiNowIso(asOfDate),
+    );
 
     const activeMemories = await repository.listAiMemories({
       status: "active",
@@ -235,7 +266,7 @@ export class WeeklySynthesisService {
         model: "local",
       };
 
-      return persistResult(repository, skippedMessage, localSynthesis);
+      return persistResult(repository, skippedMessage, localSynthesis, eligibleGtdTaskTitles);
     }
 
     try {
@@ -281,7 +312,12 @@ export class WeeklySynthesisService {
           latencyMs: usage.latencyMs,
         };
 
-        const result = await persistResult(repository, message, localSynthesis);
+        const result = await persistResult(
+          repository,
+          message,
+          localSynthesis,
+          eligibleGtdTaskTitles,
+        );
         return {
           ...result,
           source: "fallback",
@@ -300,7 +336,7 @@ export class WeeklySynthesisService {
         latencyMs: usage.latencyMs,
       };
 
-      const result = await persistResult(repository, message, parsed.value);
+      const result = await persistResult(repository, message, parsed.value, eligibleGtdTaskTitles);
       return {
         ...result,
         source: "ai",
@@ -313,7 +349,12 @@ export class WeeklySynthesisService {
         bodyText: synthesisToBodyText(localSynthesis),
       };
 
-      const result = await persistResult(repository, message, localSynthesis);
+      const result = await persistResult(
+        repository,
+        message,
+        localSynthesis,
+        eligibleGtdTaskTitles,
+      );
       return {
         ...result,
         source: "fallback",

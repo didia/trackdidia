@@ -167,12 +167,20 @@ winning unit's `taskIds`, `projectId`, and `taskCount`, and `pomodoro.topTask` /
 `focus.topTask` in the daily and weekly snapshots show the project's title (at
 `metrics_and_structure` scope and above) once more than one task is merged.
 
-**`gtd_action` proposals always name the task.** The stale-next-action finding's
-sample (`gtd.staleNextActionsSample` in the weekly snapshot) carries the task title
-alongside its id, and `WeeklySynthesisGtdActionDraft` requires a non-empty
-`taskTitle` (enforced by both the local fallback and the LLM JSON validator). The
-`WeeklySynthesisPanel` proposal preview renders `<task title> — <action> — <reason>`
-instead of an unlabeled action.
+**`gtd_action` proposals always name the task, and the title is never trusted from
+the model.** The stale-next-action finding's sample (`gtd.staleNextActionsSample` in
+the weekly snapshot) carries the task title alongside its id for display in the
+prompt, and `WeeklySynthesisGtdActionDraft` requires a non-empty `taskTitle`
+(enforced by both the local fallback and the LLM JSON validator). But since the
+model's `taskId`/`taskTitle` pair is untrusted input, `WeeklySynthesisService`
+independently recomputes the eligible stale-next-action ids from the unredacted
+repository data (`resolveEligibleGtdTaskTitles`, bypassing any payload-scope
+redaction) before persisting a proposal: a `gtd_action` whose `taskId` isn't in that
+set is dropped, and the title actually persisted/rendered always comes from this
+canonical lookup, never from the model's own `taskTitle` — so a model response that
+names one task by id but a different task by title can never result in accepting an
+action against the wrong task. The `WeeklySynthesisPanel` proposal preview renders
+`<task title> — <action> — <reason>` instead of an unlabeled action.
 
 **Temps & Plan reflects RescueTime goal achievement, not only Pomodoros.** The
 weekly snapshot's `rescueTimeGoals` field (populated from the full

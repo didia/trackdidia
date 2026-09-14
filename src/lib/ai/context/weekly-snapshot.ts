@@ -175,10 +175,12 @@ const sanitizeFindingForScope = (finding: Finding, includeStructure: boolean): F
   const {
     taskIds: _taskIds,
     projectIds: _projectIds,
+    projectId: _projectId,
     ...rest
   } = finding as Finding & {
     taskIds?: string[];
     projectIds?: string[];
+    projectId?: string | null;
   };
 
   return rest as Finding;

@@ -1,4 +1,5 @@
 import { createEmptyDailyEntry, defaultAppSettings, updateNote } from "../../domain/daily-entry";
+import type { Task } from "../../domain/types";
 import { buildWeekDates } from "../../domain/weekly-review";
 import { MemoryRepository } from "../storage/memory-repository";
 import { buildWeeklySnapshot, type WeeklySnapshotInputs } from "./context/weekly-snapshot";
@@ -449,5 +450,116 @@ describe("WeeklySynthesisService", () => {
 
     expect(withRescueTime.source).toBe("ai");
     expect(provider.generateStructured).toHaveBeenCalledTimes(2);
+  });
+
+  const staleTask: Task = {
+    id: "task-stale",
+    title: "Relancer le fournisseur",
+    notes: "",
+    status: "active",
+    bucket: "next_action",
+    contextIds: [],
+    projectId: null,
+    parentTaskId: null,
+    scheduledFor: null,
+    deadline: null,
+    recurringTemplateId: null,
+    recurrenceDueDate: null,
+    isRecurringInstance: false,
+    completedAt: null,
+    recurrenceGroupId: null,
+    pendingPastRecurrences: 0,
+    plannedOrder: null,
+    source: "manual",
+    sourceExternalId: null,
+    sourceUrl: null,
+    createdAt: "2026-07-01T00:00:00.000Z",
+    updatedAt: "2026-07-01T00:00:00.000Z",
+  };
+
+  it("ignores a model-supplied taskTitle and persists the canonical task title instead", async () => {
+    const provider: AiProvider = {
+      generateStructured: vi.fn(async () => ({
+        text: JSON.stringify({
+          headline: "IA",
+          scoreExplanation: "Score",
+          strongestAxis: "Discipline",
+          weakestAxes: ["Sommeil", "Pomodoris"],
+          sectionDrafts: {},
+          nextWeekObjectives: [],
+          gtdActions: [
+            {
+              taskId: staleTask.id,
+              taskTitle: "Un tout autre intitule",
+              action: "drop",
+              reason: "Stale",
+            },
+          ],
+        }),
+        model: "test-model",
+        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 },
+      })),
+    };
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const service = new WeeklySynthesisService(provider);
+    const settings = defaultAppSettings();
+    settings.aiEnabled = true;
+    settings.aiApiKey = "secret";
+    const snapshotInputs = { ...buildWeeklyInputs(), tasks: [staleTask] };
+
+    const result = await service.buildSynthesis(repository, {
+      weekStartDate: "2026-08-02",
+      settings,
+      snapshotInputs,
+      trigger: "explicit",
+    });
+
+    const gtdProposal = result.proposals.find((proposal) => proposal.type === "gtd_action");
+    expect(gtdProposal).toBeDefined();
+    const payload = JSON.parse(gtdProposal?.payloadJson ?? "{}");
+    expect(payload.taskId).toBe(staleTask.id);
+    expect(payload.taskTitle).toBe(staleTask.title);
+  });
+
+  it("drops a gtdAction whose taskId is not an eligible stale next action", async () => {
+    const provider: AiProvider = {
+      generateStructured: vi.fn(async () => ({
+        text: JSON.stringify({
+          headline: "IA",
+          scoreExplanation: "Score",
+          strongestAxis: "Discipline",
+          weakestAxes: ["Sommeil", "Pomodoris"],
+          sectionDrafts: {},
+          nextWeekObjectives: [],
+          gtdActions: [
+            {
+              taskId: "task-not-eligible",
+              taskTitle: "Tache inventee",
+              action: "drop",
+              reason: "Stale",
+            },
+          ],
+        }),
+        model: "test-model",
+        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 },
+      })),
+    };
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const service = new WeeklySynthesisService(provider);
+    const settings = defaultAppSettings();
+    settings.aiEnabled = true;
+    settings.aiApiKey = "secret";
+    const snapshotInputs = { ...buildWeeklyInputs(), tasks: [staleTask] };
+
+    const result = await service.buildSynthesis(repository, {
+      weekStartDate: "2026-08-02",
+      settings,
+      snapshotInputs,
+      trigger: "explicit",
+    });
+
+    expect(result.proposals.some((proposal) => proposal.type === "gtd_action")).toBe(false);
   });
 });

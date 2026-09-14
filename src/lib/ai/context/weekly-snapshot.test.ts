@@ -233,6 +233,33 @@ describe("buildWeeklySnapshot", () => {
     ]);
   });
 
+  it("never leaks the singular focus-concentration projectId at the metrics scope", () => {
+    const inputs = buildWeeklyInputs({
+      pomodoroTaskSummaries: [
+        {
+          taskId: "task-a",
+          taskTitle: "A",
+          projectId: "project-shared-secret",
+          totalSeconds: 300,
+          sessionCount: 1,
+        },
+        {
+          taskId: "task-b",
+          taskTitle: "B",
+          projectId: "project-shared-secret",
+          totalSeconds: 300,
+          sessionCount: 1,
+        },
+      ],
+    });
+
+    const metricsSnapshot = buildWeeklySnapshot(inputs, "metrics");
+    const fullSnapshot = buildWeeklySnapshot(inputs, "full");
+
+    expect(JSON.stringify(metricsSnapshot)).not.toContain("project-shared-secret");
+    expect(JSON.stringify(fullSnapshot)).toContain("project-shared-secret");
+  });
+
   it("does not report dispersion when the top focus time is spread across one project", () => {
     const project = buildProject({ id: "project-1", title: "Refonte site" });
     const inputs = buildWeeklyInputs({

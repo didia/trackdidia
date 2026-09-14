@@ -163,12 +163,12 @@ const projectTitleById = (projects: Project[]): Map<string, string> =>
  * gate below. `findings` is a heterogeneous array of concrete finding subtypes spread in
  * verbatim; the declared `Finding` shape (`id, severity, evidenceWindow, sampleSize, value,
  * label`) plus module-specific scalars (e.g. `direction`, `principleKey`) are fixed,
- * predefined-enum values and carry no user data. `gtd-health.ts` findings are the exception:
- * they carry raw `taskIds`/`projectIds` arrays (every matching task/project id, unbounded),
- * which are real user-created identifiers and must not survive at the restrictive `metrics`
- * scope. Any future finding type that adds its own identifier array must extend this
- * function so `findings` stays leak-free by construction rather than by every caller
- * remembering to redact.
+ * predefined-enum values and carry no user data. `gtd-health.ts` and `focus.ts` findings are
+ * the exception: they carry raw `taskIds`/`projectIds` arrays and a singular `projectId`
+ * (the winning focus-concentration unit), which are real user-created identifiers and must
+ * not survive at the restrictive `metrics` scope. Any future finding type that adds its own
+ * identifier field must extend this function so `findings` stays leak-free by construction
+ * rather than by every caller remembering to redact.
  */
 const sanitizeFindingForScope = (finding: Finding, includeStructure: boolean): Finding => {
   if (includeStructure) {
@@ -178,10 +178,12 @@ const sanitizeFindingForScope = (finding: Finding, includeStructure: boolean): F
   const {
     taskIds: _taskIds,
     projectIds: _projectIds,
+    projectId: _projectId,
     ...rest
   } = finding as Finding & {
     taskIds?: string[];
     projectIds?: string[];
+    projectId?: string | null;
   };
 
   return rest as Finding;

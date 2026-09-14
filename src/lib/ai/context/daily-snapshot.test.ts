@@ -178,6 +178,43 @@ describe("daily snapshot context builder", () => {
     expect(ratioFinding?.sampleSize).toBeGreaterThan(0);
   });
 
+  it("never leaks the singular focus-concentration projectId at the metrics scope", () => {
+    const entry = buildEntry();
+    const inputs: DailySnapshotInputs = {
+      date: "2026-02-01",
+      entry,
+      historyEntries: [entry],
+      tasks: [],
+      projects: [],
+      pomodoroTaskSummaries: [
+        {
+          taskId: "task:a",
+          taskTitle: "A",
+          projectId: "project:shared-secret",
+          totalSeconds: 300,
+          sessionCount: 1,
+        },
+        {
+          taskId: "task:b",
+          taskTitle: "B",
+          projectId: "project:shared-secret",
+          totalSeconds: 300,
+          sessionCount: 1,
+        },
+      ],
+      completedFocusSessionCount: 2,
+      productivityPulseWeekToDate: null,
+      rescuetimeConfigured: false,
+      now,
+    };
+
+    const metricsSnapshot = buildDailySnapshot(inputs, "metrics");
+    const fullSnapshot = buildDailySnapshot(inputs, "full");
+
+    expect(JSON.stringify(metricsSnapshot)).not.toContain("project:shared-secret");
+    expect(JSON.stringify(fullSnapshot)).toContain("project:shared-secret");
+  });
+
   it("keeps raw task identifiers in findings at the metrics_and_structure scope", () => {
     const entry = buildEntry();
     const tasks: Task[] = [
