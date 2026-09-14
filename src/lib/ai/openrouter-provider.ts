@@ -208,7 +208,7 @@ const buildSystemPrompt = (request: AiStructuredRequest, repairHint?: string): s
 
   const stanceInstruction =
     request.stance === "open"
-      ? "Tu es un coach de discipline pour l'ouverture de journee. Reponds en francais avec un JSON strict conforme au schema coach_pulse."
+      ? "Tu es un coach de discipline pour l'ouverture de journee. Reponds en francais avec un JSON strict conforme au schema coach_pulse. Si les notes du jour sont vides, ancre intentionDraft et move sur previousDay.notes.tomorrowFocus (l'intention posee hier pour aujourd'hui) et tiens compte de previousDay.notes.nightReflection ainsi que des metriques et principes de la veille. N'invente pas d'intention si previousDay est null."
       : request.stance === "steer"
         ? "Tu es un coach de discipline pour un ajustement de mi-journee. Reponds en francais avec un JSON strict conforme au schema coach_pulse."
         : request.stance === "wind_down"
@@ -258,6 +258,7 @@ export class OpenRouterProvider implements AiProvider {
         },
         rescueTime: { configured: false, productivityPulseWeekToDate: null },
         history: { daysConsidered: 0, disciplineAverage7d: 0, disciplineAverage28d: 0 },
+        previousDay: null,
         weeklyScoreTrend: null,
         findings: [],
       },

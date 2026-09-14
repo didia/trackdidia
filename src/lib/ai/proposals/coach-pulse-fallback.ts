@@ -35,12 +35,19 @@ export const buildLocalUnknownPulse = (stance: CoachPulseStance): CoachPulseResp
   move: null,
 });
 
+export interface LocalCoachPulseContext {
+  /** Yesterday's `tomorrowFocus` — the intention already set for today. */
+  previousDayTomorrowFocus?: string | null;
+}
+
 export const buildLocalCoachPulse = (
   stance: CoachPulseStance,
   findings: Finding[],
   deltaClass?: AiDeltaClass,
+  context?: LocalCoachPulseContext,
 ): CoachPulseResponse => {
   const topFinding = pickTopFinding(findings);
+  const yesterdayFocus = context?.previousDayTomorrowFocus?.trim() ?? "";
 
   if (stance === "open") {
     return {
@@ -48,15 +55,21 @@ export const buildLocalCoachPulse = (
       headline: topFinding
         ? t("pulse.open.headlineWithFinding", { ns: "coach" })
         : t("pulse.open.headline", { ns: "coach" }),
-      read: topFinding?.label ?? t("pulse.open.readFallback", { ns: "coach" }),
+      read:
+        topFinding?.label ??
+        (yesterdayFocus
+          ? t("pulse.open.readFromYesterday", { ns: "coach", focus: yesterdayFocus })
+          : t("pulse.open.readFallback", { ns: "coach" })),
       move: {
-        what: t("pulse.open.moveWhat", { ns: "coach" }),
+        what: yesterdayFocus || t("pulse.open.moveWhat", { ns: "coach" }),
         why: t("pulse.open.moveWhy", { ns: "coach" }),
         horizon: "now",
       },
-      intentionDraft: topFinding
-        ? t("pulse.open.intentionDraft", { ns: "coach", label: topFinding.label })
-        : undefined,
+      intentionDraft: yesterdayFocus
+        ? yesterdayFocus
+        : topFinding
+          ? t("pulse.open.intentionDraft", { ns: "coach", label: topFinding.label })
+          : undefined,
     };
   }
 

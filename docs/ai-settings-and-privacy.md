@@ -66,11 +66,27 @@ Since the previous pulse, a deterministic window classifies movement:
 |---|---|---|
 | `progress` | At least one focus session or completed task | Yes |
 | `stall` | No movement, app open ≥ 30 continuous minutes | Yes |
-| `unknown` | No movement, app open &lt; 30 minutes | No — local question |
-| `idle` | No meaningful app-open time, or weekend no-movement | No |
+| `unknown` | No movement, app open &lt; 30 minutes | No — local question (except `open`) |
+| `idle` | No meaningful app-open time, or weekend no-movement | No (except `open`) |
 
-On **Saturday and Sunday**, no-movement windows downgrade to `idle` (no model
-call). Pulses still run and update the Today panel silently.
+The morning **`open`** slot is the exception: it calls the model even when the window is
+`unknown` or `idle`, including Saturday and Sunday, because the day has no movement yet
+and the brief is anchored on yesterday. `steer` and `wind_down` stay gated. A missed
+`open` slot (late first open coalesced onto a later slot) is still recorded as skipped
+and is not backfilled.
+
+The daily snapshot includes `previousDay`: the calendar day before the pulse date
+(`addDays(date, -1)`), or `null` when that date has no saved row. At `full` scope,
+`previousDay.notes` includes yesterday's `tomorrowFocus` (the intention set for today),
+`nightReflection`, and `morningIntention`. Metric and principle values are included at
+every scope; free text is stripped below `full`. The `open` prompt asks the model to
+anchor `intentionDraft` and `move` on `tomorrowFocus` when today's notes are empty, and
+not to invent an intention when `previousDay` is `null`.
+
+On **Saturday and Sunday**, no-movement windows still downgrade to `idle`. That skips
+the model for `steer` and `wind_down` only; the due `open` slot still calls it. Pulses
+still run and update the Today panel. Today reloads the stored thread when the pulse
+engine persists a new message (`pulseRevision`).
 
 ### Notifications
 
@@ -105,8 +121,9 @@ When AI is configured, Today auto-loads the coach on page open
 2. otherwise a fast local brief from snapshot inputs that skip the live RescueTime fetch;
 3. then an AI call (cache-first) once the full snapshot is ready.
 
-Scheduled pulses (`open`/`steer`/`wind_down`) also call the model when the window
-classifies as `progress` or `stall`.
+Scheduled pulses call the model when the window classifies as `progress` or `stall`.
+The due `open` slot also calls the model on `idle` and `unknown` (weekends included)
+so a morning with no data yet can still be coached from `previousDay`.
 
 Evening closure (`/fermeture-soir`) auto-loads the `close` stance on page open:
 
@@ -517,7 +534,7 @@ stored on each `ai_messages.prompt_version` row:
 
 | Surface | Version constant |
 |---|---|
-| `coach_pulse` | `coach_pulse.v1` |
+| `coach_pulse` | `coach_pulse.v2` |
 | `weekly_synthesis` | `weekly_synthesis.v1` |
 | `monthly_synthesis` | `monthly_synthesis.v1` |
 | `goal_pacing` | `goal_pacing.v1` |

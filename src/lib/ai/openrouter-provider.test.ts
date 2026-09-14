@@ -77,6 +77,7 @@ describe("OpenRouterProvider", () => {
         },
         rescueTime: { configured: false, productivityPulseWeekToDate: null },
         history: { daysConsidered: 0, disciplineAverage7d: 0, disciplineAverage28d: 0 },
+        previousDay: null,
         weeklyScoreTrend: null,
         findings: [],
       },
@@ -99,6 +100,8 @@ describe("OpenRouterProvider", () => {
     const systemPrompt = body.messages[0].content as string;
     expect(systemPrompt).toContain("Schema coach_pulse");
     expect(systemPrompt).toContain("intentionDraft");
+    expect(systemPrompt).toContain("previousDay.notes.tomorrowFocus");
+    expect(systemPrompt).toContain("N'invente pas d'intention si previousDay est null");
   });
 
   it("includes weekly synthesis schema fields in the system prompt", async () => {
@@ -436,6 +439,7 @@ describe("OpenRouterProvider", () => {
         },
         rescueTime: { configured: false, productivityPulseWeekToDate: null },
         history: { daysConsidered: 0, disciplineAverage7d: 0, disciplineAverage28d: 0 },
+        previousDay: null,
         weeklyScoreTrend: null,
         findings: [],
       },
@@ -486,6 +490,7 @@ describe("OpenRouterProvider", () => {
           },
           rescueTime: { configured: false, productivityPulseWeekToDate: null },
           history: { daysConsidered: 0, disciplineAverage7d: 0, disciplineAverage28d: 0 },
+          previousDay: null,
           weeklyScoreTrend: null,
           findings: [],
         },
@@ -533,6 +538,7 @@ describe("OpenRouterProvider", () => {
           },
           rescueTime: { configured: false, productivityPulseWeekToDate: null },
           history: { daysConsidered: 0, disciplineAverage7d: 0, disciplineAverage28d: 0 },
+          previousDay: null,
           weeklyScoreTrend: null,
           findings: [],
         },
@@ -565,6 +571,7 @@ describe("OpenRouterProvider", () => {
     },
     rescueTime: { configured: false, productivityPulseWeekToDate: null },
     history: { daysConsidered: 0, disciplineAverage7d: 0, disciplineAverage28d: 0 },
+    previousDay: null,
     weeklyScoreTrend: null,
     findings: [],
   });

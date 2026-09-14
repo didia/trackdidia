@@ -52,7 +52,8 @@
       "readFallback": "Pas assez de signal pour une lecture fine. Commence par une intention courte et un premier bloc protégé.",
       "moveWhat": "Écris une intention en une phrase",
       "moveWhy": "Donner un cap clair avant d'entrer dans le flux",
-      "intentionDraft": "Tenir le cap sur : {{label}}"
+      "intentionDraft": "Tenir le cap sur : {{label}}",
+      "readFromYesterday": "Hier, le focus posé pour aujourd'hui : {{focus}}"
     },
     "steer": {
       "headlineWithFinding": "Mi-journée — corrige le cap",

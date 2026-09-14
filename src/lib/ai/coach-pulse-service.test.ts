@@ -177,6 +177,67 @@ describe("CoachPulseService", () => {
     expect(provider.generateStructured).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    "unknown",
+    "idle",
+  ] as const)("calls the provider on auto open when delta class is %s", async (deltaClass) => {
+    const provider: AiProvider = {
+      generateStructured: vi.fn(async () => ({
+        text: JSON.stringify({
+          stance: "open",
+          headline: "Cap",
+          read: "Hier",
+          move: null,
+        }),
+        model: "test-model",
+        usage: { tokensPrompt: 1, tokensCompletion: 1, latencyMs: 1 },
+      })),
+    };
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const service = new CoachPulseService(provider);
+    const settings = defaultAppSettings();
+    settings.aiEnabled = true;
+    settings.aiApiKey = "secret";
+
+    const result = await service.buildPulse(repository, {
+      stance: "open",
+      entry: createEmptyDailyEntry("2026-08-29"),
+      settings,
+      snapshotInputs: buildSnapshotInputs(),
+      trigger: "auto",
+      deltaClass,
+    });
+
+    expect(result.source).toBe("ai");
+    expect(provider.generateStructured).toHaveBeenCalledOnce();
+  });
+
+  it("does not call the provider on auto steer when delta class is unknown", async () => {
+    const provider: AiProvider = {
+      generateStructured: vi.fn(),
+    };
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const service = new CoachPulseService(provider);
+    const settings = defaultAppSettings();
+    settings.aiEnabled = true;
+    settings.aiApiKey = "secret";
+
+    const result = await service.buildPulse(repository, {
+      stance: "steer",
+      entry: createEmptyDailyEntry("2026-08-29"),
+      settings,
+      snapshotInputs: buildSnapshotInputs(),
+      trigger: "auto",
+      deltaClass: "unknown",
+      slotHour: 13,
+    });
+
+    expect(result.source).toBe("local");
+    expect(provider.generateStructured).not.toHaveBeenCalled();
+  });
+
   it("returns ephemeral local auto results without proposals", async () => {
     const provider: AiProvider = {
       generateStructured: vi.fn(),
