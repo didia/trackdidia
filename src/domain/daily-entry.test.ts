@@ -11,6 +11,7 @@ import {
   defaultAppSettings,
   findMissingMetricKeys,
   findUnansweredPrincipleKeys,
+  prefillMorningIntentionFromYesterday,
   updateMetric,
   updateNote,
   updatePrinciple,
@@ -150,6 +151,43 @@ describe("applyLegacyAiMaxTokensUpgrade", () => {
 
     expect(upgraded?.aiMaxTokens).toBe(DEFAULT_AI_MAX_TOKENS);
     expect(upgraded?.aiMaxTokensUpgradeDoneAt).toBe("2026-09-04T12:00:00.000Z");
+  });
+
+  it("copies yesterday's tomorrow focus into an empty morning intention", () => {
+    const today = createEmptyDailyEntry("2026-09-14");
+    const yesterday = updateNote(
+      createEmptyDailyEntry("2026-09-13"),
+      "tomorrowFocus",
+      "  Tenir le premier bloc  ",
+    );
+
+    const prefilled = prefillMorningIntentionFromYesterday(today, yesterday);
+
+    expect(prefilled.morningIntention).toBe("Tenir le premier bloc");
+    expect(prefilled.date).toBe("2026-09-14");
+  });
+
+  it("does not overwrite an existing morning intention", () => {
+    const today = updateNote(
+      createEmptyDailyEntry("2026-09-14"),
+      "morningIntention",
+      "Déjà choisi",
+    );
+    const yesterday = updateNote(
+      createEmptyDailyEntry("2026-09-13"),
+      "tomorrowFocus",
+      "Tenir le premier bloc",
+    );
+
+    expect(prefillMorningIntentionFromYesterday(today, yesterday)).toBe(today);
+  });
+
+  it("leaves the intention empty when yesterday has no focus", () => {
+    const today = createEmptyDailyEntry("2026-09-14");
+    const yesterday = updateNote(createEmptyDailyEntry("2026-09-13"), "tomorrowFocus", "   ");
+
+    expect(prefillMorningIntentionFromYesterday(today, yesterday)).toBe(today);
+    expect(prefillMorningIntentionFromYesterday(today, null)).toBe(today);
   });
 
   it("keeps a custom value and still records the marker", () => {

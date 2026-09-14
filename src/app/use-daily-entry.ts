@@ -3,9 +3,11 @@ import {
   applyDailyPomodoroStats,
   applyDailyTaskStats,
   createEmptyDailyEntry,
+  prefillMorningIntentionFromYesterday,
 } from "../domain/daily-entry";
 import type { DailyEntry, DailyPomodoroStats, DailyTaskStats } from "../domain/types";
 import { getTodayDate } from "../lib/date";
+import { addDays } from "../lib/gtd/shared";
 import { useAppContext } from "./app-context";
 
 export type DailyEntrySaveInput = DailyEntry | ((current: DailyEntry) => DailyEntry);
@@ -31,20 +33,24 @@ export const useDailyEntry = (date: string) => {
     if (date === getTodayDate()) {
       await repository.generateDailyRelationshipTasks(date);
     }
-    const [existing, stats, nextPomodoroStats] = await Promise.all([
+    const [existing, yesterday, stats, nextPomodoroStats] = await Promise.all([
       repository.getDailyEntry(date),
+      repository.getDailyEntry(addDays(date, -1)),
       repository.computeDailyTaskStats(date),
       repository.computeDailyPomodoroStats(date),
     ]);
     setTaskStats(stats);
     setPomodoroStats(nextPomodoroStats);
 
-    const nextEntry = existing
-      ? applyDailyPomodoroStats(applyDailyTaskStats(existing, stats), nextPomodoroStats)
-      : applyDailyPomodoroStats(
-          applyDailyTaskStats(createEmptyDailyEntry(date), stats),
-          nextPomodoroStats,
-        );
+    const nextEntry = prefillMorningIntentionFromYesterday(
+      existing
+        ? applyDailyPomodoroStats(applyDailyTaskStats(existing, stats), nextPomodoroStats)
+        : applyDailyPomodoroStats(
+            applyDailyTaskStats(createEmptyDailyEntry(date), stats),
+            nextPomodoroStats,
+          ),
+      yesterday,
+    );
     publishEntry(nextEntry);
     setLoading(false);
   }, [date, repository]);

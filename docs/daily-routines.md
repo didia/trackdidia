@@ -62,6 +62,10 @@ the morning, so they can still be corrected before closure.
 The intention field saves after a 450 ms debounce and flushes immediately before the
 "complete morning" navigation.
 
+When today's `morningIntention` is still empty, loading the day copies yesterday's
+trimmed `tomorrowFocus` into the field. That copy stays in memory until a real save
+or morning completion; an existing intention is never overwritten.
+
 Morning/anytime principles shown on the morning screen (`morningPrincipleKeys`):
 
 | Key | UI label |
@@ -276,7 +280,9 @@ Opening a card follows a query-string deep link:
 
 Loading an absent date creates an in-memory empty entry for display. The row becomes
 durable only after a save/transition. Every saved entry gets an updated ISO
-timestamp.
+timestamp. If the loaded day's `morningIntention` is empty, the hook copies the
+previous day's trimmed `tomorrowFocus` into it in memory only; a later save is
+what persists the carried text. An existing intention is left unchanged.
 
 When loading today's entry, the hook also:
 

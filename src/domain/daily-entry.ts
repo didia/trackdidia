@@ -169,6 +169,19 @@ export const updateNote = (
   updatedAt: new Date().toISOString(),
 });
 
+/** Copies yesterday's tomorrow-focus into an empty morning intention. No-op otherwise. */
+export const prefillMorningIntentionFromYesterday = (
+  entry: DailyEntry,
+  yesterday: DailyEntry | null,
+): DailyEntry => {
+  const carriedFocus = yesterday?.tomorrowFocus.trim() ?? "";
+  if (entry.morningIntention.trim() || !carriedFocus) {
+    return entry;
+  }
+
+  return updateNote(entry, "morningIntention", carriedFocus);
+};
+
 export const computeDisciplineScore = (entry: DailyEntry): number => {
   if (principleDefinitions.length === 0) {
     return 0;

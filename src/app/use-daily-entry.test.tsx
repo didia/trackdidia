@@ -1,9 +1,10 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
-import { defaultAppSettings, updateNote } from "../domain/daily-entry";
+import { createEmptyDailyEntry, defaultAppSettings, updateNote } from "../domain/daily-entry";
 import { CoachPulseService } from "../lib/ai/coach-pulse-service";
 import type { AiProvider } from "../lib/ai/provider";
 import { getTodayDate } from "../lib/date";
+import { addDays } from "../lib/gtd/shared";
 import { buildPomodoroSessionDetails, buildPomodoroState } from "../lib/pomodoro/engine";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { AppContext, type AppContextValue } from "./app-context";
@@ -97,5 +98,53 @@ describe("useDailyEntry", () => {
     expect(saved?.nightReflection).toBe("Ma reflexion");
     expect(result.current.entry?.morningIntention).toBe("Mon intention");
     expect(result.current.entry?.nightReflection).toBe("Ma reflexion");
+  });
+
+  it("prefills today's empty intention from yesterday's focus without persisting", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const today = getTodayDate();
+    await repository.saveDailyEntry(
+      updateNote(
+        createEmptyDailyEntry(addDays(today, -1)),
+        "tomorrowFocus",
+        "Tenir le premier bloc",
+      ),
+    );
+    const saveDailyEntry = vi.spyOn(repository, "saveDailyEntry");
+
+    const { result } = renderHook(() => useDailyEntry(today), {
+      wrapper: wrapRepository(repository),
+    });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.entry?.morningIntention).toBe("Tenir le premier bloc");
+    expect(saveDailyEntry).not.toHaveBeenCalled();
+    expect(await repository.getDailyEntry(today)).toBeNull();
+  });
+
+  it("does not overwrite a saved morning intention with yesterday's focus", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const today = getTodayDate();
+    await repository.saveDailyEntry(
+      updateNote(createEmptyDailyEntry(addDays(today, -1)), "tomorrowFocus", "Focus d'hier"),
+    );
+    await repository.saveDailyEntry(
+      updateNote(createEmptyDailyEntry(today), "morningIntention", "Déjà choisi"),
+    );
+
+    const { result } = renderHook(() => useDailyEntry(today), {
+      wrapper: wrapRepository(repository),
+    });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.entry?.morningIntention).toBe("Déjà choisi");
   });
 });
