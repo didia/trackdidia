@@ -72,7 +72,7 @@
     },
     "standing": {
       "title": "Objectifs permanents",
-      "subtitle": "Objectifs TrackDidia suivis semaine après semaine (manuels ou basés sur RescueTime). Le coach peut en proposer de nouveaux.",
+      "subtitle": "Objectifs TrackDidia suivis semaine après semaine (manuels ou basés sur RescueTime). Ceux acceptés depuis le coach commencent la semaine suivante.",
       "loading": "Chargement des objectifs permanents...",
       "empty": "Aucun objectif permanent pour l'instant.",
       "kind": {
@@ -119,6 +119,8 @@
       "subtitle": "Chaque bloc reste manuel pour l'instant, mais l'écran rassemble tout ton rituel du dimanche.",
       "notesLabel": "Notes {{section}}",
       "notesPlaceholder": "Notes {{section}}...",
+      "nextWeekNotesLabel": "Notes pour la semaine suivante",
+      "nextWeekNotesPlaceholder": "Apprentissages et ton pour la semaine qui arrive...",
       "doneAria": "Marquer {{section}} comme fait",
       "done": "Fait",
       "bilan": {

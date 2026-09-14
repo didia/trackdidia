@@ -168,8 +168,8 @@ memories with weekly-specific kind priority, validates JSON, and persists propos
 
 | Type | Accept applies |
 |---|---|
-| `review_section_draft` | Persists the ritual note on the weekly review, then marks the proposal accepted |
-| `weekly_objective` | Creates a standing `WeeklyObjective` row (idempotent atomic accept) |
+| `review_section_draft` | Persists the ritual note on the weekly review (a Dimanche draft accepted while reviewing a past week is written on the following week; opening that stored week shows the note even if it is also past), then marks the proposal accepted |
+| `weekly_objective` | Creates a standing `WeeklyObjective` row that starts the Sunday after the reviewed week (idempotent atomic accept) |
 | `gtd_action` | `scheduleTask`, `moveTask` (`someday_maybe` / `waiting_for`), or `cancelTask` on active tasks only (atomic accept) |
 
 Weekly synthesis messages and proposals persist atomically via `saveCoachPulseEpisode`.

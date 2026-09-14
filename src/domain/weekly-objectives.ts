@@ -47,6 +47,15 @@ export const cloneWeeklyObjective = (objective: WeeklyObjective): WeeklyObjectiv
   ...objective,
 });
 
+/** Null `startsOnWeekStartDate` means the objective applies to every week. */
+export const isObjectiveActiveForWeek = (
+  objective: WeeklyObjective,
+  weekStartDate: string,
+): boolean => {
+  const normalized = buildWeekDates(weekStartDate);
+  return objective.startsOnWeekStartDate === null || objective.startsOnWeekStartDate <= normalized;
+};
+
 export const createEmptyWeeklyObjective = (
   partial: Partial<WeeklyObjective> = {},
   timestamp = new Date().toISOString(),
@@ -58,6 +67,7 @@ export const createEmptyWeeklyObjective = (
   rescuetimeKind: partial.rescuetimeKind ?? null,
   rescuetimeThing: partial.rescuetimeThing ?? null,
   sortOrder: partial.sortOrder ?? 0,
+  startsOnWeekStartDate: partial.startsOnWeekStartDate?.trim() || null,
   createdAt: partial.createdAt ?? timestamp,
   updatedAt: partial.updatedAt ?? timestamp,
 });
@@ -76,9 +86,11 @@ export const buildWeeklyObjectivesSnapshot = (
   const normalized = buildWeekDates(weekStartDate);
   const weekEndDate = addDays(normalized, 6);
   const resultsByObjectiveId = new Map(results.map((result) => [result.objectiveId, result]));
-  const sortedObjectives = [...objectives].sort(
-    (left, right) => left.sortOrder - right.sortOrder || left.title.localeCompare(right.title),
-  );
+  const sortedObjectives = [...objectives]
+    .filter((objective) => isObjectiveActiveForWeek(objective, normalized))
+    .sort(
+      (left, right) => left.sortOrder - right.sortOrder || left.title.localeCompare(right.title),
+    );
 
   const items: WeeklyObjectiveItemSnapshot[] = sortedObjectives.map((objective) => {
     if (objective.kind === "manual") {

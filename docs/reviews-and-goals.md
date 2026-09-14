@@ -34,7 +34,8 @@ averages and rates intentionally include zero-valued empty days in several axes.
 - `weekStartDate`;
 - `weekEndDate`;
 - `status`: `draft` or `closed`;
-- eight note fields;
+- eight note fields, except Dimanche notes, which are stored on the week they
+  apply to (see below);
 - eight completion booleans;
 - `updatedAt`.
 
@@ -50,8 +51,26 @@ The eight ritual sections are:
 8. Dimanche
 
 Notes and checklist changes persist immediately, including when leaving the
-page. Saves are serialized so the latest draft wins if several writes overlap.
-Closing does not require all sections to be checked.
+page. Saves for the same week are one chain, and a load does not replace a
+week that still has a write in flight, so the latest draft for that week wins.
+The Dimanche **checklist** stays on the displayed review (it marks that the
+step was done). The Dimanche card always shows the **opened week's stored
+kickoff**, including when that week and the following week are both already
+past — opening a stored week does not hide its text behind a further shift.
+
+Reviewing a past week also edits the following week's kickoff in a separate
+field. That text is saved on the next Sunday and appears in that week's
+Dimanche card. The current or a future week edits only its own Dimanche notes,
+so last Sunday's kickoff stays visible while living that week. A local-day
+change reloads the next-week field instead of pointing it at an unloaded
+review; a write still creates that review if it is not loaded yet.
+
+A one-time startup move copies pre-existing Dimanche text from week W onto W+7
+when W+7's Dimanche note is empty and W is not part of a consecutive run of
+weeks that already have notes, then clears W. If W and W+7 both already have
+text, both stay — the later note is not shifted to W+14. The settings marker
+means the pass does not run again. Closing does not require all sections to be
+checked.
 
 ### Daily inputs
 
@@ -115,7 +134,7 @@ only (calories included; RescueTime excluded).
 The `/semaine` screen tracks **two distinct objective systems**:
 
 1. **RescueTime Goals** (read-only): enabled goals from the RescueTime API feed optional RescueTime score axes on the weekly overview. Manage goals in RescueTime; configure the API key under **Paramètres → RescueTime**.
-2. **Standing objectives** (`weekly_objectives`): durable TrackDidia objectives the coach can propose via `weekly_objective` accept-step. The page lists them with a per-week score, lets you toggle manual achievement (`saveWeeklyObjectiveResult`), and delete objectives. Time-based objectives score against RescueTime Analytic Data when configured.
+2. **Standing objectives** (`weekly_objectives`): durable TrackDidia objectives the coach can propose via `weekly_objective` accept-step. Accepting one during week N sets `startsOnWeekStartDate` to the following Sunday, so it does not score against the week being closed. Objectives with a null start date (created before that field) still apply to every week. The page lists the objectives active for the displayed week with a per-week score, lets you toggle manual achievement (`saveWeeklyObjectiveResult`), and delete objectives. Time-based objectives score against RescueTime Analytic Data when configured, and only those active for the displayed week are fetched.
 
 RescueTime Goals remain the optional weekly-score axis described below. Standing objectives use `WeeklyObjectivesService.computeWeeklyObjectivesSnapshot()` and are separate from RescueTime Goals.
 
@@ -192,8 +211,11 @@ invalidates in-flight loads, hides mismatched results, and rejects accept/dismis
 the proposal message `scopeKey` does not match the displayed week.
 
 Accepting a section draft **persists the note** on the weekly review immediately (the
-textarea is also prefilled). Accepting an objective creates a row in `weekly_objectives`
-via an idempotent atomic accept. GTD accepts are atomic and skip terminal tasks.
+textarea is also prefilled). A Dimanche draft accepted while reviewing a past
+week is written on the following week, and reopening that stored week shows the
+note even if it is also past. Accepting an objective creates a row in `weekly_objectives` that
+starts the Sunday after the reviewed week, via an idempotent atomic accept. GTD
+accepts are atomic and skip terminal tasks.
 
 Successful AI results (`status = ok`) cache on `(surface, weekStartDate, input_hash)`.
 `skipped` rows cache while AI is off. `fallback` and `error` rows are retryable and

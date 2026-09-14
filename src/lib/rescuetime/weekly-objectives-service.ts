@@ -5,6 +5,7 @@ import type {
 } from "../../domain/types";
 import {
   buildWeeklyObjectivesSnapshot,
+  isObjectiveActiveForWeek,
   type RescueTimeErrorsByObjectiveId,
   type RescueTimeSecondsByObjectiveId,
 } from "../../domain/weekly-objectives";
@@ -32,7 +33,9 @@ export class WeeklyObjectivesService {
 
     const apiKey = settings.rescuetimeApiKey.trim();
     const rescuetimeConfigured = apiKey.length > 0;
-    const timeObjectives = objectives.filter((objective) => objective.kind === "time");
+    const timeObjectives = objectives.filter(
+      (objective) => objective.kind === "time" && isObjectiveActiveForWeek(objective, normalized),
+    );
     const secondsByObjectiveId: RescueTimeSecondsByObjectiveId = {};
     const errorsByObjectiveId: RescueTimeErrorsByObjectiveId = {};
     let fetchError: string | undefined;

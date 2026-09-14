@@ -74,6 +74,32 @@ export const listWeekDates = (weekStartDate: string): string[] => {
   return Array.from({ length: 7 }, (_, index) => addDays(normalized, index));
 };
 
+/**
+ * Dimanche notes describe the week that is starting, not the one being closed.
+ * `dimancheNotesWeekStart` is only the ritual write target: reviewing a past
+ * week writes the following Sunday. The opened week's stored kickoff is always
+ * that week itself, even when both weeks are already past — do not use this
+ * helper to decide which notes to display.
+ */
+const localTodayDate = (): string => {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+};
+
+export const dimancheNotesWeekStart = (
+  displayedWeekStart: string,
+  today = localTodayDate(),
+): string => {
+  const displayed = buildWeekDates(displayedWeekStart);
+  const currentWeek = getWeekStartSunday(today);
+  if (displayed < currentWeek) {
+    return addDays(displayed, 7);
+  }
+  return displayed;
+};
+
 export const createEmptyWeeklyReview = (weekStartDate: string): WeeklyReview => {
   const normalized = buildWeekDates(weekStartDate);
 
@@ -105,6 +131,57 @@ export const updateWeeklyReviewNote = (
   },
   updatedAt: new Date().toISOString(),
 });
+
+const hasDimancheNote = (review: WeeklyReview): boolean => review.notes.dimanche.trim().length > 0;
+
+/**
+ * One-shot move decided from an immutable snapshot. Isolated Dimanche notes
+ * move from week W onto W+7 when that week is empty. A consecutive run of
+ * weeks that already have notes is frozen: if W has text and W+7 has text,
+ * both stay. The later note is not shifted to W+14.
+ */
+export const relocateDimancheNotesToNextWeek = (reviews: WeeklyReview[]): WeeklyReview[] => {
+  const byWeek = new Map<string, WeeklyReview>();
+  for (const review of reviews) {
+    const weekStartDate = buildWeekDates(review.weekStartDate);
+    byWeek.set(weekStartDate, cloneWeeklyReview({ ...review, weekStartDate }));
+  }
+
+  const occupied = new Set(
+    [...byWeek.entries()]
+      .filter(([, review]) => hasDimancheNote(review))
+      .map(([weekStartDate]) => weekStartDate),
+  );
+  const moves: Array<{ sourceWeek: string; text: string }> = [];
+
+  for (const weekStartDate of occupied) {
+    const previousWeek = addDays(weekStartDate, -7);
+    const targetWeek = addDays(weekStartDate, 7);
+    if (occupied.has(previousWeek) || occupied.has(targetWeek)) {
+      continue;
+    }
+
+    const review = byWeek.get(weekStartDate);
+    if (!review) {
+      continue;
+    }
+    moves.push({ sourceWeek: weekStartDate, text: review.notes.dimanche });
+  }
+
+  const changed = new Map<string, WeeklyReview>();
+  for (const move of moves) {
+    const source = byWeek.get(move.sourceWeek);
+    if (!source) {
+      continue;
+    }
+    const targetWeek = addDays(move.sourceWeek, 7);
+    const target = byWeek.get(targetWeek) ?? createEmptyWeeklyReview(targetWeek);
+    changed.set(move.sourceWeek, updateWeeklyReviewNote(source, "dimanche", ""));
+    changed.set(targetWeek, updateWeeklyReviewNote(target, "dimanche", move.text));
+  }
+
+  return [...changed.values()];
+};
 
 export const updateWeeklyReviewChecklist = (
   review: WeeklyReview,

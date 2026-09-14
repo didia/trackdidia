@@ -64,4 +64,38 @@ describe("WeeklyObjectivesService", () => {
       }),
     );
   });
+
+  it("does not call RescueTime for a time objective that has not started yet", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveWeeklyObjective(
+      createEmptyWeeklyObjective({
+        title: "Future coding",
+        kind: "time",
+        targetHours: 2,
+        rescuetimeKind: "category",
+        rescuetimeThing: "Software Development",
+        startsOnWeekStartDate: "2026-08-16",
+      }),
+    );
+    await repository.saveSettings({
+      ...(await repository.getSettings()),
+      rescuetimeApiKey: "rt-test-key",
+    });
+
+    const mockClient: RescueTimeClient = {
+      fetchAnalyticData: vi.fn(async () => {
+        throw new Error("RescueTime should not be called");
+      }),
+    };
+
+    const snapshot = await new WeeklyObjectivesService(
+      repository,
+      mockClient,
+    ).computeWeeklyObjectivesSnapshot("2026-08-02");
+
+    expect(mockClient.fetchAnalyticData).not.toHaveBeenCalled();
+    expect(snapshot.fetchError).toBeUndefined();
+    expect(snapshot.items).toEqual([]);
+  });
 });

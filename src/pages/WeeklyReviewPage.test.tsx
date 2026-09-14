@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { AppContext, useAppContext } from "../app/app-context";
 import { createEmptyDailyEntry, defaultAppSettings, updatePrinciple } from "../domain/daily-entry";
 import { principleDefinitions } from "../domain/definitions";
 import {
@@ -552,10 +554,13 @@ describe("WeeklyReviewPage", () => {
     });
   });
 
-  it("accepting a weekly objective proposal shows it in standing objectives", async () => {
+  it("accepting a weekly objective proposal starts it on the following week", async () => {
+    vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-08-10");
+
     const repository = new MemoryRepository();
     await repository.initialize();
     const weekStartDate = "2026-08-02";
+    const nextWeekStartDate = addDays(weekStartDate, 7);
 
     for (let index = 0; index < 7; index += 1) {
       const date = addDays(weekStartDate, index);
@@ -642,9 +647,265 @@ describe("WeeklyReviewPage", () => {
     const acceptButtons = await screen.findAllByRole("button", { name: /^accepter$/i });
     await user.click(acceptButtons[0]);
 
+    await waitFor(async () => {
+      await expect(repository.listWeeklyObjectives()).resolves.toEqual([
+        expect.objectContaining({
+          title: "Lire 2h",
+          startsOnWeekStartDate: nextWeekStartDate,
+        }),
+      ]);
+    });
+    expect(screen.queryByRole("heading", { name: "Lire 2h" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /semaine suivante/i }));
+    expect(await screen.findByRole("heading", { name: "Lire 2h" })).toBeInTheDocument();
+  });
+
+  it("saves Dimanche notes onto the following week and shows them there", async () => {
+    vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-08-10");
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const weekStartDate = "2026-08-02";
+    const nextWeekStartDate = addDays(weekStartDate, 7);
+
+    for (let index = 0; index < 7; index += 1) {
+      await repository.saveDailyEntry(createEmptyDailyEntry(addDays(weekStartDate, index)));
+    }
+
+    const user = userEvent.setup();
+    await renderWithApp(<WeeklyReviewPage />, { repository, route: "/semaine" });
+
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
+    await user.clear(dateInput);
+    await user.type(dateInput, weekStartDate);
+    await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
+
+    const nextWeekField = await screen.findByLabelText(/notes pour la semaine suivante/i);
+    await user.type(nextWeekField, "Porter le calme");
+
+    await waitFor(async () => {
+      await expect(repository.getWeeklyReview(nextWeekStartDate)).resolves.toMatchObject({
+        notes: expect.objectContaining({
+          dimanche: "Porter le calme",
+        }),
+      });
+    });
+    await expect(repository.getWeeklyReview(weekStartDate)).resolves.toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /semaine suivante/i }));
+    expect(await screen.findByLabelText(/notes dimanche/i)).toHaveValue("Porter le calme");
+  });
+
+  it("accepts a Dimanche draft onto the following week", async () => {
+    vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-08-10");
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const weekStartDate = "2026-08-02";
+    const nextWeekStartDate = addDays(weekStartDate, 7);
+
+    for (let index = 0; index < 7; index += 1) {
+      await repository.saveDailyEntry(createEmptyDailyEntry(addDays(weekStartDate, index)));
+    }
+
+    const message = {
+      id: "ai-message-dimanche",
+      surface: "weekly_synthesis" as const,
+      scopeKey: weekStartDate,
+      stance: null,
+      kind: "weekly",
+      inputHash: "hash",
+      promptVersion: "weekly_synthesis.v1",
+      model: "local",
+      status: "skipped" as const,
+      bodyJson: JSON.stringify({
+        headline: "Semaine",
+        scoreExplanation: "Score",
+        strongestAxis: "Discipline",
+        weakestAxes: ["Sommeil", "Pomodoris"],
+        sectionDrafts: { dimanche: "Ton pose" },
+        nextWeekObjectives: [],
+        gtdActions: [],
+      }),
+      bodyText: "Local",
+      deltaClass: null,
+      notified: false,
+      tokensPrompt: null,
+      tokensCompletion: null,
+      latencyMs: null,
+      createdAt: new Date().toISOString(),
+    };
+    const proposal = {
+      id: "proposal-dimanche",
+      messageId: message.id,
+      type: "review_section_draft" as const,
+      payloadJson: JSON.stringify({ sectionKey: "dimanche", text: "Ton pose" }),
+      status: "pending" as const,
+      appliedEntityId: null,
+      decidedAt: null,
+      createdAt: new Date().toISOString(),
+    };
+    await repository.saveAiMessage(message);
+    await repository.saveAiProposal(proposal);
+
+    vi.spyOn(WeeklySynthesisService.prototype, "buildSynthesis").mockResolvedValue({
+      message,
+      synthesis: {
+        headline: "Semaine",
+        scoreExplanation: "Score",
+        strongestAxis: "Discipline",
+        weakestAxes: ["Sommeil", "Pomodoris"],
+        sectionDrafts: { dimanche: "Ton pose" },
+        nextWeekObjectives: [],
+        gtdActions: [],
+      },
+      proposals: [proposal],
+      source: "local",
+    });
+
+    const user = userEvent.setup();
+    await renderWithApp(<WeeklyReviewPage />, { repository, route: "/semaine" });
+
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
+    await user.clear(dateInput);
+    await user.type(dateInput, weekStartDate);
+    await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
+
+    const acceptButtons = await screen.findAllByRole("button", { name: /^accepter$/i });
+    await user.click(acceptButtons[0]);
+
     await waitFor(() => {
-      expect(screen.getByText("Lire 2h")).toBeInTheDocument();
-      expect(screen.getByText("Objectifs permanents")).toBeInTheDocument();
+      expect(screen.getByLabelText(/notes pour la semaine suivante/i)).toHaveValue("Ton pose");
+    });
+    await waitFor(async () => {
+      await expect(repository.getWeeklyReview(nextWeekStartDate)).resolves.toMatchObject({
+        notes: expect.objectContaining({
+          dimanche: "Ton pose",
+        }),
+      });
+    });
+    expect(await repository.getWeeklyReview(weekStartDate)).toBeNull();
+  });
+
+  it("shows stored Dimanche notes when the opened week is also in the past", async () => {
+    vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-09-14");
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const storedWeek = "2026-08-09";
+
+    for (let index = 0; index < 7; index += 1) {
+      await repository.saveDailyEntry(createEmptyDailyEntry(addDays(storedWeek, index)));
+    }
+    await repository.saveWeeklyReview(
+      updateWeeklyReviewNote(createEmptyWeeklyReview(storedWeek), "dimanche", "Deja pose"),
+    );
+
+    const user = userEvent.setup();
+    await renderWithApp(<WeeklyReviewPage />, { repository, route: "/semaine" });
+
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
+    await user.clear(dateInput);
+    await user.type(dateInput, storedWeek);
+    await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
+
+    expect(await screen.findByLabelText(/notes dimanche/i)).toHaveValue("Deja pose");
+    expect(screen.getByLabelText(/notes pour la semaine suivante/i)).toHaveValue("");
+  });
+
+  it("keeps a delayed Dimanche write when the next week is edited afterward", async () => {
+    vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-08-10");
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const weekStartDate = "2026-08-02";
+    const nextWeekStartDate = addDays(weekStartDate, 7);
+
+    for (let index = 0; index < 7; index += 1) {
+      await repository.saveDailyEntry(createEmptyDailyEntry(addDays(weekStartDate, index)));
+    }
+
+    const originalSave = repository.saveWeeklyReview.bind(repository);
+    let startedSaves = 0;
+    let releaseFirstSave: () => void = () => undefined;
+    const firstSaveGate = new Promise<void>((resolve) => {
+      releaseFirstSave = resolve;
+    });
+    repository.saveWeeklyReview = async (review) => {
+      startedSaves += 1;
+      if (startedSaves === 1) {
+        await firstSaveGate;
+      }
+      return originalSave(review);
+    };
+
+    const user = userEvent.setup();
+    await renderWithApp(<WeeklyReviewPage />, { repository, route: "/semaine" });
+
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
+    await user.clear(dateInput);
+    await user.type(dateInput, weekStartDate);
+    await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
+
+    await user.type(await screen.findByLabelText(/notes pour la semaine suivante/i), "Porter");
+    await user.click(screen.getByRole("button", { name: /semaine suivante/i }));
+    releaseFirstSave();
+
+    const bilanField = await screen.findByLabelText(/notes bilan/i);
+    await user.type(bilanField, "Suite");
+
+    await waitFor(async () => {
+      await expect(repository.getWeeklyReview(nextWeekStartDate)).resolves.toMatchObject({
+        notes: expect.objectContaining({
+          dimanche: "Porter",
+          bilan: "Suite",
+        }),
+      });
+    });
+  });
+
+  it("keeps in-progress Dimanche edits when the local day rolls into a past week", async () => {
+    vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-08-08");
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const weekStartDate = "2026-08-02";
+
+    for (let index = 0; index < 7; index += 1) {
+      await repository.saveDailyEntry(createEmptyDailyEntry(addDays(weekStartDate, index)));
+    }
+
+    const DayBridge = () => {
+      const parent = useAppContext();
+      const [day, setDay] = useState("2026-08-08");
+      return (
+        <AppContext.Provider value={{ ...parent, calendarDay: day }}>
+          <button type="button" onClick={() => setDay("2026-08-09")}>
+            Passer minuit
+          </button>
+          <WeeklyReviewPage />
+        </AppContext.Provider>
+      );
+    };
+
+    const user = userEvent.setup();
+    await renderWithApp(<DayBridge />, { repository, route: "/semaine" });
+
+    const dimancheField = await screen.findByLabelText(/notes dimanche/i);
+    await user.type(dimancheField, "Calme");
+    await waitFor(async () => {
+      await expect(repository.getWeeklyReview(weekStartDate)).resolves.toMatchObject({
+        notes: expect.objectContaining({ dimanche: "Calme" }),
+      });
+    });
+
+    await user.click(screen.getByRole("button", { name: /passer minuit/i }));
+
+    expect(await screen.findByLabelText(/notes dimanche/i)).toHaveValue("Calme");
+    expect(screen.getByLabelText(/notes pour la semaine suivante/i)).toHaveValue("");
+    await expect(repository.getWeeklyReview(weekStartDate)).resolves.toMatchObject({
+      notes: expect.objectContaining({ dimanche: "Calme" }),
     });
   });
 

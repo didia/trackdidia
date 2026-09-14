@@ -73,4 +73,46 @@ describe("weekly-objectives scoring", () => {
     expect(snapshot.totalAchievement).toBe(1.5);
     expect(snapshot.score).toBe(0.75);
   });
+
+  it("hides objectives that start after the displayed week", () => {
+    const later = createEmptyWeeklyObjective({
+      id: "later",
+      title: "Next week",
+      startsOnWeekStartDate: "2026-08-09",
+    });
+    const current = createEmptyWeeklyObjective({
+      id: "current",
+      title: "This week",
+      startsOnWeekStartDate: "2026-08-02",
+    });
+    const legacy = createEmptyWeeklyObjective({
+      id: "legacy",
+      title: "Always",
+    });
+
+    const beforeStart = buildWeeklyObjectivesSnapshot(
+      "2026-08-02",
+      [later, current, legacy],
+      [],
+      {},
+      { rescuetimeConfigured: false },
+    );
+    const afterStart = buildWeeklyObjectivesSnapshot(
+      "2026-08-09",
+      [later, current, legacy],
+      [],
+      {},
+      { rescuetimeConfigured: false },
+    );
+
+    expect(beforeStart.items.map((item) => item.objective.id).sort()).toEqual([
+      "current",
+      "legacy",
+    ]);
+    expect(afterStart.items.map((item) => item.objective.id).sort()).toEqual([
+      "current",
+      "later",
+      "legacy",
+    ]);
+  });
 });
