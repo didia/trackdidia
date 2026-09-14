@@ -4,6 +4,7 @@ import type { AiPayloadScope } from "../../../domain/types";
 import { buildWeekDates } from "../../../domain/weekly-review";
 import { getTodayDate } from "../../date";
 import { getWeekStartSunday } from "../../gtd/shared";
+import type { RescueTimeGoalItemSnapshot } from "../../../domain/rescuetime-goals";
 import { PASTOR_VERSE_PROMPT_VERSION } from "../pastor-verse-service";
 import { RescueTimeGoalsService } from "../../rescuetime/rescuetime-goals-service";
 import type { AppRepository } from "../../storage/repository";
@@ -52,6 +53,7 @@ export interface ResolvedWeeklyRescueTime {
   configured: boolean;
   productivityPulse: number | null;
   rescueTimeGoalsScore: number | null;
+  rescueTimeGoalItems: RescueTimeGoalItemSnapshot[];
   pulseFetchError?: string;
   goalsFetchError?: string;
 }
@@ -71,6 +73,7 @@ export const resolveWeeklyRescueTimeInputs = async (
       configured,
       productivityPulse: null,
       rescueTimeGoalsScore: null,
+      rescueTimeGoalItems: [],
     };
   }
 
@@ -84,6 +87,7 @@ export const resolveWeeklyRescueTimeInputs = async (
     configured,
     productivityPulse: pulseSnapshot.pulse,
     rescueTimeGoalsScore: goalsSnapshot.score,
+    rescueTimeGoalItems: goalsSnapshot.items,
     pulseFetchError: pulseSnapshot.fetchError,
     goalsFetchError: goalsSnapshot.fetchError,
   };
@@ -197,6 +201,7 @@ export const previewPayload = async (
     const inputs = await resolveWeeklySnapshotInputs(repository, weekStartDate, {
       productivityPulse: rescueTime.productivityPulse,
       rescueTimeGoalsScore: rescueTime.rescueTimeGoalsScore,
+      rescueTimeGoalItems: rescueTime.rescueTimeGoalItems,
       rescuetimeConfigured: rescueTime.configured,
     });
     return buildWeeklySnapshot(inputs, scope);

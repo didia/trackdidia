@@ -64,13 +64,23 @@ describe("previewPayload", () => {
     expect(fullSnapshot.notes).toBeUndefined();
   });
 
-  it("includes RescueTime Goals score in weekly preview when configured", async () => {
+  it("includes RescueTime Goals score and per-goal items in weekly preview when configured", async () => {
     vi.spyOn(RescueTimeGoalsService.prototype, "computeGoalsSnapshot").mockResolvedValue({
       weekStartDate: "2026-08-02",
       weekEndDate: "2026-08-08",
       score: 0.75,
       totalAchievement: 0.75,
-      items: [],
+      items: [
+        {
+          goalId: 1,
+          title: "Deep work",
+          isMore: true,
+          actualHours: 3,
+          weeklyTargetHours: 10,
+          achievement: 0.3,
+          scheduleLabel: "Working days",
+        },
+      ],
       rescuetimeConfigured: true,
     });
     vi.spyOn(RescueTimeGoalsService.prototype, "computeProductivityPulse").mockResolvedValue({
@@ -95,9 +105,12 @@ describe("previewPayload", () => {
 
     expect(snapshot.weeklyScore).toBeGreaterThan(0);
     expect(snapshot.axes.some((axis) => axis.key === "rescueTimeGoalsScore")).toBe(true);
+    expect(snapshot.rescueTimeGoals).toEqual([
+      { title: "Deep work", isMore: true, actualHours: 3, weeklyTargetHours: 10, achievement: 0.3 },
+    ]);
   });
 
-  it("includes Goals score when weekly rescue time is injected like Settings preview", async () => {
+  it("includes Goals score and items when weekly rescue time is injected like Settings preview", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
     await repository.saveDailyEntry(createEmptyDailyEntry("2026-08-02"));
@@ -109,12 +122,26 @@ describe("previewPayload", () => {
         configured: true,
         productivityPulse: 80,
         rescueTimeGoalsScore: 0.75,
+        rescueTimeGoalItems: [
+          {
+            goalId: 1,
+            title: "Deep work",
+            isMore: true,
+            actualHours: 3,
+            weeklyTargetHours: 10,
+            achievement: 0.3,
+            scheduleLabel: "Working days",
+          },
+        ],
       },
     })) as WeeklySnapshot;
 
     expect(snapshot.axes.some((axis) => axis.key === "rescueTimeGoalsScore")).toBe(true);
     expect(snapshot.axes.some((axis) => axis.key === "productivityPulse")).toBe(true);
     expect(snapshot.weeklyScore).toBeGreaterThan(0);
+    expect(snapshot.rescueTimeGoals).toEqual([
+      { title: "Deep work", isMore: true, actualHours: 3, weeklyTargetHours: 10, achievement: 0.3 },
+    ]);
   });
 
   it("renders monthly preview snapshots", async () => {

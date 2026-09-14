@@ -29,6 +29,7 @@
     "sectionFallback": "section",
     "objectiveFallback": "Objectif",
     "actionFallback": "action",
+    "taskFallback": "Tâche",
     "goalFallback": "objectif",
     "defaultObjectiveTitle": "Objectif",
     "weeklyObjectivePreview": "Objectif hebdomadaire"
@@ -83,6 +84,7 @@
     "strongestAxis": "Axe le plus solide :",
     "weakestAxes": "Axes à surveiller :",
     "sectionAxesWatch": "Axes à surveiller : {{axes}}.",
+    "sectionRescueTimeGoalsWatch": "Objectif RescueTime « {{title}} » atteint à {{percent}}% ({{actual}}h / {{target}}h).",
     "sectionSunday": "Clôturer la semaine passée et poser le ton pour celle qui arrive.",
     "staleDeferReason": "Next action stale — clarifier, planifier ou déléguer.",
     "axisDiscipline": "Discipline",

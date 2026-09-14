@@ -157,6 +157,39 @@ memories with weekly-specific kind priority, validates JSON, and persists propos
 Weekly synthesis messages and proposals persist atomically via `saveCoachPulseEpisode`.
 The OpenRouter system prompt includes the full S2 schema (`buildWeeklySynthesisSchemaPrompt`).
 
+**Focus concentration is project-aware.** `computeFocusFindings`
+(`src/domain/insights/focus.ts`) merges Pomodoro task summaries that share the same
+`projectId` into a single "concentration unit" before measuring how spread out the
+week's focus time was. Working ten tasks that all belong to one project reports as
+high concentration (not dispersion); only time spread across different projects (or
+tasks with no project) is flagged. The `task_concentration` finding carries the
+winning unit's `taskIds`, `projectId`, and `taskCount`, and `pomodoro.topTask` /
+`focus.topTask` in the daily and weekly snapshots show the project's title (at
+`metrics_and_structure` scope and above) once more than one task is merged.
+
+**`gtd_action` proposals always name the task, and the title is never trusted from
+the model.** The stale-next-action finding's sample (`gtd.staleNextActionsSample` in
+the weekly snapshot) carries the task title alongside its id for display in the
+prompt, and `WeeklySynthesisGtdActionDraft` requires a non-empty `taskTitle`
+(enforced by both the local fallback and the LLM JSON validator). But since the
+model's `taskId`/`taskTitle` pair is untrusted input, `WeeklySynthesisService`
+independently recomputes the eligible stale-next-action ids from the unredacted
+repository data (`resolveEligibleGtdTaskTitles`, bypassing any payload-scope
+redaction) before persisting a proposal: a `gtd_action` whose `taskId` isn't in that
+set is dropped, and the title actually persisted/rendered always comes from this
+canonical lookup, never from the model's own `taskTitle` — so a model response that
+names one task by id but a different task by title can never result in accepting an
+action against the wrong task. The `WeeklySynthesisPanel` proposal preview renders
+`<task title> — <action> — <reason>` instead of an unlabeled action.
+
+**Temps & Plan reflects RescueTime goal achievement, not only Pomodoros.** The
+weekly snapshot's `rescueTimeGoals` field (populated from the full
+`RescueTimeGoalsSnapshot.items`, not just the aggregate score) exposes each goal's
+title, target, actual hours, and achievement ratio at `metrics_and_structure` scope
+and above. The LLM prompt instructs the model to mention under-achieved goals in the
+`tempsEtPlan` section draft, and the local fallback appends a sentence for the
+worst-achieving goal below 100% when AI is disabled.
+
 When AI is disabled or the API key is empty:
 
 - the deterministic local brief still renders from insight findings;

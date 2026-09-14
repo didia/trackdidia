@@ -16,7 +16,7 @@ describe("validateWeeklySynthesisResponse", () => {
         rescuetimeThing: null,
       },
     ],
-    gtdActions: [{ taskId: "task-1", action: "defer", reason: "Stale" }],
+    gtdActions: [{ taskId: "task-1", taskTitle: "Relancer", action: "defer", reason: "Stale" }],
   };
 
   it("accepts a valid weekly synthesis payload", () => {

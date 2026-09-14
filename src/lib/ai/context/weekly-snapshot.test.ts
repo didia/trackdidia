@@ -1,7 +1,13 @@
 import { afterEach, vi } from "vitest";
 import { createEmptyDailyEntry } from "../../../domain/daily-entry";
+import { buildWeekDates } from "../../../domain/weekly-review";
+import type { Project, Task } from "../../../domain/types";
 import { MemoryRepository } from "../../storage/memory-repository";
-import { resolveWeeklySnapshotInputs } from "./weekly-snapshot";
+import {
+  buildWeeklySnapshot,
+  resolveWeeklySnapshotInputs,
+  type WeeklySnapshotInputs,
+} from "./weekly-snapshot";
 
 describe("resolveWeeklySnapshotInputs history boundary", () => {
   it("loads all seven week dates even when more than 180 newer entries exist globally", async () => {
@@ -85,6 +91,192 @@ describe("resolveWeeklySnapshotInputs history boundary", () => {
     expect(spy).toHaveBeenCalledWith("2026-08-02", "2026-08-02T23:59:59");
     expect(spy).toHaveBeenCalledWith("2026-08-05", new Date().toISOString());
     expect(spy).toHaveBeenCalledWith("2026-08-06", "2026-08-06T00:00:00");
+  });
+});
+
+const now = "2026-08-08T12:00:00.000Z";
+
+const buildTask = (overrides: Partial<Task>): Task => ({
+  id: overrides.id ?? "task:default",
+  title: "Tache",
+  notes: "",
+  status: "active",
+  bucket: "next_action",
+  contextIds: [],
+  projectId: null,
+  parentTaskId: null,
+  scheduledFor: null,
+  deadline: null,
+  recurringTemplateId: null,
+  recurrenceDueDate: null,
+  isRecurringInstance: false,
+  completedAt: null,
+  recurrenceGroupId: null,
+  pendingPastRecurrences: 0,
+  plannedOrder: null,
+  source: "manual",
+  sourceExternalId: null,
+  sourceUrl: null,
+  createdAt: now,
+  updatedAt: now,
+  ...overrides,
+});
+
+const buildProject = (overrides: Partial<Project>): Project => ({
+  id: overrides.id ?? "project:default",
+  title: "Projet",
+  status: "active",
+  statusChangedAt: now,
+  notes: "",
+  contextIds: [],
+  source: "manual",
+  sourceExternalId: null,
+  createdAt: now,
+  updatedAt: now,
+  ...overrides,
+});
+
+const buildWeeklyInputs = (overrides: Partial<WeeklySnapshotInputs>): WeeklySnapshotInputs => {
+  const weekStartDate = buildWeekDates("2026-08-02");
+
+  return {
+    weekStartDate,
+    summary: {
+      weekStartDate,
+      weekEndDate: "2026-08-08",
+      sleepAverage: 80,
+      sleepQuality: 80,
+      trcDaysRespected: 5,
+      respectTrc: (5 / 7) * 100,
+      screenTimeTotalMinutes: 700,
+      phoneScreenTime: 90,
+      pomodorisTotal: 20,
+      pomodoris: 70,
+      disciplineAverage: 0.8,
+      discipline: 80,
+      tasksAddedTotal: 10,
+      tasksCompletedTotal: 8,
+      tasksCompletionRate: 80,
+      calorieAverage: 3000,
+      physicalActivity: 78,
+      productivityPulse: null,
+      rescueTimeGoalsScore: null,
+      weeklyScore: 0.75,
+      days: [],
+    },
+    weekEntries: [],
+    historyEntries: [],
+    review: null,
+    tasks: [],
+    projects: [],
+    pomodoroTaskSummaries: [],
+    completedFocusSessionCount: 0,
+    productivityPulse: null,
+    rescueTimeGoalsScore: null,
+    rescueTimeGoalItems: [],
+    rescuetimeConfigured: false,
+    now,
+    ...overrides,
+  };
+};
+
+describe("buildWeeklySnapshot", () => {
+  it("names the stale next action in gtd.staleNextActionsSample at full scope", () => {
+    const staleTask = buildTask({
+      id: "task-stale",
+      title: "Relancer le fournisseur",
+      bucket: "next_action",
+      updatedAt: "2026-07-01T00:00:00.000Z",
+    });
+    const inputs = buildWeeklyInputs({ tasks: [staleTask] });
+
+    const snapshot = buildWeeklySnapshot(inputs, "full");
+
+    expect(snapshot.gtd.staleNextActionsSample).toEqual([
+      { id: "task-stale", title: "Relancer le fournisseur" },
+    ]);
+  });
+
+  it("omits the task title below metrics_and_structure scope", () => {
+    const staleTask = buildTask({
+      id: "task-stale",
+      title: "Relancer le fournisseur",
+      bucket: "next_action",
+      updatedAt: "2026-07-01T00:00:00.000Z",
+    });
+    const inputs = buildWeeklyInputs({ tasks: [staleTask] });
+
+    const snapshot = buildWeeklySnapshot(inputs, "metrics");
+
+    expect(snapshot.gtd.staleNextActionsSample).toEqual([{ id: "task-stale" }]);
+  });
+
+  it("passes RescueTime goal items through to the snapshot at full scope", () => {
+    const inputs = buildWeeklyInputs({
+      rescueTimeGoalItems: [
+        {
+          goalId: 1,
+          title: "Deep work",
+          isMore: true,
+          actualHours: 3,
+          weeklyTargetHours: 10,
+          achievement: 0.3,
+          scheduleLabel: "Working days",
+        },
+      ],
+    });
+
+    const snapshot = buildWeeklySnapshot(inputs, "full");
+
+    expect(snapshot.rescueTimeGoals).toEqual([
+      { title: "Deep work", isMore: true, actualHours: 3, weeklyTargetHours: 10, achievement: 0.3 },
+    ]);
+  });
+
+  it("never leaks the singular focus-concentration projectId at the metrics scope", () => {
+    const inputs = buildWeeklyInputs({
+      pomodoroTaskSummaries: [
+        {
+          taskId: "task-a",
+          taskTitle: "A",
+          projectId: "project-shared-secret",
+          totalSeconds: 300,
+          sessionCount: 1,
+        },
+        {
+          taskId: "task-b",
+          taskTitle: "B",
+          projectId: "project-shared-secret",
+          totalSeconds: 300,
+          sessionCount: 1,
+        },
+      ],
+    });
+
+    const metricsSnapshot = buildWeeklySnapshot(inputs, "metrics");
+    const fullSnapshot = buildWeeklySnapshot(inputs, "full");
+
+    expect(JSON.stringify(metricsSnapshot)).not.toContain("project-shared-secret");
+    expect(JSON.stringify(fullSnapshot)).toContain("project-shared-secret");
+  });
+
+  it("does not report dispersion when the top focus time is spread across one project", () => {
+    const project = buildProject({ id: "project-1", title: "Refonte site" });
+    const inputs = buildWeeklyInputs({
+      projects: [project],
+      pomodoroTaskSummaries: Array.from({ length: 10 }, (_, index) => ({
+        taskId: `task-${index}`,
+        taskTitle: `Tache ${index}`,
+        projectId: "project-1",
+        totalSeconds: 300,
+        sessionCount: 1,
+      })),
+    });
+
+    const snapshot = buildWeeklySnapshot(inputs, "full");
+
+    expect(snapshot.focus.taskConcentration).toBeCloseTo(1);
+    expect(snapshot.focus.topTask).toMatchObject({ taskId: null, title: "Refonte site" });
   });
 });
 

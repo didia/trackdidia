@@ -494,6 +494,7 @@ export interface WeeklySynthesisObjectiveDraft {
 
 export interface WeeklySynthesisGtdActionDraft {
   taskId: string;
+  taskTitle: string;
   action: WeeklySynthesisGtdAction;
   reason: string;
 }
@@ -840,6 +841,7 @@ export interface PomodoroState {
 export interface PomodoroTaskSummary {
   taskId: string | null;
   taskTitle: string;
+  projectId: string | null;
   totalSeconds: number;
   sessionCount: number;
 }

@@ -15,6 +15,9 @@ export type FocusPulseAlignment =
 export interface FocusFinding extends Finding {
   kind: FocusFindingKind;
   alignment?: FocusPulseAlignment;
+  taskIds?: string[];
+  projectId?: string | null;
+  taskCount?: number;
 }
 
 const buildFinding = (
@@ -25,6 +28,7 @@ const buildFinding = (
   label: string,
   severity: Finding["severity"] = "info",
   alignment?: FocusPulseAlignment,
+  options: { taskIds?: string[]; projectId?: string | null; taskCount?: number } = {},
 ): FocusFinding => {
   const nowDate = toLocalDateString(now);
   return {
@@ -36,7 +40,43 @@ const buildFinding = (
     label,
     kind,
     alignment,
+    ...options,
   };
+};
+
+/**
+ * Groups task summaries into "concentration units" before measuring how spread out the work
+ * was: summaries sharing the same non-null `projectId` are merged into one unit, since working
+ * ten tasks in the same project is focus, not dispersion. A summary without a project stays its
+ * own unit, so unrelated ad-hoc tasks are still counted as separate units.
+ */
+const groupIntoConcentrationUnits = (
+  taskSummaries: PomodoroTaskSummary[],
+): Array<{ key: string; projectId: string | null; taskIds: string[]; totalSeconds: number }> => {
+  const units = new Map<
+    string,
+    { projectId: string | null; taskIds: string[]; totalSeconds: number }
+  >();
+
+  for (const summary of taskSummaries) {
+    const key = summary.projectId ?? `task:${summary.taskId ?? summary.taskTitle}`;
+    const existing = units.get(key);
+    if (!existing) {
+      units.set(key, {
+        projectId: summary.projectId,
+        taskIds: summary.taskId ? [summary.taskId] : [],
+        totalSeconds: summary.totalSeconds,
+      });
+      continue;
+    }
+
+    existing.totalSeconds += summary.totalSeconds;
+    if (summary.taskId) {
+      existing.taskIds.push(summary.taskId);
+    }
+  }
+
+  return [...units.entries()].map(([key, unit]) => ({ key, ...unit }));
 };
 
 /**
@@ -76,16 +116,28 @@ export const computeFocusFindings = (
   );
 
   if (totalSeconds > 0) {
-    const topTaskSeconds = Math.max(...taskSummaries.map((summary) => summary.totalSeconds));
-    const concentration = topTaskSeconds / totalSeconds;
+    const units = groupIntoConcentrationUnits(taskSummaries);
+    const topUnit = units.reduce((top, unit) =>
+      !top || unit.totalSeconds > top.totalSeconds ? unit : top,
+    );
+    const concentration = topUnit.totalSeconds / totalSeconds;
+    const taskCount = topUnit.taskIds.length;
     findings.push(
       buildFinding(
         "task_concentration",
         now,
         concentration,
         taskSummaries.length,
-        t("focusConcentration", { ns: "insights", percent: Math.round(concentration * 100) }),
+        taskCount > 1
+          ? t("focusConcentrationProject", {
+              ns: "insights",
+              percent: Math.round(concentration * 100),
+              count: taskCount,
+            })
+          : t("focusConcentration", { ns: "insights", percent: Math.round(concentration * 100) }),
         concentration >= 0.6 ? "positive" : "info",
+        undefined,
+        { taskIds: topUnit.taskIds, projectId: topUnit.projectId, taskCount },
       ),
     );
   }

@@ -338,6 +338,7 @@ export const WeeklyReviewPage = () => {
           {
             productivityPulse: pulse?.pulse ?? null,
             rescueTimeGoalsScore: goals?.score ?? null,
+            rescueTimeGoalItems: goals?.items ?? [],
             rescuetimeConfigured: Boolean(settings.rescuetimeApiKey.trim()),
           },
         );
