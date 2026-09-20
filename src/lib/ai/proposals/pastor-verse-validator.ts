@@ -212,8 +212,8 @@ export const validatePastorVerseResponse = (
   }
 
   // Off-list, no exact catalog match: the response is a validated reference only — never
-  // model-authored passage text. The card shows the reference plus "read it in your Bible",
-  // exactly like a catalog verse with no stored `translations` text (see `PastorVerseCard.tsx`).
+  // model-authored passage text. The card shows the reference plus the reflection below it,
+  // with a "Suggestion IA" origin chip (see `PastorVerseCard.tsx`).
   return {
     ok: true,
     value: {

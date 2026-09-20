@@ -78,7 +78,11 @@ export const PastorVerseCard = ({
 
       {body ? (
         <div className="pastor-verse__body">
-          <p className="pastor-verse__disclaimer">{t("pastor.disclaimer")}</p>
+          <span className="tag-chip">
+            {body.pick === "outside"
+              ? t("pastor.origin.aiSuggestion")
+              : t("pastor.origin.fromList")}
+          </span>
 
           {referenceLabel ? (
             <div className="pastor-verse__reference">
@@ -91,8 +95,6 @@ export const PastorVerseCard = ({
 
           {resolvedText ? (
             <blockquote className="pastor-verse__quote">{resolvedText.text}</blockquote>
-          ) : referenceLabel ? (
-            <p className="pastor-verse__hint">{t("pastor.readInBible")}</p>
           ) : null}
 
           {resolvedText && TRANSLATION_NOTICES[resolvedText.translation] ? (

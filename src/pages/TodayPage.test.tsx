@@ -786,6 +786,10 @@ describe("TodayPage pastor verse card", () => {
     });
 
     expect(await screen.findByText("Explication stockee")).toBeInTheDocument();
+    expect(screen.getByText("À partir de la liste des versets")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/à lire et prier avec discernement, pas un message divin/),
+    ).not.toBeInTheDocument();
     expect(buildVerseSpy).not.toHaveBeenCalled();
   });
 
@@ -1024,7 +1028,7 @@ describe("TodayPage pastor verse card", () => {
     });
   });
 
-  it("shows only the reference and read-in-Bible hint for an off-list pick, never model-authored text", async () => {
+  it("shows Suggestion IA and the reflection for an off-list pick, never model-authored verse text", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
     await repository.saveAiMessage(
@@ -1049,7 +1053,9 @@ describe("TodayPage pastor verse card", () => {
 
     expect(await screen.findByText("Explication hors catalogue")).toBeInTheDocument();
     expect((await screen.findAllByText("Genèse 1, 1")).length).toBeGreaterThan(0);
-    expect(screen.getByText("Lis le passage dans ta Bible.")).toBeInTheDocument();
+    expect(screen.getByText("Suggestion IA")).toBeInTheDocument();
+    expect(screen.queryByText("Lis le passage dans ta Bible.")).not.toBeInTheDocument();
+    expect(screen.queryByText("À partir de la liste des versets")).not.toBeInTheDocument();
   });
 
   it("hides the add-to-list button for an off-list pick with no principle key", async () => {
