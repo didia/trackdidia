@@ -358,11 +358,15 @@ rows for the same date (`use-pastor-verse.ts`, `autoAttemptsByDate`).
 
 **Off-list picks.** The model never returns raw Scripture text for an off-list pick —
 only a validated reference (see the per-book verse-count check above). The card shows
-just the reference plus **Lis le passage dans ta Bible**, exactly like a catalog verse
-with no stored `translations` text; there is no model-authored paraphrase field at all
-(`PastorVerseBody` has no `paraphraseFr`), so there is nothing to algorithmically
-detect as "too close to a real quotation" — the hard "no agent/model writes Scripture
-text" guarantee doesn't depend on the model's cooperation.
+the reference plus the reflection (`title` / `explanation` / optional `practice`)
+below it — never a "read in your Bible" hint and never model-authored verse text.
+There is no model-authored paraphrase field at all (`PastorVerseBody` has no
+`paraphraseFr`), so there is nothing to algorithmically detect as "too close to a
+real quotation" — the hard "no agent/model writes Scripture text" guarantee doesn't
+depend on the model's cooperation. An origin chip at the top of the card body shows
+**Suggestion IA** when `pick === "outside"` and **À partir de la liste des versets**
+when `pick === "list"` (checked-in catalog or a custom verse already on the preferred
+list). Principle and intent chips remain below the reflection.
 
 **Adding an off-list pick to the preferred list.** When an off-list pick carries a
 `principleKey` (the model is asked for one, but it may be absent), the card shows an
@@ -410,12 +414,13 @@ only, per the review's suggested narrower scope.
 **Verse-text policy.** No agent may write Bible verse text from memory in any
 translation, including public-domain Louis Segond 1910 — see
 [Conventions](conventions.md). `verses.json` entries ship with `translations` empty or
-absent by default, and the card falls back to **Lis le passage dans ta Bible** when no
-text is stored. To add verified text: paste it from an authoritative edition into the
-matching entry's `translations` object (`LSG1910` is public domain and safe to add
-freely; `NRSVue`, `NABRE`, and `AELF` require confirming quotation terms first for a
-public repository — see `TRANSLATION_NOTICES` in `src/lib/pastor/translations.ts`).
-Preference order for display is NRSVue → NABRE → AELF → LSG1910.
+absent by default; when no text is stored, the card shows only the reference and then
+the reflection below it (no separate "read in your Bible" line). To add verified text:
+paste it from an authoritative edition into the matching entry's `translations` object
+(`LSG1910` is public domain and safe to add freely; `NRSVue`, `NABRE`, and `AELF`
+require confirming quotation terms first for a public repository — see
+`TRANSLATION_NOTICES` in `src/lib/pastor/translations.ts`). Preference order for
+display is NRSVue → NABRE → AELF → LSG1910.
 
 ### Semantic memory (`ai_memories`)
 

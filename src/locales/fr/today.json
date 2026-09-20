@@ -26,19 +26,22 @@
   "pastor": {
     "title": "Verset du jour",
     "preparing": "Préparation du verset...",
-    "disclaimer": "Suggestion IA — à lire et prier avec discernement, pas un message divin.",
     "emptyCatalog": "Le catalogue de versets est vide pour l'instant.",
     "emptyCatalogTitle": "Catalogue vide",
     "emptyCatalogExplanation": "Ajoute des versets dans verses.json pour activer le verset du jour.",
-    "readInBible": "Lis le passage dans ta Bible.",
     "loadError": "Le verset n'a pas pu être chargé. Réessaie plus tard.",
     "addToListError": "L'ajout à ta liste a échoué. Réessaie.",
     "practice": "Pratique concrète :",
+    "origin": {
+      "aiSuggestion": "Suggestion IA",
+      "fromList": "À partir de la liste des versets"
+    },
     "intent": {
       "reinforcement": "Renforcement",
       "new_teaching": "Nouvel enseignement",
       "both": "Renforcement et nouvel enseignement"
     },
+
     "regenerate": "Nouveau verset",
     "regenerating": "Nouveau verset...",
     "addToList": "Ajouter à ma liste",
