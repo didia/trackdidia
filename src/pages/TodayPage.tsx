@@ -10,14 +10,15 @@ import { PastorVerseCard } from "../components/PastorVerseCard";
 import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
 import { SectionCard } from "../components/SectionCard";
 import { resolveMetricValue, updateNote } from "../domain/daily-entry";
-import { isFirstSaturdayOfMonth } from "../domain/monthly-review";
+import { getDefaultMonthlyReviewMonthKey, isFirstSaturdayOfMonth } from "../domain/monthly-review";
+import { getDefaultWeeklyReviewWeekStart } from "../domain/weekly-review";
 import type { AiProposal, CoachPulseResult, Task } from "../domain/types";
 import { loadLatestCoachPulseForDate } from "../lib/ai/coach-pulse-loader";
 import { resolveDailySnapshotInputs } from "../lib/ai/context/preview";
 import { applyCoachProposal } from "../lib/ai/proposals/apply-proposal";
 import { formatDateLong, formatDateTimeShort, getTodayDate } from "../lib/date";
 import { formatTimestamp } from "../lib/format";
-import { isSunday } from "../lib/gtd/shared";
+import { getWeekStartSunday, isSunday, isWednesday } from "../lib/gtd/shared";
 import type { DailyTaskBreakdown } from "../lib/storage/repository";
 
 export const TodayPage = () => {
@@ -334,8 +335,25 @@ export const TodayPage = () => {
         <SectionCard title={t("sunday.title")} subtitle={t("sunday.subtitle")}>
           <p className="empty-copy">{t("sunday.body")}</p>
           <div className="section-actions">
-            <Link className="button button--primary" to="/semaine">
+            <Link
+              className="button button--primary"
+              to={`/semaine?date=${getDefaultWeeklyReviewWeekStart(entry.date)}`}
+            >
               {t("sunday.openWeekly")}
+            </Link>
+          </div>
+        </SectionCard>
+      ) : null}
+
+      {isWednesday(entry.date) ? (
+        <SectionCard title={t("wednesday.title")} subtitle={t("wednesday.subtitle")}>
+          <p className="empty-copy">{t("wednesday.body")}</p>
+          <div className="section-actions">
+            <Link
+              className="button button--primary"
+              to={`/semaine?date=${getWeekStartSunday(entry.date)}`}
+            >
+              {t("wednesday.openWeekly")}
             </Link>
           </div>
         </SectionCard>
@@ -345,7 +363,10 @@ export const TodayPage = () => {
         <SectionCard title={t("monthly.title")} subtitle={t("monthly.subtitle")}>
           <p className="empty-copy">{t("monthly.body")}</p>
           <div className="section-actions">
-            <Link className="button button--primary" to="/mois">
+            <Link
+              className="button button--primary"
+              to={`/mois?month=${getDefaultMonthlyReviewMonthKey(entry.date)}`}
+            >
               {t("monthly.openMonthly")}
             </Link>
             <Link className="button" to="/objectifs-annuels">

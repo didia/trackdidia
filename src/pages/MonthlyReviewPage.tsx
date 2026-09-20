@@ -8,8 +8,7 @@ import {
   getMonthEndDate,
   getMonthKey,
   getMonthStartDate,
-  getPreviousMonthKey,
-  isFirstSaturdayOfMonth,
+  getDefaultMonthlyReviewMonthKey,
   updateMonthlyReviewChecklist,
   updateMonthlyReviewNote,
 } from "../domain/monthly-review";
@@ -81,9 +80,7 @@ export const MonthlyReviewPage = () => {
   const initialMonth =
     monthFromQuery && /^\d{4}-\d{2}$/.test(monthFromQuery)
       ? getMonthKey(`${monthFromQuery}-01`)
-      : isFirstSaturdayOfMonth(today)
-        ? getPreviousMonthKey(today)
-        : getMonthKey(today);
+      : getDefaultMonthlyReviewMonthKey(today);
   const [selectedMonthKey, setSelectedMonthKey] = useState(initialMonth);
   const [review, setReview] = useState<MonthlyReview | null>(null);
   const [summary, setSummary] = useState<MonthlyReviewSummary | null>(null);

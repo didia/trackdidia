@@ -34,8 +34,10 @@ The Today screen is the daily control center. It:
 - optionally shows a "Pasteur IA" verse-of-the-day card (`aiPastorEnabled`, off by
   default) above the coach panel — see
   [AI settings and privacy](ai-settings-and-privacy.md#pasteur-ia-pastor_verse);
-- reminds the user about the weekly ritual on Sunday;
-- reminds the user about the previous month's review on the first Saturday;
+- reminds the user about the weekly ritual on Sunday and opens last week's review;
+- reminds the user about a mid-week check on Wednesday and opens the current week;
+- reminds the user about the previous month's review on the first Saturday and
+  opens that month;
 - edits `morningIntention` and `nightReflection` in matching persisted textareas
   (450 ms debounce, flush on blur/unmount, same as the other daily screens);
   `useDailyEntry.save` applies updates against the latest in-memory entry and

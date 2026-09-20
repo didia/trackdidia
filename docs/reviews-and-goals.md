@@ -17,7 +17,11 @@ are computed on demand and are not persisted.
 
 The business week always begins Sunday and ends Saturday. Any selected date is
 normalized to its Sunday with `getWeekStartSunday()`. A `?date=YYYY-MM-DD` query
-opens that week on load.
+opens that week on load. Without a query, Sunday initially selects the previous
+week — the Sunday-to-Saturday that just ended — so the ritual closes completed
+days rather than the empty week that starts today. Other days select the current
+week. The Today Sunday prompt links to that previous week via `?date=`. The
+Wednesday prompt links to the current week via `?date=` as a mid-week check.
 
 Reading daily, weekly, and monthly notes together lives on
 [`/journal`](daily-routines.md#journal). That page is read-only;
@@ -282,9 +286,10 @@ falling through to a fresh `runPacing` instead of rendering a stale-shaped resul
 ### Calendar model
 
 Monthly reviews use a `YYYY-MM` key and the calendar month's first/last day.
-The Today screen prompts on the first Saturday of a month and the Monthly screen
-initially selects the previous month on that day; otherwise it selects the current
-month. A `?month=YYYY-MM` query opens that month on load.
+The Today screen prompts on the first Saturday of a month and links to the
+previous month via `?month=`. The Monthly screen initially selects that previous
+month on the first Saturday; otherwise it selects the current month. A
+`?month=YYYY-MM` query opens that month on load.
 
 Reading those notes together with daily and weekly journals lives on
 [`/journal`](daily-routines.md#journal). `/mois` remains the editor.

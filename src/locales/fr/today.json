@@ -15,6 +15,12 @@
     "body": "La revue hebdomadaire consolide sommeil, TRC, temps d'écran, pomodoris, discipline et tâches avant ton rituel de reset.",
     "openWeekly": "Ouvrir la revue hebdomadaire"
   },
+  "wednesday": {
+    "title": "Point de mi-semaine",
+    "subtitle": "Mercredi : un regard sur la semaine en cours, avant le rituel du dimanche.",
+    "body": "Relis le score, les axes et les tâches de cette semaine pour voir où tu en es et ajuster le cap maintenant.",
+    "openWeekly": "Ouvrir la semaine en cours"
+  },
   "monthly": {
     "title": "Clôture mensuelle",
     "subtitle": "Premier samedi du mois : il est temps de relire le mois passé et recalibrer les objectifs.",

@@ -133,6 +133,25 @@ describe("WeeklyReviewPage", () => {
     });
   });
 
+  it("defaults to the previous week on Sunday so the ritual closes the week that just ended", async () => {
+    vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-09-20");
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    let previous = createEmptyWeeklyReview("2026-09-13");
+    previous = updateWeeklyReviewNote(previous, "bilan", "Semaine a cloturer");
+    await repository.saveWeeklyReview(previous);
+    let current = createEmptyWeeklyReview("2026-09-20");
+    current = updateWeeklyReviewNote(current, "bilan", "Semaine qui commence");
+    await repository.saveWeeklyReview(current);
+
+    await renderWithApp(<WeeklyReviewPage />, { repository, route: "/semaine" });
+
+    expect(await screen.findByLabelText(/début de semaine/i)).toHaveValue("2026-09-13");
+    expect(await screen.findByDisplayValue("Semaine a cloturer")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("Semaine qui commence")).not.toBeInTheDocument();
+  });
+
   it("opens the week from the query string even when it is not this week", async () => {
     vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-04-12");
 
@@ -152,7 +171,7 @@ describe("WeeklyReviewPage", () => {
   });
 
   it("keeps the latest ritual notes after leaving the page even if an earlier save is still in flight", async () => {
-    vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-03-29");
+    vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-03-30");
 
     const repository = new MemoryRepository();
     await repository.initialize();
