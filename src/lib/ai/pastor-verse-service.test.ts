@@ -1,4 +1,6 @@
 import { createEmptyDailyEntry, defaultAppSettings } from "../../domain/daily-entry";
+import { hashString } from "../hash";
+import { loadVerseCatalog } from "../pastor/verse-catalog";
 import { MemoryRepository } from "../storage/memory-repository";
 import { getCurrentMonthKey } from "./analytics/month-range";
 import { PASTOR_VERSE_PROMPT_VERSION, PastorVerseService } from "./pastor-verse-service";
@@ -76,49 +78,57 @@ describe("PastorVerseService", () => {
   });
 
   it("proves sequential no-AI days do not repeat a hash-collided verse (offline history)", async () => {
-    // Reproduces the exact scenario from the original review comment: with "ecriture" as the
-    // sole struggling principle, the checked-in catalog's 3 matching entries
-    // (`hab-2-2`, `rev-1-19`, `jer-30-2`, in that order) are small enough that the date-hash
-    // alone (`pickLocalVerse`) picks the same verse ("rev-1-19") on both 2026-08-01 and
-    // 2026-08-04 — proven by `hashString(date) % 3` below, and previously unblocked because a
-    // no-AI local pick was never persisted into history at all.
+    // Reproduces the original review scenario: when one principle's catalog pool is small
+    // enough, the date hash alone (`pickLocalVerse`) lands on the same verse twice within a
+    // week, and a no-AI local pick used not to be persisted into history at all, so nothing
+    // blocked the repeat.
+    //
+    // The pool and the dates are anchored to the checked-in catalog rather than hard-coded, and
+    // the premise is asserted below: if a future catalog edit changes the pool size, this test
+    // fails on the premise with a clear reason instead of quietly testing nothing.
+    const STRUGGLING = "managedSolitude";
+    const dates = ["2026-08-07", "2026-08-08", "2026-08-09", "2026-08-10"];
+    const pool = loadVerseCatalog().filter((verse) => verse.principleKeys.includes(STRUGGLING));
+    const indexFor = (date: string) => hashString(date) % pool.length;
+
+    // Premise: the first and last date collide on the same pool index, so without history
+    // blocking the fourth day would repeat the first day's verse.
+    expect(pool.length, `"${STRUGGLING}" pool changed; re-anchor this test`).toBe(4);
+    expect(indexFor(dates[3]), "dates no longer collide; re-anchor this test").toBe(
+      indexFor(dates[0]),
+    );
+    const collidedVerseId = pool[indexFor(dates[0])].id;
+
     const repository = new MemoryRepository();
     await repository.initialize();
     const settings = defaultAppSettings();
     settings.aiPastorEnabled = true;
     settings.aiEnabled = false;
 
-    // Two "ecriture: false" checks inside every test date's 7-day-plus-today window make
-    // "ecriture" the sole struggling principle throughout (>= 2 false, 0 true — see
+    // Two `${STRUGGLING}: false` checks inside every test date's 7-day-plus-today window make it
+    // the sole struggling principle throughout (>= 2 false, 0 true — see
     // `computePrincipleSignals`), without touching any other principle.
-    const strugglingDay1 = createEmptyDailyEntry("2026-07-30");
-    strugglingDay1.principleChecks.ecriture = false;
-    const strugglingDay2 = createEmptyDailyEntry("2026-07-31");
-    strugglingDay2.principleChecks.ecriture = false;
-    await repository.saveDailyEntry(strugglingDay1);
-    await repository.saveDailyEntry(strugglingDay2);
+    for (const date of ["2026-08-05", "2026-08-06"]) {
+      const entry = createEmptyDailyEntry(date);
+      entry.principleChecks[STRUGGLING] = false;
+      await repository.saveDailyEntry(entry);
+    }
 
     const provider = { generateStructured: vi.fn() } as unknown as AiProvider;
     const service = new PastorVerseService(provider);
 
-    const pick = async (date: string) => {
+    const picked: (string | null)[] = [];
+    for (const date of dates) {
       const result = await service.buildVerse(repository, { date, settings, trigger: "auto" });
-      return result.body.verseId;
-    };
+      picked.push(result.body.verseId);
+    }
 
-    const day1 = await pick("2026-08-01");
-    const day2 = await pick("2026-08-02");
-    const day3 = await pick("2026-08-03");
-    const day4 = await pick("2026-08-04");
-
-    // Without the fix (no persisted history to block against), 2026-08-01 and 2026-08-04 both
-    // hash to the same index into the 3-verse "ecriture" pool and 2026-08-04 would repeat
-    // "rev-1-19". With the fix, all four prior picks are blocked by the time 2026-08-04 runs (the
-    // struggling pool is exhausted, so `pickLocalVerse` falls back to the full catalog minus
-    // everything already blocked), so it can never repeat any of the first three.
-    expect(day1).toBe("rev-1-19");
-    expect(day4).not.toBe("rev-1-19");
-    expect(new Set([day1, day2, day3, day4]).size).toBe(4);
+    // With the fix, all three prior picks are persisted and blocked by the time the fourth day
+    // runs (the struggling pool is exhausted, so `pickLocalVerse` falls back to the full catalog
+    // minus everything already blocked), so it can never repeat any of them.
+    expect(picked[0]).toBe(collidedVerseId);
+    expect(picked[3]).not.toBe(collidedVerseId);
+    expect(new Set(picked).size).toBe(4);
   });
 
   it("saves an ok row and resolves the catalog verse when AI returns a valid pick", async () => {
@@ -160,6 +170,7 @@ describe("PastorVerseService", () => {
         id: "custom-job-42-10",
         reference: { book: "JOB", chapter: 42, verseStart: 10, verseEnd: 10 },
         principleKeys: ["managedSolitude"],
+        credoKeys: ["procheDeDieu"],
         note: "Verset ajoute depuis une suggestion hors catalogue.",
       },
     ];

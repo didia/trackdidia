@@ -460,6 +460,7 @@ describe("OpenRouterProvider", () => {
             id: "php-4-6-7",
             label: "Philippiens 4, 6-7",
             principleKeys: [],
+            credoKeys: [],
             themes: [],
             lastShownDate: null,
             timesShown30: 0,

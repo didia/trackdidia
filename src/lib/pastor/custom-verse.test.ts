@@ -1,3 +1,4 @@
+import { principleKeyToCredoKeys } from "../../domain/credo";
 import type { PastorVerseBody } from "../../domain/types";
 import { loadVerseCatalog } from "./verse-catalog";
 import { addCustomVerse, buildCustomVerseFromOffListPick } from "./custom-verse";
@@ -21,8 +22,14 @@ describe("buildCustomVerseFromOffListPick", () => {
       id: "custom-gen-50-20",
       reference: { book: "GEN", chapter: 50, verseStart: 20, verseEnd: 20 },
       principleKeys: ["managedSolitude"],
+      credoKeys: ["procheDeDieu"],
       note: "Ce que d'autres ont voulu pour du mal, Dieu l'a change en bien.",
     });
+  });
+
+  it("derives the credo axis from the model's principle key", () => {
+    const verse = buildCustomVerseFromOffListPick(offListBody({ principleKey: "respectReveil" }));
+    expect(verse?.credoKeys).toEqual(principleKeyToCredoKeys.respectReveil);
   });
 
   it("includes the verse span in the id for a multi-verse reference", () => {

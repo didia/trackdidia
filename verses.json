@@ -3,6 +3,7 @@
     "id": "mrk-1-35",
     "reference": { "book": "MRK", "chapter": 1, "verseStart": 35, "verseEnd": 35 },
     "principleKeys": ["priereDuMatin", "respectReveil"],
+    "credoKeys": ["procheDeDieu", "discipline"],
     "themes": ["prière", "matin", "discipline"],
     "note": "Avant l'aube, Jésus s'isole pour prier : un rappel que la journée se construit d'abord dans le silence avec Dieu, pas dans l'agitation immédiate."
   },
@@ -10,6 +11,7 @@
     "id": "mat-6-6",
     "reference": { "book": "MAT", "chapter": 6, "verseStart": 6, "verseEnd": 6 },
     "principleKeys": ["priereDuMatin"],
+    "credoKeys": ["procheDeDieu"],
     "themes": ["prière", "intimité"],
     "note": "Prier dans le secret plutôt que pour être vu : la qualité de la prière du matin ne se mesure pas à sa durée mais à sa sincérité."
   },
@@ -17,13 +19,15 @@
     "id": "1th-5-17",
     "reference": { "book": "1TH", "chapter": 5, "verseStart": 17, "verseEnd": 17 },
     "principleKeys": ["priereDuMatin", "priereDuSoir"],
+    "credoKeys": ["procheDeDieu"],
     "themes": ["prière continue"],
     "note": "Une invitation à faire de la prière un rythme de fond de la journée, du réveil jusqu'au coucher, plutôt qu'un moment isolé."
   },
   {
     "id": "lam-3-22-23",
     "reference": { "book": "LAM", "chapter": 3, "verseStart": 22, "verseEnd": 23 },
-    "principleKeys": ["priereDuMatin", "oxytocineDuMatin"],
+    "principleKeys": ["priereDuMatin", "retroJournalier"],
+    "credoKeys": ["procheDeDieu", "sansInquietude", "choixDuBonheur"],
     "themes": ["renouveau", "espérance"],
     "note": "Chaque matin est présenté comme une nouvelle occasion, un espace de grâce qui ne dépend pas de la réussite de la veille."
   },
@@ -31,6 +35,7 @@
     "id": "rom-12-10",
     "reference": { "book": "ROM", "chapter": 12, "verseStart": 10, "verseEnd": 10 },
     "principleKeys": ["oxytocineDuMatin", "attentionAMonEpouse"],
+    "credoKeys": ["amourEnActes"],
     "themes": ["affection", "priorité de l'autre"],
     "note": "L'affection fraternelle est présentée comme un choix actif : honorer l'autre avant soi, dès les premiers échanges du jour."
   },
@@ -38,13 +43,15 @@
     "id": "1jn-4-7",
     "reference": { "book": "1JN", "chapter": 4, "verseStart": 7, "verseEnd": 7 },
     "principleKeys": ["oxytocineDuMatin", "attentionAMonEpouse"],
+    "credoKeys": ["amourEnActes"],
     "themes": ["amour", "source divine"],
     "note": "Aimer est relié à la connaissance de Dieu lui-même : la connexion affective du matin prend racine dans une source plus grande que la seule volonté."
   },
   {
     "id": "gal-5-22-23",
     "reference": { "book": "GAL", "chapter": 5, "verseStart": 22, "verseEnd": 23 },
-    "principleKeys": ["oxytocineDuMatin", "respectDeVieCommeJesus"],
+    "principleKeys": ["respectDeVieCommeJesus", "respectTrc"],
+    "credoKeys": ["discipline", "empathie"],
     "themes": ["fruit de l'Esprit", "caractère"],
     "note": "Une liste de qualités intérieures présentées comme un fruit qui mûrit avec le temps, pas comme une performance à produire par le seul effort."
   },
@@ -52,6 +59,7 @@
     "id": "jos-1-8",
     "reference": { "book": "JOS", "chapter": 1, "verseStart": 8, "verseEnd": 8 },
     "principleKeys": ["avoirLuMesPrincipes", "apprentissage"],
+    "credoKeys": ["procheDeDieu"],
     "themes": ["méditation", "constance"],
     "note": "La répétition régulière d'un texte fondateur est liée ici à la solidité du chemin emprunté, jour après jour."
   },
@@ -59,6 +67,7 @@
     "id": "pro-4-20-22",
     "reference": { "book": "PRO", "chapter": 4, "verseStart": 20, "verseEnd": 22 },
     "principleKeys": ["avoirLuMesPrincipes"],
+    "credoKeys": ["procheDeDieu"],
     "themes": ["attention", "vie"],
     "note": "Garder des paroles justes proches du cœur est décrit comme une source de vie, pas seulement une discipline intellectuelle."
   },
@@ -66,41 +75,15 @@
     "id": "2ti-3-16-17",
     "reference": { "book": "2TI", "chapter": 3, "verseStart": 16, "verseEnd": 17 },
     "principleKeys": ["avoirLuMesPrincipes", "apprentissage"],
+    "credoKeys": ["procheDeDieu"],
     "themes": ["formation", "utilité"],
     "note": "Le texte fondateur est présenté comme utile pour former et corriger, pas seulement pour informer."
-  },
-  {
-    "id": "deu-6-6-7",
-    "reference": { "book": "DEU", "chapter": 6, "verseStart": 6, "verseEnd": 7 },
-    "principleKeys": ["avoirLuMesPrincipes", "tempsDeQualiteAvecEnfants"],
-    "themes": ["transmission", "quotidien"],
-    "note": "Les principes de vie sont faits pour être répétés et transmis dans les gestes ordinaires du foyer, pas réservés à des moments solennels."
-  },
-  {
-    "id": "hab-2-2",
-    "reference": { "book": "HAB", "chapter": 2, "verseStart": 2, "verseEnd": 2 },
-    "principleKeys": ["ecriture"],
-    "themes": ["clarté", "vision"],
-    "note": "Écrire ce qui doit être retenu rend une intuition ou une conviction plus claire et plus facile à partager."
-  },
-  {
-    "id": "rev-1-19",
-    "reference": { "book": "REV", "chapter": 1, "verseStart": 19, "verseEnd": 19 },
-    "principleKeys": ["ecriture", "retroJournalier"],
-    "themes": ["mémoire", "témoignage"],
-    "note": "L'ordre de consigner ce qui a été vu et vécu montre la valeur donnée à la mémoire écrite d'une expérience."
-  },
-  {
-    "id": "jer-30-2",
-    "reference": { "book": "JER", "chapter": 30, "verseStart": 2, "verseEnd": 2 },
-    "principleKeys": ["ecriture"],
-    "themes": ["mémoire", "promesse"],
-    "note": "Mettre par écrit une parole reçue permet de la garder intacte au fil du temps, au-delà de la seule mémoire."
   },
   {
     "id": "pro-1-5",
     "reference": { "book": "PRO", "chapter": 1, "verseStart": 5, "verseEnd": 5 },
     "principleKeys": ["apprentissage"],
+    "credoKeys": ["echecsCommeLecons", "empathie"],
     "themes": ["sagesse", "écoute"],
     "note": "La sagesse est décrite comme un mouvement continu : celui qui écoute grandit encore, même après un premier apprentissage."
   },
@@ -108,6 +91,7 @@
     "id": "pro-9-9",
     "reference": { "book": "PRO", "chapter": 9, "verseStart": 9, "verseEnd": 9 },
     "principleKeys": ["apprentissage"],
+    "credoKeys": ["echecsCommeLecons"],
     "themes": ["instruction"],
     "note": "Recevoir une remarque ou un conseil est présenté comme un moyen de croître, non comme une remise en question de sa valeur."
   },
@@ -115,6 +99,7 @@
     "id": "jas-1-5",
     "reference": { "book": "JAS", "chapter": 1, "verseStart": 5, "verseEnd": 5 },
     "principleKeys": ["apprentissage", "priereDuMatin"],
+    "credoKeys": ["procheDeDieu", "cercleDeControle"],
     "themes": ["sagesse", "demande"],
     "note": "Manquer de discernement n'est pas une honte : le texte invite à le demander simplement, avec confiance."
   },
@@ -122,20 +107,15 @@
     "id": "pro-18-15",
     "reference": { "book": "PRO", "chapter": 18, "verseStart": 15, "verseEnd": 15 },
     "principleKeys": ["apprentissage"],
+    "credoKeys": ["echecsCommeLecons", "empathie"],
     "themes": ["curiosité"],
     "note": "Un cœur attentif est décrit comme celui qui va chercher la connaissance plutôt que d'attendre qu'elle vienne."
-  },
-  {
-    "id": "mrk-6-31",
-    "reference": { "book": "MRK", "chapter": 6, "verseStart": 31, "verseEnd": 31 },
-    "principleKeys": ["managedSolitude"],
-    "themes": ["repos", "retrait"],
-    "note": "Jésus invite ses disciples fatigués à se retirer un moment à l'écart, avant même de répondre à toute la demande autour d'eux."
   },
   {
     "id": "luk-5-16",
     "reference": { "book": "LUK", "chapter": 5, "verseStart": 16, "verseEnd": 16 },
     "principleKeys": ["managedSolitude", "priereDuSoir"],
+    "credoKeys": ["procheDeDieu"],
     "themes": ["retrait", "prière"],
     "note": "Le retrait régulier dans des lieux déserts pour prier est montré comme une pratique répétée, pas un événement isolé."
   },
@@ -143,41 +123,23 @@
     "id": "mat-14-23",
     "reference": { "book": "MAT", "chapter": 14, "verseStart": 23, "verseEnd": 23 },
     "principleKeys": ["managedSolitude", "priereDuSoir"],
+    "credoKeys": ["procheDeDieu"],
     "themes": ["solitude choisie"],
     "note": "Après une journée intense, un moment seul est délibérément choisi plutôt que subi."
-  },
-  {
-    "id": "1jn-2-6",
-    "reference": { "book": "1JN", "chapter": 2, "verseStart": 6, "verseEnd": 6 },
-    "principleKeys": ["respectDeVieCommeJesus"],
-    "themes": ["imitation", "cohérence"],
-    "note": "Se réclamer d'un modèle de vie implique une cohérence concrète entre la conviction affichée et la manière de marcher au quotidien."
   },
   {
     "id": "php-2-5-8",
     "reference": { "book": "PHP", "chapter": 2, "verseStart": 5, "verseEnd": 8 },
     "principleKeys": ["respectDeVieCommeJesus"],
+    "credoKeys": ["empathie"],
     "themes": ["humilité"],
     "note": "Une disposition intérieure d'humilité est présentée comme la véritable mesure d'un style de vie inspiré de ce modèle."
-  },
-  {
-    "id": "1pe-2-21",
-    "reference": { "book": "1PE", "chapter": 2, "verseStart": 21, "verseEnd": 21 },
-    "principleKeys": ["respectDeVieCommeJesus"],
-    "themes": ["exemple", "chemin"],
-    "note": "Un exemple laissé pour être suivi, pas seulement admiré : le texte insiste sur l'action de marcher sur les mêmes traces."
-  },
-  {
-    "id": "rom-8-29",
-    "reference": { "book": "ROM", "chapter": 8, "verseStart": 29, "verseEnd": 29 },
-    "principleKeys": ["respectDeVieCommeJesus", "objectifsAtteints"],
-    "themes": ["transformation", "but"],
-    "note": "Un objectif à long terme est esquissé : une ressemblance progressive, plus qu'une performance ponctuelle."
   },
   {
     "id": "lam-3-40",
     "reference": { "book": "LAM", "chapter": 3, "verseStart": 40, "verseEnd": 40 },
     "principleKeys": ["retroJournalier"],
+    "credoKeys": ["echecsCommeLecons"],
     "themes": ["examen", "retour"],
     "note": "Examiner ses propres chemins est présenté comme un préalable nécessaire avant tout ajustement réel."
   },
@@ -185,6 +147,7 @@
     "id": "2co-13-5",
     "reference": { "book": "2CO", "chapter": 13, "verseStart": 5, "verseEnd": 5 },
     "principleKeys": ["retroJournalier"],
+    "credoKeys": ["echecsCommeLecons"],
     "themes": ["examen de soi"],
     "note": "L'invitation à s'examiner soi-même précède toute évaluation extérieure : un regard honnête sur sa propre trajectoire."
   },
@@ -192,6 +155,7 @@
     "id": "gal-6-4",
     "reference": { "book": "GAL", "chapter": 6, "verseStart": 4, "verseEnd": 4 },
     "principleKeys": ["retroJournalier", "objectifsAtteints"],
+    "credoKeys": ["echecsCommeLecons"],
     "themes": ["évaluation personnelle"],
     "note": "Chacun est invité à évaluer sa propre action, sans se mesurer d'abord aux autres."
   },
@@ -199,20 +163,15 @@
     "id": "gal-6-2",
     "reference": { "book": "GAL", "chapter": 6, "verseStart": 2, "verseEnd": 2 },
     "principleKeys": ["attentionAMonEpouse", "respectDeVieCommeJesus"],
+    "credoKeys": ["empathie", "amourEnActes"],
     "themes": ["fardeau", "entraide"],
     "note": "Porter le fardeau de l'autre plutôt que le lui laisser porter seul : une mesure concrète de l'attention portée à ceux qu'on aime."
-  },
-  {
-    "id": "pro-22-6",
-    "reference": { "book": "PRO", "chapter": 22, "verseStart": 6, "verseEnd": 6 },
-    "principleKeys": ["tempsDeQualiteAvecEnfants"],
-    "themes": ["éducation", "durée"],
-    "note": "Ce qui est semé tôt dans la formation d'un enfant est décrit comme portant fruit sur le long terme."
   },
   {
     "id": "eph-6-4",
     "reference": { "book": "EPH", "chapter": 6, "verseStart": 4, "verseEnd": 4 },
     "principleKeys": ["tempsDeQualiteAvecEnfants"],
+    "credoKeys": ["empathie", "amourEnActes"],
     "themes": ["paternité", "patience"],
     "note": "L'éducation des enfants est reliée ici à la patience du parent, pas seulement à l'exigence envers l'enfant."
   },
@@ -220,20 +179,15 @@
     "id": "mrk-10-14",
     "reference": { "book": "MRK", "chapter": 10, "verseStart": 14, "verseEnd": 14 },
     "principleKeys": ["tempsDeQualiteAvecEnfants"],
+    "credoKeys": ["amourEnActes"],
     "themes": ["accueil", "présence"],
     "note": "Accueillir les enfants sans les repousser est présenté comme une priorité, pas une interruption gênante."
-  },
-  {
-    "id": "3jn-1-4",
-    "reference": { "book": "3JN", "chapter": 1, "verseStart": 4, "verseEnd": 4 },
-    "principleKeys": ["tempsDeQualiteAvecEnfants", "objectifsAtteints"],
-    "themes": ["joie", "transmission"],
-    "note": "Voir ceux que l'on a formés avancer dans une vie juste est décrit comme une joie particulièrement profonde."
   },
   {
     "id": "eph-4-26",
     "reference": { "book": "EPH", "chapter": 4, "verseStart": 26, "verseEnd": 26 },
     "principleKeys": ["priereDuSoir", "retroJournalier"],
+    "credoKeys": ["empathie"],
     "themes": ["réconciliation", "clôture"],
     "note": "Ne pas laisser une tension irrésolue s'installer jusqu'au lendemain est présenté comme une manière saine de clore la journée."
   },
@@ -241,6 +195,7 @@
     "id": "luk-6-12",
     "reference": { "book": "LUK", "chapter": 6, "verseStart": 12, "verseEnd": 12 },
     "principleKeys": ["priereDuSoir"],
+    "credoKeys": ["procheDeDieu"],
     "themes": ["persévérance", "nuit"],
     "note": "Une nuit entière passée en prière avant une décision importante montre la place donnée à ce temps, même coûteux en repos."
   },
@@ -248,6 +203,7 @@
     "id": "dan-6-10",
     "reference": { "book": "DAN", "chapter": 6, "verseStart": 10, "verseEnd": 10 },
     "principleKeys": ["priereDuSoir", "respectDeVieCommeJesus"],
+    "credoKeys": ["procheDeDieu", "discipline"],
     "themes": ["fidélité", "régularité"],
     "note": "Une habitude de prière maintenue plusieurs fois par jour, même sous pression extérieure, illustre une fidélité de fond plutôt que de circonstance."
   },
@@ -255,6 +211,7 @@
     "id": "eph-5-25",
     "reference": { "book": "EPH", "chapter": 5, "verseStart": 25, "verseEnd": 25 },
     "principleKeys": ["attentionAMonEpouse"],
+    "credoKeys": ["amourEnActes"],
     "themes": ["amour sacrificiel"],
     "note": "L'amour envers l'épouse est mesuré ici à l'aune d'un don de soi total, pas d'un sentiment passager."
   },
@@ -262,6 +219,7 @@
     "id": "col-3-19",
     "reference": { "book": "COL", "chapter": 3, "verseStart": 19, "verseEnd": 19 },
     "principleKeys": ["attentionAMonEpouse"],
+    "credoKeys": ["empathie", "amourEnActes"],
     "themes": ["douceur"],
     "note": "La douceur envers l'épouse est explicitement opposée à la dureté, comme un choix quotidien à renouveler."
   },
@@ -269,6 +227,7 @@
     "id": "1pe-3-7",
     "reference": { "book": "1PE", "chapter": 3, "verseStart": 7, "verseEnd": 7 },
     "principleKeys": ["attentionAMonEpouse"],
+    "credoKeys": ["empathie", "amourEnActes"],
     "themes": ["respect", "attention"],
     "note": "Vivre avec sa femme de façon attentive et respectueuse est relié directement à la qualité de la vie de prière du couple."
   },
@@ -276,6 +235,7 @@
     "id": "1co-13-4-7",
     "reference": { "book": "1CO", "chapter": 13, "verseStart": 4, "verseEnd": 7 },
     "principleKeys": ["attentionAMonEpouse", "respectDeVieCommeJesus"],
+    "credoKeys": ["empathie", "amourEnActes"],
     "themes": ["patience", "amour"],
     "note": "Une description de l'amour par ses effets concrets — patience, absence de rancune — plutôt que par un sentiment simplement déclaré."
   },
@@ -283,6 +243,7 @@
     "id": "exo-20-8-10",
     "reference": { "book": "EXO", "chapter": 20, "verseStart": 8, "verseEnd": 10 },
     "principleKeys": ["respectTrc"],
+    "credoKeys": ["discipline"],
     "themes": ["repos", "rythme"],
     "note": "Un jour mis à part pour cesser le travail habituel est inscrit comme un rythme fondateur, pas une option secondaire."
   },
@@ -290,6 +251,7 @@
     "id": "mrk-2-27",
     "reference": { "book": "MRK", "chapter": 2, "verseStart": 27, "verseEnd": 27 },
     "principleKeys": ["respectTrc"],
+    "credoKeys": ["discipline"],
     "themes": ["repos", "liberté"],
     "note": "Le repos hebdomadaire est présenté comme un cadeau fait pour la personne, pas une contrainte qui l'écrase."
   },
@@ -297,6 +259,7 @@
     "id": "heb-4-9-11",
     "reference": { "book": "HEB", "chapter": 4, "verseStart": 9, "verseEnd": 11 },
     "principleKeys": ["respectTrc"],
+    "credoKeys": ["discipline"],
     "themes": ["repos", "persévérance"],
     "note": "Entrer dans un repos véritable demande, presque paradoxalement, un effort de constance."
   },
@@ -304,6 +267,7 @@
     "id": "pro-25-28",
     "reference": { "book": "PRO", "chapter": 25, "verseStart": 28, "verseEnd": 28 },
     "principleKeys": ["respectTrc", "respectReveil"],
+    "credoKeys": ["discipline"],
     "themes": ["maîtrise de soi"],
     "note": "L'absence de maîtrise de soi est comparée à une ville sans muraille : exposée et fragile, faute d'un cadre tenu."
   },
@@ -311,6 +275,7 @@
     "id": "pro-6-9-11",
     "reference": { "book": "PRO", "chapter": 6, "verseStart": 9, "verseEnd": 11 },
     "principleKeys": ["respectReveil"],
+    "credoKeys": ["discipline", "programme4P"],
     "themes": ["discipline", "sommeil"],
     "note": "Trop de sommeil non maîtrisé est associé ici à un manque qui s'installe insensiblement."
   },
@@ -318,6 +283,7 @@
     "id": "rom-13-11",
     "reference": { "book": "ROM", "chapter": 13, "verseStart": 11, "verseEnd": 11 },
     "principleKeys": ["respectReveil"],
+    "credoKeys": ["discipline"],
     "themes": ["éveil", "urgence"],
     "note": "L'image du réveil est utilisée pour appeler à ne pas se rendormir sur ce qui compte vraiment."
   },
@@ -325,6 +291,7 @@
     "id": "pro-20-13",
     "reference": { "book": "PRO", "chapter": 20, "verseStart": 13, "verseEnd": 13 },
     "principleKeys": ["respectReveil", "objectifsAtteints"],
+    "credoKeys": ["discipline"],
     "themes": ["vigilance"],
     "note": "Rester éveillé et actif est associé à la possibilité de bien pourvoir à ses besoins."
   },
@@ -332,6 +299,7 @@
     "id": "php-3-14",
     "reference": { "book": "PHP", "chapter": 3, "verseStart": 14, "verseEnd": 14 },
     "principleKeys": ["objectifsAtteints"],
+    "credoKeys": ["discipline", "engagementsTenus"],
     "themes": ["persévérance", "but"],
     "note": "Le regard reste tourné vers un but à venir, sans s'attarder indéfiniment sur le chemin déjà parcouru."
   },
@@ -339,6 +307,7 @@
     "id": "php-4-13",
     "reference": { "book": "PHP", "chapter": 4, "verseStart": 13, "verseEnd": 13 },
     "principleKeys": ["objectifsAtteints"],
+    "credoKeys": ["cercleDeControle"],
     "themes": ["force", "dépendance"],
     "note": "La capacité à tenir dans toutes les situations est reliée à une force reçue, pas seulement à la volonté personnelle."
   },
@@ -346,6 +315,7 @@
     "id": "2ti-4-7",
     "reference": { "book": "2TI", "chapter": 4, "verseStart": 7, "verseEnd": 7 },
     "principleKeys": ["objectifsAtteints", "respectDeVieCommeJesus"],
+    "credoKeys": ["discipline", "engagementsTenus"],
     "themes": ["fidélité", "achèvement"],
     "note": "Arriver au bout d'un engagement tenu avec fidélité est décrit comme une victoire en soi, indépendamment du résultat visible."
   },
@@ -353,6 +323,7 @@
     "id": "pro-16-3",
     "reference": { "book": "PRO", "chapter": 16, "verseStart": 3, "verseEnd": 3 },
     "principleKeys": ["objectifsAtteints", "priereDuMatin"],
+    "credoKeys": ["cercleDeControle"],
     "themes": ["confiance", "projets"],
     "note": "Confier ses projets avant de les réaliser est présenté comme une condition à leur solidité future."
   },
@@ -360,41 +331,47 @@
     "id": "col-3-23",
     "reference": { "book": "COL", "chapter": 3, "verseStart": 23, "verseEnd": 23 },
     "principleKeys": ["objectifsAtteints", "respectDeVieCommeJesus"],
+    "credoKeys": ["discipline", "engagementsTenus"],
     "themes": ["travail", "intégrité"],
     "note": "Faire son travail avec sérieux, même sans regard extérieur, est présenté comme une question d'intégrité plus que de performance."
   },
   {
     "id": "jer-29-11",
     "reference": { "book": "JER", "chapter": 29, "verseStart": 11, "verseEnd": 11 },
-    "principleKeys": ["objectifsAtteints", "priereDuSoir"],
+    "principleKeys": ["priereDuSoir", "retroJournalier"],
+    "credoKeys": ["cercleDeControle", "sansInquietude"],
     "themes": ["espérance", "avenir"],
     "note": "Un avenir porteur d'espérance est promis, y compris au cœur d'une période d'attente incertaine."
   },
   {
     "id": "isa-40-31",
     "reference": { "book": "ISA", "chapter": 40, "verseStart": 31, "verseEnd": 31 },
-    "principleKeys": ["managedSolitude", "objectifsAtteints"],
+    "principleKeys": ["priereDuMatin", "objectifsAtteints"],
+    "credoKeys": ["cercleDeControle", "sansInquietude"],
     "themes": ["force renouvelée"],
     "note": "Une force renouvelée est associée à l'attitude d'attente confiante, plus qu'à l'agitation permanente."
   },
   {
     "id": "mat-11-28-30",
     "reference": { "book": "MAT", "chapter": 11, "verseStart": 28, "verseEnd": 30 },
-    "principleKeys": ["managedSolitude", "priereDuSoir"],
+    "principleKeys": ["respectTrc", "priereDuSoir"],
+    "credoKeys": ["procheDeDieu", "sansInquietude"],
     "themes": ["repos", "fardeau"],
     "note": "Un repos réel est proposé à qui porte une charge trop lourde, sans condition de mérite préalable."
   },
   {
     "id": "jhn-15-5",
     "reference": { "book": "JHN", "chapter": 15, "verseStart": 5, "verseEnd": 5 },
-    "principleKeys": ["respectDeVieCommeJesus", "apprentissage"],
+    "principleKeys": ["respectDeVieCommeJesus", "priereDuMatin"],
+    "credoKeys": ["procheDeDieu"],
     "themes": ["dépendance", "fruit"],
     "note": "La fécondité durable est reliée à une connexion maintenue, plutôt qu'à un effort isolé et autosuffisant."
   },
   {
     "id": "rom-8-28",
     "reference": { "book": "ROM", "chapter": 8, "verseStart": 28, "verseEnd": 28 },
-    "principleKeys": ["retroJournalier", "objectifsAtteints"],
+    "principleKeys": ["retroJournalier", "apprentissage"],
+    "credoKeys": ["sansInquietude", "echecsCommeLecons"],
     "themes": ["sens", "épreuves"],
     "note": "Même les circonstances difficiles sont envisagées comme pouvant concourir à un bien plus large, avec le recul."
   },
@@ -402,6 +379,7 @@
     "id": "php-4-6-7",
     "reference": { "book": "PHP", "chapter": 4, "verseStart": 6, "verseEnd": 7 },
     "principleKeys": ["priereDuSoir", "retroJournalier"],
+    "credoKeys": ["sansInquietude"],
     "themes": ["anxiété", "paix"],
     "note": "Remettre ses inquiétudes plutôt que les garder pour soi est présenté comme le chemin vers une paix qui dépasse la simple explication rationnelle."
   },
@@ -409,6 +387,7 @@
     "id": "gal-6-9",
     "reference": { "book": "GAL", "chapter": 6, "verseStart": 9, "verseEnd": 9 },
     "principleKeys": ["objectifsAtteints", "respectDeVieCommeJesus"],
+    "credoKeys": ["echecsCommeLecons", "discipline"],
     "themes": ["persévérance"],
     "note": "Ne pas se décourager de bien agir est présenté comme la condition pour recueillir un fruit qui vient en son temps."
   },
@@ -416,6 +395,7 @@
     "id": "jas-1-22",
     "reference": { "book": "JAS", "chapter": 1, "verseStart": 22, "verseEnd": 22 },
     "principleKeys": ["avoirLuMesPrincipes", "objectifsAtteints"],
+    "credoKeys": ["procheDeDieu", "engagementsTenus"],
     "themes": ["mise en pratique"],
     "note": "Écouter un principe sans le mettre en pratique est décrit comme une forme d'auto-illusion."
   },
@@ -423,6 +403,7 @@
     "id": "pro-3-5-6",
     "reference": { "book": "PRO", "chapter": 3, "verseStart": 5, "verseEnd": 6 },
     "principleKeys": ["apprentissage", "objectifsAtteints"],
+    "credoKeys": ["cercleDeControle"],
     "themes": ["confiance", "discernement"],
     "note": "Faire confiance au-delà de sa propre compréhension est présenté comme ce qui rend le chemin plus droit."
   },
@@ -430,6 +411,7 @@
     "id": "mat-6-33",
     "reference": { "book": "MAT", "chapter": 6, "verseStart": 33, "verseEnd": 33 },
     "principleKeys": ["objectifsAtteints", "respectDeVieCommeJesus"],
+    "credoKeys": ["procheDeDieu", "cercleDeControle"],
     "themes": ["priorités"],
     "note": "Chercher d'abord ce qui compte le plus est présenté comme la clé pour que le reste trouve sa juste place."
   },
@@ -437,6 +419,7 @@
     "id": "1co-10-31",
     "reference": { "book": "1CO", "chapter": 10, "verseStart": 31, "verseEnd": 31 },
     "principleKeys": ["respectDeVieCommeJesus"],
+    "credoKeys": ["programme4P"],
     "themes": ["intention", "quotidien"],
     "note": "Même les gestes les plus ordinaires du quotidien sont reliés à une intention plus large qui les dépasse."
   },
@@ -444,6 +427,7 @@
     "id": "rom-12-1-2",
     "reference": { "book": "ROM", "chapter": 12, "verseStart": 1, "verseEnd": 2 },
     "principleKeys": ["respectDeVieCommeJesus", "apprentissage"],
+    "credoKeys": ["echecsCommeLecons", "programme4P"],
     "themes": ["transformation", "discernement"],
     "note": "Un renouvellement de la pensée est présenté comme la voie d'une transformation réelle, plutôt qu'un simple ajustement de surface."
   },
@@ -451,6 +435,7 @@
     "id": "wis-7-7",
     "reference": { "book": "WIS", "chapter": 7, "verseStart": 7, "verseEnd": 7 },
     "principleKeys": ["apprentissage", "priereDuMatin"],
+    "credoKeys": ["procheDeDieu", "cercleDeControle"],
     "themes": ["sagesse", "prière"],
     "note": "Le discernement demandé dans la prière est reçu comme un don, plus que comme le seul fruit de l'effort personnel."
   },
@@ -458,13 +443,15 @@
     "id": "tob-4-5-6",
     "reference": { "book": "TOB", "chapter": 4, "verseStart": 5, "verseEnd": 6 },
     "principleKeys": ["respectDeVieCommeJesus", "priereDuMatin"],
+    "credoKeys": ["procheDeDieu"],
     "themes": ["fidélité", "droiture"],
     "note": "Rester fidèle à ses convictions tous les jours de sa vie est présenté comme une conduite qui porte du fruit sur la durée."
   },
   {
     "id": "sir-6-14-16",
     "reference": { "book": "SIR", "chapter": 6, "verseStart": 14, "verseEnd": 16 },
-    "principleKeys": ["managedSolitude", "oxytocineDuMatin"],
+    "principleKeys": ["oxytocineDuMatin", "attentionAMonEpouse"],
+    "credoKeys": ["empathie", "amourEnActes"],
     "themes": ["amitié fidèle"],
     "note": "Un ami fidèle est comparé à un abri sûr, une richesse rare qu'il faut savoir reconnaître et cultiver."
   },
@@ -472,6 +459,7 @@
     "id": "gal-5-13",
     "reference": { "book": "GAL", "chapter": 5, "verseStart": 13, "verseEnd": 13 },
     "principleKeys": ["tempsDeQualiteAvecEnfants", "attentionAMonEpouse"],
+    "credoKeys": ["amourEnActes"],
     "themes": ["service", "liberté"],
     "note": "La liberté reçue est mise au service des autres par amour, plutôt qu'utilisée pour soi seul."
   },
@@ -479,7 +467,616 @@
     "id": "1jn-3-18",
     "reference": { "book": "1JN", "chapter": 3, "verseStart": 18, "verseEnd": 18 },
     "principleKeys": ["attentionAMonEpouse", "tempsDeQualiteAvecEnfants"],
+    "credoKeys": ["amourEnActes"],
     "themes": ["actes", "vérité"],
     "note": "Aimer en actes concrets et vérifiables est distingué d'un amour qui resterait seulement dans les mots."
+  },
+  {
+    "id": "jhn-15-4",
+    "reference": { "book": "JHN", "chapter": 15, "verseStart": 4, "verseEnd": 4 },
+    "principleKeys": ["priereDuMatin", "priereDuSoir", "respectDeVieCommeJesus"],
+    "credoKeys": ["procheDeDieu"],
+    "themes": ["demeurer", "lien maintenu"],
+    "note": "La fécondité n'est pas présentée comme un effort supplémentaire mais comme la conséquence d'un lien maintenu : c'est la rupture du lien, et non le manque de volonté, qui stérilise."
+  },
+  {
+    "id": "sir-2-3",
+    "reference": { "book": "SIR", "chapter": 2, "verseStart": 3, "verseEnd": 3 },
+    "principleKeys": ["respectDeVieCommeJesus", "priereDuSoir"],
+    "credoKeys": ["procheDeDieu"],
+    "themes": ["persévérance", "attachement"],
+    "note": "Tenir bon et ne pas s'écarter est posé comme une consigne pour la durée entière d'une vie, et d'abord pour les moments où l'envie de s'éloigner est la plus forte."
+  },
+  {
+    "id": "psa-1-1-3",
+    "reference": { "book": "PSA", "chapter": 1, "verseStart": 1, "verseEnd": 3 },
+    "principleKeys": ["avoirLuMesPrincipes", "apprentissage"],
+    "credoKeys": ["procheDeDieu", "discipline"],
+    "themes": ["méditation", "enracinement"],
+    "note": "La méditation régulière est comparée à un enracinement près d'un cours d'eau : ce qui tient dans la durée dépend moins de l'intensité d'un moment que de la constance de l'irrigation."
+  },
+  {
+    "id": "pro-16-9",
+    "reference": { "book": "PRO", "chapter": 16, "verseStart": 9, "verseEnd": 9 },
+    "principleKeys": ["objectifsAtteints", "priereDuMatin"],
+    "credoKeys": ["cercleDeControle", "engagementsTenus"],
+    "themes": ["projets", "direction"],
+    "note": "Planifier reste la part de celui qui avance, mais la direction finale lui échappe : une répartition nette entre ce qui se prépare et ce qui se reçoit."
+  },
+  {
+    "id": "psa-37-5",
+    "reference": { "book": "PSA", "chapter": 37, "verseStart": 5, "verseEnd": 5 },
+    "principleKeys": ["objectifsAtteints", "priereDuSoir"],
+    "credoKeys": ["cercleDeControle"],
+    "themes": ["confiance", "remise"],
+    "note": "Remettre son chemin puis faire confiance est décrit comme une séquence en deux temps, pas comme un renoncement à agir."
+  },
+  {
+    "id": "psa-27-5",
+    "reference": { "book": "PSA", "chapter": 27, "verseStart": 5, "verseEnd": 5 },
+    "principleKeys": ["managedSolitude", "priereDuSoir"],
+    "credoKeys": ["cercleDeControle", "sansInquietude"],
+    "themes": ["abri", "épreuve"],
+    "note": "Un abri est évoqué précisément pour le jour de détresse, ce qui suppose une difficulté traversée plutôt qu'évitée."
+  },
+  {
+    "id": "psa-91-1",
+    "reference": { "book": "PSA", "chapter": 91, "verseStart": 1, "verseEnd": 1 },
+    "principleKeys": ["managedSolitude", "priereDuMatin"],
+    "credoKeys": ["cercleDeControle", "procheDeDieu"],
+    "themes": ["abri", "repos"],
+    "note": "Le repos est associé au fait de demeurer là dans la durée, plutôt que d'y accourir seulement quand la menace se présente."
+  },
+  {
+    "id": "psa-55-23",
+    "reference": { "book": "PSA", "chapter": 55, "verseStart": 23, "verseEnd": 23 },
+    "principleKeys": ["priereDuSoir", "retroJournalier"],
+    "credoKeys": ["sansInquietude", "cercleDeControle"],
+    "themes": ["fardeau", "soutien"],
+    "note": "Déposer une charge au lieu de la porter seul est présenté comme un geste actif, distinct de la résignation."
+  },
+  {
+    "id": "mat-6-25-34",
+    "reference": { "book": "MAT", "chapter": 6, "verseStart": 25, "verseEnd": 34 },
+    "principleKeys": ["priereDuSoir", "retroJournalier"],
+    "credoKeys": ["sansInquietude", "choixDuBonheur"],
+    "themes": ["inquiétude", "journée en cours"],
+    "note": "L'inquiétude est examinée motif par motif puis renvoyée à sa propre inefficacité, avec une consigne simple : s'en tenir à la journée en cours."
+  },
+  {
+    "id": "jas-1-2-8",
+    "reference": { "book": "JAS", "chapter": 1, "verseStart": 2, "verseEnd": 8 },
+    "principleKeys": ["apprentissage", "retroJournalier"],
+    "credoKeys": ["sansInquietude", "echecsCommeLecons"],
+    "themes": ["épreuve", "persévérance", "sagesse"],
+    "note": "L'épreuve est reliée à ce qu'elle construit, et le manque de discernement au milieu d'elle se règle par une demande simple plutôt que par le doute."
+  },
+  {
+    "id": "sir-2-4-5",
+    "reference": { "book": "SIR", "chapter": 2, "verseStart": 4, "verseEnd": 5 },
+    "principleKeys": ["apprentissage", "retroJournalier"],
+    "credoKeys": ["echecsCommeLecons"],
+    "themes": ["épreuve", "affinage"],
+    "note": "L'image du métal passé au feu situe l'épreuve du côté de l'affinage plutôt que de la destruction."
+  },
+  {
+    "id": "rom-5-3-4",
+    "reference": { "book": "ROM", "chapter": 5, "verseStart": 3, "verseEnd": 4 },
+    "principleKeys": ["apprentissage", "objectifsAtteints"],
+    "credoKeys": ["echecsCommeLecons", "sansInquietude"],
+    "themes": ["épreuve", "espérance"],
+    "note": "Une chaîne est décrite, où chaque difficulté traversée alimente l'étape suivante jusqu'à l'espérance."
+  },
+  {
+    "id": "mic-7-8",
+    "reference": { "book": "MIC", "chapter": 7, "verseStart": 8, "verseEnd": 8 },
+    "principleKeys": ["retroJournalier", "objectifsAtteints"],
+    "credoKeys": ["echecsCommeLecons"],
+    "themes": ["chute", "relèvement"],
+    "note": "Le relèvement est affirmé au moment même de la chute, avant tout signe visible de redressement."
+  },
+  {
+    "id": "pro-24-16",
+    "reference": { "book": "PRO", "chapter": 24, "verseStart": 16, "verseEnd": 16 },
+    "principleKeys": ["objectifsAtteints", "apprentissage"],
+    "credoKeys": ["echecsCommeLecons"],
+    "themes": ["chute", "constance"],
+    "note": "La chute répétée n'est pas ce qui disqualifie : ce qui distingue, c'est de se relever à chaque fois."
+  },
+  {
+    "id": "sir-4-17-18",
+    "reference": { "book": "SIR", "chapter": 4, "verseStart": 17, "verseEnd": 18 },
+    "principleKeys": ["apprentissage", "avoirLuMesPrincipes"],
+    "credoKeys": ["echecsCommeLecons", "discipline"],
+    "themes": ["apprentissage", "épreuve"],
+    "note": "Un détour éprouvant est présenté comme la première étape d'un apprentissage, avant que ce qui est cherché ne se laisse enfin trouver."
+  },
+  {
+    "id": "sir-18-30",
+    "reference": { "book": "SIR", "chapter": 18, "verseStart": 30, "verseEnd": 30 },
+    "principleKeys": ["respectTrc", "respectReveil"],
+    "credoKeys": ["discipline"],
+    "themes": ["maîtrise de soi", "désirs"],
+    "note": "Retenir ses envies est formulé comme un exercice actif de conduite de soi, pas comme une privation subie."
+  },
+  {
+    "id": "1co-9-25-27",
+    "reference": { "book": "1CO", "chapter": 9, "verseStart": 25, "verseEnd": 27 },
+    "principleKeys": ["respectReveil", "objectifsAtteints", "respectDeVieCommeJesus"],
+    "credoKeys": ["discipline", "programme4P"],
+    "themes": ["entraînement", "maîtrise du corps"],
+    "note": "L'entraînement de l'athlète sert de comparaison : la contrainte acceptée est reliée directement à la capacité d'aller au bout."
+  },
+  {
+    "id": "pro-16-32",
+    "reference": { "book": "PRO", "chapter": 16, "verseStart": 32, "verseEnd": 32 },
+    "principleKeys": ["respectTrc", "respectDeVieCommeJesus"],
+    "credoKeys": ["discipline", "empathie"],
+    "themes": ["colère", "maîtrise de soi"],
+    "note": "Gouverner sa propre réaction est placé au-dessus d'une victoire extérieure, si spectaculaire soit-elle."
+  },
+  {
+    "id": "jas-1-19",
+    "reference": { "book": "JAS", "chapter": 1, "verseStart": 19, "verseEnd": 19 },
+    "principleKeys": ["attentionAMonEpouse", "respectDeVieCommeJesus"],
+    "credoKeys": ["empathie"],
+    "themes": ["écoute", "lenteur à réagir"],
+    "note": "Un ordre est donné aux trois réflexes d'un échange : écouter vient en premier, parler ensuite, et la réaction vive en dernier."
+  },
+  {
+    "id": "pro-18-13",
+    "reference": { "book": "PRO", "chapter": 18, "verseStart": 13, "verseEnd": 13 },
+    "principleKeys": ["apprentissage", "respectDeVieCommeJesus"],
+    "credoKeys": ["empathie"],
+    "themes": ["écoute", "précipitation"],
+    "note": "Répondre avant d'avoir écouté est qualifié sans ménagement : la précipitation est traitée comme une faute de jugement, pas comme un détail de style."
+  },
+  {
+    "id": "sir-11-7-8",
+    "reference": { "book": "SIR", "chapter": 11, "verseStart": 7, "verseEnd": 8 },
+    "principleKeys": ["apprentissage", "retroJournalier"],
+    "credoKeys": ["empathie"],
+    "themes": ["écoute", "jugement suspendu"],
+    "note": "Examiner avant de blâmer et laisser l'autre aller au bout de sa phrase sont posés comme deux conditions préalables à tout jugement."
+  },
+  {
+    "id": "sir-6-37",
+    "reference": { "book": "SIR", "chapter": 6, "verseStart": 37, "verseEnd": 37 },
+    "principleKeys": ["avoirLuMesPrincipes", "apprentissage"],
+    "credoKeys": ["procheDeDieu"],
+    "themes": ["méditation", "constance"],
+    "note": "L'étude régulière des préceptes est reliée à un esprit affermi : la méditation y est un entretien de fond, pas une lecture occasionnelle."
+  },
+  {
+    "id": "sir-33-1-3",
+    "reference": { "book": "SIR", "chapter": 33, "verseStart": 1, "verseEnd": 3 },
+    "principleKeys": ["priereDuSoir", "respectDeVieCommeJesus"],
+    "credoKeys": ["procheDeDieu", "sansInquietude"],
+    "themes": ["épreuve", "secours"],
+    "note": "Le secours est promis dans l'épreuve et non à sa place : ce qui est annoncé, c'est un appui pendant la traversée."
+  },
+  {
+    "id": "sir-34-13-14",
+    "reference": { "book": "SIR", "chapter": 34, "verseStart": 13, "verseEnd": 14 },
+    "principleKeys": ["priereDuMatin", "respectDeVieCommeJesus"],
+    "credoKeys": ["procheDeDieu", "cercleDeControle"],
+    "themes": ["confiance", "sécurité"],
+    "note": "La sécurité invoquée ne vient pas de la maîtrise des circonstances mais de celui à qui l'on se confie."
+  },
+  {
+    "id": "sir-40-26",
+    "reference": { "book": "SIR", "chapter": 40, "verseStart": 26, "verseEnd": 26 },
+    "principleKeys": ["objectifsAtteints", "respectDeVieCommeJesus"],
+    "credoKeys": ["procheDeDieu", "choixDuBonheur"],
+    "themes": ["suffisance", "confiance"],
+    "note": "La richesse et la force sont reconnues comme des appuis réels, puis relativisées : ce qui met à l'abri du manque est placé ailleurs."
+  },
+  {
+    "id": "sir-15-1-3",
+    "reference": { "book": "SIR", "chapter": 15, "verseStart": 1, "verseEnd": 3 },
+    "principleKeys": ["avoirLuMesPrincipes", "apprentissage"],
+    "credoKeys": ["procheDeDieu", "echecsCommeLecons"],
+    "themes": ["sagesse", "nourriture"],
+    "note": "La sagesse est décrite comme une nourriture et une boisson : quelque chose qui se prend régulièrement, pas une acquisition faite une fois pour toutes."
+  },
+  {
+    "id": "sir-5-7",
+    "reference": { "book": "SIR", "chapter": 5, "verseStart": 7, "verseEnd": 7 },
+    "principleKeys": ["priereDuSoir", "retroJournalier"],
+    "credoKeys": ["procheDeDieu"],
+    "themes": ["retour", "sans délai"],
+    "note": "Le report indéfini d'un retour est traité comme le vrai risque, davantage que l'écart lui-même."
+  },
+  {
+    "id": "sir-25-11",
+    "reference": { "book": "SIR", "chapter": 25, "verseStart": 11, "verseEnd": 11 },
+    "principleKeys": ["respectDeVieCommeJesus", "priereDuMatin"],
+    "credoKeys": ["procheDeDieu"],
+    "themes": ["crainte de Dieu", "priorité"],
+    "note": "Une seule disposition intérieure est placée au-dessus de tous les autres avantages que l'on peut recevoir."
+  },
+  {
+    "id": "sir-10-5",
+    "reference": { "book": "SIR", "chapter": 10, "verseStart": 5, "verseEnd": 5 },
+    "principleKeys": ["objectifsAtteints", "priereDuMatin"],
+    "credoKeys": ["cercleDeControle"],
+    "themes": ["réussite", "remise"],
+    "note": "La réussite d'une entreprise humaine est rapportée à une main qui n'est pas la sienne : de quoi relâcher la crispation sur le résultat."
+  },
+  {
+    "id": "sir-37-12-15",
+    "reference": { "book": "SIR", "chapter": 37, "verseStart": 12, "verseEnd": 15 },
+    "principleKeys": ["apprentissage", "priereDuMatin"],
+    "credoKeys": ["cercleDeControle", "procheDeDieu"],
+    "themes": ["conseil", "discernement"],
+    "note": "Choisir ses conseillers, écouter son propre jugement, puis demander à être tenu dans le vrai : trois appuis présentés dans cet ordre."
+  },
+  {
+    "id": "sir-15-14-17",
+    "reference": { "book": "SIR", "chapter": 15, "verseStart": 14, "verseEnd": 17 },
+    "principleKeys": ["objectifsAtteints", "respectDeVieCommeJesus"],
+    "credoKeys": ["cercleDeControle", "choixDuBonheur"],
+    "themes": ["liberté", "choix"],
+    "note": "Le choix est explicitement remis entre les mains de la personne : ce qui est devant elle est présenté comme relevant de sa décision, pas d'un sort subi."
+  },
+  {
+    "id": "sir-15-11",
+    "reference": { "book": "SIR", "chapter": 15, "verseStart": 11, "verseEnd": 11 },
+    "principleKeys": ["retroJournalier", "objectifsAtteints"],
+    "credoKeys": ["cercleDeControle", "echecsCommeLecons"],
+    "themes": ["responsabilité", "échec"],
+    "note": "Attribuer son échec à Dieu est écarté d'emblée : la part qui revient à la personne lui est rendue, sans détour."
+  },
+  {
+    "id": "sir-14-1-2",
+    "reference": { "book": "SIR", "chapter": 14, "verseStart": 1, "verseEnd": 2 },
+    "principleKeys": ["retroJournalier", "priereDuSoir"],
+    "credoKeys": ["sansInquietude", "choixDuBonheur"],
+    "themes": ["conscience", "espérance"],
+    "note": "Le bonheur est situé du côté d'une conscience tranquille et d'une espérance non déçue, plutôt que d'une absence de difficultés."
+  },
+  {
+    "id": "sir-4-26",
+    "reference": { "book": "SIR", "chapter": 4, "verseStart": 26, "verseEnd": 26 },
+    "principleKeys": ["retroJournalier", "apprentissage"],
+    "credoKeys": ["echecsCommeLecons"],
+    "themes": ["aveu", "humilité"],
+    "note": "Reconnaître son erreur est présenté comme un acte sans honte, mis sur le même plan que le refus de forcer ce qui ne peut l'être."
+  },
+  {
+    "id": "sir-21-1-2",
+    "reference": { "book": "SIR", "chapter": 21, "verseStart": 1, "verseEnd": 2 },
+    "principleKeys": ["retroJournalier", "objectifsAtteints"],
+    "credoKeys": ["echecsCommeLecons"],
+    "themes": ["faute", "reprise"],
+    "note": "La faute passée est traitée en deux temps : elle se demande pardon, puis elle ne se recommence pas. Le regret seul n'est pas la réponse attendue."
+  },
+  {
+    "id": "sir-21-6",
+    "reference": { "book": "SIR", "chapter": 21, "verseStart": 6, "verseEnd": 6 },
+    "principleKeys": ["apprentissage", "retroJournalier"],
+    "credoKeys": ["echecsCommeLecons", "empathie"],
+    "themes": ["reproche", "correction"],
+    "note": "La réaction au reproche est présentée comme un révélateur : la détester ferme le chemin que l'accueillir ouvrirait."
+  },
+  {
+    "id": "sir-27-5-6",
+    "reference": { "book": "SIR", "chapter": 27, "verseStart": 5, "verseEnd": 6 },
+    "principleKeys": ["apprentissage", "retroJournalier"],
+    "credoKeys": ["echecsCommeLecons"],
+    "themes": ["épreuve", "révélation"],
+    "note": "Le four du potier sert de comparaison : c'est la mise à l'épreuve, et non le calme, qui montre ce qu'une personne vaut réellement."
+  },
+  {
+    "id": "sir-37-27-29",
+    "reference": { "book": "SIR", "chapter": 37, "verseStart": 27, "verseEnd": 29 },
+    "principleKeys": ["retroJournalier", "respectTrc"],
+    "credoKeys": ["echecsCommeLecons", "programme4P"],
+    "themes": ["examen de soi", "retenue"],
+    "note": "S'observer soi-même sur la durée pour repérer ce qui ne réussit pas, puis s'en abstenir : un examen tourné vers l'usage concret, y compris à table."
+  },
+  {
+    "id": "sir-31-25-31",
+    "reference": { "book": "SIR", "chapter": 31, "verseStart": 25, "verseEnd": 31 },
+    "principleKeys": ["respectTrc", "respectDeVieCommeJesus"],
+    "credoKeys": ["discipline", "programme4P"],
+    "themes": ["modération", "juste mesure"],
+    "note": "Le même bien est décrit comme bénéfique ou ruineux selon la mesure : ce qui fait la différence, c'est de savoir quand s'arrêter."
+  },
+  {
+    "id": "sir-31-5-11",
+    "reference": { "book": "SIR", "chapter": 31, "verseStart": 5, "verseEnd": 11 },
+    "principleKeys": ["respectTrc", "objectifsAtteints"],
+    "credoKeys": ["discipline"],
+    "themes": ["convoitise", "abstention"],
+    "note": "Avoir eu le pouvoir de céder et s'en être abstenu est présenté comme l'épreuve rare qui mérite vraiment d'être saluée."
+  },
+  {
+    "id": "sir-22-1-2",
+    "reference": { "book": "SIR", "chapter": 22, "verseStart": 1, "verseEnd": 2 },
+    "principleKeys": ["respectReveil", "objectifsAtteints"],
+    "credoKeys": ["discipline"],
+    "themes": ["paresse", "inertie"],
+    "note": "Deux images sans indulgence pour l'inertie : ce qui est visé n'est pas l'échec mais le refus de se mettre en mouvement."
+  },
+  {
+    "id": "sir-40-28-30",
+    "reference": { "book": "SIR", "chapter": 40, "verseStart": 28, "verseEnd": 30 },
+    "principleKeys": ["objectifsAtteints", "respectDeVieCommeJesus"],
+    "credoKeys": ["discipline"],
+    "themes": ["autonomie", "tenue"],
+    "note": "Dépendre en permanence de la table d'autrui est décrit comme démoralisant, et l'homme discipliné est celui qui s'en garde."
+  },
+  {
+    "id": "sir-1-22",
+    "reference": { "book": "SIR", "chapter": 1, "verseStart": 22, "verseEnd": 22 },
+    "principleKeys": ["respectTrc", "attentionAMonEpouse"],
+    "credoKeys": ["discipline", "empathie"],
+    "themes": ["colère", "chute"],
+    "note": "La colère non maîtrisée est présentée comme ce qui fait pencher la balance du mauvais côté, au détriment de celui qui la porte."
+  },
+  {
+    "id": "sir-22-27",
+    "reference": { "book": "SIR", "chapter": 22, "verseStart": 27, "verseEnd": 27 },
+    "principleKeys": ["respectTrc", "respectDeVieCommeJesus"],
+    "credoKeys": ["discipline", "empathie"],
+    "themes": ["parole", "garde"],
+    "note": "Le souhait d'une garde et d'un verrou sur ses propres lèvres dit l'effort que demande la retenue en paroles."
+  },
+  {
+    "id": "sir-28-24-26",
+    "reference": { "book": "SIR", "chapter": 28, "verseStart": 24, "verseEnd": 26 },
+    "principleKeys": ["respectTrc", "attentionAMonEpouse"],
+    "credoKeys": ["discipline", "empathie"],
+    "themes": ["parole", "mesure"],
+    "note": "Peser ses mots est comparé au soin qu'on met à protéger ce qui a de la valeur : la parole est traitée comme un bien à garder."
+  },
+  {
+    "id": "sir-5-11-13",
+    "reference": { "book": "SIR", "chapter": 5, "verseStart": 11, "verseEnd": 13 },
+    "principleKeys": ["apprentissage", "attentionAMonEpouse"],
+    "credoKeys": ["empathie"],
+    "themes": ["écoute", "réponse différée"],
+    "note": "Écouter vite et répondre lentement sont posés comme deux vitesses distinctes, et le silence est admis comme une réponse valable."
+  },
+  {
+    "id": "sir-21-25-26",
+    "reference": { "book": "SIR", "chapter": 21, "verseStart": 25, "verseEnd": 26 },
+    "principleKeys": ["apprentissage", "retroJournalier"],
+    "credoKeys": ["empathie"],
+    "themes": ["réflexion", "parole"],
+    "note": "Deux manières de parler sont opposées : l'une précède la pensée, l'autre la suit. L'ordre est tout ce qui les sépare."
+  },
+  {
+    "id": "sir-20-5-7",
+    "reference": { "book": "SIR", "chapter": 20, "verseStart": 5, "verseEnd": 7 },
+    "principleKeys": ["apprentissage", "attentionAMonEpouse"],
+    "credoKeys": ["empathie"],
+    "themes": ["silence", "moment juste"],
+    "note": "Plusieurs silences sont distingués selon ce qui les motive : se taire ne vaut que rapporté au moment et à l'intention."
+  },
+  {
+    "id": "sir-33-4",
+    "reference": { "book": "SIR", "chapter": 33, "verseStart": 4, "verseEnd": 4 },
+    "principleKeys": ["apprentissage", "objectifsAtteints"],
+    "credoKeys": ["empathie"],
+    "themes": ["préparation", "réponse"],
+    "note": "Préparer sa réponse avant de la donner est présenté comme une marque de considération pour ceux qui écoutent."
+  },
+  {
+    "id": "sir-20-1-2",
+    "reference": { "book": "SIR", "chapter": 20, "verseStart": 1, "verseEnd": 2 },
+    "principleKeys": ["attentionAMonEpouse", "retroJournalier"],
+    "credoKeys": ["empathie"],
+    "themes": ["rancune", "franchise"],
+    "note": "Dire les choses est préféré au fait de les garder : la rancune entretenue est traitée comme le plus coûteux des deux."
+  },
+  {
+    "id": "sir-28-1-2",
+    "reference": { "book": "SIR", "chapter": 28, "verseStart": 1, "verseEnd": 2 },
+    "principleKeys": ["attentionAMonEpouse", "priereDuSoir"],
+    "credoKeys": ["empathie", "amourEnActes"],
+    "themes": ["pardon", "réciprocité"],
+    "note": "Le pardon accordé et le pardon reçu sont noués l'un à l'autre, ce qui retire au ressentiment son confort."
+  },
+  {
+    "id": "sir-28-8-12",
+    "reference": { "book": "SIR", "chapter": 28, "verseStart": 8, "verseEnd": 12 },
+    "principleKeys": ["attentionAMonEpouse", "respectTrc"],
+    "credoKeys": ["empathie"],
+    "themes": ["querelle", "apaisement"],
+    "note": "La querelle est décrite comme un feu qui ne dure que si on l'attise : l'éviter est un acte, pas une absence d'acte."
+  },
+  {
+    "id": "sir-3-18",
+    "reference": { "book": "SIR", "chapter": 3, "verseStart": 18, "verseEnd": 18 },
+    "principleKeys": ["respectDeVieCommeJesus", "attentionAMonEpouse"],
+    "credoKeys": ["empathie"],
+    "themes": ["humilité", "rang"],
+    "note": "Plus la position grandit, plus l'humilité attendue grandit avec elle : les deux sont présentées comme proportionnelles."
+  },
+  {
+    "id": "sir-19-7-12",
+    "reference": { "book": "SIR", "chapter": 19, "verseStart": 7, "verseEnd": 12 },
+    "principleKeys": ["attentionAMonEpouse", "respectDeVieCommeJesus"],
+    "credoKeys": ["empathie"],
+    "themes": ["discrétion", "confiance"],
+    "note": "Garder pour soi ce qu'on a entendu est présenté comme sans perte possible, là où le répéter coûte une relation."
+  },
+  {
+    "id": "sir-10-28-29",
+    "reference": { "book": "SIR", "chapter": 10, "verseStart": 28, "verseEnd": 29 },
+    "principleKeys": ["retroJournalier", "respectDeVieCommeJesus"],
+    "credoKeys": ["empathie"],
+    "themes": ["juste estime", "modestie"],
+    "note": "Une juste estime de soi est distinguée aussi bien de l'orgueil que du dénigrement : se valoriser à son exacte valeur, ni plus ni moins."
+  },
+  {
+    "id": "sir-4-4-6",
+    "reference": { "book": "SIR", "chapter": 4, "verseStart": 4, "verseEnd": 6 },
+    "principleKeys": ["attentionAMonEpouse", "respectDeVieCommeJesus"],
+    "credoKeys": ["amourEnActes", "empathie"],
+    "themes": ["détresse", "attention"],
+    "note": "Détourner le regard est traité comme un acte à part entière, avec ses conséquences : l'inaction n'est pas neutre."
+  },
+  {
+    "id": "sir-4-8",
+    "reference": { "book": "SIR", "chapter": 4, "verseStart": 8, "verseEnd": 8 },
+    "principleKeys": ["attentionAMonEpouse", "oxytocineDuMatin"],
+    "credoKeys": ["amourEnActes", "empathie"],
+    "themes": ["attention", "courtoisie"],
+    "note": "Accorder son attention et répondre avec égard à qui n'a rien à offrir en retour est présenté comme la mesure réelle des égards."
+  },
+  {
+    "id": "sir-7-34",
+    "reference": { "book": "SIR", "chapter": 7, "verseStart": 34, "verseEnd": 34 },
+    "principleKeys": ["attentionAMonEpouse", "tempsDeQualiteAvecEnfants"],
+    "credoKeys": ["empathie", "amourEnActes"],
+    "themes": ["compassion", "présence"],
+    "note": "Pleurer avec celui qui pleure est demandé à la place du retrait : la présence est mise avant toute parole de consolation."
+  },
+  {
+    "id": "sir-7-35",
+    "reference": { "book": "SIR", "chapter": 7, "verseStart": 35, "verseEnd": 35 },
+    "principleKeys": ["attentionAMonEpouse", "respectDeVieCommeJesus"],
+    "credoKeys": ["amourEnActes"],
+    "themes": ["visite", "malades"],
+    "note": "Rendre visite à celui qui est malade est décrit comme un geste qui crée le lien, pas seulement comme un devoir à accomplir."
+  },
+  {
+    "id": "sir-7-32-33",
+    "reference": { "book": "SIR", "chapter": 7, "verseStart": 32, "verseEnd": 33 },
+    "principleKeys": ["attentionAMonEpouse", "respectDeVieCommeJesus"],
+    "credoKeys": ["amourEnActes"],
+    "themes": ["générosité", "ouverture"],
+    "note": "La générosité est reliée au bien-être de celui qui donne, ce qui en fait autre chose qu'une perte consentie."
+  },
+  {
+    "id": "sir-27-17-21",
+    "reference": { "book": "SIR", "chapter": 27, "verseStart": 17, "verseEnd": 21 },
+    "principleKeys": ["attentionAMonEpouse", "respectDeVieCommeJesus"],
+    "credoKeys": ["amourEnActes", "empathie"],
+    "themes": ["amitié", "confiance"],
+    "note": "La confiance trahie est comparée à l'oiseau qu'on laisse s'échapper : certaines choses se réparent, celle-là beaucoup moins."
+  },
+  {
+    "id": "sir-37-6",
+    "reference": { "book": "SIR", "chapter": 37, "verseStart": 6, "verseEnd": 6 },
+    "principleKeys": ["oxytocineDuMatin", "attentionAMonEpouse"],
+    "credoKeys": ["amourEnActes"],
+    "themes": ["fidélité", "amitié"],
+    "note": "C'est dans la période favorable, et non dans l'épreuve, qu'est situé le risque d'oublier ceux qui comptent."
+  },
+  {
+    "id": "sir-7-27-28",
+    "reference": { "book": "SIR", "chapter": 7, "verseStart": 27, "verseEnd": 28 },
+    "principleKeys": ["tempsDeQualiteAvecEnfants", "attentionAMonEpouse"],
+    "credoKeys": ["amourEnActes"],
+    "themes": ["parents", "reconnaissance"],
+    "note": "La dette envers ses parents est présentée comme impossible à solder, ce qui déplace la question du remboursement vers l'égard quotidien."
+  },
+  {
+    "id": "sir-25-1",
+    "reference": { "book": "SIR", "chapter": 25, "verseStart": 1, "verseEnd": 1 },
+    "principleKeys": ["attentionAMonEpouse", "tempsDeQualiteAvecEnfants"],
+    "credoKeys": ["amourEnActes"],
+    "themes": ["concorde", "couple"],
+    "note": "Trois formes d'entente sont mises côte à côte, dont celle d'un couple inséparable : l'accord durable y est traité comme une beauté rare."
+  },
+  {
+    "id": "sir-4-31",
+    "reference": { "book": "SIR", "chapter": 4, "verseStart": 31, "verseEnd": 31 },
+    "principleKeys": ["attentionAMonEpouse", "respectDeVieCommeJesus"],
+    "credoKeys": ["amourEnActes"],
+    "themes": ["donner", "réciprocité"],
+    "note": "La main ouverte pour recevoir et fermée pour donner : une image qui rend visible un déséquilibre facile à ne pas voir chez soi."
+  },
+  {
+    "id": "sir-3-31",
+    "reference": { "book": "SIR", "chapter": 3, "verseStart": 31, "verseEnd": 31 },
+    "principleKeys": ["attentionAMonEpouse", "objectifsAtteints"],
+    "credoKeys": ["amourEnActes"],
+    "themes": ["service rendu", "appui"],
+    "note": "Le service rendu est relié à l'appui qu'on trouvera plus tard, sans que ce soit posé comme le motif de le rendre."
+  },
+  {
+    "id": "sir-29-1-3",
+    "reference": { "book": "SIR", "chapter": 29, "verseStart": 1, "verseEnd": 3 },
+    "principleKeys": ["objectifsAtteints", "attentionAMonEpouse"],
+    "credoKeys": ["engagementsTenus", "amourEnActes"],
+    "themes": ["parole donnée", "échéance"],
+    "note": "Rendre à la date convenue et rester fidèle à sa parole sont traités ensemble : l'engagement tenu est ce qui rend l'entraide possible."
+  },
+  {
+    "id": "sir-5-9-10",
+    "reference": { "book": "SIR", "chapter": 5, "verseStart": 9, "verseEnd": 10 },
+    "principleKeys": ["objectifsAtteints", "respectDeVieCommeJesus"],
+    "credoKeys": ["engagementsTenus"],
+    "themes": ["cohérence", "constance"],
+    "note": "Se tenir à ce qu'on sait et rester cohérent dans ses propos est opposé à l'agitation de celui qui suit tous les vents."
+  },
+  {
+    "id": "sir-32-19",
+    "reference": { "book": "SIR", "chapter": 32, "verseStart": 19, "verseEnd": 19 },
+    "principleKeys": ["objectifsAtteints", "retroJournalier"],
+    "credoKeys": ["engagementsTenus", "cercleDeControle"],
+    "themes": ["délibération", "regret"],
+    "note": "Délibérer avant d'agir est relié directement à l'absence de regret ensuite : le moment du soin est situé avant la décision, pas après."
+  },
+  {
+    "id": "sir-4-29",
+    "reference": { "book": "SIR", "chapter": 4, "verseStart": 29, "verseEnd": 29 },
+    "principleKeys": ["objectifsAtteints", "respectDeVieCommeJesus"],
+    "credoKeys": ["engagementsTenus"],
+    "themes": ["parole", "actes"],
+    "note": "L'écart entre une parole assurée et un travail négligé est nommé comme un défaut en soi, et non comme deux questions séparées."
+  },
+  {
+    "id": "sir-30-21-25",
+    "reference": { "book": "SIR", "chapter": 30, "verseStart": 21, "verseEnd": 25 },
+    "principleKeys": ["retroJournalier", "priereDuSoir"],
+    "credoKeys": ["choixDuBonheur", "sansInquietude"],
+    "themes": ["joie", "tristesse"],
+    "note": "La tristesse entretenue volontairement est écartée sans détour, et la joie est reliée à la durée même de la vie."
+  },
+  {
+    "id": "sir-29-21",
+    "reference": { "book": "SIR", "chapter": 29, "verseStart": 21, "verseEnd": 21 },
+    "principleKeys": ["objectifsAtteints", "respectTrc"],
+    "credoKeys": ["choixDuBonheur"],
+    "themes": ["nécessaire", "suffisance"],
+    "note": "La liste du nécessaire est courte et concrète : de quoi mesurer l'écart entre ce qui manque vraiment et ce qui manque seulement au désir."
+  },
+  {
+    "id": "sir-14-11-16",
+    "reference": { "book": "SIR", "chapter": 14, "verseStart": 11, "verseEnd": 16 },
+    "principleKeys": ["respectTrc", "retroJournalier"],
+    "credoKeys": ["choixDuBonheur", "amourEnActes"],
+    "themes": ["plaisir", "brièveté"],
+    "note": "La brièveté de la vie sert ici d'argument non pour l'angoisse mais pour ne pas remettre à plus tard le bien à faire et la joie à prendre."
+  },
+  {
+    "id": "sir-30-14-17",
+    "reference": { "book": "SIR", "chapter": 30, "verseStart": 14, "verseEnd": 17 },
+    "principleKeys": ["respectTrc", "objectifsAtteints"],
+    "credoKeys": ["programme4P", "choixDuBonheur"],
+    "themes": ["santé", "richesse"],
+    "note": "La santé du corps est explicitement placée au-dessus de la richesse : être pauvre et solide est préféré à être riche et malade."
+  },
+  {
+    "id": "sir-38-6-9",
+    "reference": { "book": "SIR", "chapter": 38, "verseStart": 6, "verseEnd": 9 },
+    "principleKeys": ["respectTrc", "priereDuSoir"],
+    "credoKeys": ["programme4P"],
+    "themes": ["soin", "maladie"],
+    "note": "Le recours au soin et la prière sont mis côte à côte plutôt qu'opposés : négliger un mal n'est présenté comme une vertu à aucun moment."
+  },
+  {
+    "id": "sir-26-19",
+    "reference": { "book": "SIR", "chapter": 26, "verseStart": 19, "verseEnd": 19 },
+    "principleKeys": ["respectReveil", "objectifsAtteints"],
+    "credoKeys": ["programme4P"],
+    "themes": ["vigueur", "jeunesse"],
+    "note": "Garder sa santé pendant qu'on l'a est formulé comme une consigne active, au moment précis où elle semble le moins nécessaire."
   }
 ]

@@ -6,18 +6,21 @@ const catalog: CatalogVerse[] = [
     id: "verse-generic-1",
     reference: { book: "PHP", chapter: 4, verseStart: 13, verseEnd: 13 },
     principleKeys: ["objectifsAtteints"],
+    credoKeys: ["engagementsTenus"],
     note: "Note 1",
   },
   {
     id: "verse-generic-2",
     reference: { book: "ROM", chapter: 8, verseStart: 28, verseEnd: 28 },
     principleKeys: ["retroJournalier"],
+    credoKeys: ["echecsCommeLecons"],
     note: "Note 2",
   },
   {
     id: "verse-struggling",
     reference: { book: "EPH", chapter: 5, verseStart: 25, verseEnd: 25 },
     principleKeys: ["attentionAMonEpouse"],
+    credoKeys: ["amourEnActes"],
     note: "Note 3",
   },
 ];
