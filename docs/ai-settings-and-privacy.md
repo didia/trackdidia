@@ -314,8 +314,10 @@ engine matches against a struggling principle (`local-pick.ts`) and what an off-
 pick returns. `credoKeys` are the ten items of the personal credo
 (`src/domain/credo.ts`), the standing statement the catalog is actually curated against;
 every entry carries at least one, which is what makes "this verse belongs in the catalog"
-checkable. Selection behavior reads only `principleKeys`; `credoKeys` are editorial and
-are passed to the model in the snapshot alongside them. An entry authored before the
+checkable. `credoKeys` are purely editorial: nothing at runtime reads them. They are not in
+`PastorSnapshotCatalogEntry` either, deliberately — the prompt has no definition of the credo
+to give them meaning, so sending them would cost tokens on every call for an identifier the
+model cannot interpret. Selection reads `principleKeys` only. An entry authored before the
 credo axis existed — in practice a custom verse already stored in
 `settings.aiPastorCustomVerses` — has its `credoKeys` **derived** from its
 `principleKeys` through `principleKeyToCredoKeys` rather than being rejected, so no

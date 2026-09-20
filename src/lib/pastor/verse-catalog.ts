@@ -151,7 +151,8 @@ export const parseVerseCatalog = (raw: unknown): VerseCatalogParseResult => {
         errors.push(`${label} (${id}): credoKeys contains an unknown credo key`);
         return;
       }
-      credoKeys = record.credoKeys as CredoKey[];
+      // Deduped so this branch matches `deriveCredoKeys`, which builds through a Set.
+      credoKeys = [...new Set(record.credoKeys as CredoKey[])];
     }
 
     if (!isNonEmptyString(record.note)) {

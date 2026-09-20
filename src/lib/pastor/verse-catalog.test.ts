@@ -1,5 +1,9 @@
 import versesJson from "../../../verses.json";
-import { credoKeys as allCredoKeys, principleKeyToCredoKeys } from "../../domain/credo";
+import {
+  credoKeys as allCredoKeys,
+  MAX_CREDO_KEYS,
+  principleKeyToCredoKeys,
+} from "../../domain/credo";
 import { principleDefinitions } from "../../domain/definitions";
 import { buildCatalogWithCustomVerses, loadVerseCatalog, parseVerseCatalog } from "./verse-catalog";
 
@@ -100,6 +104,13 @@ describe("parseVerseCatalog", () => {
     expect(verses[0].credoKeys).toEqual(["discipline", "empathie"]);
   });
 
+  it("dedupes repeated credo keys, like the derived path", () => {
+    const entry = { ...validEntry(), credoKeys: ["procheDeDieu", "procheDeDieu"] };
+    const { verses, errors } = parseVerseCatalog([entry]);
+    expect(errors).toEqual([]);
+    expect(verses[0].credoKeys).toEqual(["procheDeDieu"]);
+  });
+
   it("rejects an unknown credo key", () => {
     const entry = { ...validEntry(), credoKeys: ["notACredoItem"] };
     const { verses, errors } = parseVerseCatalog([entry]);
@@ -144,15 +155,18 @@ describe("checked-in verses.json", () => {
     expect(verses.length).toBeLessThanOrEqual(200);
   });
 
-  it("gives every entry 1 to 3 valid credo keys (hard gate)", () => {
-    const { verses } = parseVerseCatalog(versesJson);
-    const offenders = verses.filter(
-      (verse) =>
-        verse.credoKeys.length === 0 ||
-        verse.credoKeys.length > 3 ||
-        verse.credoKeys.some((key) => !allCredoKeys.includes(key)),
+  it("authors 1 to MAX_CREDO_KEYS valid credo keys on every entry (hard gate)", () => {
+    // Asserted against the raw JSON, not the parsed output: the parser derives `credoKeys` from
+    // `principleKeys` whenever the field is absent, so the same check on `verses` would hold
+    // even if every entry in the file had no credo key at all.
+    const offenders = (versesJson as { id: string; credoKeys?: unknown }[]).filter(
+      ({ credoKeys }) =>
+        !Array.isArray(credoKeys) ||
+        credoKeys.length === 0 ||
+        credoKeys.length > MAX_CREDO_KEYS ||
+        !credoKeys.every((key) => allCredoKeys.includes(key as never)),
     );
-    expect(offenders.map((verse) => verse.id)).toEqual([]);
+    expect(offenders.map((entry) => entry.id)).toEqual([]);
   });
 
   it("covers all 14 principles at least once (soft report, not a gate)", () => {

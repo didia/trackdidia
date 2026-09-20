@@ -35,8 +35,6 @@ export interface PastorSnapshotCatalogEntry {
   id: string;
   label: string;
   principleKeys: string[];
-  /** The personal-credo axis (`src/domain/credo.ts`) the catalog is curated against. */
-  credoKeys: string[];
   themes: string[];
   lastShownDate: string | null;
   timesShown30: number;
@@ -121,7 +119,6 @@ const buildCatalogEntries = (
     id: verse.id,
     label: formatReferenceFr(verse.reference),
     principleKeys: verse.principleKeys,
-    credoKeys: verse.credoKeys,
     themes: verse.themes ?? [],
     lastShownDate: history.lastShownDateByVerseId.get(verse.id) ?? null,
     timesShown30: history.timesShown30ByVerseId.get(verse.id) ?? 0,

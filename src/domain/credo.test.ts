@@ -1,22 +1,17 @@
-import {
-  credoDefinitions,
-  credoKeys,
-  deriveCredoKeys,
-  isCredoKey,
-  principleKeyToCredoKeys,
-} from "./credo";
+import { credoKeys, deriveCredoKeys, isCredoKey, principleKeyToCredoKeys } from "./credo";
 import { principleDefinitions } from "./definitions";
 
-describe("credoDefinitions", () => {
-  it("lists the ten credo items in written order", () => {
-    expect(credoDefinitions).toHaveLength(10);
-    expect(credoDefinitions.map((definition) => definition.order)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
-    ]);
+describe("credoKeys", () => {
+  it("lists the ten credo items once each", () => {
+    expect(credoKeys).toHaveLength(10);
     expect(new Set(credoKeys).size).toBe(10);
-    expect(credoDefinitions.every((definition) => definition.statement.trim().length > 0)).toBe(
-      true,
-    );
+    expect(credoKeys.every(isCredoKey)).toBe(true);
+  });
+
+  it("rejects a value that is not a credo key", () => {
+    expect(isCredoKey("priereDuMatin")).toBe(false);
+    expect(isCredoKey("")).toBe(false);
+    expect(isCredoKey(undefined)).toBe(false);
   });
 });
 
