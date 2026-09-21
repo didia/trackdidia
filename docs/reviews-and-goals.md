@@ -89,7 +89,10 @@ Each day contributes:
 - tasks added;
 - tasks completed.
 
-Explicit daily metrics override suggested GTD/Pomodoro values.
+Explicit daily metrics override suggested GTD/Pomodoro values. Task added and
+completed totals follow the daily GTD event rules in [GTD](gtd.md#daily-task-statistics):
+Scheduled work counts only when it enters Next Actions or is completed while
+still Scheduled; Sunday Next Action carryover still counts as added.
 
 ### Weekly aggregate formulas
 

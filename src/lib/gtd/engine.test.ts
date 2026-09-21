@@ -1,5 +1,7 @@
-import type { Project, ProjectStatus } from "../../domain/types";
+import type { Project, ProjectStatus, Task, TaskEvent, TaskEventType } from "../../domain/types";
 import {
+  buildDailyTaskBreakdown,
+  buildDailyTaskStats,
   createTaskFromInput,
   effectiveTaskContextIds,
   formatAssociationCopy,
@@ -141,5 +143,150 @@ describe("effectiveTaskContextIds", () => {
     expect(effectiveTaskContextIds({ contextIds: [], projectId: null }, [persoProject])).toEqual(
       [],
     );
+  });
+});
+
+const buildTask = (overrides: Partial<Task> = {}): Task => ({
+  id: "task:1",
+  title: "Task",
+  notes: "",
+  status: "active",
+  bucket: "next_action",
+  contextIds: [],
+  projectId: null,
+  parentTaskId: null,
+  scheduledFor: null,
+  deadline: null,
+  recurringTemplateId: null,
+  recurrenceDueDate: null,
+  isRecurringInstance: false,
+  completedAt: null,
+  recurrenceGroupId: null,
+  pendingPastRecurrences: 0,
+  plannedOrder: null,
+  source: "manual",
+  sourceExternalId: null,
+  sourceUrl: null,
+  createdAt: "2026-04-01T08:00:00.000Z",
+  updatedAt: "2026-04-01T08:00:00.000Z",
+  ...overrides,
+});
+
+const buildEvent = (
+  taskId: string,
+  type: TaskEventType,
+  eventDate: string,
+  metadata: Record<string, string> = {},
+): TaskEvent => ({
+  id: `task-event:${taskId}:${type}`,
+  taskId,
+  type,
+  eventDate,
+  eventAt: `${eventDate}T12:00:00.000Z`,
+  createdAt: `${eventDate}T12:00:00.000Z`,
+  dedupeKey: null,
+  metadata,
+});
+
+describe("buildDailyTaskStats added counting", () => {
+  const date = "2026-04-08";
+
+  it("does not count a task that is only scheduled for the day", () => {
+    const scheduled = buildTask({
+      id: "task-scheduled",
+      bucket: "scheduled",
+      scheduledFor: `${date}T15:30:00`,
+      createdAt: `${date}T09:00:00.000Z`,
+      updatedAt: `${date}T09:00:00.000Z`,
+    });
+    const events = [
+      buildEvent("task-scheduled", "task_created", date, { bucket: "scheduled" }),
+      buildEvent("task-scheduled", "task_scheduled_for_day", date, {
+        scheduledFor: `${date}T15:30:00`,
+      }),
+    ];
+
+    expect(buildDailyTaskStats([scheduled], events, date)).toMatchObject({
+      tasksAdded: 0,
+      tasksCompleted: 0,
+    });
+    expect(buildDailyTaskBreakdown([scheduled], events, date).addedTasks).toEqual([]);
+  });
+
+  it("counts a scheduled task when it moves into next actions", () => {
+    const promoted = buildTask({
+      id: "task-promoted",
+      bucket: "next_action",
+      createdAt: "2026-04-07T09:00:00.000Z",
+      updatedAt: `${date}T10:00:00.000Z`,
+    });
+    const events = [
+      buildEvent("task-promoted", "task_moved_to_next_action", date, { from: "scheduled" }),
+    ];
+
+    expect(buildDailyTaskStats([promoted], events, date)).toMatchObject({
+      tasksAdded: 1,
+      tasksCompleted: 0,
+    });
+    expect(buildDailyTaskBreakdown([promoted], events, date).addedTasks).toEqual([
+      expect.objectContaining({ id: "task-promoted" }),
+    ]);
+  });
+
+  it("counts a scheduled task completed in place as both added and completed", () => {
+    const completed = buildTask({
+      id: "task-done-scheduled",
+      bucket: "scheduled",
+      status: "completed",
+      scheduledFor: `${date}T15:30:00`,
+      completedAt: `${date}T18:00:00.000Z`,
+      createdAt: "2026-04-07T09:00:00.000Z",
+      updatedAt: `${date}T18:00:00.000Z`,
+    });
+    const events = [
+      buildEvent("task-done-scheduled", "task_completed", date, { bucket: "scheduled" }),
+    ];
+
+    expect(buildDailyTaskStats([completed], events, date)).toMatchObject({
+      tasksAdded: 1,
+      tasksCompleted: 1,
+    });
+    expect(buildDailyTaskBreakdown([completed], events, date)).toEqual(
+      expect.objectContaining({
+        addedTasks: [expect.objectContaining({ id: "task-done-scheduled" })],
+        completedTasks: [expect.objectContaining({ id: "task-done-scheduled" })],
+      }),
+    );
+  });
+
+  it("counts Sunday next-action carryover but not scheduled carryover", () => {
+    const sunday = "2026-04-05";
+    const leftoverNext = buildTask({
+      id: "task-na-carry",
+      bucket: "next_action",
+      createdAt: "2026-03-30T08:00:00.000Z",
+      updatedAt: "2026-03-30T08:00:00.000Z",
+    });
+    const leftoverScheduled = buildTask({
+      id: "task-sched-carry",
+      bucket: "scheduled",
+      // Future-dated: same-day or overdue Scheduled would already have been
+      // auto-promoted before stats run, so only a later date can still carry as Scheduled.
+      scheduledFor: "2026-04-08T10:00:00",
+      createdAt: "2026-03-30T08:00:00.000Z",
+      updatedAt: "2026-03-30T08:00:00.000Z",
+    });
+    const events = [
+      buildEvent("task-na-carry", "weekly_carryover", sunday, { bucket: "next_action" }),
+      buildEvent("task-sched-carry", "weekly_carryover", sunday, { bucket: "scheduled" }),
+    ];
+
+    expect(buildDailyTaskStats([leftoverNext, leftoverScheduled], events, sunday)).toMatchObject({
+      tasksAdded: 1,
+      tasksCompleted: 0,
+    });
+    expect(
+      buildDailyTaskBreakdown([leftoverNext, leftoverScheduled], events, sunday).addedTasks,
+    ).toEqual([expect.objectContaining({ id: "task-na-carry" })]);
   });
 });

@@ -367,7 +367,7 @@ describe("MemoryRepository", () => {
       id: "task-scheduled",
       title: "Call planifie",
       bucket: "scheduled",
-      scheduledFor: `${today}T15:30:00`,
+      scheduledFor: `${addDays(today, 1)}T15:30:00`,
       createdAt: `${today}T09:00:00`,
     });
 
@@ -375,20 +375,75 @@ describe("MemoryRepository", () => {
 
     await expect(repository.computeDailyTaskStats(today)).resolves.toMatchObject({
       tasksAtStart: 1,
-      tasksAdded: 2,
+      tasksAdded: 1,
       tasksCompleted: 1,
-      tasksRemaining: 2,
+      tasksRemaining: 1,
+    });
+
+    await expect(repository.getDailyTaskBreakdown(today)).resolves.toEqual(
+      expect.objectContaining({
+        addedTasks: [expect.objectContaining({ id: "task-move" })],
+        completedTasks: [expect.objectContaining({ id: "task-start" })],
+      }),
+    );
+
+    await repository.completeTask("task-scheduled", `${today}T19:00:00`);
+
+    await expect(repository.computeDailyTaskStats(today)).resolves.toMatchObject({
+      tasksAtStart: 1,
+      tasksAdded: 2,
+      tasksCompleted: 2,
+      tasksRemaining: 1,
     });
 
     await expect(repository.getDailyTaskBreakdown(today)).resolves.toEqual(
       expect.objectContaining({
         addedTasks: expect.arrayContaining([
-          expect.objectContaining({ id: "task-scheduled" }),
           expect.objectContaining({ id: "task-move" }),
+          expect.objectContaining({ id: "task-scheduled" }),
         ]),
-        completedTasks: expect.arrayContaining([expect.objectContaining({ id: "task-start" })]),
+        completedTasks: expect.arrayContaining([
+          expect.objectContaining({ id: "task-start" }),
+          expect.objectContaining({ id: "task-scheduled" }),
+        ]),
       }),
     );
+  });
+
+  it("counts a due Scheduled task as added after auto-promotion into Next Actions", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-08T12:00:00.000Z"));
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const today = "2026-04-08";
+
+    await repository.createTask({
+      id: "task-due-scheduled",
+      title: "Call due today",
+      bucket: "scheduled",
+      scheduledFor: `${today}T09:00:00`,
+      createdAt: `${addDays(today, -2)}T08:00:00`,
+    });
+
+    await expect(repository.computeDailyTaskStats(today)).resolves.toMatchObject({
+      tasksAdded: 1,
+      tasksCompleted: 0,
+    });
+
+    await expect(repository.getDailyTaskBreakdown(today)).resolves.toEqual(
+      expect.objectContaining({
+        addedTasks: [expect.objectContaining({ id: "task-due-scheduled", bucket: "next_action" })],
+      }),
+    );
+
+    const events = await repository.listTaskEvents({ types: ["task_moved_to_next_action"] });
+    expect(events).toEqual([
+      expect.objectContaining({
+        taskId: "task-due-scheduled",
+        type: "task_moved_to_next_action",
+      }),
+    ]);
   });
 
   it("tracks project status duration from the last status change", async () => {

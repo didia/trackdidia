@@ -15,6 +15,9 @@ current-product behavior remains documented in [`docs/`](../docs/).
   companion app and decentralized desktop↔phone sync engine.
 - [`todo/calendar-sync.md`](todo/calendar-sync.md) — approved, unshipped one-way Google
   Calendar sync of Scheduled and Planned tasks with a date.
+- [`todo/weekly-review-caching.md`](todo/weekly-review-caching.md) — approved, unshipped
+  RescueTime snapshot cache, compact weekly RescueTime goal lines, and last-good weekly
+  coach synthesis fallback.
 - [`done/ai-integration-v2.md`](done/ai-integration-v2.md) — implemented AI integration v2.
 - [`done/email-triage.md`](done/email-triage.md) — implemented multi-account email triage.
 - [`done/project-planned-tasks.md`](done/project-planned-tasks.md) — implemented Project
