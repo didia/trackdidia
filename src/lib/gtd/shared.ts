@@ -43,6 +43,8 @@ export const addDays = (date: string, amount: number): string => {
 
 export const isSunday = (date: string): boolean => new Date(`${date}T12:00:00`).getDay() === 0;
 
+export const isWednesday = (date: string): boolean => new Date(`${date}T12:00:00`).getDay() === 3;
+
 export const getWeekStartSunday = (date: string): string => {
   const current = new Date(`${date}T12:00:00`);
   const delta = current.getDay();

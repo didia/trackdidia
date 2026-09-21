@@ -2,6 +2,7 @@ import { createEmptyDailyEntry, updateMetric, updatePrinciple } from "./daily-en
 import {
   buildMonthlyReviewSummary,
   createEmptyMonthlyReview,
+  getDefaultMonthlyReviewMonthKey,
   isFirstSaturdayOfMonth,
   updateMonthlyReviewChecklist,
   updateMonthlyReviewNote,
@@ -98,5 +99,8 @@ describe("monthly review domain", () => {
     expect(withCheck.ritualChecklist.developpement).toBe(true);
     expect(isFirstSaturdayOfMonth("2026-04-04")).toBe(true);
     expect(isFirstSaturdayOfMonth("2026-04-11")).toBe(false);
+    expect(getDefaultMonthlyReviewMonthKey("2026-04-04")).toBe("2026-03");
+    expect(getDefaultMonthlyReviewMonthKey("2026-04-05")).toBe("2026-04");
+    expect(getDefaultMonthlyReviewMonthKey("2026-04-11")).toBe("2026-04");
   });
 });

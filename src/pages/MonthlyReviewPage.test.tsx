@@ -74,6 +74,25 @@ describe("MonthlyReviewPage", () => {
     });
   });
 
+  it("defaults to the previous month on the first Saturday", async () => {
+    vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-04-04");
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    let previous = createEmptyMonthlyReview("2026-03");
+    previous = updateMonthlyReviewNote(previous, "bilan", "Mois a cloturer");
+    await repository.saveMonthlyReview(previous);
+    let current = createEmptyMonthlyReview("2026-04");
+    current = updateMonthlyReviewNote(current, "bilan", "Mois en cours");
+    await repository.saveMonthlyReview(current);
+
+    await renderWithApp(<MonthlyReviewPage />, { repository, route: "/mois" });
+
+    expect(await screen.findByLabelText(/mois à relire/i)).toHaveValue("2026-03");
+    expect(await screen.findByDisplayValue("Mois a cloturer")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("Mois en cours")).not.toBeInTheDocument();
+  });
+
   it("opens the month from the query string", async () => {
     vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-09-08");
 

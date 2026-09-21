@@ -74,6 +74,10 @@ export const isFirstSaturdayOfMonth = (date: string): boolean => {
   return current.getDay() === 6 && current.getDate() <= 7;
 };
 
+/** First Saturday opens last month so the ritual closes the month that just ended. */
+export const getDefaultMonthlyReviewMonthKey = (today: string): string =>
+  isFirstSaturdayOfMonth(today) ? getPreviousMonthKey(today) : getMonthKey(today);
+
 const emptyMonthlyNotes = (): MonthlyReviewNotes => ({
   bilan: "",
   journaux: "",

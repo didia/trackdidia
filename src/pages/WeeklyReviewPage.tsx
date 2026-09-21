@@ -21,6 +21,7 @@ import {
   buildWeekDates,
   createEmptyWeeklyReview,
   dimancheNotesWeekStart,
+  getDefaultWeeklyReviewWeekStart,
   updateWeeklyReviewChecklist,
   updateWeeklyReviewNote,
 } from "../domain/weekly-review";
@@ -88,7 +89,9 @@ export const WeeklyReviewPage = () => {
   const dateFromQuery = searchParams.get("date");
   const [selectedWeekStart, setSelectedWeekStart] = useState(() =>
     buildWeekDates(
-      dateFromQuery && /^\d{4}-\d{2}-\d{2}$/.test(dateFromQuery) ? dateFromQuery : getTodayDate(),
+      dateFromQuery && /^\d{4}-\d{2}-\d{2}$/.test(dateFromQuery)
+        ? dateFromQuery
+        : getDefaultWeeklyReviewWeekStart(getTodayDate()),
     ),
   );
   const [review, setReview] = useState<WeeklyReview | null>(null);
@@ -862,7 +865,9 @@ export const WeeklyReviewPage = () => {
             <button
               className="button"
               type="button"
-              onClick={() => void loadWeek(buildWeekDates(getTodayDate()))}
+              onClick={() =>
+                void loadWeek(buildWeekDates(getDefaultWeeklyReviewWeekStart(getTodayDate())))
+              }
             >
               {t("weekly.picker.current")}
             </button>

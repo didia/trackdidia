@@ -6,6 +6,7 @@ import type { AiMessage, AiProposal, AppSettings, CoachPulseResult } from "../do
 import type { CoachPulseService } from "../lib/ai/coach-pulse-service";
 import { PASTOR_VERSE_PROMPT_VERSION, PastorVerseService } from "../lib/ai/pastor-verse-service";
 import { getTodayDate } from "../lib/date";
+import * as dateModule from "../lib/date";
 import { addDays } from "../lib/gtd/shared";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { renderWithApp } from "../test/test-utils";
@@ -139,6 +140,55 @@ describe("TodayPage coach proposals", () => {
       expect(decideAiProposal).toHaveBeenCalledWith("ai-proposal:intention", "dismissed");
     });
     expect(saveDailyEntry).not.toHaveBeenCalled();
+  });
+});
+
+describe("TodayPage review prompts", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("opens last week's review from the Sunday prompt", async () => {
+    vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-09-20");
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    await renderWithApp(<TodayPage />, { repository, route: "/" });
+
+    expect(
+      await screen.findByRole("link", { name: /ouvrir la revue hebdomadaire/i }),
+    ).toHaveAttribute("href", "/semaine?date=2026-09-13");
+  });
+
+  it("opens last month's review from the first-Saturday prompt", async () => {
+    vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-04-04");
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    await renderWithApp(<TodayPage />, { repository, route: "/" });
+
+    expect(await screen.findByRole("link", { name: /ouvrir la revue mensuelle/i })).toHaveAttribute(
+      "href",
+      "/mois?month=2026-03",
+    );
+  });
+
+  it("opens this week's review from the Wednesday mid-week prompt", async () => {
+    vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-09-16");
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    await renderWithApp(<TodayPage />, { repository, route: "/" });
+
+    expect(
+      await screen.findByRole("link", { name: /ouvrir la semaine en cours/i }),
+    ).toHaveAttribute("href", "/semaine?date=2026-09-13");
+    expect(
+      screen.queryByRole("link", { name: /ouvrir la revue hebdomadaire/i }),
+    ).not.toBeInTheDocument();
   });
 });
 

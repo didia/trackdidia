@@ -10,6 +10,7 @@ import {
   buildWeeklyReviewSummary,
   createEmptyWeeklyReview,
   dimancheNotesWeekStart,
+  getDefaultWeeklyReviewWeekStart,
   localWeeklyScoreAxes,
   relocateDimancheNotesToNextWeek,
   updateWeeklyReviewChecklist,
@@ -231,6 +232,12 @@ describe("weekly review domain", () => {
     expect(reapplied.productivityPulse).toBeNull();
     expect(reapplied.weeklyScore).toBeLessThan(summary.weeklyScore);
     expect(localWeeklyScoreAxes(summary)).toEqual(localWeeklyScoreAxes(reapplied));
+  });
+
+  it("defaults the weekly review to the previous Sunday-start week on Sunday", () => {
+    expect(getDefaultWeeklyReviewWeekStart("2026-09-20")).toBe("2026-09-13");
+    expect(getDefaultWeeklyReviewWeekStart("2026-09-21")).toBe("2026-09-20");
+    expect(getDefaultWeeklyReviewWeekStart("2026-09-26")).toBe("2026-09-20");
   });
 
   it("stores Dimanche notes on the following week when the displayed week is past", () => {

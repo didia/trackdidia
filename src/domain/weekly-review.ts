@@ -1,4 +1,4 @@
-import { addDays, getWeekStartSunday } from "../lib/gtd/shared";
+import { addDays, getWeekStartSunday, isSunday } from "../lib/gtd/shared";
 import { computeDisciplineScore, resolveMetricValue } from "./daily-entry";
 import type {
   DailyEntry,
@@ -67,6 +67,12 @@ const toPhysicalActivityAxisValue = (calorieAverage: number): number =>
 export const buildWeekDates = (weekStartDate: string): string => {
   const normalized = getWeekStartSunday(weekStartDate);
   return normalized;
+};
+
+/** Sunday opens last week so the ritual closes the week that just ended. */
+export const getDefaultWeeklyReviewWeekStart = (today: string): string => {
+  const weekStart = getWeekStartSunday(today);
+  return isSunday(today) ? addDays(weekStart, -7) : weekStart;
 };
 
 export const listWeekDates = (weekStartDate: string): string[] => {

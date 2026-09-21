@@ -5,6 +5,8 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-20 | Wednesday Today prompt opens the current week as a mid-week check | `docs/daily-routines.md`, `docs/reviews-and-goals.md` | `TodayPage`, `isWednesday` |
+| 2026-09-20 | Sunday and first-Saturday Today prompts link to the previous week and previous month | `docs/daily-routines.md`, `docs/reviews-and-goals.md` | `TodayPage`, `getDefaultWeeklyReviewWeekStart`, `getDefaultMonthlyReviewMonthKey` |
 | 2026-09-14 | Morning intention carry-forward is today-only, preserves `updatedAt`, and overlays the effective entry into Today coach snapshots | `docs/daily-routines.md` | `useDailyEntry`, `resolveDailySnapshotInputs`, `TodayPage` |
 | 2026-09-14 | An empty morning intention is prefilled from yesterday's tomorrow focus on load, without persisting a row | `docs/daily-routines.md` | `prefillMorningIntentionFromYesterday`, `useDailyEntry` |
 | 2026-09-14 | Today morning coaching can run with no data for the day, using yesterday's saved entry (especially `tomorrowFocus`) | `docs/daily-routines.md`, `docs/ai-settings-and-privacy.md` | `pulse-engine.ts`, `daily-snapshot.ts` |
