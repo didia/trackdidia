@@ -13,6 +13,8 @@ current-product behavior remains documented in [`docs/`](../docs/).
 
 - [`todo/mobile-and-sync.md`](todo/mobile-and-sync.md) — approved, unshipped lean iOS
   companion app and decentralized desktop↔phone sync engine.
+- [`todo/calendar-sync.md`](todo/calendar-sync.md) — approved, unshipped one-way Google
+  Calendar sync of Scheduled and Planned tasks with a date.
 - [`todo/weekly-review-caching.md`](todo/weekly-review-caching.md) — approved, unshipped
   RescueTime snapshot cache, compact weekly RescueTime goal lines, and last-good weekly
   coach synthesis fallback.
