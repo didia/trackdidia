@@ -13,6 +13,8 @@ current-product behavior remains documented in [`docs/`](../docs/).
 
 - [`todo/mobile-and-sync.md`](todo/mobile-and-sync.md) — approved, unshipped lean iOS
   companion app and decentralized desktop↔phone sync engine.
+- [`todo/calendar-sync.md`](todo/calendar-sync.md) — approved, unshipped one-way Google
+  Calendar sync of Scheduled and Planned tasks with a date.
 - [`done/ai-integration-v2.md`](done/ai-integration-v2.md) — implemented AI integration v2.
 - [`done/email-triage.md`](done/email-triage.md) — implemented multi-account email triage.
 - [`done/project-planned-tasks.md`](done/project-planned-tasks.md) — implemented Project
