@@ -4,6 +4,7 @@ Back to [Documentation Log](../log.md). Canonical page: [gtd.md](../gtd.md).
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-21 | Daily `tasksAdded` no longer counts `task_scheduled_for_day` or Scheduled carryover; Scheduled work counts only on Next Action entry or in-place completion | `docs/gtd.md` | `isDailyAddedEvent`, `buildDailyTaskStats`, `buildDailyTaskBreakdown` |
 | 2026-09-11 | Next Actions collapsed cards show calendar-day age since the task entered the bucket | `docs/gtd.md` | `nextActionAgeDays`, `GtdTaskCard`, `listTaskEvents` |
 | 2026-09-11 | Next Actions defaults to FIFO order by `createdAt` (oldest first), with deadline and last-update sorts still available | `docs/gtd.md` | `sortNextActionTasks`, `NextActionsPage.tsx` |
 | 2026-09-08 | Tasks may use `source = email_triage`, nullable `sourceUrl`, and external id `email-triage:<accountId>:<conversationKey>` | `docs/gtd.md`, `docs/email-triage.md` | `src/domain/types.ts`, migration 29 |
