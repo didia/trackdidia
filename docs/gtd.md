@@ -233,10 +233,12 @@ Before computing a day, the repository:
   place without entering Next Actions).
 
 Dating a task for Scheduled (`task_scheduled_for_day`) does **not** count as
-added. Leftover Scheduled carryover events also do not count; those tasks wait
-until promotion into Next Actions or in-place completion. Historical daily,
-weekly, and monthly views recalculate from the event ledger — there are no
-stored summary snapshots.
+added. A task dated today or earlier counts as added on the day auto-promotion
+moves it into Next Actions (`task_moved_to_next_action`). Leftover Scheduled
+carryover events (future-dated only, since due/overdue Scheduled promote first)
+also do not count; those tasks wait until promotion or in-place completion.
+Historical daily, weekly, and monthly views recalculate from the event ledger —
+there are no stored summary snapshots.
 
 `tasksCompleted` is the unique completed-event count, using the task's current
 `completedAt` local date when available. A Scheduled task completed in place is

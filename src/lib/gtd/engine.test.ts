@@ -270,7 +270,9 @@ describe("buildDailyTaskStats added counting", () => {
     const leftoverScheduled = buildTask({
       id: "task-sched-carry",
       bucket: "scheduled",
-      scheduledFor: `${sunday}T10:00:00`,
+      // Future-dated: same-day or overdue Scheduled would already have been
+      // auto-promoted before stats run, so only a later date can still carry as Scheduled.
+      scheduledFor: "2026-04-08T10:00:00",
       createdAt: "2026-03-30T08:00:00.000Z",
       updatedAt: "2026-03-30T08:00:00.000Z",
     });
@@ -279,9 +281,7 @@ describe("buildDailyTaskStats added counting", () => {
       buildEvent("task-sched-carry", "weekly_carryover", sunday, { bucket: "scheduled" }),
     ];
 
-    expect(
-      buildDailyTaskStats([leftoverNext, leftoverScheduled], events, sunday),
-    ).toMatchObject({
+    expect(buildDailyTaskStats([leftoverNext, leftoverScheduled], events, sunday)).toMatchObject({
       tasksAdded: 1,
       tasksCompleted: 0,
     });

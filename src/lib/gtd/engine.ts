@@ -242,32 +242,15 @@ export const buildDailyTaskStats = (
   };
 };
 
-const collectTaskIdsByEventType = (events: TaskEvent[], types: TaskEventType[]): string[] => {
-  const allowedTypes = new Set(types);
+const collectTaskIds = (
+  events: TaskEvent[],
+  predicate: (event: TaskEvent) => boolean,
+): string[] => {
   const seen = new Set<string>();
   const orderedIds: string[] = [];
 
   [...events]
-    .filter((event) => allowedTypes.has(event.type))
-    .sort((left, right) => right.eventAt.localeCompare(left.eventAt))
-    .forEach((event) => {
-      if (seen.has(event.taskId)) {
-        return;
-      }
-
-      seen.add(event.taskId);
-      orderedIds.push(event.taskId);
-    });
-
-  return orderedIds;
-};
-
-const collectAddedTaskIds = (events: TaskEvent[]): string[] => {
-  const seen = new Set<string>();
-  const orderedIds: string[] = [];
-
-  [...events]
-    .filter(isDailyAddedEvent)
+    .filter(predicate)
     .sort((left, right) => right.eventAt.localeCompare(left.eventAt))
     .forEach((event) => {
       if (seen.has(event.taskId)) {
@@ -296,8 +279,11 @@ export const buildDailyTaskBreakdown = (
     return completedAt ? toLocalDateString(completedAt) === date : event.eventDate === date;
   });
 
-  const addedTaskIds = collectAddedTaskIds(taskEventsToday);
-  const completedTaskIds = collectTaskIdsByEventType(taskEventsToday, ["task_completed"]);
+  const addedTaskIds = collectTaskIds(taskEventsToday, isDailyAddedEvent);
+  const completedTaskIds = collectTaskIds(
+    taskEventsToday,
+    (event) => event.type === "task_completed",
+  );
 
   return {
     date,
