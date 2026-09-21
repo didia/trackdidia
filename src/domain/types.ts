@@ -1,3 +1,5 @@
+import type { CredoKey } from "./credo";
+
 export type DailyStatus = "not_started" | "morning_done" | "closed";
 
 export type MetricKey =
@@ -582,11 +584,17 @@ export type TranslationCode = "NRSVue" | "NABRE" | "AELF" | "LSG1910";
  * One entry of the checked-in `verses.json` catalog (`src/lib/pastor/verse-catalog.ts`).
  * `translations` may be empty/absent — no verse text is shipped by default; the user pastes
  * verified text later. `note` is an original French reflection, never a Scripture quotation.
+ *
+ * `principleKeys` is the daily-checklist axis the pick engine matches against
+ * (`src/lib/pastor/local-pick.ts`); `credoKeys` is the personal-credo axis the catalog is
+ * curated against (`src/domain/credo.ts`). Both are always populated on a parsed entry — an
+ * entry authored before `credoKeys` existed has it derived from `principleKeys`.
  */
 export interface CatalogVerse {
   id: string;
   reference: BibleReference;
   principleKeys: PrincipleKey[];
+  credoKeys: CredoKey[];
   themes?: string[];
   translations?: Partial<Record<TranslationCode, string>>;
   note: string;

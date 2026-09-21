@@ -7,6 +7,7 @@ const catalog: CatalogVerse[] = Array.from({ length: 5 }, (_, index) => ({
   id: `verse-${index}`,
   reference: { book: "PHP", chapter: 4, verseStart: index + 1, verseEnd: index + 1 },
   principleKeys: ["priereDuSoir"],
+  credoKeys: ["procheDeDieu"],
   note: `Verset ${index}`,
 }));
 

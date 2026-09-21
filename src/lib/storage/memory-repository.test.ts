@@ -981,6 +981,7 @@ describe("MemoryRepository", () => {
       id: "custom-job-42-10",
       reference: { book: "JOB", chapter: 42, verseStart: 10, verseEnd: 10 },
       principleKeys: ["managedSolitude"],
+      credoKeys: ["procheDeDieu"],
       note: "Apres l'epreuve, une restauration est possible.",
     };
 
@@ -1019,6 +1020,7 @@ describe("MemoryRepository", () => {
         id: "custom-duplicate",
         reference: checkedIn.reference,
         principleKeys: ["managedSolitude"],
+        credoKeys: ["procheDeDieu"],
         note: "Une note differente pour la meme reference.",
       };
 

@@ -6,12 +6,14 @@ const catalog: CatalogVerse[] = [
     id: "php-4-6-7",
     reference: { book: "PHP", chapter: 4, verseStart: 6, verseEnd: 7 },
     principleKeys: ["priereDuSoir"],
+    credoKeys: ["procheDeDieu"],
     note: "Note",
   },
   {
     id: "verse-blocked",
     reference: { book: "ROM", chapter: 8, verseStart: 28, verseEnd: 28 },
     principleKeys: ["retroJournalier"],
+    credoKeys: ["echecsCommeLecons"],
     note: "Note",
   },
 ];

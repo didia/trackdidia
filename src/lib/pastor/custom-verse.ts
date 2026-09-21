@@ -1,3 +1,4 @@
+import { deriveCredoKeys } from "../../domain/credo";
 import type { CatalogVerse, PastorVerseBody } from "../../domain/types";
 import { referenceKey } from "./bible-books";
 import { buildCatalogWithCustomVerses } from "./verse-catalog";
@@ -10,7 +11,9 @@ import { buildCatalogWithCustomVerses } from "./verse-catalog";
  * `note` reuses the AI's own explanation; `PastorVerseBody` carries no model-authored passage
  * text at all (an off-list pick is a validated reference only — see `pastor-verse-validator.ts`).
  * `translations` is reserved for verified Scripture text pasted in by the user (see
- * `verse-catalog.ts`) and is never populated here.
+ * `verse-catalog.ts`) and is never populated here. `credoKeys` is derived from the model's
+ * `principleKey` via the bridge in `src/domain/credo.ts` — the model is never asked for a
+ * credo key directly.
  */
 export const buildCustomVerseFromOffListPick = (body: PastorVerseBody): CatalogVerse | null => {
   if (body.pick !== "outside" || !body.reference || !body.principleKey) {
@@ -29,6 +32,7 @@ export const buildCustomVerseFromOffListPick = (body: PastorVerseBody): CatalogV
     id: `custom-${book.toLowerCase()}-${chapter}-${verseStart}${span}`,
     reference: body.reference,
     principleKeys: [body.principleKey],
+    credoKeys: deriveCredoKeys([body.principleKey]),
     note,
   };
 };

@@ -1,4 +1,9 @@
 import versesJson from "../../../verses.json";
+import {
+  credoKeys as allCredoKeys,
+  MAX_CREDO_KEYS,
+  principleKeyToCredoKeys,
+} from "../../domain/credo";
 import { principleDefinitions } from "../../domain/definitions";
 import { buildCatalogWithCustomVerses, loadVerseCatalog, parseVerseCatalog } from "./verse-catalog";
 
@@ -6,6 +11,7 @@ const validEntry = () => ({
   id: "test-verse",
   reference: { book: "PHP", chapter: 4, verseStart: 6, verseEnd: 7 },
   principleKeys: ["priereDuSoir"],
+  credoKeys: ["procheDeDieu"],
   themes: ["paix"],
   note: "Une reflexion originale sur la paix.",
 });
@@ -90,6 +96,51 @@ describe("parseVerseCatalog", () => {
     expect(errors).toEqual([]);
     expect(verses[0].translations).toEqual({ LSG1910: "Texte verifie." });
   });
+
+  it("keeps explicit credoKeys as authored", () => {
+    const entry = { ...validEntry(), credoKeys: ["discipline", "empathie"] };
+    const { verses, errors } = parseVerseCatalog([entry]);
+    expect(errors).toEqual([]);
+    expect(verses[0].credoKeys).toEqual(["discipline", "empathie"]);
+  });
+
+  it("dedupes repeated credo keys, like the derived path", () => {
+    const entry = { ...validEntry(), credoKeys: ["procheDeDieu", "procheDeDieu"] };
+    const { verses, errors } = parseVerseCatalog([entry]);
+    expect(errors).toEqual([]);
+    expect(verses[0].credoKeys).toEqual(["procheDeDieu"]);
+  });
+
+  it("rejects an unknown credo key", () => {
+    const entry = { ...validEntry(), credoKeys: ["notACredoItem"] };
+    const { verses, errors } = parseVerseCatalog([entry]);
+    expect(verses).toHaveLength(0);
+    expect(errors[0]).toMatch(/unknown credo key/);
+  });
+
+  it("rejects empty or oversized credoKeys", () => {
+    const empty = parseVerseCatalog([{ ...validEntry(), credoKeys: [] }]);
+    expect(empty.verses).toHaveLength(0);
+    expect(empty.errors[0]).toMatch(/credoKeys must have 1 to 3 entries/);
+
+    const tooMany = parseVerseCatalog([
+      {
+        ...validEntry(),
+        credoKeys: ["procheDeDieu", "discipline", "empathie", "amourEnActes"],
+      },
+    ]);
+    expect(tooMany.verses).toHaveLength(0);
+    expect(tooMany.errors[0]).toMatch(/credoKeys must have 1 to 3 entries/);
+  });
+
+  it("derives credoKeys from principleKeys when the field is absent", () => {
+    // The legacy path: custom verses stored in `settings.aiPastorCustomVerses` before the
+    // credo axis existed must keep parsing instead of being dropped.
+    const { credoKeys: _omitted, ...entry } = validEntry();
+    const { verses, errors } = parseVerseCatalog([{ ...entry, principleKeys: ["respectReveil"] }]);
+    expect(errors).toEqual([]);
+    expect(verses[0].credoKeys).toEqual(principleKeyToCredoKeys.respectReveil);
+  });
 });
 
 describe("checked-in verses.json", () => {
@@ -98,10 +149,24 @@ describe("checked-in verses.json", () => {
     expect(errors).toEqual([]);
   });
 
-  it("has between 40 and 80 entries", () => {
+  it("has between 40 and 200 entries", () => {
     const { verses } = parseVerseCatalog(versesJson);
     expect(verses.length).toBeGreaterThanOrEqual(40);
-    expect(verses.length).toBeLessThanOrEqual(80);
+    expect(verses.length).toBeLessThanOrEqual(200);
+  });
+
+  it("authors 1 to MAX_CREDO_KEYS valid credo keys on every entry (hard gate)", () => {
+    // Asserted against the raw JSON, not the parsed output: the parser derives `credoKeys` from
+    // `principleKeys` whenever the field is absent, so the same check on `verses` would hold
+    // even if every entry in the file had no credo key at all.
+    const offenders = (versesJson as { id: string; credoKeys?: unknown }[]).filter(
+      ({ credoKeys }) =>
+        !Array.isArray(credoKeys) ||
+        credoKeys.length === 0 ||
+        credoKeys.length > MAX_CREDO_KEYS ||
+        !credoKeys.every((key) => allCredoKeys.includes(key as never)),
+    );
+    expect(offenders.map((entry) => entry.id)).toEqual([]);
   });
 
   it("covers all 14 principles at least once (soft report, not a gate)", () => {

@@ -1,4 +1,5 @@
 import versesJson from "../../../verses.json";
+import { type CredoKey, deriveCredoKeys, isCredoKey, MAX_CREDO_KEYS } from "../../domain/credo";
 import { principleDefinitions } from "../../domain/definitions";
 import type {
   BibleReference,
@@ -131,6 +132,29 @@ export const parseVerseCatalog = (raw: unknown): VerseCatalogParseResult => {
       return;
     }
 
+    let credoKeys: CredoKey[];
+    if (record.credoKeys === undefined) {
+      // Entries authored before the credo axis existed — notably the custom verses already
+      // stored in `settings.aiPastorCustomVerses` — keep parsing by deriving the axis instead
+      // of being dropped. Every entry in the checked-in `verses.json` states it explicitly.
+      credoKeys = deriveCredoKeys(rawPrincipleKeys as PrincipleKey[]);
+    } else {
+      if (
+        !Array.isArray(record.credoKeys) ||
+        record.credoKeys.length === 0 ||
+        record.credoKeys.length > MAX_CREDO_KEYS
+      ) {
+        errors.push(`${label} (${id}): credoKeys must have 1 to ${MAX_CREDO_KEYS} entries`);
+        return;
+      }
+      if (!record.credoKeys.every(isCredoKey)) {
+        errors.push(`${label} (${id}): credoKeys contains an unknown credo key`);
+        return;
+      }
+      // Deduped so this branch matches `deriveCredoKeys`, which builds through a Set.
+      credoKeys = [...new Set(record.credoKeys as CredoKey[])];
+    }
+
     if (!isNonEmptyString(record.note)) {
       errors.push(`${label} (${id}): note is required`);
       return;
@@ -174,6 +198,7 @@ export const parseVerseCatalog = (raw: unknown): VerseCatalogParseResult => {
       id,
       reference,
       principleKeys: rawPrincipleKeys as PrincipleKey[],
+      credoKeys,
       ...(themes ? { themes } : {}),
       ...(translations ? { translations } : {}),
       note: record.note.trim(),

@@ -5,6 +5,7 @@ const baseVerse = (translations?: CatalogVerse["translations"]): CatalogVerse =>
   id: "test-verse",
   reference: { book: "PHP", chapter: 4, verseStart: 6, verseEnd: 7 },
   principleKeys: ["priereDuSoir"],
+  credoKeys: ["procheDeDieu"],
   note: "Une reflexion.",
   ...(translations ? { translations } : {}),
 });

@@ -292,8 +292,8 @@ instead and the regenerate button is disabled with the usual `disabled.aiOff` /
 `disabled.missingKey` reason.
 
 **Catalog.** The checked-in root file `verses.json` holds curated entries (`id`,
-`reference` with a book code/chapter/verse range, 1–3 `principleKeys`, optional
-`themes`, an optional `translations` map, and an original French `note` — never a
+`reference` with a book code/chapter/verse range, 1–3 `principleKeys`, 1–3 `credoKeys`,
+optional `themes`, an optional `translations` map, and an original French `note` — never a
 Scripture quotation). `src/lib/pastor/verse-catalog.ts` parses and validates the file
 at runtime (`parseVerseCatalog`), dropping any invalid entry with a `logDebug` warning
 rather than crashing; a unit test asserts the checked-in file parses with **zero
@@ -307,6 +307,25 @@ chapter: 1, verseStart: 999 }` is rejected while no real reference in any book c
 be. An earlier per-book table was replaced with this single constant after roughly 20
 of its 73 hand-authored ceilings turned out to be tighter than their book's real
 longest chapter and silently rejected real references; see that file's doc comment.
+
+**The two key axes.** `principleKeys` are the fourteen daily checklist principles
+(`src/domain/definitions.ts`) — the ones scored each day — and they are what the pick
+engine matches against a struggling principle (`local-pick.ts`) and what an off-list AI
+pick returns. `credoKeys` are the ten items of the personal credo
+(`src/domain/credo.ts`), the standing statement the catalog is actually curated against;
+every entry carries at least one, which is what makes "this verse belongs in the catalog"
+checkable. `credoKeys` are purely editorial: nothing at runtime reads them. They are not in
+`PastorSnapshotCatalogEntry` either, deliberately — the prompt has no definition of the credo
+to give them meaning, so sending them would cost tokens on every call for an identifier the
+model cannot interpret. Selection reads `principleKeys` only. An entry authored before the
+credo axis existed — in practice a custom verse already stored in
+`settings.aiPastorCustomVerses` — has its `credoKeys` **derived** from its
+`principleKeys` through `principleKeyToCredoKeys` rather than being rejected, so no
+stored custom verse is silently dropped; `buildCustomVerseFromOffListPick` populates the
+field the same way for new saves. Credo coverage is deliberately uneven (it follows the
+written credo, not an even spread), and the `ecriture` principle currently has **no**
+catalog verse at all, because journaling is a daily checklist item with no credo item
+behind it — a struggling-`ecriture` day falls back to the whole unblocked catalog.
 
 **Journal window.** `resolvePastorSnapshotInputs` loads the last 7 days plus the
 target day of daily entries (principle checks and non-empty journal notes, capped at
