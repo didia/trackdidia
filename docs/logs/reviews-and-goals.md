@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-21 | Weekly/monthly task totals inherit daily GTD rules: Scheduled counts only at Next Action or in-place done; Next Action carryover still counts | `docs/reviews-and-goals.md`, `docs/gtd.md` | `buildDailyTaskStats`, weekly/monthly summaries |
 | 2026-09-20 | Wednesday Today prompt opens the current week as a mid-week check | `docs/reviews-and-goals.md`, `docs/daily-routines.md` | `TodayPage`, `isWednesday` |
 | 2026-09-20 | Sunday and first-Saturday review prompts open the previous week/month; `/semaine` without `?date=` does the same on Sunday | `docs/reviews-and-goals.md`, `docs/daily-routines.md` | `getDefaultWeeklyReviewWeekStart`, `getDefaultMonthlyReviewMonthKey`, `TodayPage` |
 | 2026-09-14 | Dimanche kickoff display stays on the opened week even when both weeks are past; a collision chain of existing Dimanche notes is frozen instead of shifted forward; same-week review saves share one chain; future time objectives are not sent to RescueTime | `docs/reviews-and-goals.md`, `docs/ai-settings-and-privacy.md` | `relocateDimancheNotesToNextWeek`, `WeeklyReviewPage`, `isObjectiveActiveForWeek` |

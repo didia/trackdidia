@@ -162,6 +162,22 @@ export const effectiveTaskContextIds = (
   return [...(projects.find((project) => project.id === task.projectId)?.contextIds ?? [])];
 };
 
+const isDailyAddedEvent = (event: TaskEvent): boolean => {
+  if (event.type === "task_moved_to_next_action") {
+    return true;
+  }
+
+  if (event.type === "weekly_carryover") {
+    return event.metadata.bucket === "next_action";
+  }
+
+  if (event.type === "task_completed") {
+    return event.metadata.bucket === "scheduled";
+  }
+
+  return false;
+};
+
 export const buildDailyTaskStats = (
   tasks: Task[],
   events: TaskEvent[],
@@ -179,14 +195,7 @@ export const buildDailyTaskStats = (
   });
 
   const addedToday = new Set(
-    taskEventsToday
-      .filter(
-        (event) =>
-          event.type === "task_moved_to_next_action" ||
-          event.type === "task_scheduled_for_day" ||
-          event.type === "weekly_carryover",
-      )
-      .map((event) => event.taskId),
+    taskEventsToday.filter(isDailyAddedEvent).map((event) => event.taskId),
   );
 
   const completedToday = new Set(
@@ -233,13 +242,15 @@ export const buildDailyTaskStats = (
   };
 };
 
-const collectTaskIdsByEventType = (events: TaskEvent[], types: TaskEventType[]): string[] => {
-  const allowedTypes = new Set(types);
+const collectTaskIds = (
+  events: TaskEvent[],
+  predicate: (event: TaskEvent) => boolean,
+): string[] => {
   const seen = new Set<string>();
   const orderedIds: string[] = [];
 
   [...events]
-    .filter((event) => allowedTypes.has(event.type))
+    .filter(predicate)
     .sort((left, right) => right.eventAt.localeCompare(left.eventAt))
     .forEach((event) => {
       if (seen.has(event.taskId)) {
@@ -268,12 +279,11 @@ export const buildDailyTaskBreakdown = (
     return completedAt ? toLocalDateString(completedAt) === date : event.eventDate === date;
   });
 
-  const addedTaskIds = collectTaskIdsByEventType(taskEventsToday, [
-    "task_moved_to_next_action",
-    "task_scheduled_for_day",
-    "weekly_carryover",
-  ]);
-  const completedTaskIds = collectTaskIdsByEventType(taskEventsToday, ["task_completed"]);
+  const addedTaskIds = collectTaskIds(taskEventsToday, isDailyAddedEvent);
+  const completedTaskIds = collectTaskIds(
+    taskEventsToday,
+    (event) => event.type === "task_completed",
+  );
 
   return {
     date,

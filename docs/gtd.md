@@ -225,11 +225,24 @@ Before computing a day, the repository:
 3. applies weekly carryover when the date is Sunday;
 4. loads all tasks and events.
 
-`tasksAdded` is the unique task count from move-to-next-action,
-scheduled-for-day, and weekly-carryover events on the date.
+`tasksAdded` is the unique task count from:
+
+- `task_moved_to_next_action` events on the date;
+- `weekly_carryover` events whose metadata bucket is `next_action`;
+- `task_completed` events whose metadata bucket is `scheduled` (finished in
+  place without entering Next Actions).
+
+Dating a task for Scheduled (`task_scheduled_for_day`) does **not** count as
+added. A task dated today or earlier counts as added on the day auto-promotion
+moves it into Next Actions (`task_moved_to_next_action`). Leftover Scheduled
+carryover events (future-dated only, since due/overdue Scheduled promote first)
+also do not count; those tasks wait until promotion or in-place completion.
+Historical daily, weekly, and monthly views recalculate from the event ledger —
+there are no stored summary snapshots.
 
 `tasksCompleted` is the unique completed-event count, using the task's current
-`completedAt` local date when available.
+`completedAt` local date when available. A Scheduled task completed in place is
+therefore both added and completed on that day.
 
 `tasksAtStart` counts tasks that:
 
