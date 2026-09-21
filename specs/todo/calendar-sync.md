@@ -111,6 +111,32 @@ task row.
 the create succeeds the link becomes `detached` with reason `promoted` (its key is always
 `<= today` at capture time). Failure, adoption and retry behave as for any create.
 
+**Reclaimable links.** A link that is `pending`, or `detached` with reason `promoted`, is
+*reclaimable*: if its `(task_id, occurrence_key)` re-enters the desired set, it returns to
+the live path. Example: a task dated today 09:00 is promoted by a GTD page load, then the
+user re-dates it to today 14:00; the same local day, so the same key. The live task
+payload supersedes any stored snapshot: the link creates when `event_id IS NULL` and
+PATCHes when the signature differs, becomes `synced`, and detaches again at the next
+promotion. Links detached with `completed`, `cancelled`, `unscheduled`, `task_deleted` or
+`missing_remote` stay terminal. This is the same doctrine as the reschedule exception:
+`promoted` is a placeholder, not a record.
+
+**Suppressed pending create.** If a `pending` link's task is not recurrence-generated and
+is live-eligible under a *different* occurrence key in the same plan, drop the pending link
+without creating (the user re-dated before the reconciler ran). Otherwise the plan would
+create today's event and the next run would delete it via the reschedule exception.
+
+**Staleness cap.** A `pending` link older than 7 days is dropped without creating, so a
+long offline stretch does not later create events days in the past.
+
+**Reentrancy.** The capture runs inside `runExclusive` and an open `BEGIN IMMEDIATE`. It
+must go through `this.getCalendarSyncStore()`, constructed with `() => this.getDb()` like
+`EmailTriageSqliteStore`, and never through the public `AppRepository` methods. The new
+public store-delegating methods must not wrap in `runExclusive`, matching the email-triage
+precedent: `DbSerialQueue` is not reentrant and its watchdog throws after 15 s, which
+would roll back the promotion. In `MemoryRepository` the capture must use synchronous store
+accessors so it stays in the same synchronous block as the promotion.
+
 **Not back-filled.** Enabling sync does not recover work already promoted earlier today;
 its instant is gone. Only Scheduled tasks still holding a `scheduledFor`, and tasks
 promoted after sync is enabled, are mirrored. Document this in the Settings copy.
@@ -159,13 +185,20 @@ Promotion means "it became due", not "it happened", so a promoted entry is a pla
 not a record. `completed` and `cancelled` detachments are records and are never deleted by
 this rule.
 
-**Recurring ids are excluded.** Ids minted by recurrence generation (`recurring-task:` and
-`google-recurrence:`) reuse one id for every occurrence, so Tuesday's generated occurrence
-is a new key for the same id as Monday's promoted link. Applying the exception would delete
-Monday's entry every morning. For those ids a new key is always a new occurrence, never a
-reschedule. Known limitation: manually moving a single already-promoted recurring
-occurrence leaves its old event in place. The implementation must identify recurrence
-ids through the same predicate the recurrence engine uses, not a copy of the prefixes.
+**Recurring tasks are excluded.** Ids minted by recurrence generation (`recurring-task:`
+and `google-recurrence:`) are reused for every occurrence, so Tuesday's generated
+occurrence is a new key for the same id as Monday's promoted link. Applying the exception
+would delete Monday's entry every morning. For those tasks a new key is always a new
+occurrence, never a reschedule. Known limitation: manually moving a single
+already-promoted recurring occurrence leaves its old event in place.
+
+**Recurring exclusion predicate.** Test the *task*, not the id:
+`task.isRecurringInstance === true || task.recurrenceGroupId !== null`. Recurrence
+generation sets `isRecurringInstance` (`src/lib/recurring/engine.ts`) and the Google import
+collapse sets `recurrenceGroupId` (`src/lib/gtd/google-tasks-import.ts`).
+`applyRecurringEditScope` with `scope: "occurrence"` preserves both, which is why a
+manually moved occurrence is excluded too. The id prefixes are a fallback only for an
+orphan link whose task row no longer exists.
 
 This deliberately deviates from "delete always deletes": completing or cancelling
 tomorrow's task clears tomorrow's calendar, while today's and past entries stay as a
@@ -420,7 +453,10 @@ overdue-Planned re-dated to the future and today → future); exit rule exhausti
 → detach); a **`pending` link with no task row → create from the stored snapshot, then
 `detached` `promoted`, zero deletes**; **promoted task rescheduled to Friday → old event
 deleted, Friday created** (both when promoted today and when promoted last week); the same
-shape for a **recurrence-generated id → old event kept**; `completed`/`cancelled` detached
+shape for a **recurrence-generated task → old event kept**; **`pending` or
+`promoted`-detached link plus a live task re-dated later the same day → PATCH to the live
+payload, no duplicate**; **`pending` K1 plus a live non-recurring K2 → K1 dropped, no
+create-then-delete**; **`pending` older than 7 days → dropped, no create**; `completed`/`cancelled` detached
 links never deleted by that rule; orphan link with no task row; one template × three occurrences → three events, past never patched;
 detached links never re-planned; overdue Planned stays synced; both valves and the
 `confirmedMassDelete` re-trip; idempotence.
