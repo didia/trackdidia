@@ -23,7 +23,7 @@ planned date). See [`docs/gtd.md`](../../docs/gtd.md).
 | Calendar | Dedicated app-created **"TrackDidia"** calendar. Forced by the scope below; no calendar picker, and the primary calendar is not reachable without the broader `calendar.events` scope and Google verification |
 | OAuth scope | `https://www.googleapis.com/auth/calendar.app.created` (fallback `calendar.events.owned`) |
 | Auth machinery | Reuse the Gmail installed-app flow: PKCE, loopback listener, refresh token in the OS vault, access token in memory |
-| Sync model | **Desired-state reconciliation** over a link table, not an outbox or write-path hooks |
+| Sync model | **Desired-state reconciliation** over a link table, not an outbox; one capture hook in the promotion step |
 | Event shape | Timed events, title only, 30 min default duration, one event per occurrence (no RRULE) |
 | Deadlines | Out of scope |
 | UI | A "Calendrier Google" card in `/parametres`, no new route |
@@ -46,9 +46,11 @@ planCalendarSync({ tasks, links, today, now, settings, confirmedMassDelete })
   → { creates[], updates[], deletes[], detaches[], abort? }
 ```
 
-It is idempotent, self-healing after a crash, needs no hook in either repository's write
-paths, and is unit-testable with fixtures only (same shape as `src/lib/gtd/scheduled.ts`
-and `planned.ts`).
+It is idempotent, self-healing after a crash, and unit-testable with fixtures only (same
+shape as `src/lib/gtd/scheduled.ts` and `planned.ts`). It needs no hook in the general
+write paths. It needs exactly **one** choke-point hook, the promotion step, described in
+[Promotion capture](#promotion-capture), because promotion destroys the data the planner
+diffs.
 
 ## Identity: `(task_id, occurrence_key)`
 
@@ -60,7 +62,8 @@ each occurrence; Google-imported recurrences collapse the same way. Keying by ta
 alone would give a daily habit one perpetually sliding event.
 
 A time change within the same local day PATCHes the same link. A **detached link is
-terminal** for its occurrence key: never updated, deleted, recreated or re-adopted.
+terminal** for its occurrence key: never updated, recreated or re-adopted, and deleted
+only by the single exception in [Rescheduling a promoted task](#rescheduling-a-promoted-task).
 
 ## Eligibility
 
@@ -68,6 +71,49 @@ A `(task, occurrence_key)` is calendar-eligible iff `status === "active"`,
 `scheduledFor !== null`, and `bucket === "scheduled"` or (`bucket === "planned"` and
 `projectId !== null`). Deadlines, recurrence previews (not task rows), Next Actions,
 Inbox, Waiting For, Someday and References are excluded.
+
+## Promotion capture
+
+`listTasks()` runs `generateDueRecurringTasks(today)` and then `promoteDueScheduledTasks(today)`
+before it reads. Promotion moves every active Scheduled task whose local `scheduledFor`
+date is today or earlier to Next Actions and **clears `scheduledFor`**. Consequently:
+
+- a recurrence occurrence generated for today is promoted in the same call and is never
+  visible as Scheduled;
+- a task created or edited to a time later today is promoted on the next `listTasks()`
+  (any GTD page load), usually before the reconciler's 2 s debounce fires.
+
+A pure diff of current task rows therefore never sees today's dated work, which is exactly
+the work a calendar is most useful for. The planner alone cannot fix this, because the
+scheduled instant no longer exists anywhere once promotion commits.
+
+**Capture rule.** The promotion step itself, in both repositories, records the instant
+before clearing it. For each task about to be promoted, when calendar sync is enabled and
+connected (`enabled` and `state` in `active` | `needs_confirmation`), the same operation
+(the same SQLite transaction; the same synchronous block in `MemoryRepository`) upserts a
+link row for `(task_id, occurrence_key)` with `state = 'pending'`, `event_id = NULL`, and
+`payload_signature` set to the canonical payload built from the task **as it is at that
+moment** (title, start, end, notes setting). Both repositories call the shared pure
+`promoteDueScheduledTasks`, so the capture is one extra step next to it, not a new write
+path per repository. If a `synced` link already exists for that key and its
+`payload_signature` equals the captured payload, the capture does nothing: the event
+exists and stays as the record of the day. If it exists but the payload differs (the task
+was edited after the last sync, for example moved from 13:00 to 14:00), the link becomes
+`pending` with its `event_id` kept and the new snapshot stored, and the planner issues an
+**update** from the snapshot before detaching.
+
+`payload_signature` is the full canonical JSON of the event body, so it doubles as the
+stored snapshot: the reconciler builds the Google request from it and never needs the
+task row.
+
+**Planner rule.** A `pending` link is a *virtual desired occurrence*: the planner emits a
+`create` from the stored snapshot whether or not a matching task row still exists. After
+the create succeeds the link becomes `detached` with reason `promoted` (its key is always
+`<= today` at capture time). Failure, adoption and retry behave as for any create.
+
+**Not back-filled.** Enabling sync does not recover work already promoted earlier today;
+its instant is gone. Only Scheduled tasks still holding a `scheduledFor`, and tasks
+promoted after sync is enabled, are mirrored. Document this in the Settings copy.
 
 ## Transition matrix
 
@@ -92,11 +138,34 @@ the same plan.
 | Rescheduled to another local day | old key deleted (reschedule) + new key created |
 | Completed | exit rule (tomorrow's task → delete; today's → detach `completed`) |
 | Cancelled ("Retirer") | exit rule (`cancelled`) |
-| Scheduled auto-promotion at day rollover | exit rule; promotion only fires for dates `<= today`, so always **detach** `promoted`, never delete |
+| Scheduled auto-promotion at day rollover, or any `listTasks()` for a task dated today | [Promotion capture](#promotion-capture): the event is **created if it does not exist yet**, then the link is `detached` `promoted`; never deleted |
 | Manually moved out of Scheduled/Planned | exit rule (`unscheduled`) |
 | Row hard-deleted, or orphan link with no task row | exit rule (`task_deleted`) |
 | Overdue Planned date, still active | stays synced (Planned is never auto-promoted) |
 | Recurring template, three occurrences | three links, three events; past occurrences never patched |
+
+### Rescheduling a promoted task
+
+The reschedule refinement only fires for links still in the desired set. A promoted link is
+`detached` (terminal), so on its own it would leave the old event behind: a task promoted
+at midnight, then moved to Friday, would show both today's stale entry and Friday's. The
+single explicit exception:
+
+> When a task with an active `scheduledFor` has a `detached` link with reason **`promoted`**
+> under a *different* `occurrence_key`, and the task is **not** recurrence-generated,
+> **delete** that event (any date) and remove the link. Reason: `rescheduled_after_promotion`.
+
+Promotion means "it became due", not "it happened", so a promoted entry is a placeholder,
+not a record. `completed` and `cancelled` detachments are records and are never deleted by
+this rule.
+
+**Recurring ids are excluded.** Ids minted by recurrence generation (`recurring-task:` and
+`google-recurrence:`) reuse one id for every occurrence, so Tuesday's generated occurrence
+is a new key for the same id as Monday's promoted link. Applying the exception would delete
+Monday's entry every morning. For those ids a new key is always a new occurrence, never a
+reschedule. Known limitation: manually moving a single already-promoted recurring
+occurrence leaves its old event in place. The implementation must identify recurrence
+ids through the same predicate the recurrence engine uses, not a copy of the prefixes.
 
 This deliberately deviates from "delete always deletes": completing or cancelling
 tomorrow's task clears tomorrow's calendar, while today's and past entries stay as a
@@ -134,10 +203,12 @@ CREATE TABLE IF NOT EXISTS calendar_sync_links (
   task_id TEXT NOT NULL,
   occurrence_key TEXT NOT NULL,
   calendar_id TEXT NOT NULL,
-  event_id TEXT NOT NULL,            -- Google-assigned
+  event_id TEXT,                     -- Google-assigned; NULL until an event exists
+                                     -- (pending, or failed without an event)
   generation INTEGER NOT NULL,
-  state TEXT NOT NULL,               -- synced | detached | failed
-  payload_signature TEXT NOT NULL,   -- canonical payload, compared exactly
+  state TEXT NOT NULL,               -- pending | synced | detached | failed
+  payload_signature TEXT NOT NULL,   -- canonical event body; compared exactly, and the
+                                     -- stored snapshot for pending links
   event_start_at TEXT NOT NULL,
   detach_reason TEXT,   -- promoted | completed | cancelled | unscheduled | task_deleted | missing_remote
   failure_count INTEGER NOT NULL DEFAULT 0,
@@ -151,6 +222,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_sync_links_event
 CREATE INDEX IF NOT EXISTS idx_calendar_sync_links_state
   ON calendar_sync_links (state);
 ```
+
+`event_id` is nullable so that `pending` and `failed` links can exist without an event.
+SQLite's unique index permits any number of `NULL` values, so `idx_calendar_sync_links_event`
+constrains only links that actually own an event.
 
 Settings get their own table (like `email_triage_settings`), keeping the `AppSettings`
 blob, which holds the OpenRouter key, unchanged.
@@ -172,17 +247,29 @@ reconciler looks up an existing event before inserting:
 GET /calendar/v3/calendars/{calendarId}/events
     ?privateExtendedProperty=trackdidiaTaskId={taskId}
     &privateExtendedProperty=trackdidiaOccurrence={occurrenceKey}
-    &showDeleted=false&maxResults=10
+    &showDeleted=false&maxResults=250
+    [&pageToken=...]
 ```
 
-- Zero hits → `POST` without an `id`, store the returned id.
-- **One or more hits → adopt**, choosing deterministically (lowest `id` after sorting,
-  never API order). Extra duplicates are deleted in the same run and count against the
-  destructive-action budget. **Never POST when the lookup returned a live event.**
-- A lookup that **fails** (network/5xx) aborts that create; it never falls through to POST.
+**The lookup must exhaust pagination before it decides anything.** Google may return an
+empty page that still carries a `nextPageToken`, so an empty first page is not "zero
+hits". Follow `nextPageToken` until it is absent, collecting every hit, up to a hard cap of
+20 pages. Then:
+
+- Zero hits across all pages → `POST` without an `id`, store the returned id.
+- **One or more hits → adopt**, choosing deterministically (lowest `id` among all hits after
+  sorting, never API order). Every other hit is a duplicate: delete it in the same run and
+  count it against the destructive-action budget. **Never POST when any page returned a
+  live event.**
+- A lookup that **fails** (network/5xx) on any page, or that **hits the page cap**, aborts
+  that create with a retryable failure; it never falls through to POST, because an
+  incomplete scan cannot prove absence.
 - Before persisting an adopted link, check the `(calendar_id, event_id)` unique index: if
-  that event is already linked to a different key, skip, mark the link `failed` with
-  `calendar_sync_event_already_linked`, and continue the run.
+  that event is already linked to a different key, skip the adoption and record the
+  outcome on a link with **`event_id = NULL`**, `state = 'failed'` and
+  `last_error: "calendar_sync_event_already_linked:<eventId>"` (the id lives in the error
+  text, never in the constrained column), then continue the run. A `failed` link is retried
+  under the normal backoff, and a retry that now finds the event free adopts it.
 
 Base URL is `https://www.googleapis.com/calendar/v3`, already in `ALLOWED_HOSTS`.
 
@@ -209,12 +296,30 @@ all-day is not representable.
   `last_error: "calendar_sync_empty_task_set"`. Signature of a failed read or repository
   swap, not of intent.
 - `deletes.length > max(10, 0.25 × activeLinks)` → execute **nothing** (not even creates
-  and updates), `state: "needs_confirmation"`.
-  - "Synchroniser maintenant" stays enabled in this state and re-runs the plan so the
-    summary is current.
-  - The one-shot `confirmedMassDelete` override is validated against the **recomputed**
-    plan: if the recomputed delete count exceeds the confirmed count the valve re-trips.
-  - Settings renders it as a warning banner with a French confirm prompt, not a line of text.
+  and updates), `state: "needs_confirmation"`, with the delete count and a short summary in
+  `last_error`.
+
+**Gate and resumption.** The reconciler has one entry point, `reconcile({ trigger })`, and
+the state gate depends on the trigger:
+
+| Trigger | `active` | `needs_confirmation` | `reconnect_required` / `disconnected` |
+|---|---|---|---|
+| Automatic (nudge, focus, timer, bootstrap) | runs | **no-op** | no-op |
+| `syncNow()` (button) | runs | replans, no override | fails fast to the reconnect prompt |
+| `confirmMassDelete(n)` (banner button) | n/a | replans with override `n` | n/a |
+
+- In `needs_confirmation`, `syncNow()` recomputes the plan. If the valve no longer trips
+  (the user reverted the change) it executes and sets `state = 'active'`. If it still trips
+  it stays in `needs_confirmation` and refreshes the summary.
+- `confirmMassDelete(n)` carries the delete count the user was shown. It replans and runs
+  only if the **recomputed** delete count is `<= n`, then sets `state = 'active'`. If the
+  count grew, the valve re-trips with the new summary and no override is consumed. The
+  override is single-use and never persisted.
+- Automatic triggers stay no-ops while confirmation is pending, but
+  [promotion capture](#promotion-capture) keeps running, so nothing is lost while the user
+  decides: pending links accumulate and execute after resumption.
+- Settings renders the state as a warning banner with a French confirm prompt, not a line
+  of text.
 
 ## Reconciler and triggers
 
@@ -245,8 +350,11 @@ backstop timer and a window `focus` listener. A missed nudge costs latency, neve
 correctness.
 
 `listTasks` is not a pure read (it runs recurrence generation and Scheduled promotion), so
-a reconciler-only wake-up can itself promote tasks. This is relied on as an invariant and
-pinned by test; do not change `listTasks` here.
+any caller, including a reconciler-only wake-up, can promote tasks. This is why
+[promotion capture](#promotion-capture) lives inside the promotion step rather than in the
+reconciler: correctness must not depend on the reconciler winning a race against a GTD
+page load. Do not change `listTasks` here. The invariant is pinned by tests that go
+through the real repository, not only through the planner.
 
 ## Files
 
@@ -255,8 +363,10 @@ google-calendar-api,google-calendar-oauth,vault,session,reconciler,connect}.ts`;
 `src/lib/storage/calendar-sync-{sqlite,memory}-store.ts`; `src/app/use-calendar-sync.ts`;
 `docs/calendar-sync.md` + `docs/logs/calendar-sync.md`.
 
-**Changed:** `tauri-sqlite-repository.ts` (migration 34, store delegation; no change to
-`persistTask` or any write path), `memory-repository.ts`, `repository.ts` (settings get/
+**Changed:** `tauri-sqlite-repository.ts` (migration 34, store delegation, and the
+promotion-capture step beside `promoteDueScheduledTasks`; no change to `persistTask` or any
+other write path), `memory-repository.ts` (same capture step), the shared
+`src/lib/gtd/scheduled.ts` helper if the capture needs a pure builder there, `repository.ts` (settings get/
 save; links list/get/save/delete/detach/clear), `app-context.tsx`, the trigger sites
 above, `SettingsPage.tsx` + `src/locales/fr/settings.json`, and
 `src-tauri/src/vault.rs` (new kind `calendar_credentials` in `resolve_key`, the only Rust
@@ -294,7 +404,9 @@ or removed. Disabled in browser preview. The four dormant settings columns have 
    `TZ: America/Toronto`, so exercise near-midnight instants.
 6. **Privacy.** Titles leave the machine once enabled; the refresh token lives in the OS
    vault, never SQLite; logs carry counts, occurrence keys and event ids only.
-7. Terminal rows must be readable: verify `filterTasks` with `includeCompleted: true`
+7. **Enabling is not retroactive.** Work already promoted earlier today has lost its
+   instant and is not back-filled.
+8. Terminal rows must be readable: verify `filterTasks` with `includeCompleted: true`
    returns cancelled rows, else add a dedicated read.
 
 ## Test plan
@@ -305,10 +417,22 @@ update only on signature change; Planned ↔ Scheduled no-op; same-day time chan
 update; cross-day reschedule deletes the old event and creates the new one (including
 overdue-Planned re-dated to the future and today → future); exit rule exhaustively
 (completed/cancelled tomorrow → delete, today → detach; unschedule future → delete, past
-→ detach); **auto-promotion at 00:05 → detach `promoted`, zero deletes**; orphan link with
-no task row; one template × three occurrences → three events, past never patched;
+→ detach); a **`pending` link with no task row → create from the stored snapshot, then
+`detached` `promoted`, zero deletes**; **promoted task rescheduled to Friday → old event
+deleted, Friday created** (both when promoted today and when promoted last week); the same
+shape for a **recurrence-generated id → old event kept**; `completed`/`cancelled` detached
+links never deleted by that rule; orphan link with no task row; one template × three occurrences → three events, past never patched;
 detached links never re-planned; overdue Planned stays synced; both valves and the
 `confirmedMassDelete` re-trip; idempotence.
+
+**Promotion capture, through the real repository** (both `MemoryRepository` and the SQLite
+persistence harness, not the planner alone): a template occurrence generated for today and
+promoted in the same `listTasks()` call leaves a `pending` link whose snapshot has the
+original `scheduledFor`; a task dated later today, promoted by a GTD page's `listTasks()`
+before the reconciler runs, is still mirrored; capture is skipped when sync is disabled or
+disconnected; an unchanged `synced` link is left alone, and a `synced` link whose task was edited before promotion becomes a `pending` update; capture and promotion commit atomically
+(a failed promotion leaves no orphan `pending` link); capture continues while
+`needs_confirmation` is pending; promotion of a task with no link and sync off writes nothing.
 
 **Eligibility/payload:** local-date `occurrence_key` at 23:50 and 00:10; signature changes
 on title/time/notes-with-setting but not bucket; duration clamp.
@@ -316,18 +440,25 @@ on title/time/notes-with-setting but not bucket; duration clamp.
 **API client** (stubbed http as in `gmail-api.test.ts`): `ensureCalendar` creates only when
 absent; lookup sends both `privateExtendedProperty` params and `showDeleted=false`; **two
 matching events → adopts the deterministic one, deletes the extra, inserts nothing**;
-**lookup error → no insert**; zero hits → insert; 404/410 classification; `invalid_grant`.
+**lookup error → no insert**; zero hits → insert; **an empty first page with a
+`nextPageToken` followed by a page with a hit → adopts, inserts nothing**; hits split
+across pages → one adopted, the rest deleted; **page cap reached → no insert**;
+404/410 classification; `invalid_grant`.
 
 **Reconciler** (MemoryRepository + fake API): create → update → delete; crash between
 insert and link write → no duplicate; adopted event already linked elsewhere →
-`failed`, run continues; calendar remotely deleted → recovery; `invalid_grant` →
+`failed` link with `event_id = NULL` (no unique-index violation), run continues, later
+retry adopts once the event is free; `needs_confirmation` gate table: automatic triggers
+no-op, `syncNow()` replans, `confirmMassDelete(n)` executes only when the recomputed
+delete count is `<= n` and then returns to `active`, and re-trips when it grew; calendar remotely deleted → recovery; `invalid_grant` →
 `reconnect_required` with no further calls; mid-run failure keeps earlier links;
 single-flight, batch cap, backoff, foreign-generation purge; never mounts under
 `browserPreview` or the startup fallback (zero API calls, zero vault access).
 
 **Storage:** parity in `memory-repository.test.ts` for every new method;
 `calendar-sync-persistence.test.ts` (composite PK, unique index, defaults); migration
-assertion test in `src/lib/storage/migrations/`.
+assertion test in `src/lib/storage/migrations/` (also asserts `event_id` is nullable and
+two `NULL` `event_id` rows do not violate `idx_calendar_sync_links_event`).
 
 **Hooks/screens:** day-rollover, pomodoro `completeTask` and recurrence-template mutations
 each request a sync, and `requestCalendarSync` no-ops with nothing registered; Settings
