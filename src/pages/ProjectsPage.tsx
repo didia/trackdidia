@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useGtdWorkspace } from "../app/use-gtd";
-import { GtdTaskCard } from "../components/GtdTaskCard";
+import { GtdTaskList, type GtdTaskListWorkspace } from "../components/gtd/GtdTaskList";
 import { SectionCard } from "../components/SectionCard";
-import type { CreateTaskInput, Project, ProjectStatus, Task, TaskContext } from "../domain/types";
+import type { Project, ProjectStatus, Task } from "../domain/types";
 import { buildIsoFromLocalDateAndTime, formatDurationSince } from "../lib/date";
 import { formatAssociationCopy } from "../lib/gtd/engine";
 import { sortedActivePlannedTasks } from "../lib/gtd/planned";
@@ -41,22 +41,8 @@ const projectStatusFilterKey: Record<
 
 export const ProjectsPage = () => {
   const { t } = useTranslation("gtd");
-  const {
-    tasks,
-    projects,
-    contexts,
-    loading,
-    saveProject,
-    saveTask,
-    createTask,
-    saveContext,
-    applyRecurringEditScope,
-    completeTask,
-    cancelTask,
-    clearPastRecurrences,
-    promotePlannedTask,
-    movePlannedTask,
-  } = useGtdWorkspace();
+  const workspace = useGtdWorkspace();
+  const { tasks, projects, contexts, loading, saveProject } = workspace;
   const [title, setTitle] = useState("");
   const [selectedContextId, setSelectedContextId] = useState("all");
   const [statusFilter, setStatusFilter] = useState<ProjectStatusFilter>("open");
@@ -283,20 +269,9 @@ export const ProjectsPage = () => {
               <GtdProjectCard
                 key={project.id}
                 project={project}
-                contexts={contexts}
-                projects={projects}
+                workspace={workspace}
                 tasks={activeTasksByProject.get(project.id) ?? []}
                 plannedTasks={plannedTasksByProject.get(project.id) ?? []}
-                onSaveProject={saveProject}
-                onSaveTask={saveTask}
-                onCreateTask={createTask}
-                onSaveContext={saveContext}
-                onApplyRecurringEditScope={applyRecurringEditScope}
-                onCompleteTask={completeTask}
-                onCancelTask={cancelTask}
-                onClearPastRecurrences={clearPastRecurrences}
-                onPromotePlannedTask={promotePlannedTask}
-                onMovePlannedTask={movePlannedTask}
               />
             ))}
           </div>
@@ -308,49 +283,20 @@ export const ProjectsPage = () => {
 
 const GtdProjectCard = ({
   project,
-  contexts,
-  projects,
+  workspace,
   tasks,
   plannedTasks,
-  onSaveProject,
-  onSaveTask,
-  onCreateTask,
-  onSaveContext,
-  onApplyRecurringEditScope,
-  onCompleteTask,
-  onCancelTask,
-  onClearPastRecurrences,
-  onPromotePlannedTask,
-  onMovePlannedTask,
 }: {
   project: Project;
-  contexts: TaskContext[];
-  projects: Project[];
+  workspace: GtdTaskListWorkspace &
+    Pick<
+      ReturnType<typeof useGtdWorkspace>,
+      "saveProject" | "createTask" | "promotePlannedTask" | "movePlannedTask"
+    >;
   tasks: Task[];
   plannedTasks: Task[];
-  onSaveProject: (project: Project) => Promise<Project>;
-  onSaveTask: (task: Task) => Promise<unknown>;
-  onCreateTask: (input: CreateTaskInput) => Promise<Task>;
-  onSaveContext: (context: TaskContext) => Promise<TaskContext>;
-  onApplyRecurringEditScope: (
-    taskId: string,
-    scope: "occurrence" | "series",
-    changes: {
-      title?: string;
-      notes?: string;
-      bucket?: "next_action" | "scheduled";
-      contextIds?: string[];
-      projectId?: string | null;
-      scheduledFor?: string | null;
-      deadline?: string | null;
-    },
-  ) => Promise<Task>;
-  onCompleteTask: (taskId: string) => Promise<unknown>;
-  onCancelTask: (taskId: string) => Promise<unknown>;
-  onClearPastRecurrences: (taskId: string) => Promise<unknown>;
-  onPromotePlannedTask: (taskId: string) => Promise<unknown>;
-  onMovePlannedTask: (taskId: string, direction: "up" | "down") => Promise<unknown>;
 }) => {
+  const { contexts, saveProject: onSaveProject, createTask: onCreateTask } = workspace;
   const { t } = useTranslation("gtd");
   const [plannedTitle, setPlannedTitle] = useState("");
   const [plannedDate, setPlannedDate] = useState("");
@@ -543,31 +489,7 @@ const GtdProjectCard = ({
             {tasks.length === 0 ? (
               <p className="empty-copy">{t("projects.card.tasksEmpty")}</p>
             ) : (
-              <div className="task-list">
-                {tasks.map((task) => (
-                  <GtdTaskCard
-                    key={task.id}
-                    task={task}
-                    contexts={contexts}
-                    projects={projects}
-                    hideProjectTitle
-                    onSave={async (nextTask) => {
-                      await onSaveTask(nextTask);
-                    }}
-                    onSaveContext={onSaveContext}
-                    onApplyRecurringEditScope={onApplyRecurringEditScope}
-                    onComplete={async (taskId) => {
-                      await onCompleteTask(taskId);
-                    }}
-                    onCancel={async (taskId) => {
-                      await onCancelTask(taskId);
-                    }}
-                    onClearPastRecurrences={async (taskId) => {
-                      await onClearPastRecurrences(taskId);
-                    }}
-                  />
-                ))}
-              </div>
+              <GtdTaskList tasks={tasks} workspace={workspace} hideProjectTitle />
             )}
           </div>
 
@@ -627,55 +549,34 @@ const GtdProjectCard = ({
             {plannedTasks.length === 0 ? (
               <p className="empty-copy">{t("projects.card.plannedEmpty")}</p>
             ) : (
-              <div className="task-list">
-                {plannedTasks.map((task, index) => (
-                  <GtdTaskCard
-                    key={task.id}
-                    task={task}
-                    contexts={contexts}
-                    projects={projects}
-                    hideProjectTitle
-                    onSave={async (nextTask) => {
-                      await onSaveTask(nextTask);
-                    }}
-                    onSaveContext={onSaveContext}
-                    onApplyRecurringEditScope={onApplyRecurringEditScope}
-                    onComplete={async (taskId) => {
-                      await onCompleteTask(taskId);
-                    }}
-                    onCancel={async (taskId) => {
-                      await onCancelTask(taskId);
-                    }}
-                    onClearPastRecurrences={async (taskId) => {
-                      await onClearPastRecurrences(taskId);
-                    }}
-                    onPromotePlannedTask={async (taskId) => {
-                      setPlannedError("");
-                      try {
-                        await onPromotePlannedTask(taskId);
-                      } catch (error) {
-                        setPlannedError(
-                          error instanceof Error ? error.message : t("errors.saveTask"),
-                        );
-                      }
-                    }}
-                    onMovePlannedTask={async (taskId, direction) => {
-                      setPlannedError("");
-                      try {
-                        await onMovePlannedTask(taskId, direction);
-                      } catch (error) {
-                        setPlannedError(
-                          error instanceof Error ? error.message : t("errors.saveTask"),
-                        );
-                      }
-                    }}
-                    plannedPosition={{
-                      isFirst: index === 0,
-                      isLast: index === plannedTasks.length - 1,
-                    }}
-                  />
-                ))}
-              </div>
+              <GtdTaskList
+                tasks={plannedTasks}
+                workspace={workspace}
+                hideProjectTitle
+                showPlannedControls
+                plannedActions={{
+                  onPromote: async (taskId) => {
+                    setPlannedError("");
+                    try {
+                      await workspace.promotePlannedTask(taskId);
+                    } catch (error) {
+                      setPlannedError(
+                        error instanceof Error ? error.message : t("errors.saveTask"),
+                      );
+                    }
+                  },
+                  onMove: async (taskId, direction) => {
+                    setPlannedError("");
+                    try {
+                      await workspace.movePlannedTask(taskId, direction);
+                    } catch (error) {
+                      setPlannedError(
+                        error instanceof Error ? error.message : t("errors.saveTask"),
+                      );
+                    }
+                  },
+                }}
+              />
             )}
           </div>
         </>
