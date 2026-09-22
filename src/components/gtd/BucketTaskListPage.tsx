@@ -6,6 +6,8 @@ import { useTaskSelection } from "../../app/use-task-selection";
 import type { Task } from "../../domain/types";
 import { effectiveTaskContextIds } from "../../lib/gtd/engine";
 import { BulkTaskToolbar } from "../BulkTaskToolbar";
+import { PageHeader } from "../PageHeader";
+import { ContextFilterChips } from "../ContextFilterChips";
 import { SectionCard } from "../SectionCard";
 import { GtdTaskList } from "./GtdTaskList";
 
@@ -143,13 +145,11 @@ export const BucketTaskListPage = ({
 
   return (
     <div className="page">
-      <header className="hero">
-        <div>
-          <p className="eyebrow">{t(labels.hero.eyebrow)}</p>
-          <h2>{t(labels.hero.title)}</h2>
-          <p className="hero__copy">{t(labels.hero.copy)}</p>
-        </div>
-      </header>
+      <PageHeader
+        eyebrow={t(labels.hero.eyebrow)}
+        title={t(labels.hero.title)}
+        copy={t(labels.hero.copy)}
+      />
 
       {quickAdd && labels.add ? (
         <SectionCard title={t(labels.add.title)} subtitle={t(labels.add.subtitle)}>
@@ -176,25 +176,12 @@ export const BucketTaskListPage = ({
 
       {contextFilter && labels.filters ? (
         <SectionCard title={t(labels.filters.title)} subtitle={t(labels.filters.subtitle)}>
-          <div className="tag-row">
-            <button
-              type="button"
-              className={`tag-chip${selectedContextId === "all" ? " tag-chip--active" : ""}`}
-              onClick={() => setSelectedContextId("all")}
-            >
-              {t(labels.filters.all)}
-            </button>
-            {contexts.map((context) => (
-              <button
-                key={context.id}
-                type="button"
-                className={`tag-chip${selectedContextId === context.id ? " tag-chip--active" : ""}`}
-                onClick={() => setSelectedContextId(context.id)}
-              >
-                {context.name}
-              </button>
-            ))}
-          </div>
+          <ContextFilterChips
+            contexts={contexts}
+            value={selectedContextId}
+            onChange={setSelectedContextId}
+            allLabel={t(labels.filters.all)}
+          />
         </SectionCard>
       ) : null}
 

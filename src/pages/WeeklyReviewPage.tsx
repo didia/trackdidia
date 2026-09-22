@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAppContext } from "../app/app-context";
 import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
+import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
 import { WeeklySynthesisPanel } from "../components/WeeklySynthesisPanel";
 import { deriveStatusLabel } from "../domain/daily-entry";
@@ -796,46 +797,44 @@ export const WeeklyReviewPage = () => {
 
   return (
     <div className="page">
-      <header className="hero">
-        <div>
-          <p className="eyebrow">{t("weekly.hero.eyebrow")}</p>
-          <h2>
-            {t("weekly.hero.range", {
-              start: formatDateLong(summary.weekStartDate),
-              end: formatDateLong(summary.weekEndDate),
-            })}
-          </h2>
-          <p className="hero__copy">{t("weekly.hero.copy")}</p>
-        </div>
-        <div className="hero__actions">
-          <button
-            className="button"
-            type="button"
-            disabled={!hasValidSelectedWeek}
-            onClick={() => {
-              if (!hasValidSelectedWeek) {
-                return;
-              }
-              void loadWeek(addDays(selectedWeekStart, -7));
-            }}
-          >
-            {t("weekly.nav.prev")}
-          </button>
-          <button
-            className="button"
-            type="button"
-            disabled={!hasValidSelectedWeek}
-            onClick={() => {
-              if (!hasValidSelectedWeek) {
-                return;
-              }
-              void loadWeek(addDays(selectedWeekStart, 7));
-            }}
-          >
-            {t("weekly.nav.next")}
-          </button>
-        </div>
-      </header>
+      <PageHeader
+        eyebrow={t("weekly.hero.eyebrow")}
+        title={t("weekly.hero.range", {
+          start: formatDateLong(summary.weekStartDate),
+          end: formatDateLong(summary.weekEndDate),
+        })}
+        copy={t("weekly.hero.copy")}
+        actions={
+          <>
+            <button
+              className="button"
+              type="button"
+              disabled={!hasValidSelectedWeek}
+              onClick={() => {
+                if (!hasValidSelectedWeek) {
+                  return;
+                }
+                void loadWeek(addDays(selectedWeekStart, -7));
+              }}
+            >
+              {t("weekly.nav.prev")}
+            </button>
+            <button
+              className="button"
+              type="button"
+              disabled={!hasValidSelectedWeek}
+              onClick={() => {
+                if (!hasValidSelectedWeek) {
+                  return;
+                }
+                void loadWeek(addDays(selectedWeekStart, 7));
+              }}
+            >
+              {t("weekly.nav.next")}
+            </button>
+          </>
+        }
+      />
 
       <SectionCard title={t("weekly.picker.title")} subtitle={t("weekly.picker.subtitle")}>
         <div className="history-toolbar">

@@ -18,6 +18,7 @@ import { EntrySummaryStrip } from "../components/EntrySummaryStrip";
 import { PersistedTextarea } from "../components/PersistedTextarea";
 import { MetricGrid } from "../components/MetricGrid";
 import { PrincipleChecklist } from "../components/PrincipleChecklist";
+import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
 import { formatDateLong, formatDateShort, getTodayDate } from "../lib/date";
 
@@ -91,13 +92,7 @@ export const HistoryPage = () => {
 
   return (
     <div className="page">
-      <header className="hero">
-        <div>
-          <p className="eyebrow">{t("hero.eyebrow")}</p>
-          <h2>{t("hero.title")}</h2>
-          <p className="hero__copy">{t("hero.copy")}</p>
-        </div>
-      </header>
+      <PageHeader eyebrow={t("hero.eyebrow")} title={t("hero.title")} copy={t("hero.copy")} />
 
       <SectionCard title={t("picker.title")} subtitle={t("picker.subtitle")}>
         <div className="history-toolbar">
