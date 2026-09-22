@@ -1,4 +1,5 @@
-import type { AiMessage, CoachPulseResult } from "../../domain/types";
+import { createEmptyDailyEntry, defaultAppSettings } from "../../domain/daily-entry";
+import type { AiMessage, AppSettings, CoachPulseResult } from "../../domain/types";
 import { getTodayDate } from "../date";
 import { MemoryRepository } from "../storage/memory-repository";
 import {
@@ -6,6 +7,8 @@ import {
   latestScheduledPulseMessage,
   loadLatestClosePulseForDate,
   loadLatestCoachPulseForDate,
+  loadPassiveCoachPulse,
+  refreshCoachPulse,
 } from "./coach-pulse-loader";
 import { CoachPulseService } from "./coach-pulse-service";
 
@@ -135,5 +138,124 @@ describe("coach-pulse-loader", () => {
 
     await expect(loadLatestCoachPulseForDate(repository, coachService, today)).resolves.toBeNull();
     expect(coachService.resultFromMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe("loadPassiveCoachPulse / refreshCoachPulse", () => {
+  const entry = createEmptyDailyEntry(today);
+
+  const setup = async (overrides: Partial<AppSettings> = {}, stored: AiMessage[] = []) => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    vi.spyOn(repository, "listAiMessagesForDate").mockResolvedValue(stored);
+    const settings = { ...defaultAppSettings(), ...overrides };
+    const built = (headline: string, source: CoachPulseResult["source"]) =>
+      ({
+        ...resultFrom(message("built", "open", "2026-08-29T09:00:00.000Z", headline)),
+        source,
+      }) as CoachPulseResult;
+    const coachService = {
+      resultFromMessage: vi.fn(async (_repo: unknown, stored: AiMessage) => resultFrom(stored)),
+      buildPulse: vi.fn(async (_repo: unknown, request: { localOnly?: boolean }) =>
+        request.localOnly ? built("local", "local") : built("ai", "ai"),
+      ),
+    };
+    const published: string[] = [];
+    const run = (stance: "open" | "close", isCurrent = () => true) =>
+      loadPassiveCoachPulse(
+        { repository, coachService: coachService as unknown as CoachPulseService, settings },
+        {
+          entry,
+          stance,
+          isCurrent,
+          publish: (result) => published.push(result.message.bodyText ?? ""),
+        },
+      );
+    return { repository, coachService, settings, published, run };
+  };
+
+  const aiOn = { aiEnabled: true, aiApiKey: "key", aiPulseEnabled: false };
+
+  it("open: publishes a stored pulse and stops", async () => {
+    const { coachService, published, run } = await setup(aiOn, [
+      message("s", "steer", "2026-08-29T13:00:00.000Z", "stored"),
+    ]);
+    await run("open");
+    expect(published).toEqual(["stored"]);
+    expect(coachService.buildPulse).not.toHaveBeenCalled();
+  });
+
+  it("open: builds local then AI when nothing is stored", async () => {
+    const { coachService, published, run } = await setup(aiOn);
+    await run("open");
+    expect(published).toEqual(["local", "ai"]);
+    expect(coachService.buildPulse).toHaveBeenCalledTimes(2);
+  });
+
+  it("open: stops after local when AI is not configured", async () => {
+    const { published, run } = await setup({ aiEnabled: true, aiApiKey: "  " });
+    await run("open");
+    expect(published).toEqual(["local"]);
+  });
+
+  it("open: pulse engine owns persistence when aiPulseEnabled", async () => {
+    const { coachService, published, run } = await setup({ ...aiOn, aiPulseEnabled: true });
+    await run("open");
+    expect(published).toEqual(["local"]);
+    expect(coachService.buildPulse).toHaveBeenCalledTimes(1);
+  });
+
+  it("open: does not publish once the request is stale", async () => {
+    const { published, run } = await setup(aiOn);
+    await run("open", () => false);
+    expect(published).toEqual([]);
+  });
+
+  it("close: publishes stored close pulse then refreshes through AI", async () => {
+    const { coachService, published, run } = await setup(aiOn, [
+      message("c", "close", "2026-08-29T20:00:00.000Z", "stored-close"),
+    ]);
+    await run("close");
+    expect(published).toEqual(["stored-close", "ai"]);
+    expect(coachService.buildPulse).toHaveBeenCalledTimes(1);
+  });
+
+  it("close: builds a local brief only when AI is off and nothing is stored", async () => {
+    const off = await setup();
+    await off.run("close");
+    expect(off.published).toEqual(["local"]);
+
+    const offStored = await setup({}, [
+      message("c", "close", "2026-08-29T20:00:00.000Z", "stored-close"),
+    ]);
+    await offStored.run("close");
+    expect(offStored.published).toEqual(["stored-close"]);
+    expect(offStored.coachService.buildPulse).not.toHaveBeenCalled();
+  });
+
+  it("refresh (open) keeps the latest stored stance and slot hour", async () => {
+    const { repository, coachService, settings } = await setup(aiOn, [
+      message("s", "steer", "2026-08-29T13:00:00.000Z", "stored"),
+    ]);
+    await refreshCoachPulse(
+      { repository, coachService: coachService as unknown as CoachPulseService, settings },
+      { entry, stance: "open", trigger: "explicit", bypassCache: true },
+    );
+    expect(coachService.buildPulse).toHaveBeenCalledWith(
+      repository,
+      expect.objectContaining({ stance: "steer", slotHour: 13, bypassCache: true }),
+    );
+  });
+
+  it("refresh (close) always uses the close stance", async () => {
+    const { repository, coachService, settings } = await setup(aiOn);
+    await refreshCoachPulse(
+      { repository, coachService: coachService as unknown as CoachPulseService, settings },
+      { entry, stance: "close", trigger: "explicit" },
+    );
+    expect(coachService.buildPulse).toHaveBeenCalledWith(
+      repository,
+      expect.objectContaining({ stance: "close", bypassCache: false }),
+    );
   });
 });

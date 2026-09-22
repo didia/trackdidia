@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { useAppContext } from "../app/app-context";
+import { useCoachPulse } from "../app/use-coach-pulse";
 import { useDailyEntry } from "../app/use-daily-entry";
 import { CoachPulsePanel } from "../components/CoachPulsePanel";
 import { EntrySummaryStrip } from "../components/EntrySummaryStrip";
@@ -16,115 +17,26 @@ import {
   updateNote,
   updatePrinciple,
 } from "../domain/daily-entry";
-import type { AiProposal, CoachPulseResult } from "../domain/types";
-import { loadLatestClosePulseForDate } from "../lib/ai/coach-pulse-loader";
-import { resolveDailySnapshotInputs } from "../lib/ai/context/preview";
-import { resolveDueCommitmentsOnClose } from "../lib/ai/memory/lifecycle";
+import type { AiProposal } from "../domain/types";
 import { applyCoachProposal } from "../lib/ai/proposals/apply-proposal";
 import { formatDateLong, getTodayDate } from "../lib/date";
-import { nowIso } from "../lib/gtd/shared";
+import { logDebug } from "../lib/debug";
 
 export const EveningClosurePage = () => {
   const { t } = useTranslation("evening");
   const navigate = useNavigate();
-  const { repository, settings, coachService } = useAppContext();
+  const { repository, settings } = useAppContext();
   const { entry, loading, save } = useDailyEntry(getTodayDate());
-  const [coachResult, setCoachResult] = useState<CoachPulseResult | null>(null);
-  const [coachLoading, setCoachLoading] = useState(true);
+  const {
+    result: coachResult,
+    loading: coachLoading,
+    refresh: loadCoach,
+    setResult: setCoachResult,
+  } = useCoachPulse({ date: entry?.date, entry, stance: "close" });
   const latestEntryRef = useRef(entry);
   const nightReflectionRef = useRef<PersistedTextareaHandle>(null);
   const tomorrowFocusRef = useRef<PersistedTextareaHandle>(null);
   latestEntryRef.current = entry;
-
-  const loadCoachFromStore = useCallback(async () => {
-    const currentEntry = latestEntryRef.current;
-    if (!currentEntry) {
-      return;
-    }
-
-    setCoachLoading(true);
-    try {
-      await resolveDueCommitmentsOnClose(repository, currentEntry.date, currentEntry, nowIso());
-
-      const stored = await loadLatestClosePulseForDate(repository, coachService, currentEntry.date);
-      if (stored) {
-        setCoachResult(stored);
-      }
-
-      const snapshotInputs = await resolveDailySnapshotInputs(
-        repository,
-        currentEntry.date,
-        new Date().toISOString(),
-        undefined,
-        { skipRescueTimeFetch: true },
-      );
-
-      if (!settings.aiEnabled || !settings.aiApiKey.trim()) {
-        if (!stored) {
-          const localResult = await coachService.buildPulse(repository, {
-            stance: "close",
-            entry: currentEntry,
-            settings,
-            snapshotInputs,
-            trigger: "auto",
-            localOnly: true,
-          });
-          setCoachResult(localResult);
-        }
-        return;
-      }
-
-      const aiResult = await coachService.buildPulse(repository, {
-        stance: "close",
-        entry: currentEntry,
-        settings,
-        snapshotInputs,
-        trigger: "auto",
-      });
-      setCoachResult(aiResult);
-    } catch (error) {
-      console.error("Failed to load evening coach pulse", error);
-    } finally {
-      setCoachLoading(false);
-    }
-  }, [coachService, repository, settings]);
-
-  const loadCoach = useCallback(
-    async (options: { trigger: "auto" | "explicit"; bypassCache?: boolean }) => {
-      const currentEntry = latestEntryRef.current;
-      if (!currentEntry) {
-        return;
-      }
-
-      setCoachLoading(true);
-      try {
-        const snapshotInputs = await resolveDailySnapshotInputs(repository, currentEntry.date);
-        const result = await coachService.buildPulse(repository, {
-          stance: "close",
-          entry: currentEntry,
-          settings,
-          snapshotInputs,
-          trigger: options.trigger,
-          bypassCache: options.bypassCache ?? false,
-        });
-        setCoachResult(result);
-      } catch (error) {
-        console.error("Failed to load evening coach pulse", error);
-      } finally {
-        setCoachLoading(false);
-      }
-    },
-    [coachService, repository, settings],
-  );
-
-  const entryDate = entry?.date;
-  useEffect(() => {
-    if (!entryDate) {
-      return;
-    }
-
-    void loadCoachFromStore();
-  }, [entryDate, loadCoachFromStore]);
 
   const handleAcceptProposal = async (proposal: AiProposal) => {
     const currentEntry = latestEntryRef.current;
@@ -161,7 +73,7 @@ export const EveningClosurePage = () => {
           : current,
       );
     } catch (error) {
-      console.error("Failed to accept coach proposal", error);
+      logDebug("error", "ai.coach", "Failed to accept coach proposal", error);
     }
   };
 
