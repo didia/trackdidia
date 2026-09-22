@@ -70,6 +70,16 @@ Completing the current recurring task resets the template's pending missed count
 Cancelling it also clears that count. The task card can explicitly clear the task's
 displayed past count.
 
+Each generation pass reapplies the template's current `contextIds` and `projectId` to the
+active task, even when a previous occurrence's own `saveTask`/`moveTask` call, or an
+`applyRecurringEditScope(..., "occurrence", ...)` edit, had changed them on that task row: a
+newly generated occurrence is driven by the template's current structural fields. `title` and
+`notes`, in contrast, are carried over from the active task rather than reset from the
+template, so an occurrence-level rename survives regeneration. Both `AppRepository`
+implementations must match this; it is covered by
+`repository.contract.ts`'s `generateDueRecurringTasks reapplies the template's current
+contextIds/projectId on the next occurrence` test.
+
 ### Generation triggers
 
 Due recurrence generation runs:
