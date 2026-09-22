@@ -313,11 +313,3 @@ export interface PastorVerseResult {
   source: "ai" | "local" | "fallback" | "cache";
   warning?: string;
 }
-
-export interface CoachMessage {
-  kind: "morning" | "evening";
-  title: string;
-  body: string;
-  source: "local" | "ai" | "fallback";
-  warning?: string;
-}

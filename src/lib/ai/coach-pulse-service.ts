@@ -453,6 +453,3 @@ export class CoachPulseService {
     }
   }
 }
-
-/** @deprecated Use CoachPulseService for structured coach_pulse output. */
-export { AiCoachService } from "./coach-service";

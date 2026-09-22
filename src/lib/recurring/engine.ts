@@ -17,12 +17,6 @@ const addDays = (date: string, amount: number): string => {
   return toLocalDateString(next);
 };
 
-const _addMonths = (date: string, amount: number): string => {
-  const next = atLocalNoon(date);
-  next.setMonth(next.getMonth() + amount, 1);
-  return toLocalDateString(next);
-};
-
 const diffDays = (left: string, right: string): number =>
   Math.floor((atLocalNoon(left).getTime() - atLocalNoon(right).getTime()) / MS_PER_DAY);
 
