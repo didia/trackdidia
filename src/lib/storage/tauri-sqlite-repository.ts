@@ -114,6 +114,7 @@ import {
 } from "../relationship-draws";
 import { DbSerialQueue } from "./db-serial-queue";
 import { EmailTriageSqliteStore } from "./email-triage-sqlite-store";
+import type { Database as SqliteDatabase } from "./email-triage-sqlite-db";
 import type {
   AppRepository,
   BackupResult,
@@ -123,7 +124,7 @@ import type {
 } from "./repository";
 
 /** Thin wrapper around the Rust `db_connect` / `db_execute` / `db_select` commands. */
-class Database {
+class Database implements SqliteDatabase {
   private constructor(readonly _path: string) {}
 
   static async load(path: string): Promise<Database> {
@@ -1069,11 +1070,19 @@ export const migrations: Migration[] = [
 ];
 
 export class TauriSqliteRepository implements AppRepository {
-  private dbPromise: Promise<Database> | null = null;
+  private dbPromise: Promise<SqliteDatabase> | null = null;
   private readonly writeQueue = new DbSerialQueue();
   private emailTriageStore: EmailTriageSqliteStore | null = null;
 
-  constructor(private readonly connectionString = "sqlite:trackdidia.db") {}
+  /**
+   * `openDb` defaults to the real Tauri-backed `Database.load`; tests inject an in-memory
+   * adapter instead (see `repository.contract.ts` and `tauri-sqlite-repository.test.ts`).
+   * Production behavior is unchanged: only the default argument is new.
+   */
+  constructor(
+    private readonly connectionString = "sqlite:trackdidia.db",
+    private readonly openDb: (path: string) => Promise<SqliteDatabase> = Database.load,
+  ) {}
 
   private getEmailTriageStore(): EmailTriageSqliteStore {
     if (!this.emailTriageStore) {
@@ -1170,7 +1179,10 @@ export class TauriSqliteRepository implements AppRepository {
    * COLUMN` already succeeded). Strips SQL fragments that are known not to be safely
    * re-runnable once the migration has already made that specific change.
    */
-  private async resolveIdempotentMigrationSql(db: Database, migration: Migration): Promise<string> {
+  private async resolveIdempotentMigrationSql(
+    db: SqliteDatabase,
+    migration: Migration,
+  ): Promise<string> {
     if (migration.id === 26) {
       const columns = await db.select<{ name: string }[]>("PRAGMA table_info(gtd_tasks)");
       const alreadyHasColumn = columns.some((column) => column.name === "planned_order");
@@ -1384,7 +1396,7 @@ export class TauriSqliteRepository implements AppRepository {
    * Transaction-scoped weekly review upsert. Callers must already hold an open writer slot
    * (via `runExclusive`) and must not re-enter the writer from here.
    */
-  private async saveWeeklyReviewInternal(db: Database, review: WeeklyReview): Promise<void> {
+  private async saveWeeklyReviewInternal(db: SqliteDatabase, review: WeeklyReview): Promise<void> {
     const normalized = buildWeekDates(review.weekStartDate);
     const nextReview = {
       ...cloneWeeklyReview(review),
@@ -1487,7 +1499,10 @@ export class TauriSqliteRepository implements AppRepository {
    * Transaction-scoped monthly review upsert. Callers must already hold an open writer slot
    * (via `runExclusive`) and must not re-enter the writer from here.
    */
-  private async saveMonthlyReviewInternal(db: Database, review: MonthlyReview): Promise<void> {
+  private async saveMonthlyReviewInternal(
+    db: SqliteDatabase,
+    review: MonthlyReview,
+  ): Promise<void> {
     const normalized = getMonthKey(`${review.monthKey}-01`);
     const nextReview = {
       ...cloneMonthlyReview(review),
@@ -1733,7 +1748,7 @@ export class TauriSqliteRepository implements AppRepository {
    * (via `runExclusive`) and must not re-enter the writer from here.
    */
   private async saveWeeklyObjectiveInternal(
-    db: Database,
+    db: SqliteDatabase,
     objective: WeeklyObjective,
   ): Promise<WeeklyObjective> {
     const timestamp = nowIso();
@@ -1848,7 +1863,7 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   /** Shared by `saveSettings` and `addPastorCustomVerse` — callers must already hold `writeQueue`. */
-  private async writeSettingsRow(db: Database, settings: AppSettings): Promise<AppSettings> {
+  private async writeSettingsRow(db: SqliteDatabase, settings: AppSettings): Promise<AppSettings> {
     const normalized = mergeAppSettingsWithDefaults(settings, defaultAppSettings());
     await db.execute(
       `INSERT INTO app_settings (id, value)
@@ -1967,7 +1982,7 @@ export class TauriSqliteRepository implements AppRepository {
     return this.deserializeAiMessage(rows[0]);
   }
 
-  private async insertAiMessage(db: Database, message: AiMessage): Promise<AiMessage> {
+  private async insertAiMessage(db: SqliteDatabase, message: AiMessage): Promise<AiMessage> {
     await db.execute(
       `INSERT INTO ai_messages (
         id, surface, scope_key, stance, kind, input_hash, prompt_version, model,
@@ -2242,7 +2257,7 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   /** Best-effort ROLLBACK; a secondary "no transaction" error must not mask the original failure. */
-  private async rollbackQuietly(db: Database): Promise<void> {
+  private async rollbackQuietly(db: SqliteDatabase): Promise<void> {
     try {
       await db.execute("ROLLBACK");
     } catch (rollbackError) {
@@ -2658,7 +2673,7 @@ export class TauriSqliteRepository implements AppRepository {
    * Transaction-scoped memory upsert. Callers must already hold an open writer slot
    * (via `runExclusive`) and must not re-enter the writer from here.
    */
-  private async saveAiMemoryInternal(db: Database, memory: AiMemory): Promise<AiMemory> {
+  private async saveAiMemoryInternal(db: SqliteDatabase, memory: AiMemory): Promise<AiMemory> {
     await db.execute(
       `INSERT INTO ai_memories (
         id, kind, statement, detail, confidence, source, status,
@@ -3396,7 +3411,7 @@ export class TauriSqliteRepository implements AppRepository {
    * an open `BEGIN IMMEDIATE` transaction on `db` (via `runExclusive`) and must not re-enter
    * the writer or open a nested transaction from here.
    */
-  private async saveTaskInternal(db: Database, task: Task): Promise<Task> {
+  private async saveTaskInternal(db: SqliteDatabase, task: Task): Promise<Task> {
     const previous = await this.getTaskById(task.id);
     const allTasks = await this.getAllTasks();
     const adjusted = adjustPlannedFieldsForSave(previous, task, allTasks);
@@ -3539,7 +3554,7 @@ export class TauriSqliteRepository implements AppRepository {
    * `BEGIN IMMEDIATE` and must never re-enter the writer or open a nested transaction.
    */
   private async reconcileProjectsInternal(
-    _db: Database,
+    _db: SqliteDatabase,
     projectIds: Array<string | null | undefined>,
   ): Promise<void> {
     const uniqueIds = [...new Set(projectIds.filter((id): id is string => Boolean(id)))];
@@ -4053,10 +4068,10 @@ export class TauriSqliteRepository implements AppRepository {
     };
   }
 
-  private async getDb(): Promise<Database> {
+  private async getDb(): Promise<SqliteDatabase> {
     if (!this.dbPromise) {
       logDebug("info", "storage.sqlite", "Ouverture connexion SQLite", this.connectionString);
-      this.dbPromise = Database.load(this.connectionString);
+      this.dbPromise = this.openDb(this.connectionString);
     }
 
     return this.dbPromise;
@@ -4294,10 +4309,12 @@ export class TauriSqliteRepository implements AppRepository {
 
   private async getAllEvents(): Promise<TaskEvent[]> {
     const db = await this.getDb();
+    // Parity with `MemoryRepository.listTaskEvents`: order chronologically by `eventAt` rather
+    // than leaving callers to depend on incidental table (insertion) order.
     const rows = await db.select<TaskEventRow[]>(
       `SELECT
         id, task_id, type, event_date, event_at, created_at, dedupe_key, metadata_json
-      FROM gtd_task_events`,
+      FROM gtd_task_events ORDER BY event_at ASC`,
     );
     return rows.map((row) => this.deserializeEvent(row));
   }
