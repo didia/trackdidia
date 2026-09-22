@@ -240,7 +240,9 @@ repository/domain behavior.
 | `metadata_json` | Small string map |
 
 This table is append-only in normal application behavior and is required for
-historical daily task counts.
+historical daily task counts. `AppRepository.listTaskEvents` returns rows ordered
+chronologically by `event_at` ascending in both implementations (covered by
+`repository.contract.ts`), not by insertion/table order.
 
 ### `recurring_task_templates`
 

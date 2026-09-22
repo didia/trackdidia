@@ -149,7 +149,19 @@ Useful test infrastructure:
 
 - `src/test/setup.ts` installs DOM matchers;
 - `src/test/test-utils.tsx` provides app/router-aware rendering;
-- `MemoryRepository` is the preferred deterministic adapter for UI tests.
+- `MemoryRepository` is the preferred deterministic adapter for UI tests;
+- `src/lib/storage/repository.contract.ts` exports `describeRepositoryContract(name, factory)`,
+  an implementation-agnostic `AppRepository` behavior spec (task lifecycle/events, planned
+  ordering, recurrences, Pomodoro, reviews, settings, AI proposals). `memory-repository.test.ts`
+  and `tauri-sqlite-repository.test.ts` both call it, so the two `AppRepository` implementations
+  are held to one shared spec instead of drifting; `tauri-sqlite-repository.test.ts` runs it
+  against `TauriSqliteRepository` wired to `src/test/mocks/node-sqlite-database.ts`, a
+  `node:sqlite`-backed `:memory:` adapter injected through `TauriSqliteRepository`'s `openDb`
+  constructor argument (production always uses the default, Tauri-backed `Database.load`). Add
+  a new implementation-agnostic case to the contract rather than only to one implementation's
+  test file; keep implementation-specific tests (e.g. migration SQL assertions) in their own
+  files. Storage tests must only ever open `:memory:` or a temp-file database, never an app-data
+  path.
 
 High-value edge cases include:
 

@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-22 | `MemoryRepository.generateDueRecurringTasks` now reapplies the template's current `contextIds`/`projectId` to the active task on every generation, matching `TauriSqliteRepository` (previously it kept whatever the active task row already had); title/notes still carry over from the active task | `docs/recurrences-and-pomodoro.md` | `src/lib/storage/memory-repository.ts`, `src/lib/storage/repository.contract.ts` |
 | 2026-09-11 | Pomodoro task pickers offer active Next Actions only; Scheduled tasks are excluded until promotion | `docs/recurrences-and-pomodoro.md` | `isPomodoroTaskEligible`, `use-pomodoro-controller.test.tsx` |
 | 2026-09-08 | Idle overlay now ticks its own 25-minute idle clock (`AppShell` and `FloatingPomodoroTimer`) so it hides itself with no other app activity, instead of relying on an unrelated re-render; documented the local-midnight edge case where the overlay can hide slightly earlier than 25 minutes | `docs/recurrences-and-pomodoro.md` | `FloatingPomodoroTimer.test.tsx` |
 | 2026-09-07 | Floating Pomodoro overlay persists through idle cycle steps with compact start-break/start-focus actions; hidden on `/pomodoro` | `docs/recurrences-and-pomodoro.md`, `docs/architecture.md` | `FloatingPomodoroTimer`, `shouldShowFloatingPomodoro` |

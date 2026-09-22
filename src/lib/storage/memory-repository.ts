@@ -1145,6 +1145,15 @@ export class MemoryRepository implements AppRepository {
         ? {
             ...cloneTask(activeTask),
             bucket: template.targetBucket,
+            // Reapply the template's contextIds/projectId on every generation (matching
+            // TauriSqliteRepository): a new occurrence is driven by the template's current
+            // structural fields even if a previous occurrence-scope edit changed them, while
+            // title/notes are deliberately left as the active task's (occurrence customization
+            // survives regeneration).
+            contextIds: [...template.contextIds],
+            projectId: template.projectId,
+            title: activeTask.title,
+            notes: activeTask.notes,
             scheduledFor:
               template.targetBucket === "scheduled"
                 ? buildTaskFromRecurringTemplate(template, latestDueDate, pendingPastRecurrences)
