@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppContext } from "../app/app-context";
+import { useLatestRequest } from "../app/use-latest-request";
 import { GoalPacingPanel } from "../components/GoalPacingPanel";
 import { PersistedTextarea } from "../components/PersistedTextarea";
 import { SectionCard } from "../components/SectionCard";
@@ -774,7 +775,7 @@ export const AnnualGoalsPage = () => {
   const [showAllStatuses, setShowAllStatuses] = useState(false);
   const [pacingResult, setPacingResult] = useState<GoalPacingResult | null>(null);
   const [pacingLoading, setPacingLoading] = useState(false);
-  const pacingRequestSeqRef = useRef(0);
+  const pacingRequest = useLatestRequest();
   const hasValidSelectedYear = useMemo(
     () => Number.isInteger(selectedYear) && selectedYear >= 2000 && selectedYear <= 2100,
     [selectedYear],
@@ -811,34 +812,35 @@ export const AnnualGoalsPage = () => {
 
   const runPacing = useCallback(
     async (options: { year: number; trigger: "auto" | "explicit"; bypassCache?: boolean }) => {
-      const requestId = ++pacingRequestSeqRef.current;
-      setPacingLoading(true);
-      if (options.trigger !== "auto") {
-        setPacingResult(null);
-      }
-      try {
-        const snapshotInputs = await resolveGoalPacingSnapshotInputs(repository, options.year, {
-          asOfDate: getTodayDate(),
-          evaluationMonthKey,
-        });
-        const result = await pacingService.buildPacing(repository, {
-          year: options.year,
-          settings,
-          snapshotInputs,
-          trigger: options.trigger,
-          bypassCache: options.bypassCache,
-        });
-        if (requestId !== pacingRequestSeqRef.current) {
-          return;
+      await pacingRequest.run(async (signal) => {
+        setPacingLoading(true);
+        if (options.trigger !== "auto") {
+          setPacingResult(null);
         }
-        setPacingResult(result);
-      } finally {
-        if (requestId === pacingRequestSeqRef.current) {
-          setPacingLoading(false);
+        try {
+          const snapshotInputs = await resolveGoalPacingSnapshotInputs(repository, options.year, {
+            asOfDate: getTodayDate(),
+            evaluationMonthKey,
+          });
+          const result = await pacingService.buildPacing(repository, {
+            year: options.year,
+            settings,
+            snapshotInputs,
+            trigger: options.trigger,
+            bypassCache: options.bypassCache,
+          });
+          if (!signal.isLatest()) {
+            return;
+          }
+          setPacingResult(result);
+        } finally {
+          if (signal.isLatest()) {
+            setPacingLoading(false);
+          }
         }
-      }
+      });
     },
-    [evaluationMonthKey, pacingService, repository, settings],
+    [evaluationMonthKey, pacingRequest, pacingService, repository, settings],
   );
 
   useEffect(() => {
