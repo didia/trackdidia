@@ -12,12 +12,13 @@ import { SectionCard } from "../components/SectionCard";
 import { resolveMetricValue, updateNote } from "../domain/daily-entry";
 import { getDefaultMonthlyReviewMonthKey, isFirstSaturdayOfMonth } from "../domain/monthly-review";
 import { getDefaultWeeklyReviewWeekStart } from "../domain/weekly-review";
-import type { AiProposal, CoachPulseResult, Task } from "../domain/types";
+import type { AiProposal, CoachPulseResult } from "../domain/types";
 import { loadLatestCoachPulseForDate } from "../lib/ai/coach-pulse-loader";
 import { resolveDailySnapshotInputs } from "../lib/ai/context/preview";
 import { applyCoachProposal } from "../lib/ai/proposals/apply-proposal";
 import { formatDateLong, formatDateTimeShort, getTodayDate } from "../lib/date";
 import { formatTimestamp } from "../lib/format";
+import { bucketLabelKeys } from "../lib/gtd/labels";
 import { getWeekStartSunday, isSunday, isWednesday } from "../lib/gtd/shared";
 import type { DailyTaskBreakdown } from "../lib/storage/repository";
 
@@ -271,16 +272,6 @@ export const TodayPage = () => {
           }
         : current,
     );
-  };
-
-  const bucketLabels: Record<Task["bucket"], string> = {
-    inbox: t("buckets.inbox"),
-    next_action: t("buckets.nextAction"),
-    scheduled: t("buckets.scheduled"),
-    waiting_for: t("buckets.waitingFor"),
-    someday_maybe: t("buckets.somedayMaybe"),
-    reference: t("buckets.reference"),
-    planned: t("buckets.planned"),
   };
 
   if (loading || !entry) {
@@ -540,7 +531,7 @@ export const TodayPage = () => {
                   <article key={`${openTaskPanel}-${task.id}`} className="daily-task-item">
                     <strong>{task.title}</strong>
                     <span>
-                      {bucketLabels[task.bucket]}
+                      {t(bucketLabelKeys[task.bucket])}
                       {task.scheduledFor ? ` • ${formatDateTimeShort(task.scheduledFor)}` : ""}
                     </span>
                   </article>

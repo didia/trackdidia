@@ -35,6 +35,8 @@ import type {
   PomodoroSegment,
   PomodoroSession,
   Project,
+  RecurringEditScope,
+  RecurringTaskChanges,
   RecurringTaskTemplate,
   Task,
   TaskContext,
@@ -3311,16 +3313,8 @@ export class TauriSqliteRepository implements AppRepository {
 
   async applyRecurringEditScope(
     taskId: string,
-    scope: "occurrence" | "series",
-    changes: {
-      title?: string;
-      notes?: string;
-      bucket?: "next_action" | "scheduled";
-      contextIds?: string[];
-      projectId?: string | null;
-      scheduledFor?: string | null;
-      deadline?: string | null;
-    },
+    scope: RecurringEditScope,
+    changes: RecurringTaskChanges,
   ) {
     const task = await this.requireTask(taskId);
     if (!task.recurringTemplateId) {
