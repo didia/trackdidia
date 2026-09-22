@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAppContext } from "../app/app-context";
+import { type LatestRequest, useLatestRequest } from "../app/use-latest-request";
 import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
 import { SectionCard } from "../components/SectionCard";
 import { WeeklySynthesisPanel } from "../components/WeeklySynthesisPanel";
@@ -124,108 +125,111 @@ export const WeeklyReviewPage = () => {
     {},
   );
   const nextWeekDimancheRef = useRef<PersistedTextareaHandle | null>(null);
-  const weekRequestSeqRef = useRef(0);
-  const goalsRequestSeqRef = useRef(0);
-  const pulseRequestSeqRef = useRef(0);
-  const standingObjectivesRequestSeqRef = useRef(0);
-  const synthesisRequestSeqRef = useRef(0);
+  const weekRequest = useLatestRequest();
+  const goalsRequest = useLatestRequest();
+  const pulseRequest = useLatestRequest();
+  const standingObjectivesRequest = useLatestRequest();
+  const synthesisRequest = useLatestRequest();
   const goalsSnapshotRef = useRef(goalsSnapshot);
   const pulseSnapshotRef = useRef(pulseSnapshot);
   goalsSnapshotRef.current = goalsSnapshot;
   pulseSnapshotRef.current = pulseSnapshot;
 
-  const loadGoalsSnapshot = useCallback(
-    async (requestedWeekStart: string, options?: { refreshing?: boolean }) => {
-      const requestId = ++goalsRequestSeqRef.current;
-      if (options?.refreshing) {
-        setGoalsRefreshing(true);
-      } else {
-        setGoalsLoading(true);
-      }
-      setRescueTimeMessage("");
-      try {
-        const goals = await goalsService.computeGoalsSnapshot(requestedWeekStart);
-        if (requestId !== goalsRequestSeqRef.current) {
-          return;
-        }
-        setGoalsSnapshot(goals);
-      } catch (error) {
-        if (requestId !== goalsRequestSeqRef.current) {
-          return;
-        }
-        if (options?.refreshing) {
-          setRescueTimeMessage(
-            error instanceof Error ? error.message : t("weekly.rescueGoals.refreshError"),
-          );
-        }
-      } finally {
-        if (requestId === goalsRequestSeqRef.current) {
+  const loadSnapshot = useCallback(
+    async <T,>(
+      request: LatestRequest,
+      config: {
+        compute: (weekStart: string) => Promise<T>;
+        apply: (snapshot: T) => void;
+        setLoading: (value: boolean) => void;
+        setRefreshing: (value: boolean) => void;
+        refreshErrorKey: "weekly.rescueGoals.refreshError" | "weekly.rescueGoals.pulseRefreshError";
+      },
+      requestedWeekStart: string,
+      options?: { refreshing?: boolean },
+    ) => {
+      await request.run(async (signal) => {
+        const setBusy = options?.refreshing ? config.setRefreshing : config.setLoading;
+        setBusy(true);
+        setRescueTimeMessage("");
+        try {
+          const snapshot = await config.compute(requestedWeekStart);
+          if (!signal.isLatest()) {
+            return;
+          }
+          config.apply(snapshot);
+        } catch (error) {
+          if (!signal.isLatest()) {
+            return;
+          }
           if (options?.refreshing) {
-            setGoalsRefreshing(false);
-          } else {
-            setGoalsLoading(false);
+            setRescueTimeMessage(
+              error instanceof Error ? error.message : t(config.refreshErrorKey),
+            );
+          }
+        } finally {
+          if (signal.isLatest()) {
+            setBusy(false);
           }
         }
-      }
+      });
     },
-    [goalsService, t],
+    [t],
+  );
+
+  const loadGoalsSnapshot = useCallback(
+    (requestedWeekStart: string, options?: { refreshing?: boolean }) =>
+      loadSnapshot(
+        goalsRequest,
+        {
+          compute: (weekStart) => goalsService.computeGoalsSnapshot(weekStart),
+          apply: setGoalsSnapshot,
+          setLoading: setGoalsLoading,
+          setRefreshing: setGoalsRefreshing,
+          refreshErrorKey: "weekly.rescueGoals.refreshError",
+        },
+        requestedWeekStart,
+        options,
+      ),
+    [goalsRequest, goalsService, loadSnapshot],
   );
 
   const loadPulseSnapshot = useCallback(
-    async (requestedWeekStart: string, options?: { refreshing?: boolean }) => {
-      const requestId = ++pulseRequestSeqRef.current;
-      if (options?.refreshing) {
-        setPulseRefreshing(true);
-      } else {
-        setPulseLoading(true);
-      }
-      setRescueTimeMessage("");
-      try {
-        const pulse = await goalsService.computeProductivityPulse(requestedWeekStart);
-        if (requestId !== pulseRequestSeqRef.current) {
-          return;
-        }
-        setPulseSnapshot(pulse);
-      } catch (error) {
-        if (requestId !== pulseRequestSeqRef.current) {
-          return;
-        }
-        if (options?.refreshing) {
-          setRescueTimeMessage(
-            error instanceof Error ? error.message : t("weekly.rescueGoals.pulseRefreshError"),
-          );
-        }
-      } finally {
-        if (requestId === pulseRequestSeqRef.current) {
-          if (options?.refreshing) {
-            setPulseRefreshing(false);
-          } else {
-            setPulseLoading(false);
-          }
-        }
-      }
-    },
-    [goalsService, t],
+    (requestedWeekStart: string, options?: { refreshing?: boolean }) =>
+      loadSnapshot(
+        pulseRequest,
+        {
+          compute: (weekStart) => goalsService.computeProductivityPulse(weekStart),
+          apply: setPulseSnapshot,
+          setLoading: setPulseLoading,
+          setRefreshing: setPulseRefreshing,
+          refreshErrorKey: "weekly.rescueGoals.pulseRefreshError",
+        },
+        requestedWeekStart,
+        options,
+      ),
+    [goalsService, loadSnapshot, pulseRequest],
   );
 
   const loadStandingObjectives = useCallback(
     async (requestedWeekStart: string) => {
-      const requestId = ++standingObjectivesRequestSeqRef.current;
-      setStandingObjectivesLoading(true);
-      try {
-        const snapshot =
-          await objectivesService.computeWeeklyObjectivesSnapshot(requestedWeekStart);
-        if (requestId !== standingObjectivesRequestSeqRef.current) {
-          return;
+      await standingObjectivesRequest.run(async (signal) => {
+        setStandingObjectivesLoading(true);
+        try {
+          const snapshot =
+            await objectivesService.computeWeeklyObjectivesSnapshot(requestedWeekStart);
+          if (!signal.isLatest()) {
+            return;
+          }
+          setStandingObjectivesSnapshot(snapshot);
+        } finally {
+          if (signal.isLatest()) {
+            setStandingObjectivesLoading(false);
+          }
         }
-        setStandingObjectivesSnapshot(snapshot);
-      } finally {
-        if (requestId === standingObjectivesRequestSeqRef.current) {
-          setStandingObjectivesLoading(false);
-        }
-      }
+      });
     },
-    [objectivesService],
+    [objectivesService, standingObjectivesRequest],
   );
 
   const loadRescueTimeData = useCallback(
@@ -294,83 +298,84 @@ export const WeeklyReviewPage = () => {
 
   const loadWeek = useCallback(
     async (requestedWeekStart: string) => {
-      const requestId = ++weekRequestSeqRef.current;
-      const normalized = buildWeekDates(requestedWeekStart);
-      setLoading(true);
-      setSynthesisResult(null);
-      try {
-        const notesWeekStart = dimancheNotesWeekStart(normalized, calendarDay);
-        const notesOnNextWeek = notesWeekStart !== normalized;
-        const settleWeek = async (weekStartDate: string) => {
-          let pending = reviewSaveChainsRef.current.get(weekStartDate);
-          while (pending) {
-            await pending;
-            if (requestId !== weekRequestSeqRef.current) {
-              return;
+      await weekRequest.run(async (signal) => {
+        const normalized = buildWeekDates(requestedWeekStart);
+        setLoading(true);
+        setSynthesisResult(null);
+        try {
+          const notesWeekStart = dimancheNotesWeekStart(normalized, calendarDay);
+          const notesOnNextWeek = notesWeekStart !== normalized;
+          const settleWeek = async (weekStartDate: string) => {
+            let pending = reviewSaveChainsRef.current.get(weekStartDate);
+            while (pending) {
+              await pending;
+              if (!signal.isLatest()) {
+                return;
+              }
+              const latest = reviewSaveChainsRef.current.get(weekStartDate);
+              if (!latest || latest === pending) {
+                return;
+              }
+              pending = latest;
             }
-            const latest = reviewSaveChainsRef.current.get(weekStartDate);
-            if (!latest || latest === pending) {
-              return;
-            }
-            pending = latest;
+          };
+          await settleWeek(normalized);
+          if (notesOnNextWeek) {
+            await settleWeek(notesWeekStart);
           }
-        };
-        await settleWeek(normalized);
-        if (notesOnNextWeek) {
-          await settleWeek(notesWeekStart);
+          if (!signal.isLatest()) {
+            return;
+          }
+          const displayedSeq = reviewSnapshotSeqRef.current.get(normalized) ?? 0;
+          const dimancheSeq = reviewSnapshotSeqRef.current.get(notesWeekStart) ?? 0;
+          const [existingReview, computedSummary, existingDimancheReview] = await Promise.all([
+            repository.getWeeklyReview(normalized),
+            repository.computeWeeklyReviewSummary(normalized),
+            notesOnNextWeek ? repository.getWeeklyReview(notesWeekStart) : Promise.resolve(null),
+          ]);
+          if (!signal.isLatest()) {
+            return;
+          }
+          const keepDisplayedSnapshot =
+            (reviewSnapshotSeqRef.current.get(normalized) ?? 0) !== displayedSeq ||
+            (reviewSaveInFlightRef.current.get(normalized) ?? 0) > 0;
+          const keepDimancheSnapshot =
+            notesOnNextWeek &&
+            ((reviewSnapshotSeqRef.current.get(notesWeekStart) ?? 0) !== dimancheSeq ||
+              (reviewSaveInFlightRef.current.get(notesWeekStart) ?? 0) > 0);
+          const nextReview = keepDisplayedSnapshot
+            ? (reviewSnapshotsRef.current.get(normalized) ??
+              existingReview ??
+              createEmptyWeeklyReview(normalized))
+            : (existingReview ?? createEmptyWeeklyReview(normalized));
+          const nextDimancheReview = notesOnNextWeek
+            ? keepDimancheSnapshot
+              ? (reviewSnapshotsRef.current.get(notesWeekStart) ??
+                existingDimancheReview ??
+                createEmptyWeeklyReview(notesWeekStart))
+              : (existingDimancheReview ?? createEmptyWeeklyReview(notesWeekStart))
+            : null;
+          if (!keepDisplayedSnapshot) {
+            reviewSnapshotsRef.current.set(normalized, nextReview);
+          }
+          if (nextDimancheReview && !keepDimancheSnapshot) {
+            reviewSnapshotsRef.current.set(notesWeekStart, nextDimancheReview);
+          }
+          latestReviewRef.current = nextReview;
+          latestDimancheReviewRef.current = nextDimancheReview;
+          setSelectedWeekStart(normalized);
+          setReview(nextReview);
+          setDimancheReview(nextDimancheReview);
+          setSummary(computedSummary);
+          void loadRescueTimeData(normalized);
+        } finally {
+          if (signal.isLatest()) {
+            setLoading(false);
+          }
         }
-        if (requestId !== weekRequestSeqRef.current) {
-          return;
-        }
-        const displayedSeq = reviewSnapshotSeqRef.current.get(normalized) ?? 0;
-        const dimancheSeq = reviewSnapshotSeqRef.current.get(notesWeekStart) ?? 0;
-        const [existingReview, computedSummary, existingDimancheReview] = await Promise.all([
-          repository.getWeeklyReview(normalized),
-          repository.computeWeeklyReviewSummary(normalized),
-          notesOnNextWeek ? repository.getWeeklyReview(notesWeekStart) : Promise.resolve(null),
-        ]);
-        if (requestId !== weekRequestSeqRef.current) {
-          return;
-        }
-        const keepDisplayedSnapshot =
-          (reviewSnapshotSeqRef.current.get(normalized) ?? 0) !== displayedSeq ||
-          (reviewSaveInFlightRef.current.get(normalized) ?? 0) > 0;
-        const keepDimancheSnapshot =
-          notesOnNextWeek &&
-          ((reviewSnapshotSeqRef.current.get(notesWeekStart) ?? 0) !== dimancheSeq ||
-            (reviewSaveInFlightRef.current.get(notesWeekStart) ?? 0) > 0);
-        const nextReview = keepDisplayedSnapshot
-          ? (reviewSnapshotsRef.current.get(normalized) ??
-            existingReview ??
-            createEmptyWeeklyReview(normalized))
-          : (existingReview ?? createEmptyWeeklyReview(normalized));
-        const nextDimancheReview = notesOnNextWeek
-          ? keepDimancheSnapshot
-            ? (reviewSnapshotsRef.current.get(notesWeekStart) ??
-              existingDimancheReview ??
-              createEmptyWeeklyReview(notesWeekStart))
-            : (existingDimancheReview ?? createEmptyWeeklyReview(notesWeekStart))
-          : null;
-        if (!keepDisplayedSnapshot) {
-          reviewSnapshotsRef.current.set(normalized, nextReview);
-        }
-        if (nextDimancheReview && !keepDimancheSnapshot) {
-          reviewSnapshotsRef.current.set(notesWeekStart, nextDimancheReview);
-        }
-        latestReviewRef.current = nextReview;
-        latestDimancheReviewRef.current = nextDimancheReview;
-        setSelectedWeekStart(normalized);
-        setReview(nextReview);
-        setDimancheReview(nextDimancheReview);
-        setSummary(computedSummary);
-        void loadRescueTimeData(normalized);
-      } finally {
-        if (requestId === weekRequestSeqRef.current) {
-          setLoading(false);
-        }
-      }
+      });
     },
-    [calendarDay, loadRescueTimeData, repository],
+    [calendarDay, loadRescueTimeData, repository, weekRequest],
   );
 
   useEffect(() => {
@@ -412,74 +417,75 @@ export const WeeklyReviewPage = () => {
       bypassCache?: boolean;
       skipHashCheck?: boolean;
     }) => {
-      const requestId = ++synthesisRequestSeqRef.current;
-      setSynthesisLoading(true);
-      if (options.trigger !== "auto") {
-        setSynthesisResult(null);
-      }
+      await synthesisRequest.run(async (signal) => {
+        setSynthesisLoading(true);
+        if (options.trigger !== "auto") {
+          setSynthesisResult(null);
+        }
 
-      try {
-        if (options.trigger === "auto") {
-          const stored = await loadLatestWeeklySynthesis(
-            repository,
-            synthesisService,
-            options.weekStartDate,
-          );
-          if (requestId !== synthesisRequestSeqRef.current) {
+        try {
+          if (options.trigger === "auto") {
+            const stored = await loadLatestWeeklySynthesis(
+              repository,
+              synthesisService,
+              options.weekStartDate,
+            );
+            if (!signal.isLatest()) {
+              return;
+            }
+            if (stored) {
+              setSynthesisResult(stored);
+            }
+          }
+
+          if (options.skipHashCheck) {
             return;
           }
-          if (stored) {
-            setSynthesisResult(stored);
+
+          const goals =
+            goalsSnapshotRef.current?.weekStartDate === options.weekStartDate
+              ? goalsSnapshotRef.current
+              : null;
+          const pulse =
+            pulseSnapshotRef.current?.weekStartDate === options.weekStartDate
+              ? pulseSnapshotRef.current
+              : null;
+          const snapshotInputs = await resolveWeeklySnapshotInputs(
+            repository,
+            options.weekStartDate,
+            {
+              productivityPulse: pulse?.pulse ?? null,
+              rescueTimeGoalsScore: goals?.score ?? null,
+              rescueTimeGoalItems: goals?.items ?? [],
+              rescuetimeConfigured: Boolean(settings.rescuetimeApiKey.trim()),
+            },
+          );
+
+          if (!signal.isLatest()) {
+            return;
+          }
+
+          const result = await synthesisService.buildSynthesis(repository, {
+            weekStartDate: options.weekStartDate,
+            settings,
+            snapshotInputs,
+            trigger: options.trigger,
+            bypassCache: options.bypassCache,
+          });
+
+          if (!signal.isLatest()) {
+            return;
+          }
+
+          setSynthesisResult(result);
+        } finally {
+          if (signal.isLatest()) {
+            setSynthesisLoading(false);
           }
         }
-
-        if (options.skipHashCheck) {
-          return;
-        }
-
-        const goals =
-          goalsSnapshotRef.current?.weekStartDate === options.weekStartDate
-            ? goalsSnapshotRef.current
-            : null;
-        const pulse =
-          pulseSnapshotRef.current?.weekStartDate === options.weekStartDate
-            ? pulseSnapshotRef.current
-            : null;
-        const snapshotInputs = await resolveWeeklySnapshotInputs(
-          repository,
-          options.weekStartDate,
-          {
-            productivityPulse: pulse?.pulse ?? null,
-            rescueTimeGoalsScore: goals?.score ?? null,
-            rescueTimeGoalItems: goals?.items ?? [],
-            rescuetimeConfigured: Boolean(settings.rescuetimeApiKey.trim()),
-          },
-        );
-
-        if (requestId !== synthesisRequestSeqRef.current) {
-          return;
-        }
-
-        const result = await synthesisService.buildSynthesis(repository, {
-          weekStartDate: options.weekStartDate,
-          settings,
-          snapshotInputs,
-          trigger: options.trigger,
-          bypassCache: options.bypassCache,
-        });
-
-        if (requestId !== synthesisRequestSeqRef.current) {
-          return;
-        }
-
-        setSynthesisResult(result);
-      } finally {
-        if (requestId === synthesisRequestSeqRef.current) {
-          setSynthesisLoading(false);
-        }
-      }
+      });
     },
-    [repository, settings, synthesisService],
+    [repository, settings, synthesisRequest, synthesisService],
   );
 
   useEffect(() => {
