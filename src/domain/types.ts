@@ -680,14 +680,6 @@ export interface AppSettings {
   previousDayReviewDoneDate: string;
 }
 
-export interface CoachMessage {
-  kind: "morning" | "evening";
-  title: string;
-  body: string;
-  source: "local" | "ai" | "fallback";
-  warning?: string;
-}
-
 export type TaskStatus = "active" | "completed" | "cancelled";
 export type TaskBucket =
   | "inbox"
