@@ -17,7 +17,11 @@ and project records, and an event ledger used for daily statistics.
 | `reference` | `/references` | Non-actionable material |
 | `planned` | `/projects` (per-project group only) | Project-only ordered queue; not a route/global bucket |
 
-The shared `GtdTaskCard` can edit title, notes, bucket, project, contexts, scheduled
+Screens render task lists through `GtdTaskList`
+(`src/components/gtd/GtdTaskList.tsx`), which wires each `GtdTaskCard` to the
+page's own `useGtdWorkspace()` result via a `workspace` prop (so every action
+reloads the state the page shows). Bucket label i18n keys live only in
+`src/lib/gtd/labels.ts`. The shared `GtdTaskCard` can edit title, notes, bucket, project, contexts, scheduled
 date/time, and deadline. It can also complete or cancel the task. The collapsed
 summary reads the persisted task (not unsaved editor draft): bucket, then the
 assigned project title when present, then context names, joined with ` • `. A
@@ -120,7 +124,7 @@ Contexts are flat tags. IDs are normally deterministic:
 context:<slugified lowercase name>
 ```
 
-The task card can create or rename contexts. Names must be non-empty and unique
+The task card (via `TaskContextEditor`) can create or rename contexts. Names must be non-empty and unique
 case-insensitively at the repository level. Renaming preserves the ID, so existing
 task/project arrays remain linked. Context chips on the expanded task card still
 reflect only the task's stored `contextIds`; inherited project contexts are
