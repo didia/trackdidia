@@ -1,6 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
-import type { CreateTaskInput, Project, Task, TaskContext, TaskEvent } from "../domain/types";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type {
+  CreateTaskInput,
+  Project,
+  RecurringEditScope,
+  RecurringTaskChanges,
+  Task,
+  TaskContext,
+  TaskEvent,
+} from "../domain/types";
 import { getTodayDate } from "../lib/date";
+import { planBulkBucketMove } from "../lib/gtd/bulk-move";
 import { useAppContext } from "./app-context";
 
 export const useGtdWorkspace = () => {
@@ -10,6 +19,8 @@ export const useGtdWorkspace = () => {
   const [contexts, setContexts] = useState<TaskContext[]>([]);
   const [taskEvents, setTaskEvents] = useState<TaskEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const tasksRef = useRef(tasks);
+  tasksRef.current = tasks;
 
   const load = useCallback(
     async (options?: { preserveVisibleState?: boolean }) => {
@@ -17,11 +28,12 @@ export const useGtdWorkspace = () => {
         setLoading(true);
       }
 
-      await repository.generateDueRecurringTasks(getTodayDate());
-      await repository.promoteDueScheduledTasks(getTodayDate());
+      // Recurrence generation and Scheduled promotion are reconciled inside
+      // `repository.listTasks`; relationship tasks are not, so generate them here.
       await repository.generateDailyRelationshipTasks(getTodayDate());
-      const [nextTasks, nextProjects, nextContexts, nextEvents] = await Promise.all([
-        repository.listTasks({ includeCompleted: false }),
+      // listTasks may write promotion events, so read events only after it settles.
+      const nextTasks = await repository.listTasks({ includeCompleted: false });
+      const [nextProjects, nextContexts, nextEvents] = await Promise.all([
         repository.listProjects(),
         repository.listContexts(),
         repository.listTaskEvents({ types: ["task_moved_to_next_action"] }),
@@ -39,185 +51,57 @@ export const useGtdWorkspace = () => {
     void load({ preserveVisibleState: true });
   }, [calendarDay, load]);
 
-  const createTask = useCallback(
-    async (input: CreateTaskInput) => {
-      const task = await repository.createTask(input);
-      await load({ preserveVisibleState: true });
-      return task;
-    },
-    [load, repository],
-  );
+  const api = useMemo(() => {
+    const withReload =
+      <A extends unknown[], R>(fn: (...args: A) => Promise<R>) =>
+      async (...args: A): Promise<R> => {
+        const result = await fn(...args);
+        await load({ preserveVisibleState: true });
+        return result;
+      };
 
-  const saveTask = useCallback(
-    async (task: Task) => {
-      const nextTask = await repository.saveTask(task);
-      await load({ preserveVisibleState: true });
-      return nextTask;
-    },
-    [load, repository],
-  );
-
-  const moveTask = useCallback(
-    async (
-      taskId: string,
-      bucket: Task["bucket"],
-      contextIds: string[],
-      projectId?: string | null,
-    ) => {
-      const nextTask = await repository.moveTask(taskId, bucket, contextIds, projectId);
-      await load({ preserveVisibleState: true });
-      return nextTask;
-    },
-    [load, repository],
-  );
-
-  const moveTasksToBucket = useCallback(
-    async (taskIds: string[], bucket: Task["bucket"]) => {
-      const byId = new Map(tasks.map((task) => [task.id, task] as const));
-      let movedCount = 0;
-      let skippedCount = 0;
-
-      await Promise.all(
-        taskIds.map(async (taskId) => {
-          const task = byId.get(taskId);
-          if (!task) {
-            skippedCount += 1;
-            return;
-          }
-
-          if (bucket === "scheduled" && !task.scheduledFor) {
-            skippedCount += 1;
-            return;
-          }
-
-          if (bucket === "planned" && !task.projectId) {
-            skippedCount += 1;
-            return;
-          }
-
-          await repository.saveTask({
-            ...task,
-            bucket,
-            scheduledFor: bucket === "scheduled" || bucket === "planned" ? task.scheduledFor : null,
-          });
-          movedCount += 1;
-        }),
-      );
-
-      await load({ preserveVisibleState: true });
-      return { movedCount, skippedCount };
-    },
-    [load, repository, tasks],
-  );
-
-  const scheduleTask = useCallback(
-    async (taskId: string, scheduledFor: string | null) => {
-      const nextTask = await repository.scheduleTask(taskId, scheduledFor);
-      await load({ preserveVisibleState: true });
-      return nextTask;
-    },
-    [load, repository],
-  );
-
-  const completeTask = useCallback(
-    async (taskId: string) => {
-      const nextTask = await repository.completeTask(taskId);
-      await load({ preserveVisibleState: true });
-      return nextTask;
-    },
-    [load, repository],
-  );
-
-  const completeTasks = useCallback(
-    async (taskIds: string[]) => {
-      await Promise.all(taskIds.map((taskId) => repository.completeTask(taskId)));
-      await load({ preserveVisibleState: true });
-    },
-    [load, repository],
-  );
-
-  const cancelTask = useCallback(
-    async (taskId: string) => {
-      const nextTask = await repository.cancelTask(taskId);
-      await load({ preserveVisibleState: true });
-      return nextTask;
-    },
-    [load, repository],
-  );
-
-  const cancelTasks = useCallback(
-    async (taskIds: string[]) => {
-      await Promise.all(taskIds.map((taskId) => repository.cancelTask(taskId)));
-      await load({ preserveVisibleState: true });
-    },
-    [load, repository],
-  );
-
-  const promotePlannedTask = useCallback(
-    async (taskId: string) => {
-      const nextTask = await repository.promotePlannedTask(taskId);
-      await load({ preserveVisibleState: true });
-      return nextTask;
-    },
-    [load, repository],
-  );
-
-  const movePlannedTask = useCallback(
-    async (taskId: string, direction: "up" | "down") => {
-      const nextTasks = await repository.movePlannedTask(taskId, direction);
-      await load({ preserveVisibleState: true });
-      return nextTasks;
-    },
-    [load, repository],
-  );
-
-  const clearPastRecurrences = useCallback(
-    async (taskId: string) => {
-      const nextTask = await repository.clearPastRecurrences(taskId);
-      await load({ preserveVisibleState: true });
-      return nextTask;
-    },
-    [load, repository],
-  );
-
-  const saveProject = useCallback(
-    async (project: Project) => {
-      const nextProject = await repository.saveProject(project);
-      await load({ preserveVisibleState: true });
-      return nextProject;
-    },
-    [load, repository],
-  );
-
-  const saveContext = useCallback(
-    async (context: TaskContext) => {
-      const nextContext = await repository.saveContext(context);
-      await load({ preserveVisibleState: true });
-      return nextContext;
-    },
-    [load, repository],
-  );
-
-  const applyRecurringEditScope = useCallback(
-    async (
-      taskId: string,
-      scope: "occurrence" | "series",
-      changes: {
-        title?: string;
-        notes?: string;
-        bucket?: "next_action" | "scheduled";
-        contextIds?: string[];
-        projectId?: string | null;
-        scheduledFor?: string | null;
-        deadline?: string | null;
-      },
-    ) => {
-      const nextTask = await repository.applyRecurringEditScope(taskId, scope, changes);
-      await load({ preserveVisibleState: true });
-      return nextTask;
-    },
-    [load, repository],
-  );
+    return {
+      createTask: withReload((input: CreateTaskInput) => repository.createTask(input)),
+      saveTask: withReload((task: Task) => repository.saveTask(task)),
+      moveTask: withReload(
+        (taskId: string, bucket: Task["bucket"], contextIds: string[], projectId?: string | null) =>
+          repository.moveTask(taskId, bucket, contextIds, projectId),
+      ),
+      moveTasksToBucket: withReload(async (taskIds: string[], bucket: Task["bucket"]) => {
+        const { updates, skippedCount } = planBulkBucketMove(tasksRef.current, taskIds, bucket);
+        for (const task of updates) {
+          await repository.saveTask(task);
+        }
+        return { movedCount: updates.length, skippedCount };
+      }),
+      scheduleTask: withReload((taskId: string, scheduledFor: string | null) =>
+        repository.scheduleTask(taskId, scheduledFor),
+      ),
+      completeTask: withReload((taskId: string) => repository.completeTask(taskId)),
+      completeTasks: withReload(async (taskIds: string[]) => {
+        for (const taskId of taskIds) {
+          await repository.completeTask(taskId);
+        }
+      }),
+      cancelTask: withReload((taskId: string) => repository.cancelTask(taskId)),
+      cancelTasks: withReload(async (taskIds: string[]) => {
+        for (const taskId of taskIds) {
+          await repository.cancelTask(taskId);
+        }
+      }),
+      promotePlannedTask: withReload((taskId: string) => repository.promotePlannedTask(taskId)),
+      movePlannedTask: withReload((taskId: string, direction: "up" | "down") =>
+        repository.movePlannedTask(taskId, direction),
+      ),
+      clearPastRecurrences: withReload((taskId: string) => repository.clearPastRecurrences(taskId)),
+      saveProject: withReload((project: Project) => repository.saveProject(project)),
+      saveContext: withReload((context: TaskContext) => repository.saveContext(context)),
+      applyRecurringEditScope: withReload(
+        (taskId: string, scope: RecurringEditScope, changes: RecurringTaskChanges) =>
+          repository.applyRecurringEditScope(taskId, scope, changes),
+      ),
+    };
+  }, [load, repository]);
 
   return {
     tasks,
@@ -226,20 +110,6 @@ export const useGtdWorkspace = () => {
     taskEvents,
     loading,
     reload: load,
-    createTask,
-    saveTask,
-    moveTask,
-    moveTasksToBucket,
-    scheduleTask,
-    completeTask,
-    completeTasks,
-    cancelTask,
-    cancelTasks,
-    promotePlannedTask,
-    movePlannedTask,
-    clearPastRecurrences,
-    saveProject,
-    saveContext,
-    applyRecurringEditScope,
+    ...api,
   };
 };
