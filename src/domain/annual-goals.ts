@@ -7,6 +7,7 @@ import {
 import { principleDefinitions } from "./definitions";
 import { resolveMetricValue } from "./daily-entry";
 import { getTodayDate } from "../lib/date";
+import { average } from "../lib/math";
 import { getMonthKey, getMonthStartDate } from "./monthly-review";
 import type {
   AnnualGoal,
@@ -43,9 +44,6 @@ interface AnnualGoalSourceDefinition {
   ) => number | null;
 }
 
-const average = (values: number[]): number | null =>
-  values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
-
 const sum = (values: number[]): number => values.reduce((total, value) => total + value, 0);
 
 const computePrincipleRate = (
@@ -79,7 +77,7 @@ const filterWeeklyByMonth = (
 const weeklyAverage = (
   weeklySummaries: WeeklyReviewSummary[],
   selector: (summary: WeeklyReviewSummary) => number,
-): number | null => average(weeklySummaries.map(selector));
+): number | null => average(weeklySummaries.map(selector), null);
 
 const dailyAverageMetric = (
   entries: DailyEntry[],
@@ -89,6 +87,7 @@ const dailyAverageMetric = (
     entries
       .map((entry) => resolveMetricValue(entry, key))
       .filter((value): value is number => value !== null),
+    null,
   );
 
 const sourceLabel = (id: AnnualGoalSourceId): string => t(`sources.${id}`, { ns: "goals" });

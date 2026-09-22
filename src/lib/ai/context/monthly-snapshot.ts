@@ -7,6 +7,7 @@ import type {
   MonthlyReviewSummary,
   MonthlyReviewWeekSummary,
 } from "../../../domain/types";
+import { projectGoalBase } from "./redaction";
 import type { Surface } from "./types";
 
 export interface MonthlySnapshotWeek {
@@ -66,21 +67,10 @@ const sanitizeGoal = (
   includeStructure: boolean,
 ): MonthlySnapshotGoal => {
   const monthPoint = snapshot.monthlyProgress.find((point) => point.monthKey === monthKey) ?? null;
-  const evaluation = snapshot.goal.evaluations[monthKey] ?? null;
 
-  return {
-    goalId: snapshot.goal.id,
-    ...(includeStructure ? { title: snapshot.goal.title } : {}),
-    dimension: snapshot.goal.dimension,
-    measurementType: snapshot.measurement.measurementType,
-    currentValue: snapshot.currentValue,
-    targetValue: snapshot.goal.targetValue,
-    unit: snapshot.goal.unit,
-    progressRatio: snapshot.progressRatio,
-    monthValue: monthPoint?.value ?? null,
-    evaluationScore: evaluation?.score ?? null,
-    evaluationTrend: evaluation?.trend ?? null,
-  };
+  return projectGoalBase(snapshot, monthKey, includeStructure, {
+    beforeEvaluation: { monthValue: monthPoint?.value ?? null },
+  }) as unknown as MonthlySnapshotGoal;
 };
 
 export const buildMonthlySnapshot = (
