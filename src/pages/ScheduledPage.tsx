@@ -5,6 +5,8 @@ import { useGtdWorkspace } from "../app/use-gtd";
 import { useTaskSelection } from "../app/use-task-selection";
 import { BulkTaskToolbar } from "../components/BulkTaskToolbar";
 import { GtdTaskList } from "../components/gtd/GtdTaskList";
+import { PageHeader } from "../components/PageHeader";
+import { SegmentedToggle } from "../components/SegmentedToggle";
 import { SectionCard } from "../components/SectionCard";
 import type { RecurringPreviewOccurrence } from "../domain/types";
 import { formatDateLong, formatDateTimeShort, getTodayDate } from "../lib/date";
@@ -93,13 +95,11 @@ export const ScheduledPage = () => {
 
   return (
     <div className="page">
-      <header className="hero">
-        <div>
-          <p className="eyebrow">{t("scheduled.hero.eyebrow")}</p>
-          <h2>{t("scheduled.hero.title")}</h2>
-          <p className="hero__copy">{t("scheduled.hero.copy")}</p>
-        </div>
-      </header>
+      <PageHeader
+        eyebrow={t("scheduled.hero.eyebrow")}
+        title={t("scheduled.hero.title")}
+        copy={t("scheduled.hero.copy")}
+      />
 
       <SectionCard title={t("scheduled.range.title")} subtitle={t("scheduled.range.subtitle")}>
         <div className="history-toolbar">
@@ -113,22 +113,14 @@ export const ScheduledPage = () => {
           </label>
           <div className="stacked-field">
             <span>{t("scheduled.range.viewLabel")}</span>
-            <div className="tag-row">
-              <button
-                type="button"
-                className={`tag-chip${viewMode === "day" ? " tag-chip--active" : ""}`}
-                onClick={() => setViewMode("day")}
-              >
-                {t("scheduled.range.view.day")}
-              </button>
-              <button
-                type="button"
-                className={`tag-chip${viewMode === "week" ? " tag-chip--active" : ""}`}
-                onClick={() => setViewMode("week")}
-              >
-                {t("scheduled.range.view.week")}
-              </button>
-            </div>
+            <SegmentedToggle
+              options={[
+                { value: "day", label: t("scheduled.range.view.day") },
+                { value: "week", label: t("scheduled.range.view.week") },
+              ]}
+              value={viewMode}
+              onChange={setViewMode}
+            />
           </div>
           <div className="stacked-field">
             <span>{t("scheduled.range.includeLabel")}</span>

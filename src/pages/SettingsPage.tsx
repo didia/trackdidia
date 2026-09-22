@@ -5,6 +5,7 @@ import { useAppContext } from "../app/app-context";
 import { AiCoachAnalyticsSection } from "../components/AiCoachAnalyticsSection";
 import { AiCostDashboardSection } from "../components/AiCostDashboardSection";
 import { AiMemoryProfileSection } from "../components/AiMemoryProfileSection";
+import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
 import { defaultAppSettings } from "../domain/daily-entry";
 import type { AiPayloadScope, AppSettings } from "../domain/types";
@@ -111,13 +112,7 @@ export const SettingsPage = () => {
 
   return (
     <div className="page">
-      <header className="hero">
-        <div>
-          <p className="eyebrow">{t("hero.eyebrow")}</p>
-          <h2>{t("hero.title")}</h2>
-          <p className="hero__copy">{t("hero.copy")}</p>
-        </div>
-      </header>
+      <PageHeader eyebrow={t("hero.eyebrow")} title={t("hero.title")} copy={t("hero.copy")} />
 
       <SectionCard title={t("ai.title")} subtitle={t("ai.subtitle")}>
         <form
