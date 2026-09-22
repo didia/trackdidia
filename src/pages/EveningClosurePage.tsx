@@ -8,6 +8,7 @@ import { EntrySummaryStrip } from "../components/EntrySummaryStrip";
 import { MetricGrid } from "../components/MetricGrid";
 import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
 import { PrincipleChecklist } from "../components/PrincipleChecklist";
+import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
 import {
   applyRoutineTransition,
@@ -191,13 +192,11 @@ export const EveningClosurePage = () => {
 
   return (
     <div className="page">
-      <header className="hero">
-        <div>
-          <p className="eyebrow">{t("hero.eyebrow")}</p>
-          <h2>{formatDateLong(entry.date)}</h2>
-          <p className="hero__copy">{t("hero.copy")}</p>
-        </div>
-      </header>
+      <PageHeader
+        eyebrow={t("hero.eyebrow")}
+        title={formatDateLong(entry.date)}
+        copy={t("hero.copy")}
+      />
 
       <EntrySummaryStrip entry={entry} />
 

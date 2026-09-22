@@ -22,6 +22,7 @@ import type {
 } from "../domain/types";
 import { MonthlySynthesisPanel } from "../components/MonthlySynthesisPanel";
 import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
+import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
 import { formatDateLong, getTodayDate } from "../lib/date";
 import { formatPercent } from "../lib/format";
@@ -341,18 +342,14 @@ export const MonthlyReviewPage = () => {
 
   return (
     <div className="page">
-      <header className="hero">
-        <div>
-          <p className="eyebrow">{t("monthly.hero.eyebrow")}</p>
-          <h2>
-            {t("monthly.hero.range", {
-              start: formatDateLong(summary.monthStartDate),
-              end: formatDateLong(summary.monthEndDate),
-            })}
-          </h2>
-          <p className="hero__copy">{t("monthly.hero.copy")}</p>
-        </div>
-      </header>
+      <PageHeader
+        eyebrow={t("monthly.hero.eyebrow")}
+        title={t("monthly.hero.range", {
+          start: formatDateLong(summary.monthStartDate),
+          end: formatDateLong(summary.monthEndDate),
+        })}
+        copy={t("monthly.hero.copy")}
+      />
 
       <SectionCard title={t("monthly.picker.title")} subtitle={t("monthly.picker.subtitle")}>
         <div className="history-toolbar">

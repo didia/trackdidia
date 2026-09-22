@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useAppContext } from "../app/app-context";
 import { GoalPacingPanel } from "../components/GoalPacingPanel";
 import { PersistedTextarea } from "../components/PersistedTextarea";
+import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
 import {
   addAnnualGoalMilestone,
@@ -920,13 +921,7 @@ export const AnnualGoalsPage = () => {
 
   return (
     <div className="page">
-      <header className="hero">
-        <div>
-          <p className="eyebrow">{t("hero.eyebrow")}</p>
-          <h2>{t("hero.title")}</h2>
-          <p className="hero__copy">{t("hero.copy")}</p>
-        </div>
-      </header>
+      <PageHeader eyebrow={t("hero.eyebrow")} title={t("hero.title")} copy={t("hero.copy")} />
 
       <SectionCard title={t("pilot.title")} subtitle={t("pilot.subtitle")}>
         <div className="task-card__grid">

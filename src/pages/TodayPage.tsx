@@ -8,6 +8,7 @@ import { CoachPulsePanel } from "../components/CoachPulsePanel";
 import { EntrySummaryStrip } from "../components/EntrySummaryStrip";
 import { PastorVerseCard } from "../components/PastorVerseCard";
 import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
+import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
 import { resolveMetricValue, updateNote } from "../domain/daily-entry";
 import { getDefaultMonthlyReviewMonthKey, isFirstSaturdayOfMonth } from "../domain/monthly-review";
@@ -302,21 +303,21 @@ export const TodayPage = () => {
 
   return (
     <div className="page">
-      <header className="hero">
-        <div>
-          <p className="eyebrow">{t("hero.eyebrow")}</p>
-          <h2>{formatDateLong(entry.date)}</h2>
-          <p className="hero__copy">{t("hero.copy")}</p>
-        </div>
-        <div className="hero__actions">
-          <Link className="button button--primary" to="/routine-matin">
-            {t("hero.openMorning")}
-          </Link>
-          <Link className="button" to="/fermeture-soir">
-            {t("hero.closeEvening")}
-          </Link>
-        </div>
-      </header>
+      <PageHeader
+        eyebrow={t("hero.eyebrow")}
+        title={formatDateLong(entry.date)}
+        copy={t("hero.copy")}
+        actions={
+          <>
+            <Link className="button button--primary" to="/routine-matin">
+              {t("hero.openMorning")}
+            </Link>
+            <Link className="button" to="/fermeture-soir">
+              {t("hero.closeEvening")}
+            </Link>
+          </>
+        }
+      />
 
       {browserPreview ? <div className="banner">{t("banner.browserPreview")}</div> : null}
 
