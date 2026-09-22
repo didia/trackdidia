@@ -59,6 +59,8 @@ export const PastorVerseCard = ({
   const body = result?.body;
   const resolvedText = result?.verse ? resolveVerseText(result.verse) : null;
   const referenceLabel = body?.reference ? formatReferenceFr(body.reference) : null;
+  const distinctTitle = body?.title?.trim() ?? "";
+  const showDistinctTitle = distinctTitle.length > 0 && distinctTitle !== referenceLabel;
   const principle = principleLabel(body?.principleKey);
   // Mirrors `buildCustomVerseFromOffListPick`'s eligibility check so the button never renders for
   // a pick that "Ajouter à ma liste" would silently no-op on (e.g. no principle to tag it with).
@@ -103,7 +105,7 @@ export const PastorVerseCard = ({
             </small>
           ) : null}
 
-          <h3 className="pastor-verse__title">{body.title}</h3>
+          {showDistinctTitle ? <h3 className="pastor-verse__title">{distinctTitle}</h3> : null}
           <p>{body.explanation}</p>
 
           {body.practice ? (
