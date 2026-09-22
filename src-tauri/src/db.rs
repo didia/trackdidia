@@ -3,12 +3,13 @@
 //! JS issues `BEGIN` / `COMMIT` as separate commands, so the pool must keep one physical
 //! connection for the app's lifetime. See `build_pool_options`.
 
+use crate::storage_paths;
 use serde_json::Value as JsonValue;
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteRow},
     Column, Executor, Pool, Row, Sqlite, TypeInfo, ValueRef,
 };
-use tauri::{async_runtime::Mutex, AppHandle, Manager, State};
+use tauri::{async_runtime::Mutex, AppHandle, State};
 
 /// Holds the single-connection pool once `db_connect` has run. `None` before the frontend's
 /// first `getDb()` call.
@@ -85,22 +86,6 @@ fn build_pool_options() -> SqlitePoolOptions {
         .max_lifetime(None)
 }
 
-/// Resolves a `sqlite:<file>` connection string to a full path under `app_data_dir`, matching
-/// the directory `resolve_storage_paths` (main.rs) already reports, so the live
-/// connection always points at the same file shown to the user in Settings.
-fn resolve_db_path(app: &AppHandle, db: &str) -> Result<std::path::PathBuf, String> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| format!("Impossible de resoudre app_data_dir: {error}"))?;
-
-    std::fs::create_dir_all(&app_data_dir)
-        .map_err(|error| format!("Impossible de creer le dossier de donnees: {error}"))?;
-
-    let file_name = db.split_once(':').map(|(_, rest)| rest).unwrap_or(db);
-    Ok(app_data_dir.join(file_name))
-}
-
 /// Connects the single-connection pool once. Later calls are no-ops.
 #[tauri::command]
 pub async fn db_connect(app: AppHandle, state: State<'_, DbState>, db: String) -> Result<(), String> {
@@ -109,7 +94,9 @@ pub async fn db_connect(app: AppHandle, state: State<'_, DbState>, db: String) -
         return Ok(());
     }
 
-    let db_path = resolve_db_path(&app, &db)?;
+    // Resolves the same directory `resolve_storage_paths` (main.rs) reports via `storage_paths`,
+    // so the live connection always points at the same file shown to the user in Settings.
+    let db_path = storage_paths::database_path_for(&app, &db)?;
     let connect_options = SqliteConnectOptions::new()
         .filename(&db_path)
         .create_if_missing(true);
