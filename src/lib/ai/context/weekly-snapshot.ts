@@ -29,6 +29,7 @@ import {
   pomodoroTarget,
 } from "../../../domain/weekly-review";
 import { clampAiAsOfDate, getTodayDate, stableAiNowIso } from "../../date";
+import { sanitizeFindingForScope, titleIndex } from "./redaction";
 import type { Surface } from "./types";
 
 const metricWeeklyTargets: Partial<Record<MetricKey, number>> = {
@@ -161,31 +162,6 @@ const axisDefinitions = (
     : []),
 ];
 
-const projectTitleById = (projects: Project[]): Map<string, string> =>
-  new Map(projects.map((project) => [project.id, project.title]));
-
-const taskTitleById = (tasks: Task[]): Map<string, string> =>
-  new Map(tasks.map((task) => [task.id, task.title]));
-
-const sanitizeFindingForScope = (finding: Finding, includeStructure: boolean): Finding => {
-  if (includeStructure) {
-    return finding;
-  }
-
-  const {
-    taskIds: _taskIds,
-    projectIds: _projectIds,
-    projectId: _projectId,
-    ...rest
-  } = finding as Finding & {
-    taskIds?: string[];
-    projectIds?: string[];
-    projectId?: string | null;
-  };
-
-  return rest as Finding;
-};
-
 const aggregatePomodoroSummaries = (
   summariesByDay: PomodoroTaskSummary[][],
 ): PomodoroTaskSummary[] => {
@@ -283,8 +259,8 @@ export const buildWeeklySnapshot = (
   const scheduledVsCompletedFinding = gtdHealthFindings.find(
     (finding) => finding.kind === "scheduled_vs_completed_ratio",
   );
-  const projectTitles = projectTitleById(inputs.projects);
-  const taskTitles = taskTitleById(inputs.tasks);
+  const projectTitles = titleIndex(inputs.projects);
+  const taskTitles = titleIndex(inputs.tasks);
 
   const gtd: WeeklySnapshotGtd = {
     inboxBacklog: inboxBacklogFinding?.value ?? 0,

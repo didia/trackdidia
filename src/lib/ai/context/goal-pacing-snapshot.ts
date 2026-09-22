@@ -9,6 +9,7 @@ import type {
   AnnualGoalStatus,
 } from "../../../domain/types";
 import { clampAiAsOfDate, getTodayDate } from "../../date";
+import { projectGoalBase } from "./redaction";
 import type { Surface } from "./types";
 
 export interface GoalPacingSnapshotMilestone {
@@ -69,25 +70,22 @@ const sanitizeGoal = (
   evaluationMonthKey: string,
   includeStructure: boolean,
 ): GoalPacingSnapshotGoal => {
-  const evaluation = snapshot.goal.evaluations[evaluationMonthKey] ?? null;
   const { measurement } = snapshot;
 
+  const base = projectGoalBase(snapshot, evaluationMonthKey, includeStructure, {
+    afterMeasurementType: {
+      status: snapshot.goal.status,
+      direction: measurement.direction,
+    },
+    beforeEvaluation: {
+      expectedProgressRatio: measurement.expectedProgressRatio,
+      onPace: measurement.onPace,
+      monthlyProgress: snapshot.monthlyProgress,
+    },
+  });
+
   return {
-    goalId: snapshot.goal.id,
-    ...(includeStructure ? { title: snapshot.goal.title } : {}),
-    dimension: snapshot.goal.dimension,
-    measurementType: measurement.measurementType,
-    status: snapshot.goal.status,
-    direction: measurement.direction,
-    currentValue: snapshot.currentValue,
-    targetValue: snapshot.goal.targetValue,
-    unit: snapshot.goal.unit,
-    progressRatio: snapshot.progressRatio,
-    expectedProgressRatio: measurement.expectedProgressRatio,
-    onPace: measurement.onPace,
-    monthlyProgress: snapshot.monthlyProgress,
-    evaluationScore: evaluation?.score ?? null,
-    evaluationTrend: evaluation?.trend ?? null,
+    ...base,
     currentPeriodKey: measurement.currentPeriodKey,
     currentPeriodCount: measurement.currentPeriodCount,
     cadenceTarget: measurement.cadenceTarget,
@@ -103,7 +101,7 @@ const sanitizeGoal = (
       completed: milestone.completedAt !== null,
       ...(includeStructure ? { title: milestone.title } : {}),
     })),
-  };
+  } as GoalPacingSnapshotGoal;
 };
 
 export const buildGoalPacingSnapshot = (
