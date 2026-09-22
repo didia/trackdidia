@@ -644,7 +644,11 @@ change it at any time while the app is running; the weekly review reloads goals
 when the saved key changes.
 
 Repo-root `.env` with `RESCUETIME_API_KEY` is optional and supported **only** for
-local CLI scripts such as `scripts/rescuetime-goals-score.mjs`.
+local CLI scripts such as `scripts/rescuetime-goals-score.ts`, run with
+`npm run rescuetime:score -- [--week YYYY-MM-DD]`. That script reuses
+`RescueTimeGoalsService` (the same code the Weekly Review page calls) against a
+throwaway in-memory repository, so its output matches the app's scoring; the key
+is never logged.
 
 ## Privacy implications
 
