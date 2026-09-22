@@ -4,6 +4,7 @@ Back to [Documentation Log](../log.md). Canonical page: [gtd.md](../gtd.md).
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-21 | Inbox, Waiting For, Someday/Maybe, and References pages now share `BucketTaskListPage`; routes, i18n keys, and behavior unchanged | `docs/gtd.md` | `src/components/gtd/BucketTaskListPage.tsx` |
 | 2026-09-21 | Task-list UI refactor: `GtdTaskList` replaces 11 inline `GtdTaskCard` wirings, bucket label keys centralized in `src/lib/gtd/labels.ts`, context create/rename extracted to `TaskContextEditor`, and repositories/card reuse `RecurringTaskChanges`/`RecurringEditScope`; no behavior change | `docs/gtd.md` | `src/components/gtd/`, `src/lib/gtd/labels.ts`, `GtdTaskCard.tsx` |
 | 2026-09-21 | `useGtdWorkspace` refactor: single mutate-then-reload helper; bulk bucket-move skip rules moved to pure `planBulkBucketMove`; `load()` no longer repeats recurrence generation and Scheduled promotion already performed by `listTasks` (relationship generation stays, since `listTasks` does not do it) | `docs/gtd.md` | `src/app/use-gtd.ts`, `src/lib/gtd/bulk-move.ts` |
 | 2026-09-21 | Daily `tasksAdded` no longer counts `task_scheduled_for_day` or Scheduled carryover; Scheduled work counts only on Next Action entry or in-place completion | `docs/gtd.md` | `isDailyAddedEvent`, `buildDailyTaskStats`, `buildDailyTaskBreakdown` |

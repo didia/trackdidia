@@ -20,7 +20,11 @@ and project records, and an event ledger used for daily statistics.
 Screens render task lists through `GtdTaskList`
 (`src/components/gtd/GtdTaskList.tsx`), which wires each `GtdTaskCard` to the
 page's own `useGtdWorkspace()` result via a `workspace` prop (so every action
-reloads the state the page shows). Bucket label i18n keys live only in
+reloads the state the page shows). The Inbox, Waiting For, Someday/Maybe, and
+References routes are thin wrappers around `BucketTaskListPage`
+(`src/components/gtd/BucketTaskListPage.tsx`), configured by bucket, i18n prefix,
+and optional quick-add, context filter, and page size (Inbox loads 40 at a time).
+Bucket label i18n keys live only in
 `src/lib/gtd/labels.ts`. The shared `GtdTaskCard` can edit title, notes, bucket, project, contexts, scheduled
 date/time, and deadline. It can also complete or cancel the task. The collapsed
 summary reads the persisted task (not unsaved editor draft): bucket, then the
