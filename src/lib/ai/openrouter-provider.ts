@@ -1,4 +1,4 @@
-import type { AiSurface, AppSettings, CoachMessage } from "../../domain/types";
+import type { AiSurface, AppSettings, CoachMessage, CoachPulseStance } from "../../domain/types";
 import { logDebug } from "../debug";
 import { buildCoachPulseSchemaPrompt } from "./proposals/coach-pulse-schema-prompt";
 import { buildGoalPacingSchemaPrompt } from "./proposals/goal-pacing-schema-prompt";
@@ -10,6 +10,11 @@ import type {
   AiProvider,
   AiStructuredRequest,
   AiStructuredResult,
+  CoachPulseStructuredRequest,
+  GoalPacingStructuredRequest,
+  MonthlySynthesisStructuredRequest,
+  PastorVerseStructuredRequest,
+  WeeklySynthesisStructuredRequest,
 } from "./provider";
 import type { DailySnapshot } from "./context/daily-snapshot";
 
@@ -181,62 +186,141 @@ const buildOpenStanceInstruction = (snapshot: DailySnapshot): string => {
   return `${openStanceBase} previousDay est null. N'invente pas d'intention. Omets intentionDraft.`;
 };
 
-const buildSystemPrompt = (request: AiStructuredRequest, repairHint?: string): string => {
-  const memorySection = request.memoryBlock?.trim()
-    ? `\n\nContexte memoire durable:\n${request.memoryBlock.trim()}`
+/** Non-"open" stance instructions. "open" needs `buildOpenStanceInstruction`'s snapshot lookahead. */
+const coachPulseStanceInstructions: Record<Exclude<CoachPulseStance, "open">, string> = {
+  steer:
+    "Tu es un coach de discipline pour un ajustement de mi-journee. Reponds en francais avec un JSON strict conforme au schema coach_pulse.",
+  wind_down:
+    "Tu es un coach de discipline pour la fin de journee active. Reponds en francais avec un JSON strict conforme au schema coach_pulse.",
+  close:
+    "Tu es un coach de discipline pour la cloture de journee. Reponds en francais avec un JSON strict conforme au schema coach_pulse.",
+};
+
+const buildCoachPulseInstruction = (request: CoachPulseStructuredRequest): string =>
+  request.stance === "open"
+    ? buildOpenStanceInstruction(request.snapshot)
+    : (coachPulseStanceInstructions[request.stance] ??
+      "Tu es un coach de discipline. Reponds en francais avec un JSON strict conforme au schema coach_pulse.");
+
+interface SurfacePromptSpec<TRequest extends AiStructuredRequest> {
+  schemaName: string;
+  instruction: (request: TRequest) => string;
+  schema: (request: TRequest) => string;
+  userPayload: (request: TRequest) => unknown;
+}
+
+interface SurfacePromptSpecs {
+  coach_pulse: SurfacePromptSpec<CoachPulseStructuredRequest>;
+  weekly_synthesis: SurfacePromptSpec<WeeklySynthesisStructuredRequest>;
+  monthly_synthesis: SurfacePromptSpec<MonthlySynthesisStructuredRequest>;
+  goal_pacing: SurfacePromptSpec<GoalPacingStructuredRequest>;
+  pastor_verse: SurfacePromptSpec<PastorVerseStructuredRequest>;
+}
+
+const surfacePromptSpecs: SurfacePromptSpecs = {
+  coach_pulse: {
+    schemaName: "coach_pulse",
+    instruction: buildCoachPulseInstruction,
+    schema: (request) => buildCoachPulseSchemaPrompt(request.stance),
+    userPayload: (request) => ({
+      surface: request.surface,
+      stance: request.stance,
+      snapshot: request.snapshot,
+      commitmentResolution: request.commitmentResolution ?? null,
+    }),
+  },
+  weekly_synthesis: {
+    schemaName: "weekly_synthesis",
+    instruction: () =>
+      "Tu es un coach de revue hebdomadaire pour le rituel du dimanche. Reponds en francais avec un JSON strict conforme au schema weekly_synthesis (S2).",
+    schema: () => buildWeeklySynthesisSchemaPrompt(),
+    userPayload: (request) => ({ surface: request.surface, snapshot: request.snapshot }),
+  },
+  monthly_synthesis: {
+    schemaName: "monthly_synthesis",
+    instruction: () =>
+      "Tu es un coach de revue mensuelle. Reponds en francais avec un JSON strict conforme au schema monthly_synthesis (S3).",
+    schema: (request) =>
+      buildMonthlySynthesisSchemaPrompt(request.snapshot.goals.map((goal) => goal.goalId)),
+    userPayload: (request) => ({ surface: request.surface, snapshot: request.snapshot }),
+  },
+  goal_pacing: {
+    schemaName: "goal_pacing",
+    instruction: () =>
+      "Tu es un coach de pilotage d'objectifs annuels. Reponds en francais avec un JSON strict conforme au schema goal_pacing (S4).",
+    schema: (request) =>
+      buildGoalPacingSchemaPrompt(request.snapshot.goals.map((goal) => goal.goalId)),
+    userPayload: (request) => ({ surface: request.surface, snapshot: request.snapshot }),
+  },
+  pastor_verse: {
+    schemaName: "pastor_verse",
+    instruction: () =>
+      "Tu es un compagnon pastoral chretien, bienveillant et respectueux de la sensibilite catholique, non polemique. Lis le journal avec bienveillance pour percevoir comment la personne va, puis choisis un seul verset (de preference dans le catalogue) et explique-le en francais avec un JSON strict conforme au schema pastor_verse.",
+    schema: (request) => {
+      const allowedIds = request.snapshot.catalog
+        .map((entry) => entry.id)
+        .filter((id) => !request.snapshot.blockedVerseIds.includes(id));
+      return buildPastorVerseSchemaPrompt(allowedIds, request.snapshot.offListAllowed);
+    },
+    userPayload: (request) => ({ surface: request.surface, snapshot: request.snapshot }),
+  },
+};
+
+const composeSystemPrompt = (
+  instruction: string,
+  schemaName: string,
+  schemaBlock: string,
+  memoryBlock: string | undefined,
+  repairHint: string | undefined,
+): string => {
+  const memorySection = memoryBlock?.trim()
+    ? `\n\nContexte memoire durable:\n${memoryBlock.trim()}`
     : "";
-
-  if (request.surface === "weekly_synthesis") {
-    const instruction =
-      "Tu es un coach de revue hebdomadaire pour le rituel du dimanche. Reponds en francais avec un JSON strict conforme au schema weekly_synthesis (S2).";
-    const schemaBlock = buildWeeklySynthesisSchemaPrompt();
-    const base = `${instruction}\n\nSchema weekly_synthesis:\n${schemaBlock}${memorySection}`;
-    return repairHint ? `${base}\n\nCorrection demandee: ${repairHint}` : base;
-  }
-
-  if (request.surface === "monthly_synthesis") {
-    const instruction =
-      "Tu es un coach de revue mensuelle. Reponds en francais avec un JSON strict conforme au schema monthly_synthesis (S3).";
-    const goalIds = request.snapshot.goals.map((goal) => goal.goalId);
-    const schemaBlock = buildMonthlySynthesisSchemaPrompt(goalIds);
-    const base = `${instruction}\n\nSchema monthly_synthesis:\n${schemaBlock}${memorySection}`;
-    return repairHint ? `${base}\n\nCorrection demandee: ${repairHint}` : base;
-  }
-
-  if (request.surface === "goal_pacing") {
-    const instruction =
-      "Tu es un coach de pilotage d'objectifs annuels. Reponds en francais avec un JSON strict conforme au schema goal_pacing (S4).";
-    const goalIds = request.snapshot.goals.map((goal) => goal.goalId);
-    const schemaBlock = buildGoalPacingSchemaPrompt(goalIds);
-    const base = `${instruction}\n\nSchema goal_pacing:\n${schemaBlock}${memorySection}`;
-    return repairHint ? `${base}\n\nCorrection demandee: ${repairHint}` : base;
-  }
-
-  if (request.surface === "pastor_verse") {
-    const instruction =
-      "Tu es un compagnon pastoral chretien, bienveillant et respectueux de la sensibilite catholique, non polemique. Lis le journal avec bienveillance pour percevoir comment la personne va, puis choisis un seul verset (de preference dans le catalogue) et explique-le en francais avec un JSON strict conforme au schema pastor_verse.";
-    const allowedIds = request.snapshot.catalog
-      .map((entry) => entry.id)
-      .filter((id) => !request.snapshot.blockedVerseIds.includes(id));
-    const schemaBlock = buildPastorVerseSchemaPrompt(allowedIds, request.snapshot.offListAllowed);
-    const base = `${instruction}\n\nSchema pastor_verse:\n${schemaBlock}${memorySection}`;
-    return repairHint ? `${base}\n\nCorrection demandee: ${repairHint}` : base;
-  }
-
-  const stanceInstruction =
-    request.surface === "coach_pulse" && request.stance === "open"
-      ? buildOpenStanceInstruction(request.snapshot)
-      : request.stance === "steer"
-        ? "Tu es un coach de discipline pour un ajustement de mi-journee. Reponds en francais avec un JSON strict conforme au schema coach_pulse."
-        : request.stance === "wind_down"
-          ? "Tu es un coach de discipline pour la fin de journee active. Reponds en francais avec un JSON strict conforme au schema coach_pulse."
-          : request.stance === "close"
-            ? "Tu es un coach de discipline pour la cloture de journee. Reponds en francais avec un JSON strict conforme au schema coach_pulse."
-            : "Tu es un coach de discipline. Reponds en francais avec un JSON strict conforme au schema coach_pulse.";
-
-  const schemaBlock = buildCoachPulseSchemaPrompt(request.stance);
-  const base = `${stanceInstruction}\n\nSchema coach_pulse:\n${schemaBlock}${memorySection}`;
+  const base = `${instruction}\n\nSchema ${schemaName}:\n${schemaBlock}${memorySection}`;
   return repairHint ? `${base}\n\nCorrection demandee: ${repairHint}` : base;
+};
+
+const composeForSpec = <TRequest extends AiStructuredRequest>(
+  spec: SurfacePromptSpec<TRequest>,
+  request: TRequest,
+  repairHint: string | undefined,
+): string =>
+  composeSystemPrompt(
+    spec.instruction(request),
+    spec.schemaName,
+    spec.schema(request),
+    request.memoryBlock,
+    repairHint,
+  );
+
+export const buildSystemPrompt = (request: AiStructuredRequest, repairHint?: string): string => {
+  switch (request.surface) {
+    case "coach_pulse":
+      return composeForSpec(surfacePromptSpecs.coach_pulse, request, repairHint);
+    case "weekly_synthesis":
+      return composeForSpec(surfacePromptSpecs.weekly_synthesis, request, repairHint);
+    case "monthly_synthesis":
+      return composeForSpec(surfacePromptSpecs.monthly_synthesis, request, repairHint);
+    case "goal_pacing":
+      return composeForSpec(surfacePromptSpecs.goal_pacing, request, repairHint);
+    case "pastor_verse":
+      return composeForSpec(surfacePromptSpecs.pastor_verse, request, repairHint);
+  }
+};
+
+const buildUserPayload = (request: AiStructuredRequest): unknown => {
+  switch (request.surface) {
+    case "coach_pulse":
+      return surfacePromptSpecs.coach_pulse.userPayload(request);
+    case "weekly_synthesis":
+      return surfacePromptSpecs.weekly_synthesis.userPayload(request);
+    case "monthly_synthesis":
+      return surfacePromptSpecs.monthly_synthesis.userPayload(request);
+    case "goal_pacing":
+      return surfacePromptSpecs.goal_pacing.userPayload(request);
+    case "pastor_verse":
+      return surfacePromptSpecs.pastor_verse.userPayload(request);
+  }
 };
 
 export class OpenRouterProvider implements AiProvider {
@@ -315,19 +399,7 @@ export class OpenRouterProvider implements AiProvider {
         },
         {
           role: "user",
-          content: JSON.stringify(
-            request.surface === "coach_pulse"
-              ? {
-                  surface: request.surface,
-                  stance: request.stance,
-                  snapshot: request.snapshot,
-                  commitmentResolution: request.commitmentResolution ?? null,
-                }
-              : {
-                  surface: request.surface,
-                  snapshot: request.snapshot,
-                },
-          ),
+          content: JSON.stringify(buildUserPayload(request)),
         },
       ],
     };
