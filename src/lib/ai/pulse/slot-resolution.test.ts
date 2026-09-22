@@ -1,4 +1,8 @@
-import { buildPulseScopeKey, resolvePulseSlots } from "./slot-resolution";
+import {
+  buildPulseScopeKey,
+  parseSlotHourFromScopeKey,
+  resolvePulseSlots,
+} from "./slot-resolution";
 
 describe("slot-resolution", () => {
   const date = "2026-08-29";
@@ -76,5 +80,19 @@ describe("slot-resolution", () => {
       scopeKey: `${date}#20`,
     });
     expect(result.missedSlots).toEqual([]);
+  });
+});
+
+describe("parseSlotHourFromScopeKey", () => {
+  it("reads the hour from a date#hour scope key", () => {
+    expect(parseSlotHourFromScopeKey("2026-08-29#13")).toBe(13);
+    expect(parseSlotHourFromScopeKey(buildPulseScopeKey("2026-08-29", "steer", 5))).toBe(5);
+  });
+
+  it("returns undefined for open-stance keys and malformed suffixes", () => {
+    expect(parseSlotHourFromScopeKey("2026-08-29")).toBeUndefined();
+    expect(parseSlotHourFromScopeKey("2026-08-29#")).toBeUndefined();
+    expect(parseSlotHourFromScopeKey("2026-08-29#abc")).toBeUndefined();
+    expect(parseSlotHourFromScopeKey("2026-08-29#13#2")).toBeUndefined();
   });
 });

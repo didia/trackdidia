@@ -90,3 +90,17 @@ export const resolvePulseSlots = (input: SlotResolutionInput): SlotResolutionRes
 
   return { dueSlot, missedSlots };
 };
+
+/**
+ * Inverse of `buildPulseScopeKey`: the slot hour encoded in a `date#hour` scope key,
+ * or undefined for open-stance keys (plain date) and malformed suffixes.
+ */
+export const parseSlotHourFromScopeKey = (scopeKey: string): number | undefined => {
+  const separator = scopeKey.indexOf("#");
+  if (separator === -1) {
+    return undefined;
+  }
+
+  const suffix = scopeKey.slice(separator + 1);
+  return /^\d+$/.test(suffix) ? Number(suffix) : undefined;
+};

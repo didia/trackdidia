@@ -205,13 +205,11 @@ describe("resolveDailySnapshotInputs", () => {
     await repository.saveDailyEntry(createEmptyDailyEntry(date));
     const effective = updateNote(createEmptyDailyEntry(date), "morningIntention", "Finish taxes");
 
-    const inputs = await resolveDailySnapshotInputs(
-      repository,
-      date,
-      `${date}T12:00:00.000Z`,
-      undefined,
-      { skipRescueTimeFetch: true, entry: effective },
-    );
+    const inputs = await resolveDailySnapshotInputs(repository, date, {
+      now: `${date}T12:00:00.000Z`,
+      skipRescueTimeFetch: true,
+      entry: effective,
+    });
 
     expect(inputs.entry.morningIntention).toBe("Finish taxes");
     expect(inputs.historyEntries.find((item) => item.date === date)?.morningIntention).toBe(
