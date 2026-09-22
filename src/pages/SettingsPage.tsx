@@ -7,18 +7,14 @@ import { AiCostDashboardSection } from "../components/AiCostDashboardSection";
 import { AiMemoryProfileSection } from "../components/AiMemoryProfileSection";
 import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
+import { AiPayloadPreviewSection } from "../components/settings/AiPayloadPreviewSection";
+import { StorageOverviewSection } from "../components/settings/StorageOverviewSection";
+import { useSectionSave } from "../components/settings/useSectionSave";
 import { defaultAppSettings } from "../domain/daily-entry";
 import type { AiPayloadScope, AppSettings } from "../domain/types";
-import { buildWeekDates } from "../domain/weekly-review";
-import {
-  previewPayload,
-  resolveProductivityPulse,
-  resolveWeeklyRescueTimeInputs,
-} from "../lib/ai/context/preview";
-import type { Surface } from "../lib/ai/context/types";
 import { formatPulseSlotHours, parsePulseSlotHours } from "../lib/ai/pulse/slot-hours";
 import { BACKUP_RETENTION_COUNT, isBackupDestinationConfigured } from "../lib/backup";
-import { formatDateTimeShort, getTodayDate } from "../lib/date";
+import { formatDateTimeShort } from "../lib/date";
 import { RescueTimeGoalsService } from "../lib/rescuetime/rescuetime-goals-service";
 import type { StorageInfo } from "../lib/storage/repository";
 
@@ -43,22 +39,8 @@ export const SettingsPage = () => {
   const [backupMessage, setBackupMessage] = useState("");
   const [creatingBackup, setCreatingBackup] = useState(false);
   const [choosingBackupFolder, setChoosingBackupFolder] = useState(false);
-  const [savingRelationshipSettings, setSavingRelationshipSettings] = useState(false);
-  const [relationshipMessage, setRelationshipMessage] = useState("");
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
-  const [gtdOverview, setGtdOverview] = useState<{
-    taskCount: number;
-    projectCount: number;
-    contextCount: number;
-  } | null>(null);
-  const [payloadPreviews, setPayloadPreviews] = useState<Record<AiPayloadScope, string> | null>(
-    null,
-  );
-  const [payloadPreviewSurface, setPayloadPreviewSurface] = useState<Surface>("daily");
-  const [payloadPreviewDate, setPayloadPreviewDate] = useState(getTodayDate());
-  const [loadingPayloadPreviews, setLoadingPayloadPreviews] = useState(false);
-  const [payloadPreviewError, setPayloadPreviewError] = useState("");
-  const [payloadPreviewPulseWarning, setPayloadPreviewPulseWarning] = useState("");
+  const relationshipSave = useSectionSave(() => saveSettings(draftSettings));
 
   useEffect(() => {
     setDraftSettings(settings);
@@ -75,23 +57,6 @@ export const SettingsPage = () => {
     const parsed = Number(trimmed);
     return Number.isFinite(parsed) ? Math.max(0, parsed) : null;
   }, [costRateDraft]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadGtdOverview = async () => {
-      const overview = await repository.getGtdOverview();
-      if (!cancelled) {
-        setGtdOverview(overview);
-      }
-    };
-
-    void loadGtdOverview();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [repository]);
 
   useEffect(() => {
     let cancelled = false;
@@ -377,166 +342,7 @@ export const SettingsPage = () => {
         memoryEnabled={draftSettings.aiMemoryEnabled}
       />
 
-      {debugEnabled ? (
-        <SectionCard title={t("payloadPreview.title")} subtitle={t("payloadPreview.subtitle")}>
-          {payloadPreviewError ? <div className="banner">{payloadPreviewError}</div> : null}
-          {payloadPreviewPulseWarning ? (
-            <div className="banner">{payloadPreviewPulseWarning}</div>
-          ) : null}
-
-          <div className="history-toolbar">
-            <label className="stacked-field">
-              <span>{t("payloadPreview.surface")}</span>
-              <select
-                aria-label={t("payloadPreview.surfaceAria")}
-                value={payloadPreviewSurface}
-                onChange={(event) => setPayloadPreviewSurface(event.target.value as Surface)}
-              >
-                <option value="daily">{t("payloadPreview.surfaceOption.daily")}</option>
-                <option value="weekly">{t("payloadPreview.surfaceOption.weekly")}</option>
-                <option value="monthly">{t("payloadPreview.surfaceOption.monthly")}</option>
-                <option value="annual">{t("payloadPreview.surfaceOption.annual")}</option>
-                <option value="pastor">{t("payloadPreview.surfaceOption.pastor")}</option>
-              </select>
-            </label>
-            <label className="stacked-field">
-              <span>{t(`payloadPreview.dateLabel.${payloadPreviewSurface}`)}</span>
-              <input
-                aria-label={t("payloadPreview.dateAria")}
-                type={payloadPreviewSurface === "monthly" ? "month" : "date"}
-                value={
-                  payloadPreviewSurface === "weekly"
-                    ? buildWeekDates(payloadPreviewDate)
-                    : payloadPreviewSurface === "monthly"
-                      ? payloadPreviewDate.slice(0, 7)
-                      : payloadPreviewDate
-                }
-                onChange={(event) => {
-                  if (payloadPreviewSurface === "monthly") {
-                    setPayloadPreviewDate(`${event.target.value}-01`);
-                    return;
-                  }
-                  setPayloadPreviewDate(event.target.value);
-                }}
-              />
-            </label>
-          </div>
-
-          <div className="form-actions">
-            <button
-              className="button button--primary"
-              type="button"
-              disabled={loadingPayloadPreviews}
-              onClick={async () => {
-                setLoadingPayloadPreviews(true);
-                setPayloadPreviewError("");
-                setPayloadPreviewPulseWarning("");
-
-                try {
-                  const date =
-                    payloadPreviewSurface === "weekly"
-                      ? buildWeekDates(payloadPreviewDate)
-                      : payloadPreviewSurface === "monthly"
-                        ? `${payloadPreviewDate.slice(0, 7)}-01`
-                        : payloadPreviewDate;
-
-                  if (payloadPreviewSurface === "weekly") {
-                    const weeklyRescueTime = await resolveWeeklyRescueTimeInputs(repository, date);
-                    const warnings: string[] = [];
-                    if (weeklyRescueTime.pulseFetchError) {
-                      warnings.push(
-                        t("payloadPreview.pulseWarningWeekly", {
-                          error: weeklyRescueTime.pulseFetchError,
-                        }),
-                      );
-                    }
-                    if (weeklyRescueTime.goalsFetchError) {
-                      warnings.push(
-                        t("payloadPreview.goalsWarning", {
-                          error: weeklyRescueTime.goalsFetchError,
-                        }),
-                      );
-                    }
-                    if (warnings.length > 0) {
-                      setPayloadPreviewPulseWarning(warnings.join(" "));
-                    }
-
-                    const entries = await Promise.all(
-                      payloadScopeValues.map(async (value) => {
-                        const snapshot = await previewPayload(repository, value, {
-                          surface: payloadPreviewSurface,
-                          date,
-                          weeklyRescueTime,
-                        });
-                        return [value, JSON.stringify(snapshot, null, 2)] as const;
-                      }),
-                    );
-                    setPayloadPreviews(
-                      Object.fromEntries(entries) as Record<AiPayloadScope, string>,
-                    );
-                    return;
-                  }
-
-                  if (payloadPreviewSurface === "daily") {
-                    const productivityPulse = await resolveProductivityPulse(repository, date);
-                    if (productivityPulse.fetchError) {
-                      setPayloadPreviewPulseWarning(
-                        t("payloadPreview.pulseWarningDaily", {
-                          error: productivityPulse.fetchError,
-                        }),
-                      );
-                    }
-                    const entries = await Promise.all(
-                      payloadScopeValues.map(async (value) => {
-                        const snapshot = await previewPayload(repository, value, {
-                          surface: payloadPreviewSurface,
-                          date,
-                          productivityPulse,
-                        });
-                        return [value, JSON.stringify(snapshot, null, 2)] as const;
-                      }),
-                    );
-                    setPayloadPreviews(
-                      Object.fromEntries(entries) as Record<AiPayloadScope, string>,
-                    );
-                    return;
-                  }
-
-                  const entries = await Promise.all(
-                    payloadScopeValues.map(async (value) => {
-                      const snapshot = await previewPayload(repository, value, {
-                        surface: payloadPreviewSurface,
-                        date,
-                      });
-                      return [value, JSON.stringify(snapshot, null, 2)] as const;
-                    }),
-                  );
-                  setPayloadPreviews(Object.fromEntries(entries) as Record<AiPayloadScope, string>);
-                } catch (error) {
-                  setPayloadPreviewError(
-                    error instanceof Error ? error.message : t("payloadPreview.error"),
-                  );
-                } finally {
-                  setLoadingPayloadPreviews(false);
-                }
-              }}
-            >
-              {loadingPayloadPreviews ? t("payloadPreview.computing") : t("payloadPreview.compute")}
-            </button>
-          </div>
-
-          {payloadPreviews ? (
-            <div className="payload-preview">
-              {payloadScopeValues.map((value) => (
-                <details key={value}>
-                  <summary>{t(`ai.payloadScope.${value}`)}</summary>
-                  <pre>{payloadPreviews[value]}</pre>
-                </details>
-              ))}
-            </div>
-          ) : null}
-        </SectionCard>
-      ) : null}
+      {debugEnabled ? <AiPayloadPreviewSection repository={repository} /> : null}
 
       <SectionCard title={t("rescuetime.title")} subtitle={t("rescuetime.subtitle")}>
         {rescuetimeMessage ? <div className="banner">{rescuetimeMessage}</div> : null}
@@ -617,7 +423,7 @@ export const SettingsPage = () => {
       </SectionCard>
 
       <SectionCard title={t("relationship.title")} subtitle={t("relationship.subtitle")}>
-        {relationshipMessage ? <div className="banner">{relationshipMessage}</div> : null}
+        {relationshipSave.message ? <div className="banner">{relationshipSave.message}</div> : null}
 
         <div className="settings-form">
           <label className="switch-row">
@@ -673,24 +479,12 @@ export const SettingsPage = () => {
           <button
             className="button button--primary"
             type="button"
-            disabled={savingRelationshipSettings}
-            onClick={async () => {
-              setSavingRelationshipSettings(true);
-              setRelationshipMessage("");
-
-              try {
-                await saveSettings(draftSettings);
-                setRelationshipMessage(t("relationship.saved"));
-              } catch (error) {
-                setRelationshipMessage(
-                  error instanceof Error ? error.message : t("relationship.saveError"),
-                );
-              } finally {
-                setSavingRelationshipSettings(false);
-              }
-            }}
+            disabled={relationshipSave.saving}
+            onClick={() =>
+              void relationshipSave.run(t("relationship.saved"), t("relationship.saveError"))
+            }
           >
-            {savingRelationshipSettings ? t("ai.saving") : t("relationship.save")}
+            {relationshipSave.saving ? t("ai.saving") : t("relationship.save")}
           </button>
         </div>
       </SectionCard>
@@ -883,26 +677,7 @@ export const SettingsPage = () => {
         </div>
       </SectionCard>
 
-      <SectionCard title={t("gtdImport.title")} subtitle={t("gtdImport.subtitle")}>
-        <div className="status-grid">
-          <article className="status-card">
-            <span>{t("gtdImport.stats.tasks")}</span>
-            <strong>{gtdOverview?.taskCount ?? t("loadingPlaceholder")}</strong>
-          </article>
-          <article className="status-card">
-            <span>{t("gtdImport.stats.projects")}</span>
-            <strong>{gtdOverview?.projectCount ?? t("loadingPlaceholder")}</strong>
-          </article>
-          <article className="status-card">
-            <span>{t("gtdImport.stats.contexts")}</span>
-            <strong>{gtdOverview?.contextCount ?? t("loadingPlaceholder")}</strong>
-          </article>
-          <article className="status-card">
-            <span>{t("gtdImport.stats.lastImport")}</span>
-            <strong>{settings.gtdImportDoneAt || t("backup.never")}</strong>
-          </article>
-        </div>
-      </SectionCard>
+      <StorageOverviewSection repository={repository} gtdImportDoneAt={settings.gtdImportDoneAt} />
     </div>
   );
 };
