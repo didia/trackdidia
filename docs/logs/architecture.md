@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-22 | Removed the dead legacy free-text coach (`coach-service.ts`, `coach-input.ts`, `CoachCard.tsx`, `AiProvider.generate`, `AiPromptContext`, `OpenRouterProvider.generate`, `CoachMessage`, `_addMonths`); `AppProvider` constructs `CoachPulseService`, not the removed `AiCoachService` | `docs/architecture.md`, `docs/ai-settings-and-privacy.md` | `src/app/app-context.tsx`, `src/lib/ai/coach-pulse-service.ts`, `src/lib/ai/provider.ts`, `src/lib/ai/openrouter-provider.ts` |
 | 2026-09-12 | Added `verses.json` (root) and `src/lib/pastor/` (bible-books, verse-catalog, translations, signals, history, local-pick) for the new "Pasteur IA" surface | `docs/architecture.md`, `docs/ai-settings-and-privacy.md` | `verses.json`, `src/lib/pastor/` |
 | 2026-09-09 | Email triage reviews persist metadata only (no body); coordinator pagination uses the saved cursor and a per-run page cap; enable/resume reconfigures polling | `docs/email-triage.md`, `docs/storage-and-backups.md`, `docs/architecture.md` | `sync-engine.ts`, `coordinator.ts`, `EmailTriagePage` |
 | 2026-09-08 | Yahoo slice: coordinator uses live IMAP adapter on desktop when vault credentials exist | `docs/architecture.md`, `docs/email-triage.md` | `runtime.ts`, `yahoo-adapter.ts`, `yahoo_imap.rs` |

@@ -76,7 +76,7 @@ services shared by the pages:
 
 - an `AppRepository`,
 - `AppSettings`,
-- `AiCoachService`,
+- `CoachPulseService`,
 - the global Pomodoro controller,
 - debug state,
 - the browser-preview flag.

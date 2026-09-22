@@ -513,8 +513,8 @@ Every coach result is persisted in SQLite (migrations 21–24):
 - `ai_proposals` stores accept-step rows linked to a message.
 - `ai_memories` stores semantic memory rows (`active | archived | contradicted`).
 
-Browser preview uses `MemoryRepository` with the same methods. The old in-memory
-`AiCoachService` cache is replaced by this durable store on desktop.
+Browser preview uses `MemoryRepository` with the same methods. This durable store
+replaces the in-memory cache used by the now-removed legacy free-text coach.
 
 ### Cost dashboard (Settings)
 

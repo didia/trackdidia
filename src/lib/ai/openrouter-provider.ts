@@ -1,16 +1,11 @@
-import type { AiSurface, AppSettings, CoachMessage } from "../../domain/types";
+import type { AiSurface, AppSettings } from "../../domain/types";
 import { logDebug } from "../debug";
 import { buildCoachPulseSchemaPrompt } from "./proposals/coach-pulse-schema-prompt";
 import { buildGoalPacingSchemaPrompt } from "./proposals/goal-pacing-schema-prompt";
 import { buildMonthlySynthesisSchemaPrompt } from "./proposals/monthly-synthesis-schema-prompt";
 import { buildPastorVerseSchemaPrompt } from "./proposals/pastor-verse-schema-prompt";
 import { buildWeeklySynthesisSchemaPrompt } from "./proposals/weekly-synthesis-schema-prompt";
-import type {
-  AiPromptContext,
-  AiProvider,
-  AiStructuredRequest,
-  AiStructuredResult,
-} from "./provider";
+import type { AiProvider, AiStructuredRequest, AiStructuredResult } from "./provider";
 import type { DailySnapshot } from "./context/daily-snapshot";
 
 export const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
@@ -240,62 +235,6 @@ const buildSystemPrompt = (request: AiStructuredRequest, repairHint?: string): s
 };
 
 export class OpenRouterProvider implements AiProvider {
-  /** @deprecated Legacy morning/evening free-text coach. */
-  async generate(kind: CoachMessage["kind"], context: AiPromptContext): Promise<string> {
-    const result = await this.generateStructured({
-      surface: "coach_pulse",
-      stance: kind === "morning" ? "open" : "close",
-      settings: context.settings,
-      snapshot: {
-        surface: "daily",
-        scope: context.settings.aiPayloadScope,
-        date: context.entry.date,
-        status: context.entry.status,
-        metrics: [],
-        principles: [],
-        notes: {
-          morningIntention: context.entry.morningIntention,
-          nightReflection: context.entry.nightReflection,
-          tomorrowFocus: context.entry.tomorrowFocus,
-        },
-        gtd: {
-          inboxBacklog: 0,
-          projectsWithoutNextAction: 0,
-          projectsWithoutNextActionSample: [],
-          staleNextActions: 0,
-          agingWaitingFor: 0,
-          overdueDeadlines: 0,
-          scheduledVsCompletedRatio: 0,
-        },
-        pomodoro: {
-          completedFocusSessionCount: 0,
-          totalFocusMinutes: 0,
-          taskConcentration: null,
-          topTask: null,
-        },
-        rescueTime: { configured: false, productivityPulseWeekToDate: null },
-        history: { daysConsidered: 0, disciplineAverage7d: 0, disciplineAverage28d: 0 },
-        previousDay: null,
-        weeklyScoreTrend: null,
-        findings: [],
-      },
-    });
-
-    try {
-      const parsed = JSON.parse(result.text) as { read?: string; headline?: string };
-      if (typeof parsed.read === "string" && parsed.read.trim()) {
-        return parsed.read.trim();
-      }
-      if (typeof parsed.headline === "string" && parsed.headline.trim()) {
-        return parsed.headline.trim();
-      }
-    } catch {
-      // Fall through to raw text.
-    }
-
-    return result.text;
-  }
-
   async generateStructured(request: AiStructuredRequest): Promise<AiStructuredResult> {
     const startedAt = Date.now();
     const baseUrl = normalizeAiBaseUrl(request.settings.aiBaseUrl);
