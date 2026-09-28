@@ -178,6 +178,28 @@ const isDailyAddedEvent = (event: TaskEvent): boolean => {
   return false;
 };
 
+/** A task closed before this local day was not in the week's starting pile. */
+const wasClosedBeforeLocalDay = (task: Task | undefined, startMs: number): boolean => {
+  if (!task) {
+    return false;
+  }
+
+  if (task.completedAt) {
+    const completedMs = new Date(task.completedAt).getTime();
+    return Number.isFinite(completedMs) && completedMs < startMs;
+  }
+
+  if (task.status === "completed" || task.status === "cancelled") {
+    const updatedMs = new Date(task.updatedAt).getTime();
+    return Number.isFinite(updatedMs) && updatedMs < startMs;
+  }
+
+  return false;
+};
+
+const countsAsAddedOnDate = (event: TaskEvent, task: Task | undefined, startMs: number): boolean =>
+  isDailyAddedEvent(event) && !wasClosedBeforeLocalDay(task, startMs);
+
 export const buildDailyTaskStats = (
   tasks: Task[],
   events: TaskEvent[],
@@ -195,7 +217,9 @@ export const buildDailyTaskStats = (
   });
 
   const addedToday = new Set(
-    taskEventsToday.filter(isDailyAddedEvent).map((event) => event.taskId),
+    taskEventsToday
+      .filter((event) => countsAsAddedOnDate(event, tasksById.get(event.taskId), startMs))
+      .map((event) => event.taskId),
   );
 
   const completedToday = new Set(
@@ -269,6 +293,7 @@ export const buildDailyTaskBreakdown = (
   events: TaskEvent[],
   date: string,
 ): { date: string; addedTasks: Task[]; completedTasks: Task[] } => {
+  const { startMs } = getDayRange(date);
   const tasksById = new Map(tasks.map((task) => [task.id, task] as const));
   const taskEventsToday = events.filter((event) => {
     if (event.type !== "task_completed") {
@@ -279,7 +304,9 @@ export const buildDailyTaskBreakdown = (
     return completedAt ? toLocalDateString(completedAt) === date : event.eventDate === date;
   });
 
-  const addedTaskIds = collectTaskIds(taskEventsToday, isDailyAddedEvent);
+  const addedTaskIds = collectTaskIds(taskEventsToday, (event) =>
+    countsAsAddedOnDate(event, tasksById.get(event.taskId), startMs),
+  );
   const completedTaskIds = collectTaskIds(
     taskEventsToday,
     (event) => event.type === "task_completed",

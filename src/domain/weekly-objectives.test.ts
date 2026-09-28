@@ -3,6 +3,7 @@ import {
   buildWeeklyObjectivesSnapshot,
   computeWeeklyObjectivesScore,
   createEmptyWeeklyObjective,
+  objectiveAfterManualAchievement,
   scoreManualObjective,
   scoreTimeObjective,
 } from "./weekly-objectives";
@@ -114,5 +115,44 @@ describe("weekly-objectives scoring", () => {
       "later",
       "legacy",
     ]);
+  });
+
+  it("removes a done manual objective from the week it was achieved and every later week", () => {
+    const objective = createEmptyWeeklyObjective({
+      id: "manual-1",
+      title: "Budget review",
+      kind: "manual",
+      startsOnWeekStartDate: "2026-08-02",
+    });
+
+    const achieved = objectiveAfterManualAchievement(objective, "2026-08-16", true);
+    expect(achieved.endsOnWeekStartDate).toBe("2026-08-09");
+
+    const previousWeek = buildWeeklyObjectivesSnapshot(
+      "2026-08-09",
+      [achieved],
+      [],
+      {},
+      { rescuetimeConfigured: false },
+    );
+    const during = buildWeeklyObjectivesSnapshot(
+      "2026-08-16",
+      [achieved],
+      [],
+      {},
+      { rescuetimeConfigured: false },
+    );
+    const nextWeek = buildWeeklyObjectivesSnapshot(
+      "2026-08-23",
+      [achieved],
+      [],
+      {},
+      { rescuetimeConfigured: false },
+    );
+
+    expect(previousWeek.items.map((item) => item.objective.id)).toEqual(["manual-1"]);
+    expect(during.items).toEqual([]);
+    expect(nextWeek.items).toEqual([]);
+    expect(objectiveAfterManualAchievement(achieved, "2026-08-16", false)).toBe(achieved);
   });
 });

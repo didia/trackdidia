@@ -674,6 +674,126 @@ describe("MemoryRepository", () => {
     expect(tasks[0].title).toBe("Planification mensuelle revue");
   });
 
+  it("does not fast-forward a daily recurrence when a weekly summary includes future days", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-07T15:00:00.000Z"));
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveRecurringTaskTemplate({
+      id: "recurring-template:matin",
+      title: "Routine du matin",
+      notes: "",
+      targetBucket: "next_action",
+      contextIds: [],
+      projectId: null,
+      ruleType: "daily",
+      dailyInterval: 1,
+      weeklyInterval: 1,
+      weeklyDays: [1],
+      monthlyMode: "day_of_month",
+      dayOfMonth: 1,
+      nthWeek: 1,
+      weekday: 1,
+      scheduledTime: null,
+      startDate: "2026-09-07",
+      status: "active",
+      lastGeneratedForDate: null,
+      pendingMissedOccurrences: 0,
+      statusChangedAt: "2026-09-07T00:00:00.000Z",
+      createdAt: "2026-09-07T00:00:00.000Z",
+      updatedAt: "2026-09-07T00:00:00.000Z",
+    });
+
+    await repository.computeWeeklyReviewSummary("2026-09-27");
+
+    const templates = await repository.listRecurringTaskTemplates();
+    expect(templates[0]?.lastGeneratedForDate).toBe("2026-09-07");
+    let tasks = await repository.listTasks({ includeCompleted: true });
+    expect(tasks[0]).toMatchObject({
+      status: "active",
+      bucket: "next_action",
+      recurrenceDueDate: "2026-09-07",
+    });
+
+    await repository.completeTask(tasks[0].id, "2026-09-07T20:00:00.000Z");
+    vi.setSystemTime(new Date("2026-09-08T15:00:00.000Z"));
+    await repository.generateDueRecurringTasks("2026-09-08");
+
+    tasks = await repository.listTasks({ includeCompleted: true });
+    expect(tasks.find((task) => task.status === "active")).toMatchObject({
+      bucket: "next_action",
+      recurrenceDueDate: "2026-09-08",
+    });
+  });
+
+  it("resumes a daily recurrence whose watermark was already advanced past today", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-25T15:00:00.000Z"));
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveRecurringTaskTemplate({
+      id: "recurring-template:matin",
+      title: "Routine du matin",
+      notes: "",
+      targetBucket: "next_action",
+      contextIds: [],
+      projectId: null,
+      ruleType: "daily",
+      dailyInterval: 1,
+      weeklyInterval: 1,
+      weeklyDays: [1],
+      monthlyMode: "day_of_month",
+      dayOfMonth: 1,
+      nthWeek: 1,
+      weekday: 1,
+      scheduledTime: null,
+      startDate: "2026-04-03",
+      status: "active",
+      lastGeneratedForDate: "2026-10-03",
+      pendingMissedOccurrences: 0,
+      statusChangedAt: "2026-09-08T16:24:52.601Z",
+      createdAt: "2026-04-03T00:00:00.000Z",
+      updatedAt: "2026-09-08T16:24:52.601Z",
+    });
+    await repository.saveTask({
+      id: "recurring-task:recurring-template:matin",
+      title: "Routine du matin",
+      notes: "",
+      status: "completed",
+      bucket: "next_action",
+      contextIds: [],
+      projectId: null,
+      parentTaskId: null,
+      scheduledFor: null,
+      deadline: null,
+      recurringTemplateId: "recurring-template:matin",
+      recurrenceDueDate: "2026-10-03",
+      isRecurringInstance: true,
+      completedAt: "2026-09-08T16:24:52.561Z",
+      recurrenceGroupId: null,
+      pendingPastRecurrences: 0,
+      plannedOrder: null,
+      source: "manual",
+      sourceExternalId: null,
+      sourceUrl: null,
+      createdAt: "2026-09-07T15:51:22.605Z",
+      updatedAt: "2026-09-08T16:24:52.586Z",
+    });
+
+    await repository.generateDueRecurringTasks("2026-09-25");
+
+    const tasks = await repository.listTasks({ includeCompleted: true });
+    expect(tasks.find((task) => task.status === "active")).toMatchObject({
+      bucket: "next_action",
+      recurrenceDueDate: "2026-09-25",
+      pendingPastRecurrences: 16,
+    });
+    const templates = await repository.listRecurringTaskTemplates();
+    expect(templates[0]?.lastGeneratedForDate).toBe("2026-09-25");
+  });
+
   it("persists weekly reviews and computes weekly summaries from daily entries", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -903,6 +1023,7 @@ describe("MemoryRepository", () => {
       rescuetimeThing: "Software Development",
       sortOrder: 0,
       startsOnWeekStartDate: "2026-08-09",
+      endsOnWeekStartDate: null,
       createdAt: "",
       updatedAt: "",
     });
@@ -929,7 +1050,34 @@ describe("MemoryRepository", () => {
       }),
     ]);
 
+    const manual = await repository.saveWeeklyObjective({
+      id: "",
+      title: "Budget review",
+      kind: "manual",
+      targetHours: null,
+      rescuetimeKind: null,
+      rescuetimeThing: null,
+      sortOrder: 1,
+      startsOnWeekStartDate: "2026-08-02",
+      endsOnWeekStartDate: null,
+      createdAt: "",
+      updatedAt: "",
+    });
+    await repository.saveWeeklyObjectiveResult({
+      weekStartDate: "2026-08-16",
+      objectiveId: manual.id,
+      achieved: true,
+      updatedAt: "",
+    });
+    const afterDone = await repository.listWeeklyObjectives();
+    expect(afterDone).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: saved.id, endsOnWeekStartDate: null }),
+        expect.objectContaining({ id: manual.id, endsOnWeekStartDate: "2026-08-09" }),
+      ]),
+    );
     await repository.deleteWeeklyObjective(saved.id);
+    await repository.deleteWeeklyObjective(manual.id);
     await expect(repository.listWeeklyObjectives()).resolves.toEqual([]);
     await expect(repository.getWeeklyObjectiveResults("2026-08-03")).resolves.toEqual([]);
   });
@@ -1262,6 +1410,7 @@ describe("MemoryRepository", () => {
       rescuetimeThing: null,
       sortOrder: 0,
       startsOnWeekStartDate: null,
+      endsOnWeekStartDate: null,
       createdAt: "2026-08-29T08:00:00.000Z",
       updatedAt: "2026-08-29T08:00:00.000Z",
     };

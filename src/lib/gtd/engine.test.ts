@@ -289,4 +289,47 @@ describe("buildDailyTaskStats added counting", () => {
       buildDailyTaskBreakdown([leftoverNext, leftoverScheduled], events, sunday).addedTasks,
     ).toEqual([expect.objectContaining({ id: "task-na-carry" })]);
   });
+
+  it("leaves last week's completed tasks out of this Sunday's starting pile", () => {
+    const sunday = "2026-09-27";
+    const stillOpen = buildTask({
+      id: "task-open",
+      createdAt: "2026-09-01T08:00:00.000Z",
+      updatedAt: "2026-09-01T08:00:00.000Z",
+    });
+    const finishedLastWeek = buildTask({
+      id: "task-done-last-week",
+      title: "Routine du matin",
+      status: "completed",
+      isRecurringInstance: true,
+      completedAt: "2026-09-08T16:24:52.561Z",
+      createdAt: "2026-09-01T08:00:00.000Z",
+      updatedAt: "2026-09-08T16:24:52.586Z",
+    });
+    const finishedThisSunday = buildTask({
+      id: "task-done-sunday",
+      status: "completed",
+      completedAt: "2026-09-27T15:00:00.000Z",
+      createdAt: "2026-09-01T08:00:00.000Z",
+      updatedAt: "2026-09-27T15:00:00.000Z",
+    });
+    const events = [
+      buildEvent("task-open", "weekly_carryover", sunday, { bucket: "next_action" }),
+      buildEvent("task-done-last-week", "weekly_carryover", sunday, { bucket: "next_action" }),
+      buildEvent("task-done-last-week", "task_moved_to_next_action", sunday, { recurring: "true" }),
+      buildEvent("task-done-sunday", "weekly_carryover", sunday, { bucket: "next_action" }),
+      buildEvent("task-done-sunday", "task_completed", sunday, { bucket: "next_action" }),
+    ];
+    const tasks = [stillOpen, finishedLastWeek, finishedThisSunday];
+
+    expect(buildDailyTaskStats(tasks, events, sunday)).toMatchObject({
+      tasksAdded: 2,
+      tasksCompleted: 1,
+    });
+    expect(
+      buildDailyTaskBreakdown(tasks, events, sunday)
+        .addedTasks.map((task) => task.id)
+        .sort(),
+    ).toEqual(["task-done-sunday", "task-open"]);
+  });
 });

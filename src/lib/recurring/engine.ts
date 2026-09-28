@@ -340,6 +340,130 @@ export const applySeriesChangesToTemplate = (
   };
 };
 
+const latestDueDateOnOrBefore = (template: RecurringTaskTemplate, date: string): string | null => {
+  if (date < template.startDate) {
+    return null;
+  }
+
+  const dueDates = listDueDatesBetween(template, template.startDate, date);
+  return dueDates.length > 0 ? dueDates[dueDates.length - 1] : null;
+};
+
+/**
+ * Recurrence generation is due-through-today. Callers such as weekly summaries
+ * pass later dates in an open week; those dates must not materialize occurrences.
+ */
+export const recurrenceGenerationHorizon = (requestedDate: string, today: string): string =>
+  requestedDate > today ? today : requestedDate;
+
+export type PreparedRecurringGeneration = {
+  template: RecurringTaskTemplate;
+  instance: Task | null;
+  changed: boolean;
+};
+
+/**
+ * A future `lastGeneratedForDate` means a read of a later calendar day already
+ * consumed occurrences that were not due yet. Pull the watermark back so the
+ * next pass can materialize today. An active instance that was advanced early
+ * is pulled back to the latest due date on or before today.
+ */
+export const prepareRecurringGeneration = (
+  template: RecurringTaskTemplate,
+  instance: Task | null,
+  today: string,
+): PreparedRecurringGeneration => {
+  const watermarkIsFuture = Boolean(
+    template.lastGeneratedForDate && template.lastGeneratedForDate > today,
+  );
+  const dueIsFuture = Boolean(
+    instance?.status === "active" &&
+      instance.recurrenceDueDate &&
+      instance.recurrenceDueDate > today,
+  );
+
+  if (!watermarkIsFuture && !dueIsFuture) {
+    return { template, instance, changed: false };
+  }
+
+  if (instance?.status === "active" && dueIsFuture) {
+    const dueDate = latestDueDateOnOrBefore(template, today);
+    if (!dueDate) {
+      return { template, instance, changed: false };
+    }
+
+    const rebuilt = buildTaskFromRecurringTemplate(
+      template,
+      dueDate,
+      instance.pendingPastRecurrences,
+    );
+    return {
+      template: {
+        ...cloneRecurringTemplate(template),
+        lastGeneratedForDate: dueDate,
+      },
+      instance: {
+        ...instance,
+        contextIds: [...instance.contextIds],
+        bucket: rebuilt.bucket,
+        scheduledFor: rebuilt.scheduledFor,
+        recurrenceDueDate: dueDate,
+      },
+      changed: true,
+    };
+  }
+
+  if (
+    instance?.status === "active" &&
+    instance.recurrenceDueDate &&
+    instance.recurrenceDueDate <= today
+  ) {
+    if (template.lastGeneratedForDate === instance.recurrenceDueDate) {
+      return { template, instance, changed: false };
+    }
+
+    return {
+      template: {
+        ...cloneRecurringTemplate(template),
+        lastGeneratedForDate: instance.recurrenceDueDate,
+      },
+      instance,
+      changed: true,
+    };
+  }
+
+  const completedOn =
+    instance?.status === "completed" && instance.completedAt
+      ? toLocalDateString(instance.completedAt)
+      : null;
+  const anchor = completedOn && completedOn <= today ? completedOn : addDays(today, -1);
+  const watermark = latestDueDateOnOrBefore(template, anchor);
+  if (watermark === template.lastGeneratedForDate) {
+    return { template, instance, changed: false };
+  }
+
+  return {
+    template: {
+      ...cloneRecurringTemplate(template),
+      lastGeneratedForDate: watermark,
+    },
+    instance,
+    changed: true,
+  };
+};
+
+export const recurringInstanceWasRewound = (previous: Task | null, next: Task | null): boolean => {
+  if (!previous || !next) {
+    return false;
+  }
+
+  return (
+    previous.recurrenceDueDate !== next.recurrenceDueDate ||
+    previous.scheduledFor !== next.scheduledFor ||
+    previous.bucket !== next.bucket
+  );
+};
+
 export const findProcessingRangeStart = (
   template: RecurringTaskTemplate,
   activeTask: Task | null,
