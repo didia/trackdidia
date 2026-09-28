@@ -794,6 +794,152 @@ describe("MemoryRepository", () => {
     expect(templates[0]?.lastGeneratedForDate).toBe("2026-09-25");
   });
 
+  it("rewinds an active future instance, reduces pending counters, and emits lifecycle events", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-08T15:00:00.000Z"));
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveRecurringTaskTemplate({
+      id: "recurring-template:matin",
+      title: "Routine du matin",
+      notes: "",
+      targetBucket: "next_action",
+      contextIds: [],
+      projectId: null,
+      ruleType: "daily",
+      dailyInterval: 1,
+      weeklyInterval: 1,
+      weeklyDays: [1],
+      monthlyMode: "day_of_month",
+      dayOfMonth: 1,
+      nthWeek: 1,
+      weekday: 1,
+      scheduledTime: null,
+      startDate: "2026-08-01",
+      status: "active",
+      lastGeneratedForDate: "2026-09-27",
+      pendingMissedOccurrences: 26,
+      statusChangedAt: "2026-08-01T00:00:00.000Z",
+      createdAt: "2026-08-01T00:00:00.000Z",
+      updatedAt: "2026-09-27T00:00:00.000Z",
+    });
+    await repository.saveTask({
+      id: "recurring-task:recurring-template:matin",
+      title: "Routine du matin",
+      notes: "",
+      status: "active",
+      bucket: "next_action",
+      contextIds: [],
+      projectId: null,
+      parentTaskId: null,
+      scheduledFor: null,
+      deadline: null,
+      recurringTemplateId: "recurring-template:matin",
+      recurrenceDueDate: "2026-09-27",
+      isRecurringInstance: true,
+      completedAt: null,
+      recurrenceGroupId: null,
+      pendingPastRecurrences: 26,
+      plannedOrder: null,
+      source: "manual",
+      sourceExternalId: null,
+      sourceUrl: null,
+      createdAt: "2026-08-01T00:00:00.000Z",
+      updatedAt: "2026-09-27T00:00:00.000Z",
+    });
+
+    await repository.generateDueRecurringTasks("2026-09-08");
+
+    const tasks = await repository.listTasks({ includeCompleted: true });
+    const active = tasks.find((task) => task.status === "active");
+    expect(active).toMatchObject({
+      recurrenceDueDate: "2026-09-08",
+      pendingPastRecurrences: 7,
+    });
+    const templates = await repository.listRecurringTaskTemplates();
+    expect(templates[0]).toMatchObject({
+      lastGeneratedForDate: "2026-09-08",
+      pendingMissedOccurrences: 7,
+    });
+    const events = await repository.listTaskEvents();
+    expect(
+      events.some(
+        (event) =>
+          event.taskId === active?.id &&
+          event.type === "task_moved_to_next_action" &&
+          event.eventDate === "2026-09-08",
+      ),
+    ).toBe(true);
+    await expect(repository.computeDailyTaskStats("2026-09-08")).resolves.toMatchObject({
+      tasksAdded: 1,
+    });
+  });
+
+  it("cancels a prematurely generated instance before the template start date", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-07T15:00:00.000Z"));
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveRecurringTaskTemplate({
+      id: "recurring-template:future",
+      title: "Future start",
+      notes: "",
+      targetBucket: "next_action",
+      contextIds: [],
+      projectId: null,
+      ruleType: "daily",
+      dailyInterval: 1,
+      weeklyInterval: 1,
+      weeklyDays: [1],
+      monthlyMode: "day_of_month",
+      dayOfMonth: 1,
+      nthWeek: 1,
+      weekday: 1,
+      scheduledTime: null,
+      startDate: "2026-09-11",
+      status: "active",
+      lastGeneratedForDate: "2026-09-11",
+      pendingMissedOccurrences: 0,
+      statusChangedAt: "2026-09-07T00:00:00.000Z",
+      createdAt: "2026-09-07T00:00:00.000Z",
+      updatedAt: "2026-09-07T00:00:00.000Z",
+    });
+    await repository.saveTask({
+      id: "recurring-task:recurring-template:future",
+      title: "Future start",
+      notes: "",
+      status: "active",
+      bucket: "next_action",
+      contextIds: [],
+      projectId: null,
+      parentTaskId: null,
+      scheduledFor: null,
+      deadline: null,
+      recurringTemplateId: "recurring-template:future",
+      recurrenceDueDate: "2026-09-11",
+      isRecurringInstance: true,
+      completedAt: null,
+      recurrenceGroupId: null,
+      pendingPastRecurrences: 0,
+      plannedOrder: null,
+      source: "manual",
+      sourceExternalId: null,
+      sourceUrl: null,
+      createdAt: "2026-09-07T00:00:00.000Z",
+      updatedAt: "2026-09-07T00:00:00.000Z",
+    });
+
+    await repository.generateDueRecurringTasks("2026-09-07");
+
+    const tasks = await repository.listTasks({ includeCompleted: true });
+    expect(tasks.find((task) => task.status === "active")).toBeUndefined();
+    expect(tasks[0]).toMatchObject({ status: "cancelled" });
+    const templates = await repository.listRecurringTaskTemplates();
+    expect(templates[0]?.lastGeneratedForDate).toBeNull();
+  });
+
   it("persists weekly reviews and computes weekly summaries from daily entries", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -1073,6 +1219,18 @@ describe("MemoryRepository", () => {
     expect(afterDone).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: saved.id, endsOnWeekStartDate: null }),
+        expect.objectContaining({ id: manual.id, endsOnWeekStartDate: "2026-08-09" }),
+      ]),
+    );
+    await repository.saveWeeklyObjectiveResult({
+      weekStartDate: "2026-08-23",
+      objectiveId: manual.id,
+      achieved: true,
+      updatedAt: "",
+    });
+    const afterStaleLaterWeek = await repository.listWeeklyObjectives();
+    expect(afterStaleLaterWeek).toEqual(
+      expect.arrayContaining([
         expect.objectContaining({ id: manual.id, endsOnWeekStartDate: "2026-08-09" }),
       ]),
     );

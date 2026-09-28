@@ -155,4 +155,20 @@ describe("weekly-objectives scoring", () => {
     expect(nextWeek.items).toEqual([]);
     expect(objectiveAfterManualAchievement(achieved, "2026-08-16", false)).toBe(achieved);
   });
+
+  it("keeps the earlier terminal end when a later week also marks the objective achieved", () => {
+    const objective = createEmptyWeeklyObjective({
+      id: "manual-1",
+      title: "Budget review",
+      kind: "manual",
+      startsOnWeekStartDate: "2026-08-02",
+    });
+
+    const first = objectiveAfterManualAchievement(objective, "2026-08-16", true);
+    expect(first.endsOnWeekStartDate).toBe("2026-08-09");
+
+    const staleLaterWeek = objectiveAfterManualAchievement(first, "2026-08-23", true);
+    expect(staleLaterWeek.endsOnWeekStartDate).toBe("2026-08-09");
+    expect(staleLaterWeek).toBe(first);
+  });
 });

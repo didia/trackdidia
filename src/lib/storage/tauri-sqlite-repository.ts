@@ -1827,38 +1827,44 @@ export class TauriSqliteRepository implements AppRepository {
         updatedAt: timestamp,
       };
 
-      await db.execute(
-        `INSERT INTO weekly_objective_results (week_start_date, objective_id, achieved, updated_at)
+      await db.execute("BEGIN IMMEDIATE");
+      try {
+        await db.execute(
+          `INSERT INTO weekly_objective_results (week_start_date, objective_id, achieved, updated_at)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT(week_start_date, objective_id) DO UPDATE SET
          achieved = excluded.achieved,
          updated_at = excluded.updated_at`,
-        [
-          nextResult.weekStartDate,
-          nextResult.objectiveId,
-          nextResult.achieved ? 1 : 0,
-          nextResult.updatedAt,
-        ],
-      );
+          [
+            nextResult.weekStartDate,
+            nextResult.objectiveId,
+            nextResult.achieved ? 1 : 0,
+            nextResult.updatedAt,
+          ],
+        );
 
-      const rows = await db.select<WeeklyObjectiveRow[]>(
-        `SELECT ${weeklyObjectiveSelectColumns}
+        const rows = await db.select<WeeklyObjectiveRow[]>(
+          `SELECT ${weeklyObjectiveSelectColumns}
          FROM weekly_objectives
          WHERE id = $1`,
-        [nextResult.objectiveId],
-      );
-      const objective = rows[0] ? this.deserializeWeeklyObjective(rows[0]) : null;
-      if (!objective) {
-        return;
-      }
+          [nextResult.objectiveId],
+        );
+        const objective = rows[0] ? this.deserializeWeeklyObjective(rows[0]) : null;
+        if (objective) {
+          const nextObjective = objectiveAfterManualAchievement(
+            objective,
+            normalized,
+            nextResult.achieved,
+          );
+          if (nextObjective.endsOnWeekStartDate !== objective.endsOnWeekStartDate) {
+            await this.saveWeeklyObjectiveInternal(db, nextObjective);
+          }
+        }
 
-      const nextObjective = objectiveAfterManualAchievement(
-        objective,
-        normalized,
-        nextResult.achieved,
-      );
-      if (nextObjective.endsOnWeekStartDate !== objective.endsOnWeekStartDate) {
-        await this.saveWeeklyObjectiveInternal(db, nextObjective);
+        await db.execute("COMMIT");
+      } catch (error) {
+        await this.rollbackQuietly(db);
+        throw error;
       }
     });
   }
@@ -3257,11 +3263,15 @@ export class TauriSqliteRepository implements AppRepository {
           };
           await this.persistRecurringTemplate(template);
           if (recurringInstanceWasRewound(instance, prepared.instance) && prepared.instance) {
+            const previousInstance = instance ? cloneTask(instance) : null;
             const nextInstance = {
               ...cloneTask(prepared.instance),
               updatedAt: timestamp,
             };
             await this.persistTask(nextInstance);
+            if (previousInstance) {
+              await this.persistEvents(buildLifecycleEvents(previousInstance, nextInstance));
+            }
             if (nextInstance.status === "active") {
               activeTask = nextInstance;
             }

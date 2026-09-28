@@ -5,7 +5,7 @@ import type {
   RecurringTemplateFilters,
   Task,
 } from "../../domain/types";
-import { createEntityId, toLocalDateString } from "../gtd/shared";
+import { cloneTask, createEntityId, toLocalDateString } from "../gtd/shared";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -366,7 +366,8 @@ export type PreparedRecurringGeneration = {
  * A future `lastGeneratedForDate` means a read of a later calendar day already
  * consumed occurrences that were not due yet. Pull the watermark back so the
  * next pass can materialize today. An active instance that was advanced early
- * is pulled back to the latest due date on or before today.
+ * is pulled back to the latest due date on or before today. A premature
+ * instance with no due date yet is cancelled and the watermark cleared.
  */
 export const prepareRecurringGeneration = (
   template: RecurringTaskTemplate,
@@ -389,18 +390,37 @@ export const prepareRecurringGeneration = (
   if (instance?.status === "active" && dueIsFuture) {
     const dueDate = latestDueDateOnOrBefore(template, today);
     if (!dueDate) {
-      return { template, instance, changed: false };
+      return {
+        template: {
+          ...cloneRecurringTemplate(template),
+          lastGeneratedForDate: null,
+          pendingMissedOccurrences: 0,
+        },
+        instance: {
+          ...cloneTask(instance),
+          status: "cancelled",
+          completedAt: null,
+          pendingPastRecurrences: 0,
+        },
+        changed: true,
+      };
     }
 
-    const rebuilt = buildTaskFromRecurringTemplate(
-      template,
-      dueDate,
-      instance.pendingPastRecurrences,
+    const previousDueDate = instance.recurrenceDueDate;
+    const futureOccurrenceCount =
+      previousDueDate && dueDate < previousDueDate
+        ? listDueDatesBetween(template, addDays(dueDate, 1), previousDueDate).length
+        : 0;
+    const pendingPastRecurrences = Math.max(
+      0,
+      instance.pendingPastRecurrences - futureOccurrenceCount,
     );
+    const rebuilt = buildTaskFromRecurringTemplate(template, dueDate, pendingPastRecurrences);
     return {
       template: {
         ...cloneRecurringTemplate(template),
         lastGeneratedForDate: dueDate,
+        pendingMissedOccurrences: pendingPastRecurrences,
       },
       instance: {
         ...instance,
@@ -408,6 +428,7 @@ export const prepareRecurringGeneration = (
         bucket: rebuilt.bucket,
         scheduledFor: rebuilt.scheduledFor,
         recurrenceDueDate: dueDate,
+        pendingPastRecurrences,
       },
       changed: true,
     };
@@ -426,6 +447,7 @@ export const prepareRecurringGeneration = (
       template: {
         ...cloneRecurringTemplate(template),
         lastGeneratedForDate: instance.recurrenceDueDate,
+        pendingMissedOccurrences: instance.pendingPastRecurrences,
       },
       instance,
       changed: true,
@@ -460,7 +482,9 @@ export const recurringInstanceWasRewound = (previous: Task | null, next: Task | 
   return (
     previous.recurrenceDueDate !== next.recurrenceDueDate ||
     previous.scheduledFor !== next.scheduledFor ||
-    previous.bucket !== next.bucket
+    previous.bucket !== next.bucket ||
+    previous.status !== next.status ||
+    previous.pendingPastRecurrences !== next.pendingPastRecurrences
   );
 };
 

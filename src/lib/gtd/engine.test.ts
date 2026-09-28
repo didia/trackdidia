@@ -332,4 +332,34 @@ describe("buildDailyTaskStats added counting", () => {
         .sort(),
     ).toEqual(["task-done-sunday", "task-open"]);
   });
+
+  it("ignores a stale Sunday carryover after a later recurrence reuses the closed task id", () => {
+    const sunday = "2026-09-27";
+    const regenerated = buildTask({
+      id: "recurring-task:monthly",
+      title: "Revue mensuelle",
+      status: "active",
+      isRecurringInstance: true,
+      completedAt: null,
+      recurrenceDueDate: "2026-10-01",
+      createdAt: "2026-09-01T08:00:00.000Z",
+      updatedAt: "2026-10-01T09:00:00.000Z",
+    });
+    const events = [
+      buildEvent("recurring-task:monthly", "weekly_carryover", sunday, { bucket: "next_action" }),
+      buildEvent("recurring-task:monthly", "task_completed", "2026-09-08", {
+        bucket: "next_action",
+      }),
+      buildEvent("recurring-task:monthly", "task_moved_to_next_action", "2026-10-01", {
+        recurring: "true",
+      }),
+    ];
+
+    expect(buildDailyTaskStats([regenerated], events, sunday)).toMatchObject({
+      tasksAdded: 0,
+      tasksAtStart: 0,
+      tasksCompleted: 0,
+    });
+    expect(buildDailyTaskBreakdown([regenerated], events, sunday).addedTasks).toEqual([]);
+  });
 });

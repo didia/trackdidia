@@ -1161,11 +1161,15 @@ export class MemoryRepository implements AppRepository {
         };
         this.recurringTemplates.set(template.id, cloneRecurringTemplate(template));
         if (prepared.instance && recurringInstanceWasRewound(instance, prepared.instance)) {
+          const previousInstance = instance ? cloneTask(instance) : null;
           const nextInstance = {
             ...cloneTask(prepared.instance),
             updatedAt: timestamp,
           };
           this.tasks.set(nextInstance.id, cloneTask(nextInstance));
+          if (previousInstance) {
+            this.persistEvents(buildLifecycleEvents(previousInstance, nextInstance));
+          }
           if (nextInstance.status === "active") {
             activeTask = nextInstance;
           }

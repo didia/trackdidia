@@ -234,9 +234,12 @@ Before computing a day, the repository:
   place without entering Next Actions).
 
 A move or carryover does not count when the task was completed or cancelled
-before that local day. Work finished last week stays out of this week's starting
-pile, including when an earlier review wrote the Sunday event in advance. A task
-completed on Sunday itself stays in the pile and also counts as completed.
+before that local day. Closure is decided from the lifecycle ledger when
+possible: a completion before the day still excludes the task even after a
+later recurrence reuses the same task ID and clears `completedAt`. Work
+finished last week stays out of this week's starting pile, including when an
+earlier review wrote the Sunday event in advance. A task completed on Sunday
+itself stays in the pile and also counts as completed.
 
 Dating a task for Scheduled (`task_scheduled_for_day`) does **not** count as
 added. A task dated today or earlier counts as added on the day auto-promotion

@@ -178,8 +178,12 @@ const isDailyAddedEvent = (event: TaskEvent): boolean => {
   return false;
 };
 
-/** A task closed before this local day was not in the week's starting pile. */
-const wasClosedBeforeLocalDay = (task: Task | undefined, startMs: number): boolean => {
+const isRecurrenceReopenEvent = (event: TaskEvent): boolean =>
+  (event.type === "task_moved_to_next_action" || event.type === "task_scheduled_for_day") &&
+  event.metadata.recurring === "true";
+
+/** Current-row fallback when the ledger has no completion (e.g. cancelled tasks). */
+const wasClosedBeforeLocalDayFromRow = (task: Task | undefined, startMs: number): boolean => {
   if (!task) {
     return false;
   }
@@ -197,8 +201,59 @@ const wasClosedBeforeLocalDay = (task: Task | undefined, startMs: number): boole
   return false;
 };
 
-const countsAsAddedOnDate = (event: TaskEvent, task: Task | undefined, startMs: number): boolean =>
-  isDailyAddedEvent(event) && !wasClosedBeforeLocalDay(task, startMs);
+/**
+ * A task closed before this local day was not in the week's starting pile.
+ * Prefer lifecycle events so a later recurrence that reuses the same task ID
+ * cannot revive a stale Sunday carryover after the earlier occurrence closed.
+ */
+const wasClosedBeforeLocalDay = (
+  taskId: string,
+  events: TaskEvent[],
+  date: string,
+  startMs: number,
+  task: Task | undefined,
+): boolean => {
+  let latestCloseDate: string | null = null;
+  let latestReopenDate: string | null = null;
+
+  for (const event of events) {
+    if (event.taskId !== taskId || event.eventDate >= date) {
+      continue;
+    }
+
+    if (event.type === "task_completed") {
+      if (!latestCloseDate || event.eventDate > latestCloseDate) {
+        latestCloseDate = event.eventDate;
+      }
+      continue;
+    }
+
+    if (isRecurrenceReopenEvent(event)) {
+      if (!latestReopenDate || event.eventDate > latestReopenDate) {
+        latestReopenDate = event.eventDate;
+      }
+    }
+  }
+
+  if (
+    latestCloseDate !== null &&
+    (latestReopenDate === null || latestCloseDate > latestReopenDate)
+  ) {
+    return true;
+  }
+
+  return wasClosedBeforeLocalDayFromRow(task, startMs);
+};
+
+const countsAsAddedOnDate = (
+  event: TaskEvent,
+  events: TaskEvent[],
+  date: string,
+  startMs: number,
+  task: Task | undefined,
+): boolean =>
+  isDailyAddedEvent(event) &&
+  !wasClosedBeforeLocalDay(event.taskId, events, date, startMs, task);
 
 export const buildDailyTaskStats = (
   tasks: Task[],
@@ -218,7 +273,9 @@ export const buildDailyTaskStats = (
 
   const addedToday = new Set(
     taskEventsToday
-      .filter((event) => countsAsAddedOnDate(event, tasksById.get(event.taskId), startMs))
+      .filter((event) =>
+        countsAsAddedOnDate(event, events, date, startMs, tasksById.get(event.taskId)),
+      )
       .map((event) => event.taskId),
   );
 
@@ -236,14 +293,7 @@ export const buildDailyTaskStats = (
       return false;
     }
 
-    if (task.completedAt) {
-      const completedMs = new Date(task.completedAt).getTime();
-      if (Number.isFinite(completedMs) && completedMs < startMs) {
-        return false;
-      }
-    }
-
-    if (task.status === "cancelled" && new Date(task.updatedAt).getTime() < startMs) {
+    if (wasClosedBeforeLocalDay(task.id, events, date, startMs, task)) {
       return false;
     }
 
@@ -305,7 +355,7 @@ export const buildDailyTaskBreakdown = (
   });
 
   const addedTaskIds = collectTaskIds(taskEventsToday, (event) =>
-    countsAsAddedOnDate(event, tasksById.get(event.taskId), startMs),
+    countsAsAddedOnDate(event, events, date, startMs, tasksById.get(event.taskId)),
   );
   const completedTaskIds = collectTaskIds(
     taskEventsToday,

@@ -63,6 +63,8 @@ export const isObjectiveActiveForWeek = (
 /**
  * Marking a manual objective achieved removes it from that week and every
  * later week. Earlier weeks still show it. Clearing the mark does not bring it back.
+ * The end date is monotonic: a later achievement from another week cannot move
+ * an already-earlier terminal end forward.
  */
 export const objectiveAfterManualAchievement = (
   objective: WeeklyObjective,
@@ -73,7 +75,11 @@ export const objectiveAfterManualAchievement = (
     return objective;
   }
 
-  const endsOnWeekStartDate = addDays(buildWeekDates(weekStartDate), -7);
+  const computedEnd = addDays(buildWeekDates(weekStartDate), -7);
+  const endsOnWeekStartDate =
+    objective.endsOnWeekStartDate === null || objective.endsOnWeekStartDate > computedEnd
+      ? computedEnd
+      : objective.endsOnWeekStartDate;
   if (objective.endsOnWeekStartDate === endsOnWeekStartDate) {
     return objective;
   }
