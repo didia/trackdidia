@@ -252,8 +252,7 @@ const countsAsAddedOnDate = (
   startMs: number,
   task: Task | undefined,
 ): boolean =>
-  isDailyAddedEvent(event) &&
-  !wasClosedBeforeLocalDay(event.taskId, events, date, startMs, task);
+  isDailyAddedEvent(event) && !wasClosedBeforeLocalDay(event.taskId, events, date, startMs, task);
 
 export const buildDailyTaskStats = (
   tasks: Task[],
