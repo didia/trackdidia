@@ -47,13 +47,47 @@ export const cloneWeeklyObjective = (objective: WeeklyObjective): WeeklyObjectiv
   ...objective,
 });
 
-/** Null `startsOnWeekStartDate` means the objective applies to every week. */
+/** Null `startsOnWeekStartDate` means the objective applies from the beginning. */
 export const isObjectiveActiveForWeek = (
   objective: WeeklyObjective,
   weekStartDate: string,
 ): boolean => {
   const normalized = buildWeekDates(weekStartDate);
-  return objective.startsOnWeekStartDate === null || objective.startsOnWeekStartDate <= normalized;
+  if (objective.startsOnWeekStartDate !== null && objective.startsOnWeekStartDate > normalized) {
+    return false;
+  }
+
+  return objective.endsOnWeekStartDate === null || objective.endsOnWeekStartDate >= normalized;
+};
+
+/**
+ * Marking a manual objective achieved removes it from that week and every
+ * later week. Earlier weeks still show it. Clearing the mark does not bring it back.
+ * The end date is monotonic: a later achievement from another week cannot move
+ * an already-earlier terminal end forward.
+ */
+export const objectiveAfterManualAchievement = (
+  objective: WeeklyObjective,
+  weekStartDate: string,
+  achieved: boolean,
+): WeeklyObjective => {
+  if (objective.kind !== "manual" || !achieved) {
+    return objective;
+  }
+
+  const computedEnd = addDays(buildWeekDates(weekStartDate), -7);
+  const endsOnWeekStartDate =
+    objective.endsOnWeekStartDate === null || objective.endsOnWeekStartDate > computedEnd
+      ? computedEnd
+      : objective.endsOnWeekStartDate;
+  if (objective.endsOnWeekStartDate === endsOnWeekStartDate) {
+    return objective;
+  }
+
+  return {
+    ...cloneWeeklyObjective(objective),
+    endsOnWeekStartDate,
+  };
 };
 
 export const createEmptyWeeklyObjective = (
@@ -68,6 +102,7 @@ export const createEmptyWeeklyObjective = (
   rescuetimeThing: partial.rescuetimeThing ?? null,
   sortOrder: partial.sortOrder ?? 0,
   startsOnWeekStartDate: partial.startsOnWeekStartDate?.trim() || null,
+  endsOnWeekStartDate: partial.endsOnWeekStartDate?.trim() || null,
   createdAt: partial.createdAt ?? timestamp,
   updatedAt: partial.updatedAt ?? timestamp,
 });

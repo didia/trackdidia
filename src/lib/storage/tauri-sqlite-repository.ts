@@ -44,7 +44,11 @@ import type {
   WeeklyObjectiveResult,
   WeeklyReview,
 } from "../../domain/types";
-import { cloneWeeklyObjective, createEmptyWeeklyObjective } from "../../domain/weekly-objectives";
+import {
+  cloneWeeklyObjective,
+  createEmptyWeeklyObjective,
+  objectiveAfterManualAchievement,
+} from "../../domain/weekly-objectives";
 import {
   buildWeekDates,
   buildWeeklyReviewSummary,
@@ -99,6 +103,9 @@ import {
   createRecurringTemplate,
   filterRecurringTemplates,
   listDueDatesBetween,
+  prepareRecurringGeneration,
+  recurrenceGenerationHorizon,
+  recurringInstanceWasRewound,
   syncTemplateStatusChange,
 } from "../recurring/engine";
 import {
@@ -199,12 +206,13 @@ interface WeeklyObjectiveRow {
   rescuetime_thing: string | null;
   sort_order: number;
   starts_on_week_start_date: string | null;
+  ends_on_week_start_date: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export const weeklyObjectiveSelectColumns =
-  "id, title, kind, target_hours, rescuetime_kind, rescuetime_thing, sort_order, starts_on_week_start_date, created_at, updated_at";
+  "id, title, kind, target_hours, rescuetime_kind, rescuetime_thing, sort_order, starts_on_week_start_date, ends_on_week_start_date, created_at, updated_at";
 
 interface WeeklyObjectiveResultRow {
   week_start_date: string;
@@ -1066,6 +1074,13 @@ export const migrations: Migration[] = [
       ALTER TABLE weekly_objectives ADD COLUMN starts_on_week_start_date TEXT;
     `,
   },
+  {
+    id: 34,
+    name: "add_weekly_objective_ends_on_week_start_date",
+    sql: `
+      ALTER TABLE weekly_objectives ADD COLUMN ends_on_week_start_date TEXT;
+    `,
+  },
 ];
 
 export class TauriSqliteRepository implements AppRepository {
@@ -1179,11 +1194,11 @@ export class TauriSqliteRepository implements AppRepository {
       }
     }
 
-    if (migration.id === 33) {
+    if (migration.id === 33 || migration.id === 34) {
       const columns = await db.select<{ name: string }[]>("PRAGMA table_info(weekly_objectives)");
-      const alreadyHasColumn = columns.some(
-        (column) => column.name === "starts_on_week_start_date",
-      );
+      const columnName =
+        migration.id === 33 ? "starts_on_week_start_date" : "ends_on_week_start_date";
+      const alreadyHasColumn = columns.some((column) => column.name === columnName);
       if (alreadyHasColumn) {
         return "SELECT 1;";
       }
@@ -1747,8 +1762,8 @@ export class TauriSqliteRepository implements AppRepository {
 
     await db.execute(
       `INSERT INTO weekly_objectives (
-      id, title, kind, target_hours, rescuetime_kind, rescuetime_thing, sort_order, starts_on_week_start_date, created_at, updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      id, title, kind, target_hours, rescuetime_kind, rescuetime_thing, sort_order, starts_on_week_start_date, ends_on_week_start_date, created_at, updated_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
     ON CONFLICT(id) DO UPDATE SET
       title = excluded.title,
       kind = excluded.kind,
@@ -1757,6 +1772,7 @@ export class TauriSqliteRepository implements AppRepository {
       rescuetime_thing = excluded.rescuetime_thing,
       sort_order = excluded.sort_order,
       starts_on_week_start_date = excluded.starts_on_week_start_date,
+      ends_on_week_start_date = excluded.ends_on_week_start_date,
       updated_at = excluded.updated_at`,
       [
         nextObjective.id,
@@ -1767,6 +1783,7 @@ export class TauriSqliteRepository implements AppRepository {
         nextObjective.rescuetimeThing,
         nextObjective.sortOrder,
         nextObjective.startsOnWeekStartDate,
+        nextObjective.endsOnWeekStartDate,
         nextObjective.createdAt,
         nextObjective.updatedAt,
       ],
@@ -1810,19 +1827,45 @@ export class TauriSqliteRepository implements AppRepository {
         updatedAt: timestamp,
       };
 
-      await db.execute(
-        `INSERT INTO weekly_objective_results (week_start_date, objective_id, achieved, updated_at)
+      await db.execute("BEGIN IMMEDIATE");
+      try {
+        await db.execute(
+          `INSERT INTO weekly_objective_results (week_start_date, objective_id, achieved, updated_at)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT(week_start_date, objective_id) DO UPDATE SET
          achieved = excluded.achieved,
          updated_at = excluded.updated_at`,
-        [
-          nextResult.weekStartDate,
-          nextResult.objectiveId,
-          nextResult.achieved ? 1 : 0,
-          nextResult.updatedAt,
-        ],
-      );
+          [
+            nextResult.weekStartDate,
+            nextResult.objectiveId,
+            nextResult.achieved ? 1 : 0,
+            nextResult.updatedAt,
+          ],
+        );
+
+        const rows = await db.select<WeeklyObjectiveRow[]>(
+          `SELECT ${weeklyObjectiveSelectColumns}
+         FROM weekly_objectives
+         WHERE id = $1`,
+          [nextResult.objectiveId],
+        );
+        const objective = rows[0] ? this.deserializeWeeklyObjective(rows[0]) : null;
+        if (objective) {
+          const nextObjective = objectiveAfterManualAchievement(
+            objective,
+            normalized,
+            nextResult.achieved,
+          );
+          if (nextObjective.endsOnWeekStartDate !== objective.endsOnWeekStartDate) {
+            await this.saveWeeklyObjectiveInternal(db, nextObjective);
+          }
+        }
+
+        await db.execute("COMMIT");
+      } catch (error) {
+        await this.rollbackQuietly(db);
+        throw error;
+      }
     });
   }
 
@@ -3198,16 +3241,45 @@ export class TauriSqliteRepository implements AppRepository {
   async generateDueRecurringTasks(date: string): Promise<number> {
     return this.runExclusive(async () => {
       const templates = await this.getAllRecurringTemplates();
+      const today = getTodayDate();
+      const horizon = recurrenceGenerationHorizon(date, today);
       let changedCount = 0;
 
-      for (const template of templates) {
-        if (template.status !== "active") {
+      for (const original of templates) {
+        if (original.status !== "active") {
           continue;
         }
 
-        const activeTask = await this.findActiveRecurringTask(template.id);
+        const instance = await this.findRecurringInstance(original.id);
+        const prepared = prepareRecurringGeneration(original, instance, today);
+        let template = prepared.template;
+        let activeTask = prepared.instance?.status === "active" ? prepared.instance : null;
+
+        if (prepared.changed) {
+          const timestamp = nowIso();
+          template = {
+            ...cloneRecurringTemplate(template),
+            updatedAt: timestamp,
+          };
+          await this.persistRecurringTemplate(template);
+          if (recurringInstanceWasRewound(instance, prepared.instance) && prepared.instance) {
+            const previousInstance = instance ? cloneTask(instance) : null;
+            const nextInstance = {
+              ...cloneTask(prepared.instance),
+              updatedAt: timestamp,
+            };
+            await this.persistTask(nextInstance);
+            if (previousInstance) {
+              await this.persistEvents(buildLifecycleEvents(previousInstance, nextInstance));
+            }
+            if (nextInstance.status === "active") {
+              activeTask = nextInstance;
+            }
+          }
+        }
+
         const startDate = this.findProcessingStartDate(template, activeTask);
-        const dueDates = this.listDueDatesBetween(template, startDate, date);
+        const dueDates = this.listDueDatesBetween(template, startDate, horizon);
 
         if (dueDates.length === 0) {
           continue;
@@ -3715,7 +3787,7 @@ export class TauriSqliteRepository implements AppRepository {
   async computeDailyTaskStats(date: string) {
     await this.generateDueRecurringTasks(date);
     await this.promoteDueScheduledTasks(getTodayDate());
-    if (new Date(`${date}T12:00:00`).getDay() === 0) {
+    if (date <= getTodayDate() && new Date(`${date}T12:00:00`).getDay() === 0) {
       await this.applyWeeklyCarryover(date);
     }
 
@@ -3726,7 +3798,7 @@ export class TauriSqliteRepository implements AppRepository {
   async getDailyTaskBreakdown(date: string) {
     await this.generateDueRecurringTasks(date);
     await this.promoteDueScheduledTasks(getTodayDate());
-    if (new Date(`${date}T12:00:00`).getDay() === 0) {
+    if (date <= getTodayDate() && new Date(`${date}T12:00:00`).getDay() === 0) {
       await this.applyWeeklyCarryover(date);
     }
 
@@ -4096,6 +4168,7 @@ export class TauriSqliteRepository implements AppRepository {
       rescuetimeThing: row.rescuetime_thing,
       sortOrder: Number(row.sort_order),
       startsOnWeekStartDate: row.starts_on_week_start_date?.trim() || null,
+      endsOnWeekStartDate: row.ends_on_week_start_date?.trim() || null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -4423,6 +4496,15 @@ export class TauriSqliteRepository implements AppRepository {
     }
 
     return template;
+  }
+
+  private async findRecurringInstance(templateId: string): Promise<Task | null> {
+    const task = await this.getTaskById(`recurring-task:${templateId}`);
+    if (!task?.isRecurringInstance || task.recurringTemplateId !== templateId) {
+      return null;
+    }
+
+    return task;
   }
 
   private async findActiveRecurringTask(templateId: string): Promise<Task | null> {

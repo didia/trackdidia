@@ -286,6 +286,11 @@ export interface WeeklyObjective {
    * applies to every week.
    */
   startsOnWeekStartDate: string | null;
+  /**
+   * Last Sunday the objective still counts. Null means it keeps rolling forward.
+   * Marking a manual objective achieved sets this to the previous Sunday.
+   */
+  endsOnWeekStartDate: string | null;
   createdAt: string;
   updatedAt: string;
 }

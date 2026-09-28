@@ -4,6 +4,9 @@ Back to [Documentation Log](../log.md). Canonical page: [gtd.md](../gtd.md).
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-27 | Sunday added-count uses lifecycle events so a later recurrence reusing a task ID cannot revive a stale carryover after an earlier completion | `docs/gtd.md` | `wasClosedBeforeLocalDay`, `buildDailyTaskStats` |
+| 2026-09-27 | Sunday added-count ignores tasks completed or cancelled before that day, so an early carryover event cannot keep last week's finished work in the starting pile | `docs/gtd.md` | `countsAsAddedOnDate`, `buildDailyTaskStats` |
+| 2026-09-25 | Daily stats generate recurrences only through local today and skip weekly carryover for a future Sunday | `docs/gtd.md`, `docs/recurrences-and-pomodoro.md` | `computeDailyTaskStats`, `recurrenceGenerationHorizon` |
 | 2026-09-21 | Daily `tasksAdded` no longer counts `task_scheduled_for_day` or Scheduled carryover; Scheduled work counts only on Next Action entry or in-place completion | `docs/gtd.md` | `isDailyAddedEvent`, `buildDailyTaskStats`, `buildDailyTaskBreakdown` |
 | 2026-09-11 | Next Actions collapsed cards show calendar-day age since the task entered the bucket | `docs/gtd.md` | `nextActionAgeDays`, `GtdTaskCard`, `listTaskEvents` |
 | 2026-09-11 | Next Actions defaults to FIFO order by `createdAt` (oldest first), with deadline and last-update sorts still available | `docs/gtd.md` | `sortNextActionTasks`, `NextActionsPage.tsx` |

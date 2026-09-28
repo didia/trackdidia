@@ -48,7 +48,11 @@ import type {
   WeeklyObjectiveResult,
   WeeklyReview,
 } from "../../domain/types";
-import { cloneWeeklyObjective, createEmptyWeeklyObjective } from "../../domain/weekly-objectives";
+import {
+  cloneWeeklyObjective,
+  createEmptyWeeklyObjective,
+  objectiveAfterManualAchievement,
+} from "../../domain/weekly-objectives";
 import {
   buildWeekDates,
   buildWeeklyReviewSummary,
@@ -101,6 +105,9 @@ import {
   createRecurringTemplate,
   filterRecurringTemplates,
   listDueDatesBetween,
+  prepareRecurringGeneration,
+  recurrenceGenerationHorizon,
+  recurringInstanceWasRewound,
   syncTemplateStatusChange,
 } from "../recurring/engine";
 import {
@@ -289,6 +296,19 @@ export class MemoryRepository implements AppRepository {
       updatedAt: timestamp,
     };
     this.weeklyObjectiveResults.set(`${normalized}:${result.objectiveId}`, nextResult);
+
+    const objective = this.weeklyObjectives.get(result.objectiveId);
+    if (!objective) {
+      return;
+    }
+
+    const nextObjective = objectiveAfterManualAchievement(objective, normalized, result.achieved);
+    if (nextObjective !== objective) {
+      this.weeklyObjectives.set(objective.id, {
+        ...nextObjective,
+        updatedAt: timestamp,
+      });
+    }
   }
 
   async getMonthlyReview(monthKey: string): Promise<MonthlyReview | null> {
@@ -1119,16 +1139,45 @@ export class MemoryRepository implements AppRepository {
   }
 
   async generateDueRecurringTasks(date: string): Promise<number> {
+    const today = getTodayDate();
+    const horizon = recurrenceGenerationHorizon(date, today);
     let changedCount = 0;
 
-    for (const template of this.recurringTemplates.values()) {
-      if (template.status !== "active") {
+    for (const original of [...this.recurringTemplates.values()]) {
+      if (original.status !== "active") {
         continue;
       }
 
-      const activeTask = this.findActiveRecurringTask(template.id);
+      const instance = this.findRecurringInstance(original.id);
+      const prepared = prepareRecurringGeneration(original, instance, today);
+      let template = prepared.template;
+      let activeTask = prepared.instance?.status === "active" ? prepared.instance : null;
+
+      if (prepared.changed) {
+        const timestamp = nowIso();
+        template = {
+          ...cloneRecurringTemplate(template),
+          updatedAt: timestamp,
+        };
+        this.recurringTemplates.set(template.id, cloneRecurringTemplate(template));
+        if (prepared.instance && recurringInstanceWasRewound(instance, prepared.instance)) {
+          const previousInstance = instance ? cloneTask(instance) : null;
+          const nextInstance = {
+            ...cloneTask(prepared.instance),
+            updatedAt: timestamp,
+          };
+          this.tasks.set(nextInstance.id, cloneTask(nextInstance));
+          if (previousInstance) {
+            this.persistEvents(buildLifecycleEvents(previousInstance, nextInstance));
+          }
+          if (nextInstance.status === "active") {
+            activeTask = nextInstance;
+          }
+        }
+      }
+
       const startDate = this.findProcessingStartDate(template, activeTask);
-      const dueDates = listDueDatesBetween(template, startDate, date);
+      const dueDates = listDueDatesBetween(template, startDate, horizon);
 
       if (dueDates.length === 0) {
         continue;
@@ -1453,7 +1502,7 @@ export class MemoryRepository implements AppRepository {
   async computeDailyTaskStats(date: string): Promise<DailyTaskStats> {
     await this.generateDueRecurringTasks(date);
     await this.promoteDueScheduledTasks(getTodayDate());
-    if (new Date(`${date}T12:00:00`).getDay() === 0) {
+    if (date <= getTodayDate() && new Date(`${date}T12:00:00`).getDay() === 0) {
       await this.applyWeeklyCarryover(date);
     }
 
@@ -1463,7 +1512,7 @@ export class MemoryRepository implements AppRepository {
   async getDailyTaskBreakdown(date: string) {
     await this.generateDueRecurringTasks(date);
     await this.promoteDueScheduledTasks(getTodayDate());
-    if (new Date(`${date}T12:00:00`).getDay() === 0) {
+    if (date <= getTodayDate() && new Date(`${date}T12:00:00`).getDay() === 0) {
       await this.applyWeeklyCarryover(date);
     }
 
@@ -1727,6 +1776,15 @@ export class MemoryRepository implements AppRepository {
     }
 
     return cloneRecurringTemplate(template);
+  }
+
+  private findRecurringInstance(templateId: string): Task | null {
+    const task = this.tasks.get(`recurring-task:${templateId}`);
+    if (!task?.isRecurringInstance || task.recurringTemplateId !== templateId) {
+      return null;
+    }
+
+    return cloneTask(task);
   }
 
   private findActiveRecurringTask(templateId: string): Task | null {
