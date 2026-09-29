@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { useAppContext } from "../app/app-context";
+import { type RequestSignal, useLatestRequest } from "../app/use-latest-request";
 import { useDailyEntry } from "../app/use-daily-entry";
 import { usePastorVerse } from "../app/use-pastor-verse";
 import { CoachPulsePanel } from "../components/CoachPulsePanel";
@@ -41,13 +42,14 @@ export const TodayPage = () => {
   const [openTaskPanel, setOpenTaskPanel] = useState<"added" | "completed" | null>(null);
   const entryRef = useRef(entry);
   const morningIntentionRef = useRef<PersistedTextareaHandle>(null);
-  const passiveRequestIdRef = useRef(0);
-  const explicitRequestIdRef = useRef(0);
+  const passiveRequest = useLatestRequest();
+  const explicitRequest = useLatestRequest();
+  const breakdownRequest = useLatestRequest();
   const explicitInFlightRef = useRef(false);
   entryRef.current = entry;
 
-  const isCurrentPassiveRequest = (requestId: number) =>
-    requestId === passiveRequestIdRef.current && !explicitInFlightRef.current;
+  const isCurrentPassiveRequest = (signal: RequestSignal) =>
+    signal.isLatest() && !explicitInFlightRef.current;
 
   const loadCoachFromStore = useCallback(async () => {
     const currentEntry = entryRef.current;
@@ -55,73 +57,78 @@ export const TodayPage = () => {
       return;
     }
 
-    const requestId = ++passiveRequestIdRef.current;
-    setCoachLoading(true);
-    try {
-      const stored = await loadLatestCoachPulseForDate(repository, coachService, currentEntry.date);
-      if (!isCurrentPassiveRequest(requestId)) {
-        return;
-      }
-      if (stored) {
-        setCoachResult(stored);
-        return;
-      }
+    await passiveRequest.run(async (signal) => {
+      setCoachLoading(true);
+      try {
+        const stored = await loadLatestCoachPulseForDate(
+          repository,
+          coachService,
+          currentEntry.date,
+        );
+        if (!isCurrentPassiveRequest(signal)) {
+          return;
+        }
+        if (stored) {
+          setCoachResult(stored);
+          return;
+        }
 
-      const fastInputs = await resolveDailySnapshotInputs(
-        repository,
-        currentEntry.date,
-        new Date().toISOString(),
-        undefined,
-        { skipRescueTimeFetch: true, entry: currentEntry },
-      );
-      const localResult = await coachService.buildPulse(repository, {
-        stance: "open",
-        entry: currentEntry,
-        settings,
-        snapshotInputs: fastInputs,
-        trigger: "auto",
-        localOnly: true,
-      });
-      if (!isCurrentPassiveRequest(requestId)) {
-        return;
-      }
-      setCoachResult(localResult);
+        const fastInputs = await resolveDailySnapshotInputs(
+          repository,
+          currentEntry.date,
+          new Date().toISOString(),
+          undefined,
+          { skipRescueTimeFetch: true, entry: currentEntry },
+        );
+        const localResult = await coachService.buildPulse(repository, {
+          stance: "open",
+          entry: currentEntry,
+          settings,
+          snapshotInputs: fastInputs,
+          trigger: "auto",
+          localOnly: true,
+        });
+        if (!isCurrentPassiveRequest(signal)) {
+          return;
+        }
+        setCoachResult(localResult);
 
-      // Scheduled pulses own persistence when the pulse engine is enabled.
-      if (settings.aiPulseEnabled) {
-        return;
-      }
+        // Scheduled pulses own persistence when the pulse engine is enabled.
+        if (settings.aiPulseEnabled) {
+          return;
+        }
 
-      if (!settings.aiEnabled || !settings.aiApiKey.trim()) {
-        return;
-      }
+        if (!settings.aiEnabled || !settings.aiApiKey.trim()) {
+          return;
+        }
 
-      const fullInputs = await resolveDailySnapshotInputs(
-        repository,
-        currentEntry.date,
-        new Date().toISOString(),
-        undefined,
-        { entry: currentEntry },
-      );
-      const aiResult = await coachService.buildPulse(repository, {
-        stance: "open",
-        entry: currentEntry,
-        settings,
-        snapshotInputs: fullInputs,
-        trigger: "auto",
-      });
-      if (!isCurrentPassiveRequest(requestId)) {
-        return;
+        const fullInputs = await resolveDailySnapshotInputs(
+          repository,
+          currentEntry.date,
+          new Date().toISOString(),
+          undefined,
+          { entry: currentEntry },
+        );
+        const aiResult = await coachService.buildPulse(repository, {
+          stance: "open",
+          entry: currentEntry,
+          settings,
+          snapshotInputs: fullInputs,
+          trigger: "auto",
+        });
+        if (!isCurrentPassiveRequest(signal)) {
+          return;
+        }
+        setCoachResult(aiResult);
+      } catch (error) {
+        console.error("Failed to load coach pulse", error);
+      } finally {
+        if (isCurrentPassiveRequest(signal)) {
+          setCoachLoading(false);
+        }
       }
-      setCoachResult(aiResult);
-    } catch (error) {
-      console.error("Failed to load coach pulse", error);
-    } finally {
-      if (isCurrentPassiveRequest(requestId)) {
-        setCoachLoading(false);
-      }
-    }
-  }, [coachService, repository, settings]);
+    });
+  }, [coachService, passiveRequest, repository, settings]);
 
   const loadCoach = useCallback(
     async (options: {
@@ -136,52 +143,53 @@ export const TodayPage = () => {
         return;
       }
 
-      const requestId = ++explicitRequestIdRef.current;
-      explicitInFlightRef.current = true;
-      setCoachLoading(true);
-      try {
-        const snapshotInputs = await resolveDailySnapshotInputs(
-          repository,
-          currentEntry.date,
-          new Date().toISOString(),
-          undefined,
-          { skipRescueTimeFetch: options.skipRescueTimeFetch ?? false, entry: currentEntry },
-        );
-        const latest = await loadLatestCoachPulseForDate(
-          repository,
-          coachService,
-          currentEntry.date,
-        );
-        const stance = options.stance ?? latest?.pulse.stance ?? "open";
-        const slotHour =
-          options.slotHour ??
-          (latest?.message.scopeKey.includes("#")
-            ? Number(latest.message.scopeKey.split("#")[1])
-            : undefined);
+      await explicitRequest.run(async (signal) => {
+        explicitInFlightRef.current = true;
+        setCoachLoading(true);
+        try {
+          const snapshotInputs = await resolveDailySnapshotInputs(
+            repository,
+            currentEntry.date,
+            new Date().toISOString(),
+            undefined,
+            { skipRescueTimeFetch: options.skipRescueTimeFetch ?? false, entry: currentEntry },
+          );
+          const latest = await loadLatestCoachPulseForDate(
+            repository,
+            coachService,
+            currentEntry.date,
+          );
+          const stance = options.stance ?? latest?.pulse.stance ?? "open";
+          const slotHour =
+            options.slotHour ??
+            (latest?.message.scopeKey.includes("#")
+              ? Number(latest.message.scopeKey.split("#")[1])
+              : undefined);
 
-        const result = await coachService.buildPulse(repository, {
-          stance,
-          entry: currentEntry,
-          settings,
-          snapshotInputs,
-          trigger: options.trigger,
-          bypassCache: options.bypassCache ?? false,
-          slotHour: Number.isFinite(slotHour) ? slotHour : undefined,
-        });
-        if (requestId !== explicitRequestIdRef.current) {
-          return;
+          const result = await coachService.buildPulse(repository, {
+            stance,
+            entry: currentEntry,
+            settings,
+            snapshotInputs,
+            trigger: options.trigger,
+            bypassCache: options.bypassCache ?? false,
+            slotHour: Number.isFinite(slotHour) ? slotHour : undefined,
+          });
+          if (!signal.isLatest()) {
+            return;
+          }
+          setCoachResult(result);
+        } catch (error) {
+          console.error("Failed to load coach pulse", error);
+        } finally {
+          if (signal.isLatest()) {
+            explicitInFlightRef.current = false;
+            setCoachLoading(false);
+          }
         }
-        setCoachResult(result);
-      } catch (error) {
-        console.error("Failed to load coach pulse", error);
-      } finally {
-        if (requestId === explicitRequestIdRef.current) {
-          explicitInFlightRef.current = false;
-          setCoachLoading(false);
-        }
-      }
+      });
     },
-    [coachService, repository, settings],
+    [coachService, explicitRequest, repository, settings],
   );
 
   const entryDate = entry?.date;
@@ -202,21 +210,15 @@ export const TodayPage = () => {
       return;
     }
 
-    let cancelled = false;
-
-    const loadBreakdown = async () => {
+    void breakdownRequest.run(async (signal) => {
       const breakdown = await repository.getDailyTaskBreakdown(entry.date);
-      if (!cancelled) {
+      if (signal.isLatest()) {
         setTaskBreakdown(breakdown);
       }
-    };
+    });
 
-    void loadBreakdown();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [entry, repository]);
+    return breakdownRequest.invalidate;
+  }, [breakdownRequest, entry, repository]);
 
   const handleAcceptProposal = async (proposal: AiProposal) => {
     const currentEntry = entryRef.current;

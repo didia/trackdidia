@@ -74,6 +74,11 @@ generate or scrape it. See
   before modifying them.
 - Keep global runtime behavior in `AppProvider` or a focused shared hook.
 - Keep temporary form state local to the screen/component.
+- Guard async loads against stale responses with `useLatestRequest` /
+  `useAsyncResource` (`src/app/use-latest-request.ts`) instead of hand-written
+  request-sequence refs or `cancelled` flags: call `run(async (signal) => ...)`
+  and check `signal.isLatest()` after each await; `invalidate()` marks in-flight
+  runs stale.
 - `PersistedTextarea` debounces persistence by 450 ms unless `debounceMs={0}` is
   supplied. It also flushes the pending draft on unmount. Daily entries, weekly
   reviews, and monthly reviews serialize those saves so an earlier in-flight
