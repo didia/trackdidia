@@ -115,6 +115,13 @@ When AI is disabled or the API key is empty:
 
 ### Auto-load trigger (Today and evening close)
 
+Both pages load the coach through one hook, `useCoachPulse`
+(`src/app/use-coach-pulse.ts`), which delegates the store, local, then AI decision
+to `loadPassiveCoachPulse` and explicit refreshes to `refreshCoachPulse` in
+`src/lib/ai/coach-pulse-loader.ts`. Failures are reported with
+`logDebug("error", "ai.coach", ...)`. The slot hour of a stored pulse is read with
+`parseSlotHourFromScopeKey` (`src/lib/ai/pulse/slot-resolution.ts`).
+
 When AI is configured, Today auto-loads the coach on page open
 (journal edits on the page do not retrigger this):
 

@@ -115,6 +115,10 @@ export const resolveProductivityPulse = async (
 };
 
 export interface ResolveDailySnapshotInputsOptions {
+  /** ISO timestamp used as "now"; defaults to the current time. */
+  now?: string;
+  /** Pre-resolved productivity pulse; skips the RescueTime lookup entirely. */
+  productivityPulse?: ResolvedProductivityPulse;
   /** When true, skip the live RescueTime request and leave pulse null. */
   skipRescueTimeFetch?: boolean;
   /**
@@ -127,10 +131,10 @@ export interface ResolveDailySnapshotInputsOptions {
 export const resolveDailySnapshotInputs = async (
   repository: AppRepository,
   date: string,
-  now = new Date().toISOString(),
-  productivityPulse?: ResolvedProductivityPulse,
   options: ResolveDailySnapshotInputsOptions = {},
 ) => {
+  const now = options.now ?? new Date().toISOString();
+  const productivityPulse = options.productivityPulse;
   const settings = await repository.getSettings();
   const rescuetimeConfigured = settings.rescuetimeApiKey.trim().length > 0;
   const resolvedPulsePromise =
@@ -249,7 +253,10 @@ export const previewPayload = async (
   }
 
   const date = options.date ?? getTodayDate();
-  const inputs = await resolveDailySnapshotInputs(repository, date, now, options.productivityPulse);
+  const inputs = await resolveDailySnapshotInputs(repository, date, {
+    now,
+    productivityPulse: options.productivityPulse,
+  });
 
   return buildDailySnapshot(inputs, scope);
 };
