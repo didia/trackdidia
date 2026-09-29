@@ -2,7 +2,10 @@ import type { AiMessage } from "../../domain/types";
 import { MemoryRepository } from "../storage/memory-repository";
 import type { AiProvider } from "./provider";
 import { loadLatestWeeklySynthesis } from "./weekly-synthesis-loader";
-import { WeeklySynthesisService } from "./weekly-synthesis-service";
+import {
+  WEEKLY_SYNTHESIS_PROMPT_VERSION,
+  WeeklySynthesisService,
+} from "./weekly-synthesis-service";
 
 const weeklyBody = (headline: string) =>
   JSON.stringify({
@@ -21,6 +24,7 @@ const weeklyMessage = (
   status: AiMessage["status"],
   createdAt: string,
   headline = "Semaine",
+  promptVersion: string = WEEKLY_SYNTHESIS_PROMPT_VERSION,
 ): AiMessage => ({
   id,
   surface: "weekly_synthesis",
@@ -28,7 +32,7 @@ const weeklyMessage = (
   stance: null,
   kind: "weekly",
   inputHash: `hash-${id}`,
-  promptVersion: "weekly_synthesis.v1",
+  promptVersion,
   model: "local",
   status,
   bodyJson: weeklyBody(headline),
@@ -92,5 +96,58 @@ describe("loadLatestWeeklySynthesis", () => {
     const loaded = await loadLatestWeeklySynthesis(repository, service, "2026-08-02");
     expect(loaded?.message.id).toBe("ai-message:ok");
     expect(loaded?.synthesis.headline).toBe("Ok");
+  });
+
+  it("labels a hydrated stored row as cache, not a fresh AI call", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const service = new WeeklySynthesisService({
+      generateStructured: vi.fn(),
+    } as unknown as AiProvider);
+
+    await repository.saveAiMessage(
+      weeklyMessage("ai-message:ok", "2026-08-02", "ok", "2026-08-08T10:00:00.000Z", "Ok"),
+    );
+
+    const loaded = await loadLatestWeeklySynthesis(repository, service, "2026-08-02");
+    expect(loaded?.source).toBe("cache");
+  });
+
+  it("does not hydrate a stored ok row whose promptVersion predates the current prompt", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const service = new WeeklySynthesisService({
+      generateStructured: vi.fn(),
+    } as unknown as AiProvider);
+
+    await repository.saveAiMessage(
+      weeklyMessage(
+        "ai-message:stale",
+        "2026-08-02",
+        "ok",
+        "2026-08-08T10:00:00.000Z",
+        "Stale",
+        "weekly_synthesis.v0",
+      ),
+    );
+
+    const loaded = await loadLatestWeeklySynthesis(repository, service, "2026-08-02");
+    expect(loaded).toBeNull();
+  });
+
+  it("returns null when the stored body is malformed", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const service = new WeeklySynthesisService({
+      generateStructured: vi.fn(),
+    } as unknown as AiProvider);
+
+    await repository.saveAiMessage({
+      ...weeklyMessage("ai-message:malformed", "2026-08-02", "ok", "2026-08-08T10:00:00.000Z"),
+      bodyJson: "{not valid json",
+    });
+
+    const loaded = await loadLatestWeeklySynthesis(repository, service, "2026-08-02");
+    expect(loaded).toBeNull();
   });
 });

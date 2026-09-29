@@ -88,4 +88,31 @@ describe("loadLatestGoalPacing", () => {
     const loaded = await loadLatestGoalPacing(repository, service, 2026);
     expect(loaded).toBeNull();
   });
+
+  it("labels a hydrated stored row as cache, not a fresh AI call", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const service = new GoalPacingService({ generateStructured: vi.fn() } as unknown as AiProvider);
+
+    await repository.saveAiMessage(
+      pacingMessage("ai-message:ok", "2026", "ok", "2026-08-29T10:00:00.000Z", "Ok"),
+    );
+
+    const loaded = await loadLatestGoalPacing(repository, service, 2026);
+    expect(loaded?.source).toBe("cache");
+  });
+
+  it("returns null when the stored body is malformed", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const service = new GoalPacingService({ generateStructured: vi.fn() } as unknown as AiProvider);
+
+    await repository.saveAiMessage({
+      ...pacingMessage("ai-message:malformed", "2026", "ok", "2026-08-29T10:00:00.000Z", "Ok"),
+      bodyJson: "{not valid json",
+    });
+
+    const loaded = await loadLatestGoalPacing(repository, service, 2026);
+    expect(loaded).toBeNull();
+  });
 });
