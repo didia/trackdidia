@@ -37,6 +37,7 @@ import {
   phoneScreenTargetMinutes,
   pomodoroTarget,
 } from "../../../domain/weekly-review";
+import { sanitizeFindingForScope, titleIndex } from "./redaction";
 import type { Surface } from "./types";
 
 /** Daily metric targets known from existing product constants. `null` where none is defined yet. */
@@ -179,9 +180,6 @@ export interface DailySnapshotInputs {
   now: string;
 }
 
-const projectTitleById = (projects: Project[]): Map<string, string> =>
-  new Map(projects.map((project) => [project.id, project.title]));
-
 const buildPreviousDay = (
   entry: DailyEntry | null | undefined,
   includeFreeText: boolean,
@@ -213,38 +211,6 @@ const buildPreviousDay = (
         }
       : {}),
   };
-};
-
-/**
- * Strips finding fields that are safe to *compute* but not safe to *expose* below
- * `metrics_and_structure` scope, mirroring the `projectsWithoutNextActionSample` id/title
- * gate below. `findings` is a heterogeneous array of concrete finding subtypes spread in
- * verbatim; the declared `Finding` shape (`id, severity, evidenceWindow, sampleSize, value,
- * label`) plus module-specific scalars (e.g. `direction`, `principleKey`) are fixed,
- * predefined-enum values and carry no user data. `gtd-health.ts` and `focus.ts` findings are
- * the exception: they carry raw `taskIds`/`projectIds` arrays and a singular `projectId`
- * (the winning focus-concentration unit), which are real user-created identifiers and must
- * not survive at the restrictive `metrics` scope. Any future finding type that adds its own
- * identifier field must extend this function so `findings` stays leak-free by construction
- * rather than by every caller remembering to redact.
- */
-const sanitizeFindingForScope = (finding: Finding, includeStructure: boolean): Finding => {
-  if (includeStructure) {
-    return finding;
-  }
-
-  const {
-    taskIds: _taskIds,
-    projectIds: _projectIds,
-    projectId: _projectId,
-    ...rest
-  } = finding as Finding & {
-    taskIds?: string[];
-    projectIds?: string[];
-    projectId?: string | null;
-  };
-
-  return rest as Finding;
 };
 
 /**
@@ -320,7 +286,7 @@ export const buildDailySnapshot = (
   const scheduledVsCompletedFinding = gtdHealthFindings.find(
     (finding) => finding.kind === "scheduled_vs_completed_ratio",
   );
-  const projectTitles = projectTitleById(inputs.projects);
+  const projectTitles = titleIndex(inputs.projects);
 
   const gtd: DailySnapshotGtd = {
     inboxBacklog: inboxBacklogFinding?.value ?? 0,

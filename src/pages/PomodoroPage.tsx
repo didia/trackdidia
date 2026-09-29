@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppContext } from "../app/app-context";
 import { usePomodoroTiming } from "../app/use-pomodoro-timing";
+import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
 import type { PomodoroKind } from "../domain/types";
 import {
@@ -104,13 +105,11 @@ export const PomodoroPage = () => {
 
   return (
     <div className="page">
-      <header className="hero">
-        <div>
-          <p className="eyebrow">{t("hero.eyebrow")}</p>
-          <h2>{formatDateLong(getTodayDate())}</h2>
-          <p className="hero__copy">{t("hero.copy")}</p>
-        </div>
-      </header>
+      <PageHeader
+        eyebrow={t("hero.eyebrow")}
+        title={formatDateLong(getTodayDate())}
+        copy={t("hero.copy")}
+      />
 
       <SectionCard
         title={t("timer.title")}

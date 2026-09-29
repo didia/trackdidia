@@ -17,7 +17,15 @@ and project records, and an event ledger used for daily statistics.
 | `reference` | `/references` | Non-actionable material |
 | `planned` | `/projects` (per-project group only) | Project-only ordered queue; not a route/global bucket |
 
-The shared `GtdTaskCard` can edit title, notes, bucket, project, contexts, scheduled
+Screens render task lists through `GtdTaskList`
+(`src/components/gtd/GtdTaskList.tsx`), which wires each `GtdTaskCard` to the
+page's own `useGtdWorkspace()` result via a `workspace` prop (so every action
+reloads the state the page shows). The Inbox, Waiting For, Someday/Maybe, and
+References routes are thin wrappers around `BucketTaskListPage`
+(`src/components/gtd/BucketTaskListPage.tsx`), configured by bucket, i18n prefix,
+and optional quick-add, context filter, and page size (Inbox loads 40 at a time).
+Bucket label i18n keys live only in
+`src/lib/gtd/labels.ts`. The shared `GtdTaskCard` can edit title, notes, bucket, project, contexts, scheduled
 date/time, and deadline. It can also complete or cancel the task. The collapsed
 summary reads the persisted task (not unsaved editor draft): bucket, then the
 assigned project title when present, then context names, joined with ` • `. A
@@ -120,7 +128,7 @@ Contexts are flat tags. IDs are normally deterministic:
 context:<slugified lowercase name>
 ```
 
-The task card can create or rename contexts. Names must be non-empty and unique
+The task card (via `TaskContextEditor`) can create or rename contexts. Names must be non-empty and unique
 case-insensitively at the repository level. Renaming preserves the ID, so existing
 task/project arrays remain linked. Context chips on the expanded task card still
 reflect only the task's stored `contextIds`; inherited project contexts are
@@ -175,8 +183,9 @@ hold, completed, or cancelled projects as new choices.
   Deadlines never trigger a move. Comparison uses the local calendar date, not the
   clock time and not the UTC prefix of the stored ISO string. The Scheduled page
   groups the same way (`isTaskScheduledForDate`). Daily stats generate recurrences
-  for the **stats** date, then promote as of **today**, so viewing a future history
-  day cannot promote early. The pass is idempotent. If Next Actions, Scheduled, or
+  through the earlier of the **stats** date and local **today**, then promote as of
+  **today**. Viewing a future day does not materialize later occurrences, promote
+  early, or write weekly carryover for a future Sunday. The pass is idempotent. If Next Actions, Scheduled, or
   Pomodoro stay mounted overnight, a local-day boundary (next midnight, window
   focus, becoming visible) repeats generation and promotion and reloads those
   views.
@@ -220,9 +229,9 @@ as a unique dedupe key, making repeated calculations for that week idempotent.
 
 Before computing a day, the repository:
 
-1. generates due recurring tasks for the stats date;
+1. generates due recurring tasks through the stats date, and never past local today;
 2. promotes due Scheduled tasks as of today's local date;
-3. applies weekly carryover when the date is Sunday;
+3. applies weekly carryover when the date is a Sunday on or before today;
 4. loads all tasks and events.
 
 `tasksAdded` is the unique task count from:
@@ -231,6 +240,14 @@ Before computing a day, the repository:
 - `weekly_carryover` events whose metadata bucket is `next_action`;
 - `task_completed` events whose metadata bucket is `scheduled` (finished in
   place without entering Next Actions).
+
+A move or carryover does not count when the task was completed or cancelled
+before that local day. Closure is decided from the lifecycle ledger when
+possible: a completion before the day still excludes the task even after a
+later recurrence reuses the same task ID and clears `completedAt`. Work
+finished last week stays out of this week's starting pile, including when an
+earlier review wrote the Sunday event in advance. A task completed on Sunday
+itself stays in the pile and also counts as completed.
 
 Dating a task for Scheduled (`task_scheduled_for_day`) does **not** count as
 added. A task dated today or earlier counts as added on the day auto-promotion

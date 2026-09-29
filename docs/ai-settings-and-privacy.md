@@ -115,6 +115,13 @@ When AI is disabled or the API key is empty:
 
 ### Auto-load trigger (Today and evening close)
 
+Both pages load the coach through one hook, `useCoachPulse`
+(`src/app/use-coach-pulse.ts`), which delegates the store, local, then AI decision
+to `loadPassiveCoachPulse` and explicit refreshes to `refreshCoachPulse` in
+`src/lib/ai/coach-pulse-loader.ts`. Failures are reported with
+`logDebug("error", "ai.coach", ...)`. The slot hour of a stored pulse is read with
+`parseSlotHourFromScopeKey` (`src/lib/ai/pulse/slot-resolution.ts`).
+
 When AI is configured, Today auto-loads the coach on page open
 (journal edits on the page do not retrigger this):
 
@@ -520,8 +527,8 @@ Every coach result is persisted in SQLite (migrations 21–24):
 - `ai_proposals` stores accept-step rows linked to a message.
 - `ai_memories` stores semantic memory rows (`active | archived | contradicted`).
 
-Browser preview uses `MemoryRepository` with the same methods. The old in-memory
-`AiCoachService` cache is replaced by this durable store on desktop.
+Browser preview uses `MemoryRepository` with the same methods. This durable store
+replaces the in-memory cache used by the now-removed legacy free-text coach.
 
 ### Cost dashboard (Settings)
 
@@ -655,7 +662,11 @@ change it at any time while the app is running; the weekly review reloads goals
 when the saved key changes.
 
 Repo-root `.env` with `RESCUETIME_API_KEY` is optional and supported **only** for
-local CLI scripts such as `scripts/rescuetime-goals-score.mjs`.
+local CLI scripts such as `scripts/rescuetime-goals-score.ts`, run with
+`npm run rescuetime:score -- [--week YYYY-MM-DD]`. That script reuses
+`RescueTimeGoalsService` (the same code the Weekly Review page calls) against a
+throwaway in-memory repository, so its output matches the app's scoring; the key
+is never logged.
 
 ## Privacy implications
 

@@ -1,4 +1,5 @@
 import { addDays, getWeekStartSunday } from "../lib/gtd/shared";
+import { average } from "../lib/math";
 import { computeDisciplineScore, resolveMetricValue } from "./daily-entry";
 import type {
   DailyEntry,
@@ -11,9 +12,6 @@ import type {
   WeeklyReview,
   WeeklyReviewSummary,
 } from "./types";
-
-const average = (values: number[]): number =>
-  values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
 
 const clampMonthKey = (monthKey: string): string =>
   /^\d{4}-\d{2}$/.test(monthKey) ? monthKey : monthKey.slice(0, 7);

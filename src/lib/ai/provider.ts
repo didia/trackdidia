@@ -1,25 +1,9 @@
-import type {
-  AiSurface,
-  AppSettings,
-  CoachMessage,
-  CoachPulseStance,
-  DailyEntry,
-} from "../../domain/types";
+import type { AiSurface, AppSettings, CoachPulseStance } from "../../domain/types";
 import type { DailySnapshot } from "./context/daily-snapshot";
 import type { GoalPacingSnapshot } from "./context/goal-pacing-snapshot";
 import type { MonthlySnapshot } from "./context/monthly-snapshot";
 import type { PastorSnapshot } from "./context/pastor-snapshot";
 import type { WeeklySnapshot } from "./context/weekly-snapshot";
-
-export interface AiPromptContext {
-  entry: DailyEntry;
-  recentEntries: DailyEntry[];
-  settings: AppSettings;
-  timeZone: string;
-  partOfDay: "morning" | "afternoon" | "evening";
-  currentPartOfDay: "morning" | "afternoon" | "evening";
-  inputContent: string;
-}
 
 export interface AiUsage {
   tokensPrompt: number;
@@ -79,8 +63,6 @@ export interface AiStructuredResult {
 
 export interface AiProvider {
   generateStructured(request: AiStructuredRequest): Promise<AiStructuredResult>;
-  /** @deprecated Legacy morning/evening coach transport. */
-  generate?(kind: CoachMessage["kind"], context: AiPromptContext): Promise<string>;
 }
 
 export type { AiSurface };

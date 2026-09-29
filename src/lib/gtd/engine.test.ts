@@ -289,4 +289,77 @@ describe("buildDailyTaskStats added counting", () => {
       buildDailyTaskBreakdown([leftoverNext, leftoverScheduled], events, sunday).addedTasks,
     ).toEqual([expect.objectContaining({ id: "task-na-carry" })]);
   });
+
+  it("leaves last week's completed tasks out of this Sunday's starting pile", () => {
+    const sunday = "2026-09-27";
+    const stillOpen = buildTask({
+      id: "task-open",
+      createdAt: "2026-09-01T08:00:00.000Z",
+      updatedAt: "2026-09-01T08:00:00.000Z",
+    });
+    const finishedLastWeek = buildTask({
+      id: "task-done-last-week",
+      title: "Routine du matin",
+      status: "completed",
+      isRecurringInstance: true,
+      completedAt: "2026-09-08T16:24:52.561Z",
+      createdAt: "2026-09-01T08:00:00.000Z",
+      updatedAt: "2026-09-08T16:24:52.586Z",
+    });
+    const finishedThisSunday = buildTask({
+      id: "task-done-sunday",
+      status: "completed",
+      completedAt: "2026-09-27T15:00:00.000Z",
+      createdAt: "2026-09-01T08:00:00.000Z",
+      updatedAt: "2026-09-27T15:00:00.000Z",
+    });
+    const events = [
+      buildEvent("task-open", "weekly_carryover", sunday, { bucket: "next_action" }),
+      buildEvent("task-done-last-week", "weekly_carryover", sunday, { bucket: "next_action" }),
+      buildEvent("task-done-last-week", "task_moved_to_next_action", sunday, { recurring: "true" }),
+      buildEvent("task-done-sunday", "weekly_carryover", sunday, { bucket: "next_action" }),
+      buildEvent("task-done-sunday", "task_completed", sunday, { bucket: "next_action" }),
+    ];
+    const tasks = [stillOpen, finishedLastWeek, finishedThisSunday];
+
+    expect(buildDailyTaskStats(tasks, events, sunday)).toMatchObject({
+      tasksAdded: 2,
+      tasksCompleted: 1,
+    });
+    expect(
+      buildDailyTaskBreakdown(tasks, events, sunday)
+        .addedTasks.map((task) => task.id)
+        .sort(),
+    ).toEqual(["task-done-sunday", "task-open"]);
+  });
+
+  it("ignores a stale Sunday carryover after a later recurrence reuses the closed task id", () => {
+    const sunday = "2026-09-27";
+    const regenerated = buildTask({
+      id: "recurring-task:monthly",
+      title: "Revue mensuelle",
+      status: "active",
+      isRecurringInstance: true,
+      completedAt: null,
+      recurrenceDueDate: "2026-10-01",
+      createdAt: "2026-09-01T08:00:00.000Z",
+      updatedAt: "2026-10-01T09:00:00.000Z",
+    });
+    const events = [
+      buildEvent("recurring-task:monthly", "weekly_carryover", sunday, { bucket: "next_action" }),
+      buildEvent("recurring-task:monthly", "task_completed", "2026-09-08", {
+        bucket: "next_action",
+      }),
+      buildEvent("recurring-task:monthly", "task_moved_to_next_action", "2026-10-01", {
+        recurring: "true",
+      }),
+    ];
+
+    expect(buildDailyTaskStats([regenerated], events, sunday)).toMatchObject({
+      tasksAdded: 0,
+      tasksAtStart: 0,
+      tasksCompleted: 0,
+    });
+    expect(buildDailyTaskBreakdown([regenerated], events, sunday).addedTasks).toEqual([]);
+  });
 });

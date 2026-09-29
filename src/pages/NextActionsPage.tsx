@@ -4,7 +4,9 @@ import { useAppContext } from "../app/app-context";
 import { useGtdWorkspace } from "../app/use-gtd";
 import { useTaskSelection } from "../app/use-task-selection";
 import { BulkTaskToolbar } from "../components/BulkTaskToolbar";
-import { GtdTaskCard } from "../components/GtdTaskCard";
+import { GtdTaskList } from "../components/gtd/GtdTaskList";
+import { PageHeader } from "../components/PageHeader";
+import { ContextFilterChips } from "../components/ContextFilterChips";
 import { SectionCard } from "../components/SectionCard";
 import type { Task } from "../domain/types";
 import { effectiveTaskContextIds } from "../lib/gtd/engine";
@@ -30,6 +32,7 @@ export const sortNextActionTasks = (tasks: Task[], sortMode: NextActionSortMode)
 export const NextActionsPage = () => {
   const { t } = useTranslation("gtd");
   const { calendarDay } = useAppContext();
+  const workspace = useGtdWorkspace();
   const {
     tasks,
     projects,
@@ -37,16 +40,10 @@ export const NextActionsPage = () => {
     taskEvents,
     loading,
     createTask,
-    saveTask,
-    saveContext,
-    applyRecurringEditScope,
-    completeTask,
     completeTasks,
-    cancelTask,
     cancelTasks,
-    clearPastRecurrences,
     moveTasksToBucket,
-  } = useGtdWorkspace();
+  } = workspace;
   const [selectedContextId, setSelectedContextId] = useState("all");
   const [title, setTitle] = useState("");
   const [deadlineFilter, setDeadlineFilter] = useState<
@@ -98,13 +95,11 @@ export const NextActionsPage = () => {
 
   return (
     <div className="page">
-      <header className="hero">
-        <div>
-          <p className="eyebrow">{t("nextActions.hero.eyebrow")}</p>
-          <h2>{t("nextActions.hero.title")}</h2>
-          <p className="hero__copy">{t("nextActions.hero.copy")}</p>
-        </div>
-      </header>
+      <PageHeader
+        eyebrow={t("nextActions.hero.eyebrow")}
+        title={t("nextActions.hero.title")}
+        copy={t("nextActions.hero.copy")}
+      />
 
       <SectionCard title={t("nextActions.add.title")} subtitle={t("nextActions.add.subtitle")}>
         <div className="inline-form">
@@ -131,25 +126,12 @@ export const NextActionsPage = () => {
         title={t("nextActions.contextFilter.title")}
         subtitle={t("nextActions.contextFilter.subtitle")}
       >
-        <div className="tag-row">
-          <button
-            type="button"
-            className={`tag-chip${selectedContextId === "all" ? " tag-chip--active" : ""}`}
-            onClick={() => setSelectedContextId("all")}
-          >
-            {t("nextActions.contextFilter.all")}
-          </button>
-          {contexts.map((context) => (
-            <button
-              key={context.id}
-              type="button"
-              className={`tag-chip${selectedContextId === context.id ? " tag-chip--active" : ""}`}
-              onClick={() => setSelectedContextId(context.id)}
-            >
-              {context.name}
-            </button>
-          ))}
-        </div>
+        <ContextFilterChips
+          contexts={contexts}
+          value={selectedContextId}
+          onChange={setSelectedContextId}
+          allLabel={t("nextActions.contextFilter.all")}
+        />
       </SectionCard>
 
       <SectionCard
@@ -215,33 +197,12 @@ export const NextActionsPage = () => {
         ) : nextActionTasks.length === 0 ? (
           <p className="empty-copy">{t("nextActions.empty")}</p>
         ) : (
-          <div className="task-list">
-            {nextActionTasks.map((task) => (
-              <GtdTaskCard
-                key={task.id}
-                task={task}
-                contexts={contexts}
-                projects={projects}
-                selected={selection.isSelected(task.id)}
-                nextActionAgeDays={ageByTaskId.get(task.id)}
-                onToggleSelected={selection.toggleTask}
-                onSave={async (nextTask) => {
-                  await saveTask(nextTask);
-                }}
-                onSaveContext={saveContext}
-                onApplyRecurringEditScope={applyRecurringEditScope}
-                onComplete={async (taskId) => {
-                  await completeTask(taskId);
-                }}
-                onCancel={async (taskId) => {
-                  await cancelTask(taskId);
-                }}
-                onClearPastRecurrences={async (taskId) => {
-                  await clearPastRecurrences(taskId);
-                }}
-              />
-            ))}
-          </div>
+          <GtdTaskList
+            tasks={nextActionTasks}
+            workspace={workspace}
+            selection={selection}
+            nextActionAgeDays={ageByTaskId}
+          />
         )}
       </SectionCard>
     </div>

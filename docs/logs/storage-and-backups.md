@@ -5,6 +5,8 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-27 | Manual weekly-objective achievement and `ends_on_week_start_date` update share one SQLite transaction; end dates remain monotonic across out-of-order week writes | `docs/storage-and-backups.md`, `docs/reviews-and-goals.md` | `saveWeeklyObjectiveResult`, `objectiveAfterManualAchievement` |
+| 2026-09-27 | Migration 34 adds nullable `weekly_objectives.ends_on_week_start_date`; marking a manual objective achieved sets it to the previous Sunday | `docs/storage-and-backups.md`, `docs/reviews-and-goals.md` | Migration `add_weekly_objective_ends_on_week_start_date` |
 | 2026-09-14 | Migration 33 adds nullable `weekly_objectives.starts_on_week_start_date`; null keeps pre-existing objectives visible every week | `docs/storage-and-backups.md`, `docs/reviews-and-goals.md` | Migration `add_weekly_objective_starts_on_week_start_date` |
 | 2026-09-12 | `pastor_verse` is a new `ai_messages.surface` value with no migration needed (`surface` is `TEXT NOT NULL` without a `CHECK`); backups include those rows like any other AI message. `verses.json` lives in the repo, not SQLite, so it is not part of a backup | `docs/storage-and-backups.md`, `docs/ai-settings-and-privacy.md` | `pastor-verse-service.ts`, `memory-repository.test.ts` |
 | 2026-09-11 | A passing evaluation no longer writes `automation_enabled = 1`; automation stays opt-in after the checkbox is unlocked | `docs/storage-and-backups.md`, `docs/email-triage.md` | `saveEvaluation`, `canEnableAutomation` |
