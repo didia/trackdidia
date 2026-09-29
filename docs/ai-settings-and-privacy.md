@@ -289,7 +289,8 @@ A feature-flagged card (`aiPastorEnabled`, default off) on the Today page sugges
 Bible verse plus a short French reflection per local day. It works fully **without**
 AI: when the flag is on but AI is off/unconfigured, a deterministic local pick renders
 instead and the regenerate button is disabled with the usual `disabled.aiOff` /
-`disabled.missingKey` reason.
+`disabled.missingKey` reason. The card shows the formatted reference once; a
+separate `title` heading appears only when it differs from that reference.
 
 **Catalog.** The checked-in root file `verses.json` holds curated entries (`id`,
 `reference` with a book code/chapter/verse range, 1–3 `principleKeys`, 1–3 `credoKeys`,
@@ -377,8 +378,11 @@ rows for the same date (`use-pastor-verse.ts`, `autoAttemptsByDate`).
 
 **Off-list picks.** The model never returns raw Scripture text for an off-list pick —
 only a validated reference (see the per-book verse-count check above). The card shows
-the reference plus the reflection (`title` / `explanation` / optional `practice`)
-below it — never a "read in your Bible" hint and never model-authored verse text.
+the formatted reference plus the reflection (`explanation` / optional `practice`)
+below it. `title` is shown only when it is a short heading distinct from that
+reference — local picks and many model outputs reuse the formatted reference as
+`title`, which would otherwise duplicate the heading. The card never shows a
+"read in your Bible" hint and never model-authored verse text.
 There is no model-authored paraphrase field at all (`PastorVerseBody` has no
 `paraphraseFr`), so there is nothing to algorithmically detect as "too close to a
 real quotation" — the hard "no agent/model writes Scripture text" guarantee doesn't

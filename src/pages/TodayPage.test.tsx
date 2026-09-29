@@ -836,6 +836,7 @@ describe("TodayPage pastor verse card", () => {
     });
 
     expect(await screen.findByText("Explication stockee")).toBeInTheDocument();
+    expect(screen.getAllByText("Philippiens 4, 6-7")).toHaveLength(1);
     expect(screen.getByText("À partir de la liste des versets")).toBeInTheDocument();
     expect(
       screen.queryByText(/à lire et prier avec discernement, pas un message divin/),
@@ -937,7 +938,7 @@ describe("TodayPage pastor verse card", () => {
     const pastorSection = title.closest("section") as HTMLElement;
     // A verse still renders (the card never returns null just because a repository read failed).
     await waitFor(() => {
-      expect(within(pastorSection).getByRole("heading", { level: 3 })).toBeInTheDocument();
+      expect(pastorSection.querySelector(".pastor-verse__reference")).not.toBeNull();
     });
     expect(within(pastorSection).getByText(/Le verset n'a pas pu être chargé/)).toBeInTheDocument();
   });
@@ -969,7 +970,7 @@ describe("TodayPage pastor verse card", () => {
     });
     // The verse shown is still the one already painted before the failure — the card must not
     // clear it in favor of an empty/null state.
-    expect(within(pastorSection).getByRole("heading", { level: 3 })).toBeInTheDocument();
+    expect(pastorSection.querySelector(".pastor-verse__reference")).not.toBeNull();
   });
 
   it("keeps the current verse with a visible warning when regenerate rejects", async () => {
@@ -1102,7 +1103,7 @@ describe("TodayPage pastor verse card", () => {
     });
 
     expect(await screen.findByText("Explication hors catalogue")).toBeInTheDocument();
-    expect((await screen.findAllByText("Genèse 1, 1")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Genèse 1, 1")).toHaveLength(1);
     expect(screen.getByText("Suggestion IA")).toBeInTheDocument();
     expect(screen.queryByText("Lis le passage dans ta Bible.")).not.toBeInTheDocument();
     expect(screen.queryByText("À partir de la liste des versets")).not.toBeInTheDocument();
