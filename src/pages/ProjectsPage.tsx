@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useGtdWorkspace } from "../app/use-gtd";
 import { GtdTaskList, type GtdTaskListWorkspace } from "../components/gtd/GtdTaskList";
+import { PageHeader } from "../components/PageHeader";
+import { ContextFilterChips } from "../components/ContextFilterChips";
+import { SegmentedToggle } from "../components/SegmentedToggle";
 import { SectionCard } from "../components/SectionCard";
 import type { Project, ProjectStatus, Task } from "../domain/types";
 import { buildIsoFromLocalDateAndTime, formatDurationSince } from "../lib/date";
@@ -164,13 +167,11 @@ export const ProjectsPage = () => {
 
   return (
     <div className="page">
-      <header className="hero">
-        <div>
-          <p className="eyebrow">{t("projects.hero.eyebrow")}</p>
-          <h2>{t("projects.hero.title")}</h2>
-          <p className="hero__copy">{t("projects.hero.copy")}</p>
-        </div>
-      </header>
+      <PageHeader
+        eyebrow={t("projects.hero.eyebrow")}
+        title={t("projects.hero.title")}
+        copy={t("projects.hero.copy")}
+      />
 
       <SectionCard title={t("projects.create.title")} subtitle={t("projects.create.subtitle")}>
         <div className="inline-form">
@@ -217,41 +218,24 @@ export const ProjectsPage = () => {
 
         <div className="stacked-field">
           <span>{t("projects.filters.statusLabel")}</span>
-          <div className="tag-row">
-            {projectStatusFilterValues.map((value) => (
-              <button
-                key={value}
-                type="button"
-                className={`tag-chip${statusFilter === value ? " tag-chip--active" : ""}`}
-                onClick={() => setStatusFilter(value)}
-              >
-                {t(`projects.filters.status.${projectStatusFilterKey[value]}`)}
-              </button>
-            ))}
-          </div>
+          <SegmentedToggle
+            options={projectStatusFilterValues.map((value) => ({
+              value,
+              label: t(`projects.filters.status.${projectStatusFilterKey[value]}`),
+            }))}
+            value={statusFilter}
+            onChange={setStatusFilter}
+          />
         </div>
 
         <div className="stacked-field">
           <span>{t("projects.filters.contextLabel")}</span>
-          <div className="tag-row">
-            <button
-              type="button"
-              className={`tag-chip${selectedContextId === "all" ? " tag-chip--active" : ""}`}
-              onClick={() => setSelectedContextId("all")}
-            >
-              {t("projects.filters.contextAll")}
-            </button>
-            {contexts.map((context) => (
-              <button
-                key={context.id}
-                type="button"
-                className={`tag-chip${selectedContextId === context.id ? " tag-chip--active" : ""}`}
-                onClick={() => setSelectedContextId(context.id)}
-              >
-                {context.name}
-              </button>
-            ))}
-          </div>
+          <ContextFilterChips
+            contexts={contexts}
+            value={selectedContextId}
+            onChange={setSelectedContextId}
+            allLabel={t("projects.filters.contextAll")}
+          />
         </div>
       </SectionCard>
 

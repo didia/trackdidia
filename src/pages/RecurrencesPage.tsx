@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Project, RecurringTaskTemplate, TaskContext } from "../domain/types";
 import { useAppContext } from "../app/app-context";
+import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
 import { formatDateShort, getTodayDate } from "../lib/date";
 import { createEntityId } from "../lib/gtd/shared";
@@ -476,13 +477,7 @@ export const RecurrencesPage = () => {
 
   return (
     <div className="page">
-      <header className="hero">
-        <div>
-          <p className="eyebrow">{t("hero.eyebrow")}</p>
-          <h2>{t("hero.title")}</h2>
-          <p className="hero__copy">{t("hero.copy")}</p>
-        </div>
-      </header>
+      <PageHeader eyebrow={t("hero.eyebrow")} title={t("hero.title")} copy={t("hero.copy")} />
 
       <SectionCard title={t("create.title")} subtitle={t("create.subtitle")}>
         <div className="task-card__grid">
