@@ -214,6 +214,154 @@ fn with_session<T>(
     result
 }
 
+/// Implemented by every request struct that carries Yahoo IMAP app-password
+/// credentials, so `run_in_inbox` can extract them (and the optional inbox
+/// name to select) without each `#[tauri::command]` repeating that
+/// boilerplate. This is also what guarantees `sanitize_error` runs on every
+/// command: `run_in_inbox`/`run_with_session` are the only callers of
+/// `with_session`, and they always scrub the returned error with the
+/// credentials' `app_password` before it can reach the frontend.
+trait YahooAuth {
+    fn credentials(&self) -> YahooCredentials;
+
+    /// Mailbox to `SELECT` before running the command's work, when the
+    /// caller asks for it. Defaults to "INBOX"; request structs that carry
+    /// an explicit `inbox_name` field override this.
+    fn inbox_name(&self) -> String {
+        "INBOX".to_string()
+    }
+}
+
+macro_rules! impl_yahoo_auth {
+    ($ty:ty) => {
+        impl YahooAuth for $ty {
+            fn credentials(&self) -> YahooCredentials {
+                YahooCredentials {
+                    email: self.email.clone(),
+                    app_password: self.app_password.clone(),
+                }
+            }
+        }
+    };
+    ($ty:ty, inbox_name) => {
+        impl YahooAuth for $ty {
+            fn credentials(&self) -> YahooCredentials {
+                YahooCredentials {
+                    email: self.email.clone(),
+                    app_password: self.app_password.clone(),
+                }
+            }
+
+            fn inbox_name(&self) -> String {
+                self.inbox_name
+                    .clone()
+                    .unwrap_or_else(|| "INBOX".to_string())
+            }
+        }
+    };
+}
+
+impl_yahoo_auth!(YahooImapFetchInboxRequest, inbox_name);
+impl_yahoo_auth!(YahooImapSearchMessageIdRequest, inbox_name);
+impl_yahoo_auth!(YahooImapEnsureMailboxRequest);
+impl_yahoo_auth!(YahooImapUidMailboxRequest, inbox_name);
+impl_yahoo_auth!(YahooImapFetchUidMessageIdRequest, inbox_name);
+
+/// Scrubs the app password out of a `with_session` result before it leaves
+/// the process (returned to the Tauri IPC caller and, ultimately, the
+/// frontend). Pulled out of `run_with_session` so the scrubbing behavior can
+/// be unit-tested directly, without needing a real IMAP connection.
+fn finish_session_result<T>(
+    result: Result<T, String>,
+    credentials: &YahooCredentials,
+) -> Result<T, String> {
+    result.map_err(|error| sanitize_error(error, &credentials.app_password))
+}
+
+/// Runs `work` against a freshly connected, logged-in IMAP session, always
+/// through `run_blocking` (so the command can't block the async runtime) and
+/// always through `finish_session_result` (so the app password can never
+/// leak in an error string, no matter what `work` returns). This is the
+/// single place every command funnels through; adding a new command means
+/// implementing `YahooAuth` for its request struct, not re-deriving this
+/// preamble.
+async fn run_with_session<T>(
+    credentials: YahooCredentials,
+    work: impl FnOnce(&mut ImapSession) -> Result<T, String> + Send + 'static,
+) -> Result<T, String>
+where
+    T: Send + 'static,
+{
+    run_blocking(move || {
+        let result = with_session(&credentials, work);
+        finish_session_result(result, &credentials)
+    })
+    .await
+}
+
+/// `run_with_session`, plus an optional `SELECT` of the request's inbox
+/// (`request.inbox_name()`) before handing the session to `work`. When
+/// `select` is true, `work` also receives the `SELECT` response (so callers
+/// that need e.g. `UIDVALIDITY` don't have to re-select); it is `None`
+/// otherwise.
+async fn run_in_inbox<T, R>(
+    request: &R,
+    select: bool,
+    work: impl FnOnce(&mut ImapSession, Option<imap::types::Mailbox>) -> Result<T, String>
+        + Send
+        + 'static,
+) -> Result<T, String>
+where
+    T: Send + 'static,
+    R: YahooAuth,
+{
+    let credentials = request.credentials();
+    let inbox_name = request.inbox_name();
+    run_with_session(credentials, move |session| {
+        let mailbox = if select {
+            Some(select_inbox(session, &inbox_name)?)
+        } else {
+            None
+        };
+        work(session, mailbox)
+    })
+    .await
+}
+
+#[derive(Clone, Copy)]
+enum UidTransferVerb {
+    Move,
+    Copy,
+}
+
+impl UidTransferVerb {
+    fn as_str(self) -> &'static str {
+        match self {
+            UidTransferVerb::Move => "MOVE",
+            UidTransferVerb::Copy => "COPY",
+        }
+    }
+}
+
+/// Shared implementation of `UID MOVE`/`UID COPY`: the two commands only
+/// differ in this verb and the resulting error text.
+fn uid_transfer(
+    session: &mut ImapSession,
+    uid: u32,
+    mailbox_name: &str,
+    verb: UidTransferVerb,
+) -> Result<YahooImapUidActionResponse, String> {
+    let verb_word = verb.as_str();
+    let command = format!("UID {verb_word} {uid} {}", quote_mailbox(mailbox_name)?);
+    let response = session
+        .run_command_and_read_response(&command)
+        .map_err(|error| format!("IMAP {verb_word} failed: {error}"))?;
+    Ok(YahooImapUidActionResponse {
+        destination_uid: parse_copyuid_destination(&response),
+        destination_mailbox: Some(mailbox_name.to_string()),
+    })
+}
+
 fn capability_to_string(capability: &Capability<'_>) -> String {
     match capability {
         Capability::Imap4rev1 => "IMAP4rev1".to_string(),
@@ -552,34 +700,30 @@ pub async fn yahoo_imap_discover(
         email,
         app_password,
     };
-    let secret = credentials.app_password.clone();
-    run_blocking(move || {
-        with_session(&credentials, |session| {
-            let capabilities = session
-                .capabilities()
-                .map_err(|error| format!("IMAP capability failed: {error}"))?;
-            let delimiter = discover_delimiter(session)?;
-            let inbox_name = discover_inbox_name(session)?;
-            let mailbox = select_inbox(session, &inbox_name)?;
-            let uidvalidity = mailbox.uid_validity.unwrap_or(1);
-            let highest_uid = if let Some(next) = mailbox.uid_next {
-                next.saturating_sub(1)
-            } else {
-                highest_uid_in_mailbox(session)?
-            };
-            Ok(YahooImapDiscoverResponse {
-                delimiter,
-                inbox_name,
-                namespace_prefix: None,
-                uidvalidity,
-                highest_uid,
-                supports_move: capabilities.has_str("MOVE"),
-                supports_uidplus: capabilities.has_str("UIDPLUS"),
-                supports_uid_expunge: capabilities.has_str("UIDPLUS"),
-                capabilities: capabilities_to_strings(&capabilities),
-            })
+    run_with_session(credentials, |session| {
+        let capabilities = session
+            .capabilities()
+            .map_err(|error| format!("IMAP capability failed: {error}"))?;
+        let delimiter = discover_delimiter(session)?;
+        let inbox_name = discover_inbox_name(session)?;
+        let mailbox = select_inbox(session, &inbox_name)?;
+        let uidvalidity = mailbox.uid_validity.unwrap_or(1);
+        let highest_uid = if let Some(next) = mailbox.uid_next {
+            next.saturating_sub(1)
+        } else {
+            highest_uid_in_mailbox(session)?
+        };
+        Ok(YahooImapDiscoverResponse {
+            delimiter,
+            inbox_name,
+            namespace_prefix: None,
+            uidvalidity,
+            highest_uid,
+            supports_move: capabilities.has_str("MOVE"),
+            supports_uidplus: capabilities.has_str("UIDPLUS"),
+            supports_uid_expunge: capabilities.has_str("UIDPLUS"),
+            capabilities: capabilities_to_strings(&capabilities),
         })
-        .map_err(|error| sanitize_error(error, &secret))
     })
     .await
 }
@@ -588,41 +732,33 @@ pub async fn yahoo_imap_discover(
 pub async fn yahoo_imap_fetch_inbox(
     request: YahooImapFetchInboxRequest,
 ) -> Result<YahooImapFetchInboxResponse, String> {
-    let credentials = YahooCredentials {
-        email: request.email.clone(),
-        app_password: request.app_password.clone(),
-    };
     let after_uid = request.after_uid;
     let limit = request.limit.clamp(1, 50) as usize;
-    let inbox_name = request.inbox_name.unwrap_or_else(|| "INBOX".to_string());
-    let secret = credentials.app_password.clone();
-    run_blocking(move || {
-        with_session(&credentials, |session| {
-            let mailbox = select_inbox(session, &inbox_name)?;
-            let uidvalidity = mailbox.uid_validity.unwrap_or(1);
-            let query = format!("UID {}:*", after_uid.saturating_add(1));
-            let mut uids: Vec<u32> = session
-                .uid_search(&query)
-                .map_err(|error| format!("IMAP SEARCH failed: {error}"))?
-                .into_iter()
-                .filter(|uid| *uid > after_uid)
-                .collect();
-            uids.sort_unstable();
-            uids.truncate(limit);
-            if uids.is_empty() {
-                return Ok(YahooImapFetchInboxResponse {
-                    messages: Vec::new(),
-                    uidvalidity,
-                });
-            }
-            let mut messages = fetch_inbox_messages(session, &uids)?;
-            messages.sort_by_key(|message| message.uid);
-            Ok(YahooImapFetchInboxResponse {
-                messages,
+    run_in_inbox(&request, true, move |session, mailbox| {
+        let uidvalidity = mailbox
+            .and_then(|mailbox| mailbox.uid_validity)
+            .unwrap_or(1);
+        let query = format!("UID {}:*", after_uid.saturating_add(1));
+        let mut uids: Vec<u32> = session
+            .uid_search(&query)
+            .map_err(|error| format!("IMAP SEARCH failed: {error}"))?
+            .into_iter()
+            .filter(|uid| *uid > after_uid)
+            .collect();
+        uids.sort_unstable();
+        uids.truncate(limit);
+        if uids.is_empty() {
+            return Ok(YahooImapFetchInboxResponse {
+                messages: Vec::new(),
                 uidvalidity,
-            })
+            });
+        }
+        let mut messages = fetch_inbox_messages(session, &uids)?;
+        messages.sort_by_key(|message| message.uid);
+        Ok(YahooImapFetchInboxResponse {
+            messages,
+            uidvalidity,
         })
-        .map_err(|error| sanitize_error(error, &secret))
     })
     .await
 }
@@ -631,27 +767,17 @@ pub async fn yahoo_imap_fetch_inbox(
 pub async fn yahoo_imap_search_message_id(
     request: YahooImapSearchMessageIdRequest,
 ) -> Result<Option<u32>, String> {
-    let credentials = YahooCredentials {
-        email: request.email.clone(),
-        app_password: request.app_password.clone(),
-    };
-    let message_id = request.message_id;
-    let inbox_name = request.inbox_name.unwrap_or_else(|| "INBOX".to_string());
-    let secret = credentials.app_password.clone();
-    run_blocking(move || {
-        with_session(&credentials, |session| {
-            select_inbox(session, &inbox_name)?;
-            let escaped = escape_imap_quoted_string(&message_id)?;
-            let query = format!("HEADER Message-ID \"{escaped}\"");
-            let mut uids: Vec<u32> = session
-                .uid_search(&query)
-                .map_err(|error| format!("IMAP SEARCH failed: {error}"))?
-                .into_iter()
-                .collect();
-            uids.sort_unstable();
-            Ok(uids.last().copied())
-        })
-        .map_err(|error| sanitize_error(error, &secret))
+    let message_id = request.message_id.clone();
+    run_in_inbox(&request, true, move |session, _mailbox| {
+        let escaped = escape_imap_quoted_string(&message_id)?;
+        let query = format!("HEADER Message-ID \"{escaped}\"");
+        let mut uids: Vec<u32> = session
+            .uid_search(&query)
+            .map_err(|error| format!("IMAP SEARCH failed: {error}"))?
+            .into_iter()
+            .collect();
+        uids.sort_unstable();
+        Ok(uids.last().copied())
     })
     .await
 }
@@ -660,28 +786,20 @@ pub async fn yahoo_imap_search_message_id(
 pub async fn yahoo_imap_ensure_mailbox(
     request: YahooImapEnsureMailboxRequest,
 ) -> Result<(), String> {
-    let credentials = YahooCredentials {
-        email: request.email.clone(),
-        app_password: request.app_password.clone(),
-    };
-    let mailbox_name = request.mailbox_name;
-    let secret = credentials.app_password.clone();
-    run_blocking(move || {
-        with_session(&credentials, |session| {
-            let existing = session
-                .list(Some(""), Some(mailbox_name.as_str()))
-                .map_err(|error| format!("IMAP LIST failed: {error}"))?;
-            if existing
-                .iter()
-                .any(|mailbox| mailbox.name() == mailbox_name)
-            {
-                return Ok(());
-            }
-            session
-                .create(&mailbox_name)
-                .map_err(|error| format!("IMAP CREATE failed: {error}"))
-        })
-        .map_err(|error| sanitize_error(error, &secret))
+    let mailbox_name = request.mailbox_name.clone();
+    run_in_inbox(&request, false, move |session, _mailbox| {
+        let existing = session
+            .list(Some(""), Some(mailbox_name.as_str()))
+            .map_err(|error| format!("IMAP LIST failed: {error}"))?;
+        if existing
+            .iter()
+            .any(|mailbox| mailbox.name() == mailbox_name)
+        {
+            return Ok(());
+        }
+        session
+            .create(&mailbox_name)
+            .map_err(|error| format!("IMAP CREATE failed: {error}"))
     })
     .await
 }
@@ -690,31 +808,10 @@ pub async fn yahoo_imap_ensure_mailbox(
 pub async fn yahoo_imap_move_uid(
     request: YahooImapUidMailboxRequest,
 ) -> Result<YahooImapUidActionResponse, String> {
-    let credentials = YahooCredentials {
-        email: request.email.clone(),
-        app_password: request.app_password.clone(),
-    };
     let uid = request.uid;
     let mailbox_name = request.mailbox_name.clone();
-    let inbox_name = request.inbox_name.unwrap_or_else(|| "INBOX".to_string());
-    let secret = credentials.app_password.clone();
-    run_blocking(move || {
-        with_session(&credentials, |session| {
-            select_inbox(session, &inbox_name)?;
-            let command = format!(
-                "UID MOVE {} {}",
-                uid,
-                quote_mailbox(&mailbox_name)?
-            );
-            let response = session
-                .run_command_and_read_response(&command)
-                .map_err(|error| format!("IMAP MOVE failed: {error}"))?;
-            Ok(YahooImapUidActionResponse {
-                destination_uid: parse_copyuid_destination(&response),
-                destination_mailbox: Some(mailbox_name),
-            })
-        })
-        .map_err(|error| sanitize_error(error, &secret))
+    run_in_inbox(&request, true, move |session, _mailbox| {
+        uid_transfer(session, uid, &mailbox_name, UidTransferVerb::Move)
     })
     .await
 }
@@ -723,50 +820,19 @@ pub async fn yahoo_imap_move_uid(
 pub async fn yahoo_imap_copy_uid(
     request: YahooImapUidMailboxRequest,
 ) -> Result<YahooImapUidActionResponse, String> {
-    let credentials = YahooCredentials {
-        email: request.email.clone(),
-        app_password: request.app_password.clone(),
-    };
     let uid = request.uid;
     let mailbox_name = request.mailbox_name.clone();
-    let inbox_name = request.inbox_name.unwrap_or_else(|| "INBOX".to_string());
-    let secret = credentials.app_password.clone();
-    run_blocking(move || {
-        with_session(&credentials, |session| {
-            select_inbox(session, &inbox_name)?;
-            let command = format!(
-                "UID COPY {} {}",
-                uid,
-                quote_mailbox(&mailbox_name)?
-            );
-            let response = session
-                .run_command_and_read_response(&command)
-                .map_err(|error| format!("IMAP COPY failed: {error}"))?;
-            Ok(YahooImapUidActionResponse {
-                destination_uid: parse_copyuid_destination(&response),
-                destination_mailbox: Some(mailbox_name),
-            })
-        })
-        .map_err(|error| sanitize_error(error, &secret))
+    run_in_inbox(&request, true, move |session, _mailbox| {
+        uid_transfer(session, uid, &mailbox_name, UidTransferVerb::Copy)
     })
     .await
 }
 
 #[tauri::command]
 pub async fn yahoo_imap_uid_expunge(request: YahooImapUidMailboxRequest) -> Result<(), String> {
-    let credentials = YahooCredentials {
-        email: request.email.clone(),
-        app_password: request.app_password.clone(),
-    };
     let uid = request.uid;
-    let inbox_name = request.inbox_name.unwrap_or_else(|| "INBOX".to_string());
-    let secret = credentials.app_password.clone();
-    run_blocking(move || {
-        with_session(&credentials, |session| {
-            select_inbox(session, &inbox_name)?;
-            uid_expunge_one(session, uid)
-        })
-        .map_err(|error| sanitize_error(error, &secret))
+    run_in_inbox(&request, true, move |session, _mailbox| {
+        uid_expunge_one(session, uid)
     })
     .await
 }
@@ -775,29 +841,19 @@ pub async fn yahoo_imap_uid_expunge(request: YahooImapUidMailboxRequest) -> Resu
 pub async fn yahoo_imap_fetch_uid_message_id(
     request: YahooImapFetchUidMessageIdRequest,
 ) -> Result<Option<String>, String> {
-    let credentials = YahooCredentials {
-        email: request.email.clone(),
-        app_password: request.app_password.clone(),
-    };
     let uid = request.uid;
-    let inbox_name = request.inbox_name.unwrap_or_else(|| "INBOX".to_string());
-    let secret = credentials.app_password.clone();
-    run_blocking(move || {
-        with_session(&credentials, |session| {
-            select_inbox(session, &inbox_name)?;
-            let fetches = session
-                .uid_fetch(format!("{uid}"), "BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)]")
-                .map_err(|error| format!("IMAP FETCH failed: {error}"))?;
-            let fetch = fetches
-                .iter()
-                .next()
-                .ok_or_else(|| "Missing FETCH response".to_string())?;
-            let header = fetch
-                .header()
-                .ok_or_else(|| "Missing header in FETCH response".to_string())?;
-            extract_message_id_from_header_bytes(header)
-        })
-        .map_err(|error| sanitize_error(error, &secret))
+    run_in_inbox(&request, true, move |session, _mailbox| {
+        let fetches = session
+            .uid_fetch(format!("{uid}"), "BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)]")
+            .map_err(|error| format!("IMAP FETCH failed: {error}"))?;
+        let fetch = fetches
+            .iter()
+            .next()
+            .ok_or_else(|| "Missing FETCH response".to_string())?;
+        let header = fetch
+            .header()
+            .ok_or_else(|| "Missing header in FETCH response".to_string())?;
+        extract_message_id_from_header_bytes(header)
     })
     .await
 }
@@ -818,6 +874,37 @@ mod tests {
     fn escape_imap_quoted_string_rejects_newlines() {
         assert!(escape_imap_quoted_string("line1\r\nline2").is_err());
         assert!(escape_imap_quoted_string("line1\nline2").is_err());
+    }
+
+    #[test]
+    fn finish_session_result_scrubs_password_from_every_command_error_path() {
+        // `finish_session_result` is the exact function `run_with_session`
+        // (and therefore `run_in_inbox`, used by every yahoo_imap_* command
+        // except `yahoo_imap_discover`, which calls `run_with_session`
+        // directly) wraps every `with_session` result in. Exercising it
+        // here proves the app password cannot reach the frontend from any
+        // command's error path, without needing a live IMAP connection.
+        let credentials = YahooCredentials {
+            email: "user@yahoo.com".to_string(),
+            app_password: "SuperSecretPass1".to_string(),
+        };
+        let leaking_error: Result<(), String> =
+            Err("IMAP command failed for account with token SuperSecretPass1 unexpectedly"
+                .to_string());
+
+        let sanitized = finish_session_result(leaking_error, &credentials).unwrap_err();
+
+        assert!(!sanitized.contains("SuperSecretPass1"));
+        assert!(sanitized.contains("***"));
+    }
+
+    #[test]
+    fn finish_session_result_passes_through_success() {
+        let credentials = YahooCredentials {
+            email: "user@yahoo.com".to_string(),
+            app_password: "SuperSecretPass1".to_string(),
+        };
+        assert_eq!(finish_session_result(Ok(42), &credentials), Ok(42));
     }
 
     #[test]
