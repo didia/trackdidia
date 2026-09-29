@@ -1,5 +1,6 @@
 import { computeCompletionPercent, computeDisciplineScore } from "../../domain/daily-entry";
 import type { AppSettings, CoachMessage, DailyEntry } from "../../domain/types";
+import { average } from "../math";
 import {
   buildCoachCacheKey,
   getCoachInputText,
@@ -9,13 +10,8 @@ import {
 } from "./coach-input";
 import type { AiProvider } from "./provider";
 
-const averageDiscipline = (entries: DailyEntry[]): number => {
-  if (entries.length === 0) {
-    return 0;
-  }
-
-  return entries.reduce((sum, entry) => sum + computeDisciplineScore(entry), 0) / entries.length;
-};
+const averageDiscipline = (entries: DailyEntry[]): number =>
+  average(entries.map((entry) => computeDisciplineScore(entry)));
 
 const buildLocalMorningMessage = (entry: DailyEntry, recentEntries: DailyEntry[]): string => {
   const average = averageDiscipline(recentEntries);

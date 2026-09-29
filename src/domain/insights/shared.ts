@@ -1,11 +1,11 @@
 import { addDays } from "../../lib/gtd/shared";
+import { average } from "../../lib/math";
 import type { DailyEntry } from "../types";
 import type { EvidenceWindow } from "./types";
 
 /** Internal helpers shared across the insight engine modules. Not part of the spec's module table. */
 
-export const average = (values: number[]): number =>
-  values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+export { average };
 
 export const sortEntriesByDate = (entries: DailyEntry[]): DailyEntry[] =>
   [...entries].sort((left, right) => left.date.localeCompare(right.date));
