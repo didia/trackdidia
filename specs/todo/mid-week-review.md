@@ -2,7 +2,10 @@
 
 **Status:** approved, unshipped. Planner/validator loop: approved on iteration 1, revised
 for owner decisions, re-approved on iteration 2. The Wednesday snapshot (§B2.3–B2.4) was
-added after that at the owner's request, and was revised once after validator review.
+added after that at the owner's request, and was revised once after validator review. A
+second revision addressed the owner's PR review (#171): decisions load and save
+acknowledgement, snapshot preservation, atomic objective-cache merges, per-signal coverage,
+floating-point boundaries, Sunday AI behavior and steering-action validation.
 **Scope:** a dedicated `/mi-semaine` page that reads the week in progress (RescueTime goals,
 daily habits, tracked metrics, tasks, weekly objectives, journal), shows what is lagging
 against a pro-rated pace, suggests how to recover, and saves what the owner decides to
@@ -28,7 +31,7 @@ week-to-date `actualHours` against a full-week `weeklyTargetHours`. On a Wednesd
 | Own page | Yes, `/mi-semaine`, with a nav entry. The Wednesday prompt links there. `/semaine` keeps its role. |
 | Week scope | Always the current week (`getWeekStartSunday(calendarDay)`). No week picker and no `?date=`. |
 | Rollout | Deterministic page first. AI steering (PR D) follows. |
-| Persist decisions | Yes, in a new table (migration 35). Never `tempsEtPlan` and never a new `WeeklyRitualSectionKey`. |
+| Persist decisions | Yes, in a new table (migration 36). Never `tempsEtPlan` and never a new `WeeklyRitualSectionKey`. |
 | Wednesday snapshot | Yes. Saving decisions also stores the lagging list at that moment, so Sunday can compare before and after. |
 | RescueTime cache | Yes. Same cache and key as the weekly review: `(week_start_date, kind, credential_fingerprint)` from [`weekly-review-caching.md`](weekly-review-caching.md) §1. |
 | Thresholds | Start at `0.1` (tolerance) and `0.25` (lagging). The owner tunes them later. |
@@ -38,38 +41,41 @@ week-to-date `actualHours` against a full-week `weeklyTargetHours`. On a Wednesd
 
 | PR | Content | Migration |
 |---|---|---|
-| **A** | RescueTime snapshot cache (`weekly-review-caching.md` §1 only) plus the opt-in freshness window | 34 |
+| **A** | RescueTime snapshot cache (`weekly-review-caching.md` §1 only) plus the opt-in freshness window | 35 |
 | **B1** | Pure mid-week domain math and its tests. No UI, no repository. | — |
-| **B2** | Decisions table and repository parity, the page, the `/semaine` card, wiring, i18n, docs | 35 |
+| **B2** | Decisions table and repository parity, the page, the `/semaine` card, wiring, i18n, docs | 36 |
 | **C** | *(optional)* Mid-week decisions as a `midWeek` journal kind | — |
 | **D** | `mid_week_steering` AI surface | — |
 
-`planned-order.test.ts` already enforces unique, strictly increasing migration ids, so a
-misordered merge fails CI. Never renumber a shipped migration: a later PR takes the next
-free id.
+Migration 34 shipped in #172 (`add_weekly_objective_ends_on_week_start_date`), so the
+RescueTime cache that `weekly-review-caching.md` originally numbered 34 takes **35**, and
+mid-week decisions take **36**. `planned-order.test.ts` already enforces unique, strictly
+increasing migration ids, so a misordered merge fails CI. Never renumber a shipped
+migration: a later PR takes the next free id.
 
-### Coordination with open refactor PRs
+### Built on merged refactors
 
-These are open against `master` and touch code this spec uses. Rebase onto whichever lands
-first:
+These refactors have all merged into `master`. Implementations use them rather than the
+older patterns:
 
-- #170 (issue #106, shared `AppRepository` contract suite): if it has merged, add the new
-  repository methods' tests to the shared contract suite instead of only
-  `memory-repository.test.ts`.
-- #169 (issue #132, `loadLatestSurfaceResult`): if it has merged, PR D's loader uses it
-  instead of copying `loadLatestGoalPacing`.
-- #168 (issue #134, table-driven system prompt builder): if it has merged, PR D adds a table
-  entry instead of a `buildSystemPrompt` branch.
-- #166 (issue #137, consolidated redaction helpers): PR D's snapshot uses those helpers.
-- #167 (issue #135, dead legacy coach removed): no conflict expected; recheck the `AiSurface`
-  lists.
-- #162 (issue #143, `domain/types.ts` split into per-domain modules): if it has merged, the
-  new types go in the matching `src/domain/types/*.ts` module instead of `types.ts`. That
-  covers `MidWeekDecisions`, `MidWeekLaggingSnapshot`, `RescueTimeSnapshotCacheEntry`, the
-  `AiSurface` member and `cachedAt`.
-- #154 (issue #121, `useLatestRequest` / `useAsyncResource`): if it has merged, the page's
-  per-load request guards use the hook instead of hand-rolled request-sequence refs.
-- #159 (issue #130, `PageHeader`): if it has merged, the new page's hero uses it.
+- **#170, repository contract suite:** tests for every new repository method go in
+  `src/lib/storage/repository.contract.ts` (`describeRepositoryContract`), which runs
+  against both `MemoryRepository` and `TauriSqliteRepository`.
+- **#162, `domain/types` split:** new types go in the per-domain modules:
+  - `src/domain/types/reviews.ts`: `MidWeekDecisions`, `cachedAt` on
+    `WeeklyObjectivesSnapshot`, and `RescueTimeSnapshotCacheKind` /
+    `RescueTimeSnapshotCacheEntry` (next to `RescueTimeTaxonomy`)
+  - `src/domain/types/ai.ts`: the `AiSurface` member and the steering types
+  - The pure mid-week types (`MidWeekSignal`, `MidWeekLaggingSnapshot`, …) stay in
+    `src/domain/mid-week-review.ts`, as `RescueTimeGoalsSnapshot` stays in
+    `src/domain/rescuetime-goals.ts`.
+- **#154, `useLatestRequest` / `useAsyncResource`** (`src/app/use-latest-request.ts`): the
+  page uses these instead of hand-rolled request-sequence refs.
+- **#159, `PageHeader`** (`src/components/PageHeader.tsx`): the page's hero uses it.
+- **#169, `loadLatestSurfaceResult`** (`src/lib/ai/latest-surface-result-loader.ts`): PR D's
+  loader uses it.
+- **#168, table-driven `OpenRouterProvider` builders:** PR D adds a table entry.
+- **#166, redaction helpers** (`src/lib/ai/context/redaction.ts`): PR D's snapshot uses them.
 
 ### Spec lifecycle
 
@@ -84,10 +90,11 @@ Implement [`weekly-review-caching.md`](weekly-review-caching.md) §1 as written,
 clarifications below. §2 (compact goal lines) and §3 (weekly coach last-good cache) remain
 unshipped.
 
-- **Migration 34 `create_rescuetime_snapshot_cache`**, exactly as specified in §1. The
-  repository methods `getRescueTimeSnapshotCache`, `saveRescueTimeSnapshotCache` and
-  `pruneRescueTimeSnapshotCache(keepFingerprint: string | null)` go in both implementations.
-  Normalize `weekStartDate` with `buildWeekDates` on read and write.
+- **Migration 35 `create_rescuetime_snapshot_cache`**, with the schema from §1 (§1 said 34;
+  #172 has since taken that id). The repository methods `getRescueTimeSnapshotCache`,
+  `saveRescueTimeSnapshotCache` and `pruneRescueTimeSnapshotCache(keepFingerprint: string |
+  null)` go in both implementations. Normalize `weekStartDate` with `buildWeekDates` on read
+  and write.
 - **Fingerprint:** `src/lib/rescuetime/credential-fingerprint.ts`,
   `rescueTimeCredentialFingerprint(apiKey)`. It trims the key, then takes a SHA-256 via
   `crypto.subtle.digest` (same pattern as `src/lib/email-triage/oauth/pkce.ts`), hex encoded
@@ -96,7 +103,7 @@ unshipped.
 - **Snapshot types:** add `cachedAt?: string` to `RescueTimeGoalsSnapshot`
   (`src/domain/rescuetime-goals.ts`), `RescueTimeProductivityPulseSnapshot` (declared in
   `src/lib/rescuetime/rescuetime-goals-service.ts`) and `WeeklyObjectivesSnapshot`
-  (`src/domain/types.ts`).
+  (`src/domain/types/reviews.ts`).
 - **Each method has its own write and catch branch:**
   - `computeGoalsSnapshot` writes `goals` on success, even for an empty list. On failure it
     reads `goals`, rebuilds the items and recomputes `achievement` with
@@ -106,7 +113,27 @@ unshipped.
   - When a cached entry is used, set `cachedAt = fetchedAt` and drop `fetchError`. If there
     is no parseable entry, keep today's behavior. Each write sits in its own `try/catch`.
   - `WeeklyObjectivesService` follows the §1 merge rules and per-value `fetchedAt`
-    provenance.
+    provenance, through the atomic merge below.
+- **Atomic objective-cache merge.** Two overlapping objective computations must not erase
+  each other's fresh ids. The service therefore never does its own read, merge and write.
+  - Add `mergeRescueTimeObjectiveSecondsCache({ weekStartDate, credentialFingerprint,
+    values: Record<objectiveId, { seconds; fetchedAt }>, fetchedAt })` to `AppRepository`.
+  - It reads the current `objective_seconds` row and merges with the pure
+    `mergeObjectiveSecondsPayload(existing, values)` (in `src/domain/rescuetime-goals.ts`).
+    Incoming ids overwrite; every other id keeps its own `fetchedAt`; an unparseable
+    existing payload counts as empty. Then it writes the result.
+  - In `TauriSqliteRepository`, the read, the merge and the upsert run inside **one**
+    `runExclusive` call. Every write goes through that `DbSerialQueue`, so no other write
+    can land between the read and the upsert.
+  - In `MemoryRepository`, the read, the merge and the write run synchronously with no
+    `await` in between.
+  - This mirrors `addPastorCustomVerse` in `tauri-sqlite-repository.ts`, which already
+    reads, merges and writes inside one `runExclusive`. Reads are not queued in this
+    repository, so the merge reads through a plain `db.select`.
+  - It must never call a method that itself calls `runExclusive`: `DbSerialQueue`'s
+    watchdog rejects reentrant calls after 15 s. Extract an `…Internal` helper that takes
+    the open connection, as `saveWeeklyReviewInternal` does.
+  - `saveRescueTimeSnapshotCache` is used only for the `goals` and `pulse` kinds.
 - **Freshness window (extends §1):** an optional `options?: { maxAgeMs?: number }` on
   `computeGoalsSnapshot`, `computeProductivityPulse` and `computeWeeklyObjectivesSnapshot`.
   When all of the following hold, return the cached snapshot with `cachedAt` and make no
@@ -133,18 +160,24 @@ unshipped.
   "§1 shipped; §2 and §3 not implemented", and `specs/README.md` is updated to match.
 - **Docs:**
   - `docs/reviews-and-goals.md`: replace "not persisted" with the cache contract.
-  - `docs/storage-and-backups.md`: migration 34 row and a table-reference block.
+  - `docs/storage-and-backups.md`: migration 35 row and a table-reference block.
   - `docs/ai-settings-and-privacy.md`: goal titles are stored at rest, scoped by the key
     fingerprint; the key itself is never stored.
   - Prepend entries to the three matching `docs/logs/` pages.
 
 ### PR A tests
 
-- `migrations/rescuetime-snapshot-cache.test.ts`, using the same `find(id === 34)` shape as
+- `migrations/rescuetime-snapshot-cache.test.ts`, using the same `find(id === 35)` shape as
   `weekly-objective-starts-on.test.ts`.
 - `credential-fingerprint.test.ts`: stable, hex, 16 characters, differs per key, trims.
-- Repository: round trip, upsert, miss returns `null`, isolation per fingerprint, prune keeps
-  only the given fingerprint, and prune with `null` clears everything.
+- Repository, in the shared contract suite: round trip, upsert, miss returns `null`,
+  isolation per fingerprint, prune keeps only the given fingerprint, and prune with `null`
+  clears everything.
+- Merge, also in the contract suite:
+  - Two merges started together (`Promise.all`) with disjoint ids both survive.
+  - For the same id, the call queued later wins.
+  - Retained ids keep their original `fetchedAt`.
+  - A corrupt existing payload is replaced rather than throwing.
 - `rescuetime-goals-service.test.ts`:
   - Cache is written on success, including for an empty goal list.
   - A failed pull with a cached entry returns `cachedAt` and no `fetchError`.
@@ -200,7 +233,7 @@ export const MID_WEEK_LAGGING_THRESHOLD = 0.25;
 ```
 key, category, label, direction ("more" | "less" | "quality"), status,
 actual, expected, weekTarget, unit, paceRatio, remaining, perRemainingDay,
-daysWithData, daysConsidered, severity, recovery
+daysApplicable, daysWithData, hasFullCoverage, severity, recovery
 ```
 
 - Keys are stable and namespaced: `metric:pomodoris`, `principle:respectTrc`,
@@ -212,17 +245,28 @@ daysWithData, daysConsidered, severity, recovery
   - `< lagging threshold` → `at_risk`
   - otherwise `lagging`
   - `paceRatio === null` → `unknown`
-- The boundaries are inclusive: exactly 10 % over budget is `on_pace`.
+- The boundaries are inclusive: exactly 10 % over budget is `on_pace`, and exactly 25 %
+  short is `lagging`.
+- **Floating-point policy.** `shortfall` is rounded to 9 decimal places before any
+  comparison: `Math.round((1 - paceRatio) * 1e9) / 1e9`, with the factor exported as
+  `MID_WEEK_SHORTFALL_PRECISION`. Without it, `expected = 100, actual = 110` gives
+  `paceRatio = 0.8999999999999999` and `shortfall = 0.10000000000000009`, which would turn
+  an exact 10 % into `at_risk`. The rounded value also feeds `severity`.
 - `paceRatio` depends on direction:
   - "more" and "quality": `expected > 0 ? actual / expected : null`.
   - "less": `expected > 0 ? 2 - actual / expected : null`. This gives no `Infinity`, and
     `ahead` stays reachable.
 - Every numeric output is checked with `Number.isFinite`; a non-finite value becomes `null`.
 - **An unlogged day is not a failure.** A signal measures only days that have data (see the
-  `computeAnsweredDisciplineScore` rationale). When `daysWithData < completedDays`, the
-  recovery copy says so.
-- **Severity** = `shortfall * min(daysWithData / max(completedDays, 1), 1)`, so thin
-  coverage ranks lower. `rankMidWeekSignals` sorts by severity descending and breaks ties on
+  `computeAnsweredDisciplineScore` rationale). This rule has no exceptions; the journal
+  signal follows it too.
+- **Coverage** is defined per signal in the coverage table below:
+  - `daysApplicable` is how many days the signal could have been measured on.
+  - `daysWithData` is how many of those actually have data.
+  - `hasFullCoverage = daysApplicable > 0 && daysWithData >= daysApplicable`.
+  - When coverage is not full, the recovery copy says so.
+- **Severity** = `shortfall * (daysApplicable > 0 ? min(daysWithData / daysApplicable, 1) : 0)`,
+  so thin coverage ranks lower. `rankMidWeekSignals` sorts by severity descending and breaks ties on
   `key`.
 - `paceScore` is the mean of `clamp(paceRatio, 0, 1)` over signals that are not `unknown`.
   It is `null` when every signal is `unknown`.
@@ -238,7 +282,7 @@ daysWithData, daysConsidered, severity, recovery
 | `principle:*` (14) | answered `true` days | answered days (`!== null`) | `null` is not a miss. `unknown` when no day is answered. |
 | `habit:discipline` | average of `computeAnsweredDisciplineScore` | `1` | |
 | `tasks:completion` | `tachesRealises` summed | `tachesAjoutes` summed | `paceRatio = added > 0 ? completed/added : (completed > 0 ? 1 : null)`. `remaining = max(0, added - completed)`. |
-| `journal:reflections` | days with a non-empty `nightReflection` | `completedDays` | |
+| `journal:reflections` | completed days with a non-empty `nightReflection` | `daysWithData` from the coverage table | A day with no entry, or one that was never closed, is unlogged and not a miss. |
 | `rescuetime:<id>`, `isMore` | `actualHours` (includes today) | `target * completedScheduleDaysInWeek / scheduleDaysInWeek` | Today is excluded; its hours can only help. |
 | `rescuetime:<id>`, `!isMore` | `actualHours` | `target * (completedScheduleDays + (dayIndex !== null && isScheduleDay(label, dayIndex) ? 1 : 0)) / scheduleDaysInWeek` | Today is **included** because its minutes are already spent. The extra term applies only when `asOfDate <= weekEndDate`. Once the week is complete the budget is exactly `weeklyTargetHours`, so `expected <= weekTarget` always holds. Document this in a code comment and in the docs. |
 | `objective:<id>`, kind `time` | `item.actualHours` | `targetHours * completedDays / 7` | A `null` value or `item.error` gives `unknown`. For kind `manual`: `ahead` if achieved, otherwise `unknown`. |
@@ -259,6 +303,22 @@ daysWithData, daysConsidered, severity, recovery
 
 It is `null` only when the underlying target is `null`.
 
+Coverage per signal. "Completed days" means the days strictly before `asOfDate` in the week.
+
+| Signal | `daysApplicable` | `daysWithData` |
+|---|---|---|
+| `metric:*` (pomodoros, calories, screen time, sleep quality) | completed days | completed days where `resolveMetricValue` is non-null |
+| `principle:*` | completed days | completed days where the principle is answered (`!== null`) |
+| `habit:discipline` | completed days | completed days with at least one answered principle |
+| `tasks:completion` | completed days | completed days where `tachesAjoutes` or `tachesRealises` resolves non-null |
+| `journal:reflections` | completed days | completed days whose entry has `status === "closed"` or a non-empty `nightReflection` |
+| `rescuetime:<id>` | schedule days counted in `expected` (completed schedule days, plus today for a "less" goal while the week is in progress); `scheduleDaysInWeek` once the week is over | equal to `daysApplicable` when the goal is known (RescueTime tracks automatically); `0` when `unknown` |
+| `objective:<id>`, kind `time` | completed days | equal to `daysApplicable` when known (automatic); `0` when `unknown` |
+| `objective:<id>`, kind `manual` | `1` | `1` when known, otherwise `0` |
+
+With this table, a five-day RescueTime goal has full coverage at the end of the week with
+`5/5`. It is never judged against 7.
+
 `buildMidWeekReviewSummary(inputs)` takes these inputs:
 
 - `weekStartDate`, `asOfDate`
@@ -274,15 +334,17 @@ It returns the window plus `paceScore`, `signals`, `lagging`, `ahead`, `unknown`
 
 - `MidWeekLaggingSnapshot = { version: 1; asOfDate; completedDays; signals: MidWeekSnapshotSignal[] }`.
   Each `MidWeekSnapshotSignal` holds `key, category, label, direction, status, actual,
-  expected, weekTarget, unit, daysWithData`.
+  expected, weekTarget, unit, daysApplicable, daysWithData, hasFullCoverage`.
 - `buildMidWeekLaggingSnapshot(summary)` keeps the ranked `lagging` and `at_risk` signals,
   capped at 10.
 - `parseMidWeekLaggingSnapshot(json)` returns `null` on bad JSON or an unknown `version`.
 - `compareMidWeekSnapshot(snapshot, currentSummary)` pairs each snapshot signal with the
   current signal of the same key. The result carries `before`, `after` (`null` when the key
-  is gone, e.g. a deleted RescueTime goal) and `recovered`. `recovered` is `true` when the
-  current status is `on_pace` or `ahead`, `false` otherwise, and `null` when `after` is
-  missing or `unknown`.
+  is gone, e.g. a deleted RescueTime goal) and `recovered`:
+  - `null` when `after` is missing, is `unknown`, or lacks `hasFullCoverage`. Only fully
+    covered signals claim a verdict either way.
+  - Otherwise `true` when the current status is `on_pace` or `ahead`, and `false` when it
+    isn't.
 
 ### Also in B1
 
@@ -315,7 +377,10 @@ It returns the window plus `paceScore`, `signals`, `lagging`, `ahead`, `unknown`
     `unknown`.
   - Discipline uses only answered principles as its denominator.
 - **Tasks:** `added = 0 && completed = 0` is `unknown`. Break-even counts are correct.
-- **Journal:** only non-empty `nightReflection` values count.
+- **Journal:** only non-empty `nightReflection` values count. On Wednesday, with Monday and
+  Tuesday closed with reflections and Sunday having no entry, the result is
+  `actual = 2, expected = 2`, `on_pace`, not `2/3`. A closed day with an empty reflection
+  is a miss.
 - **RescueTime:**
   - A 24x7 "more" goal at half the pro-rated target is `lagging`.
   - A 5-day goal on Wednesday counts 2 completed weekdays.
@@ -330,12 +395,35 @@ It returns the window plus `paceScore`, `signals`, `lagging`, `ahead`, `unknown`
   - A one-day signal ranks below an equally lagging three-day signal; ties break on `key`.
   - `paceScore` is `null` when every signal is `unknown`.
   - Threshold boundaries are asserted against the exported constants.
+  - Floating-point boundaries with decimal and integer targets, at both thresholds and in
+    both directions. Each is asserted on its exact value:
+    - "less", `expected 100, actual 110`: `on_pace`
+    - "less", `expected 0.3, actual 0.33`: `on_pace`
+    - "less", `expected 7.7, actual 9.625` (25 % over): `lagging`
+    - "more", `expected 0.7, actual 0.63`: `on_pace`
+    - "more", `expected 0.7, actual 0.525` (25 % short): `lagging`
+    - "more", `expected 0.7, actual 0.77` (10 % ahead): `ahead`
+- **Coverage per category:** `daysApplicable`, `daysWithData` and `hasFullCoverage` match the
+  coverage table. At the end of the week (`asOfDate = weekEnd + 1`):
+  - A five-day RescueTime goal is `5/5`, full coverage.
+  - A 24x7 goal is `7/7`.
+  - Tasks with full data have full coverage.
+  - Journal with two closed days and five unlogged days is `2/7`, not full.
+  - A time objective is full when known.
+  - A manual objective is `1/1` when known.
+  - A manual objective is only ever `ahead` or `unknown`, so it never enters
+    `buildMidWeekLaggingSnapshot`; its end-of-week recovery test constructs the snapshot
+    signal directly. When marked achieved, a manual objective also gets
+    `endsOnWeekStartDate` set to the previous Sunday (#172), so it usually drops out of that
+    week's items entirely.
 - **Empty week:** nothing throws, and no field is `NaN` or `Infinity`.
 - **Snapshot:**
   - `buildMidWeekLaggingSnapshot` keeps only `lagging` and `at_risk`, in order, capped at 10.
   - Parsing round-trips; bad JSON and an unknown version give `null`.
-  - `compareMidWeekSnapshot` covers recovered, not recovered, a missing key and an
-    `unknown` current signal.
+  - `compareMidWeekSnapshot` covers recovered, not recovered, a missing key, an `unknown`
+    current signal, and a current signal without full coverage (`recovered: null`).
+  - End-of-week recovery markers for a five-day RescueTime goal, a 24x7 goal, tasks, the
+    journal, a time objective and a manual objective.
 - **Existing suites:**
   - `rescuetime-goals.test.ts`: `isScheduleDay` and `completedScheduleDaysInWeek` for 24x7
     and 5-day schedules, 0–7 days.
@@ -346,7 +434,7 @@ It returns the window plus `paceScore`, `signals`, `lagging`, `ahead`, `unknown`
 
 ## PR B2 — Page, decisions and weekly mirror
 
-### B2.1 Migration 35 and repository parity
+### B2.1 Migration 36 and repository parity
 
 ```sql
 CREATE TABLE IF NOT EXISTS mid_week_decisions (
@@ -360,14 +448,29 @@ CREATE TABLE IF NOT EXISTS mid_week_decisions (
 
 - There is one row per week, and the owner can edit it any day of that week.
 - `decided_on_date` is the local date of the last save, used for "décidé le mercredi".
-- `lagging_snapshot_json` is the `MidWeekLaggingSnapshot` from that same save. It is
-  nullable.
+- `lagging_snapshot_json` is the `MidWeekLaggingSnapshot` from the most recent save whose
+  loads completed (see B2.3 item 9). It is nullable. Saving new text alone never erases or
+  weakens it.
 - There is no `created_at`; nothing would read it (same as `weekly_reviews`).
 - Type: `MidWeekDecisions { weekStartDate; decisions; decidedOnDate; laggingSnapshot: MidWeekLaggingSnapshot | null; updatedAt }`.
   The row mapping parses the snapshot defensively and falls back to `null`.
 - `AppRepository` gets `getMidWeekDecisions(weekStartDate)` and
   `saveMidWeekDecisions(record)` in both implementations:
-  - The upsert uses `ON CONFLICT(week_start_date) DO UPDATE` inside `runExclusive`.
+  - `getMidWeekDecisions` resolves `null` **only** when no row exists. A read failure
+    rejects; implementations never turn it into `null`, so the page can tell a miss from a
+    failure.
+  - `saveMidWeekDecisions(input: MidWeekDecisionsSaveInput)`, where
+    `MidWeekDecisionsSaveInput = { weekStartDate; decisions; decidedOnDate; updatedAt;
+    laggingSnapshot?: MidWeekLaggingSnapshot }`. This is deliberately **not**
+    `MidWeekDecisions`, whose `laggingSnapshot` is `MidWeekLaggingSnapshot | null`.
+    - There is no way to erase a stored snapshot. An absent or `undefined` `laggingSnapshot`
+      binds SQL `NULL` (`laggingSnapshot ? JSON.stringify(laggingSnapshot) : null`), and
+      `COALESCE` keeps the stored value.
+    SQLite does this with `ON CONFLICT(week_start_date) DO UPDATE SET decisions = …,
+    decided_on_date = …, updated_at = …, lagging_snapshot_json =
+    COALESCE(excluded.lagging_snapshot_json, mid_week_decisions.lagging_snapshot_json)`
+    inside `runExclusive`. An insert without a snapshot stores `NULL`. `MemoryRepository`
+    matches this exactly.
   - `weekStartDate` is normalized with `buildWeekDates`, so a Wednesday date maps to its
     Sunday.
   - Timestamps are supplied by the caller.
@@ -376,8 +479,9 @@ CREATE TABLE IF NOT EXISTS mid_week_decisions (
 
 Extract the decorated seven-day load into
 `loadDecoratedWeekEntries(repository, weekStartDate): Promise<DailyEntry[]>`. The source is
-in `src/lib/ai/context/weekly-snapshot.ts`: the spread element of the `Promise.all` at lines
-414–421, plus the `createEmptyDailyEntry` fill at lines 423–425.
+in `src/lib/ai/context/weekly-snapshot.ts`: the spread element
+`...weekDates.map((date) => repository.getDailyEntry(date))` of the `Promise.all` at lines
+390–397, plus the `createEmptyDailyEntry` fill at lines 399–401.
 
 - Put it in a new `src/lib/storage/week-entries.ts`. It takes a repository, so it doesn't
   belong in `src/domain/`, and two pages import it, so it doesn't belong under `src/lib/ai/`.
@@ -396,20 +500,22 @@ with no entry row stays undecorated and counts as "no data". This differs slight
 - Takes `repository`, `settings` and `calendarDay` from `useAppContext()`, with
   `weekStart = getWeekStartSunday(calendarDay)`. It reloads when `calendarDay` changes
   (local-day reconciliation).
-- **Parallel loads**, each with its own request-sequence ref:
+- **Parallel loads**, each guarded with `useLatestRequest` / `useAsyncResource`:
   - `computeWeeklyReviewSummary`
   - `loadDecoratedWeekEntries`
   - `computeAnnualGoalSnapshots(year, calendarDay)`
-  - `getMidWeekDecisions(weekStart)`
   - the three RescueTime and objectives services, with
     `{ maxAgeMs: MID_WEEK_RESCUETIME_MAX_AGE_MS }` (15 min, exported at the top of the file)
+  - the decisions row: `useAsyncResource(weekStart, (week) =>
+    repository.getMidWeekDecisions(week))`, a separate resource with its own `loading` /
+    `error` / `reload` (see item 9)
 - Entry-derived signals render first; RescueTime and objectives fill in when they load.
 - Reuses the existing classes (`page`, `hero`, `SectionCard`, `weekly-overview-grid`,
   `status-card`, `banner`, `empty-copy`, `section-actions`).
 
 Sections:
 
-1. **Hero:** date range, `asOfDate`, completed and remaining days.
+1. **Hero** (`PageHeader`): date range, `asOfDate`, completed and remaining days.
 2. **Coverage line** (only when relevant): "N jours non clôturés — les verdicts portent
    sur M jours". It appears once and does not become 14 habit misses.
 3. **Où j'en suis:** `paceScore`, the whole-week score labelled as a projection (never
@@ -427,41 +533,88 @@ Sections:
    - Field labels come from `t("editor.<key>", { ns: "history" })`, with a `/journal` link.
 8. **Objectifs annuels:** one compact line with the count of
    `!snapshot.measurement.onPace`, up to three titles and a `/objectifs-annuels` link.
-9. **Ce que je change:** `<PersistedTextarea key={weekStart} savedValue={decisions?.decisions ?? ""} …>`,
-   with the default 450 ms debounce and the component's built-in blur and unmount flush.
-   - **Per-week save context.** The page keeps a ref holding
-     `Map<weekStart, { settled: Promise<void>; summary: MidWeekReviewSummary | null }>`.
-     - An entry is created when that week's loads start.
-     - `settled` resolves in the loads' `finally`, **independently of the request-sequence
-       guard**, so it still resolves after unmount.
-     - `summary` is updated as the loads land.
-   - **`onPersist(value)`** captures `weekStart` and `calendarDay` at render time, then:
-     1. Reads `const entry = saveContextRef.current.get(weekStart)` and waits with
-        `await Promise.race([entry?.settled ?? Promise.resolve(), delay(MID_WEEK_SNAPSHOT_WAIT_MS)])`,
-        so a persist that fires before the loads start cannot throw during unmount cleanup.
+9. **Ce que je change**: the editor for this week's decisions.
+   - **Gated on the decisions read.** The editor never accepts input before the stored row
+     is known. Otherwise, text typed during a slow read could overwrite existing decisions,
+     or a late read could replace the draft.
+     - While `decisions.loading`: render a disabled, `aria-busy` placeholder instead of
+       `PersistedTextarea`.
+     - On `decisions.error`: a `role="alert"` banner ("Impossible de charger tes
+       décisions") and a "Réessayer" button that calls `decisions.reload()`. No editor, so
+       a failed read can never be mistaken for "no decisions yet".
+     - Once loaded: `<PersistedTextarea key={weekStart} savedValue={decisions.data?.decisions ?? ""} …>`,
+       mounted only now so its initial draft is the stored text. It uses the default 450 ms
+       debounce plus the blur and unmount flush.
+   - **Acknowledged saves.** `onPersist` returns a promise, and `PersistedTextarea` gains
+     acknowledged-save semantics for promise-returning callbacks (B2.3a). The confirmed value
+     advances only after the save resolves. A rejected save keeps the text as an unsaved
+     draft and raises a visible error with a retry.
+   - **One save queue per week.** Saves go through
+     `enqueueMidWeekDecisionSave(weekStart, text, task)` in a new module-scoped
+     `src/app/mid-week-decision-saves.ts`.
+     - It chains `task` on that week's promise. On rejection it records
+       `failedDrafts.set(weekStart, { text, error })` and **re-throws**, so
+       `PersistedTextarea` keeps the draft dirty. On success it clears that week's entry.
+     - It also exports `getFailedMidWeekDraft(weekStart)` and
+       `clearFailedMidWeekDraft(weekStart)`.
+     - The chain is keyed by week and outlives the page, so saves for one week run strictly
+       in order, even across an unmount flush and a remount. Without it, a save still
+       waiting for the snapshot could land after a newer one and overwrite newer text with
+       older text.
+   - **Per-week save context.** A ref holds
+     `Map<weekStart, { settled: Promise<void>; complete: boolean; summary: MidWeekReviewSummary | null }>`.
+     - A fresh entry replaces any existing one each time a load cycle for that week
+       starts: on mount, on a `calendarDay` change, or on the "Actualiser" refresh.
+       - `complete` returns to `false`, and `settled` becomes a new pending promise.
+       - `summary` is overwritten only when the new cycle's summary lands.
+       - So a save during a refresh omits the snapshot patch and keeps the stored
+         snapshot, instead of writing a half-refreshed one.
+     - `settled` resolves in the loads' `finally`, independently of the request guard, so it
+       still resolves after unmount.
+     - `summary` is updated as loads land.
+     - `complete` becomes `true` only when all of these settled successfully:
+       - the entries and the summary
+       - goals, pulse and objectives, each with no remaining `fetchError`. A cached
+         fallback counts, since it clears `fetchError`. A missing-key state counts, since
+         it is the real state.
+   - **The task each save runs**, capturing `weekStart` and `calendarDay` at render time:
+     1. `const entry = saveContextRef.current.get(weekStart)`, then
+        `await Promise.race([entry?.settled ?? Promise.resolve(), delay(MID_WEEK_SNAPSHOT_WAIT_MS)])`.
         `MID_WEEK_SNAPSHOT_WAIT_MS = 2000` is exported next to
         `MID_WEEK_RESCUETIME_MAX_AGE_MS`.
-     2. Reads the summary from `entry?.summary`, **never from closed-over state**, which is
-        stale by construction after an `await`.
-     3. Sets `laggingSnapshot` to `buildMidWeekLaggingSnapshot(entry.summary)` when
-        `entry?.summary?.weekStartDate === weekStart && entry.summary.completedDays > 0`,
-        and to `null` otherwise.
-     4. Saves `{ weekStartDate: weekStart, decisions: value, decidedOnDate: calendarDay,
-        laggingSnapshot, updatedAt: nowIso() }` with `saveMidWeekDecisions`.
-   - **The text always lands.** The wait is bounded, and a missing, mismatched or Sunday
-     summary degrades to `laggingSnapshot: null`. Nothing blocks or drops the save; losing
-     typed decisions to a hung RescueTime load would be worse than losing the snapshot.
-   - Waiting at all, rather than saving on the first keystroke, keeps a snapshot from being
-     stored without its RescueTime and objective signals.
-   - On Sunday the page shows the *previous* week's lagging list. That list must never be
-     saved as this week's snapshot, hence the `weekStartDate === weekStart &&
-     completedDays > 0` guard.
-   - `PersistedTextarea` skips the save when the pending text equals the last saved value
-     (`flushPersist`, `PersistedTextarea.tsx:53-61`; unmount cleanup at `:70`). Just
-     visiting the page therefore never rewrites a row's snapshot with a later day's numbers.
-   - The `key={weekStart}` remount flushes text typed before midnight to the week it was
-     typed in. (`PersistedTextarea` refreshes `onPersistRef` on every render.)
-   - It shows "dernière mise à jour le {decidedOnDate}" and a `/semaine` link.
+     2. Reads the context again from the ref after the wait, never from closed-over state,
+        which is stale by construction after an `await`.
+     3. Includes `laggingSnapshot: buildMidWeekLaggingSnapshot(entry.summary)` **only when**
+        `entry?.complete && entry.summary?.weekStartDate === weekStart &&
+        entry.summary.completedDays > 0`. Otherwise it **omits** `laggingSnapshot`, so the
+        stored snapshot is preserved (B2.1).
+        - A timeout, a partial load, an external fetch failure, Sunday, and the previous
+          week's list shown on Sunday all fall into this case.
+        - An earlier complete Wednesday snapshot is therefore never replaced by a partial
+          Friday one, nor erased.
+     4. `await repository.saveMidWeekDecisions({ weekStartDate: weekStart, decisions: value,
+        decidedOnDate: calendarDay, updatedAt: nowIso(), ...snapshotPatch })`.
+   - **Failures stay visible and are never silent.**
+     - While mounted: a rejected save (debounce, blur or explicit flush) shows a
+       `role="alert"` banner ("Décisions non enregistrées") with a "Réessayer" button that
+       calls the textarea handle's `flush()`. The draft stays dirty, so the next edit or blur
+       also retries. A small status line shows "Enregistrement…" or "Enregistré".
+     - After unmount: a save that rejects after the page is gone (the unmount flush) is
+       recorded in the same module as `failedDrafts: Map<weekStart, { text, error }>`. On
+       the next mount of that week, once the row has loaded, the page restores that text
+       with the handle's `setDraft` (marking it dirty) and shows the same banner and retry.
+       A successful save for the week clears the entry.
+     - The failed-draft store lives in memory. A failure followed by quitting the app
+       before revisiting loses that draft; this is recorded under Risks.
+   - `PersistedTextarea` skips the save when the text equals the confirmed value, so just
+     visiting the page never rewrites the row or its snapshot.
+   - The `key={weekStart}` remount sends text typed before midnight to the week it was typed
+     in. (`onPersistRef` is refreshed on every render.)
+   - The editor shows "dernière mise à jour le {decidedOnDate}" and a `/semaine` link.
+   - Nothing reloads the decisions resource after a successful save. A reload sets
+     `loading` and clears `data`, which would unmount the editor and drop a draft in
+     progress. "dernière mise à jour le {decidedOnDate}" is updated optimistically from the
+     save that just succeeded.
 10. **Footer links:** `/semaine`, `/journal`, `/next-actions`, `/objectifs-annuels`,
     `/historique`.
 
@@ -469,15 +622,53 @@ Sections:
 ranked lagging list (`weekStart - 7`, `asOfDate = weekStart`) labelled "semaine précédente —
 à rattraper cette semaine". "Ce que je change" still targets the current week.
 
+### B2.3a `PersistedTextarea` acknowledged saves
+
+Today `flushPersist` and the unmount cleanup advance `lastSavedRef` and clear `dirtyRef`
+**before** calling `onPersist`, and ignore its result. A failed save is therefore lost and
+never retried. Change it backward-compatibly:
+
+- `onPersist: (value: string) => void | Promise<unknown>`, plus an optional
+  `onPersistStateChange?: (state: "saving" | "saved" | "error", error?: unknown) => void`.
+- **A callback that returns `void` behaves exactly as today.** Existing callers and tests
+  are unchanged.
+- **A callback that returns a promise:**
+  - The value becomes the confirmed value (`lastSavedRef`) only when the promise
+    resolves. The draft stays dirty until then, so a late `savedValue` never overwrites it.
+  - At most one save is in flight per instance. A flush during an in-flight save records
+    the newest value and sends it after the current one settles; intermediate values are
+    coalesced.
+  - A flush whose value equals the value already in flight is dropped. Otherwise an
+    unchanged blur, or the unmount cleanup during an in-flight save, would issue a second
+    identical write, because the `nextValue === lastSavedRef.current` short-circuit no
+    longer covers it once `lastSavedRef` stops advancing early.
+  - On rejection, the confirmed value doesn't change and `onPersistStateChange("error",
+    error)` fires. The next change, blur or `flush()` retries, because the draft still
+    differs from the confirmed value.
+  - An unmount flush still issues the save. A rejection after unmount still reaches
+    `onPersistStateChange` through the ref, which is how the page records failed drafts.
+- Tests in `PersistedTextarea.test.tsx`:
+  - The existing `void` behavior is unchanged.
+  - A resolved promise advances the confirmed value.
+  - A rejected debounce save keeps the draft dirty, reports `error`, and retries on blur.
+  - A rejected blur save retries on the next `flush()`.
+  - A rejected unmount save reports `error` after unmount.
+  - A flush during an in-flight save sends only the newest value, after the first settles.
+  - A blur or unmount with the same value as the in-flight save issues no second write.
+  - A `savedValue` change during an unconfirmed save doesn't replace the draft.
+
 ### B2.4 `/semaine` card: "Décisions de mi-semaine" (read-only)
 
 - Loaded in the existing week-load effect for `selectedWeekStart` and reset when the week
   changes.
-- If there is no row, show an empty-state line and a `/mi-semaine` link.
+- If there is no row, show an empty-state line and a `/mi-semaine` link. If the read
+  fails, show an error line with a retry, never the empty state.
 - If there is a row, show the decisions text and "décidé le {decidedOnDate}". If
   `laggingSnapshot` is present, add a before/after list with one line per snapshot signal:
   - label
-  - value on the decision day: actual / expected, plus status
+  - value when the snapshot was taken: actual / expected, plus status, labelled with the
+    snapshot's own `asOfDate`. Not `decidedOnDate`, since a later text-only edit keeps the
+    older snapshot.
   - value at the end of the week: actual / `weekTarget`, plus status
   - a recovered or not-recovered marker
 - **End-of-week summary:** build it with `buildMidWeekReviewSummary`, with
@@ -494,11 +685,13 @@ ranked lagging list (`weekStart - 7`, `asOfDate = weekStart`) labelled "semaine 
     - A missing key shows `weekly.midWeekDecisions.gone` ("—").
     - An after side that is `unknown` (for example, the RescueTime key was removed since
       Wednesday) shows `weekly.midWeekDecisions.unknown`.
-  - **Coverage caveat.** When the after side has `daysWithData < 7`:
-    - The line carries `weekly.midWeekDecisions.partialCoverage` ("sur {{days}} jours
-      renseignés").
-    - `recovered` renders as the neutral marker, not "rattrapé". Only signals with full
-      coverage claim recovery; otherwise "40/56 · rattrapé" could appear on a 5-day week.
+  - **Coverage caveat.** When the after side lacks `hasFullCoverage` (per-signal coverage,
+    B1):
+    - The line carries `weekly.midWeekDecisions.partialCoverage` ("sur {{withData}} /
+      {{applicable}} jours renseignés").
+    - `recovered` is `null`, which renders as the neutral marker, not "rattrapé". Only
+      fully covered signals claim recovery. So "40/56 · rattrapé" can't appear on a week
+      with 5 logged days, while a five-day RescueTime goal at `5/5` still can.
 - No textarea and no write path. No interaction with `review.notes` or with accepting a
   synthesis draft; accepting a draft replaces `tempsEtPlan`, which is why the decisions are
   kept out of it.
@@ -535,29 +728,38 @@ ranked lagging list (`weekStart - 7`, `asOfDate = weekStart`) labelled "semaine 
   - the tunable constants and where they live
   - `MID_WEEK_RESCUETIME_MAX_AGE_MS` compared with the weekly page's live pull
   - the journal section
-  - the decisions and the Wednesday snapshot
+  - the decisions, the Wednesday snapshot, and when the snapshot is replaced vs preserved
+  - acknowledged saves and what the owner sees when a save fails
   - the `/semaine` before/after card
   - the difference from `/semaine` figures for days with no entry row
 
   Also fix line ~24, which still describes the `?date=` link.
 - `docs/daily-routines.md`: fix the Wednesday bullet (line ~38).
 - `docs/architecture.md`: add a route-catalog row for `/mi-semaine`.
-- `docs/storage-and-backups.md`: add the migration 35 row and a `mid_week_decisions` table
-  block.
+- `docs/storage-and-backups.md`: add the migration 36 row and a `mid_week_decisions` table
+  block (including the snapshot-preserving upsert).
 - Prepend entries to `docs/logs/` for `reviews-and-goals`, `daily-routines`, `architecture`
   and `storage-and-backups`.
 - No new `docs/` page, so `AGENTS.md` / `CLAUDE.md` stay unchanged.
 
 ### PR B2 tests
 
-- `migrations/mid-week-decisions.test.ts`: migration 35 exists and contains
+- `migrations/mid-week-decisions.test.ts`: migration 36 exists and contains
   `CREATE TABLE mid_week_decisions`.
-- Repository:
+- Repository, in the shared contract suite:
   - Round trip with and without a snapshot.
   - A Wednesday date normalizes to its Sunday.
-  - An upsert updates the text, `decidedOnDate`, the snapshot and `updatedAt`.
+  - An upsert with a snapshot replaces the text, `decidedOnDate`, the snapshot and
+    `updatedAt`.
+  - An upsert **without** `laggingSnapshot` updates the text and dates and keeps the stored
+    snapshot.
+  - A first insert without a snapshot stores `null`.
   - A miss returns `null`.
   - A corrupt snapshot JSON reads as `laggingSnapshot: null`.
+- `mid-week-decision-saves.test.ts`:
+  - Saves for one week run in order even when the first task waits longer.
+  - Different weeks don't block each other.
+  - A failed draft is recorded and then cleared by a later success.
 - `loadDecoratedWeekEntries`: suggested metrics are present, and empty days are filled. The
   weekly snapshot tests stay green.
 - `MidWeekReviewPage.test.tsx` (`renderWithApp`, `contextOverrides: { calendarDay }`, seeded
@@ -573,20 +775,50 @@ ranked lagging list (`weekStart - 7`, `asOfDate = weekStart`) labelled "semaine 
   - Decisions: typing saves through `saveMidWeekDecisions` with
     `decidedOnDate === calendarDay` and a non-null `laggingSnapshot` containing the seeded
     lagging key; nothing calls `saveWeeklyReview`.
+  - Deferred read: with a seeded row `X` whose `getMidWeekDecisions` is held pending, the
+    editor isn't editable, typing is impossible, and no save happens. When the read
+    resolves, the editor shows `X`.
+  - Rejected read: no editor and an alert with "Réessayer". The retry loads the row and
+    shows the editor.
+  - Rejected saves:
+    - Debounce: shows the alert and keeps the text; "Réessayer" saves it.
+    - Blur: same.
+    - Unmount: remounting the same week shows the failed draft, the alert and the retry,
+      and a successful retry clears it.
+  - Ordering: two quick saves where the first waits on the snapshot leave the row with the
+    **newer** text.
+  - A save made while an "Actualiser" refresh is in flight keeps the stored snapshot.
+  - After a successful save, the decisions resource isn't reloaded, the editor stays
+    mounted with the draft, and the "dernière mise à jour" line updates.
+  - Snapshot preservation, each starting from a seeded row with a complete Wednesday
+    snapshot. A Friday text edit keeps the Wednesday snapshot when:
+    - an external load hangs past `MID_WEEK_SNAPSHOT_WAIT_MS` while the entry-derived
+      summary is ready
+    - no summary is ready
+    - RescueTime fails with no cache
+    - it is Sunday
+
+    A Friday edit after a complete load replaces it.
   - A seeded row renders its text.
   - Mounting with two different `calendarDay` values targets the right week each time.
   - If the loads never settle, a save still writes the text within
-    `MID_WEEK_SNAPSHOT_WAIT_MS`, with `laggingSnapshot: null`.
+    `MID_WEEK_SNAPSHOT_WAIT_MS` without a snapshot patch. With no prior row, the stored
+    snapshot is `null`.
   - Typing, then remounting with a `calendarDay` in the next week, writes the text to the
     **old** week's row without attaching the new week's snapshot.
-  - On a Sunday `calendarDay`, a save stores `laggingSnapshot: null`.
+  - On a Sunday `calendarDay`, a save omits the snapshot patch, so an existing snapshot is
+    kept.
 - `WeeklyReviewPage.test.tsx`:
   - The seeded decisions render read-only with a `/mi-semaine` link.
   - A seeded snapshot shows before/after lines with recovered and not-recovered markers.
   - A snapshot key missing from the final summary shows "—", and an `unknown` after side
     shows its own label.
-  - An after side with `daysWithData < 7` shows the coverage caveat and the neutral marker,
-    never "rattrapé".
+  - An after side without full coverage shows the coverage caveat and the neutral marker,
+    never "rattrapé". A five-day RescueTime goal at `5/5` that recovered does show
+    "rattrapé".
+  - The before side is labelled with the snapshot's `asOfDate`, even when `decidedOnDate`
+    is later.
+  - A failed decisions read shows the error line, not the empty state.
   - With no row, or a row whose snapshot is `null`, the entries are not loaded and no
     before/after list renders.
   - With no row, the empty state renders.
@@ -634,7 +866,12 @@ Display-only, mirroring `goal_pacing`: no proposals, no `ai_proposals`. **No mig
   This is the single place where redaction happens.
 - **`proposals/mid-week-steering-*`:**
   - Schema prompt.
-  - Validator: reject any `signalKey` that isn't in the snapshot.
+  - The snapshot lists `actionableKeys`: the ranked `lagging` and `at_risk` keys.
+  - Validator:
+    - Every `actions[].signalKey` must be in `actionableKeys`. A green (`ahead` /
+      `on_pace`), `unknown` or absent key, or a key repeated across actions, makes the
+      response invalid, and it goes through the existing repair-then-fallback path.
+    - When `actionableKeys` is empty, only `actions: []` is valid.
   - Local fallback built from `rankMidWeekSignals` and the B1 recovery strings.
 - **`mid-week-steering-service.ts`** (`mid_week_steering.v1`), following the `goal_pacing`
   pattern:
@@ -651,6 +888,11 @@ Display-only, mirroring `goal_pacing`: no proposals, no `ai_proposals`. **No mig
   - `SURFACE_LABELS`, the typecheck tripwire, and the `coach.json` label
   - `MidWeekSteeringPanel` (modeled on `GoalPacingPanel`)
   - hydrate-then-auto-run on the page, after the RescueTime loads settle
+  - **Sunday (`completedDays === 0`): no AI at all.** No hydrate, no auto-run, no provider
+    call and no persisted message; the request button is hidden. The panel shows one line
+    ("Le coach de mi-semaine reprend lundi"). The deterministic Sunday view (the previous
+    week's list) is the only steering shown, so the AI can't cache an empty,
+    evidence-free response that contradicts it.
   - optionally, a debug payload-preview option
 - **Cost:** a new day or a new decision text changes the hash, costing one call per page
   open. This is intentional and documented.
@@ -659,6 +901,11 @@ Display-only, mirroring `goal_pacing`: no proposals, no `ai_proposals`. **No mig
 - **Tests:** mirror the `goal-pacing` suites (validator, fallback, cache hit, cache miss on
   a new `asOfDate`, `skipped`, provider throw, stale version). The snapshot includes the
   decisions only at `full` scope.
+  - Validator cases: rejects a green key, an `unknown` key, a key missing from the snapshot
+    and a repeated key; accepts only `[]` when nothing is actionable; accepts distinct
+    actionable keys.
+  - Page, on Sunday: the provider is never called, no `ai_messages` row is written, and the
+    panel shows the Sunday line.
 
 ---
 
@@ -674,8 +921,18 @@ Display-only, mirroring `goal_pacing`: no proposals, no `ai_proposals`. **No mig
 - `0.1` / `0.25` are starting guesses, exported and tested against the constants.
 - Until PR D ships, the page is deterministic only. That's acceptable because the journal
   section, the `journal:reflections` signal and the saved decisions all ship in B.
-- The snapshot records the lagging list as of the **last** save, not the first. If the owner
-  edits on Friday, the before side shows Friday. The card labels it with `decidedOnDate`.
+- The snapshot records the lagging list as of the **last save whose loads completed**. A
+  text-only or incomplete save keeps the previous snapshot. The card labels the before side
+  with the snapshot's own `asOfDate`.
+- A missing RescueTime key counts as a complete load, because it is the real state. A save
+  made after the key was removed therefore replaces a complete Wednesday snapshot with one
+  that has no RescueTime signals.
+- A failed unmount save for a week that rolls over at midnight stays in `failedDrafts`,
+  since the page only restores drafts for the week it mounts with. It is lost when the app
+  quits, like the case below.
+- The failed-draft store is in memory. A save that fails at unmount, followed by quitting
+  the app before revisiting the page, loses that draft. SQLite write failures are rare in a
+  local-first app, and every failure while the page is open is visible with a retry.
 
 ## Gates
 

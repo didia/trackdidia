@@ -19,14 +19,15 @@ Requests:
   `fallback` message with the local synthesis and returns it, and `WeeklyReviewPage`
   overwrites the last-good result it had just loaded. No new table is needed for item 3.
 - RescueTime has no persistence (`docs/reviews-and-goals.md` says scores "are not
-  persisted"). Item 1 needs a new table: migration id 34 (33 is the current max).
+  persisted"). Item 1 needs a new table: migration id 35 (originally planned as 34; #172 shipped
+  `add_weekly_objective_ends_on_week_start_date` as 34).
 - `WeeklyReviewPage` hides the goals list whenever `fetchError` is set, and the standing
   objectives block has the same `fetchError ? banner : list` pattern. Both must change or a
   cached recovery renders nothing.
 
 ## 1. RescueTime snapshot cache
 
-**Migration 34 `create_rescuetime_snapshot_cache`** (append-only, after id 33):
+**Migration 35 `create_rescuetime_snapshot_cache`** (append-only, after id 34):
 
 ```sql
 CREATE TABLE IF NOT EXISTS rescuetime_snapshot_cache (
@@ -46,7 +47,7 @@ Repository contract (`src/lib/storage/repository.ts`, implemented in both
 - `saveRescueTimeSnapshotCache(entry)` → upsert (`ON CONFLICT(week_start_date, kind, credential_fingerprint) DO UPDATE`).
   `fetchedAt` is supplied by the caller (services use `nowIso()`); no clock in the repository.
 - `MemoryRepository` uses a `Map` keyed `${weekStartDate}:${kind}:${credentialFingerprint}`; non-persistent.
-- Add the types to `src/domain/types.ts`.
+- Add the types to `src/domain/types/reviews.ts` (`src/domain/types.ts` is now a barrel).
 
 **Credential scoping.** Entries belong to the RescueTime account that produced them.
 
@@ -81,6 +82,10 @@ Repository contract (`src/lib/storage/repository.ts`, implemented in both
   the existing cached map (same fingerprint) so a run where one taxonomy group fails does
   not erase good entries for other groups, and retained entries keep their original
   `fetchedAt` (never re-dated).
+  The merge must be atomic: it goes through a repository
+  `mergeRescueTimeObjectiveSecondsCache` that reads, merges and writes inside one
+  `runExclusive` (SQLite) or one synchronous step (memory). See
+  [`mid-week-review.md`](mid-week-review.md) PR A.
 
 **Read rules**
 
@@ -88,7 +93,7 @@ Repository contract (`src/lib/storage/repository.ts`, implemented in both
   Removing the API key shows the missing-key state, never cached numbers.
 - Add optional `cachedAt?: string` to `RescueTimeGoalsSnapshot`
   (`src/domain/rescuetime-goals.ts`), `RescueTimeProductivityPulseSnapshot`, and
-  `WeeklyObjectivesSnapshot` (`src/domain/types.ts`), threaded through
+  `WeeklyObjectivesSnapshot` (`src/domain/types/reviews.ts`), threaded through
   `computeRescueTimeGoalsSnapshot` / `buildWeeklyObjectivesSnapshot` options.
 - `RescueTimeGoalsService.computeGoalsSnapshot` catch branch: load cache; if present,
   rebuild the snapshot from cached items with `cachedAt` and drop `fetchError`; otherwise
@@ -175,8 +180,8 @@ Explicitly not changed:
 
 ## Tests
 
-- `src/lib/storage/migrations/rescuetime-snapshot-cache.test.ts`: migration 34 exists, name, `CREATE TABLE` in SQL (mirror `weekly-objective-starts-on.test.ts`).
-- `memory-repository.test.ts`: round trip, upsert overwrite, miss returns `null`, entries isolated per fingerprint, prune keeps only the given fingerprint.
+- `src/lib/storage/migrations/rescuetime-snapshot-cache.test.ts`: migration 35 exists, name, `CREATE TABLE` in SQL (mirror `weekly-objective-starts-on.test.ts`).
+- Shared repository contract suite (`src/lib/storage/repository.contract.ts`): round trip, upsert overwrite, miss returns `null`, entries isolated per fingerprint, prune keeps only the given fingerprint.
 - `rescuetime-goals-service.test.ts`: cache written on success; fallback with `cachedAt` and no `fetchError` on throw; no cache → current `fetchError` behavior; unconfigured key never reads cache; **A → B key change: a failed pull with key B never returns A's entries, and a slow pull that resolves for key A after the switch does not become visible to B**; pulse `null` and `0` round-trip.
 - `weekly-objectives-service.test.ts`: one kind group fails and is served from cache while another succeeds; merge does not erase other entries; **timestamp provenance: category values last fetched Monday stay dated Monday across successive activity refreshes, and `cachedAt` is the oldest reused `fetchedAt`**; residual `fetchError` when an id has no cache entry.
 - `weekly-synthesis-service.test.ts`: provider throw with a prior `ok` returns it with `source: "cache"` + warning and persists a proposal-less fallback row; same for unparseable-after-repair; **a rejected `saveAiMessage` during provider failure still returns the last-good result and warning**; no prior `ok` → unchanged `fallback`; existing retry-after-fallback test still passes.
@@ -185,7 +190,7 @@ Explicitly not changed:
 ## Docs
 
 - `docs/reviews-and-goals.md`: replace "not persisted" (~line 149) with the cache contract and the compact line format.
-- `docs/storage-and-backups.md`: migration 34 row + table bullet.
+- `docs/storage-and-backups.md`: migration 35 row + table bullet.
 - `docs/ai-settings-and-privacy.md`: last-good weekly synthesis reuse; RescueTime goal titles are now stored at rest, scoped by a key fingerprint (the API key itself is not); browser-preview cache is in-memory only.
 - Prepend entries to `docs/logs/reviews-and-goals.md` and `docs/logs/ai-settings-and-privacy.md`.
 - Keep `AGENTS.md` / `CLAUDE.md` byte-identical (no change needed).
