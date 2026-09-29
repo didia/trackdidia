@@ -1,23 +1,17 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Task } from "../domain/types";
+import { bucketLabelKeys } from "../lib/gtd/labels";
+
+// Bulk moves label Next Action in the plural, unlike the single-task label.
+const bulkBucketLabelKeys = { ...bucketLabelKeys, next_action: "buckets.nextActions" } as const;
 
 const bucketOptions: Array<{
   value: Task["bucket"];
-  labelKey:
-    | "buckets.nextActions"
-    | "buckets.waitingFor"
-    | "buckets.somedayMaybe"
-    | "buckets.reference"
-    | "buckets.scheduled"
-    | "buckets.planned";
-}> = [
-  { value: "next_action", labelKey: "buckets.nextActions" },
-  { value: "waiting_for", labelKey: "buckets.waitingFor" },
-  { value: "someday_maybe", labelKey: "buckets.somedayMaybe" },
-  { value: "reference", labelKey: "buckets.reference" },
-  { value: "scheduled", labelKey: "buckets.scheduled" },
-];
+  labelKey: (typeof bulkBucketLabelKeys)[Task["bucket"]];
+}> = (["next_action", "waiting_for", "someday_maybe", "reference", "scheduled"] as const).map(
+  (value) => ({ value, labelKey: bulkBucketLabelKeys[value] }),
+);
 
 interface BulkTaskToolbarProps {
   selectedCount: number;
@@ -59,7 +53,7 @@ export const BulkTaskToolbar = ({
   }
 
   const availableBucketOptions = plannedProjectId
-    ? [...bucketOptions, { value: "planned" as const, labelKey: "buckets.planned" as const }]
+    ? [...bucketOptions, { value: "planned" as const, labelKey: bulkBucketLabelKeys.planned }]
     : bucketOptions;
 
   const targetLabel = t(

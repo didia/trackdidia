@@ -37,6 +37,8 @@ import type {
   PomodoroState,
   Project,
   ProjectFilters,
+  RecurringEditScope,
+  RecurringTaskChanges,
   RecurringTaskTemplate,
   RecurringTemplateFilters,
   Task,
@@ -1255,16 +1257,8 @@ export class MemoryRepository implements AppRepository {
 
   async applyRecurringEditScope(
     taskId: string,
-    scope: "occurrence" | "series",
-    changes: {
-      title?: string;
-      notes?: string;
-      bucket?: "next_action" | "scheduled";
-      contextIds?: string[];
-      projectId?: string | null;
-      scheduledFor?: string | null;
-      deadline?: string | null;
-    },
+    scope: RecurringEditScope,
+    changes: RecurringTaskChanges,
   ) {
     const task = this.getExistingTask(taskId);
     if (!task.recurringTemplateId) {

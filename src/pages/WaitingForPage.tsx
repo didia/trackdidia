@@ -3,28 +3,23 @@ import { useTranslation } from "react-i18next";
 import { useGtdWorkspace } from "../app/use-gtd";
 import { useTaskSelection } from "../app/use-task-selection";
 import { BulkTaskToolbar } from "../components/BulkTaskToolbar";
-import { GtdTaskCard } from "../components/GtdTaskCard";
+import { GtdTaskList } from "../components/gtd/GtdTaskList";
 import { SectionCard } from "../components/SectionCard";
 import { effectiveTaskContextIds } from "../lib/gtd/engine";
 
 export const WaitingForPage = () => {
   const { t } = useTranslation("gtd");
+  const workspace = useGtdWorkspace();
   const {
     tasks,
     projects,
     contexts,
     loading,
     createTask,
-    saveTask,
-    saveContext,
-    applyRecurringEditScope,
-    completeTask,
     completeTasks,
-    cancelTask,
     cancelTasks,
-    clearPastRecurrences,
     moveTasksToBucket,
-  } = useGtdWorkspace();
+  } = workspace;
   const [selectedContextId, setSelectedContextId] = useState("all");
   const [title, setTitle] = useState("");
 
@@ -124,32 +119,7 @@ export const WaitingForPage = () => {
         ) : waitingTasks.length === 0 ? (
           <p className="empty-copy">{t("waiting.empty")}</p>
         ) : (
-          <div className="task-list">
-            {waitingTasks.map((task) => (
-              <GtdTaskCard
-                key={task.id}
-                task={task}
-                contexts={contexts}
-                projects={projects}
-                selected={selection.isSelected(task.id)}
-                onToggleSelected={selection.toggleTask}
-                onSave={async (nextTask) => {
-                  await saveTask(nextTask);
-                }}
-                onSaveContext={saveContext}
-                onApplyRecurringEditScope={applyRecurringEditScope}
-                onComplete={async (taskId) => {
-                  await completeTask(taskId);
-                }}
-                onCancel={async (taskId) => {
-                  await cancelTask(taskId);
-                }}
-                onClearPastRecurrences={async (taskId) => {
-                  await clearPastRecurrences(taskId);
-                }}
-              />
-            ))}
-          </div>
+          <GtdTaskList tasks={waitingTasks} workspace={workspace} selection={selection} />
         )}
       </SectionCard>
     </div>
