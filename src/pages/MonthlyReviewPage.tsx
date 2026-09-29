@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
+import { useLatestRequest } from "../app/use-latest-request";
 import { useAppContext } from "../app/app-context";
 import {
   applyMonthlyReviewTransition,
@@ -22,6 +23,7 @@ import type {
 } from "../domain/types";
 import { MonthlySynthesisPanel } from "../components/MonthlySynthesisPanel";
 import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
+import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
 import { formatDateLong, getTodayDate } from "../lib/date";
 import { formatPercent } from "../lib/format";
@@ -94,7 +96,8 @@ export const MonthlyReviewPage = () => {
   const noteRefs = useRef<Partial<Record<MonthlyReviewSectionKey, PersistedTextareaHandle | null>>>(
     {},
   );
-  const synthesisRequestSeqRef = useRef(0);
+  const monthRequest = useLatestRequest();
+  const synthesisRequest = useLatestRequest();
 
   const loadMonth = useCallback(
     async (requestedMonthKey: string) => {
@@ -102,23 +105,28 @@ export const MonthlyReviewPage = () => {
         return;
       }
 
-      synthesisRequestSeqRef.current += 1;
+      synthesisRequest.invalidate();
       setSynthesisResult(null);
       setLoading(true);
-      const [existingReview, computedSummary, annualSnapshots] = await Promise.all([
-        repository.getMonthlyReview(requestedMonthKey),
-        repository.computeMonthlyReviewSummary(requestedMonthKey),
-        repository.computeAnnualGoalSnapshots(Number(requestedMonthKey.slice(0, 4))),
-      ]);
-      const nextReview = existingReview ?? createEmptyMonthlyReview(requestedMonthKey);
-      latestReviewRef.current = nextReview;
-      setSelectedMonthKey(requestedMonthKey);
-      setReview(nextReview);
-      setSummary(computedSummary);
-      setGoalSnapshots(annualSnapshots);
-      setLoading(false);
+      await monthRequest.run(async (signal) => {
+        const [existingReview, computedSummary, annualSnapshots] = await Promise.all([
+          repository.getMonthlyReview(requestedMonthKey),
+          repository.computeMonthlyReviewSummary(requestedMonthKey),
+          repository.computeAnnualGoalSnapshots(Number(requestedMonthKey.slice(0, 4))),
+        ]);
+        if (!signal.isLatest()) {
+          return;
+        }
+        const nextReview = existingReview ?? createEmptyMonthlyReview(requestedMonthKey);
+        latestReviewRef.current = nextReview;
+        setSelectedMonthKey(requestedMonthKey);
+        setReview(nextReview);
+        setSummary(computedSummary);
+        setGoalSnapshots(annualSnapshots);
+        setLoading(false);
+      });
     },
-    [repository],
+    [monthRequest, repository, synthesisRequest],
   );
 
   useEffect(() => {
@@ -127,53 +135,54 @@ export const MonthlyReviewPage = () => {
 
   const runSynthesis = useCallback(
     async (options: { monthKey: string; trigger: "auto" | "explicit"; bypassCache?: boolean }) => {
-      const requestId = ++synthesisRequestSeqRef.current;
-      setSynthesisLoading(true);
-      if (options.trigger !== "auto") {
-        setSynthesisResult(null);
-      }
+      await synthesisRequest.run(async (signal) => {
+        setSynthesisLoading(true);
+        if (options.trigger !== "auto") {
+          setSynthesisResult(null);
+        }
 
-      try {
-        if (options.trigger === "auto") {
-          const stored = await loadLatestMonthlySynthesis(
-            repository,
-            synthesisService,
-            options.monthKey,
-          );
-          if (requestId !== synthesisRequestSeqRef.current) {
+        try {
+          if (options.trigger === "auto") {
+            const stored = await loadLatestMonthlySynthesis(
+              repository,
+              synthesisService,
+              options.monthKey,
+            );
+            if (!signal.isLatest()) {
+              return;
+            }
+            if (stored) {
+              setSynthesisResult(stored);
+            }
+          }
+
+          const snapshotInputs = await resolveMonthlySnapshotInputs(repository, options.monthKey);
+
+          if (!signal.isLatest()) {
             return;
           }
-          if (stored) {
-            setSynthesisResult(stored);
+
+          const result = await synthesisService.buildSynthesis(repository, {
+            monthKey: options.monthKey,
+            settings,
+            snapshotInputs,
+            trigger: options.trigger,
+            bypassCache: options.bypassCache,
+          });
+
+          if (!signal.isLatest()) {
+            return;
+          }
+
+          setSynthesisResult(result);
+        } finally {
+          if (signal.isLatest()) {
+            setSynthesisLoading(false);
           }
         }
-
-        const snapshotInputs = await resolveMonthlySnapshotInputs(repository, options.monthKey);
-
-        if (requestId !== synthesisRequestSeqRef.current) {
-          return;
-        }
-
-        const result = await synthesisService.buildSynthesis(repository, {
-          monthKey: options.monthKey,
-          settings,
-          snapshotInputs,
-          trigger: options.trigger,
-          bypassCache: options.bypassCache,
-        });
-
-        if (requestId !== synthesisRequestSeqRef.current) {
-          return;
-        }
-
-        setSynthesisResult(result);
-      } finally {
-        if (requestId === synthesisRequestSeqRef.current) {
-          setSynthesisLoading(false);
-        }
-      }
+      });
     },
-    [repository, settings, synthesisService],
+    [repository, settings, synthesisRequest, synthesisService],
   );
 
   useEffect(() => {
@@ -341,18 +350,14 @@ export const MonthlyReviewPage = () => {
 
   return (
     <div className="page">
-      <header className="hero">
-        <div>
-          <p className="eyebrow">{t("monthly.hero.eyebrow")}</p>
-          <h2>
-            {t("monthly.hero.range", {
-              start: formatDateLong(summary.monthStartDate),
-              end: formatDateLong(summary.monthEndDate),
-            })}
-          </h2>
-          <p className="hero__copy">{t("monthly.hero.copy")}</p>
-        </div>
-      </header>
+      <PageHeader
+        eyebrow={t("monthly.hero.eyebrow")}
+        title={t("monthly.hero.range", {
+          start: formatDateLong(summary.monthStartDate),
+          end: formatDateLong(summary.monthEndDate),
+        })}
+        copy={t("monthly.hero.copy")}
+      />
 
       <SectionCard title={t("monthly.picker.title")} subtitle={t("monthly.picker.subtitle")}>
         <div className="history-toolbar">

@@ -48,6 +48,12 @@ cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 | Native capability/path/build behavior | `src-tauri/` |
 | User-facing copy | matching JSON file under `src/locales/fr/` |
 
+Page chrome uses shared primitives in `src/components/`: `PageHeader` (the
+`hero` block with eyebrow, title, optional copy and actions), `ContextFilterChips`
+(All + one chip per context), and `SegmentedToggle` (single-select `tag-chip`
+row). They reuse the existing `hero` / `tag-row` / `tag-chip` classes, so
+`styles.css` is unchanged. `EmailTriagePage` keeps its own `page-header` markup.
+
 Prefer pure functions for calculations and state transitions. Pages should compose
 those functions and repository calls rather than becoming alternate business-rule
 implementations.
@@ -74,6 +80,11 @@ generate or scrape it. See
   before modifying them.
 - Keep global runtime behavior in `AppProvider` or a focused shared hook.
 - Keep temporary form state local to the screen/component.
+- Guard async loads against stale responses with `useLatestRequest` /
+  `useAsyncResource` (`src/app/use-latest-request.ts`) instead of hand-written
+  request-sequence refs or `cancelled` flags: call `run(async (signal) => ...)`
+  and check `signal.isLatest()` after each await; `invalidate()` marks in-flight
+  runs stale.
 - `PersistedTextarea` debounces persistence by 450 ms unless `debounceMs={0}` is
   supplied. It also flushes the pending draft on unmount. Daily entries, weekly
   reviews, and monthly reviews serialize those saves so an earlier in-flight

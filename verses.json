@@ -465,11 +465,11 @@
   },
   {
     "id": "1jn-3-18",
-    "reference": { "book": "1JN", "chapter": 3, "verseStart": 18, "verseEnd": 18 },
+    "reference": { "book": "1JN", "chapter": 3, "verseStart": 16, "verseEnd": 19 },
     "principleKeys": ["attentionAMonEpouse", "tempsDeQualiteAvecEnfants"],
     "credoKeys": ["amourEnActes"],
-    "themes": ["actes", "vérité"],
-    "note": "Aimer en actes concrets et vérifiables est distingué d'un amour qui resterait seulement dans les mots."
+    "themes": ["actes", "vérité", "besoin réel"],
+    "note": "L'amour se reconnaît à un don concret — surtout face à un besoin réel — et se vérifie en actes, plutôt que dans les seuls mots."
   },
   {
     "id": "jhn-15-4",

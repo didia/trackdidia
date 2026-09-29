@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppContext } from "../app/app-context";
+import { useLatestRequest } from "../app/use-latest-request";
 import { GoalPacingPanel } from "../components/GoalPacingPanel";
 import { PersistedTextarea } from "../components/PersistedTextarea";
+import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
 import {
   addAnnualGoalMilestone,
@@ -774,7 +776,7 @@ export const AnnualGoalsPage = () => {
   const [showAllStatuses, setShowAllStatuses] = useState(false);
   const [pacingResult, setPacingResult] = useState<GoalPacingResult | null>(null);
   const [pacingLoading, setPacingLoading] = useState(false);
-  const pacingRequestSeqRef = useRef(0);
+  const pacingRequest = useLatestRequest();
   const hasValidSelectedYear = useMemo(
     () => Number.isInteger(selectedYear) && selectedYear >= 2000 && selectedYear <= 2100,
     [selectedYear],
@@ -811,34 +813,35 @@ export const AnnualGoalsPage = () => {
 
   const runPacing = useCallback(
     async (options: { year: number; trigger: "auto" | "explicit"; bypassCache?: boolean }) => {
-      const requestId = ++pacingRequestSeqRef.current;
-      setPacingLoading(true);
-      if (options.trigger !== "auto") {
-        setPacingResult(null);
-      }
-      try {
-        const snapshotInputs = await resolveGoalPacingSnapshotInputs(repository, options.year, {
-          asOfDate: getTodayDate(),
-          evaluationMonthKey,
-        });
-        const result = await pacingService.buildPacing(repository, {
-          year: options.year,
-          settings,
-          snapshotInputs,
-          trigger: options.trigger,
-          bypassCache: options.bypassCache,
-        });
-        if (requestId !== pacingRequestSeqRef.current) {
-          return;
+      await pacingRequest.run(async (signal) => {
+        setPacingLoading(true);
+        if (options.trigger !== "auto") {
+          setPacingResult(null);
         }
-        setPacingResult(result);
-      } finally {
-        if (requestId === pacingRequestSeqRef.current) {
-          setPacingLoading(false);
+        try {
+          const snapshotInputs = await resolveGoalPacingSnapshotInputs(repository, options.year, {
+            asOfDate: getTodayDate(),
+            evaluationMonthKey,
+          });
+          const result = await pacingService.buildPacing(repository, {
+            year: options.year,
+            settings,
+            snapshotInputs,
+            trigger: options.trigger,
+            bypassCache: options.bypassCache,
+          });
+          if (!signal.isLatest()) {
+            return;
+          }
+          setPacingResult(result);
+        } finally {
+          if (signal.isLatest()) {
+            setPacingLoading(false);
+          }
         }
-      }
+      });
     },
-    [evaluationMonthKey, pacingService, repository, settings],
+    [evaluationMonthKey, pacingRequest, pacingService, repository, settings],
   );
 
   useEffect(() => {
@@ -920,13 +923,7 @@ export const AnnualGoalsPage = () => {
 
   return (
     <div className="page">
-      <header className="hero">
-        <div>
-          <p className="eyebrow">{t("hero.eyebrow")}</p>
-          <h2>{t("hero.title")}</h2>
-          <p className="hero__copy">{t("hero.copy")}</p>
-        </div>
-      </header>
+      <PageHeader eyebrow={t("hero.eyebrow")} title={t("hero.title")} copy={t("hero.copy")} />
 
       <SectionCard title={t("pilot.title")} subtitle={t("pilot.subtitle")}>
         <div className="task-card__grid">

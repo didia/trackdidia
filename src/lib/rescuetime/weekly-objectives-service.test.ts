@@ -30,7 +30,7 @@ describe("WeeklyObjectivesService", () => {
     await repository.saveWeeklyObjectiveResult({
       weekStartDate: "2026-08-02",
       objectiveId: manual!.id,
-      achieved: true,
+      achieved: false,
       updatedAt: "2026-08-09T12:00:00.000Z",
     });
 
@@ -49,12 +49,22 @@ describe("WeeklyObjectivesService", () => {
     const service = new WeeklyObjectivesService(repository, mockClient);
     const snapshot = await service.computeWeeklyObjectivesSnapshot("2026-08-02");
 
-    expect(snapshot.score).toBe(0.75);
+    expect(snapshot.score).toBe(0.25);
     expect(snapshot.items.find((item) => item.objective.id === objective.id)).toMatchObject({
       actualHours: 1,
       achievement: 0.5,
       source: "rescuetime",
     });
+
+    await repository.saveWeeklyObjectiveResult({
+      weekStartDate: "2026-08-02",
+      objectiveId: manual!.id,
+      achieved: true,
+      updatedAt: "2026-08-09T12:00:00.000Z",
+    });
+    const afterDone = await service.computeWeeklyObjectivesSnapshot("2026-08-02");
+    expect(afterDone.items.map((item) => item.objective.kind)).toEqual(["time"]);
+    expect(afterDone.score).toBe(0.5);
     expect(mockClient.fetchAnalyticData).toHaveBeenCalledWith(
       "rt-test-key",
       expect.objectContaining({

@@ -95,6 +95,18 @@ Generation starts after the latest of:
 - the day after `lastGeneratedForDate`;
 - the day after the active task's recurrence due date.
 
+The horizon is local today, even when a caller passes a later date. Weekly and
+monthly summaries read every day of the open period, including days that have not
+arrived. Those reads do not advance `lastGeneratedForDate` or the single active
+instance, and they do not write weekly carryover for a future Sunday. If a template
+is already stamped with a future `lastGeneratedForDate`, the next generation rewinds
+that watermark to the local day the current instance was completed, or pulls an
+active instance back to the latest due date on or before today (subtracting
+occurrences beyond that horizon from `pendingPastRecurrences` /
+`pendingMissedOccurrences`), then materializes the occurrences that are actually
+due. An active instance whose due date is still before the template `startDate`
+is cancelled and the watermark cleared so it does not appear early.
+
 Task lifecycle events are emitted when an instance first appears or advances to a
 new date, so daily GTD counts include recurrence work.
 

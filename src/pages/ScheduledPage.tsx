@@ -4,7 +4,9 @@ import { useAppContext } from "../app/app-context";
 import { useGtdWorkspace } from "../app/use-gtd";
 import { useTaskSelection } from "../app/use-task-selection";
 import { BulkTaskToolbar } from "../components/BulkTaskToolbar";
-import { GtdTaskCard } from "../components/GtdTaskCard";
+import { GtdTaskList } from "../components/gtd/GtdTaskList";
+import { PageHeader } from "../components/PageHeader";
+import { SegmentedToggle } from "../components/SegmentedToggle";
 import { SectionCard } from "../components/SectionCard";
 import type { RecurringPreviewOccurrence } from "../domain/types";
 import { formatDateLong, formatDateTimeShort, getTodayDate } from "../lib/date";
@@ -13,21 +15,8 @@ import { addDays, getWeekStartSunday, isTaskScheduledForDate } from "../lib/gtd/
 export const ScheduledPage = () => {
   const { t } = useTranslation("gtd");
   const { repository } = useAppContext();
-  const {
-    tasks,
-    projects,
-    contexts,
-    loading,
-    saveTask,
-    saveContext,
-    applyRecurringEditScope,
-    completeTask,
-    completeTasks,
-    cancelTask,
-    cancelTasks,
-    clearPastRecurrences,
-    moveTasksToBucket,
-  } = useGtdWorkspace();
+  const workspace = useGtdWorkspace();
+  const { tasks, loading, completeTasks, cancelTasks, moveTasksToBucket } = workspace;
   const [selectedDate, setSelectedDate] = useState(getTodayDate());
   const [viewMode, setViewMode] = useState<"day" | "week">("day");
   const [showPlanned, setShowPlanned] = useState(true);
@@ -106,13 +95,11 @@ export const ScheduledPage = () => {
 
   return (
     <div className="page">
-      <header className="hero">
-        <div>
-          <p className="eyebrow">{t("scheduled.hero.eyebrow")}</p>
-          <h2>{t("scheduled.hero.title")}</h2>
-          <p className="hero__copy">{t("scheduled.hero.copy")}</p>
-        </div>
-      </header>
+      <PageHeader
+        eyebrow={t("scheduled.hero.eyebrow")}
+        title={t("scheduled.hero.title")}
+        copy={t("scheduled.hero.copy")}
+      />
 
       <SectionCard title={t("scheduled.range.title")} subtitle={t("scheduled.range.subtitle")}>
         <div className="history-toolbar">
@@ -126,22 +113,14 @@ export const ScheduledPage = () => {
           </label>
           <div className="stacked-field">
             <span>{t("scheduled.range.viewLabel")}</span>
-            <div className="tag-row">
-              <button
-                type="button"
-                className={`tag-chip${viewMode === "day" ? " tag-chip--active" : ""}`}
-                onClick={() => setViewMode("day")}
-              >
-                {t("scheduled.range.view.day")}
-              </button>
-              <button
-                type="button"
-                className={`tag-chip${viewMode === "week" ? " tag-chip--active" : ""}`}
-                onClick={() => setViewMode("week")}
-              >
-                {t("scheduled.range.view.week")}
-              </button>
-            </div>
+            <SegmentedToggle
+              options={[
+                { value: "day", label: t("scheduled.range.view.day") },
+                { value: "week", label: t("scheduled.range.view.week") },
+              ]}
+              value={viewMode}
+              onChange={setViewMode}
+            />
           </div>
           <div className="stacked-field">
             <span>{t("scheduled.range.includeLabel")}</span>
@@ -222,32 +201,7 @@ export const ScheduledPage = () => {
                 {plannedTasks.length === 0 ? (
                   <p className="empty-copy">{t("scheduled.section.plannedEmpty")}</p>
                 ) : (
-                  <div className="task-list">
-                    {plannedTasks.map((task) => (
-                      <GtdTaskCard
-                        key={task.id}
-                        task={task}
-                        contexts={contexts}
-                        projects={projects}
-                        selected={selection.isSelected(task.id)}
-                        onToggleSelected={selection.toggleTask}
-                        onSave={async (nextTask) => {
-                          await saveTask(nextTask);
-                        }}
-                        onSaveContext={saveContext}
-                        onApplyRecurringEditScope={applyRecurringEditScope}
-                        onComplete={async (taskId) => {
-                          await completeTask(taskId);
-                        }}
-                        onCancel={async (taskId) => {
-                          await cancelTask(taskId);
-                        }}
-                        onClearPastRecurrences={async (taskId) => {
-                          await clearPastRecurrences(taskId);
-                        }}
-                      />
-                    ))}
-                  </div>
+                  <GtdTaskList tasks={plannedTasks} workspace={workspace} selection={selection} />
                 )}
               </section>
             ) : null}
@@ -258,32 +212,7 @@ export const ScheduledPage = () => {
                 {deadlineTasks.length === 0 ? (
                   <p className="empty-copy">{t("scheduled.section.deadlinesEmpty")}</p>
                 ) : (
-                  <div className="task-list">
-                    {deadlineTasks.map((task) => (
-                      <GtdTaskCard
-                        key={task.id}
-                        task={task}
-                        contexts={contexts}
-                        projects={projects}
-                        selected={selection.isSelected(task.id)}
-                        onToggleSelected={selection.toggleTask}
-                        onSave={async (nextTask) => {
-                          await saveTask(nextTask);
-                        }}
-                        onSaveContext={saveContext}
-                        onApplyRecurringEditScope={applyRecurringEditScope}
-                        onComplete={async (taskId) => {
-                          await completeTask(taskId);
-                        }}
-                        onCancel={async (taskId) => {
-                          await cancelTask(taskId);
-                        }}
-                        onClearPastRecurrences={async (taskId) => {
-                          await clearPastRecurrences(taskId);
-                        }}
-                      />
-                    ))}
-                  </div>
+                  <GtdTaskList tasks={deadlineTasks} workspace={workspace} selection={selection} />
                 )}
               </section>
             ) : null}
@@ -342,32 +271,11 @@ export const ScheduledPage = () => {
                         {group.plannedTasks.length === 0 ? (
                           <p className="empty-copy">{t("scheduled.weekDay.sectionEmpty")}</p>
                         ) : (
-                          <div className="task-list">
-                            {group.plannedTasks.map((task) => (
-                              <GtdTaskCard
-                                key={task.id}
-                                task={task}
-                                contexts={contexts}
-                                projects={projects}
-                                selected={selection.isSelected(task.id)}
-                                onToggleSelected={selection.toggleTask}
-                                onSave={async (nextTask) => {
-                                  await saveTask(nextTask);
-                                }}
-                                onSaveContext={saveContext}
-                                onApplyRecurringEditScope={applyRecurringEditScope}
-                                onComplete={async (taskId) => {
-                                  await completeTask(taskId);
-                                }}
-                                onCancel={async (taskId) => {
-                                  await cancelTask(taskId);
-                                }}
-                                onClearPastRecurrences={async (taskId) => {
-                                  await clearPastRecurrences(taskId);
-                                }}
-                              />
-                            ))}
-                          </div>
+                          <GtdTaskList
+                            tasks={group.plannedTasks}
+                            workspace={workspace}
+                            selection={selection}
+                          />
                         )}
                       </section>
                     ) : null}
@@ -380,32 +288,11 @@ export const ScheduledPage = () => {
                         {group.deadlineTasks.length === 0 ? (
                           <p className="empty-copy">{t("scheduled.weekDay.sectionEmpty")}</p>
                         ) : (
-                          <div className="task-list">
-                            {group.deadlineTasks.map((task) => (
-                              <GtdTaskCard
-                                key={task.id}
-                                task={task}
-                                contexts={contexts}
-                                projects={projects}
-                                selected={selection.isSelected(task.id)}
-                                onToggleSelected={selection.toggleTask}
-                                onSave={async (nextTask) => {
-                                  await saveTask(nextTask);
-                                }}
-                                onSaveContext={saveContext}
-                                onApplyRecurringEditScope={applyRecurringEditScope}
-                                onComplete={async (taskId) => {
-                                  await completeTask(taskId);
-                                }}
-                                onCancel={async (taskId) => {
-                                  await cancelTask(taskId);
-                                }}
-                                onClearPastRecurrences={async (taskId) => {
-                                  await clearPastRecurrences(taskId);
-                                }}
-                              />
-                            ))}
-                          </div>
+                          <GtdTaskList
+                            tasks={group.deadlineTasks}
+                            workspace={workspace}
+                            selection={selection}
+                          />
                         )}
                       </section>
                     ) : null}
