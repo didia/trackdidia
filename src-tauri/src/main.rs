@@ -5,12 +5,11 @@ mod db;
 mod email_triage_desktop;
 mod oauth_loopback;
 mod provider_http;
+mod storage_paths;
 mod vault;
 mod yahoo_imap;
 
 use serde::Serialize;
-use std::fs;
-use tauri::Manager;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,20 +21,8 @@ struct StoragePaths {
 
 #[tauri::command]
 fn resolve_storage_paths(app: tauri::AppHandle) -> Result<StoragePaths, String> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| format!("Impossible de resoudre le dossier app_data_dir: {error}"))?;
-
-    fs::create_dir_all(&app_data_dir)
-        .map_err(|error| format!("Impossible de creer le dossier de donnees: {error}"))?;
-
-    let is_development = cfg!(debug_assertions);
-    let (database_file_name, environment) = if is_development {
-        ("trackdidia.dev.db", "development")
-    } else {
-        ("trackdidia.db", "production")
-    };
+    let app_data_dir = storage_paths::app_data_dir(&app)?;
+    let (database_file_name, environment) = storage_paths::database_file_name();
 
     let database_path = app_data_dir.join(database_file_name);
     let connection_string = format!("sqlite:{database_file_name}");
