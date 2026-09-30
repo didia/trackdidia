@@ -1,3 +1,4 @@
+import type { MidWeekLaggingSnapshot } from "../mid-week-review";
 import type { DailyStatus } from "./daily";
 
 export type WeeklyReviewStatus = "draft" | "closed";
@@ -114,6 +115,23 @@ export interface MonthlyReviewSummary {
 }
 
 export type WeeklyObjectiveKind = "time" | "manual";
+
+export interface MidWeekDecisions {
+  weekStartDate: string;
+  decisions: string;
+  decidedOnDate: string;
+  laggingSnapshot: MidWeekLaggingSnapshot | null;
+  updatedAt: string;
+}
+
+/** Save input. `laggingSnapshot` is optional and can never erase a stored snapshot. */
+export interface MidWeekDecisionsSaveInput {
+  weekStartDate: string;
+  decisions: string;
+  decidedOnDate: string;
+  updatedAt: string;
+  laggingSnapshot?: MidWeekLaggingSnapshot;
+}
 
 export type RescueTimeSnapshotCacheKind = "goals" | "pulse" | "objective_seconds";
 

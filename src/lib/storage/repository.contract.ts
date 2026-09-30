@@ -1,6 +1,7 @@
 import { afterEach, vi } from "vitest";
 import { createEmptyDailyEntry, defaultAppSettings } from "../../domain/daily-entry";
 import { createEmptyMonthlyReview } from "../../domain/monthly-review";
+import type { MidWeekLaggingSnapshot } from "../../domain/mid-week-review";
 import type { CatalogVerse, RescueTimeSnapshotCacheEntry } from "../../domain/types";
 import { createEmptyWeeklyReview } from "../../domain/weekly-review";
 import { getTodayDate } from "../date";
@@ -2525,6 +2526,113 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           });
 
           await expect(readMerged(repository, "fp-b")).resolves.toBeNull();
+        });
+      });
+    });
+
+    describe("mid-week decisions", () => {
+      const snapshot = (asOfDate = "2026-08-05"): MidWeekLaggingSnapshot => ({
+        version: 1,
+        asOfDate,
+        completedDays: 3,
+        signals: [
+          {
+            key: "metric:pomodoris",
+            category: "metric",
+            label: "Pomodoris",
+            direction: "more",
+            status: "lagging",
+            actual: 8,
+            expected: 24,
+            weekTarget: 56,
+            unit: "sessions",
+            daysApplicable: 3,
+            daysWithData: 3,
+            hasFullCoverage: true,
+          },
+        ],
+      });
+
+      it("returns null on a miss", async () => {
+        const repository = await factory();
+        await expect(repository.getMidWeekDecisions("2026-08-02")).resolves.toBeNull();
+      });
+
+      it("round-trips with and without a snapshot, normalizing a Wednesday to its Sunday", async () => {
+        const repository = await factory();
+        await repository.saveMidWeekDecisions({
+          weekStartDate: "2026-08-05",
+          decisions: "Couper le téléphone",
+          decidedOnDate: "2026-08-05",
+          updatedAt: "2026-08-05T10:00:00.000Z",
+        });
+        await expect(repository.getMidWeekDecisions("2026-08-02")).resolves.toEqual({
+          weekStartDate: "2026-08-02",
+          decisions: "Couper le téléphone",
+          decidedOnDate: "2026-08-05",
+          laggingSnapshot: null,
+          updatedAt: "2026-08-05T10:00:00.000Z",
+        });
+
+        await repository.saveMidWeekDecisions({
+          weekStartDate: "2026-08-09",
+          decisions: "Avec snapshot",
+          decidedOnDate: "2026-08-12",
+          updatedAt: "2026-08-12T10:00:00.000Z",
+          laggingSnapshot: snapshot("2026-08-12"),
+        });
+        await expect(repository.getMidWeekDecisions("2026-08-11")).resolves.toMatchObject({
+          weekStartDate: "2026-08-09",
+          laggingSnapshot: snapshot("2026-08-12"),
+        });
+      });
+
+      it("replaces text, dates, snapshot and updatedAt on an upsert with a snapshot", async () => {
+        const repository = await factory();
+        await repository.saveMidWeekDecisions({
+          weekStartDate: "2026-08-02",
+          decisions: "A",
+          decidedOnDate: "2026-08-05",
+          updatedAt: "2026-08-05T10:00:00.000Z",
+          laggingSnapshot: snapshot("2026-08-05"),
+        });
+        await repository.saveMidWeekDecisions({
+          weekStartDate: "2026-08-02",
+          decisions: "B",
+          decidedOnDate: "2026-08-06",
+          updatedAt: "2026-08-06T10:00:00.000Z",
+          laggingSnapshot: snapshot("2026-08-06"),
+        });
+        await expect(repository.getMidWeekDecisions("2026-08-02")).resolves.toEqual({
+          weekStartDate: "2026-08-02",
+          decisions: "B",
+          decidedOnDate: "2026-08-06",
+          laggingSnapshot: snapshot("2026-08-06"),
+          updatedAt: "2026-08-06T10:00:00.000Z",
+        });
+      });
+
+      it("keeps the stored snapshot on an upsert without one", async () => {
+        const repository = await factory();
+        await repository.saveMidWeekDecisions({
+          weekStartDate: "2026-08-02",
+          decisions: "A",
+          decidedOnDate: "2026-08-05",
+          updatedAt: "2026-08-05T10:00:00.000Z",
+          laggingSnapshot: snapshot(),
+        });
+        await repository.saveMidWeekDecisions({
+          weekStartDate: "2026-08-02",
+          decisions: "B",
+          decidedOnDate: "2026-08-07",
+          updatedAt: "2026-08-07T10:00:00.000Z",
+        });
+        await expect(repository.getMidWeekDecisions("2026-08-02")).resolves.toEqual({
+          weekStartDate: "2026-08-02",
+          decisions: "B",
+          decidedOnDate: "2026-08-07",
+          laggingSnapshot: snapshot(),
+          updatedAt: "2026-08-07T10:00:00.000Z",
         });
       });
     });

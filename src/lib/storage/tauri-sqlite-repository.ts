@@ -31,6 +31,8 @@ import type {
   CoachPulseStance,
   DailyEntry,
   GtdImportSummary,
+  MidWeekDecisions,
+  MidWeekDecisionsSaveInput,
   MonthlyReview,
   PomodoroSegment,
   PomodoroSession,
@@ -48,6 +50,7 @@ import type {
   WeeklyObjectiveResult,
   WeeklyReview,
 } from "../../domain/types";
+import { parseMidWeekLaggingSnapshot } from "../../domain/mid-week-review";
 import { mergeObjectiveSecondsPayload } from "../../domain/rescuetime-goals";
 import {
   cloneWeeklyObjective,
@@ -1101,6 +1104,19 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    id: 36,
+    name: "create_mid_week_decisions",
+    sql: `
+      CREATE TABLE IF NOT EXISTS mid_week_decisions (
+        week_start_date TEXT PRIMARY KEY,
+        decisions TEXT NOT NULL,
+        decided_on_date TEXT NOT NULL,
+        lagging_snapshot_json TEXT,
+        updated_at TEXT NOT NULL
+      );
+    `,
+  },
 ];
 
 export class TauriSqliteRepository implements AppRepository {
@@ -1847,6 +1863,59 @@ export class TauriSqliteRepository implements AppRepository {
     );
 
     return rows.map((row) => this.deserializeWeeklyObjectiveResult(row));
+  }
+
+  async getMidWeekDecisions(weekStartDate: string): Promise<MidWeekDecisions | null> {
+    const db = await this.getDb();
+    const rows = await db.select<
+      {
+        week_start_date: string;
+        decisions: string;
+        decided_on_date: string;
+        lagging_snapshot_json: string | null;
+        updated_at: string;
+      }[]
+    >(
+      `SELECT week_start_date, decisions, decided_on_date, lagging_snapshot_json, updated_at
+       FROM mid_week_decisions WHERE week_start_date = $1`,
+      [buildWeekDates(weekStartDate)],
+    );
+    const row = rows[0];
+    return row
+      ? {
+          weekStartDate: row.week_start_date,
+          decisions: row.decisions,
+          decidedOnDate: row.decided_on_date,
+          laggingSnapshot: parseMidWeekLaggingSnapshot(row.lagging_snapshot_json),
+          updatedAt: row.updated_at,
+        }
+      : null;
+  }
+
+  async saveMidWeekDecisions(input: MidWeekDecisionsSaveInput): Promise<void> {
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      await db.execute(
+        `INSERT INTO mid_week_decisions
+           (week_start_date, decisions, decided_on_date, lagging_snapshot_json, updated_at)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT(week_start_date) DO UPDATE SET
+           decisions = excluded.decisions,
+           decided_on_date = excluded.decided_on_date,
+           updated_at = excluded.updated_at,
+           lagging_snapshot_json = COALESCE(
+             excluded.lagging_snapshot_json,
+             mid_week_decisions.lagging_snapshot_json
+           )`,
+        [
+          buildWeekDates(input.weekStartDate),
+          input.decisions,
+          input.decidedOnDate,
+          input.laggingSnapshot ? JSON.stringify(input.laggingSnapshot) : null,
+          input.updatedAt,
+        ],
+      );
+    });
   }
 
   async getRescueTimeSnapshotCache(

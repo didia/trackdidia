@@ -14,6 +14,8 @@ import type {
   DailyPomodoroStats,
   DailyTaskStats,
   GtdImportSummary,
+  MidWeekDecisions,
+  MidWeekDecisionsSaveInput,
   MonthlyReview,
   MonthlyReviewSummary,
   PomodoroKind,
@@ -85,6 +87,13 @@ export interface AppRepository {
   deleteWeeklyObjective(objectiveId: string): Promise<void>;
   getWeeklyObjectiveResults(weekStartDate: string): Promise<WeeklyObjectiveResult[]>;
   saveWeeklyObjectiveResult(result: WeeklyObjectiveResult): Promise<void>;
+  /** Resolves `null` only when no row exists; a read failure rejects. */
+  getMidWeekDecisions(weekStartDate: string): Promise<MidWeekDecisions | null>;
+  /**
+   * Upserts the week's decisions. An absent `laggingSnapshot` keeps the stored snapshot
+   * (`COALESCE`); a first insert without one stores `null`. A snapshot can never be erased.
+   */
+  saveMidWeekDecisions(input: MidWeekDecisionsSaveInput): Promise<void>;
   /** Cache entry for the given week, kind and credential fingerprint, or `null` on a miss. */
   getRescueTimeSnapshotCache(
     weekStartDate: string,
