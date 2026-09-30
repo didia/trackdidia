@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-30 | `/semaine` card recovers a failed, unmounted decisions save for its week and retries it; `PersistedTextarea` clears a stale error when the queued value equals the confirmed one | `docs/reviews-and-goals.md` | `WeeklyReviewPage.tsx`, `PersistedTextarea.tsx` |
 | 2026-09-30 | Added `/mi-semaine` (pro-rated pace, lagging list, journal, saved decisions with a Wednesday snapshot) and the read-only "Décisions de mi-semaine" card with before/after on `/semaine`; `PersistedTextarea` gains acknowledged saves | `docs/reviews-and-goals.md` | `MidWeekReviewPage.tsx`, `mid-week-decision-saves.ts`, `WeeklyReviewPage.tsx`, `PersistedTextarea.tsx` |
 | 2026-09-30 | Pure mid-week pace math (`mid-week-review.ts`): pro-rated expected values, status thresholds 0.1 / 0.25, coverage, ranking and lagging snapshot; `isScheduleDay` / `completedScheduleDaysInWeek`; `computeAnsweredDisciplineScore` moved to `daily-entry.ts`. No UI yet | `docs/reviews-and-goals.md` | `src/domain/mid-week-review.ts`, `mid-week-review.test.ts` |
 | 2026-09-30 | RescueTime cache failure fallbacks read under the current key's fingerprint (skipped when the key was removed or changed mid-pull); a future `fetchedAt` is never fresh | `docs/reviews-and-goals.md` | `currentKeyMatchesFingerprint`, `isRescueTimeCacheFresh` |

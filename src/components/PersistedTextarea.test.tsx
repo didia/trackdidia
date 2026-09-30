@@ -100,6 +100,38 @@ describe("PersistedTextarea", () => {
       expect(onPersist).toHaveBeenLastCalledWith("a");
     });
 
+    it("clears the error when a failed save's queued replacement equals the confirmed value", async () => {
+      const first = deferred();
+      const onPersist = vi
+        .fn<(value: string) => Promise<void>>()
+        .mockReturnValueOnce(first.promise);
+      const onState = vi.fn();
+      const user = userEvent.setup();
+      render(
+        <PersistedTextarea
+          aria-label="Notes"
+          savedValue="A"
+          debounceMs={0}
+          onPersist={onPersist}
+          onPersistStateChange={onState}
+        />,
+      );
+      const field = screen.getByLabelText("Notes");
+      await user.clear(field);
+      await user.type(field, "B");
+      // Back to the confirmed value while "B" is still in flight: queued, then dropped on settle.
+      await user.clear(field);
+      await user.type(field, "A");
+      expect(field).toHaveValue("A");
+
+      await act(async () => {
+        first.reject(new Error("disk"));
+        await first.promise.catch(() => undefined);
+      });
+      await vi.waitFor(() => expect(onState).toHaveBeenLastCalledWith("saved"));
+      expect(onPersist).toHaveBeenCalledTimes(1);
+    });
+
     it("retries a rejected blur save on the next flush()", async () => {
       const onPersist = vi
         .fn<(value: string) => Promise<void>>()

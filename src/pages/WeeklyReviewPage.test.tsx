@@ -1,6 +1,6 @@
 import { formatTimestamp } from "../lib/format";
 import { useState } from "react";
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { enqueueMidWeekDecisionSave } from "../app/mid-week-decision-saves";
 import { AppContext, useAppContext } from "../app/app-context";
@@ -1752,6 +1752,42 @@ describe("WeeklyReviewPage mid-week decisions card", () => {
     const reads = vi.spyOn(withSnapshot, "getDailyEntry");
     await renderCard(withSnapshot);
     await waitFor(() => expect(reads.mock.calls.length).toBeGreaterThanOrEqual(baseline + 7));
+  });
+
+  it("surfaces a failed save's draft for the selected week and retries it", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await expect(
+      enqueueMidWeekDecisionSave(WEEK, "Texte perdu", async () => {
+        throw new Error("disk");
+      }),
+    ).rejects.toThrow("disk");
+    await renderCard(repository);
+
+    const card = await screen.findByRole("region", { name: "Décisions de mi-semaine" });
+    expect(await within(card).findByText("Texte perdu")).toBeInTheDocument();
+    expect(within(card).getByRole("alert")).toHaveTextContent(/non enregistrées/);
+
+    const user = userEvent.setup();
+    await user.click(within(card).getByRole("button", { name: "Réessayer" }));
+    await waitFor(() => expect(within(card).queryByRole("alert")).not.toBeInTheDocument());
+    expect(within(card).getByText("Texte perdu")).toBeInTheDocument();
+    expect((await repository.getMidWeekDecisions(WEEK))?.decisions).toBe("Texte perdu");
+  });
+
+  it("shows the week's row when the picker holds a non-Sunday date of that week", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await seed(repository, null);
+    await renderCard(repository);
+    expect(await screen.findByText("Couper le téléphone le soir")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Début de semaine"), {
+      target: { value: "2026-08-05" },
+    });
+
+    expect(await screen.findByText("Couper le téléphone le soir")).toBeInTheDocument();
+    expect(screen.queryByText("Chargement…")).not.toBeInTheDocument();
   });
 
   it("waits for a queued mid-week save before reading the row", async () => {

@@ -42,8 +42,12 @@ import { loadLatestWeeklySynthesis } from "../lib/ai/weekly-synthesis-loader";
 import { WeeklySynthesisService } from "../lib/ai/weekly-synthesis-service";
 import { formatDateLong, formatDateShort, getTodayDate } from "../lib/date";
 import { formatPercent, formatTimestamp } from "../lib/format";
-import { addDays } from "../lib/gtd/shared";
-import { waitForMidWeekDecisionSaves } from "../app/mid-week-decision-saves";
+import { addDays, nowIso } from "../lib/gtd/shared";
+import {
+  enqueueMidWeekDecisionSave,
+  getFailedMidWeekDraft,
+  waitForMidWeekDecisionSaves,
+} from "../app/mid-week-decision-saves";
 import { loadDecoratedWeekEntries } from "../lib/storage/week-entries";
 import {
   buildMidWeekReviewSummary,
@@ -758,30 +762,61 @@ export const WeeklyReviewPage = () => {
 
   // Read-only mid-week decisions card. Entries are loaded only when a snapshot exists so plain
   // week navigation adds no queries.
-  const midWeekDecisions = useAsyncResource(selectedWeekStart, async (week) => {
+  const midWeekWeek = useMemo(() => {
+    try {
+      return hasValidSelectedWeek ? buildWeekDates(selectedWeekStart) : selectedWeekStart;
+    } catch {
+      return selectedWeekStart;
+    }
+  }, [hasValidSelectedWeek, selectedWeekStart]);
+  const midWeekDecisions = useAsyncResource(midWeekWeek, async (week) => {
     // A save still queued from /mi-semaine must land before the card reads the row.
     await waitForMidWeekDecisionSaves(week);
     return repository.getMidWeekDecisions(week);
   });
+  // A save that rejected while its /mi-semaine editor was unmounted is only in memory; surface it
+  // here so it can be retried. Read after the load, which waits for the week's save chain.
+  const [retryingFailedDraft, setRetryingFailedDraft] = useState(false);
+  const [failedDraftRetryError, setFailedDraftRetryError] = useState(false);
+  const failedMidWeekDraft = midWeekDecisions.loading
+    ? undefined
+    : getFailedMidWeekDraft(midWeekWeek);
+  const retryFailedMidWeekDraft = async (week: string, text: string) => {
+    setRetryingFailedDraft(true);
+    setFailedDraftRetryError(false);
+    try {
+      await enqueueMidWeekDecisionSave(week, text, () =>
+        repository.saveMidWeekDecisions({
+          weekStartDate: week,
+          decisions: text,
+          decidedOnDate: calendarDay,
+          updatedAt: nowIso(),
+        }),
+      );
+    } catch {
+      setFailedDraftRetryError(true);
+    } finally {
+      setRetryingFailedDraft(false);
+      void midWeekDecisions.reload();
+    }
+  };
   // Ignore a row that belongs to another week (the resource clears on key change, but guard anyway).
   const midWeekRow =
-    midWeekDecisions.data?.weekStartDate === selectedWeekStart ? midWeekDecisions.data : null;
+    midWeekDecisions.data?.weekStartDate === midWeekWeek ? midWeekDecisions.data : null;
   const midWeekSnapshot = midWeekRow?.laggingSnapshot ?? null;
   const midWeekEntries = useAsyncResource(
-    `${selectedWeekStart}|${midWeekSnapshot ? "with" : "without"}`,
+    `${midWeekWeek}|${midWeekSnapshot ? "with" : "without"}`,
     () =>
-      midWeekSnapshot
-        ? loadDecoratedWeekEntries(repository, selectedWeekStart)
-        : Promise.resolve(null),
+      midWeekSnapshot ? loadDecoratedWeekEntries(repository, midWeekWeek) : Promise.resolve(null),
   );
-  const midWeekWeekEnd = addDays(selectedWeekStart, 6);
+  const midWeekWeekEnd = addDays(midWeekWeek, 6);
   const midWeekToDate = midWeekWeekEnd >= calendarDay;
   const midWeekComparison = useMemo(() => {
     if (
       !midWeekSnapshot ||
       !midWeekEntries.data ||
       !summary ||
-      summary.weekStartDate !== selectedWeekStart
+      summary.weekStartDate !== midWeekWeek
     ) {
       return null;
     }
@@ -795,9 +830,9 @@ export const WeeklyReviewPage = () => {
       return null;
     }
     const matches = <T extends { weekStartDate: string }>(value: T | null): T | null =>
-      value?.weekStartDate === selectedWeekStart ? value : null;
+      value?.weekStartDate === midWeekWeek ? value : null;
     const finalSummary = buildMidWeekReviewSummary({
-      weekStartDate: selectedWeekStart,
+      weekStartDate: midWeekWeek,
       asOfDate: midWeekToDate ? calendarDay : addDays(midWeekWeekEnd, 1),
       weekEntries: midWeekEntries.data,
       summary,
@@ -810,7 +845,7 @@ export const WeeklyReviewPage = () => {
     midWeekSnapshot,
     midWeekEntries.data,
     summary,
-    selectedWeekStart,
+    midWeekWeek,
     goalsSnapshot,
     pulseSnapshot,
     standingObjectivesSnapshot,
@@ -1062,8 +1097,7 @@ export const WeeklyReviewPage = () => {
         subtitle={t("weekly.midWeekDecisions.subtitle")}
       >
         {midWeekDecisions.loading ||
-        (midWeekDecisions.data !== null &&
-          midWeekDecisions.data.weekStartDate !== selectedWeekStart) ? (
+        (midWeekDecisions.data !== null && midWeekDecisions.data.weekStartDate !== midWeekWeek) ? (
           <p className="empty-copy">{t("weekly.loadingPlaceholder")}</p>
         ) : midWeekDecisions.error ? (
           <div className="banner" role="alert">
@@ -1072,6 +1106,21 @@ export const WeeklyReviewPage = () => {
               {t("weekly.midWeekDecisions.retry")}
             </button>
           </div>
+        ) : failedMidWeekDraft ? (
+          <>
+            <p className="midweek-decisions-text">{failedMidWeekDraft.text}</p>
+            <div className="banner" role="alert">
+              {t("weekly.midWeekDecisions.unsaved")}{" "}
+              <button
+                className="button"
+                type="button"
+                disabled={retryingFailedDraft}
+                onClick={() => void retryFailedMidWeekDraft(midWeekWeek, failedMidWeekDraft.text)}
+              >
+                {t("weekly.midWeekDecisions.retry")}
+              </button>
+            </div>
+          </>
         ) : !midWeekRow ? (
           <>
             <p className="empty-copy">{t("weekly.midWeekDecisions.empty")}</p>

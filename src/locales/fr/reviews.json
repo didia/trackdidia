@@ -202,6 +202,7 @@
       "openMidWeek": "Ouvrir la mi-semaine",
       "loadError": "Impossible de charger les décisions de mi-semaine.",
       "retry": "Réessayer",
+      "unsaved": "Décisions non enregistrées",
       "decidedOn": "décidé le {{date}}",
       "snapshotTitle": "Avant / après",
       "before": "Au {{date}} : {{actual}} / {{expected}} ({{status}})",

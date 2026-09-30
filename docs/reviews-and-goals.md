@@ -210,6 +210,7 @@ is labelled with the snapshot's own `asOfDate`; the after side is the week's fin
 (labelled "à ce jour" for the current week). Only fully covered signals claim "rattrapé"; a
 signal without full coverage carries a "sur N / M jours renseignés" caveat and a neutral marker.
 Decisions are not part of the weekly synthesis snapshot, so they do not change its `inputHash`.
+A decisions save that failed while its `/mi-semaine` editor was gone stays in memory (lost on quit); the card for that week shows the unsaved text with an alert and a retry. The card keys its read on the normalized Sunday, so a mid-week date in the picker still finds that week's row.
 
 **Difference from `/semaine`.** The mid-week page and the card load the seven decorated daily
 entries (`loadDecoratedWeekEntries`); a day with no entry row stays undecorated and counts as

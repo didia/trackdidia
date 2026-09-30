@@ -56,6 +56,7 @@ export const PersistedTextarea = forwardRef<PersistedTextareaHandle, PersistedTe
     const onStateChangeRef = useRef(onPersistStateChange);
     const inFlightRef = useRef<string | null>(null);
     const queuedRef = useRef<string | null>(null);
+    const errorRef = useRef(false);
 
     draftRef.current = draft;
     onPersistRef.current = onPersist;
@@ -68,6 +69,15 @@ export const PersistedTextarea = forwardRef<PersistedTextareaHandle, PersistedTe
         draftRef.current = savedValue;
       }
     }, [savedValue]);
+
+    // After a failed save, a draft equal to the confirmed value needs no retry: drop the error.
+    const clearErrorIfDraftConfirmed = () => {
+      if (errorRef.current && draftRef.current === lastSavedRef.current) {
+        errorRef.current = false;
+        dirtyRef.current = false;
+        onStateChangeRef.current?.("saved");
+      }
+    };
 
     const sendValue = (nextValue: string) => {
       const previous = lastSavedRef.current;
@@ -82,6 +92,7 @@ export const PersistedTextarea = forwardRef<PersistedTextareaHandle, PersistedTe
       lastSavedRef.current = previous;
       dirtyRef.current = true;
       inFlightRef.current = nextValue;
+      errorRef.current = false;
       onStateChangeRef.current?.("saving");
       const settle = () => {
         inFlightRef.current = null;
@@ -89,6 +100,8 @@ export const PersistedTextarea = forwardRef<PersistedTextareaHandle, PersistedTe
         queuedRef.current = null;
         if (queued !== null && queued !== lastSavedRef.current) {
           sendValue(queued);
+        } else if (queued !== null) {
+          clearErrorIfDraftConfirmed();
         }
       };
       void Promise.resolve(result).then(
@@ -101,6 +114,7 @@ export const PersistedTextarea = forwardRef<PersistedTextareaHandle, PersistedTe
           settle();
         },
         (error: unknown) => {
+          errorRef.current = true;
           onStateChangeRef.current?.("error", error);
           settle();
         },
@@ -115,6 +129,7 @@ export const PersistedTextarea = forwardRef<PersistedTextareaHandle, PersistedTe
       }
       if (nextValue === lastSavedRef.current) {
         dirtyRef.current = false;
+        clearErrorIfDraftConfirmed();
         return;
       }
       sendValue(nextValue);
