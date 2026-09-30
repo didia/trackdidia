@@ -380,7 +380,7 @@
       "principle": "Coché {{actual}} jours sur {{expected}} répondus.",
       "tasks": "Reste {{remaining}} tâches à réaliser sur {{remainingDays}} jours.",
       "tasksWeekOver": "{{remaining}} tâches ajoutées n'ont pas été réalisées.",
-      "journal": "Réflexion du soir écrite {{actual}} jours sur {{expected}} clôturés.",
+      "journal": "Réflexion du soir écrite {{actual}} jours sur {{expected}} suivis.",
       "partialCoverage": "Verdict basé sur {{withData}} jour(s) sur {{applicable}}."
     }
   }
