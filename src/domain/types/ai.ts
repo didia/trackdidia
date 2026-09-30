@@ -15,6 +15,7 @@ export type AiSurface =
   | "weekly_synthesis"
   | "monthly_synthesis"
   | "goal_pacing"
+  | "mid_week_steering"
   | "pastor_verse";
 
 export type CoachPulseStance = "open" | "steer" | "wind_down" | "close";
@@ -250,6 +251,32 @@ export interface GoalPacingResponse {
 export interface GoalPacingResult {
   message: AiMessage;
   pacing: GoalPacingResponse;
+  source: "ai" | "local" | "fallback" | "cache";
+  warning?: string;
+}
+
+export type MidWeekSteeringEffort = "low" | "medium" | "high";
+
+export interface MidWeekSteeringAction {
+  /** Must be one of the snapshot's ranked lagging or at-risk signal keys. */
+  signalKey: string;
+  title: string;
+  why: string;
+  effort: MidWeekSteeringEffort;
+}
+
+export interface MidWeekSteeringResponse {
+  /** Set by the service from the snapshot, never trusted from the model. */
+  asOfDate: string;
+  headline: string;
+  read: string;
+  focusShift: string;
+  actions: MidWeekSteeringAction[];
+}
+
+export interface MidWeekSteeringResult {
+  message: AiMessage;
+  steering: MidWeekSteeringResponse;
   source: "ai" | "local" | "fallback" | "cache";
   warning?: string;
 }

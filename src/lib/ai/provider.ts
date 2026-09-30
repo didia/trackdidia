@@ -1,6 +1,7 @@
 import type { AiSurface, AppSettings, CoachPulseStance } from "../../domain/types";
 import type { DailySnapshot } from "./context/daily-snapshot";
 import type { GoalPacingSnapshot } from "./context/goal-pacing-snapshot";
+import type { MidWeekSnapshot } from "./context/mid-week-snapshot";
 import type { MonthlySnapshot } from "./context/monthly-snapshot";
 import type { PastorSnapshot } from "./context/pastor-snapshot";
 import type { WeeklySnapshot } from "./context/weekly-snapshot";
@@ -43,6 +44,11 @@ export interface GoalPacingStructuredRequest extends AiStructuredRequestBase {
   snapshot: GoalPacingSnapshot;
 }
 
+export interface MidWeekSteeringStructuredRequest extends AiStructuredRequestBase {
+  surface: "mid_week_steering";
+  snapshot: MidWeekSnapshot;
+}
+
 export interface PastorVerseStructuredRequest extends AiStructuredRequestBase {
   surface: "pastor_verse";
   snapshot: PastorSnapshot;
@@ -53,6 +59,7 @@ export type AiStructuredRequest =
   | WeeklySynthesisStructuredRequest
   | MonthlySynthesisStructuredRequest
   | GoalPacingStructuredRequest
+  | MidWeekSteeringStructuredRequest
   | PastorVerseStructuredRequest;
 
 export interface AiStructuredResult {

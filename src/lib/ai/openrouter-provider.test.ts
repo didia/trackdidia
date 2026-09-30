@@ -1,3 +1,5 @@
+import { buildMidWeekSnapshot } from "./context/mid-week-snapshot";
+import { buildMidWeekInputs } from "./test-support/mid-week-fixtures";
 import { DEFAULT_AI_MAX_TOKENS, defaultAppSettings } from "../../domain/daily-entry";
 import * as debug from "../debug";
 import type { DailySnapshot } from "./context/daily-snapshot";
@@ -1256,6 +1258,18 @@ describe("buildSystemPrompt snapshots", () => {
       Exemple minimal:
       {"headline":"Mois solide","weekPattern":"Score stable sur quatre semaines.","sectionDrafts":{"bilan":"Note de bilan"},"goalEvaluationDrafts":[{"goalId":"goal-1","score":75,"trend":"up","notes":"Bonne progression","blockers":""}]}"
     `);
+  });
+
+  it("mid_week_steering lists the actionable keys and forbids naming other signals", () => {
+    const snapshot = buildMidWeekSnapshot(buildMidWeekInputs(), "full");
+    const prompt = buildSystemPrompt({
+      surface: "mid_week_steering",
+      settings: defaultAppSettings(),
+      snapshot,
+    });
+    expect(prompt).toContain("Schema mid_week_steering");
+    expect(prompt).toContain(snapshot.actionableKeys[0]);
+    expect(prompt).toContain("focusShift");
   });
 
   it("goal_pacing", () => {

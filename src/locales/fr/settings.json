@@ -51,14 +51,16 @@
       "weekly": "Hebdomadaire (weekly_synthesis)",
       "monthly": "Mensuel (monthly_synthesis)",
       "annual": "Annuel (goal_pacing)",
-      "pastor": "Pasteur (pastor_verse)"
+      "pastor": "Pasteur (pastor_verse)",
+      "midweek": "Mi-semaine (mid_week_steering)"
     },
     "dateLabel": {
       "weekly": "Dimanche de la semaine",
       "monthly": "Mois",
       "annual": "Date de référence",
       "daily": "Date",
-      "pastor": "Date"
+      "pastor": "Date",
+      "midweek": "Date (semaine en cours)"
     },
     "dateAria": "Date aperçu payload IA",
     "pulseWarningWeekly": "Pulse RescueTime indisponible pour cet aperçu ({{error}}). L'aperçu affichera \"pas de donnée\" à la place.",
@@ -197,7 +199,8 @@
       "weekly_synthesis": "Synthèse hebdomadaire : sections, objectifs et actions GTD.",
       "monthly_synthesis": "Synthèse mensuelle : sections et évaluations d'objectifs annuels.",
       "goal_pacing": "Rythme annuel des objectifs (affichage seulement, sans propositions).",
-      "pastor_verse": "Verset du jour « Pasteur IA » : un verset et une explication en deux temps, sans propositions."
+      "pastor_verse": "Verset du jour « Pasteur IA » : un verset et une explication en deux temps, sans propositions.",
+      "mid_week_steering": "Pilotage de mi-semaine : lecture du rythme et actions à rattraper (affichage seulement, sans propositions)."
     }
   },
   "cost": {

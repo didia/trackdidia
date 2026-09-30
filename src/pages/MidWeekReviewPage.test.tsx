@@ -8,6 +8,7 @@ import { clearFailedMidWeekDraft, getFailedMidWeekDraft } from "../app/mid-week-
 import { createEmptyDailyEntry, defaultAppSettings } from "../domain/daily-entry";
 import type { MidWeekLaggingSnapshot } from "../domain/mid-week-review";
 import type { AppSettings } from "../domain/types";
+import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
 import { RescueTimeGoalsService } from "../lib/rescuetime/rescuetime-goals-service";
 import { WeeklyObjectivesService } from "../lib/rescuetime/weekly-objectives-service";
 import { MemoryRepository } from "../lib/storage/memory-repository";
@@ -261,6 +262,76 @@ describe("MidWeekReviewPage", () => {
       const text = journal.textContent ?? "";
       expect(text.indexOf("Réflexion mardi")).toBeLessThan(text.indexOf("Intention lundi"));
       expect(within(journal).queryByText(/Focus de demain/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe("AI steering", () => {
+    const aiSettings = (): AppSettings => ({
+      ...defaultAppSettings(),
+      aiEnabled: true,
+      aiApiKey: "secret",
+    });
+
+    it("hydrates then auto-runs once the loads settle, and shows the steering", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      await seedPomodoros(repository, [8, 0, 0]);
+      const generate = vi
+        .spyOn(OpenRouterProvider.prototype, "generateStructured")
+        .mockImplementation(async () => ({
+          text: JSON.stringify({
+            headline: "Le focus décroche",
+            read: "Pomodoris en retard.",
+            focusShift: "Deux blocs demain",
+            actions: [
+              {
+                signalKey: "metric:pomodoris",
+                title: "Bloquer deux blocs",
+                why: "En retard",
+                effort: "medium",
+              },
+            ],
+          }),
+          model: "test",
+          usage: { tokensPrompt: 1, tokensCompletion: 1, latencyMs: 1 },
+        }));
+      await renderPage(repository, WEDNESDAY, aiSettings());
+
+      expect(await screen.findByText("Le focus décroche")).toBeInTheDocument();
+      expect(screen.getByText("Bloquer deux blocs")).toBeInTheDocument();
+      expect(generate).toHaveBeenCalledOnce();
+      expect(await repository.listAiMessages("mid_week_steering")).toHaveLength(1);
+    });
+
+    it("persists a skipped local message when AI is unconfigured", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      await seedPomodoros(repository, [8, 0, 0]);
+      const generate = vi.spyOn(OpenRouterProvider.prototype, "generateStructured");
+      await renderPage(repository, WEDNESDAY);
+
+      await waitFor(async () => {
+        const rows = await repository.listAiMessages("mid_week_steering");
+        expect(rows).toHaveLength(1);
+        expect(rows[0].status).toBe("skipped");
+      });
+      expect(generate).not.toHaveBeenCalled();
+    });
+
+    it("uses no AI at all on Sunday: no provider call, no ai_messages row, one line", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      const generate = vi.spyOn(OpenRouterProvider.prototype, "generateStructured");
+      const fetchSpy = vi.spyOn(globalThis, "fetch");
+      await renderPage(repository, SUNDAY, aiSettings());
+
+      expect(await screen.findByText("Le coach de mi-semaine reprend lundi.")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /demander au coach/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /régénérer/i })).not.toBeInTheDocument();
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(generate).not.toHaveBeenCalled();
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(await repository.listAiMessages("mid_week_steering")).toEqual([]);
     });
   });
 

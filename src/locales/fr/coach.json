@@ -166,7 +166,8 @@
       "weekly_synthesis": "Synthèse hebdomadaire",
       "monthly_synthesis": "Synthèse mensuelle",
       "goal_pacing": "Rythme objectifs",
-      "pastor_verse": "Pasteur IA (verset)"
+      "pastor_verse": "Pasteur IA (verset)",
+      "mid_week_steering": "Pilotage mi-semaine"
     },
     "type": {
       "intention_draft": "Intention du matin",
@@ -184,5 +185,26 @@
       "wind_down": "Fin de journée",
       "close": "Clôture"
     }
+  },
+  "midWeekSteering": {
+    "title": "Coach de mi-semaine",
+    "preparing": "Préparation du point de mi-semaine...",
+    "asOf": "Point au {{date}}",
+    "focusShift": "Changement de focus",
+    "effort": "Effort : {{level}}",
+    "empty": "Rien à rattraper : aucune action proposée.",
+    "sundayLine": "Le coach de mi-semaine reprend lundi.",
+    "local": {
+      "headline": "{{count}} signal(aux) à rattraper cette semaine.",
+      "headlineClear": "Rien à rattraper pour l'instant.",
+      "readClear": "Tous les signaux connus sont dans le rythme.",
+      "focusClear": "Garde le cap et note ce que tu veux protéger.",
+      "focus": "Commence par : {{label}}."
+    }
+  },
+  "effort": {
+    "low": "faible",
+    "medium": "moyen",
+    "high": "élevé"
   }
 }

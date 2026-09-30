@@ -1,6 +1,6 @@
 # Spec — Mid-week steering page
 
-**Status:** approved; PR A (RescueTime snapshot cache and freshness window), B1 (pure math) and B2 (page, decisions, weekly mirror) shipped; C (optional) and D (AI steering) unshipped. Planner/validator loop: approved on iteration 1, revised
+**Status:** implemented. PR A (RescueTime snapshot cache and freshness window), B1 (pure math), B2 (page, decisions, weekly mirror) and D (AI steering) shipped. PR C (optional journal feed) was intentionally not shipped. Planner/validator loop: approved on iteration 1, revised
 for owner decisions, re-approved on iteration 2. The Wednesday snapshot (§B2.3–B2.4) was
 added after that at the owner's request, and was revised once after validator review. A
 second revision addressed the owner's PR review (#171): decisions load and save
@@ -33,7 +33,7 @@ week-to-date `actualHours` against a full-week `weeklyTargetHours`. On a Wednesd
 | Rollout | Deterministic page first. AI steering (PR D) follows. |
 | Persist decisions | Yes, in a new table (migration 36). Never `tempsEtPlan` and never a new `WeeklyRitualSectionKey`. |
 | Wednesday snapshot | Yes. Saving decisions also stores the lagging list at that moment, so Sunday can compare before and after. |
-| RescueTime cache | Yes. Same cache and key as the weekly review: `(week_start_date, kind, credential_fingerprint)` from [`weekly-review-caching.md`](weekly-review-caching.md) §1. |
+| RescueTime cache | Yes. Same cache and key as the weekly review: `(week_start_date, kind, credential_fingerprint)` from [`weekly-review-caching.md`](../todo/weekly-review-caching.md) §1. |
 | Thresholds | Start at `0.1` (tolerance) and `0.25` (lagging). The owner tunes them later. |
 | Journal feed (PR C) | **Optional, not approved.** Ship only if the owner confirms. |
 
@@ -86,7 +86,7 @@ in `todo/` until PR D ships. PR C is optional and does not block the move to `do
 
 ## PR A — RescueTime snapshot cache and freshness window
 
-Implement [`weekly-review-caching.md`](weekly-review-caching.md) §1 as written, with the
+Implement [`weekly-review-caching.md`](../todo/weekly-review-caching.md) §1 as written, with the
 clarifications below. §2 (compact goal lines) and §3 (weekly coach last-good cache) remain
 unshipped.
 
