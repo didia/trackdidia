@@ -2,7 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { useAppContext } from "../app/app-context";
-import { enqueueMidWeekDecisionSave, getFailedMidWeekDraft } from "../app/mid-week-decision-saves";
+import {
+  enqueueMidWeekDecisionSave,
+  getFailedMidWeekDraft,
+  waitForMidWeekDecisionSaves,
+} from "../app/mid-week-decision-saves";
 import { useAsyncResource } from "../app/use-latest-request";
 import { PageHeader } from "../components/PageHeader";
 import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
@@ -172,7 +176,13 @@ export const MidWeekReviewPage = () => {
   const annual = useAsyncResource(calendarDay, (day) =>
     repository.computeAnnualGoalSnapshots(Number(day.slice(0, 4)), day),
   );
-  const decisions = useAsyncResource(weekStart, (week) => repository.getMidWeekDecisions(week));
+  // Wait for queued saves first: a remount right after an unmount flush must read the row
+  // that flush writes, and a rejected save must populate `failedDrafts` before the restore
+  // effect runs.
+  const decisions = useAsyncResource(weekStart, async (week) => {
+    await waitForMidWeekDecisionSaves(week);
+    return repository.getMidWeekDecisions(week);
+  });
 
   // Ignore a snapshot that belongs to another week (kept while refreshing across a day change).
   const forWeek = <T extends { weekStartDate: string }>(value: T | null): T | null =>
@@ -208,9 +218,9 @@ export const MidWeekReviewPage = () => {
     objectives.refreshing;
   const keyMissing = !settings.rescuetimeApiKey.trim() || goalsData?.rescuetimeConfigured === false;
   const rescueTimeErrors = [
-    goals.data?.fetchError,
-    pulse.data?.fetchError,
-    objectives.data?.fetchError,
+    goalsData?.fetchError,
+    pulseData?.fetchError,
+    objectivesData?.fetchError,
   ]
     .concat([goals.error?.message, pulse.error?.message, objectives.error?.message])
     .filter((message): message is string => Boolean(message));
@@ -219,7 +229,11 @@ export const MidWeekReviewPage = () => {
   // ---- decisions editor -------------------------------------------------------------------
   const textareaRef = useRef<PersistedTextareaHandle>(null);
   const restoredForWeekRef = useRef<string | null>(null);
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saveStateByWeek, setSaveStateByWeek] = useState<{
+    week: string;
+    state: "saving" | "saved" | "error";
+  } | null>(null);
+  const saveState = saveStateByWeek?.week === weekStart ? saveStateByWeek.state : "idle";
   const [optimisticDecidedOn, setOptimisticDecidedOn] = useState<{
     week: string;
     date: string;
@@ -233,7 +247,7 @@ export const MidWeekReviewPage = () => {
     const failed = getFailedMidWeekDraft(weekStart);
     if (failed) {
       textareaRef.current?.setDraft(failed.text);
-      setSaveState("error");
+      setSaveStateByWeek({ week: weekStart, state: "error" });
     }
   }, [decisions.loading, decisions.error, weekStart]);
 
@@ -268,7 +282,9 @@ export const MidWeekReviewPage = () => {
     });
 
   const handleSaveState = (state: "saving" | "saved" | "error") => {
-    setSaveState(state);
+    // Scoped to the week the editor was mounted for, so an old week's unmount state cannot land
+    // on the new week's editor.
+    setSaveStateByWeek({ week: weekStart, state });
     if (state === "saved") {
       setOptimisticDecidedOn({ week: weekStart, date: calendarDay });
     }
@@ -457,7 +473,10 @@ export const MidWeekReviewPage = () => {
             </SectionCard>
           )}
 
-          <SectionCard title={t("midWeek.unknown.title")} subtitle={t("midWeek.unknown.subtitle")}>
+          <SectionCard
+            title={t("midWeek.unknown.title")}
+            subtitle={sunday ? t("midWeek.sunday.previousWeek") : t("midWeek.unknown.subtitle")}
+          >
             {keyMissing ? (
               <div className="banner">
                 {t("midWeek.unknown.missingKey")}{" "}
@@ -499,7 +518,10 @@ export const MidWeekReviewPage = () => {
             )}
           </SectionCard>
 
-          <SectionCard title={t("midWeek.journal.title")} subtitle={t("midWeek.journal.subtitle")}>
+          <SectionCard
+            title={t("midWeek.journal.title")}
+            subtitle={sunday ? t("midWeek.sunday.previousWeek") : t("midWeek.journal.subtitle")}
+          >
             {journalItems.length === 0 ? (
               <p className="empty-copy">{t("midWeek.journal.empty")}</p>
             ) : (

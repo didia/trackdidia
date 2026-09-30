@@ -34,6 +34,7 @@ type PersistedTextareaProps = Omit<
    * (newer values are coalesced) and a rejection is reported through `onPersistStateChange`
    * and retried on the next change, blur or `flush()`.
    */
+  // biome-ignore lint/suspicious/noConfusingVoidType: `void | Promise` is the intended contract: void callbacks stay fire-and-forget.
   onPersist: (value: string) => void | Promise<unknown>;
   /** Reports the state of promise-returning saves (also after unmount). */
   onPersistStateChange?: (state: "saving" | "saved" | "error", error?: unknown) => void;

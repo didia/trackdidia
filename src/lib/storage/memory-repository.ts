@@ -297,7 +297,12 @@ export class MemoryRepository implements AppRepository {
 
   async getMidWeekDecisions(weekStartDate: string): Promise<MidWeekDecisions | null> {
     const row = this.midWeekDecisions.get(buildWeekDates(weekStartDate));
-    return row ? { ...row } : null;
+    return row
+      ? {
+          ...row,
+          laggingSnapshot: row.laggingSnapshot ? structuredClone(row.laggingSnapshot) : null,
+        }
+      : null;
   }
 
   async saveMidWeekDecisions(input: MidWeekDecisionsSaveInput): Promise<void> {

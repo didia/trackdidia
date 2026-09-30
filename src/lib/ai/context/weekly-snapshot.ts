@@ -1,4 +1,4 @@
-import { createEmptyDailyEntry, resolveMetricValue } from "../../../domain/daily-entry";
+import { resolveMetricValue } from "../../../domain/daily-entry";
 import { metricDefinitions, principleDefinitions } from "../../../domain/definitions";
 import { computeAnomalyFindings } from "../../../domain/insights/anomalies";
 import { computeFocusFindings } from "../../../domain/insights/focus";

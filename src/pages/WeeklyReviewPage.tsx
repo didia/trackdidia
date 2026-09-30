@@ -760,7 +760,10 @@ export const WeeklyReviewPage = () => {
   const midWeekDecisions = useAsyncResource(selectedWeekStart, (week) =>
     repository.getMidWeekDecisions(week),
   );
-  const midWeekSnapshot = midWeekDecisions.data?.laggingSnapshot ?? null;
+  // Ignore a row that belongs to another week (the resource clears on key change, but guard anyway).
+  const midWeekRow =
+    midWeekDecisions.data?.weekStartDate === selectedWeekStart ? midWeekDecisions.data : null;
+  const midWeekSnapshot = midWeekRow?.laggingSnapshot ?? null;
   const midWeekEntries = useAsyncResource(
     `${selectedWeekStart}|${midWeekSnapshot ? "with" : "without"}`,
     () =>
@@ -1055,7 +1058,9 @@ export const WeeklyReviewPage = () => {
         title={t("weekly.midWeekDecisions.title")}
         subtitle={t("weekly.midWeekDecisions.subtitle")}
       >
-        {midWeekDecisions.loading ? (
+        {midWeekDecisions.loading ||
+        (midWeekDecisions.data !== null &&
+          midWeekDecisions.data.weekStartDate !== selectedWeekStart) ? (
           <p className="empty-copy">{t("weekly.loadingPlaceholder")}</p>
         ) : midWeekDecisions.error ? (
           <div className="banner" role="alert">
@@ -1064,7 +1069,7 @@ export const WeeklyReviewPage = () => {
               {t("weekly.midWeekDecisions.retry")}
             </button>
           </div>
-        ) : !midWeekDecisions.data ? (
+        ) : !midWeekRow ? (
           <>
             <p className="empty-copy">{t("weekly.midWeekDecisions.empty")}</p>
             <div className="section-actions">
@@ -1075,10 +1080,10 @@ export const WeeklyReviewPage = () => {
           </>
         ) : (
           <>
-            <p className="midweek-decisions-text">{midWeekDecisions.data.decisions}</p>
+            <p className="midweek-decisions-text">{midWeekRow.decisions}</p>
             <p className="empty-copy">
               {t("weekly.midWeekDecisions.decidedOn", {
-                date: formatDateLong(midWeekDecisions.data.decidedOnDate),
+                date: formatDateLong(midWeekRow.decidedOnDate),
               })}
             </p>
             {midWeekSnapshot ? (

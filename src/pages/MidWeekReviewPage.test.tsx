@@ -1,4 +1,7 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
+import { MemoryRouter } from "react-router-dom";
+import { AppContext, type AppContextValue, useAppContext } from "../app/app-context";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { clearFailedMidWeekDraft, getFailedMidWeekDraft } from "../app/mid-week-decision-saves";
@@ -126,21 +129,34 @@ describe("MidWeekReviewPage", () => {
       expect(within(section).getAllByRole("listitem").length).toBeGreaterThan(5);
     });
 
-    it("counts suggested pomodoro and task metrics instead of listing them as unknown", async () => {
+    it("counts real pomodoro sessions and GTD events instead of listing them as unknown", async () => {
       const repository = new MemoryRepository();
       await repository.initialize();
-      const original = repository.getDailyEntry.bind(repository);
-      vi.spyOn(repository, "getDailyEntry").mockImplementation(async (date) => {
-        const entry = (await original(date)) ?? createEmptyDailyEntry(date);
-        if (date < WEDNESDAY) {
-          entry.suggestedMetrics = { pomodoris: 8, tachesAjoutes: 3, tachesRealises: 3 };
-        }
-        return entry;
-      });
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date(2026, 7, 3, 9, 0, 0)); // Monday
+      const task = await repository.createTask({ title: "Rédiger", bucket: "next_action" });
+      await repository.completeTask(task.id);
+      const started = await repository.startPomodoro({ taskId: null, title: "Focus" });
+      const session = started.activeSession;
+      if (!session) {
+        throw new Error("Session Pomodoro manquante");
+      }
+      await repository.stopPomodoroSession(
+        session.id,
+        "completed",
+        new Date(new Date(session.startedAt).getTime() + 25 * 60 * 1000).toISOString(),
+      );
+      vi.useRealTimers();
+      for (const date of ["2026-08-02", "2026-08-03", "2026-08-04"]) {
+        await repository.saveDailyEntry(createEmptyDailyEntry(date));
+      }
       await renderPage(repository, WEDNESDAY);
 
       await waitFor(() => expect(region("Dans le vert")).toBeInTheDocument());
       const unknown = region("Signaux sans données");
+      const shown = `${region("À rattraper").textContent}${region("Dans le vert").textContent}`;
+      expect(shown).toContain("Pomodoris");
+      expect(shown).toContain("Tâches réalisées");
       expect(within(unknown).queryByText("Pomodoris")).not.toBeInTheDocument();
       expect(within(unknown).queryByText("Tâches réalisées")).not.toBeInTheDocument();
     });
@@ -258,7 +274,7 @@ describe("MidWeekReviewPage", () => {
       const user = userEvent.setup();
       await renderPage(repository, WEDNESDAY);
 
-      await user.type(await waitFor(editorEnabled), "Moins de téléphone");
+      await user.type(await waitFor(editorEnabled, { timeout: 6000 }), "Moins de téléphone");
       await waitFor(() => expect(save).toHaveBeenCalled(), { timeout: 5000 });
 
       const saved = save.mock.calls[0][0];
@@ -337,7 +353,7 @@ describe("MidWeekReviewPage", () => {
         const user = userEvent.setup();
         await renderPage(repository, WEDNESDAY);
 
-        await user.type(await waitFor(editorEnabled), "Texte");
+        await user.type(await waitFor(editorEnabled, { timeout: 6000 }), "Texte");
         const alert = await screen.findByRole("alert", {}, { timeout: 6000 });
         expect(alert).toHaveTextContent("Décisions non enregistrées");
         expect(editor()).toHaveValue("Texte");
@@ -357,7 +373,7 @@ describe("MidWeekReviewPage", () => {
         const user = userEvent.setup();
         await renderPage(repository, WEDNESDAY);
 
-        await user.type(await waitFor(editorEnabled), "Blur");
+        await user.type(await waitFor(editorEnabled, { timeout: 6000 }), "Blur");
         await user.tab();
         const alert = await screen.findByRole("alert", {}, { timeout: 6000 });
         expect(editor()).toHaveValue("Blur");
@@ -375,7 +391,7 @@ describe("MidWeekReviewPage", () => {
         const user = userEvent.setup();
         const first = await renderPage(repository, WEDNESDAY);
 
-        await user.type(await waitFor(editorEnabled), "Perdu");
+        await user.type(await waitFor(editorEnabled, { timeout: 6000 }), "Perdu");
         first.unmount();
         await waitFor(() => expect(getFailedMidWeekDraft(WEEK)?.text).toBe("Perdu"), {
           timeout: 6000,
@@ -404,12 +420,12 @@ describe("MidWeekReviewPage", () => {
       ).mockImplementation(() => new Promise(() => undefined));
       const user = userEvent.setup();
       const first = await renderPage(repository, WEDNESDAY, keyedSettings());
-      await user.type(await waitFor(editorEnabled), "ancien");
+      await user.type(await waitFor(editorEnabled, { timeout: 6000 }), "ancien");
       first.unmount(); // flushes "ancien": queued, waiting for the snapshot
 
       const user2 = userEvent.setup();
       await renderPage(repository, WEDNESDAY, keyedSettings());
-      await user2.type(await waitFor(editorEnabled), "nouveau");
+      await user2.type(await waitFor(editorEnabled, { timeout: 6000 }), "nouveau");
       await user2.tab();
 
       await waitFor(
@@ -421,6 +437,92 @@ describe("MidWeekReviewPage", () => {
       expect((await repository.getMidWeekDecisions(WEEK))?.decisions).toContain("nouveau");
     }, 20000);
 
+    it("gates a quick remount on the pending unmount save and shows the newer text", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      await seedRow(repository, { decisions: "vieux" });
+      vi.spyOn(
+        WeeklyObjectivesService.prototype,
+        "computeWeeklyObjectivesSnapshot",
+      ).mockImplementation(() => new Promise(() => undefined));
+      const user = userEvent.setup();
+      const first = await renderPage(repository, WEDNESDAY, keyedSettings());
+      await waitFor(() => expect(editor()).toHaveValue("vieux"));
+      await user.type(editor(), " neuf");
+      first.unmount(); // the flush waits up to 2 s for the snapshot
+
+      await renderPage(repository, WEDNESDAY, keyedSettings());
+      expect(editor()).toBeDisabled();
+      expect(editor()).toHaveAttribute("aria-busy", "true");
+      await waitFor(() => expect(editor()).toBeEnabled(), { timeout: 6000 });
+      expect(editor()).toHaveValue("vieux neuf");
+    }, 20000);
+
+    it("shows a rejected pending save's draft and alert on a quick remount", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      vi.spyOn(
+        WeeklyObjectivesService.prototype,
+        "computeWeeklyObjectivesSnapshot",
+      ).mockImplementation(() => new Promise(() => undefined));
+      vi.spyOn(repository, "saveMidWeekDecisions").mockRejectedValueOnce(new Error("disk"));
+      const user = userEvent.setup();
+      const first = await renderPage(repository, WEDNESDAY, keyedSettings());
+      await user.type(await waitFor(editorEnabled, { timeout: 6000 }), "Brouillon");
+      first.unmount();
+
+      await renderPage(repository, WEDNESDAY, keyedSettings());
+      expect(editor()).toBeDisabled();
+      await waitFor(() => expect(editor()).toBeEnabled(), { timeout: 6000 });
+      expect(editor()).toHaveValue("Brouillon");
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent("Décisions non enregistrées");
+      expect(within(alert).getByRole("button", { name: "Réessayer" })).toBeInTheDocument();
+    }, 20000);
+
+    it("does not leak an old week's save state onto the new week's editor (in-place day change)", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      await repository.saveSettings(defaultAppSettings());
+      let base: AppContextValue | null = null;
+      const Capture = () => {
+        base = useAppContext();
+        return null;
+      };
+      const captured = await renderWithApp(<Capture />, { repository });
+      captured.unmount();
+
+      let setDay: (day: string) => void = () => undefined;
+      const Harness = () => {
+        const [day, setCurrent] = useState("2026-08-08");
+        setDay = setCurrent;
+        return (
+          <AppContext.Provider
+            value={{ ...(base as unknown as AppContextValue), calendarDay: day }}
+          >
+            <MidWeekReviewPage />
+          </AppContext.Provider>
+        );
+      };
+      vi.spyOn(repository, "saveMidWeekDecisions").mockRejectedValueOnce(new Error("disk"));
+      const user = userEvent.setup();
+      render(
+        <MemoryRouter>
+          <Harness />
+        </MemoryRouter>,
+      );
+      await user.type(await waitFor(editorEnabled, { timeout: 6000 }), "Avant minuit");
+      await user.tab();
+      await screen.findByRole("alert", {}, { timeout: 6000 });
+
+      act(() => setDay("2026-08-10"));
+      await waitFor(() => expect(editor()).toBeEnabled());
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(screen.queryByText(/Enregistré/)).not.toBeInTheDocument();
+      expect(editor()).toHaveValue("");
+    }, 20000);
+
     it("does not reload the decisions resource after a save and updates the last-update line", async () => {
       const repository = new MemoryRepository();
       await repository.initialize();
@@ -428,7 +530,7 @@ describe("MidWeekReviewPage", () => {
       const user = userEvent.setup();
       await renderPage(repository, WEDNESDAY);
 
-      await user.type(await waitFor(editorEnabled), "Encore");
+      await user.type(await waitFor(editorEnabled, { timeout: 6000 }), "Encore");
       await user.tab();
       await waitFor(
         async () => expect((await repository.getMidWeekDecisions(WEEK))?.decisions).toBe("Encore"),
@@ -449,7 +551,7 @@ describe("MidWeekReviewPage", () => {
       ) => {
         const user = userEvent.setup();
         await renderPage(repository, calendarDay, settings);
-        await user.type(await waitFor(editorEnabled), " modif");
+        await user.type(await waitFor(editorEnabled, { timeout: 6000 }), " modif");
         await user.tab();
         await waitFor(
           async () =>
@@ -536,7 +638,7 @@ describe("MidWeekReviewPage", () => {
         const user = userEvent.setup();
         await renderPage(repository, FRIDAY, keyedSettings());
         await user.click(await screen.findByRole("button", { name: "Actualiser" }));
-        await user.type(await waitFor(editorEnabled), " modif");
+        await user.type(await waitFor(editorEnabled, { timeout: 6000 }), " modif");
         await user.tab();
         await waitFor(
           async () =>
@@ -568,7 +670,7 @@ describe("MidWeekReviewPage", () => {
       const user = userEvent.setup();
       await renderPage(repository, WEDNESDAY);
 
-      await user.type(await waitFor(editorEnabled), "Coincé");
+      await user.type(await waitFor(editorEnabled, { timeout: 6000 }), "Coincé");
       await user.tab();
       await waitFor(
         async () => expect((await repository.getMidWeekDecisions(WEEK))?.decisions).toBe("Coincé"),
@@ -582,7 +684,7 @@ describe("MidWeekReviewPage", () => {
       await repository.initialize();
       const user = userEvent.setup();
       const first = await renderPage(repository, "2026-08-08");
-      await user.type(await waitFor(editorEnabled), "Avant minuit");
+      await user.type(await waitFor(editorEnabled, { timeout: 6000 }), "Avant minuit");
       first.unmount();
       await renderPage(repository, "2026-08-10");
 

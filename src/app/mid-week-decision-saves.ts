@@ -47,3 +47,10 @@ export const getFailedMidWeekDraft = (weekStart: string): FailedMidWeekDraft | u
 export const clearFailedMidWeekDraft = (weekStart: string): void => {
   failedDrafts.delete(weekStart);
 };
+
+/** Resolves once every queued save for the week has settled. Never rejects. */
+export const waitForMidWeekDecisionSaves = (weekStart: string): Promise<void> =>
+  (chains.get(weekStart) ?? Promise.resolve()).then(
+    () => undefined,
+    () => undefined,
+  );
