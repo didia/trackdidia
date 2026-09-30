@@ -194,6 +194,26 @@
       "hours": "{{n}} h",
       "score": "{{n}} / 100",
       "percent": "{{n}}%"
+    },
+    "midWeekDecisions": {
+      "title": "Décisions de mi-semaine",
+      "subtitle": "Ce que tu avais décidé de changer en cours de semaine.",
+      "empty": "Aucune décision de mi-semaine cette semaine.",
+      "openMidWeek": "Ouvrir la mi-semaine",
+      "loadError": "Impossible de charger les décisions de mi-semaine.",
+      "retry": "Réessayer",
+      "decidedOn": "décidé le {{date}}",
+      "snapshotTitle": "Avant / après",
+      "before": "Au {{date}} : {{actual}} / {{expected}} ({{status}})",
+      "after": "À la fin de la semaine : {{actual}} / {{target}} ({{status}})",
+      "afterToDate": "À ce jour : {{actual}} / {{target}} ({{status}})",
+      "recovered": "Rattrapé",
+      "notRecovered": "Pas rattrapé",
+      "neutral": "Sans verdict",
+      "partialCoverage": "sur {{withData}} / {{applicable}} jours renseignés",
+      "gone": "—",
+      "unknown": "Sans données",
+      "loadingSnapshot": "Calcul du bilan..."
     }
   },
   "monthly": {
@@ -382,6 +402,99 @@
       "tasksWeekOver": "{{remaining}} tâches ajoutées n'ont pas été réalisées.",
       "journal": "Réflexion du soir écrite {{actual}} jours sur {{expected}} suivis.",
       "partialCoverage": "Verdict basé sur {{withData}} jour(s) sur {{applicable}}."
+    },
+    "hero": {
+      "eyebrow": "Mi-semaine",
+      "title": "Où j'en suis cette semaine",
+      "copy": "Le rythme de la semaine en cours, ce qui est à rattraper et ce que tu changes pour la suite.",
+      "range": "Du {{start}} au {{end}}",
+      "asOf": "Situation au {{date}}",
+      "days": "{{completed}} jours écoulés, {{remaining}} restants"
+    },
+    "loading": "Chargement de la semaine...",
+    "loadError": "Impossible de charger la semaine.",
+    "sunday": {
+      "title": "Dimanche : la semaine commence",
+      "notice": "Aucun verdict aujourd'hui : aucun jour de cette semaine n'est écoulé. Voici la semaine précédente, à rattraper cette semaine.",
+      "previousWeek": "semaine précédente — à rattraper cette semaine"
+    },
+    "coverage": "{{unclosed}} jours non clôturés — les verdicts portent sur {{completed}} jours.",
+    "pace": {
+      "title": "Où j'en suis",
+      "subtitle": "Rythme moyen des signaux connus, comparé au rythme attendu à ce jour.",
+      "score": "Rythme",
+      "projection": "Projection du score de la semaine : {{score}} (ce n'est pas un verdict)",
+      "noScore": "Pas encore de rythme calculable.",
+      "completed": "Jours écoulés",
+      "remaining": "Jours restants",
+      "closed": "Jours clôturés"
+    },
+    "lagging": {
+      "title": "À rattraper",
+      "subtitle": "Les signaux les plus en retard, du plus urgent au moins urgent.",
+      "empty": "Rien à rattraper pour l'instant.",
+      "showAll": "Tout afficher ({{count}})",
+      "showLess": "Réduire",
+      "line": "{{actual}} sur {{expected}} attendus (cible de la semaine : {{target}})",
+      "lineNoTarget": "{{actual}} sur {{expected}} attendus"
+    },
+    "ahead": {
+      "title": "Dans le vert",
+      "subtitle": "Signaux dans le rythme ou en avance.",
+      "empty": "Aucun signal dans le vert pour l'instant."
+    },
+    "unknown": {
+      "title": "Signaux sans données",
+      "subtitle": "Pas assez de données pour juger ces signaux.",
+      "empty": "Tous les signaux ont des données.",
+      "missingKey": "Clé RescueTime manquante. Configure-la dans",
+      "settingsLink": "Paramètres",
+      "missingKeySuffix": "pour suivre tes goals RescueTime.",
+      "loadingRescueTime": "Chargement de RescueTime..."
+    },
+    "cachedNotice": "Données RescueTime de {{time}}.",
+    "refresh": "Actualiser",
+    "refreshing": "Actualisation...",
+    "journal": {
+      "title": "Journal de la semaine",
+      "subtitle": "Ce que tu as écrit cette semaine, du plus récent au plus ancien.",
+      "empty": "Rien d'écrit cette semaine pour l'instant.",
+      "open": "Ouvrir le journal"
+    },
+    "annual": {
+      "title": "Objectifs annuels",
+      "none": "Tous tes objectifs annuels sont dans le rythme.",
+      "line": "{{count}} objectif(s) annuel(s) hors rythme : {{titles}}",
+      "more": "et {{count}} autre(s)",
+      "open": "Voir les objectifs annuels"
+    },
+    "decisions": {
+      "title": "Ce que je change",
+      "subtitle": "Note ce que tu changes pour le reste de la semaine. La liste « à rattraper » du moment est conservée pour le bilan.",
+      "label": "Décisions de mi-semaine",
+      "placeholder": "Ce que je change d'ici dimanche...",
+      "loading": "Chargement de tes décisions...",
+      "loadError": "Impossible de charger tes décisions",
+      "retryLoad": "Réessayer",
+      "saving": "Enregistrement…",
+      "saved": "Enregistré",
+      "saveError": "Décisions non enregistrées",
+      "retrySave": "Réessayer",
+      "lastUpdated": "dernière mise à jour le {{date}}",
+      "openWeekly": "Ouvrir la revue de la semaine"
+    },
+    "links": {
+      "title": "Aller plus loin",
+      "weekly": "Revue de la semaine",
+      "journal": "Journal",
+      "nextActions": "Next Actions",
+      "annualGoals": "Objectifs annuels",
+      "history": "Historique"
+    },
+    "format": {
+      "hours": "{{value}} h",
+      "none": "—",
+      "percent": "{{value}} %"
     }
   }
 }
