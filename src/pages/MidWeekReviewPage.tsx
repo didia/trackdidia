@@ -228,7 +228,15 @@ export const MidWeekReviewPage = () => {
   const steeringRequest = useLatestRequest();
   const [steeringResult, setSteeringResult] = useState<MidWeekSteeringResult | null>(null);
   const [steeringLoading, setSteeringLoading] = useState(false);
+  const [steeringError, setSteeringError] = useState(false);
   const steeringRanRef = useRef<string | null>(null);
+  // Load cycle currently mounted: an obsolete hydration must not launch steering after it moves on.
+  const steeringCycleRef = useRef<string | null>(null);
+  // Decision text acknowledged as saved on this page; the resource is never reloaded after a save.
+  const [confirmedDecisions, setConfirmedDecisions] = useState<{
+    week: string;
+    text: string;
+  } | null>(null);
   const steeringKey = loadKey;
 
   const runSteering = useCallback(
@@ -239,10 +247,14 @@ export const MidWeekReviewPage = () => {
       const inputs = {
         summary,
         weekEntries: entries.data,
-        decisions: decisions.data?.decisions ?? null,
+        decisions:
+          confirmedDecisions?.week === weekStart
+            ? confirmedDecisions.text
+            : (decisions.data?.decisions ?? null),
       };
       await steeringRequest.run(async (signal) => {
         setSteeringLoading(true);
+        setSteeringError(false);
         try {
           const result = await steeringService.buildSteering(repository, {
             settings,
@@ -255,6 +267,9 @@ export const MidWeekReviewPage = () => {
           }
         } catch (error) {
           logDebug("error", "ai.midweek", "Echec du pilotage de mi-semaine", error);
+          if (signal.isLatest()) {
+            setSteeringError(true);
+          }
         } finally {
           if (signal.isLatest()) {
             setSteeringLoading(false);
@@ -263,6 +278,7 @@ export const MidWeekReviewPage = () => {
       });
     },
     [
+      confirmedDecisions,
       decisions.data,
       entries.data,
       repository,
@@ -271,6 +287,7 @@ export const MidWeekReviewPage = () => {
       steeringService,
       summary,
       sunday,
+      weekStart,
     ],
   );
   const rescueTimeBusy =
@@ -343,6 +360,7 @@ export const MidWeekReviewPage = () => {
         updatedAt: nowIso(),
         ...snapshotPatch,
       });
+      setConfirmedDecisions({ week: weekStart, text: value });
     });
 
   const handleSaveState = (state: "saving" | "saved" | "error") => {
@@ -368,12 +386,23 @@ export const MidWeekReviewPage = () => {
     entries.data !== null &&
     !rescueTimeBusy &&
     !decisions.loading &&
+    !decisions.error &&
     !review.loading;
 
   useEffect(() => {
     setSteeringResult(null);
+    setSteeringError(false);
     void weekStart;
   }, [weekStart]);
+
+  useEffect(() => {
+    steeringCycleRef.current = steeringKey;
+    return () => {
+      steeringCycleRef.current = null;
+      steeringRequest.invalidate();
+      setSteeringLoading(false);
+    };
+  }, [steeringKey, steeringRequest]);
 
   // Hydrate the stored result, then refresh it once the RescueTime loads have settled.
   useEffect(() => {
@@ -384,11 +413,17 @@ export const MidWeekReviewPage = () => {
     void (async () => {
       try {
         const stored = await loadLatestMidWeekSteering(repository, steeringService, weekStart);
+        if (steeringCycleRef.current !== steeringKey) {
+          return;
+        }
         if (stored && stored.message.scopeKey === weekStart) {
           setSteeringResult((current) => current ?? stored);
         }
       } catch (error) {
         logDebug("error", "ai.midweek", "Echec de l'hydratation du pilotage de mi-semaine", error);
+      }
+      if (steeringCycleRef.current !== steeringKey) {
+        return;
       }
       await runSteering({ trigger: "auto" });
     })();
@@ -561,6 +596,7 @@ export const MidWeekReviewPage = () => {
             <MidWeekSteeringPanel
               result={steeringResult?.message.scopeKey === weekStart ? steeringResult : null}
               loading={steeringLoading}
+              error={steeringError}
               settings={settings}
               asOfDate={calendarDay}
               sunday={sunday}

@@ -1,5 +1,7 @@
 import type { MidWeekSteeringEffort, MidWeekSteeringResponse } from "../../../domain/types";
 
+const MAX_STEERING_ACTIONS = 3;
+
 const efforts = new Set<MidWeekSteeringEffort>(["low", "medium", "high"]);
 
 const isNonEmptyString = (value: unknown): value is string =>
@@ -32,6 +34,10 @@ export const validateMidWeekSteeringResponse = (
   }
   if (!Array.isArray(record.actions)) {
     return { ok: false, error: "actions must be an array" };
+  }
+
+  if (record.actions.length > MAX_STEERING_ACTIONS) {
+    return { ok: false, error: `actions must contain at most ${MAX_STEERING_ACTIONS} items` };
   }
 
   const allowed = actionableKeys ? new Set(actionableKeys) : null;

@@ -189,6 +189,7 @@
   "midWeekSteering": {
     "title": "Coach de mi-semaine",
     "preparing": "Préparation du point de mi-semaine...",
+    "error": "Le point de mi-semaine n'a pas pu être préparé. Réessaie avec « Demander au coach ».",
     "asOf": "Point au {{date}}",
     "focusShift": "Changement de focus",
     "effort": "Effort : {{level}}",

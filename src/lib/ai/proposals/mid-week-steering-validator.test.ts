@@ -34,6 +34,14 @@ describe("validateMidWeekSteeringResponse", () => {
     expect(validateMidWeekSteeringResponse(payload([action("nope")]), actionable).ok).toBe(false);
   });
 
+  it("accepts three actions and rejects four", () => {
+    const keys = ["a", "b", "c", "d"];
+    expect(validateMidWeekSteeringResponse(payload(keys.slice(0, 3).map(action)), keys).ok).toBe(
+      true,
+    );
+    expect(validateMidWeekSteeringResponse(payload(keys.map(action)), keys).ok).toBe(false);
+  });
+
   it("rejects a repeated key", () => {
     expect(
       validateMidWeekSteeringResponse(

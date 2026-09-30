@@ -107,6 +107,40 @@ describe("MidWeekSteeringService", () => {
     expect(generateStructured).toHaveBeenCalledOnce();
   });
 
+  it("uses a fresh message id on regenerate and on recovery from a skipped row (append-only)", async () => {
+    const { repository, service, generateStructured } = await setup();
+    const ids = new Set<string>();
+    const original = repository.saveCoachPulseEpisode.bind(repository);
+    repository.saveCoachPulseEpisode = async (message, proposals) => {
+      if (ids.has(message.id)) {
+        throw new Error("UNIQUE constraint failed: ai_messages.id");
+      }
+      ids.add(message.id);
+      return original(message, proposals);
+    };
+
+    await service.buildSteering(repository, {
+      settings: defaultAppSettings(),
+      snapshotInputs: buildMidWeekInputs(),
+    });
+    const settings = aiSettings();
+    const first = await service.buildSteering(repository, {
+      settings,
+      snapshotInputs: buildMidWeekInputs(),
+    });
+    const regenerated = await service.buildSteering(repository, {
+      settings,
+      snapshotInputs: buildMidWeekInputs(),
+      bypassCache: true,
+    });
+
+    expect(first.source).toBe("ai");
+    expect(regenerated.source).toBe("ai");
+    expect(regenerated.message.id).not.toBe(first.message.id);
+    expect(generateStructured).toHaveBeenCalledTimes(2);
+    expect(ids.size).toBe(3);
+  });
+
   it("falls back and persists the local body when the provider throws", async () => {
     const { repository, service } = await setup({
       generateStructured: vi.fn(async () => {

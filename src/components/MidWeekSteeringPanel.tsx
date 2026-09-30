@@ -6,6 +6,8 @@ import { t as translate } from "../i18n";
 interface MidWeekSteeringPanelProps {
   result: MidWeekSteeringResult | null;
   loading: boolean;
+  /** The last steering attempt failed before producing any result (repository/cache failure). */
+  error?: boolean;
   settings: AppSettings;
   /** Current `asOfDate`; a result from an earlier day of the week is labelled with its own date. */
   asOfDate: string;
@@ -19,6 +21,7 @@ interface MidWeekSteeringPanelProps {
 export const MidWeekSteeringPanel = ({
   result,
   loading,
+  error = false,
   settings,
   asOfDate,
   signalLabelsByKey,
@@ -48,9 +51,17 @@ export const MidWeekSteeringPanel = ({
         <small>
           {result
             ? translate(`source.${result.source}`, { ns: "coach" })
-            : tCommon("status.loading")}
+            : loading
+              ? tCommon("status.loading")
+              : null}
         </small>
       </div>
+
+      {error && !loading && !result ? (
+        <p role="alert" className="coach-card__warning">
+          {t("midWeekSteering.error")}
+        </p>
+      ) : null}
 
       {loading && !steering ? <p>{t("midWeekSteering.preparing")}</p> : null}
 

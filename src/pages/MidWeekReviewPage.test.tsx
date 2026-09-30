@@ -437,6 +437,40 @@ describe("MidWeekReviewPage", () => {
       await waitFor(() => expect(build).toHaveBeenCalledTimes(2));
     });
 
+    it("does not steer until the decisions read succeeds, then steers once", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      await seedPomodoros(repository, [8, 0, 0]);
+      await repository.saveMidWeekDecisions({
+        weekStartDate: WEEK,
+        decisions: "Stocké",
+        decidedOnDate: "2026-08-04",
+        updatedAt: "2026-08-04T10:00:00.000Z",
+      });
+      vi.spyOn(repository, "getMidWeekDecisions").mockRejectedValueOnce(new Error("boom"));
+      const build = vi.spyOn(MidWeekSteeringService.prototype, "buildSteering");
+      const user = userEvent.setup();
+      await renderPage(repository, WEDNESDAY, aiSettings());
+
+      const alert = await screen.findByRole("alert");
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(build).not.toHaveBeenCalled();
+
+      await user.click(within(alert).getByRole("button", { name: "Réessayer" }));
+      await waitFor(() => expect(build).toHaveBeenCalledTimes(1));
+      expect(build.mock.calls[0][1].snapshotInputs.decisions).toBe("Stocké");
+    });
+
+    it("shows a non-loading alert when the steering run fails on the repository", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      await seedPomodoros(repository, [8, 0, 0]);
+      vi.spyOn(repository, "listAiMemories").mockRejectedValue(new Error("db"));
+      await renderPage(repository, WEDNESDAY, aiSettings());
+
+      expect(await screen.findByText(/n'a pas pu être préparé/)).toBeInTheDocument();
+    });
+
     it("uses no AI at all on Sunday: no provider call, no ai_messages row, one line", async () => {
       const repository = new MemoryRepository();
       await repository.initialize();

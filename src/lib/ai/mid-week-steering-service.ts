@@ -128,13 +128,9 @@ export class MidWeekSteeringService {
     }
 
     const localSteering = buildLocalMidWeekSteering(snapshot);
-    const existingMessage = await repository.getAiMessageRecord(
-      "mid_week_steering",
-      scopeKey,
-      inputHash,
-    );
     const baseMessage = (): AiMessage => ({
-      id: existingMessage?.id ?? createEntityId("ai-message"),
+      // ai_messages is append-only: every attempt needs its own primary key, even for a known hash.
+      id: createEntityId("ai-message"),
       surface: "mid_week_steering",
       scopeKey,
       stance: null,
