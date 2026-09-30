@@ -9,7 +9,7 @@ import {
   scoreMoreGoal,
 } from "../../domain/rescuetime-goals";
 import { buildWeekDates } from "../../domain/weekly-review";
-import { addDays } from "../gtd/shared";
+import { addDays, nowIso } from "../gtd/shared";
 import type { AppRepository } from "../storage/repository";
 import {
   aggregateProjectTimes,
@@ -22,7 +22,91 @@ import {
   type RescueTimeGoalsClient,
   resolveAnalyticKind,
 } from "./goals-client";
+import {
+  currentKeyMatchesFingerprint,
+  rescueTimeCredentialFingerprint,
+} from "./credential-fingerprint";
 import { computeProductivityPulse } from "./productivity-mapping";
+
+/** Opt-in freshness window: a cache entry younger than `maxAgeMs` is served without a pull. */
+export interface RescueTimeComputeOptions {
+  maxAgeMs?: number;
+}
+
+export const isRescueTimeCacheFresh = (
+  fetchedAt: string,
+  maxAgeMs: number | undefined,
+  now: number = Date.now(),
+): boolean => {
+  if (maxAgeMs === undefined || !(maxAgeMs > 0)) {
+    return false;
+  }
+  const fetched = Date.parse(fetchedAt);
+  return Number.isFinite(fetched) && now >= fetched && now - fetched < maxAgeMs;
+};
+
+type CachedGoalItem = Omit<RescueTimeGoalItemSnapshot, "achievement">;
+
+const isCachedGoalItem = (value: unknown): value is CachedGoalItem => {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const item = value as Record<string, unknown>;
+  return (
+    typeof item.goalId === "number" &&
+    typeof item.title === "string" &&
+    typeof item.isMore === "boolean" &&
+    typeof item.actualHours === "number" &&
+    Number.isFinite(item.actualHours) &&
+    typeof item.weeklyTargetHours === "number" &&
+    Number.isFinite(item.weeklyTargetHours) &&
+    typeof item.scheduleLabel === "string"
+  );
+};
+
+/** Parses a `goals` payload; returns `null` when it is not usable (treated as "no cache"). */
+const parseGoalsPayload = (payloadJson: string): RescueTimeGoalItemSnapshot[] | null => {
+  try {
+    const parsed: unknown = JSON.parse(payloadJson);
+    const list = (parsed as { items?: unknown } | null)?.items;
+    if (!Array.isArray(list) || !list.every(isCachedGoalItem)) {
+      return null;
+    }
+    return list.map((item) => {
+      const actualSeconds = item.actualHours * 3600;
+      const targetSeconds = item.weeklyTargetHours * 3600;
+      return {
+        goalId: item.goalId,
+        title: item.title,
+        isMore: item.isMore,
+        actualHours: item.actualHours,
+        weeklyTargetHours: item.weeklyTargetHours,
+        scheduleLabel: item.scheduleLabel,
+        achievement: item.isMore
+          ? scoreMoreGoal(actualSeconds, targetSeconds)
+          : scoreLessGoal(actualSeconds, targetSeconds),
+      };
+    });
+  } catch {
+    return null;
+  }
+};
+
+/** Parses a `pulse` payload; `{ found: false }` for anything unusable, `null` pulse is valid. */
+const parsePulsePayload = (payloadJson: string): { found: boolean; pulse: number | null } => {
+  try {
+    const pulse = (JSON.parse(payloadJson) as { pulse?: unknown } | null)?.pulse;
+    if (pulse === null) {
+      return { found: true, pulse: null };
+    }
+    if (typeof pulse === "number" && Number.isFinite(pulse)) {
+      return { found: true, pulse };
+    }
+  } catch {
+    // fall through: treated as "no cache"
+  }
+  return { found: false, pulse: null };
+};
 
 interface AnalyticCache {
   productivity: Map<number, ReturnType<typeof parseProductivityRows>>;
@@ -44,6 +128,8 @@ export interface RescueTimeProductivityPulseSnapshot {
   pulse: number | null;
   rescuetimeConfigured: boolean;
   fetchError?: string;
+  /** Set when the pulse comes from the snapshot cache instead of a live pull. */
+  cachedAt?: string;
 }
 
 export class RescueTimeGoalsService {
@@ -52,7 +138,27 @@ export class RescueTimeGoalsService {
     private readonly client: RescueTimeGoalsClient = defaultRescueTimeGoalsClient,
   ) {}
 
-  async computeGoalsSnapshot(weekStartDate: string): Promise<RescueTimeGoalsSnapshot> {
+  /**
+   * Reads the entry first, then confirms the saved key still matches the captured fingerprint, so
+   * a key switch or removal while the read was pending never surfaces the old account's numbers.
+   */
+  private async readCache(weekStartDate: string, kind: "goals" | "pulse", fingerprint: string) {
+    let entry: Awaited<ReturnType<AppRepository["getRescueTimeSnapshotCache"]>>;
+    try {
+      entry = await this.repository.getRescueTimeSnapshotCache(weekStartDate, kind, fingerprint);
+    } catch {
+      return null;
+    }
+    if (!entry || !(await currentKeyMatchesFingerprint(this.repository, fingerprint))) {
+      return null;
+    }
+    return entry;
+  }
+
+  async computeGoalsSnapshot(
+    weekStartDate: string,
+    options: RescueTimeComputeOptions = {},
+  ): Promise<RescueTimeGoalsSnapshot> {
     const normalized = buildWeekDates(weekStartDate);
     const weekEndDate = addDays(normalized, 6);
     const settings = await this.repository.getSettings();
@@ -61,6 +167,20 @@ export class RescueTimeGoalsService {
 
     if (!rescuetimeConfigured) {
       return computeRescueTimeGoalsSnapshot(normalized, weekEndDate, [], { rescuetimeConfigured });
+    }
+
+    // Captured once: the write below uses this value even if the key changes mid-pull.
+    const fingerprint = await rescueTimeCredentialFingerprint(apiKey);
+
+    if (options.maxAgeMs !== undefined && options.maxAgeMs > 0) {
+      const entry = await this.readCache(normalized, "goals", fingerprint);
+      const cachedItems = entry ? parseGoalsPayload(entry.payloadJson) : null;
+      if (entry && cachedItems && isRescueTimeCacheFresh(entry.fetchedAt, options.maxAgeMs)) {
+        return computeRescueTimeGoalsSnapshot(normalized, weekEndDate, cachedItems, {
+          rescuetimeConfigured,
+          cachedAt: entry.fetchedAt,
+        });
+      }
     }
 
     try {
@@ -102,12 +222,34 @@ export class RescueTimeGoalsService {
         });
       }
 
+      try {
+        await this.repository.saveRescueTimeSnapshotCache({
+          weekStartDate: normalized,
+          kind: "goals",
+          credentialFingerprint: fingerprint,
+          payloadJson: JSON.stringify({
+            items: items.map(({ achievement: _achievement, ...rest }) => rest),
+          }),
+          fetchedAt: nowIso(),
+        });
+      } catch {
+        // A cache-write failure never fails the pull.
+      }
+
       return computeRescueTimeGoalsSnapshot(normalized, weekEndDate, items, {
         rescuetimeConfigured,
       });
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Echec de la requete RescueTime Goals.";
+      const entry = await this.readCache(normalized, "goals", fingerprint);
+      const cachedItems = entry ? parseGoalsPayload(entry.payloadJson) : null;
+      if (entry && cachedItems) {
+        return computeRescueTimeGoalsSnapshot(normalized, weekEndDate, cachedItems, {
+          rescuetimeConfigured,
+          cachedAt: entry.fetchedAt,
+        });
+      }
       return computeRescueTimeGoalsSnapshot(normalized, weekEndDate, [], {
         rescuetimeConfigured,
         fetchError: message,
@@ -195,6 +337,7 @@ export class RescueTimeGoalsService {
 
   async computeProductivityPulse(
     weekStartDate: string,
+    options: RescueTimeComputeOptions = {},
   ): Promise<RescueTimeProductivityPulseSnapshot> {
     const normalized = buildWeekDates(weekStartDate);
     const weekEndDate = addDays(normalized, 6);
@@ -211,6 +354,22 @@ export class RescueTimeGoalsService {
       };
     }
 
+    const fingerprint = await rescueTimeCredentialFingerprint(apiKey);
+
+    if (options.maxAgeMs !== undefined && options.maxAgeMs > 0) {
+      const entry = await this.readCache(normalized, "pulse", fingerprint);
+      const cached = entry ? parsePulsePayload(entry.payloadJson) : null;
+      if (entry && cached?.found && isRescueTimeCacheFresh(entry.fetchedAt, options.maxAgeMs)) {
+        return {
+          weekStartDate: normalized,
+          weekEndDate,
+          pulse: cached.pulse,
+          rescuetimeConfigured,
+          cachedAt: entry.fetchedAt,
+        };
+      }
+    }
+
     try {
       const payload = await this.client.fetchAnalyticData(apiKey, {
         kind: "productivity",
@@ -221,6 +380,18 @@ export class RescueTimeGoalsService {
       const rows = parseProductivityRows(payload);
       const pulse = computeProductivityPulse(rows);
 
+      try {
+        await this.repository.saveRescueTimeSnapshotCache({
+          weekStartDate: normalized,
+          kind: "pulse",
+          credentialFingerprint: fingerprint,
+          payloadJson: JSON.stringify({ pulse }),
+          fetchedAt: nowIso(),
+        });
+      } catch {
+        // A cache-write failure never fails the pull.
+      }
+
       return {
         weekStartDate: normalized,
         weekEndDate,
@@ -230,6 +401,17 @@ export class RescueTimeGoalsService {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Echec de la requete RescueTime productivity.";
+      const entry = await this.readCache(normalized, "pulse", fingerprint);
+      const cached = entry ? parsePulsePayload(entry.payloadJson) : null;
+      if (entry && cached?.found) {
+        return {
+          weekStartDate: normalized,
+          weekEndDate,
+          pulse: cached.pulse,
+          rescuetimeConfigured,
+          cachedAt: entry.fetchedAt,
+        };
+      }
       return {
         weekStartDate: normalized,
         weekEndDate,

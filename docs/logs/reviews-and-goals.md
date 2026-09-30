@@ -5,6 +5,8 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-30 | RescueTime cache failure fallbacks read under the current key's fingerprint (skipped when the key was removed or changed mid-pull); a future `fetchedAt` is never fresh | `docs/reviews-and-goals.md` | `currentKeyMatchesFingerprint`, `isRescueTimeCacheFresh` |
+| 2026-09-30 | RescueTime snapshot cache: goals, pulse and objective seconds are cached per week and key fingerprint and served (with `cachedAt`, no `fetchError`) when a pull fails; opt-in `maxAgeMs` freshness window; `/semaine` shows the goals and standing lists next to errors plus a cached notice | `docs/reviews-and-goals.md` | `rescuetime-goals-service.ts`, `weekly-objectives-service.ts`, `credential-fingerprint.ts`, `WeeklyReviewPage.tsx` |
 | 2026-09-27 | Manual weekly-objective end dates stay monotonic (earlier terminal end wins); result + end update commit together in SQLite | `docs/reviews-and-goals.md`, `docs/storage-and-backups.md` | `objectiveAfterManualAchievement`, `saveWeeklyObjectiveResult` |
 | 2026-09-27 | Marking a manual weekly objective achieved removes it from that week and every later week | `docs/reviews-and-goals.md`, `docs/storage-and-backups.md` | `objectiveAfterManualAchievement`, migration 34 |
 | 2026-09-21 | Weekly/monthly task totals inherit daily GTD rules: Scheduled counts only at Next Action or in-place done; Next Action carryover still counts | `docs/reviews-and-goals.md`, `docs/gtd.md` | `buildDailyTaskStats`, weekly/monthly summaries |

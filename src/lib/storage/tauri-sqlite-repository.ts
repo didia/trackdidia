@@ -38,6 +38,8 @@ import type {
   RecurringEditScope,
   RecurringTaskChanges,
   RecurringTaskTemplate,
+  RescueTimeSnapshotCacheEntry,
+  RescueTimeSnapshotCacheKind,
   Task,
   TaskContext,
   TaskEvent,
@@ -46,6 +48,7 @@ import type {
   WeeklyObjectiveResult,
   WeeklyReview,
 } from "../../domain/types";
+import { mergeObjectiveSecondsPayload } from "../../domain/rescuetime-goals";
 import {
   cloneWeeklyObjective,
   createEmptyWeeklyObjective,
@@ -1084,6 +1087,20 @@ export const migrations: Migration[] = [
       ALTER TABLE weekly_objectives ADD COLUMN ends_on_week_start_date TEXT;
     `,
   },
+  {
+    id: 35,
+    name: "create_rescuetime_snapshot_cache",
+    sql: `
+      CREATE TABLE IF NOT EXISTS rescuetime_snapshot_cache (
+        week_start_date TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        credential_fingerprint TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        fetched_at TEXT NOT NULL,
+        PRIMARY KEY (week_start_date, kind, credential_fingerprint)
+      );
+    `,
+  },
 ];
 
 export class TauriSqliteRepository implements AppRepository {
@@ -1830,6 +1847,123 @@ export class TauriSqliteRepository implements AppRepository {
     );
 
     return rows.map((row) => this.deserializeWeeklyObjectiveResult(row));
+  }
+
+  async getRescueTimeSnapshotCache(
+    weekStartDate: string,
+    kind: RescueTimeSnapshotCacheKind,
+    credentialFingerprint: string,
+  ): Promise<RescueTimeSnapshotCacheEntry | null> {
+    const db = await this.getDb();
+    return this.selectRescueTimeCacheEntry(
+      db,
+      buildWeekDates(weekStartDate),
+      kind,
+      credentialFingerprint,
+    );
+  }
+
+  private async selectRescueTimeCacheEntry(
+    db: SqliteDatabase,
+    weekStartDate: string,
+    kind: RescueTimeSnapshotCacheKind,
+    credentialFingerprint: string,
+  ): Promise<RescueTimeSnapshotCacheEntry | null> {
+    const rows = await db.select<
+      {
+        week_start_date: string;
+        kind: string;
+        credential_fingerprint: string;
+        payload_json: string;
+        fetched_at: string;
+      }[]
+    >(
+      `SELECT week_start_date, kind, credential_fingerprint, payload_json, fetched_at
+       FROM rescuetime_snapshot_cache
+       WHERE week_start_date = $1 AND kind = $2 AND credential_fingerprint = $3`,
+      [weekStartDate, kind, credentialFingerprint],
+    );
+    const row = rows[0];
+    return row
+      ? {
+          weekStartDate: row.week_start_date,
+          kind: row.kind as RescueTimeSnapshotCacheKind,
+          credentialFingerprint: row.credential_fingerprint,
+          payloadJson: row.payload_json,
+          fetchedAt: row.fetched_at,
+        }
+      : null;
+  }
+
+  private async upsertRescueTimeCacheEntry(
+    db: SqliteDatabase,
+    entry: RescueTimeSnapshotCacheEntry,
+  ): Promise<void> {
+    await db.execute(
+      `INSERT INTO rescuetime_snapshot_cache
+         (week_start_date, kind, credential_fingerprint, payload_json, fetched_at)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT(week_start_date, kind, credential_fingerprint) DO UPDATE SET
+         payload_json = excluded.payload_json,
+         fetched_at = excluded.fetched_at`,
+      [
+        buildWeekDates(entry.weekStartDate),
+        entry.kind,
+        entry.credentialFingerprint,
+        entry.payloadJson,
+        entry.fetchedAt,
+      ],
+    );
+  }
+
+  async saveRescueTimeSnapshotCache(entry: RescueTimeSnapshotCacheEntry): Promise<void> {
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      await this.upsertRescueTimeCacheEntry(db, entry);
+    });
+  }
+
+  async pruneRescueTimeSnapshotCache(keepFingerprint: string | null): Promise<void> {
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      if (keepFingerprint === null) {
+        await db.execute("DELETE FROM rescuetime_snapshot_cache");
+        return;
+      }
+      await db.execute("DELETE FROM rescuetime_snapshot_cache WHERE credential_fingerprint <> $1", [
+        keepFingerprint,
+      ]);
+    });
+  }
+
+  /**
+   * Read, merge and upsert inside one `runExclusive`, so no other queued write can land between
+   * the read and the upsert. Uses the open connection directly and never re-enters the queue.
+   */
+  async mergeRescueTimeObjectiveSecondsCache(input: {
+    weekStartDate: string;
+    credentialFingerprint: string;
+    values: Record<string, { seconds: number; fetchedAt: string }>;
+    fetchedAt: string;
+  }): Promise<void> {
+    return this.runExclusive(async () => {
+      const db = await this.getDb();
+      const weekStartDate = buildWeekDates(input.weekStartDate);
+      const existing = await this.selectRescueTimeCacheEntry(
+        db,
+        weekStartDate,
+        "objective_seconds",
+        input.credentialFingerprint,
+      );
+      const merged = mergeObjectiveSecondsPayload(existing?.payloadJson ?? null, input.values);
+      await this.upsertRescueTimeCacheEntry(db, {
+        weekStartDate,
+        kind: "objective_seconds",
+        credentialFingerprint: input.credentialFingerprint,
+        payloadJson: JSON.stringify(merged),
+        fetchedAt: input.fetchedAt,
+      });
+    });
   }
 
   async saveWeeklyObjectiveResult(result: WeeklyObjectiveResult): Promise<void> {

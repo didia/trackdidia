@@ -145,12 +145,49 @@ The `/semaine` screen tracks **two distinct objective systems**:
 
 RescueTime Goals remain the optional weekly-score axis described below. Standing objectives use `WeeklyObjectivesService.computeWeeklyObjectivesSnapshot()` and are separate from RescueTime Goals.
 
+### RescueTime snapshot cache
+
+Successful RescueTime pulls are cached in `rescuetime_snapshot_cache` (migration 35), keyed
+by `(week_start_date, kind, credential_fingerprint)` with kinds `goals`, `pulse` and
+`objective_seconds`. The fingerprint is the first 16 hex characters of a SHA-256 of the
+trimmed API key (`rescueTimeCredentialFingerprint`); the key itself is never stored.
+
+- **Writes** happen only after a successful pull, each in its own `try/catch`, so a
+  cache-write failure never fails the pull. `goals` is written even for an empty list.
+  `goals` stores the items without `achievement`; it is recomputed on read with
+  `scoreMoreGoal` / `scoreLessGoal`. `pulse` stores `{ pulse }`, where `null` and `0` are
+  distinct from "no row". `objective_seconds` is a map `objectiveId -> { seconds, fetchedAt }`
+  updated through the atomic `mergeRescueTimeObjectiveSecondsCache` (one `runExclusive` in
+  SQLite, one synchronous step in memory). Retained ids keep their own `fetchedAt`.
+- **Reads** happen only when a key is configured and the live pull failed, using the
+  fingerprint of the *current* key: the failure fallback re-reads settings and skips the cache
+  when the key was removed or changed during the pull. Writes use the fingerprint captured at
+  the start of the call, so a late pull for an old key lands under the old fingerprint and is
+  never served for a new key. Removing the key shows the missing-key state, never cached
+  numbers. An unparseable payload counts as no
+  cache and the previous `fetchError` behavior applies.
+- A snapshot served from the cache carries `cachedAt` (the entry's `fetchedAt`; for standing
+  objectives, the oldest `fetchedAt` among the reused values) and no `fetchError`, unless an
+  objective has no cached value. `/semaine` then shows the cached notice and the
+  `Cache RescueTime` source label. The goals list and the standing objectives list render even
+  when `fetchError` is set. Cached values still feed the score axes and the AI snapshot
+  inputs, which keeps the AI `inputHash` stable during an outage.
+- **Freshness window (opt-in).** `computeGoalsSnapshot`, `computeProductivityPulse` and
+  `computeWeeklyObjectivesSnapshot` accept `{ maxAgeMs }`. When `maxAgeMs > 0`, a key is
+  configured and the entry for the current fingerprint is younger than `maxAgeMs`, the cached
+  snapshot is returned with `cachedAt` and no network call is made. For objectives every
+  active time objective must have a fresh value. Without the option, behavior is unchanged:
+  `/semaine` pulls live every time.
+- Changing the key in Settings prunes entries with a different fingerprint
+  (`pruneRescueTimeSnapshotCache`, swallowed on failure). This is housekeeping only.
+- The browser preview cache is in-memory only.
+
 ### RescueTime Goals (weekly score axis)
 
 The `/semaine` screen loads **enabled RescueTime Goals** and a **productivity pulse**
 from the Analytic Data API for the selected Sunday–Saturday week. These scores feed
-the optional RescueTime axes above; they are not persisted and are not part of the
-repository weekly summary.
+the optional RescueTime axes above. They are not part of the repository weekly summary,
+but each successful pull is cached (see [Snapshot cache](#rescuetime-snapshot-cache)).
 
 Each goal is worth at most **1 point**:
 

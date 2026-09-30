@@ -1,3 +1,4 @@
+import { formatTimestamp } from "../lib/format";
 import { useState } from "react";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -16,6 +17,8 @@ import { WeeklySynthesisService } from "../lib/ai/weekly-synthesis-service";
 import * as dateModule from "../lib/date";
 import { formatPercent } from "../lib/format";
 import { addDays } from "../lib/gtd/shared";
+import { WeeklyObjectivesService } from "../lib/rescuetime/weekly-objectives-service";
+import { createEmptyWeeklyObjective } from "../domain/weekly-objectives";
 import { RescueTimeGoalsService } from "../lib/rescuetime/rescuetime-goals-service";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { renderWithApp } from "../test/test-utils";
@@ -276,6 +279,166 @@ describe("WeeklyReviewPage", () => {
       expect(screen.getByText("more than 2h on Personal (24x7)")).toBeInTheDocument();
       expect(screen.getByText("0.25/1")).toBeInTheDocument();
     });
+  });
+
+  it("shows the goals list with a cached notice when the snapshot comes from the cache", async () => {
+    vi.spyOn(RescueTimeGoalsService.prototype, "computeGoalsSnapshot").mockResolvedValue({
+      weekStartDate: "2026-08-02",
+      weekEndDate: "2026-08-08",
+      score: 0.25,
+      totalAchievement: 0.25,
+      items: [
+        {
+          goalId: 1,
+          title: "Goal en cache",
+          isMore: true,
+          actualHours: 3.5,
+          weeklyTargetHours: 14,
+          achievement: 0.25,
+          scheduleLabel: "24x7",
+        },
+      ],
+      rescuetimeConfigured: true,
+      cachedAt: "2026-08-05T10:00:00.000Z",
+    });
+    vi.spyOn(RescueTimeGoalsService.prototype, "computeProductivityPulse").mockResolvedValue({
+      weekStartDate: "2026-08-02",
+      weekEndDate: "2026-08-08",
+      pulse: null,
+      rescuetimeConfigured: true,
+    });
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const settings = { ...(await repository.getSettings()), rescuetimeApiKey: "rt-test-key" };
+    await repository.saveSettings(settings);
+
+    const user = userEvent.setup();
+    await renderWithApp(<WeeklyReviewPage />, {
+      repository,
+      route: "/semaine",
+      contextOverrides: { settings },
+    });
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
+    await user.clear(dateInput);
+    await user.type(dateInput, "2026-08-02");
+    await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
+
+    expect(await screen.findByText("Goal en cache")).toBeInTheDocument();
+    expect(screen.getByText(/RescueTime est injoignable/)).toBeInTheDocument();
+    expect(screen.getByText("Cache RescueTime")).toBeInTheDocument();
+  });
+
+  it("labels the cached notice with the oldest snapshot timestamp", async () => {
+    vi.spyOn(RescueTimeGoalsService.prototype, "computeGoalsSnapshot").mockResolvedValue({
+      weekStartDate: "2026-08-02",
+      weekEndDate: "2026-08-08",
+      score: 0.25,
+      totalAchievement: 0.25,
+      items: [
+        {
+          goalId: 1,
+          title: "Goal en cache",
+          isMore: true,
+          actualHours: 3.5,
+          weeklyTargetHours: 14,
+          achievement: 0.25,
+          scheduleLabel: "24x7",
+        },
+      ],
+      rescuetimeConfigured: true,
+      cachedAt: "2026-08-05T10:00:00.000Z",
+    });
+    vi.spyOn(RescueTimeGoalsService.prototype, "computeProductivityPulse").mockResolvedValue({
+      weekStartDate: "2026-08-02",
+      weekEndDate: "2026-08-08",
+      pulse: 0.5,
+      rescuetimeConfigured: true,
+      cachedAt: "2026-08-03T10:00:00.000Z",
+    });
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const settings = { ...(await repository.getSettings()), rescuetimeApiKey: "rt-test-key" };
+    await repository.saveSettings(settings);
+
+    const user = userEvent.setup();
+    await renderWithApp(<WeeklyReviewPage />, {
+      repository,
+      route: "/semaine",
+      contextOverrides: { settings },
+    });
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
+    await user.clear(dateInput);
+    await user.type(dateInput, "2026-08-02");
+    await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
+
+    expect(await screen.findByText("Goal en cache")).toBeInTheDocument();
+    expect(screen.getByText(/RescueTime est injoignable/).textContent).toContain(
+      formatTimestamp("2026-08-03T10:00:00.000Z"),
+    );
+  });
+
+  it("renders the standing objectives list next to a partial fetchError", async () => {
+    vi.spyOn(RescueTimeGoalsService.prototype, "computeGoalsSnapshot").mockResolvedValue({
+      weekStartDate: "2026-08-02",
+      weekEndDate: "2026-08-08",
+      score: null,
+      totalAchievement: 0,
+      items: [],
+      rescuetimeConfigured: true,
+    });
+    vi.spyOn(RescueTimeGoalsService.prototype, "computeProductivityPulse").mockResolvedValue({
+      weekStartDate: "2026-08-02",
+      weekEndDate: "2026-08-08",
+      pulse: null,
+      rescuetimeConfigured: true,
+    });
+    const objective = createEmptyWeeklyObjective({
+      id: "objective-partial",
+      title: "Objectif partiel",
+      kind: "time",
+      targetHours: 2,
+    });
+    vi.spyOn(
+      WeeklyObjectivesService.prototype,
+      "computeWeeklyObjectivesSnapshot",
+    ).mockResolvedValue({
+      weekStartDate: "2026-08-02",
+      weekEndDate: "2026-08-08",
+      items: [
+        {
+          objective,
+          actualHours: null,
+          achievement: 0,
+          source: "missing",
+          error: "Panne partielle",
+        },
+      ],
+      totalAchievement: 0,
+      score: 0,
+      rescuetimeConfigured: true,
+      fetchError: "Panne partielle",
+    });
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const settings = { ...(await repository.getSettings()), rescuetimeApiKey: "rt-test-key" };
+    await repository.saveSettings(settings);
+
+    const user = userEvent.setup();
+    await renderWithApp(<WeeklyReviewPage />, {
+      repository,
+      route: "/semaine",
+      contextOverrides: { settings },
+    });
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
+    await user.clear(dateInput);
+    await user.type(dateInput, "2026-08-02");
+    await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
+
+    expect(await screen.findByRole("heading", { name: "Objectif partiel" })).toBeInTheDocument();
+    expect(screen.getAllByText("Panne partielle").length).toBeGreaterThan(0);
   });
 
   it("overlays RescueTime axes into the weekly score when snapshots match the week", async () => {

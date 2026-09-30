@@ -797,6 +797,11 @@ export const WeeklyReviewPage = () => {
       : null;
   const weekMatchedPulseSnapshot =
     pulseSnapshot?.weekStartDate === summary.weekStartDate ? pulseSnapshot : null;
+  // Oldest timestamp among the cached snapshots, so the notice never overstates freshness.
+  const rescueTimeCachedAt =
+    [weekMatchedGoalsSnapshot?.cachedAt, weekMatchedPulseSnapshot?.cachedAt]
+      .filter((value): value is string => value !== undefined && Number.isFinite(Date.parse(value)))
+      .sort((a, b) => Date.parse(a) - Date.parse(b))[0] ?? null;
   const goalsBusy = goalsLoading || goalsRefreshing;
   const pulseBusy = pulseLoading || pulseRefreshing;
   const rescueTimeRefreshing = goalsRefreshing || pulseRefreshing;
@@ -986,6 +991,13 @@ export const WeeklyReviewPage = () => {
         {weekMatchedPulseSnapshot?.fetchError ? (
           <div className="banner">{weekMatchedPulseSnapshot.fetchError}</div>
         ) : null}
+        {rescueTimeCachedAt ? (
+          <p className="empty-copy">
+            {t("weekly.rescueGoals.cachedNotice", {
+              timestamp: formatTimestamp(rescueTimeCachedAt),
+            })}
+          </p>
+        ) : null}
 
         <div className="weekly-overview-grid">
           <article className="status-card">
@@ -1017,9 +1029,11 @@ export const WeeklyReviewPage = () => {
           <article className="status-card">
             <span>{t("weekly.rescueGoals.metrics.source")}</span>
             <strong>
-              {settings.rescuetimeApiKey.trim()
-                ? t("weekly.rescueGoals.source.goals")
-                : t("weekly.rescueGoals.source.missingKey")}
+              {!settings.rescuetimeApiKey.trim()
+                ? t("weekly.rescueGoals.source.missingKey")
+                : rescueTimeCachedAt
+                  ? t("weekly.rescueGoals.source.cache")
+                  : t("weekly.rescueGoals.source.goals")}
             </strong>
           </article>
         </div>
@@ -1039,9 +1053,10 @@ export const WeeklyReviewPage = () => {
 
         {goalsBusy || !weekMatchedGoalsSnapshot ? (
           <p className="empty-copy">{t("weekly.rescueGoals.loading")}</p>
-        ) : weekMatchedGoalsSnapshot.fetchError ? null : weekMatchedGoalsSnapshot.items.length ===
-          0 ? (
-          <p className="empty-copy">{t("weekly.rescueGoals.empty")}</p>
+        ) : weekMatchedGoalsSnapshot.items.length === 0 ? (
+          weekMatchedGoalsSnapshot.fetchError ? null : (
+            <p className="empty-copy">{t("weekly.rescueGoals.empty")}</p>
+          )
         ) : (
           <div className="weekly-day-grid">
             {weekMatchedGoalsSnapshot.items.map((item) => (
@@ -1071,10 +1086,18 @@ export const WeeklyReviewPage = () => {
       </SectionCard>
 
       <SectionCard title={t("weekly.standing.title")} subtitle={t("weekly.standing.subtitle")}>
+        {weekMatchedStandingObjectivesSnapshot?.fetchError ? (
+          <div className="banner">{weekMatchedStandingObjectivesSnapshot.fetchError}</div>
+        ) : null}
+        {weekMatchedStandingObjectivesSnapshot?.cachedAt ? (
+          <p className="empty-copy">
+            {t("weekly.rescueGoals.cachedNotice", {
+              timestamp: formatTimestamp(weekMatchedStandingObjectivesSnapshot.cachedAt),
+            })}
+          </p>
+        ) : null}
         {standingObjectivesLoading || !weekMatchedStandingObjectivesSnapshot ? (
           <p className="empty-copy">{t("weekly.standing.loading")}</p>
-        ) : weekMatchedStandingObjectivesSnapshot.fetchError ? (
-          <div className="banner">{weekMatchedStandingObjectivesSnapshot.fetchError}</div>
         ) : weekMatchedStandingObjectivesSnapshot.items.length === 0 ? (
           <p className="empty-copy">{t("weekly.standing.empty")}</p>
         ) : (

@@ -39,6 +39,8 @@ export interface RescueTimeGoalsSnapshot {
   score: number | null;
   rescuetimeConfigured: boolean;
   fetchError?: string;
+  /** Set when the items come from the snapshot cache instead of a live pull. */
+  cachedAt?: string;
 }
 
 export const scheduleDaysInWeek = (scheduleName: string | undefined): number => {
@@ -75,7 +77,7 @@ export const computeRescueTimeGoalsSnapshot = (
   weekStartDate: string,
   weekEndDate: string,
   items: RescueTimeGoalItemSnapshot[],
-  options: { rescuetimeConfigured: boolean; fetchError?: string },
+  options: { rescuetimeConfigured: boolean; fetchError?: string; cachedAt?: string },
 ): RescueTimeGoalsSnapshot => {
   const achievements = items.map((item) => item.achievement);
   const totalAchievement = achievements.reduce((sum, achievement) => sum + achievement, 0);
@@ -88,8 +90,59 @@ export const computeRescueTimeGoalsSnapshot = (
     score: achievements.length > 0 ? totalAchievement / achievements.length : null,
     rescuetimeConfigured: options.rescuetimeConfigured,
     fetchError: options.fetchError,
+    ...(options.cachedAt ? { cachedAt: options.cachedAt } : {}),
   };
 };
+
+export interface CachedObjectiveSecondsValue {
+  seconds: number;
+  fetchedAt: string;
+}
+
+export type CachedObjectiveSeconds = Record<string, CachedObjectiveSecondsValue>;
+
+const isCachedObjectiveSecondsValue = (value: unknown): value is CachedObjectiveSecondsValue =>
+  typeof value === "object" &&
+  value !== null &&
+  typeof (value as CachedObjectiveSecondsValue).seconds === "number" &&
+  Number.isFinite((value as CachedObjectiveSecondsValue).seconds) &&
+  typeof (value as CachedObjectiveSecondsValue).fetchedAt === "string";
+
+/** Defensive parse of an `objective_seconds` payload; anything unparseable counts as empty. */
+export const parseObjectiveSecondsPayload = (
+  payloadJson: string | null,
+): CachedObjectiveSeconds => {
+  if (!payloadJson) {
+    return {};
+  }
+  try {
+    const parsed: unknown = JSON.parse(payloadJson);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return {};
+    }
+    const result: CachedObjectiveSeconds = {};
+    for (const [id, value] of Object.entries(parsed)) {
+      if (isCachedObjectiveSecondsValue(value)) {
+        result[id] = { seconds: value.seconds, fetchedAt: value.fetchedAt };
+      }
+    }
+    return result;
+  } catch {
+    return {};
+  }
+};
+
+/**
+ * Merges freshly pulled objective seconds into the existing cached map. Incoming ids overwrite;
+ * every other id keeps its own `fetchedAt`. An unparseable existing payload counts as empty.
+ */
+export const mergeObjectiveSecondsPayload = (
+  existingPayloadJson: string | null,
+  values: CachedObjectiveSeconds,
+): CachedObjectiveSeconds => ({
+  ...parseObjectiveSecondsPayload(existingPayloadJson),
+  ...values,
+});
 
 export const normalizeRescueTimeLabel = (value: string): string =>
   value

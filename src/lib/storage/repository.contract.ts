@@ -1,7 +1,7 @@
 import { afterEach, vi } from "vitest";
 import { createEmptyDailyEntry, defaultAppSettings } from "../../domain/daily-entry";
 import { createEmptyMonthlyReview } from "../../domain/monthly-review";
-import type { CatalogVerse } from "../../domain/types";
+import type { CatalogVerse, RescueTimeSnapshotCacheEntry } from "../../domain/types";
 import { createEmptyWeeklyReview } from "../../domain/weekly-review";
 import { getTodayDate } from "../date";
 import { addDays } from "../gtd/shared";
@@ -2321,6 +2321,211 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         await repository.computeDailyTaskStats("2026-01-20");
 
         expect(await repository.promoteDueScheduledTasks("2026-01-20")).toBe(1);
+      });
+    });
+
+    describe("RescueTime snapshot cache", () => {
+      const entry = (overrides: Partial<RescueTimeSnapshotCacheEntry> = {}) => ({
+        weekStartDate: "2026-08-02",
+        kind: "goals" as const,
+        credentialFingerprint: "fp-a",
+        payloadJson: JSON.stringify({ items: [] }),
+        fetchedAt: "2026-08-05T10:00:00.000Z",
+        ...overrides,
+      });
+
+      it("returns null on a miss and round-trips a saved entry", async () => {
+        const repository = await factory();
+        await expect(
+          repository.getRescueTimeSnapshotCache("2026-08-02", "goals", "fp-a"),
+        ).resolves.toBeNull();
+
+        await repository.saveRescueTimeSnapshotCache(entry());
+
+        await expect(
+          repository.getRescueTimeSnapshotCache("2026-08-02", "goals", "fp-a"),
+        ).resolves.toEqual(entry());
+      });
+
+      it("normalizes the week start on write and read", async () => {
+        const repository = await factory();
+        await repository.saveRescueTimeSnapshotCache(entry({ weekStartDate: "2026-08-05" }));
+
+        await expect(
+          repository.getRescueTimeSnapshotCache("2026-08-04", "goals", "fp-a"),
+        ).resolves.toMatchObject({ weekStartDate: "2026-08-02" });
+      });
+
+      it("upserts on the same key", async () => {
+        const repository = await factory();
+        await repository.saveRescueTimeSnapshotCache(entry({ payloadJson: '{"pulse":1}' }));
+        await repository.saveRescueTimeSnapshotCache(
+          entry({ payloadJson: '{"pulse":2}', fetchedAt: "2026-08-06T10:00:00.000Z" }),
+        );
+
+        await expect(
+          repository.getRescueTimeSnapshotCache("2026-08-02", "goals", "fp-a"),
+        ).resolves.toMatchObject({
+          payloadJson: '{"pulse":2}',
+          fetchedAt: "2026-08-06T10:00:00.000Z",
+        });
+      });
+
+      it("isolates entries per fingerprint and kind", async () => {
+        const repository = await factory();
+        await repository.saveRescueTimeSnapshotCache(entry({ payloadJson: "A" }));
+        await repository.saveRescueTimeSnapshotCache(
+          entry({ credentialFingerprint: "fp-b", payloadJson: "B" }),
+        );
+
+        await expect(
+          repository.getRescueTimeSnapshotCache("2026-08-02", "goals", "fp-a"),
+        ).resolves.toMatchObject({ payloadJson: "A" });
+        await expect(
+          repository.getRescueTimeSnapshotCache("2026-08-02", "goals", "fp-b"),
+        ).resolves.toMatchObject({ payloadJson: "B" });
+        await expect(
+          repository.getRescueTimeSnapshotCache("2026-08-02", "pulse", "fp-a"),
+        ).resolves.toBeNull();
+      });
+
+      it("prune keeps only the given fingerprint", async () => {
+        const repository = await factory();
+        await repository.saveRescueTimeSnapshotCache(entry());
+        await repository.saveRescueTimeSnapshotCache(entry({ credentialFingerprint: "fp-b" }));
+
+        await repository.pruneRescueTimeSnapshotCache("fp-b");
+
+        await expect(
+          repository.getRescueTimeSnapshotCache("2026-08-02", "goals", "fp-a"),
+        ).resolves.toBeNull();
+        await expect(
+          repository.getRescueTimeSnapshotCache("2026-08-02", "goals", "fp-b"),
+        ).resolves.not.toBeNull();
+      });
+
+      it("prune with null clears everything", async () => {
+        const repository = await factory();
+        await repository.saveRescueTimeSnapshotCache(entry());
+        await repository.saveRescueTimeSnapshotCache(entry({ credentialFingerprint: "fp-b" }));
+
+        await repository.pruneRescueTimeSnapshotCache(null);
+
+        await expect(
+          repository.getRescueTimeSnapshotCache("2026-08-02", "goals", "fp-a"),
+        ).resolves.toBeNull();
+        await expect(
+          repository.getRescueTimeSnapshotCache("2026-08-02", "goals", "fp-b"),
+        ).resolves.toBeNull();
+      });
+
+      describe("mergeRescueTimeObjectiveSecondsCache", () => {
+        const readMerged = async (repository: AppRepository, fingerprint = "fp-a") => {
+          const cached = await repository.getRescueTimeSnapshotCache(
+            "2026-08-02",
+            "objective_seconds",
+            fingerprint,
+          );
+          return cached ? JSON.parse(cached.payloadJson) : null;
+        };
+
+        it("keeps disjoint ids from two overlapping merges", async () => {
+          const repository = await factory();
+          await Promise.all([
+            repository.mergeRescueTimeObjectiveSecondsCache({
+              weekStartDate: "2026-08-02",
+              credentialFingerprint: "fp-a",
+              values: { one: { seconds: 10, fetchedAt: "2026-08-03T10:00:00.000Z" } },
+              fetchedAt: "2026-08-03T10:00:00.000Z",
+            }),
+            repository.mergeRescueTimeObjectiveSecondsCache({
+              weekStartDate: "2026-08-02",
+              credentialFingerprint: "fp-a",
+              values: { two: { seconds: 20, fetchedAt: "2026-08-03T10:00:01.000Z" } },
+              fetchedAt: "2026-08-03T10:00:01.000Z",
+            }),
+          ]);
+
+          await expect(readMerged(repository)).resolves.toEqual({
+            one: { seconds: 10, fetchedAt: "2026-08-03T10:00:00.000Z" },
+            two: { seconds: 20, fetchedAt: "2026-08-03T10:00:01.000Z" },
+          });
+        });
+
+        it("lets the call queued later win for the same id", async () => {
+          const repository = await factory();
+          await Promise.all([
+            repository.mergeRescueTimeObjectiveSecondsCache({
+              weekStartDate: "2026-08-02",
+              credentialFingerprint: "fp-a",
+              values: { one: { seconds: 1, fetchedAt: "2026-08-03T10:00:00.000Z" } },
+              fetchedAt: "2026-08-03T10:00:00.000Z",
+            }),
+            repository.mergeRescueTimeObjectiveSecondsCache({
+              weekStartDate: "2026-08-02",
+              credentialFingerprint: "fp-a",
+              values: { one: { seconds: 2, fetchedAt: "2026-08-03T11:00:00.000Z" } },
+              fetchedAt: "2026-08-03T11:00:00.000Z",
+            }),
+          ]);
+
+          await expect(readMerged(repository)).resolves.toEqual({
+            one: { seconds: 2, fetchedAt: "2026-08-03T11:00:00.000Z" },
+          });
+        });
+
+        it("keeps the original fetchedAt of retained ids", async () => {
+          const repository = await factory();
+          await repository.mergeRescueTimeObjectiveSecondsCache({
+            weekStartDate: "2026-08-02",
+            credentialFingerprint: "fp-a",
+            values: { one: { seconds: 10, fetchedAt: "2026-08-03T10:00:00.000Z" } },
+            fetchedAt: "2026-08-03T10:00:00.000Z",
+          });
+          await repository.mergeRescueTimeObjectiveSecondsCache({
+            weekStartDate: "2026-08-02",
+            credentialFingerprint: "fp-a",
+            values: { two: { seconds: 20, fetchedAt: "2026-08-05T10:00:00.000Z" } },
+            fetchedAt: "2026-08-05T10:00:00.000Z",
+          });
+
+          const merged = await readMerged(repository);
+          expect(merged.one.fetchedAt).toBe("2026-08-03T10:00:00.000Z");
+          expect(merged.two.fetchedAt).toBe("2026-08-05T10:00:00.000Z");
+          await expect(
+            repository.getRescueTimeSnapshotCache("2026-08-02", "objective_seconds", "fp-a"),
+          ).resolves.toMatchObject({ fetchedAt: "2026-08-05T10:00:00.000Z" });
+        });
+
+        it("replaces a corrupt existing payload instead of throwing", async () => {
+          const repository = await factory();
+          await repository.saveRescueTimeSnapshotCache(
+            entry({ kind: "objective_seconds", payloadJson: "{not json" }),
+          );
+
+          await repository.mergeRescueTimeObjectiveSecondsCache({
+            weekStartDate: "2026-08-02",
+            credentialFingerprint: "fp-a",
+            values: { one: { seconds: 10, fetchedAt: "2026-08-03T10:00:00.000Z" } },
+            fetchedAt: "2026-08-03T10:00:00.000Z",
+          });
+
+          await expect(readMerged(repository)).resolves.toEqual({
+            one: { seconds: 10, fetchedAt: "2026-08-03T10:00:00.000Z" },
+          });
+        });
+
+        it("does not mix fingerprints", async () => {
+          const repository = await factory();
+          await repository.mergeRescueTimeObjectiveSecondsCache({
+            weekStartDate: "2026-08-02",
+            credentialFingerprint: "fp-a",
+            values: { one: { seconds: 10, fetchedAt: "2026-08-03T10:00:00.000Z" } },
+            fetchedAt: "2026-08-03T10:00:00.000Z",
+          });
+
+          await expect(readMerged(repository, "fp-b")).resolves.toBeNull();
+        });
       });
     });
   });
