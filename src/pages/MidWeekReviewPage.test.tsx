@@ -8,6 +8,7 @@ import { clearFailedMidWeekDraft, getFailedMidWeekDraft } from "../app/mid-week-
 import { createEmptyDailyEntry, defaultAppSettings } from "../domain/daily-entry";
 import type { MidWeekLaggingSnapshot } from "../domain/mid-week-review";
 import type { AppSettings } from "../domain/types";
+import { MidWeekSteeringService } from "../lib/ai/mid-week-steering-service";
 import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
 import { RescueTimeGoalsService } from "../lib/rescuetime/rescuetime-goals-service";
 import { WeeklyObjectivesService } from "../lib/rescuetime/weekly-objectives-service";
@@ -316,6 +317,124 @@ describe("MidWeekReviewPage", () => {
         expect(rows[0].status).toBe("skipped");
       });
       expect(generate).not.toHaveBeenCalled();
+    });
+
+    const mockLoadsWithGatedRefresh = () => {
+      const base = {
+        weekStartDate: WEEK,
+        weekEndDate: "2026-08-08",
+      };
+      let calls = 0;
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      vi.spyOn(RescueTimeGoalsService.prototype, "computeGoalsSnapshot").mockImplementation(
+        async () => {
+          calls += 1;
+          if (calls > 1) {
+            await gate;
+          }
+          return {
+            ...base,
+            items: [],
+            totalAchievement: 0,
+            score: null,
+            rescuetimeConfigured: true,
+          };
+        },
+      );
+      vi.spyOn(RescueTimeGoalsService.prototype, "computeProductivityPulse").mockResolvedValue({
+        ...base,
+        pulse: null,
+        rescuetimeConfigured: true,
+      });
+      vi.spyOn(
+        WeeklyObjectivesService.prototype,
+        "computeWeeklyObjectivesSnapshot",
+      ).mockResolvedValue({
+        ...base,
+        items: [],
+        totalAchievement: 0,
+        score: null,
+        rescuetimeConfigured: true,
+      });
+      vi.spyOn(OpenRouterProvider.prototype, "generateStructured").mockImplementation(async () => ({
+        text: JSON.stringify({
+          headline: "Cap",
+          read: "Lecture",
+          focusShift: "Focus",
+          actions: [],
+        }),
+        model: "test",
+        usage: { tokensPrompt: 1, tokensCompletion: 1, latencyMs: 1 },
+      }));
+      return { release: () => release() };
+    };
+
+    it("does not steer stale data after Actualiser until the refreshed loads settle", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      await seedPomodoros(repository, [8, 0, 0]);
+      const gated = mockLoadsWithGatedRefresh();
+      const build = vi.spyOn(MidWeekSteeringService.prototype, "buildSteering");
+      const user = userEvent.setup();
+      await renderPage(repository, WEDNESDAY, { ...aiSettings(), rescuetimeApiKey: "rt-key" });
+
+      await waitFor(() => expect(build).toHaveBeenCalledTimes(1));
+      await user.click(await screen.findByRole("button", { name: "Actualiser" }));
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(build).toHaveBeenCalledTimes(1);
+
+      await act(async () => gated.release());
+      await waitFor(() => expect(build).toHaveBeenCalledTimes(2));
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(build).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not steer the previous day's data when calendarDay changes mid-week", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      await seedPomodoros(repository, [8, 0, 0]);
+      const gated = mockLoadsWithGatedRefresh();
+      const build = vi.spyOn(MidWeekSteeringService.prototype, "buildSteering");
+      await repository.saveSettings({ ...aiSettings(), rescuetimeApiKey: "rt-key" });
+      let base: AppContextValue | null = null;
+      const Capture = () => {
+        base = useAppContext();
+        return null;
+      };
+      const captured = await renderWithApp(<Capture />, { repository });
+      captured.unmount();
+      let setDay: (day: string) => void = () => undefined;
+      const Harness = () => {
+        const [day, setCurrent] = useState(WEDNESDAY);
+        setDay = setCurrent;
+        return (
+          <AppContext.Provider
+            value={{
+              ...(base as unknown as AppContextValue),
+              settings: { ...aiSettings(), rescuetimeApiKey: "rt-key" },
+              calendarDay: day,
+            }}
+          >
+            <MidWeekReviewPage />
+          </AppContext.Provider>
+        );
+      };
+      render(
+        <MemoryRouter>
+          <Harness />
+        </MemoryRouter>,
+      );
+
+      await waitFor(() => expect(build).toHaveBeenCalledTimes(1));
+      act(() => setDay("2026-08-06"));
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(build).toHaveBeenCalledTimes(1);
+
+      await act(async () => gated.release());
+      await waitFor(() => expect(build).toHaveBeenCalledTimes(2));
     });
 
     it("uses no AI at all on Sunday: no provider call, no ai_messages row, one line", async () => {

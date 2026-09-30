@@ -264,8 +264,12 @@ export const previewPayload = async (
     const goalsService = new RescueTimeGoalsService(repository);
     const objectivesService = new WeeklyObjectivesService(repository);
     const [goalsSnapshot, objectivesSnapshot] = await Promise.all([
-      goalsService.computeGoalsSnapshot(weekStartDate).catch(() => null),
-      objectivesService.computeWeeklyObjectivesSnapshot(weekStartDate).catch(() => null),
+      goalsService
+        .computeGoalsSnapshot(weekStartDate, { maxAgeMs: 15 * 60 * 1000 })
+        .catch(() => null),
+      objectivesService
+        .computeWeeklyObjectivesSnapshot(weekStartDate, { maxAgeMs: 15 * 60 * 1000 })
+        .catch(() => null),
     ]);
     const summary = buildMidWeekReviewSummary({
       weekStartDate,

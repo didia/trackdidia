@@ -89,13 +89,14 @@ export const MidWeekReviewPage = () => {
   const forcedRef = useRef(forced);
   forcedRef.current = forced;
 
+  const [settledLoadKey, setSettledLoadKey] = useState<string | null>(null);
   const saveContextRef = useRef(new Map<string, SaveContext>());
   const cycleRef = useRef<LoadCycle | null>(null);
   const loadKey = `${viewWeek}|${paceAsOf}|${refresh.count}`;
 
   // Declared before the resources so a new cycle exists before their loaders start.
   useEffect(() => {
-    void loadKey;
+    const cycleKey = loadKey;
     let resolveSettled: () => void = () => undefined;
     const settled = new Promise<void>((resolve) => {
       resolveSettled = resolve;
@@ -135,6 +136,8 @@ export const MidWeekReviewPage = () => {
           context.complete =
             names.every((key) => outcomes[key]) && external.every((item) => !item?.fetchError);
           resolveSettled();
+          // Readiness token for the steering auto-run: bound to this cycle's key.
+          setSettledLoadKey(cycleKey);
         }
       },
     };
@@ -226,7 +229,7 @@ export const MidWeekReviewPage = () => {
   const [steeringResult, setSteeringResult] = useState<MidWeekSteeringResult | null>(null);
   const [steeringLoading, setSteeringLoading] = useState(false);
   const steeringRanRef = useRef<string | null>(null);
-  const steeringKey = `${weekStart}|${calendarDay}|${refresh.count}`;
+  const steeringKey = loadKey;
 
   const runSteering = useCallback(
     async (options: { trigger: "auto" | "explicit"; bypassCache?: boolean }) => {
@@ -356,8 +359,11 @@ export const MidWeekReviewPage = () => {
       ? optimisticDecidedOn.date
       : (decisions.data?.decidedOnDate ?? null);
 
+  // `settledLoadKey === loadKey` proves the loads of the *current* cycle have all landed; the
+  // resource flags alone lag one render behind a key change and would steer stale data.
   const steeringReady =
     !sunday &&
+    settledLoadKey === loadKey &&
     summary !== null &&
     entries.data !== null &&
     !rescueTimeBusy &&
