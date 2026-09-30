@@ -2,6 +2,7 @@ import { formatTimestamp } from "../lib/format";
 import { useState } from "react";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { enqueueMidWeekDecisionSave } from "../app/mid-week-decision-saves";
 import { AppContext, useAppContext } from "../app/app-context";
 import { createEmptyDailyEntry, defaultAppSettings, updatePrinciple } from "../domain/daily-entry";
 import { principleDefinitions } from "../domain/definitions";
@@ -1751,6 +1752,24 @@ describe("WeeklyReviewPage mid-week decisions card", () => {
     const reads = vi.spyOn(withSnapshot, "getDailyEntry");
     await renderCard(withSnapshot);
     await waitFor(() => expect(reads.mock.calls.length).toBeGreaterThanOrEqual(baseline + 7));
+  });
+
+  it("waits for a queued mid-week save before reading the row", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    void enqueueMidWeekDecisionSave(WEEK, "En attente", async () => {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      await repository.saveMidWeekDecisions({
+        weekStartDate: WEEK,
+        decisions: "En attente",
+        decidedOnDate: "2026-08-05",
+        updatedAt: "2026-08-05T10:00:00.000Z",
+      });
+    });
+    await renderCard(repository);
+
+    expect(await screen.findByText("En attente")).toBeInTheDocument();
+    expect(screen.queryByText(/Aucune décision de mi-semaine/)).not.toBeInTheDocument();
   });
 
   it("shows an error line with a retry, never the empty state, when the read fails", async () => {

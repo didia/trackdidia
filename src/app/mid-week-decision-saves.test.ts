@@ -3,6 +3,7 @@ import {
   clearFailedMidWeekDraft,
   enqueueMidWeekDecisionSave,
   getFailedMidWeekDraft,
+  waitForMidWeekDecisionSaves,
 } from "./mid-week-decision-saves";
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -62,5 +63,30 @@ describe("mid-week decision save queue", () => {
     await expect(failing).rejects.toThrow();
     await next;
     expect(ran).toEqual(["b"]);
+  });
+
+  it("waits for a follow-up save enqueued right after the previous one settles", async () => {
+    const order: string[] = [];
+    const first = enqueueMidWeekDecisionSave("2026-08-02", "A", async () => {
+      await delay(20);
+      order.push("A");
+    });
+    void first.then(() => {
+      void enqueueMidWeekDecisionSave("2026-08-02", "AB", async () => {
+        await delay(20);
+        order.push("AB");
+      });
+    });
+    await waitForMidWeekDecisionSaves("2026-08-02");
+    expect(order).toEqual(["A", "AB"]);
+  });
+
+  it("never rejects and returns immediately when nothing is queued", async () => {
+    await expect(waitForMidWeekDecisionSaves("2026-08-16")).resolves.toBeUndefined();
+    const failing = enqueueMidWeekDecisionSave("2026-08-02", "x", async () => {
+      throw new Error("x");
+    });
+    failing.catch(() => undefined);
+    await expect(waitForMidWeekDecisionSaves("2026-08-02")).resolves.toBeUndefined();
   });
 });

@@ -480,6 +480,57 @@ describe("MidWeekReviewPage", () => {
       expect(within(alert).getByRole("button", { name: "Réessayer" })).toBeInTheDocument();
     }, 20000);
 
+    it("waits for a coalesced follow-up save before showing the editor on a quick remount", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      vi.spyOn(
+        WeeklyObjectivesService.prototype,
+        "computeWeeklyObjectivesSnapshot",
+      ).mockImplementation(() => new Promise(() => undefined));
+      const user = userEvent.setup();
+      const first = await renderPage(repository, WEDNESDAY, keyedSettings());
+      await user.type(await waitFor(editorEnabled, { timeout: 6000 }), "A");
+      await new Promise((resolve) => setTimeout(resolve, 600)); // debounce fires: "A" in flight
+      await user.type(editor(), "B");
+      first.unmount();
+
+      await renderPage(repository, WEDNESDAY, keyedSettings());
+      expect(editor()).toBeDisabled();
+      await waitFor(() => expect(editor()).toBeEnabled(), { timeout: 10000 });
+      expect(editor()).toHaveValue("AB");
+      expect((await repository.getMidWeekDecisions(WEEK))?.decisions).toBe("AB");
+    }, 25000);
+
+    it("restores the draft and alert when the coalesced follow-up save rejects", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      vi.spyOn(
+        WeeklyObjectivesService.prototype,
+        "computeWeeklyObjectivesSnapshot",
+      ).mockImplementation(() => new Promise(() => undefined));
+      const realSave = repository.saveMidWeekDecisions.bind(repository);
+      vi.spyOn(repository, "saveMidWeekDecisions").mockImplementation(async (input) => {
+        if (input.decisions === "AB") {
+          throw new Error("disk");
+        }
+        return realSave(input);
+      });
+      const user = userEvent.setup();
+      const first = await renderPage(repository, WEDNESDAY, keyedSettings());
+      await user.type(await waitFor(editorEnabled, { timeout: 6000 }), "A");
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      await user.type(editor(), "B");
+      first.unmount();
+
+      await renderPage(repository, WEDNESDAY, keyedSettings());
+      expect(editor()).toBeDisabled();
+      await waitFor(() => expect(editor()).toBeEnabled(), { timeout: 10000 });
+      expect(editor()).toHaveValue("AB");
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent("Décisions non enregistrées");
+      expect(within(alert).getByRole("button", { name: "Réessayer" })).toBeInTheDocument();
+    }, 25000);
+
     it("does not leak an old week's save state onto the new week's editor (in-place day change)", async () => {
       const repository = new MemoryRepository();
       await repository.initialize();

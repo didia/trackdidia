@@ -43,6 +43,7 @@ import { WeeklySynthesisService } from "../lib/ai/weekly-synthesis-service";
 import { formatDateLong, formatDateShort, getTodayDate } from "../lib/date";
 import { formatPercent, formatTimestamp } from "../lib/format";
 import { addDays } from "../lib/gtd/shared";
+import { waitForMidWeekDecisionSaves } from "../app/mid-week-decision-saves";
 import { loadDecoratedWeekEntries } from "../lib/storage/week-entries";
 import {
   buildMidWeekReviewSummary,
@@ -757,9 +758,11 @@ export const WeeklyReviewPage = () => {
 
   // Read-only mid-week decisions card. Entries are loaded only when a snapshot exists so plain
   // week navigation adds no queries.
-  const midWeekDecisions = useAsyncResource(selectedWeekStart, (week) =>
-    repository.getMidWeekDecisions(week),
-  );
+  const midWeekDecisions = useAsyncResource(selectedWeekStart, async (week) => {
+    // A save still queued from /mi-semaine must land before the card reads the row.
+    await waitForMidWeekDecisionSaves(week);
+    return repository.getMidWeekDecisions(week);
+  });
   // Ignore a row that belongs to another week (the resource clears on key change, but guard anyway).
   const midWeekRow =
     midWeekDecisions.data?.weekStartDate === selectedWeekStart ? midWeekDecisions.data : null;

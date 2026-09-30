@@ -48,9 +48,25 @@ export const clearFailedMidWeekDraft = (weekStart: string): void => {
   failedDrafts.delete(weekStart);
 };
 
-/** Resolves once every queued save for the week has settled. Never rejects. */
-export const waitForMidWeekDecisionSaves = (weekStart: string): Promise<void> =>
-  (chains.get(weekStart) ?? Promise.resolve()).then(
-    () => undefined,
-    () => undefined,
-  );
+/**
+ * Resolves once the week's save chain is stable: every queued save has settled and no follow-up
+ * was enqueued meanwhile (a coalesced `PersistedTextarea` save is sent right after the previous
+ * one settles). Never rejects and is bounded, so it cannot loop forever.
+ */
+export const waitForMidWeekDecisionSaves = async (weekStart: string): Promise<void> => {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const current = chains.get(weekStart);
+    if (!current) {
+      return;
+    }
+    await current.then(
+      () => undefined,
+      () => undefined,
+    );
+    // Let the settled save's handlers run and enqueue a coalesced follow-up.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    if (chains.get(weekStart) === current) {
+      return;
+    }
+  }
+};
