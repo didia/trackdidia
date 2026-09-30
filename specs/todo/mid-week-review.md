@@ -1,6 +1,6 @@
 # Spec — Mid-week steering page
 
-**Status:** approved; PR A (RescueTime snapshot cache and freshness window) shipped, the rest unshipped. Planner/validator loop: approved on iteration 1, revised
+**Status:** approved; PR A (RescueTime snapshot cache and freshness window), B1 (pure math) and B2 (page, decisions, weekly mirror) shipped; C (optional) and D (AI steering) unshipped. Planner/validator loop: approved on iteration 1, revised
 for owner decisions, re-approved on iteration 2. The Wednesday snapshot (§B2.3–B2.4) was
 added after that at the owner's request, and was revised once after validator review. A
 second revision addressed the owner's PR review (#171): decisions load and save

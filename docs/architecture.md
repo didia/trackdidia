@@ -110,6 +110,7 @@ floating Pomodoro timer.
 | `/routine-matin` | Morning routine | Intention, morning principles, initial GTD load |
 | `/fermeture-soir` | Evening closure | Metrics, all principles, reflection, tomorrow focus |
 | `/semaine` | Weekly review | Sunday-Saturday summary and eight-part ritual |
+| `/mi-semaine` | Mid-week check | Pro-rated pace of the current week, what to catch up, saved decisions |
 | `/mois` | Monthly review | Monthly aggregates, linked weeks/goals, ten-part ritual |
 | `/objectifs-annuels` | Annual goals | Targets, data sources, monthly trend/evaluation |
 | `/historique` | Daily history | Create/edit/reopen/close any calendar day |

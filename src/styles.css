@@ -1639,6 +1639,42 @@ button.tag-chip:active:not(:disabled) {
   }
 }
 
+.midweek-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.midweek-signal {
+  padding: 12px 14px;
+  border: 1px solid var(--accent-soft);
+  border-radius: 14px;
+}
+
+.midweek-signal[data-status="lagging"],
+.midweek-signal[data-status="at_risk"] {
+  border-left: 4px solid var(--accent);
+}
+
+.midweek-signal__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.midweek-decisions-text {
+  white-space: pre-wrap;
+}
+
+@media (max-width: 768px) {
+  .midweek-signal {
+    padding: 10px 12px;
+  }
+}
+
 @media (max-width: 1024px) {
   .layout {
     grid-template-columns: 1fr;

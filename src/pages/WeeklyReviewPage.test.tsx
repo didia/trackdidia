@@ -1,6 +1,6 @@
 import { formatTimestamp } from "../lib/format";
 import { useState } from "react";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AppContext, useAppContext } from "../app/app-context";
 import { createEmptyDailyEntry, defaultAppSettings, updatePrinciple } from "../domain/daily-entry";
@@ -15,6 +15,7 @@ import { createWeeklyMemoryProposals } from "../lib/ai/memory/weekly-distillatio
 import { loadLatestWeeklySynthesis } from "../lib/ai/weekly-synthesis-loader";
 import { WeeklySynthesisService } from "../lib/ai/weekly-synthesis-service";
 import * as dateModule from "../lib/date";
+import { formatDateLong } from "../lib/date";
 import { formatPercent } from "../lib/format";
 import { addDays } from "../lib/gtd/shared";
 import { WeeklyObjectivesService } from "../lib/rescuetime/weekly-objectives-service";
@@ -1635,5 +1636,212 @@ describe("WeeklyReviewPage coach cache", () => {
       });
     });
     expect(buildSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("WeeklyReviewPage mid-week decisions card", () => {
+  const WEEK = "2026-08-02";
+  const CALENDAR_DAY = "2026-08-20"; // the displayed week is over
+
+  const signal = (
+    key: string,
+    overrides: Partial<import("../domain/mid-week-review").MidWeekSnapshotSignal> = {},
+  ): import("../domain/mid-week-review").MidWeekSnapshotSignal => ({
+    key,
+    category: "metric",
+    label: key,
+    direction: "more",
+    status: "lagging",
+    actual: 8,
+    expected: 24,
+    weekTarget: 56,
+    unit: null,
+    daysApplicable: 3,
+    daysWithData: 3,
+    hasFullCoverage: true,
+    ...overrides,
+  });
+
+  const seed = async (
+    repository: MemoryRepository,
+    signals: ReturnType<typeof signal>[] | null,
+    decidedOnDate = "2026-08-05",
+  ) => {
+    await repository.saveMidWeekDecisions({
+      weekStartDate: WEEK,
+      decisions: "Couper le téléphone le soir",
+      decidedOnDate,
+      updatedAt: "2026-08-05T10:00:00.000Z",
+      ...(signals
+        ? {
+            laggingSnapshot: {
+              version: 1 as const,
+              asOfDate: "2026-08-05",
+              completedDays: 3,
+              signals,
+            },
+          }
+        : {}),
+    });
+  };
+
+  const seedWeek = async (
+    repository: MemoryRepository,
+    mutate: (entry: ReturnType<typeof createEmptyDailyEntry>, index: number) => void,
+  ) => {
+    for (let index = 0; index < 7; index += 1) {
+      const entry = createEmptyDailyEntry(addDays(WEEK, index));
+      mutate(entry, index);
+      await repository.saveDailyEntry(entry);
+    }
+  };
+
+  const mockRescueTimeEmpty = () => {
+    vi.spyOn(RescueTimeGoalsService.prototype, "computeProductivityPulse").mockResolvedValue({
+      weekStartDate: WEEK,
+      weekEndDate: "2026-08-08",
+      pulse: null,
+      rescuetimeConfigured: true,
+    });
+  };
+
+  const renderCard = async (repository: MemoryRepository) =>
+    renderWithApp(<WeeklyReviewPage />, {
+      repository,
+      route: `/semaine?date=${WEEK}`,
+      contextOverrides: { calendarDay: CALENDAR_DAY },
+    });
+
+  it("shows the empty state with a mid-week link when there is no row", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await renderCard(repository);
+
+    expect(await screen.findByText(/Aucune décision de mi-semaine/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Ouvrir la mi-semaine" })).toHaveAttribute(
+      "href",
+      "/mi-semaine",
+    );
+  });
+
+  it("shows a read-only decisions text and loads no entries without a snapshot", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await seed(repository, null);
+    const withoutSnapshotReads = vi.spyOn(repository, "getDailyEntry");
+    const first = await renderCard(repository);
+
+    expect(await screen.findByText("Couper le téléphone le soir")).toBeInTheDocument();
+    expect(screen.queryByText("Avant / après")).not.toBeInTheDocument();
+    const card = screen.getByRole("region", { name: "Décisions de mi-semaine" });
+    expect(within(card).queryByRole("textbox")).not.toBeInTheDocument();
+    expect(within(card).getByRole("link", { name: "Ouvrir la mi-semaine" })).toHaveAttribute(
+      "href",
+      "/mi-semaine",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const baseline = withoutSnapshotReads.mock.calls.length;
+    first.unmount();
+
+    // Same page with a snapshot: the card adds one read per day of the week on top.
+    const withSnapshot = new MemoryRepository();
+    await withSnapshot.initialize();
+    await seed(withSnapshot, [signal("metric:pomodoris")]);
+    mockRescueTimeEmpty();
+    const reads = vi.spyOn(withSnapshot, "getDailyEntry");
+    await renderCard(withSnapshot);
+    await waitFor(() => expect(reads.mock.calls.length).toBeGreaterThanOrEqual(baseline + 7));
+  });
+
+  it("shows an error line with a retry, never the empty state, when the read fails", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    vi.spyOn(repository, "getMidWeekDecisions").mockRejectedValueOnce(new Error("boom"));
+    await renderCard(repository);
+
+    const card = await screen.findByRole("region", { name: "Décisions de mi-semaine" });
+    expect(await within(card).findByRole("alert")).toHaveTextContent(/Impossible de charger/);
+    expect(within(card).queryByText(/Aucune décision/)).not.toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "Réessayer" })).toBeInTheDocument();
+  });
+
+  it("pairs recovered and not-recovered signals, labelling the before side with the snapshot date", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await seedWeek(repository, (entry) => {
+      entry.metrics.pomodoris = 8;
+      entry.metrics.depenseCalorique = 0;
+    });
+    await seed(
+      repository,
+      [
+        signal("metric:pomodoris", { label: "Pomodoris" }),
+        signal("metric:depenseCalorique", { label: "Calories" }),
+      ],
+      "2026-08-07",
+    );
+    mockRescueTimeEmpty();
+    await renderCard(repository);
+
+    const card = await screen.findByRole("region", { name: "Décisions de mi-semaine" });
+    await waitFor(() => expect(within(card).getByText("Rattrapé")).toBeInTheDocument());
+    expect(within(card).getByText("Pas rattrapé")).toBeInTheDocument();
+    expect(card.textContent).toContain(`Au ${formatDateLong("2026-08-05")}`);
+    expect(card.textContent).not.toContain(`Au ${formatDateLong("2026-08-07")} :`);
+  });
+
+  it("shows a dash for a missing key and its own label for an unknown after side", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await seedWeek(repository, () => undefined);
+    await seed(repository, [
+      signal("rescuetime:99", { label: "Goal supprimé", category: "rescuetime" }),
+      signal("principle:respectTrc", { label: "TRC", category: "principle" }),
+    ]);
+    mockRescueTimeEmpty();
+    await renderCard(repository);
+
+    const card = await screen.findByRole("region", { name: "Décisions de mi-semaine" });
+    await waitFor(() => expect(within(card).getByText("—")).toBeInTheDocument());
+    expect(within(card).getByText("Sans données")).toBeInTheDocument();
+  });
+
+  it("adds the coverage caveat and a neutral marker without full coverage, but still credits a 5/5 goal", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await seedWeek(repository, (entry, index) => {
+      entry.metrics.qualiteSommeil = index < 3 ? 80 : null;
+    });
+    await seed(repository, [
+      signal("metric:qualiteSommeil", { label: "Sommeil", direction: "quality" }),
+      signal("rescuetime:1", { label: "Goal 5 jours", category: "rescuetime" }),
+    ]);
+    vi.spyOn(RescueTimeGoalsService.prototype, "computeGoalsSnapshot").mockResolvedValue({
+      weekStartDate: WEEK,
+      weekEndDate: "2026-08-08",
+      score: 1,
+      totalAchievement: 1,
+      items: [
+        {
+          goalId: 1,
+          title: "Goal 5 jours",
+          isMore: true,
+          actualHours: 10,
+          weeklyTargetHours: 10,
+          achievement: 1,
+          scheduleLabel: "Working hours",
+        },
+      ],
+      rescuetimeConfigured: true,
+    });
+    mockRescueTimeEmpty();
+    await renderCard(repository);
+
+    const card = await screen.findByRole("region", { name: "Décisions de mi-semaine" });
+    await waitFor(() =>
+      expect(within(card).getByText(/sur 3 \/ 7 jours renseignés/)).toBeInTheDocument(),
+    );
+    expect(within(card).getAllByText("Rattrapé")).toHaveLength(1);
+    expect(within(card).getByText("Sans verdict")).toBeInTheDocument();
   });
 });

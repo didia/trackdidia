@@ -315,8 +315,8 @@ export const MidWeekReviewPage = () => {
     <li key={signal.key} className="midweek-signal" data-status={signal.status}>
       <div className="midweek-signal__head">
         <strong>{signal.label}</strong>
-        <span className="pill">{t(`midWeek.category.${signal.category}`)}</span>
-        <span className="pill">{t(`midWeek.status.${signal.status}`)}</span>
+        <span className="summary-pill">{t(`midWeek.category.${signal.category}`)}</span>
+        <span className="summary-pill">{t(`midWeek.status.${signal.status}`)}</span>
       </div>
       {signal.status !== "unknown" ? (
         <p>

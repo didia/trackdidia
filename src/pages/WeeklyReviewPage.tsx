@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAppContext } from "../app/app-context";
-import { type LatestRequest, useLatestRequest } from "../app/use-latest-request";
+import { type LatestRequest, useAsyncResource, useLatestRequest } from "../app/use-latest-request";
 import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
 import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
@@ -43,6 +43,12 @@ import { WeeklySynthesisService } from "../lib/ai/weekly-synthesis-service";
 import { formatDateLong, formatDateShort, getTodayDate } from "../lib/date";
 import { formatPercent, formatTimestamp } from "../lib/format";
 import { addDays } from "../lib/gtd/shared";
+import { loadDecoratedWeekEntries } from "../lib/storage/week-entries";
+import {
+  buildMidWeekReviewSummary,
+  compareMidWeekSnapshot,
+  type MidWeekStatus,
+} from "../domain/mid-week-review";
 import {
   RescueTimeGoalsService,
   type RescueTimeProductivityPulseSnapshot,
@@ -77,6 +83,14 @@ const ritualSectionMeta: Array<{
   { key: "alignement", linkTo: "/projects", linkKey: "weekly.ritual.alignement.link" },
   { key: "dimanche", linkTo: "/historique", linkKey: "weekly.ritual.dimanche.link" },
 ];
+
+const formatMidWeekValue = (value: number | null, unit: string | null): string => {
+  if (value === null) {
+    return "—";
+  }
+  const rounded = Math.round(value * 10) / 10;
+  return unit ? `${rounded} ${unit}` : String(rounded);
+};
 
 const formatWholePercent = (value: number): string => `${Math.round(value)}%`;
 
@@ -741,6 +755,69 @@ export const WeeklyReviewPage = () => {
     }
   }, [settings.rescuetimeApiKey, hasValidSelectedWeek, loadRescueTimeData, selectedWeekStart]);
 
+  // Read-only mid-week decisions card. Entries are loaded only when a snapshot exists so plain
+  // week navigation adds no queries.
+  const midWeekDecisions = useAsyncResource(selectedWeekStart, (week) =>
+    repository.getMidWeekDecisions(week),
+  );
+  const midWeekSnapshot = midWeekDecisions.data?.laggingSnapshot ?? null;
+  const midWeekEntries = useAsyncResource(
+    `${selectedWeekStart}|${midWeekSnapshot ? "with" : "without"}`,
+    () =>
+      midWeekSnapshot
+        ? loadDecoratedWeekEntries(repository, selectedWeekStart)
+        : Promise.resolve(null),
+  );
+  const midWeekWeekEnd = addDays(selectedWeekStart, 6);
+  const midWeekToDate = midWeekWeekEnd >= calendarDay;
+  const midWeekComparison = useMemo(() => {
+    if (
+      !midWeekSnapshot ||
+      !midWeekEntries.data ||
+      !summary ||
+      summary.weekStartDate !== selectedWeekStart
+    ) {
+      return null;
+    }
+    if (
+      goalsLoading ||
+      goalsRefreshing ||
+      pulseLoading ||
+      pulseRefreshing ||
+      standingObjectivesLoading
+    ) {
+      return null;
+    }
+    const matches = <T extends { weekStartDate: string }>(value: T | null): T | null =>
+      value?.weekStartDate === selectedWeekStart ? value : null;
+    const finalSummary = buildMidWeekReviewSummary({
+      weekStartDate: selectedWeekStart,
+      asOfDate: midWeekToDate ? calendarDay : addDays(midWeekWeekEnd, 1),
+      weekEntries: midWeekEntries.data,
+      summary,
+      goalsSnapshot: matches(goalsSnapshot),
+      pulseSnapshot: matches(pulseSnapshot),
+      objectivesSnapshot: matches(standingObjectivesSnapshot),
+    });
+    return compareMidWeekSnapshot(midWeekSnapshot, finalSummary);
+  }, [
+    midWeekSnapshot,
+    midWeekEntries.data,
+    summary,
+    selectedWeekStart,
+    goalsSnapshot,
+    pulseSnapshot,
+    standingObjectivesSnapshot,
+    goalsLoading,
+    goalsRefreshing,
+    pulseLoading,
+    pulseRefreshing,
+    standingObjectivesLoading,
+    midWeekToDate,
+    calendarDay,
+    midWeekWeekEnd,
+  ]);
+
   const displayedSummary = useMemo(() => {
     if (!summary) {
       return null;
@@ -803,6 +880,7 @@ export const WeeklyReviewPage = () => {
       .filter((value): value is string => value !== undefined && Number.isFinite(Date.parse(value)))
       .sort((a, b) => Date.parse(a) - Date.parse(b))[0] ?? null;
   const goalsBusy = goalsLoading || goalsRefreshing;
+
   const pulseBusy = pulseLoading || pulseRefreshing;
   const rescueTimeRefreshing = goalsRefreshing || pulseRefreshing;
 
@@ -971,6 +1049,101 @@ export const WeeklyReviewPage = () => {
             </strong>
           </article>
         </div>
+      </SectionCard>
+
+      <SectionCard
+        title={t("weekly.midWeekDecisions.title")}
+        subtitle={t("weekly.midWeekDecisions.subtitle")}
+      >
+        {midWeekDecisions.loading ? (
+          <p className="empty-copy">{t("weekly.loadingPlaceholder")}</p>
+        ) : midWeekDecisions.error ? (
+          <div className="banner" role="alert">
+            {t("weekly.midWeekDecisions.loadError")}{" "}
+            <button className="button" type="button" onClick={() => void midWeekDecisions.reload()}>
+              {t("weekly.midWeekDecisions.retry")}
+            </button>
+          </div>
+        ) : !midWeekDecisions.data ? (
+          <>
+            <p className="empty-copy">{t("weekly.midWeekDecisions.empty")}</p>
+            <div className="section-actions">
+              <Link className="button" to="/mi-semaine">
+                {t("weekly.midWeekDecisions.openMidWeek")}
+              </Link>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="midweek-decisions-text">{midWeekDecisions.data.decisions}</p>
+            <p className="empty-copy">
+              {t("weekly.midWeekDecisions.decidedOn", {
+                date: formatDateLong(midWeekDecisions.data.decidedOnDate),
+              })}
+            </p>
+            {midWeekSnapshot ? (
+              <>
+                <h3>{t("weekly.midWeekDecisions.snapshotTitle")}</h3>
+                {!midWeekComparison ? (
+                  <p className="empty-copy">{t("weekly.midWeekDecisions.loadingSnapshot")}</p>
+                ) : (
+                  <ul className="midweek-list">
+                    {midWeekComparison.map(({ key, before, after, recovered }) => {
+                      const status = (value: MidWeekStatus) => t(`midWeek.status.${value}`);
+                      return (
+                        <li key={key} className="midweek-signal">
+                          <strong>{before.label}</strong>
+                          <p>
+                            {t("weekly.midWeekDecisions.before", {
+                              date: formatDateLong(midWeekSnapshot.asOfDate),
+                              actual: formatMidWeekValue(before.actual, before.unit),
+                              expected: formatMidWeekValue(before.expected, before.unit),
+                              status: status(before.status),
+                            })}
+                          </p>
+                          <p>
+                            {after === null
+                              ? t("weekly.midWeekDecisions.gone")
+                              : after.status === "unknown"
+                                ? t("weekly.midWeekDecisions.unknown")
+                                : t(
+                                    midWeekToDate
+                                      ? "weekly.midWeekDecisions.afterToDate"
+                                      : "weekly.midWeekDecisions.after",
+                                    {
+                                      actual: formatMidWeekValue(after.actual, after.unit),
+                                      target: formatMidWeekValue(after.weekTarget, after.unit),
+                                      status: status(after.status),
+                                    },
+                                  )}
+                            {after !== null && after.status !== "unknown" && !after.hasFullCoverage
+                              ? ` ${t("weekly.midWeekDecisions.partialCoverage", {
+                                  withData: after.daysWithData,
+                                  applicable: after.daysApplicable,
+                                })}`
+                              : ""}
+                          </p>
+                          <span className="summary-pill">
+                            {recovered === true
+                              ? t("weekly.midWeekDecisions.recovered")
+                              : recovered === false
+                                ? t("weekly.midWeekDecisions.notRecovered")
+                                : t("weekly.midWeekDecisions.neutral")}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </>
+            ) : null}
+            <div className="section-actions">
+              <Link className="button" to="/mi-semaine">
+                {t("weekly.midWeekDecisions.openMidWeek")}
+              </Link>
+            </div>
+          </>
+        )}
       </SectionCard>
 
       <SectionCard
