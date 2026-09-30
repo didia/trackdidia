@@ -28,6 +28,8 @@ import type {
   RecurringTaskChanges,
   RecurringTaskTemplate,
   RecurringTemplateFilters,
+  RescueTimeSnapshotCacheEntry,
+  RescueTimeSnapshotCacheKind,
   Task,
   TaskContext,
   TaskEvent,
@@ -83,6 +85,27 @@ export interface AppRepository {
   deleteWeeklyObjective(objectiveId: string): Promise<void>;
   getWeeklyObjectiveResults(weekStartDate: string): Promise<WeeklyObjectiveResult[]>;
   saveWeeklyObjectiveResult(result: WeeklyObjectiveResult): Promise<void>;
+  /** Cache entry for the given week, kind and credential fingerprint, or `null` on a miss. */
+  getRescueTimeSnapshotCache(
+    weekStartDate: string,
+    kind: RescueTimeSnapshotCacheKind,
+    credentialFingerprint: string,
+  ): Promise<RescueTimeSnapshotCacheEntry | null>;
+  /** Upsert; `fetchedAt` is supplied by the caller. Used for the `goals` and `pulse` kinds. */
+  saveRescueTimeSnapshotCache(entry: RescueTimeSnapshotCacheEntry): Promise<void>;
+  /** Deletes every entry whose fingerprint differs from `keepFingerprint` (all when `null`). */
+  pruneRescueTimeSnapshotCache(keepFingerprint: string | null): Promise<void>;
+  /**
+   * Atomically merges `values` into the `objective_seconds` entry: reads the current row, merges
+   * with `mergeObjectiveSecondsPayload` and writes as one serialized step, so overlapping
+   * computations cannot erase each other's ids. `fetchedAt` is the row-level write time.
+   */
+  mergeRescueTimeObjectiveSecondsCache(input: {
+    weekStartDate: string;
+    credentialFingerprint: string;
+    values: Record<string, { seconds: number; fetchedAt: string }>;
+    fetchedAt: string;
+  }): Promise<void>;
   getMonthlyReview(monthKey: string): Promise<MonthlyReview | null>;
   saveMonthlyReview(review: MonthlyReview): Promise<void>;
   listMonthlyReviews(limit?: number): Promise<MonthlyReview[]>;

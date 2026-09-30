@@ -10,6 +10,7 @@ import {
   createEmptyDailyEntry,
   defaultAppSettings,
 } from "../../domain/daily-entry";
+import { mergeObjectiveSecondsPayload } from "../../domain/rescuetime-goals";
 import { journalPeriodOverlaps } from "../../domain/journal-feed";
 import {
   buildMonthlyReviewSummary,
@@ -41,6 +42,8 @@ import type {
   RecurringTaskChanges,
   RecurringTaskTemplate,
   RecurringTemplateFilters,
+  RescueTimeSnapshotCacheEntry,
+  RescueTimeSnapshotCacheKind,
   Task,
   TaskContext,
   TaskEvent,
@@ -131,6 +134,7 @@ export class MemoryRepository implements AppRepository {
   private weeklyReviews = new Map<string, WeeklyReview>();
   private weeklyObjectives = new Map<string, WeeklyObjective>();
   private weeklyObjectiveResults = new Map<string, WeeklyObjectiveResult>();
+  private rescueTimeSnapshotCache = new Map<string, RescueTimeSnapshotCacheEntry>();
   private monthlyReviews = new Map<string, MonthlyReview>();
   private annualGoals = new Map<string, AnnualGoal>();
   private settings: AppSettings = defaultAppSettings();
@@ -286,6 +290,67 @@ export class MemoryRepository implements AppRepository {
     return [...this.weeklyObjectiveResults.values()]
       .filter((result) => result.weekStartDate === normalized)
       .map((result) => ({ ...result }));
+  }
+
+  private rescueTimeCacheKey(
+    weekStartDate: string,
+    kind: RescueTimeSnapshotCacheKind,
+    credentialFingerprint: string,
+  ): string {
+    return `${buildWeekDates(weekStartDate)}:${kind}:${credentialFingerprint}`;
+  }
+
+  async getRescueTimeSnapshotCache(
+    weekStartDate: string,
+    kind: RescueTimeSnapshotCacheKind,
+    credentialFingerprint: string,
+  ): Promise<RescueTimeSnapshotCacheEntry | null> {
+    const entry = this.rescueTimeSnapshotCache.get(
+      this.rescueTimeCacheKey(weekStartDate, kind, credentialFingerprint),
+    );
+    return entry ? { ...entry } : null;
+  }
+
+  async saveRescueTimeSnapshotCache(entry: RescueTimeSnapshotCacheEntry): Promise<void> {
+    const weekStartDate = buildWeekDates(entry.weekStartDate);
+    this.rescueTimeSnapshotCache.set(
+      this.rescueTimeCacheKey(weekStartDate, entry.kind, entry.credentialFingerprint),
+      { ...entry, weekStartDate },
+    );
+  }
+
+  async pruneRescueTimeSnapshotCache(keepFingerprint: string | null): Promise<void> {
+    for (const [key, entry] of this.rescueTimeSnapshotCache) {
+      if (entry.credentialFingerprint !== keepFingerprint) {
+        this.rescueTimeSnapshotCache.delete(key);
+      }
+    }
+  }
+
+  /** Read, merge and write run synchronously (no `await`), so calls cannot interleave. */
+  async mergeRescueTimeObjectiveSecondsCache(input: {
+    weekStartDate: string;
+    credentialFingerprint: string;
+    values: Record<string, { seconds: number; fetchedAt: string }>;
+    fetchedAt: string;
+  }): Promise<void> {
+    const weekStartDate = buildWeekDates(input.weekStartDate);
+    const key = this.rescueTimeCacheKey(
+      weekStartDate,
+      "objective_seconds",
+      input.credentialFingerprint,
+    );
+    const merged = mergeObjectiveSecondsPayload(
+      this.rescueTimeSnapshotCache.get(key)?.payloadJson ?? null,
+      input.values,
+    );
+    this.rescueTimeSnapshotCache.set(key, {
+      weekStartDate,
+      kind: "objective_seconds",
+      credentialFingerprint: input.credentialFingerprint,
+      payloadJson: JSON.stringify(merged),
+      fetchedAt: input.fetchedAt,
+    });
   }
 
   async saveWeeklyObjectiveResult(result: WeeklyObjectiveResult): Promise<void> {

@@ -57,8 +57,10 @@
       },
       "source": {
         "goals": "RescueTime Goals",
-        "missingKey": "Clé manquante"
+        "missingKey": "Clé manquante",
+        "cache": "Cache RescueTime"
       },
+      "cachedNotice": "RescueTime est injoignable : dernières valeurs enregistrées le {{timestamp}}.",
       "refreshing": "Rafraîchissement...",
       "refresh": "Rafraîchir RescueTime",
       "loading": "Chargement des objectifs RescueTime...",

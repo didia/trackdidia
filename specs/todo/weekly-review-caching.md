@@ -1,6 +1,6 @@
 # Weekly review: RescueTime cache, compact goal lines, weekly coach cache
 
-Status: approved plan, not implemented. Reviewed by a planner/validator loop
+Status: §1 shipped; §2 and §3 not implemented. Reviewed by a planner/validator loop
 (1 revision round, `PLAN_APPROVED`).
 
 Requests:
@@ -89,7 +89,7 @@ Repository contract (`src/lib/storage/repository.ts`, implemented in both
 
 **Read rules**
 
-- Read the cache only when `rescuetimeConfigured` is true, the live pull failed, and only entries matching the current key's fingerprint.
+- Read the cache only when `rescuetimeConfigured` is true, the live pull failed, and only entries matching the current key's fingerprint. (Extension shipped with PR A of [`mid-week-review.md`](mid-week-review.md): an opt-in `maxAgeMs` freshness window also serves a fresh entry without a pull. Absent, behavior is as described here.)
   Removing the API key shows the missing-key state, never cached numbers.
 - Add optional `cachedAt?: string` to `RescueTimeGoalsSnapshot`
   (`src/domain/rescuetime-goals.ts`), `RescueTimeProductivityPulseSnapshot`, and

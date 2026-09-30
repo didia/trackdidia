@@ -661,6 +661,12 @@ on read, and included in SQLite backups. It is never logged by the app. You can
 change it at any time while the app is running; the weekly review reloads goals
 when the saved key changes.
 
+Successful pulls are cached locally in `rescuetime_snapshot_cache` (see
+[RescueTime snapshot cache](reviews-and-goals.md#rescuetime-snapshot-cache)). RescueTime goal
+titles and hours are therefore stored at rest, scoped by a truncated SHA-256 fingerprint of
+the key; the key itself is never stored in that table (it stays only in the settings row).
+The cache is included in backups. The browser preview cache is in-memory only.
+
 Repo-root `.env` with `RESCUETIME_API_KEY` is optional and supported **only** for
 local CLI scripts such as `scripts/rescuetime-goals-score.ts`, run with
 `npm run rescuetime:score -- [--week YYYY-MM-DD]`. That script reuses

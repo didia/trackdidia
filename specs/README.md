@@ -15,9 +15,9 @@ current-product behavior remains documented in [`docs/`](../docs/).
   companion app and decentralized desktop↔phone sync engine.
 - [`todo/calendar-sync.md`](todo/calendar-sync.md) — approved, unshipped one-way Google
   Calendar sync of Scheduled and Planned tasks with a date.
-- [`todo/weekly-review-caching.md`](todo/weekly-review-caching.md) — approved, unshipped
-  RescueTime snapshot cache, compact weekly RescueTime goal lines, and last-good weekly
-  coach synthesis fallback.
+- [`todo/weekly-review-caching.md`](todo/weekly-review-caching.md) — §1 shipped (RescueTime
+  snapshot cache); §2 compact weekly RescueTime goal lines and §3 last-good weekly coach
+  synthesis fallback not implemented.
 - [`todo/mid-week-review.md`](todo/mid-week-review.md) — approved, unshipped dedicated
   `/mi-semaine` steering page: week-to-date pace per signal, recovery hints, persisted
   mid-week decisions with a before/after snapshot on `/semaine`, and a later AI steering

@@ -14,6 +14,7 @@ import type { AppSettings } from "../domain/types";
 import { CoachPulseService } from "../lib/ai/coach-pulse-service";
 import { DebugPanel } from "../components/DebugPanel";
 import { t } from "../i18n";
+import { rescueTimeCredentialFingerprint } from "../lib/rescuetime/credential-fingerprint";
 import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
 import {
   getDebugEnabled,
@@ -453,8 +454,22 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   }
 
   const saveSettings = async (nextSettings: AppSettings) => {
+    const previousKey = settings.rescuetimeApiKey.trim();
+    const nextKey = nextSettings.rescuetimeApiKey.trim();
     setSettings(nextSettings);
     await repository.saveSettings(nextSettings);
+
+    if (previousKey !== nextKey) {
+      // Housekeeping only: cached entries are already scoped by key fingerprint, so
+      // correctness never depends on this. Never log the key.
+      try {
+        await repository.pruneRescueTimeSnapshotCache(
+          nextKey ? await rescueTimeCredentialFingerprint(nextKey) : null,
+        );
+      } catch {
+        // Swallowed: a prune failure must not fail the settings save.
+      }
+    }
   };
 
   const syncSettings = (nextSettings: AppSettings) => {

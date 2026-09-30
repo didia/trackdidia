@@ -115,6 +115,16 @@ export interface MonthlyReviewSummary {
 
 export type WeeklyObjectiveKind = "time" | "manual";
 
+export type RescueTimeSnapshotCacheKind = "goals" | "pulse" | "objective_seconds";
+
+export interface RescueTimeSnapshotCacheEntry {
+  weekStartDate: string;
+  kind: RescueTimeSnapshotCacheKind;
+  credentialFingerprint: string;
+  payloadJson: string;
+  fetchedAt: string;
+}
+
 export type RescueTimeTaxonomy = "overview" | "category" | "activity" | "productivity";
 
 export interface WeeklyObjective {
@@ -164,6 +174,8 @@ export interface WeeklyObjectivesSnapshot {
   score: number | null;
   rescuetimeConfigured: boolean;
   fetchError?: string;
+  /** Oldest `fetchedAt` among cached values reused in place of a live pull. */
+  cachedAt?: string;
 }
 
 export interface RescueTimeTaxonomyEntry {
