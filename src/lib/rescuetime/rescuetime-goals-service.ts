@@ -138,24 +138,21 @@ export class RescueTimeGoalsService {
     private readonly client: RescueTimeGoalsClient = defaultRescueTimeGoalsClient,
   ) {}
 
-  /** Failure fallback: reads only while the saved key still matches the captured fingerprint. */
-  private async readFallbackCache(
-    weekStartDate: string,
-    kind: "goals" | "pulse",
-    fingerprint: string,
-  ) {
-    if (!(await currentKeyMatchesFingerprint(this.repository, fingerprint))) {
-      return null;
-    }
-    return this.readCache(weekStartDate, kind, fingerprint);
-  }
-
+  /**
+   * Reads the entry first, then confirms the saved key still matches the captured fingerprint, so
+   * a key switch or removal while the read was pending never surfaces the old account's numbers.
+   */
   private async readCache(weekStartDate: string, kind: "goals" | "pulse", fingerprint: string) {
+    let entry: Awaited<ReturnType<AppRepository["getRescueTimeSnapshotCache"]>>;
     try {
-      return await this.repository.getRescueTimeSnapshotCache(weekStartDate, kind, fingerprint);
+      entry = await this.repository.getRescueTimeSnapshotCache(weekStartDate, kind, fingerprint);
     } catch {
       return null;
     }
+    if (!entry || !(await currentKeyMatchesFingerprint(this.repository, fingerprint))) {
+      return null;
+    }
+    return entry;
   }
 
   async computeGoalsSnapshot(
@@ -245,7 +242,7 @@ export class RescueTimeGoalsService {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Echec de la requete RescueTime Goals.";
-      const entry = await this.readFallbackCache(normalized, "goals", fingerprint);
+      const entry = await this.readCache(normalized, "goals", fingerprint);
       const cachedItems = entry ? parseGoalsPayload(entry.payloadJson) : null;
       if (entry && cachedItems) {
         return computeRescueTimeGoalsSnapshot(normalized, weekEndDate, cachedItems, {
@@ -404,7 +401,7 @@ export class RescueTimeGoalsService {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Echec de la requete RescueTime productivity.";
-      const entry = await this.readFallbackCache(normalized, "pulse", fingerprint);
+      const entry = await this.readCache(normalized, "pulse", fingerprint);
       const cached = entry ? parsePulsePayload(entry.payloadJson) : null;
       if (entry && cached?.found) {
         return {

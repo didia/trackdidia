@@ -46,7 +46,10 @@ export class WeeklyObjectivesService {
         "objective_seconds",
         fingerprint,
       );
-      return parseObjectiveSecondsPayload(entry?.payloadJson ?? null);
+      if (!entry || !(await currentKeyMatchesFingerprint(this.repository, fingerprint))) {
+        return {};
+      }
+      return parseObjectiveSecondsPayload(entry.payloadJson);
     } catch {
       return {};
     }
@@ -142,9 +145,7 @@ export class WeeklyObjectivesService {
 
       const failedIds = Object.keys(errorsByObjectiveId);
       if (failedIds.length > 0) {
-        const cached = (await currentKeyMatchesFingerprint(this.repository, fingerprint))
-          ? await this.readObjectiveSecondsCache(normalized, fingerprint)
-          : {};
+        const cached = await this.readObjectiveSecondsCache(normalized, fingerprint);
         for (const id of failedIds) {
           const value = cached[id];
           if (value) {

@@ -543,3 +543,38 @@ describe("RescueTimeGoalsService key change during a pull", () => {
     expect(client.fetchAnalyticData).toHaveBeenCalledTimes(3);
   });
 });
+
+describe("RescueTimeGoalsService key change during a cache read", () => {
+  it.each([
+    ["switched", "key-b"],
+    ["cleared", ""],
+  ])("drops the entry when the key is %s while the read is pending", async (_label, nextKey) => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveSettings({
+      ...(await repository.getSettings()),
+      rescuetimeApiKey: "key-a",
+    });
+    const client: RescueTimeGoalsClient = {
+      listGoals: vi.fn(async () => []),
+      fetchAnalyticData: vi.fn(async () => ({ row_headers: [], rows: [] })),
+      fetchProjectTimes: vi.fn(async () => ({ project_times: [] })),
+    };
+    const service = new RescueTimeGoalsService(repository, client);
+    await service.computeGoalsSnapshot("2026-08-02");
+
+    const realRead = repository.getRescueTimeSnapshotCache.bind(repository);
+    vi.spyOn(repository, "getRescueTimeSnapshotCache").mockImplementation(async (...args) => {
+      const entry = await realRead(...args);
+      await repository.saveSettings({
+        ...(await repository.getSettings()),
+        rescuetimeApiKey: nextKey,
+      });
+      return entry;
+    });
+
+    const fresh = await service.computeGoalsSnapshot("2026-08-02", { maxAgeMs: 3_600_000 });
+    expect(fresh.cachedAt).toBeUndefined();
+    expect(client.listGoals).toHaveBeenCalledTimes(2);
+  });
+});

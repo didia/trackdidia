@@ -797,8 +797,11 @@ export const WeeklyReviewPage = () => {
       : null;
   const weekMatchedPulseSnapshot =
     pulseSnapshot?.weekStartDate === summary.weekStartDate ? pulseSnapshot : null;
+  // Oldest timestamp among the cached snapshots, so the notice never overstates freshness.
   const rescueTimeCachedAt =
-    weekMatchedGoalsSnapshot?.cachedAt ?? weekMatchedPulseSnapshot?.cachedAt ?? null;
+    [weekMatchedGoalsSnapshot?.cachedAt, weekMatchedPulseSnapshot?.cachedAt]
+      .filter((value): value is string => value !== undefined && Number.isFinite(Date.parse(value)))
+      .sort((a, b) => Date.parse(a) - Date.parse(b))[0] ?? null;
   const goalsBusy = goalsLoading || goalsRefreshing;
   const pulseBusy = pulseLoading || pulseRefreshing;
   const rescueTimeRefreshing = goalsRefreshing || pulseRefreshing;

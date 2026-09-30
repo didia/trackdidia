@@ -1,3 +1,4 @@
+import { formatTimestamp } from "../lib/format";
 import { useState } from "react";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -326,6 +327,56 @@ describe("WeeklyReviewPage", () => {
     expect(await screen.findByText("Goal en cache")).toBeInTheDocument();
     expect(screen.getByText(/RescueTime est injoignable/)).toBeInTheDocument();
     expect(screen.getByText("Cache RescueTime")).toBeInTheDocument();
+  });
+
+  it("labels the cached notice with the oldest snapshot timestamp", async () => {
+    vi.spyOn(RescueTimeGoalsService.prototype, "computeGoalsSnapshot").mockResolvedValue({
+      weekStartDate: "2026-08-02",
+      weekEndDate: "2026-08-08",
+      score: 0.25,
+      totalAchievement: 0.25,
+      items: [
+        {
+          goalId: 1,
+          title: "Goal en cache",
+          isMore: true,
+          actualHours: 3.5,
+          weeklyTargetHours: 14,
+          achievement: 0.25,
+          scheduleLabel: "24x7",
+        },
+      ],
+      rescuetimeConfigured: true,
+      cachedAt: "2026-08-05T10:00:00.000Z",
+    });
+    vi.spyOn(RescueTimeGoalsService.prototype, "computeProductivityPulse").mockResolvedValue({
+      weekStartDate: "2026-08-02",
+      weekEndDate: "2026-08-08",
+      pulse: 0.5,
+      rescuetimeConfigured: true,
+      cachedAt: "2026-08-03T10:00:00.000Z",
+    });
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const settings = { ...(await repository.getSettings()), rescuetimeApiKey: "rt-test-key" };
+    await repository.saveSettings(settings);
+
+    const user = userEvent.setup();
+    await renderWithApp(<WeeklyReviewPage />, {
+      repository,
+      route: "/semaine",
+      contextOverrides: { settings },
+    });
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
+    await user.clear(dateInput);
+    await user.type(dateInput, "2026-08-02");
+    await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
+
+    expect(await screen.findByText("Goal en cache")).toBeInTheDocument();
+    expect(screen.getByText(/RescueTime est injoignable/).textContent).toContain(
+      formatTimestamp("2026-08-03T10:00:00.000Z"),
+    );
   });
 
   it("renders the standing objectives list next to a partial fetchError", async () => {
