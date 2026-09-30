@@ -22,7 +22,10 @@ import {
   type RescueTimeGoalsClient,
   resolveAnalyticKind,
 } from "./goals-client";
-import { rescueTimeCredentialFingerprint } from "./credential-fingerprint";
+import {
+  currentKeyMatchesFingerprint,
+  rescueTimeCredentialFingerprint,
+} from "./credential-fingerprint";
 import { computeProductivityPulse } from "./productivity-mapping";
 
 /** Opt-in freshness window: a cache entry younger than `maxAgeMs` is served without a pull. */
@@ -39,7 +42,7 @@ export const isRescueTimeCacheFresh = (
     return false;
   }
   const fetched = Date.parse(fetchedAt);
-  return Number.isFinite(fetched) && now - fetched < maxAgeMs;
+  return Number.isFinite(fetched) && now >= fetched && now - fetched < maxAgeMs;
 };
 
 type CachedGoalItem = Omit<RescueTimeGoalItemSnapshot, "achievement">;
@@ -134,6 +137,18 @@ export class RescueTimeGoalsService {
     private readonly repository: AppRepository,
     private readonly client: RescueTimeGoalsClient = defaultRescueTimeGoalsClient,
   ) {}
+
+  /** Failure fallback: reads only while the saved key still matches the captured fingerprint. */
+  private async readFallbackCache(
+    weekStartDate: string,
+    kind: "goals" | "pulse",
+    fingerprint: string,
+  ) {
+    if (!(await currentKeyMatchesFingerprint(this.repository, fingerprint))) {
+      return null;
+    }
+    return this.readCache(weekStartDate, kind, fingerprint);
+  }
 
   private async readCache(weekStartDate: string, kind: "goals" | "pulse", fingerprint: string) {
     try {
@@ -230,7 +245,7 @@ export class RescueTimeGoalsService {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Echec de la requete RescueTime Goals.";
-      const entry = await this.readCache(normalized, "goals", fingerprint);
+      const entry = await this.readFallbackCache(normalized, "goals", fingerprint);
       const cachedItems = entry ? parseGoalsPayload(entry.payloadJson) : null;
       if (entry && cachedItems) {
         return computeRescueTimeGoalsSnapshot(normalized, weekEndDate, cachedItems, {
@@ -389,7 +404,7 @@ export class RescueTimeGoalsService {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Echec de la requete RescueTime productivity.";
-      const entry = await this.readCache(normalized, "pulse", fingerprint);
+      const entry = await this.readFallbackCache(normalized, "pulse", fingerprint);
       const cached = entry ? parsePulsePayload(entry.payloadJson) : null;
       if (entry && cached?.found) {
         return {

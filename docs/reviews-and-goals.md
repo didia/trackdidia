@@ -160,9 +160,11 @@ trimmed API key (`rescueTimeCredentialFingerprint`); the key itself is never sto
   updated through the atomic `mergeRescueTimeObjectiveSecondsCache` (one `runExclusive` in
   SQLite, one synchronous step in memory). Retained ids keep their own `fetchedAt`.
 - **Reads** happen only when a key is configured and the live pull failed, using the
-  fingerprint of the key captured at the start of the call. A late pull for an old key
-  lands under the old fingerprint and is never served for a new key. Removing the key
-  shows the missing-key state, never cached numbers. An unparseable payload counts as no
+  fingerprint of the *current* key: the failure fallback re-reads settings and skips the cache
+  when the key was removed or changed during the pull. Writes use the fingerprint captured at
+  the start of the call, so a late pull for an old key lands under the old fingerprint and is
+  never served for a new key. Removing the key shows the missing-key state, never cached
+  numbers. An unparseable payload counts as no
   cache and the previous `fetchError` behavior applies.
 - A snapshot served from the cache carries `cachedAt` (the entry's `fetchedAt`; for standing
   objectives, the oldest `fetchedAt` among the reused values) and no `fetchError`, unless an

@@ -18,7 +18,10 @@ import { getTodayDate } from "../date";
 import { addDays, nowIso } from "../gtd/shared";
 import type { AppRepository } from "../storage/repository";
 import { defaultRescueTimeClient, type RescueTimeClient } from "./client";
-import { rescueTimeCredentialFingerprint } from "./credential-fingerprint";
+import {
+  currentKeyMatchesFingerprint,
+  rescueTimeCredentialFingerprint,
+} from "./credential-fingerprint";
 import { parseRankRows, resolveObjectiveSeconds } from "./parse-analytic-data";
 import { isRescueTimeCacheFresh, type RescueTimeComputeOptions } from "./rescuetime-goals-service";
 
@@ -139,7 +142,9 @@ export class WeeklyObjectivesService {
 
       const failedIds = Object.keys(errorsByObjectiveId);
       if (failedIds.length > 0) {
-        const cached = await this.readObjectiveSecondsCache(normalized, fingerprint);
+        const cached = (await currentKeyMatchesFingerprint(this.repository, fingerprint))
+          ? await this.readObjectiveSecondsCache(normalized, fingerprint)
+          : {};
         for (const id of failedIds) {
           const value = cached[id];
           if (value) {

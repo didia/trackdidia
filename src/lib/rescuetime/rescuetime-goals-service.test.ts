@@ -412,3 +412,134 @@ describe("RescueTimeGoalsService snapshot cache", () => {
     });
   });
 });
+
+describe("RescueTimeGoalsService key change during a pull", () => {
+  const goal = {
+    id: 1,
+    display_name: "Goal A",
+    amount_seconds: 7200,
+    is_more: true,
+    enabled: true,
+    taxon_id: 15,
+    taxonomy_name: "overview",
+    schedule_name: "24x7",
+    overview: { name: "Personal" },
+  };
+
+  const gated = async (nextKey: string) => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveSettings({
+      ...(await repository.getSettings()),
+      rescuetimeApiKey: "key-a",
+    });
+    let fail: (error: Error) => void = () => undefined;
+    let gate: Promise<never> | null = null;
+    const client: RescueTimeGoalsClient = {
+      listGoals: vi.fn(async () => {
+        if (gate) await gate;
+        return [goal];
+      }),
+      fetchAnalyticData: vi.fn(async () => {
+        if (gate) await gate;
+        return {
+          row_headers: ["Rank", "Time Spent (seconds)", "Category"],
+          rows: [[1, 60, "Personal"]],
+        };
+      }),
+      fetchProjectTimes: vi.fn(async () => ({ project_times: [] })),
+    };
+    const service = new RescueTimeGoalsService(repository, client);
+    await service.computeGoalsSnapshot("2026-08-02");
+    await service.computeProductivityPulse("2026-08-02");
+    gate = new Promise<never>((_resolve, reject) => {
+      fail = reject;
+    });
+    gate.catch(() => undefined);
+    const switchAndFail = async () => {
+      await repository.saveSettings({
+        ...(await repository.getSettings()),
+        rescuetimeApiKey: nextKey,
+      });
+      fail(new Error("offline"));
+    };
+    return { service, switchAndFail, client };
+  };
+
+  it.each([
+    ["switched", "key-b"],
+    ["cleared", ""],
+  ])("does not serve key A's goals when the key is %s mid-pull", async (_label, nextKey) => {
+    const { service, switchAndFail, client } = await gated(nextKey);
+    const pending = service.computeGoalsSnapshot("2026-08-02");
+    await vi.waitFor(() => expect(client.listGoals).toHaveBeenCalledTimes(2));
+    await switchAndFail();
+
+    const snapshot = await pending;
+
+    expect(snapshot.items).toEqual([]);
+    expect(snapshot.cachedAt).toBeUndefined();
+    expect(snapshot.fetchError).toBe("offline");
+  });
+
+  it.each([
+    ["switched", "key-b"],
+    ["cleared", ""],
+  ])("does not serve key A's pulse when the key is %s mid-pull", async (_label, nextKey) => {
+    const { service, switchAndFail, client } = await gated(nextKey);
+    const pending = service.computeProductivityPulse("2026-08-02");
+    await vi.waitFor(() => expect(client.fetchAnalyticData).toHaveBeenCalledTimes(2));
+    await switchAndFail();
+
+    const pulse = await pending;
+
+    expect(pulse.cachedAt).toBeUndefined();
+    expect(pulse.fetchError).toBe("offline");
+  });
+
+  it("treats a future fetchedAt as stale and covers pulse freshness edge cases", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveSettings({
+      ...(await repository.getSettings()),
+      rescuetimeApiKey: "key-a",
+    });
+    const client: RescueTimeGoalsClient = {
+      listGoals: vi.fn(async () => []),
+      fetchAnalyticData: vi.fn(async () => ({ row_headers: [], rows: [] })),
+      fetchProjectTimes: vi.fn(async () => ({ project_times: [] })),
+    };
+    const service = new RescueTimeGoalsService(repository, client);
+    const fpA = await rescueTimeCredentialFingerprint("key-a");
+    const put = (fp: string, fetchedAt: string) =>
+      repository.saveRescueTimeSnapshotCache({
+        weekStartDate: "2026-08-02",
+        kind: "pulse",
+        credentialFingerprint: fp,
+        payloadJson: JSON.stringify({ pulse: 0.5 }),
+        fetchedAt,
+      });
+
+    await put(fpA, "2020-01-01T00:00:00.000Z");
+    expect(
+      (await service.computeProductivityPulse("2026-08-02", { maxAgeMs: 60_000 })).cachedAt,
+    ).toBeUndefined();
+    expect(client.fetchAnalyticData).toHaveBeenCalledTimes(1);
+
+    await put(fpA, "2999-01-01T00:00:00.000Z");
+    expect(
+      (await service.computeProductivityPulse("2026-08-02", { maxAgeMs: 60_000 })).cachedAt,
+    ).toBeUndefined();
+    expect(client.fetchAnalyticData).toHaveBeenCalledTimes(2);
+
+    await repository.saveSettings({
+      ...(await repository.getSettings()),
+      rescuetimeApiKey: "key-b",
+    });
+    await put(fpA, new Date().toISOString());
+    expect(
+      (await service.computeProductivityPulse("2026-08-02", { maxAgeMs: 60_000 })).cachedAt,
+    ).toBeUndefined();
+    expect(client.fetchAnalyticData).toHaveBeenCalledTimes(3);
+  });
+});

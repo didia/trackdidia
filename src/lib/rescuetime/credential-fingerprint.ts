@@ -10,3 +10,22 @@ export const rescueTimeCredentialFingerprint = async (apiKey: string): Promise<s
   }
   return hex.slice(0, 16);
 };
+
+/**
+ * True when the key currently saved in settings is still the one whose fingerprint was captured
+ * at the start of a pull. Failure fallbacks read the cache only when this holds, so removing or
+ * switching the key never surfaces the old account's cached numbers.
+ */
+export const currentKeyMatchesFingerprint = async (
+  repository: { getSettings(): Promise<{ rescuetimeApiKey: string }> },
+  capturedFingerprint: string,
+): Promise<boolean> => {
+  try {
+    const current = (await repository.getSettings()).rescuetimeApiKey.trim();
+    return (
+      current.length > 0 && (await rescueTimeCredentialFingerprint(current)) === capturedFingerprint
+    );
+  } catch {
+    return false;
+  }
+};
