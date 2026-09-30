@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  completedScheduleDaysInWeek,
   computeRescueTimeGoalsSnapshot,
+  isScheduleDay,
   rescueTimeLabelsMatch,
   scheduleDaysInWeek,
   scoreLessGoal,
@@ -56,5 +58,38 @@ describe("rescuetime-goals", () => {
 
   it("matches project labels fuzzily", () => {
     expect(rescueTimeLabelsMatch("Advanceo - CTO", "Advanceo Fractional CTO")).toBe(true);
+  });
+});
+
+describe("schedule day helpers", () => {
+  it("counts every day for a 24x7 schedule", () => {
+    for (let dayIndex = 0; dayIndex <= 6; dayIndex += 1) {
+      expect(isScheduleDay("24x7", dayIndex)).toBe(true);
+    }
+    for (let completed = 0; completed <= 7; completed += 1) {
+      expect(completedScheduleDaysInWeek("24x7", completed)).toBe(completed);
+    }
+  });
+
+  it("counts Monday to Friday for a working-hours schedule", () => {
+    expect([0, 1, 2, 3, 4, 5, 6].map((day) => isScheduleDay("Working hours", day))).toEqual([
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+    ]);
+    expect(
+      [0, 1, 2, 3, 4, 5, 6, 7].map((n) => completedScheduleDaysInWeek("Working hours", n)),
+    ).toEqual([0, 0, 1, 2, 3, 4, 5, 5]);
+  });
+
+  it("rejects out-of-range day indexes and clamps completed days", () => {
+    expect(isScheduleDay("24x7", 7)).toBe(false);
+    expect(isScheduleDay("24x7", -1)).toBe(false);
+    expect(completedScheduleDaysInWeek("24x7", 12)).toBe(7);
+    expect(completedScheduleDaysInWeek("24x7", -2)).toBe(0);
   });
 });

@@ -55,6 +55,29 @@ export const scheduleDaysInWeek = (scheduleName: string | undefined): number => 
   return 7;
 };
 
+/** Whether a schedule counts the given local day of week (Sunday = 0). Involves no `Date`. */
+export const isScheduleDay = (scheduleName: string | undefined, dayIndex: number): boolean => {
+  if (!Number.isInteger(dayIndex) || dayIndex < 0 || dayIndex > 6) {
+    return false;
+  }
+  return scheduleDaysInWeek(scheduleName) === 5 ? dayIndex >= 1 && dayIndex <= 5 : true;
+};
+
+/** Schedule days among the first `completedDays` days of a Sunday-start week. */
+export const completedScheduleDaysInWeek = (
+  scheduleName: string | undefined,
+  completedDays: number,
+): number => {
+  const limit = Math.min(Math.max(Math.trunc(completedDays) || 0, 0), 7);
+  let count = 0;
+  for (let dayIndex = 0; dayIndex < limit; dayIndex += 1) {
+    if (isScheduleDay(scheduleName, dayIndex)) {
+      count += 1;
+    }
+  }
+  return count;
+};
+
 export const scoreMoreGoal = (actualSeconds: number, targetSeconds: number): number => {
   if (targetSeconds <= 0) {
     return 0;

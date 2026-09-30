@@ -187,6 +187,28 @@ export const prefillMorningIntentionFromYesterday = (
   };
 };
 
+/**
+ * Discipline score for one day, computed over only the principles that have actually been
+ * answered (`true` or `false`) rather than over every principle (contrast with the
+ * all-principles denominator `computeDisciplineScore` uses elsewhere, e.g. for the day's
+ * completion percentage). An in-progress day — say, this morning, with only the
+ * morning/anytime principles logged so far — otherwise looks identical to a day where every
+ * still-unanswered principle was explicitly failed, and a partially-answered day is then
+ * structurally guaranteed to look like a collapse next to a baseline of fully-answered days,
+ * no matter how the "is this day far enough along" threshold is set. Scoring over the
+ * answered subset means a perfect partial day still scores `1.00`, and a day with nothing
+ * answered yet naturally drops out (`null`, filtered by callers) instead of scoring `0`.
+ */
+export const computeAnsweredDisciplineScore = (entry: DailyEntry): number | null => {
+  const answered = principleDefinitions.filter(({ key }) => entry.principleChecks[key] !== null);
+  if (answered.length === 0) {
+    return null;
+  }
+
+  const trueCount = answered.filter(({ key }) => entry.principleChecks[key] === true).length;
+  return trueCount / answered.length;
+};
+
 export const computeDisciplineScore = (entry: DailyEntry): number => {
   if (principleDefinitions.length === 0) {
     return 0;
