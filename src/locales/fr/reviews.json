@@ -345,5 +345,43 @@
       "close": "Clôturer la revue du mois",
       "reopen": "Réouvrir la revue"
     }
+  },
+  "midWeek": {
+    "category": {
+      "metric": "Métrique",
+      "principle": "Principe",
+      "habit": "Habitude",
+      "rescuetime": "RescueTime",
+      "objective": "Objectif",
+      "tasks": "Tâches",
+      "journal": "Journal"
+    },
+    "status": {
+      "ahead": "En avance",
+      "on_pace": "Dans le rythme",
+      "at_risk": "À risque",
+      "lagging": "En retard",
+      "unknown": "Inconnu"
+    },
+    "signal": {
+      "discipline": "Discipline",
+      "tasks": "Tâches réalisées",
+      "journal": "Réflexions du soir"
+    },
+    "recovery": {
+      "onTrack": "Rien à rattraper.",
+      "unknown": "Pas assez de données pour juger.",
+      "more": "Reste {{remaining}} {{unit}} sur {{remainingDays}} jours ≈ {{perDay}} {{unit}}/jour.",
+      "moreWeekOver": "Il manquait {{remaining}} {{unit}} à la fin de la semaine.",
+      "less": "Budget restant : {{remaining}} {{unit}} sur {{remainingDays}} jours ≈ {{perDay}} {{unit}}/jour.",
+      "lessSpent": "Budget dépensé : n'en ajoute plus.",
+      "quality": "Moyenne {{actual}} pour une cible de {{target}}.",
+      "habit": "Discipline moyenne {{actual}} % sur les principes répondus.",
+      "principle": "Coché {{actual}} jours sur {{expected}} répondus.",
+      "tasks": "Reste {{remaining}} tâches à réaliser sur {{remainingDays}} jours.",
+      "tasksWeekOver": "{{remaining}} tâches ajoutées n'ont pas été réalisées.",
+      "journal": "Réflexion du soir écrite {{actual}} jours sur {{expected}} clôturés.",
+      "partialCoverage": "Verdict basé sur {{withData}} jour(s) sur {{applicable}}."
+    }
   }
 }

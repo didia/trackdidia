@@ -3,6 +3,7 @@ import {
   applyDailyTaskStats,
   applyLegacyAiMaxTokensUpgrade,
   applyRoutineTransition,
+  computeAnsweredDisciplineScore,
   computeCompletionPercent,
   computeDisciplineScore,
   computeTaskCompletionPercent,
@@ -209,5 +210,18 @@ describe("applyLegacyAiMaxTokensUpgrade", () => {
     settings.aiMaxTokensUpgradeDoneAt = "2026-09-04T12:00:00.000Z";
 
     expect(applyLegacyAiMaxTokensUpgrade(settings, "2026-09-05T12:00:00.000Z")).toBeNull();
+  });
+});
+
+describe("computeAnsweredDisciplineScore", () => {
+  it("scores only answered principles and returns null when none are answered", () => {
+    const entry = createEmptyDailyEntry("2026-08-03");
+    expect(computeAnsweredDisciplineScore(entry)).toBeNull();
+
+    entry.principleChecks.priereDuMatin = true;
+    expect(computeAnsweredDisciplineScore(entry)).toBe(1);
+
+    entry.principleChecks.ecriture = false;
+    expect(computeAnsweredDisciplineScore(entry)).toBe(0.5);
   });
 });

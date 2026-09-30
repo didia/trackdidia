@@ -145,6 +145,21 @@ The `/semaine` screen tracks **two distinct objective systems**:
 
 RescueTime Goals remain the optional weekly-score axis described below. Standing objectives use `WeeklyObjectivesService.computeWeeklyObjectivesSnapshot()` and are separate from RescueTime Goals.
 
+### Mid-week pace math (domain only)
+
+`src/domain/mid-week-review.ts` holds the pure pro-rating used by the future mid-week page (no
+UI or repository yet). Weekly aggregates are whole-week, so mid-week verdicts compare
+week-to-date actuals against an **expected** value pro-rated over the completed days (days
+strictly before `asOfDate`). The tuning knobs are `MID_WEEK_PACE_TOLERANCE = 0.1` and
+`MID_WEEK_LAGGING_THRESHOLD = 0.25`; `shortfall = 1 - paceRatio` is rounded to 9 decimals
+(`MID_WEEK_SHORTFALL_PRECISION`) before comparison, and the boundaries are inclusive. A day
+without data is not a miss: each signal measures only days that have data and reports
+`daysApplicable` / `daysWithData` coverage. A RescueTime "less" goal includes today in its
+budget (its minutes are already spent), a "more" goal does not; once the week is over the
+budget is exactly `weeklyTargetHours`. `isScheduleDay` and `completedScheduleDaysInWeek`
+(`rescuetime-goals.ts`) count schedule days; `computeAnsweredDisciplineScore` now lives in
+`daily-entry.ts`.
+
 ### RescueTime snapshot cache
 
 Successful RescueTime pulls are cached in `rescuetime_snapshot_cache` (migration 35), keyed
