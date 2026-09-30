@@ -21,7 +21,8 @@ opens that week on load. Without a query, Sunday initially selects the previous
 week — the Sunday-to-Saturday that just ended — so the ritual closes completed
 days rather than the empty week that starts today. Other days select the current
 week. The Today Sunday prompt links to that previous week via `?date=`. The
-Wednesday prompt links to the current week via `?date=` as a mid-week check.
+Wednesday prompt links to the dedicated [`/mi-semaine`](#mid-week-check-mi-semaine)
+page; `/semaine` keeps its role of closing the finished week.
 
 Reading daily, weekly, and monthly notes together lives on
 [`/journal`](daily-routines.md#journal). That page is read-only;
@@ -145,20 +146,75 @@ The `/semaine` screen tracks **two distinct objective systems**:
 
 RescueTime Goals remain the optional weekly-score axis described below. Standing objectives use `WeeklyObjectivesService.computeWeeklyObjectivesSnapshot()` and are separate from RescueTime Goals.
 
-### Mid-week pace math (domain only)
+### Mid-week check (`/mi-semaine`)
 
-`src/domain/mid-week-review.ts` holds the pure pro-rating used by the future mid-week page (no
-UI or repository yet). Weekly aggregates are whole-week, so mid-week verdicts compare
-week-to-date actuals against an **expected** value pro-rated over the completed days (days
-strictly before `asOfDate`). The tuning knobs are `MID_WEEK_PACE_TOLERANCE = 0.1` and
-`MID_WEEK_LAGGING_THRESHOLD = 0.25`; `shortfall = 1 - paceRatio` is rounded to 9 decimals
-(`MID_WEEK_SHORTFALL_PRECISION`) before comparison, and the boundaries are inclusive. A day
-without data is not a miss: each signal measures only days that have data and reports
-`daysApplicable` / `daysWithData` coverage. A RescueTime "less" goal includes today in its
-budget (its minutes are already spent), a "more" goal does not; once the week is over the
-budget is exactly `weeklyTargetHours`. `isScheduleDay` and `completedScheduleDaysInWeek`
-(`rescuetime-goals.ts`) count schedule days; `computeAnsweredDisciplineScore` now lives in
-`daily-entry.ts`.
+`/mi-semaine` answers "am I on pace, and what should I change for the rest of the week?". It
+always shows the current week (`getWeekStartSunday(calendarDay)`, no picker and no `?date=`) and
+reloads when `calendarDay` changes. The pure math lives in `src/domain/mid-week-review.ts`; the
+page (`MidWeekReviewPage`) only loads data and renders.
+
+**Pace window.** Weekly aggregates are whole-week, so every "more is better" axis would read as
+failing on a Wednesday. Verdicts therefore compare week-to-date actuals with an **expected**
+value pro-rated over the *completed* days: the days strictly before `asOfDate`. Today is
+excluded on purpose: otherwise every "more" signal reads `lagging` at 9 a.m., and today's
+RescueTime data is partial. On Sunday no day has completed, so the page shows no verdicts; it
+shows the previous week's ranked lagging list instead, labelled "semaine précédente".
+
+**Signals and denominators.** Signals cover the pomodoro, calorie, phone-time and sleep-quality
+metrics, the 14 principles, discipline, task completion, the evening reflection, each RescueTime
+goal and each standing objective. A day without data is not a miss: principles use the days on
+which they were answered as the denominator (`null` is not a miss, `false` is), metrics use the
+days with a value (explicit or suggested), and the journal signal uses days that were closed or
+have a reflection. A RescueTime "less" goal *includes* today in its budget, since its minutes
+are already spent; a "more" goal does not, since today's hours can only help. Once the week is
+over the "less" budget is exactly `weeklyTargetHours`. `scheduleDaysInWeek` guesses a 5-day
+schedule from the goal's name, and remaining-per-day figures divide by remaining schedule days.
+
+**Status.** `shortfall = 1 - paceRatio`, rounded to 9 decimals (`MID_WEEK_SHORTFALL_PRECISION`)
+before comparison. `<= -0.1` is `ahead`, `<= 0.1` is `on_pace`, `< 0.25` is `at_risk`, otherwise
+`lagging`; no ratio is `unknown`. Boundaries are inclusive. `MID_WEEK_PACE_TOLERANCE = 0.1` and
+`MID_WEEK_LAGGING_THRESHOLD = 0.25` are the tuning knobs at the top of `mid-week-review.ts`.
+**Severity** is `shortfall` weighted by coverage (`daysWithData / daysApplicable`), so a signal
+judged on one day ranks below an equally lagging three-day signal. `paceScore` is the mean of
+the clamped ratios of the known signals; the page also shows the weekly score as a projection,
+never as the verdict. `isScheduleDay` / `completedScheduleDaysInWeek` (`rescuetime-goals.ts`)
+count schedule days and `computeAnsweredDisciplineScore` lives in `daily-entry.ts`.
+
+**RescueTime freshness.** `/mi-semaine` passes `maxAgeMs = MID_WEEK_RESCUETIME_MAX_AGE_MS`
+(15 minutes) to the RescueTime services, so reopening the page does not repull. `/semaine` stays
+live every time. A `cachedAt` notice ("Données RescueTime de …") and the "Actualiser" button
+(which reloads with `maxAgeMs: 0`) keep this visible. A RescueTime failure only affects its own
+signals; a missing key shows a banner with a `/parametres` link.
+
+**Journal.** The page lists the non-empty morning intention, night reflection and tomorrow focus
+for the week so far, newest first (`buildJournalFeed`).
+
+**Decisions.** "Ce que je change" is stored per week in `mid_week_decisions`
+([storage](storage-and-backups.md#review-and-goal-tables)), never in `tempsEtPlan` or a weekly
+ritual section. Saving also stores the lagging list at that moment (the Wednesday snapshot) so
+Sunday can compare before and after. The snapshot is replaced only by a save whose loads all
+completed (entries, summary, goals, pulse and objectives, with no remaining `fetchError`; a
+cached fallback or a missing key counts as complete), on a day with at least one completed day,
+for the week being displayed. A timeout (`MID_WEEK_SNAPSHOT_WAIT_MS`, 2 s), a partial or failed
+load, Sunday, or a refresh in flight *preserve* the stored snapshot: it is never erased and never
+replaced by a partial one. The editor is disabled until the stored row is read; a failed read
+shows an alert with a retry and no editor. Saves are acknowledged (`PersistedTextarea` confirms
+the value only when the save resolves), run through one in-order queue per week, and a failure
+keeps the draft dirty with a "Décisions non enregistrées" alert and a "Réessayer" button. A save
+that fails on unmount is remembered in memory and restored on the next visit of that week; that
+memory is lost if the app quits first.
+
+**On `/semaine`.** A read-only "Décisions de mi-semaine" card shows the decisions text, the date
+decided, and, when a snapshot exists, one before/after line per snapshot signal. The before side
+is labelled with the snapshot's own `asOfDate`; the after side is the week's final figures
+(labelled "à ce jour" for the current week). Only fully covered signals claim "rattrapé"; a
+signal without full coverage carries a "sur N / M jours renseignés" caveat and a neutral marker.
+Decisions are not part of the weekly synthesis snapshot, so they do not change its `inputHash`.
+A decisions save that failed while its `/mi-semaine` editor was gone stays in memory (lost on quit); the card for that week shows the unsaved text with an alert and a retry. The card keys its read on the normalized Sunday, so a mid-week date in the picker still finds that week's row.
+
+**Difference from `/semaine`.** The mid-week page and the card load the seven decorated daily
+entries (`loadDecoratedWeekEntries`); a day with no entry row stays undecorated and counts as
+"no data", which differs slightly from `computeWeeklyReviewSummary`.
 
 ### RescueTime snapshot cache
 

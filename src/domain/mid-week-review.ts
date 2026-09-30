@@ -578,7 +578,8 @@ const rescueTimeSignals = (
       daysApplicable: applicable,
       daysWithData: "auto",
       recoveryKind: item.isMore ? "rate" : "less",
-      remainingDays: window.remainingDays,
+      // Only schedule days can still add hours: a 5-day goal on Friday has 1 day left, not 2.
+      remainingDays: Math.max(0, scheduleDays - applicable),
     });
   });
 };
@@ -737,13 +738,28 @@ export const buildMidWeekLaggingSnapshot = (
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
+const SNAPSHOT_CATEGORIES: readonly string[] = [
+  "metric",
+  "principle",
+  "habit",
+  "rescuetime",
+  "objective",
+  "tasks",
+  "journal",
+];
+const SNAPSHOT_DIRECTIONS: readonly string[] = ["more", "less", "quality"];
+const SNAPSHOT_STATUSES: readonly string[] = ["ahead", "on_pace", "at_risk", "lagging", "unknown"];
+
 const isSnapshotSignal = (value: unknown): value is MidWeekSnapshotSignal =>
   isRecord(value) &&
   typeof value.key === "string" &&
   typeof value.label === "string" &&
   typeof value.status === "string" &&
+  SNAPSHOT_STATUSES.includes(value.status) &&
   typeof value.category === "string" &&
+  SNAPSHOT_CATEGORIES.includes(value.category) &&
   typeof value.direction === "string" &&
+  SNAPSHOT_DIRECTIONS.includes(value.direction) &&
   typeof value.daysApplicable === "number" &&
   typeof value.daysWithData === "number" &&
   typeof value.hasFullCoverage === "boolean";

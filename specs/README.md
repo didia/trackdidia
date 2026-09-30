@@ -21,7 +21,7 @@ current-product behavior remains documented in [`docs/`](../docs/).
 - [`todo/mid-week-review.md`](todo/mid-week-review.md) — approved dedicated
   `/mi-semaine` steering page: week-to-date pace per signal, recovery hints, persisted
   mid-week decisions with a before/after snapshot on `/semaine`, and a later AI steering
-  surface. PR A (RescueTime snapshot cache and freshness window) shipped; the rest is unshipped.
+  surface. PR A (snapshot cache), B1 (pure math) and B2 (page, decisions, weekly mirror) shipped; C and D unshipped.
 - [`todo/finance.md`](todo/finance.md) — draft, unshipped household finances: CSV import,
   heuristic + learned + AI categorization, Mint-style tracking, YNAB-style envelope budgets,
   and proactive runout forecasting.

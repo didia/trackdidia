@@ -32,6 +32,8 @@ import type {
   DailyEntry,
   DailyTaskStats,
   GtdImportSummary,
+  MidWeekDecisions,
+  MidWeekDecisionsSaveInput,
   MonthlyReview,
   PomodoroSegment,
   PomodoroSession,
@@ -134,6 +136,7 @@ export class MemoryRepository implements AppRepository {
   private weeklyReviews = new Map<string, WeeklyReview>();
   private weeklyObjectives = new Map<string, WeeklyObjective>();
   private weeklyObjectiveResults = new Map<string, WeeklyObjectiveResult>();
+  private midWeekDecisions = new Map<string, MidWeekDecisions>();
   private rescueTimeSnapshotCache = new Map<string, RescueTimeSnapshotCacheEntry>();
   private monthlyReviews = new Map<string, MonthlyReview>();
   private annualGoals = new Map<string, AnnualGoal>();
@@ -290,6 +293,30 @@ export class MemoryRepository implements AppRepository {
     return [...this.weeklyObjectiveResults.values()]
       .filter((result) => result.weekStartDate === normalized)
       .map((result) => ({ ...result }));
+  }
+
+  async getMidWeekDecisions(weekStartDate: string): Promise<MidWeekDecisions | null> {
+    const row = this.midWeekDecisions.get(buildWeekDates(weekStartDate));
+    return row
+      ? {
+          ...row,
+          laggingSnapshot: row.laggingSnapshot ? structuredClone(row.laggingSnapshot) : null,
+        }
+      : null;
+  }
+
+  async saveMidWeekDecisions(input: MidWeekDecisionsSaveInput): Promise<void> {
+    const weekStartDate = buildWeekDates(input.weekStartDate);
+    const stored = this.midWeekDecisions.get(weekStartDate);
+    this.midWeekDecisions.set(weekStartDate, {
+      weekStartDate,
+      decisions: input.decisions,
+      decidedOnDate: input.decidedOnDate,
+      laggingSnapshot: input.laggingSnapshot
+        ? structuredClone(input.laggingSnapshot)
+        : (stored?.laggingSnapshot ?? null),
+      updatedAt: input.updatedAt,
+    });
   }
 
   private rescueTimeCacheKey(

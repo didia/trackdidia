@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAppContext } from "../app/app-context";
-import { type LatestRequest, useLatestRequest } from "../app/use-latest-request";
+import { type LatestRequest, useAsyncResource, useLatestRequest } from "../app/use-latest-request";
 import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
 import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
@@ -42,7 +42,18 @@ import { loadLatestWeeklySynthesis } from "../lib/ai/weekly-synthesis-loader";
 import { WeeklySynthesisService } from "../lib/ai/weekly-synthesis-service";
 import { formatDateLong, formatDateShort, getTodayDate } from "../lib/date";
 import { formatPercent, formatTimestamp } from "../lib/format";
-import { addDays } from "../lib/gtd/shared";
+import { addDays, nowIso } from "../lib/gtd/shared";
+import {
+  enqueueMidWeekDecisionSave,
+  getFailedMidWeekDraft,
+  waitForMidWeekDecisionSaves,
+} from "../app/mid-week-decision-saves";
+import { loadDecoratedWeekEntries } from "../lib/storage/week-entries";
+import {
+  buildMidWeekReviewSummary,
+  compareMidWeekSnapshot,
+  type MidWeekStatus,
+} from "../domain/mid-week-review";
 import {
   RescueTimeGoalsService,
   type RescueTimeProductivityPulseSnapshot,
@@ -77,6 +88,14 @@ const ritualSectionMeta: Array<{
   { key: "alignement", linkTo: "/projects", linkKey: "weekly.ritual.alignement.link" },
   { key: "dimanche", linkTo: "/historique", linkKey: "weekly.ritual.dimanche.link" },
 ];
+
+const formatMidWeekValue = (value: number | null, unit: string | null): string => {
+  if (value === null) {
+    return "—";
+  }
+  const rounded = Math.round(value * 10) / 10;
+  return unit ? `${rounded} ${unit}` : String(rounded);
+};
 
 const formatWholePercent = (value: number): string => `${Math.round(value)}%`;
 
@@ -741,6 +760,105 @@ export const WeeklyReviewPage = () => {
     }
   }, [settings.rescuetimeApiKey, hasValidSelectedWeek, loadRescueTimeData, selectedWeekStart]);
 
+  // Read-only mid-week decisions card. Entries are loaded only when a snapshot exists so plain
+  // week navigation adds no queries.
+  const midWeekWeek = useMemo(() => {
+    try {
+      return hasValidSelectedWeek ? buildWeekDates(selectedWeekStart) : selectedWeekStart;
+    } catch {
+      return selectedWeekStart;
+    }
+  }, [hasValidSelectedWeek, selectedWeekStart]);
+  const midWeekDecisions = useAsyncResource(midWeekWeek, async (week) => {
+    // A save still queued from /mi-semaine must land before the card reads the row.
+    await waitForMidWeekDecisionSaves(week);
+    return repository.getMidWeekDecisions(week);
+  });
+  // A save that rejected while its /mi-semaine editor was unmounted is only in memory; surface it
+  // here so it can be retried. Read after the load, which waits for the week's save chain.
+  const [retryingFailedDraft, setRetryingFailedDraft] = useState(false);
+  const [failedDraftRetryError, setFailedDraftRetryError] = useState(false);
+  const failedMidWeekDraft = midWeekDecisions.loading
+    ? undefined
+    : getFailedMidWeekDraft(midWeekWeek);
+  const retryFailedMidWeekDraft = async (week: string, text: string) => {
+    setRetryingFailedDraft(true);
+    setFailedDraftRetryError(false);
+    try {
+      await enqueueMidWeekDecisionSave(week, text, () =>
+        repository.saveMidWeekDecisions({
+          weekStartDate: week,
+          decisions: text,
+          decidedOnDate: calendarDay,
+          updatedAt: nowIso(),
+        }),
+      );
+    } catch {
+      setFailedDraftRetryError(true);
+    } finally {
+      setRetryingFailedDraft(false);
+      void midWeekDecisions.reload();
+    }
+  };
+  // Ignore a row that belongs to another week (the resource clears on key change, but guard anyway).
+  const midWeekRow =
+    midWeekDecisions.data?.weekStartDate === midWeekWeek ? midWeekDecisions.data : null;
+  const midWeekSnapshot = midWeekRow?.laggingSnapshot ?? null;
+  const midWeekEntries = useAsyncResource(
+    `${midWeekWeek}|${midWeekSnapshot ? "with" : "without"}`,
+    () =>
+      midWeekSnapshot ? loadDecoratedWeekEntries(repository, midWeekWeek) : Promise.resolve(null),
+  );
+  const midWeekWeekEnd = addDays(midWeekWeek, 6);
+  const midWeekToDate = midWeekWeekEnd >= calendarDay;
+  const midWeekComparison = useMemo(() => {
+    if (
+      !midWeekSnapshot ||
+      !midWeekEntries.data ||
+      !summary ||
+      summary.weekStartDate !== midWeekWeek
+    ) {
+      return null;
+    }
+    if (
+      goalsLoading ||
+      goalsRefreshing ||
+      pulseLoading ||
+      pulseRefreshing ||
+      standingObjectivesLoading
+    ) {
+      return null;
+    }
+    const matches = <T extends { weekStartDate: string }>(value: T | null): T | null =>
+      value?.weekStartDate === midWeekWeek ? value : null;
+    const finalSummary = buildMidWeekReviewSummary({
+      weekStartDate: midWeekWeek,
+      asOfDate: midWeekToDate ? calendarDay : addDays(midWeekWeekEnd, 1),
+      weekEntries: midWeekEntries.data,
+      summary,
+      goalsSnapshot: matches(goalsSnapshot),
+      pulseSnapshot: matches(pulseSnapshot),
+      objectivesSnapshot: matches(standingObjectivesSnapshot),
+    });
+    return compareMidWeekSnapshot(midWeekSnapshot, finalSummary);
+  }, [
+    midWeekSnapshot,
+    midWeekEntries.data,
+    summary,
+    midWeekWeek,
+    goalsSnapshot,
+    pulseSnapshot,
+    standingObjectivesSnapshot,
+    goalsLoading,
+    goalsRefreshing,
+    pulseLoading,
+    pulseRefreshing,
+    standingObjectivesLoading,
+    midWeekToDate,
+    calendarDay,
+    midWeekWeekEnd,
+  ]);
+
   const displayedSummary = useMemo(() => {
     if (!summary) {
       return null;
@@ -803,6 +921,7 @@ export const WeeklyReviewPage = () => {
       .filter((value): value is string => value !== undefined && Number.isFinite(Date.parse(value)))
       .sort((a, b) => Date.parse(a) - Date.parse(b))[0] ?? null;
   const goalsBusy = goalsLoading || goalsRefreshing;
+
   const pulseBusy = pulseLoading || pulseRefreshing;
   const rescueTimeRefreshing = goalsRefreshing || pulseRefreshing;
 
@@ -971,6 +1090,117 @@ export const WeeklyReviewPage = () => {
             </strong>
           </article>
         </div>
+      </SectionCard>
+
+      <SectionCard
+        title={t("weekly.midWeekDecisions.title")}
+        subtitle={t("weekly.midWeekDecisions.subtitle")}
+      >
+        {midWeekDecisions.loading ||
+        (midWeekDecisions.data !== null && midWeekDecisions.data.weekStartDate !== midWeekWeek) ? (
+          <p className="empty-copy">{t("weekly.loadingPlaceholder")}</p>
+        ) : midWeekDecisions.error ? (
+          <div className="banner" role="alert">
+            {t("weekly.midWeekDecisions.loadError")}{" "}
+            <button className="button" type="button" onClick={() => void midWeekDecisions.reload()}>
+              {t("weekly.midWeekDecisions.retry")}
+            </button>
+          </div>
+        ) : failedMidWeekDraft ? (
+          <>
+            <p className="midweek-decisions-text">{failedMidWeekDraft.text}</p>
+            <div className="banner" role="alert">
+              {t("weekly.midWeekDecisions.unsaved")}{" "}
+              <button
+                className="button"
+                type="button"
+                disabled={retryingFailedDraft}
+                onClick={() => void retryFailedMidWeekDraft(midWeekWeek, failedMidWeekDraft.text)}
+              >
+                {t("weekly.midWeekDecisions.retry")}
+              </button>
+            </div>
+          </>
+        ) : !midWeekRow ? (
+          <>
+            <p className="empty-copy">{t("weekly.midWeekDecisions.empty")}</p>
+            <div className="section-actions">
+              <Link className="button" to="/mi-semaine">
+                {t("weekly.midWeekDecisions.openMidWeek")}
+              </Link>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="midweek-decisions-text">{midWeekRow.decisions}</p>
+            <p className="empty-copy">
+              {t("weekly.midWeekDecisions.decidedOn", {
+                date: formatDateLong(midWeekRow.decidedOnDate),
+              })}
+            </p>
+            {midWeekSnapshot ? (
+              <>
+                <h3>{t("weekly.midWeekDecisions.snapshotTitle")}</h3>
+                {!midWeekComparison ? (
+                  <p className="empty-copy">{t("weekly.midWeekDecisions.loadingSnapshot")}</p>
+                ) : (
+                  <ul className="midweek-list">
+                    {midWeekComparison.map(({ key, before, after, recovered }) => {
+                      const status = (value: MidWeekStatus) => t(`midWeek.status.${value}`);
+                      return (
+                        <li key={key} className="midweek-signal">
+                          <strong>{before.label}</strong>
+                          <p>
+                            {t("weekly.midWeekDecisions.before", {
+                              date: formatDateLong(midWeekSnapshot.asOfDate),
+                              actual: formatMidWeekValue(before.actual, before.unit),
+                              expected: formatMidWeekValue(before.expected, before.unit),
+                              status: status(before.status),
+                            })}
+                          </p>
+                          <p>
+                            {after === null
+                              ? t("weekly.midWeekDecisions.gone")
+                              : after.status === "unknown"
+                                ? t("weekly.midWeekDecisions.unknown")
+                                : t(
+                                    midWeekToDate
+                                      ? "weekly.midWeekDecisions.afterToDate"
+                                      : "weekly.midWeekDecisions.after",
+                                    {
+                                      actual: formatMidWeekValue(after.actual, after.unit),
+                                      target: formatMidWeekValue(after.weekTarget, after.unit),
+                                      status: status(after.status),
+                                    },
+                                  )}
+                            {after !== null && after.status !== "unknown" && !after.hasFullCoverage
+                              ? ` ${t("weekly.midWeekDecisions.partialCoverage", {
+                                  withData: after.daysWithData,
+                                  applicable: after.daysApplicable,
+                                })}`
+                              : ""}
+                          </p>
+                          <span className="summary-pill">
+                            {recovered === true
+                              ? t("weekly.midWeekDecisions.recovered")
+                              : recovered === false
+                                ? t("weekly.midWeekDecisions.notRecovered")
+                                : t("weekly.midWeekDecisions.neutral")}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </>
+            ) : null}
+            <div className="section-actions">
+              <Link className="button" to="/mi-semaine">
+                {t("weekly.midWeekDecisions.openMidWeek")}
+              </Link>
+            </div>
+          </>
+        )}
       </SectionCard>
 
       <SectionCard

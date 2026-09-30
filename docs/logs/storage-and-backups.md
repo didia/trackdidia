@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-09-30 | Migration 36 creates `mid_week_decisions` with a snapshot-preserving upsert; `getMidWeekDecisions` / `saveMidWeekDecisions` in both repositories | `docs/storage-and-backups.md`, `docs/reviews-and-goals.md` | Migration `create_mid_week_decisions`, `repository.contract.ts` |
 | 2026-09-30 | Migration 35 creates `rescuetime_snapshot_cache`; `AppRepository` gains `getRescueTimeSnapshotCache`, `saveRescueTimeSnapshotCache`, `pruneRescueTimeSnapshotCache` and the atomic `mergeRescueTimeObjectiveSecondsCache` in both implementations | `docs/storage-and-backups.md`, `docs/reviews-and-goals.md` | Migration `create_rescuetime_snapshot_cache`, `repository.contract.ts` |
 | 2026-09-27 | Manual weekly-objective achievement and `ends_on_week_start_date` update share one SQLite transaction; end dates remain monotonic across out-of-order week writes | `docs/storage-and-backups.md`, `docs/reviews-and-goals.md` | `saveWeeklyObjectiveResult`, `objectiveAfterManualAchievement` |
 | 2026-09-27 | Migration 34 adds nullable `weekly_objectives.ends_on_week_start_date`; marking a manual objective achieved sets it to the previous Sunday | `docs/storage-and-backups.md`, `docs/reviews-and-goals.md` | Migration `add_weekly_objective_ends_on_week_start_date` |

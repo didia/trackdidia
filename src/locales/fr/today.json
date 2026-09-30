@@ -18,8 +18,8 @@
   "wednesday": {
     "title": "Point de mi-semaine",
     "subtitle": "Mercredi : un regard sur la semaine en cours, avant le rituel du dimanche.",
-    "body": "Relis le score, les axes et les tâches de cette semaine pour voir où tu en es et ajuster le cap maintenant.",
-    "openWeekly": "Ouvrir la semaine en cours"
+    "body": "Vois où tu en es cette semaine, ce qui est à rattraper, et note ce que tu changes pour la suite.",
+    "openMidWeek": "Ouvrir le point de mi-semaine"
   },
   "monthly": {
     "title": "Clôture mensuelle",

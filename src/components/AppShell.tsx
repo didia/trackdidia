@@ -11,6 +11,7 @@ const navigation = [
   { to: "/routine-matin", labelKey: "morningRoutine" },
   { to: "/fermeture-soir", labelKey: "eveningClose" },
   { to: "/semaine", labelKey: "week" },
+  { to: "/mi-semaine", labelKey: "midWeek" },
   { to: "/mois", labelKey: "month" },
   { to: "/objectifs-annuels", labelKey: "annualGoals" },
   { to: "/historique", labelKey: "dailyHistory" },

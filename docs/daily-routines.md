@@ -35,7 +35,8 @@ The Today screen is the daily control center. It:
   default) above the coach panel — see
   [AI settings and privacy](ai-settings-and-privacy.md#pasteur-ia-pastor_verse);
 - reminds the user about the weekly ritual on Sunday and opens last week's review;
-- reminds the user about a mid-week check on Wednesday and opens the current week;
+- reminds the user about a mid-week check on Wednesday and links to the `/mi-semaine`
+  page (pace, what to catch up, and this week's decisions);
 - reminds the user about the previous month's review on the first Saturday and
   opens that month;
 - edits `morningIntention` and `nightReflection` in matching persisted textareas

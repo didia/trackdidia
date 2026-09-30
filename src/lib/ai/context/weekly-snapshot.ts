@@ -1,4 +1,4 @@
-import { createEmptyDailyEntry, resolveMetricValue } from "../../../domain/daily-entry";
+import { resolveMetricValue } from "../../../domain/daily-entry";
 import { metricDefinitions, principleDefinitions } from "../../../domain/definitions";
 import { computeAnomalyFindings } from "../../../domain/insights/anomalies";
 import { computeFocusFindings } from "../../../domain/insights/focus";
@@ -29,6 +29,7 @@ import {
   pomodoroTarget,
 } from "../../../domain/weekly-review";
 import { clampAiAsOfDate, getTodayDate, stableAiNowIso } from "../../date";
+import { loadDecoratedWeekEntries } from "../../storage/week-entries";
 import { sanitizeFindingForScope, titleIndex } from "./redaction";
 import type { Surface } from "./types";
 
@@ -387,18 +388,15 @@ export const resolveWeeklySnapshotInputs = async (
   const now = options.now ?? stableAiNowIso(clampAiAsOfDate(today, weekEndDate));
   const pomodoroWallNow = new Date().toISOString();
 
-  const [summary, review, historyEntries, tasks, projects, ...weekEntryRows] = await Promise.all([
+  const [summary, review, historyEntries, tasks, projects, weekEntries] = await Promise.all([
     repository.computeWeeklyReviewSummary(normalized),
     repository.getWeeklyReview(normalized),
     repository.listDailyEntriesOnOrBefore(weekEndDate, 180),
     repository.listTasks({ includeCompleted: true }),
     repository.listProjects(),
-    ...weekDates.map((date) => repository.getDailyEntry(date)),
+    loadDecoratedWeekEntries(repository, normalized),
   ]);
 
-  const weekEntries = weekDates.map(
-    (date, index) => weekEntryRows[index] ?? createEmptyDailyEntry(date),
-  );
   const pomodoroSummariesByDay: PomodoroTaskSummary[][] = [];
   let completedFocusSessionCount = 0;
 

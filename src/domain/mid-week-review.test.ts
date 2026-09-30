@@ -495,6 +495,21 @@ describe("RescueTime goals", () => {
     }
   });
 
+  it("divides a 5-day more goal's remainder by remaining schedule days, not calendar days", () => {
+    const friday = "2026-08-07";
+    const signal = signalOf(
+      summarize({
+        asOfDate: friday,
+        goalsSnapshot: goalsOf([
+          goalItem({ scheduleLabel: "Working hours", weeklyTargetHours: 10, actualHours: 6 }),
+        ]),
+      }),
+      "rescuetime:1",
+    );
+    expect(signal.remaining).toBe(4);
+    expect(signal.perRemainingDay).toBe(4); // only Friday is left, not Friday + Saturday
+  });
+
   it("emits no goal signals without a snapshot", () => {
     expect(summarize().signals.some((signal) => signal.key.startsWith("rescuetime:"))).toBe(false);
   });
@@ -831,6 +846,8 @@ describe("lagging snapshot", () => {
     expect(parseMidWeekLaggingSnapshot(JSON.stringify({ ...snapshot, version: 2 }))).toBeNull();
     expect(parseMidWeekLaggingSnapshot(JSON.stringify({ version: 1 }))).toBeNull();
     expect(parseMidWeekLaggingSnapshot(null)).toBeNull();
+    const badStatus = { ...snapshot, signals: [{ ...snapshot.signals[0], status: "broken" }] };
+    expect(parseMidWeekLaggingSnapshot(JSON.stringify(badStatus))).toBeNull();
   });
 
   const wasLagging = (

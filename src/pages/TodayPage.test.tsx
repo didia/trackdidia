@@ -175,7 +175,7 @@ describe("TodayPage review prompts", () => {
     );
   });
 
-  it("opens this week's review from the Wednesday mid-week prompt", async () => {
+  it("opens the mid-week page from the Wednesday mid-week prompt", async () => {
     vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-09-16");
 
     const repository = new MemoryRepository();
@@ -184,8 +184,8 @@ describe("TodayPage review prompts", () => {
     await renderWithApp(<TodayPage />, { repository, route: "/" });
 
     expect(
-      await screen.findByRole("link", { name: /ouvrir la semaine en cours/i }),
-    ).toHaveAttribute("href", "/semaine?date=2026-09-13");
+      await screen.findByRole("link", { name: /ouvrir le point de mi-semaine/i }),
+    ).toHaveAttribute("href", "/mi-semaine");
     expect(
       screen.queryByRole("link", { name: /ouvrir la revue hebdomadaire/i }),
     ).not.toBeInTheDocument();

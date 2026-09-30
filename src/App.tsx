@@ -17,6 +17,7 @@ import { ReferencesPage } from "./pages/ReferencesPage";
 import { ScheduledPage } from "./pages/ScheduledPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { SomedayMaybePage } from "./pages/SomedayMaybePage";
+import { MidWeekReviewPage } from "./pages/MidWeekReviewPage";
 import { TodayPage } from "./pages/TodayPage";
 import { WaitingForPage } from "./pages/WaitingForPage";
 import { WeeklyReviewPage } from "./pages/WeeklyReviewPage";
@@ -30,6 +31,7 @@ export const App = () => (
           <Route path="routine-matin" element={<MorningRoutinePage />} />
           <Route path="fermeture-soir" element={<EveningClosurePage />} />
           <Route path="semaine" element={<WeeklyReviewPage />} />
+          <Route path="mi-semaine" element={<MidWeekReviewPage />} />
           <Route path="mois" element={<MonthlyReviewPage />} />
           <Route path="objectifs-annuels" element={<AnnualGoalsPage />} />
           <Route path="historique" element={<HistoryPage />} />

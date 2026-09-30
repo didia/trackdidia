@@ -22,7 +22,7 @@ import { formatDateLong, formatDateTimeShort, getTodayDate } from "../lib/date";
 import { logDebug } from "../lib/debug";
 import { formatTimestamp } from "../lib/format";
 import { bucketLabelKeys } from "../lib/gtd/labels";
-import { getWeekStartSunday, isSunday, isWednesday } from "../lib/gtd/shared";
+import { isSunday, isWednesday } from "../lib/gtd/shared";
 import type { DailyTaskBreakdown } from "../lib/storage/repository";
 
 export const TodayPage = () => {
@@ -181,11 +181,8 @@ export const TodayPage = () => {
         <SectionCard title={t("wednesday.title")} subtitle={t("wednesday.subtitle")}>
           <p className="empty-copy">{t("wednesday.body")}</p>
           <div className="section-actions">
-            <Link
-              className="button button--primary"
-              to={`/semaine?date=${getWeekStartSunday(entry.date)}`}
-            >
-              {t("wednesday.openWeekly")}
+            <Link className="button button--primary" to="/mi-semaine">
+              {t("wednesday.openMidWeek")}
             </Link>
           </div>
         </SectionCard>
