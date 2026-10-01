@@ -85,11 +85,11 @@ Repository contract (`src/lib/storage/repository.ts`, implemented in both
   The merge must be atomic: it goes through a repository
   `mergeRescueTimeObjectiveSecondsCache` that reads, merges and writes inside one
   `runExclusive` (SQLite) or one synchronous step (memory). See
-  [`mid-week-review.md`](mid-week-review.md) PR A.
+  [`mid-week-review.md`](../done/mid-week-review.md) PR A.
 
 **Read rules**
 
-- Read the cache only when `rescuetimeConfigured` is true, the live pull failed, and only entries matching the current key's fingerprint. (Extension shipped with PR A of [`mid-week-review.md`](mid-week-review.md): an opt-in `maxAgeMs` freshness window also serves a fresh entry without a pull. Absent, behavior is as described here.)
+- Read the cache only when `rescuetimeConfigured` is true, the live pull failed, and only entries matching the current key's fingerprint. (Extension shipped with PR A of [`mid-week-review.md`](../done/mid-week-review.md): an opt-in `maxAgeMs` freshness window also serves a fresh entry without a pull. Absent, behavior is as described here.)
   Removing the API key shows the missing-key state, never cached numbers.
 - Add optional `cachedAt?: string` to `RescueTimeGoalsSnapshot`
   (`src/domain/rescuetime-goals.ts`), `RescueTimeProductivityPulseSnapshot`, and

@@ -1,6 +1,7 @@
 import type { AiSurface, AppSettings, CoachPulseStance } from "../../domain/types";
 import { logDebug } from "../debug";
 import { buildCoachPulseSchemaPrompt } from "./proposals/coach-pulse-schema-prompt";
+import { buildMidWeekSteeringSchemaPrompt } from "./proposals/mid-week-steering-schema-prompt";
 import { buildGoalPacingSchemaPrompt } from "./proposals/goal-pacing-schema-prompt";
 import { buildMonthlySynthesisSchemaPrompt } from "./proposals/monthly-synthesis-schema-prompt";
 import { buildPastorVerseSchemaPrompt } from "./proposals/pastor-verse-schema-prompt";
@@ -11,6 +12,7 @@ import type {
   AiStructuredResult,
   CoachPulseStructuredRequest,
   GoalPacingStructuredRequest,
+  MidWeekSteeringStructuredRequest,
   MonthlySynthesisStructuredRequest,
   PastorVerseStructuredRequest,
   WeeklySynthesisStructuredRequest,
@@ -213,6 +215,7 @@ interface SurfacePromptSpecs {
   weekly_synthesis: SurfacePromptSpec<WeeklySynthesisStructuredRequest>;
   monthly_synthesis: SurfacePromptSpec<MonthlySynthesisStructuredRequest>;
   goal_pacing: SurfacePromptSpec<GoalPacingStructuredRequest>;
+  mid_week_steering: SurfacePromptSpec<MidWeekSteeringStructuredRequest>;
   pastor_verse: SurfacePromptSpec<PastorVerseStructuredRequest>;
 }
 
@@ -249,6 +252,13 @@ const surfacePromptSpecs: SurfacePromptSpecs = {
       "Tu es un coach de pilotage d'objectifs annuels. Reponds en francais avec un JSON strict conforme au schema goal_pacing (S4).",
     schema: (request) =>
       buildGoalPacingSchemaPrompt(request.snapshot.goals.map((goal) => goal.goalId)),
+    userPayload: (request) => ({ surface: request.surface, snapshot: request.snapshot }),
+  },
+  mid_week_steering: {
+    schemaName: "mid_week_steering",
+    instruction: () =>
+      "Tu es un coach de pilotage de mi-semaine. Reponds en francais avec un JSON strict conforme au schema mid_week_steering. Appuie-toi uniquement sur les signaux du snapshot.",
+    schema: (request) => buildMidWeekSteeringSchemaPrompt(request.snapshot.actionableKeys),
     userPayload: (request) => ({ surface: request.surface, snapshot: request.snapshot }),
   },
   pastor_verse: {
@@ -302,6 +312,8 @@ export const buildSystemPrompt = (request: AiStructuredRequest, repairHint?: str
       return composeForSpec(surfacePromptSpecs.monthly_synthesis, request, repairHint);
     case "goal_pacing":
       return composeForSpec(surfacePromptSpecs.goal_pacing, request, repairHint);
+    case "mid_week_steering":
+      return composeForSpec(surfacePromptSpecs.mid_week_steering, request, repairHint);
     case "pastor_verse":
       return composeForSpec(surfacePromptSpecs.pastor_verse, request, repairHint);
   }
@@ -317,6 +329,8 @@ const buildUserPayload = (request: AiStructuredRequest): unknown => {
       return surfacePromptSpecs.monthly_synthesis.userPayload(request);
     case "goal_pacing":
       return surfacePromptSpecs.goal_pacing.userPayload(request);
+    case "mid_week_steering":
+      return surfacePromptSpecs.mid_week_steering.userPayload(request);
     case "pastor_verse":
       return surfacePromptSpecs.pastor_verse.userPayload(request);
   }

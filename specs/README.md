@@ -18,13 +18,13 @@ current-product behavior remains documented in [`docs/`](../docs/).
 - [`todo/weekly-review-caching.md`](todo/weekly-review-caching.md) — §1 shipped (RescueTime
   snapshot cache); §2 compact weekly RescueTime goal lines and §3 last-good weekly coach
   synthesis fallback not implemented.
-- [`todo/mid-week-review.md`](todo/mid-week-review.md) — approved dedicated
-  `/mi-semaine` steering page: week-to-date pace per signal, recovery hints, persisted
-  mid-week decisions with a before/after snapshot on `/semaine`, and a later AI steering
-  surface. PR A (snapshot cache), B1 (pure math) and B2 (page, decisions, weekly mirror) shipped; C and D unshipped.
 - [`todo/finance.md`](todo/finance.md) — draft, unshipped household finances: CSV import,
   heuristic + learned + AI categorization, Mint-style tracking, YNAB-style envelope budgets,
   and proactive runout forecasting.
+- [`done/mid-week-review.md`](done/mid-week-review.md) — implemented dedicated `/mi-semaine`
+  page: pro-rated pace per signal, RescueTime snapshot cache, saved decisions with a
+  before/after card on `/semaine`, and AI steering. The optional journal feed (PR C) was not
+  shipped.
 - [`done/ai-integration-v2.md`](done/ai-integration-v2.md) — implemented AI integration v2.
 - [`done/email-triage.md`](done/email-triage.md) — implemented multi-account email triage.
 - [`done/project-planned-tasks.md`](done/project-planned-tasks.md) — implemented Project

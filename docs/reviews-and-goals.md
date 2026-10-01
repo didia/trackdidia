@@ -212,6 +212,10 @@ signal without full coverage carries a "sur N / M jours renseignés" caveat and 
 Decisions are not part of the weekly synthesis snapshot, so they do not change its `inputHash`.
 A decisions save that failed while its `/mi-semaine` editor was gone stays in memory (lost on quit); the card for that week shows the unsaved text with an alert and a retry. The card keys its read on the normalized Sunday, so a mid-week date in the picker still finds that week's row.
 
+**AI steering.** Below the lagging list the page shows a display-only coach panel
+(`mid_week_steering`, see [AI settings and privacy](ai-settings-and-privacy.md#mid-week-steering-mid_week_steering)).
+It never runs on Sunday, and every action must reference a lagging or at-risk signal.
+
 **Difference from `/semaine`.** The mid-week page and the card load the seven decorated daily
 entries (`loadDecoratedWeekEntries`); a day with no entry row stays undecorated and counts as
 "no data", which differs slightly from `computeWeeklyReviewSummary`.

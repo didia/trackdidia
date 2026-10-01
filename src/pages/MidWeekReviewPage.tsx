@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { useAppContext } from "../app/app-context";
@@ -7,7 +7,8 @@ import {
   getFailedMidWeekDraft,
   waitForMidWeekDecisionSaves,
 } from "../app/mid-week-decision-saves";
-import { useAsyncResource } from "../app/use-latest-request";
+import { useAsyncResource, useLatestRequest } from "../app/use-latest-request";
+import { MidWeekSteeringPanel } from "../components/MidWeekSteeringPanel";
 import { PageHeader } from "../components/PageHeader";
 import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
 import { SectionCard } from "../components/SectionCard";
@@ -19,7 +20,15 @@ import {
   type MidWeekSignal,
 } from "../domain/mid-week-review";
 import type { RescueTimeGoalsSnapshot } from "../domain/rescuetime-goals";
-import type { WeeklyObjectivesSnapshot, WeeklyReviewSummary } from "../domain/types";
+import type {
+  MidWeekSteeringResult,
+  WeeklyObjectivesSnapshot,
+  WeeklyReviewSummary,
+} from "../domain/types";
+import { loadLatestMidWeekSteering } from "../lib/ai/mid-week-steering-loader";
+import { MidWeekSteeringService } from "../lib/ai/mid-week-steering-service";
+import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
+import { logDebug } from "../lib/debug";
 import { formatDateLong } from "../lib/date";
 import { formatPercent, formatTimestamp } from "../lib/format";
 import { addDays, getWeekStartSunday, isSunday, nowIso } from "../lib/gtd/shared";
@@ -62,6 +71,7 @@ const journalFieldKeys = ["morningIntention", "nightReflection", "tomorrowFocus"
 export const MidWeekReviewPage = () => {
   const { t } = useTranslation("reviews");
   const { t: tHistory } = useTranslation("history");
+  const { t: tCoach } = useTranslation("coach");
   const { repository, settings, calendarDay } = useAppContext();
 
   const weekStart = getWeekStartSunday(calendarDay);
@@ -79,13 +89,14 @@ export const MidWeekReviewPage = () => {
   const forcedRef = useRef(forced);
   forcedRef.current = forced;
 
+  const [settledLoadKey, setSettledLoadKey] = useState<string | null>(null);
   const saveContextRef = useRef(new Map<string, SaveContext>());
   const cycleRef = useRef<LoadCycle | null>(null);
   const loadKey = `${viewWeek}|${paceAsOf}|${refresh.count}`;
 
   // Declared before the resources so a new cycle exists before their loaders start.
   useEffect(() => {
-    void loadKey;
+    const cycleKey = loadKey;
     let resolveSettled: () => void = () => undefined;
     const settled = new Promise<void>((resolve) => {
       resolveSettled = resolve;
@@ -125,6 +136,8 @@ export const MidWeekReviewPage = () => {
           context.complete =
             names.every((key) => outcomes[key]) && external.every((item) => !item?.fetchError);
           resolveSettled();
+          // Readiness token for the steering auto-run: bound to this cycle's key.
+          setSettledLoadKey(cycleKey);
         }
       },
     };
@@ -209,6 +222,74 @@ export const MidWeekReviewPage = () => {
   );
 
   const [showAllLagging, setShowAllLagging] = useState(false);
+
+  // ---- AI steering (display only; never on Sunday) ---------------------------------------
+  const steeringService = useMemo(() => new MidWeekSteeringService(new OpenRouterProvider()), []);
+  const steeringRequest = useLatestRequest();
+  const [steeringResult, setSteeringResult] = useState<MidWeekSteeringResult | null>(null);
+  const [steeringLoading, setSteeringLoading] = useState(false);
+  const [steeringError, setSteeringError] = useState(false);
+  const steeringRanRef = useRef<string | null>(null);
+  // Load cycle currently mounted: an obsolete hydration must not launch steering after it moves on.
+  const steeringCycleRef = useRef<string | null>(null);
+  // Decision text acknowledged as saved on this page; the resource is never reloaded after a save.
+  const [confirmedDecisions, setConfirmedDecisions] = useState<{
+    week: string;
+    text: string;
+  } | null>(null);
+  const steeringKey = loadKey;
+
+  const runSteering = useCallback(
+    async (options: { trigger: "auto" | "explicit"; bypassCache?: boolean }) => {
+      if (sunday || !summary || !entries.data) {
+        return;
+      }
+      const inputs = {
+        summary,
+        weekEntries: entries.data,
+        decisions:
+          confirmedDecisions?.week === weekStart
+            ? confirmedDecisions.text
+            : (decisions.data?.decisions ?? null),
+      };
+      await steeringRequest.run(async (signal) => {
+        setSteeringLoading(true);
+        setSteeringError(false);
+        try {
+          const result = await steeringService.buildSteering(repository, {
+            settings,
+            snapshotInputs: inputs,
+            trigger: options.trigger,
+            bypassCache: options.bypassCache,
+          });
+          if (signal.isLatest()) {
+            setSteeringResult(result);
+          }
+        } catch (error) {
+          logDebug("error", "ai.midweek", "Echec du pilotage de mi-semaine", error);
+          if (signal.isLatest()) {
+            setSteeringError(true);
+          }
+        } finally {
+          if (signal.isLatest()) {
+            setSteeringLoading(false);
+          }
+        }
+      });
+    },
+    [
+      confirmedDecisions,
+      decisions.data,
+      entries.data,
+      repository,
+      settings,
+      steeringRequest,
+      steeringService,
+      summary,
+      sunday,
+      weekStart,
+    ],
+  );
   const rescueTimeBusy =
     goals.loading ||
     pulse.loading ||
@@ -279,6 +360,7 @@ export const MidWeekReviewPage = () => {
         updatedAt: nowIso(),
         ...snapshotPatch,
       });
+      setConfirmedDecisions({ week: weekStart, text: value });
     });
 
   const handleSaveState = (state: "saving" | "saved" | "error") => {
@@ -294,6 +376,58 @@ export const MidWeekReviewPage = () => {
     optimisticDecidedOn?.week === weekStart
       ? optimisticDecidedOn.date
       : (decisions.data?.decidedOnDate ?? null);
+
+  // `settledLoadKey === loadKey` proves the loads of the *current* cycle have all landed; the
+  // resource flags alone lag one render behind a key change and would steer stale data.
+  const steeringReady =
+    !sunday &&
+    settledLoadKey === loadKey &&
+    summary !== null &&
+    entries.data !== null &&
+    !rescueTimeBusy &&
+    !decisions.loading &&
+    !decisions.error &&
+    !review.loading;
+
+  useEffect(() => {
+    setSteeringResult(null);
+    setSteeringError(false);
+    void weekStart;
+  }, [weekStart]);
+
+  useEffect(() => {
+    steeringCycleRef.current = steeringKey;
+    return () => {
+      steeringCycleRef.current = null;
+      steeringRequest.invalidate();
+      setSteeringLoading(false);
+    };
+  }, [steeringKey, steeringRequest]);
+
+  // Hydrate the stored result, then refresh it once the RescueTime loads have settled.
+  useEffect(() => {
+    if (!steeringReady || steeringRanRef.current === steeringKey) {
+      return;
+    }
+    steeringRanRef.current = steeringKey;
+    void (async () => {
+      try {
+        const stored = await loadLatestMidWeekSteering(repository, steeringService, weekStart);
+        if (steeringCycleRef.current !== steeringKey) {
+          return;
+        }
+        if (stored && stored.message.scopeKey === weekStart) {
+          setSteeringResult((current) => current ?? stored);
+        }
+      } catch (error) {
+        logDebug("error", "ai.midweek", "Echec de l'hydratation du pilotage de mi-semaine", error);
+      }
+      if (steeringCycleRef.current !== steeringKey) {
+        return;
+      }
+      await runSteering({ trigger: "auto" });
+    })();
+  }, [repository, runSteering, steeringKey, steeringReady, steeringService, weekStart]);
 
   // ---- derived view data ------------------------------------------------------------------
   const window = summary?.window ?? null;
@@ -456,6 +590,22 @@ export const MidWeekReviewPage = () => {
                 ) : null}
               </>
             )}
+          </SectionCard>
+
+          <SectionCard title={tCoach("midWeekSteering.title")}>
+            <MidWeekSteeringPanel
+              result={steeringResult?.message.scopeKey === weekStart ? steeringResult : null}
+              loading={steeringLoading}
+              error={steeringError}
+              settings={settings}
+              asOfDate={calendarDay}
+              sunday={sunday}
+              signalLabelsByKey={
+                new Map(summary.signals.map((signal) => [signal.key, signal.label]))
+              }
+              onRequestCoach={() => void runSteering({ trigger: "explicit" })}
+              onRegenerate={() => void runSteering({ trigger: "explicit", bypassCache: true })}
+            />
           </SectionCard>
 
           {sunday ? null : (

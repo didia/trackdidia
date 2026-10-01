@@ -297,6 +297,40 @@ Pacing auto-runs only when the year is between 2000 and 2100 and the evaluation 
 matches `YYYY-MM`. Changing the year clears the on-screen pacing panel until the new
 year's result loads.
 
+### Mid-week steering (`mid_week_steering`)
+
+`/mi-semaine` runs `mid_week_steering` (prompt `mid_week_steering.v1`, display-only, no
+proposals, no migration since `ai_messages.surface` has no `CHECK`). The page hydrates the
+latest `ok` row for the week (`loadLatestMidWeekSteering`, which rejects a stale
+`promptVersion`), then runs cache-first `buildSteering` once the entries, weekly summary and
+RescueTime loads have settled and the decisions row has been read. **« Demander au coach »** and
+**« Régénérer »** (bypasses the cache) are explicit. `scopeKey` is the week start.
+
+- **Snapshot** (`buildMidWeekSnapshot`, the single place where redaction happens): the B1
+  summary (statuses, coverage, ranked lagging keys as `actionableKeys`, recovery lines). Goal and
+  objective titles need `metrics_and_structure`; below it the label is the category name. The
+  journal text of completed days (each field capped at 1,200 characters) and the week's saved
+  decisions text (capped at 2,000) are included **only at `full` scope**. Signal keys such as
+  `rescuetime:<goalId>` and `objective:<id>` are always present because the validator matches on
+  them.
+- **Hash:** `inputHash` covers the prompt version, payload scope, snapshot, selected memory ids
+  (`retrieveMemoriesForWeekly`) and `asOfDate`. A new day, a new decisions text at `full` scope
+  or changed figures therefore miss the cache and cost one call on the next page open. This is
+  intentional.
+- **Validation:** every `actions[].signalKey` must be one of `actionableKeys` and appear once. A
+  green (`ahead` / `on_pace`), `unknown` or absent key, or a repeated key, is invalid and goes
+  through one repair retry, then the local fallback. When nothing is actionable only
+  `actions: []` is valid. `asOfDate` is set from the snapshot, never trusted from the model.
+- **Fallback:** on a provider error or unparseable output a `fallback` row with the local body
+  (built from `rankMidWeekSignals` and the recovery lines) is persisted. With AI off or no key a
+  `skipped` local row is persisted and reused.
+- **Sunday:** when no day of the week has completed there is no AI at all: no hydrate, no
+  auto-run, no provider call and no persisted message, the request buttons are hidden, and the
+  panel shows "Le coach de mi-semaine reprend lundi." The deterministic previous-week list is
+  the only steering shown. `MidWeekSteeringService` also throws if asked with no completed day.
+- A result hydrated from an earlier day of the week is labelled with its own `asOfDate`.
+- The Settings payload preview has a « Mi-semaine » option.
+
 ### Pasteur IA (`pastor_verse`)
 
 A feature-flagged card (`aiPastorEnabled`, default off) on the Today page suggests one
@@ -581,6 +615,7 @@ stored on each `ai_messages.prompt_version` row:
 | `weekly_synthesis` | `weekly_synthesis.v1` |
 | `monthly_synthesis` | `monthly_synthesis.v1` |
 | `goal_pacing` | `goal_pacing.v1` |
+| `mid_week_steering` | `mid_week_steering.v1` |
 | `pastor_verse` | `pastor_verse.v1` |
 
 The analytics section lists active versions and surfaces low-acceptance areas as

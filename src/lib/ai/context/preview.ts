@@ -2,7 +2,10 @@ import { createEmptyDailyEntry } from "../../../domain/daily-entry";
 import { getMonthKey } from "../../../domain/monthly-review";
 import type { AiPayloadScope, DailyEntry } from "../../../domain/types";
 import { buildWeekDates } from "../../../domain/weekly-review";
+import { buildMidWeekReviewSummary } from "../../../domain/mid-week-review";
 import { getTodayDate } from "../../date";
+import { loadDecoratedWeekEntries } from "../../storage/week-entries";
+import { WeeklyObjectivesService } from "../../rescuetime/weekly-objectives-service";
 import { addDays, getWeekStartSunday } from "../../gtd/shared";
 import type { RescueTimeGoalItemSnapshot } from "../../../domain/rescuetime-goals";
 import { PASTOR_VERSE_PROMPT_VERSION } from "../pastor-verse-service";
@@ -10,6 +13,7 @@ import { RescueTimeGoalsService } from "../../rescuetime/rescuetime-goals-servic
 import type { AppRepository } from "../../storage/repository";
 import { buildDailySnapshot, type DailySnapshot } from "./daily-snapshot";
 import { buildGoalPacingSnapshot, resolveGoalPacingSnapshotInputs } from "./goal-pacing-snapshot";
+import { buildMidWeekSnapshot } from "./mid-week-snapshot";
 import { buildMonthlySnapshot, resolveMonthlySnapshotInputs } from "./monthly-snapshot";
 import { buildPastorSnapshot, resolvePastorSnapshotInputs } from "./pastor-snapshot";
 import type { Surface } from "./types";
@@ -192,7 +196,8 @@ export type PreviewSnapshot =
   | import("./weekly-snapshot").WeeklySnapshot
   | import("./monthly-snapshot").MonthlySnapshot
   | import("./goal-pacing-snapshot").GoalPacingSnapshot
-  | import("./pastor-snapshot").PastorSnapshot;
+  | import("./pastor-snapshot").PastorSnapshot
+  | import("./mid-week-snapshot").MidWeekSnapshot;
 
 /**
  * Renders the exact snapshot that would be sent to the model for a given scope, built from
@@ -246,6 +251,39 @@ export const previewPayload = async (
       settings.aiPastorCustomVerses,
     );
     return buildPastorSnapshot(inputs, scope);
+  }
+
+  if (surface === "midweek") {
+    const asOfDate = options.date ?? getTodayDate();
+    const weekStartDate = getWeekStartSunday(asOfDate);
+    const [weekEntries, review, decisionsRow] = await Promise.all([
+      loadDecoratedWeekEntries(repository, weekStartDate),
+      repository.computeWeeklyReviewSummary(weekStartDate),
+      repository.getMidWeekDecisions(weekStartDate),
+    ]);
+    const goalsService = new RescueTimeGoalsService(repository);
+    const objectivesService = new WeeklyObjectivesService(repository);
+    const [goalsSnapshot, objectivesSnapshot] = await Promise.all([
+      goalsService
+        .computeGoalsSnapshot(weekStartDate, { maxAgeMs: 15 * 60 * 1000 })
+        .catch(() => null),
+      objectivesService
+        .computeWeeklyObjectivesSnapshot(weekStartDate, { maxAgeMs: 15 * 60 * 1000 })
+        .catch(() => null),
+    ]);
+    const summary = buildMidWeekReviewSummary({
+      weekStartDate,
+      asOfDate,
+      weekEntries,
+      summary: review,
+      goalsSnapshot,
+      pulseSnapshot: null,
+      objectivesSnapshot,
+    });
+    return buildMidWeekSnapshot(
+      { summary, weekEntries, decisions: decisionsRow?.decisions ?? null },
+      scope,
+    );
   }
 
   if (surface !== "daily") {

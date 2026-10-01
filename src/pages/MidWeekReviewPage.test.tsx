@@ -8,6 +8,8 @@ import { clearFailedMidWeekDraft, getFailedMidWeekDraft } from "../app/mid-week-
 import { createEmptyDailyEntry, defaultAppSettings } from "../domain/daily-entry";
 import type { MidWeekLaggingSnapshot } from "../domain/mid-week-review";
 import type { AppSettings } from "../domain/types";
+import { MidWeekSteeringService } from "../lib/ai/mid-week-steering-service";
+import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
 import { RescueTimeGoalsService } from "../lib/rescuetime/rescuetime-goals-service";
 import { WeeklyObjectivesService } from "../lib/rescuetime/weekly-objectives-service";
 import { MemoryRepository } from "../lib/storage/memory-repository";
@@ -261,6 +263,228 @@ describe("MidWeekReviewPage", () => {
       const text = journal.textContent ?? "";
       expect(text.indexOf("Réflexion mardi")).toBeLessThan(text.indexOf("Intention lundi"));
       expect(within(journal).queryByText(/Focus de demain/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe("AI steering", () => {
+    const aiSettings = (): AppSettings => ({
+      ...defaultAppSettings(),
+      aiEnabled: true,
+      aiApiKey: "secret",
+    });
+
+    it("hydrates then auto-runs once the loads settle, and shows the steering", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      await seedPomodoros(repository, [8, 0, 0]);
+      const generate = vi
+        .spyOn(OpenRouterProvider.prototype, "generateStructured")
+        .mockImplementation(async () => ({
+          text: JSON.stringify({
+            headline: "Le focus décroche",
+            read: "Pomodoris en retard.",
+            focusShift: "Deux blocs demain",
+            actions: [
+              {
+                signalKey: "metric:pomodoris",
+                title: "Bloquer deux blocs",
+                why: "En retard",
+                effort: "medium",
+              },
+            ],
+          }),
+          model: "test",
+          usage: { tokensPrompt: 1, tokensCompletion: 1, latencyMs: 1 },
+        }));
+      await renderPage(repository, WEDNESDAY, aiSettings());
+
+      expect(await screen.findByText("Le focus décroche")).toBeInTheDocument();
+      expect(screen.getByText("Bloquer deux blocs")).toBeInTheDocument();
+      expect(generate).toHaveBeenCalledOnce();
+      expect(await repository.listAiMessages("mid_week_steering")).toHaveLength(1);
+    });
+
+    it("persists a skipped local message when AI is unconfigured", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      await seedPomodoros(repository, [8, 0, 0]);
+      const generate = vi.spyOn(OpenRouterProvider.prototype, "generateStructured");
+      await renderPage(repository, WEDNESDAY);
+
+      await waitFor(async () => {
+        const rows = await repository.listAiMessages("mid_week_steering");
+        expect(rows).toHaveLength(1);
+        expect(rows[0].status).toBe("skipped");
+      });
+      expect(generate).not.toHaveBeenCalled();
+    });
+
+    const mockLoadsWithGatedRefresh = () => {
+      const base = {
+        weekStartDate: WEEK,
+        weekEndDate: "2026-08-08",
+      };
+      let calls = 0;
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      vi.spyOn(RescueTimeGoalsService.prototype, "computeGoalsSnapshot").mockImplementation(
+        async () => {
+          calls += 1;
+          if (calls > 1) {
+            await gate;
+          }
+          return {
+            ...base,
+            items: [],
+            totalAchievement: 0,
+            score: null,
+            rescuetimeConfigured: true,
+          };
+        },
+      );
+      vi.spyOn(RescueTimeGoalsService.prototype, "computeProductivityPulse").mockResolvedValue({
+        ...base,
+        pulse: null,
+        rescuetimeConfigured: true,
+      });
+      vi.spyOn(
+        WeeklyObjectivesService.prototype,
+        "computeWeeklyObjectivesSnapshot",
+      ).mockResolvedValue({
+        ...base,
+        items: [],
+        totalAchievement: 0,
+        score: null,
+        rescuetimeConfigured: true,
+      });
+      vi.spyOn(OpenRouterProvider.prototype, "generateStructured").mockImplementation(async () => ({
+        text: JSON.stringify({
+          headline: "Cap",
+          read: "Lecture",
+          focusShift: "Focus",
+          actions: [],
+        }),
+        model: "test",
+        usage: { tokensPrompt: 1, tokensCompletion: 1, latencyMs: 1 },
+      }));
+      return { release: () => release() };
+    };
+
+    it("does not steer stale data after Actualiser until the refreshed loads settle", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      await seedPomodoros(repository, [8, 0, 0]);
+      const gated = mockLoadsWithGatedRefresh();
+      const build = vi.spyOn(MidWeekSteeringService.prototype, "buildSteering");
+      const user = userEvent.setup();
+      await renderPage(repository, WEDNESDAY, { ...aiSettings(), rescuetimeApiKey: "rt-key" });
+
+      await waitFor(() => expect(build).toHaveBeenCalledTimes(1));
+      await user.click(await screen.findByRole("button", { name: "Actualiser" }));
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(build).toHaveBeenCalledTimes(1);
+
+      await act(async () => gated.release());
+      await waitFor(() => expect(build).toHaveBeenCalledTimes(2));
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(build).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not steer the previous day's data when calendarDay changes mid-week", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      await seedPomodoros(repository, [8, 0, 0]);
+      const gated = mockLoadsWithGatedRefresh();
+      const build = vi.spyOn(MidWeekSteeringService.prototype, "buildSteering");
+      await repository.saveSettings({ ...aiSettings(), rescuetimeApiKey: "rt-key" });
+      let base: AppContextValue | null = null;
+      const Capture = () => {
+        base = useAppContext();
+        return null;
+      };
+      const captured = await renderWithApp(<Capture />, { repository });
+      captured.unmount();
+      let setDay: (day: string) => void = () => undefined;
+      const Harness = () => {
+        const [day, setCurrent] = useState(WEDNESDAY);
+        setDay = setCurrent;
+        return (
+          <AppContext.Provider
+            value={{
+              ...(base as unknown as AppContextValue),
+              settings: { ...aiSettings(), rescuetimeApiKey: "rt-key" },
+              calendarDay: day,
+            }}
+          >
+            <MidWeekReviewPage />
+          </AppContext.Provider>
+        );
+      };
+      render(
+        <MemoryRouter>
+          <Harness />
+        </MemoryRouter>,
+      );
+
+      await waitFor(() => expect(build).toHaveBeenCalledTimes(1));
+      act(() => setDay("2026-08-06"));
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(build).toHaveBeenCalledTimes(1);
+
+      await act(async () => gated.release());
+      await waitFor(() => expect(build).toHaveBeenCalledTimes(2));
+    });
+
+    it("does not steer until the decisions read succeeds, then steers once", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      await seedPomodoros(repository, [8, 0, 0]);
+      await repository.saveMidWeekDecisions({
+        weekStartDate: WEEK,
+        decisions: "Stocké",
+        decidedOnDate: "2026-08-04",
+        updatedAt: "2026-08-04T10:00:00.000Z",
+      });
+      vi.spyOn(repository, "getMidWeekDecisions").mockRejectedValueOnce(new Error("boom"));
+      const build = vi.spyOn(MidWeekSteeringService.prototype, "buildSteering");
+      const user = userEvent.setup();
+      await renderPage(repository, WEDNESDAY, aiSettings());
+
+      const alert = await screen.findByRole("alert");
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(build).not.toHaveBeenCalled();
+
+      await user.click(within(alert).getByRole("button", { name: "Réessayer" }));
+      await waitFor(() => expect(build).toHaveBeenCalledTimes(1));
+      expect(build.mock.calls[0][1].snapshotInputs.decisions).toBe("Stocké");
+    });
+
+    it("shows a non-loading alert when the steering run fails on the repository", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      await seedPomodoros(repository, [8, 0, 0]);
+      vi.spyOn(repository, "listAiMemories").mockRejectedValue(new Error("db"));
+      await renderPage(repository, WEDNESDAY, aiSettings());
+
+      expect(await screen.findByText(/n'a pas pu être préparé/)).toBeInTheDocument();
+    });
+
+    it("uses no AI at all on Sunday: no provider call, no ai_messages row, one line", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      const generate = vi.spyOn(OpenRouterProvider.prototype, "generateStructured");
+      const fetchSpy = vi.spyOn(globalThis, "fetch");
+      await renderPage(repository, SUNDAY, aiSettings());
+
+      expect(await screen.findByText("Le coach de mi-semaine reprend lundi.")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /demander au coach/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /régénérer/i })).not.toBeInTheDocument();
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(generate).not.toHaveBeenCalled();
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(await repository.listAiMessages("mid_week_steering")).toEqual([]);
     });
   });
 

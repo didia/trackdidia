@@ -49,6 +49,7 @@ export const AiPayloadPreviewSection = ({ repository }: AiPayloadPreviewSectionP
             <option value="monthly">{t("payloadPreview.surfaceOption.monthly")}</option>
             <option value="annual">{t("payloadPreview.surfaceOption.annual")}</option>
             <option value="pastor">{t("payloadPreview.surfaceOption.pastor")}</option>
+            <option value="midweek">{t("payloadPreview.surfaceOption.midweek")}</option>
           </select>
         </label>
         <label className="stacked-field">
