@@ -32,6 +32,7 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   buildAnnualGoalSnapshots,
   cloneAnnualGoal,
+  updateAnnualGoalEvaluation,
   createEmptyAnnualGoal,
 } from "../../domain/annual-goals";
 import {
@@ -312,11 +313,13 @@ export class TauriSqliteRepository implements AppRepository {
 
   async saveDailyEntry(entry: DailyEntry): Promise<void> {
     const decoratedEntry = await this.decorateEntry(entry);
-    return this.writeExclusive(async () => {
-      const db = await this.getDb();
+    return this.writeTransaction((tx) => this.saveDailyEntryInternal(tx, decoratedEntry));
+  }
+  private async saveDailyEntryInternal(tx: TxContext, entry: DailyEntry): Promise<void> {
+    const db = transactionDb(tx);
 
-      await db.execute(
-        `INSERT INTO daily_entries (${dailyEntriesRows.COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    await db.execute(
+      `INSERT INTO daily_entries (${dailyEntriesRows.COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       ON CONFLICT(date) DO UPDATE SET
         status = excluded.status,
         metrics_json = excluded.metrics_json,
@@ -325,9 +328,8 @@ export class TauriSqliteRepository implements AppRepository {
         night_reflection = excluded.night_reflection,
         tomorrow_focus = excluded.tomorrow_focus,
         updated_at = excluded.updated_at`,
-        dailyEntriesRows.toParams(decoratedEntry),
-      );
-    });
+      dailyEntriesRows.toParams(entry),
+    );
   }
 
   async listDailyEntries(limit = 30): Promise<DailyEntry[]> {
@@ -541,21 +543,23 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async saveAnnualGoal(goal: AnnualGoal): Promise<AnnualGoal> {
-    return this.writeExclusive(async () => {
-      const db = await this.getDb();
-      const timestamp = nowIso();
-      const nextGoal = createEmptyAnnualGoal({
-        ...cloneAnnualGoal(goal),
-        id: goal.id || createEntityId("annual-goal"),
-        title: goal.title.trim(),
-        description: goal.description.trim(),
-        unit: goal.unit.trim(),
-        createdAt: goal.createdAt || timestamp,
-        updatedAt: timestamp,
-      });
+    return this.writeTransaction((tx) => this.saveAnnualGoalInternal(tx, goal));
+  }
+  private async saveAnnualGoalInternal(tx: TxContext, goal: AnnualGoal): Promise<AnnualGoal> {
+    const db = transactionDb(tx);
+    const timestamp = nowIso();
+    const nextGoal = createEmptyAnnualGoal({
+      ...cloneAnnualGoal(goal),
+      id: goal.id || createEntityId("annual-goal"),
+      title: goal.title.trim(),
+      description: goal.description.trim(),
+      unit: goal.unit.trim(),
+      createdAt: goal.createdAt || timestamp,
+      updatedAt: timestamp,
+    });
 
-      await db.execute(
-        `INSERT INTO annual_goals (${annualGoalsRows.COLUMNS}) VALUES (
+    await db.execute(
+      `INSERT INTO annual_goals (${annualGoalsRows.COLUMNS}) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
         $20, $21
       )
@@ -579,11 +583,10 @@ export class TauriSqliteRepository implements AppRepository {
         progress_log_json = excluded.progress_log_json,
         milestones_json = excluded.milestones_json,
         updated_at = excluded.updated_at`,
-        annualGoalsRows.toParams(nextGoal),
-      );
+      annualGoalsRows.toParams(nextGoal),
+    );
 
-      return cloneAnnualGoal(nextGoal);
-    });
+    return cloneAnnualGoal(nextGoal);
   }
 
   async deleteAnnualGoal(goalId: string): Promise<void> {
@@ -1226,9 +1229,10 @@ export class TauriSqliteRepository implements AppRepository {
             : effect?.kind === "weeklyObjective"
               ? effect.objective.id
               : null);
-        return { proposal, appliedEntityId };
+        return { proposal, appliedEntityId, effectApplied: false };
       }
-      if (!effect) return { proposal, appliedEntityId: null };
+      if (!effect || proposal.status !== "pending")
+        return { proposal, appliedEntityId: null, effectApplied: false };
 
       let appliedEntityId: string;
       switch (effect.kind) {
@@ -1252,10 +1256,29 @@ export class TauriSqliteRepository implements AppRepository {
           await this.saveMonthlyReviewInternal(tx, effect.review);
           appliedEntityId = effect.review.monthKey;
           break;
+        case "dailyEntry":
+          await this.saveDailyEntryInternal(tx, effect.entry);
+          appliedEntityId = effect.entry.date;
+          break;
+        case "goalEvaluation": {
+          const rows = await db.select<annualGoalsRows.AnnualGoalRow[]>(
+            `SELECT ${annualGoalsRows.COLUMNS} FROM annual_goals WHERE id = $1`,
+            [effect.goalId],
+          );
+          const goal = rows[0] ? annualGoalsRows.fromRow(rows[0]) : null;
+          if (!goal) return { proposal, appliedEntityId: null, effectApplied: false };
+          appliedEntityId = (
+            await this.saveAnnualGoalInternal(
+              tx,
+              updateAnnualGoalEvaluation(goal, effect.monthKey, effect.evaluation),
+            )
+          ).id;
+          break;
+        }
         case "gtdTask": {
           const task = await this.getTaskById(effect.taskId);
           const next = task ? taskForAcceptEffect(task, effect) : null;
-          if (!task || !next) return { proposal, appliedEntityId: null };
+          if (!task || !next) return { proposal, appliedEntityId: null, effectApplied: false };
           await this.saveTaskInternal(tx, next);
           if (effect.action === "drop" && task.recurringTemplateId) {
             const template = await this.requireRecurringTemplate(task.recurringTemplateId);
@@ -1277,6 +1300,7 @@ export class TauriSqliteRepository implements AppRepository {
       return {
         proposal: { ...proposal, status: "accepted", appliedEntityId, decidedAt },
         appliedEntityId,
+        effectApplied: true,
       };
     });
   }

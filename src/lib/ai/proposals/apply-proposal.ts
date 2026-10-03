@@ -1,194 +1,225 @@
-import { updateAnnualGoalEvaluation } from "../../../domain/annual-goals";
+import { updateWeeklyReviewNote } from "../../../domain/weekly-review";
+import { updateMonthlyReviewNote } from "../../../domain/monthly-review";
+import { createEmptyDailyEntry, updateNote } from "../../../domain/daily-entry";
 import type {
   AiProposal,
-  AnnualGoalTrend,
+  DailyEntry,
+  MonthlyReview,
   MonthlyReviewSectionKey,
-  RescueTimeTaxonomy,
-  Task,
+  WeeklyReview,
   WeeklyRitualSectionKey,
 } from "../../../domain/types";
-import { createEmptyWeeklyObjective } from "../../../domain/weekly-objectives";
-import { buildWeekDates } from "../../../domain/weekly-review";
 import { t } from "../../../i18n";
 import { getTodayDate } from "../../date";
-import { addDays } from "../../date";
 import type { AppRepository } from "../../storage/repository";
-import { applyAcceptedProposal } from "../memory/apply-proposal";
+import { buildMemoryFromProposal } from "../memory/apply-proposal";
+import type { AcceptEffect } from "./accept-effect";
+import { decodeProposal, isMonthlySectionKey, isWeeklySectionKey } from "./payloads";
+import { buildWeeklyObjectiveFromProposal } from "./weekly-proposal-ids";
 
+export interface ProposalApplyContext {
+  acceptedDate: string;
+  dailyEntry?: DailyEntry;
+  weekly?: {
+    withReview(
+      sectionKey: WeeklyRitualSectionKey,
+      work: (review: WeeklyReview) => Promise<ProposalApplyResult>,
+    ): Promise<ProposalApplyResult>;
+  };
+  monthly?: {
+    monthKey: string;
+    withReview(
+      sectionKey: MonthlyReviewSectionKey,
+      work: (review: MonthlyReview) => Promise<ProposalApplyResult>,
+    ): Promise<ProposalApplyResult>;
+  };
+}
 export interface ProposalApplyResult {
+  proposal?: AiProposal;
+  accepted?: boolean;
   text?: string;
   memoryId?: string;
   proposalDecided?: boolean;
   sectionKey?: WeeklyRitualSectionKey | MonthlyReviewSectionKey;
+  reviewScope?: string;
+  weeklyReview?: WeeklyReview;
+  monthlyReview?: MonthlyReview;
   objectiveId?: string;
   taskId?: string;
   goalId?: string;
   monthKey?: string;
+  goalMissing?: boolean;
+  dailyNote?: { field: "morningIntention" | "tomorrowFocus"; text: string; entry: DailyEntry };
 }
 
+/** One decoder and one atomic repository decision path for every screen. */
 export const applyCoachProposal = async (
   repository: AppRepository,
   proposal: AiProposal,
-  acceptedDate: string,
+  contextOrDate: ProposalApplyContext | string,
 ): Promise<ProposalApplyResult> => {
-  if (proposal.type === "intention_draft" || proposal.type === "tomorrow_focus_draft") {
-    const payload = JSON.parse(proposal.payloadJson) as { text?: string };
-    return { text: payload.text ?? "" };
-  }
-
-  if (proposal.type === "review_section_draft") {
-    const payload = JSON.parse(proposal.payloadJson) as {
-      sectionKey?: WeeklyRitualSectionKey | MonthlyReviewSectionKey;
-      text?: string;
-    };
-    return {
-      sectionKey: payload.sectionKey,
-      text: payload.text ?? "",
-    };
-  }
-
-  if (proposal.type === "weekly_objective") {
-    const payload = JSON.parse(proposal.payloadJson) as {
-      title?: string;
-      kind?: "time" | "manual";
-      targetHours?: number | null;
-      rescuetimeKind?: RescueTimeTaxonomy | null;
-      rescuetimeThing?: string | null;
-    };
-    const objectives = await repository.listWeeklyObjectives();
-    const saved = await repository.saveWeeklyObjective(
-      createEmptyWeeklyObjective({
-        title: payload.title ?? t("proposal.defaultObjectiveTitle", { ns: "coach" }),
-        kind: payload.kind ?? "manual",
-        targetHours: payload.targetHours ?? null,
-        rescuetimeKind: payload.rescuetimeKind ?? null,
-        rescuetimeThing: payload.rescuetimeThing ?? null,
-        sortOrder: objectives.length,
-        startsOnWeekStartDate: addDays(buildWeekDates(acceptedDate), 7),
-      }),
-    );
-    return { objectiveId: saved.id };
-  }
-
-  if (proposal.type === "gtd_action") {
-    const payload = JSON.parse(proposal.payloadJson) as {
-      taskId?: string;
-      action?: "schedule" | "defer" | "delegate" | "drop";
-      reason?: string;
-    };
-
-    if (!payload.taskId || !payload.action) {
+  const context =
+    typeof contextOrDate === "string" ? { acceptedDate: contextOrDate } : contextOrDate;
+  const decoded = decodeProposal(proposal);
+  let effect: AcceptEffect;
+  const result: ProposalApplyResult = {};
+  switch (decoded.type) {
+    case "invalid":
+      return result;
+    case "intention_draft":
+    case "tomorrow_focus_draft": {
+      const field = decoded.type === "intention_draft" ? "morningIntention" : "tomorrowFocus";
+      const entry =
+        context.dailyEntry ??
+        (await repository.getDailyEntry(context.acceptedDate)) ??
+        createEmptyDailyEntry(context.acceptedDate);
+      const next = updateNote(entry, field, decoded.payload.text);
+      effect = { kind: "dailyEntry", entry: next };
+      result.text = decoded.payload.text;
+      result.dailyNote = { field, text: decoded.payload.text, entry: next };
+      break;
+    }
+    case "review_section_draft": {
+      const { sectionKey, text } = decoded.payload;
+      if (context.weekly && isWeeklySectionKey(sectionKey)) {
+        return context.weekly.withReview(sectionKey, async (current) => {
+          const review = updateWeeklyReviewNote(current, sectionKey, text);
+          return acceptEffect(
+            repository,
+            proposal,
+            { kind: "weeklyReview", review },
+            { sectionKey, text, reviewScope: review.weekStartDate, weeklyReview: review },
+            context,
+          );
+        });
+      }
+      if (context.monthly && isMonthlySectionKey(sectionKey)) {
+        return context.monthly.withReview(sectionKey, async (current) => {
+          const review = updateMonthlyReviewNote(current, sectionKey, text);
+          return acceptEffect(
+            repository,
+            proposal,
+            { kind: "monthlyReview", review },
+            { sectionKey, text, reviewScope: review.monthKey, monthlyReview: review },
+            context,
+          );
+        });
+      }
       return {};
     }
-
-    let task: Task | undefined;
-    try {
-      const tasks = await repository.listTasks({ includeCompleted: true });
-      task = tasks.find((item) => item.id === payload.taskId);
-    } catch {
-      return {};
+    case "weekly_objective": {
+      const objectives = await repository.listWeeklyObjectives();
+      const objective = buildWeeklyObjectiveFromProposal(
+        proposal,
+        objectives.length,
+        context.acceptedDate,
+      );
+      if (!objective) return {};
+      effect = { kind: "weeklyObjective", objective };
+      break;
     }
-
-    if (!task || task.status !== "active") {
-      return {};
+    case "gtd_action":
+      effect = {
+        kind: "gtdTask",
+        taskId: decoded.payload.taskId,
+        action: decoded.payload.action,
+        scheduledDate: getTodayDate(),
+      };
+      break;
+    case "goal_evaluation": {
+      const { goalId, monthKey, score, trend, notes, blockers } = decoded.payload;
+      if (context.monthly && context.monthly.monthKey !== monthKey) return {};
+      effect = {
+        kind: "goalEvaluation",
+        goalId,
+        monthKey,
+        evaluation: { score, trend, notes, blockers },
+      };
+      result.monthKey = monthKey;
+      break;
     }
-
-    if (payload.action === "schedule") {
-      await repository.scheduleTask(payload.taskId, getTodayDate());
-    } else if (payload.action === "defer") {
-      await repository.moveTask(payload.taskId, "someday_maybe", task.contextIds, task.projectId);
-    } else if (payload.action === "delegate") {
-      await repository.moveTask(payload.taskId, "waiting_for", task.contextIds, task.projectId);
-    } else if (payload.action === "drop") {
-      await repository.cancelTask(payload.taskId);
+    case "memory":
+    case "commitment": {
+      const memory = buildMemoryFromProposal(proposal, context.acceptedDate);
+      if (!memory) return {};
+      effect = { kind: "memory", memory };
+      break;
     }
-
-    return { taskId: payload.taskId };
   }
-
-  if (proposal.type === "goal_evaluation") {
-    const payload = JSON.parse(proposal.payloadJson) as {
-      goalId?: string;
-      monthKey?: string;
-      score?: number | null;
-      trend?: AnnualGoalTrend | null;
-      notes?: string;
-      blockers?: string;
-    };
-
-    if (!payload.goalId || !payload.monthKey) {
-      return {};
-    }
-
-    const goals = await repository.listAnnualGoals();
-    const goal = goals.find((item) => item.id === payload.goalId);
-    if (!goal) {
-      return {};
-    }
-
-    const saved = await repository.saveAnnualGoal(
-      updateAnnualGoalEvaluation(goal, payload.monthKey, {
-        score: payload.score ?? null,
-        trend: payload.trend ?? null,
-        notes: payload.notes ?? "",
-        blockers: payload.blockers ?? "",
-      }),
-    );
-
-    return { goalId: saved.id, monthKey: payload.monthKey };
-  }
-
-  if (proposal.type === "memory" || proposal.type === "commitment") {
-    const memory = await applyAcceptedProposal(repository, proposal, acceptedDate);
-    return { memoryId: memory?.id, proposalDecided: true };
-  }
-
-  return {};
+  return acceptEffect(repository, proposal, effect, result, context);
 };
 
-export const proposalPreviewText = (proposal: AiProposal): string => {
-  const payload = JSON.parse(proposal.payloadJson) as {
-    text?: string;
-    statement?: string;
-    kind?: string;
-    title?: string;
-    sectionKey?: string;
-    action?: string;
-    reason?: string;
-  };
-
-  if (proposal.type === "intention_draft" || proposal.type === "tomorrow_focus_draft") {
-    return payload.text ?? "";
+const acceptEffect = async (
+  repository: AppRepository,
+  proposal: AiProposal,
+  effect: AcceptEffect,
+  result: ProposalApplyResult,
+  context: ProposalApplyContext,
+): Promise<ProposalApplyResult> => {
+  const accepted = await repository.acceptAiProposal(proposal.id, effect);
+  if (accepted.proposal.status !== "accepted" || !accepted.appliedEntityId) {
+    if (
+      effect.kind === "goalEvaluation" &&
+      context.monthly &&
+      accepted.proposal.status === "pending"
+    ) {
+      return {
+        goalMissing: true,
+        proposal: await repository.decideAiProposal(proposal.id, "dismissed"),
+        accepted: false,
+      };
+    }
+    return {};
   }
-
-  if (proposal.type === "review_section_draft") {
-    return `[${payload.sectionKey ?? t("proposal.sectionFallback", { ns: "coach" })}] ${payload.text ?? ""}`;
+  // An accepted ID describes the earlier write, not the snapshot built for this call.
+  // Only a fresh write may replace a draft or mark its autosave state clean.
+  if (!accepted.effectApplied) result = {};
+  switch (effect.kind) {
+    case "memory":
+      result.memoryId = accepted.appliedEntityId;
+      break;
+    case "weeklyObjective":
+      result.objectiveId = accepted.appliedEntityId;
+      break;
+    case "gtdTask":
+      result.taskId = accepted.appliedEntityId;
+      break;
+    case "goalEvaluation":
+      result.goalId = accepted.appliedEntityId;
+      break;
   }
+  return { ...result, proposal: accepted.proposal, accepted: true, proposalDecided: true };
+};
 
-  if (proposal.type === "weekly_objective") {
-    return payload.title ?? t("proposal.weeklyObjectivePreview", { ns: "coach" });
+export const proposalPreviewText = (
+  proposal: AiProposal,
+  surface?: "monthly" | "weekly",
+): string => {
+  const decoded = decodeProposal(proposal);
+  switch (decoded.type) {
+    case "invalid":
+      return "";
+    case "intention_draft":
+    case "tomorrow_focus_draft":
+      return decoded.payload.text;
+    case "review_section_draft":
+      return `[${decoded.payload.sectionKey}] ${decoded.payload.text}`;
+    case "weekly_objective":
+      return decoded.payload.title;
+    case "gtd_action":
+      return surface === "weekly"
+        ? `${decoded.payload.taskTitle ?? t("proposal.taskFallback", { ns: "coach" })} — ${decoded.payload.action} — ${decoded.payload.reason}`
+        : `${decoded.payload.action} — ${decoded.payload.reason}`;
+    case "goal_evaluation": {
+      const payload = decoded.payload;
+      const score = payload.score ?? t("emDash", { ns: "common" });
+      return surface === "monthly"
+        ? `[${payload.goalId}] ${score}/100 — ${payload.notes}`
+        : `[${payload.goalId}] score ${score} — ${payload.notes}`;
+    }
+    case "commitment":
+      return decoded.payload.statement;
+    case "memory":
+      return `[${decoded.payload.kind}] ${decoded.payload.statement}`;
   }
-
-  if (proposal.type === "gtd_action") {
-    return `${payload.action ?? t("proposal.actionFallback", { ns: "coach" })} — ${payload.reason ?? ""}`;
-  }
-
-  if (proposal.type === "goal_evaluation") {
-    const evaluationPayload = JSON.parse(proposal.payloadJson) as {
-      goalId?: string;
-      score?: number | null;
-      notes?: string;
-    };
-    return `[${evaluationPayload.goalId ?? t("proposal.goalFallback", { ns: "coach" })}] score ${evaluationPayload.score ?? t("emDash", { ns: "common" })} — ${evaluationPayload.notes ?? ""}`;
-  }
-
-  if (proposal.type === "commitment") {
-    return payload.statement ?? "";
-  }
-
-  if (proposal.type === "memory") {
-    return `[${payload.kind ?? t("proposal.memoryKindFallback", { ns: "coach" })}] ${payload.statement ?? ""}`;
-  }
-
-  return "";
 };

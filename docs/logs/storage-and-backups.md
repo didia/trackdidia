@@ -1,6 +1,8 @@
 - 2026-10-03: Centralized settings defaults and historical normalization; application writers now merge current values atomically, and settings forms preserve runtime state and unsaved edits.
 # Storage and backups log
 
+- 2026-10-03: Extended atomic proposal effects to daily entries and current-goal evaluations; dismissed/expired proposals cannot mutate data, and failed writes roll back both entity and decision.
+
 - 2026-10-03: Added real-table repository reads for all 20 SQLite row mappings;
   verified that omitting task source URL from the repository SELECT fails the
   regression test, addressing the PR #201 review's projection coverage gap.

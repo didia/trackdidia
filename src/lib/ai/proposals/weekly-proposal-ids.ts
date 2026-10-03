@@ -1,3 +1,4 @@
+import { decodeProposal, isWeeklySectionKey } from "./payloads";
 import type { AiProposal, WeeklyObjective, WeeklyRitualSectionKey } from "../../../domain/types";
 import { createEmptyWeeklyObjective } from "../../../domain/weekly-objectives";
 import { buildWeekDates } from "../../../domain/weekly-review";
@@ -11,21 +12,9 @@ export const buildWeeklyObjectiveFromProposal = (
   sortOrder: number,
   reviewedWeekStartDate: string,
 ): WeeklyObjective | null => {
-  if (proposal.type !== "weekly_objective") {
-    return null;
-  }
-
-  const payload = JSON.parse(proposal.payloadJson) as {
-    title?: string;
-    kind?: "time" | "manual";
-    targetHours?: number | null;
-    rescuetimeKind?: WeeklyObjective["rescuetimeKind"];
-    rescuetimeThing?: string | null;
-  };
-
-  if (!payload.title?.trim()) {
-    return null;
-  }
+  const decoded = decodeProposal(proposal);
+  if (decoded.type !== "weekly_objective") return null;
+  const payload = decoded.payload;
 
   return createEmptyWeeklyObjective({
     id: weeklyObjectiveIdFromProposal(proposal.id),
@@ -42,18 +31,8 @@ export const buildWeeklyObjectiveFromProposal = (
 export const reviewSectionFromProposal = (
   proposal: AiProposal,
 ): { sectionKey: WeeklyRitualSectionKey; text: string } | null => {
-  if (proposal.type !== "review_section_draft") {
+  const decoded = decodeProposal(proposal);
+  if (decoded.type !== "review_section_draft" || !isWeeklySectionKey(decoded.payload.sectionKey))
     return null;
-  }
-
-  const payload = JSON.parse(proposal.payloadJson) as {
-    sectionKey?: WeeklyRitualSectionKey;
-    text?: string;
-  };
-
-  if (!payload.sectionKey || !payload.text?.trim()) {
-    return null;
-  }
-
-  return { sectionKey: payload.sectionKey, text: payload.text.trim() };
+  return { sectionKey: decoded.payload.sectionKey, text: decoded.payload.text };
 };

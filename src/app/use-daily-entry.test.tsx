@@ -290,3 +290,106 @@ describe("useDailyEntry", () => {
     expect(result.current.entry?.morningIntention).toBe("");
   });
 });
+
+it.each([
+  "nightReflection",
+  "morningIntention",
+] as const)("preserves a later %s edit while accepting a daily draft", async (field) => {
+  const repository = new MemoryRepository();
+  const date = getTodayDate();
+  const proposal = {
+    id: "proposal:queued",
+    messageId: "message",
+    type: "intention_draft" as const,
+    payloadJson: JSON.stringify({ text: "Focus" }),
+    status: "pending" as const,
+    appliedEntityId: null,
+    decidedAt: null,
+    createdAt: new Date().toISOString(),
+  };
+  await repository.saveAiProposal(proposal);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const originalAccept = repository.acceptAiProposal.bind(repository);
+  const accept = vi.spyOn(repository, "acceptAiProposal").mockImplementation(async (...args) => {
+    await gate;
+    return originalAccept(...args);
+  });
+  const { result } = renderHook(() => useDailyEntry(date), { wrapper: wrapRepository(repository) });
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  let acceptance!: ReturnType<typeof result.current.applyProposal>;
+  await act(async () => {
+    acceptance = result.current.applyProposal(proposal);
+  });
+  await waitFor(() => expect(accept).toHaveBeenCalled());
+  let saving!: ReturnType<typeof result.current.save>;
+  await act(async () => {
+    saving = result.current.save((current) => updateNote(current, field, "My later edit"));
+  });
+  await act(async () => {
+    release();
+    await Promise.all([acceptance, saving]);
+  });
+  const stored = await repository.getDailyEntry(date);
+  expect(stored?.[field]).toBe("My later edit");
+  if (field === "nightReflection") expect(stored?.morningIntention).toBe("Focus");
+  expect(result.current.entry?.[field]).toBe("My later edit");
+  expect((await repository.listAiProposals(proposal.messageId))[0].status).toBe("accepted");
+});
+
+it.each([
+  "morningIntention",
+  "tomorrowFocus",
+] as const)("keeps a manual %s edit through queued repeat acceptance and a later save", async (field) => {
+  const repository = new MemoryRepository();
+  const date = getTodayDate();
+  const proposal = {
+    id: "proposal:repeat",
+    messageId: "message",
+    type:
+      field === "morningIntention"
+        ? ("intention_draft" as const)
+        : ("tomorrow_focus_draft" as const),
+    payloadJson: JSON.stringify({ text: "Coach draft" }),
+    status: "pending" as const,
+    appliedEntityId: null,
+    decidedAt: null,
+    createdAt: new Date().toISOString(),
+  };
+  await repository.saveAiProposal(proposal);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const originalAccept = repository.acceptAiProposal.bind(repository);
+  const accept = vi.spyOn(repository, "acceptAiProposal").mockImplementation(async (...args) => {
+    await gate;
+    return originalAccept(...args);
+  });
+  const { result } = renderHook(() => useDailyEntry(date), { wrapper: wrapRepository(repository) });
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  let first!: ReturnType<typeof result.current.applyProposal>;
+  await act(async () => {
+    first = result.current.applyProposal(proposal);
+  });
+  await waitFor(() => expect(accept).toHaveBeenCalledTimes(1));
+  let saving!: ReturnType<typeof result.current.save>;
+  let repeat!: ReturnType<typeof result.current.applyProposal>;
+  await act(async () => {
+    saving = result.current.save((current) => updateNote(current, field, "Manual edit"));
+    repeat = result.current.applyProposal(proposal);
+  });
+  await act(async () => {
+    release();
+    await Promise.all([first, saving, repeat]);
+  });
+  expect((await repeat).dailyNote).toBeUndefined();
+  expect(result.current.entry?.[field]).toBe("Manual edit");
+  expect((await repository.getDailyEntry(date))?.[field]).toBe("Manual edit");
+  await act(async () => {
+    await result.current.save((current) => updateNote(current, "nightReflection", "Another field"));
+  });
+  expect((await repository.getDailyEntry(date))?.[field]).toBe("Manual edit");
+});

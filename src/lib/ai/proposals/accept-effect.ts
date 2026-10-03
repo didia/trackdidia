@@ -1,5 +1,8 @@
+import { decodeProposal } from "./payloads";
 import type {
   AiMemory,
+  DailyEntry,
+  AnnualGoalEvaluation,
   AiProposal,
   MonthlyReview,
   Task,
@@ -15,11 +18,20 @@ export type AcceptEffect =
   | { kind: "weeklyObjective"; objective: WeeklyObjective }
   | { kind: "weeklyReview"; review: WeeklyReview }
   | { kind: "monthlyReview"; review: MonthlyReview }
+  | { kind: "dailyEntry"; entry: DailyEntry }
+  | {
+      kind: "goalEvaluation";
+      goalId: string;
+      monthKey: string;
+      evaluation: Partial<AnnualGoalEvaluation>;
+    }
   | { kind: "gtdTask"; taskId: string; action: GtdProposalAction; scheduledDate: string };
 
 export interface AiProposalAcceptResult {
   proposal: AiProposal;
   appliedEntityId: string | null;
+  /** True only when this call applied an effect and committed the decision. */
+  effectApplied: boolean;
 }
 
 /** Keep the operation, rather than a stale task snapshot, for the atomic writer. */
@@ -27,23 +39,12 @@ export const gtdAcceptEffectFromProposal = (
   proposal: AiProposal,
   scheduledDate: string,
 ): AcceptEffect | null => {
-  let payload: { taskId?: unknown; action?: unknown };
-  try {
-    payload = JSON.parse(proposal.payloadJson) as typeof payload;
-  } catch {
-    return null;
-  }
-  if (
-    typeof payload?.taskId !== "string" ||
-    !payload.taskId ||
-    typeof payload.action !== "string" ||
-    !["schedule", "defer", "delegate", "drop"].includes(payload.action)
-  )
-    return null;
+  const decoded = decodeProposal(proposal);
+  if (decoded.type !== "gtd_action") return null;
   return {
     kind: "gtdTask",
-    taskId: payload.taskId,
-    action: payload.action as GtdProposalAction,
+    taskId: decoded.payload.taskId,
+    action: decoded.payload.action,
     scheduledDate,
   };
 };

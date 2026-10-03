@@ -192,24 +192,37 @@ Phase 3 proposal types:
 
 | Type | Accept applies |
 |---|---|
-| `intention_draft` | Saves `morningIntention` immediately, then marks the proposal accepted |
-| `tomorrow_focus_draft` | Saves `tomorrowFocus` immediately, then marks the proposal accepted |
+| `intention_draft` | Saves `morningIntention` and the proposal decision atomically |
+| `tomorrow_focus_draft` | Saves `tomorrowFocus` and the proposal decision atomically |
 | `commitment` | Creates an `ai_memories` row (`kind=commitment`, expires next local day) |
 | `memory` | Creates an `ai_memories` row from a distillation candidate |
 
 Accepting `memory` or `commitment` persists the memory row and proposal decision
 atomically via `acceptAiProposal(proposalId, effect)`, using a stable memory id
 derived from the proposal id so retries reconcile instead of duplicating. This
-primitive also handles weekly objectives, weekly/monthly ritual notes, and GTD
+primitive also handles daily notes, goal evaluations, weekly objectives, weekly/monthly ritual notes, and GTD
 actions; each effect and its decision share one write boundary. Repeat accepts
-return the stored applied ID without applying the effect again. GTD actions read
+return the stored applied ID with `effectApplied: false`, without applying the effect
+again; a fresh committed effect returns `effectApplied: true`. GTD actions read
 the current task in that boundary, reuse a pure mutation helper, and leave missing
 or inactive tasks pending. Dropping a recurring task also resets the template
 backlog in the same boundary.
 
 Proposals are stored in `ai_proposals` with `pending | accepted | dismissed | expired`
-status. Draft accepts (`intention_draft`, `tomorrow_focus_draft`) save the journal
-field first, then record the proposal decision separately.
+status. `decodeProposal` validates all persisted payloads into a typed union; malformed
+payloads produce an invalid result and cannot be applied. `applyCoachProposal` is
+the shared application entry point, including the memory compatibility wrapper.
+Screens use its returned proposal and UI effects rather than dispatching by type.
+Daily and review draft acceptance joins the corresponding autosave queue. Later
+manual edits remain editable and persist after the atomic accept; a later edit of
+the same field wins. Repeat accepts return the stored decision without draft UI
+effects, so they cannot replace a manual note or mark an unwritten snapshot saved.
+Daily, weekly, and monthly proposal buttons are disabled for the whole acceptance
+call, with a synchronous guard that also blocks repeat clicks before the next render.
+A failed accept releases that guard and rolls back the entity and decision together.
+Goal evaluation effects read the current goal inside the writer, preserving other
+months and goal fields. Missing or inactive tasks stay pending; the monthly screen
+still dismisses a missing goal and displays its existing notice.
 
 ### Weekly synthesis (`weekly_synthesis`)
 

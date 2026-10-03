@@ -1,3 +1,4 @@
+import { proposalPreviewText } from "../lib/ai/proposals/apply-proposal";
 import { useTranslation } from "react-i18next";
 import { principleDefinitions } from "../domain/definitions";
 import type { AiProposal, AppSettings, CoachPulseResult, PrincipleKey } from "../domain/types";
@@ -31,6 +32,7 @@ interface CoachPulsePanelProps {
   autoloadAi?: boolean;
   onRequestCoach?: () => void;
   onRegenerate: () => void;
+  applyingProposalIds?: string[];
   onAcceptProposal: (proposal: AiProposal) => void;
   onDismissProposal: (proposal: AiProposal) => void;
 }
@@ -43,6 +45,7 @@ export const CoachPulsePanel = ({
   autoloadAi = false,
   onRequestCoach,
   onRegenerate,
+  applyingProposalIds = [],
   onAcceptProposal,
   onDismissProposal,
 }: CoachPulsePanelProps) => {
@@ -145,17 +148,8 @@ export const CoachPulsePanel = ({
         <div className="coach-pulse__proposals">
           <strong>{t("proposals")}</strong>
           {pendingProposals.map((proposal) => {
-            const payload = JSON.parse(proposal.payloadJson) as {
-              text?: string;
-              statement?: string;
-              kind?: string;
-            };
-            const preview =
-              proposal.type === "memory"
-                ? `[${payload.kind ?? t("proposal.memoryKindFallback")}] ${payload.statement ?? ""}`
-                : proposal.type === "commitment"
-                  ? (payload.statement ?? "")
-                  : (payload.text ?? "");
+            const isApplying = applyingProposalIds.includes(proposal.id);
+            const preview = proposalPreviewText(proposal);
             const typeKey = proposalTypeKeys[proposal.type];
             return (
               <article key={proposal.id} className="coach-pulse__proposal">
@@ -165,13 +159,15 @@ export const CoachPulsePanel = ({
                   <button
                     className="button button--primary"
                     type="button"
+                    disabled={isApplying}
                     onClick={() => onAcceptProposal(proposal)}
                   >
-                    {t("accept")}
+                    {isApplying ? tCommon("status.applying") : t("accept")}
                   </button>
                   <button
                     className="button button--ghost"
                     type="button"
+                    disabled={isApplying}
                     onClick={() => onDismissProposal(proposal)}
                   >
                     {t("dismiss")}

@@ -121,10 +121,11 @@ native-only storage information and backup creation.
 ## Atomic AI proposal acceptance
 
 `AppRepository.acceptAiProposal(proposalId, effect)` handles memory, weekly
-objective, weekly/monthly review, and GTD effects through one decision path. It
+objective, daily entry, goal evaluation, weekly/monthly review, and GTD effects through one decision path. It
 loads the proposal by ID, returns the recorded applied ID when already accepted,
 applies a new effect, and marks the proposal accepted together. A null effect or a
-missing/inactive task leaves the proposal pending. Task changes use the current
+missing/inactive task or missing goal leaves the proposal pending. Dismissed and
+expired proposals cannot apply new effects. Task changes use the current
 stored task; a recurring drop resets its template backlog alongside lifecycle
 and project reconciliation changes.
 

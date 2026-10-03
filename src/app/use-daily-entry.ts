@@ -1,11 +1,13 @@
+import { applyCoachProposal, type ProposalApplyResult } from "../lib/ai/proposals/apply-proposal";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   applyDailyPomodoroStats,
   applyDailyTaskStats,
   createEmptyDailyEntry,
+  updateNote,
   prefillMorningIntentionFromYesterday,
 } from "../domain/daily-entry";
-import type { DailyEntry, DailyPomodoroStats, DailyTaskStats } from "../domain/types";
+import type { AiProposal, DailyEntry, DailyPomodoroStats, DailyTaskStats } from "../domain/types";
 import { getTodayDate } from "../lib/date";
 import { addDays } from "../lib/date";
 import { useAppContext } from "./app-context";
@@ -123,11 +125,42 @@ export const useDailyEntry = (date: string) => {
     [saver],
   );
 
+  const applyProposal = useCallback(
+    async (proposal: AiProposal): Promise<ProposalApplyResult> => {
+      const current = entryRef.current;
+      if (!current) return {};
+      if (!saver.get(current.date)) saver.hydrate(current.date, current);
+      return saver.run(current.date, async (snapshot) => {
+        const beforeVersion = saver.version(snapshot.date);
+        const applied = await applyCoachProposal(repository, proposal, {
+          acceptedDate: snapshot.date,
+          dailyEntry: snapshot,
+        });
+        if (!applied.dailyNote) return applied;
+        const { field, text } = applied.dailyNote;
+        const latest = saver.get(snapshot.date) ?? snapshot;
+        const unchanged = saver.version(snapshot.date) === beforeVersion;
+        // Later journal edits stay in the queue. A later edit of this note itself wins.
+        const next = latest[field] === snapshot[field] ? updateNote(latest, field, text) : latest;
+        saver.remember(snapshot.date, next);
+        if (unchanged) saver.markSaved(snapshot.date, saver.version(snapshot.date));
+        if (dateRef.current === snapshot.date) publishEntry(next);
+        return {
+          ...applied,
+          text: next[field],
+          dailyNote: { field, text: next[field], entry: next },
+        };
+      });
+    },
+    [repository, saver],
+  );
+
   return {
     entry,
     loading,
     reload: load,
     save,
+    applyProposal,
     taskStats,
     pomodoroStats,
   };

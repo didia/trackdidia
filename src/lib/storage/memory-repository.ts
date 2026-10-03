@@ -11,6 +11,7 @@ import {
 import {
   buildAnnualGoalSnapshots,
   cloneAnnualGoal,
+  updateAnnualGoalEvaluation,
   createEmptyAnnualGoal,
 } from "../../domain/annual-goals";
 import {
@@ -185,7 +186,11 @@ export class MemoryRepository implements AppRepository {
   }
 
   async saveDailyEntry(entry: DailyEntry): Promise<void> {
-    this.entries.set(entry.date, await this.decorateEntry(entry));
+    this.saveDailyEntryInternal(await this.decorateEntry(entry));
+  }
+
+  private saveDailyEntryInternal(entry: DailyEntry): void {
+    this.entries.set(entry.date, cloneEntry(entry));
   }
 
   async listDailyEntries(limit = 30): Promise<DailyEntry[]> {
@@ -479,6 +484,10 @@ export class MemoryRepository implements AppRepository {
   }
 
   async saveAnnualGoal(goal: AnnualGoal): Promise<AnnualGoal> {
+    return this.saveAnnualGoalInternal(goal);
+  }
+
+  private saveAnnualGoalInternal(goal: AnnualGoal): AnnualGoal {
     const timestamp = nowIso();
     const nextGoal = createEmptyAnnualGoal({
       ...cloneAnnualGoal(goal),
@@ -756,9 +765,10 @@ export class MemoryRepository implements AppRepository {
           : effect?.kind === "weeklyObjective"
             ? effect.objective.id
             : null);
-      return { proposal: { ...proposal }, appliedEntityId };
+      return { proposal: { ...proposal }, appliedEntityId, effectApplied: false };
     }
-    if (!effect) return { proposal: { ...proposal }, appliedEntityId: null };
+    if (!effect || proposal.status !== "pending")
+      return { proposal: { ...proposal }, appliedEntityId: null, effectApplied: false };
 
     // All internal effect writers below are synchronous. No other caller can interleave
     // between their mutations and the decision; rollback restores all affected maps.
@@ -770,6 +780,8 @@ export class MemoryRepository implements AppRepository {
         : {}),
       ...(effect.kind === "weeklyReview" ? { weeklyReviews: new Map(this.weeklyReviews) } : {}),
       ...(effect.kind === "monthlyReview" ? { monthlyReviews: new Map(this.monthlyReviews) } : {}),
+      ...(effect.kind === "dailyEntry" ? { entries: new Map(this.entries) } : {}),
+      ...(effect.kind === "goalEvaluation" ? { annualGoals: new Map(this.annualGoals) } : {}),
       ...(effect.kind === "gtdTask"
         ? {
             tasks: new Map(this.tasks),
@@ -798,10 +810,24 @@ export class MemoryRepository implements AppRepository {
           this.saveMonthlyReviewInternal(effect.review);
           appliedEntityId = effect.review.monthKey;
           break;
+        case "dailyEntry":
+          this.saveDailyEntryInternal(effect.entry);
+          appliedEntityId = effect.entry.date;
+          break;
+        case "goalEvaluation": {
+          const goal = this.annualGoals.get(effect.goalId);
+          if (!goal)
+            return { proposal: { ...proposal }, appliedEntityId: null, effectApplied: false };
+          appliedEntityId = this.saveAnnualGoalInternal(
+            updateAnnualGoalEvaluation(goal, effect.monthKey, effect.evaluation),
+          ).id;
+          break;
+        }
         case "gtdTask": {
           const task = this.tasks.get(effect.taskId);
           const next = task ? taskForAcceptEffect(task, effect) : null;
-          if (!task || !next) return { proposal: { ...proposal }, appliedEntityId: null };
+          if (!task || !next)
+            return { proposal: { ...proposal }, appliedEntityId: null, effectApplied: false };
           this.saveTaskInternal(next);
           if (effect.action === "drop" && task.recurringTemplateId) {
             const template = this.getExistingRecurringTemplate(task.recurringTemplateId);
@@ -822,7 +848,7 @@ export class MemoryRepository implements AppRepository {
         decidedAt: nowIso(),
       };
       this.aiProposals.set(proposalId, accepted);
-      return { proposal: { ...accepted }, appliedEntityId };
+      return { proposal: { ...accepted }, appliedEntityId, effectApplied: true };
     } catch (error) {
       Object.assign(this, snapshot);
       throw error;

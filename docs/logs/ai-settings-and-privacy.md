@@ -1,6 +1,10 @@
+- 2026-10-03: Repeated proposal accepts now return the stored decision without draft UI effects; synchronous click guards and disabled buttons protect daily, weekly, and monthly acceptance. Regression tests preserve manual notes through repeated acceptance and later autosaves.
 - 2026-10-03: Consolidated the five AI structured-generation pipelines while retaining per-surface cache, usage, fallback and history policies; added original-output compatibility snapshots.
+
 - 2026-10-03: Centralized settings defaults and historical normalization; application writers now merge current values atomically, and settings forms preserve runtime state and unsaved edits.
 # AI, settings, and privacy log
+
+- 2026-10-03: Typed proposal decoding and one application path now cover every screen; daily drafts and goal evaluations commit atomically with decisions, and draft accepts share autosave queues.
 
 Back to [Documentation Log](../log.md). Canonical page:
 [ai-settings-and-privacy.md](../ai-settings-and-privacy.md).

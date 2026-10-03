@@ -1,32 +1,12 @@
-import type {
-  AiMemory,
-  AiProposal,
-  MemoryKind,
-  MetricKey,
-  PrincipleKey,
-} from "../../../domain/types";
+import { decodeProposal, type MemoryProposalPayload } from "../proposals/payloads";
+import { applyCoachProposal } from "../proposals/apply-proposal";
+import type { AiMemory, AiProposal, PrincipleKey } from "../../../domain/types";
 import { createEntityId, nowIso } from "../../gtd/shared";
 import type { AppRepository } from "../../storage/repository";
 import { stringifyCommitmentDetail, stringifyPatternDetail } from "./detail";
 import { commitmentExpiresAt } from "./lifecycle";
 
-export interface MemoryProposalPayload {
-  kind: MemoryKind;
-  statement: string;
-  confidence: number;
-  detail?: string;
-  evidenceFrom?: string | null;
-  evidenceTo?: string | null;
-  expiresAt?: string | null;
-  source?: AiMemory["source"];
-  pinned?: boolean;
-}
-
-export interface CommitmentProposalPayload {
-  statement: string;
-  metricKey?: MetricKey | null;
-  target?: number | null;
-}
+export type { MemoryProposalPayload, CommitmentProposalPayload } from "../proposals/payloads";
 
 export const memoryIdFromProposal = (proposalId: string): string =>
   proposalId.replace(/^ai-proposal:/, "ai-memory:");
@@ -66,13 +46,14 @@ export const buildMemoryFromProposal = (
 ): AiMemory | null => {
   const memoryId = memoryIdFromProposal(proposal.id);
 
-  if (proposal.type === "memory") {
-    const payload = JSON.parse(proposal.payloadJson) as MemoryProposalPayload;
+  const decoded = decodeProposal(proposal);
+  if (decoded.type === "memory") {
+    const payload = decoded.payload;
     return createMemoryFromProposal(payload, acceptedDate, memoryId);
   }
 
-  if (proposal.type === "commitment") {
-    const payload = JSON.parse(proposal.payloadJson) as CommitmentProposalPayload;
+  if (decoded.type === "commitment") {
+    const payload = decoded.payload;
     return createMemoryFromProposal(
       {
         kind: "commitment",
@@ -97,19 +78,10 @@ export const applyAcceptedProposal = async (
   proposal: AiProposal,
   acceptedDate: string,
 ): Promise<AiMemory | null> => {
-  const memory = buildMemoryFromProposal(proposal, acceptedDate);
-  if (!memory) {
-    return null;
-  }
-
-  const accepted = await repository.acceptAiProposal(proposal.id, {
-    kind: "memory",
-    memory: memory,
-  });
-  const stored = (await repository.listAiMemories()).find(
-    (item) => item.id === accepted.appliedEntityId,
-  );
-  if (!stored) throw new Error(`AI memory not found: ${accepted.appliedEntityId}`);
+  const applied = await applyCoachProposal(repository, proposal, acceptedDate);
+  if (!applied.memoryId) return null;
+  const stored = (await repository.listAiMemories()).find((item) => item.id === applied.memoryId);
+  if (!stored) throw new Error(`AI memory not found: ${applied.memoryId}`);
   return stored;
 };
 
