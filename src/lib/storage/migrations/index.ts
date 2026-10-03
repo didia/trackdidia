@@ -1,3 +1,4 @@
+import { runSqliteTransaction, transactionDb } from "../transaction";
 import type { Database } from "../email-triage-sqlite-db";
 
 export interface Migration {
@@ -773,21 +774,13 @@ export const runMigrations = async (
   for (const migration of migrations.slice(1)) {
     if (appliedIds.has(migration.id)) continue;
     onMigration?.(migration);
-    await db.execute("BEGIN IMMEDIATE");
-    try {
-      await db.execute(await resolveIdempotentMigrationSql(db, migration));
-      await db.execute(
+    await runSqliteTransaction(db, async (tx) => {
+      const connection = transactionDb(tx);
+      await connection.execute(await resolveIdempotentMigrationSql(connection, migration));
+      await connection.execute(
         "INSERT OR IGNORE INTO schema_migrations (id, name, applied_at) VALUES ($1, $2, $3)",
         [migration.id, migration.name, new Date().toISOString()],
       );
-      await db.execute("COMMIT");
-    } catch (error) {
-      try {
-        await db.execute("ROLLBACK");
-      } catch {
-        /* Keep the migration failure. */
-      }
-      throw error;
-    }
+    });
   }
 };

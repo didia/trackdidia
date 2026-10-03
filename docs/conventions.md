@@ -126,6 +126,10 @@ ledger insert, then stops the runner; previously committed migrations remain
 applied. See [Migration system](storage-and-backups.md#migration-system) for the
 startup sequence, shipped-SQL preservation tests, and declarative column guards.
 
+Repository transaction callbacks use `writeTransaction`; internal writers accept
+its active `TxContext` and never re-enter the writer. Queue-only work uses
+`writeExclusive`.
+
 ## Dates and time zones
 
 TrackDidia uses two related representations:

@@ -64,9 +64,18 @@ Capping `max_connections` alone is not enough: sqlx can still close that
 connection between statements via its idle-timeout or max-lifetime reapers.
 
 Startup also sets `PRAGMA journal_mode=WAL` and `PRAGMA busy_timeout = 5000`.
-WAL lets readers proceed during a write. Multi-statement transactions go through
-`runExclusive` so concurrent JS callers do not interleave statements on the
-shared connection.
+WAL lets readers proceed during a write. `TauriSqliteRepository.writeTransaction`
+acquires the writer queue, runs `BEGIN IMMEDIATE`, and commits when its callback
+resolves, including an early return. A callback or commit failure triggers a
+best-effort rollback that preserves the primary error. `writeExclusive` names
+queue-only operations, so those callers do not interleave with transactions.
+
+Transactional internal writers receive a branded `TxContext`, checked at runtime
+for an active callback lifetime. They reuse it rather than entering the writer
+queue again. Direct nesting on the same connection is rejected; re-entering the
+writer queue remains prohibited and covered by its watchdog. Public weekly/monthly
+review, weekly objective, and AI memory saves acquire a transaction before invoking
+their internal writer. The migration runner uses the same transaction lifecycle.
 
 Changing the Tauri identifier changes the app-data location from the operating
 system's perspective. Do not change it without a deliberate user-data migration.
