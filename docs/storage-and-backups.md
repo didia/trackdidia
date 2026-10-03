@@ -57,6 +57,16 @@ The desktop host owns a single-connection sqlx pool (`src-tauri/src/db.rs`) and
 exposes it as `db_connect` / `db_execute` / `db_select`. TypeScript still owns
 queries and migrations; it does not use `tauri-plugin-sql`.
 
+The native wrapper, email store, transaction helper, and test adapter implement
+`src/lib/storage/sqlite-db.ts`. Table mappings in `src/lib/storage/sqlite/rows/`
+own their row shape, selected/inserted columns, decoding, and bound values.
+Normal task saves and Google Tasks import share the complete task insert; import
+uses `ON CONFLICT(id) DO NOTHING`, while saves update the existing row. Legacy
+JSON handling and null defaults remain in the corresponding mapper.
+Mapper tests cover bound-value round trips and inserts into migrated tables read
+through repository queries, so an omitted selected column is checked separately
+from the insert mapping.
+
 The pool uses `max_connections(1)`, `min_connections(1)`, `idle_timeout(None)`,
 and `max_lifetime(None)`. JS issues `BEGIN IMMEDIATE` / `COMMIT` as separate
 commands, so one physical connection must stay open for the process lifetime.
@@ -76,6 +86,8 @@ queue again. Direct nesting on the same connection is rejected; re-entering the
 writer queue remains prohibited and covered by its watchdog. Public weekly/monthly
 review, weekly objective, and AI memory saves acquire a transaction before invoking
 their internal writer. The migration runner uses the same transaction lifecycle.
+Email mutations use this queue and transaction context too; see the
+[email atomicity contract](email-triage.md) for composed review and task writes.
 
 Changing the Tauri identifier changes the app-data location from the operating
 system's perspective. Do not change it without a deliberate user-data migration.

@@ -26,7 +26,7 @@ import type {
   SetFinanceTransferPair,
   UndoFinanceImportBatchResult,
 } from "../../domain/finance";
-import type { Database } from "./email-triage-sqlite-db";
+import type { Database } from "./sqlite-db";
 import { DEFAULT_FINANCE_CATEGORIES } from "../finance/default-categories";
 import {
   dedupeHash as computeDedupeHash,

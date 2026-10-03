@@ -1,3 +1,4 @@
+- 2026-10-03: Consolidated the five AI structured-generation pipelines while retaining per-surface cache, usage, fallback and history policies; added original-output compatibility snapshots.
 - 2026-10-03: Centralized settings defaults and historical normalization; application writers now merge current values atomically, and settings forms preserve runtime state and unsaved edits.
 # AI, settings, and privacy log
 

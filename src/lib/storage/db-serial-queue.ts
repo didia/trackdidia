@@ -1,3 +1,5 @@
+import { createSerialQueue } from "../serial-queue";
+
 /** Serializes async work so SQLite writes never overlap on one connection. */
 
 /**
@@ -12,44 +14,21 @@
 const WATCHDOG_TIMEOUT_MS = 15_000;
 
 export class DbSerialQueue {
-  private tail: Promise<unknown> = Promise.resolve();
+  private readonly queue = createSerialQueue({
+    watchdogTimeoutMs: WATCHDOG_TIMEOUT_MS,
+    watchdogMessage:
+      `DbSerialQueue: operation did not start within ${WATCHDOG_TIMEOUT_MS / 1000}s — ` +
+      "the queue may be deadlocked by a reentrant call. This is a tail-chained promise " +
+      "queue, not a reentrant lock — calling run() from inside an already-running " +
+      "operation deadlocks the writer queue. Extract an ...Internal helper that accepts " +
+      "the already-open connection instead.",
+  });
 
   run<T>(operation: () => Promise<T>): Promise<T> {
-    let started = false;
-    let markStarted: () => void = () => undefined;
-    const startedPromise = new Promise<void>((resolve) => {
-      markStarted = resolve;
-    });
+    return this.queue.run(operation);
+  }
 
-    const runOperation = async () => {
-      started = true;
-      markStarted();
-      return operation();
-    };
-
-    const result = this.tail.then(runOperation, runOperation);
-    this.tail = result.then(
-      () => undefined,
-      () => undefined,
-    );
-
-    const watchdog = new Promise<never>((_, reject) => {
-      const timer = setTimeout(() => {
-        if (!started) {
-          reject(
-            new Error(
-              `DbSerialQueue: operation did not start within ${WATCHDOG_TIMEOUT_MS / 1000}s — ` +
-                "the queue may be deadlocked by a reentrant call. This is a tail-chained promise " +
-                "queue, not a reentrant lock — calling run() from inside an already-running " +
-                "operation deadlocks the writer queue. Extract an ...Internal helper that accepts " +
-                "the already-open connection instead.",
-            ),
-          );
-        }
-      }, WATCHDOG_TIMEOUT_MS);
-      startedPromise.then(() => clearTimeout(timer));
-    });
-
-    return Promise.race([result, watchdog]);
+  idle(): Promise<void> {
+    return this.queue.idle();
   }
 }
