@@ -23,6 +23,7 @@ import {
   type MicrosoftOAuthTokens,
   resolveMicrosoftOAuthClientId,
 } from "./oauth/microsoft-oauth";
+import { acquireOAuthLoopbackLease } from "../oauth-loopback-guard";
 import {
   snapshotReconnectTarget,
   type ReconnectTargetSnapshot,
@@ -93,37 +94,46 @@ export const connectGmailAccount = async (
     reconnectSnapshot = snapshotReconnectTarget(target);
   }
 
-  const oauthState = generateOAuthState();
-  const verifier = generatePkceVerifier();
-  const challenge = await createPkceChallenge(verifier);
-  const loopback = await invoke<{ port: number; redirectUri: string }>("oauth_loopback_start", {
-    expectedState: oauthState,
-  });
-  const authUrl = buildGmailAuthorizationUrl({
-    clientId,
-    redirectUri: loopback.redirectUri,
-    state: oauthState,
-    codeChallenge: challenge,
-  });
-  await openUrl(authUrl);
-  const callback = await invoke<{ code?: string; state?: string; error?: string }>(
-    "oauth_loopback_wait",
-    { timeoutMs: 180_000 },
-  );
-  if (callback.error) {
-    return { ok: false, error: callback.error };
+  const loopbackLease = acquireOAuthLoopbackLease("email_triage");
+  if (!loopbackLease.ok) {
+    return { ok: false, error: "oauth_loopback_busy" };
   }
-  if (!validateOAuthState(oauthState, callback.state) || !callback.code) {
-    return { ok: false, error: "oauth_state_mismatch" };
-  }
-
+  let tokens: Awaited<ReturnType<typeof exchangeGmailAuthorizationCode>>;
   const http = createTauriHttpClient();
-  const tokens = await exchangeGmailAuthorizationCode(http, {
-    clientId,
-    code: callback.code,
-    redirectUri: loopback.redirectUri,
-    codeVerifier: verifier,
-  });
+  try {
+    const oauthState = generateOAuthState();
+    const verifier = generatePkceVerifier();
+    const challenge = await createPkceChallenge(verifier);
+    const loopback = await invoke<{ port: number; redirectUri: string }>("oauth_loopback_start", {
+      expectedState: oauthState,
+    });
+    const authUrl = buildGmailAuthorizationUrl({
+      clientId,
+      redirectUri: loopback.redirectUri,
+      state: oauthState,
+      codeChallenge: challenge,
+    });
+    await openUrl(authUrl);
+    const callback = await invoke<{ code?: string; state?: string; error?: string }>(
+      "oauth_loopback_wait",
+      { timeoutMs: 180_000 },
+    );
+    if (callback.error) {
+      return { ok: false, error: callback.error };
+    }
+    if (!validateOAuthState(oauthState, callback.state) || !callback.code) {
+      return { ok: false, error: "oauth_state_mismatch" };
+    }
+
+    tokens = await exchangeGmailAuthorizationCode(http, {
+      clientId,
+      code: callback.code,
+      redirectUri: loopback.redirectUri,
+      codeVerifier: verifier,
+    });
+  } finally {
+    loopbackLease.lease.release();
+  }
   if (!tokens.refreshToken) {
     return { ok: false, error: "missing_refresh_token" };
   }
@@ -256,49 +266,60 @@ export const connectMicrosoftAccount = async (
     reconnectSnapshot = snapshotReconnectTarget(target);
   }
 
-  const oauthState = generateOAuthState();
-  const verifier = generatePkceVerifier();
-  const challenge = await createPkceChallenge(verifier);
-  const loopback = await invoke<{ port: number; redirectUri: string }>("oauth_loopback_start", {
-    expectedState: oauthState,
-  });
-  const authUrl = buildMicrosoftAuthorizationUrl({
-    clientId,
-    redirectUri: loopback.redirectUri,
-    state: oauthState,
-    codeChallenge: challenge,
-  });
-  await openUrl(authUrl);
-  const callback = await invoke<{
-    code?: string;
-    state?: string;
-    error?: string;
-    errorDescription?: string;
-  }>("oauth_loopback_wait", { timeoutMs: 180_000 });
-  if (callback.error) {
-    return {
-      ok: false,
-      error: classifyMicrosoftAuthorizationCallbackError(callback.error, callback.errorDescription),
-    };
+  const loopbackLease = acquireOAuthLoopbackLease("email_triage");
+  if (!loopbackLease.ok) {
+    return { ok: false, error: "oauth_loopback_busy" };
   }
-  if (!validateOAuthState(oauthState, callback.state) || !callback.code) {
-    return { ok: false, error: "oauth_state_mismatch" };
-  }
-
   const http = createTauriHttpClient();
   let tokens: MicrosoftOAuthTokens;
   try {
-    tokens = await exchangeMicrosoftAuthorizationCode(http, {
-      clientId,
-      code: callback.code,
-      redirectUri: loopback.redirectUri,
-      codeVerifier: verifier,
+    const oauthState = generateOAuthState();
+    const verifier = generatePkceVerifier();
+    const challenge = await createPkceChallenge(verifier);
+    const loopback = await invoke<{ port: number; redirectUri: string }>("oauth_loopback_start", {
+      expectedState: oauthState,
     });
-  } catch (error) {
-    if (error instanceof Error && error.message === "admin_consent_required") {
-      return { ok: false, error: "admin_consent_required" };
+    const authUrl = buildMicrosoftAuthorizationUrl({
+      clientId,
+      redirectUri: loopback.redirectUri,
+      state: oauthState,
+      codeChallenge: challenge,
+    });
+    await openUrl(authUrl);
+    const callback = await invoke<{
+      code?: string;
+      state?: string;
+      error?: string;
+      errorDescription?: string;
+    }>("oauth_loopback_wait", { timeoutMs: 180_000 });
+    if (callback.error) {
+      return {
+        ok: false,
+        error: classifyMicrosoftAuthorizationCallbackError(
+          callback.error,
+          callback.errorDescription,
+        ),
+      };
     }
-    return { ok: false, error: "connect_failed" };
+    if (!validateOAuthState(oauthState, callback.state) || !callback.code) {
+      return { ok: false, error: "oauth_state_mismatch" };
+    }
+
+    try {
+      tokens = await exchangeMicrosoftAuthorizationCode(http, {
+        clientId,
+        code: callback.code,
+        redirectUri: loopback.redirectUri,
+        codeVerifier: verifier,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === "admin_consent_required") {
+        return { ok: false, error: "admin_consent_required" };
+      }
+      return { ok: false, error: "connect_failed" };
+    }
+  } finally {
+    loopbackLease.lease.release();
   }
   if (!tokens.refreshToken) {
     return { ok: false, error: "missing_refresh_token" };

@@ -214,6 +214,49 @@
     "enterRateHint": "Entrez un tarif approximatif dans Paramètres IA pour estimer le coût.",
     "calculatedWithRate": "Coût calculé avec le tarif {{rate}} USD / million de jetons (prompt + completion). Les tarifs OpenRouter varient selon le modèle — ajuste le tarif dans Paramètres IA."
   },
+  "calendar": {
+    "title": "Calendrier Google",
+    "subtitle": "Synchronisation à sens unique des tâches datées (Planifiées et Prévues avec projet) vers un calendrier Google dédié. Les modifications du calendrier ne reviennent jamais vers TrackDidia.",
+    "copy": {
+      "dedicatedCalendar": "Un calendrier « TrackDidia » dédié est créé automatiquement et ne peut pas être changé (pas de sélecteur de calendrier, pas d'écriture sur le calendrier principal).",
+      "titlesLeaveMachine": "Les titres des tâches quittent la machine une fois la synchronisation activée.",
+      "keptOnCompletion": "Les entrées du jour et des jours passés sont conservées quand une tâche est terminée ou retirée : seules les entrées futures sont supprimées.",
+      "notBackfilled": "L'activation n'est pas rétroactive : le travail déjà promu aujourd'hui avant l'activation n'est pas récupéré."
+    },
+    "enable": "Activer la synchronisation du calendrier",
+    "oauthClientId": "Identifiant client OAuth (avancé)",
+    "oauthClientIdPlaceholder": "xxxx.apps.googleusercontent.com",
+    "save": "Enregistrer",
+    "saved": "Paramètres enregistrés.",
+    "saveError": "Échec de l'enregistrement des paramètres.",
+    "connect": "Connecter",
+    "reconnect": "Reconnecter",
+    "disconnect": "Déconnecter",
+    "connecting": "Connexion...",
+    "connectedAccount": "Compte connecté",
+    "notConnected": "Non connecté",
+    "calendarName": "Nom du calendrier",
+    "connectionState": "État de la connexion",
+    "lastSync": "Dernière synchronisation",
+    "never": "Jamais",
+    "lastErrorLabel": "Dernière erreur",
+    "browserPreviewNotice": "Synchronisation du calendrier indisponible en prévisualisation navigateur (fonctionnalité de bureau uniquement).",
+    "state": {
+      "disconnected": "Déconnecté",
+      "active": "Actif",
+      "reconnect_required": "Reconnexion requise",
+      "needs_confirmation": "Confirmation requise"
+    },
+    "connectErrors": {
+      "browser_preview": "Connexion indisponible en prévisualisation navigateur.",
+      "missing_client_id": "Identifiant client OAuth manquant.",
+      "oauth_state_mismatch": "État OAuth invalide. Réessayez.",
+      "missing_refresh_token": "Google n'a pas renvoyé de jeton d'actualisation.",
+      "oauth_loopback_busy": "Une autre connexion OAuth (courriel) est déjà en cours. Terminez-la ou annulez-la avant de réessayer.",
+      "connect_failed": "La connexion au calendrier Google a échoué.",
+      "disconnect_failed": "La déconnexion du calendrier Google a échoué."
+    }
+  },
   "debug": {
     "title": "Debug Trackdidia",
     "hide": "Masquer",
