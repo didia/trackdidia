@@ -73,6 +73,17 @@ describe("classifyTransaction", () => {
     expect(outcome.matchedRule?.id).toBe("rule-1");
   });
 
+  it("stage 2: descriptionContains matches through accent-stripping, same as merchantKey normalization", () => {
+    const txn = baseTxn({ merchantKey: "EPICERIE METRO" });
+    const matchingRule = rule({
+      matcher: { descriptionContains: "Épicerie" },
+      actions: { categoryId: "fincat:alimentation.epicerie" },
+    });
+    const outcome = classifyTransaction(txn, { rules: [matchingRule] });
+    expect(outcome.categoryId).toBe("fincat:alimentation.epicerie");
+    expect(outcome.categorySource).toBe("rule");
+  });
+
   it("stage 2: rule priority and id order decide which rule's category wins", () => {
     const txn = baseTxn();
     const low = rule({

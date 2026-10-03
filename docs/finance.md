@@ -138,15 +138,30 @@ place that writes a user correction:
   target transaction; the distinction is about *intent* (future transactions
   will benefit from the memory update either way), not a different write path.
 - `scope: "all_matching"` additionally recategorizes every other transaction
-  sharing the same `merchant_key` whose `category_source !== 'user'` (their
-  `category_source` itself is left unchanged, so a later `reclassifyFinancePending()`
-  can still revise them if a rule or stronger memory signal appears later). The
-  result's `backfill` array captures each backfilled row's prior `category_id`,
-  `category_source`, `category_confidence`, and `categorized_at`; passing that
-  array to `revertFinanceCategoryBackfill()` is the single undo the UI offers
-  right after an `all_matching` edit (`FinanceTransactionsPage`'s backfill
-  banner). The target transaction's own `category_source = 'user'` write is
-  **not** part of the undo — only the backfilled rows revert.
+  sharing the same `merchant_key` whose `category_source !== 'user'`, nulling
+  `category_confidence` on each (their `category_source` itself is left
+  unchanged — still `'default'`/`'rule'`/`'memory'`, whatever it was — so a
+  later `reclassifyFinancePending()` can still revise them if a rule or
+  stronger memory signal appears). Because a backfilled row's `category_id`
+  can be a real category while its `category_source` stays `'default'`,
+  `classifyTransaction`'s "keep the existing category" guard (see
+  "Classification pipeline" below) keys off `category_id !==
+  'fincat:non-categorise'`, not `category_source` — otherwise a
+  `reclassifyFinancePending()` immediately after an `all_matching` edit would
+  silently reset the backfilled rows back to Uncategorized the moment their
+  `merchant_key` matches nothing better than a suggestion.
+  The result's `backfill` array captures each backfilled row's prior `category_id`,
+  `category_source`, `category_confidence`, `categorized_at`, and the
+  `categoryId` the bulk edit applied (`appliedCategoryId`); passing that array
+  to `revertFinanceCategoryBackfill()` is the single undo the UI offers right
+  after an `all_matching` edit (`FinanceTransactionsPage`'s backfill banner),
+  one `BEGIN IMMEDIATE`/`COMMIT` on the SQLite side. The target transaction's
+  own `category_source = 'user'` write is **not** part of the undo — only the
+  backfilled rows revert, and even then only a row whose `category_source` is
+  still not `'user'` **and** whose `category_id` still equals
+  `appliedCategoryId` — if the user manually re-categorized it, or a later
+  automatic pass moved it again, the undo leaves that row alone rather than
+  clobbering the newer edit.
 
 `decideFinanceCategorySuggestion` routes an `accepted`/`corrected` decision through
 this same entry point (`scope: "this"`), so accepting a suggestion reinforces
@@ -175,7 +190,12 @@ first — the first stage that produces a category wins:
    transaction via `src/lib/finance/transfers.ts` (import and
    `reclassifyFinancePending()` both skip already-`is_transfer` rows entirely
    rather than routing them back through this stage — transfer detection is the
-   authority there).
+   authority there). In practice this means a user rule can never override an
+   already-detected transfer: both write paths run the whole-history transfer
+   pass first and only call `classifyTransaction` for the rows that pass left
+   untouched (`is_transfer = 0`), so a transfer-marked row never re-enters the
+   pipeline at the rules stage, even though stage 2 is textually "higher
+   authority" than stage 3 above.
 4. **Learned merchant memory** (`finance_merchant_memory`). Lookup order: exact
    `(merchantKey, accountId, sign)` → `(merchantKey, "", sign)` →
    `(merchantKey, "", 0)`. Auto-applies (`category_source = 'memory'`) at
@@ -204,6 +224,17 @@ seeds — no AI, no transfer re-detection) over every existing `category_source 
 'user'`, non-transfer transaction; it is what powers the "Réappliquer les règles"
 action on `/finances/rules` and `/finances/review` after a rule is created or
 edited. Neither path ever touches a `category_source = 'user'` row.
+
+A "default" `classifyTransaction` outcome means this pass found nothing better
+than a suggestion — it is **not** itself a category decision. Both write paths
+guard against overwriting an already-categorized row with that non-decision:
+when the outcome's `categorySource` is `'default'` but the row's *current*
+`category_id` is already a real category (not `fincat:non-categorise`), the
+write keeps the row's existing `category_id`/`category_source`/
+`category_confidence` and only records the suggestion. This is what makes an
+`all_matching` backfill (above) safe from a later `reclassifyFinancePending()`
+silently undoing it the moment the merchant stops matching anything stronger
+than a suggestion.
 
 ### Import
 

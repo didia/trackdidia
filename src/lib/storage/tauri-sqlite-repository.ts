@@ -5598,6 +5598,6 @@ export class TauriSqliteRepository implements AppRepository {
   async revertFinanceCategoryBackfill(
     entries: import("../../domain/finance").FinanceCategoryBackfillEntry[],
   ) {
-    return this.getFinanceStore().revertCategoryBackfill(entries);
+    return this.runExclusive(() => this.getFinanceStore().revertCategoryBackfill(entries));
   }
 }

@@ -5,35 +5,57 @@
 // build `DismissedSuggestionPair[]` from `finance_category_suggestions` rows
 // with `status = 'dismissed'`; this module has no I/O of its own.
 
+import { toLocalDateInputValue } from "../date";
+
 export interface DismissedSuggestionPair {
   merchantKey: string;
   categoryId: string;
-  /** ISO timestamp (or local date) the suggestion was dismissed. */
+  /** ISO timestamp (or a bare local YYYY-MM-DD) the suggestion was dismissed. */
   dismissedAt: string;
 }
 
 export const DISMISSED_SUGGESTION_SUPPRESSION_WINDOW_DAYS = 90;
 
-const daysBetween = (fromIso: string, toIso: string): number => {
-  const from = new Date(fromIso).getTime();
-  const to = new Date(toIso).getTime();
-  return (to - from) / 86_400_000;
+/**
+ * Normalizes a possibly-timestamped value to a local `YYYY-MM-DD`. A bare
+ * 10-character date is already a local calendar date and is returned as-is —
+ * routing it through `Date` parsing would read it as UTC midnight and could
+ * shift it a day in a negative-UTC-offset zone (`vite.config.ts` pins tests
+ * to `America/Toronto`). A full ISO timestamp (e.g. `nowIso()`, always UTC)
+ * is converted to the equivalent local calendar date via `toLocalDateInputValue`.
+ */
+const toLocalDate = (value: string): string =>
+  value.length === 10 ? value : toLocalDateInputValue(value);
+
+const epochDay = (localDate: string): number => {
+  const [year, month, day] = localDate.split("-").map((part) => Number.parseInt(part, 10));
+  return Math.floor(Date.UTC(year, month - 1, day) / 86_400_000);
 };
+
+/** Whole local calendar days between two local `YYYY-MM-DD` dates (never fractional). */
+const daysBetween = (fromLocalDate: string, toLocalDateValue: string): number =>
+  epochDay(toLocalDateValue) - epochDay(fromLocalDate);
 
 /**
  * True when `(merchantKey, categoryId)` was dismissed within the last 90
- * days of `today` (injectable so tests never depend on the real clock).
+ * local calendar days of `today` (injectable local `YYYY-MM-DD` so tests
+ * never depend on the real clock). Both `dismissedAt` and `today` are
+ * normalized to a local calendar date before the day-difference arithmetic,
+ * so a same-day dismissal reliably compares as 0 days regardless of either
+ * value's time-of-day component.
  */
 export const isSuggestionDismissed = (
   dismissed: DismissedSuggestionPair[],
   merchantKey: string,
   categoryId: string,
   today: string,
-): boolean =>
-  dismissed.some(
-    (pair) =>
-      pair.merchantKey === merchantKey &&
-      pair.categoryId === categoryId &&
-      daysBetween(pair.dismissedAt, today) >= 0 &&
-      daysBetween(pair.dismissedAt, today) < DISMISSED_SUGGESTION_SUPPRESSION_WINDOW_DAYS,
-  );
+): boolean => {
+  const todayLocalDate = toLocalDate(today);
+  return dismissed.some((pair) => {
+    if (pair.merchantKey !== merchantKey || pair.categoryId !== categoryId) {
+      return false;
+    }
+    const diff = daysBetween(toLocalDate(pair.dismissedAt), todayLocalDate);
+    return diff >= 0 && diff < DISMISSED_SUGGESTION_SUPPRESSION_WINDOW_DAYS;
+  });
+};
