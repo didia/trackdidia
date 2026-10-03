@@ -740,6 +740,249 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    id: 37,
+    name: "add_finance_foundation",
+    sql: `
+      CREATE TABLE IF NOT EXISTS finance_people (
+        id TEXT PRIMARY KEY,
+        display_name TEXT NOT NULL,
+        color TEXT,
+        archived INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS finance_accounts (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        institution TEXT,
+        type TEXT NOT NULL,
+        currency TEXT NOT NULL,
+        owner_person_id TEXT,
+        ownership TEXT NOT NULL DEFAULT 'individual',
+        on_budget INTEGER NOT NULL DEFAULT 1,
+        closed INTEGER NOT NULL DEFAULT 0,
+        opening_balance_minor INTEGER NOT NULL DEFAULT 0,
+        current_balance_minor INTEGER,
+        balance_as_of TEXT,
+        external_key TEXT,
+        notes TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS finance_categories (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        parent_id TEXT,
+        kind TEXT NOT NULL,
+        archived INTEGER NOT NULL DEFAULT 0,
+        is_system INTEGER NOT NULL DEFAULT 0,
+        defers_to_next_month INTEGER NOT NULL DEFAULT 0,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS finance_transactions (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL,
+        posted_date TEXT NOT NULL,
+        amount_minor INTEGER NOT NULL,
+        currency TEXT NOT NULL,
+        description_raw TEXT NOT NULL,
+        description_original TEXT,
+        merchant_key TEXT NOT NULL,
+        merchant_display TEXT,
+        category_id TEXT,
+        category_source TEXT NOT NULL DEFAULT 'default',
+        category_confidence REAL,
+        categorized_at TEXT,
+        person_id TEXT,
+        notes TEXT,
+        labels_json TEXT,
+        pending INTEGER NOT NULL DEFAULT 0,
+        is_transfer INTEGER NOT NULL DEFAULT 0,
+        transfer_group_id TEXT,
+        excluded_from_budget INTEGER NOT NULL DEFAULT 0,
+        excluded_from_reports INTEGER NOT NULL DEFAULT 0,
+        has_splits INTEGER NOT NULL DEFAULT 0,
+        import_batch_id TEXT,
+        dedupe_hash TEXT NOT NULL,
+        source_row_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS finance_transaction_splits (
+        id TEXT PRIMARY KEY,
+        transaction_id TEXT NOT NULL,
+        amount_minor INTEGER NOT NULL,
+        category_id TEXT,
+        notes TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS finance_rules (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        priority INTEGER NOT NULL DEFAULT 0,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        matcher_json TEXT NOT NULL,
+        actions_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_applied_at TEXT,
+        applied_count INTEGER NOT NULL DEFAULT 0
+      );
+
+      CREATE TABLE IF NOT EXISTS finance_merchant_memory (
+        merchant_key TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        sign INTEGER NOT NULL,
+        category_id TEXT NOT NULL,
+        hit_count INTEGER NOT NULL DEFAULT 0,
+        correction_count INTEGER NOT NULL DEFAULT 0,
+        confidence REAL NOT NULL DEFAULT 0,
+        source TEXT NOT NULL,
+        last_applied_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (merchant_key, account_id, sign)
+      );
+
+      CREATE TABLE IF NOT EXISTS finance_category_suggestions (
+        id TEXT PRIMARY KEY,
+        transaction_id TEXT NOT NULL,
+        merchant_key TEXT NOT NULL,
+        suggested_category_id TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        origin TEXT NOT NULL,
+        rationale TEXT,
+        model TEXT,
+        prompt_version TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        decided_at TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS finance_budget_entries (
+        month_key TEXT NOT NULL,
+        category_id TEXT NOT NULL,
+        assigned_minor INTEGER NOT NULL DEFAULT 0,
+        overspend_policy TEXT NOT NULL DEFAULT 'reduce_next_ready_to_assign',
+        note TEXT,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (month_key, category_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS finance_budget_months (
+        month_key TEXT PRIMARY KEY,
+        ready_to_assign_note TEXT,
+        closed_at TEXT,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS finance_recurring_series (
+        id TEXT PRIMARY KEY,
+        merchant_key TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        category_id TEXT,
+        cadence TEXT NOT NULL,
+        expected_amount_minor INTEGER NOT NULL,
+        amount_tolerance_minor INTEGER NOT NULL,
+        day_of_month INTEGER,
+        last_seen_date TEXT NOT NULL,
+        next_expected_date TEXT NOT NULL,
+        occurrence_count INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'active',
+        confirmed_by_user INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS finance_account_balance_snapshots (
+        account_id TEXT NOT NULL,
+        as_of_date TEXT NOT NULL,
+        balance_minor INTEGER NOT NULL,
+        source TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (account_id, as_of_date)
+      );
+
+      CREATE TABLE IF NOT EXISTS finance_import_profiles (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        signature TEXT NOT NULL,
+        column_map_json TEXT NOT NULL,
+        date_format TEXT NOT NULL,
+        amount_mode TEXT NOT NULL,
+        sign_convention TEXT,
+        default_account_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_used_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS finance_import_batches (
+        id TEXT PRIMARY KEY,
+        profile_id TEXT,
+        file_name TEXT NOT NULL,
+        file_hash TEXT NOT NULL,
+        account_id TEXT,
+        row_count INTEGER NOT NULL DEFAULT 0,
+        imported_count INTEGER NOT NULL DEFAULT 0,
+        duplicate_count INTEGER NOT NULL DEFAULT 0,
+        skipped_count INTEGER NOT NULL DEFAULT 0,
+        error_count INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'running',
+        error_summary TEXT,
+        started_at TEXT NOT NULL,
+        finished_at TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_finance_txn_account_date
+        ON finance_transactions (account_id, posted_date);
+      CREATE INDEX IF NOT EXISTS idx_finance_txn_date
+        ON finance_transactions (posted_date);
+      CREATE INDEX IF NOT EXISTS idx_finance_txn_category_date
+        ON finance_transactions (category_id, posted_date);
+      CREATE INDEX IF NOT EXISTS idx_finance_txn_merchant
+        ON finance_transactions (merchant_key);
+      CREATE INDEX IF NOT EXISTS idx_finance_txn_batch
+        ON finance_transactions (import_batch_id);
+      CREATE INDEX IF NOT EXISTS idx_finance_txn_transfer_group
+        ON finance_transactions (transfer_group_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS uniq_finance_txn_dedupe
+        ON finance_transactions (account_id, dedupe_hash);
+      CREATE INDEX IF NOT EXISTS idx_finance_splits_txn
+        ON finance_transaction_splits (transaction_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS uniq_finance_suggestion_pending
+        ON finance_category_suggestions (transaction_id)
+        WHERE status = 'pending';
+      CREATE INDEX IF NOT EXISTS idx_finance_suggestions_status
+        ON finance_category_suggestions (status, created_at);
+      CREATE INDEX IF NOT EXISTS idx_finance_budget_month
+        ON finance_budget_entries (month_key);
+      CREATE INDEX IF NOT EXISTS idx_finance_recurring_next
+        ON finance_recurring_series (status, next_expected_date);
+      CREATE UNIQUE INDEX IF NOT EXISTS uniq_finance_profile_signature
+        ON finance_import_profiles (signature);
+      CREATE UNIQUE INDEX IF NOT EXISTS uniq_finance_account_external_key
+        ON finance_accounts (external_key)
+        WHERE external_key IS NOT NULL;
+
+      INSERT OR IGNORE INTO finance_categories (
+        id, name, parent_id, kind, archived, is_system, defers_to_next_month, sort_order, created_at, updated_at
+      ) VALUES
+        ('fincat:non-categorise', 'Non catégorisé', NULL, 'expense', 0, 1, 0, 0, '1970-01-01T00:00:00.000Z', '1970-01-01T00:00:00.000Z'),
+        ('fincat:transfert', 'Transfert', NULL, 'transfer', 0, 1, 0, 1, '1970-01-01T00:00:00.000Z', '1970-01-01T00:00:00.000Z'),
+        ('fincat:split', 'Répartition', NULL, 'internal', 0, 1, 0, 2, '1970-01-01T00:00:00.000Z', '1970-01-01T00:00:00.000Z');
+    `,
+  },
 ];
 
 /** Retains all repeatable SQL while skipping only guarded statements already applied. */
