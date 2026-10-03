@@ -1,4 +1,4 @@
-// Pure net-worth arithmetic. See specs/todo/finance.md "Phase 6". No I/O.
+// Pure net-worth arithmetic. See specs/done/finance.md "Phase 6". No I/O.
 //
 // Net worth counts every account regardless of `onBudget`/`excludedFromBudget` —
 // those flags are budget-only exclusions and must never remove money from net

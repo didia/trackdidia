@@ -1,5 +1,5 @@
 // Bundled seed heuristics for merchants that are unambiguous in the Canadian/
-// French context — see specs/todo/finance.md "Classification pipeline" stage
+// French context — see specs/done/finance.md "Classification pipeline" stage
 // 5. Confidence is capped at 0.7: a seed is a convenience, never an
 // auto-apply, and the user's learned memory always outranks it (classify.ts
 // only consults seeds when no memory entry exists at all).

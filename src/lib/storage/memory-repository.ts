@@ -2411,6 +2411,18 @@ export class MemoryRepository implements AppRepository {
     return Promise.resolve(this.finance.reclassifyPending());
   }
 
+  // --- Finance (Phase 8 — AI categorization) --------------------------------------------
+
+  async listFinanceUnknownMerchants(limit?: number) {
+    return Promise.resolve(this.finance.listUnknownMerchants(limit));
+  }
+
+  async applyFinanceCategorizationResults(
+    input: import("../../domain/finance").ApplyFinanceCategorizationResultsInput,
+  ) {
+    return Promise.resolve(this.finance.applyCategorizationResults(input));
+  }
+
   async revertFinanceCategoryBackfill(
     entries: import("../../domain/finance").FinanceCategoryBackfillEntry[],
   ) {

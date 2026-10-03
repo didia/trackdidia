@@ -22,8 +22,12 @@ screens — see "Tracking, reports, recurring, net worth" below), and
 forecasting, the household cash-flow runout date, ranked alerts, the
 `FinanceAlertsCard` on Today, the full alerts list on `/finances`, and a
 rate-limited desktop notification — see "Forecasting and proactive alerts
-(Phase 7)" below). There is still no AI categorization stage — see
-[specs/todo/finance.md](../specs/todo/finance.md) for the full phased plan.
+(Phase 7)" below), and **Phase 8 — AI categorization** (the `finance_categorization`
+AI surface, `FinanceCategorizationService`, the sanitized merchant snapshot,
+auto-apply above a confidence threshold, and the "Classer les en attente"
+button on `/finances/review` — see "AI categorization (Phase 8)" below). All
+phases from [specs/done/finance.md](../specs/done/finance.md) have shipped;
+that spec has moved to `specs/done/finance.md`.
 Finance coach-context in the daily pulse payload (`financeCoachContextEnabled`)
 remains unimplemented; the setting exists and defaults off, but nothing reads
 it yet (see "Forecasting and proactive alerts (Phase 7)" for why it was
@@ -32,10 +36,11 @@ deferred rather than shipped here).
 The feature is **unshipped to end users by default**: `AppSettings.financeEnabled`
 defaults to `false`. With it off, the sidebar has no "Finances" entry and
 `/finances*` redirects to `/`. A household that turns it on in Settings gets
-the eight screens documented in "Screens" below plus the Phase 7 alerts; only
-AI categorization (Phase 8) is not built yet. This page describes what the
-storage layer and the UI can do today so later phases (and reviewers) have a
-canonical reference.
+the eight screens documented in "Screens" below plus the Phase 7 alerts; AI
+categorization is a further, separately-gated opt-in (see "AI categorization
+(Phase 8)" below) — with it off, every classification stage except AI still
+works exactly as before. This page describes what the storage layer and the
+UI can do today so reviewers have a canonical reference.
 
 ## Data model
 
@@ -108,7 +113,7 @@ automatically — no migration needed):
 |---|---|---|
 | `financeEnabled` | `false` | Master feature flag; later phases gate the nav entry and bootstrap work on this |
 | `financeBaseCurrency` | `"CAD"` | Single base currency for cross-account rollups |
-| `financeAiCategorizationEnabled` | `false` | Gates the AI classification stage (Phase 8) |
+| `financeAiCategorizationEnabled` | `false` | Gates the AI classification stage (Phase 8, implemented) |
 | `financeAiAutoApplyEnabled` | `false` | Whether an AI suggestion can auto-apply |
 | `financeAiAutoApplyMinConfidence` | `0.9` | Confidence floor for AI auto-apply |
 | `financeAlertsOnToday` | `true` | Shows `FinanceAlertsCard` on Today (Phase 7, implemented) |
@@ -146,10 +151,10 @@ Phase 6 added `computeFinanceNetWorth`, `listFinanceNetWorthHistory`,
 covered below under "Tracking, reports, recurring, net worth (Phase 6)".
 Phase 7 added `buildFinanceSnapshot`, `computeFinanceForecast`,
 `listNotifiedFinanceAlertKeys`, and `recordFinanceAlertNotifications` —
-covered below under "Forecasting and proactive alerts (Phase 7)".
-**Not** covered yet (a later phase): AI suggestion
-generation — this remains unimplemented on both repositories until its
-respective phase.
+covered below under "Forecasting and proactive alerts (Phase 7)". Phase 8
+added `listFinanceUnknownMerchants` and
+`applyFinanceCategorizationResults` — covered below under "AI categorization
+(Phase 8)".
 
 ### Learning entry point
 
@@ -204,7 +209,7 @@ memory exactly like a manual edit. Dismissing a suggestion does **not** call
 the suggestion row itself (now `status = 'dismissed'`) becomes the negative
 signal `classifyTransaction` reads for the 90-day suppression window.
 
-## Classification pipeline (Phase 4)
+## Classification pipeline (Phase 4, extended by Phase 8)
 
 `src/lib/finance/classify.ts` exports the pure `classifyTransaction(txn, context)`,
 the single place that decides a transaction's category. Order, highest authority
@@ -246,8 +251,15 @@ first — the first stage that produces a category wins:
    streaming, pharmacy), matched against `merchant_key`. Confidence is capped at
    `0.7` — a seed always produces a suggestion (`origin: "seed"`), never an
    auto-apply — and is subject to the same 90-day dismissal suppression as memory.
-6. **AI** — not implemented. The function has a clearly marked, empty hook
-   between seeds and the default stage for Phase 8 to fill in.
+6. **AI** — deliberately *not* a step of the pure `classifyTransaction` function
+   (it is async and network-bound, and must never run inside a
+   `DbSerialQueue`/`BEGIN IMMEDIATE` slot). A transaction that falls through
+   stages 1-5 here (category `Uncategorized`, no suggestion written) becomes a
+   candidate for `AppRepository.listFinanceUnknownMerchants`, which
+   `FinanceCategorizationService` reads, classifies via the configured AI
+   provider, and applies back through
+   `AppRepository.applyFinanceCategorizationResults` — see "AI categorization
+   (Phase 8)" below for the full flow.
 7. **`Uncategorized`**, `category_source = 'default'`.
 
 Both `FinanceSqliteStore.importTransactions` and `FinanceMemoryStore.importTransactions`
@@ -438,10 +450,14 @@ row; closing a month is a UI-level freeze and changes no arithmetic.
   "Enabling the flag seeds categories" below) and reveals the nav entry and
   routes.
 
-Settings also exposes `financeBaseCurrency` next to the toggle. The AI,
-alerts/coach, and notify-runout flags from the Phase 2 table are **not** shown
-in Settings yet — they are no-ops until the phases that read them (4, 7, 8)
-ship, and showing a checkbox with no effect would be misleading.
+Settings also exposes `financeBaseCurrency` next to the toggle, the
+alerts/notify-runout flags (Phase 7), and the three AI categorization flags
+(Phase 8) — `financeAiCategorizationEnabled`, `financeAiAutoApplyEnabled`,
+`financeAiAutoApplyMinConfidence` — rendered disabled (not hidden) while
+`settings.aiEnabled` is false, with a helper line explaining the dependency.
+`financeCoachContextEnabled` alone is still **not** shown: it remains a no-op
+until the coach-payload integration ships (see "Forecasting and proactive
+alerts (Phase 7)"), and showing a checkbox with no effect would be misleading.
 
 ### Enabling the flag seeds categories
 
@@ -634,12 +650,12 @@ envelope. "Clôturer le mois"/"Rouvrir le mois" toggle
 `finance_budget_months.closed_at` and disable every input while closed; this
 is advisory only and never changes arithmetic.
 
-### FinanceReviewPage (`/finances/review`, Phase 4)
+### FinanceReviewPage (`/finances/review`, Phase 4, extended by Phase 8)
 
 The pending-suggestion queue (`listFinanceCategorySuggestions("pending")`),
 grouped by `merchant_key`. Each suggestion shows the transaction's description,
 the suggested category name, its confidence, and its `origin` (`memory` |
-`seed` — `ai` is Phase 8). Three per-row actions, all routed through
+`seed` | `ai`). Three per-row actions, all routed through
 `decideFinanceCategorySuggestion`:
 
 - **Accepter** — `status: "accepted"`, which applies the suggested category via
@@ -659,7 +675,14 @@ suggestion at or above an 80% confidence floor (a page constant, not a
 setting). "Réappliquer les règles" calls `reclassifyFinancePending()` and
 reports how many transactions changed and how many new suggestions were
 created — useful right after creating or editing a rule on `/finances/rules`.
-There is no "Classifier en attente" (AI) button yet — that ships with Phase 8.
+
+"Classer les en attente (IA)" calls `FinanceCategorizationService.classifyPending`
+(see "AI categorization (Phase 8)" below) and is disabled — not hidden — unless
+all three gating flags are on (`settings.aiEnabled`, a non-empty
+`settings.aiApiKey`, and `settings.financeAiCategorizationEnabled`), with a
+helper line explaining the dependency and a `title` tooltip stating the action
+has a cost. The result message reports how many merchants were sent, how many
+suggestions were created, and how many were auto-applied.
 
 ### FinanceRulesPage (`/finances/rules`, Phase 4)
 
@@ -889,8 +912,10 @@ blocks the eight-second startup fallback.
   if low effort." Given the size of this phase, that integration was
   deliberately skipped: the setting field exists (carried over from an
   earlier phase) and defaults off, but no code reads it yet, and the coach
-  pulse payload is unchanged. Revisit alongside Phase 8 (AI categorization)
-  if the coach-pulse context is prioritized.
+  pulse payload is unchanged. Phase 8 (AI categorization) shipped
+  separately, as the `finance_categorization` surface below — it does not
+  touch the coach-pulse payload. Revisit this specific deferral if the
+  coach-pulse context is later prioritized.
 
 ### Tests
 
@@ -909,8 +934,128 @@ rate limit, `watch` never notifying, the 14-day cash-runout cutoff, and the
 repository parity and the migration. `TodayPage.test.tsx` and
 `FinanceAlertsCard.test.tsx` cover the Today card's gating and content.
 
+## AI categorization (Phase 8)
+
+A sixth classification stage, run out-of-band from `classifyTransaction` (see
+"Classification pipeline" above): `src/lib/ai/finance-categorization-service.ts`
+sends **merchants**, not transactions, to the configured OpenRouter model and
+applies the answer back to every matching row. See
+[docs/ai-settings-and-privacy.md](ai-settings-and-privacy.md#finance_categorization)
+for exactly what is and is not sent and the gating flags.
+
+### Gating
+
+All three must be true, checked both by the service and by the
+`/finances/review` button's `disabled` state:
+
+- `settings.aiEnabled`
+- a non-empty `settings.aiApiKey`
+- `settings.financeAiCategorizationEnabled`
+
+`settings.aiPayloadScope === "metrics"` additionally disables the stage
+entirely (a merchant string is structure, not a metric — see
+`buildFinanceCategorizationSnapshots`). With any of these off, every other
+classification stage still works: the feature degrades, it does not break.
+
+### Unknown merchants
+
+`AppRepository.listFinanceUnknownMerchants(limit = 40)` is a plain read (no
+write transaction) returning merchant-level groups — `merchantKey`, a
+representative `sign` (mode), `occurrenceCount`, a representative
+`amountMinorSample` (median absolute amount), a representative `accountType`
+(mode), and the matching `transactionIds` — for every currently
+`category_source != "user"`, non-transfer, `Uncategorized` transaction that
+has **no pending suggestion yet** (i.e. stages 2-5 all produced nothing at
+all, not even a below-threshold suggestion). Once a merchant gets a pending
+suggestion (from any origin), it drops out of this list until that
+suggestion is decided or a correction clears the category back to
+`Uncategorized`.
+
+### Snapshot and privacy caps
+
+`src/lib/ai/context/finance-categorization-snapshot.ts`'s
+`buildFinanceCategorizationSnapshots` sanitizes each unknown-merchant group
+into a request item — `sanitizeMerchantDescriptor` strips email addresses,
+card/account-looking fragments (`\b[\dX*]{6,}\b`), and digit runs of 4+
+characters, then clamps to 60 characters — and buckets the representative
+amount into `<10`/`10-50`/`50-200`/`200-1000`/`>1000` (base currency,
+integer-minor-unit comparisons only, never a float division). It then
+chunks the sanitized list into one or more requests of **at most 40
+merchants and 16 KiB of serialized JSON each** — an over-cap batch is split
+into more requests, never truncated — each paired with a `merchantKeyMap`
+(sanitized request key -> original `merchant_key` value(s), needed because
+sanitization can rarely make two distinct merchants collide on the same
+text) so results can be applied back to the right rows.
+
+### Service, cache, and the schema
+
+`FinanceCategorizationService.classifyPending(repository, settings)`
+(`FINANCE_CATEGORIZATION_PROMPT_VERSION = "finance_categorization.v1"`)
+lists unknown merchants, builds the snapshot chunks, and for each chunk:
+caches by `buildAiInputHash({ promptVersion, scope, snapshot })` exactly like
+`GoalPacingService`; when AI is unconfigured, persists a `status: "skipped"`
+`AiMessage` and applies nothing; otherwise calls the provider, does **one**
+repair round-trip on invalid JSON (`finance-categorization-validator.ts`
+rejects an out-of-list category id, a merchant key outside the request, a
+confidence outside `[0, 1]`, or any extra field), persists `status: "ok"` or
+`"fallback"`, and — on a valid response — applies the result. Every run
+(including `"skipped"`) is persisted via `saveCoachPulseEpisode` exactly like
+`GoalPacingService`'s `ok`/`fallback` rows, so it is picked up by the
+existing AI cost/usage dashboard (`computeAiUsageForMonth`) with no surface
+-specific code there. `finance-categorization-loader.ts` hydrates the most
+recent run (any scope) for display, rejecting a stale prompt version like
+every other surface's loader.
+
+### Applying results
+
+`AppRepository.applyFinanceCategorizationResults` is the one short exclusive
+block (one `BEGIN IMMEDIATE`) that writes the outcome. For each result, for
+every currently-eligible transaction (`category_source != "user"`, not a
+transfer, still `Uncategorized`) sharing (one of) its original merchant
+key(s):
+
+- If `(merchantKey, categoryId)` was dismissed in the last 90 days
+  (`src/lib/finance/dismissed-suggestions.ts`, the same window memory/seed
+  suggestions honor), nothing is written for that row —
+  `suppressedDismissed` counts it.
+- Otherwise a `finance_category_suggestions` row is always written
+  (`origin: "ai"`, with `rationale`, `model`, `promptVersion`).
+- When `settings.financeAiAutoApplyEnabled` **and**
+  `result.confidence >= settings.financeAiAutoApplyMinConfidence` both hold
+  (and, by construction, the row was never user-set or already decided by a
+  stronger stage), the transaction's category is set directly
+  (`category_source = "ai"`) and that same suggestion row is written as
+  already `"accepted"` instead of being left in the review queue — there is
+  nothing left for the user to decide. Otherwise the suggestion is left
+  `"pending"` for `/finances/review`.
+
+A `category_source = "user"` row is never a candidate in the first place (it
+never appears in `listFinanceUnknownMerchants`, and
+`applyFinanceCategorizationResults`'s eligibility check re-verifies this),
+matching the absolute invariant every other automatic stage honors.
+
+### Run triggers
+
+Only two, both explicit — **never** a timer, **never** at startup:
+
+1. After `FinanceImportPage`'s import call resolves (outside the import's own
+   transaction), when `financeAiCategorizationEnabled` is on. A failure here
+   is logged (counts only) and never surfaces as an import error — the
+   import itself already succeeded.
+2. The "Classer les en attente (IA)" button on `/finances/review`, with an
+   explicit cost-hint tooltip.
+
+### Settings UI
+
+`SettingsPage`'s "Finances" section gained `financeAiCategorizationEnabled`,
+`financeAiAutoApplyEnabled`, and `financeAiAutoApplyMinConfidence` (parsed
+safely, clamped to `[0, 1]`, falling back to the previous value on an
+unparsable draft) — all three rendered `disabled` (not hidden) while
+`settings.aiEnabled` is false, with a helper line stating the dependency.
+
 ## Related documentation
 
 - [Storage and backups](storage-and-backups.md#finance-tables)
 - [Conventions](conventions.md) (minor-units rule)
-- [specs/todo/finance.md](../specs/todo/finance.md) — the full phased spec
+- [AI settings and privacy](ai-settings-and-privacy.md#finance_categorization)
+- [specs/done/finance.md](../specs/done/finance.md) — the full phased spec, now shipped

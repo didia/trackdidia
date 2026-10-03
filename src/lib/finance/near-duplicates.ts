@@ -1,7 +1,7 @@
 // Pure near-duplicate detector for the pending -> posted drift case: a
 // transaction exported while pending and re-exported after posting can change
 // date and/or description and would otherwise insert twice even after exact
-// dedupeHash matching. See specs/todo/finance.md "Near-duplicates".
+// dedupeHash matching. See specs/done/finance.md "Near-duplicates".
 
 import { normalizeDescription } from "./import-profile";
 

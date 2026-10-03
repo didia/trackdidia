@@ -1,4 +1,4 @@
-// Pure YNAB-style envelope budget arithmetic. See specs/todo/finance.md
+// Pure YNAB-style envelope budget arithmetic. See specs/done/finance.md
 // "Budget model". No I/O. Rollover is always recomputed here, never stored —
 // the repository's job is only to load the input shape described below and
 // hand it to one of these functions, exactly like `computeWeeklyReviewSummary`.

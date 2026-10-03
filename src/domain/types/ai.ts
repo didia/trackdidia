@@ -16,7 +16,8 @@ export type AiSurface =
   | "monthly_synthesis"
   | "goal_pacing"
   | "mid_week_steering"
-  | "pastor_verse";
+  | "pastor_verse"
+  | "finance_categorization";
 
 export type CoachPulseStance = "open" | "steer" | "wind_down" | "close";
 
@@ -251,6 +252,25 @@ export interface GoalPacingResponse {
 export interface GoalPacingResult {
   message: AiMessage;
   pacing: GoalPacingResponse;
+  source: "ai" | "local" | "fallback" | "cache";
+  warning?: string;
+}
+
+/** One merchant's AI categorization answer within a `FinanceCategorizationResponse`. */
+export interface FinanceCategorizationItem {
+  merchantKey: string;
+  categoryId: string;
+  confidence: number;
+  rationale: string;
+}
+
+export interface FinanceCategorizationResponse {
+  merchants: FinanceCategorizationItem[];
+}
+
+export interface FinanceCategorizationResult {
+  message: AiMessage;
+  categorization: FinanceCategorizationResponse;
   source: "ai" | "local" | "fallback" | "cache";
   warning?: string;
 }

@@ -130,6 +130,12 @@ returns a decimal number; `addMoney`/`sumMoney` throw on mixed currencies
 rather than silently truncating. Dedupe hashing (`src/lib/finance/hash.ts`)
 uses a 128-bit hash, not the 32-bit `hashString` in `src/lib/hash.ts`, because
 a collision at finance-import volumes would silently drop a real transaction.
+The `finance_categorization` AI surface's amount **bucket** (see
+[docs/ai-settings-and-privacy.md](ai-settings-and-privacy.md#finance-categorization-finance_categorization))
+follows the same rule at the boundary: `amountBucketFor` compares the raw
+minor-unit integer against `threshold * 10 ** currencyExponent(baseCurrency)`
+— a multiplication, never a division — so no binary-float rounding can creep
+into which bucket a borderline amount lands in.
 
 ## Dates and time zones
 

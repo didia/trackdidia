@@ -11,11 +11,14 @@ import type {
   FinanceImportProfile,
   FinanceImportSummary,
 } from "../domain/finance";
+import { FinanceCategorizationService } from "../lib/ai/finance-categorization-service";
+import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
 import { parseCsv } from "../lib/finance/csv";
 import { createEntityId, nowIso } from "../lib/gtd/shared";
 import { buildHeaderSignature, inferDateFormat, MINT_PROFILE } from "../lib/finance/import-profile";
 import { buildImportRequest, decodeCsvBytes } from "../lib/finance/import-request";
 import { hash128 } from "../lib/finance/hash";
+import { logDebug } from "../lib/debug";
 
 const PREVIEW_ROW_COUNT = 20;
 
@@ -55,7 +58,11 @@ interface PendingFile {
 
 export const FinanceImportPage = () => {
   const { t } = useTranslation("finance");
-  const { repository, browserPreview } = useAppContext();
+  const { repository, browserPreview, settings } = useAppContext();
+  const categorizationService = useMemo(
+    () => new FinanceCategorizationService(new OpenRouterProvider()),
+    [],
+  );
   const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
   const [savedProfiles, setSavedProfiles] = useState<FinanceImportProfile[]>([]);
   const [batches, setBatches] = useState<FinanceImportBatch[]>([]);
@@ -318,6 +325,17 @@ export const FinanceImportPage = () => {
         setImportError(t("import.errors.rowErrors", { count: errors.length }));
       }
       await load();
+
+      // AI categorization runs after the import transaction has fully committed — never inside
+      // it — and only when the user opted in. A failure here must not surface as an import
+      // error: the import itself already succeeded.
+      if (settings.financeAiCategorizationEnabled) {
+        try {
+          await categorizationService.classifyPending(repository, settings);
+        } catch (aiError) {
+          logDebug("warn", "finance.import", "Echec de la categorisation IA post-import", aiError);
+        }
+      }
     } catch (error) {
       setImportError(error instanceof Error ? error.message : t("import.errors.importFailed"));
     }

@@ -197,4 +197,47 @@ describe("FinanceImportPage", () => {
     // No duplicate account was created for the second file's differently-worded label.
     expect(accountsAfterSecond).toHaveLength(1);
   });
+
+  it("runs the AI categorization stage after an import completes when financeAiCategorizationEnabled is on", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const user = userEvent.setup();
+
+    await renderWithApp(<FinanceImportPage />, {
+      repository,
+      contextOverrides: {
+        settings: {
+          ...defaultAppSettings(),
+          financeEnabled: true,
+          financeAiCategorizationEnabled: true,
+          // AI itself stays unconfigured — the run must still happen and persist a "skipped"
+          // marker rather than silently doing nothing, proving the post-import hook fired.
+          aiEnabled: false,
+        },
+      },
+    });
+
+    const file = new File([MINT_FIXTURE], "mint-export.csv", { type: "text/csv" });
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    await user.upload(input, file);
+    await screen.findByText("Mappage des colonnes");
+
+    const bindingLabel = screen
+      .getAllByText("Checking")
+      .find((element) => element.tagName === "SPAN");
+    const bindingSelect = bindingLabel
+      ?.closest(".inline-form")
+      ?.querySelector("select") as HTMLSelectElement;
+    await user.selectOptions(bindingSelect, "__new__");
+    await user.type(screen.getByPlaceholderText("Nom du nouveau compte"), "Compte chèques");
+
+    await user.click(screen.getByRole("button", { name: "Importer" }));
+    await screen.findByText("Résultat de l'import");
+
+    await waitFor(async () => {
+      const messages = await repository.listAiMessages("finance_categorization");
+      expect(messages.length).toBeGreaterThan(0);
+      expect(messages[0].status).toBe("skipped");
+    });
+  });
 });

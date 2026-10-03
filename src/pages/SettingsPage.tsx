@@ -48,15 +48,24 @@ export const SettingsPage = () => {
       currencyExponent(settings.financeBaseCurrency),
     ),
   );
+  const [financeAiAutoApplyMinConfidenceDraft, setFinanceAiAutoApplyMinConfidenceDraft] = useState(
+    () => String(settings.financeAiAutoApplyMinConfidence),
+  );
   const financeSave = useSectionSave(async () => {
     const enabling = draftSettings.financeEnabled && !settings.financeEnabled;
     const exponent = currencyExponent(draftSettings.financeBaseCurrency);
     const parsedBuffer = parseAmountToMinor(financeSafetyBufferDraft || "0", { exponent });
+    const parsedMinConfidence = Number(financeAiAutoApplyMinConfidenceDraft.trim());
+    const financeAiAutoApplyMinConfidence =
+      Number.isFinite(parsedMinConfidence) && parsedMinConfidence >= 0 && parsedMinConfidence <= 1
+        ? parsedMinConfidence
+        : settings.financeAiAutoApplyMinConfidence;
     let nextSettings = {
       ...draftSettings,
       financeSafetyBufferMinor: parsedBuffer.ok
         ? parsedBuffer.amountMinor
         : settings.financeSafetyBufferMinor,
+      financeAiAutoApplyMinConfidence,
     };
 
     if (enabling && !settings.financeCategoriesSeededAt) {
@@ -78,6 +87,7 @@ export const SettingsPage = () => {
         currencyExponent(settings.financeBaseCurrency),
       ),
     );
+    setFinanceAiAutoApplyMinConfidenceDraft(String(settings.financeAiAutoApplyMinConfidence));
   }, [settings]);
 
   const parsedCostRate = useMemo((): number | null => {
@@ -590,6 +600,50 @@ export const SettingsPage = () => {
               placeholder={t("finance.safetyBufferMinorPlaceholder")}
             />
           </label>
+
+          <label className="switch-row">
+            <input
+              type="checkbox"
+              disabled={!draftSettings.aiEnabled}
+              checked={draftSettings.financeAiCategorizationEnabled}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  financeAiCategorizationEnabled: event.target.checked,
+                }))
+              }
+            />
+            <span>{t("finance.aiCategorizationEnabled")}</span>
+          </label>
+
+          <label className="switch-row">
+            <input
+              type="checkbox"
+              disabled={!draftSettings.aiEnabled}
+              checked={draftSettings.financeAiAutoApplyEnabled}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  financeAiAutoApplyEnabled: event.target.checked,
+                }))
+              }
+            />
+            <span>{t("finance.aiAutoApplyEnabled")}</span>
+          </label>
+
+          <label>
+            <span>{t("finance.aiAutoApplyMinConfidence")}</span>
+            <input
+              type="text"
+              disabled={!draftSettings.aiEnabled}
+              value={financeAiAutoApplyMinConfidenceDraft}
+              onChange={(event) => setFinanceAiAutoApplyMinConfidenceDraft(event.target.value)}
+              placeholder={t("finance.aiAutoApplyMinConfidencePlaceholder")}
+            />
+          </label>
+          {!draftSettings.aiEnabled ? (
+            <p className="field-card__helper">{t("finance.aiRequiresAiEnabled")}</p>
+          ) : null}
         </div>
 
         <div className="form-actions">

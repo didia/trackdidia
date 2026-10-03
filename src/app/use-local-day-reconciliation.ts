@@ -15,7 +15,7 @@ import { t } from "../i18n";
  * When `financeEnabled`, the same reconciliation also snapshots today's
  * account balances (`snapshotFinanceAccountBalances`) so the net-worth
  * history has one point per day the app was open — see
- * specs/todo/finance.md "Bootstrap". A snapshot failure is logged (counts
+ * specs/done/finance.md "Bootstrap". A snapshot failure is logged (counts
  * only, never amounts) and never blocks recurrence/promotion.
  *
  * When `financeEnabled && financeNotifyRunout`, the same reconciliation also

@@ -1,7 +1,7 @@
 // Pure transfer detection. Given candidate transaction rows (already inserted
 // or about to be), decides which pairs are transfers between accounts, and
 // which single-sided rows are "probable transfers" by keyword. See
-// specs/todo/finance.md "Transfer detection".
+// specs/done/finance.md "Transfer detection".
 
 import { normalizeDescription } from "./import-profile";
 

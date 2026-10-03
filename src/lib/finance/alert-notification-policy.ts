@@ -1,6 +1,6 @@
 // Deterministic finance alert notification policy — patterned after
 // `src/lib/ai/pulse/notification-policy.ts`. Pure; no I/O. See
-// specs/todo/finance.md "Surfacing": never notify `watch`; only
+// specs/done/finance.md "Surfacing": never notify `watch`; only
 // `will_run_out`/`exhausted` envelopes and a cash runout inside 14 days;
 // respects `settings.financeNotifyRunout`; at most once per day per alert
 // key (the caller passes in today's already-notified keys from the

@@ -9,6 +9,8 @@ import type {
   FinanceCategorySuggestion,
   FinanceTransaction,
 } from "../domain/finance";
+import { FinanceCategorizationService } from "../lib/ai/finance-categorization-service";
+import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
 
 const ACCEPT_ALL_THRESHOLD = 0.8;
 
@@ -19,11 +21,17 @@ interface ReviewRow {
 
 export const FinanceReviewPage = () => {
   const { t } = useTranslation("finance");
-  const { repository } = useAppContext();
+  const { repository, settings } = useAppContext();
+  const categorizationService = useMemo(
+    () => new FinanceCategorizationService(new OpenRouterProvider()),
+    [],
+  );
   const [rows, setRows] = useState<ReviewRow[]>([]);
   const [categories, setCategories] = useState<FinanceCategory[]>([]);
   const [correctingId, setCorrectingId] = useState<string | null>(null);
   const [reclassifyMessage, setReclassifyMessage] = useState<string | null>(null);
+  const [classifyingPending, setClassifyingPending] = useState(false);
+  const [classifyPendingMessage, setClassifyPendingMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const [suggestions, nextCategories, allTransactions] = await Promise.all([
@@ -107,6 +115,29 @@ export const FinanceReviewPage = () => {
     await load();
   };
 
+  const aiCategorizationAvailable =
+    settings.financeAiCategorizationEnabled &&
+    settings.aiEnabled &&
+    settings.aiApiKey.trim().length > 0 &&
+    settings.aiPayloadScope !== "metrics";
+
+  const classifyPending = async () => {
+    setClassifyingPending(true);
+    try {
+      const result = await categorizationService.classifyPending(repository, settings);
+      setClassifyPendingMessage(
+        t("review.classifyPendingResult", {
+          merchants: result.merchantsRequested,
+          suggestions: result.suggestionsCreated,
+          autoApplied: result.autoApplied,
+        }),
+      );
+      await load();
+    } finally {
+      setClassifyingPending(false);
+    }
+  };
+
   return (
     <div className="page">
       <PageHeader eyebrow={t("review.hero.eyebrow")} title={t("review.hero.title")} />
@@ -127,8 +158,23 @@ export const FinanceReviewPage = () => {
           <button type="button" className="button" onClick={() => void reapplyRules()}>
             {t("review.reapplyRules")}
           </button>
+          <button
+            type="button"
+            className="button"
+            disabled={!aiCategorizationAvailable || classifyingPending}
+            title={t("review.classifyPendingCostHint")}
+            onClick={() => void classifyPending()}
+          >
+            {classifyingPending ? t("review.classifyPendingRunning") : t("review.classifyPending")}
+          </button>
         </div>
         {reclassifyMessage ? <p className="field-card__helper">{reclassifyMessage}</p> : null}
+        {!aiCategorizationAvailable ? (
+          <p className="field-card__helper">{t("review.classifyPendingUnavailable")}</p>
+        ) : null}
+        {classifyPendingMessage ? (
+          <p className="field-card__helper">{classifyPendingMessage}</p>
+        ) : null}
       </SectionCard>
 
       <SectionCard title={t("review.queueTitle", { count: rows.length })}>

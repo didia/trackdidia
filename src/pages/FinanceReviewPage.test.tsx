@@ -165,4 +165,55 @@ describe("FinanceReviewPage", () => {
       }),
     ]);
   });
+
+  it("disables the AI classify-pending button until all three AI finance flags are on", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.seedFinanceDefaultCategories();
+    await repository.saveFinanceAccount(buildAccount());
+    await repository.saveFinanceTransaction(buildTxn());
+
+    await renderWithApp(<FinanceReviewPage />, {
+      repository,
+      contextOverrides: {
+        settings: {
+          ...defaultAppSettings(),
+          financeEnabled: true,
+          financeAiCategorizationEnabled: false,
+          aiEnabled: false,
+          aiApiKey: "",
+        },
+      },
+    });
+
+    expect(screen.getByText("Classer les en attente (IA)")).toBeDisabled();
+    expect(
+      screen.getByText(
+        "Activez l'IA et la catégorisation IA des finances dans les paramètres pour utiliser cette action.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("enables the AI classify-pending button once aiEnabled, aiApiKey, and financeAiCategorizationEnabled are all set", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.seedFinanceDefaultCategories();
+    await repository.saveFinanceAccount(buildAccount());
+    await repository.saveFinanceTransaction(buildTxn());
+
+    await renderWithApp(<FinanceReviewPage />, {
+      repository,
+      contextOverrides: {
+        settings: {
+          ...defaultAppSettings(),
+          financeEnabled: true,
+          financeAiCategorizationEnabled: true,
+          aiEnabled: true,
+          aiApiKey: "secret",
+        },
+      },
+    });
+
+    expect(screen.getByText("Classer les en attente (IA)")).not.toBeDisabled();
+  });
 });

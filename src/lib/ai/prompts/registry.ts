@@ -1,6 +1,7 @@
 import type { AiSurface } from "../../../domain/types";
 import { t } from "../../../i18n";
 import { COACH_PULSE_PROMPT_VERSION } from "../coach-pulse-service";
+import { FINANCE_CATEGORIZATION_PROMPT_VERSION } from "../finance-categorization-service";
 import { GOAL_PACING_PROMPT_VERSION } from "../goal-pacing-service";
 import { MID_WEEK_STEERING_PROMPT_VERSION } from "../mid-week-steering-service";
 import { MONTHLY_SYNTHESIS_PROMPT_VERSION } from "../monthly-synthesis-service";
@@ -43,6 +44,11 @@ export const PROMPT_REGISTRY: PromptRegistryEntry[] = [
     surface: "pastor_verse",
     version: PASTOR_VERSE_PROMPT_VERSION,
     description: t("analytics.prompt.pastor_verse", { ns: "settings" }),
+  },
+  {
+    surface: "finance_categorization",
+    version: FINANCE_CATEGORIZATION_PROMPT_VERSION,
+    description: t("analytics.prompt.finance_categorization", { ns: "settings" }),
   },
 ];
 

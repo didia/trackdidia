@@ -1,5 +1,5 @@
 // Pure recurring-bill detection over the full transaction history. See
-// specs/todo/finance.md "Recurring bills". No I/O; `today` is injected so
+// specs/done/finance.md "Recurring bills". No I/O; `today` is injected so
 // tests are deterministic.
 
 import { addDays } from "../gtd/shared";
@@ -58,7 +58,7 @@ interface CadenceBand {
 }
 
 // weekly 7±2, biweekly 14±3, semimonthly 15±3, monthly 28–33, quarterly 88–95,
-// annual 360–370 — see specs/todo/finance.md "Recurring bills".
+// annual 360–370 — see specs/done/finance.md "Recurring bills".
 const CADENCE_BANDS: CadenceBand[] = [
   { cadence: "weekly", min: 5, max: 9, monthsAnchored: null },
   { cadence: "biweekly", min: 11, max: 17, monthsAnchored: null },

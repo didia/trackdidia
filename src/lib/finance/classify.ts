@@ -1,10 +1,20 @@
-// Pure classification pipeline. See specs/todo/finance.md "Classification
+// Pure classification pipeline. See specs/done/finance.md "Classification
 // pipeline": user-set (never touched) -> rules -> transfer detection ->
-// learned merchant memory -> bundled seed heuristics -> AI (Phase 8 hook,
-// absent here) -> Uncategorized/default. The caller (the repository stores)
-// supplies the context (rules, memory, dismissed pairs) and, when this
-// transaction was already resolved by `src/lib/finance/transfers.ts`, the
-// transfer outcome — classify.ts does not re-derive transfer pairing itself.
+// learned merchant memory -> bundled seed heuristics -> AI -> Uncategorized/
+// default. The caller (the repository stores) supplies the context (rules,
+// memory, dismissed pairs) and, when this transaction was already resolved
+// by `src/lib/finance/transfers.ts`, the transfer outcome — classify.ts does
+// not re-derive transfer pairing itself.
+//
+// The AI stage (Phase 8) is deliberately NOT a step inside this function: it
+// is async, network-bound, and must never run inside a `DbSerialQueue`/
+// `BEGIN IMMEDIATE` slot (see docs/architecture.md). Instead, a transaction
+// that falls all the way through to stage 7 here (`Uncategorized`, no
+// suggestion) becomes a candidate for `AppRepository.listFinanceUnknownMerchants`,
+// which `src/lib/ai/finance-categorization-service.ts` reads, classifies via
+// the AI provider, and applies back through
+// `AppRepository.applyFinanceCategorizationResults` — see
+// specs/done/finance.md "AI stage".
 
 import type {
   FinanceCategorySource,
@@ -171,10 +181,9 @@ const findMemoryEntry = (
  *    exists at all, at any lookup level.
  * 5. Bundled seed heuristics (`src/lib/finance/seed-heuristics.ts`), capped
  *    at confidence 0.7 — always a suggestion, never an auto-apply.
- * 6. AI (Phase 8 hook). **Not implemented in Phase 4.** When it ships, it is
- *    inserted here, between seeds and the Uncategorized default, gated on
- *    `settings.financeAiCategorizationEnabled` — see
- *    specs/todo/finance.md "AI stage".
+ * 6. AI — not a step of this pure function (see the module comment above);
+ *    runs out-of-band over stage-7 fallthroughs via
+ *    `FinanceCategorizationService`, gated on `settings.financeAiCategorizationEnabled`.
  * 7. `Uncategorized`, `source = "default"`.
  */
 export const classifyTransaction = (
@@ -297,7 +306,9 @@ export const classifyTransaction = (
     };
   }
 
-  // Stage 6 (AI, Phase 8) intentionally absent — no hook to call yet.
+  // Stage 6 (AI) intentionally absent from this pure function — see the module
+  // comment above. This fallthrough (default, no suggestion) is exactly the
+  // set of transactions `listFinanceUnknownMerchants` picks up.
 
   // Stage 7: default.
   return {

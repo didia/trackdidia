@@ -1,5 +1,5 @@
 // Finance domain types. Mirrors the SQLite schema in the finance spec
-// (specs/todo/finance.md) one-for-one, like src/domain/email-triage.ts.
+// (specs/done/finance.md) one-for-one, like src/domain/email-triage.ts.
 // Types only — no migrations, no I/O, no settings fields live here.
 
 export type FinanceAccountType =
@@ -283,7 +283,7 @@ export interface FinanceImportBatch {
 }
 
 // Repository-facing request/response/filter shapes (Phase 2). Mirrors the
-// "Repository methods" section of specs/todo/finance.md.
+// "Repository methods" section of specs/done/finance.md.
 
 export interface FinanceAccountFilters {
   includeClosed?: boolean;
@@ -320,7 +320,7 @@ export interface SetFinanceTransactionCategoryInput {
 /**
  * A transaction's category fields as they were immediately before a bulk
  * recategorize, so `scope: "all_matching"` can offer a single undo (see
- * specs/todo/finance.md "Learning from corrections").
+ * specs/done/finance.md "Learning from corrections").
  */
 export interface FinanceCategoryBackfillEntry {
   transactionId: string;
@@ -413,7 +413,7 @@ export interface DecideFinanceCategorySuggestionInput {
 
 /**
  * `deleted` is rows actually removed; `refusedUserCategorized` is rows the undo left alone
- * because `category_source = 'user'` (see specs/todo/finance.md "Overlapping exports").
+ * because `category_source = 'user'` (see specs/done/finance.md "Overlapping exports").
  */
 export interface UndoFinanceImportBatchResult {
   deleted: number;
@@ -429,4 +429,60 @@ export interface UndoFinanceImportBatchResult {
 export interface ReclassifyFinancePendingResult {
   reclassified: number;
   suggestionsCreated: number;
+}
+
+// --- Finance (Phase 8 — AI categorization) ---------------------------------------------
+
+/**
+ * One merchant-level group of currently "unknown" transactions — `category_id ===
+ * UNCATEGORIZED_CATEGORY_ID`, `category_source !== "user"`, not a transfer, and with no
+ * existing pending suggestion (rules/memory/seeds all failed to decide — see
+ * specs/done/finance.md "AI stage"). This is the unit `listFinanceUnknownMerchants` returns
+ * and the unit `src/lib/ai/context/finance-categorization-snapshot.ts` sanitizes for the AI
+ * request. `amountMinorSample` and `accountType` are representative values (median absolute
+ * amount; most common account type among the group's transactions) used only for the AI
+ * payload's amount bucket and account-type fields — never sent as exact figures.
+ */
+export interface FinanceUnknownMerchantGroup {
+  merchantKey: string;
+  /** Most common sign among the group's transactions. */
+  sign: -1 | 0 | 1;
+  occurrenceCount: number;
+  amountMinorSample: number;
+  accountType: FinanceAccountType;
+  transactionIds: string[];
+}
+
+/** One merchant's AI categorization answer, keyed by the (possibly sanitized) request key. */
+export interface FinanceCategorizationMerchantResult {
+  merchantKey: string;
+  categoryId: string;
+  confidence: number;
+  rationale: string;
+}
+
+export interface ApplyFinanceCategorizationResultsInput {
+  results: FinanceCategorizationMerchantResult[];
+  /**
+   * Sanitized/request merchant key -> the original `finance_transactions.merchant_key` values
+   * it represents. Almost always a single-entry array; only collapses multiple original keys
+   * when sanitization happens to make two distinct merchants collide (see
+   * `finance-categorization-snapshot.ts`).
+   */
+  merchantKeyMap: Record<string, string[]>;
+  model: string;
+  promptVersion: string;
+  autoApply: boolean;
+  autoApplyMinConfidence: number;
+  /** Injectable "today" (local YYYY-MM-DD) for the dismissed-pair window. */
+  today?: string;
+}
+
+export interface ApplyFinanceCategorizationResultsOutcome {
+  /** New `finance_category_suggestions` rows written (both auto-applied and left pending). */
+  suggestionsCreated: number;
+  /** Transactions whose category was set directly because the auto-apply gate held. */
+  autoApplied: number;
+  /** Transactions skipped because `(merchantKey, categoryId)` was dismissed in the last 90 days. */
+  suppressedDismissed: number;
 }

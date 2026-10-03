@@ -232,7 +232,12 @@
     "accept": "Accepter",
     "correct": "Corriger",
     "dismiss": "Rejeter",
-    "pickCategory": "Choisir une catégorie"
+    "pickCategory": "Choisir une catégorie",
+    "classifyPending": "Classer les en attente (IA)",
+    "classifyPendingRunning": "Classification en cours...",
+    "classifyPendingCostHint": "Envoie les marchands inconnus (par lots de 40, anonymisés) au modèle IA configuré — chaque appel a un coût, visible dans le tableau de bord IA des paramètres.",
+    "classifyPendingUnavailable": "Activez l'IA et la catégorisation IA des finances dans les paramètres pour utiliser cette action.",
+    "classifyPendingResult": "{{merchants}} marchand(s) envoyé(s) à l'IA, {{suggestions}} suggestion(s) créée(s), {{autoApplied}} appliquée(s) automatiquement."
   },
   "rules": {
     "hero": {

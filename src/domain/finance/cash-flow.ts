@@ -1,4 +1,4 @@
-// Pure month cash-flow arithmetic. See specs/todo/finance.md "Phase 6". No I/O.
+// Pure month cash-flow arithmetic. See specs/done/finance.md "Phase 6". No I/O.
 //
 // Transfers and `excludedFromReports` rows are left out entirely (unlike the
 // budget's `balanceTransactions`, cash flow is a reporting view, not a stock

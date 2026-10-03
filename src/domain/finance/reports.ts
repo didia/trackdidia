@@ -1,5 +1,5 @@
 // Pure reporting engines: category/merchant/person spend, trend, and
-// month-over-month comparison. See specs/todo/finance.md "Phase 6". No I/O.
+// month-over-month comparison. See specs/done/finance.md "Phase 6". No I/O.
 //
 // Every report starts from `buildFinanceReportLines`, which applies the one
 // split aggregation rule (`hasSplits` → splits, parent excluded), drops
