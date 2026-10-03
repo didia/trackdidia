@@ -1,6 +1,9 @@
 - 2026-10-03: Centralized settings defaults and historical normalization; application writers now merge current values atomically, and settings forms preserve runtime state and unsaved edits.
 # Storage and backups log
 
+- 2026-10-03: Email store mutations now share the SQLite repository writer and
+  transaction context, including their internal GTD task writes.
+
 Back to [Documentation Log](../log.md). Canonical page:
 [storage-and-backups.md](../storage-and-backups.md).
 

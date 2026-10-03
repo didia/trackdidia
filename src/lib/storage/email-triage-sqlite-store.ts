@@ -1,3 +1,12 @@
+import { DbSerialQueue } from "./db-serial-queue";
+import { runSqliteTransaction, transactionDb, type TxContext } from "./transaction";
+import {
+  planReviewCreation,
+  planReviewResolution,
+  planReviewDismissal,
+  planGtdTaskWrite,
+  type ResolveReviewInput,
+} from "../email-triage/review-plans";
 import type { Database } from "./email-triage-sqlite-db";
 import {
   buildEmailTriageTaskExternalId,
@@ -21,7 +30,6 @@ import {
   EMAIL_TRIAGE_DEFAULT_IGNORE_THRESHOLD,
   EMAIL_TRIAGE_DEFAULT_RELEVANT_THRESHOLD,
 } from "../email-triage/constants";
-import { planGtdOwnershipUpdate } from "../email-triage/gtd-ownership";
 import {
   findLatestMatchingEvaluation,
   prepareEmailTriageGlobalSettingsSave,
@@ -74,16 +82,71 @@ const mapAccount = (row: AccountRow): EmailTriageAccount => ({
   updatedAt: row.updated_at,
 });
 
+interface ReviewRow {
+  id: string;
+  account_id: string;
+  conversation_id: string;
+  message_id: string;
+  expected_decision_version: number;
+  status: EmailTriageReview["status"];
+  reason: string;
+  sanitized_preview_json: string | null;
+  resolution: EmailTriageReview["resolution"];
+  resolved_at: string | null;
+  created_at: string;
+}
+const mapReview = (row: ReviewRow): EmailTriageReview => ({
+  id: row.id,
+  accountId: row.account_id,
+  conversationId: row.conversation_id,
+  messageId: row.message_id,
+  expectedDecisionVersion: row.expected_decision_version,
+  status: row.status,
+  reason: row.reason,
+  sanitizedPreview: row.sanitized_preview_json
+    ? (JSON.parse(row.sanitized_preview_json) as EmailTriageReview["sanitizedPreview"])
+    : null,
+  resolution: row.resolution,
+  resolvedAt: row.resolved_at,
+  createdAt: row.created_at,
+});
+
+export interface EmailTriageTaskOps {
+  getTaskByExternalId(externalId: string): Promise<Task | null>;
+  createTask(input: Parameters<typeof createTaskFromInput>[0]): Promise<Task>;
+  saveTask(task: Task): Promise<Task>;
+  handlesLifecycleEvents?: boolean;
+  persistEvents(events: ReturnType<typeof buildLifecycleEvents>): Promise<void>;
+}
+
 export class EmailTriageSqliteStore implements EmailTriageStore {
   constructor(
     private readonly getDb: () => Promise<Database>,
-    private readonly taskOps: {
-      getTaskByExternalId(externalId: string): Promise<Task | null>;
-      createTask(input: Parameters<typeof createTaskFromInput>[0]): Promise<Task>;
-      saveTask(task: Task): Promise<Task>;
-      persistEvents(events: ReturnType<typeof buildLifecycleEvents>): Promise<void>;
-    },
+    private readonly taskOps: EmailTriageTaskOps,
+    private readonly runTransaction?: <T>(work: (tx: TxContext) => Promise<T>) => Promise<T>,
+    private readonly scopedTaskOps?: (tx: TxContext) => EmailTriageTaskOps,
+    private readonly transactionScope = false,
   ) {}
+
+  private readonly standaloneWriter = new DbSerialQueue();
+
+  private withWrite<T>(work: (scope: EmailTriageSqliteStore) => Promise<T>): Promise<T> {
+    const run =
+      this.runTransaction ??
+      ((callback: (tx: TxContext) => Promise<T>) =>
+        this.standaloneWriter.run(async () => runSqliteTransaction(await this.getDb(), callback)));
+    return run((tx) =>
+      work(
+        new EmailTriageSqliteStore(
+          async () => transactionDb(tx),
+          this.scopedTaskOps?.(tx) ?? this.taskOps,
+          undefined,
+          undefined,
+          true,
+        ),
+      ),
+    );
+  }
 
   async getGlobalSettings(): Promise<EmailTriageGlobalSettings> {
     const db = await this.getDb();
@@ -128,6 +191,9 @@ export class EmailTriageSqliteStore implements EmailTriageStore {
   }
 
   async saveGlobalSettings(settings: EmailTriageGlobalSettings): Promise<void> {
+    if (!this.transactionScope)
+      return this.withWrite((scope) => scope.saveGlobalSettings(settings));
+
     const previous = await this.getGlobalSettings();
     const latestMatching = await this.getLatestMatchingEvaluation(settings);
     const { settings: prepared } = prepareEmailTriageGlobalSettingsSave(
@@ -205,6 +271,8 @@ export class EmailTriageSqliteStore implements EmailTriageStore {
   }
 
   async saveAccount(account: EmailTriageAccount): Promise<EmailTriageAccount> {
+    if (!this.transactionScope) return this.withWrite((scope) => scope.saveAccount(account));
+
     const db = await this.getDb();
     await db.execute(
       `INSERT INTO email_triage_accounts (
@@ -250,6 +318,8 @@ export class EmailTriageSqliteStore implements EmailTriageStore {
   }
 
   async deleteAccount(accountId: string): Promise<void> {
+    if (!this.transactionScope) return this.withWrite((scope) => scope.deleteAccount(accountId));
+
     const db = await this.getDb();
     const conversations = await db.select<Array<{ id: string }>>(
       "SELECT id FROM email_triage_conversations WHERE account_id = $1",
@@ -283,6 +353,9 @@ export class EmailTriageSqliteStore implements EmailTriageStore {
     conversationKey: string,
     patch: Partial<EmailTriageConversation>,
   ): Promise<EmailTriageConversation> {
+    if (!this.transactionScope)
+      return this.withWrite((scope) => scope.upsertConversation(accountId, conversationKey, patch));
+
     const db = await this.getDb();
     const existing = await this.getConversationByKey(accountId, conversationKey);
     const timestamp = nowIso();
@@ -431,6 +504,9 @@ export class EmailTriageSqliteStore implements EmailTriageStore {
     syncState: Record<string, unknown>,
     patch: Partial<EmailTriageAccount> = {},
   ): Promise<EmailTriageAccount> {
+    if (!this.transactionScope)
+      return this.withWrite((scope) => scope.updateAccountSyncState(accountId, syncState, patch));
+
     const account = await this.getAccount(accountId);
     if (!account) {
       throw new Error(`Account not found: ${accountId}`);
@@ -444,6 +520,8 @@ export class EmailTriageSqliteStore implements EmailTriageStore {
   }
 
   async persistMessageBatch(input: PersistMessageBatchInput): Promise<PersistMessageBatchResult> {
+    if (!this.transactionScope) return this.withWrite((scope) => scope.persistMessageBatch(input));
+
     const db = await this.getDb();
     const conversations: EmailTriageConversation[] = [];
     for (const item of input.messages) {
@@ -483,11 +561,7 @@ export class EmailTriageSqliteStore implements EmailTriageStore {
           nowIso(),
         ],
       );
-      const persisted = await db.select<Array<{ id: string }>>(
-        "SELECT id FROM email_triage_messages WHERE account_id = $1 AND provider_message_id = $2",
-        [input.accountId, item.transient.providerMessageId],
-      );
-      const persistedId = persisted[0]?.id ?? messageId;
+      const persistedId = messageId;
       await db.execute(
         `INSERT INTO email_triage_classification_attempts (
           id, message_id, model, prompt_version, schema_version, decision, relevance, ignore_reason,
@@ -557,6 +631,9 @@ export class EmailTriageSqliteStore implements EmailTriageStore {
   }
 
   async dismissPendingReviews(conversationId: string): Promise<void> {
+    if (!this.transactionScope)
+      return this.withWrite((scope) => scope.dismissPendingReviews(conversationId));
+
     const db = await this.getDb();
     await db.execute(
       "UPDATE email_triage_reviews SET status = 'dismissed' WHERE conversation_id = $1 AND status = 'pending'",
@@ -647,6 +724,8 @@ export class EmailTriageSqliteStore implements EmailTriageStore {
   }
 
   async saveDesiredEffect(effect: EmailTriageDesiredEffect): Promise<EmailTriageDesiredEffect> {
+    if (!this.transactionScope) return this.withWrite((scope) => scope.saveDesiredEffect(effect));
+
     const db = await this.getDb();
     await db.execute(
       `INSERT INTO email_triage_desired_effects (
@@ -683,108 +762,42 @@ export class EmailTriageSqliteStore implements EmailTriageStore {
   }
 
   async applyGtdUpdate(input: ApplyGtdUpdateInput): Promise<Task | null> {
+    if (!this.transactionScope) return this.withWrite((scope) => scope.applyGtdUpdate(input));
+
     const existing = await this.taskOps.getTaskByExternalId(input.externalId);
-    if (input.plan.createNew) {
-      const created = await this.taskOps.createTask({
-        title: input.plan.title,
-        notes: input.plan.notes,
-        bucket: "inbox",
-        source: "email_triage",
-        sourceExternalId: input.externalId,
-        sourceUrl: input.plan.sourceUrl,
-      });
-      await this.upsertConversation(
-        input.conversation.accountId,
-        input.conversation.conversationKey,
-        {
-          taskId: created.id,
-        },
-      );
-      return cloneTask(created);
+    const write = planGtdTaskWrite(input, existing, nowIso());
+    if (write.kind === "none") return null;
+    const saved =
+      write.kind === "create"
+        ? await this.taskOps.createTask(write.input)
+        : await this.taskOps.saveTask(write.task);
+    if (write.kind === "save" && !this.taskOps.handlesLifecycleEvents) {
+      await this.taskOps.persistEvents(buildLifecycleEvents(write.previous, saved));
     }
-    if (!existing) {
-      return null;
-    }
-    const previous = cloneTask(existing);
-    let next: Task = {
-      ...existing,
-      title: input.plan.title,
-      notes: input.plan.notes,
-      sourceUrl: input.plan.sourceUrl,
-      updatedAt: nowIso(),
-    };
-    if (input.plan.reopen) {
-      next = { ...next, status: "active", bucket: "inbox", completedAt: null };
-    }
-    if (input.plan.cancelExisting) {
-      next = { ...next, status: "cancelled", updatedAt: nowIso() };
-    }
-    const saved = await this.taskOps.saveTask(next);
-    await this.taskOps.persistEvents(buildLifecycleEvents(previous, saved));
     await this.upsertConversation(
       input.conversation.accountId,
       input.conversation.conversationKey,
-      {
-        taskId: saved.id,
-      },
+      { taskId: saved.id },
     );
     return cloneTask(saved);
   }
 
   async createReview(input: CreateReviewInput): Promise<EmailTriageReview> {
+    if (!this.transactionScope) return this.withWrite((scope) => scope.createReview(input));
+
     const db = await this.getDb();
-    const existing = await db.select<
-      Array<{
-        id: string;
-        account_id: string;
-        conversation_id: string;
-        message_id: string;
-        expected_decision_version: number;
-        status: EmailTriageReview["status"];
-        reason: string;
-        sanitized_preview_json: string | null;
-        resolution: EmailTriageReview["resolution"];
-        resolved_at: string | null;
-        created_at: string;
-      }>
-    >("SELECT * FROM email_triage_reviews WHERE conversation_id = $1 AND message_id = $2", [
-      input.conversationId,
-      input.messageId,
-    ]);
-    const pending = existing.find((row) => row.status === "pending");
-    const resolved = existing.find((row) => row.status === "resolved");
-    const reuse = pending ?? resolved;
-    if (reuse) {
-      const row = reuse;
-      return {
-        id: row.id,
-        accountId: row.account_id,
-        conversationId: row.conversation_id,
-        messageId: row.message_id,
-        expectedDecisionVersion: row.expected_decision_version,
-        status: row.status,
-        reason: row.reason,
-        sanitizedPreview: row.sanitized_preview_json
-          ? (JSON.parse(row.sanitized_preview_json) as EmailTriageReview["sanitizedPreview"])
-          : null,
-        resolution: row.resolution,
-        resolvedAt: row.resolved_at,
-        createdAt: row.created_at,
-      };
-    }
-    const review: EmailTriageReview = {
-      id: createEntityId("email-review"),
-      accountId: input.accountId,
-      conversationId: input.conversationId,
-      messageId: input.messageId,
-      expectedDecisionVersion: input.expectedDecisionVersion,
-      status: "pending",
-      reason: input.reason,
-      sanitizedPreview: input.preview,
-      resolution: null,
-      resolvedAt: null,
-      createdAt: nowIso(),
-    };
+    const rows = await db.select<ReviewRow[]>(
+      "SELECT * FROM email_triage_reviews WHERE conversation_id = $1 AND message_id = $2",
+      [input.conversationId, input.messageId],
+    );
+    const planned = planReviewCreation(
+      rows.map(mapReview),
+      input,
+      createEntityId("email-review"),
+      nowIso(),
+    );
+    const review = planned.review;
+    if (!planned.created) return review;
     await db.execute(
       `INSERT INTO email_triage_reviews (
         id, account_id, conversation_id, message_id, expected_decision_version, status, reason,
@@ -846,218 +859,107 @@ export class EmailTriageSqliteStore implements EmailTriageStore {
     }));
   }
 
-  async resolveReview(input: {
-    reviewId: string;
-    expectedDecisionVersion: number;
-    resolution: EmailTriageReview["resolution"];
-    ignoreReason?: string | null;
-  }): Promise<EmailTriageReview> {
+  async resolveReview(input: ResolveReviewInput): Promise<EmailTriageReview> {
+    if (!this.transactionScope) return this.withWrite((scope) => scope.resolveReview(input));
+
     const db = await this.getDb();
-    const rows = await db.select<
-      Array<{
-        id: string;
-        account_id: string;
-        conversation_id: string;
-        message_id: string;
-        expected_decision_version: number;
-        status: EmailTriageReview["status"];
-        reason: string;
-        sanitized_preview_json: string | null;
-        resolution: EmailTriageReview["resolution"];
-        resolved_at: string | null;
-        created_at: string;
-      }>
-    >("SELECT * FROM email_triage_reviews WHERE id = $1", [input.reviewId]);
-    const row = rows[0];
-    if (!row) {
-      throw new Error("Review not found");
-    }
-    const review: EmailTriageReview = {
-      id: row.id,
-      accountId: row.account_id,
-      conversationId: row.conversation_id,
-      messageId: row.message_id,
-      expectedDecisionVersion: row.expected_decision_version,
-      status: row.status,
-      reason: row.reason,
-      sanitizedPreview: row.sanitized_preview_json
-        ? (JSON.parse(row.sanitized_preview_json) as EmailTriageReview["sanitizedPreview"])
-        : null,
-      resolution: row.resolution,
-      resolvedAt: row.resolved_at,
-      createdAt: row.created_at,
-    };
-    if (review.status !== "pending") {
-      throw new Error("Review not pending");
-    }
-    if (review.expectedDecisionVersion !== input.expectedDecisionVersion) {
-      throw new Error("Review version mismatch");
-    }
-    const conversation = await this.getConversation(review.conversationId);
-    if (!conversation || conversation.decisionVersion !== input.expectedDecisionVersion) {
-      throw new Error("Conversation version mismatch");
-    }
-    if (input.resolution === "ignore" && !input.ignoreReason?.trim()) {
-      throw new Error("Ignore reason required");
-    }
-    const resolvedAt = nowIso();
-    const nextReason =
-      input.resolution === "ignore" && input.ignoreReason
-        ? `${review.reason}|ignoreReason:${input.ignoreReason}`
-        : review.reason;
+    const rows = await db.select<ReviewRow[]>("SELECT * FROM email_triage_reviews WHERE id = $1", [
+      input.reviewId,
+    ]);
+    const review = rows[0] ? mapReview(rows[0]) : null;
+    const conversation = review ? await this.getConversation(review.conversationId) : null;
+    const message = review
+      ? await this.getMessageByProviderId(review.accountId, review.messageId)
+      : null;
+    const externalId = conversation
+      ? buildEmailTriageTaskExternalId(conversation.accountId, conversation.conversationKey)
+      : "";
+    const existingTask = conversation ? await this.getTaskByExternalId(externalId) : null;
+    const plan = planReviewResolution({
+      review,
+      conversation,
+      message,
+      existingTask,
+      input,
+      now: nowIso(),
+      auditId: createEntityId("email-audit"),
+    });
+    const updated = plan.review;
     const result = await db.execute(
-      `UPDATE email_triage_reviews
-       SET status = 'resolved', resolution = $1, resolved_at = $2, reason = $3
+      `UPDATE email_triage_reviews SET status = 'resolved', resolution = $1, resolved_at = $2, reason = $3
        WHERE id = $4 AND expected_decision_version = $5 AND status = 'pending'`,
-      [input.resolution, resolvedAt, nextReason, review.id, input.expectedDecisionVersion],
+      [
+        updated.resolution,
+        updated.resolvedAt,
+        updated.reason,
+        updated.id,
+        input.expectedDecisionVersion,
+      ],
     );
-    if (!result.rowsAffected) {
-      throw new Error("Review compare-and-set failed");
-    }
-    if (input.resolution === "ignore" && input.ignoreReason) {
+    if (!result.rowsAffected) throw new Error("Review compare-and-set failed");
+    if (plan.audit) {
+      const audit = plan.audit;
       await db.execute(
-        `INSERT INTO email_triage_audit_events (id, account_id, conversation_id, event_type, details_json, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6)`,
+        `INSERT INTO email_triage_audit_events (id, account_id, conversation_id, event_type, details_json, created_at) VALUES ($1,$2,$3,$4,$5,$6)`,
         [
-          createEntityId("email-audit"),
-          review.accountId,
-          review.conversationId,
-          "review_resolved_ignore",
-          JSON.stringify({ ignoreReason: input.ignoreReason, reviewId: review.id }),
-          resolvedAt,
+          audit.id,
+          audit.accountId,
+          audit.conversationId,
+          audit.eventType,
+          JSON.stringify(audit.details),
+          audit.createdAt,
         ],
       );
     }
-    const nextDecision = input.resolution === "ignore" ? "ignore" : "relevant";
-    const nextRoutingState = input.resolution === "ignore" ? "ignored" : "relevant";
-    await this.dismissPendingReviews(conversation.id);
-    const nextConversation = await this.upsertConversation(
-      conversation.accountId,
-      conversation.conversationKey,
-      {
-        decisionVersion: conversation.decisionVersion + 1,
-        routingState: nextRoutingState,
-      },
-    );
+    await this.dismissPendingReviews(plan.conversation.id);
+    await this.upsertConversation(plan.conversation.accountId, plan.conversation.conversationKey, {
+      decisionVersion: plan.conversation.decisionVersion,
+      routingState: plan.conversation.routingState,
+    });
     await db.execute(
       "UPDATE email_triage_messages SET routing_decision = $1 WHERE account_id = $2 AND provider_message_id = $3",
-      [nextDecision, review.accountId, review.messageId],
+      [plan.routingDecision, updated.accountId, updated.messageId],
     );
-    if (nextDecision === "relevant") {
-      const externalId = buildEmailTriageTaskExternalId(
-        conversation.accountId,
-        conversation.conversationKey,
-      );
-      const existingTask = await this.getTaskByExternalId(externalId);
-      const message = await this.getMessageByProviderId(review.accountId, review.messageId);
-      const plan = planGtdOwnershipUpdate({
-        conversation: nextConversation,
-        existingTask,
-        routedDecision: "relevant",
-        suggestedTitle: nextConversation.lastGeneratedTitle ?? message?.subject ?? "Email",
-        summary: message?.summary ?? "",
-        rationale: "",
-        sourceUrl: nextConversation.sourceUrl,
-      });
-      if (!plan.reviewRequired) {
-        await this.applyGtdUpdate({
-          externalId,
-          plan,
-          conversation: nextConversation,
-          accountId: conversation.accountId,
-        });
-      }
-    }
-    return {
-      ...review,
-      status: "resolved",
-      resolution: input.resolution,
-      reason: nextReason,
-      resolvedAt,
-    };
+    if (plan.gtdUpdate) await this.applyGtdUpdate(plan.gtdUpdate);
+    return updated;
   }
 
   async dismissReview(reviewId: string): Promise<EmailTriageReview> {
+    if (!this.transactionScope) return this.withWrite((scope) => scope.dismissReview(reviewId));
+
     const db = await this.getDb();
-    const rows = await db.select<
-      Array<{
-        id: string;
-        account_id: string;
-        conversation_id: string;
-        message_id: string;
-        expected_decision_version: number;
-        status: EmailTriageReview["status"];
-        reason: string;
-        sanitized_preview_json: string | null;
-        resolution: EmailTriageReview["resolution"];
-        resolved_at: string | null;
-        created_at: string;
-      }>
-    >("SELECT * FROM email_triage_reviews WHERE id = $1", [reviewId]);
-    const row = rows[0];
-    if (!row) {
-      throw new Error("Review not found");
-    }
-    if (row.status !== "pending") {
-      throw new Error("Review not pending");
-    }
-    const conversation = await this.getConversation(row.conversation_id);
-    if (!conversation) {
-      throw new Error("Conversation not found");
-    }
-    if (conversation.decisionVersion !== row.expected_decision_version) {
-      throw new Error("Conversation version mismatch");
-    }
-    const resolvedAt = nowIso();
-    const pendingRows = await db.select<
-      Array<{
-        id: string;
-        account_id: string;
-        message_id: string;
-      }>
-    >(
-      "SELECT id, account_id, message_id FROM email_triage_reviews WHERE conversation_id = $1 AND status = 'pending'",
-      [row.conversation_id],
+    const rows = await db.select<ReviewRow[]>("SELECT * FROM email_triage_reviews WHERE id = $1", [
+      reviewId,
+    ]);
+    const review = rows[0] ? mapReview(rows[0]) : null;
+    const conversation = review ? await this.getConversation(review.conversationId) : null;
+    const pending = conversation
+      ? (await this.listReviews("pending")).filter(
+          (item) => item.conversationId === conversation.id,
+        )
+      : [];
+    const plan = planReviewDismissal(review, conversation, pending, nowIso());
+    const result = await db.execute(
+      `UPDATE email_triage_reviews SET status = 'dismissed', resolved_at = $1 WHERE conversation_id = $2 AND status = 'pending'`,
+      [plan.review.resolvedAt, plan.conversation.id],
     );
-    const dismissResult = await db.execute(
-      `UPDATE email_triage_reviews
-       SET status = 'dismissed', resolved_at = $1
-       WHERE conversation_id = $2 AND status = 'pending'`,
-      [resolvedAt, row.conversation_id],
-    );
-    if (!dismissResult.rowsAffected) {
-      throw new Error("Review dismiss failed");
-    }
+    if (!result.rowsAffected) throw new Error("Review dismiss failed");
     const conversationResult = await db.execute(
-      `UPDATE email_triage_conversations
-       SET decision_version = $1, routing_state = 'dismissed', updated_at = $2
-       WHERE id = $3 AND decision_version = $4`,
-      [conversation.decisionVersion + 1, resolvedAt, conversation.id, conversation.decisionVersion],
+      `UPDATE email_triage_conversations SET decision_version = $1, routing_state = 'dismissed', updated_at = $2 WHERE id = $3 AND decision_version = $4`,
+      [
+        plan.conversation.decisionVersion,
+        plan.conversation.updatedAt,
+        plan.conversation.id,
+        plan.conversation.decisionVersion - 1,
+      ],
     );
-    if (!conversationResult.rowsAffected) {
-      throw new Error("Conversation version mismatch");
-    }
-    for (const pending of pendingRows) {
+    if (!conversationResult.rowsAffected) throw new Error("Conversation version mismatch");
+    for (const item of plan.reviews)
       await db.execute(
         "UPDATE email_triage_messages SET routing_decision = 'ignore' WHERE account_id = $1 AND provider_message_id = $2",
-        [pending.account_id, pending.message_id],
+        [item.accountId, item.messageId],
       );
-    }
-    return {
-      id: row.id,
-      accountId: row.account_id,
-      conversationId: row.conversation_id,
-      messageId: row.message_id,
-      expectedDecisionVersion: row.expected_decision_version,
-      status: "dismissed",
-      reason: row.reason,
-      sanitizedPreview: row.sanitized_preview_json
-        ? (JSON.parse(row.sanitized_preview_json) as EmailTriageReview["sanitizedPreview"])
-        : null,
-      resolution: row.resolution,
-      resolvedAt,
-      createdAt: row.created_at,
-    };
+    return plan.review;
   }
 
   async listEvaluations(limit = 20): Promise<EmailTriageEvaluation[]> {
@@ -1091,6 +993,8 @@ export class EmailTriageSqliteStore implements EmailTriageStore {
   }
 
   async saveEvaluation(evaluation: EmailTriageEvaluation): Promise<EmailTriageEvaluation> {
+    if (!this.transactionScope) return this.withWrite((scope) => scope.saveEvaluation(evaluation));
+
     const db = await this.getDb();
     await db.execute(
       `INSERT INTO email_triage_evaluations (
@@ -1145,6 +1049,8 @@ export class EmailTriageSqliteStore implements EmailTriageStore {
   }
 
   async recoverStaleEffects(): Promise<number> {
+    if (!this.transactionScope) return this.withWrite((scope) => scope.recoverStaleEffects());
+
     const db = await this.getDb();
     const result = await db.execute(
       "UPDATE email_triage_desired_effects SET status = 'failed', updated_at = $1 WHERE status = 'in_progress'",
@@ -1250,6 +1156,11 @@ export class EmailTriageSqliteStore implements EmailTriageStore {
     conversationKey: string,
     messageIdHeader: string,
   ): Promise<void> {
+    if (!this.transactionScope)
+      return this.withWrite((scope) =>
+        scope.saveAlias(accountId, conversationKey, messageIdHeader),
+      );
+
     const db = await this.getDb();
     let conversations = await db.select<Array<{ id: string }>>(
       "SELECT id FROM email_triage_conversations WHERE account_id = $1 AND conversation_key = $2 LIMIT 1",

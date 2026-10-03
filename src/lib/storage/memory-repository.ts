@@ -159,17 +159,22 @@ export class MemoryRepository implements AppRepository {
   readonly emailTriage = new EmailTriageMemoryStore({
     getTaskByExternalId: (externalId) =>
       [...this.tasks.values()].find((task) => task.sourceExternalId === externalId),
-    createTask: (input) => {
-      const task = createTaskFromInput(input);
-      this.tasks.set(task.id, task);
-      for (const event of buildLifecycleEvents(null, task)) {
-        this.events.set(event.id, event);
+    createTask: (input) => this.saveTaskInternal(createTaskFromInput(input)),
+    saveTask: (task) => this.saveTaskInternal(task),
+    handlesLifecycleEvents: true,
+    atomic: (work) => {
+      const snapshot = {
+        tasks: new Map(this.tasks),
+        events: new Map(this.events),
+        contexts: new Map(this.contexts),
+        projects: new Map(this.projects),
+      };
+      try {
+        return work();
+      } catch (error) {
+        Object.assign(this, snapshot);
+        throw error;
       }
-      return task;
-    },
-    saveTask: (task) => {
-      this.tasks.set(task.id, task);
-      return task;
     },
     persistEvents: (events) => {
       for (const event of events) {

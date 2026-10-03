@@ -419,12 +419,24 @@ interface AiMemoryRow {
 export class TauriSqliteRepository implements AppRepository {
   private dbPromise: Promise<SqliteDatabase> | null = null;
   private readonly writeQueue = new DbSerialQueue();
-  readonly emailTriage = new EmailTriageSqliteStore(() => this.getDb(), {
-    getTaskByExternalId: (externalId) => this.getTaskByExternalId(externalId),
-    createTask: (input) => this.createTask(input),
-    saveTask: (task) => this.saveTask(task),
-    persistEvents: (events) => this.persistEvents(events),
-  });
+  readonly emailTriage = new EmailTriageSqliteStore(
+    () => this.getDb(),
+    {
+      getTaskByExternalId: (externalId) => this.getTaskByExternalId(externalId),
+      createTask: (input) => this.createTask(input),
+      saveTask: (task) => this.saveTask(task),
+      persistEvents: (events) => this.persistEvents(events),
+      handlesLifecycleEvents: true,
+    },
+    (work) => this.writeTransaction(work),
+    (tx) => ({
+      getTaskByExternalId: (externalId) => this.getTaskByExternalId(externalId),
+      createTask: (input) => this.createTaskInternal(tx, input),
+      saveTask: (task) => this.saveTaskInternal(tx, task),
+      persistEvents: (events) => this.persistEvents(events),
+      handlesLifecycleEvents: true,
+    }),
+  );
 
   /**
    * `openDb` defaults to the real Tauri-backed `Database.load`; tests inject an in-memory
@@ -2564,21 +2576,26 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async createTask(input: Parameters<AppRepository["createTask"]>[0]): Promise<Task> {
-    return this.writeTransaction(async (tx) => {
-      transactionDb(tx);
+    return this.writeTransaction((tx) => this.createTaskInternal(tx, input));
+  }
 
-      const draft = createTaskFromInput(input);
-      const allTasks = await this.getAllTasks();
-      const nextTask = adjustPlannedFieldsForSave(null, draft, allTasks);
-      await this.assertPlannedProjectExists(tx, nextTask);
+  private async createTaskInternal(
+    tx: TxContext,
+    input: Parameters<AppRepository["createTask"]>[0],
+  ): Promise<Task> {
+    transactionDb(tx);
 
-      await this.persistTask(nextTask);
-      await this.persistEvents(buildLifecycleEvents(null, nextTask));
-      await this.reconcileProjectsInternal(tx, [nextTask.projectId]);
+    const draft = createTaskFromInput(input);
+    const allTasks = await this.getAllTasks();
+    const nextTask = adjustPlannedFieldsForSave(null, draft, allTasks);
+    await this.assertPlannedProjectExists(tx, nextTask);
 
-      const stored = await this.getTaskById(nextTask.id);
-      return cloneTask(stored ?? nextTask);
-    });
+    await this.persistTask(nextTask);
+    await this.persistEvents(buildLifecycleEvents(null, nextTask));
+    await this.reconcileProjectsInternal(tx, [nextTask.projectId]);
+
+    const stored = await this.getTaskById(nextTask.id);
+    return cloneTask(stored ?? nextTask);
   }
 
   async saveTask(task: Task): Promise<Task> {

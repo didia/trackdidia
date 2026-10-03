@@ -1,5 +1,9 @@
 # Email triage log
 
+- 2026-10-03: Shared review and GTD planners now drive both stores. Email writes
+  join the repository transaction queue; review decisions and message batches
+  roll back together on failure, including GTD task and lifecycle writes.
+
 - 2026-10-02: Email persistence now uses the focused `EmailTriageStore` contract
   through `AppRepository.emailTriage` in both repository implementations.
 
