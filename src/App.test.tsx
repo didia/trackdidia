@@ -33,5 +33,6 @@ describe("FinanceRoutes gating", () => {
     );
 
     expect(screen.queryByText("today")).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Aperçu" })).toBeInTheDocument();
   });
 });

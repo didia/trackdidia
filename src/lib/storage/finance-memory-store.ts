@@ -356,6 +356,9 @@ export class FinanceMemoryStore {
   setTransactionCategory(
     input: SetFinanceTransactionCategoryInput,
   ): SetFinanceTransactionCategoryResult {
+    if (!input.categoryId) {
+      throw new Error("setFinanceTransactionCategory requires a non-empty categoryId");
+    }
     const now = nowIso();
     const txn = this.transactions.get(input.transactionId);
     if (!txn) {
@@ -540,6 +543,18 @@ export class FinanceMemoryStore {
   saveImportProfile(profile: FinanceImportProfile): FinanceImportProfile {
     const now = nowIso();
     const id = profile.id || createEntityId("finance-import-profile");
+    // Mirrors uniq_finance_profile_signature on the SQLite side: a header
+    // signature identifies one profile, so saving a different id with a
+    // signature already used by another profile must fail the same way here
+    // as it does against the real database.
+    const conflicting = [...this.importProfiles.values()].find(
+      (existing) => existing.id !== id && existing.signature === profile.signature,
+    );
+    if (conflicting) {
+      throw new Error(
+        `UNIQUE constraint failed: finance_import_profiles.signature (existing profile ${conflicting.id})`,
+      );
+    }
     const saved: FinanceImportProfile = {
       ...profile,
       id,

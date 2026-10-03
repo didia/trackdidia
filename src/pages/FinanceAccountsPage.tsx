@@ -17,6 +17,7 @@ import type {
 } from "../domain/finance";
 import { createEntityId, nowIso } from "../lib/gtd/shared";
 import { currencyExponent, formatMoney, parseAmountToMinor } from "../lib/finance/money";
+import { getTodayDate } from "../lib/date";
 
 const ACCOUNT_TYPES: FinanceAccountType[] = [
   "checking",
@@ -55,7 +56,7 @@ const emptyDraft = (currency: string): AccountDraft => ({
   ownership: "individual",
   onBudget: true,
   openingBalanceText: "0",
-  balanceAsOf: new Date().toISOString().slice(0, 10),
+  balanceAsOf: getTodayDate(),
   manualBalanceText: "",
 });
 
@@ -74,22 +75,18 @@ export const FinanceAccountsPage = () => {
   const [accountError, setAccountError] = useState("");
 
   const load = useCallback(async () => {
-    const [nextPeople, nextAccounts] = await Promise.all([
+    const [nextPeople, nextAccounts, allTransactions] = await Promise.all([
       repository.listFinancePeople(),
       repository.listFinanceAccounts({ includeClosed: true }),
+      repository.listFinanceTransactions(),
     ]);
     setPeople(nextPeople);
     setAccounts(nextAccounts);
-    const entries = await Promise.all(
-      nextAccounts.map(
-        async (account) =>
-          [
-            account.id,
-            await repository.listFinanceTransactions({ accountIds: [account.id] }),
-          ] as const,
-      ),
-    );
-    setTransactionsByAccount(Object.fromEntries(entries));
+    const grouped: Record<string, FinanceTransaction[]> = {};
+    for (const transaction of allTransactions) {
+      (grouped[transaction.accountId] ??= []).push(transaction);
+    }
+    setTransactionsByAccount(grouped);
   }, [repository]);
 
   useEffect(() => {

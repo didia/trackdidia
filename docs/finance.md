@@ -254,6 +254,12 @@ lists tabs for screens that exist today (Overview, Transactions, Import,
 Accounts); Budget, Reports, and Review have no tab until their phases ship —
 adding a tab that 404s or redirects would be worse than omitting it.
 
+`FinanceOverviewPage`'s total only sums on-budget accounts whose `currency`
+equals `AppSettings.financeBaseCurrency` — minor units from different
+currencies are never added together. Any on-budget account in a different
+currency still gets its own card (shown in its own currency) and is called
+out by name in a banner next to the total rather than silently excluded.
+
 ### FinanceAccountsPage (`/finances/accounts`)
 
 CRUD for both household members (`finance_people`: add, archive/unarchive —
@@ -298,14 +304,23 @@ shows a discrepancy banner whenever they disagree.
 5. Account binding: when the profile maps an account column, the page lists
    every distinct value seen in that column in the file and lets the user
    bind each one to an existing account or create a new one inline. A newly
-   created account's `external_key` keeps only the last 4 characters when the
-   bound label looks like an account number (6+ digits), e.g. `****1234`,
-   matching the "mask like a dedupe hash, not a full account number" posture
-   elsewhere in the app. When the profile has no account column, a single
-   "this file is one account" dropdown is used instead.
+   created account's `external_key` keeps only the last 4 digits of a
+   contiguous 6+ digit run (`\b\d{6,}\b`) found in the bound label, e.g.
+   `"Checking 1234567890"` → `"****7890"`; a label with no such run (e.g.
+   `"Checking"`) is stored as-is. Matching also masks the file's raw label the
+   same way before comparing it against a saved `external_key`, so a repeat
+   import whose column happens to format the same real-world account
+   differently (e.g. `"CHK 1234567890"` the next month) still auto-binds to
+   the existing account instead of asking the user to re-bind. When the
+   profile has no account column, a single "this file is one account"
+   dropdown is used instead.
 6. The profile (with the user's final mapping) is saved via
-   `saveFinanceImportProfile` before import, and the mapped rows are built by
-   the pure `buildImportRequest`/`buildImportRows` in
+   `saveFinanceImportProfile` before import. Repeating the same file (or any
+   file with the same header signature) reuses that matched profile's id
+   rather than minting a new one — `finance_import_profiles.signature` is
+   unique, so a fresh id on every import would collide with itself on the
+   second import of the same export. The mapped rows are built by the pure
+   `buildImportRequest`/`buildImportRows` in
    `src/lib/finance/import-request.ts` (tested directly): rows that fail to
    map (bad date/amount/description) or whose account cannot be resolved are
    collected as errors rather than thrown, and reported in the result panel
@@ -328,22 +343,29 @@ text search, uncategorized-only) transaction list. Each row supports:
 
 - Inline category edit via `setFinanceTransactionCategory`, with a
   per-row scope selector (`this` / `this_and_future` / `all_matching`) that
-  is read at edit time — there is no separate "apply" step.
+  is read at edit time — there is no separate "apply" step. The select always
+  has a real category selected (falling back to the system
+  `fincat:non-categorise` id rather than an empty `""` option), so every
+  change sends a concrete, non-empty `categoryId`; both `FinanceSqliteStore`
+  and `FinanceMemoryStore` also reject an empty `categoryId` defensively.
 - A split editor (`FinanceTransactionSplit[]`) with client-side sum-invariant
   validation: saving is rejected unless every split amount parses and the
   splits sum to exactly the parent transaction's `amountMinor`, matching the
   invariant the repository documents but does not itself enforce.
-- Mark/unmark transfer: unmarking calls `clearFinanceTransfer`. Marking a
-  transaction as a transfer without a known paired partner is intentionally
-  not offered from this toolbar — pairing both legs of a transfer is a future
-  phase's dedicated transfer-matching UI; only clearing an existing pairing
-  lives here today.
+- Unmark transfer (calls `clearFinanceTransfer`) is a per-row action. Marking
+  a *pair* as a transfer is a bulk action instead: selecting exactly two rows
+  enables "Marquer la paire comme virement" in the bulk toolbar, which calls
+  `setFinanceTransfer({ transactionIdA, transactionIdB })`. Different
+  accounts and mirrored amounts are not required, but the page shows a
+  non-blocking warning when the two selected rows share an account or their
+  amounts' magnitudes differ, since either is a sign the pair is not really
+  a transfer.
 - Exclude/include from budget and from reports (`bulkUpdateFinanceTransactions`
   on a single id).
 
 A bulk-selection toolbar appears once at least one row is checked: apply a
-category, or exclude the selection from budget/reports, in one
-`bulkUpdateFinanceTransactions` call.
+category, exclude the selection from budget/reports, or (with exactly two
+rows selected) mark the pair as a transfer.
 
 ## Related documentation
 

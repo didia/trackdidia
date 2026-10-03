@@ -3039,6 +3039,20 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         });
       });
 
+      it("setFinanceTransactionCategory rejects an empty categoryId", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const txn = await repository.saveFinanceTransaction(buildFinanceTransaction());
+
+        await expect(
+          repository.setFinanceTransactionCategory({
+            transactionId: txn.id,
+            categoryId: "",
+            scope: "this",
+          }),
+        ).rejects.toThrow();
+      });
+
       it("setFinanceTransactionCategory with all_matching recategorizes other non-user rows for the same merchant, never a user-set one", async () => {
         const repository = await factory();
         await repository.saveFinanceAccount(account({ id: "account-1" }));
@@ -3623,6 +3637,58 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           expect.objectContaining({ id: saved.id }),
         );
         await expect(repository.findFinanceImportProfileBySignature("missing")).resolves.toBeNull();
+      });
+
+      it("rejects saving a different-id profile with a signature already in use", async () => {
+        const repository = await factory();
+        await repository.saveFinanceImportProfile({
+          id: "profile-a",
+          name: "Profil A",
+          signature: "sig-shared",
+          columnMap: { date: 0, description: 1, amount: 2 },
+          dateFormat: "YYYY-MM-DD",
+          amountMode: "single_signed",
+          signConvention: null,
+          defaultAccountId: null,
+          createdAt: "",
+          updatedAt: "",
+          lastUsedAt: null,
+        });
+
+        await expect(
+          repository.saveFinanceImportProfile({
+            id: "profile-b",
+            name: "Profil B",
+            signature: "sig-shared",
+            columnMap: { date: 0, description: 1, amount: 2 },
+            dateFormat: "YYYY-MM-DD",
+            amountMode: "single_signed",
+            signConvention: null,
+            defaultAccountId: null,
+            createdAt: "",
+            updatedAt: "",
+            lastUsedAt: null,
+          }),
+        ).rejects.toThrow();
+
+        // Re-saving under the *same* id as the existing signature holder is an
+        // upsert, not a conflict — this is exactly how a repeat CSV import
+        // reuses its matched profile id (see FinanceImportPage).
+        await expect(
+          repository.saveFinanceImportProfile({
+            id: "profile-a",
+            name: "Profil A renommé",
+            signature: "sig-shared",
+            columnMap: { date: 0, description: 1, amount: 2 },
+            dateFormat: "YYYY-MM-DD",
+            amountMode: "single_signed",
+            signConvention: null,
+            defaultAccountId: null,
+            createdAt: "",
+            updatedAt: "",
+            lastUsedAt: null,
+          }),
+        ).resolves.toMatchObject({ id: "profile-a", name: "Profil A renommé" });
       });
 
       it("saves category suggestions and decideFinanceCategorySuggestion applies and records the decision", async () => {
