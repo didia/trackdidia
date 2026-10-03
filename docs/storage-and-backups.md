@@ -101,18 +101,32 @@ native-only storage information and backup creation.
 ## Migration system
 
 The `migrations` array in
-`src/lib/storage/tauri-sqlite-repository.ts` is the schema source of truth.
+[`src/lib/storage/migrations/index.ts`](../src/lib/storage/migrations/index.ts)
+is the schema source of truth. Its `runMigrations(db)` runner is called by repository
+initialization.
 
 Startup:
 
 1. Open the database.
 2. Create `schema_migrations`.
 3. Read applied IDs.
-4. Execute unapplied migrations in ascending array order.
-5. Insert each applied migration ID/name/timestamp.
+4. Execute each unapplied migration in ascending array order, with its ledger
+   ID/name/timestamp insert in the same `BEGIN IMMEDIATE` transaction.
+5. Commit on success; roll back both schema changes and the ledger on failure.
 6. Seed the singleton settings row when absent.
 
-Never renumber or rewrite a released migration. Add the next ID.
+Never renumber or rewrite a released migration. Add the next ID. Tests retain the
+IDs, names, and SHA-256 hashes of the first 36 shipped SQL strings.
+
+Column guards live beside migrations 26, 33, and 34 as
+`guards.skipIfColumnExists`. The generic resolver checks table columns and skips
+only the named `ALTER TABLE` statement when it already exists; repeatable indexes
+and normalization statements still run. This lets an older partially applied
+database record the migration safely.
+
+`relocateDimancheNotesOnce` remains a settings-marker data normalization after
+schema initialization. It changes review content rather than the schema and keeps
+its existing idempotent `dimancheNotesRelocatedAt` marker.
 
 ### Current migration catalog
 

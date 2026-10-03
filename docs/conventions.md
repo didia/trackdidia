@@ -214,5 +214,3 @@ documentation.
    JSON and therefore in every database backup.
 3. **Backup restore is manual.** The app can create snapshots but cannot validate or
    restore one through the UI.
-4. **Migrations are not explicitly transactional as a unit.** A partial multi-
-   statement failure may require operator investigation before retry.
