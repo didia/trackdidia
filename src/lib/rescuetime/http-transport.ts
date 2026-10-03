@@ -5,35 +5,22 @@ import {
   ProviderHttpError,
 } from "../email-triage/provider-http";
 import { isTauriRuntime } from "../storage/factory";
+import { createTimeoutController, toTimeoutError as normalizeTimeoutError } from "../http/timeout";
 
 export const RESCUETIME_REQUEST_TIMEOUT_MS = 20_000;
 
-const createTimeoutController = (timeoutMs: number): { signal: AbortSignal; clear: () => void } => {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => {
-    controller.abort();
-  }, timeoutMs);
-
-  return {
-    signal: controller.signal,
-    clear: () => {
-      clearTimeout(timeoutId);
-    },
-  };
-};
-
 const toTimeoutError = (error: unknown): Error => {
-  const message = error instanceof Error ? error.message : String(error);
-  if (
-    (error instanceof Error && error.name === "AbortError") ||
-    /aborted|timed out|timeout/i.test(message)
-  ) {
-    return new Error("RescueTime request timed out.");
-  }
+  const normalized = normalizeTimeoutError(
+    error,
+    "RescueTime request timed out.",
+    "RescueTime request failed.",
+    true,
+  );
+  if (normalized.message === "RescueTime request timed out.") return normalized;
   if (error instanceof ProviderHttpError && error.message.startsWith("RescueTime API:")) {
     return new Error(`RescueTime API ${error.status}: ${error.body.slice(0, 200)}`);
   }
-  return error instanceof Error ? error : new Error(message || "RescueTime request failed.");
+  return normalized;
 };
 
 export const fetchRescueTimeJson = async <T>(url: string, apiKey: string): Promise<T> => {

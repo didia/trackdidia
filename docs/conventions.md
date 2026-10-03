@@ -106,7 +106,9 @@ as backups may explicitly throw in memory mode.
 
 ## SQLite changes
 
-The migration list in `TauriSqliteRepository` is the schema source of truth.
+The `migrations` array in
+[`src/lib/storage/migrations/index.ts`](../src/lib/storage/migrations/index.ts)
+is the schema source of truth.
 
 - Add one new migration with the next integer ID.
 - Do not edit a migration that may already exist in a user's
@@ -117,11 +119,29 @@ The migration list in `TauriSqliteRepository` is the schema source of truth.
 - Prefer idempotent backfills and explicit defaults.
 - Test startup against both a fresh database and an existing database when practical.
 
-The migration runner applies each migration body and ledger insert in one
-transaction. Repository transaction callbacks use `writeTransaction`; internal
-writers accept its active `TxContext` and never re-enter the writer. Queue-only
-work uses `writeExclusive`. Keep migration SQL safe to retry where SQLite permits
-it; the canonical migration rules are in [storage and backups](storage-and-backups.md).
+After ensuring the migration ledger exists, `runMigrations` applies each unapplied
+migration sequentially, wrapping its SQL and `schema_migrations` insert in one
+`BEGIN IMMEDIATE` transaction. A failure rolls back both the schema changes and
+ledger insert, then stops the runner; previously committed migrations remain
+applied. See [Migration system](storage-and-backups.md#migration-system) for the
+startup sequence, shipped-SQL preservation tests, and declarative column guards.
+
+Repository transaction callbacks use `writeTransaction`; internal writers accept
+its active `TxContext` and never re-enter the writer. Queue-only work uses
+`writeExclusive`.
+
+## Money and minor units
+
+Finance code (`src/lib/finance/`, `src/domain/finance.ts`) represents every
+amount as `INTEGER` minor units (e.g. cents) plus an ISO-4217 `currency` code,
+never as a decimal/float. No helper in `src/lib/finance/money.ts` accepts or
+returns a decimal number; `addMoney`/`sumMoney` throw on mixed currencies
+rather than silently truncating. Dedupe hashing (`src/lib/finance/hash.ts`)
+uses a 128-bit hash, not the 32-bit `hashString` in `src/lib/hash.ts`, because
+a collision at finance-import volumes would silently drop a real transaction.
+The hash preimage is a JSON-framed array so field boundaries stay unambiguous.
+Amount parsing is strict: excess fractional digits and malformed thousands
+grouping are errors, and the default exponent comes from the currency.
 
 ## Dates and time zones
 
