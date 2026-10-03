@@ -93,7 +93,8 @@
     "vault_save_failed": "Impossible d'enregistrer dans le coffre OS.",
     "missing_credentials": "Courriel et mot de passe d'application Yahoo requis.",
     "vault_unavailable": "Coffre OS indisponible — connexion Yahoo impossible.",
-    "reconnect_required": "Identifiants Yahoo invalides — reconnectez le compte."
+    "reconnect_required": "Identifiants Yahoo invalides — reconnectez le compte.",
+    "oauth_loopback_busy": "Une autre connexion OAuth (calendrier) est déjà en cours. Terminez-la ou annulez-la avant de réessayer."
   },
   "vaultErrors": {
     "disconnect_failed": "Impossible de supprimer les identifiants du coffre OS."
