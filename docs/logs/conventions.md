@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-10-02 | Added the finance money/minor-units convention (Phase 1 of the finance domain: pure `money.ts`, `hash.ts`, `csv.ts`, `import-profile.ts`, `transfers.ts`, and a near-duplicate detector; no migration or UI yet) | `docs/conventions.md` | `src/lib/finance/*.ts`, `src/domain/finance.ts` |
 | 2026-09-22 | Added `describeRepositoryContract`, a shared implementation-agnostic `AppRepository` behavior spec run against both `MemoryRepository` and `TauriSqliteRepository` (the latter via a `node:sqlite` in-memory test adapter) | `docs/conventions.md`, `docs/storage-and-backups.md` | `src/lib/storage/repository.contract.ts`, `src/lib/storage/tauri-sqlite-repository.test.ts`, `src/test/mocks/node-sqlite-database.ts` |
 | 2026-09-21 | Added `PageHeader`, `ContextFilterChips`, and `SegmentedToggle` UI primitives and replaced duplicated hero/chip markup in pages; no class or visual change | `docs/conventions.md` | `src/components/PageHeader.tsx`, `src/components/ContextFilterChips.tsx`, `src/components/SegmentedToggle.tsx` |
 | 2026-09-21 | Added `useLatestRequest`/`useAsyncResource` as the convention for stale-response guards; Weekly/Monthly review, Today, and Annual Goals pages migrated (Monthly now guards month loads) | `docs/conventions.md` | `src/app/use-latest-request.ts`, `src/app/use-latest-request.test.tsx` |
