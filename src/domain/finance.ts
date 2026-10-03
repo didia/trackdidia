@@ -47,6 +47,8 @@ export type FinanceImportAmountMode =
 
 export type FinanceImportBatchStatus = "running" | "completed" | "failed";
 
+export type FinanceDateFormat = "M/D/YYYY" | "D/M/YYYY" | "YYYY-MM-DD";
+
 export interface FinancePerson {
   id: string;
   displayName: string;
@@ -252,9 +254,11 @@ export interface FinanceImportProfile {
   name: string;
   signature: string;
   columnMap: FinanceImportColumnMap;
-  dateFormat: string;
+  dateFormat: FinanceDateFormat;
   amountMode: FinanceImportAmountMode;
   signConvention: string | null;
+  decimalSeparator?: "." | ",";
+  thousandsSeparator?: "," | "." | " " | "";
   defaultAccountId: string | null;
   createdAt: string;
   updatedAt: string;

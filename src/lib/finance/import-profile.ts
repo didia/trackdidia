@@ -2,14 +2,15 @@
 // Pure, no I/O. See specs/todo/finance.md "CSV import".
 
 import type {
+  FinanceDateFormat,
   FinanceImportAmountMode,
   FinanceImportColumnMap,
   FinanceImportProfile,
 } from "../../domain/finance";
 import { hash128 } from "./hash";
-import { parseAmountToMinor } from "./money";
+import { type ParseAmountOptions, parseAmountToMinor } from "./money";
 
-export type FinanceDateFormat = "M/D/YYYY" | "D/M/YYYY" | "YYYY-MM-DD";
+export type { FinanceDateFormat } from "../../domain/finance";
 
 /**
  * Builds a stable signature for a CSV header row: lowercase, trim, strip
@@ -136,6 +137,9 @@ export const inferDateFormat = (samples: string[]): DateFormatInference => {
   };
 };
 
+/** Number of days in a given 1-based month of a given year, honoring leap years. */
+const daysInMonth = (year: number, month: number): number => new Date(year, month, 0).getDate();
+
 /** Parses a date string under an explicit format into a local YYYY-MM-DD string, or null. */
 export const parseDateWithFormat = (text: string, format: FinanceDateFormat): string | null => {
   const trimmed = text.trim();
@@ -154,8 +158,9 @@ export const parseDateWithFormat = (text: string, format: FinanceDateFormat): st
   const day = format === "M/D/YYYY" ? second : first;
   const monthNum = Number.parseInt(month, 10);
   const dayNum = Number.parseInt(day, 10);
+  const yearNum = Number.parseInt(year, 10);
 
-  if (monthNum < 1 || monthNum > 12 || dayNum < 1 || dayNum > 31) {
+  if (monthNum < 1 || monthNum > 12 || dayNum < 1 || dayNum > daysInMonth(yearNum, monthNum)) {
     return null;
   }
 
@@ -259,6 +264,24 @@ export interface MapImportRowOptions {
 }
 
 /**
+ * Builds the stored labelsJson from a raw Labels cell: blank/missing yields
+ * null (never a lone empty-string label), and a multi-label cell (comma
+ * separated) splits into one entry per label.
+ */
+const buildLabelsJson = (labels: string | null): string | null => {
+  if (labels === null) {
+    return null;
+  }
+
+  const parts = labels
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+
+  return parts.length > 0 ? JSON.stringify(parts) : null;
+};
+
+/**
  * Maps one parsed CSV data row to a normalized transaction row, per the
  * profile's column map, date format, and amount mode. Never throws.
  */
@@ -276,7 +299,7 @@ export const mapImportRowToTransaction = (
     return { ok: false, reason: "missing date" };
   }
 
-  const postedDate = parseDateWithFormat(dateText, profile.dateFormat as FinanceDateFormat);
+  const postedDate = parseDateWithFormat(dateText, profile.dateFormat);
   if (postedDate === null) {
     return {
       ok: false,
@@ -299,6 +322,7 @@ export const mapImportRowToTransaction = (
   const notes = field(profile.columnMap.notes);
   const labels = field(profile.columnMap.labels);
   const externalAccountKey = field(profile.columnMap.account);
+  const labelsJson = buildLabelsJson(labels);
 
   const sourceRowJson = JSON.stringify(
     header.reduce<Record<string, string>>((acc, columnName, index) => {
@@ -318,7 +342,7 @@ export const mapImportRowToTransaction = (
       merchantKey: merchantKey(descriptionRaw),
       categoryHint,
       notes,
-      labelsJson: labels !== null ? JSON.stringify([labels]) : null,
+      labelsJson,
       externalAccountKey,
       sourceRowJson,
     },
@@ -333,14 +357,18 @@ const resolveAmountMinor = (
   options: MapImportRowOptions,
 ): AmountResult => {
   const mode: FinanceImportAmountMode = profile.amountMode;
-  const exponent = options.exponent;
+  const amountOptions: ParseAmountOptions = {
+    exponent: options.exponent,
+    decimalSeparator: profile.decimalSeparator,
+    thousandsSeparator: profile.thousandsSeparator,
+  };
 
   if (mode === "single_signed") {
     const amountIndex = profile.columnMap.amount;
     if (amountIndex === undefined) {
       return { ok: false, reason: "no amount column mapped" };
     }
-    const parsed = parseAmountToMinor(row[amountIndex] ?? "", { exponent });
+    const parsed = parseAmountToMinor(row[amountIndex] ?? "", amountOptions);
     if (!parsed.ok) {
       return { ok: false, reason: parsed.reason };
     }
@@ -354,7 +382,7 @@ const resolveAmountMinor = (
     const creditText = creditIndex === undefined ? "" : (row[creditIndex] ?? "").trim();
 
     if (debitText.length > 0) {
-      const parsed = parseAmountToMinor(debitText, { exponent });
+      const parsed = parseAmountToMinor(debitText, amountOptions);
       if (!parsed.ok) {
         return { ok: false, reason: parsed.reason };
       }
@@ -362,7 +390,7 @@ const resolveAmountMinor = (
     }
 
     if (creditText.length > 0) {
-      const parsed = parseAmountToMinor(creditText, { exponent });
+      const parsed = parseAmountToMinor(creditText, amountOptions);
       if (!parsed.ok) {
         return { ok: false, reason: parsed.reason };
       }
@@ -380,7 +408,7 @@ const resolveAmountMinor = (
     return { ok: false, reason: "amount or transaction type column not mapped" };
   }
 
-  const parsed = parseAmountToMinor(row[amountIndex] ?? "", { exponent });
+  const parsed = parseAmountToMinor(row[amountIndex] ?? "", amountOptions);
   if (!parsed.ok) {
     return { ok: false, reason: parsed.reason };
   }

@@ -86,6 +86,15 @@ describe("parseDateWithFormat", () => {
   it("returns null for an unparseable date", () => {
     expect(parseDateWithFormat("not-a-date", "M/D/YYYY")).toBeNull();
   });
+
+  it("validates real month length, rejecting a day that does not exist", () => {
+    expect(parseDateWithFormat("2/31/2024", "M/D/YYYY")).toBeNull();
+  });
+
+  it("accepts February 29 in a leap year and rejects it in a non-leap year", () => {
+    expect(parseDateWithFormat("2/29/2024", "M/D/YYYY")).toBe("2024-02-29");
+    expect(parseDateWithFormat("2/29/2026", "M/D/YYYY")).toBeNull();
+  });
 });
 
 describe("normalizeDescription / merchantKey", () => {
@@ -159,6 +168,53 @@ describe("mapImportRowToTransaction with the Mint profile", () => {
     };
 
     expect(parseAndHash()).toEqual(parseAndHash());
+  });
+
+  it("maps a blank Labels cell to null and splits a multi-label cell into an array", () => {
+    const fixtureWithLabels = [
+      '"Date","Description","Original Description","Amount","Transaction Type","Category","Account Name","Labels","Notes"',
+      '"1/15/2026","Metro","METRO #4521 MONTREAL QC","54.32","debit","Groceries","Checking","","Weekly groceries"',
+      '"1/17/2026","Netflix","NETFLIX.COM REF123456","16.99","debit","Streaming","Credit Card","entertainment, streaming",""',
+    ].join("\n");
+    const { header, rows } = parseCsv(fixtureWithLabels);
+    const mapped = rows.map((row) =>
+      mapImportRowToTransaction(row, header, MINT_PROFILE, { currency: "CAD" }),
+    );
+
+    expect(mapped.every((result) => result.ok)).toBe(true);
+    const [metro, netflix] = mapped.map((result) => (result.ok ? result.row : null));
+
+    expect(metro?.labelsJson).toBeNull();
+    expect(netflix?.labelsJson).toBe(JSON.stringify(["entertainment", "streaming"]));
+  });
+});
+
+describe("assignOccurrenceIndices / dedupeHash for identical same-day rows", () => {
+  it("assigns distinct occurrence indices and distinct dedupe hashes to two identical rows", () => {
+    const rows = [
+      {
+        accountId: "acct-1",
+        postedDate: "2026-01-15",
+        amountMinor: -500,
+        currency: "CAD",
+        descriptionRaw: "COFFEE SHOP",
+      },
+      {
+        accountId: "acct-1",
+        postedDate: "2026-01-15",
+        amountMinor: -500,
+        currency: "CAD",
+        descriptionRaw: "COFFEE SHOP",
+      },
+    ];
+
+    const indices = assignOccurrenceIndices(rows);
+    expect(indices).toEqual([0, 1]);
+
+    const hashes = rows.map((row, index) =>
+      dedupeHash({ ...row, occurrenceIndex: indices[index] }),
+    );
+    expect(hashes[0]).not.toBe(hashes[1]);
   });
 });
 

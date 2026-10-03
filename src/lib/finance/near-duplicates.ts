@@ -61,6 +61,9 @@ export const descriptionSimilarity = (a: string, b: string): number => {
  * similarity at or above `similarityThreshold`. Matches are returned for
  * review, never silently merged or dropped — the caller still inserts the row.
  */
+const accountAmountKey = (accountId: string, amountMinor: number): string =>
+  `${accountId}|${amountMinor}`;
+
 export const findNearDuplicates = (
   candidates: NearDuplicateCandidate[],
   existing: NearDuplicateCandidate[],
@@ -70,10 +73,22 @@ export const findNearDuplicates = (
   const similarityThreshold = options.similarityThreshold ?? 0.5;
   const matches: NearDuplicateMatch[] = [];
 
+  // Index existing rows by `${accountId}|${amountMinor}` so each candidate's
+  // lookup is a direct map hit instead of a full scan over `existing`.
+  const byAccountAmountKey = new Map<string, NearDuplicateCandidate[]>();
+  for (const row of existing) {
+    const key = accountAmountKey(row.accountId, row.amountMinor);
+    const bucket = byAccountAmountKey.get(key);
+    if (bucket) {
+      bucket.push(row);
+    } else {
+      byAccountAmountKey.set(key, [row]);
+    }
+  }
+
   for (const candidate of candidates) {
-    const sameAccountSameAmount = existing.filter(
-      (row) => row.accountId === candidate.accountId && row.amountMinor === candidate.amountMinor,
-    );
+    const sameAccountSameAmount =
+      byAccountAmountKey.get(accountAmountKey(candidate.accountId, candidate.amountMinor)) ?? [];
 
     let best: NearDuplicateMatch | null = null;
 

@@ -128,6 +128,9 @@ const probableTransferOutcome = (): TransferLegOutcome => ({
   pendingSuggestion: true,
 });
 
+const amountIndexKey = (currency: string, amountMinor: number): string =>
+  `${currency}|${amountMinor}`;
+
 /**
  * Detects transfer pairs across different accounts and single-sided
  * "probable transfers" by description keyword. Runs over the full candidate
@@ -137,23 +140,42 @@ export const detectTransfers = (candidates: TransferCandidateTransaction[]): Tra
   const actions: TransferAction[] = [];
   const paired = new Set<string>();
 
-  const eligible = candidates.filter((candidate) => !candidate.isTransfer);
+  // Step 1: a user has already excluded this row from the budget, or it's
+  // already marked as a transfer — neither is eligible for (re-)detection.
+  const eligible = candidates.filter(
+    (candidate) => !candidate.isTransfer && !candidate.excludedFromBudget,
+  );
 
   // Sort by id for deterministic iteration order.
   const sorted = [...eligible].sort((a, b) => a.id.localeCompare(b.id));
+
+  // Index eligible rows by `${currency}|${amountMinor}` so a candidate's
+  // opposite-sign match is a direct lookup instead of a full scan — full
+  // candidate sets can be in the thousands of rows.
+  const byAmountKey = new Map<string, TransferCandidateTransaction[]>();
+  for (const row of sorted) {
+    const key = amountIndexKey(row.currency, row.amountMinor);
+    const bucket = byAmountKey.get(key);
+    if (bucket) {
+      bucket.push(row);
+    } else {
+      byAmountKey.set(key, [row]);
+    }
+  }
 
   for (const candidate of sorted) {
     if (paired.has(candidate.id)) {
       continue;
     }
 
-    const matchCandidates = sorted.filter(
+    const oppositeKey = amountIndexKey(candidate.currency, -candidate.amountMinor);
+    const sameAmountOpposite = byAmountKey.get(oppositeKey) ?? [];
+
+    const matchCandidates = sameAmountOpposite.filter(
       (other) =>
         other.id !== candidate.id &&
         !paired.has(other.id) &&
         other.accountId !== candidate.accountId &&
-        other.currency === candidate.currency &&
-        other.amountMinor === -candidate.amountMinor &&
         dateDiffDays(other.postedDate, candidate.postedDate) <= 3,
     );
 

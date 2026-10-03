@@ -82,8 +82,7 @@ export const parseAmountToMinor = (
     return { ok: false, reason: "empty" };
   }
 
-  const decimalSeparator = options.decimalSeparator ?? inferDecimalSeparator(working);
-  const thousandsSeparator = options.thousandsSeparator ?? (decimalSeparator === "," ? "." : ",");
+  const { decimalSeparator, thousandsSeparator } = resolveSeparators(working, options);
 
   let digitsOnly = working;
 
@@ -94,7 +93,7 @@ export const parseAmountToMinor = (
   digitsOnly = digitsOnly.split(" ").join("");
 
   if (decimalSeparator === ",") {
-    digitsOnly = digitsOnly.replace(",", ".");
+    digitsOnly = digitsOnly.split(",").join(".");
   }
 
   if (!/^\d+(\.\d+)?$/.test(digitsOnly)) {
@@ -125,6 +124,54 @@ const inferDecimalSeparator = (value: string): "." | "," => {
 
   // The rightmost separator is the decimal one; the other (if any) is thousands.
   return lastComma > lastDot ? "," : ".";
+};
+
+interface ResolvedSeparators {
+  decimalSeparator: "." | "," | null;
+  thousandsSeparator: "," | "." | " " | "";
+}
+
+/**
+ * Decides which punctuation is the decimal separator and which is the
+ * thousands separator. When both a comma and a dot are present, the
+ * rightmost one is the decimal separator. When only one separator character
+ * is present and it occurs more than once, or it occurs exactly once but the
+ * trailing digit group is exactly 3 digits long, the input is ambiguous
+ * between "decimal with a 3-digit fraction" and "thousands grouping" — this
+ * resolves the ambiguity in favor of thousands grouping (e.g. "1,234" is
+ * 1234, not 1.234), matching how humans write large whole-number amounts.
+ * Callers who need the other reading must pass explicit options.
+ */
+const resolveSeparators = (value: string, options: ParseAmountOptions): ResolvedSeparators => {
+  if (options.decimalSeparator !== undefined) {
+    return {
+      decimalSeparator: options.decimalSeparator,
+      thousandsSeparator:
+        options.thousandsSeparator ?? (options.decimalSeparator === "," ? "." : ","),
+    };
+  }
+
+  const commaCount = value.split(",").length - 1;
+  const dotCount = value.split(".").length - 1;
+
+  if (commaCount > 0 && dotCount > 0) {
+    const decimalSeparator = inferDecimalSeparator(value);
+    return { decimalSeparator, thousandsSeparator: decimalSeparator === "," ? "." : "," };
+  }
+
+  if (commaCount > 0 || dotCount > 0) {
+    const separator = commaCount > 0 ? "," : ".";
+    const count = commaCount > 0 ? commaCount : dotCount;
+    const trailingGroup = value.slice(value.lastIndexOf(separator) + 1);
+
+    if (count > 1 || (trailingGroup.length === 3 && /^\d{3}$/.test(trailingGroup))) {
+      return { decimalSeparator: null, thousandsSeparator: separator };
+    }
+
+    return { decimalSeparator: separator, thousandsSeparator: separator === "," ? "." : "," };
+  }
+
+  return { decimalSeparator: ".", thousandsSeparator: "," };
 };
 
 export const formatMoney = (money: Money, locale = "fr-CA"): string => {

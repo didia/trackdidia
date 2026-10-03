@@ -169,4 +169,57 @@ describe("detectTransfers", () => {
 
     expect(detectTransfers([a, b])).toHaveLength(0);
   });
+
+  it("skips a row the user has already excluded from the budget", () => {
+    const a = candidate({
+      id: "txn-a",
+      accountId: "checking",
+      amountMinor: -1000,
+      excludedFromBudget: true,
+    });
+    const b = candidate({ id: "txn-b", accountId: "savings", amountMinor: 1000 });
+
+    expect(detectTransfers([a, b])).toHaveLength(0);
+
+    const c = candidate({
+      id: "txn-c",
+      accountId: "checking",
+      amountMinor: -500,
+      descriptionRaw: "VIREMENT INTERNET",
+      excludedFromBudget: true,
+    });
+
+    expect(detectTransfers([c])).toHaveLength(0);
+  });
+
+  it("detects transfers across a large candidate set well under a second", () => {
+    const rows: ReturnType<typeof candidate>[] = [];
+    for (let index = 0; index < 10_000; index += 1) {
+      rows.push(
+        candidate({
+          id: `txn-a-${index}`,
+          accountId: "checking",
+          amountMinor: -(1000 + index),
+          postedDate: "2026-01-15",
+          descriptionRaw: `Internal move ${index}`,
+        }),
+      );
+      rows.push(
+        candidate({
+          id: `txn-b-${index}`,
+          accountId: "savings",
+          amountMinor: 1000 + index,
+          postedDate: "2026-01-16",
+          descriptionRaw: `Internal move ${index}`,
+        }),
+      );
+    }
+
+    const start = performance.now();
+    const actions = detectTransfers(rows);
+    const elapsedMs = performance.now() - start;
+
+    expect(actions).toHaveLength(10_000);
+    expect(elapsedMs).toBeLessThan(3_000);
+  });
 });

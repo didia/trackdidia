@@ -8,9 +8,24 @@ import {
 } from "./money";
 
 describe("finance money", () => {
-  it("parses a thousands-and-decimal amount with a comma decimal and space thousands", () => {
+  it("parses a thousands comma + decimal dot amount, and a space thousands + comma decimal amount", () => {
     expect(parseAmountToMinor("1,234.56")).toEqual({ ok: true, amountMinor: 123456 });
     expect(parseAmountToMinor("1 234,56")).toEqual({ ok: true, amountMinor: 123456 });
+  });
+
+  it("treats a single separator with an exactly-3-digit trailing group as thousands, not decimal", () => {
+    expect(parseAmountToMinor("1,234")).toEqual({ ok: true, amountMinor: 123400 });
+    expect(parseAmountToMinor("1.234")).toEqual({ ok: true, amountMinor: 123400 });
+  });
+
+  it("respects explicit decimalSeparator/thousandsSeparator options over the ambiguity heuristic", () => {
+    expect(parseAmountToMinor("1.234", { decimalSeparator: ".", thousandsSeparator: "" })).toEqual({
+      ok: true,
+      amountMinor: 123,
+    });
+    expect(
+      parseAmountToMinor("1.234,56", { decimalSeparator: ",", thousandsSeparator: "." }),
+    ).toEqual({ ok: true, amountMinor: 123456 });
   });
 
   it("parses an accounting-negative amount in parentheses", () => {

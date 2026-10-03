@@ -2,10 +2,13 @@
 //
 // src/lib/hash.ts's hashString is a 32-bit non-cryptographic hash: at 10 000
 // transactions the birthday-collision probability is ~1%, and a collision there
-// would silently drop a real transaction. This hash runs two independent 64-bit
-// FNV-1a passes (different offset basis/prime pairing per lane) and concatenates
-// them into a 128-bit hex digest, which is synchronous and safe under jsdom —
-// unlike WebCrypto `subtle.digest`, which is async.
+// would silently drop a real transaction. This hash runs two 64-bit FNV-1a
+// passes seeded with different offset bases and concatenates them into a
+// 128-bit hex digest, which is synchronous and safe under jsdom — unlike
+// WebCrypto `subtle.digest`, which is async. The two lanes share the same
+// FNV-1a multiplier, so this is not two cryptographically independent
+// functions; it widens the digest to shrink birthday-collision odds, not a
+// formal independence guarantee.
 
 const MASK_64 = (1n << 64n) - 1n;
 

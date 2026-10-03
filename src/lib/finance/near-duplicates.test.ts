@@ -149,4 +149,28 @@ describe("findNearDuplicates", () => {
     expect(descriptionSimilarity("STARBUCKS COFFEE", "GAS STATION")).toBe(0);
     expect(descriptionSimilarity("", "")).toBe(0);
   });
+
+  it("flags near-duplicates across a large existing set well under a second", () => {
+    const existing = Array.from({ length: 20_000 }, (_, index) => ({
+      id: `existing-${index}`,
+      accountId: `acct-${index % 50}`,
+      postedDate: "2026-01-15",
+      amountMinor: -(1000 + index),
+      descriptionRaw: `COFFEE SHOP ${index}`,
+    }));
+    const candidates = existing.map((row) => ({
+      id: `candidate-${row.id}`,
+      accountId: row.accountId,
+      postedDate: "2026-01-16",
+      amountMinor: row.amountMinor,
+      descriptionRaw: row.descriptionRaw,
+    }));
+
+    const start = performance.now();
+    const matches = findNearDuplicates(candidates, existing);
+    const elapsedMs = performance.now() - start;
+
+    expect(matches).toHaveLength(20_000);
+    expect(elapsedMs).toBeLessThan(3_000);
+  });
 });
