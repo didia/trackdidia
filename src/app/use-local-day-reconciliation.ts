@@ -8,15 +8,27 @@ import type { AppRepository } from "../lib/storage/repository";
  * recurrences and promotes due Scheduled tasks. A timeout until the next local
  * midnight plus window focus and becoming visible all trigger the check so
  * already-mounted GTD/Pomodoro views can reload without navigation.
+ *
+ * When `financeEnabled`, the same reconciliation also snapshots today's
+ * account balances (`snapshotFinanceAccountBalances`) so the net-worth
+ * history has one point per day the app was open — see
+ * specs/todo/finance.md "Bootstrap". A snapshot failure is logged (counts
+ * only, never amounts) and never blocks recurrence/promotion.
  */
-export const useLocalDayReconciliation = (repository: AppRepository | null): string => {
+export const useLocalDayReconciliation = (
+  repository: AppRepository | null,
+  financeEnabled = false,
+): string => {
   const [calendarDay, setCalendarDay] = useState(getTodayDate);
   const calendarDayRef = useRef(calendarDay);
   const repositoryRef = useRef(repository);
+  const financeEnabledRef = useRef(financeEnabled);
   const promotedForRef = useRef<{ day: string; repository: AppRepository } | null>(null);
+  const snapshottedForRef = useRef<{ day: string; repository: AppRepository } | null>(null);
 
   calendarDayRef.current = calendarDay;
   repositoryRef.current = repository;
+  financeEnabledRef.current = financeEnabled;
 
   useEffect(() => {
     let cancelled = false;
@@ -38,6 +50,22 @@ export const useLocalDayReconciliation = (repository: AppRepository | null): str
         } catch (error) {
           logDebug("error", "app.localDay", "Echec de la reconciliation du jour local", error);
           return;
+        }
+      }
+
+      const alreadySnapshotted =
+        candidate !== null &&
+        snapshottedForRef.current?.day === today &&
+        snapshottedForRef.current.repository === candidate;
+
+      if (candidate && financeEnabledRef.current && !alreadySnapshotted) {
+        try {
+          const count = await candidate.snapshotFinanceAccountBalances(today);
+          snapshottedForRef.current = { day: today, repository: candidate };
+          logDebug("info", "app.localDay", "Snapshot des soldes finance effectue", { count });
+        } catch (error) {
+          // Never blocks the day-boundary reconciliation above; counts/durations only.
+          logDebug("error", "app.localDay", "Echec du snapshot des soldes finance", error);
         }
       }
 

@@ -5644,4 +5644,104 @@ export class TauriSqliteRepository implements AppRepository {
       this.getFinanceStore().setBudgetReadyToAssignNote(monthKey, note),
     );
   }
+
+  // --- Finance (Phase 6 — Tracking, reports, recurring, net worth) ---------------------
+
+  async computeFinanceNetWorth(asOfDate: string) {
+    const settings = await this.getSettings();
+    return this.getFinanceStore().computeNetWorth(asOfDate, settings.financeBaseCurrency);
+  }
+
+  async listFinanceNetWorthHistory() {
+    const settings = await this.getSettings();
+    return this.getFinanceStore().listNetWorthHistory(settings.financeBaseCurrency);
+  }
+
+  async computeFinanceCashFlow(monthKey: string) {
+    const settings = await this.getSettings();
+    return this.getFinanceStore().computeCashFlow(monthKey, settings.financeBaseCurrency);
+  }
+
+  async computeFinanceCategorySpend(
+    range: import("../../domain/finance/reports").FinanceDateRange,
+    groupBy: import("../../domain/finance/reports").FinanceReportGroupBy,
+  ) {
+    const settings = await this.getSettings();
+    return this.getFinanceStore().computeCategorySpend(
+      range,
+      groupBy,
+      settings.financeBaseCurrency,
+    );
+  }
+
+  async listFinanceCategorySpendDrilldown(
+    range: import("../../domain/finance/reports").FinanceDateRange,
+    groupBy: import("../../domain/finance/reports").FinanceReportGroupBy,
+    key: string,
+  ) {
+    const settings = await this.getSettings();
+    return this.getFinanceStore().listCategorySpendDrilldown(
+      range,
+      groupBy,
+      key,
+      settings.financeBaseCurrency,
+    );
+  }
+
+  async computeFinanceMerchantSpend(
+    range: import("../../domain/finance/reports").FinanceDateRange,
+    limit: number,
+  ) {
+    const settings = await this.getSettings();
+    return this.getFinanceStore().computeMerchantSpend(range, limit, settings.financeBaseCurrency);
+  }
+
+  async computeFinancePersonSpend(range: import("../../domain/finance/reports").FinanceDateRange) {
+    const settings = await this.getSettings();
+    return this.getFinanceStore().computePersonSpend(range, settings.financeBaseCurrency);
+  }
+
+  async computeFinanceTrend(
+    range: import("../../domain/finance/reports").FinanceDateRange,
+    granularity: import("../../domain/finance/reports").FinanceTrendGranularity,
+  ) {
+    const settings = await this.getSettings();
+    return this.getFinanceStore().computeTrend(range, granularity, settings.financeBaseCurrency);
+  }
+
+  async computeFinanceMonthOverMonth(
+    currentRange: import("../../domain/finance/reports").FinanceDateRange,
+    previousRange: import("../../domain/finance/reports").FinanceDateRange,
+    groupBy: import("../../domain/finance/reports").FinanceReportGroupBy,
+  ) {
+    const settings = await this.getSettings();
+    return this.getFinanceStore().computeMonthOverMonth(
+      currentRange,
+      previousRange,
+      groupBy,
+      settings.financeBaseCurrency,
+    );
+  }
+
+  async listFinanceRecurringSeries(
+    status?: import("../../domain/finance").FinanceRecurringSeries["status"],
+  ) {
+    return this.getFinanceStore().listRecurringSeries(status);
+  }
+
+  async saveFinanceRecurringSeries(series: import("../../domain/finance").FinanceRecurringSeries) {
+    return this.runExclusive(() => this.getFinanceStore().saveRecurringSeries(series));
+  }
+
+  async detectFinanceRecurringSeries() {
+    return this.runExclusive(() => this.getFinanceStore().detectRecurringSeries(getTodayDate()));
+  }
+
+  async snapshotFinanceAccountBalances(asOfDate: string) {
+    return this.runExclusive(() => this.getFinanceStore().snapshotAccountBalances(asOfDate));
+  }
+
+  async listFinanceAccountBalanceSnapshots(accountId: string) {
+    return this.getFinanceStore().listAccountBalanceSnapshots(accountId);
+  }
 }

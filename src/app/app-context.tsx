@@ -92,7 +92,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   const [pulseRevision, setPulseRevision] = useState(0);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
-  const calendarDay = useLocalDayReconciliation(repository);
+  const calendarDay = useLocalDayReconciliation(repository, settings.financeEnabled);
   const pomodoro = usePomodoroController(repository, calendarDay);
   const browserPreview = !isTauriRuntime();
   const { reconfigure: reconfigureEmailTriage } = useEmailTriageCoordinator(repository, {

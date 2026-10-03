@@ -125,9 +125,10 @@ false. `finances` (`/finances`) is the first such conditional entry, gated on
 | `/pomodoro` | Pomodoro | Focus/break timer, task switching, daily history |
 | `/recurrences` | Recurrences | Create, filter, pause/resume/cancel recurring series |
 | `/email-triage` | Email triage | Account cards, review queue, disabled-by-default settings |
-| `/finances` | Finance overview | Account list with derived balances and links; always registered, redirects to `/` while `financeEnabled` is false |
+| `/finances` | Finance overview | Net worth, this month's cash flow, account list with derived balances, 6-month spending trend, top categories, upcoming recurring bills; always registered, redirects to `/` while `financeEnabled` is false |
 | `/finances/transactions` | Finance transactions | Paged, filtered transaction list with inline category edit, splits, transfer/exclude toggles, bulk toolbar |
 | `/finances/budget` | Finance budget | Month selector, Ready to Assign, envelope grid with inline assignment, overspend policy, quick-assign actions, "Non budgété" band, close/reopen month |
+| `/finances/reports` | Finance reports | Category/merchant/person spend with transaction-level drill-down, income-vs-expense trend, month-over-month comparison |
 | `/finances/import` | Finance import | CSV file import: decode, profile mapping, preview, account binding, result panel, batch history with undo |
 | `/finances/accounts` | Finance accounts | Household members and accounts CRUD, opening/manual balances, reconciliation banner |
 | `/finances/review` | Finance review | Pending category-suggestion queue grouped by merchant: accept/correct/dismiss, bulk accept-above-threshold, "Réappliquer les règles" |
@@ -142,9 +143,8 @@ false. `finances` (`/finances`) is the first such conditional entry, gated on
 `/finances/*` is always registered in `App.tsx` (a `FinanceRoutes` element reads
 `settings.financeEnabled` and renders `<Navigate to="/" replace />` instead of
 its child routes while the flag is off), so a stale bookmark or deep link never
-404s — it just lands on Today. Only the seven finance screens that exist ship a
-tab in the shared `FinanceTabs` bar on every `/finances*` page; reports are a
-later phase and have no tab yet. See
+404s — it just lands on Today. Every finance screen that exists ships a tab in
+the shared `FinanceTabs` bar on every `/finances*` page. See
 [`docs/finance.md`](finance.md) for what each finance screen does.
 
 See the product pages linked from [`index.md`](index.md) for behavior inside each
@@ -191,7 +191,12 @@ After bootstrap, `AppProvider` keeps `calendarDay` (the current local `YYYY-MM-D
 in context. A timeout until the next local midnight, plus window `focus` and
 `visibilitychange` when the document becomes visible, regenerates due recurrences,
 promotes due Scheduled tasks, and republishes the new date so already-mounted GTD
-and Pomodoro consumers reload without navigation.
+and Pomodoro consumers reload without navigation. On the same pass, when
+`settings.financeEnabled` is true, `useLocalDayReconciliation` also calls
+`snapshotFinanceAccountBalances(today)` so the net-worth history gets one point
+per day the app was open; this call is independently try/caught (a failure is
+logged as a row count only, never amounts) and never blocks recurrence/promotion
+or the eight-second startup timeout above.
 
 ## Repository boundary
 
