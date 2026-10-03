@@ -317,9 +317,28 @@ export interface SetFinanceTransactionCategoryInput {
   scope: FinanceTransactionCategoryScope;
 }
 
+/**
+ * A transaction's category fields as they were immediately before a bulk
+ * recategorize, so `scope: "all_matching"` can offer a single undo (see
+ * specs/todo/finance.md "Learning from corrections").
+ */
+export interface FinanceCategoryBackfillEntry {
+  transactionId: string;
+  categoryId: string | null;
+  categorySource: FinanceCategorySource;
+  categoryConfidence: number | null;
+  categorizedAt: string | null;
+}
+
 export interface SetFinanceTransactionCategoryResult {
   updated: number;
   memory: FinanceMerchantMemoryEntry | null;
+  /**
+   * Populated only for `scope: "all_matching"` — the prior state of every
+   * row this call recategorized besides the target transaction, passed back
+   * to `revertFinanceCategoryBackfill` for a single undo.
+   */
+  backfill: FinanceCategoryBackfillEntry[];
 }
 
 export interface BulkUpdateFinanceTransactionsPatch {
@@ -397,4 +416,15 @@ export interface DecideFinanceCategorySuggestionInput {
 export interface UndoFinanceImportBatchResult {
   deleted: number;
   refusedUserCategorized: number;
+}
+
+/**
+ * `reclassifyFinancePending` re-runs `classifyTransaction` (rules, memory,
+ * seeds — no AI, no transfer re-detection) over every non-`user` transaction.
+ * `reclassified` is rows whose `category_id`/`category_source` changed;
+ * `suggestionsCreated` is new pending `finance_category_suggestions` rows.
+ */
+export interface ReclassifyFinancePendingResult {
+  reclassified: number;
+  suggestionsCreated: number;
 }

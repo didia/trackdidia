@@ -3078,12 +3078,26 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         });
 
         expect(result.updated).toBe(2);
+        expect(result.backfill).toEqual([
+          expect.objectContaining({
+            transactionId: second.id,
+            categoryId: "fincat:non-categorise",
+            categorySource: "default",
+          }),
+        ]);
         await expect(repository.getFinanceTransaction(second.id)).resolves.toMatchObject({
           categoryId: "fincat:loisirs.abonnements",
         });
         await expect(repository.getFinanceTransaction(userSet.id)).resolves.toMatchObject({
           categoryId: "fincat:logement.entretien",
           categorySource: "user",
+        });
+
+        const reverted = await repository.revertFinanceCategoryBackfill(result.backfill);
+        expect(reverted).toBe(1);
+        await expect(repository.getFinanceTransaction(second.id)).resolves.toMatchObject({
+          categoryId: "fincat:non-categorise",
+          categorySource: "default",
         });
       });
 
@@ -3724,6 +3738,303 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         expect(decided.status).toBe("accepted");
         await expect(repository.getFinanceTransaction(txn.id)).resolves.toMatchObject({
           categoryId: "fincat:alimentation.epicerie",
+          categorySource: "user",
+        });
+      });
+
+      it("import auto-applies a matching rule's category and bumps its applied_count", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const rule = await repository.saveFinanceRule({
+          id: "",
+          name: "Épicerie IGA",
+          priority: 0,
+          enabled: true,
+          matcher: { descriptionContains: "IGA" },
+          actions: { categoryId: "fincat:alimentation.epicerie" },
+          createdAt: "",
+          updatedAt: "",
+          lastAppliedAt: null,
+          appliedCount: 0,
+        });
+
+        await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "export.csv",
+          fileHash: "hash-rule",
+          rows: [importRow({ accountId: "account-1", descriptionRaw: "IGA MONTREAL" })],
+        });
+
+        const [txn] = await repository.listFinanceTransactions({});
+        expect(txn).toMatchObject({
+          categoryId: "fincat:alimentation.epicerie",
+          categorySource: "rule",
+        });
+        await expect(repository.listFinanceRules()).resolves.toEqual([
+          expect.objectContaining({ id: rule.id, appliedCount: 1 }),
+        ]);
+      });
+
+      it("import auto-applies learned merchant memory at/above the confidence and hit-count thresholds", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        await repository.upsertFinanceMerchantMemory({
+          merchantKey: "IGA MONTREAL",
+          accountId: "",
+          sign: -1,
+          categoryId: "fincat:alimentation.epicerie",
+          hitCount: 5,
+          correctionCount: 0,
+          confidence: 0.9,
+          source: "user_correction",
+          lastAppliedAt: null,
+          createdAt: "",
+          updatedAt: "",
+        });
+
+        await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "export.csv",
+          fileHash: "hash-memory",
+          rows: [importRow({ accountId: "account-1", descriptionRaw: "IGA MONTREAL" })],
+        });
+
+        const [txn] = await repository.listFinanceTransactions({});
+        expect(txn).toMatchObject({
+          categoryId: "fincat:alimentation.epicerie",
+          categorySource: "memory",
+        });
+      });
+
+      it("import below-threshold memory creates a pending suggestion instead of auto-applying", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        await repository.upsertFinanceMerchantMemory({
+          merchantKey: "IGA MONTREAL",
+          accountId: "",
+          sign: -1,
+          categoryId: "fincat:alimentation.epicerie",
+          hitCount: 1,
+          correctionCount: 0,
+          confidence: 0.6,
+          source: "user_correction",
+          lastAppliedAt: null,
+          createdAt: "",
+          updatedAt: "",
+        });
+
+        const summary = await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "export.csv",
+          fileHash: "hash-memory-low",
+          rows: [importRow({ accountId: "account-1", descriptionRaw: "IGA MONTREAL" })],
+        });
+
+        expect(summary.pendingSuggestions).toBe(1);
+        const [txn] = await repository.listFinanceTransactions({});
+        expect(txn.categoryId).toBe("fincat:non-categorise");
+        await expect(repository.listFinanceCategorySuggestions("pending")).resolves.toEqual([
+          expect.objectContaining({
+            transactionId: txn.id,
+            suggestedCategoryId: "fincat:alimentation.epicerie",
+            origin: "memory",
+          }),
+        ]);
+      });
+
+      it("import falls back to a seed heuristic suggestion when no rule or memory matches", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+
+        const summary = await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "export.csv",
+          fileHash: "hash-seed",
+          rows: [
+            importRow({
+              accountId: "account-1",
+              descriptionRaw: "METRO PLUS",
+              merchantKey: "METRO PLUS",
+            }),
+          ],
+        });
+
+        expect(summary.pendingSuggestions).toBe(1);
+        await expect(repository.listFinanceCategorySuggestions("pending")).resolves.toEqual([
+          expect.objectContaining({
+            suggestedCategoryId: "fincat:alimentation.epicerie",
+            origin: "seed",
+          }),
+        ]);
+      });
+
+      it("a dismissed suggestion suppresses the same (merchant, category) pair on the next import", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        await repository.upsertFinanceMerchantMemory({
+          merchantKey: "IGA MONTREAL",
+          accountId: "",
+          sign: -1,
+          categoryId: "fincat:alimentation.epicerie",
+          hitCount: 1,
+          correctionCount: 0,
+          confidence: 0.6,
+          source: "user_correction",
+          lastAppliedAt: null,
+          createdAt: "",
+          updatedAt: "",
+        });
+
+        await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "export.csv",
+          fileHash: "hash-dismiss-1",
+          rows: [importRow({ accountId: "account-1", descriptionRaw: "IGA MONTREAL" })],
+        });
+        const [pending] = await repository.listFinanceCategorySuggestions("pending");
+        await repository.decideFinanceCategorySuggestion(pending.id, { status: "dismissed" });
+
+        const summary = await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "export2.csv",
+          fileHash: "hash-dismiss-2",
+          rows: [importRow({ accountId: "account-1", descriptionRaw: "IGA MONTREAL" })],
+        });
+
+        expect(summary.pendingSuggestions).toBe(0);
+      });
+
+      it("accepting a suggestion reinforces memory like a manual correction", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const txn = await repository.saveFinanceTransaction(buildFinanceTransaction());
+        const [saved] = await repository.saveFinanceCategorySuggestions([
+          {
+            id: "",
+            transactionId: txn.id,
+            merchantKey: txn.merchantKey,
+            suggestedCategoryId: "fincat:alimentation.epicerie",
+            confidence: 0.6,
+            origin: "seed",
+            rationale: null,
+            model: null,
+            promptVersion: null,
+            status: "pending",
+            decidedAt: null,
+            createdAt: "",
+          },
+        ]);
+
+        await repository.decideFinanceCategorySuggestion(saved.id, { status: "accepted" });
+
+        await expect(
+          repository.listFinanceMerchantMemory({ merchantKey: txn.merchantKey }),
+        ).resolves.toEqual([
+          expect.objectContaining({
+            categoryId: "fincat:alimentation.epicerie",
+            hitCount: 1,
+          }),
+        ]);
+      });
+
+      it("correcting a suggestion flips memory to the chosen category with confidence reset to 0.6", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const txn = await repository.saveFinanceTransaction(buildFinanceTransaction());
+        await repository.upsertFinanceMerchantMemory({
+          merchantKey: txn.merchantKey,
+          accountId: txn.accountId,
+          sign: -1,
+          categoryId: "fincat:alimentation.epicerie",
+          hitCount: 5,
+          correctionCount: 0,
+          confidence: 0.9,
+          source: "user_correction",
+          lastAppliedAt: null,
+          createdAt: "",
+          updatedAt: "",
+        });
+        const [saved] = await repository.saveFinanceCategorySuggestions([
+          {
+            id: "",
+            transactionId: txn.id,
+            merchantKey: txn.merchantKey,
+            suggestedCategoryId: "fincat:alimentation.epicerie",
+            confidence: 0.6,
+            origin: "seed",
+            rationale: null,
+            model: null,
+            promptVersion: null,
+            status: "pending",
+            decidedAt: null,
+            createdAt: "",
+          },
+        ]);
+
+        await repository.decideFinanceCategorySuggestion(saved.id, {
+          status: "corrected",
+          categoryId: "fincat:alimentation.restaurants",
+        });
+
+        await expect(
+          repository.listFinanceMerchantMemory({ merchantKey: txn.merchantKey }),
+        ).resolves.toEqual([
+          expect.objectContaining({
+            categoryId: "fincat:alimentation.restaurants",
+            confidence: 0.6,
+            correctionCount: 1,
+          }),
+        ]);
+      });
+
+      it("reclassifyFinancePending applies a newly created rule to existing non-user rows, never a user-set one", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const pending = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-pending",
+            descriptionRaw: "IGA MONTREAL",
+            merchantKey: "IGA MONTREAL",
+          }),
+        );
+        const userSet = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-user",
+            descriptionRaw: "IGA MONTREAL",
+            merchantKey: "IGA MONTREAL",
+            categoryId: "fincat:logement.entretien",
+            categorySource: "user",
+          }),
+        );
+
+        await repository.saveFinanceRule({
+          id: "",
+          name: "Épicerie IGA",
+          priority: 0,
+          enabled: true,
+          matcher: { descriptionContains: "IGA" },
+          actions: { categoryId: "fincat:alimentation.epicerie" },
+          createdAt: "",
+          updatedAt: "",
+          lastAppliedAt: null,
+          appliedCount: 0,
+        });
+
+        const result = await repository.reclassifyFinancePending();
+        expect(result.reclassified).toBe(1);
+
+        await expect(repository.getFinanceTransaction(pending.id)).resolves.toMatchObject({
+          categoryId: "fincat:alimentation.epicerie",
+          categorySource: "rule",
+        });
+        await expect(repository.getFinanceTransaction(userSet.id)).resolves.toMatchObject({
+          categoryId: "fincat:logement.entretien",
           categorySource: "user",
         });
       });

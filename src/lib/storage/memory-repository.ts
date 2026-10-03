@@ -2088,4 +2088,16 @@ export class MemoryRepository implements AppRepository {
     this.contexts.set(id, context);
     return context;
   }
+
+  // --- Finance (Phase 4) ----------------------------------------------------------------
+
+  async reclassifyFinancePending() {
+    return Promise.resolve(this.finance.reclassifyPending());
+  }
+
+  async revertFinanceCategoryBackfill(
+    entries: import("../../domain/finance").FinanceCategoryBackfillEntry[],
+  ) {
+    return Promise.resolve(this.finance.revertCategoryBackfill(entries));
+  }
 }

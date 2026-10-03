@@ -8,6 +8,7 @@ import type {
   FinanceAccount,
   FinanceAccountFilters,
   FinanceCategory,
+  FinanceCategoryBackfillEntry,
   FinanceCategorySuggestion,
   FinanceImportBatch,
   FinanceImportProfile,
@@ -17,15 +18,19 @@ import type {
   FinanceMerchantMemoryFilters,
   FinancePerson,
   FinanceRule,
+  FinanceRuleActions,
   FinanceTransaction,
   FinanceTransactionFilters,
   FinanceTransactionSplit,
+  ReclassifyFinancePendingResult,
   SetFinanceTransactionCategoryInput,
   SetFinanceTransactionCategoryResult,
   SetFinanceTransferPair,
   UndoFinanceImportBatchResult,
 } from "../../domain/finance";
+import { classifyTransaction, type ClassificationOutcome } from "../finance/classify";
 import { DEFAULT_FINANCE_CATEGORIES } from "../finance/default-categories";
+import type { DismissedSuggestionPair } from "../finance/dismissed-suggestions";
 import {
   dedupeHash as computeDedupeHash,
   assignOccurrenceIndices,
@@ -35,6 +40,8 @@ import { findNearDuplicates } from "../finance/near-duplicates";
 import { validateSplitTotal } from "../finance/splits";
 import { detectTransfers, type TransferCandidateTransaction } from "../finance/transfers";
 import { createEntityId, nowIso } from "../gtd/shared";
+
+const localDate = (iso: string): string => iso.slice(0, 10);
 
 const SYSTEM_CATEGORIES: FinanceCategory[] = [
   {
@@ -375,6 +382,7 @@ export class FinanceMemoryStore {
     });
 
     let updated = 1;
+    const backfill: FinanceCategoryBackfillEntry[] = [];
     if (input.scope === "all_matching") {
       for (const candidate of this.transactions.values()) {
         if (
@@ -382,6 +390,13 @@ export class FinanceMemoryStore {
           candidate.merchantKey === txn.merchantKey &&
           candidate.categorySource !== "user"
         ) {
+          backfill.push({
+            transactionId: candidate.id,
+            categoryId: candidate.categoryId,
+            categorySource: candidate.categorySource,
+            categoryConfidence: candidate.categoryConfidence,
+            categorizedAt: candidate.categorizedAt,
+          });
           this.transactions.set(candidate.id, {
             ...candidate,
             categoryId: input.categoryId,
@@ -408,7 +423,29 @@ export class FinanceMemoryStore {
     });
     this.upsertMerchantMemory(memory);
 
-    return { updated, memory };
+    return { updated, memory, backfill };
+  }
+
+  /** Reverts the `backfill` entries from a `scope: "all_matching"` call — a single undo. */
+  revertCategoryBackfill(entries: FinanceCategoryBackfillEntry[]): number {
+    const now = nowIso();
+    let reverted = 0;
+    for (const entry of entries) {
+      const txn = this.transactions.get(entry.transactionId);
+      if (!txn) {
+        continue;
+      }
+      this.transactions.set(entry.transactionId, {
+        ...txn,
+        categoryId: entry.categoryId,
+        categorySource: entry.categorySource,
+        categoryConfidence: entry.categoryConfidence,
+        categorizedAt: entry.categorizedAt,
+        updatedAt: now,
+      });
+      reverted += 1;
+    }
+    return reverted;
   }
 
   bulkUpdateTransactions(ids: string[], patch: BulkUpdateFinanceTransactionsPatch): number {
@@ -741,6 +778,36 @@ export class FinanceMemoryStore {
       }
     }
 
+    // Classification (rules -> learned memory -> seed heuristics; no AI — see
+    // specs/todo/finance.md "Classification pipeline"). Only the rows this
+    // batch inserted that transfer detection left untouched are eligible;
+    // transfer detection already decided a final category for the rest.
+    const classificationRules = [...this.rules.values()];
+    const classificationMemory = [...this.merchantMemory.values()];
+    const dismissed = this.buildDismissedPairs();
+    const today = localDate(now);
+    for (const id of insertedIds) {
+      const txn = this.transactions.get(id);
+      if (!txn || txn.isTransfer) {
+        continue;
+      }
+      const outcome = classifyTransaction(
+        {
+          categoryId: txn.categoryId,
+          categorySource: txn.categorySource,
+          accountId: txn.accountId,
+          amountMinor: txn.amountMinor,
+          merchantKey: txn.merchantKey,
+          personId: txn.personId,
+        },
+        { rules: classificationRules, memory: classificationMemory, dismissed, today },
+      );
+      const suggestionCreated = this.applyClassificationOutcome(txn.id, outcome, now);
+      if (suggestionCreated) {
+        pendingSuggestions += 1;
+      }
+    }
+
     const skipped = input.rejected?.skipped ?? 0;
     const errors = input.rejected?.errors ?? 0;
     warnings.push(...(input.rejected?.warnings ?? []));
@@ -784,12 +851,17 @@ export class FinanceMemoryStore {
     };
   }
 
-  private insertPendingSuggestion(transactionId: string, suggestedCategoryId: string): void {
+  private insertPendingSuggestion(
+    transactionId: string,
+    suggestedCategoryId: string,
+    origin: FinanceCategorySuggestion["origin"] = "memory",
+    confidence = 0.5,
+  ): boolean {
     const existingPending = [...this.categorySuggestions.values()].some(
       (suggestion) => suggestion.transactionId === transactionId && suggestion.status === "pending",
     );
     if (existingPending) {
-      return;
+      return false;
     }
     const txn = this.transactions.get(transactionId);
     const id = createEntityId("finance-suggestion");
@@ -798,8 +870,8 @@ export class FinanceMemoryStore {
       transactionId,
       merchantKey: txn?.merchantKey ?? "",
       suggestedCategoryId,
-      confidence: 0.5,
-      origin: "memory",
+      confidence,
+      origin,
       rationale: null,
       model: null,
       promptVersion: null,
@@ -807,6 +879,135 @@ export class FinanceMemoryStore {
       decidedAt: null,
       createdAt: nowIso(),
     });
+    return true;
+  }
+
+  /** `finance_category_suggestions` rows with `status = 'dismissed'`, as the pure 90-day window input. */
+  private buildDismissedPairs(): DismissedSuggestionPair[] {
+    return [...this.categorySuggestions.values()]
+      .filter((suggestion) => suggestion.status === "dismissed")
+      .map((suggestion) => ({
+        merchantKey: suggestion.merchantKey,
+        categoryId: suggestion.suggestedCategoryId,
+        dismissedAt: suggestion.decidedAt ?? suggestion.createdAt,
+      }));
+  }
+
+  /** Applies every side-effect action from matching rules besides the category decision itself. */
+  private applyRuleActions(
+    txn: FinanceTransaction,
+    actions: FinanceRuleActions | null | undefined,
+    now: string,
+  ): FinanceTransaction {
+    if (!actions) {
+      return txn;
+    }
+    let labelsJson = txn.labelsJson;
+    if (actions.addLabels && actions.addLabels.length > 0) {
+      const existing: string[] = labelsJson ? JSON.parse(labelsJson) : [];
+      labelsJson = JSON.stringify([...new Set([...existing, ...actions.addLabels])]);
+    }
+    return {
+      ...txn,
+      merchantDisplay: actions.merchantDisplay ?? txn.merchantDisplay,
+      personId: actions.personId ?? txn.personId,
+      excludedFromBudget: actions.excludeFromBudget ?? txn.excludedFromBudget,
+      excludedFromReports: actions.excludeFromReports ?? txn.excludedFromReports,
+      isTransfer: actions.markTransfer ?? txn.isTransfer,
+      labelsJson,
+      updatedAt: now,
+    };
+  }
+
+  /** Writes a `ClassificationOutcome` to the transaction (and a suggestion when owed). Returns whether a suggestion was created. */
+  private applyClassificationOutcome(
+    transactionId: string,
+    outcome: ClassificationOutcome,
+    now: string,
+  ): boolean {
+    const txn = this.transactions.get(transactionId);
+    if (!txn) {
+      return false;
+    }
+    const withActions = this.applyRuleActions(txn, outcome.ruleActions, now);
+    const categoryChanged =
+      withActions.categoryId !== outcome.categoryId ||
+      withActions.categorySource !== outcome.categorySource;
+    this.transactions.set(transactionId, {
+      ...withActions,
+      categoryId: outcome.categoryId,
+      categorySource: outcome.categorySource,
+      categoryConfidence: outcome.categoryConfidence,
+      categorizedAt:
+        categoryChanged && outcome.categorySource !== "default" ? now : withActions.categorizedAt,
+      updatedAt: now,
+    });
+    if (outcome.matchedRule) {
+      const rule = this.rules.get(outcome.matchedRule.id);
+      if (rule) {
+        this.rules.set(rule.id, {
+          ...rule,
+          appliedCount: rule.appliedCount + 1,
+          lastAppliedAt: now,
+        });
+      }
+    }
+    if (outcome.suggestion) {
+      return this.insertPendingSuggestion(
+        transactionId,
+        outcome.suggestion.categoryId,
+        outcome.suggestion.origin,
+        outcome.suggestion.confidence,
+      );
+    }
+    return false;
+  }
+
+  /**
+   * Re-runs classification (rules, memory, seeds — no AI, no transfer
+   * re-detection) over every non-`user` transaction. Used after a rule is
+   * created/edited and by the "Réappliquer les règles" action on
+   * `/finances/review`.
+   */
+  reclassifyPending(): ReclassifyFinancePendingResult {
+    const now = nowIso();
+    const today = localDate(now);
+    const rules = [...this.rules.values()];
+    const memory = [...this.merchantMemory.values()];
+    const dismissed = this.buildDismissedPairs();
+
+    let reclassified = 0;
+    let suggestionsCreated = 0;
+
+    for (const txn of [...this.transactions.values()]) {
+      if (txn.categorySource === "user" || txn.isTransfer) {
+        continue;
+      }
+      const before = { categoryId: txn.categoryId, categorySource: txn.categorySource };
+      const outcome = classifyTransaction(
+        {
+          categoryId: txn.categoryId,
+          categorySource: txn.categorySource,
+          accountId: txn.accountId,
+          amountMinor: txn.amountMinor,
+          merchantKey: txn.merchantKey,
+          personId: txn.personId,
+        },
+        { rules, memory, dismissed, today },
+      );
+      const suggestionCreated = this.applyClassificationOutcome(txn.id, outcome, now);
+      if (suggestionCreated) {
+        suggestionsCreated += 1;
+      }
+      if (
+        before.categoryId !== outcome.categoryId ||
+        before.categorySource !== outcome.categorySource
+      ) {
+        reclassified += 1;
+      }
+    }
+
+    return { reclassified, suggestionsCreated };
   }
 
   undoImportBatch(batchId: string): UndoFinanceImportBatchResult {

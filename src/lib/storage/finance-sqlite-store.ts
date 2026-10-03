@@ -9,6 +9,7 @@ import type {
   FinanceAccount,
   FinanceAccountFilters,
   FinanceCategory,
+  FinanceCategoryBackfillEntry,
   FinanceCategorySuggestion,
   FinanceImportBatch,
   FinanceImportProfile,
@@ -18,16 +19,20 @@ import type {
   FinanceMerchantMemoryFilters,
   FinancePerson,
   FinanceRule,
+  FinanceRuleActions,
   FinanceTransaction,
   FinanceTransactionFilters,
   FinanceTransactionSplit,
+  ReclassifyFinancePendingResult,
   SetFinanceTransactionCategoryInput,
   SetFinanceTransactionCategoryResult,
   SetFinanceTransferPair,
   UndoFinanceImportBatchResult,
 } from "../../domain/finance";
 import type { Database } from "./sqlite-db";
+import { classifyTransaction, type ClassificationOutcome } from "../finance/classify";
 import { DEFAULT_FINANCE_CATEGORIES } from "../finance/default-categories";
+import type { DismissedSuggestionPair } from "../finance/dismissed-suggestions";
 import {
   dedupeHash as computeDedupeHash,
   assignOccurrenceIndices,
@@ -37,6 +42,8 @@ import { findNearDuplicates } from "../finance/near-duplicates";
 import { detectTransfers, type TransferCandidateTransaction } from "../finance/transfers";
 import { validateSplitTotal } from "../finance/splits";
 import { createEntityId, nowIso } from "../gtd/shared";
+
+const localDate = (iso: string): string => iso.slice(0, 10);
 
 interface PersonRow {
   id: string;
@@ -854,7 +861,21 @@ export class FinanceSqliteStore {
     );
 
     let updated = 1;
+    const backfill: FinanceCategoryBackfillEntry[] = [];
     if (input.scope === "all_matching") {
+      const matchingRows = await db.select<TransactionRow[]>(
+        "SELECT * FROM finance_transactions WHERE merchant_key = $1 AND category_source != 'user' AND id != $2",
+        [txn.merchantKey, input.transactionId],
+      );
+      for (const row of matchingRows) {
+        backfill.push({
+          transactionId: row.id,
+          categoryId: row.category_id,
+          categorySource: row.category_source,
+          categoryConfidence: row.category_confidence,
+          categorizedAt: row.categorized_at,
+        });
+      }
       const result = await db.execute(
         "UPDATE finance_transactions SET category_id = $2, category_source = 'user', category_confidence = NULL, categorized_at = $3, updated_at = $3 WHERE merchant_key = $1 AND category_source != 'user' AND id != $4",
         [txn.merchantKey, input.categoryId, now, input.transactionId],
@@ -875,7 +896,35 @@ export class FinanceSqliteStore {
     });
     await this.upsertMerchantMemory(memory);
 
-    return { updated, memory };
+    return { updated, memory, backfill };
+  }
+
+  /** Reverts the `backfill` entries from a `scope: "all_matching"` call — a single undo. */
+  async revertCategoryBackfill(entries: FinanceCategoryBackfillEntry[]): Promise<number> {
+    if (entries.length === 0) {
+      return 0;
+    }
+    const db = await this.getDb();
+    const now = nowIso();
+    let reverted = 0;
+    for (const entry of entries) {
+      const result = await db.execute(
+        `UPDATE finance_transactions SET
+          category_id = $2, category_source = $3, category_confidence = $4,
+          categorized_at = $5, updated_at = $6
+        WHERE id = $1`,
+        [
+          entry.transactionId,
+          entry.categoryId,
+          entry.categorySource,
+          entry.categoryConfidence,
+          entry.categorizedAt,
+          now,
+        ],
+      );
+      reverted += result.rowsAffected;
+    }
+    return reverted;
   }
 
   async bulkUpdateTransactions(
@@ -1359,6 +1408,47 @@ export class FinanceSqliteStore {
         }
       }
 
+      // Classification (rules -> learned memory -> seed heuristics; no AI —
+      // see specs/todo/finance.md "Classification pipeline"). Only the rows
+      // this batch inserted that transfer detection left untouched are
+      // eligible; transfer detection already decided a final category for
+      // the rest.
+      const classificationRules = await this.listRules();
+      const classificationMemory = await this.listMerchantMemory();
+      const dismissed = await this.buildDismissedPairsWithDb(db);
+      const today = localDate(now);
+      const insertedForClassification = await db.select<TransactionRow[]>(
+        "SELECT * FROM finance_transactions WHERE import_batch_id = $1 AND is_transfer = 0",
+        [batchId],
+      );
+      for (const row of insertedForClassification) {
+        const outcome = classifyTransaction(
+          {
+            categoryId: row.category_id,
+            categorySource: row.category_source,
+            accountId: row.account_id,
+            amountMinor: row.amount_minor,
+            merchantKey: row.merchant_key,
+            personId: row.person_id,
+          },
+          {
+            rules: classificationRules,
+            memory: classificationMemory,
+            dismissed,
+            today,
+          },
+        );
+        const suggestionCreated = await this.applyClassificationOutcomeWithDb(
+          db,
+          row.id,
+          outcome,
+          now,
+        );
+        if (suggestionCreated) {
+          pendingSuggestions += 1;
+        }
+      }
+
       const skipped = input.rejected?.skipped ?? 0;
       const errors = input.rejected?.errors ?? 0;
       warnings.push(...(input.rejected?.warnings ?? []));
@@ -1417,8 +1507,9 @@ export class FinanceSqliteStore {
       suggestedCategoryId: string;
       origin: "memory" | "seed" | "ai";
       now: string;
+      confidence?: number;
     },
-  ): Promise<void> {
+  ): Promise<boolean> {
     const txnRows = await db.select<Array<{ merchant_key: string }>>(
       "SELECT merchant_key FROM finance_transactions WHERE id = $1",
       [input.transactionId],
@@ -1429,7 +1520,7 @@ export class FinanceSqliteStore {
       [input.transactionId],
     );
     if (existingPending.length > 0) {
-      return;
+      return false;
     }
     await db.execute(
       `INSERT INTO finance_category_suggestions (
@@ -1441,11 +1532,187 @@ export class FinanceSqliteStore {
         input.transactionId,
         merchantKey,
         input.suggestedCategoryId,
-        0.5,
+        input.confidence ?? 0.5,
         input.origin,
         input.now,
       ],
     );
+    return true;
+  }
+
+  /** `finance_category_suggestions` rows with `status = 'dismissed'`, as the pure 90-day window input. */
+  private async buildDismissedPairsWithDb(db: Database): Promise<DismissedSuggestionPair[]> {
+    const rows = await db.select<
+      Array<{
+        merchant_key: string;
+        suggested_category_id: string;
+        decided_at: string | null;
+        created_at: string;
+      }>
+    >(
+      "SELECT merchant_key, suggested_category_id, decided_at, created_at FROM finance_category_suggestions WHERE status = 'dismissed'",
+    );
+    return rows.map((row) => ({
+      merchantKey: row.merchant_key,
+      categoryId: row.suggested_category_id,
+      dismissedAt: row.decided_at ?? row.created_at,
+    }));
+  }
+
+  /** Applies every side-effect action from matching rules besides the category decision itself. */
+  private applyRuleActionsSql(
+    row: TransactionRow,
+    actions: FinanceRuleActions | null | undefined,
+  ): {
+    merchantDisplay: string | null;
+    personId: string | null;
+    excludedFromBudget: boolean;
+    excludedFromReports: boolean;
+    isTransfer: boolean;
+    labelsJson: string | null;
+  } {
+    if (!actions) {
+      return {
+        merchantDisplay: row.merchant_display,
+        personId: row.person_id,
+        excludedFromBudget: Boolean(row.excluded_from_budget),
+        excludedFromReports: Boolean(row.excluded_from_reports),
+        isTransfer: Boolean(row.is_transfer),
+        labelsJson: row.labels_json,
+      };
+    }
+    let labelsJson = row.labels_json;
+    if (actions.addLabels && actions.addLabels.length > 0) {
+      const existing: string[] = labelsJson ? JSON.parse(labelsJson) : [];
+      labelsJson = JSON.stringify([...new Set([...existing, ...actions.addLabels])]);
+    }
+    return {
+      merchantDisplay: actions.merchantDisplay ?? row.merchant_display,
+      personId: actions.personId ?? row.person_id,
+      excludedFromBudget: actions.excludeFromBudget ?? Boolean(row.excluded_from_budget),
+      excludedFromReports: actions.excludeFromReports ?? Boolean(row.excluded_from_reports),
+      isTransfer: actions.markTransfer ?? Boolean(row.is_transfer),
+      labelsJson,
+    };
+  }
+
+  /** Writes a `ClassificationOutcome` to the transaction (and a suggestion when owed). Returns whether a suggestion was created. */
+  private async applyClassificationOutcomeWithDb(
+    db: Database,
+    transactionId: string,
+    outcome: ClassificationOutcome,
+    now: string,
+  ): Promise<boolean> {
+    const rows = await db.select<TransactionRow[]>(
+      "SELECT * FROM finance_transactions WHERE id = $1",
+      [transactionId],
+    );
+    const row = rows[0];
+    if (!row) {
+      return false;
+    }
+    const actions = this.applyRuleActionsSql(row, outcome.ruleActions);
+    const categoryChanged =
+      row.category_id !== outcome.categoryId || row.category_source !== outcome.categorySource;
+    await db.execute(
+      `UPDATE finance_transactions SET
+        category_id = $2, category_source = $3, category_confidence = $4,
+        categorized_at = CASE WHEN $5 = 1 THEN $6 ELSE categorized_at END,
+        merchant_display = $7, person_id = $8, excluded_from_budget = $9,
+        excluded_from_reports = $10, is_transfer = $11, labels_json = $12, updated_at = $6
+      WHERE id = $1`,
+      [
+        transactionId,
+        outcome.categoryId,
+        outcome.categorySource,
+        outcome.categoryConfidence,
+        categoryChanged && outcome.categorySource !== "default" ? 1 : 0,
+        now,
+        actions.merchantDisplay,
+        actions.personId,
+        actions.excludedFromBudget ? 1 : 0,
+        actions.excludedFromReports ? 1 : 0,
+        actions.isTransfer ? 1 : 0,
+        actions.labelsJson,
+      ],
+    );
+    if (outcome.matchedRule) {
+      await db.execute(
+        "UPDATE finance_rules SET applied_count = applied_count + 1, last_applied_at = $2 WHERE id = $1",
+        [outcome.matchedRule.id, now],
+      );
+    }
+    if (outcome.suggestion) {
+      return this.insertPendingSuggestionWithDb(db, {
+        transactionId,
+        suggestedCategoryId: outcome.suggestion.categoryId,
+        origin: outcome.suggestion.origin,
+        confidence: outcome.suggestion.confidence,
+        now,
+      });
+    }
+    return false;
+  }
+
+  /**
+   * Re-runs classification (rules, memory, seeds — no AI, no transfer
+   * re-detection) over every non-`user` transaction. Used after a rule is
+   * created/edited and by the "Réappliquer les règles" action on
+   * `/finances/review`. One `writeExclusive` block / one `BEGIN IMMEDIATE`.
+   */
+  async reclassifyPending(): Promise<ReclassifyFinancePendingResult> {
+    const db = await this.getDb();
+    const now = nowIso();
+    const today = localDate(now);
+
+    await db.execute("BEGIN IMMEDIATE");
+    try {
+      const rules = await this.listRules();
+      const memory = await this.listMerchantMemory();
+      const dismissed = await this.buildDismissedPairsWithDb(db);
+
+      const rows = await db.select<TransactionRow[]>(
+        "SELECT * FROM finance_transactions WHERE category_source != 'user' AND is_transfer = 0",
+      );
+
+      let reclassified = 0;
+      let suggestionsCreated = 0;
+
+      for (const row of rows) {
+        const outcome = classifyTransaction(
+          {
+            categoryId: row.category_id,
+            categorySource: row.category_source,
+            accountId: row.account_id,
+            amountMinor: row.amount_minor,
+            merchantKey: row.merchant_key,
+            personId: row.person_id,
+          },
+          { rules, memory, dismissed, today },
+        );
+        const suggestionCreated = await this.applyClassificationOutcomeWithDb(
+          db,
+          row.id,
+          outcome,
+          now,
+        );
+        if (suggestionCreated) {
+          suggestionsCreated += 1;
+        }
+        if (
+          row.category_id !== outcome.categoryId ||
+          row.category_source !== outcome.categorySource
+        ) {
+          reclassified += 1;
+        }
+      }
+
+      await db.execute("COMMIT");
+      return { reclassified, suggestionsCreated };
+    } catch (error) {
+      await this.rollbackQuietly(db);
+      throw error;
+    }
   }
 
   /**

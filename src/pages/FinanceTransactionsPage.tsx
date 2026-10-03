@@ -7,6 +7,7 @@ import { SectionCard } from "../components/SectionCard";
 import type {
   FinanceAccount,
   FinanceCategory,
+  FinanceCategoryBackfillEntry,
   FinancePerson,
   FinanceTransaction,
   FinanceTransactionCategoryScope,
@@ -60,6 +61,10 @@ export const FinanceTransactionsPage = () => {
   const splitRequestRef = useRef(0);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [transferPairWarning, setTransferPairWarning] = useState<string | null>(null);
+  const [lastBackfill, setLastBackfill] = useState<{
+    count: number;
+    entries: FinanceCategoryBackfillEntry[];
+  } | null>(null);
 
   const filters = useMemo(
     () => ({
@@ -121,11 +126,25 @@ export const FinanceTransactionsPage = () => {
 
   const setCategory = async (transaction: FinanceTransaction, categoryId: string) => {
     const scope = categoryScopeByTxnId[transaction.id] ?? "this";
-    await repository.setFinanceTransactionCategory({
+    const result = await repository.setFinanceTransactionCategory({
       transactionId: transaction.id,
       categoryId,
       scope,
     });
+    setLastBackfill(
+      scope === "all_matching" && result.backfill.length > 0
+        ? { count: result.backfill.length, entries: result.backfill }
+        : null,
+    );
+    await load();
+  };
+
+  const undoLastBackfill = async () => {
+    if (!lastBackfill) {
+      return;
+    }
+    await repository.revertFinanceCategoryBackfill(lastBackfill.entries);
+    setLastBackfill(null);
     await load();
   };
 
@@ -438,6 +457,17 @@ export const FinanceTransactionsPage = () => {
         </SectionCard>
       ) : null}
 
+      {lastBackfill ? (
+        <SectionCard title={t("transactions.backfill.title")}>
+          <p>{t("transactions.backfill.message", { count: lastBackfill.count })}</p>
+          <div className="actions-row">
+            <button type="button" className="button" onClick={() => void undoLastBackfill()}>
+              {t("transactions.backfill.undo")}
+            </button>
+          </div>
+        </SectionCard>
+      ) : null}
+
       <SectionCard title={t("transactions.listTitle")}>
         {transactions.length === 0 ? <p>{t("transactions.noResults")}</p> : null}
         <div className="stack">
@@ -458,7 +488,11 @@ export const FinanceTransactionsPage = () => {
                   {formatMoney({
                     amountMinor: transaction.amountMinor,
                     currency: transaction.currency,
-                  })}
+                  })}{" "}
+                  ·{" "}
+                  <span className="tag-chip">
+                    {t(`transactions.categorySource.${transaction.categorySource}`)}
+                  </span>
                 </p>
                 <label>
                   <span>{t("transactions.category")}</span>

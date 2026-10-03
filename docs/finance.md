@@ -7,18 +7,20 @@ learning categorization loop, multi-person/multi-account tracking, and (in later
 phases) YNAB-style envelope budgeting and proactive runout forecasting. This page
 documents **Phase 2 — Schema and repository parity** (the SQLite schema, the
 `FinanceSqliteStore`/`FinanceMemoryStore` persistence layer, and the
-`AppRepository` contract) and **Phase 3 — Accounts, import, and transaction
-screens** (the first finance UI). There is still no classification pipeline and
-no budget arithmetic — see [specs/todo/finance.md](../specs/todo/finance.md) for
-the full phased plan.
+`AppRepository` contract), **Phase 3 — Accounts, import, and transaction
+screens** (the first finance UI), and **Phase 4 — Classification: rules,
+memory, seeds, review queue** (the automatic categorization pipeline, the
+`/finances/review` suggestion queue, and the `/finances/rules` rule manager).
+There is still no budget arithmetic and no AI categorization stage — see
+[specs/todo/finance.md](../specs/todo/finance.md) for the full phased plan.
 
 The feature is **unshipped to end users by default**: `AppSettings.financeEnabled`
 defaults to `false`. With it off, the sidebar has no "Finances" entry and
 `/finances*` redirects to `/`. A household that turns it on in Settings gets
-the four screens documented in "Screens" below; later phases (classification,
-budget, reports, forecasting) are not built yet. This page describes what the
-storage layer and the UI can do today so later phases (and reviewers) have a
-canonical reference.
+the six screens documented in "Screens" below; later phases (budget, reports,
+forecasting, AI) are not built yet. This page describes what the storage layer
+and the UI can do today so later phases (and reviewers) have a canonical
+reference.
 
 ## Data model
 
@@ -55,9 +57,9 @@ ISO strings from `nowIso()`.
   counted by reports. The engine (not a DB constraint) is responsible for keeping
   `Σ split.amount_minor == parent.amount_minor`.
 - **`finance_rules`**, **`finance_merchant_memory`**, **`finance_category_suggestions`**
-  — the classification pipeline's inputs and pending-review queue (classification
-  itself ships in Phase 4). A partial unique index keeps at most one pending
-  suggestion per transaction.
+  — the classification pipeline's inputs and pending-review queue (see
+  "Classification pipeline (Phase 4)" below). A partial unique index keeps at
+  most one pending suggestion per transaction.
 - **`finance_import_profiles`**, **`finance_import_batches`** — saved column-mapping
   profiles (unique by header signature) and one row per import run.
 - **`finance_budget_entries`**, **`finance_budget_months`**,
@@ -73,7 +75,8 @@ the three system categories above. `AppRepository.seedFinanceDefaultCategories()
 seeds it idempotently (`INSERT OR IGNORE`, so re-running is always a no-op) on both
 repositories. Settings calls it when finance is first enabled, and the call is gated on
 `AppSettings.financeCategoriesSeededAt`, the same one-time-marker pattern as the GTD
-normalizations in `app-context.tsx`.
+normalizations in `app-context.tsx`. Phase 4 added `fincat:logement.telecommunications` (additively — existing ids are never
+renumbered) so the bundled telecom seed heuristic has a category to point at.
 
 ## Settings
 
@@ -108,7 +111,8 @@ Covered in this phase: people, accounts, categories (including the default-taxon
 seed and archive-with-reassign), rules, merchant memory, transactions (including
 splits and transfers), import profiles/batches (including their decimal/thousands
 separators), transaction import with undo, and
-the category-suggestion queue. Every finance mutation goes through the repository
+the category-suggestion queue. Phase 4 added the classification pipeline itself
+(below), `reclassifyFinancePending()`, and `revertFinanceCategoryBackfill()`. Every finance mutation goes through the repository
 writer queue (`writeExclusive`), so a save can never be rolled back by a concurrent
 import. `saveFinanceTransactionSplits` validates that a non-empty allocation sums
 exactly to the parent amount before touching anything and replaces splits in one
@@ -127,21 +131,86 @@ place that writes a user correction:
 
 - Always sets `category_id`, `category_source = 'user'`, `categorized_at` on the
   target transaction.
-- `scope: "all_matching"` also recategorizes every other transaction sharing the
-  same `merchant_key` whose `category_source !== 'user'`, and reports how many rows
-  changed. A `scope: "this"` or `"this_and_future"` call never touches other rows
-  (`"this_and_future"`'s future-matching behavior is a later-phase classification
-  concern; today both are equivalent to `"this"`).
 - Upserts `finance_merchant_memory` for `(merchant_key, account_id, sign)` via the
   pure `applyMerchantMemoryCorrection` in `src/lib/finance/memory.ts`: on agreement
   with the existing entry, `hit_count += 1` and confidence nudges up (capped at
   `0.99`); on disagreement, the category is replaced, `correction_count += 1`, and
   confidence resets to `0.6` so one correction does not immediately become an
-  auto-apply.
+  auto-apply. This write happens for every scope — it is what makes
+  `"this_and_future"` meaningfully different from `"this"` in practice, even
+  though both write only the target row: the next import or
+  `reclassifyFinancePending()` call picks up the updated memory automatically,
+  so there is no separate "apply to future" step to run.
+- `scope: "this"` (default) and `scope: "this_and_future"` both write only the
+  target transaction; the distinction is about *intent* (future transactions
+  will benefit from the memory update either way), not a different write path.
+- `scope: "all_matching"` additionally recategorizes every other transaction
+  sharing the same `merchant_key` whose `category_source !== 'user'` (their
+  `category_source` itself is left unchanged, so a later `reclassifyFinancePending()`
+  can still revise them if a rule or stronger memory signal appears later). The
+  result's `backfill` array captures each backfilled row's prior `category_id`,
+  `category_source`, `category_confidence`, and `categorized_at`; passing that
+  array to `revertFinanceCategoryBackfill()` is the single undo the UI offers
+  right after an `all_matching` edit (`FinanceTransactionsPage`'s backfill
+  banner). The target transaction's own `category_source = 'user'` write is
+  **not** part of the undo — only the backfilled rows revert.
 
 `decideFinanceCategorySuggestion` routes an `accepted`/`corrected` decision through
-this same entry point, so accepting a suggestion reinforces memory exactly like a
-manual edit.
+this same entry point (`scope: "this"`), so accepting a suggestion reinforces
+memory exactly like a manual edit. Dismissing a suggestion does **not** call
+`setFinanceTransactionCategory` — the transaction's category is left alone, and
+the suggestion row itself (now `status = 'dismissed'`) becomes the negative
+signal `classifyTransaction` reads for the 90-day suppression window.
+
+## Classification pipeline (Phase 4)
+
+`src/lib/finance/classify.ts` exports the pure `classifyTransaction(txn, context)`,
+the single place that decides a transaction's category. Order, highest authority
+first — the first stage that produces a category wins:
+
+1. **User-set** (`categorySource === "user"`) — passthrough, never touched.
+2. **Enabled `finance_rules`**, ordered by `priority` then id. `matchesRuleMatcher`
+   checks `descriptionContains` (against `merchant_key`, case-insensitive),
+   `descriptionRegex` (also against `merchant_key`; an invalid pattern is caught
+   and simply never matches — it never throws), `accountIds`, `personId`,
+   `amountMinMinor`/`amountMaxMinor`, and `sign`. The first matching rule with an
+   `actions.categoryId` decides the category (`category_source = 'rule'`,
+   confidence `1`); every matching rule's other actions (`merchantDisplay`,
+   `personId`, `markTransfer`, `excludeFromBudget`, `excludeFromReports`,
+   `addLabels`) are merged and applied regardless of which rule won the category.
+3. **Transfer detection's result**, when the caller already resolved this
+   transaction via `src/lib/finance/transfers.ts` (import and
+   `reclassifyFinancePending()` both skip already-`is_transfer` rows entirely
+   rather than routing them back through this stage — transfer detection is the
+   authority there).
+4. **Learned merchant memory** (`finance_merchant_memory`). Lookup order: exact
+   `(merchantKey, accountId, sign)` → `(merchantKey, "", sign)` →
+   `(merchantKey, "", 0)`. Auto-applies (`category_source = 'memory'`) at
+   `confidence >= 0.85` **and** `hitCount >= 2`; otherwise a pending suggestion
+   (`origin: "memory"`) — unless the `(merchantKey, categoryId)` pair was
+   dismissed in the last 90 days (`src/lib/finance/dismissed-suggestions.ts`,
+   injectable "today" so tests never depend on the real clock), in which case no
+   suggestion is written at all. Memory outranks seeds whenever *any* entry
+   exists, even below the auto-apply threshold.
+5. **Bundled seed heuristics** (`src/lib/finance/seed-heuristics.ts`) — only
+   consulted when no memory entry exists at any lookup level. An ordered list of
+   `{ pattern, categoryId, confidence }` for merchants unambiguous in the
+   Canadian/French context (grocery chains, fuel, telecom, transit/rideshare,
+   streaming, pharmacy), matched against `merchant_key`. Confidence is capped at
+   `0.7` — a seed always produces a suggestion (`origin: "seed"`), never an
+   auto-apply — and is subject to the same 90-day dismissal suppression as memory.
+6. **AI** — not implemented. The function has a clearly marked, empty hook
+   between seeds and the default stage for Phase 8 to fill in.
+7. **`Uncategorized`**, `category_source = 'default'`.
+
+Both `FinanceSqliteStore.importTransactions` and `FinanceMemoryStore.importTransactions`
+run this pipeline over every row the batch actually inserted that transfer
+detection left untouched, immediately after transfer detection, inside the same
+write. `reclassifyFinancePending()` re-runs the same pipeline (rules, memory,
+seeds — no AI, no transfer re-detection) over every existing `category_source !=
+'user'`, non-transfer transaction; it is what powers the "Réappliquer les règles"
+action on `/finances/rules` and `/finances/review` after a rule is created or
+edited. Neither path ever touches a `category_source = 'user'` row.
 
 ### Import
 
@@ -177,10 +246,11 @@ it never calls another queue-taking repository method, so it cannot deadlock
 `repository.contract.ts`'s "imports 5 000 rows" test).
 
 New rows land as `category_id = 'fincat:non-categorise'`, `category_source =
-'default'` before transfer detection runs; a `categoryHint` on the row (from, e.g.,
-a Mint CSV's `Category` column) is accepted on the request shape but ignored by
-this phase — the full classification pipeline (rules → transfer detection →
-merchant memory → seed heuristics → AI → default) is Phase 4.
+'default'`; transfer detection then runs, and finally the classification
+pipeline (see "Classification pipeline (Phase 4)" above) runs over whatever
+transfer detection left untouched. A `categoryHint` on the row (from, e.g., a
+Mint CSV's `Category` column) is still accepted on the request shape but
+ignored — nothing in the pipeline reads it yet.
 
 ### Undo
 
@@ -197,7 +267,7 @@ does not silently fall out of the budget), and **refuses to delete any row whose
 `category_source = 'user'`** — those rows are counted in `refusedUserCategorized`
 and left exactly as they were, with their `import_batch_id` intact.
 
-## Screens (Phase 3)
+## Screens (Phases 3–4)
 
 ### Flag gating
 
@@ -247,12 +317,14 @@ call sites that race harmlessly because the seed is `INSERT OR IGNORE`:
 | `/finances/transactions` | `FinanceTransactionsPage` |
 | `/finances/import` | `FinanceImportPage` |
 | `/finances/accounts` | `FinanceAccountsPage` |
+| `/finances/review` | `FinanceReviewPage` (Phase 4) |
+| `/finances/rules` | `FinanceRulesPage` (Phase 4) |
 
 Every `/finances*` page renders `FinanceTabs`
 (`src/components/finance/FinanceTabs.tsx`), a shared in-page nav bar. It only
 lists tabs for screens that exist today (Overview, Transactions, Import,
-Accounts); Budget, Reports, and Review have no tab until their phases ship —
-adding a tab that 404s or redirects would be worse than omitting it.
+Accounts, Review, Rules); Budget and Reports have no tab until their phases
+ship — adding a tab that 404s or redirects would be worse than omitting it.
 
 `FinanceOverviewPage`'s total only sums on-budget accounts whose `currency`
 equals `AppSettings.financeBaseCurrency` — minor units from different
@@ -341,13 +413,22 @@ shows a discrepancy banner whenever they disagree.
 A paged (25 per page), filtered (date range, account, category, person, free
 text search, uncategorized-only) transaction list. Each row supports:
 
+- A category-source badge (`transactions.categorySource.*`, one of `user`,
+  `rule`, `memory`, `seed`, `ai`, `default`) next to the date/account/amount
+  line, so it is visible at a glance whether a row's category came from a
+  manual edit or an automatic stage.
 - Inline category edit via `setFinanceTransactionCategory`, with a
   per-row scope selector (`this` / `this_and_future` / `all_matching`) that
   is read at edit time — there is no separate "apply" step. The select always
   has a real category selected (falling back to the system
   `fincat:non-categorise` id rather than an empty `""` option), so every
   change sends a concrete, non-empty `categoryId`; both `FinanceSqliteStore`
-  and `FinanceMemoryStore` also reject an empty `categoryId` defensively.
+  and `FinanceMemoryStore` also reject an empty `categoryId` defensively. When
+  the scope is `all_matching` and other rows were backfilled, a banner reports
+  the count and offers "Annuler la recatégorisation groupée", which calls
+  `revertFinanceCategoryBackfill` with the result's `backfill` entries (see
+  "Learning entry point" above) — the banner and its undo apply to only the
+  most recent `all_matching` edit in the page's session.
 - A split editor (`FinanceTransactionSplit[]`) with client-side sum-invariant
   validation matching the repositories' own `validateSplitTotal`: a non-empty
   allocation must parse and sum exactly to the parent's `amountMinor`; removing
@@ -375,6 +456,46 @@ text search, uncategorized-only) transaction list. Each row supports:
 A bulk-selection toolbar appears once at least one row is checked: apply a
 category, exclude the selection from budget/reports, or (with exactly two
 rows selected) mark the pair as a transfer.
+
+### FinanceReviewPage (`/finances/review`, Phase 4)
+
+The pending-suggestion queue (`listFinanceCategorySuggestions("pending")`),
+grouped by `merchant_key`. Each suggestion shows the transaction's description,
+the suggested category name, its confidence, and its `origin` (`memory` |
+`seed` — `ai` is Phase 8). Three per-row actions, all routed through
+`decideFinanceCategorySuggestion`:
+
+- **Accepter** — `status: "accepted"`, which applies the suggested category via
+  `setFinanceTransactionCategory({ scope: "this" })` and reinforces
+  `finance_merchant_memory` exactly like a manual edit.
+- **Corriger** — opens a category picker; choosing one sends
+  `status: "corrected"` with that `categoryId`, which flips memory to the
+  chosen category and resets its confidence to `0.6` (see
+  `applyMerchantMemoryCorrection`).
+- **Rejeter** — `status: "dismissed"`. The transaction's category is left
+  untouched; the dismissed suggestion row itself becomes the negative signal
+  `classifyTransaction` reads for the 90-day `(merchantKey, categoryId)`
+  suppression window on the next import or reclassify.
+
+"Accepter tout au-dessus de {{threshold}}%" bulk-accepts every pending
+suggestion at or above an 80% confidence floor (a page constant, not a
+setting). "Réappliquer les règles" calls `reclassifyFinancePending()` and
+reports how many transactions changed and how many new suggestions were
+created — useful right after creating or editing a rule on `/finances/rules`.
+There is no "Classifier en attente" (AI) button yet — that ships with Phase 8.
+
+### FinanceRulesPage (`/finances/rules`, Phase 4)
+
+CRUD for `finance_rules`: name, priority, a single `descriptionContains`
+matcher field (the full matcher shape — `descriptionRegex`, `accountIds`,
+`personId`, amount bounds, `sign` — is supported by the engine and the
+repository but not yet exposed in this form), and a category action. Each rule
+card shows its applied count and enable/disable and delete actions
+(`saveFinanceRule`/`deleteFinanceRule`). "Appliquer aux transactions
+existantes" calls the same `reclassifyFinancePending()` as the review page's
+"Réappliquer les règles" — the two buttons are the same action surfaced on two
+screens, matching how a newly added rule should retroactively reach rows that
+already exist.
 
 ## Related documentation
 
