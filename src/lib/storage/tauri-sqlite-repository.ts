@@ -1,4 +1,9 @@
 import {
+  defaultAppSettings,
+  normalizeAppSettings,
+  type SettingsUpdater,
+} from "../../domain/settings";
+import {
   taskForAcceptEffect,
   type AcceptEffect,
   type AiProposalAcceptResult,
@@ -16,7 +21,6 @@ import {
   applyDailyTaskStats,
   cloneEntry,
   createEmptyDailyEntry,
-  defaultAppSettings,
 } from "../../domain/daily-entry";
 import {
   buildMonthlyReviewSummary,
@@ -127,7 +131,6 @@ import {
   getRelationshipDrawActivities,
   getRelationshipDrawProcessedDate,
   getRelationshipDrawSourceExternalId,
-  mergeAppSettingsWithDefaults,
   pickRelationshipDrawActivity,
   relationshipDrawDefinitions,
   relationshipPersonalContextId,
@@ -1327,7 +1330,7 @@ export class TauriSqliteRepository implements AppRepository {
       return defaultAppSettings();
     }
 
-    return mergeAppSettingsWithDefaults(
+    return normalizeAppSettings(
       JSON.parse(rows[0].value) as Partial<AppSettings>,
       defaultAppSettings(),
     );
@@ -1340,9 +1343,9 @@ export class TauriSqliteRepository implements AppRepository {
     });
   }
 
-  /** Shared by `saveSettings` and `addPastorCustomVerse` — callers must already hold `writeQueue`. */
+  /** Callers must already hold the repository writer slot. */
   private async writeSettingsRow(db: SqliteDatabase, settings: AppSettings): Promise<AppSettings> {
-    const normalized = mergeAppSettingsWithDefaults(settings, defaultAppSettings());
+    const normalized = normalizeAppSettings(settings, defaultAppSettings());
     await db.execute(
       `INSERT INTO app_settings (id, value)
        VALUES (1, $1)
@@ -1352,28 +1355,24 @@ export class TauriSqliteRepository implements AppRepository {
     return normalized;
   }
 
-  /**
-   * Atomically merges `candidate` into `aiPastorCustomVerses`: the read and write both happen
-   * inside one `writeExclusive` operation, so no other queued `saveSettings`/settings-mutating call
-   * can interleave between the read and the write (see the interface doc comment).
-   */
+  /** Read/apply/write is protected by the writer and rolls back on failure. */
+  async updateSettings(updater: SettingsUpdater): Promise<AppSettings> {
+    return this.writeTransaction(async (tx) => {
+      const current = await this.getSettings();
+      return this.writeSettingsRow(transactionDb(tx), updater(current));
+    });
+  }
+
   async addPastorCustomVerse(
     candidate: CatalogVerse,
   ): Promise<{ added: boolean; settings: AppSettings }> {
-    return this.writeExclusive(async () => {
-      const db = await this.getDb();
-      const current = await this.getSettings();
-      const { added, customVerses } = addCustomVerse(current.aiPastorCustomVerses, candidate);
-      if (!added) {
-        return { added: false, settings: current };
-      }
-
-      const next = await this.writeSettingsRow(db, {
-        ...current,
-        aiPastorCustomVerses: customVerses,
-      });
-      return { added: true, settings: next };
+    let added = false;
+    const settings = await this.updateSettings((current) => {
+      const result = addCustomVerse(current.aiPastorCustomVerses, candidate);
+      added = result.added;
+      return { ...current, aiPastorCustomVerses: result.customVerses };
     });
+    return { added, settings };
   }
 
   async getAiMessage(
@@ -2892,7 +2891,15 @@ export class TauriSqliteRepository implements AppRepository {
       createdCount += 1;
     }
 
-    await this.saveSettings(nextSettings);
+    await this.updateSettings((current) => {
+      const next = { ...current };
+      for (const definition of relationshipDrawDefinitions) {
+        if (nextSettings[definition.processedDateKey] !== settings[definition.processedDateKey]) {
+          next[definition.processedDateKey] = nextSettings[definition.processedDateKey];
+        }
+      }
+      return next;
+    });
     return createdCount;
   }
 

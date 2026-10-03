@@ -1,10 +1,8 @@
 import { t } from "../i18n";
 import { atLocalNoon } from "../lib/date";
 import { addDays, getWeekStartSunday } from "../lib/date";
-import { defaultChildrenActivities, defaultSpouseActivities } from "../lib/relationship-draws";
 import { metricDefinitions, principleDefinitions } from "./definitions";
 import type {
-  AppSettings,
   DailyEntry,
   DailyMetrics,
   DailyPomodoroStats,
@@ -54,68 +52,12 @@ const emptyPrinciples = (): PrincipleChecks => ({
   objectifsAtteints: null,
 });
 
-export const DEFAULT_AI_MAX_TOKENS = 4_096;
-/** Previous factory default, upgraded once at bootstrap when `aiMaxTokensUpgradeDoneAt` is empty. */
-export const LEGACY_FACTORY_AI_MAX_TOKENS = 700;
-
-export const applyLegacyAiMaxTokensUpgrade = (
-  settings: AppSettings,
-  nowIso: string,
-): AppSettings | null => {
-  if (settings.aiMaxTokensUpgradeDoneAt) {
-    return null;
-  }
-
-  return {
-    ...settings,
-    aiMaxTokens:
-      settings.aiMaxTokens === LEGACY_FACTORY_AI_MAX_TOKENS
-        ? DEFAULT_AI_MAX_TOKENS
-        : settings.aiMaxTokens,
-    aiMaxTokensUpgradeDoneAt: nowIso,
-  };
-};
-
-export const defaultAppSettings = (): AppSettings => ({
-  language: "fr",
-  storageMode: "sqlite",
-  aiEnabled: false,
-  aiApiKey: "",
-  aiBaseUrl: "https://openrouter.ai/api/v1",
-  aiModel: "moonshotai/kimi-k2.6",
-  aiPayloadScope: "full",
-  aiSurfaceModels: {},
-  aiMaxTokens: DEFAULT_AI_MAX_TOKENS,
-  aiTimeoutMs: 20_000,
-  aiMemoryEnabled: true,
-  aiPulseEnabled: true,
-  aiPulseSlots: [5, 13, 20],
-  aiPulseNotifyEnabled: true,
-  aiPulseNotifyDays: [1, 2, 3, 4, 5],
-  aiPulseMaxNotificationsPerDay: 2,
-  aiPastorEnabled: false,
-  aiPastorCustomVerses: [],
-  aiCostPerMillionTokens: 1,
-  aiPulseFirstOpenAt: {},
-  rescuetimeApiKey: "",
-  autoBackupEnabled: true,
-  autoBackupIntervalHours: 24,
-  backupDestinationDir: "",
-  lastBackupAt: "",
-  lastBackupPath: "",
-  gtdImportDoneAt: "",
-  gtdReferencesMigrationDoneAt: "",
-  gtdScheduledNormalizationDoneAt: "",
-  gtdRecurringCollapseDoneAt: "",
-  dimancheNotesRelocatedAt: "",
-  aiMaxTokensUpgradeDoneAt: "",
-  relationshipDrawsEnabled: true,
-  relationshipDrawChildrenActivities: [...defaultChildrenActivities],
-  relationshipDrawSpouseActivities: [...defaultSpouseActivities],
-  relationshipDrawChildrenProcessedDate: "",
-  relationshipDrawSpouseProcessedDate: "",
-  previousDayReviewDoneDate: "",
-});
+export {
+  DEFAULT_AI_MAX_TOKENS,
+  LEGACY_FACTORY_AI_MAX_TOKENS,
+  applyLegacyAiMaxTokensUpgrade,
+  defaultAppSettings,
+} from "./settings";
 
 export const createEmptyDailyEntry = (date: string): DailyEntry => ({
   date,

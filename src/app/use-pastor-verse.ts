@@ -1,3 +1,4 @@
+import type { SettingsUpdater } from "../domain/settings";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AppSettings, PastorVerseResult } from "../domain/types";
 import { t } from "../i18n";
@@ -6,7 +7,7 @@ import { latestPastorFallbackAt, loadLatestPastorVerse } from "../lib/ai/pastor-
 import { PastorVerseService } from "../lib/ai/pastor-verse-service";
 import { logDebug } from "../lib/debug";
 import { referenceKey } from "../lib/pastor/bible-books";
-import { buildCustomVerseFromOffListPick } from "../lib/pastor/custom-verse";
+import { buildCustomVerseFromOffListPick, addCustomVerse } from "../lib/pastor/custom-verse";
 import { pickLocalVerse } from "../lib/pastor/local-pick";
 import { buildCatalogWithCustomVerses } from "../lib/pastor/verse-catalog";
 import type { AppRepository } from "../lib/storage/repository";
@@ -83,7 +84,7 @@ export const usePastorVerse = (
   date: string,
   settings: AppSettings,
   repository: AppRepository,
-  syncSettings: (settings: AppSettings) => void,
+  updateSettings: (updater: SettingsUpdater) => Promise<AppSettings>,
 ): UsePastorVerseValue => {
   const service = useMemo(() => new PastorVerseService(new OpenRouterProvider()), []);
   const [result, setResult] = useState<PastorVerseResult | null>(null);
@@ -288,24 +289,18 @@ export const usePastorVerse = (
     setAddingToCatalog(true);
     setAddToCatalogError(null);
     try {
-      // Atomic read-merge-write on the repository: it re-reads the settings row immediately
-      // before writing, so a concurrent settings save elsewhere (pulse/backup metadata) cannot
-      // lose this addition, and this addition cannot lose that concurrent write. `added` covers
-      // both "newly appended" and "already present" — both mean the user's preferred list now
-      // covers this verse, which is what the button reports.
-      const { settings: nextSettings } = await repository.addPastorCustomVerse(candidate);
-      // Only mark the reference "added" (disabling the button) once the write has actually
-      // succeeded, so a failure below leaves the action retryable instead of optimistically
-      // reporting success for data that never persisted.
+      await updateSettings((current) => ({
+        ...current,
+        aiPastorCustomVerses: addCustomVerse(current.aiPastorCustomVerses, candidate).customVerses,
+      }));
       setAddedReferenceKey(referenceKey(candidate.reference));
-      syncSettings(nextSettings);
     } catch (error) {
       logPastorVerseError("Echec de l'ajout a la liste preferee", error);
       setAddToCatalogError(t("pastor.addToListError", { ns: "today" }));
     } finally {
       setAddingToCatalog(false);
     }
-  }, [repository, syncSettings]);
+  }, [updateSettings]);
 
   const addedToCatalog =
     result?.body.reference != null && addedReferenceKey === referenceKey(result.body.reference);

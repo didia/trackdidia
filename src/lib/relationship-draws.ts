@@ -1,5 +1,5 @@
 import type { AppSettings, Task } from "../domain/types";
-import { t, tList } from "../i18n";
+import { t } from "../i18n";
 import { buildContextId } from "./gtd/shared";
 import { toLocalDateString } from "./date";
 
@@ -17,9 +17,7 @@ export interface RelationshipDrawDefinition {
 export const relationshipPersonalContextName = t("contextPersonal", { ns: "relationship" });
 export const relationshipPersonalContextId = buildContextId(relationshipPersonalContextName);
 
-export const defaultChildrenActivities = tList("childrenActivities", "relationship");
-
-export const defaultSpouseActivities = tList("spouseActivities", "relationship");
+export { defaultChildrenActivities, defaultSpouseActivities } from "../domain/settings";
 
 export const relationshipDrawDefinitions: RelationshipDrawDefinition[] = [
   {
@@ -40,55 +38,7 @@ export const relationshipDrawDefinitions: RelationshipDrawDefinition[] = [
   },
 ];
 
-export const mergeAppSettingsWithDefaults = (
-  settings: Partial<AppSettings>,
-  defaults: AppSettings,
-): AppSettings => ({
-  ...defaults,
-  ...settings,
-  aiSurfaceModels:
-    settings.aiSurfaceModels && typeof settings.aiSurfaceModels === "object"
-      ? settings.aiSurfaceModels
-      : defaults.aiSurfaceModels,
-  aiMaxTokens:
-    typeof settings.aiMaxTokens === "number" && settings.aiMaxTokens > 0
-      ? settings.aiMaxTokens
-      : defaults.aiMaxTokens,
-  aiTimeoutMs:
-    typeof settings.aiTimeoutMs === "number" && settings.aiTimeoutMs > 0
-      ? settings.aiTimeoutMs
-      : defaults.aiTimeoutMs,
-  relationshipDrawChildrenActivities: Array.isArray(settings.relationshipDrawChildrenActivities)
-    ? settings.relationshipDrawChildrenActivities
-    : defaults.relationshipDrawChildrenActivities,
-  relationshipDrawSpouseActivities: Array.isArray(settings.relationshipDrawSpouseActivities)
-    ? settings.relationshipDrawSpouseActivities
-    : defaults.relationshipDrawSpouseActivities,
-  aiPastorCustomVerses: Array.isArray(settings.aiPastorCustomVerses)
-    ? settings.aiPastorCustomVerses
-    : defaults.aiPastorCustomVerses,
-  aiPulseSlots:
-    Array.isArray(settings.aiPulseSlots) && settings.aiPulseSlots.length > 0
-      ? settings.aiPulseSlots
-      : defaults.aiPulseSlots,
-  aiPulseNotifyDays:
-    Array.isArray(settings.aiPulseNotifyDays) && settings.aiPulseNotifyDays.length > 0
-      ? settings.aiPulseNotifyDays
-      : defaults.aiPulseNotifyDays,
-  aiPulseMaxNotificationsPerDay:
-    typeof settings.aiPulseMaxNotificationsPerDay === "number" &&
-    settings.aiPulseMaxNotificationsPerDay >= 0
-      ? settings.aiPulseMaxNotificationsPerDay
-      : defaults.aiPulseMaxNotificationsPerDay,
-  aiPulseFirstOpenAt:
-    settings.aiPulseFirstOpenAt && typeof settings.aiPulseFirstOpenAt === "object"
-      ? settings.aiPulseFirstOpenAt
-      : defaults.aiPulseFirstOpenAt,
-  aiCostPerMillionTokens:
-    typeof settings.aiCostPerMillionTokens === "number" && settings.aiCostPerMillionTokens >= 0
-      ? settings.aiCostPerMillionTokens
-      : defaults.aiCostPerMillionTokens,
-});
+export { normalizeAppSettings as mergeAppSettingsWithDefaults } from "../domain/settings";
 
 export const getRelationshipDrawActivities = (
   settings: AppSettings,

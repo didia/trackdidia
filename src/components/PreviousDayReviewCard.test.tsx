@@ -47,13 +47,15 @@ describe("PreviousDayReviewCard", () => {
 
     let savedSettings: unknown = null;
     const settings = defaultAppSettings();
-    const saveSettings = vi.fn(async (next: typeof settings) => {
+    const updateSettings = vi.fn(async (updater: (current: typeof settings) => typeof settings) => {
+      const next = updater(settings);
       savedSettings = next;
+      return next;
     });
 
     await renderWithApp(<MorningRoutinePage />, {
       repository,
-      contextOverrides: { settings, saveSettings },
+      contextOverrides: { settings, updateSettings },
     });
 
     await screen.findByText("Finaliser hier");
@@ -80,7 +82,7 @@ describe("PreviousDayReviewCard", () => {
     const savedToday = await repository.getDailyEntry(getTodayDate());
     expect(savedToday).toBeNull();
 
-    expect(saveSettings).toHaveBeenCalled();
+    expect(updateSettings).toHaveBeenCalled();
     expect(
       (savedSettings as { previousDayReviewDoneDate: string } | null)?.previousDayReviewDoneDate,
     ).toBe(yesterday);
