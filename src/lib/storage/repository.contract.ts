@@ -3976,6 +3976,283 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           });
         });
       });
+
+      describe("tracking (Phase 6)", () => {
+        it("computeFinanceNetWorth matches a hand-computed assets-minus-liabilities fixture", async () => {
+          const repository = await factory();
+          const checking = await repository.saveFinanceAccount(
+            account({ id: "account-checking", type: "checking", openingBalanceMinor: 100_00 }),
+          );
+          const creditCard = await repository.saveFinanceAccount(
+            account({ id: "account-credit", type: "credit_card", openingBalanceMinor: 0 }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-checking",
+              accountId: checking.id,
+              postedDate: "2026-01-05",
+              amountMinor: 200_00,
+            }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-credit",
+              accountId: creditCard.id,
+              postedDate: "2026-01-10",
+              amountMinor: -300_00,
+            }),
+          );
+
+          const snapshot = await repository.computeFinanceNetWorth("2026-01-31");
+          expect(snapshot.assetsMinor).toBe(100_00 + 200_00);
+          expect(snapshot.liabilitiesMinor).toBe(300_00);
+          expect(snapshot.netWorthMinor).toBe(snapshot.assetsMinor - snapshot.liabilitiesMinor);
+        });
+
+        it("computeFinanceCashFlow excludes transfers and sums income/expense", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-income",
+              accountId: "account-1",
+              postedDate: "2026-02-03",
+              amountMinor: 3_000_00,
+            }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-expense",
+              accountId: "account-1",
+              postedDate: "2026-02-10",
+              amountMinor: -500_00,
+            }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-transfer",
+              accountId: "account-1",
+              postedDate: "2026-02-12",
+              amountMinor: -100_00,
+              isTransfer: true,
+            }),
+          );
+
+          const cashFlow = await repository.computeFinanceCashFlow("2026-02");
+          expect(cashFlow).toEqual({
+            monthKey: "2026-02",
+            incomeMinor: 3_000_00,
+            expenseMinor: 500_00,
+            netMinor: 2_500_00,
+          });
+        });
+
+        it("category spend drill-down lists exactly the transactions that sum to the figure", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.seedFinanceDefaultCategories();
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-1",
+              accountId: "account-1",
+              postedDate: "2026-03-05",
+              amountMinor: -80_00,
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-2",
+              accountId: "account-1",
+              postedDate: "2026-03-20",
+              amountMinor: -20_00,
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+
+          const range = { from: "2026-03-01", to: "2026-03-31" };
+          const rows = await repository.computeFinanceCategorySpend(range, "category");
+          const groceries = rows.find((row) => row.key === "fincat:alimentation.epicerie");
+          expect(groceries?.totalMinor).toBe(100_00);
+
+          const drilldown = await repository.listFinanceCategorySpendDrilldown(
+            range,
+            "category",
+            "fincat:alimentation.epicerie",
+          );
+          const sum = drilldown.reduce((total, line) => total + -line.amountMinor, 0);
+          expect(sum).toBe(groceries?.totalMinor);
+          expect(drilldown.map((line) => line.transactionId).sort()).toEqual(["txn-1", "txn-2"]);
+        });
+
+        it("computeFinanceMerchantSpend and computeFinancePersonSpend group spend", async () => {
+          const repository = await factory();
+          const alex = await repository.saveFinancePerson(person());
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-1",
+              accountId: "account-1",
+              postedDate: "2026-03-05",
+              amountMinor: -50_00,
+              merchantKey: "IGA",
+              personId: alex.id,
+            }),
+          );
+
+          const range = { from: "2026-03-01", to: "2026-03-31" };
+          const merchants = await repository.computeFinanceMerchantSpend(range, 5);
+          expect(merchants[0]).toMatchObject({ merchantKey: "IGA", totalMinor: 50_00 });
+
+          const persons = await repository.computeFinancePersonSpend(range);
+          expect(persons[0]).toMatchObject({ personId: alex.id, totalMinor: 50_00 });
+        });
+
+        it("computeFinanceTrend buckets income/expense by month", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-income",
+              accountId: "account-1",
+              postedDate: "2026-04-01",
+              amountMinor: 1_000_00,
+            }),
+          );
+
+          const points = await repository.computeFinanceTrend(
+            { from: "2026-04-01", to: "2026-04-30" },
+            "month",
+          );
+          expect(points).toEqual([
+            { periodKey: "2026-04", incomeMinor: 1_000_00, expenseMinor: 0, netMinor: 1_000_00 },
+          ]);
+        });
+
+        it("computeFinanceMonthOverMonth compares two ranges per category", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.seedFinanceDefaultCategories();
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-current",
+              accountId: "account-1",
+              postedDate: "2026-04-05",
+              amountMinor: -100_00,
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-previous",
+              accountId: "account-1",
+              postedDate: "2026-03-05",
+              amountMinor: -30_00,
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+
+          const rows = await repository.computeFinanceMonthOverMonth(
+            { from: "2026-04-01", to: "2026-04-30" },
+            { from: "2026-03-01", to: "2026-03-31" },
+            "category",
+          );
+          const groceries = rows.find((row) => row.key === "fincat:alimentation.epicerie");
+          expect(groceries).toMatchObject({
+            currentMinor: 100_00,
+            previousMinor: 30_00,
+            deltaMinor: 70_00,
+          });
+        });
+
+        it("detectFinanceRecurringSeries finds a monthly subscription and preserves confirmation on re-detection", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          for (const postedDate of ["2026-01-15", "2026-02-15", "2026-03-15", "2026-04-15"]) {
+            await repository.saveFinanceTransaction(
+              buildFinanceTransaction({
+                id: `txn-${postedDate}`,
+                accountId: "account-1",
+                postedDate,
+                amountMinor: -15_99,
+                merchantKey: "NETFLIX",
+              }),
+            );
+          }
+
+          await repository.detectFinanceRecurringSeries();
+          const series = await repository.listFinanceRecurringSeries();
+          const netflix = series.find((s) => s.merchantKey === "NETFLIX");
+          expect(netflix?.cadence).toBe("monthly");
+          expect(netflix?.nextExpectedDate).toBe("2026-05-15");
+
+          const confirmed = await repository.saveFinanceRecurringSeries({
+            ...netflix!,
+            confirmedByUser: true,
+          });
+
+          await repository.detectFinanceRecurringSeries();
+          const afterRedetection = await repository.listFinanceRecurringSeries();
+          const stillThere = afterRedetection.find((s) => s.id === confirmed.id);
+          expect(stillThere).toBeDefined();
+          expect(stillThere?.confirmedByUser).toBe(true);
+        });
+
+        it("snapshotFinanceAccountBalances is idempotent per day and feeds the net-worth history", async () => {
+          const repository = await factory();
+          const checking = await repository.saveFinanceAccount(
+            account({ id: "account-checking", openingBalanceMinor: 100_00 }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-1",
+              accountId: checking.id,
+              postedDate: "2026-01-05",
+              amountMinor: 50_00,
+            }),
+          );
+
+          const firstCount = await repository.snapshotFinanceAccountBalances("2026-01-10");
+          const secondCount = await repository.snapshotFinanceAccountBalances("2026-01-10");
+          expect(firstCount).toBe(secondCount);
+
+          const snapshots = await repository.listFinanceAccountBalanceSnapshots(checking.id);
+          expect(snapshots).toHaveLength(1);
+          expect(snapshots[0]).toMatchObject({
+            accountId: checking.id,
+            asOfDate: "2026-01-10",
+            balanceMinor: 150_00,
+            source: "derived",
+          });
+
+          const history = await repository.listFinanceNetWorthHistory();
+          expect(history).toEqual([{ asOfDate: "2026-01-10", netWorthMinor: 150_00 }]);
+        });
+
+        it("importFinanceTransactions runs recurring detection inside the import transaction", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+
+          const rows = ["2026-01-10", "2026-02-10", "2026-03-10"].map((postedDate) =>
+            importRow({
+              accountId: "account-1",
+              postedDate,
+              merchantKey: "GYM",
+              amountMinor: -50_00,
+            }),
+          );
+          await repository.importFinanceTransactions({
+            accountId: "account-1",
+            profileId: null,
+            fileName: "gym.csv",
+            fileHash: "hash-gym",
+            rows,
+          });
+
+          const series = await repository.listFinanceRecurringSeries();
+          expect(series.some((s) => s.merchantKey === "GYM")).toBe(true);
+        });
+      });
     });
   });
 };

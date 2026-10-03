@@ -6,6 +6,7 @@
     "import": "Importer",
     "accounts": "Comptes",
     "budget": "Budget",
+    "reports": "Rapports",
     "review": "Revue",
     "rules": "Règles"
   },
@@ -14,11 +15,26 @@
       "eyebrow": "Finances",
       "title": "Aperçu"
     },
-    "totalTitle": "Solde total (comptes budgétés)",
     "otherCurrenciesWarning": "Comptes exclus du total (devise différente de la devise de référence) : {{currencies}}.",
     "accountsTitle": "Comptes",
     "loading": "Chargement...",
-    "noAccounts": "Aucun compte. Ajoutez-en un dans l'onglet Comptes."
+    "noAccounts": "Aucun compte. Ajoutez-en un dans l'onglet Comptes.",
+    "netWorthTitle": "Valeur nette",
+    "assetsLabel": "Actifs",
+    "liabilitiesLabel": "Passifs",
+    "cashFlowTitle": "Flux de trésorerie du mois",
+    "incomeLabel": "Revenus",
+    "expenseLabel": "Dépenses",
+    "netLabel": "Net",
+    "trendTitle": "Tendance des dépenses (6 mois)",
+    "topCategoriesTitle": "Principales catégories",
+    "noTopCategories": "Aucune dépense ce mois-ci.",
+    "recurringTitle": "Factures récurrentes à venir",
+    "noRecurring": "Aucune facture récurrente détectée.",
+    "recurringNextDate": "Prochaine échéance : {{date}}",
+    "recurringConfirm": "Confirmer",
+    "recurringPause": "Mettre en pause",
+    "recurringEnd": "Terminer"
   },
   "accounts": {
     "hero": {
@@ -281,5 +297,31 @@
     "unbudgetedTitle": "Non budgété ({{count}})",
     "noUnbudgeted": "Aucune catégorie non budgétée.",
     "unbudgetedAssign": "Assigner"
+  },
+  "reports": {
+    "hero": {
+      "eyebrow": "Finances",
+      "title": "Rapports"
+    },
+    "rangeTitle": "Période",
+    "fields": {
+      "from": "Du",
+      "to": "Au",
+      "period": "Période",
+      "category": "Catégorie",
+      "current": "Période actuelle",
+      "previous": "Période précédente",
+      "delta": "Écart"
+    },
+    "noData": "Aucune donnée pour cette période.",
+    "categoryTitle": "Dépenses par catégorie",
+    "drilldownAction": "Voir le détail",
+    "drilldownTitle": "Transactions de cette catégorie",
+    "closeDrilldown": "Fermer",
+    "merchantTitle": "Dépenses par marchand",
+    "personTitle": "Dépenses par personne",
+    "unassignedPerson": "Non assigné",
+    "trendTitle": "Revenus et dépenses",
+    "monthOverMonthTitle": "Comparaison d'un mois à l'autre"
   }
 }

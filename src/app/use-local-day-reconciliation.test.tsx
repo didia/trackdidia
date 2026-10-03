@@ -60,8 +60,14 @@ const NextActionTitles = () => {
   );
 };
 
-const MountedGtdView = ({ repository }: { repository: MemoryRepository }) => {
-  const calendarDay = useLocalDayReconciliation(repository);
+const MountedGtdView = ({
+  repository,
+  financeEnabled = false,
+}: {
+  repository: MemoryRepository;
+  financeEnabled?: boolean;
+}) => {
+  const calendarDay = useLocalDayReconciliation(repository, financeEnabled);
   const value = useMemo<AppContextValue>(
     () => ({
       repository,
@@ -149,5 +155,42 @@ describe("useLocalDayReconciliation", () => {
     await flushEffects();
 
     expect(screen.getByText("Appelee au reveil")).toBeInTheDocument();
+  });
+
+  it("snapshots account balances today when financeEnabled, and not otherwise", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 8, 7, 12, 0, 0, 0));
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const account = await repository.saveFinanceAccount({
+      id: "",
+      name: "Compte cheques",
+      institution: null,
+      type: "checking",
+      currency: "CAD",
+      ownerPersonId: null,
+      ownership: "individual",
+      onBudget: true,
+      closed: false,
+      openingBalanceMinor: 100_00,
+      currentBalanceMinor: null,
+      balanceAsOf: null,
+      externalKey: null,
+      notes: null,
+      sortOrder: 0,
+      createdAt: "",
+      updatedAt: "",
+    });
+
+    render(<MountedGtdView repository={repository} financeEnabled={false} />);
+    await flushEffects();
+    expect(await repository.listFinanceAccountBalanceSnapshots(account.id)).toEqual([]);
+
+    render(<MountedGtdView repository={repository} financeEnabled />);
+    await flushEffects();
+    const snapshots = await repository.listFinanceAccountBalanceSnapshots(account.id);
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]).toMatchObject({ asOfDate: "2026-09-07", balanceMinor: 100_00 });
   });
 });

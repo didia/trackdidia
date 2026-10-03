@@ -52,6 +52,7 @@ import type {
   FinanceCategory,
   FinanceCategoryBackfillEntry,
   FinanceCategorySuggestion,
+  FinanceAccountBalanceSnapshot,
   FinanceImportBatch,
   FinanceImportProfile,
   FinanceImportRequest,
@@ -60,6 +61,7 @@ import type {
   FinanceMerchantMemoryFilters,
   FinanceOverspendPolicy,
   FinancePerson,
+  FinanceRecurringSeries,
   FinanceRule,
   FinanceTransaction,
   FinanceTransactionFilters,
@@ -71,6 +73,22 @@ import type {
   UndoFinanceImportBatchResult,
 } from "../../domain/finance";
 import type { CoverOverspendingResult, FinanceBudgetState } from "../../domain/finance/budget";
+import type { FinanceCashFlowSummary } from "../../domain/finance/cash-flow";
+import type {
+  FinanceNetWorthHistoryPoint,
+  FinanceNetWorthSnapshot,
+} from "../../domain/finance/net-worth";
+import type {
+  FinanceCategorySpendRow,
+  FinanceDateRange,
+  FinanceMerchantSpendRow,
+  FinanceMonthOverMonthRow,
+  FinancePersonSpendRow,
+  FinanceReportGroupBy,
+  FinanceReportLine,
+  FinanceTrendGranularity,
+  FinanceTrendPoint,
+} from "../../domain/finance/reports";
 
 export interface NativeStoragePaths {
   databasePath: string;
@@ -505,4 +523,46 @@ export interface AppRepository {
     monthKey: string,
     note: string | null,
   ): Promise<FinanceBudgetMonth>;
+
+  // --- Finance (Phase 6 — Tracking, reports, recurring, net worth) ----------------------
+
+  /** Assets/liabilities split by account type, as of `asOfDate`. Off-budget accounts included. */
+  computeFinanceNetWorth(asOfDate: string): Promise<FinanceNetWorthSnapshot>;
+  /** Net-worth-over-time series built from `finance_account_balance_snapshots`. */
+  listFinanceNetWorthHistory(): Promise<FinanceNetWorthHistoryPoint[]>;
+  /** Income/expense/net for one month; transfers and `excludedFromReports` rows excluded. */
+  computeFinanceCashFlow(monthKey: string): Promise<FinanceCashFlowSummary>;
+  computeFinanceCategorySpend(
+    range: FinanceDateRange,
+    groupBy: FinanceReportGroupBy,
+  ): Promise<FinanceCategorySpendRow[]>;
+  /** The exact lines summing to one `FinanceCategorySpendRow.totalMinor` — the drill-down input. */
+  listFinanceCategorySpendDrilldown(
+    range: FinanceDateRange,
+    groupBy: FinanceReportGroupBy,
+    key: string,
+  ): Promise<FinanceReportLine[]>;
+  computeFinanceMerchantSpend(
+    range: FinanceDateRange,
+    limit: number,
+  ): Promise<FinanceMerchantSpendRow[]>;
+  computeFinancePersonSpend(range: FinanceDateRange): Promise<FinancePersonSpendRow[]>;
+  computeFinanceTrend(
+    range: FinanceDateRange,
+    granularity: FinanceTrendGranularity,
+  ): Promise<FinanceTrendPoint[]>;
+  computeFinanceMonthOverMonth(
+    currentRange: FinanceDateRange,
+    previousRange: FinanceDateRange,
+    groupBy: FinanceReportGroupBy,
+  ): Promise<FinanceMonthOverMonthRow[]>;
+  listFinanceRecurringSeries(
+    status?: FinanceRecurringSeries["status"],
+  ): Promise<FinanceRecurringSeries[]>;
+  saveFinanceRecurringSeries(series: FinanceRecurringSeries): Promise<FinanceRecurringSeries>;
+  /** Re-runs detection over the full history; preserves `confirmedByUser` series. Also run after import. */
+  detectFinanceRecurringSeries(): Promise<{ created: number; updated: number }>;
+  /** Idempotent per day: derives and upserts one balance snapshot per account for `asOfDate`. */
+  snapshotFinanceAccountBalances(asOfDate: string): Promise<number>;
+  listFinanceAccountBalanceSnapshots(accountId: string): Promise<FinanceAccountBalanceSnapshot[]>;
 }
