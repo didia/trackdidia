@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createTaskFromInput } from "../gtd/engine";
 import { EmailTriageMemoryStore } from "./email-triage-memory-store";
-import type { Database } from "./email-triage-sqlite-db";
+import type { Database } from "./sqlite-db";
 import { EmailTriageSqliteStore } from "./email-triage-sqlite-store";
 
 describe("email triage alias repository parity", () => {
