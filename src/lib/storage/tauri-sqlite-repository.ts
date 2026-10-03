@@ -5588,4 +5588,16 @@ export class TauriSqliteRepository implements AppRepository {
   ) {
     return this.runExclusive(() => this.getFinanceStore().decideCategorySuggestion(id, decision));
   }
+
+  // --- Finance (Phase 4) ----------------------------------------------------------------
+
+  async reclassifyFinancePending() {
+    return this.runExclusive(() => this.getFinanceStore().reclassifyPending());
+  }
+
+  async revertFinanceCategoryBackfill(
+    entries: import("../../domain/finance").FinanceCategoryBackfillEntry[],
+  ) {
+    return this.runExclusive(() => this.getFinanceStore().revertCategoryBackfill(entries));
+  }
 }

@@ -129,6 +129,8 @@ false. `finances` (`/finances`) is the first such conditional entry, gated on
 | `/finances/transactions` | Finance transactions | Paged, filtered transaction list with inline category edit, splits, transfer/exclude toggles, bulk toolbar |
 | `/finances/import` | Finance import | CSV file import: decode, profile mapping, preview, account binding, result panel, batch history with undo |
 | `/finances/accounts` | Finance accounts | Household members and accounts CRUD, opening/manual balances, reconciliation banner |
+| `/finances/review` | Finance review | Pending category-suggestion queue grouped by merchant: accept/correct/dismiss, bulk accept-above-threshold, "Réappliquer les règles" |
+| `/finances/rules` | Finance rules | Classification rule CRUD, enable/disable, apply to existing transactions |
 | `/references` | References | Non-actionable material |
 | `/scheduled` | Scheduled | Day/week planning, deadlines, recurrence previews |
 | `/waiting-for` | Waiting For | Work awaiting external action |
@@ -139,9 +141,9 @@ false. `finances` (`/finances`) is the first such conditional entry, gated on
 `/finances/*` is always registered in `App.tsx` (a `FinanceRoutes` element reads
 `settings.financeEnabled` and renders `<Navigate to="/" replace />` instead of
 its child routes while the flag is off), so a stale bookmark or deep link never
-404s — it just lands on Today. Only the four finance screens that exist ship a
-tab in the shared `FinanceTabs` bar on every `/finances*` page; budget, reports,
-and review are later phases and have no tab yet. See
+404s — it just lands on Today. Only the six finance screens that exist ship a
+tab in the shared `FinanceTabs` bar on every `/finances*` page; budget and
+reports are later phases and have no tab yet. See
 [`docs/finance.md`](finance.md) for what each finance screen does.
 
 See the product pages linked from [`index.md`](index.md) for behavior inside each
