@@ -1,3 +1,4 @@
+import { createSerialQueue } from "../lib/serial-queue";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   PomodoroSessionDetails,
@@ -95,7 +96,7 @@ export const usePomodoroController = (
   const stateRef = useRef<PomodoroState>(buildIdleState());
   const repositoryRef = useRef<AppRepository | null>(repository);
   const mountedRef = useRef(false);
-  const queueRef = useRef<Promise<void>>(Promise.resolve());
+  const [queue] = useState(createSerialQueue);
   const snapshotTokenRef = useRef(0);
   const announcedCompletionIdsRef = useRef(new Set<string>());
   const invalidDeadlineKeysRef = useRef(new Set<string>());
@@ -145,25 +146,15 @@ export const usePomodoroController = (
     [],
   );
 
-  const enqueue = useCallback(<T>(operation: () => Promise<T>): Promise<T> => {
-    const run = queueRef.current.then(operation);
-    // Keep later work runnable even if a caller observes (or ignores) a rejected action.
-    queueRef.current = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    return run;
-  }, []);
-
   const runQueued = useCallback(
     async (label: string, operation: () => Promise<void>) => {
       try {
-        await enqueue(operation);
+        await queue.run(operation);
       } catch (error) {
         logDebug("error", "pomodoro", `Echec de ${label}`, error);
       }
     },
-    [enqueue],
+    [queue],
   );
 
   const applyState = useCallback(

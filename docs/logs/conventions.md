@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-10-03 | Consolidated ordered async work in `createSerialQueue` and date/week/month snapshot persistence in `useLatestValueSaver`; daily and monthly loads now wait for their own pending saves and retain edits made during loading | `docs/conventions.md` | `serial-queue.ts`, `use-latest-value-saver.ts`, daily/review hooks and pages, queue and save-race tests |
 | 2026-10-02 | Consolidated local date, week, and month helpers in `src/lib/date.ts`; migrated non-GTD callers and replaced recurrence watermark UTC slicing with local date arithmetic | `docs/conventions.md` | `date.ts`, `gtd/shared.ts`, both repositories, `date.test.ts` |
 | 2026-09-22 | Added `describeRepositoryContract`, a shared implementation-agnostic `AppRepository` behavior spec run against both `MemoryRepository` and `TauriSqliteRepository` (the latter via a `node:sqlite` in-memory test adapter) | `docs/conventions.md`, `docs/storage-and-backups.md` | `src/lib/storage/repository.contract.ts`, `src/lib/storage/tauri-sqlite-repository.test.ts`, `src/test/mocks/node-sqlite-database.ts` |
 | 2026-09-21 | Added `PageHeader`, `ContextFilterChips`, and `SegmentedToggle` UI primitives and replaced duplicated hero/chip markup in pages; no class or visual change | `docs/conventions.md` | `src/components/PageHeader.tsx`, `src/components/ContextFilterChips.tsx`, `src/components/SegmentedToggle.tsx` |
