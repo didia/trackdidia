@@ -645,6 +645,12 @@ Structured `coach_pulse` requests include:
 - a French system prompt with stance context and optional memory block;
 - the redacted daily snapshot plus deterministic commitment resolution when applicable.
 
+Both coach requests and email triage classification use the shared `openrouter-client.ts`
+request builder and response parser. Coach surfaces use webview `fetch` to preserve their
+existing retry behavior; email triage uses the native, host-allowlisted
+`provider_http_request` command and makes one attempt. Both send the same bearer,
+referer, and title headers. The shared timeout helper is also used by RescueTime.
+
 Transport hardening:
 
 - abortable timeout via `settings.aiTimeoutMs` (default 20 s), mirroring RescueTime;

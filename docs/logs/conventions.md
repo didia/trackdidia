@@ -5,7 +5,9 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-10-03 | Combined the current migration catalog/rollback guidance with the transaction helper writer rules while resolving the base-branch conflicts | `docs/conventions.md` | `migrations/index.ts`, `transaction.ts`, PR #195 |
 | 2026-10-03 | Documented named transactional versus queue-only writer modes and corrected the obsolete migration transaction guidance | `docs/conventions.md` | `transaction.ts`, `tauri-sqlite-repository.ts`, migration runner |
+| 2026-10-03 | Corrected SQLite change instructions to reference the extracted migration catalog and per-migration transaction/rollback behavior | `docs/conventions.md` | `migrations/index.ts`, `docs/storage-and-backups.md`; PR #194 |
 | 2026-10-03 | Removed obsolete migration transaction debt: the extracted runner preserves one transaction per migration plus its ledger insert, with rollback tests | `docs/conventions.md` | `migrations/index.ts`, `migrations/index.test.ts` |
 | 2026-10-02 | Consolidated local date, week, and month helpers in `src/lib/date.ts`; migrated non-GTD callers and replaced recurrence watermark UTC slicing with local date arithmetic | `docs/conventions.md` | `date.ts`, `gtd/shared.ts`, both repositories, `date.test.ts` |
 | 2026-09-22 | Added `describeRepositoryContract`, a shared implementation-agnostic `AppRepository` behavior spec run against both `MemoryRepository` and `TauriSqliteRepository` (the latter via a `node:sqlite` in-memory test adapter) | `docs/conventions.md`, `docs/storage-and-backups.md` | `src/lib/storage/repository.contract.ts`, `src/lib/storage/tauri-sqlite-repository.test.ts`, `src/test/mocks/node-sqlite-database.ts` |
