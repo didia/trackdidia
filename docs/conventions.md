@@ -117,9 +117,11 @@ The migration list in `TauriSqliteRepository` is the schema source of truth.
 - Prefer idempotent backfills and explicit defaults.
 - Test startup against both a fresh database and an existing database when practical.
 
-The repository currently applies migrations sequentially but does not wrap the
-whole migration body and migration-record insert in an explicit transaction. Keep
-migration SQL simple and safe to retry where SQLite permits it.
+The migration runner applies each migration body and ledger insert in one
+transaction. Repository transaction callbacks use `writeTransaction`; internal
+writers accept its active `TxContext` and never re-enter the writer. Queue-only
+work uses `writeExclusive`. Keep migration SQL safe to retry where SQLite permits
+it; the canonical migration rules are in [storage and backups](storage-and-backups.md).
 
 ## Dates and time zones
 
