@@ -1,3 +1,4 @@
+import { runStructuredSurface, sourceFromStatus } from "./structured-generation";
 import type {
   AiMessage,
   AiProposal,
@@ -117,18 +118,6 @@ const buildProposals = (
   return proposals;
 };
 
-const resultSourceFromMessage = (message: AiMessage): WeeklySynthesisResult["source"] => {
-  if (message.status === "ok") {
-    return "cache";
-  }
-
-  if (message.status === "fallback") {
-    return "fallback";
-  }
-
-  return "local";
-};
-
 const cachedResult = async (
   repository: AppRepository,
   message: AiMessage,
@@ -147,24 +136,7 @@ const cachedResult = async (
     message,
     synthesis: parsed.value,
     proposals,
-    source: resultSourceFromMessage(message),
-  };
-};
-
-const persistResult = async (
-  repository: AppRepository,
-  message: AiMessage,
-  synthesis: WeeklySynthesisResponse,
-  eligibleGtdTaskTitles: Map<string, string>,
-): Promise<WeeklySynthesisResult> => {
-  const proposals = buildProposals(message.id, synthesis, message.createdAt, eligibleGtdTaskTitles);
-  const saved = await repository.saveCoachPulseEpisode(message, proposals);
-
-  return {
-    message: saved.message,
-    synthesis,
-    proposals: saved.proposals,
-    source: message.status === "ok" ? "ai" : message.status === "fallback" ? "fallback" : "local",
+    source: sourceFromStatus(message.status, { cached: true }),
   };
 };
 
@@ -193,7 +165,6 @@ export class WeeklySynthesisService {
     );
     const scopeKey = weekStartDate;
     const createdAt = nowIso();
-    const aiConfigured = settings.aiEnabled && settings.aiApiKey.trim().length > 0;
     const eligibleGtdTaskTitles = resolveEligibleGtdTaskTitles(
       snapshotInputs,
       stableAiNowIso(asOfDate),
@@ -215,153 +186,41 @@ export class WeeklySynthesisService {
       asOfDate,
     });
 
-    if (!bypassCache) {
-      if (aiConfigured) {
-        const cached = await repository.getAiMessage("weekly_synthesis", scopeKey, inputHash);
-        if (cached) {
-          const result = await cachedResult(repository, cached);
-          if (result) {
-            return { ...result, source: "cache" };
-          }
-        }
-      } else {
-        const skipped = await repository.getAiMessageRecord(
-          "weekly_synthesis",
-          scopeKey,
-          inputHash,
-        );
-        if (skipped?.status === "skipped") {
-          const result = await cachedResult(repository, skipped);
-          if (result) {
-            return { ...result, source: "cache" };
-          }
-        }
-      }
-    }
-
-    const localSynthesis = buildLocalWeeklySynthesis(snapshot);
-    const baseMessage = (): AiMessage => ({
-      id: createEntityId("ai-message"),
+    const result = await runStructuredSurface({
+      repository,
+      provider: this.provider,
+      settings,
       surface: "weekly_synthesis",
       scopeKey,
-      stance: null,
       kind: "weekly",
-      inputHash,
       promptVersion: WEEKLY_SYNTHESIS_PROMPT_VERSION,
-      model: settings.aiSurfaceModels.weekly_synthesis ?? settings.aiModel,
-      status: "ok",
-      bodyJson: JSON.stringify(localSynthesis),
-      bodyText: synthesisToBodyText(localSynthesis),
-      deltaClass: null,
-      notified: false,
-      tokensPrompt: null,
-      tokensCompletion: null,
-      latencyMs: null,
+      inputHash,
       createdAt,
-    });
-
-    if (!aiConfigured) {
-      const skippedMessage = {
-        ...baseMessage(),
-        status: "skipped" as const,
-        model: "local",
-      };
-
-      return persistResult(repository, skippedMessage, localSynthesis, eligibleGtdTaskTitles);
-    }
-
-    try {
-      const first = await this.provider.generateStructured({
+      bypassCache,
+      reuseMessageId: false,
+      localFallback: buildLocalWeeklySynthesis(snapshot),
+      toBodyText: synthesisToBodyText,
+      parse: parseWeeklySynthesisJson,
+      request: (repairHint) => ({
         surface: "weekly_synthesis",
         settings,
         snapshot,
         memoryBlock,
-      });
-
-      let parsed = parseWeeklySynthesisJson(first.text);
-      let finalText = first.text;
-      let usage = first.usage;
-      let model = first.model;
-
-      if (!parsed.ok) {
-        const repair = await this.provider.generateStructured({
-          surface: "weekly_synthesis",
-          settings,
-          snapshot,
-          memoryBlock,
-          repairHint: parsed.error,
-        });
-        parsed = parseWeeklySynthesisJson(repair.text);
-        finalText = repair.text;
-        usage = {
-          tokensPrompt: usage.tokensPrompt + repair.usage.tokensPrompt,
-          tokensCompletion: usage.tokensCompletion + repair.usage.tokensCompletion,
-          latencyMs: usage.latencyMs + repair.usage.latencyMs,
-        };
-        model = repair.model;
-      }
-
-      if (!parsed.ok) {
-        const message: AiMessage = {
-          ...baseMessage(),
-          status: "fallback",
-          model,
-          bodyJson: JSON.stringify(localSynthesis),
-          bodyText: synthesisToBodyText(localSynthesis),
-          tokensPrompt: usage.tokensPrompt,
-          tokensCompletion: usage.tokensCompletion,
-          latencyMs: usage.latencyMs,
-        };
-
-        const result = await persistResult(
-          repository,
-          message,
-          localSynthesis,
-          eligibleGtdTaskTitles,
-        );
-        return {
-          ...result,
-          source: "fallback",
-          warning: parsed.error,
-        };
-      }
-
-      const message: AiMessage = {
-        ...baseMessage(),
-        status: "ok",
-        model,
-        bodyJson: finalText,
-        bodyText: synthesisToBodyText(parsed.value),
-        tokensPrompt: usage.tokensPrompt,
-        tokensCompletion: usage.tokensCompletion,
-        latencyMs: usage.latencyMs,
-      };
-
-      const result = await persistResult(repository, message, parsed.value, eligibleGtdTaskTitles);
-      return {
-        ...result,
-        source: "ai",
-      };
-    } catch (error) {
-      const message: AiMessage = {
-        ...baseMessage(),
-        status: "fallback",
-        bodyJson: JSON.stringify(localSynthesis),
-        bodyText: synthesisToBodyText(localSynthesis),
-      };
-
-      const result = await persistResult(
-        repository,
-        message,
-        localSynthesis,
-        eligibleGtdTaskTitles,
-      );
-      return {
-        ...result,
-        source: "fallback",
-        warning: error instanceof Error ? error.message : "L'IA n'a pas pu repondre.",
-      };
-    }
+        repairHint,
+      }),
+      buildProposals: (id, response, at) => buildProposals(id, response, at, eligibleGtdTaskTitles),
+      cachedResult: async (message) => {
+        const cached = await cachedResult(repository, message);
+        return cached ? { response: cached.synthesis, proposals: cached.proposals } : null;
+      },
+    });
+    return {
+      message: result.message,
+      synthesis: result.response,
+      proposals: result.proposals,
+      source: result.source,
+      warning: result.warning,
+    };
   }
 }
 
