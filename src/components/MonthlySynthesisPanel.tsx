@@ -21,6 +21,7 @@ interface MonthlySynthesisPanelProps {
   settings: AppSettings;
   onRequestCoach: () => void;
   onRegenerate: () => void;
+  applyingProposalIds?: string[];
   onAcceptProposal: (proposal: AiProposal) => void;
   onDismissProposal: (proposal: AiProposal) => void;
 }
@@ -32,6 +33,7 @@ export const MonthlySynthesisPanel = ({
   settings,
   onRequestCoach,
   onRegenerate,
+  applyingProposalIds = [],
   onAcceptProposal,
   onDismissProposal,
 }: MonthlySynthesisPanelProps) => {
@@ -84,6 +86,7 @@ export const MonthlySynthesisPanel = ({
         <div className="coach-pulse__proposals">
           <strong>{t("proposals")}</strong>
           {pendingProposals.map((proposal) => {
+            const isApplying = applyingProposalIds.includes(proposal.id);
             const preview = proposalPreviewText(proposal, "monthly");
             return (
               <article key={proposal.id} className="coach-pulse__proposal">
@@ -93,13 +96,15 @@ export const MonthlySynthesisPanel = ({
                   <button
                     className="button button--primary"
                     type="button"
+                    disabled={isApplying}
                     onClick={() => onAcceptProposal(proposal)}
                   >
-                    {t("accept")}
+                    {isApplying ? tCommon("status.applying") : t("accept")}
                   </button>
                   <button
                     className="button button--ghost"
                     type="button"
+                    disabled={isApplying}
                     onClick={() => onDismissProposal(proposal)}
                   >
                     {t("dismiss")}

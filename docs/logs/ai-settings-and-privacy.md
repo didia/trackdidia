@@ -1,4 +1,6 @@
+- 2026-10-03: Repeated proposal accepts now return the stored decision without draft UI effects; synchronous click guards and disabled buttons protect daily, weekly, and monthly acceptance. Regression tests preserve manual notes through repeated acceptance and later autosaves.
 - 2026-10-03: Consolidated the five AI structured-generation pipelines while retaining per-surface cache, usage, fallback and history policies; added original-output compatibility snapshots.
+
 - 2026-10-03: Centralized settings defaults and historical normalization; application writers now merge current values atomically, and settings forms preserve runtime state and unsaved edits.
 # AI, settings, and privacy log
 

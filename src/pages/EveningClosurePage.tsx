@@ -1,3 +1,4 @@
+import { useProposalAcceptance } from "../app/use-proposal-acceptance";
 import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
@@ -23,6 +24,7 @@ import { formatDateLong, getTodayDate } from "../lib/date";
 import { logDebug } from "../lib/debug";
 
 export const EveningClosurePage = () => {
+  const proposalAcceptance = useProposalAcceptance();
   const { t } = useTranslation("evening");
   const navigate = useNavigate();
   const { repository, settings } = useAppContext();
@@ -40,7 +42,7 @@ export const EveningClosurePage = () => {
 
   const handleAcceptProposal = async (proposal: AiProposal) => {
     const currentEntry = latestEntryRef.current;
-    if (!currentEntry) return;
+    if (!currentEntry || !proposalAcceptance.begin(proposal.id)) return;
     try {
       const applied = await applyProposal(proposal);
       if (!applied.proposal) return;
@@ -62,10 +64,13 @@ export const EveningClosurePage = () => {
       );
     } catch (error) {
       logDebug("error", "ai.coach", "Failed to accept coach proposal", error);
+    } finally {
+      proposalAcceptance.end(proposal.id);
     }
   };
 
   const handleDismissProposal = async (proposal: AiProposal) => {
+    if (proposalAcceptance.isApplying(proposal.id)) return;
     await repository.decideAiProposal(proposal.id, "dismissed");
     setCoachResult((current) =>
       current
@@ -106,6 +111,7 @@ export const EveningClosurePage = () => {
         settings={settings}
         autoloadAi
         onRegenerate={() => void loadCoach({ trigger: "explicit", bypassCache: true })}
+        applyingProposalIds={proposalAcceptance.applyingProposalIds}
         onAcceptProposal={(proposal) => void handleAcceptProposal(proposal)}
         onDismissProposal={(proposal) => void handleDismissProposal(proposal)}
       />

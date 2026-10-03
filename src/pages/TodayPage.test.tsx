@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { resetPastorVerseAutoAttemptsForTesting } from "../app/use-pastor-verse";
 import { createEmptyDailyEntry, defaultAppSettings, updateNote } from "../domain/daily-entry";
@@ -78,9 +78,18 @@ describe("TodayPage coach proposals", () => {
     await repository.saveAiMessage(buildCoachResult(proposal).message);
     await repository.saveAiProposal(proposal);
     const saveDailyEntry = vi.spyOn(repository, "saveDailyEntry");
-    const acceptAiProposal = vi.spyOn(repository, "acceptAiProposal");
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const originalAccept = repository.acceptAiProposal.bind(repository);
+    const acceptAiProposal = vi
+      .spyOn(repository, "acceptAiProposal")
+      .mockImplementation(async (...args) => {
+        await gate;
+        return originalAccept(...args);
+      });
 
-    const user = userEvent.setup();
     await renderWithApp(<TodayPage />, {
       repository,
       contextOverrides: { coachService, settings: defaultAppSettings() },
@@ -89,7 +98,17 @@ describe("TodayPage coach proposals", () => {
     await screen.findByText("Focus profond");
     saveDailyEntry.mockClear();
 
-    await user.click(screen.getByRole("button", { name: /accepter/i }));
+    const acceptButton = screen.getByRole("button", { name: /accepter/i });
+    act(() => {
+      fireEvent.click(acceptButton);
+      fireEvent.click(acceptButton);
+    });
+    await waitFor(() => expect(acceptAiProposal).toHaveBeenCalledTimes(1));
+    expect(acceptButton).toBeDisabled();
+    expect(screen.getByRole("button", { name: /ignorer/i })).toBeDisabled();
+    await act(async () => {
+      release();
+    });
 
     expect(await screen.findByDisplayValue("Focus profond")).toBeInTheDocument();
     expect(acceptAiProposal).toHaveBeenCalledWith(

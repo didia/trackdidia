@@ -268,7 +268,7 @@ describe("MonthlyReviewPage", () => {
     expect(proposals.find((item) => item.type === "goal_evaluation")?.status).toBe("dismissed");
   });
 
-  it("persists a section draft into the monthly review on accept", async () => {
+  it.each([false, true])("preserves monthly notes on accept (repeat: %s)", async (repeat) => {
     const repository = new MemoryRepository();
     await repository.initialize();
 
@@ -326,19 +326,48 @@ describe("MonthlyReviewPage", () => {
 
     expect(await screen.findByRole("heading", { name: /coach mensuel/i })).toBeInTheDocument();
     const acceptButtons = await screen.findAllByRole("button", { name: /^accepter$/i });
+    const expectedText = repeat ? "Manual edit" : "Brouillon coach mensuel";
+    if (repeat) {
+      // The displayed pending proposal can be stale by the time its accept runs.
+      await repository.acceptAiProposal(proposal.id, {
+        kind: "monthlyReview",
+        review: updateMonthlyReviewNote(
+          createEmptyMonthlyReview("2026-04"),
+          "bilan",
+          "Brouillon coach mensuel",
+        ),
+      });
+      const notes = screen.getByLabelText(/notes bilan/i);
+      fireEvent.change(notes, { target: { value: expectedText } });
+      fireEvent.blur(notes);
+      await waitFor(async () => {
+        expect((await repository.getMonthlyReview("2026-04"))?.notes.bilan).toBe(expectedText);
+      });
+    }
     await user.click(acceptButtons[0]);
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/notes bilan/i)).toHaveValue("Brouillon coach mensuel");
+      expect(screen.getByLabelText(/notes bilan/i)).toHaveValue(expectedText);
     });
 
     await waitFor(async () => {
       await expect(repository.getMonthlyReview("2026-04")).resolves.toMatchObject({
         notes: expect.objectContaining({
-          bilan: "Brouillon coach mensuel",
+          bilan: expectedText,
         }),
       });
     });
+    if (repeat) {
+      const finances = screen.getByLabelText(/notes finances/i);
+      fireEvent.change(finances, { target: { value: "Other field" } });
+      fireEvent.blur(finances);
+      await waitFor(async () => {
+        expect((await repository.getMonthlyReview("2026-04"))?.notes).toMatchObject({
+          bilan: expectedText,
+          finances: "Other field",
+        });
+      });
+    }
   });
 
   it("persists and accepts a local section draft when AI is off", async () => {

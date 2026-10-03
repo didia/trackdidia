@@ -1,3 +1,4 @@
+import { useProposalAcceptance } from "../app/use-proposal-acceptance";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
@@ -132,7 +133,8 @@ export const WeeklyReviewPage = () => {
   const [weeklyMemoryProposals, setWeeklyMemoryProposals] = useState<AiProposal[]>([]);
   const [synthesisResult, setSynthesisResult] = useState<WeeklySynthesisResult | null>(null);
   const [synthesisLoading, setSynthesisLoading] = useState(false);
-  const [applyingProposalIds, setApplyingProposalIds] = useState<string[]>([]);
+  const proposalAcceptance = useProposalAcceptance();
+  const { applyingProposalIds } = proposalAcceptance;
   const latestReviewRef = useRef<WeeklyReview | null>(null);
   const latestDimancheReviewRef = useRef<WeeklyReview | null>(null);
   const persistReview = useCallback(
@@ -493,10 +495,10 @@ export const WeeklyReviewPage = () => {
     if (
       !summary ||
       synthesisResult?.message.scopeKey !== summary.weekStartDate ||
-      applyingProposalIds.includes(proposal.id)
+      proposalAcceptance.isApplying(proposal.id)
     )
       return;
-    setApplyingProposalIds((current) => [...current, proposal.id]);
+    if (!proposalAcceptance.begin(proposal.id)) return;
     try {
       const weekStartDate = summary.weekStartDate;
       const applied = await applyCoachProposal(repository, proposal, {
@@ -555,7 +557,7 @@ export const WeeklyReviewPage = () => {
           : current,
       );
     } finally {
-      setApplyingProposalIds((current) => current.filter((id) => id !== proposal.id));
+      proposalAcceptance.end(proposal.id);
     }
   };
 
@@ -564,7 +566,7 @@ export const WeeklyReviewPage = () => {
       return;
     }
 
-    if (applyingProposalIds.includes(proposal.id)) {
+    if (proposalAcceptance.isApplying(proposal.id)) {
       return;
     }
 

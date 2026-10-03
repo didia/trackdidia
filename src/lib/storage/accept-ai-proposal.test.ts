@@ -174,7 +174,7 @@ for (const fixture of fixtures) {
       expect((await repository.listAiProposals(row.messageId))[0].status).toBe("pending");
     });
 
-    it("retains the first applied review on re-accept and resolves concurrent accepts identically", async () => {
+    it("retains the first applied review and identifies a concurrent repeat as a no-op", async () => {
       const { repository } = await fixture.create();
       const row = { ...proposal("proposal:repeat"), type: "review_section_draft" as const };
       await repository.saveAiProposal(row);
@@ -185,7 +185,8 @@ for (const fixture of fixtures) {
         repository.acceptAiProposal(row.id, { kind: "weeklyReview", review: original }),
         repository.acceptAiProposal(row.id, { kind: "weeklyReview", review: changed }),
       ]);
-      expect(second).toEqual(first);
+      expect(first.effectApplied).toBe(true);
+      expect(second).toEqual({ ...first, effectApplied: false });
       expect((await repository.getWeeklyReview("2026-08-02"))?.notes.bilan).toBe("accepted first");
     });
 

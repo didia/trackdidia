@@ -32,6 +32,7 @@ interface CoachPulsePanelProps {
   autoloadAi?: boolean;
   onRequestCoach?: () => void;
   onRegenerate: () => void;
+  applyingProposalIds?: string[];
   onAcceptProposal: (proposal: AiProposal) => void;
   onDismissProposal: (proposal: AiProposal) => void;
 }
@@ -44,6 +45,7 @@ export const CoachPulsePanel = ({
   autoloadAi = false,
   onRequestCoach,
   onRegenerate,
+  applyingProposalIds = [],
   onAcceptProposal,
   onDismissProposal,
 }: CoachPulsePanelProps) => {
@@ -146,6 +148,7 @@ export const CoachPulsePanel = ({
         <div className="coach-pulse__proposals">
           <strong>{t("proposals")}</strong>
           {pendingProposals.map((proposal) => {
+            const isApplying = applyingProposalIds.includes(proposal.id);
             const preview = proposalPreviewText(proposal);
             const typeKey = proposalTypeKeys[proposal.type];
             return (
@@ -156,13 +159,15 @@ export const CoachPulsePanel = ({
                   <button
                     className="button button--primary"
                     type="button"
+                    disabled={isApplying}
                     onClick={() => onAcceptProposal(proposal)}
                   >
-                    {t("accept")}
+                    {isApplying ? tCommon("status.applying") : t("accept")}
                   </button>
                   <button
                     className="button button--ghost"
                     type="button"
+                    disabled={isApplying}
                     onClick={() => onDismissProposal(proposal)}
                   >
                     {t("dismiss")}

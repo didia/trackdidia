@@ -1229,9 +1229,10 @@ export class TauriSqliteRepository implements AppRepository {
             : effect?.kind === "weeklyObjective"
               ? effect.objective.id
               : null);
-        return { proposal, appliedEntityId };
+        return { proposal, appliedEntityId, effectApplied: false };
       }
-      if (!effect || proposal.status !== "pending") return { proposal, appliedEntityId: null };
+      if (!effect || proposal.status !== "pending")
+        return { proposal, appliedEntityId: null, effectApplied: false };
 
       let appliedEntityId: string;
       switch (effect.kind) {
@@ -1265,7 +1266,7 @@ export class TauriSqliteRepository implements AppRepository {
             [effect.goalId],
           );
           const goal = rows[0] ? annualGoalsRows.fromRow(rows[0]) : null;
-          if (!goal) return { proposal, appliedEntityId: null };
+          if (!goal) return { proposal, appliedEntityId: null, effectApplied: false };
           appliedEntityId = (
             await this.saveAnnualGoalInternal(
               tx,
@@ -1277,7 +1278,7 @@ export class TauriSqliteRepository implements AppRepository {
         case "gtdTask": {
           const task = await this.getTaskById(effect.taskId);
           const next = task ? taskForAcceptEffect(task, effect) : null;
-          if (!task || !next) return { proposal, appliedEntityId: null };
+          if (!task || !next) return { proposal, appliedEntityId: null, effectApplied: false };
           await this.saveTaskInternal(tx, next);
           if (effect.action === "drop" && task.recurringTemplateId) {
             const template = await this.requireRecurringTemplate(task.recurringTemplateId);
@@ -1299,6 +1300,7 @@ export class TauriSqliteRepository implements AppRepository {
       return {
         proposal: { ...proposal, status: "accepted", appliedEntityId, decidedAt },
         appliedEntityId,
+        effectApplied: true,
       };
     });
   }

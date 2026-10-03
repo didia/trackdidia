@@ -30,6 +30,8 @@ export type AcceptEffect =
 export interface AiProposalAcceptResult {
   proposal: AiProposal;
   appliedEntityId: string | null;
+  /** True only when this call applied an effect and committed the decision. */
+  effectApplied: boolean;
 }
 
 /** Keep the operation, rather than a stale task snapshot, for the atomic writer. */

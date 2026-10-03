@@ -171,6 +171,9 @@ const acceptEffect = async (
     }
     return {};
   }
+  // An accepted ID describes the earlier write, not the snapshot built for this call.
+  // Only a fresh write may replace a draft or mark its autosave state clean.
+  if (!accepted.effectApplied) result = {};
   switch (effect.kind) {
     case "memory":
       result.memoryId = accepted.appliedEntityId;

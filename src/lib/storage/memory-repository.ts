@@ -765,10 +765,10 @@ export class MemoryRepository implements AppRepository {
           : effect?.kind === "weeklyObjective"
             ? effect.objective.id
             : null);
-      return { proposal: { ...proposal }, appliedEntityId };
+      return { proposal: { ...proposal }, appliedEntityId, effectApplied: false };
     }
     if (!effect || proposal.status !== "pending")
-      return { proposal: { ...proposal }, appliedEntityId: null };
+      return { proposal: { ...proposal }, appliedEntityId: null, effectApplied: false };
 
     // All internal effect writers below are synchronous. No other caller can interleave
     // between their mutations and the decision; rollback restores all affected maps.
@@ -816,7 +816,8 @@ export class MemoryRepository implements AppRepository {
           break;
         case "goalEvaluation": {
           const goal = this.annualGoals.get(effect.goalId);
-          if (!goal) return { proposal: { ...proposal }, appliedEntityId: null };
+          if (!goal)
+            return { proposal: { ...proposal }, appliedEntityId: null, effectApplied: false };
           appliedEntityId = this.saveAnnualGoalInternal(
             updateAnnualGoalEvaluation(goal, effect.monthKey, effect.evaluation),
           ).id;
@@ -825,7 +826,8 @@ export class MemoryRepository implements AppRepository {
         case "gtdTask": {
           const task = this.tasks.get(effect.taskId);
           const next = task ? taskForAcceptEffect(task, effect) : null;
-          if (!task || !next) return { proposal: { ...proposal }, appliedEntityId: null };
+          if (!task || !next)
+            return { proposal: { ...proposal }, appliedEntityId: null, effectApplied: false };
           this.saveTaskInternal(next);
           if (effect.action === "drop" && task.recurringTemplateId) {
             const template = this.getExistingRecurringTemplate(task.recurringTemplateId);
@@ -846,7 +848,7 @@ export class MemoryRepository implements AppRepository {
         decidedAt: nowIso(),
       };
       this.aiProposals.set(proposalId, accepted);
-      return { proposal: { ...accepted }, appliedEntityId };
+      return { proposal: { ...accepted }, appliedEntityId, effectApplied: true };
     } catch (error) {
       Object.assign(this, snapshot);
       throw error;

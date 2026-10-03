@@ -202,7 +202,8 @@ atomically via `acceptAiProposal(proposalId, effect)`, using a stable memory id
 derived from the proposal id so retries reconcile instead of duplicating. This
 primitive also handles daily notes, goal evaluations, weekly objectives, weekly/monthly ritual notes, and GTD
 actions; each effect and its decision share one write boundary. Repeat accepts
-return the stored applied ID without applying the effect again. GTD actions read
+return the stored applied ID with `effectApplied: false`, without applying the effect
+again; a fresh committed effect returns `effectApplied: true`. GTD actions read
 the current task in that boundary, reuse a pure mutation helper, and leave missing
 or inactive tasks pending. Dropping a recurring task also resets the template
 backlog in the same boundary.
@@ -214,7 +215,11 @@ the shared application entry point, including the memory compatibility wrapper.
 Screens use its returned proposal and UI effects rather than dispatching by type.
 Daily and review draft acceptance joins the corresponding autosave queue. Later
 manual edits remain editable and persist after the atomic accept; a later edit of
-the same field wins. A failed accept rolls back the entity and decision together.
+the same field wins. Repeat accepts return the stored decision without draft UI
+effects, so they cannot replace a manual note or mark an unwritten snapshot saved.
+Daily, weekly, and monthly proposal buttons are disabled for the whole acceptance
+call, with a synchronous guard that also blocks repeat clicks before the next render.
+A failed accept releases that guard and rolls back the entity and decision together.
 Goal evaluation effects read the current goal inside the writer, preserving other
 months and goal fields. Missing or inactive tasks stay pending; the monthly screen
 still dismisses a missing goal and displays its existing notice.
