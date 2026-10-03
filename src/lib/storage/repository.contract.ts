@@ -3101,6 +3101,55 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         });
       });
 
+      it("revertFinanceCategoryBackfill skips a row the user has since re-categorized or that moved on again", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const first = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-1", merchantKey: "NETFLIX" }),
+        );
+        const second = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-2", merchantKey: "NETFLIX" }),
+        );
+        const third = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-3", merchantKey: "NETFLIX" }),
+        );
+
+        const result = await repository.setFinanceTransactionCategory({
+          transactionId: first.id,
+          categoryId: "fincat:loisirs.abonnements",
+          scope: "all_matching",
+        });
+        expect(result.updated).toBe(3);
+        expect(result.backfill).toHaveLength(2);
+
+        // The user manually re-categorizes `second` after the bulk edit —
+        // the undo must not clobber that intentional edit.
+        await repository.setFinanceTransactionCategory({
+          transactionId: second.id,
+          categoryId: "fincat:alimentation.restaurants",
+          scope: "this",
+        });
+        // A later, unrelated automatic reclassification (e.g. a new rule
+        // match) moves `third` off the bulk-applied category without ever
+        // marking it `user` — the undo must not clobber that either.
+        const thirdBeforeUndo = await repository.getFinanceTransaction(third.id);
+        await repository.saveFinanceTransaction({
+          ...thirdBeforeUndo!,
+          categoryId: "fincat:transport.essence",
+          categorySource: "rule",
+        });
+
+        const reverted = await repository.revertFinanceCategoryBackfill(result.backfill);
+        expect(reverted).toBe(0);
+        await expect(repository.getFinanceTransaction(second.id)).resolves.toMatchObject({
+          categoryId: "fincat:alimentation.restaurants",
+          categorySource: "user",
+        });
+        await expect(repository.getFinanceTransaction(third.id)).resolves.toMatchObject({
+          categoryId: "fincat:transport.essence",
+        });
+      });
+
       it("bulk-updates transactions and splits one with a sum invariant", async () => {
         const repository = await factory();
         await repository.saveFinanceAccount(account({ id: "account-1" }));
@@ -3899,14 +3948,27 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         const [pending] = await repository.listFinanceCategorySuggestions("pending");
         await repository.decideFinanceCategorySuggestion(pending.id, { status: "dismissed" });
 
+        // A different date/amount than the first import's row, so this is a
+        // genuinely new transaction (not an exact-hash dedupe) and actually
+        // runs through classification rather than being skipped as a
+        // duplicate — the prior version of this test imported the identical
+        // row twice, which made the assertion vacuously true.
         const summary = await repository.importFinanceTransactions({
           accountId: "account-1",
           profileId: null,
           fileName: "export2.csv",
           fileHash: "hash-dismiss-2",
-          rows: [importRow({ accountId: "account-1", descriptionRaw: "IGA MONTREAL" })],
+          rows: [
+            importRow({
+              accountId: "account-1",
+              postedDate: "2026-04-15",
+              amountMinor: -999,
+              descriptionRaw: "IGA MONTREAL",
+            }),
+          ],
         });
 
+        expect(summary.imported).toBe(1);
         expect(summary.pendingSuggestions).toBe(0);
       });
 
@@ -4036,6 +4098,45 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         await expect(repository.getFinanceTransaction(userSet.id)).resolves.toMatchObject({
           categoryId: "fincat:logement.entretien",
           categorySource: "user",
+        });
+      });
+
+      it("reclassifyFinancePending leaves an all_matching-backfilled category in place when the new pass only suggests", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const first = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-1",
+            merchantKey: "GENERIC MERCHANT",
+            descriptionRaw: "GENERIC MERCHANT",
+          }),
+        );
+        const second = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-2",
+            merchantKey: "GENERIC MERCHANT",
+            descriptionRaw: "GENERIC MERCHANT",
+          }),
+        );
+
+        // "GENERIC MERCHANT" matches no rule, no memory, and no seed, so a
+        // fresh classification pass on `second` alone would only ever
+        // produce the Uncategorized default — exactly the "default" outcome
+        // this test exercises against the row's already-backfilled category.
+        await repository.setFinanceTransactionCategory({
+          transactionId: first.id,
+          categoryId: "fincat:loisirs.abonnements",
+          scope: "all_matching",
+        });
+        await expect(repository.getFinanceTransaction(second.id)).resolves.toMatchObject({
+          categoryId: "fincat:loisirs.abonnements",
+        });
+
+        const result = await repository.reclassifyFinancePending();
+        expect(result.reclassified).toBe(0);
+
+        await expect(repository.getFinanceTransaction(second.id)).resolves.toMatchObject({
+          categoryId: "fincat:loisirs.abonnements",
         });
       });
 

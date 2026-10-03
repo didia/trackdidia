@@ -26,15 +26,17 @@ export const FinanceReviewPage = () => {
   const [reclassifyMessage, setReclassifyMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [suggestions, nextCategories] = await Promise.all([
+    const [suggestions, nextCategories, allTransactions] = await Promise.all([
       repository.listFinanceCategorySuggestions("pending"),
       repository.listFinanceCategories(),
+      repository.listFinanceTransactions(),
     ]);
-    const transactions = await Promise.all(
-      suggestions.map((suggestion) => repository.getFinanceTransaction(suggestion.transactionId)),
-    );
+    const transactionById = new Map(allTransactions.map((txn) => [txn.id, txn]));
     setRows(
-      suggestions.map((suggestion, index) => ({ suggestion, transaction: transactions[index] })),
+      suggestions.map((suggestion) => ({
+        suggestion,
+        transaction: transactionById.get(suggestion.transactionId) ?? null,
+      })),
     );
     setCategories(nextCategories);
   }, [repository]);

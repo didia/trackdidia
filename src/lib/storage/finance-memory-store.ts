@@ -28,7 +28,12 @@ import type {
   SetFinanceTransferPair,
   UndoFinanceImportBatchResult,
 } from "../../domain/finance";
-import { classifyTransaction, type ClassificationOutcome } from "../finance/classify";
+import { getTodayDate } from "../date";
+import {
+  classifyTransaction,
+  UNCATEGORIZED_CATEGORY_ID,
+  type ClassificationOutcome,
+} from "../finance/classify";
 import { DEFAULT_FINANCE_CATEGORIES } from "../finance/default-categories";
 import type { DismissedSuggestionPair } from "../finance/dismissed-suggestions";
 import {
@@ -40,8 +45,6 @@ import { findNearDuplicates } from "../finance/near-duplicates";
 import { validateSplitTotal } from "../finance/splits";
 import { detectTransfers, type TransferCandidateTransaction } from "../finance/transfers";
 import { createEntityId, nowIso } from "../gtd/shared";
-
-const localDate = (iso: string): string => iso.slice(0, 10);
 
 const SYSTEM_CATEGORIES: FinanceCategory[] = [
   {
@@ -396,6 +399,7 @@ export class FinanceMemoryStore {
             categorySource: candidate.categorySource,
             categoryConfidence: candidate.categoryConfidence,
             categorizedAt: candidate.categorizedAt,
+            appliedCategoryId: input.categoryId,
           });
           this.transactions.set(candidate.id, {
             ...candidate,
@@ -426,13 +430,22 @@ export class FinanceMemoryStore {
     return { updated, memory, backfill };
   }
 
-  /** Reverts the `backfill` entries from a `scope: "all_matching"` call — a single undo. */
+  /**
+   * Reverts the `backfill` entries from a `scope: "all_matching"` call — a
+   * single undo. Skips (and does not count) a row whose `category_source`
+   * is now `"user"` or whose current `category_id` no longer equals
+   * `entry.appliedCategoryId` — either means something else touched the row
+   * after the bulk edit, and an undo of the older edit must not clobber it.
+   */
   revertCategoryBackfill(entries: FinanceCategoryBackfillEntry[]): number {
     const now = nowIso();
     let reverted = 0;
     for (const entry of entries) {
       const txn = this.transactions.get(entry.transactionId);
       if (!txn) {
+        continue;
+      }
+      if (txn.categorySource === "user" || txn.categoryId !== entry.appliedCategoryId) {
         continue;
       }
       this.transactions.set(entry.transactionId, {
@@ -785,7 +798,7 @@ export class FinanceMemoryStore {
     const classificationRules = [...this.rules.values()];
     const classificationMemory = [...this.merchantMemory.values()];
     const dismissed = this.buildDismissedPairs();
-    const today = localDate(now);
+    const today = getTodayDate();
     for (const id of insertedIds) {
       const txn = this.transactions.get(id);
       if (!txn || txn.isTransfer) {
@@ -802,7 +815,7 @@ export class FinanceMemoryStore {
         },
         { rules: classificationRules, memory: classificationMemory, dismissed, today },
       );
-      const suggestionCreated = this.applyClassificationOutcome(txn.id, outcome, now);
+      const { suggestionCreated } = this.applyClassificationOutcome(txn.id, outcome, now);
       if (suggestionCreated) {
         pendingSuggestions += 1;
       }
@@ -919,25 +932,38 @@ export class FinanceMemoryStore {
     };
   }
 
-  /** Writes a `ClassificationOutcome` to the transaction (and a suggestion when owed). Returns whether a suggestion was created. */
+  /** Writes a `ClassificationOutcome` to the transaction (and a suggestion when owed). */
   private applyClassificationOutcome(
     transactionId: string,
     outcome: ClassificationOutcome,
     now: string,
-  ): boolean {
+  ): { suggestionCreated: boolean; categoryChanged: boolean } {
     const txn = this.transactions.get(transactionId);
     if (!txn) {
-      return false;
+      return { suggestionCreated: false, categoryChanged: false };
     }
     const withActions = this.applyRuleActions(txn, outcome.ruleActions, now);
+    // A "default" outcome means this pass only produced a suggestion, not a
+    // category decision (stages 2-5 all failed to decide). If the row
+    // already carries a real category — including one written by an
+    // `all_matching` backfill, which keeps the backfilled row's original
+    // `category_source` (see `setTransactionCategory`) — reclassification
+    // must not reset it back to Uncategorized; only the suggestion is new.
+    const keepExistingCategory =
+      outcome.categorySource === "default" &&
+      withActions.categoryId !== null &&
+      withActions.categoryId !== UNCATEGORIZED_CATEGORY_ID;
     const categoryChanged =
-      withActions.categoryId !== outcome.categoryId ||
-      withActions.categorySource !== outcome.categorySource;
+      !keepExistingCategory &&
+      (withActions.categoryId !== outcome.categoryId ||
+        withActions.categorySource !== outcome.categorySource);
     this.transactions.set(transactionId, {
       ...withActions,
-      categoryId: outcome.categoryId,
-      categorySource: outcome.categorySource,
-      categoryConfidence: outcome.categoryConfidence,
+      categoryId: keepExistingCategory ? withActions.categoryId : outcome.categoryId,
+      categorySource: keepExistingCategory ? withActions.categorySource : outcome.categorySource,
+      categoryConfidence: keepExistingCategory
+        ? withActions.categoryConfidence
+        : outcome.categoryConfidence,
       categorizedAt:
         categoryChanged && outcome.categorySource !== "default" ? now : withActions.categorizedAt,
       updatedAt: now,
@@ -952,15 +978,15 @@ export class FinanceMemoryStore {
         });
       }
     }
-    if (outcome.suggestion) {
-      return this.insertPendingSuggestion(
-        transactionId,
-        outcome.suggestion.categoryId,
-        outcome.suggestion.origin,
-        outcome.suggestion.confidence,
-      );
-    }
-    return false;
+    const suggestionCreated = outcome.suggestion
+      ? this.insertPendingSuggestion(
+          transactionId,
+          outcome.suggestion.categoryId,
+          outcome.suggestion.origin,
+          outcome.suggestion.confidence,
+        )
+      : false;
+    return { suggestionCreated, categoryChanged };
   }
 
   /**
@@ -971,7 +997,7 @@ export class FinanceMemoryStore {
    */
   reclassifyPending(): ReclassifyFinancePendingResult {
     const now = nowIso();
-    const today = localDate(now);
+    const today = getTodayDate();
     const rules = [...this.rules.values()];
     const memory = [...this.merchantMemory.values()];
     const dismissed = this.buildDismissedPairs();
@@ -983,7 +1009,6 @@ export class FinanceMemoryStore {
       if (txn.categorySource === "user" || txn.isTransfer) {
         continue;
       }
-      const before = { categoryId: txn.categoryId, categorySource: txn.categorySource };
       const outcome = classifyTransaction(
         {
           categoryId: txn.categoryId,
@@ -995,14 +1020,15 @@ export class FinanceMemoryStore {
         },
         { rules, memory, dismissed, today },
       );
-      const suggestionCreated = this.applyClassificationOutcome(txn.id, outcome, now);
+      const { suggestionCreated, categoryChanged } = this.applyClassificationOutcome(
+        txn.id,
+        outcome,
+        now,
+      );
       if (suggestionCreated) {
         suggestionsCreated += 1;
       }
-      if (
-        before.categoryId !== outcome.categoryId ||
-        before.categorySource !== outcome.categorySource
-      ) {
+      if (categoryChanged) {
         reclassified += 1;
       }
     }

@@ -30,7 +30,12 @@ import type {
   UndoFinanceImportBatchResult,
 } from "../../domain/finance";
 import type { Database } from "./sqlite-db";
-import { classifyTransaction, type ClassificationOutcome } from "../finance/classify";
+import { getTodayDate } from "../date";
+import {
+  classifyTransaction,
+  UNCATEGORIZED_CATEGORY_ID,
+  type ClassificationOutcome,
+} from "../finance/classify";
 import { DEFAULT_FINANCE_CATEGORIES } from "../finance/default-categories";
 import type { DismissedSuggestionPair } from "../finance/dismissed-suggestions";
 import {
@@ -42,8 +47,6 @@ import { findNearDuplicates } from "../finance/near-duplicates";
 import { detectTransfers, type TransferCandidateTransaction } from "../finance/transfers";
 import { validateSplitTotal } from "../finance/splits";
 import { createEntityId, nowIso } from "../gtd/shared";
-
-const localDate = (iso: string): string => iso.slice(0, 10);
 
 interface PersonRow {
   id: string;
@@ -874,6 +877,7 @@ export class FinanceSqliteStore {
           categorySource: row.category_source,
           categoryConfidence: row.category_confidence,
           categorizedAt: row.categorized_at,
+          appliedCategoryId: input.categoryId,
         });
       }
       const result = await db.execute(
@@ -899,32 +903,48 @@ export class FinanceSqliteStore {
     return { updated, memory, backfill };
   }
 
-  /** Reverts the `backfill` entries from a `scope: "all_matching"` call — a single undo. */
+  /**
+   * Reverts the `backfill` entries from a `scope: "all_matching"` call — a
+   * single undo, one `BEGIN IMMEDIATE`/`COMMIT`. Skips (and does not count)
+   * a row whose `category_source` is now `"user"` or whose current
+   * `category_id` no longer equals `entry.appliedCategoryId` — either means
+   * something else touched the row after the bulk edit, and an undo of the
+   * older edit must not clobber it.
+   */
   async revertCategoryBackfill(entries: FinanceCategoryBackfillEntry[]): Promise<number> {
     if (entries.length === 0) {
       return 0;
     }
     const db = await this.getDb();
     const now = nowIso();
-    let reverted = 0;
-    for (const entry of entries) {
-      const result = await db.execute(
-        `UPDATE finance_transactions SET
-          category_id = $2, category_source = $3, category_confidence = $4,
-          categorized_at = $5, updated_at = $6
-        WHERE id = $1`,
-        [
-          entry.transactionId,
-          entry.categoryId,
-          entry.categorySource,
-          entry.categoryConfidence,
-          entry.categorizedAt,
-          now,
-        ],
-      );
-      reverted += result.rowsAffected;
+
+    await db.execute("BEGIN IMMEDIATE");
+    try {
+      let reverted = 0;
+      for (const entry of entries) {
+        const result = await db.execute(
+          `UPDATE finance_transactions SET
+            category_id = $2, category_source = $3, category_confidence = $4,
+            categorized_at = $5, updated_at = $6
+          WHERE id = $1 AND category_source != 'user' AND category_id = $7`,
+          [
+            entry.transactionId,
+            entry.categoryId,
+            entry.categorySource,
+            entry.categoryConfidence,
+            entry.categorizedAt,
+            now,
+            entry.appliedCategoryId,
+          ],
+        );
+        reverted += result.rowsAffected;
+      }
+      await db.execute("COMMIT");
+      return reverted;
+    } catch (error) {
+      await this.rollbackQuietly(db);
+      throw error;
     }
-    return reverted;
   }
 
   async bulkUpdateTransactions(
@@ -1416,7 +1436,7 @@ export class FinanceSqliteStore {
       const classificationRules = await this.listRules();
       const classificationMemory = await this.listMerchantMemory();
       const dismissed = await this.buildDismissedPairsWithDb(db);
-      const today = localDate(now);
+      const today = getTodayDate();
       const insertedForClassification = await db.select<TransactionRow[]>(
         "SELECT * FROM finance_transactions WHERE import_batch_id = $1 AND is_transfer = 0",
         [batchId],
@@ -1438,7 +1458,7 @@ export class FinanceSqliteStore {
             today,
           },
         );
-        const suggestionCreated = await this.applyClassificationOutcomeWithDb(
+        const { suggestionCreated } = await this.applyClassificationOutcomeWithDb(
           db,
           row.id,
           outcome,
@@ -1596,24 +1616,40 @@ export class FinanceSqliteStore {
     };
   }
 
-  /** Writes a `ClassificationOutcome` to the transaction (and a suggestion when owed). Returns whether a suggestion was created. */
+  /** Writes a `ClassificationOutcome` to the transaction (and a suggestion when owed). */
   private async applyClassificationOutcomeWithDb(
     db: Database,
     transactionId: string,
     outcome: ClassificationOutcome,
     now: string,
-  ): Promise<boolean> {
+  ): Promise<{ suggestionCreated: boolean; categoryChanged: boolean }> {
     const rows = await db.select<TransactionRow[]>(
       "SELECT * FROM finance_transactions WHERE id = $1",
       [transactionId],
     );
     const row = rows[0];
     if (!row) {
-      return false;
+      return { suggestionCreated: false, categoryChanged: false };
     }
     const actions = this.applyRuleActionsSql(row, outcome.ruleActions);
+    // A "default" outcome means this pass only produced a suggestion, not a
+    // category decision (stages 2-5 all failed to decide). If the row
+    // already carries a real category — including one written by an
+    // `all_matching` backfill, which keeps the backfilled row's original
+    // `category_source` (see `setTransactionCategory`) — reclassification
+    // must not reset it back to Uncategorized; only the suggestion is new.
+    const keepExistingCategory =
+      outcome.categorySource === "default" &&
+      row.category_id !== null &&
+      row.category_id !== UNCATEGORIZED_CATEGORY_ID;
+    const finalCategoryId = keepExistingCategory ? row.category_id : outcome.categoryId;
+    const finalCategorySource = keepExistingCategory ? row.category_source : outcome.categorySource;
+    const finalCategoryConfidence = keepExistingCategory
+      ? row.category_confidence
+      : outcome.categoryConfidence;
     const categoryChanged =
-      row.category_id !== outcome.categoryId || row.category_source !== outcome.categorySource;
+      !keepExistingCategory &&
+      (row.category_id !== outcome.categoryId || row.category_source !== outcome.categorySource);
     await db.execute(
       `UPDATE finance_transactions SET
         category_id = $2, category_source = $3, category_confidence = $4,
@@ -1623,9 +1659,9 @@ export class FinanceSqliteStore {
       WHERE id = $1`,
       [
         transactionId,
-        outcome.categoryId,
-        outcome.categorySource,
-        outcome.categoryConfidence,
+        finalCategoryId,
+        finalCategorySource,
+        finalCategoryConfidence,
         categoryChanged && outcome.categorySource !== "default" ? 1 : 0,
         now,
         actions.merchantDisplay,
@@ -1642,16 +1678,16 @@ export class FinanceSqliteStore {
         [outcome.matchedRule.id, now],
       );
     }
-    if (outcome.suggestion) {
-      return this.insertPendingSuggestionWithDb(db, {
-        transactionId,
-        suggestedCategoryId: outcome.suggestion.categoryId,
-        origin: outcome.suggestion.origin,
-        confidence: outcome.suggestion.confidence,
-        now,
-      });
-    }
-    return false;
+    const suggestionCreated = outcome.suggestion
+      ? await this.insertPendingSuggestionWithDb(db, {
+          transactionId,
+          suggestedCategoryId: outcome.suggestion.categoryId,
+          origin: outcome.suggestion.origin,
+          confidence: outcome.suggestion.confidence,
+          now,
+        })
+      : false;
+    return { suggestionCreated, categoryChanged };
   }
 
   /**
@@ -1663,7 +1699,7 @@ export class FinanceSqliteStore {
   async reclassifyPending(): Promise<ReclassifyFinancePendingResult> {
     const db = await this.getDb();
     const now = nowIso();
-    const today = localDate(now);
+    const today = getTodayDate();
 
     await db.execute("BEGIN IMMEDIATE");
     try {
@@ -1690,7 +1726,7 @@ export class FinanceSqliteStore {
           },
           { rules, memory, dismissed, today },
         );
-        const suggestionCreated = await this.applyClassificationOutcomeWithDb(
+        const { suggestionCreated, categoryChanged } = await this.applyClassificationOutcomeWithDb(
           db,
           row.id,
           outcome,
@@ -1699,10 +1735,7 @@ export class FinanceSqliteStore {
         if (suggestionCreated) {
           suggestionsCreated += 1;
         }
-        if (
-          row.category_id !== outcome.categoryId ||
-          row.category_source !== outcome.categorySource
-        ) {
+        if (categoryChanged) {
           reclassified += 1;
         }
       }

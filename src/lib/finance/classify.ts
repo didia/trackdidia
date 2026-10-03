@@ -14,6 +14,7 @@ import type {
   FinanceRuleMatcher,
 } from "../../domain/finance";
 import { isSuggestionDismissed, type DismissedSuggestionPair } from "./dismissed-suggestions";
+import { normalizeDescription } from "./import-profile";
 import { SEED_HEURISTICS, type SeedHeuristic } from "./seed-heuristics";
 
 export const UNCATEGORIZED_CATEGORY_ID = "fincat:non-categorise";
@@ -85,7 +86,11 @@ export const matchesRuleMatcher = (
   txn: ClassifyTransactionInput,
 ): boolean => {
   if (matcher.descriptionContains) {
-    if (!txn.merchantKey.includes(matcher.descriptionContains.toUpperCase())) {
+    // `txn.merchantKey` is already normalized (uppercased, accents
+    // stripped — see `normalizeDescription`). The needle must go through
+    // the same normalizer, not a plain `.toUpperCase()`, or an accented
+    // needle like "Épicerie" (-> "ÉPICERIE") never matches "EPICERIE".
+    if (!txn.merchantKey.includes(normalizeDescription(matcher.descriptionContains))) {
       return false;
     }
   }
