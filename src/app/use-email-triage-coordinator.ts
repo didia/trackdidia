@@ -8,7 +8,7 @@ import {
   createEmailTriageAdapter,
   getEmailTriageCoordinator,
   setEmailTriageCoordinator,
-} from "../lib/email-triage/gmail-session";
+} from "../lib/email-triage/provider-session";
 import { loadVaultSecret } from "../lib/email-triage/vault";
 import type { EmailTriageClassifierProvider } from "../lib/email-triage/classifier";
 import type { AppSettings } from "../domain/types";

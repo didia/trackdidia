@@ -48,6 +48,23 @@ The browser store remains non-persistent across reloads.
   no provider mutation)
 - Tray and autostart preference apply failures surface independently and do not abort settings save
 
+### Shared OAuth lifecycle
+
+Gmail and Microsoft descriptors in `src/lib/email-triage/oauth/providers.ts`
+supply authorization URLs, client-ID selection, profile identity, initial sync
+state and error policies to one `connectOAuthAccount` path. It validates PKCE
+state and reconnect identity/generation before credential persistence, then
+schedules the account. Temporary bootstrap access tokens are cleared even when
+a profile request fails.
+
+`oauth/shared.ts` owns form-encoded token exchange/refresh, guarded JSON decoding,
+credential serialization and address masking. Session and adapter orchestration
+lives in `provider-session.ts`; the old Gmail session module remains a compatibility
+export. Access tokens stay in memory, refresh credentials stay in the OS vault,
+and Microsoft rotation preserves the stored scope. Provider-specific reconnect
+and consent behavior is retained. These modules do not log credentials, codes,
+verifiers or token responses.
+
 ### Gmail (slice 2)
 
 - Installed-app Google OAuth with `gmail.modify`, PKCE S256, system browser, and loopback
