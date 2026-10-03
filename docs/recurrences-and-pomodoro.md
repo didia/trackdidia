@@ -192,6 +192,10 @@ segments:
 - resuming opens a new segment with the latest task/title;
 - completing/cancelling closes every open segment.
 
+The pure Pomodoro engine decides start, pause, resume, stop, and activity-switch
+transitions. Both repositories persist the returned session and segment changes;
+the SQLite repository keeps these writes inside its writer queue.
+
 Eligible GTD tasks are active Next Actions. Scheduled tasks stay off the picker
 until they are promoted to Next Actions.
 

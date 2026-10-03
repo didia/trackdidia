@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-10-02 | Moved Pomodoro session and segment transition rules from both repositories into the pure engine, keeping persisted timing and no-op behavior | `docs/recurrences-and-pomodoro.md` | `engine.ts`, both repositories, `engine.test.ts` |
 | 2026-09-27 | Active future recurrence rewind subtracts pending counters, emits lifecycle events, and cancels premature instances before `startDate` | `docs/recurrences-and-pomodoro.md`, `docs/gtd.md` | `prepareRecurringGeneration`, `generateDueRecurringTasks` |
 | 2026-09-25 | Recurrence generation is capped at local today, and a future `lastGeneratedForDate` is rewound on the next pass so a weekly or monthly summary cannot consume later occurrences | `docs/recurrences-and-pomodoro.md`, `docs/gtd.md` | `prepareRecurringGeneration`, `recurrenceGenerationHorizon`, `generateDueRecurringTasks` |
 | 2026-09-22 | `MemoryRepository.generateDueRecurringTasks` now reapplies the template's current `contextIds`/`projectId` to the active task on every generation, matching `TauriSqliteRepository` (previously it kept whatever the active task row already had); title/notes still carry over from the active task | `docs/recurrences-and-pomodoro.md` | `src/lib/storage/memory-repository.ts`, `src/lib/storage/repository.contract.ts` |
