@@ -8,7 +8,8 @@ import type {
 } from "../../domain/types";
 import { computeGtdHealthFindings } from "../../domain/insights/gtd-health";
 import { clampAiAsOfDate, stableAiNowIso } from "../date";
-import { createEntityId, nowIso, toLocalDateString } from "../gtd/shared";
+import { createEntityId, nowIso } from "../gtd/shared";
+import { toLocalDateString } from "../date";
 import type { AppRepository } from "../storage/repository";
 import { buildWeeklySnapshot, type WeeklySnapshotInputs } from "./context/weekly-snapshot";
 import { buildAiInputHash } from "./input-hash";

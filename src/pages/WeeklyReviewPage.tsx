@@ -42,7 +42,8 @@ import { loadLatestWeeklySynthesis } from "../lib/ai/weekly-synthesis-loader";
 import { WeeklySynthesisService } from "../lib/ai/weekly-synthesis-service";
 import { formatDateLong, formatDateShort, getTodayDate } from "../lib/date";
 import { formatPercent, formatTimestamp } from "../lib/format";
-import { addDays, nowIso } from "../lib/gtd/shared";
+import { nowIso } from "../lib/gtd/shared";
+import { addDays } from "../lib/date";
 import {
   enqueueMidWeekDecisionSave,
   getFailedMidWeekDraft,

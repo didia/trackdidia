@@ -7,7 +7,7 @@ import {
 } from "../domain/daily-entry";
 import type { DailyEntry, DailyPomodoroStats, DailyTaskStats } from "../domain/types";
 import { getTodayDate } from "../lib/date";
-import { addDays } from "../lib/gtd/shared";
+import { addDays } from "../lib/date";
 import { useAppContext } from "./app-context";
 
 export type DailyEntrySaveInput = DailyEntry | ((current: DailyEntry) => DailyEntry);

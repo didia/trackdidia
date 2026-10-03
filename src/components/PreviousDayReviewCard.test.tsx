@@ -2,7 +2,7 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createEmptyDailyEntry, defaultAppSettings, updateNote } from "../domain/daily-entry";
 import { getTodayDate } from "../lib/date";
-import { addDays } from "../lib/gtd/shared";
+import { addDays } from "../lib/date";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { MorningRoutinePage } from "../pages/MorningRoutinePage";
 import { renderWithApp } from "../test/test-utils";

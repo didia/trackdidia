@@ -1,5 +1,6 @@
 import { t } from "../i18n";
-import { addDays, getWeekStartSunday } from "../lib/gtd/shared";
+import { atLocalNoon } from "../lib/date";
+import { addDays, getWeekStartSunday } from "../lib/date";
 import { defaultChildrenActivities, defaultSpouseActivities } from "../lib/relationship-draws";
 import { metricDefinitions, principleDefinitions } from "./definitions";
 import type {
@@ -246,8 +247,8 @@ export const computeCompletionPercent = (entry: DailyEntry): number => {
 const daysRemainingInWeekInclusive = (date: string): number => {
   const weekStart = getWeekStartSunday(date);
   const weekEnd = addDays(weekStart, 6);
-  const startMs = new Date(`${date}T12:00:00`).getTime();
-  const endMs = new Date(`${weekEnd}T12:00:00`).getTime();
+  const startMs = atLocalNoon(date).getTime();
+  const endMs = atLocalNoon(weekEnd).getTime();
   return Math.round((endMs - startMs) / 86400000) + 1;
 };
 

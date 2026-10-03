@@ -67,7 +67,7 @@ import {
 import { t } from "../../i18n";
 import { monthKeyToLocalRange } from "../ai/analytics/month-range";
 import { buildBackupFileName, isBackupDestinationConfigured, resolveBackupDir } from "../backup";
-import { getTodayDate } from "../date";
+import { getTodayDate, isSunday } from "../date";
 import { formatUnknownError, logDebug } from "../debug";
 import {
   buildCarryoverEvents,
@@ -86,14 +86,8 @@ import {
   swapPlannedOrder,
 } from "../gtd/planned";
 import { promoteDueScheduledTasks as selectDueScheduledPromotions } from "../gtd/scheduled";
-import {
-  addDays,
-  cloneProject,
-  cloneTask,
-  createEntityId,
-  nowIso,
-  toLocalDateString,
-} from "../gtd/shared";
+import { cloneProject, cloneTask, createEntityId, nowIso } from "../gtd/shared";
+import { addDays, toLocalDateString } from "../date";
 import {
   buildPomodoroSessionDetails,
   buildPomodoroState,
@@ -3999,7 +3993,7 @@ export class TauriSqliteRepository implements AppRepository {
   async computeDailyTaskStats(date: string) {
     await this.generateDueRecurringTasks(date);
     await this.promoteDueScheduledTasks(getTodayDate());
-    if (date <= getTodayDate() && new Date(`${date}T12:00:00`).getDay() === 0) {
+    if (date <= getTodayDate() && isSunday(date)) {
       await this.applyWeeklyCarryover(date);
     }
 
@@ -4010,7 +4004,7 @@ export class TauriSqliteRepository implements AppRepository {
   async getDailyTaskBreakdown(date: string) {
     await this.generateDueRecurringTasks(date);
     await this.promoteDueScheduledTasks(getTodayDate());
-    if (date <= getTodayDate() && new Date(`${date}T12:00:00`).getDay() === 0) {
+    if (date <= getTodayDate() && isSunday(date)) {
       await this.applyWeeklyCarryover(date);
     }
 
@@ -4740,15 +4734,11 @@ export class TauriSqliteRepository implements AppRepository {
     const candidates = [template.startDate];
 
     if (template.lastGeneratedForDate) {
-      const next = new Date(`${template.lastGeneratedForDate}T12:00:00`);
-      next.setDate(next.getDate() + 1);
-      candidates.push(next.toISOString().slice(0, 10));
+      candidates.push(addDays(template.lastGeneratedForDate, 1));
     }
 
     if (activeTask?.recurrenceDueDate) {
-      const next = new Date(`${activeTask.recurrenceDueDate}T12:00:00`);
-      next.setDate(next.getDate() + 1);
-      candidates.push(next.toISOString().slice(0, 10));
+      candidates.push(addDays(activeTask.recurrenceDueDate, 1));
     }
 
     const sorted = [...candidates].sort();

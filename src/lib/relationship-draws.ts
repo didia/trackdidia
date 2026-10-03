@@ -1,6 +1,7 @@
 import type { AppSettings, Task } from "../domain/types";
 import { t, tList } from "../i18n";
-import { buildContextId, toLocalDateString } from "./gtd/shared";
+import { buildContextId } from "./gtd/shared";
+import { toLocalDateString } from "./date";
 
 export type RelationshipDrawCategory = "children" | "spouse";
 

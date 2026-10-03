@@ -1,6 +1,7 @@
 import { createEmptyDailyEntry, defaultAppSettings, updateNote } from "../../../domain/daily-entry";
 import type { AiMessage } from "../../../domain/types";
-import { addDays, createEntityId, toLocalDateString } from "../../gtd/shared";
+import { createEntityId } from "../../gtd/shared";
+import { addDays, toLocalDateString } from "../../date";
 import { MemoryRepository } from "../../storage/memory-repository";
 import { CoachPulseService } from "../coach-pulse-service";
 import * as preview from "../context/preview";

@@ -1,11 +1,12 @@
 import type { Task, TaskEvent } from "../../domain/types";
+import { atLocalNoon } from "../date";
 import { toLocalDateString } from "./shared";
 
 const MS_PER_LOCAL_DAY = 86_400_000;
 
 export const daysBetweenLocalDates = (fromDate: string, toDate: string): number => {
-  const from = new Date(`${fromDate}T12:00:00`).getTime();
-  const to = new Date(`${toDate}T12:00:00`).getTime();
+  const from = atLocalNoon(fromDate).getTime();
+  const to = atLocalNoon(toDate).getTime();
   return Math.max(0, Math.round((to - from) / MS_PER_LOCAL_DAY));
 };
 

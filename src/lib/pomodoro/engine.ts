@@ -9,7 +9,8 @@ import type {
   Task,
 } from "../../domain/types";
 import { t } from "../../i18n";
-import { createEntityId, toLocalDateString } from "../gtd/shared";
+import { createEntityId } from "../gtd/shared";
+import { toLocalDateString } from "../date";
 
 export const POMODORO_DURATIONS_MS: Record<PomodoroKind, number> = {
   focus: 25 * 60 * 1000,
