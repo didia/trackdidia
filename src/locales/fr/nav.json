@@ -18,6 +18,7 @@
   "waitingFor": "Waiting For",
   "somedayMaybe": "Someday / Maybe",
   "emailTriage": "Triage courriel",
+  "finances": "Finances",
   "settings": "Paramètres",
   "authorPrefix": "Auteur : {{author}}"
 }

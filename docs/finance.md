@@ -5,15 +5,20 @@ See also: [changelog](logs/finance.md).
 TrackDidia is building a household finance domain: CSV transaction import, a
 learning categorization loop, multi-person/multi-account tracking, and (in later
 phases) YNAB-style envelope budgeting and proactive runout forecasting. This page
-documents **Phase 2 — Schema and repository parity** only: the SQLite schema, the
-`FinanceSqliteStore`/`FinanceMemoryStore` persistence layer, and the `AppRepository`
-contract. There is no UI, no classification pipeline, and no budget arithmetic yet —
-see [specs/todo/finance.md](../specs/todo/finance.md) for the full phased plan.
+documents **Phase 2 — Schema and repository parity** (the SQLite schema, the
+`FinanceSqliteStore`/`FinanceMemoryStore` persistence layer, and the
+`AppRepository` contract) and **Phase 3 — Accounts, import, and transaction
+screens** (the first finance UI). There is still no classification pipeline and
+no budget arithmetic — see [specs/todo/finance.md](../specs/todo/finance.md) for
+the full phased plan.
 
-The feature is **unshipped to end users**: `AppSettings.financeEnabled` defaults to
-`false`, there is no nav entry, and no startup code calls any finance method yet.
-This page describes what the storage layer can do today so later phases (and
-reviewers) have a canonical reference.
+The feature is **unshipped to end users by default**: `AppSettings.financeEnabled`
+defaults to `false`. With it off, the sidebar has no "Finances" entry and
+`/finances*` redirects to `/`. A household that turns it on in Settings gets
+the four screens documented in "Screens" below; later phases (classification,
+budget, reports, forecasting) are not built yet. This page describes what the
+storage layer and the UI can do today so later phases (and reviewers) have a
+canonical reference.
 
 ## Data model
 
@@ -182,6 +187,154 @@ group of a surviving partner (clearing
 does not silently fall out of the budget), and **refuses to delete any row whose
 `category_source = 'user'`** — those rows are counted in `refusedUserCategorized`
 and left exactly as they were, with their `import_batch_id` intact.
+
+## Screens (Phase 3)
+
+### Flag gating
+
+`AppSettings.financeEnabled` gates everything in this section:
+
+- `AppShell`'s nav list supports a per-entry `flag` naming an `AppSettings`
+  boolean; the "Finances" entry (`/finances`) carries `flag: "financeEnabled"`
+  and disappears from the sidebar when the flag is false.
+- `/finances/*` is always registered in `App.tsx` — a `FinanceRoutes` element
+  reads `settings.financeEnabled` from `useAppContext()` and renders
+  `<Navigate to="/" replace />` instead of its child routes while the flag is
+  off, so a stale bookmark or deep link lands on Today rather than 404ing.
+- Turning the flag on (in `SettingsPage`'s new "Finances" section, or by any
+  other writer of `AppSettings`) does not retroactively create accounts or
+  transactions — it only seeds the default category taxonomy once (see
+  "Enabling the flag seeds categories" below) and reveals the nav entry and
+  routes.
+
+Settings also exposes `financeBaseCurrency` next to the toggle. The AI,
+alerts/coach, and notify-runout flags from the Phase 2 table are **not** shown
+in Settings yet — they are no-ops until the phases that read them (4, 7, 8)
+ship, and showing a checkbox with no effect would be misleading.
+
+### Enabling the flag seeds categories
+
+The default French category taxonomy (`seedFinanceDefaultCategories()`, see
+"Default category taxonomy" above) is seeded exactly once, gated on
+`AppSettings.financeCategoriesSeededAt` being empty, from two independent
+call sites that race harmlessly because the seed is `INSERT OR IGNORE`:
+
+- `SettingsPage`: saving the finance section with `financeEnabled` flipped
+  false → true calls `repository.seedFinanceDefaultCategories()` before
+  `saveSettings`, then persists the marker in the same save.
+- `AppProvider`'s boot sequence: if `financeEnabled` is already true and the
+  marker is still empty (e.g. a settings row written by another path, or a
+  fresh desktop install with the flag pre-set), the boot sequence seeds and
+  sets the marker as one more idempotent startup step. The call is wrapped in
+  its own `try`/`catch` and logs only a row count — a seeding failure is
+  swallowed rather than thrown, so it can never become a new way to trip the
+  eight-second startup timeout.
+
+### Routes and shared tab bar
+
+| Route | Screen |
+|---|---|
+| `/finances` | `FinanceOverviewPage` — minimal account list with derived balances and links to the other screens; a fuller dashboard (net worth, cash flow, trends) is Phase 6 |
+| `/finances/transactions` | `FinanceTransactionsPage` |
+| `/finances/import` | `FinanceImportPage` |
+| `/finances/accounts` | `FinanceAccountsPage` |
+
+Every `/finances*` page renders `FinanceTabs`
+(`src/components/finance/FinanceTabs.tsx`), a shared in-page nav bar. It only
+lists tabs for screens that exist today (Overview, Transactions, Import,
+Accounts); Budget, Reports, and Review have no tab until their phases ship —
+adding a tab that 404s or redirects would be worse than omitting it.
+
+### FinanceAccountsPage (`/finances/accounts`)
+
+CRUD for both household members (`finance_people`: add, archive/unarchive —
+there is no hard delete) and accounts (`finance_accounts`: name, institution,
+type, currency, owner person, ownership, on-budget toggle, opening balance as
+of a date, an optional manual balance for reconciliation, close/reopen).
+
+Each account's derived balance (opening balance + Σ its transactions) is
+computed by the pure `computeDerivedBalanceMinor` in
+`src/domain/finance/account-balance.ts` (tested directly, no repository
+involved) and shown next to every account. When the account also carries a
+manual `currentBalanceMinor` (entered as a reconciliation check, typically for
+an `asset`/`investment` account with no transaction feed), the sibling pure
+function `computeReconciliationDiscrepancy` compares the two and the page
+shows a discrepancy banner whenever they disagree.
+
+### FinanceImportPage (`/finances/import`)
+
+1. A "take a manual backup first" notice with a one-click manual backup button
+   (desktop only) — undo only covers the most recent import batch per
+   account, so an earlier mistake is not recoverable through the UI alone.
+2. `<input type="file" accept=".csv,text/csv" multiple>`. Each selected file's
+   bytes are read with `FileReader` (not `File.arrayBuffer()`/`File.text()`,
+   which jsdom — this app's Testing Library environment — does not
+   implement) and decoded by `decodeCsvBytes` in
+   `src/lib/finance/import-request.ts`: UTF-8 first, and if that decode
+   contains a replacement character (U+FFFD), a second pass re-decodes the
+   same bytes as windows-1252 (lossless for any byte sequence) and the page
+   shows a banner telling the user the file was re-read. `parseCsv` (Phase 1)
+   then turns the decoded text into a header and rows.
+3. Profile auto-detection: `buildHeaderSignature(header)` is compared against
+   every saved `FinanceImportProfile` and against the bundled `MINT_PROFILE`;
+   a match pre-fills the column map, date format, and amount mode. No match
+   falls back to an empty column map, `single_signed` amount mode, and a
+   best-effort date-format guess from `inferDateFormat` over the first 20
+   rows (the mapping UI shows a banner when that guess is ambiguous).
+4. A mapping form lets the user remap every column (date, description,
+   original description, amount — as a single signed column, debit/credit
+   columns, or amount + transaction-type column — account, category hint,
+   notes, labels) and the date format, with a first-20-row raw preview table
+   underneath.
+5. Account binding: when the profile maps an account column, the page lists
+   every distinct value seen in that column in the file and lets the user
+   bind each one to an existing account or create a new one inline. A newly
+   created account's `external_key` keeps only the last 4 characters when the
+   bound label looks like an account number (6+ digits), e.g. `****1234`,
+   matching the "mask like a dedupe hash, not a full account number" posture
+   elsewhere in the app. When the profile has no account column, a single
+   "this file is one account" dropdown is used instead.
+6. The profile (with the user's final mapping) is saved via
+   `saveFinanceImportProfile` before import, and the mapped rows are built by
+   the pure `buildImportRequest`/`buildImportRows` in
+   `src/lib/finance/import-request.ts` (tested directly): rows that fail to
+   map (bad date/amount/description) or whose account cannot be resolved are
+   collected as errors rather than thrown, and reported in the result panel
+   instead of aborting the whole import.
+7. `repository.importFinanceTransactions(request)` runs the Phase 2 pipeline;
+   the result panel shows imported/duplicates/skipped/errors/new
+   accounts/transfers-detected counts, the near-duplicate list (similarity and
+   date-diff per match), and any parse warnings.
+8. A batch history list (`listFinanceImportBatches`) shows every past import
+   with its counts. Undo is offered only on the most recent batch **per
+   account** (computed client-side from the newest-first batch list), matching
+   the repository's own restriction; a refused-rows count from a partially
+   refused undo (rows with `category_source = 'user'`) is surfaced as a
+   banner.
+
+### FinanceTransactionsPage (`/finances/transactions`)
+
+A paged (25 per page), filtered (date range, account, category, person, free
+text search, uncategorized-only) transaction list. Each row supports:
+
+- Inline category edit via `setFinanceTransactionCategory`, with a
+  per-row scope selector (`this` / `this_and_future` / `all_matching`) that
+  is read at edit time — there is no separate "apply" step.
+- A split editor (`FinanceTransactionSplit[]`) with client-side sum-invariant
+  validation: saving is rejected unless every split amount parses and the
+  splits sum to exactly the parent transaction's `amountMinor`, matching the
+  invariant the repository documents but does not itself enforce.
+- Mark/unmark transfer: unmarking calls `clearFinanceTransfer`. Marking a
+  transaction as a transfer without a known paired partner is intentionally
+  not offered from this toolbar — pairing both legs of a transfer is a future
+  phase's dedicated transfer-matching UI; only clearing an existing pairing
+  lives here today.
+- Exclude/include from budget and from reports (`bulkUpdateFinanceTransactions`
+  on a single id).
+
+A bulk-selection toolbar appears once at least one row is checked: apply a
+category, or exclude the selection from budget/reports, in one
+`bulkUpdateFinanceTransactions` call.
 
 ## Related documentation
 
