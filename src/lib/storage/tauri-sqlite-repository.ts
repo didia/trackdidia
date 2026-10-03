@@ -1,3 +1,8 @@
+import {
+  taskForAcceptEffect,
+  type AcceptEffect,
+  type AiProposalAcceptResult,
+} from "../ai/proposals/accept-effect";
 import { runSqliteTransaction, transactionDb, type TxContext } from "./transaction";
 import { runMigrations } from "./migrations";
 import { invoke } from "@tauri-apps/api/core";
@@ -1722,320 +1727,92 @@ export class TauriSqliteRepository implements AppRepository {
     });
   }
 
-  async acceptAiMemoryProposal(
-    proposal: AiProposal,
-    memory: AiMemory,
-  ): Promise<{ memory: AiMemory; proposal: AiProposal }> {
+  async acceptAiProposal(
+    proposalId: string,
+    effect: AcceptEffect | null,
+  ): Promise<AiProposalAcceptResult> {
     return this.writeTransaction(async (tx) => {
       const db = transactionDb(tx);
-
-      const proposalRows = await db.select<AiProposalRow[]>(
+      const rows = await db.select<AiProposalRow[]>(
         `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
-         FROM ai_proposals
-         WHERE id = $1`,
-        [proposal.id],
+         FROM ai_proposals WHERE id = $1`,
+        [proposalId],
       );
-
-      if (proposalRows.length === 0) {
-        throw new Error(`AI proposal not found: ${proposal.id}`);
-      }
-
-      const existingProposal = this.deserializeAiProposal(proposalRows[0]);
-      if (existingProposal.status === "accepted") {
-        const memoryId = existingProposal.appliedEntityId ?? memory.id;
-        const memoryRows = await db.select<AiMemoryRow[]>(
-          `SELECT id, kind, statement, detail, confidence, source, status,
-                  evidence_from, evidence_to, created_at, last_confirmed_at, expires_at, pinned
-           FROM ai_memories
-           WHERE id = $1`,
-          [memoryId],
-        );
-
-        if (memoryRows.length === 0) {
-          throw new Error(`AI memory not found: ${memoryId}`);
+      if (!rows[0]) throw new Error(`AI proposal not found: ${proposalId}`);
+      const proposal = this.deserializeAiProposal(rows[0]);
+      if (proposal.status === "accepted") {
+        if (effect?.kind === "memory" || effect?.kind === "weeklyObjective") {
+          const id =
+            proposal.appliedEntityId ??
+            (effect.kind === "memory" ? effect.memory.id : effect.objective.id);
+          const table = effect.kind === "memory" ? "ai_memories" : "weekly_objectives";
+          const existing = await db.select<{ id: string }[]>(
+            `SELECT id FROM ${table} WHERE id = $1`,
+            [id],
+          );
+          if (!existing[0])
+            throw new Error(
+              `${effect.kind === "memory" ? "AI memory" : "Weekly objective"} not found: ${id}`,
+            );
         }
-
-        return {
-          memory: this.deserializeAiMemory(memoryRows[0]),
-          proposal: existingProposal,
-        };
+        const appliedEntityId =
+          proposal.appliedEntityId ??
+          (effect?.kind === "memory"
+            ? effect.memory.id
+            : effect?.kind === "weeklyObjective"
+              ? effect.objective.id
+              : null);
+        return { proposal, appliedEntityId };
       }
+      if (!effect) return { proposal, appliedEntityId: null };
 
-      const memoryRows = await db.select<AiMemoryRow[]>(
-        `SELECT id, kind, statement, detail, confidence, source, status,
-                evidence_from, evidence_to, created_at, last_confirmed_at, expires_at, pinned
-         FROM ai_memories
-         WHERE id = $1`,
-        [memory.id],
-      );
-      const existingMemory = memoryRows.length > 0 ? this.deserializeAiMemory(memoryRows[0]) : null;
-
-      const savedMemory = existingMemory ?? (await this.saveAiMemoryInternal(tx, memory));
-      const decidedAt = nowIso();
-      await db.execute(
-        `UPDATE ai_proposals
-           SET status = 'accepted', applied_entity_id = $1, decided_at = $2
-           WHERE id = $3`,
-        [savedMemory.id, decidedAt, proposal.id],
-      );
-
-      return {
-        memory: savedMemory,
-        proposal: {
-          ...existingProposal,
-          status: "accepted",
-          appliedEntityId: savedMemory.id,
-          decidedAt,
-        },
-      };
-    });
-  }
-
-  async acceptAiWeeklyObjectiveProposal(
-    proposal: AiProposal,
-    objective: WeeklyObjective,
-  ): Promise<{ objective: WeeklyObjective; proposal: AiProposal }> {
-    return this.writeTransaction(async (tx) => {
-      const db = transactionDb(tx);
-
-      const proposalRows = await db.select<AiProposalRow[]>(
-        `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
-         FROM ai_proposals
-         WHERE id = $1`,
-        [proposal.id],
-      );
-
-      if (proposalRows.length === 0) {
-        throw new Error(`AI proposal not found: ${proposal.id}`);
-      }
-
-      const existingProposal = this.deserializeAiProposal(proposalRows[0]);
-      if (existingProposal.status === "accepted") {
-        const objectiveId = existingProposal.appliedEntityId ?? objective.id;
-        const objectiveRows = await db.select<WeeklyObjectiveRow[]>(
-          `SELECT ${weeklyObjectiveSelectColumns}
-           FROM weekly_objectives
-           WHERE id = $1`,
-          [objectiveId],
-        );
-
-        if (objectiveRows.length === 0) {
-          throw new Error(`Weekly objective not found: ${objectiveId}`);
+      let appliedEntityId: string;
+      switch (effect.kind) {
+        case "memory": {
+          const existing = await db.select<{ id: string }[]>(
+            "SELECT id FROM ai_memories WHERE id = $1",
+            [effect.memory.id],
+          );
+          appliedEntityId =
+            existing[0]?.id ?? (await this.saveAiMemoryInternal(tx, effect.memory)).id;
+          break;
         }
-
-        return {
-          objective: this.deserializeWeeklyObjective(objectiveRows[0]),
-          proposal: existingProposal,
-        };
+        case "weeklyObjective":
+          appliedEntityId = (await this.saveWeeklyObjectiveInternal(tx, effect.objective)).id;
+          break;
+        case "weeklyReview":
+          await this.saveWeeklyReviewInternal(tx, effect.review);
+          appliedEntityId = effect.review.weekStartDate;
+          break;
+        case "monthlyReview":
+          await this.saveMonthlyReviewInternal(tx, effect.review);
+          appliedEntityId = effect.review.monthKey;
+          break;
+        case "gtdTask": {
+          const task = await this.getTaskById(effect.taskId);
+          const next = task ? taskForAcceptEffect(task, effect) : null;
+          if (!task || !next) return { proposal, appliedEntityId: null };
+          await this.saveTaskInternal(tx, next);
+          if (effect.action === "drop" && task.recurringTemplateId) {
+            const template = await this.requireRecurringTemplate(task.recurringTemplateId);
+            await this.persistRecurringTemplate({
+              ...cloneRecurringTemplate(template),
+              pendingMissedOccurrences: 0,
+              updatedAt: nowIso(),
+            });
+          }
+          appliedEntityId = task.id;
+          break;
+        }
       }
-
-      const savedObjective = await this.saveWeeklyObjectiveInternal(tx, objective);
       const decidedAt = nowIso();
       await db.execute(
-        `UPDATE ai_proposals
-           SET status = 'accepted', applied_entity_id = $1, decided_at = $2
-           WHERE id = $3`,
-        [savedObjective.id, decidedAt, proposal.id],
+        `UPDATE ai_proposals SET status = 'accepted', applied_entity_id = $1, decided_at = $2 WHERE id = $3`,
+        [appliedEntityId, decidedAt, proposalId],
       );
-
       return {
-        objective: savedObjective,
-        proposal: {
-          ...existingProposal,
-          status: "accepted",
-          appliedEntityId: savedObjective.id,
-          decidedAt,
-        },
-      };
-    });
-  }
-
-  async acceptAiReviewSectionDraftProposal(
-    proposal: AiProposal,
-    review: WeeklyReview,
-  ): Promise<{ review: WeeklyReview; proposal: AiProposal }> {
-    return this.writeTransaction(async (tx) => {
-      const db = transactionDb(tx);
-
-      const proposalRows = await db.select<AiProposalRow[]>(
-        `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
-         FROM ai_proposals
-         WHERE id = $1`,
-        [proposal.id],
-      );
-
-      if (proposalRows.length === 0) {
-        throw new Error(`AI proposal not found: ${proposal.id}`);
-      }
-
-      const existingProposal = this.deserializeAiProposal(proposalRows[0]);
-      if (existingProposal.status === "accepted") {
-        const savedReview = await this.getWeeklyReview(review.weekStartDate);
-        return {
-          review: savedReview ?? review,
-          proposal: existingProposal,
-        };
-      }
-
-      await this.saveWeeklyReviewInternal(tx, review);
-      const decidedAt = nowIso();
-      await db.execute(
-        `UPDATE ai_proposals
-           SET status = 'accepted', applied_entity_id = $1, decided_at = $2
-           WHERE id = $3`,
-        [review.weekStartDate, decidedAt, proposal.id],
-      );
-
-      return {
-        review,
-        proposal: {
-          ...existingProposal,
-          status: "accepted",
-          appliedEntityId: review.weekStartDate,
-          decidedAt,
-        },
-      };
-    });
-  }
-
-  async acceptAiMonthlyReviewSectionDraftProposal(
-    proposal: AiProposal,
-    review: MonthlyReview,
-  ): Promise<{ review: MonthlyReview; proposal: AiProposal }> {
-    return this.writeTransaction(async (tx) => {
-      const db = transactionDb(tx);
-
-      const proposalRows = await db.select<AiProposalRow[]>(
-        `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
-         FROM ai_proposals
-         WHERE id = $1`,
-        [proposal.id],
-      );
-
-      if (proposalRows.length === 0) {
-        throw new Error(`AI proposal not found: ${proposal.id}`);
-      }
-
-      const existingProposal = this.deserializeAiProposal(proposalRows[0]);
-      if (existingProposal.status === "accepted") {
-        const savedReview = await this.getMonthlyReview(review.monthKey);
-        return {
-          review: savedReview ?? review,
-          proposal: existingProposal,
-        };
-      }
-
-      await this.saveMonthlyReviewInternal(tx, review);
-      const decidedAt = nowIso();
-      await db.execute(
-        `UPDATE ai_proposals
-           SET status = 'accepted', applied_entity_id = $1, decided_at = $2
-           WHERE id = $3`,
-        [review.monthKey, decidedAt, proposal.id],
-      );
-
-      return {
-        review,
-        proposal: {
-          ...existingProposal,
-          status: "accepted",
-          appliedEntityId: review.monthKey,
-          decidedAt,
-        },
-      };
-    });
-  }
-
-  async acceptAiGtdActionProposal(
-    proposal: AiProposal,
-    scheduledDate: string,
-  ): Promise<{ taskId: string | null; proposal: AiProposal }> {
-    return this.writeTransaction(async (tx) => {
-      const db = transactionDb(tx);
-
-      const proposalRows = await this.listAiProposals(proposal.messageId);
-      const existing = proposalRows.find((item) => item.id === proposal.id);
-
-      if (!existing) {
-        throw new Error(`AI proposal not found: ${proposal.id}`);
-      }
-
-      if (existing.status === "accepted") {
-        return {
-          taskId: existing.appliedEntityId,
-          proposal: existing,
-        };
-      }
-
-      const payload = JSON.parse(proposal.payloadJson) as {
-        taskId?: string;
-        action?: "schedule" | "defer" | "delegate" | "drop";
-      };
-
-      if (!payload.taskId || !payload.action) {
-        return { taskId: null, proposal: existing };
-      }
-
-      let task: Task;
-      try {
-        task = await this.requireTask(payload.taskId);
-      } catch {
-        return { taskId: null, proposal: existing };
-      }
-
-      if (task.status !== "active") {
-        return { taskId: null, proposal: existing };
-      }
-
-      // Build the requested task in-memory and mutate it through `saveTaskInternal` (which
-      // takes the active transaction context) rather than the public `scheduleTask`/`moveTask`/
-      // `cancelTask` methods: those acquire the writer and open their own transaction, which
-      // would re-enter the writer and attempt a nested `BEGIN IMMEDIATE` from within this
-      // one.
-      let requested: Task = cloneTask(task);
-      if (payload.action === "schedule") {
-        requested =
-          task.status === "active" && task.bucket === "planned"
-            ? { ...task, scheduledFor: scheduledDate }
-            : {
-                ...task,
-                bucket: scheduledDate
-                  ? "scheduled"
-                  : task.bucket === "scheduled"
-                    ? "next_action"
-                    : task.bucket,
-                scheduledFor: scheduledDate,
-              };
-      } else if (payload.action === "defer") {
-        requested = { ...task, bucket: "someday_maybe", contextIds: [...task.contextIds] };
-      } else if (payload.action === "delegate") {
-        requested = { ...task, bucket: "waiting_for", contextIds: [...task.contextIds] };
-      } else if (payload.action === "drop") {
-        requested = { ...task, status: "cancelled", completedAt: null };
-      }
-
-      await this.saveTaskInternal(tx, requested);
-
-      if (payload.action === "drop" && task.recurringTemplateId) {
-        const template = await this.requireRecurringTemplate(task.recurringTemplateId);
-        await this.persistRecurringTemplate({
-          ...cloneRecurringTemplate(template),
-          pendingMissedOccurrences: 0,
-          updatedAt: nowIso(),
-        });
-      }
-
-      const decidedAt = nowIso();
-      await db.execute(
-        `UPDATE ai_proposals
-           SET status = 'accepted', applied_entity_id = $1, decided_at = $2
-           WHERE id = $3`,
-        [payload.taskId, decidedAt, proposal.id],
-      );
-
-      return {
-        taskId: payload.taskId,
-        proposal: { ...existing, status: "accepted", appliedEntityId: payload.taskId, decidedAt },
+        proposal: { ...proposal, status: "accepted", appliedEntityId, decidedAt },
+        appliedEntityId,
       };
     });
   }

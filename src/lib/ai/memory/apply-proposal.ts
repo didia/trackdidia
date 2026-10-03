@@ -102,8 +102,15 @@ export const applyAcceptedProposal = async (
     return null;
   }
 
-  const accepted = await repository.acceptAiMemoryProposal(proposal, memory);
-  return accepted.memory;
+  const accepted = await repository.acceptAiProposal(proposal.id, {
+    kind: "memory",
+    memory: memory,
+  });
+  const stored = (await repository.listAiMemories()).find(
+    (item) => item.id === accepted.appliedEntityId,
+  );
+  if (!stored) throw new Error(`AI memory not found: ${accepted.appliedEntityId}`);
+  return stored;
 };
 
 export const buildPatternMemoryPayload = (
