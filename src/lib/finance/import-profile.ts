@@ -1,0 +1,399 @@
+// CSV import profile recognition and row -> normalized-transaction mapping.
+// Pure, no I/O. See specs/todo/finance.md "CSV import".
+
+import type {
+  FinanceImportAmountMode,
+  FinanceImportColumnMap,
+  FinanceImportProfile,
+} from "../../domain/finance";
+import { hash128 } from "./hash";
+import { parseAmountToMinor } from "./money";
+
+export type FinanceDateFormat = "M/D/YYYY" | "D/M/YYYY" | "YYYY-MM-DD";
+
+/**
+ * Builds a stable signature for a CSV header row: lowercase, trim, strip
+ * accents/punctuation, join with "|", then hash with the 128-bit hash. Used to
+ * auto-recognize a repeat export and store on the saved import profile.
+ */
+export const buildHeaderSignature = (header: string[]): string => {
+  const normalized = header
+    .map(
+      (column) =>
+        column
+          .trim()
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[̀-ͯ]/g, "") // strip accents
+          .replace(/[^a-z0-9]+/g, ""), // strip punctuation/whitespace
+    )
+    .join("|");
+
+  return hash128(normalized);
+};
+
+const MINT_HEADER = [
+  "Date",
+  "Description",
+  "Original Description",
+  "Amount",
+  "Transaction Type",
+  "Category",
+  "Account Name",
+  "Labels",
+  "Notes",
+];
+
+const MINT_COLUMN_MAP: FinanceImportColumnMap = {
+  date: 0,
+  description: 1,
+  descriptionOriginal: 2,
+  amount: 3,
+  transactionType: 4,
+  categoryHint: 5,
+  account: 6,
+  labels: 7,
+  notes: 8,
+};
+
+/** Bundled profile matching the Mint CSV export header. */
+export const MINT_PROFILE: FinanceImportProfile = {
+  id: "finance-import-profile:mint",
+  name: "Mint",
+  signature: buildHeaderSignature(MINT_HEADER),
+  columnMap: MINT_COLUMN_MAP,
+  dateFormat: "M/D/YYYY",
+  amountMode: "amount_with_type_column",
+  signConvention: null,
+  defaultAccountId: null,
+  createdAt: "",
+  updatedAt: "",
+  lastUsedAt: null,
+};
+
+export interface DateFormatInference {
+  format: FinanceDateFormat | null;
+  ambiguous: boolean;
+  reason?: string;
+}
+
+/**
+ * Infers the date format from a sample of raw date strings. Ambiguity is
+ * reported rather than guessed: if every sampled day component is <= 12 in
+ * both positions, M/D and D/M are both consistent and the caller must ask.
+ */
+export const inferDateFormat = (samples: string[]): DateFormatInference => {
+  const nonEmpty = samples.map((sample) => sample.trim()).filter((sample) => sample.length > 0);
+
+  if (nonEmpty.length === 0) {
+    return { format: null, ambiguous: true, reason: "no samples" };
+  }
+
+  if (nonEmpty.every((sample) => /^\d{4}-\d{2}-\d{2}$/.test(sample))) {
+    return { format: "YYYY-MM-DD", ambiguous: false };
+  }
+
+  const slashSamples = nonEmpty.filter((sample) => /^\d{1,2}[/-]\d{1,2}[/-]\d{4}$/.test(sample));
+
+  if (slashSamples.length !== nonEmpty.length) {
+    return { format: null, ambiguous: true, reason: "mixed or unrecognized date formats" };
+  }
+
+  let sawMonthFirstSignal = false;
+  let sawDayFirstSignal = false;
+
+  for (const sample of slashSamples) {
+    const [first, second] = sample.split(/[/-]/).map((part) => Number.parseInt(part, 10));
+
+    if (first > 12) {
+      sawDayFirstSignal = true;
+    } else if (second > 12) {
+      sawMonthFirstSignal = true;
+    }
+  }
+
+  if (sawMonthFirstSignal && sawDayFirstSignal) {
+    return {
+      format: null,
+      ambiguous: true,
+      reason: "conflicting day/month signals across samples",
+    };
+  }
+
+  if (sawDayFirstSignal) {
+    return { format: "D/M/YYYY", ambiguous: false };
+  }
+
+  if (sawMonthFirstSignal) {
+    return { format: "M/D/YYYY", ambiguous: false };
+  }
+
+  // Every sampled day is <= 12 in both positions: genuinely ambiguous.
+  return {
+    format: "M/D/YYYY",
+    ambiguous: true,
+    reason: "every sampled day is <= 12 in both positions",
+  };
+};
+
+/** Parses a date string under an explicit format into a local YYYY-MM-DD string, or null. */
+export const parseDateWithFormat = (text: string, format: FinanceDateFormat): string | null => {
+  const trimmed = text.trim();
+
+  if (format === "YYYY-MM-DD") {
+    return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null;
+  }
+
+  const match = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (!match) {
+    return null;
+  }
+
+  const [, first, second, year] = match;
+  const month = format === "M/D/YYYY" ? first : second;
+  const day = format === "M/D/YYYY" ? second : first;
+  const monthNum = Number.parseInt(month, 10);
+  const dayNum = Number.parseInt(day, 10);
+
+  if (monthNum < 1 || monthNum > 12 || dayNum < 1 || dayNum > 31) {
+    return null;
+  }
+
+  return `${year}-${String(monthNum).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
+};
+
+/**
+ * Uppercases, strips accents, collapses whitespace, and removes trailing
+ * reference/auth numbers. The same normalizer backs both dedupeHash and
+ * merchant_key, so dedupe and classification agree on identity.
+ */
+export const normalizeDescription = (description: string): string => {
+  let normalized = description.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().trim();
+
+  normalized = normalized.replace(/#\d{4,}/g, "");
+  normalized = normalized.replace(/\bREF\s*\d+/g, "");
+  normalized = normalized.replace(/\s+/g, " ").trim();
+
+  return normalized;
+};
+
+/** Merchant identity key, derived with the same normalizer used for dedupe. */
+export const merchantKey = (descriptionRaw: string): string => normalizeDescription(descriptionRaw);
+
+export interface DedupeHashInput {
+  accountId: string;
+  postedDate: string;
+  amountMinor: number;
+  currency: string;
+  descriptionRaw: string;
+  occurrenceIndex: number;
+}
+
+export const dedupeHash = (input: DedupeHashInput): string =>
+  hash128(
+    [
+      input.accountId,
+      input.postedDate,
+      String(input.amountMinor),
+      input.currency,
+      normalizeDescription(input.descriptionRaw),
+      String(input.occurrenceIndex),
+    ].join(""),
+  );
+
+/**
+ * Assigns a stable 0-based occurrenceIndex per (accountId, postedDate,
+ * amountMinor, currency, normalizedDescription) group, in row order, so two
+ * identical same-day transactions both survive while a re-import of the same
+ * file reproduces the same indices (and therefore the same hashes).
+ */
+export const assignOccurrenceIndices = (
+  rows: Array<
+    Pick<
+      DedupeHashInput,
+      "accountId" | "postedDate" | "amountMinor" | "currency" | "descriptionRaw"
+    >
+  >,
+): number[] => {
+  const seen = new Map<string, number>();
+  const indices: number[] = [];
+
+  for (const row of rows) {
+    const key = [
+      row.accountId,
+      row.postedDate,
+      String(row.amountMinor),
+      row.currency,
+      normalizeDescription(row.descriptionRaw),
+    ].join("\u0000");
+
+    const nextIndex = seen.get(key) ?? 0;
+    indices.push(nextIndex);
+    seen.set(key, nextIndex + 1);
+  }
+
+  return indices;
+};
+
+export interface NormalizedImportRow {
+  postedDate: string;
+  amountMinor: number;
+  currency: string;
+  descriptionRaw: string;
+  descriptionOriginal: string | null;
+  merchantKey: string;
+  categoryHint: string | null;
+  notes: string | null;
+  labelsJson: string | null;
+  externalAccountKey: string | null;
+  sourceRowJson: string;
+}
+
+export type MapImportRowResult =
+  | { ok: true; row: NormalizedImportRow }
+  | { ok: false; reason: string };
+
+export interface MapImportRowOptions {
+  currency: string;
+  exponent?: number;
+}
+
+/**
+ * Maps one parsed CSV data row to a normalized transaction row, per the
+ * profile's column map, date format, and amount mode. Never throws.
+ */
+export const mapImportRowToTransaction = (
+  row: string[],
+  header: string[],
+  profile: FinanceImportProfile,
+  options: MapImportRowOptions,
+): MapImportRowResult => {
+  const field = (index: number | undefined): string | null =>
+    index === undefined || row[index] === undefined ? null : row[index];
+
+  const dateText = field(profile.columnMap.date);
+  if (dateText === null || dateText.trim().length === 0) {
+    return { ok: false, reason: "missing date" };
+  }
+
+  const postedDate = parseDateWithFormat(dateText, profile.dateFormat as FinanceDateFormat);
+  if (postedDate === null) {
+    return {
+      ok: false,
+      reason: `unparseable date "${dateText}" under format ${profile.dateFormat}`,
+    };
+  }
+
+  const amountResult = resolveAmountMinor(row, profile, options);
+  if (!amountResult.ok) {
+    return amountResult;
+  }
+
+  const descriptionRaw = field(profile.columnMap.description) ?? "";
+  if (descriptionRaw.trim().length === 0) {
+    return { ok: false, reason: "missing description" };
+  }
+
+  const descriptionOriginal = field(profile.columnMap.descriptionOriginal);
+  const categoryHint = field(profile.columnMap.categoryHint);
+  const notes = field(profile.columnMap.notes);
+  const labels = field(profile.columnMap.labels);
+  const externalAccountKey = field(profile.columnMap.account);
+
+  const sourceRowJson = JSON.stringify(
+    header.reduce<Record<string, string>>((acc, columnName, index) => {
+      acc[columnName] = row[index] ?? "";
+      return acc;
+    }, {}),
+  );
+
+  return {
+    ok: true,
+    row: {
+      postedDate,
+      amountMinor: amountResult.amountMinor,
+      currency: options.currency,
+      descriptionRaw,
+      descriptionOriginal,
+      merchantKey: merchantKey(descriptionRaw),
+      categoryHint,
+      notes,
+      labelsJson: labels !== null ? JSON.stringify([labels]) : null,
+      externalAccountKey,
+      sourceRowJson,
+    },
+  };
+};
+
+type AmountResult = { ok: true; amountMinor: number } | { ok: false; reason: string };
+
+const resolveAmountMinor = (
+  row: string[],
+  profile: FinanceImportProfile,
+  options: MapImportRowOptions,
+): AmountResult => {
+  const mode: FinanceImportAmountMode = profile.amountMode;
+  const exponent = options.exponent;
+
+  if (mode === "single_signed") {
+    const amountIndex = profile.columnMap.amount;
+    if (amountIndex === undefined) {
+      return { ok: false, reason: "no amount column mapped" };
+    }
+    const parsed = parseAmountToMinor(row[amountIndex] ?? "", { exponent });
+    if (!parsed.ok) {
+      return { ok: false, reason: parsed.reason };
+    }
+    return { ok: true, amountMinor: parsed.amountMinor };
+  }
+
+  if (mode === "debit_credit_columns") {
+    const debitIndex = profile.columnMap.debit;
+    const creditIndex = profile.columnMap.credit;
+    const debitText = debitIndex === undefined ? "" : (row[debitIndex] ?? "").trim();
+    const creditText = creditIndex === undefined ? "" : (row[creditIndex] ?? "").trim();
+
+    if (debitText.length > 0) {
+      const parsed = parseAmountToMinor(debitText, { exponent });
+      if (!parsed.ok) {
+        return { ok: false, reason: parsed.reason };
+      }
+      return { ok: true, amountMinor: -Math.abs(parsed.amountMinor) };
+    }
+
+    if (creditText.length > 0) {
+      const parsed = parseAmountToMinor(creditText, { exponent });
+      if (!parsed.ok) {
+        return { ok: false, reason: parsed.reason };
+      }
+      return { ok: true, amountMinor: Math.abs(parsed.amountMinor) };
+    }
+
+    return { ok: false, reason: "neither debit nor credit column has a value" };
+  }
+
+  // amount_with_type_column
+  const amountIndex = profile.columnMap.amount;
+  const typeIndex = profile.columnMap.transactionType;
+
+  if (amountIndex === undefined || typeIndex === undefined) {
+    return { ok: false, reason: "amount or transaction type column not mapped" };
+  }
+
+  const parsed = parseAmountToMinor(row[amountIndex] ?? "", { exponent });
+  if (!parsed.ok) {
+    return { ok: false, reason: parsed.reason };
+  }
+
+  const typeText = (row[typeIndex] ?? "").trim().toLowerCase();
+  const magnitude = Math.abs(parsed.amountMinor);
+
+  if (typeText === "debit") {
+    return { ok: true, amountMinor: -magnitude };
+  }
+  if (typeText === "credit") {
+    return { ok: true, amountMinor: magnitude };
+  }
+
+  return { ok: false, reason: `unrecognized transaction type "${typeText}"` };
+};

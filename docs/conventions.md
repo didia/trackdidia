@@ -121,6 +121,16 @@ The repository currently applies migrations sequentially but does not wrap the
 whole migration body and migration-record insert in an explicit transaction. Keep
 migration SQL simple and safe to retry where SQLite permits it.
 
+## Money and minor units
+
+Finance code (`src/lib/finance/`, `src/domain/finance.ts`) represents every
+amount as `INTEGER` minor units (e.g. cents) plus an ISO-4217 `currency` code,
+never as a decimal/float. No helper in `src/lib/finance/money.ts` accepts or
+returns a decimal number; `addMoney`/`sumMoney` throw on mixed currencies
+rather than silently truncating. Dedupe hashing (`src/lib/finance/hash.ts`)
+uses a 128-bit hash, not the 32-bit `hashString` in `src/lib/hash.ts`, because
+a collision at finance-import volumes would silently drop a real transaction.
+
 ## Dates and time zones
 
 TrackDidia uses two related representations:
