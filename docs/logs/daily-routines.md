@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-10-01 | Renamed principle label `respectDeVieCommeJesus` from « Respect de vie comme Jésus » to « Aucune violence » | `docs/daily-routines.md` | `src/locales/fr/principles.json` |
 | 2026-09-30 | Wednesday Today prompt now links to `/mi-semaine` instead of `/semaine?date=` | `docs/daily-routines.md`, `docs/reviews-and-goals.md` | `TodayPage`, `TodayPage.test.tsx` |
 | 2026-09-20 | Wednesday Today prompt opens the current week as a mid-week check | `docs/daily-routines.md`, `docs/reviews-and-goals.md` | `TodayPage`, `isWednesday` |
 | 2026-09-20 | Sunday and first-Saturday Today prompts link to the previous week and previous month | `docs/daily-routines.md`, `docs/reviews-and-goals.md` | `TodayPage`, `getDefaultWeeklyReviewWeekStart`, `getDefaultMonthlyReviewMonthKey` |

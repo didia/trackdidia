@@ -86,7 +86,7 @@ describe("MorningRoutinePage", () => {
     expect(anchors.getByText("Apprentissage")).toBeInTheDocument();
 
     expect(anchors.queryByText("Managed solitude")).not.toBeInTheDocument();
-    expect(anchors.queryByText("Respect de vie comme Jésus")).not.toBeInTheDocument();
+    expect(anchors.queryByText("Aucune violence")).not.toBeInTheDocument();
   });
 
   it("saves the intention and completes the morning status", async () => {
