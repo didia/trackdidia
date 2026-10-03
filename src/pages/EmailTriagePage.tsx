@@ -115,16 +115,16 @@ export const EmailTriagePage = () => {
 
   const load = useCallback(async () => {
     const [nextAccounts, nextReviews, nextSettings] = await Promise.all([
-      repository.listEmailTriageAccounts(),
-      repository.listEmailTriageReviews("pending"),
-      repository.getEmailTriageGlobalSettings(),
+      repository.emailTriage.listAccounts(),
+      repository.emailTriage.listReviews("pending"),
+      repository.emailTriage.getGlobalSettings(),
     ]);
     setAccounts(nextAccounts);
     setReviews(nextReviews);
     setSettings(nextSettings);
     setPersistedSettings(nextSettings);
     const matchingEvaluation =
-      await repository.getLatestMatchingEmailTriageEvaluation(nextSettings);
+      await repository.emailTriage.getLatestMatchingEvaluation(nextSettings);
     setLatestEvaluation(matchingEvaluation);
     if (nextSettings.enabled) {
       const vault = await checkVaultAvailability();
@@ -153,7 +153,7 @@ export const EmailTriagePage = () => {
     setAutostartError(null);
     setTrayError(null);
     try {
-      const previous = await repository.getEmailTriageGlobalSettings();
+      const previous = await repository.emailTriage.getGlobalSettings();
       const draft = {
         ...settings,
         pollIntervalMinutes: clampPollInterval(settings.pollIntervalMinutes),
@@ -180,7 +180,7 @@ export const EmailTriagePage = () => {
       if (mutationRejected || automationRejected) {
         setSettings({ ...prepared });
       }
-      await repository.saveEmailTriageGlobalSettings(prepared);
+      await repository.emailTriage.saveGlobalSettings(prepared);
       if (!browserPreview) {
         const desktopResult = await applyEmailTriageDesktopPrefs(prepared, browserPreview);
         if (desktopResult.autostartError) {
@@ -211,7 +211,7 @@ export const EmailTriagePage = () => {
         setEvaluationMessage(t("evaluationMissingKey"));
         return;
       }
-      const persisted = await repository.getEmailTriageGlobalSettings();
+      const persisted = await repository.emailTriage.getGlobalSettings();
       const provider = createOpenRouterClassifierProvider(appSettings.aiBaseUrl);
       const evaluation = await runEvaluationCorpus({
         provider,
@@ -222,7 +222,7 @@ export const EmailTriagePage = () => {
         relevantThreshold: persisted.relevantThreshold,
         ignoreThreshold: persisted.ignoreThreshold,
       });
-      await repository.saveEmailTriageEvaluation(evaluation);
+      await repository.emailTriage.saveEvaluation(evaluation);
       setEvaluationMessage(
         evaluation.passed
           ? t("evaluationPassed")
@@ -244,7 +244,7 @@ export const EmailTriagePage = () => {
   };
 
   const toggleAccountMutation = async (account: EmailTriageAccount) => {
-    await repository.saveEmailTriageAccount({
+    await repository.emailTriage.saveAccount({
       ...account,
       mutationEnabled: !account.mutationEnabled,
       updatedAt: nowIso(),
@@ -258,7 +258,7 @@ export const EmailTriagePage = () => {
     }
     setResolvingReviewId(review.id);
     try {
-      await repository.dismissEmailTriageReview(review.id);
+      await repository.emailTriage.dismissReview(review.id);
       await load();
     } catch (error) {
       setResolveErrorByReviewId((current) => ({
@@ -301,7 +301,7 @@ export const EmailTriagePage = () => {
   };
 
   const toggleAccountPause = async (account: EmailTriageAccount) => {
-    await repository.saveEmailTriageAccount({
+    await repository.emailTriage.saveAccount({
       ...account,
       paused: !account.paused,
       updatedAt: nowIso(),
@@ -411,7 +411,7 @@ export const EmailTriagePage = () => {
 
   const addMockAccount = async () => {
     const timestamp = nowIso();
-    await repository.saveEmailTriageAccount({
+    await repository.emailTriage.saveAccount({
       id: createEntityId("email-account"),
       provider: "gmail",
       providerAccountId: `mock-${accounts.length + 1}`,
@@ -459,7 +459,7 @@ export const EmailTriagePage = () => {
     });
     setResolvingReviewId(review.id);
     try {
-      await repository.resolveEmailTriageReview({
+      await repository.emailTriage.resolveReview({
         reviewId: review.id,
         expectedDecisionVersion: review.expectedDecisionVersion,
         resolution,

@@ -7,6 +7,10 @@ slice persists accounts, conversations, classification metadata, reviews, desire
 and audit data. Live Gmail, Microsoft Graph, and Yahoo adapters sync on desktop. **Slice 5**
 adds system-tray hide-on-close, launch-at-login, and gated automatic provider mutation.
 
+Email persistence is exposed through `AppRepository.emailTriage`, whose
+`EmailTriageStore` contract is implemented by the SQLite and in-memory stores.
+The browser store remains non-persistent across reloads.
+
 ## Shipped in this slice
 
 ### Tray and launch-at-login (slice 5)

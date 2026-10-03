@@ -69,7 +69,7 @@ export const connectGmailAccount = async (
   if (!isTauriRuntime()) {
     return { ok: false, error: "browser_preview" };
   }
-  let settings = await repository.getEmailTriageGlobalSettings();
+  let settings = await repository.emailTriage.getGlobalSettings();
   const draftClientId = options.clientId?.trim();
   if (draftClientId && draftClientId !== settings.gmailOAuthClientId.trim()) {
     settings = {
@@ -77,7 +77,7 @@ export const connectGmailAccount = async (
       gmailOAuthClientId: draftClientId,
       updatedAt: nowIso(),
     };
-    await repository.saveEmailTriageGlobalSettings(settings);
+    await repository.emailTriage.saveGlobalSettings(settings);
   }
   const clientId = resolveGmailOAuthClientId(settings.gmailOAuthClientId);
   if (!clientId) {
@@ -86,7 +86,7 @@ export const connectGmailAccount = async (
 
   let reconnectSnapshot: ReconnectTargetSnapshot | null = null;
   if (options.reconnectAccountId) {
-    const target = await repository.getEmailTriageAccount(options.reconnectAccountId);
+    const target = await repository.emailTriage.getAccount(options.reconnectAccountId);
     if (!target) {
       return { ok: false, error: "account_not_found" };
     }
@@ -135,7 +135,7 @@ export const connectGmailAccount = async (
 
   const providerAccountId = profile.emailAddress.trim().toLowerCase();
   const timestamp = nowIso();
-  const existing = (await repository.listEmailTriageAccounts()).find(
+  const existing = (await repository.emailTriage.listAccounts()).find(
     (account) => account.provider === "gmail" && account.providerAccountId === providerAccountId,
   );
   const coordinator = getEmailTriageCoordinator();
@@ -143,7 +143,7 @@ export const connectGmailAccount = async (
   if (reconnectSnapshot) {
     const validation = validateReconnectCanProceed({
       snapshot: reconnectSnapshot,
-      currentAccount: await repository.getEmailTriageAccount(reconnectSnapshot.id),
+      currentAccount: await repository.emailTriage.getAccount(reconnectSnapshot.id),
       authenticatedProviderAccountId: providerAccountId,
     });
     if (!validation.ok) {
@@ -153,7 +153,7 @@ export const connectGmailAccount = async (
         reconnectMismatch: validation.error === "reconnect_account_mismatch",
       };
     }
-    const target = (await repository.getEmailTriageAccount(reconnectSnapshot.id))!;
+    const target = (await repository.emailTriage.getAccount(reconnectSnapshot.id))!;
     await persistGmailAccountCredentials({
       repository,
       account: {
@@ -177,7 +177,7 @@ export const connectGmailAccount = async (
     });
     coordinator?.scheduleAccount(
       {
-        ...(await repository.getEmailTriageAccount(target.id))!,
+        ...(await repository.emailTriage.getAccount(target.id))!,
       },
       settings,
     );
@@ -232,7 +232,7 @@ export const connectMicrosoftAccount = async (
   if (!isTauriRuntime()) {
     return { ok: false, error: "browser_preview" };
   }
-  let settings = await repository.getEmailTriageGlobalSettings();
+  let settings = await repository.emailTriage.getGlobalSettings();
   const draftClientId = options.clientId?.trim();
   if (draftClientId && draftClientId !== settings.microsoftOAuthClientId.trim()) {
     settings = {
@@ -240,7 +240,7 @@ export const connectMicrosoftAccount = async (
       microsoftOAuthClientId: draftClientId,
       updatedAt: nowIso(),
     };
-    await repository.saveEmailTriageGlobalSettings(settings);
+    await repository.emailTriage.saveGlobalSettings(settings);
   }
   const clientId = resolveMicrosoftOAuthClientId(settings.microsoftOAuthClientId);
   if (!clientId) {
@@ -249,7 +249,7 @@ export const connectMicrosoftAccount = async (
 
   let reconnectSnapshot: ReconnectTargetSnapshot | null = null;
   if (options.reconnectAccountId) {
-    const target = await repository.getEmailTriageAccount(options.reconnectAccountId);
+    const target = await repository.emailTriage.getAccount(options.reconnectAccountId);
     if (!target) {
       return { ok: false, error: "account_not_found" };
     }
@@ -319,7 +319,7 @@ export const connectMicrosoftAccount = async (
   const displayAddress =
     profile.userPrincipalName ?? profile.mail ?? profile.displayName ?? profile.id;
   const timestamp = nowIso();
-  const existing = (await repository.listEmailTriageAccounts()).find(
+  const existing = (await repository.emailTriage.listAccounts()).find(
     (account) =>
       account.provider === "microsoft_graph" && account.providerAccountId === providerAccountId,
   );
@@ -328,7 +328,7 @@ export const connectMicrosoftAccount = async (
   if (reconnectSnapshot) {
     const validation = validateReconnectCanProceed({
       snapshot: reconnectSnapshot,
-      currentAccount: await repository.getEmailTriageAccount(reconnectSnapshot.id),
+      currentAccount: await repository.emailTriage.getAccount(reconnectSnapshot.id),
       authenticatedProviderAccountId: providerAccountId,
     });
     if (!validation.ok) {
@@ -338,7 +338,7 @@ export const connectMicrosoftAccount = async (
         reconnectMismatch: validation.error === "reconnect_account_mismatch",
       };
     }
-    const target = (await repository.getEmailTriageAccount(reconnectSnapshot.id))!;
+    const target = (await repository.emailTriage.getAccount(reconnectSnapshot.id))!;
     await persistGmailAccountCredentials({
       repository,
       account: {
@@ -362,7 +362,7 @@ export const connectMicrosoftAccount = async (
     });
     coordinator?.scheduleAccount(
       {
-        ...(await repository.getEmailTriageAccount(target.id))!,
+        ...(await repository.emailTriage.getAccount(target.id))!,
       },
       settings,
     );
@@ -443,7 +443,7 @@ export const connectYahooAccount = async (
 
   let reconnectSnapshot: ReconnectTargetSnapshot | null = null;
   if (input.reconnectAccountId) {
-    const target = await repository.getEmailTriageAccount(input.reconnectAccountId);
+    const target = await repository.emailTriage.getAccount(input.reconnectAccountId);
     if (!target) {
       return { ok: false, error: "account_not_found" };
     }
@@ -460,9 +460,9 @@ export const connectYahooAccount = async (
     return { ok: false, error: "connect_failed" };
   }
 
-  const settings = await repository.getEmailTriageGlobalSettings();
+  const settings = await repository.emailTriage.getGlobalSettings();
   const timestamp = nowIso();
-  const existing = (await repository.listEmailTriageAccounts()).find(
+  const existing = (await repository.emailTriage.listAccounts()).find(
     (account) => account.provider === "yahoo" && account.providerAccountId === email,
   );
   const coordinator = getEmailTriageCoordinator();
@@ -475,7 +475,7 @@ export const connectYahooAccount = async (
   if (reconnectSnapshot) {
     const validation = validateReconnectCanProceed({
       snapshot: reconnectSnapshot,
-      currentAccount: await repository.getEmailTriageAccount(reconnectSnapshot.id),
+      currentAccount: await repository.emailTriage.getAccount(reconnectSnapshot.id),
       authenticatedProviderAccountId: email,
     });
     if (!validation.ok) {
@@ -485,7 +485,7 @@ export const connectYahooAccount = async (
         reconnectMismatch: validation.error === "reconnect_account_mismatch",
       };
     }
-    const target = (await repository.getEmailTriageAccount(reconnectSnapshot.id))!;
+    const target = (await repository.emailTriage.getAccount(reconnectSnapshot.id))!;
     await persistYahooAccountCredentials({
       repository,
       account: {
@@ -504,7 +504,7 @@ export const connectYahooAccount = async (
     });
     coordinator?.scheduleAccount(
       {
-        ...(await repository.getEmailTriageAccount(target.id))!,
+        ...(await repository.emailTriage.getAccount(target.id))!,
       },
       settings,
     );
@@ -558,7 +558,7 @@ export const disconnectEmailTriageAccount = async (
   repository: AppRepository,
   accountId: string,
 ): Promise<void> => {
-  const account = await repository.getEmailTriageAccount(accountId);
+  const account = await repository.emailTriage.getAccount(accountId);
   if (!account) {
     return;
   }
@@ -566,7 +566,7 @@ export const disconnectEmailTriageAccount = async (
   await deleteVaultSecret("provider_credentials", accountId);
   clearCachedAccessToken(accountId);
   clearCachedYahooAppPassword(accountId);
-  await repository.saveEmailTriageAccount({
+  await repository.emailTriage.saveAccount({
     ...account,
     enabled: false,
     state: "disconnected",

@@ -27,7 +27,7 @@ describe("useEmailTriageCoordinator", () => {
   it("does not clear a replacement coordinator when an obsolete start finishes", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
-    await repository.saveEmailTriageGlobalSettings({
+    await repository.emailTriage.saveGlobalSettings({
       ...defaultEmailTriageGlobalSettings(),
       enabled: true,
     });

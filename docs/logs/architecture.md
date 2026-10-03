@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-10-02 | Split email triage persistence into `AppRepository.emailTriage` with a focused store contract and removed repository forwarding methods | `docs/architecture.md`, `docs/email-triage.md` | `email-triage-store.ts`, both repositories and email stores |
 | 2026-09-30 | New route `/mi-semaine` (`MidWeekReviewPage`) with a nav entry; shared `loadDecoratedWeekEntries` in `src/lib/storage/week-entries.ts` | `docs/architecture.md`, `docs/reviews-and-goals.md` | `App.tsx`, `AppShell.tsx`, `week-entries.ts` |
 | 2026-09-22 | Removed the dead legacy free-text coach (`coach-service.ts`, `coach-input.ts`, `CoachCard.tsx`, `AiProvider.generate`, `AiPromptContext`, `OpenRouterProvider.generate`, `CoachMessage`, `_addMonths`); `AppProvider` constructs `CoachPulseService`, not the removed `AiCoachService` | `docs/architecture.md`, `docs/ai-settings-and-privacy.md` | `src/app/app-context.tsx`, `src/lib/ai/coach-pulse-service.ts`, `src/lib/ai/provider.ts`, `src/lib/ai/openrouter-provider.ts` |
 | 2026-09-12 | Added `verses.json` (root) and `src/lib/pastor/` (bible-books, verse-catalog, translations, signals, history, local-pick) for the new "Pasteur IA" surface | `docs/architecture.md`, `docs/ai-settings-and-privacy.md` | `verses.json`, `src/lib/pastor/` |
