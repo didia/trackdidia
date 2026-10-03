@@ -1,3 +1,4 @@
+- 2026-10-03: Centralized settings defaults and historical normalization; application writers now merge current values atomically, and settings forms preserve runtime state and unsaved edits.
 # AI, settings, and privacy log
 
 Back to [Documentation Log](../log.md). Canonical page:
@@ -5,6 +6,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-10-03 | Made relationship generation atomic across settings, active-task checks, task creation and processed-date markers; overlapping dates cannot create duplicate active draws or rewind markers, and failed batches roll back | `docs/ai-settings-and-privacy.md` | `relationship-draws.ts`, both repositories, repository contract concurrency cases, `relationship-draw-generation.test.ts`; PR #197 |
 | 2026-10-03 | Replaced five proposal accept methods with one atomic/idempotent `acceptAiProposal` effect primitive; both repositories share pure GTD mutation rules and roll back entity/template changes if the decision fails | `docs/ai-settings-and-privacy.md` | `accept-effect.ts`, both repositories, `accept-ai-proposal.test.ts`, repository contract |
 | 2026-10-03 | Shared OpenRouter client now builds requests and parses replies for coach and email triage; coach retains webview fetch with one retry, classifier retains one native allowlisted request, and RescueTime shares the timeout helper | `docs/ai-settings-and-privacy.md` | `openrouter-client.ts`, `openrouter-provider.ts`, `openrouter-classifier.ts`, `timeout.ts`, `http-transport.ts` |
 | 2026-10-02 | RescueTime desktop requests now use the shared allowlisted `provider_http_request` command, with the existing 20-second timeout and a RescueTime-specific 8 MB response cap; removed the unrestricted native command | `docs/ai-settings-and-privacy.md`, `docs/desktop-builds.md` | `http-transport.ts`, `provider_http.rs`, `main.rs` |

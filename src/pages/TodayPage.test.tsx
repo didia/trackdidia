@@ -1163,8 +1163,7 @@ describe("TodayPage pastor verse card", () => {
     const addButton = await screen.findByRole("button", { name: /ajouter à ma liste/i });
     await user.click(addButton);
 
-    // Persisted through the atomic `AppRepository.addPastorCustomVerse` (not a full-settings
-    // `saveSettings` replace-all) — see the concurrency fix in `use-pastor-verse.ts`.
+    // Persisted through the same atomic updater used by other settings writers.
     await waitFor(async () => {
       const settings = await repository.getSettings();
       expect(settings.aiPastorCustomVerses).toEqual([
@@ -1195,11 +1194,6 @@ describe("TodayPage pastor verse card", () => {
         }),
       }),
     );
-    vi.spyOn(repository, "addPastorCustomVerse").mockRejectedValueOnce(
-      // The raw technical message (e.g. a SQLite `UNIQUE constraint failed: ...`) must never
-      // reach the French UI — only a translated warning does (see `pastor.addToListError`).
-      new Error("UNIQUE constraint failed: app_settings.id"),
-    );
 
     const user = userEvent.setup();
     await renderWithApp(<TodayPage />, {
@@ -1208,6 +1202,11 @@ describe("TodayPage pastor verse card", () => {
     });
 
     const addButton = await screen.findByRole("button", { name: /ajouter à ma liste/i });
+    vi.spyOn(repository, "updateSettings").mockRejectedValueOnce(
+      // The raw technical message (e.g. a SQLite `UNIQUE constraint failed: ...`) must never
+      // reach the French UI — only a translated warning does (see `pastor.addToListError`).
+      new Error("UNIQUE constraint failed: app_settings.id"),
+    );
     await user.click(addButton);
 
     expect(await screen.findByText("L'ajout à ta liste a échoué. Réessaie.")).toBeInTheDocument();

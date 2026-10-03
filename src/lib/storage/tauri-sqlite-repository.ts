@@ -1,4 +1,9 @@
 import {
+  defaultAppSettings,
+  normalizeAppSettings,
+  type SettingsUpdater,
+} from "../../domain/settings";
+import {
   taskForAcceptEffect,
   type AcceptEffect,
   type AiProposalAcceptResult,
@@ -16,7 +21,6 @@ import {
   applyDailyTaskStats,
   cloneEntry,
   createEmptyDailyEntry,
-  defaultAppSettings,
 } from "../../domain/daily-entry";
 import {
   buildMonthlyReviewSummary,
@@ -121,17 +125,7 @@ import {
   recurringInstanceWasRewound,
   syncTemplateStatusChange,
 } from "../recurring/engine";
-import {
-  buildRelationshipDrawTaskTitle,
-  findActiveRelationshipDrawTask,
-  getRelationshipDrawActivities,
-  getRelationshipDrawProcessedDate,
-  getRelationshipDrawSourceExternalId,
-  mergeAppSettingsWithDefaults,
-  pickRelationshipDrawActivity,
-  relationshipDrawDefinitions,
-  relationshipPersonalContextId,
-} from "../relationship-draws";
+import { buildDailyRelationshipDrawPlan } from "../relationship-draws";
 import { DbSerialQueue } from "./db-serial-queue";
 import { EmailTriageSqliteStore } from "./email-triage-sqlite-store";
 import type { Database as SqliteDatabase } from "./email-triage-sqlite-db";
@@ -1327,7 +1321,7 @@ export class TauriSqliteRepository implements AppRepository {
       return defaultAppSettings();
     }
 
-    return mergeAppSettingsWithDefaults(
+    return normalizeAppSettings(
       JSON.parse(rows[0].value) as Partial<AppSettings>,
       defaultAppSettings(),
     );
@@ -1340,9 +1334,9 @@ export class TauriSqliteRepository implements AppRepository {
     });
   }
 
-  /** Shared by `saveSettings` and `addPastorCustomVerse` — callers must already hold `writeQueue`. */
+  /** Callers must already hold the repository writer slot. */
   private async writeSettingsRow(db: SqliteDatabase, settings: AppSettings): Promise<AppSettings> {
-    const normalized = mergeAppSettingsWithDefaults(settings, defaultAppSettings());
+    const normalized = normalizeAppSettings(settings, defaultAppSettings());
     await db.execute(
       `INSERT INTO app_settings (id, value)
        VALUES (1, $1)
@@ -1352,28 +1346,24 @@ export class TauriSqliteRepository implements AppRepository {
     return normalized;
   }
 
-  /**
-   * Atomically merges `candidate` into `aiPastorCustomVerses`: the read and write both happen
-   * inside one `writeExclusive` operation, so no other queued `saveSettings`/settings-mutating call
-   * can interleave between the read and the write (see the interface doc comment).
-   */
+  /** Read/apply/write is protected by the writer and rolls back on failure. */
+  async updateSettings(updater: SettingsUpdater): Promise<AppSettings> {
+    return this.writeTransaction(async (tx) => {
+      const current = await this.getSettings();
+      return this.writeSettingsRow(transactionDb(tx), updater(current));
+    });
+  }
+
   async addPastorCustomVerse(
     candidate: CatalogVerse,
   ): Promise<{ added: boolean; settings: AppSettings }> {
-    return this.writeExclusive(async () => {
-      const db = await this.getDb();
-      const current = await this.getSettings();
-      const { added, customVerses } = addCustomVerse(current.aiPastorCustomVerses, candidate);
-      if (!added) {
-        return { added: false, settings: current };
-      }
-
-      const next = await this.writeSettingsRow(db, {
-        ...current,
-        aiPastorCustomVerses: customVerses,
-      });
-      return { added: true, settings: next };
+    let added = false;
+    const settings = await this.updateSettings((current) => {
+      const result = addCustomVerse(current.aiPastorCustomVerses, candidate);
+      added = result.added;
+      return { ...current, aiPastorCustomVerses: result.customVerses };
     });
+    return { added, settings };
   }
 
   async getAiMessage(
@@ -2565,21 +2555,27 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async createTask(input: Parameters<AppRepository["createTask"]>[0]): Promise<Task> {
-    return this.writeTransaction(async (tx) => {
-      transactionDb(tx);
+    return this.writeTransaction((tx) => this.createTaskInternal(tx, input));
+  }
 
-      const draft = createTaskFromInput(input);
-      const allTasks = await this.getAllTasks();
-      const nextTask = adjustPlannedFieldsForSave(null, draft, allTasks);
-      await this.assertPlannedProjectExists(tx, nextTask);
+  /** Reuses the caller's transaction so generation checks and inserts share one writer slot. */
+  private async createTaskInternal(
+    tx: TxContext,
+    input: Parameters<AppRepository["createTask"]>[0],
+  ): Promise<Task> {
+    transactionDb(tx);
 
-      await this.persistTask(nextTask);
-      await this.persistEvents(buildLifecycleEvents(null, nextTask));
-      await this.reconcileProjectsInternal(tx, [nextTask.projectId]);
+    const draft = createTaskFromInput(input);
+    const allTasks = await this.getAllTasks();
+    const nextTask = adjustPlannedFieldsForSave(null, draft, allTasks);
+    await this.assertPlannedProjectExists(tx, nextTask);
 
-      const stored = await this.getTaskById(nextTask.id);
-      return cloneTask(stored ?? nextTask);
-    });
+    await this.persistTask(nextTask);
+    await this.persistEvents(buildLifecycleEvents(null, nextTask));
+    await this.reconcileProjectsInternal(tx, [nextTask.projectId]);
+
+    const stored = await this.getTaskById(nextTask.id);
+    return cloneTask(stored ?? nextTask);
   }
 
   async saveTask(task: Task): Promise<Task> {
@@ -2843,57 +2839,16 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async generateDailyRelationshipTasks(date: string): Promise<number> {
-    const settings = await this.getSettings();
-
-    if (!settings.relationshipDrawsEnabled) {
-      return 0;
-    }
-
-    let nextSettings = settings;
-    let createdCount = 0;
-    const taskSnapshot = await this.getAllTasks();
-
-    for (const definition of relationshipDrawDefinitions) {
-      if (getRelationshipDrawProcessedDate(nextSettings, definition) === date) {
-        continue;
+    return this.writeTransaction(async (tx) => {
+      const current = await this.getSettings();
+      if (!current.relationshipDrawsEnabled) return 0;
+      const plan = buildDailyRelationshipDrawPlan(date, current, await this.getAllTasks());
+      for (const input of plan.taskInputs) await this.createTaskInternal(tx, input);
+      if (plan.settings !== current) {
+        await this.writeSettingsRow(transactionDb(tx), plan.settings);
       }
-
-      if (findActiveRelationshipDrawTask(taskSnapshot, definition.category)) {
-        nextSettings = {
-          ...nextSettings,
-          [definition.processedDateKey]: date,
-        };
-        continue;
-      }
-
-      const activity = pickRelationshipDrawActivity(
-        getRelationshipDrawActivities(nextSettings, definition),
-      );
-      if (!activity) {
-        continue;
-      }
-
-      const createdTask = await this.createTask({
-        title: buildRelationshipDrawTaskTitle(definition, activity),
-        notes: definition.notes,
-        bucket: "next_action",
-        contextIds: [relationshipPersonalContextId],
-        source: "manual",
-        sourceExternalId: getRelationshipDrawSourceExternalId(definition.category, date),
-        createdAt: `${date}T00:00:00.000Z`,
-        updatedAt: `${date}T00:00:00.000Z`,
-      });
-
-      taskSnapshot.push(createdTask);
-      nextSettings = {
-        ...nextSettings,
-        [definition.processedDateKey]: date,
-      };
-      createdCount += 1;
-    }
-
-    await this.saveSettings(nextSettings);
-    return createdCount;
+      return plan.taskInputs.length;
+    });
   }
 
   async computeDailyTaskStats(date: string) {

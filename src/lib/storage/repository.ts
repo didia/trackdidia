@@ -128,15 +128,9 @@ export interface AppRepository {
   computeAnnualGoalSnapshots(year: number, asOfDate?: string): Promise<AnnualGoalSnapshot[]>;
   getSettings(): Promise<AppSettings>;
   saveSettings(settings: AppSettings): Promise<void>;
-  /**
-   * Atomically merges `candidate` into `settings.aiPastorCustomVerses` ("Ajouter à ma liste"):
-   * reads the settings row and writes the merged result as a single serialized operation, so a
-   * concurrent `saveSettings` call for an unrelated field (pulse/backup metadata) cannot lose
-   * this addition, and this addition cannot lose that concurrent write. Scoped to this one field
-   * rather than a generic settings patch — see docs/ai-settings-and-privacy.md. `added` is
-   * `false` when the reference already exists in the merged catalog (no-op, current settings
-   * returned unchanged).
-   */
+  /** Read, apply and persist within one writer slot. The updater must be synchronous. */
+  updateSettings(updater: (current: AppSettings) => AppSettings): Promise<AppSettings>;
+  /** Convenience wrapper over updateSettings; duplicate references are harmless. */
   addPastorCustomVerse(candidate: CatalogVerse): Promise<{ added: boolean; settings: AppSettings }>;
   getAiMessage(surface: AiSurface, scopeKey: string, inputHash: string): Promise<AiMessage | null>;
   /** Latest row for surface/scope/hash regardless of status (e.g. weekly distill markers). */

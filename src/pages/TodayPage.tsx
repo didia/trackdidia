@@ -29,9 +29,9 @@ export const TodayPage = () => {
   const { t } = useTranslation("today");
   const today = getTodayDate();
   const { entry, loading, save } = useDailyEntry(today);
-  const { repository, settings, syncSettings, browserPreview, pomodoro, pulseRevision } =
+  const { repository, settings, updateSettings, browserPreview, pomodoro, pulseRevision } =
     useAppContext();
-  const pastorVerse = usePastorVerse(today, settings, repository, syncSettings);
+  const pastorVerse = usePastorVerse(today, settings, repository, updateSettings);
   const {
     result: coachResult,
     loading: coachLoading,

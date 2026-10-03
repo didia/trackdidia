@@ -1,4 +1,9 @@
 import {
+  defaultAppSettings,
+  normalizeAppSettings,
+  type SettingsUpdater,
+} from "../../domain/settings";
+import {
   taskForAcceptEffect,
   type AcceptEffect,
   type AiProposalAcceptResult,
@@ -13,7 +18,6 @@ import {
   applyDailyTaskStats,
   cloneEntry,
   createEmptyDailyEntry,
-  defaultAppSettings,
 } from "../../domain/daily-entry";
 import { mergeObjectiveSecondsPayload } from "../../domain/rescuetime-goals";
 import { journalPeriodOverlaps } from "../../domain/journal-feed";
@@ -119,17 +123,7 @@ import {
   recurringInstanceWasRewound,
   syncTemplateStatusChange,
 } from "../recurring/engine";
-import {
-  buildRelationshipDrawTaskTitle,
-  findActiveRelationshipDrawTask,
-  getRelationshipDrawActivities,
-  getRelationshipDrawProcessedDate,
-  getRelationshipDrawSourceExternalId,
-  mergeAppSettingsWithDefaults,
-  pickRelationshipDrawActivity,
-  relationshipDrawDefinitions,
-  relationshipPersonalContextId,
-} from "../relationship-draws";
+import { buildDailyRelationshipDrawPlan } from "../relationship-draws";
 import type { AppRepository, PomodoroStartOptions, StorageInfo } from "./repository";
 import { EmailTriageMemoryStore } from "./email-triage-memory-store";
 
@@ -519,28 +513,32 @@ export class MemoryRepository implements AppRepository {
   }
 
   async getSettings(): Promise<AppSettings> {
-    return mergeAppSettingsWithDefaults(this.settings, defaultAppSettings());
+    return structuredClone(normalizeAppSettings(this.settings));
   }
 
   async saveSettings(settings: AppSettings): Promise<void> {
-    this.settings = mergeAppSettingsWithDefaults(settings, defaultAppSettings());
+    this.settings = structuredClone(normalizeAppSettings(settings));
+  }
+
+  async updateSettings(updater: SettingsUpdater): Promise<AppSettings> {
+    // No await: read/apply/write form one synchronous operation. Clone before exposing
+    // the snapshot so an updater that mutates and throws cannot damage stored settings.
+    const current = structuredClone(normalizeAppSettings(this.settings));
+    const next = normalizeAppSettings(updater(current));
+    this.settings = structuredClone(next);
+    return structuredClone(next);
   }
 
   async addPastorCustomVerse(
     candidate: CatalogVerse,
   ): Promise<{ added: boolean; settings: AppSettings }> {
-    // No `await` between reading `this.settings` and writing it back — nothing else can run in
-    // between, so this is race-free the same way the SQLite implementation's single serialized
-    // read-then-write transaction is.
-    const current = mergeAppSettingsWithDefaults(this.settings, defaultAppSettings());
-    const { added, customVerses } = addCustomVerse(current.aiPastorCustomVerses, candidate);
-    if (!added) {
-      return { added: false, settings: current };
-    }
-
-    const next = { ...current, aiPastorCustomVerses: customVerses };
-    this.settings = next;
-    return { added: true, settings: next };
+    let added = false;
+    const settings = await this.updateSettings((current) => {
+      const result = addCustomVerse(current.aiPastorCustomVerses, candidate);
+      added = result.added;
+      return { ...current, aiPastorCustomVerses: result.customVerses };
+    });
+    return { added, settings };
   }
 
   async getAiMessage(
@@ -1309,6 +1307,10 @@ export class MemoryRepository implements AppRepository {
   }
 
   async createTask(input: CreateTaskInput): Promise<Task> {
+    return this.createTaskInternal(input);
+  }
+
+  private createTaskInternal(input: CreateTaskInput): Task {
     const draft = createTaskFromInput(input);
     const nextTask = this.applyPlannedAdjustments(null, draft);
     this.assertPlannedProjectExists(nextTask);
@@ -1464,56 +1466,25 @@ export class MemoryRepository implements AppRepository {
   }
 
   async generateDailyRelationshipTasks(date: string): Promise<number> {
-    const settings = await this.getSettings();
-
-    if (!settings.relationshipDrawsEnabled) {
-      return 0;
-    }
-
-    let nextSettings = settings;
     let createdCount = 0;
-    const taskSnapshot = [...this.tasks.values()];
-
-    for (const definition of relationshipDrawDefinitions) {
-      if (getRelationshipDrawProcessedDate(nextSettings, definition) === date) {
-        continue;
-      }
-
-      if (findActiveRelationshipDrawTask(taskSnapshot, definition.category)) {
-        nextSettings = {
-          ...nextSettings,
-          [definition.processedDateKey]: date,
-        };
-        continue;
-      }
-
-      const activity = pickRelationshipDrawActivity(
-        getRelationshipDrawActivities(nextSettings, definition),
-      );
-      if (!activity) {
-        continue;
-      }
-
-      const createdTask = await this.createTask({
-        title: buildRelationshipDrawTaskTitle(definition, activity),
-        notes: definition.notes,
-        bucket: "next_action",
-        contextIds: [relationshipPersonalContextId],
-        source: "manual",
-        sourceExternalId: getRelationshipDrawSourceExternalId(definition.category, date),
-        createdAt: `${date}T00:00:00.000Z`,
-        updatedAt: `${date}T00:00:00.000Z`,
-      });
-
-      taskSnapshot.push(createdTask);
-      nextSettings = {
-        ...nextSettings,
-        [definition.processedDateKey]: date,
+    await this.updateSettings((current) => {
+      const plan = buildDailyRelationshipDrawPlan(date, current, [...this.tasks.values()]);
+      const snapshot = {
+        tasks: new Map(this.tasks),
+        contexts: new Map(this.contexts),
+        events: new Map(this.events),
+        projects: new Map(this.projects),
       };
-      createdCount += 1;
-    }
-
-    await this.saveSettings(nextSettings);
+      try {
+        // No await: the active-task check, inserts, and settings update cannot interleave.
+        for (const input of plan.taskInputs) this.createTaskInternal(input);
+        createdCount = plan.taskInputs.length;
+        return plan.settings;
+      } catch (error) {
+        Object.assign(this, snapshot);
+        throw error;
+      }
+    });
     return createdCount;
   }
 

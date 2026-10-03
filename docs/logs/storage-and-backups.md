@@ -1,3 +1,4 @@
+- 2026-10-03: Centralized settings defaults and historical normalization; application writers now merge current values atomically, and settings forms preserve runtime state and unsaved edits.
 # Storage and backups log
 
 Back to [Documentation Log](../log.md). Canonical page:

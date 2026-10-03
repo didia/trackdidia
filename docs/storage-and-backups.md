@@ -226,8 +226,11 @@ Singleton row constrained to `id = 1`.
 | `id` | Always `1` |
 | `value` | Serialized `AppSettings`, including the optional OpenRouter key |
 
-Settings are merged with current defaults on read, which lets newly introduced
-settings appear on existing installations without an immediate JSON backfill.
+Settings are normalized by `src/domain/settings.ts` on read, which lets newly
+introduced settings appear without an immediate JSON backfill. Application writes
+use `updateSettings` to read, apply a synchronous updater and persist in one writer
+transaction. See [settings storage](ai-settings-and-privacy.md#settings-storage)
+for field ownership and form behavior.
 
 ### `gtd_contexts`
 
