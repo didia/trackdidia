@@ -2404,4 +2404,16 @@ export class MemoryRepository implements AppRepository {
   ) {
     return Promise.resolve(this.finance.decideCategorySuggestion(id, decision));
   }
+
+  // --- Finance (Phase 4) ----------------------------------------------------------------
+
+  async reclassifyFinancePending() {
+    return Promise.resolve(this.finance.reclassifyPending());
+  }
+
+  async revertFinanceCategoryBackfill(
+    entries: import("../../domain/finance").FinanceCategoryBackfillEntry[],
+  ) {
+    return Promise.resolve(this.finance.revertCategoryBackfill(entries));
+  }
 }

@@ -1,13 +1,15 @@
 import { useTranslation } from "react-i18next";
 import { NavLink } from "react-router-dom";
 
-// Only tabs for screens that exist ship here. Budget/reports/review land in
-// later finance phases — see docs/finance.md "Screens".
+// Only tabs for screens that exist ship here. Budget/reports land in later
+// finance phases — see docs/finance.md "Screens".
 const financeTabs = [
   { to: "/finances", labelKey: "tabs.overview", end: true },
   { to: "/finances/transactions", labelKey: "tabs.transactions", end: false },
   { to: "/finances/import", labelKey: "tabs.import", end: false },
   { to: "/finances/accounts", labelKey: "tabs.accounts", end: false },
+  { to: "/finances/review", labelKey: "tabs.review", end: false },
+  { to: "/finances/rules", labelKey: "tabs.rules", end: false },
 ] as const;
 
 export const FinanceTabs = () => {

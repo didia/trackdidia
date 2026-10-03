@@ -4,7 +4,9 @@
     "overview": "Aperçu",
     "transactions": "Transactions",
     "import": "Importer",
-    "accounts": "Comptes"
+    "accounts": "Comptes",
+    "review": "Revue",
+    "rules": "Règles"
   },
   "overview": {
     "hero": {
@@ -184,6 +186,64 @@
     },
     "previousPage": "Précédent",
     "nextPage": "Suivant",
-    "pageIndicator": "Page {{page}} / {{pageCount}}"
+    "pageIndicator": "Page {{page}} / {{pageCount}}",
+    "categorySource": {
+      "user": "Manuel",
+      "rule": "Règle",
+      "memory": "Mémoire",
+      "seed": "Suggestion intégrée",
+      "ai": "IA",
+      "default": "Non catégorisé"
+    },
+    "backfill": {
+      "title": "Recatégorisation groupée",
+      "message": "{{count}} autre(s) transaction(s) du même marchand ont aussi été mises à jour.",
+      "undo": "Annuler la recatégorisation groupée"
+    }
+  },
+  "review": {
+    "hero": {
+      "eyebrow": "Finances",
+      "title": "Revue"
+    },
+    "actionsTitle": "Actions",
+    "acceptAllAboveThreshold": "Accepter tout au-dessus de {{threshold}}%",
+    "reapplyRules": "Réappliquer les règles",
+    "reclassifyResult": "{{reclassified}} transaction(s) recatégorisée(s), {{suggestions}} nouvelle(s) suggestion(s).",
+    "queueTitle": "File d'attente ({{count}})",
+    "noPending": "Aucune suggestion en attente.",
+    "accept": "Accepter",
+    "correct": "Corriger",
+    "dismiss": "Rejeter",
+    "pickCategory": "Choisir une catégorie"
+  },
+  "rules": {
+    "hero": {
+      "eyebrow": "Finances",
+      "title": "Règles"
+    },
+    "addTitle": "Ajouter une règle",
+    "fields": {
+      "name": "Nom",
+      "priority": "Priorité",
+      "descriptionContains": "La description contient",
+      "category": "Catégorie",
+      "pickCategory": "Choisir une catégorie"
+    },
+    "errors": {
+      "nameRequired": "Le nom de la règle est requis.",
+      "categoryRequired": "Choisissez une catégorie.",
+      "invalidPriority": "Priorité invalide."
+    },
+    "addRule": "Ajouter la règle",
+    "listTitle": "Règles existantes",
+    "noRules": "Aucune règle pour le moment.",
+    "applyToExisting": "Appliquer aux transactions existantes",
+    "applyResult": "{{reclassified}} transaction(s) recatégorisée(s), {{suggestions}} nouvelle(s) suggestion(s).",
+    "priorityLabel": "Priorité",
+    "appliedCount": "Appliquée {{count}} fois",
+    "enable": "Activer",
+    "disable": "Désactiver",
+    "delete": "Supprimer"
   }
 }
