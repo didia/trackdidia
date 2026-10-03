@@ -818,6 +818,9 @@ export class FinanceSqliteStore {
   async setTransactionCategory(
     input: SetFinanceTransactionCategoryInput,
   ): Promise<SetFinanceTransactionCategoryResult> {
+    if (!input.categoryId) {
+      throw new Error("setFinanceTransactionCategory requires a non-empty categoryId");
+    }
     const db = await this.getDb();
     const now = nowIso();
     const txn = await this.getTransaction(input.transactionId);

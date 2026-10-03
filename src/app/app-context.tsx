@@ -402,6 +402,25 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
           generatedRelationshipCount,
         });
 
+        // Idempotent one-time seed, gated on the feature flag and a settings marker — never
+        // on the network, and swallowed on failure so it cannot add a new way to miss the
+        // 8-second timeout below. See docs/finance.md "Settings".
+        if (nextSettings.financeEnabled && !nextSettings.financeCategoriesSeededAt) {
+          try {
+            const seededCount = await nextRepository.seedFinanceDefaultCategories();
+            nextSettings = {
+              ...nextSettings,
+              financeCategoriesSeededAt: new Date().toISOString(),
+            };
+            await nextRepository.saveSettings(nextSettings);
+            logDebug("info", "app.bootstrap", "Seed des categories de finance terminee", {
+              seededCount,
+            });
+          } catch (error) {
+            logDebug("error", "app.bootstrap", "Echec du seed des categories de finance", error);
+          }
+        }
+
         markStage(t("startup.finalize"));
 
         settled = true;

@@ -41,6 +41,17 @@ export const SettingsPage = () => {
   const [choosingBackupFolder, setChoosingBackupFolder] = useState(false);
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
   const relationshipSave = useSectionSave(() => saveSettings(draftSettings));
+  const financeSave = useSectionSave(async () => {
+    const enabling = draftSettings.financeEnabled && !settings.financeEnabled;
+    let nextSettings = draftSettings;
+
+    if (enabling && !settings.financeCategoriesSeededAt) {
+      await repository.seedFinanceDefaultCategories();
+      nextSettings = { ...nextSettings, financeCategoriesSeededAt: new Date().toISOString() };
+    }
+
+    await saveSettings(nextSettings);
+  });
 
   useEffect(() => {
     setDraftSettings(settings);
@@ -485,6 +496,52 @@ export const SettingsPage = () => {
             }
           >
             {relationshipSave.saving ? t("ai.saving") : t("relationship.save")}
+          </button>
+        </div>
+      </SectionCard>
+
+      <SectionCard title={t("finance.title")} subtitle={t("finance.subtitle")}>
+        {financeSave.message ? <div className="banner">{financeSave.message}</div> : null}
+
+        <div className="settings-form">
+          <label className="switch-row">
+            <input
+              type="checkbox"
+              checked={draftSettings.financeEnabled}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  financeEnabled: event.target.checked,
+                }))
+              }
+            />
+            <span>{t("finance.enable")}</span>
+          </label>
+
+          <label>
+            <span>{t("finance.baseCurrency")}</span>
+            <input
+              type="text"
+              value={draftSettings.financeBaseCurrency}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  financeBaseCurrency: event.target.value,
+                }))
+              }
+              placeholder={t("finance.baseCurrencyPlaceholder")}
+            />
+          </label>
+        </div>
+
+        <div className="form-actions">
+          <button
+            className="button button--primary"
+            type="button"
+            disabled={financeSave.saving}
+            onClick={() => void financeSave.run(t("finance.saved"), t("finance.saveError"))}
+          >
+            {financeSave.saving ? t("finance.seeding") : t("finance.save")}
           </button>
         </div>
       </SectionCard>
