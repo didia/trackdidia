@@ -1,4 +1,4 @@
-import type { Database } from "./email-triage-sqlite-db";
+import type { Database } from "./sqlite-db";
 
 const transactionBrand: unique symbol = Symbol("sqlite transaction");
 const activeConnections = new WeakSet<Database>();

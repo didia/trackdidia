@@ -1,3 +1,5 @@
+import * as emailReviewsRows from "./sqlite/rows/emailReviews";
+import * as emailAccountsRows from "./sqlite/rows/emailAccounts";
 import { DbSerialQueue } from "./db-serial-queue";
 import { runSqliteTransaction, transactionDb, type TxContext } from "./transaction";
 import {
@@ -7,7 +9,7 @@ import {
   planGtdTaskWrite,
   type ResolveReviewInput,
 } from "../email-triage/review-plans";
-import type { Database } from "./email-triage-sqlite-db";
+import type { Database } from "./sqlite-db";
 import {
   buildEmailTriageTaskExternalId,
   defaultEmailTriageGlobalSettings,
@@ -41,75 +43,6 @@ import type {
   PersistMessageBatchResult,
 } from "../email-triage/sync-engine";
 import type { EmailTriageStore } from "./email-triage-store";
-
-interface AccountRow {
-  id: string;
-  provider: EmailTriageAccount["provider"];
-  provider_account_id: string;
-  label: string;
-  masked_address: string;
-  generation: number;
-  enabled: number;
-  mutation_enabled: number;
-  paused: number;
-  state: EmailTriageAccount["state"];
-  recovery_state: EmailTriageAccount["recoveryState"];
-  last_success_at: string | null;
-  last_error: string | null;
-  poll_interval_minutes: number;
-  sync_state_json: string;
-  created_at: string;
-  updated_at: string;
-}
-
-const mapAccount = (row: AccountRow): EmailTriageAccount => ({
-  id: row.id,
-  provider: row.provider,
-  providerAccountId: row.provider_account_id,
-  label: row.label,
-  maskedAddress: row.masked_address,
-  generation: row.generation,
-  enabled: Boolean(row.enabled),
-  mutationEnabled: Boolean(row.mutation_enabled),
-  paused: Boolean(row.paused),
-  state: row.state,
-  recoveryState: row.recovery_state,
-  lastSuccessAt: row.last_success_at,
-  lastError: row.last_error,
-  pollIntervalMinutes: row.poll_interval_minutes,
-  syncState: JSON.parse(row.sync_state_json) as Record<string, unknown>,
-  createdAt: row.created_at,
-  updatedAt: row.updated_at,
-});
-
-interface ReviewRow {
-  id: string;
-  account_id: string;
-  conversation_id: string;
-  message_id: string;
-  expected_decision_version: number;
-  status: EmailTriageReview["status"];
-  reason: string;
-  sanitized_preview_json: string | null;
-  resolution: EmailTriageReview["resolution"];
-  resolved_at: string | null;
-  created_at: string;
-}
-const mapReview = (row: ReviewRow): EmailTriageReview => ({
-  id: row.id,
-  accountId: row.account_id,
-  conversationId: row.conversation_id,
-  messageId: row.message_id,
-  expectedDecisionVersion: row.expected_decision_version,
-  status: row.status,
-  reason: row.reason,
-  sanitizedPreview: row.sanitized_preview_json
-    ? (JSON.parse(row.sanitized_preview_json) as EmailTriageReview["sanitizedPreview"])
-    : null,
-  resolution: row.resolution,
-  resolvedAt: row.resolved_at,
-  createdAt: row.created_at,
-});
 
 export interface EmailTriageTaskOps {
   getTaskByExternalId(externalId: string): Promise<Task | null>;
@@ -255,19 +188,19 @@ export class EmailTriageSqliteStore implements EmailTriageStore {
 
   async listAccounts(): Promise<EmailTriageAccount[]> {
     const db = await this.getDb();
-    const rows = await db.select<AccountRow[]>(
-      "SELECT * FROM email_triage_accounts ORDER BY label",
+    const rows = await db.select<emailAccountsRows.AccountRow[]>(
+      `SELECT ${emailAccountsRows.COLUMNS} FROM email_triage_accounts ORDER BY label`,
     );
-    return rows.map(mapAccount);
+    return rows.map(emailAccountsRows.fromRow);
   }
 
   async getAccount(accountId: string): Promise<EmailTriageAccount | null> {
     const db = await this.getDb();
-    const rows = await db.select<AccountRow[]>(
-      "SELECT * FROM email_triage_accounts WHERE id = $1",
+    const rows = await db.select<emailAccountsRows.AccountRow[]>(
+      `SELECT ${emailAccountsRows.COLUMNS} FROM email_triage_accounts WHERE id = $1`,
       [accountId],
     );
-    return rows[0] ? mapAccount(rows[0]) : null;
+    return rows[0] ? emailAccountsRows.fromRow(rows[0]) : null;
   }
 
   async saveAccount(account: EmailTriageAccount): Promise<EmailTriageAccount> {
@@ -275,11 +208,7 @@ export class EmailTriageSqliteStore implements EmailTriageStore {
 
     const db = await this.getDb();
     await db.execute(
-      `INSERT INTO email_triage_accounts (
-        id, provider, provider_account_id, label, masked_address, generation, enabled, mutation_enabled,
-        paused, state, recovery_state, last_success_at, last_error, poll_interval_minutes, sync_state_json,
-        created_at, updated_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+      `INSERT INTO email_triage_accounts (${emailAccountsRows.COLUMNS}) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
       ON CONFLICT(id) DO UPDATE SET
         label = excluded.label,
         masked_address = excluded.masked_address,
@@ -294,25 +223,7 @@ export class EmailTriageSqliteStore implements EmailTriageStore {
         poll_interval_minutes = excluded.poll_interval_minutes,
         sync_state_json = excluded.sync_state_json,
         updated_at = excluded.updated_at`,
-      [
-        account.id,
-        account.provider,
-        account.providerAccountId,
-        account.label,
-        account.maskedAddress,
-        account.generation,
-        account.enabled ? 1 : 0,
-        account.mutationEnabled ? 1 : 0,
-        account.paused ? 1 : 0,
-        account.state,
-        account.recoveryState,
-        account.lastSuccessAt,
-        account.lastError,
-        account.pollIntervalMinutes,
-        JSON.stringify(account.syncState),
-        account.createdAt,
-        account.updatedAt,
-      ],
+      emailAccountsRows.toParams(account),
     );
     return (await this.getAccount(account.id))!;
   }
@@ -786,12 +697,12 @@ export class EmailTriageSqliteStore implements EmailTriageStore {
     if (!this.transactionScope) return this.withWrite((scope) => scope.createReview(input));
 
     const db = await this.getDb();
-    const rows = await db.select<ReviewRow[]>(
-      "SELECT * FROM email_triage_reviews WHERE conversation_id = $1 AND message_id = $2",
+    const rows = await db.select<emailReviewsRows.ReviewRow[]>(
+      `SELECT ${emailReviewsRows.COLUMNS} FROM email_triage_reviews WHERE conversation_id = $1 AND message_id = $2`,
       [input.conversationId, input.messageId],
     );
     const planned = planReviewCreation(
-      rows.map(mapReview),
+      rows.map(emailReviewsRows.fromRow),
       input,
       createEntityId("email-review"),
       nowIso(),
@@ -799,74 +710,32 @@ export class EmailTriageSqliteStore implements EmailTriageStore {
     const review = planned.review;
     if (!planned.created) return review;
     await db.execute(
-      `INSERT INTO email_triage_reviews (
-        id, account_id, conversation_id, message_id, expected_decision_version, status, reason,
-        sanitized_preview_json, resolution, resolved_at, created_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-      [
-        review.id,
-        review.accountId,
-        review.conversationId,
-        review.messageId,
-        review.expectedDecisionVersion,
-        review.status,
-        review.reason,
-        JSON.stringify(review.sanitizedPreview),
-        review.resolution,
-        review.resolvedAt,
-        review.createdAt,
-      ],
+      `INSERT INTO email_triage_reviews (${emailReviewsRows.COLUMNS}) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      emailReviewsRows.toParams(review),
     );
     return review;
   }
 
   async listReviews(status?: EmailTriageReview["status"]): Promise<EmailTriageReview[]> {
     const db = await this.getDb();
-    const rows = await db.select<
-      Array<{
-        id: string;
-        account_id: string;
-        conversation_id: string;
-        message_id: string;
-        expected_decision_version: number;
-        status: EmailTriageReview["status"];
-        reason: string;
-        sanitized_preview_json: string | null;
-        resolution: EmailTriageReview["resolution"];
-        resolved_at: string | null;
-        created_at: string;
-      }>
-    >(
+    const rows = await db.select<emailReviewsRows.ReviewRow[]>(
       status
-        ? "SELECT * FROM email_triage_reviews WHERE status = $1 ORDER BY created_at DESC"
-        : "SELECT * FROM email_triage_reviews ORDER BY created_at DESC",
+        ? `SELECT ${emailReviewsRows.COLUMNS} FROM email_triage_reviews WHERE status = $1 ORDER BY created_at DESC`
+        : `SELECT ${emailReviewsRows.COLUMNS} FROM email_triage_reviews ORDER BY created_at DESC`,
       status ? [status] : [],
     );
-    return rows.map((row) => ({
-      id: row.id,
-      accountId: row.account_id,
-      conversationId: row.conversation_id,
-      messageId: row.message_id,
-      expectedDecisionVersion: row.expected_decision_version,
-      status: row.status,
-      reason: row.reason,
-      sanitizedPreview: row.sanitized_preview_json
-        ? (JSON.parse(row.sanitized_preview_json) as EmailTriageReview["sanitizedPreview"])
-        : null,
-      resolution: row.resolution,
-      resolvedAt: row.resolved_at,
-      createdAt: row.created_at,
-    }));
+    return rows.map(emailReviewsRows.fromRow);
   }
 
   async resolveReview(input: ResolveReviewInput): Promise<EmailTriageReview> {
     if (!this.transactionScope) return this.withWrite((scope) => scope.resolveReview(input));
 
     const db = await this.getDb();
-    const rows = await db.select<ReviewRow[]>("SELECT * FROM email_triage_reviews WHERE id = $1", [
-      input.reviewId,
-    ]);
-    const review = rows[0] ? mapReview(rows[0]) : null;
+    const rows = await db.select<emailReviewsRows.ReviewRow[]>(
+      `SELECT ${emailReviewsRows.COLUMNS} FROM email_triage_reviews WHERE id = $1`,
+      [input.reviewId],
+    );
+    const review = rows[0] ? emailReviewsRows.fromRow(rows[0]) : null;
     const conversation = review ? await this.getConversation(review.conversationId) : null;
     const message = review
       ? await this.getMessageByProviderId(review.accountId, review.messageId)
@@ -928,10 +797,11 @@ export class EmailTriageSqliteStore implements EmailTriageStore {
     if (!this.transactionScope) return this.withWrite((scope) => scope.dismissReview(reviewId));
 
     const db = await this.getDb();
-    const rows = await db.select<ReviewRow[]>("SELECT * FROM email_triage_reviews WHERE id = $1", [
-      reviewId,
-    ]);
-    const review = rows[0] ? mapReview(rows[0]) : null;
+    const rows = await db.select<emailReviewsRows.ReviewRow[]>(
+      `SELECT ${emailReviewsRows.COLUMNS} FROM email_triage_reviews WHERE id = $1`,
+      [reviewId],
+    );
+    const review = rows[0] ? emailReviewsRows.fromRow(rows[0]) : null;
     const conversation = review ? await this.getConversation(review.conversationId) : null;
     const pending = conversation
       ? (await this.listReviews("pending")).filter(

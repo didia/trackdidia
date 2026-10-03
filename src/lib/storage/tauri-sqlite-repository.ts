@@ -1,3 +1,21 @@
+import * as midWeekDecisionsRows from "./sqlite/rows/midWeekDecisions";
+import * as rescueTimeCacheRows from "./sqlite/rows/rescueTimeCache";
+import * as dailyEntriesRows from "./sqlite/rows/dailyEntries";
+import * as weeklyReviewsRows from "./sqlite/rows/weeklyReviews";
+import * as monthlyReviewsRows from "./sqlite/rows/monthlyReviews";
+import * as annualGoalsRows from "./sqlite/rows/annualGoals";
+import * as weeklyObjectivesRows from "./sqlite/rows/weeklyObjectives";
+import * as weeklyObjectiveResultsRows from "./sqlite/rows/weeklyObjectiveResults";
+import * as contextsRows from "./sqlite/rows/contexts";
+import * as projectsRows from "./sqlite/rows/projects";
+import * as tasksRows from "./sqlite/rows/tasks";
+import * as taskEventsRows from "./sqlite/rows/taskEvents";
+import * as recurringTemplatesRows from "./sqlite/rows/recurringTemplates";
+import * as pomodoroSessionsRows from "./sqlite/rows/pomodoroSessions";
+import * as pomodoroSegmentsRows from "./sqlite/rows/pomodoroSegments";
+import * as aiMessagesRows from "./sqlite/rows/aiMessages";
+import * as aiProposalsRows from "./sqlite/rows/aiProposals";
+import * as aiMemoriesRows from "./sqlite/rows/aiMemories";
 import {
   defaultAppSettings,
   normalizeAppSettings,
@@ -39,7 +57,6 @@ import type {
   AnnualGoalSnapshot,
   AppSettings,
   CatalogVerse,
-  CoachPulseStance,
   DailyEntry,
   GtdImportSummary,
   MidWeekDecisions,
@@ -61,7 +78,6 @@ import type {
   WeeklyObjectiveResult,
   WeeklyReview,
 } from "../../domain/types";
-import { parseMidWeekLaggingSnapshot } from "../../domain/mid-week-review";
 import { mergeObjectiveSecondsPayload } from "../../domain/rescuetime-goals";
 import {
   cloneWeeklyObjective,
@@ -137,7 +153,7 @@ import {
 } from "../relationship-draws";
 import { DbSerialQueue } from "./db-serial-queue";
 import { EmailTriageSqliteStore } from "./email-triage-sqlite-store";
-import type { Database as SqliteDatabase } from "./email-triage-sqlite-db";
+import type { Database as SqliteDatabase } from "./sqlite-db";
 import type {
   AppRepository,
   BackupResult,
@@ -171,249 +187,8 @@ class Database implements SqliteDatabase {
   }
 }
 
-/** Parses a JSON column, falling back to `fallback` for legacy/null/malformed values. */
-const safeParseJson = <T>(value: string | null | undefined, fallback: T): T => {
-  if (!value) {
-    return fallback;
-  }
-
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return fallback;
-  }
-};
-
-interface DailyEntryRow {
-  date: string;
-  status: DailyEntry["status"];
-  metrics_json: string;
-  principles_json: string;
-  morning_intention: string | null;
-  night_reflection: string | null;
-  tomorrow_focus: string | null;
-  updated_at: string;
-}
-
 interface SettingsRow {
   value: string;
-}
-
-interface WeeklyReviewRow {
-  week_start_date: string;
-  week_end_date: string;
-  status: WeeklyReview["status"];
-  notes_json: string;
-  ritual_checklist_json: string;
-  updated_at: string;
-}
-
-interface WeeklyObjectiveRow {
-  id: string;
-  title: string;
-  kind: WeeklyObjective["kind"];
-  target_hours: number | null;
-  rescuetime_kind: WeeklyObjective["rescuetimeKind"];
-  rescuetime_thing: string | null;
-  sort_order: number;
-  starts_on_week_start_date: string | null;
-  ends_on_week_start_date: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export const weeklyObjectiveSelectColumns =
-  "id, title, kind, target_hours, rescuetime_kind, rescuetime_thing, sort_order, starts_on_week_start_date, ends_on_week_start_date, created_at, updated_at";
-
-interface WeeklyObjectiveResultRow {
-  week_start_date: string;
-  objective_id: string;
-  achieved: number;
-  updated_at: string;
-}
-
-interface MonthlyReviewRow {
-  month_key: string;
-  month_start_date: string;
-  month_end_date: string;
-  status: MonthlyReview["status"];
-  notes_json: string;
-  ritual_checklist_json: string;
-  updated_at: string;
-}
-
-interface AnnualGoalRow {
-  id: string;
-  title: string;
-  dimension: AnnualGoal["dimension"];
-  description: string;
-  target_value: number | null;
-  unit: string;
-  source_id: AnnualGoal["sourceId"];
-  manual_current_value: number | null;
-  evaluations_json: string;
-  measurement_type: AnnualGoal["measurementType"];
-  status: AnnualGoal["status"];
-  deadline: string | null;
-  starting_value: number | null;
-  direction: AnnualGoal["direction"];
-  cadence_target: number | null;
-  cadence_period: AnnualGoal["cadencePeriod"];
-  principle_key: AnnualGoal["principleKey"];
-  progress_log_json: string;
-  milestones_json: string;
-  created_at: string;
-  updated_at: string;
-}
-
-interface ContextRow {
-  id: string;
-  name: string;
-  created_at: string;
-  updated_at: string;
-}
-
-interface ProjectRow {
-  id: string;
-  title: string;
-  status: Project["status"];
-  status_changed_at: string | null;
-  notes: string;
-  context_ids_json: string;
-  source: Project["source"];
-  source_external_id: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface TaskRow {
-  id: string;
-  title: string;
-  notes: string;
-  status: Task["status"];
-  bucket: Task["bucket"];
-  context_ids_json: string;
-  project_id: string | null;
-  parent_task_id: string | null;
-  scheduled_for: string | null;
-  deadline: string | null;
-  recurring_template_id: string | null;
-  recurrence_due_date: string | null;
-  is_recurring_instance: number;
-  completed_at: string | null;
-  recurrence_group_id: string | null;
-  pending_past_recurrences: number;
-  planned_order: number | null;
-  source: Task["source"];
-  source_external_id: string | null;
-  source_url: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface TaskEventRow {
-  id: string;
-  task_id: string;
-  type: TaskEvent["type"];
-  event_date: string;
-  event_at: string;
-  created_at: string;
-  dedupe_key: string | null;
-  metadata_json: string;
-}
-
-interface RecurringTemplateRow {
-  id: string;
-  title: string;
-  notes: string;
-  target_bucket: "next_action" | "scheduled";
-  context_ids_json: string;
-  project_id: string | null;
-  rule_type: "daily" | "weekly" | "monthly";
-  daily_interval: number;
-  weekly_interval: number;
-  weekly_days_json: string;
-  monthly_mode: "day_of_month" | "nth_weekday";
-  day_of_month: number | null;
-  nth_week: number | null;
-  weekday: number | null;
-  scheduled_time: string | null;
-  start_date: string;
-  status: "active" | "paused" | "cancelled";
-  last_generated_for_date: string | null;
-  pending_missed_occurrences: number;
-  status_changed_at: string;
-  created_at: string;
-  updated_at: string;
-}
-
-interface PomodoroSessionRow {
-  id: string;
-  kind: PomodoroSession["kind"];
-  status: PomodoroSession["status"];
-  started_at: string;
-  ends_at: string;
-  paused_remaining_ms: number | null;
-  completed_at: string | null;
-  cancelled_at: string | null;
-  cycle_index: number;
-  date: string;
-}
-
-interface PomodoroSegmentRow {
-  id: string;
-  session_id: string;
-  task_id: string | null;
-  title: string | null;
-  started_at: string;
-  ended_at: string | null;
-}
-
-interface AiMessageRow {
-  id: string;
-  surface: string;
-  scope_key: string;
-  stance: string | null;
-  kind: string;
-  input_hash: string;
-  prompt_version: string;
-  model: string;
-  status: string;
-  body_json: string | null;
-  body_text: string | null;
-  delta_class: string | null;
-  notified: number;
-  tokens_prompt: number | null;
-  tokens_completion: number | null;
-  latency_ms: number | null;
-  created_at: string;
-}
-
-interface AiProposalRow {
-  id: string;
-  message_id: string;
-  type: string;
-  payload_json: string;
-  status: string;
-  applied_entity_id: string | null;
-  decided_at: string | null;
-  created_at: string;
-}
-
-interface AiMemoryRow {
-  id: string;
-  kind: string;
-  statement: string;
-  detail: string;
-  confidence: number;
-  source: string;
-  status: string;
-  evidence_from: string | null;
-  evidence_to: string | null;
-  created_at: string;
-  last_confirmed_at: string;
-  expires_at: string | null;
-  pinned: number;
 }
 
 export class TauriSqliteRepository implements AppRepository {
@@ -450,15 +225,11 @@ export class TauriSqliteRepository implements AppRepository {
 
   private async getTaskByExternalId(externalId: string): Promise<Task | null> {
     const db = await this.getDb();
-    const rows = await db.select<TaskRow[]>(
-      `SELECT
-        id, title, notes, status, bucket, context_ids_json, project_id, parent_task_id,
-        scheduled_for, deadline, recurring_template_id, recurrence_due_date, is_recurring_instance,
-        completed_at, recurrence_group_id, pending_past_recurrences, planned_order, source, source_external_id, source_url, created_at, updated_at
-      FROM gtd_tasks WHERE source_external_id = $1`,
+    const rows = await db.select<tasksRows.TaskRow[]>(
+      `SELECT ${tasksRows.COLUMNS} FROM gtd_tasks WHERE source_external_id = $1`,
       [externalId],
     );
-    return rows[0] ? this.deserializeTask(rows[0]) : null;
+    return rows[0] ? tasksRows.fromRow(rows[0]) : null;
   }
 
   private writeExclusive<T>(operation: () => Promise<T>): Promise<T> {
@@ -520,18 +291,11 @@ export class TauriSqliteRepository implements AppRepository {
         return;
       }
 
-      const rows = await db.select<WeeklyReviewRow[]>(
-        `SELECT
-          week_start_date,
-          week_end_date,
-          status,
-          notes_json,
-          ritual_checklist_json,
-          updated_at
-        FROM weekly_reviews`,
+      const rows = await db.select<weeklyReviewsRows.WeeklyReviewRow[]>(
+        `SELECT ${weeklyReviewsRows.COLUMNS} FROM weekly_reviews`,
       );
       const changed = relocateDimancheNotesToNextWeek(
-        rows.map((row) => this.deserializeWeeklyReview(row)),
+        rows.map((row) => weeklyReviewsRows.fromRow(row)),
       );
 
       for (const review of changed) {
@@ -546,22 +310,13 @@ export class TauriSqliteRepository implements AppRepository {
 
   async getDailyEntry(date: string): Promise<DailyEntry | null> {
     const db = await this.getDb();
-    const rows = await db.select<DailyEntryRow[]>(
-      `SELECT
-        date,
-        status,
-        metrics_json,
-        principles_json,
-        morning_intention,
-        night_reflection,
-        tomorrow_focus,
-        updated_at
-      FROM daily_entries
+    const rows = await db.select<dailyEntriesRows.DailyEntryRow[]>(
+      `SELECT ${dailyEntriesRows.COLUMNS} FROM daily_entries
       WHERE date = $1`,
       [date],
     );
 
-    return rows[0] ? this.decorateEntry(this.deserializeEntry(rows[0])) : null;
+    return rows[0] ? this.decorateEntry(dailyEntriesRows.fromRow(rows[0])) : null;
   }
 
   async saveDailyEntry(entry: DailyEntry): Promise<void> {
@@ -570,16 +325,7 @@ export class TauriSqliteRepository implements AppRepository {
       const db = await this.getDb();
 
       await db.execute(
-        `INSERT INTO daily_entries (
-        date,
-        status,
-        metrics_json,
-        principles_json,
-        morning_intention,
-        night_reflection,
-        tomorrow_focus,
-        updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `INSERT INTO daily_entries (${dailyEntriesRows.COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       ON CONFLICT(date) DO UPDATE SET
         status = excluded.status,
         metrics_json = excluded.metrics_json,
@@ -588,76 +334,40 @@ export class TauriSqliteRepository implements AppRepository {
         night_reflection = excluded.night_reflection,
         tomorrow_focus = excluded.tomorrow_focus,
         updated_at = excluded.updated_at`,
-        [
-          decoratedEntry.date,
-          decoratedEntry.status,
-          JSON.stringify(decoratedEntry.metrics),
-          JSON.stringify(decoratedEntry.principleChecks),
-          decoratedEntry.morningIntention,
-          decoratedEntry.nightReflection,
-          decoratedEntry.tomorrowFocus,
-          decoratedEntry.updatedAt,
-        ],
+        dailyEntriesRows.toParams(decoratedEntry),
       );
     });
   }
 
   async listDailyEntries(limit = 30): Promise<DailyEntry[]> {
     const db = await this.getDb();
-    const rows = await db.select<DailyEntryRow[]>(
-      `SELECT
-        date,
-        status,
-        metrics_json,
-        principles_json,
-        morning_intention,
-        night_reflection,
-        tomorrow_focus,
-        updated_at
-      FROM daily_entries
+    const rows = await db.select<dailyEntriesRows.DailyEntryRow[]>(
+      `SELECT ${dailyEntriesRows.COLUMNS} FROM daily_entries
       ORDER BY date DESC
       LIMIT $1`,
       [limit],
     );
 
-    return Promise.all(rows.map((row) => this.decorateEntry(this.deserializeEntry(row))));
+    return Promise.all(rows.map((row) => this.decorateEntry(dailyEntriesRows.fromRow(row))));
   }
 
   async listDailyEntriesOnOrBefore(endDate: string, limit = 180): Promise<DailyEntry[]> {
     const db = await this.getDb();
-    const rows = await db.select<DailyEntryRow[]>(
-      `SELECT
-        date,
-        status,
-        metrics_json,
-        principles_json,
-        morning_intention,
-        night_reflection,
-        tomorrow_focus,
-        updated_at
-      FROM daily_entries
+    const rows = await db.select<dailyEntriesRows.DailyEntryRow[]>(
+      `SELECT ${dailyEntriesRows.COLUMNS} FROM daily_entries
       WHERE date <= $1
       ORDER BY date DESC
       LIMIT $2`,
       [endDate, limit],
     );
 
-    return Promise.all(rows.map((row) => this.decorateEntry(this.deserializeEntry(row))));
+    return Promise.all(rows.map((row) => this.decorateEntry(dailyEntriesRows.fromRow(row))));
   }
 
   async listDailyEntriesInRange(startDate: string, endDate: string): Promise<DailyEntry[]> {
     const db = await this.getDb();
-    const rows = await db.select<DailyEntryRow[]>(
-      `SELECT
-        date,
-        status,
-        metrics_json,
-        principles_json,
-        morning_intention,
-        night_reflection,
-        tomorrow_focus,
-        updated_at
-      FROM daily_entries
+    const rows = await db.select<dailyEntriesRows.DailyEntryRow[]>(
+      `SELECT ${dailyEntriesRows.COLUMNS} FROM daily_entries
       WHERE date >= $1 AND date <= $2
       ORDER BY date DESC`,
       [startDate, endDate],
@@ -665,26 +375,19 @@ export class TauriSqliteRepository implements AppRepository {
 
     // Journal only reads note text. Skip decorateEntry so a wide range cannot
     // fan out into per-day GTD/Pomodoro writes and full-table scans.
-    return rows.map((row) => this.deserializeEntry(row));
+    return rows.map((row) => dailyEntriesRows.fromRow(row));
   }
 
   async getWeeklyReview(weekStartDate: string): Promise<WeeklyReview | null> {
     const db = await this.getDb();
     const normalized = buildWeekDates(weekStartDate);
-    const rows = await db.select<WeeklyReviewRow[]>(
-      `SELECT
-        week_start_date,
-        week_end_date,
-        status,
-        notes_json,
-        ritual_checklist_json,
-        updated_at
-      FROM weekly_reviews
+    const rows = await db.select<weeklyReviewsRows.WeeklyReviewRow[]>(
+      `SELECT ${weeklyReviewsRows.COLUMNS} FROM weekly_reviews
       WHERE week_start_date = $1`,
       [normalized],
     );
 
-    return rows[0] ? this.deserializeWeeklyReview(rows[0]) : null;
+    return rows[0] ? weeklyReviewsRows.fromRow(rows[0]) : null;
   }
 
   async saveWeeklyReview(review: WeeklyReview): Promise<void> {
@@ -708,87 +411,51 @@ export class TauriSqliteRepository implements AppRepository {
     };
 
     await db.execute(
-      `INSERT INTO weekly_reviews (
-      week_start_date,
-      week_end_date,
-      status,
-      notes_json,
-      ritual_checklist_json,
-      updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO weekly_reviews (${weeklyReviewsRows.COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6)
     ON CONFLICT(week_start_date) DO UPDATE SET
       week_end_date = excluded.week_end_date,
       status = excluded.status,
       notes_json = excluded.notes_json,
       ritual_checklist_json = excluded.ritual_checklist_json,
       updated_at = excluded.updated_at`,
-      [
-        nextReview.weekStartDate,
-        nextReview.weekEndDate,
-        nextReview.status,
-        JSON.stringify(nextReview.notes),
-        JSON.stringify(nextReview.ritualChecklist),
-        nextReview.updatedAt,
-      ],
+      weeklyReviewsRows.toParams(nextReview),
     );
   }
 
   async listWeeklyReviews(limit = 12): Promise<WeeklyReview[]> {
     const db = await this.getDb();
-    const rows = await db.select<WeeklyReviewRow[]>(
-      `SELECT
-        week_start_date,
-        week_end_date,
-        status,
-        notes_json,
-        ritual_checklist_json,
-        updated_at
-      FROM weekly_reviews
+    const rows = await db.select<weeklyReviewsRows.WeeklyReviewRow[]>(
+      `SELECT ${weeklyReviewsRows.COLUMNS} FROM weekly_reviews
       ORDER BY week_start_date DESC
       LIMIT $1`,
       [limit],
     );
 
-    return rows.map((row) => this.deserializeWeeklyReview(row));
+    return rows.map((row) => weeklyReviewsRows.fromRow(row));
   }
 
   async listWeeklyReviewsOverlapping(startDate: string, endDate: string): Promise<WeeklyReview[]> {
     const db = await this.getDb();
-    const rows = await db.select<WeeklyReviewRow[]>(
-      `SELECT
-        week_start_date,
-        week_end_date,
-        status,
-        notes_json,
-        ritual_checklist_json,
-        updated_at
-      FROM weekly_reviews
+    const rows = await db.select<weeklyReviewsRows.WeeklyReviewRow[]>(
+      `SELECT ${weeklyReviewsRows.COLUMNS} FROM weekly_reviews
       WHERE week_start_date <= $2 AND week_end_date >= $1
       ORDER BY week_start_date DESC`,
       [startDate, endDate],
     );
 
-    return rows.map((row) => this.deserializeWeeklyReview(row));
+    return rows.map((row) => weeklyReviewsRows.fromRow(row));
   }
 
   async getMonthlyReview(monthKey: string): Promise<MonthlyReview | null> {
     const db = await this.getDb();
     const normalized = getMonthKey(`${monthKey}-01`);
-    const rows = await db.select<MonthlyReviewRow[]>(
-      `SELECT
-        month_key,
-        month_start_date,
-        month_end_date,
-        status,
-        notes_json,
-        ritual_checklist_json,
-        updated_at
-      FROM monthly_reviews
+    const rows = await db.select<monthlyReviewsRows.MonthlyReviewRow[]>(
+      `SELECT ${monthlyReviewsRows.COLUMNS} FROM monthly_reviews
       WHERE month_key = $1`,
       [normalized],
     );
 
-    return rows[0] ? this.deserializeMonthlyReview(rows[0]) : null;
+    return rows[0] ? monthlyReviewsRows.fromRow(rows[0]) : null;
   }
 
   async saveMonthlyReview(review: MonthlyReview): Promise<void> {
@@ -811,15 +478,7 @@ export class TauriSqliteRepository implements AppRepository {
     };
 
     await db.execute(
-      `INSERT INTO monthly_reviews (
-      month_key,
-      month_start_date,
-      month_end_date,
-      status,
-      notes_json,
-      ritual_checklist_json,
-      updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO monthly_reviews (${monthlyReviewsRows.COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7)
     ON CONFLICT(month_key) DO UPDATE SET
       month_start_date = excluded.month_start_date,
       month_end_date = excluded.month_end_date,
@@ -827,36 +486,20 @@ export class TauriSqliteRepository implements AppRepository {
       notes_json = excluded.notes_json,
       ritual_checklist_json = excluded.ritual_checklist_json,
       updated_at = excluded.updated_at`,
-      [
-        nextReview.monthKey,
-        nextReview.monthStartDate,
-        nextReview.monthEndDate,
-        nextReview.status,
-        JSON.stringify(nextReview.notes),
-        JSON.stringify(nextReview.ritualChecklist),
-        nextReview.updatedAt,
-      ],
+      monthlyReviewsRows.toParams(nextReview),
     );
   }
 
   async listMonthlyReviews(limit = 12): Promise<MonthlyReview[]> {
     const db = await this.getDb();
-    const rows = await db.select<MonthlyReviewRow[]>(
-      `SELECT
-        month_key,
-        month_start_date,
-        month_end_date,
-        status,
-        notes_json,
-        ritual_checklist_json,
-        updated_at
-      FROM monthly_reviews
+    const rows = await db.select<monthlyReviewsRows.MonthlyReviewRow[]>(
+      `SELECT ${monthlyReviewsRows.COLUMNS} FROM monthly_reviews
       ORDER BY month_key DESC
       LIMIT $1`,
       [limit],
     );
 
-    return rows.map((row) => this.deserializeMonthlyReview(row));
+    return rows.map((row) => monthlyReviewsRows.fromRow(row));
   }
 
   async listMonthlyReviewsOverlapping(
@@ -864,22 +507,14 @@ export class TauriSqliteRepository implements AppRepository {
     endDate: string,
   ): Promise<MonthlyReview[]> {
     const db = await this.getDb();
-    const rows = await db.select<MonthlyReviewRow[]>(
-      `SELECT
-        month_key,
-        month_start_date,
-        month_end_date,
-        status,
-        notes_json,
-        ritual_checklist_json,
-        updated_at
-      FROM monthly_reviews
+    const rows = await db.select<monthlyReviewsRows.MonthlyReviewRow[]>(
+      `SELECT ${monthlyReviewsRows.COLUMNS} FROM monthly_reviews
       WHERE month_start_date <= $2 AND month_end_date >= $1
       ORDER BY month_key DESC`,
       [startDate, endDate],
     );
 
-    return rows.map((row) => this.deserializeMonthlyReview(row));
+    return rows.map((row) => monthlyReviewsRows.fromRow(row));
   }
 
   async computeMonthlyReviewSummary(monthKey: string) {
@@ -906,17 +541,12 @@ export class TauriSqliteRepository implements AppRepository {
 
   async listAnnualGoals(): Promise<AnnualGoal[]> {
     const db = await this.getDb();
-    const rows = await db.select<AnnualGoalRow[]>(
-      `SELECT
-        id, title, dimension, description, target_value, unit, source_id, manual_current_value,
-        evaluations_json, measurement_type, status, deadline, starting_value, direction,
-        cadence_target, cadence_period, principle_key, progress_log_json, milestones_json,
-        created_at, updated_at
-      FROM annual_goals
+    const rows = await db.select<annualGoalsRows.AnnualGoalRow[]>(
+      `SELECT ${annualGoalsRows.COLUMNS} FROM annual_goals
       ORDER BY title ASC`,
     );
 
-    return rows.map((row) => this.deserializeAnnualGoal(row));
+    return rows.map((row) => annualGoalsRows.fromRow(row));
   }
 
   async saveAnnualGoal(goal: AnnualGoal): Promise<AnnualGoal> {
@@ -934,12 +564,7 @@ export class TauriSqliteRepository implements AppRepository {
       });
 
       await db.execute(
-        `INSERT INTO annual_goals (
-        id, title, dimension, description, target_value, unit, source_id, manual_current_value,
-        evaluations_json, measurement_type, status, deadline, starting_value, direction,
-        cadence_target, cadence_period, principle_key, progress_log_json, milestones_json,
-        created_at, updated_at
-      ) VALUES (
+        `INSERT INTO annual_goals (${annualGoalsRows.COLUMNS}) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
         $20, $21
       )
@@ -963,29 +588,7 @@ export class TauriSqliteRepository implements AppRepository {
         progress_log_json = excluded.progress_log_json,
         milestones_json = excluded.milestones_json,
         updated_at = excluded.updated_at`,
-        [
-          nextGoal.id,
-          nextGoal.title,
-          nextGoal.dimension,
-          nextGoal.description,
-          nextGoal.targetValue,
-          nextGoal.unit,
-          nextGoal.sourceId,
-          nextGoal.manualCurrentValue,
-          JSON.stringify(nextGoal.evaluations),
-          nextGoal.measurementType,
-          nextGoal.status,
-          nextGoal.deadline,
-          nextGoal.startingValue,
-          nextGoal.direction,
-          nextGoal.cadenceTarget,
-          nextGoal.cadencePeriod,
-          nextGoal.principleKey,
-          JSON.stringify(nextGoal.progressLog),
-          JSON.stringify(nextGoal.milestones),
-          nextGoal.createdAt,
-          nextGoal.updatedAt,
-        ],
+        annualGoalsRows.toParams(nextGoal),
       );
 
       return cloneAnnualGoal(nextGoal);
@@ -1028,13 +631,13 @@ export class TauriSqliteRepository implements AppRepository {
 
   async listWeeklyObjectives(): Promise<WeeklyObjective[]> {
     const db = await this.getDb();
-    const rows = await db.select<WeeklyObjectiveRow[]>(
-      `SELECT ${weeklyObjectiveSelectColumns}
+    const rows = await db.select<weeklyObjectivesRows.WeeklyObjectiveRow[]>(
+      `SELECT ${weeklyObjectivesRows.COLUMNS}
       FROM weekly_objectives
       ORDER BY sort_order ASC, title ASC`,
     );
 
-    return rows.map((row) => this.deserializeWeeklyObjective(row));
+    return rows.map((row) => weeklyObjectivesRows.fromRow(row));
   }
 
   async saveWeeklyObjective(objective: WeeklyObjective): Promise<WeeklyObjective> {
@@ -1063,9 +666,7 @@ export class TauriSqliteRepository implements AppRepository {
     });
 
     await db.execute(
-      `INSERT INTO weekly_objectives (
-      id, title, kind, target_hours, rescuetime_kind, rescuetime_thing, sort_order, starts_on_week_start_date, ends_on_week_start_date, created_at, updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `INSERT INTO weekly_objectives (${weeklyObjectivesRows.COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
     ON CONFLICT(id) DO UPDATE SET
       title = excluded.title,
       kind = excluded.kind,
@@ -1076,19 +677,7 @@ export class TauriSqliteRepository implements AppRepository {
       starts_on_week_start_date = excluded.starts_on_week_start_date,
       ends_on_week_start_date = excluded.ends_on_week_start_date,
       updated_at = excluded.updated_at`,
-      [
-        nextObjective.id,
-        nextObjective.title,
-        nextObjective.kind,
-        nextObjective.targetHours,
-        nextObjective.rescuetimeKind,
-        nextObjective.rescuetimeThing,
-        nextObjective.sortOrder,
-        nextObjective.startsOnWeekStartDate,
-        nextObjective.endsOnWeekStartDate,
-        nextObjective.createdAt,
-        nextObjective.updatedAt,
-      ],
+      weeklyObjectivesRows.toParams(nextObjective),
     );
 
     return cloneWeeklyObjective(nextObjective);
@@ -1107,41 +696,23 @@ export class TauriSqliteRepository implements AppRepository {
   async getWeeklyObjectiveResults(weekStartDate: string): Promise<WeeklyObjectiveResult[]> {
     const db = await this.getDb();
     const normalized = buildWeekDates(weekStartDate);
-    const rows = await db.select<WeeklyObjectiveResultRow[]>(
-      `SELECT week_start_date, objective_id, achieved, updated_at
-       FROM weekly_objective_results
+    const rows = await db.select<weeklyObjectiveResultsRows.WeeklyObjectiveResultRow[]>(
+      `SELECT ${weeklyObjectiveResultsRows.COLUMNS} FROM weekly_objective_results
        WHERE week_start_date = $1`,
       [normalized],
     );
 
-    return rows.map((row) => this.deserializeWeeklyObjectiveResult(row));
+    return rows.map((row) => weeklyObjectiveResultsRows.fromRow(row));
   }
 
   async getMidWeekDecisions(weekStartDate: string): Promise<MidWeekDecisions | null> {
     const db = await this.getDb();
-    const rows = await db.select<
-      {
-        week_start_date: string;
-        decisions: string;
-        decided_on_date: string;
-        lagging_snapshot_json: string | null;
-        updated_at: string;
-      }[]
-    >(
-      `SELECT week_start_date, decisions, decided_on_date, lagging_snapshot_json, updated_at
-       FROM mid_week_decisions WHERE week_start_date = $1`,
+    const rows = await db.select<midWeekDecisionsRows.MidWeekDecisionsRow[]>(
+      `SELECT ${midWeekDecisionsRows.COLUMNS} FROM mid_week_decisions WHERE week_start_date = $1`,
       [buildWeekDates(weekStartDate)],
     );
     const row = rows[0];
-    return row
-      ? {
-          weekStartDate: row.week_start_date,
-          decisions: row.decisions,
-          decidedOnDate: row.decided_on_date,
-          laggingSnapshot: parseMidWeekLaggingSnapshot(row.lagging_snapshot_json),
-          updatedAt: row.updated_at,
-        }
-      : null;
+    return row ? midWeekDecisionsRows.fromRow(row) : null;
   }
 
   async saveMidWeekDecisions(input: MidWeekDecisionsSaveInput): Promise<void> {
@@ -1149,7 +720,7 @@ export class TauriSqliteRepository implements AppRepository {
       const db = await this.getDb();
       await db.execute(
         `INSERT INTO mid_week_decisions
-           (week_start_date, decisions, decided_on_date, lagging_snapshot_json, updated_at)
+           (${midWeekDecisionsRows.COLUMNS})
          VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT(week_start_date) DO UPDATE SET
            decisions = excluded.decisions,
@@ -1159,13 +730,7 @@ export class TauriSqliteRepository implements AppRepository {
              excluded.lagging_snapshot_json,
              mid_week_decisions.lagging_snapshot_json
            )`,
-        [
-          buildWeekDates(input.weekStartDate),
-          input.decisions,
-          input.decidedOnDate,
-          input.laggingSnapshot ? JSON.stringify(input.laggingSnapshot) : null,
-          input.updatedAt,
-        ],
+        midWeekDecisionsRows.toParams(input),
       );
     });
   }
@@ -1190,30 +755,13 @@ export class TauriSqliteRepository implements AppRepository {
     kind: RescueTimeSnapshotCacheKind,
     credentialFingerprint: string,
   ): Promise<RescueTimeSnapshotCacheEntry | null> {
-    const rows = await db.select<
-      {
-        week_start_date: string;
-        kind: string;
-        credential_fingerprint: string;
-        payload_json: string;
-        fetched_at: string;
-      }[]
-    >(
-      `SELECT week_start_date, kind, credential_fingerprint, payload_json, fetched_at
-       FROM rescuetime_snapshot_cache
+    const rows = await db.select<rescueTimeCacheRows.RescueTimeCacheRow[]>(
+      `SELECT ${rescueTimeCacheRows.COLUMNS} FROM rescuetime_snapshot_cache
        WHERE week_start_date = $1 AND kind = $2 AND credential_fingerprint = $3`,
       [weekStartDate, kind, credentialFingerprint],
     );
     const row = rows[0];
-    return row
-      ? {
-          weekStartDate: row.week_start_date,
-          kind: row.kind as RescueTimeSnapshotCacheKind,
-          credentialFingerprint: row.credential_fingerprint,
-          payloadJson: row.payload_json,
-          fetchedAt: row.fetched_at,
-        }
-      : null;
+    return row ? rescueTimeCacheRows.fromRow(row) : null;
   }
 
   private async upsertRescueTimeCacheEntry(
@@ -1222,18 +770,12 @@ export class TauriSqliteRepository implements AppRepository {
   ): Promise<void> {
     await db.execute(
       `INSERT INTO rescuetime_snapshot_cache
-         (week_start_date, kind, credential_fingerprint, payload_json, fetched_at)
+         (${rescueTimeCacheRows.COLUMNS})
        VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT(week_start_date, kind, credential_fingerprint) DO UPDATE SET
          payload_json = excluded.payload_json,
          fetched_at = excluded.fetched_at`,
-      [
-        buildWeekDates(entry.weekStartDate),
-        entry.kind,
-        entry.credentialFingerprint,
-        entry.payloadJson,
-        entry.fetchedAt,
-      ],
+      rescueTimeCacheRows.toParams(entry),
     );
   }
 
@@ -1301,26 +843,21 @@ export class TauriSqliteRepository implements AppRepository {
       };
 
       await db.execute(
-        `INSERT INTO weekly_objective_results (week_start_date, objective_id, achieved, updated_at)
+        `INSERT INTO weekly_objective_results (${weeklyObjectiveResultsRows.COLUMNS})
        VALUES ($1, $2, $3, $4)
        ON CONFLICT(week_start_date, objective_id) DO UPDATE SET
          achieved = excluded.achieved,
          updated_at = excluded.updated_at`,
-        [
-          nextResult.weekStartDate,
-          nextResult.objectiveId,
-          nextResult.achieved ? 1 : 0,
-          nextResult.updatedAt,
-        ],
+        weeklyObjectiveResultsRows.toParams(nextResult),
       );
 
-      const rows = await db.select<WeeklyObjectiveRow[]>(
-        `SELECT ${weeklyObjectiveSelectColumns}
+      const rows = await db.select<weeklyObjectivesRows.WeeklyObjectiveRow[]>(
+        `SELECT ${weeklyObjectivesRows.COLUMNS}
          FROM weekly_objectives
          WHERE id = $1`,
         [nextResult.objectiveId],
       );
-      const objective = rows[0] ? this.deserializeWeeklyObjective(rows[0]) : null;
+      const objective = rows[0] ? weeklyObjectivesRows.fromRow(rows[0]) : null;
       if (objective) {
         const nextObjective = objectiveAfterManualAchievement(
           objective,
@@ -1393,11 +930,8 @@ export class TauriSqliteRepository implements AppRepository {
     inputHash: string,
   ): Promise<AiMessage | null> {
     const db = await this.getDb();
-    const rows = await db.select<AiMessageRow[]>(
-      `SELECT id, surface, scope_key, stance, kind, input_hash, prompt_version, model,
-              status, body_json, body_text, delta_class, notified,
-              tokens_prompt, tokens_completion, latency_ms, created_at
-       FROM ai_messages
+    const rows = await db.select<aiMessagesRows.AiMessageRow[]>(
+      `SELECT ${aiMessagesRows.COLUMNS} FROM ai_messages
        WHERE surface = $1 AND scope_key = $2 AND input_hash = $3 AND status = 'ok'
        ORDER BY created_at DESC
        LIMIT 1`,
@@ -1408,7 +942,7 @@ export class TauriSqliteRepository implements AppRepository {
       return null;
     }
 
-    return this.deserializeAiMessage(rows[0]);
+    return aiMessagesRows.fromRow(rows[0]);
   }
 
   async getAiMessageRecord(
@@ -1417,11 +951,8 @@ export class TauriSqliteRepository implements AppRepository {
     inputHash: string,
   ): Promise<AiMessage | null> {
     const db = await this.getDb();
-    const rows = await db.select<AiMessageRow[]>(
-      `SELECT id, surface, scope_key, stance, kind, input_hash, prompt_version, model,
-              status, body_json, body_text, delta_class, notified,
-              tokens_prompt, tokens_completion, latency_ms, created_at
-       FROM ai_messages
+    const rows = await db.select<aiMessagesRows.AiMessageRow[]>(
+      `SELECT ${aiMessagesRows.COLUMNS} FROM ai_messages
        WHERE surface = $1 AND scope_key = $2 AND input_hash = $3
        ORDER BY created_at DESC
        LIMIT 1`,
@@ -1432,7 +963,7 @@ export class TauriSqliteRepository implements AppRepository {
       return null;
     }
 
-    return this.deserializeAiMessage(rows[0]);
+    return aiMessagesRows.fromRow(rows[0]);
   }
 
   async getLatestAiMessage(
@@ -1443,21 +974,15 @@ export class TauriSqliteRepository implements AppRepository {
     const db = await this.getDb();
     const rows =
       status === undefined
-        ? await db.select<AiMessageRow[]>(
-            `SELECT id, surface, scope_key, stance, kind, input_hash, prompt_version, model,
-                    status, body_json, body_text, delta_class, notified,
-                    tokens_prompt, tokens_completion, latency_ms, created_at
-             FROM ai_messages
+        ? await db.select<aiMessagesRows.AiMessageRow[]>(
+            `SELECT ${aiMessagesRows.COLUMNS} FROM ai_messages
              WHERE surface = $1 AND scope_key = $2
              ORDER BY created_at DESC, id DESC
              LIMIT 1`,
             [surface, scopeKey],
           )
-        : await db.select<AiMessageRow[]>(
-            `SELECT id, surface, scope_key, stance, kind, input_hash, prompt_version, model,
-                    status, body_json, body_text, delta_class, notified,
-                    tokens_prompt, tokens_completion, latency_ms, created_at
-             FROM ai_messages
+        : await db.select<aiMessagesRows.AiMessageRow[]>(
+            `SELECT ${aiMessagesRows.COLUMNS} FROM ai_messages
              WHERE surface = $1 AND scope_key = $2 AND status = $3
              ORDER BY created_at DESC, id DESC
              LIMIT 1`,
@@ -1468,42 +993,17 @@ export class TauriSqliteRepository implements AppRepository {
       return null;
     }
 
-    return this.deserializeAiMessage(rows[0]);
+    return aiMessagesRows.fromRow(rows[0]);
   }
 
   private async insertAiMessage(db: SqliteDatabase, message: AiMessage): Promise<AiMessage> {
     await db.execute(
-      `INSERT INTO ai_messages (
-        id, surface, scope_key, stance, kind, input_hash, prompt_version, model,
-        status, body_json, body_text, delta_class, notified,
-        tokens_prompt, tokens_completion, latency_ms, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
-      [
-        message.id,
-        message.surface,
-        message.scopeKey,
-        message.stance,
-        message.kind,
-        message.inputHash,
-        message.promptVersion,
-        message.model,
-        message.status,
-        message.bodyJson,
-        message.bodyText,
-        message.deltaClass,
-        message.notified ? 1 : 0,
-        message.tokensPrompt,
-        message.tokensCompletion,
-        message.latencyMs,
-        message.createdAt,
-      ],
+      `INSERT INTO ai_messages (${aiMessagesRows.COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+      aiMessagesRows.toParams(message),
     );
 
-    const rows = await db.select<AiMessageRow[]>(
-      `SELECT id, surface, scope_key, stance, kind, input_hash, prompt_version, model,
-              status, body_json, body_text, delta_class, notified,
-              tokens_prompt, tokens_completion, latency_ms, created_at
-       FROM ai_messages
+    const rows = await db.select<aiMessagesRows.AiMessageRow[]>(
+      `SELECT ${aiMessagesRows.COLUMNS} FROM ai_messages
        WHERE id = $1`,
       [message.id],
     );
@@ -1512,7 +1012,7 @@ export class TauriSqliteRepository implements AppRepository {
       throw new Error("AI message insert failed");
     }
 
-    return this.deserializeAiMessage(rows[0]);
+    return aiMessagesRows.fromRow(rows[0]);
   }
 
   async saveAiMessage(message: AiMessage): Promise<AiMessage> {
@@ -1539,19 +1039,8 @@ export class TauriSqliteRepository implements AppRepository {
       const savedProposals: AiProposal[] = [];
       for (const proposal of proposals) {
         await db.execute(
-          `INSERT INTO ai_proposals (
-              id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [
-            proposal.id,
-            savedMessage.id,
-            proposal.type,
-            proposal.payloadJson,
-            proposal.status,
-            proposal.appliedEntityId,
-            proposal.decidedAt,
-            proposal.createdAt,
-          ],
+          `INSERT INTO ai_proposals (${aiProposalsRows.COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          aiProposalsRows.toParams({ ...proposal, messageId: savedMessage.id }),
         );
         savedProposals.push({ ...proposal, messageId: savedMessage.id });
       }
@@ -1563,84 +1052,70 @@ export class TauriSqliteRepository implements AppRepository {
   async listAiMessages(surface?: AiSurface, limit = 50): Promise<AiMessage[]> {
     const db = await this.getDb();
     const rows = surface
-      ? await db.select<AiMessageRow[]>(
-          `SELECT id, surface, scope_key, stance, kind, input_hash, prompt_version, model,
-                  status, body_json, body_text, delta_class, notified,
-                  tokens_prompt, tokens_completion, latency_ms, created_at
-           FROM ai_messages
+      ? await db.select<aiMessagesRows.AiMessageRow[]>(
+          `SELECT ${aiMessagesRows.COLUMNS} FROM ai_messages
            WHERE surface = $1
            ORDER BY created_at DESC
            LIMIT $2`,
           [surface, limit],
         )
-      : await db.select<AiMessageRow[]>(
-          `SELECT id, surface, scope_key, stance, kind, input_hash, prompt_version, model,
-                  status, body_json, body_text, delta_class, notified,
-                  tokens_prompt, tokens_completion, latency_ms, created_at
-           FROM ai_messages
+      : await db.select<aiMessagesRows.AiMessageRow[]>(
+          `SELECT ${aiMessagesRows.COLUMNS} FROM ai_messages
            ORDER BY created_at DESC
            LIMIT $1`,
           [limit],
         );
 
-    return rows.map((row) => this.deserializeAiMessage(row));
+    return rows.map((row) => aiMessagesRows.fromRow(row));
   }
 
   async listAiMessagesForDate(date: string): Promise<AiMessage[]> {
     const db = await this.getDb();
-    const rows = await db.select<AiMessageRow[]>(
-      `SELECT id, surface, scope_key, stance, kind, input_hash, prompt_version, model,
-              status, body_json, body_text, delta_class, notified,
-              tokens_prompt, tokens_completion, latency_ms, created_at
-       FROM ai_messages
+    const rows = await db.select<aiMessagesRows.AiMessageRow[]>(
+      `SELECT ${aiMessagesRows.COLUMNS} FROM ai_messages
        WHERE scope_key = $1 OR scope_key LIKE $2
        ORDER BY created_at ASC`,
       [date, `${date}#%`],
     );
 
-    return rows.map((row) => this.deserializeAiMessage(row));
+    return rows.map((row) => aiMessagesRows.fromRow(row));
   }
 
   async listAiMessagesSince(sinceIso: string, limit = 10_000): Promise<AiMessage[]> {
     const db = await this.getDb();
-    const rows = await db.select<AiMessageRow[]>(
-      `SELECT id, surface, scope_key, stance, kind, input_hash, prompt_version, model,
-              status, body_json, body_text, delta_class, notified,
-              tokens_prompt, tokens_completion, latency_ms, created_at
-       FROM ai_messages
+    const rows = await db.select<aiMessagesRows.AiMessageRow[]>(
+      `SELECT ${aiMessagesRows.COLUMNS} FROM ai_messages
        WHERE created_at >= $1
        ORDER BY created_at DESC
        LIMIT $2`,
       [sinceIso, limit],
     );
 
-    return rows.reverse().map((row) => this.deserializeAiMessage(row));
+    return rows.reverse().map((row) => aiMessagesRows.fromRow(row));
   }
 
   async listAiProposals(messageId: string): Promise<AiProposal[]> {
     const db = await this.getDb();
-    const rows = await db.select<AiProposalRow[]>(
-      `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
-       FROM ai_proposals
+    const rows = await db.select<aiProposalsRows.AiProposalRow[]>(
+      `SELECT ${aiProposalsRows.COLUMNS} FROM ai_proposals
        WHERE message_id = $1
        ORDER BY created_at ASC`,
       [messageId],
     );
 
-    return rows.map((row) => this.deserializeAiProposal(row));
+    return rows.map((row) => aiProposalsRows.fromRow(row));
   }
 
   async listAiProposalsSince(sinceIso: string): Promise<AiProposal[]> {
     const db = await this.getDb();
-    const rows = await db.select<AiProposalRow[]>(
-      `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
-       FROM ai_proposals
+    const rows = await db.select<aiProposalsRows.AiProposalRow[]>(
+      `SELECT ${aiProposalsRows.COLUMNS} FROM ai_proposals
        WHERE created_at >= $1
        ORDER BY created_at ASC`,
       [sinceIso],
     );
 
-    return rows.map((row) => this.deserializeAiProposal(row));
+    return rows.map((row) => aiProposalsRows.fromRow(row));
   }
 
   async computeAiUsageForMonth(monthKey: string): Promise<AiUsageTotals> {
@@ -1674,25 +1149,14 @@ export class TauriSqliteRepository implements AppRepository {
     return this.writeExclusive(async () => {
       const db = await this.getDb();
       await db.execute(
-        `INSERT INTO ai_proposals (
-        id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `INSERT INTO ai_proposals (${aiProposalsRows.COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       ON CONFLICT(id) DO UPDATE SET
         type = excluded.type,
         payload_json = excluded.payload_json,
         status = excluded.status,
         applied_entity_id = excluded.applied_entity_id,
         decided_at = excluded.decided_at`,
-        [
-          proposal.id,
-          proposal.messageId,
-          proposal.type,
-          proposal.payloadJson,
-          proposal.status,
-          proposal.appliedEntityId,
-          proposal.decidedAt,
-          proposal.createdAt,
-        ],
+        aiProposalsRows.toParams(proposal),
       );
 
       return proposal;
@@ -1723,9 +1187,8 @@ export class TauriSqliteRepository implements AppRepository {
         [status, appliedEntityId ?? null, decidedAt, id],
       );
 
-      const rows = await db.select<AiProposalRow[]>(
-        `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
-       FROM ai_proposals
+      const rows = await db.select<aiProposalsRows.AiProposalRow[]>(
+        `SELECT ${aiProposalsRows.COLUMNS} FROM ai_proposals
        WHERE id = $1`,
         [id],
       );
@@ -1734,7 +1197,7 @@ export class TauriSqliteRepository implements AppRepository {
         throw new Error(`AI proposal not found: ${id}`);
       }
 
-      return this.deserializeAiProposal(rows[0]);
+      return aiProposalsRows.fromRow(rows[0]);
     });
   }
 
@@ -1744,13 +1207,12 @@ export class TauriSqliteRepository implements AppRepository {
   ): Promise<AiProposalAcceptResult> {
     return this.writeTransaction(async (tx) => {
       const db = transactionDb(tx);
-      const rows = await db.select<AiProposalRow[]>(
-        `SELECT id, message_id, type, payload_json, status, applied_entity_id, decided_at, created_at
-         FROM ai_proposals WHERE id = $1`,
+      const rows = await db.select<aiProposalsRows.AiProposalRow[]>(
+        `SELECT ${aiProposalsRows.COLUMNS} FROM ai_proposals WHERE id = $1`,
         [proposalId],
       );
       if (!rows[0]) throw new Error(`AI proposal not found: ${proposalId}`);
-      const proposal = this.deserializeAiProposal(rows[0]);
+      const proposal = aiProposalsRows.fromRow(rows[0]);
       if (proposal.status === "accepted") {
         if (effect?.kind === "memory" || effect?.kind === "weeklyObjective") {
           const id =
@@ -1860,16 +1322,14 @@ export class TauriSqliteRepository implements AppRepository {
     }
 
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
-    const rows = await db.select<AiMemoryRow[]>(
-      `SELECT id, kind, statement, detail, confidence, source, status,
-              evidence_from, evidence_to, created_at, last_confirmed_at, expires_at, pinned
-       FROM ai_memories
+    const rows = await db.select<aiMemoriesRows.AiMemoryRow[]>(
+      `SELECT ${aiMemoriesRows.COLUMNS} FROM ai_memories
        ${where}
        ORDER BY created_at DESC`,
       params,
     );
 
-    return rows.map((row) => this.deserializeAiMemory(row));
+    return rows.map((row) => aiMemoriesRows.fromRow(row));
   }
 
   async saveAiMemory(memory: AiMemory): Promise<AiMemory> {
@@ -1886,10 +1346,7 @@ export class TauriSqliteRepository implements AppRepository {
     const db = transactionDb(tx);
 
     await db.execute(
-      `INSERT INTO ai_memories (
-        id, kind, statement, detail, confidence, source, status,
-        evidence_from, evidence_to, created_at, last_confirmed_at, expires_at, pinned
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      `INSERT INTO ai_memories (${aiMemoriesRows.COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       ON CONFLICT(id) DO UPDATE SET
         kind = excluded.kind,
         statement = excluded.statement,
@@ -1902,27 +1359,11 @@ export class TauriSqliteRepository implements AppRepository {
         last_confirmed_at = excluded.last_confirmed_at,
         expires_at = excluded.expires_at,
         pinned = excluded.pinned`,
-      [
-        memory.id,
-        memory.kind,
-        memory.statement,
-        memory.detail,
-        memory.confidence,
-        memory.source,
-        memory.status,
-        memory.evidenceFrom,
-        memory.evidenceTo,
-        memory.createdAt,
-        memory.lastConfirmedAt,
-        memory.expiresAt,
-        memory.pinned ? 1 : 0,
-      ],
+      aiMemoriesRows.toParams(memory),
     );
 
-    const rows = await db.select<AiMemoryRow[]>(
-      `SELECT id, kind, statement, detail, confidence, source, status,
-              evidence_from, evidence_to, created_at, last_confirmed_at, expires_at, pinned
-       FROM ai_memories
+    const rows = await db.select<aiMemoriesRows.AiMemoryRow[]>(
+      `SELECT ${aiMemoriesRows.COLUMNS} FROM ai_memories
        WHERE id = $1`,
       [memory.id],
     );
@@ -1931,7 +1372,7 @@ export class TauriSqliteRepository implements AppRepository {
       throw new Error("AI memory upsert failed");
     }
 
-    return this.deserializeAiMemory(rows[0]);
+    return aiMemoriesRows.fromRow(rows[0]);
   }
 
   async archiveAiMemory(
@@ -1940,10 +1381,8 @@ export class TauriSqliteRepository implements AppRepository {
   ): Promise<void> {
     return this.writeExclusive(async () => {
       const db = await this.getDb();
-      const rows = await db.select<AiMemoryRow[]>(
-        `SELECT id, kind, statement, detail, confidence, source, status,
-              evidence_from, evidence_to, created_at, last_confirmed_at, expires_at, pinned
-       FROM ai_memories
+      const rows = await db.select<aiMemoriesRows.AiMemoryRow[]>(
+        `SELECT ${aiMemoriesRows.COLUMNS} FROM ai_memories
        WHERE id = $1`,
         [id],
       );
@@ -1952,7 +1391,7 @@ export class TauriSqliteRepository implements AppRepository {
         throw new Error(`AI memory not found: ${id}`);
       }
 
-      const existing = this.deserializeAiMemory(rows[0]);
+      const existing = aiMemoriesRows.fromRow(rows[0]);
       const status = reason === "contradicted" ? "contradicted" : "archived";
       const detailSuffix = `[archive:${reason}]`;
       const detail = existing.detail.includes(detailSuffix)
@@ -2040,65 +1479,23 @@ export class TauriSqliteRepository implements AppRepository {
 
       for (const context of payload.contexts) {
         await db.execute(
-          `INSERT INTO gtd_contexts (id, name, created_at, updated_at)
+          `INSERT INTO gtd_contexts (${contextsRows.COLUMNS})
              VALUES ($1, $2, $3, $4)
              ON CONFLICT(id) DO NOTHING`,
-          [context.id, context.name, context.createdAt, context.updatedAt],
+          contextsRows.toParams(context),
         );
       }
 
       for (const project of payload.projects) {
         await db.execute(
-          `INSERT INTO gtd_projects (
-              id, title, status, status_changed_at, notes, context_ids_json, source, source_external_id, created_at, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          `INSERT INTO gtd_projects (${projectsRows.COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT(id) DO NOTHING`,
-          [
-            project.id,
-            project.title,
-            project.status,
-            project.statusChangedAt,
-            project.notes,
-            JSON.stringify(project.contextIds),
-            project.source,
-            project.sourceExternalId,
-            project.createdAt,
-            project.updatedAt,
-          ],
+          projectsRows.toParams(project),
         );
       }
 
       for (const task of payload.tasks) {
-        await db.execute(
-          `INSERT INTO gtd_tasks (
-              id, title, notes, status, bucket, context_ids_json, project_id, parent_task_id, scheduled_for,
-              deadline, recurring_template_id, recurrence_due_date, is_recurring_instance, completed_at, recurrence_group_id,
-              pending_past_recurrences, source, source_external_id, created_at, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-            ON CONFLICT(id) DO NOTHING`,
-          [
-            task.id,
-            task.title,
-            task.notes,
-            task.status,
-            task.bucket,
-            JSON.stringify(task.contextIds),
-            task.projectId,
-            task.parentTaskId,
-            task.scheduledFor,
-            task.deadline,
-            task.recurringTemplateId,
-            task.recurrenceDueDate,
-            task.isRecurringInstance ? 1 : 0,
-            task.completedAt,
-            task.recurrenceGroupId,
-            task.pendingPastRecurrences,
-            task.source,
-            task.sourceExternalId,
-            task.createdAt,
-            task.updatedAt,
-          ],
-        );
+        await this.persistTask(task, "ignore");
       }
 
       return payload.summary;
@@ -2206,10 +1603,10 @@ export class TauriSqliteRepository implements AppRepository {
 
   async listContexts(): Promise<TaskContext[]> {
     const db = await this.getDb();
-    const rows = await db.select<ContextRow[]>(
-      "SELECT id, name, created_at, updated_at FROM gtd_contexts ORDER BY name ASC",
+    const rows = await db.select<contextsRows.ContextRow[]>(
+      `SELECT ${contextsRows.COLUMNS} FROM gtd_contexts ORDER BY name ASC`,
     );
-    return rows.map((row) => this.deserializeContext(row));
+    return rows.map((row) => contextsRows.fromRow(row));
   }
 
   async saveContext(context: TaskContext): Promise<TaskContext> {
@@ -2231,8 +1628,8 @@ export class TauriSqliteRepository implements AppRepository {
         throw new Error(`Le contexte "${nextName}" existe deja.`);
       }
 
-      const previousRows = await db.select<ContextRow[]>(
-        "SELECT id, name, created_at, updated_at FROM gtd_contexts WHERE id = $1 LIMIT 1",
+      const previousRows = await db.select<contextsRows.ContextRow[]>(
+        `SELECT ${contextsRows.COLUMNS} FROM gtd_contexts WHERE id = $1 LIMIT 1`,
         [context.id],
       );
 
@@ -2245,12 +1642,12 @@ export class TauriSqliteRepository implements AppRepository {
       };
 
       await db.execute(
-        `INSERT INTO gtd_contexts (id, name, created_at, updated_at)
+        `INSERT INTO gtd_contexts (${contextsRows.COLUMNS})
        VALUES ($1, $2, $3, $4)
        ON CONFLICT(id) DO UPDATE SET
          name = excluded.name,
          updated_at = excluded.updated_at`,
-        [nextContext.id, nextContext.name, nextContext.createdAt, nextContext.updatedAt],
+        contextsRows.toParams(nextContext),
       );
 
       return nextContext;
@@ -2259,13 +1656,11 @@ export class TauriSqliteRepository implements AppRepository {
 
   async listProjects(filters = {}): Promise<Project[]> {
     const db = await this.getDb();
-    const rows = await db.select<ProjectRow[]>(
-      `SELECT
-        id, title, status, status_changed_at, notes, context_ids_json, source, source_external_id, created_at, updated_at
-      FROM gtd_projects`,
+    const rows = await db.select<projectsRows.ProjectRow[]>(
+      `SELECT ${projectsRows.COLUMNS} FROM gtd_projects`,
     );
     return filterProjects(
-      rows.map((row) => this.deserializeProject(row)),
+      rows.map((row) => projectsRows.fromRow(row)),
       filters,
     );
   }
@@ -2294,9 +1689,7 @@ export class TauriSqliteRepository implements AppRepository {
 
       await this.ensureContextsExist(nextProject.contextIds);
       await db.execute(
-        `INSERT INTO gtd_projects (
-            id, title, status, status_changed_at, notes, context_ids_json, source, source_external_id, created_at, updated_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        `INSERT INTO gtd_projects (${projectsRows.COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
           ON CONFLICT(id) DO UPDATE SET
             title = excluded.title,
             status = excluded.status,
@@ -2306,18 +1699,7 @@ export class TauriSqliteRepository implements AppRepository {
             source = excluded.source,
             source_external_id = excluded.source_external_id,
             updated_at = excluded.updated_at`,
-        [
-          nextProject.id,
-          nextProject.title,
-          nextProject.status,
-          nextProject.statusChangedAt,
-          nextProject.notes,
-          JSON.stringify(nextProject.contextIds),
-          nextProject.source,
-          nextProject.sourceExternalId,
-          nextProject.createdAt,
-          nextProject.updatedAt,
-        ],
+        projectsRows.toParams(nextProject),
       );
 
       // A status change (e.g. resuming a paused project) can make it eligible for
@@ -3146,59 +2528,6 @@ export class TauriSqliteRepository implements AppRepository {
     return computeDailyPomodoroStats(sessions, date);
   }
 
-  private deserializeAiMessage(row: AiMessageRow): AiMessage {
-    return {
-      id: row.id,
-      surface: row.surface as AiSurface,
-      scopeKey: row.scope_key,
-      stance: row.stance as CoachPulseStance | null,
-      kind: row.kind,
-      inputHash: row.input_hash,
-      promptVersion: row.prompt_version,
-      model: row.model,
-      status: row.status as AiMessage["status"],
-      bodyJson: row.body_json,
-      bodyText: row.body_text,
-      deltaClass: row.delta_class as AiMessage["deltaClass"],
-      notified: row.notified === 1,
-      tokensPrompt: row.tokens_prompt,
-      tokensCompletion: row.tokens_completion,
-      latencyMs: row.latency_ms,
-      createdAt: row.created_at,
-    };
-  }
-
-  private deserializeAiProposal(row: AiProposalRow): AiProposal {
-    return {
-      id: row.id,
-      messageId: row.message_id,
-      type: row.type as AiProposal["type"],
-      payloadJson: row.payload_json,
-      status: row.status as AiProposal["status"],
-      appliedEntityId: row.applied_entity_id,
-      decidedAt: row.decided_at,
-      createdAt: row.created_at,
-    };
-  }
-
-  private deserializeAiMemory(row: AiMemoryRow): AiMemory {
-    return {
-      id: row.id,
-      kind: row.kind as AiMemory["kind"],
-      statement: row.statement,
-      detail: row.detail,
-      confidence: row.confidence,
-      source: row.source as AiMemory["source"],
-      status: row.status as AiMemory["status"],
-      evidenceFrom: row.evidence_from,
-      evidenceTo: row.evidence_to,
-      createdAt: row.created_at,
-      lastConfirmedAt: row.last_confirmed_at,
-      expiresAt: row.expires_at,
-      pinned: row.pinned === 1,
-    };
-  }
-
   private async getDb(): Promise<SqliteDatabase> {
     if (!this.dbPromise) {
       logDebug("info", "storage.sqlite", "Ouverture connexion SQLite", this.connectionString);
@@ -3206,214 +2535,6 @@ export class TauriSqliteRepository implements AppRepository {
     }
 
     return this.dbPromise;
-  }
-
-  private deserializeEntry(row: DailyEntryRow): DailyEntry {
-    return {
-      date: row.date,
-      status: row.status,
-      metrics: JSON.parse(row.metrics_json),
-      principleChecks: JSON.parse(row.principles_json),
-      morningIntention: row.morning_intention ?? "",
-      nightReflection: row.night_reflection ?? "",
-      tomorrowFocus: row.tomorrow_focus ?? "",
-      updatedAt: row.updated_at,
-    };
-  }
-
-  private deserializeWeeklyReview(row: WeeklyReviewRow): WeeklyReview {
-    return {
-      weekStartDate: row.week_start_date,
-      weekEndDate: row.week_end_date,
-      status: row.status,
-      notes: JSON.parse(row.notes_json),
-      ritualChecklist: JSON.parse(row.ritual_checklist_json),
-      updatedAt: row.updated_at,
-    };
-  }
-
-  private deserializeWeeklyObjective(row: WeeklyObjectiveRow): WeeklyObjective {
-    return {
-      id: row.id,
-      title: row.title,
-      kind: row.kind,
-      targetHours: row.target_hours === null ? null : Number(row.target_hours),
-      rescuetimeKind: row.rescuetime_kind,
-      rescuetimeThing: row.rescuetime_thing,
-      sortOrder: Number(row.sort_order),
-      startsOnWeekStartDate: row.starts_on_week_start_date?.trim() || null,
-      endsOnWeekStartDate: row.ends_on_week_start_date?.trim() || null,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
-  }
-
-  private deserializeWeeklyObjectiveResult(row: WeeklyObjectiveResultRow): WeeklyObjectiveResult {
-    return {
-      weekStartDate: row.week_start_date,
-      objectiveId: row.objective_id,
-      achieved: row.achieved === 1,
-      updatedAt: row.updated_at,
-    };
-  }
-
-  private deserializeMonthlyReview(row: MonthlyReviewRow): MonthlyReview {
-    return {
-      monthKey: row.month_key,
-      monthStartDate: row.month_start_date,
-      monthEndDate: row.month_end_date,
-      status: row.status,
-      notes: JSON.parse(row.notes_json),
-      ritualChecklist: JSON.parse(row.ritual_checklist_json),
-      updatedAt: row.updated_at,
-    };
-  }
-
-  private deserializeAnnualGoal(row: AnnualGoalRow): AnnualGoal {
-    return {
-      id: row.id,
-      title: row.title,
-      dimension: row.dimension,
-      description: row.description,
-      targetValue: row.target_value === null ? null : Number(row.target_value),
-      unit: row.unit,
-      sourceId: row.source_id,
-      manualCurrentValue:
-        row.manual_current_value === null ? null : Number(row.manual_current_value),
-      evaluations: JSON.parse(row.evaluations_json),
-      measurementType: row.measurement_type ?? "numeric",
-      status: row.status ?? "active",
-      deadline: row.deadline ?? null,
-      startingValue: row.starting_value === null ? null : Number(row.starting_value),
-      direction: row.direction ?? null,
-      cadenceTarget: row.cadence_target === null ? null : Number(row.cadence_target),
-      cadencePeriod: row.cadence_period ?? "week",
-      principleKey: row.principle_key ?? null,
-      progressLog: safeParseJson(row.progress_log_json, {}),
-      milestones: safeParseJson(row.milestones_json, []),
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
-  }
-
-  private deserializeContext(row: ContextRow): TaskContext {
-    return {
-      id: row.id,
-      name: row.name,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
-  }
-
-  private deserializeProject(row: ProjectRow): Project {
-    return {
-      id: row.id,
-      title: row.title,
-      status: row.status,
-      statusChangedAt: row.status_changed_at ?? row.updated_at ?? row.created_at,
-      notes: row.notes,
-      contextIds: JSON.parse(row.context_ids_json),
-      source: row.source,
-      sourceExternalId: row.source_external_id,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
-  }
-
-  private deserializeTask(row: TaskRow): Task {
-    return {
-      id: row.id,
-      title: row.title,
-      notes: row.notes,
-      status: row.status,
-      bucket: row.bucket,
-      contextIds: JSON.parse(row.context_ids_json),
-      projectId: row.project_id,
-      parentTaskId: row.parent_task_id,
-      scheduledFor: row.scheduled_for,
-      deadline: row.deadline,
-      recurringTemplateId: row.recurring_template_id,
-      recurrenceDueDate: row.recurrence_due_date,
-      isRecurringInstance: Boolean(row.is_recurring_instance),
-      completedAt: row.completed_at,
-      recurrenceGroupId: row.recurrence_group_id,
-      pendingPastRecurrences: Number(row.pending_past_recurrences ?? 0),
-      plannedOrder:
-        row.planned_order === null || row.planned_order === undefined
-          ? null
-          : Number(row.planned_order),
-      source: row.source,
-      sourceExternalId: row.source_external_id,
-      sourceUrl: row.source_url ?? null,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
-  }
-
-  private deserializeEvent(row: TaskEventRow): TaskEvent {
-    return {
-      id: row.id,
-      taskId: row.task_id,
-      type: row.type,
-      eventDate: row.event_date,
-      eventAt: row.event_at,
-      createdAt: row.created_at,
-      dedupeKey: row.dedupe_key,
-      metadata: JSON.parse(row.metadata_json),
-    };
-  }
-
-  private deserializePomodoroSession(row: PomodoroSessionRow): PomodoroSession {
-    return {
-      id: row.id,
-      kind: row.kind,
-      status: row.status,
-      startedAt: row.started_at,
-      endsAt: row.ends_at,
-      pausedRemainingMs: row.paused_remaining_ms === null ? null : Number(row.paused_remaining_ms),
-      completedAt: row.completed_at,
-      cancelledAt: row.cancelled_at,
-      cycleIndex: Number(row.cycle_index),
-      date: row.date,
-    };
-  }
-
-  private deserializePomodoroSegment(row: PomodoroSegmentRow): PomodoroSegment {
-    return {
-      id: row.id,
-      sessionId: row.session_id,
-      taskId: row.task_id,
-      title: row.title,
-      startedAt: row.started_at,
-      endedAt: row.ended_at,
-    };
-  }
-
-  private deserializeRecurringTemplate(row: RecurringTemplateRow): RecurringTaskTemplate {
-    return {
-      id: row.id,
-      title: row.title,
-      notes: row.notes,
-      targetBucket: row.target_bucket,
-      contextIds: JSON.parse(row.context_ids_json),
-      projectId: row.project_id,
-      ruleType: row.rule_type,
-      dailyInterval: Number(row.daily_interval),
-      weeklyInterval: Number(row.weekly_interval),
-      weeklyDays: JSON.parse(row.weekly_days_json),
-      monthlyMode: row.monthly_mode,
-      dayOfMonth: row.day_of_month === null ? null : Number(row.day_of_month),
-      nthWeek: row.nth_week === null ? null : Number(row.nth_week),
-      weekday: row.weekday === null ? null : Number(row.weekday),
-      scheduledTime: row.scheduled_time,
-      startDate: row.start_date,
-      status: row.status,
-      lastGeneratedForDate: row.last_generated_for_date,
-      pendingMissedOccurrences: Number(row.pending_missed_occurrences ?? 0),
-      statusChangedAt: row.status_changed_at,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
   }
 
   private async decorateEntry(entry: DailyEntry): Promise<DailyEntry> {
@@ -3429,131 +2550,101 @@ export class TauriSqliteRepository implements AppRepository {
 
   private async getAllTasks(): Promise<Task[]> {
     const db = await this.getDb();
-    const rows = await db.select<TaskRow[]>(
-      `SELECT
-        id, title, notes, status, bucket, context_ids_json, project_id, parent_task_id,
-        scheduled_for, deadline, recurring_template_id, recurrence_due_date, is_recurring_instance,
-        completed_at, recurrence_group_id, pending_past_recurrences, planned_order, source, source_external_id, source_url, created_at, updated_at
-      FROM gtd_tasks`,
-    );
-    return rows.map((row) => this.deserializeTask(row));
+    const rows = await db.select<tasksRows.TaskRow[]>(`SELECT ${tasksRows.COLUMNS} FROM gtd_tasks`);
+    return rows.map((row) => tasksRows.fromRow(row));
   }
 
   private async getAllEvents(): Promise<TaskEvent[]> {
     const db = await this.getDb();
     // Parity with `MemoryRepository.listTaskEvents`: order chronologically by `eventAt` rather
     // than leaving callers to depend on incidental table (insertion) order.
-    const rows = await db.select<TaskEventRow[]>(
-      `SELECT
-        id, task_id, type, event_date, event_at, created_at, dedupe_key, metadata_json
-      FROM gtd_task_events ORDER BY event_at ASC`,
+    const rows = await db.select<taskEventsRows.TaskEventRow[]>(
+      `SELECT ${taskEventsRows.COLUMNS} FROM gtd_task_events ORDER BY event_at ASC`,
     );
-    return rows.map((row) => this.deserializeEvent(row));
+    return rows.map((row) => taskEventsRows.fromRow(row));
   }
 
   private async getAllPomodoroSessions(): Promise<PomodoroSession[]> {
     const db = await this.getDb();
-    const rows = await db.select<PomodoroSessionRow[]>(
-      `SELECT
-        id, kind, status, started_at, ends_at, paused_remaining_ms, completed_at, cancelled_at, cycle_index, date
-      FROM pomodoro_sessions`,
+    const rows = await db.select<pomodoroSessionsRows.PomodoroSessionRow[]>(
+      `SELECT ${pomodoroSessionsRows.COLUMNS} FROM pomodoro_sessions`,
     );
-    return rows.map((row) => this.deserializePomodoroSession(row));
+    return rows.map((row) => pomodoroSessionsRows.fromRow(row));
   }
 
   private async getAllPomodoroSegments(): Promise<PomodoroSegment[]> {
     const db = await this.getDb();
-    const rows = await db.select<PomodoroSegmentRow[]>(
-      `SELECT
-        id, session_id, task_id, title, started_at, ended_at
-      FROM pomodoro_segments`,
+    const rows = await db.select<pomodoroSegmentsRows.PomodoroSegmentRow[]>(
+      `SELECT ${pomodoroSegmentsRows.COLUMNS} FROM pomodoro_segments`,
     );
-    return rows.map((row) => this.deserializePomodoroSegment(row));
+    return rows.map((row) => pomodoroSegmentsRows.fromRow(row));
   }
 
   private async getAllRecurringTemplates(): Promise<RecurringTaskTemplate[]> {
     const db = await this.getDb();
-    const rows = await db.select<RecurringTemplateRow[]>(
-      `SELECT
-        id, title, notes, target_bucket, context_ids_json, project_id, rule_type, daily_interval, weekly_interval,
-        weekly_days_json, monthly_mode, day_of_month, nth_week, weekday, scheduled_time, start_date, status,
-        last_generated_for_date, pending_missed_occurrences, status_changed_at, created_at, updated_at
-      FROM recurring_task_templates`,
+    const rows = await db.select<recurringTemplatesRows.RecurringTemplateRow[]>(
+      `SELECT ${recurringTemplatesRows.COLUMNS} FROM recurring_task_templates`,
     );
 
-    return rows.map((row) => this.deserializeRecurringTemplate(row));
+    return rows.map((row) => recurringTemplatesRows.fromRow(row));
   }
 
   private async getTaskById(taskId: string): Promise<Task | null> {
     const db = await this.getDb();
-    const rows = await db.select<TaskRow[]>(
-      `SELECT
-        id, title, notes, status, bucket, context_ids_json, project_id, parent_task_id,
-        scheduled_for, deadline, recurring_template_id, recurrence_due_date, is_recurring_instance,
-        completed_at, recurrence_group_id, pending_past_recurrences, planned_order, source, source_external_id, source_url, created_at, updated_at
-      FROM gtd_tasks
+    const rows = await db.select<tasksRows.TaskRow[]>(
+      `SELECT ${tasksRows.COLUMNS} FROM gtd_tasks
       WHERE id = $1`,
       [taskId],
     );
 
-    return rows[0] ? this.deserializeTask(rows[0]) : null;
+    return rows[0] ? tasksRows.fromRow(rows[0]) : null;
   }
 
   private async getProjectById(projectId: string): Promise<Project | null> {
     const db = await this.getDb();
-    const rows = await db.select<ProjectRow[]>(
-      `SELECT
-        id, title, status, status_changed_at, notes, context_ids_json, source, source_external_id, created_at, updated_at
-      FROM gtd_projects
+    const rows = await db.select<projectsRows.ProjectRow[]>(
+      `SELECT ${projectsRows.COLUMNS} FROM gtd_projects
       WHERE id = $1`,
       [projectId],
     );
 
-    return rows[0] ? this.deserializeProject(rows[0]) : null;
+    return rows[0] ? projectsRows.fromRow(rows[0]) : null;
   }
 
   private async getRecurringTemplateById(
     templateId: string,
   ): Promise<RecurringTaskTemplate | null> {
     const db = await this.getDb();
-    const rows = await db.select<RecurringTemplateRow[]>(
-      `SELECT
-        id, title, notes, target_bucket, context_ids_json, project_id, rule_type, daily_interval, weekly_interval,
-        weekly_days_json, monthly_mode, day_of_month, nth_week, weekday, scheduled_time, start_date, status,
-        last_generated_for_date, pending_missed_occurrences, status_changed_at, created_at, updated_at
-      FROM recurring_task_templates
+    const rows = await db.select<recurringTemplatesRows.RecurringTemplateRow[]>(
+      `SELECT ${recurringTemplatesRows.COLUMNS} FROM recurring_task_templates
       WHERE id = $1`,
       [templateId],
     );
 
-    return rows[0] ? this.deserializeRecurringTemplate(rows[0]) : null;
+    return rows[0] ? recurringTemplatesRows.fromRow(rows[0]) : null;
   }
 
   private async getPomodoroSessionById(sessionId: string): Promise<PomodoroSession | null> {
     const db = await this.getDb();
-    const rows = await db.select<PomodoroSessionRow[]>(
-      `SELECT
-        id, kind, status, started_at, ends_at, paused_remaining_ms, completed_at, cancelled_at, cycle_index, date
-      FROM pomodoro_sessions
+    const rows = await db.select<pomodoroSessionsRows.PomodoroSessionRow[]>(
+      `SELECT ${pomodoroSessionsRows.COLUMNS} FROM pomodoro_sessions
       WHERE id = $1`,
       [sessionId],
     );
 
-    return rows[0] ? this.deserializePomodoroSession(rows[0]) : null;
+    return rows[0] ? pomodoroSessionsRows.fromRow(rows[0]) : null;
   }
 
   private async getOpenPomodoroSegments(sessionId: string): Promise<PomodoroSegment[]> {
     const db = await this.getDb();
-    const rows = await db.select<PomodoroSegmentRow[]>(
-      `SELECT
-        id, session_id, task_id, title, started_at, ended_at
-      FROM pomodoro_segments
+    const rows = await db.select<pomodoroSegmentsRows.PomodoroSegmentRow[]>(
+      `SELECT ${pomodoroSegmentsRows.COLUMNS} FROM pomodoro_segments
       WHERE session_id = $1 AND ended_at IS NULL
       ORDER BY started_at DESC`,
       [sessionId],
     );
 
-    return rows.map((row) => this.deserializePomodoroSegment(row));
+    return rows.map((row) => pomodoroSegmentsRows.fromRow(row));
   }
 
   private async requireTask(taskId: string): Promise<Task> {
@@ -3641,72 +2732,17 @@ export class TauriSqliteRepository implements AppRepository {
     };
   }
 
-  private async persistTask(task: Task): Promise<void> {
+  private async persistTask(task: Task, conflict: "update" | "ignore" = "update"): Promise<void> {
     const db = await this.getDb();
-    await this.ensureContextsExist(task.contextIds);
-    await db.execute(
-      `INSERT INTO gtd_tasks (
-        id, title, notes, status, bucket, context_ids_json, project_id, parent_task_id, scheduled_for,
-        deadline, recurring_template_id, recurrence_due_date, is_recurring_instance, completed_at, recurrence_group_id,
-        pending_past_recurrences, planned_order, source, source_external_id, source_url, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
-      ON CONFLICT(id) DO UPDATE SET
-        title = excluded.title,
-        notes = excluded.notes,
-        status = excluded.status,
-        bucket = excluded.bucket,
-        context_ids_json = excluded.context_ids_json,
-        project_id = excluded.project_id,
-        parent_task_id = excluded.parent_task_id,
-        scheduled_for = excluded.scheduled_for,
-        deadline = excluded.deadline,
-        recurring_template_id = excluded.recurring_template_id,
-        recurrence_due_date = excluded.recurrence_due_date,
-        is_recurring_instance = excluded.is_recurring_instance,
-        completed_at = excluded.completed_at,
-        recurrence_group_id = excluded.recurrence_group_id,
-        pending_past_recurrences = excluded.pending_past_recurrences,
-        planned_order = excluded.planned_order,
-        source = excluded.source,
-        source_external_id = excluded.source_external_id,
-        source_url = excluded.source_url,
-        updated_at = excluded.updated_at`,
-      [
-        task.id,
-        task.title,
-        task.notes,
-        task.status,
-        task.bucket,
-        JSON.stringify(task.contextIds),
-        task.projectId,
-        task.parentTaskId,
-        task.scheduledFor,
-        task.deadline,
-        task.recurringTemplateId,
-        task.recurrenceDueDate,
-        task.isRecurringInstance ? 1 : 0,
-        task.completedAt,
-        task.recurrenceGroupId,
-        task.pendingPastRecurrences,
-        task.plannedOrder,
-        task.source,
-        task.sourceExternalId,
-        task.sourceUrl,
-        task.createdAt,
-        task.updatedAt,
-      ],
-    );
+    if (conflict === "update") await this.ensureContextsExist(task.contextIds);
+    await db.execute(tasksRows.insertSql(conflict), tasksRows.toParams(task));
   }
 
   private async persistRecurringTemplate(template: RecurringTaskTemplate): Promise<void> {
     const db = await this.getDb();
     await this.ensureContextsExist(template.contextIds);
     await db.execute(
-      `INSERT INTO recurring_task_templates (
-        id, title, notes, target_bucket, context_ids_json, project_id, rule_type, daily_interval, weekly_interval,
-        weekly_days_json, monthly_mode, day_of_month, nth_week, weekday, scheduled_time, start_date, status,
-        last_generated_for_date, pending_missed_occurrences, status_changed_at, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+      `INSERT INTO recurring_task_templates (${recurringTemplatesRows.COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         notes = excluded.notes,
@@ -3728,39 +2764,14 @@ export class TauriSqliteRepository implements AppRepository {
         pending_missed_occurrences = excluded.pending_missed_occurrences,
         status_changed_at = excluded.status_changed_at,
         updated_at = excluded.updated_at`,
-      [
-        template.id,
-        template.title,
-        template.notes,
-        template.targetBucket,
-        JSON.stringify(template.contextIds),
-        template.projectId,
-        template.ruleType,
-        template.dailyInterval,
-        template.weeklyInterval,
-        JSON.stringify(template.weeklyDays),
-        template.monthlyMode,
-        template.dayOfMonth,
-        template.nthWeek,
-        template.weekday,
-        template.scheduledTime,
-        template.startDate,
-        template.status,
-        template.lastGeneratedForDate,
-        template.pendingMissedOccurrences,
-        template.statusChangedAt,
-        template.createdAt,
-        template.updatedAt,
-      ],
+      recurringTemplatesRows.toParams(template),
     );
   }
 
   private async persistPomodoroSession(session: PomodoroSession): Promise<void> {
     const db = await this.getDb();
     await db.execute(
-      `INSERT INTO pomodoro_sessions (
-        id, kind, status, started_at, ends_at, paused_remaining_ms, completed_at, cancelled_at, cycle_index, date
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `INSERT INTO pomodoro_sessions (${pomodoroSessionsRows.COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       ON CONFLICT(id) DO UPDATE SET
         kind = excluded.kind,
         status = excluded.status,
@@ -3771,41 +2782,21 @@ export class TauriSqliteRepository implements AppRepository {
         cancelled_at = excluded.cancelled_at,
         cycle_index = excluded.cycle_index,
         date = excluded.date`,
-      [
-        session.id,
-        session.kind,
-        session.status,
-        session.startedAt,
-        session.endsAt,
-        session.pausedRemainingMs,
-        session.completedAt,
-        session.cancelledAt,
-        session.cycleIndex,
-        session.date,
-      ],
+      pomodoroSessionsRows.toParams(session),
     );
   }
 
   private async persistPomodoroSegment(segment: PomodoroSegment): Promise<void> {
     const db = await this.getDb();
     await db.execute(
-      `INSERT INTO pomodoro_segments (
-        id, session_id, task_id, title, started_at, ended_at
-      ) VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO pomodoro_segments (${pomodoroSegmentsRows.COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6)
       ON CONFLICT(id) DO UPDATE SET
         session_id = excluded.session_id,
         task_id = excluded.task_id,
         title = excluded.title,
         started_at = excluded.started_at,
         ended_at = excluded.ended_at`,
-      [
-        segment.id,
-        segment.sessionId,
-        segment.taskId,
-        segment.title,
-        segment.startedAt,
-        segment.endedAt,
-      ],
+      pomodoroSegmentsRows.toParams(segment),
     );
   }
 
@@ -3826,38 +2817,16 @@ export class TauriSqliteRepository implements AppRepository {
     for (const event of events) {
       if (event.dedupeKey) {
         await db.execute(
-          `INSERT INTO gtd_task_events (
-            id, task_id, type, event_date, event_at, created_at, dedupe_key, metadata_json
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          `INSERT INTO gtd_task_events (${taskEventsRows.COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
           ON CONFLICT(dedupe_key) DO NOTHING`,
-          [
-            event.id,
-            event.taskId,
-            event.type,
-            event.eventDate,
-            event.eventAt,
-            event.createdAt,
-            event.dedupeKey,
-            JSON.stringify(event.metadata),
-          ],
+          taskEventsRows.toParams(event),
         );
         continue;
       }
 
       await db.execute(
-        `INSERT OR IGNORE INTO gtd_task_events (
-          id, task_id, type, event_date, event_at, created_at, dedupe_key, metadata_json
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [
-          event.id,
-          event.taskId,
-          event.type,
-          event.eventDate,
-          event.eventAt,
-          event.createdAt,
-          event.dedupeKey,
-          JSON.stringify(event.metadata),
-        ],
+        `INSERT OR IGNORE INTO gtd_task_events (${taskEventsRows.COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        taskEventsRows.toParams(event),
       );
     }
   }
@@ -3871,7 +2840,7 @@ export class TauriSqliteRepository implements AppRepository {
         : contextId;
       const timestamp = nowIso();
       await db.execute(
-        `INSERT INTO gtd_contexts (id, name, created_at, updated_at)
+        `INSERT INTO gtd_contexts (${contextsRows.COLUMNS})
          VALUES ($1, $2, $3, $4)
          ON CONFLICT(id) DO NOTHING`,
         [contextId, name, timestamp, timestamp],

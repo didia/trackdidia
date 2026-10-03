@@ -57,6 +57,13 @@ The desktop host owns a single-connection sqlx pool (`src-tauri/src/db.rs`) and
 exposes it as `db_connect` / `db_execute` / `db_select`. TypeScript still owns
 queries and migrations; it does not use `tauri-plugin-sql`.
 
+The native wrapper, email store, transaction helper, and test adapter implement
+`src/lib/storage/sqlite-db.ts`. Table mappings in `src/lib/storage/sqlite/rows/`
+own their row shape, selected/inserted columns, decoding, and bound values.
+Normal task saves and Google Tasks import share the complete task insert; import
+uses `ON CONFLICT(id) DO NOTHING`, while saves update the existing row. Legacy
+JSON handling and null defaults remain in the corresponding mapper.
+
 The pool uses `max_connections(1)`, `min_connections(1)`, `idle_timeout(None)`,
 and `max_lifetime(None)`. JS issues `BEGIN IMMEDIATE` / `COMMIT` as separate
 commands, so one physical connection must stay open for the process lifetime.

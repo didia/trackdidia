@@ -1,6 +1,10 @@
 - 2026-10-03: Centralized settings defaults and historical normalization; application writers now merge current values atomically, and settings forms preserve runtime state and unsaved edits.
 # Storage and backups log
 
+- 2026-10-03: Centralized SQLite column lists, row decoding, and bound parameters;
+  task imports and saves now share the full insert. Native/email/test connections
+  use one database interface, with legacy mapping behavior preserved.
+
 - 2026-10-03: Email store mutations now share the SQLite repository writer and
   transaction context, including their internal GTD task writes.
 
