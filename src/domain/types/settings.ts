@@ -49,4 +49,16 @@ export interface AppSettings {
   relationshipDrawChildrenProcessedDate: string;
   relationshipDrawSpouseProcessedDate: string;
   previousDayReviewDoneDate: string;
+  /** Feature flag; nav entry and bootstrap work stay hidden while false. */
+  financeEnabled: boolean;
+  financeBaseCurrency: string;
+  financeAiCategorizationEnabled: boolean;
+  financeAiAutoApplyEnabled: boolean;
+  financeAiAutoApplyMinConfidence: number;
+  financeAlertsOnToday: boolean;
+  financeCoachContextEnabled: boolean;
+  financeNotifyRunout: boolean;
+  financeSafetyBufferMinor: number;
+  /** ISO timestamp set after the one-shot default category taxonomy seed. */
+  financeCategoriesSeededAt: string;
 }
