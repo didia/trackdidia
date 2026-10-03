@@ -1,4 +1,14 @@
 import {
+  defaultAppSettings,
+  normalizeAppSettings,
+  type SettingsUpdater,
+} from "../../domain/settings";
+import {
+  taskForAcceptEffect,
+  type AcceptEffect,
+  type AiProposalAcceptResult,
+} from "../ai/proposals/accept-effect";
+import {
   buildAnnualGoalSnapshots,
   cloneAnnualGoal,
   createEmptyAnnualGoal,
@@ -8,7 +18,6 @@ import {
   applyDailyTaskStats,
   cloneEntry,
   createEmptyDailyEntry,
-  defaultAppSettings,
 } from "../../domain/daily-entry";
 import { mergeObjectiveSecondsPayload } from "../../domain/rescuetime-goals";
 import { journalPeriodOverlaps } from "../../domain/journal-feed";
@@ -114,17 +123,7 @@ import {
   recurringInstanceWasRewound,
   syncTemplateStatusChange,
 } from "../recurring/engine";
-import {
-  buildRelationshipDrawTaskTitle,
-  findActiveRelationshipDrawTask,
-  getRelationshipDrawActivities,
-  getRelationshipDrawProcessedDate,
-  getRelationshipDrawSourceExternalId,
-  mergeAppSettingsWithDefaults,
-  pickRelationshipDrawActivity,
-  relationshipDrawDefinitions,
-  relationshipPersonalContextId,
-} from "../relationship-draws";
+import { buildDailyRelationshipDrawPlan } from "../relationship-draws";
 import type { AppRepository, PomodoroStartOptions, StorageInfo } from "./repository";
 import { EmailTriageMemoryStore } from "./email-triage-memory-store";
 
@@ -151,17 +150,22 @@ export class MemoryRepository implements AppRepository {
   readonly emailTriage = new EmailTriageMemoryStore({
     getTaskByExternalId: (externalId) =>
       [...this.tasks.values()].find((task) => task.sourceExternalId === externalId),
-    createTask: (input) => {
-      const task = createTaskFromInput(input);
-      this.tasks.set(task.id, task);
-      for (const event of buildLifecycleEvents(null, task)) {
-        this.events.set(event.id, event);
+    createTask: (input) => this.saveTaskInternal(createTaskFromInput(input)),
+    saveTask: (task) => this.saveTaskInternal(task),
+    handlesLifecycleEvents: true,
+    atomic: (work) => {
+      const snapshot = {
+        tasks: new Map(this.tasks),
+        events: new Map(this.events),
+        contexts: new Map(this.contexts),
+        projects: new Map(this.projects),
+      };
+      try {
+        return work();
+      } catch (error) {
+        Object.assign(this, snapshot);
+        throw error;
       }
-      return task;
-    },
-    saveTask: (task) => {
-      this.tasks.set(task.id, task);
-      return task;
     },
     persistEvents: (events) => {
       for (const event of events) {
@@ -218,6 +222,10 @@ export class MemoryRepository implements AppRepository {
   }
 
   async saveWeeklyReview(review: WeeklyReview): Promise<void> {
+    return this.saveWeeklyReviewInternal(review);
+  }
+
+  private saveWeeklyReviewInternal(review: WeeklyReview): void {
     const normalized = buildWeekDates(review.weekStartDate);
     const nextReview = {
       ...cloneWeeklyReview(review),
@@ -264,6 +272,10 @@ export class MemoryRepository implements AppRepository {
   }
 
   async saveWeeklyObjective(objective: WeeklyObjective): Promise<WeeklyObjective> {
+    return this.saveWeeklyObjectiveInternal(objective);
+  }
+
+  private saveWeeklyObjectiveInternal(objective: WeeklyObjective): WeeklyObjective {
     const timestamp = nowIso();
     const nextObjective = createEmptyWeeklyObjective({
       ...cloneWeeklyObjective(objective),
@@ -409,6 +421,10 @@ export class MemoryRepository implements AppRepository {
   }
 
   async saveMonthlyReview(review: MonthlyReview): Promise<void> {
+    return this.saveMonthlyReviewInternal(review);
+  }
+
+  private saveMonthlyReviewInternal(review: MonthlyReview): void {
     const normalized = getMonthKey(`${review.monthKey}-01`);
     this.monthlyReviews.set(normalized, {
       ...cloneMonthlyReview(review),
@@ -502,28 +518,32 @@ export class MemoryRepository implements AppRepository {
   }
 
   async getSettings(): Promise<AppSettings> {
-    return mergeAppSettingsWithDefaults(this.settings, defaultAppSettings());
+    return structuredClone(normalizeAppSettings(this.settings));
   }
 
   async saveSettings(settings: AppSettings): Promise<void> {
-    this.settings = mergeAppSettingsWithDefaults(settings, defaultAppSettings());
+    this.settings = structuredClone(normalizeAppSettings(settings));
+  }
+
+  async updateSettings(updater: SettingsUpdater): Promise<AppSettings> {
+    // No await: read/apply/write form one synchronous operation. Clone before exposing
+    // the snapshot so an updater that mutates and throws cannot damage stored settings.
+    const current = structuredClone(normalizeAppSettings(this.settings));
+    const next = normalizeAppSettings(updater(current));
+    this.settings = structuredClone(next);
+    return structuredClone(next);
   }
 
   async addPastorCustomVerse(
     candidate: CatalogVerse,
   ): Promise<{ added: boolean; settings: AppSettings }> {
-    // No `await` between reading `this.settings` and writing it back — nothing else can run in
-    // between, so this is race-free the same way the SQLite implementation's single serialized
-    // read-then-write transaction is.
-    const current = mergeAppSettingsWithDefaults(this.settings, defaultAppSettings());
-    const { added, customVerses } = addCustomVerse(current.aiPastorCustomVerses, candidate);
-    if (!added) {
-      return { added: false, settings: current };
-    }
-
-    const next = { ...current, aiPastorCustomVerses: customVerses };
-    this.settings = next;
-    return { added: true, settings: next };
+    let added = false;
+    const settings = await this.updateSettings((current) => {
+      const result = addCustomVerse(current.aiPastorCustomVerses, candidate);
+      added = result.added;
+      return { ...current, aiPastorCustomVerses: result.customVerses };
+    });
+    return { added, settings };
   }
 
   async getAiMessage(
@@ -708,204 +728,105 @@ export class MemoryRepository implements AppRepository {
     return { ...updated };
   }
 
-  async acceptAiMemoryProposal(
-    proposal: AiProposal,
-    memory: AiMemory,
-  ): Promise<{ memory: AiMemory; proposal: AiProposal }> {
-    const existingProposal = this.aiProposals.get(proposal.id);
-    if (!existingProposal) {
-      throw new Error(`AI proposal not found: ${proposal.id}`);
-    }
-
-    if (existingProposal.status === "accepted") {
-      const memoryId = existingProposal.appliedEntityId ?? memory.id;
-      const existingMemory = this.aiMemories.get(memoryId);
-      if (!existingMemory) {
-        throw new Error(`AI memory not found: ${memoryId}`);
+  async acceptAiProposal(
+    proposalId: string,
+    effect: AcceptEffect | null,
+  ): Promise<AiProposalAcceptResult> {
+    const proposal = this.aiProposals.get(proposalId);
+    if (!proposal) throw new Error(`AI proposal not found: ${proposalId}`);
+    if (proposal.status === "accepted") {
+      if (
+        effect?.kind === "memory" &&
+        !this.aiMemories.has(proposal.appliedEntityId ?? effect.memory.id)
+      ) {
+        throw new Error(`AI memory not found: ${proposal.appliedEntityId ?? effect.memory.id}`);
       }
-
-      return {
-        memory: { ...existingMemory },
-        proposal: { ...existingProposal },
-      };
-    }
-
-    const existingMemory = this.aiMemories.get(memory.id);
-    const savedMemory = existingMemory ? { ...existingMemory } : await this.saveAiMemory(memory);
-    const decidedAt = nowIso();
-    const updatedProposal: AiProposal = {
-      ...existingProposal,
-      status: "accepted",
-      appliedEntityId: savedMemory.id,
-      decidedAt,
-    };
-    this.aiProposals.set(proposal.id, updatedProposal);
-
-    return {
-      memory: savedMemory,
-      proposal: { ...updatedProposal },
-    };
-  }
-
-  async acceptAiWeeklyObjectiveProposal(
-    proposal: AiProposal,
-    objective: WeeklyObjective,
-  ): Promise<{ objective: WeeklyObjective; proposal: AiProposal }> {
-    const existingProposal = this.aiProposals.get(proposal.id);
-    if (!existingProposal) {
-      throw new Error(`AI proposal not found: ${proposal.id}`);
-    }
-
-    if (existingProposal.status === "accepted") {
-      const objectiveId = existingProposal.appliedEntityId ?? objective.id;
-      const existingObjective = [...this.weeklyObjectives.values()].find(
-        (item) => item.id === objectiveId,
-      );
-      if (!existingObjective) {
-        throw new Error(`Weekly objective not found: ${objectiveId}`);
+      if (
+        effect?.kind === "weeklyObjective" &&
+        !this.weeklyObjectives.has(proposal.appliedEntityId ?? effect.objective.id)
+      ) {
+        throw new Error(
+          `Weekly objective not found: ${proposal.appliedEntityId ?? effect.objective.id}`,
+        );
       }
+      const appliedEntityId =
+        proposal.appliedEntityId ??
+        (effect?.kind === "memory"
+          ? effect.memory.id
+          : effect?.kind === "weeklyObjective"
+            ? effect.objective.id
+            : null);
+      return { proposal: { ...proposal }, appliedEntityId };
+    }
+    if (!effect) return { proposal: { ...proposal }, appliedEntityId: null };
 
-      return {
-        objective: cloneWeeklyObjective(existingObjective),
-        proposal: { ...existingProposal },
+    // All internal effect writers below are synchronous. No other caller can interleave
+    // between their mutations and the decision; rollback restores all affected maps.
+    const snapshot = {
+      aiProposals: new Map(this.aiProposals),
+      ...(effect.kind === "memory" ? { aiMemories: new Map(this.aiMemories) } : {}),
+      ...(effect.kind === "weeklyObjective"
+        ? { weeklyObjectives: new Map(this.weeklyObjectives) }
+        : {}),
+      ...(effect.kind === "weeklyReview" ? { weeklyReviews: new Map(this.weeklyReviews) } : {}),
+      ...(effect.kind === "monthlyReview" ? { monthlyReviews: new Map(this.monthlyReviews) } : {}),
+      ...(effect.kind === "gtdTask"
+        ? {
+            tasks: new Map(this.tasks),
+            contexts: new Map(this.contexts),
+            events: new Map(this.events),
+            recurringTemplates: new Map(this.recurringTemplates),
+          }
+        : {}),
+    };
+    try {
+      let appliedEntityId: string;
+      switch (effect.kind) {
+        case "memory":
+          appliedEntityId = (
+            this.aiMemories.get(effect.memory.id) ?? this.saveAiMemoryInternal(effect.memory)
+          ).id;
+          break;
+        case "weeklyObjective":
+          appliedEntityId = this.saveWeeklyObjectiveInternal(effect.objective).id;
+          break;
+        case "weeklyReview":
+          this.saveWeeklyReviewInternal(effect.review);
+          appliedEntityId = effect.review.weekStartDate;
+          break;
+        case "monthlyReview":
+          this.saveMonthlyReviewInternal(effect.review);
+          appliedEntityId = effect.review.monthKey;
+          break;
+        case "gtdTask": {
+          const task = this.tasks.get(effect.taskId);
+          const next = task ? taskForAcceptEffect(task, effect) : null;
+          if (!task || !next) return { proposal: { ...proposal }, appliedEntityId: null };
+          this.saveTaskInternal(next);
+          if (effect.action === "drop" && task.recurringTemplateId) {
+            const template = this.getExistingRecurringTemplate(task.recurringTemplateId);
+            this.recurringTemplates.set(template.id, {
+              ...cloneRecurringTemplate(template),
+              pendingMissedOccurrences: 0,
+              updatedAt: nowIso(),
+            });
+          }
+          appliedEntityId = task.id;
+          break;
+        }
+      }
+      const accepted: AiProposal = {
+        ...proposal,
+        status: "accepted",
+        appliedEntityId,
+        decidedAt: nowIso(),
       };
+      this.aiProposals.set(proposalId, accepted);
+      return { proposal: { ...accepted }, appliedEntityId };
+    } catch (error) {
+      Object.assign(this, snapshot);
+      throw error;
     }
-
-    const savedObjective = await this.saveWeeklyObjective(objective);
-    const decidedAt = nowIso();
-    const updatedProposal: AiProposal = {
-      ...existingProposal,
-      status: "accepted",
-      appliedEntityId: savedObjective.id,
-      decidedAt,
-    };
-    this.aiProposals.set(proposal.id, updatedProposal);
-
-    return {
-      objective: savedObjective,
-      proposal: { ...updatedProposal },
-    };
-  }
-
-  async acceptAiReviewSectionDraftProposal(
-    proposal: AiProposal,
-    review: WeeklyReview,
-  ): Promise<{ review: WeeklyReview; proposal: AiProposal }> {
-    const existingProposal = this.aiProposals.get(proposal.id);
-    if (!existingProposal) {
-      throw new Error(`AI proposal not found: ${proposal.id}`);
-    }
-
-    if (existingProposal.status === "accepted") {
-      const savedReview = await this.getWeeklyReview(review.weekStartDate);
-      return {
-        review: savedReview ?? review,
-        proposal: { ...existingProposal },
-      };
-    }
-
-    await this.saveWeeklyReview(review);
-    const decidedAt = nowIso();
-    const updatedProposal: AiProposal = {
-      ...existingProposal,
-      status: "accepted",
-      appliedEntityId: review.weekStartDate,
-      decidedAt,
-    };
-    this.aiProposals.set(proposal.id, updatedProposal);
-
-    return {
-      review,
-      proposal: { ...updatedProposal },
-    };
-  }
-
-  async acceptAiMonthlyReviewSectionDraftProposal(
-    proposal: AiProposal,
-    review: MonthlyReview,
-  ): Promise<{ review: MonthlyReview; proposal: AiProposal }> {
-    const existingProposal = this.aiProposals.get(proposal.id);
-    if (!existingProposal) {
-      throw new Error(`AI proposal not found: ${proposal.id}`);
-    }
-
-    if (existingProposal.status === "accepted") {
-      const savedReview = await this.getMonthlyReview(review.monthKey);
-      return {
-        review: savedReview ?? review,
-        proposal: { ...existingProposal },
-      };
-    }
-
-    await this.saveMonthlyReview(review);
-    const decidedAt = nowIso();
-    const updatedProposal: AiProposal = {
-      ...existingProposal,
-      status: "accepted",
-      appliedEntityId: review.monthKey,
-      decidedAt,
-    };
-    this.aiProposals.set(proposal.id, updatedProposal);
-
-    return {
-      review,
-      proposal: { ...updatedProposal },
-    };
-  }
-
-  async acceptAiGtdActionProposal(
-    proposal: AiProposal,
-    scheduledDate: string,
-  ): Promise<{ taskId: string | null; proposal: AiProposal }> {
-    const existingProposal = this.aiProposals.get(proposal.id);
-    if (!existingProposal) {
-      throw new Error(`AI proposal not found: ${proposal.id}`);
-    }
-
-    if (existingProposal.status === "accepted") {
-      return {
-        taskId: existingProposal.appliedEntityId,
-        proposal: { ...existingProposal },
-      };
-    }
-
-    const payload = JSON.parse(proposal.payloadJson) as {
-      taskId?: string;
-      action?: "schedule" | "defer" | "delegate" | "drop";
-    };
-
-    if (!payload.taskId || !payload.action) {
-      return { taskId: null, proposal: { ...existingProposal } };
-    }
-
-    const task = [...this.tasks.values()].find((item) => item.id === payload.taskId);
-    if (!task || task.status !== "active") {
-      return { taskId: null, proposal: { ...existingProposal } };
-    }
-
-    if (payload.action === "schedule") {
-      await this.scheduleTask(payload.taskId, scheduledDate);
-    } else if (payload.action === "defer") {
-      await this.moveTask(payload.taskId, "someday_maybe", task.contextIds, task.projectId);
-    } else if (payload.action === "delegate") {
-      await this.moveTask(payload.taskId, "waiting_for", task.contextIds, task.projectId);
-    } else if (payload.action === "drop") {
-      await this.cancelTask(payload.taskId);
-    }
-
-    const decidedAt = nowIso();
-    const updatedProposal: AiProposal = {
-      ...existingProposal,
-      status: "accepted",
-      appliedEntityId: payload.taskId,
-      decidedAt,
-    };
-    this.aiProposals.set(proposal.id, updatedProposal);
-
-    return {
-      taskId: payload.taskId,
-      proposal: { ...updatedProposal },
-    };
   }
 
   async listAiMemories(filters: AiMemoryFilters = {}): Promise<AiMemory[]> {
@@ -937,6 +858,10 @@ export class MemoryRepository implements AppRepository {
   }
 
   async saveAiMemory(memory: AiMemory): Promise<AiMemory> {
+    return this.saveAiMemoryInternal(memory);
+  }
+
+  private saveAiMemoryInternal(memory: AiMemory): AiMemory {
     const persisted = { ...memory };
     this.aiMemories.set(persisted.id, persisted);
     return { ...persisted };
@@ -1387,6 +1312,10 @@ export class MemoryRepository implements AppRepository {
   }
 
   async createTask(input: CreateTaskInput): Promise<Task> {
+    return this.createTaskInternal(input);
+  }
+
+  private createTaskInternal(input: CreateTaskInput): Task {
     const draft = createTaskFromInput(input);
     const nextTask = this.applyPlannedAdjustments(null, draft);
     this.assertPlannedProjectExists(nextTask);
@@ -1398,6 +1327,10 @@ export class MemoryRepository implements AppRepository {
   }
 
   async saveTask(task: Task): Promise<Task> {
+    return this.saveTaskInternal(task);
+  }
+
+  private saveTaskInternal(task: Task): Task {
     const previous = this.tasks.get(task.id) ?? null;
     const adjusted = this.applyPlannedAdjustments(previous, task);
     const nextTask: Task = {
@@ -1538,56 +1471,25 @@ export class MemoryRepository implements AppRepository {
   }
 
   async generateDailyRelationshipTasks(date: string): Promise<number> {
-    const settings = await this.getSettings();
-
-    if (!settings.relationshipDrawsEnabled) {
-      return 0;
-    }
-
-    let nextSettings = settings;
     let createdCount = 0;
-    const taskSnapshot = [...this.tasks.values()];
-
-    for (const definition of relationshipDrawDefinitions) {
-      if (getRelationshipDrawProcessedDate(nextSettings, definition) === date) {
-        continue;
-      }
-
-      if (findActiveRelationshipDrawTask(taskSnapshot, definition.category)) {
-        nextSettings = {
-          ...nextSettings,
-          [definition.processedDateKey]: date,
-        };
-        continue;
-      }
-
-      const activity = pickRelationshipDrawActivity(
-        getRelationshipDrawActivities(nextSettings, definition),
-      );
-      if (!activity) {
-        continue;
-      }
-
-      const createdTask = await this.createTask({
-        title: buildRelationshipDrawTaskTitle(definition, activity),
-        notes: definition.notes,
-        bucket: "next_action",
-        contextIds: [relationshipPersonalContextId],
-        source: "manual",
-        sourceExternalId: getRelationshipDrawSourceExternalId(definition.category, date),
-        createdAt: `${date}T00:00:00.000Z`,
-        updatedAt: `${date}T00:00:00.000Z`,
-      });
-
-      taskSnapshot.push(createdTask);
-      nextSettings = {
-        ...nextSettings,
-        [definition.processedDateKey]: date,
+    await this.updateSettings((current) => {
+      const plan = buildDailyRelationshipDrawPlan(date, current, [...this.tasks.values()]);
+      const snapshot = {
+        tasks: new Map(this.tasks),
+        contexts: new Map(this.contexts),
+        events: new Map(this.events),
+        projects: new Map(this.projects),
       };
-      createdCount += 1;
-    }
-
-    await this.saveSettings(nextSettings);
+      try {
+        // No await: the active-task check, inserts, and settings update cannot interleave.
+        for (const input of plan.taskInputs) this.createTaskInternal(input);
+        createdCount = plan.taskInputs.length;
+        return plan.settings;
+      } catch (error) {
+        Object.assign(this, snapshot);
+        throw error;
+      }
+    });
     return createdCount;
   }
 

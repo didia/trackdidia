@@ -1,7 +1,2 @@
-export interface Database {
-  execute(
-    query: string,
-    bindValues?: unknown[],
-  ): Promise<{ rowsAffected: number; lastInsertId?: number }>;
-  select<T>(query: string, bindValues?: unknown[]): Promise<T>;
-}
+// Compatibility import for the migration runner; the shared contract lives in sqlite-db.ts.
+export type { Database } from "./sqlite-db";

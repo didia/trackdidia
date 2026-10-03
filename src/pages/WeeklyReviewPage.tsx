@@ -1,3 +1,4 @@
+import { gtdAcceptEffectFromProposal } from "../lib/ai/proposals/accept-effect";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
@@ -559,10 +560,10 @@ export const WeeklyReviewPage = () => {
           await (reviewSaveChainsRef.current.get(notesWeekStart) ?? Promise.resolve());
           const latestDimanche = reviewSnapshotsRef.current.get(notesWeekStart) ?? nextDimanche;
 
-          const accepted = await repository.acceptAiReviewSectionDraftProposal(
-            proposal,
-            latestDimanche,
-          );
+          const accepted = await repository.acceptAiProposal(proposal.id, {
+            kind: "weeklyReview",
+            review: latestDimanche,
+          });
           setSynthesisResult((current) =>
             current
               ? {
@@ -585,10 +586,10 @@ export const WeeklyReviewPage = () => {
         await (reviewSaveChainsRef.current.get(nextReview.weekStartDate) ?? Promise.resolve());
         const latestReview = reviewSnapshotsRef.current.get(nextReview.weekStartDate) ?? nextReview;
 
-        const accepted = await repository.acceptAiReviewSectionDraftProposal(
-          proposal,
-          latestReview,
-        );
+        const accepted = await repository.acceptAiProposal(proposal.id, {
+          kind: "weeklyReview",
+          review: latestReview,
+        });
         setSynthesisResult((current) =>
           current
             ? {
@@ -613,7 +614,10 @@ export const WeeklyReviewPage = () => {
           return;
         }
 
-        const accepted = await repository.acceptAiWeeklyObjectiveProposal(proposal, objective);
+        const accepted = await repository.acceptAiProposal(proposal.id, {
+          kind: "weeklyObjective",
+          objective: objective,
+        });
         await loadStandingObjectives(weekStartDate);
         setSynthesisResult((current) =>
           current
@@ -629,8 +633,11 @@ export const WeeklyReviewPage = () => {
       }
 
       if (proposal.type === "gtd_action") {
-        const accepted = await repository.acceptAiGtdActionProposal(proposal, getTodayDate());
-        if (!accepted.taskId) {
+        const accepted = await repository.acceptAiProposal(
+          proposal.id,
+          gtdAcceptEffectFromProposal(proposal, getTodayDate()),
+        );
+        if (!accepted.appliedEntityId) {
           return;
         }
 

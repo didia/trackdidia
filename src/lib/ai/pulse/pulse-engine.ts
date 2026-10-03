@@ -1,3 +1,4 @@
+import type { SettingsUpdater } from "../../../domain/settings";
 import { createEmptyDailyEntry } from "../../../domain/daily-entry";
 import type { AppOpenInterval } from "../../../domain/insights/movement";
 import type {
@@ -23,7 +24,7 @@ export interface PulseEngineContext {
   repository: AppRepository;
   coachService: CoachPulseService;
   settings: AppSettings;
-  saveSettings: (settings: AppSettings) => Promise<void>;
+  updateSettings: (updater: SettingsUpdater) => Promise<AppSettings>;
   nowIso?: string;
   appOpenIntervals: AppOpenInterval[];
   focusSessionActive: boolean;
@@ -121,22 +122,20 @@ export const ensureFirstOpenRecorded = async (
   settings: AppSettings,
   date: string,
   nowIso: string,
-  saveSettings: (settings: AppSettings) => Promise<void>,
+  updateSettings: (updater: SettingsUpdater) => Promise<AppSettings>,
 ): Promise<AppSettings> => {
   if (settings.aiPulseFirstOpenAt[date]) {
     return settings;
   }
 
-  const nextSettings: AppSettings = {
-    ...settings,
-    aiPulseFirstOpenAt: {
-      ...settings.aiPulseFirstOpenAt,
-      [date]: nowIso,
-    },
-  };
-
-  await saveSettings(nextSettings);
-  return nextSettings;
+  return updateSettings((current) =>
+    current.aiPulseFirstOpenAt[date]
+      ? current
+      : {
+          ...current,
+          aiPulseFirstOpenAt: { ...current.aiPulseFirstOpenAt, [date]: nowIso },
+        },
+  );
 };
 
 /**
@@ -155,7 +154,7 @@ export const runPulseEngine = async (context: PulseEngineContext): Promise<Pulse
     context.settings,
     date,
     atIso,
-    context.saveSettings,
+    context.updateSettings,
   );
   const todayMessages = await context.repository.listAiMessagesForDate(date);
   const processedScopeKeys = processedScopeKeysFromMessages(todayMessages);

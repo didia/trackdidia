@@ -47,11 +47,12 @@ describe("pulse-engine integration", () => {
     settings.aiEnabled = true;
     settings.aiApiKey = "secret";
 
+    await repository.saveSettings(settings);
     const result = await runPulseEngine({
       repository,
       coachService,
       settings,
-      saveSettings: async () => undefined,
+      updateSettings: (updater) => repository.updateSettings(updater),
       nowIso: `${weekday}T16:00:00`,
       appOpenIntervals: [briefAppOpenInterval],
       focusSessionActive: false,
@@ -89,7 +90,7 @@ describe("pulse-engine integration", () => {
       repository,
       coachService,
       settings,
-      saveSettings: async () => undefined,
+      updateSettings: (updater) => repository.updateSettings(updater),
       nowIso: `${weekday}T16:00:00`,
       appOpenIntervals: [briefAppOpenInterval],
       focusSessionActive: false,
@@ -122,11 +123,12 @@ describe("pulse-engine integration", () => {
     settings.aiEnabled = true;
     settings.aiApiKey = "secret";
 
+    await repository.saveSettings(settings);
     const result = await runPulseEngine({
       repository,
       coachService,
       settings,
-      saveSettings: async () => undefined,
+      updateSettings: (updater) => repository.updateSettings(updater),
       nowIso: `${weekday}T08:00:00`,
       appOpenIntervals: [
         {
@@ -171,11 +173,12 @@ describe("pulse-engine integration", () => {
     settings.aiEnabled = true;
     settings.aiApiKey = "secret";
 
+    await repository.saveSettings(settings);
     const result = await runPulseEngine({
       repository,
       coachService,
       settings,
-      saveSettings: async () => undefined,
+      updateSettings: (updater) => repository.updateSettings(updater),
       nowIso: `${sunday}T08:00:00`,
       appOpenIntervals: [
         {
@@ -219,6 +222,7 @@ describe("pulse-engine integration", () => {
     settings.aiEnabled = true;
     settings.aiApiKey = "secret";
 
+    await repository.saveSettings(settings);
     const result = await runPulseEngine({
       repository,
       coachService,
@@ -226,7 +230,7 @@ describe("pulse-engine integration", () => {
         ...settings,
         aiPulseFirstOpenAt: { [weekday]: `${weekday}T08:00:00.000` },
       },
-      saveSettings: async () => undefined,
+      updateSettings: (updater) => repository.updateSettings(updater),
       nowIso: `${weekday}T16:00:00`,
       appOpenIntervals: [longAppOpenInterval],
       focusSessionActive: false,
@@ -258,6 +262,7 @@ describe("pulse-engine integration", () => {
     settings.aiEnabled = true;
     settings.aiApiKey = "secret";
 
+    await repository.saveSettings(settings);
     const result = await runPulseEngine({
       repository,
       coachService,
@@ -265,7 +270,7 @@ describe("pulse-engine integration", () => {
         ...settings,
         aiPulseFirstOpenAt: { [weekday]: `${weekday}T16:00:00.000` },
       },
-      saveSettings: async () => undefined,
+      updateSettings: (updater) => repository.updateSettings(updater),
       nowIso: `${weekday}T16:00:00`,
       appOpenIntervals: [
         {
@@ -323,6 +328,7 @@ describe("pulse-engine integration", () => {
     settings.aiApiKey = "secret";
     settings.aiPulseNotifyEnabled = true;
 
+    await repository.saveSettings(settings);
     const result = await runPulseEngine({
       repository,
       coachService,
@@ -330,7 +336,7 @@ describe("pulse-engine integration", () => {
         ...settings,
         aiPulseFirstOpenAt: { [weekday]: `${weekday}T08:00:00.000` },
       },
-      saveSettings: async () => undefined,
+      updateSettings: (updater) => repository.updateSettings(updater),
       nowIso: `${weekday}T21:00:00`,
       appOpenIntervals: [longAppOpenInterval],
       focusSessionActive: false,
@@ -371,8 +377,9 @@ describe("pulse-engine integration", () => {
       repository,
       coachService,
       settings,
-      saveSettings: async (nextSettings) => {
-        savedSettings = nextSettings;
+      updateSettings: async (updater) => {
+        savedSettings = updater(settings);
+        return savedSettings;
       },
       nowIso: atIso,
       appOpenIntervals: [{ startedAt: atIso, endedAt: atIso }],

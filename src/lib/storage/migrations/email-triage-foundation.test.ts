@@ -1,4 +1,4 @@
-import { migrations } from "../tauri-sqlite-repository";
+import { migrations } from "./index";
 
 describe("migration 29 add_email_triage_foundation", () => {
   it("adds source_url, email triage tables, and query indexes without rewriting earlier migrations", () => {

@@ -11,6 +11,17 @@ Email persistence is exposed through `AppRepository.emailTriage`, whose
 `EmailTriageStore` contract is implemented by the SQLite and in-memory stores.
 The browser store remains non-persistent across reloads.
 
+Review creation, resolution, dismissal, and GTD task changes use shared pure
+planners. Every SQLite email mutation joins the repository writer queue and runs
+in one transaction; composed operations reuse that transaction. Resolving a review
+commits its decision, audit record, conversation version, message routing, GTD task,
+and lifecycle events together. A failed write leaves the review pending and permits
+a retry. The memory store restores its email and GTD maps on failure.
+
+Message batches also commit messages and classification attempts together. Each
+message requires one identity lookup before its upsert. Concurrent review decisions
+still enforce the expected conversation version and compare-and-set errors.
+
 ## Shipped in this slice
 
 ### Tray and launch-at-login (slice 5)
