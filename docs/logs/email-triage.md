@@ -1,5 +1,8 @@
 # Email triage log
 
+- 2026-10-02: Email persistence now uses the focused `EmailTriageStore` contract
+  through `AppRepository.emailTriage` in both repository implementations.
+
 - 2026-09-11: PR #94 follow-up — reload the live account on each sync page, drain a
   bounded effect batch with pre/post `applyMarkers` context checks, dismiss every pending
   review for a conversation atomically, and keep unsaved non-classifier settings after

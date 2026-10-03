@@ -1120,7 +1120,12 @@ export const migrations: Migration[] = [
 export class TauriSqliteRepository implements AppRepository {
   private dbPromise: Promise<SqliteDatabase> | null = null;
   private readonly writeQueue = new DbSerialQueue();
-  private emailTriageStore: EmailTriageSqliteStore | null = null;
+  readonly emailTriage = new EmailTriageSqliteStore(() => this.getDb(), {
+    getTaskByExternalId: (externalId) => this.getTaskByExternalId(externalId),
+    createTask: (input) => this.createTask(input),
+    saveTask: (task) => this.saveTask(task),
+    persistEvents: (events) => this.persistEvents(events),
+  });
 
   /**
    * `openDb` defaults to the real Tauri-backed `Database.load`; tests inject an in-memory
@@ -1131,18 +1136,6 @@ export class TauriSqliteRepository implements AppRepository {
     private readonly connectionString = "sqlite:trackdidia.db",
     private readonly openDb: (path: string) => Promise<SqliteDatabase> = Database.load,
   ) {}
-
-  private getEmailTriageStore(): EmailTriageSqliteStore {
-    if (!this.emailTriageStore) {
-      this.emailTriageStore = new EmailTriageSqliteStore(() => this.getDb(), {
-        getTaskByExternalId: (externalId) => this.getTaskByExternalId(externalId),
-        createTask: (input) => this.createTask(input),
-        saveTask: (task) => this.saveTask(task),
-        persistEvents: (events) => this.persistEvents(events),
-      });
-    }
-    return this.emailTriageStore;
-  }
 
   private async getTaskByExternalId(externalId: string): Promise<Task | null> {
     const db = await this.getDb();
@@ -4951,156 +4944,5 @@ export class TauriSqliteRepository implements AppRepository {
         [contextId, name, timestamp, timestamp],
       );
     }
-  }
-
-  async getEmailTriageGlobalSettings() {
-    return this.getEmailTriageStore().getGlobalSettings();
-  }
-
-  async saveEmailTriageGlobalSettings(
-    settings: import("../../domain/email-triage").EmailTriageGlobalSettings,
-  ) {
-    await this.getEmailTriageStore().saveGlobalSettings(settings);
-  }
-
-  async listEmailTriageAccounts() {
-    return this.getEmailTriageStore().listAccounts();
-  }
-
-  async getEmailTriageAccount(accountId: string) {
-    return this.getEmailTriageStore().getAccount(accountId);
-  }
-
-  async saveEmailTriageAccount(account: import("../../domain/email-triage").EmailTriageAccount) {
-    return this.getEmailTriageStore().saveAccount(account);
-  }
-
-  async deleteEmailTriageAccount(accountId: string) {
-    await this.getEmailTriageStore().deleteAccount(accountId);
-  }
-
-  async listEmailTriageReviews(
-    status?: import("../../domain/email-triage").EmailTriageReview["status"],
-  ) {
-    return this.getEmailTriageStore().listReviews(status);
-  }
-
-  async resolveEmailTriageReview(input: {
-    reviewId: string;
-    expectedDecisionVersion: number;
-    resolution: import("../../domain/email-triage").EmailTriageReview["resolution"];
-    ignoreReason?: string | null;
-  }) {
-    return this.getEmailTriageStore().resolveReview(input);
-  }
-
-  async listEmailTriageEvaluations(limit?: number) {
-    return this.getEmailTriageStore().listEvaluations(limit);
-  }
-
-  async saveEmailTriageEvaluation(
-    evaluation: import("../../domain/email-triage").EmailTriageEvaluation,
-  ) {
-    return this.getEmailTriageStore().saveEvaluation(evaluation);
-  }
-
-  async getLatestMatchingEmailTriageEvaluation(
-    settings: import("../../domain/email-triage").EmailTriageGlobalSettings,
-  ) {
-    return this.getEmailTriageStore().getLatestMatchingEvaluation(settings);
-  }
-
-  async dismissEmailTriageReview(reviewId: string) {
-    return this.getEmailTriageStore().dismissReview(reviewId);
-  }
-
-  async listEmailTriageAuditEvents(accountId?: string, limit?: number) {
-    return this.getEmailTriageStore().listAuditEvents(accountId, limit);
-  }
-
-  async recoverEmailTriageStaleEffects() {
-    return this.getEmailTriageStore().recoverStaleEffects();
-  }
-
-  async emailTriageUpsertConversation(
-    accountId: string,
-    conversationKey: string,
-    patch: Partial<import("../../domain/email-triage").EmailTriageConversation>,
-  ) {
-    return this.getEmailTriageStore().upsertConversation(accountId, conversationKey, patch);
-  }
-
-  async emailTriageGetConversationByKey(accountId: string, conversationKey: string) {
-    return this.getEmailTriageStore().getConversationByKey(accountId, conversationKey);
-  }
-
-  async emailTriageUpdateAccountSyncState(
-    accountId: string,
-    syncState: Record<string, unknown>,
-    patch?: Partial<import("../../domain/email-triage").EmailTriageAccount>,
-  ) {
-    return this.getEmailTriageStore().updateAccountSyncState(accountId, syncState, patch);
-  }
-
-  async emailTriagePersistMessageBatch(
-    input: import("../email-triage/sync-engine").PersistMessageBatchInput,
-  ) {
-    return this.getEmailTriageStore().persistMessageBatch(input);
-  }
-
-  async emailTriageGetMessageByProviderId(accountId: string, providerMessageId: string) {
-    return this.getEmailTriageStore().getMessageByProviderId(accountId, providerMessageId);
-  }
-
-  async emailTriageGetConversation(conversationId: string) {
-    return this.getEmailTriageStore().getConversation(conversationId);
-  }
-
-  async emailTriageDismissPendingReviews(conversationId: string) {
-    await this.getEmailTriageStore().dismissPendingReviews(conversationId);
-  }
-
-  async emailTriageListPendingEffects(conversationId: string) {
-    return this.getEmailTriageStore().listPendingEffects(conversationId);
-  }
-
-  async emailTriageListPendingEffectsForAccount(accountId: string) {
-    return this.getEmailTriageStore().listPendingEffectsForAccount(accountId);
-  }
-
-  async emailTriageSaveDesiredEffect(
-    effect: import("../../domain/email-triage").EmailTriageDesiredEffect,
-  ) {
-    return this.getEmailTriageStore().saveDesiredEffect(effect);
-  }
-
-  async emailTriageGetTaskByExternalId(externalId: string) {
-    return this.getEmailTriageStore().getTaskByExternalId(externalId);
-  }
-
-  async emailTriageApplyGtdUpdate(
-    input: import("../email-triage/sync-engine").ApplyGtdUpdateInput,
-  ) {
-    return this.getEmailTriageStore().applyGtdUpdate(input);
-  }
-
-  async emailTriageCreateReview(input: import("../email-triage/sync-engine").CreateReviewInput) {
-    return this.getEmailTriageStore().createReview(input);
-  }
-
-  async listEmailTriageMessages(accountId: string, limit?: number) {
-    return this.getEmailTriageStore().listMessages(accountId, limit);
-  }
-
-  async listEmailTriageClassificationAttempts(messageId: string) {
-    return this.getEmailTriageStore().listClassificationAttempts(messageId);
-  }
-
-  async emailTriageFindConversationKeyByMessageId(accountId: string, messageIdHeader: string) {
-    return this.getEmailTriageStore().findConversationKeyByMessageId(accountId, messageIdHeader);
-  }
-
-  async emailTriageSaveAlias(accountId: string, conversationKey: string, messageIdHeader: string) {
-    return this.getEmailTriageStore().saveAlias(accountId, conversationKey, messageIdHeader);
   }
 }
