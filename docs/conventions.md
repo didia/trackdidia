@@ -106,7 +106,9 @@ as backups may explicitly throw in memory mode.
 
 ## SQLite changes
 
-The migration list in `TauriSqliteRepository` is the schema source of truth.
+The `migrations` array in
+[`src/lib/storage/migrations/index.ts`](../src/lib/storage/migrations/index.ts)
+is the schema source of truth.
 
 - Add one new migration with the next integer ID.
 - Do not edit a migration that may already exist in a user's
@@ -117,11 +119,16 @@ The migration list in `TauriSqliteRepository` is the schema source of truth.
 - Prefer idempotent backfills and explicit defaults.
 - Test startup against both a fresh database and an existing database when practical.
 
-The migration runner applies each migration body and ledger insert in one
-transaction. Repository transaction callbacks use `writeTransaction`; internal
-writers accept its active `TxContext` and never re-enter the writer. Queue-only
-work uses `writeExclusive`. Keep migration SQL safe to retry where SQLite permits
-it; the canonical migration rules are in [storage and backups](storage-and-backups.md).
+After ensuring the migration ledger exists, `runMigrations` applies each unapplied
+migration sequentially, wrapping its SQL and `schema_migrations` insert in one
+`BEGIN IMMEDIATE` transaction. A failure rolls back both the schema changes and
+ledger insert, then stops the runner; previously committed migrations remain
+applied. See [Migration system](storage-and-backups.md#migration-system) for the
+startup sequence, shipped-SQL preservation tests, and declarative column guards.
+
+Repository transaction callbacks use `writeTransaction`; internal writers accept
+its active `TxContext` and never re-enter the writer. Queue-only work uses
+`writeExclusive`.
 
 ## Dates and time zones
 
