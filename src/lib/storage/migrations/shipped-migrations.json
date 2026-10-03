@@ -1,0 +1,138 @@
+[
+  [
+    1,
+    "create_schema_migrations",
+    "2c196a153d4811064a917a63ec48c1c202ab15047f2547eb436daa383ca67e3f"
+  ],
+  [2, "create_daily_entries", "e50f5ca4306ba304fd5805bccc77da00cc2c6c3606a100dd6e965a773f70f094"],
+  [3, "create_app_settings", "dcb206d520d3df6c698068f2664f95baf8f4a1ab6939fd011b4aacd299efcb2f"],
+  [4, "create_gtd_contexts", "5baa7f9d2183f2838be5385d9e38b1bd8ec0fe12186c63c53d26f28f6d737f81"],
+  [5, "create_gtd_projects", "ca44e1b2ebe929b0be442466154c4fe33e056a65ec7bd530daa20732cb8af172"],
+  [6, "create_gtd_tasks", "038e5fc73b97899ea90d52844f644a52b14770aa08c5eff4f932566d241c3b8f"],
+  [7, "create_gtd_task_events", "3321934e9752276d8e78f9be3b4705ef1ed4bfa297f5c7c3dd7290c49c5a6739"],
+  [
+    8,
+    "add_gtd_task_recurrence_fields",
+    "15bfdfbc455a4137274ca039a36b74496e9afcc2006fead8252d38504cd8f7bb"
+  ],
+  [
+    9,
+    "add_gtd_project_status_changed_at",
+    "7c2bf60dad57f18c95b1228b84ce6cbed589cfd9aad3018370dc38a75cc17233"
+  ],
+  [
+    10,
+    "create_pomodoro_sessions",
+    "eff95446f4c07494670fb417c7dc01bd2f850a8e99ec96a53e9b9421e71456f8"
+  ],
+  [
+    11,
+    "create_pomodoro_segments",
+    "0b120b2710228b2c8d8ae275e87adab9bbb8a416edcd5266674c187d97ad5437"
+  ],
+  [
+    12,
+    "create_recurring_task_templates",
+    "898e69fe1e99963510f82cc7aa81a03391206a7435587372aa84e3270d6ffa9b"
+  ],
+  [
+    13,
+    "add_recurring_fields_to_gtd_tasks",
+    "a435e88c5c7f88615d7fd21ab10dc2afa985fd12e465edef6d58aab84dfcb852"
+  ],
+  [
+    14,
+    "add_title_to_pomodoro_segments",
+    "c0beac4715b144eeee81d1a0bb707b635e78f41901db96bafe2c64995a5f3239"
+  ],
+  [
+    15,
+    "add_deadline_to_gtd_tasks",
+    "3269b92179f5b0eabfe6bf574d911c739c8beb8acccbecbdf4d6ee4c0aa34fc1"
+  ],
+  [16, "create_weekly_reviews", "e10cdb8daad0f05ffda4020965eb433e89d6dd60fda3b7aa2a04cddb7d0b3f1b"],
+  [
+    17,
+    "create_monthly_reviews",
+    "49b9aa6cb090f2b03cc3d12571119474ea8e449061f7c57413bee2a2447ee6e1"
+  ],
+  [18, "create_annual_goals", "70973fc7dcbfa6df90fc1a0f41be474d84e9a3e380cb0e9c0bd999a48b062bf9"],
+  [
+    19,
+    "add_paused_remaining_ms_to_pomodoro_sessions",
+    "2828376d8deb12851b8a872633800af2d2d6c99bdad1db5c1cb1890055fa11bf"
+  ],
+  [
+    20,
+    "create_weekly_objectives",
+    "1443f920364ee3bb1b54d15b9a668b0cd063c68fd56325f11e46d2142ac4e6c4"
+  ],
+  [21, "create_ai_messages", "e50cdc0a8c028fa80cdd2fcaa6663d103ec8bbe9d05c7f9eececfd5dc769a3bf"],
+  [22, "create_ai_proposals", "27f5a5739dd5ffd7a8ee98570b41df0f10e13501f08c1cabb1558fe5eff9256f"],
+  [
+    23,
+    "ai_messages_append_only",
+    "e9319d74a0c8633f212eca17a2e4c47f391411a6a6b68faecd9dfcc58a3bebd5"
+  ],
+  [24, "create_ai_memories", "34c6f4d9ad53abccf12daf2863ff5d3e6f644cd56ca626a649c3573421524e2a"],
+  [
+    25,
+    "ai_proposals_repeatable_weekly_types",
+    "01c3b7ae50891424202a2682b49756b753b9968adc8a503c75a9b61b02d50eeb"
+  ],
+  [
+    26,
+    "add_gtd_task_planned_order",
+    "40b94d28838ba23414f7274f7952844575b09bb3d87c8b9f729570ae16b7f539"
+  ],
+  [
+    27,
+    "ai_proposals_repeatable_goal_evaluation",
+    "d5443adab173308f5cb70521760adb88956fc6361f81735b37e9d8b71bd4b816"
+  ],
+  [
+    28,
+    "add_annual_goal_measurement_fields",
+    "3aef30a0a8c48a1639b3a7d88972b3ee9837774516835fa8d636ccc71d614a6d"
+  ],
+  [
+    29,
+    "add_email_triage_foundation",
+    "7c1464c265b8d8fa816d1324373c44f9f302269b6ceb1c61f05c0df820c47f25"
+  ],
+  [
+    30,
+    "add_email_triage_gmail_oauth_client_id",
+    "d598323ddd954b5e70a774a3d88e7c13dd637101b774c462f4728f8722f5c588"
+  ],
+  [
+    31,
+    "add_email_triage_microsoft_oauth_client_id",
+    "e0de07d65c93ad54e3d9a5acadb41fbc43f763069447cb8b9a426b4e65a828f8"
+  ],
+  [
+    32,
+    "add_email_triage_desktop_prefs",
+    "0f6754e669d62439cd3d482480dd8f10999cc6688de267f6f9b1d7191fbe18fb"
+  ],
+  [
+    33,
+    "add_weekly_objective_starts_on_week_start_date",
+    "80f971985fe2cf08a837018fd90ccb726a5f8be57e7e62c900d7ae490d71c02e"
+  ],
+  [
+    34,
+    "add_weekly_objective_ends_on_week_start_date",
+    "a8264a4b60611e933d1d9246f5479a9aa2e894c2d5aeff8b1db178f1b075283b"
+  ],
+  [
+    35,
+    "create_rescuetime_snapshot_cache",
+    "c1464631fa8752bc82572d6b47ff7f74852ab86a27241afff91f853cd0b70bdb"
+  ],
+  [
+    36,
+    "create_mid_week_decisions",
+    "8dcde2163458b93fd34038759a025dda612ae0f68f97ce467b3e3c14d62670b0"
+  ]
+]
