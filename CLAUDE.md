@@ -50,7 +50,7 @@ The source-of-truth order is:
 
 1. Executable code and tests
 2. SQLite migrations in
-   [`src/lib/storage/tauri-sqlite-repository.ts`](src/lib/storage/tauri-sqlite-repository.ts)
+   [`src/lib/storage/migrations/index.ts`](src/lib/storage/migrations/index.ts)
 3. Canonical pages in `docs/`
 4. [`README.md`](README.md) and [`PRD.md`](PRD.md)
 

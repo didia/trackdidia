@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { migrations } from "../tauri-sqlite-repository";
+import { migrations } from "./index";
 
 describe("migration 36 create_mid_week_decisions", () => {
   it("creates the per-week decisions table", () => {
