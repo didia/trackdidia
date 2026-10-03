@@ -38,21 +38,37 @@ export const createLatestValueSaver = <K, V>(save: (value: V) => Promise<void>) 
     remember(key, value);
     markSaved(key, version(key));
   };
-  const set = (key: K, value: V): Promise<void> => {
-    remember(key, value);
-    const state = states.get(key)!;
+  const run = <R>(key: K, work: (value: V) => Promise<R>, propagateFailure = false): Promise<R> => {
+    const state = states.get(key);
+    if (!state) throw new Error("No snapshot for queued operation");
     state.inFlight += 1;
     const result = state.queue
-      .run(async () => {
-        const snapshotVersion = state.version;
-        await save(state.value);
-        markSaved(key, snapshotVersion);
-      })
+      .run(() => work(state.value))
       .finally(() => {
         state.inFlight -= 1;
       });
-    state.lastSave = result;
+    state.lastSave = propagateFailure
+      ? result.then(() => undefined)
+      : result.then(
+          () => undefined,
+          () => undefined,
+        );
+    // The caller owns the returned rejection; retain it for settled() without an
+    // unhandled rejection from this tracking promise.
+    void state.lastSave.catch(() => undefined);
     return result;
+  };
+  const set = (key: K, value: V): Promise<void> => {
+    remember(key, value);
+    return run(
+      key,
+      async (snapshot) => {
+        const snapshotVersion = version(key);
+        await save(snapshot);
+        markSaved(key, snapshotVersion);
+      },
+      true,
+    );
   };
   const settled = async (key: K): Promise<void> => {
     let pending = states.get(key)?.lastSave;
@@ -69,6 +85,7 @@ export const createLatestValueSaver = <K, V>(save: (value: V) => Promise<void>) 
   };
   return {
     set,
+    run,
     get: (key: K): V | undefined => states.get(key)?.value,
     isDirty,
     settled,

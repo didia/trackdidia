@@ -1,3 +1,4 @@
+import { proposalPreviewText } from "../lib/ai/proposals/apply-proposal";
 import { useTranslation } from "react-i18next";
 import { principleDefinitions } from "../domain/definitions";
 import type { AiProposal, AppSettings, CoachPulseResult, PrincipleKey } from "../domain/types";
@@ -145,17 +146,7 @@ export const CoachPulsePanel = ({
         <div className="coach-pulse__proposals">
           <strong>{t("proposals")}</strong>
           {pendingProposals.map((proposal) => {
-            const payload = JSON.parse(proposal.payloadJson) as {
-              text?: string;
-              statement?: string;
-              kind?: string;
-            };
-            const preview =
-              proposal.type === "memory"
-                ? `[${payload.kind ?? t("proposal.memoryKindFallback")}] ${payload.statement ?? ""}`
-                : proposal.type === "commitment"
-                  ? (payload.statement ?? "")
-                  : (payload.text ?? "");
+            const preview = proposalPreviewText(proposal);
             const typeKey = proposalTypeKeys[proposal.type];
             return (
               <article key={proposal.id} className="coach-pulse__proposal">

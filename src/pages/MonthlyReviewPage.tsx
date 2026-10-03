@@ -31,10 +31,7 @@ import { formatPercent } from "../lib/format";
 import { formatTimestamp } from "../lib/format";
 import { resolveMonthlySnapshotInputs } from "../lib/ai/context/monthly-snapshot";
 import { loadLatestMonthlySynthesis } from "../lib/ai/monthly-synthesis-loader";
-import {
-  MonthlySynthesisService,
-  monthlyReviewSectionFromProposal,
-} from "../lib/ai/monthly-synthesis-service";
+import { MonthlySynthesisService } from "../lib/ai/monthly-synthesis-service";
 import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
 import { applyCoachProposal } from "../lib/ai/proposals/apply-proposal";
 
@@ -220,92 +217,51 @@ export const MonthlyReviewPage = () => {
     synthesisResult?.message.scopeKey === summary?.monthKey && synthesisResult !== null;
 
   const handleAcceptSynthesisProposal = async (proposal: AiProposal) => {
-    if (!summary || synthesisResult?.message.scopeKey !== summary.monthKey) {
-      return;
-    }
-
+    if (!summary || synthesisResult?.message.scopeKey !== summary.monthKey) return;
     const monthKey = summary.monthKey;
-    const currentReview = latestReviewRef.current ?? review ?? createEmptyMonthlyReview(monthKey);
-
-    if (proposal.type === "review_section_draft") {
-      const section = monthlyReviewSectionFromProposal(proposal);
-      if (!section) {
-        return;
-      }
-
-      const nextReview = updateMonthlyReviewNote(currentReview, section.sectionKey, section.text);
-      latestReviewRef.current = nextReview;
-      reviewSaver.remember(monthKey, nextReview);
-      setReview(nextReview);
-      noteRefs.current[section.sectionKey]?.setDraft(section.text);
-
-      await reviewSaver.settled(monthKey);
-      const acceptedVersion = reviewSaver.version(monthKey);
-      const accepted = await repository.acceptAiProposal(proposal.id, {
-        kind: "monthlyReview",
-        review: reviewSaver.get(monthKey) ?? nextReview,
-      });
-      reviewSaver.markSaved(monthKey, acceptedVersion);
-      setSynthesisResult((current) =>
-        current
-          ? {
-              ...current,
-              proposals: current.proposals.map((item) =>
-                item.id === proposal.id ? accepted.proposal : item,
-              ),
+    const applied = await applyCoachProposal(repository, proposal, {
+      acceptedDate: monthKey,
+      monthly: {
+        monthKey,
+        withReview: async (sectionKey, work) => {
+          const current = latestReviewRef.current ?? review ?? createEmptyMonthlyReview(monthKey);
+          if (!reviewSaver.get(monthKey)) reviewSaver.hydrate(monthKey, current);
+          return reviewSaver.run(monthKey, async (snapshot) => {
+            const beforeVersion = reviewSaver.version(monthKey);
+            const outcome = await work(snapshot);
+            if (!outcome.monthlyReview) return outcome;
+            const latest = reviewSaver.get(monthKey) ?? snapshot;
+            const unchanged = reviewSaver.version(monthKey) === beforeVersion;
+            const next =
+              latest.notes[sectionKey] === snapshot.notes[sectionKey]
+                ? updateMonthlyReviewNote(
+                    latest,
+                    sectionKey,
+                    outcome.monthlyReview.notes[sectionKey],
+                  )
+                : latest;
+            reviewSaver.remember(monthKey, next);
+            if (unchanged) reviewSaver.markSaved(monthKey, reviewSaver.version(monthKey));
+            if (latestReviewRef.current?.monthKey === monthKey) {
+              latestReviewRef.current = next;
+              setReview(next);
+              noteRefs.current[sectionKey]?.setDraft(next.notes[sectionKey]);
             }
-          : current,
-      );
-      return;
-    }
-
-    if (proposal.type === "goal_evaluation") {
-      const payload = JSON.parse(proposal.payloadJson) as { monthKey?: string };
-      if (payload.monthKey !== monthKey) {
-        return;
-      }
-    }
-
-    const applied = await applyCoachProposal(repository, proposal, monthKey);
-
-    if (proposal.type === "goal_evaluation" && !applied.goalId) {
-      await repository.decideAiProposal(proposal.id, "dismissed");
-      setSynthesisNotice(t("monthly.synthesis.goalMissing"));
-      setSynthesisResult((current) =>
-        current
-          ? {
-              ...current,
-              proposals: current.proposals.map((item) =>
-                item.id === proposal.id
-                  ? { ...item, status: "dismissed", decidedAt: new Date().toISOString() }
-                  : item,
-              ),
-            }
-          : current,
-      );
-      return;
-    }
-
-    if (proposal.type === "goal_evaluation" && applied.goalId) {
-      const annualSnapshots = await repository.computeAnnualGoalSnapshots(
-        Number(monthKey.slice(0, 4)),
-      );
-      setGoalSnapshots(annualSnapshots);
-    }
-
-    await repository.decideAiProposal(
-      proposal.id,
-      "accepted",
-      applied.goalId ?? applied.objectiveId ?? applied.taskId ?? applied.memoryId ?? monthKey,
-    );
+            return { ...outcome, text: next.notes[sectionKey], monthlyReview: next };
+          });
+        },
+      },
+    });
+    if (!applied.proposal) return;
+    if (applied.goalMissing) setSynthesisNotice(t("monthly.synthesis.goalMissing"));
+    if (applied.goalId)
+      setGoalSnapshots(await repository.computeAnnualGoalSnapshots(Number(monthKey.slice(0, 4))));
     setSynthesisResult((current) =>
       current
         ? {
             ...current,
             proposals: current.proposals.map((item) =>
-              item.id === proposal.id
-                ? { ...item, status: "accepted", decidedAt: new Date().toISOString() }
-                : item,
+              item.id === proposal.id ? applied.proposal! : item,
             ),
           }
         : current,

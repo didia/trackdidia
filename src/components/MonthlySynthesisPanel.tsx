@@ -1,3 +1,4 @@
+import { proposalPreviewText } from "../lib/ai/proposals/apply-proposal";
 import { useTranslation } from "react-i18next";
 import type { AiProposal, AppSettings, MonthlySynthesisResult } from "../domain/types";
 import { t as translate } from "../i18n";
@@ -83,19 +84,7 @@ export const MonthlySynthesisPanel = ({
         <div className="coach-pulse__proposals">
           <strong>{t("proposals")}</strong>
           {pendingProposals.map((proposal) => {
-            const payload = JSON.parse(proposal.payloadJson) as {
-              text?: string;
-              sectionKey?: string;
-              goalId?: string;
-              score?: number | null;
-              notes?: string;
-            };
-            const preview =
-              proposal.type === "review_section_draft"
-                ? `[${payload.sectionKey ?? t("proposal.sectionFallback")}] ${payload.text ?? ""}`
-                : proposal.type === "goal_evaluation"
-                  ? `[${payload.goalId ?? t("proposal.goalFallback")}] ${payload.score ?? tCommon("emDash")}/100 ${tCommon("emDash")} ${payload.notes ?? ""}`
-                  : (payload.text ?? "");
+            const preview = proposalPreviewText(proposal, "monthly");
             return (
               <article key={proposal.id} className="coach-pulse__proposal">
                 <span>{t(proposalTypeKeys[proposal.type])}</span>

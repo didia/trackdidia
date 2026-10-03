@@ -19,7 +19,6 @@ import {
   updatePrinciple,
 } from "../domain/daily-entry";
 import type { AiProposal } from "../domain/types";
-import { applyCoachProposal } from "../lib/ai/proposals/apply-proposal";
 import { formatDateLong, getTodayDate } from "../lib/date";
 import { logDebug } from "../lib/debug";
 
@@ -27,7 +26,7 @@ export const EveningClosurePage = () => {
   const { t } = useTranslation("evening");
   const navigate = useNavigate();
   const { repository, settings } = useAppContext();
-  const { entry, loading, save } = useDailyEntry(getTodayDate());
+  const { entry, loading, save, applyProposal } = useDailyEntry(getTodayDate());
   const {
     result: coachResult,
     loading: coachLoading,
@@ -41,34 +40,22 @@ export const EveningClosurePage = () => {
 
   const handleAcceptProposal = async (proposal: AiProposal) => {
     const currentEntry = latestEntryRef.current;
-    if (!currentEntry) {
-      return;
-    }
-
+    if (!currentEntry) return;
     try {
-      const applied = await applyCoachProposal(repository, proposal, currentEntry.date);
-
-      if (proposal.type === "tomorrow_focus_draft" && applied.text !== undefined) {
-        const tomorrowFocus = applied.text;
-        await save((latest) => updateNote(latest, "tomorrowFocus", tomorrowFocus));
-        tomorrowFocusRef.current?.setDraft(tomorrowFocus);
-      }
-
-      if (!applied.proposalDecided) {
-        await repository.decideAiProposal(
-          proposal.id,
-          "accepted",
-          applied.memoryId ?? currentEntry.date,
-        );
-      }
+      const applied = await applyProposal(proposal);
+      if (!applied.proposal) return;
+      if (
+        applied.dailyNote &&
+        applied.dailyNote.field === "tomorrowFocus" &&
+        latestEntryRef.current?.date === currentEntry.date
+      )
+        tomorrowFocusRef.current?.setDraft(applied.dailyNote.text);
       setCoachResult((current) =>
         current
           ? {
               ...current,
               proposals: current.proposals.map((item) =>
-                item.id === proposal.id
-                  ? { ...item, status: "accepted", decidedAt: new Date().toISOString() }
-                  : item,
+                item.id === proposal.id ? applied.proposal! : item,
               ),
             }
           : current,

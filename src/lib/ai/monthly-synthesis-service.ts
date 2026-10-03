@@ -1,3 +1,4 @@
+import { decodeProposal, isMonthlySectionKey } from "./proposals/payloads";
 import type {
   AiMessage,
   AiProposal,
@@ -341,34 +342,16 @@ export class MonthlySynthesisService {
 export const monthlySectionKeyFromProposal = (
   payloadJson: string,
 ): MonthlyReviewSectionKey | null => {
-  try {
-    const payload = JSON.parse(payloadJson) as { sectionKey?: MonthlyReviewSectionKey };
-    return payload.sectionKey ?? null;
-  } catch {
-    return null;
-  }
+  const decoded = decodeProposal({ type: "review_section_draft", payloadJson });
+  return decoded.type === "review_section_draft" && isMonthlySectionKey(decoded.payload.sectionKey)
+    ? decoded.payload.sectionKey
+    : null;
 };
-
 export const monthlyReviewSectionFromProposal = (
   proposal: AiProposal,
 ): { sectionKey: MonthlyReviewSectionKey; text: string } | null => {
-  if (proposal.type !== "review_section_draft") {
-    return null;
-  }
-
-  const sectionKey = monthlySectionKeyFromProposal(proposal.payloadJson);
-  if (!sectionKey) {
-    return null;
-  }
-
-  try {
-    const payload = JSON.parse(proposal.payloadJson) as { text?: string };
-    if (!payload.text?.trim()) {
-      return null;
-    }
-
-    return { sectionKey, text: payload.text.trim() };
-  } catch {
-    return null;
-  }
+  const decoded = decodeProposal(proposal);
+  return decoded.type === "review_section_draft" && isMonthlySectionKey(decoded.payload.sectionKey)
+    ? { sectionKey: decoded.payload.sectionKey, text: decoded.payload.text }
+    : null;
 };

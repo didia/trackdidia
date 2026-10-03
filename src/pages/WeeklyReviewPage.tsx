@@ -1,4 +1,3 @@
-import { gtdAcceptEffectFromProposal } from "../lib/ai/proposals/accept-effect";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
@@ -36,10 +35,6 @@ import {
 } from "../lib/ai/memory/weekly-distillation";
 import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
 import { applyCoachProposal, proposalPreviewText } from "../lib/ai/proposals/apply-proposal";
-import {
-  buildWeeklyObjectiveFromProposal,
-  reviewSectionFromProposal,
-} from "../lib/ai/proposals/weekly-proposal-ids";
 import { loadLatestWeeklySynthesis } from "../lib/ai/weekly-synthesis-loader";
 import { WeeklySynthesisService } from "../lib/ai/weekly-synthesis-service";
 import { formatDateLong, formatDateShort, getTodayDate } from "../lib/date";
@@ -495,168 +490,66 @@ export const WeeklyReviewPage = () => {
     synthesisResult?.message.scopeKey === summary?.weekStartDate && synthesisResult !== null;
 
   const handleAcceptSynthesisProposal = async (proposal: AiProposal) => {
-    if (!summary || synthesisResult?.message.scopeKey !== summary.weekStartDate) {
+    if (
+      !summary ||
+      synthesisResult?.message.scopeKey !== summary.weekStartDate ||
+      applyingProposalIds.includes(proposal.id)
+    )
       return;
-    }
-
-    if (applyingProposalIds.includes(proposal.id)) {
-      return;
-    }
-
     setApplyingProposalIds((current) => [...current, proposal.id]);
-
     try {
       const weekStartDate = summary.weekStartDate;
-      const currentReview =
-        latestReviewRef.current ?? review ?? createEmptyWeeklyReview(weekStartDate);
-
-      if (proposal.type === "review_section_draft") {
-        const section = reviewSectionFromProposal(proposal);
-        if (!section) {
-          return;
-        }
-
-        const notesWeekStart = dimancheNotesWeekStart(weekStartDate, calendarDay);
-        if (section.sectionKey === "dimanche" && notesWeekStart !== weekStartDate) {
-          const currentDimanche =
-            latestDimancheReviewRef.current ?? createEmptyWeeklyReview(notesWeekStart);
-          const nextDimanche = rememberReviewSnapshot(
-            updateWeeklyReviewNote(currentDimanche, "dimanche", section.text),
-          );
-          latestDimancheReviewRef.current = nextDimanche;
-          setDimancheReview(nextDimanche);
-          nextWeekDimancheRef.current?.setDraft(section.text);
-          await reviewSaver.settled(notesWeekStart);
-          const latestDimanche = reviewSaver.get(notesWeekStart) ?? nextDimanche;
-
-          const acceptedVersion = reviewSaver.version(notesWeekStart);
-          const accepted = await repository.acceptAiProposal(proposal.id, {
-            kind: "weeklyReview",
-            review: latestDimanche,
-          });
-          reviewSaver.markSaved(notesWeekStart, acceptedVersion);
-          setSynthesisResult((current) =>
-            current
-              ? {
-                  ...current,
-                  proposals: current.proposals.map((item) =>
-                    item.id === proposal.id ? accepted.proposal : item,
-                  ),
+      const applied = await applyCoachProposal(repository, proposal, {
+        acceptedDate: weekStartDate,
+        weekly: {
+          withReview: async (sectionKey, work) => {
+            const notesWeekStart = dimancheNotesWeekStart(weekStartDate, calendarDay);
+            const nextSunday = sectionKey === "dimanche" && notesWeekStart !== weekStartDate;
+            const current = nextSunday
+              ? (latestDimancheReviewRef.current ?? createEmptyWeeklyReview(notesWeekStart))
+              : (latestReviewRef.current ?? review ?? createEmptyWeeklyReview(weekStartDate));
+            const scope = current.weekStartDate;
+            if (!reviewSaver.get(scope)) reviewSaver.hydrate(scope, current);
+            return reviewSaver.run(scope, async (snapshot) => {
+              const beforeVersion = reviewSaver.version(scope);
+              const outcome = await work(snapshot);
+              if (!outcome.weeklyReview) return outcome;
+              const latest = reviewSaver.get(scope) ?? snapshot;
+              const unchanged = reviewSaver.version(scope) === beforeVersion;
+              const next =
+                latest.notes[sectionKey] === snapshot.notes[sectionKey]
+                  ? updateWeeklyReviewNote(
+                      latest,
+                      sectionKey,
+                      outcome.weeklyReview.notes[sectionKey],
+                    )
+                  : latest;
+              reviewSaver.remember(scope, next);
+              if (unchanged) reviewSaver.markSaved(scope, reviewSaver.version(scope));
+              if (latestReviewRef.current?.weekStartDate === weekStartDate) {
+                if (nextSunday) {
+                  latestDimancheReviewRef.current = next;
+                  setDimancheReview(next);
+                  nextWeekDimancheRef.current?.setDraft(next.notes[sectionKey]);
+                } else {
+                  latestReviewRef.current = next;
+                  setReview(next);
+                  noteRefs.current[sectionKey]?.setDraft(next.notes[sectionKey]);
                 }
-              : current,
-          );
-          return;
-        }
-
-        const nextReview = rememberReviewSnapshot(
-          updateWeeklyReviewNote(currentReview, section.sectionKey, section.text),
-        );
-        latestReviewRef.current = nextReview;
-        setReview(nextReview);
-        noteRefs.current[section.sectionKey]?.setDraft(section.text);
-        await reviewSaver.settled(nextReview.weekStartDate);
-        const latestReview = reviewSaver.get(nextReview.weekStartDate) ?? nextReview;
-        const acceptedVersion = reviewSaver.version(nextReview.weekStartDate);
-
-        const accepted = await repository.acceptAiProposal(proposal.id, {
-          kind: "weeklyReview",
-          review: latestReview,
-        });
-        reviewSaver.markSaved(nextReview.weekStartDate, acceptedVersion);
-        setSynthesisResult((current) =>
-          current
-            ? {
-                ...current,
-                proposals: current.proposals.map((item) =>
-                  item.id === proposal.id ? accepted.proposal : item,
-                ),
               }
-            : current,
-        );
-        return;
-      }
-
-      if (proposal.type === "weekly_objective") {
-        const objectives = await repository.listWeeklyObjectives();
-        const objective = buildWeeklyObjectiveFromProposal(
-          proposal,
-          objectives.length,
-          weekStartDate,
-        );
-        if (!objective) {
-          return;
-        }
-
-        const accepted = await repository.acceptAiProposal(proposal.id, {
-          kind: "weeklyObjective",
-          objective: objective,
-        });
-        await loadStandingObjectives(weekStartDate);
-        setSynthesisResult((current) =>
-          current
-            ? {
-                ...current,
-                proposals: current.proposals.map((item) =>
-                  item.id === proposal.id ? accepted.proposal : item,
-                ),
-              }
-            : current,
-        );
-        return;
-      }
-
-      if (proposal.type === "gtd_action") {
-        const accepted = await repository.acceptAiProposal(
-          proposal.id,
-          gtdAcceptEffectFromProposal(proposal, getTodayDate()),
-        );
-        if (!accepted.appliedEntityId) {
-          return;
-        }
-
-        setSynthesisResult((current) =>
-          current
-            ? {
-                ...current,
-                proposals: current.proposals.map((item) =>
-                  item.id === proposal.id ? accepted.proposal : item,
-                ),
-              }
-            : current,
-        );
-        return;
-      }
-
-      const applied = await applyCoachProposal(repository, proposal, weekStartDate);
-      if (applied.proposalDecided) {
-        setSynthesisResult((current) =>
-          current
-            ? {
-                ...current,
-                proposals: current.proposals.map((item) =>
-                  item.id === proposal.id
-                    ? { ...item, status: "accepted", decidedAt: new Date().toISOString() }
-                    : item,
-                ),
-              }
-            : current,
-        );
-        return;
-      }
-
-      await repository.decideAiProposal(
-        proposal.id,
-        "accepted",
-        applied.objectiveId ?? applied.taskId ?? applied.memoryId ?? weekStartDate,
-      );
+              return { ...outcome, text: next.notes[sectionKey], weeklyReview: next };
+            });
+          },
+        },
+      });
+      if (!applied.proposal) return;
+      if (applied.objectiveId) await loadStandingObjectives(weekStartDate);
       setSynthesisResult((current) =>
         current
           ? {
               ...current,
               proposals: current.proposals.map((item) =>
-                item.id === proposal.id
-                  ? { ...item, status: "accepted", decidedAt: new Date().toISOString() }
-                  : item,
+                item.id === proposal.id ? applied.proposal! : item,
               ),
             }
           : current,

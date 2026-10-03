@@ -78,3 +78,30 @@ describe("latest value saver", () => {
     expect(saver.get("week")).toBe("user edit");
   });
 });
+
+it("queues atomic actions with saves and lets failed actions be retried without blocking reloads", async () => {
+  const gate = deferred();
+  const save = vi.fn(async () => undefined);
+  const saver = createLatestValueSaver<string, string>(save);
+  saver.hydrate("day", "stored");
+  const action = saver.run("day", async () => {
+    await gate.promise;
+    throw new Error("decision failed");
+  });
+  const rejection = expect(action).rejects.toThrow("decision failed");
+  const saving = saver.set("day", "manual edit");
+  await Promise.resolve();
+  expect(save).not.toHaveBeenCalled();
+  gate.resolve();
+  await rejection;
+  await saving;
+  await saver.settled("day");
+  expect(save).toHaveBeenCalledWith("manual edit");
+  expect(saver.isDirty("day")).toBe(false);
+  await expect(
+    saver.run("day", async () => {
+      throw new Error("again");
+    }),
+  ).rejects.toThrow("again");
+  await expect(saver.settled("day")).resolves.toBeUndefined();
+});

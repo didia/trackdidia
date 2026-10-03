@@ -1,3 +1,5 @@
+import { createEmptyDailyEntry, updateNote } from "../../domain/daily-entry";
+import { createEmptyAnnualGoal } from "../../domain/annual-goals";
 // @vitest-environment node
 import type { AiProposal } from "../../domain/types";
 import { createEmptyWeeklyReview } from "../../domain/weekly-review";
@@ -59,6 +61,76 @@ const fixtures = [
 
 for (const fixture of fixtures) {
   describe(`${fixture.name} atomic proposal acceptance`, () => {
+    it("rolls back daily notes and the decision together, then permits retry", async () => {
+      const { repository, failDecision } = await fixture.create();
+      const original = createEmptyDailyEntry("2026-08-02");
+      original.metrics.pushups = 17;
+      await repository.saveDailyEntry(original);
+      const before = await repository.getDailyEntry(original.date);
+      const row = { ...proposal("proposal:daily"), type: "intention_draft" as const };
+      await repository.saveAiProposal(row);
+      const effect = {
+        kind: "dailyEntry" as const,
+        entry: updateNote(before!, "morningIntention", "Focus"),
+      };
+      const restore = failDecision();
+      await expect(repository.acceptAiProposal(row.id, effect)).rejects.toThrow("decision failed");
+      restore();
+      expect(await repository.getDailyEntry(original.date)).toEqual(before);
+      expect((await repository.listAiProposals(row.messageId))[0].status).toBe("pending");
+      await repository.acceptAiProposal(row.id, effect);
+      expect(await repository.getDailyEntry(original.date)).toMatchObject({
+        morningIntention: "Focus",
+        metrics: { pushups: 17 },
+      });
+    });
+
+    it("rolls back goal evaluations and reads the current goal on later accepts", async () => {
+      const { repository, failDecision } = await fixture.create();
+      const goal = await repository.saveAnnualGoal(
+        createEmptyAnnualGoal({ id: "goal:atomic", title: "Read", description: "Keep" }),
+      );
+      const row = { ...proposal("proposal:goal"), type: "goal_evaluation" as const };
+      await repository.saveAiProposal(row);
+      const effect = {
+        kind: "goalEvaluation" as const,
+        goalId: goal.id,
+        monthKey: "2026-08",
+        evaluation: { score: 80, notes: "Good" },
+      };
+      const restore = failDecision();
+      await expect(repository.acceptAiProposal(row.id, effect)).rejects.toThrow("decision failed");
+      restore();
+      expect((await repository.listAnnualGoals())[0]).toEqual(goal);
+      expect((await repository.listAiProposals(row.messageId))[0].status).toBe("pending");
+      await repository.acceptAiProposal(row.id, effect);
+      const second = { ...row, id: "proposal:goal:second" };
+      await repository.saveAiProposal(second);
+      await repository.acceptAiProposal(second.id, {
+        ...effect,
+        monthKey: "2026-09",
+        evaluation: { score: 90 },
+      });
+      expect((await repository.listAnnualGoals())[0]).toMatchObject({
+        description: "Keep",
+        evaluations: { "2026-08": { score: 80, notes: "Good" }, "2026-09": { score: 90 } },
+      });
+    });
+
+    it("keeps dismissed proposals from mutating data", async () => {
+      const { repository } = await fixture.create();
+      const row = proposal("proposal:dismissed");
+      await repository.saveAiProposal(row);
+      await repository.decideAiProposal(row.id, "dismissed");
+      const result = await repository.acceptAiProposal(row.id, {
+        kind: "dailyEntry",
+        entry: createEmptyDailyEntry("2026-08-02"),
+      });
+      expect(result.appliedEntityId).toBeNull();
+      expect(await repository.getDailyEntry("2026-08-02")).toBeNull();
+      expect(result.proposal.status).toBe("dismissed");
+    });
+
     it("rolls back task lifecycle changes and leaves the proposal pending when the decision fails", async () => {
       const { repository, failDecision } = await fixture.create();
       const task = await repository.createTask({ title: "task", bucket: "inbox", contextIds: [] });

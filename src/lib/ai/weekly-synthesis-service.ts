@@ -1,3 +1,4 @@
+import { decodeProposal, isWeeklySectionKey } from "./proposals/payloads";
 import type {
   AiMessage,
   AiProposal,
@@ -368,10 +369,8 @@ export class WeeklySynthesisService {
 export const weeklySectionKeyFromProposal = (
   payloadJson: string,
 ): WeeklyRitualSectionKey | null => {
-  try {
-    const payload = JSON.parse(payloadJson) as { sectionKey?: WeeklyRitualSectionKey };
-    return payload.sectionKey ?? null;
-  } catch {
-    return null;
-  }
+  const decoded = decodeProposal({ type: "review_section_draft", payloadJson });
+  return decoded.type === "review_section_draft" && isWeeklySectionKey(decoded.payload.sectionKey)
+    ? decoded.payload.sectionKey
+    : null;
 };

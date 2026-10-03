@@ -1,3 +1,4 @@
+import { proposalPreviewText } from "../lib/ai/proposals/apply-proposal";
 import { useTranslation } from "react-i18next";
 import type { AiProposal, AppSettings, WeeklySynthesisResult } from "../domain/types";
 import { t as translate } from "../i18n";
@@ -88,22 +89,7 @@ export const WeeklySynthesisPanel = ({
           <strong>{t("proposals")}</strong>
           {pendingProposals.map((proposal) => {
             const isApplying = applyingProposalIds.includes(proposal.id);
-            const payload = JSON.parse(proposal.payloadJson) as {
-              text?: string;
-              title?: string;
-              sectionKey?: string;
-              taskTitle?: string;
-              action?: string;
-              reason?: string;
-            };
-            const preview =
-              proposal.type === "review_section_draft"
-                ? `[${payload.sectionKey ?? t("proposal.sectionFallback")}] ${payload.text ?? ""}`
-                : proposal.type === "weekly_objective"
-                  ? (payload.title ?? t("proposal.objectiveFallback"))
-                  : proposal.type === "gtd_action"
-                    ? `${payload.taskTitle ?? t("proposal.taskFallback")} ${tCommon("emDash")} ${payload.action ?? t("proposal.actionFallback")} ${tCommon("emDash")} ${payload.reason ?? ""}`
-                    : (payload.text ?? "");
+            const preview = proposalPreviewText(proposal, "weekly");
             return (
               <article key={proposal.id} className="coach-pulse__proposal">
                 <span>{t(proposalTypeKeys[proposal.type])}</span>
