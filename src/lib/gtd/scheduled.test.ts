@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { baseLink, baseSettings } from "../calendar/calendar-sync-test-helpers";
+import { buildCalendarSyncSignatureForTask } from "../calendar/eligibility";
 import type { Task } from "../../domain/types";
-import { promoteDueScheduledTasks } from "./scheduled";
+import {
+  buildCalendarSyncCaptureLink,
+  isCalendarSyncCaptureActive,
+  promoteDueScheduledTasks,
+} from "./scheduled";
 
 const today = "2026-01-12";
 const now = "2026-01-12T14:00:00.000Z";
@@ -120,5 +126,71 @@ describe("promoteDueScheduledTasks", () => {
     });
 
     expect(promoteDueScheduledTasks([task], today, now)).toEqual([]);
+  });
+});
+
+describe("isCalendarSyncCaptureActive", () => {
+  it("is active when enabled and state is active", () => {
+    expect(isCalendarSyncCaptureActive(baseSettings({ enabled: true, state: "active" }))).toBe(
+      true,
+    );
+  });
+
+  it("is active when enabled and state is needs_confirmation", () => {
+    expect(
+      isCalendarSyncCaptureActive(baseSettings({ enabled: true, state: "needs_confirmation" })),
+    ).toBe(true);
+  });
+
+  it("is inactive when disabled", () => {
+    expect(isCalendarSyncCaptureActive(baseSettings({ enabled: false, state: "active" }))).toBe(
+      false,
+    );
+  });
+
+  it("is inactive when disconnected or reconnect_required", () => {
+    expect(
+      isCalendarSyncCaptureActive(baseSettings({ enabled: true, state: "disconnected" })),
+    ).toBe(false);
+    expect(
+      isCalendarSyncCaptureActive(baseSettings({ enabled: true, state: "reconnect_required" })),
+    ).toBe(false);
+  });
+});
+
+describe("buildCalendarSyncCaptureLink", () => {
+  const settings = baseSettings();
+
+  it("captures a pending link with no existing link", () => {
+    const task = baseTask({ scheduledFor: "2026-01-12T09:00:00" });
+    const link = buildCalendarSyncCaptureLink(task, null, settings, now);
+    expect(link).toMatchObject({
+      taskId: task.id,
+      occurrenceKey: "2026-01-12",
+      state: "pending",
+      eventId: null,
+    });
+  });
+
+  it("does nothing when a synced link already matches the captured payload", () => {
+    const task = baseTask({ scheduledFor: "2026-01-12T09:00:00" });
+    const existing = baseLink(task, settings, { state: "synced" });
+    expect(buildCalendarSyncCaptureLink(task, existing, settings, now)).toBeNull();
+  });
+
+  it("becomes pending and keeps the event_id when a synced link's payload differs", () => {
+    const originalTask = baseTask({ scheduledFor: "2026-01-12T09:00:00", title: "Original" });
+    const existing = baseLink(originalTask, settings, { state: "synced", eventId: "event:1" });
+    const editedTask = baseTask({ scheduledFor: "2026-01-12T09:00:00", title: "Edited" });
+
+    const link = buildCalendarSyncCaptureLink(editedTask, existing, settings, now);
+    expect(link).toMatchObject({ state: "pending", eventId: "event:1" });
+    const { signature } = buildCalendarSyncSignatureForTask(editedTask, settings);
+    expect(link?.payloadSignature).toBe(signature);
+  });
+
+  it("returns null for a task with no scheduledFor", () => {
+    const task = baseTask({ bucket: "next_action", scheduledFor: null });
+    expect(buildCalendarSyncCaptureLink(task, null, settings, now)).toBeNull();
   });
 });
