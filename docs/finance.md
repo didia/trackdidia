@@ -141,12 +141,18 @@ column mapping are Phase 1/3 concerns; see `src/lib/finance/csv.ts` and
    per `INSERT … VALUES (…),(…) ON CONFLICT(account_id, dedupe_hash) DO NOTHING`,
    counting the difference between attempted and inserted rows as duplicates.
 2. Runs the near-duplicate pass (`src/lib/finance/near-duplicates.ts`) between this
-   batch's new rows and every other existing row in the same accounts, reporting
-   matches in the summary without merging or dropping anything.
+   batch's new rows and every other existing row in the same accounts — including
+   manually entered rows, whose `import_batch_id` is `NULL` rather than some other
+   batch's id — reporting matches in the summary without merging or dropping
+   anything.
 3. Runs transfer detection (`src/lib/finance/transfers.ts`) across the **entire**
    transaction history (not just the batch), applying matched-pair and
    probable-transfer outcomes and writing a pending suggestion wherever the pure
-   engine says one is owed.
+   engine says one is owed. **A transaction whose `category_source = 'user'` is
+   excluded from the candidate set entirely** — it can be neither paired as a
+   transfer leg nor relabeled by a keyword match, in both `FinanceSqliteStore` and
+   `FinanceMemoryStore`. This is the same invariant as the learning entry point
+   below, just enforced at the import step too.
 4. Writes one `finance_import_batches` row and returns a `FinanceImportSummary`
    (`batchId`, counts, `transfersDetected`, `pendingSuggestions`, `warnings`,
    `nearDuplicates`).
@@ -169,7 +175,9 @@ merchant memory → seed heuristics → AI → default) is Phase 4.
 batch's account** — if a later batch for the same account exists, the call throws
 rather than silently doing nothing, because that later batch may have deduped
 against a row this undo would otherwise delete. It deletes a batch row's splits and
-pending suggestions, repairs the transfer group of a surviving partner (clearing
+**all** of its category suggestions (pending or already decided — a deleted
+transaction cannot leave an orphaned suggestion behind), repairs the transfer
+group of a surviving partner (clearing
 `is_transfer`/`transfer_group_id`, restoring a pending suggestion so the partner
 does not silently fall out of the budget), and **refuses to delete any row whose
 `category_source = 'user'`** — those rows are counted in `refusedUserCategorized`

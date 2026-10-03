@@ -1188,9 +1188,9 @@ export class FinanceSqliteStore {
       const existingCandidates: TransactionRow[] =
         accountIds.length > 0
           ? await db.select<TransactionRow[]>(
-              `SELECT * FROM finance_transactions WHERE import_batch_id != $1 AND account_id IN (${accountIds
-                .map((_, index) => `$${index + 2}`)
-                .join(",")})`,
+              `SELECT * FROM finance_transactions
+               WHERE (import_batch_id IS NULL OR import_batch_id != $1)
+                 AND account_id IN (${accountIds.map((_, index) => `$${index + 2}`).join(",")})`,
               [batchId, ...accountIds],
             )
           : [];
@@ -1230,17 +1230,22 @@ export class FinanceSqliteStore {
       const allTransactions = await db.select<TransactionRow[]>(
         "SELECT * FROM finance_transactions",
       );
-      const candidates: TransferCandidateTransaction[] = allTransactions.map((row) => ({
-        id: row.id,
-        accountId: row.account_id,
-        amountMinor: row.amount_minor,
-        currency: row.currency,
-        postedDate: row.posted_date,
-        descriptionRaw: row.description_raw,
-        isTransfer: Boolean(row.is_transfer),
-        excludedFromBudget: Boolean(row.excluded_from_budget),
-        accountOnBudget: accountOnBudgetByAccountId.get(row.account_id) ?? true,
-      }));
+      // A user-categorized row is never re-categorized by any automatic stage, including
+      // transfer detection — exclude it from the candidate set entirely so it can neither be
+      // paired nor relabeled (see specs/todo/finance.md "Classification order").
+      const candidates: TransferCandidateTransaction[] = allTransactions
+        .filter((row) => row.category_source !== "user")
+        .map((row) => ({
+          id: row.id,
+          accountId: row.account_id,
+          amountMinor: row.amount_minor,
+          currency: row.currency,
+          postedDate: row.posted_date,
+          descriptionRaw: row.description_raw,
+          isTransfer: Boolean(row.is_transfer),
+          excludedFromBudget: Boolean(row.excluded_from_budget),
+          accountOnBudget: accountOnBudgetByAccountId.get(row.account_id) ?? true,
+        }));
 
       const transferActions = detectTransfers(candidates);
       let transfersDetected = 0;

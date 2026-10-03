@@ -3087,6 +3087,129 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         await expect(repository.countFinanceTransactions({})).resolves.toBe(2);
       });
 
+      it("never relabels a pre-existing user-categorized row that contains a transfer keyword", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-checking" }));
+
+        const userRow = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-user-mortgage",
+            accountId: "account-checking",
+            amountMinor: -150000,
+            descriptionRaw: "VIREMENT HYPOTHEQUE",
+            merchantKey: "VIREMENT HYPOTHEQUE",
+            categoryId: "fincat:logement.loyer-hypotheque",
+            categorySource: "user",
+          }),
+        );
+
+        await repository.importFinanceTransactions({
+          accountId: "account-checking",
+          profileId: null,
+          fileName: "unrelated.csv",
+          fileHash: "hash-unrelated",
+          rows: [
+            importRow({
+              accountId: "account-checking",
+              amountMinor: -999,
+              descriptionRaw: "EPICERIE METRO",
+              merchantKey: "EPICERIE METRO",
+            }),
+          ],
+        });
+
+        await expect(repository.getFinanceTransaction(userRow.id)).resolves.toMatchObject({
+          categoryId: "fincat:logement.loyer-hypotheque",
+          categorySource: "user",
+          isTransfer: false,
+        });
+      });
+
+      it("never pairs a pre-existing user-categorized row as the mirror-amount leg of an imported transfer", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-checking" }));
+        await repository.saveFinanceAccount(account({ id: "account-savings", name: "Épargne" }));
+
+        const userRow = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-user-savings",
+            accountId: "account-savings",
+            amountMinor: 5000,
+            descriptionRaw: "COTISATION EPARGNE",
+            merchantKey: "COTISATION EPARGNE",
+            categoryId: "fincat:revenu.autre",
+            categorySource: "user",
+          }),
+        );
+
+        await repository.importFinanceTransactions({
+          accountId: "account-checking",
+          profileId: null,
+          fileName: "export.csv",
+          fileHash: "hash-mirror",
+          rows: [
+            importRow({
+              accountId: "account-checking",
+              amountMinor: -5000,
+              descriptionRaw: "COTISATION EPARGNE",
+              merchantKey: "COTISATION EPARGNE",
+            }),
+          ],
+        });
+
+        // The user row can never be the mirror-amount leg of this transfer: it is excluded
+        // from the candidate set entirely, so the imported leg is left unpaired rather than
+        // matched to it.
+        await expect(repository.getFinanceTransaction(userRow.id)).resolves.toMatchObject({
+          categoryId: "fincat:revenu.autre",
+          categorySource: "user",
+          isTransfer: false,
+          transferGroupId: null,
+        });
+        const [imported] = await repository.listFinanceTransactions({
+          accountIds: ["account-checking"],
+        });
+        expect(imported.isTransfer).toBe(false);
+        expect(imported.transferGroupId).toBeNull();
+      });
+
+      it("includes a manually entered row (null importBatchId) in near-duplicate review", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-checking" }));
+
+        await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-manual",
+            accountId: "account-checking",
+            postedDate: "2026-04-01",
+            amountMinor: -4321,
+            descriptionRaw: "RESTAURANT LE BISTRO",
+            merchantKey: "RESTAURANT LE BISTRO",
+            importBatchId: null,
+          }),
+        );
+
+        const summary = await repository.importFinanceTransactions({
+          accountId: "account-checking",
+          profileId: null,
+          fileName: "near-dup.csv",
+          fileHash: "hash-near-dup",
+          rows: [
+            importRow({
+              accountId: "account-checking",
+              postedDate: "2026-04-02",
+              amountMinor: -4321,
+              descriptionRaw: "RESTAURANT LE BISTRO MONTREAL",
+              merchantKey: "RESTAURANT LE BISTRO MONTREAL",
+            }),
+          ],
+        });
+
+        expect(summary.nearDuplicates).toEqual([
+          expect.objectContaining({ existingTransactionId: "txn-manual" }),
+        ]);
+      });
+
       it("undoFinanceImportBatch removes only the batch's non-user-categorized rows and reports the rest", async () => {
         const repository = await factory();
         await repository.saveFinanceAccount(account({ id: "account-1" }));
