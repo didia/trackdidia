@@ -5,6 +5,7 @@ import { AnnualGoalsPage } from "./pages/AnnualGoalsPage";
 import { EmailTriagePage } from "./pages/EmailTriagePage";
 import { EveningClosurePage } from "./pages/EveningClosurePage";
 import { FinanceAccountsPage } from "./pages/FinanceAccountsPage";
+import { FinanceBudgetPage } from "./pages/FinanceBudgetPage";
 import { FinanceImportPage } from "./pages/FinanceImportPage";
 import { FinanceOverviewPage } from "./pages/FinanceOverviewPage";
 import { FinanceReviewPage } from "./pages/FinanceReviewPage";
@@ -40,6 +41,7 @@ export const FinanceRoutes = () => {
     <Routes>
       <Route index element={<FinanceOverviewPage />} />
       <Route path="transactions" element={<FinanceTransactionsPage />} />
+      <Route path="budget" element={<FinanceBudgetPage />} />
       <Route path="import" element={<FinanceImportPage />} />
       <Route path="accounts" element={<FinanceAccountsPage />} />
       <Route path="review" element={<FinanceReviewPage />} />

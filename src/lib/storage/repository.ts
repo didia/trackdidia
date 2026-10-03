@@ -47,6 +47,8 @@ import type {
   DecideFinanceCategorySuggestionInput,
   FinanceAccount,
   FinanceAccountFilters,
+  FinanceBudgetEntry,
+  FinanceBudgetMonth,
   FinanceCategory,
   FinanceCategoryBackfillEntry,
   FinanceCategorySuggestion,
@@ -56,6 +58,7 @@ import type {
   FinanceImportSummary,
   FinanceMerchantMemoryEntry,
   FinanceMerchantMemoryFilters,
+  FinanceOverspendPolicy,
   FinancePerson,
   FinanceRule,
   FinanceTransaction,
@@ -67,6 +70,7 @@ import type {
   SetFinanceTransferPair,
   UndoFinanceImportBatchResult,
 } from "../../domain/finance";
+import type { FinanceBudgetState } from "../../domain/finance/budget";
 
 export interface NativeStoragePaths {
   databasePath: string;
@@ -461,4 +465,33 @@ export interface AppRepository {
   reclassifyFinancePending(): Promise<ReclassifyFinancePendingResult>;
   /** Reverts the `backfill` entries from a `scope: "all_matching"` call — a single undo. */
   revertFinanceCategoryBackfill(entries: FinanceCategoryBackfillEntry[]): Promise<number>;
+
+  // --- Finance (Phase 5 — Budget) --------------------------------------------------------
+
+  /** The advisory `finance_budget_months` row (`closed_at`, `ready_to_assign_note`); never persisted until written. */
+  getFinanceBudgetMonth(monthKey: string): Promise<FinanceBudgetMonth>;
+  /**
+   * Idempotent upsert; assigning `0` deletes the row (see
+   * `src/domain/finance/budget.ts`'s "Non budgété" doc comment). Rejects
+   * `kind = "income"` categories via `assertFinanceCategoryAssignable`.
+   */
+  setFinanceBudgetAssignment(
+    monthKey: string,
+    categoryId: string,
+    assignedMinor: number,
+  ): Promise<FinanceBudgetEntry | null>;
+  /** Writes the policy on `(monthKey, categoryId)` and every later existing entry for that category. */
+  setFinanceCategoryOverspendPolicy(
+    monthKey: string,
+    categoryId: string,
+    policy: FinanceOverspendPolicy,
+  ): Promise<void>;
+  /** Envelope grid + Ready to Assign for `monthKey`, built by `computeFinanceBudgetState` — never materialized. */
+  computeFinanceBudgetState(monthKey: string): Promise<FinanceBudgetState>;
+  /** Advisory freeze/unfreeze of a month's budget inputs; changes no arithmetic. */
+  setFinanceBudgetMonthClosed(monthKey: string, closed: boolean): Promise<FinanceBudgetMonth>;
+  setFinanceBudgetReadyToAssignNote(
+    monthKey: string,
+    note: string | null,
+  ): Promise<FinanceBudgetMonth>;
 }

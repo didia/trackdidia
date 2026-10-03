@@ -127,6 +127,7 @@ false. `finances` (`/finances`) is the first such conditional entry, gated on
 | `/email-triage` | Email triage | Account cards, review queue, disabled-by-default settings |
 | `/finances` | Finance overview | Account list with derived balances and links; always registered, redirects to `/` while `financeEnabled` is false |
 | `/finances/transactions` | Finance transactions | Paged, filtered transaction list with inline category edit, splits, transfer/exclude toggles, bulk toolbar |
+| `/finances/budget` | Finance budget | Month selector, Ready to Assign, envelope grid with inline assignment, overspend policy, quick-assign actions, "Non budgété" band, close/reopen month |
 | `/finances/import` | Finance import | CSV file import: decode, profile mapping, preview, account binding, result panel, batch history with undo |
 | `/finances/accounts` | Finance accounts | Household members and accounts CRUD, opening/manual balances, reconciliation banner |
 | `/finances/review` | Finance review | Pending category-suggestion queue grouped by merchant: accept/correct/dismiss, bulk accept-above-threshold, "Réappliquer les règles" |
@@ -141,9 +142,9 @@ false. `finances` (`/finances`) is the first such conditional entry, gated on
 `/finances/*` is always registered in `App.tsx` (a `FinanceRoutes` element reads
 `settings.financeEnabled` and renders `<Navigate to="/" replace />` instead of
 its child routes while the flag is off), so a stale bookmark or deep link never
-404s — it just lands on Today. Only the six finance screens that exist ship a
-tab in the shared `FinanceTabs` bar on every `/finances*` page; budget and
-reports are later phases and have no tab yet. See
+404s — it just lands on Today. Only the seven finance screens that exist ship a
+tab in the shared `FinanceTabs` bar on every `/finances*` page; reports are a
+later phase and have no tab yet. See
 [`docs/finance.md`](finance.md) for what each finance screen does.
 
 See the product pages linked from [`index.md`](index.md) for behavior inside each
