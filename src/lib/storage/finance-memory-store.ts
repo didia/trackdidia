@@ -641,8 +641,12 @@ export class FinanceMemoryStore {
       );
     }
 
-    const candidates: TransferCandidateTransaction[] = [...this.transactions.values()].map(
-      (txn) => ({
+    // A user-categorized row is never re-categorized by any automatic stage, including
+    // transfer detection — exclude it from the candidate set entirely so it can neither be
+    // paired nor relabeled (see specs/todo/finance.md "Classification order").
+    const candidates: TransferCandidateTransaction[] = [...this.transactions.values()]
+      .filter((txn) => txn.categorySource !== "user")
+      .map((txn) => ({
         id: txn.id,
         accountId: txn.accountId,
         amountMinor: txn.amountMinor,
@@ -652,8 +656,7 @@ export class FinanceMemoryStore {
         isTransfer: txn.isTransfer,
         excludedFromBudget: txn.excludedFromBudget,
         accountOnBudget: this.accounts.get(txn.accountId)?.onBudget ?? true,
-      }),
-    );
+      }));
 
     const transferActions = detectTransfers(candidates);
     let transfersDetected = 0;
