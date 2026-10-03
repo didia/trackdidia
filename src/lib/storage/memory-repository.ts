@@ -3,6 +3,11 @@ import {
   cloneAnnualGoal,
   createEmptyAnnualGoal,
 } from "../../domain/annual-goals";
+import type {
+  CalendarSyncDetachReason,
+  CalendarSyncLink,
+  CalendarSyncSettings,
+} from "../../domain/calendar-sync";
 import {
   applyDailyPomodoroStats,
   applyDailyTaskStats,
@@ -85,7 +90,12 @@ import {
   reconcileProjectPlannedTasks,
   swapPlannedOrder,
 } from "../gtd/planned";
-import { promoteDueScheduledTasks as selectDueScheduledPromotions } from "../gtd/scheduled";
+import { calendarOccurrenceKeyFor } from "../calendar/eligibility";
+import {
+  buildCalendarSyncCaptureLink,
+  isCalendarSyncCaptureActive,
+  promoteDueScheduledTasks as selectDueScheduledPromotions,
+} from "../gtd/scheduled";
 import {
   addDays,
   buildContextId,
@@ -129,6 +139,7 @@ import {
   relationshipPersonalContextId,
 } from "../relationship-draws";
 import type { AppRepository, PomodoroStartOptions, StorageInfo } from "./repository";
+import { CalendarSyncMemoryStore } from "./calendar-sync-memory-store";
 import { EmailTriageMemoryStore } from "./email-triage-memory-store";
 
 export class MemoryRepository implements AppRepository {
@@ -173,6 +184,7 @@ export class MemoryRepository implements AppRepository {
     },
     getTaskById: (id) => this.tasks.get(id),
   });
+  private readonly calendarSync = new CalendarSyncMemoryStore();
 
   async initialize(): Promise<void> {
     return Promise.resolve();
@@ -1331,6 +1343,11 @@ export class MemoryRepository implements AppRepository {
     const updated = selectDueScheduledPromotions(snapshot, date, now);
     const previousById = new Map(snapshot.map((task) => [task.id, task] as const));
 
+    // Promotion capture (specs/todo/calendar-sync.md): synchronous, in the same block as
+    // the promotion itself, through the synchronous `CalendarSyncMemoryStore` accessors.
+    const calendarSyncSettings = this.calendarSync.getSettings();
+    const captureActive = isCalendarSyncCaptureActive(calendarSyncSettings);
+
     for (const next of updated) {
       const previous = previousById.get(next.id) ?? null;
       this.tasks.set(next.id, cloneTask(next));
@@ -1341,6 +1358,22 @@ export class MemoryRepository implements AppRepository {
           eventDate: localEventDate,
         })),
       );
+
+      if (captureActive && previous) {
+        const occurrenceKey = calendarOccurrenceKeyFor(previous);
+        if (occurrenceKey !== null) {
+          const existingLink = this.calendarSync.getLink(previous.id, occurrenceKey);
+          const captureLink = buildCalendarSyncCaptureLink(
+            previous,
+            existingLink,
+            calendarSyncSettings,
+            next.updatedAt,
+          );
+          if (captureLink) {
+            this.calendarSync.saveLink(captureLink);
+          }
+        }
+      }
     }
 
     this.reconcileProjects(updated.map((task) => task.projectId));
@@ -2231,6 +2264,48 @@ export class MemoryRepository implements AppRepository {
 
   async emailTriageSaveAlias(accountId: string, conversationKey: string, messageIdHeader: string) {
     this.emailTriage.saveAlias(accountId, conversationKey, messageIdHeader);
+    return Promise.resolve();
+  }
+
+  async getCalendarSyncSettings(): Promise<CalendarSyncSettings> {
+    return Promise.resolve(this.calendarSync.getSettings());
+  }
+
+  async saveCalendarSyncSettings(settings: CalendarSyncSettings): Promise<CalendarSyncSettings> {
+    return Promise.resolve(this.calendarSync.saveSettings(settings));
+  }
+
+  async listCalendarSyncLinks(): Promise<CalendarSyncLink[]> {
+    return Promise.resolve(this.calendarSync.listLinks());
+  }
+
+  async getCalendarSyncLink(
+    taskId: string,
+    occurrenceKey: string,
+  ): Promise<CalendarSyncLink | null> {
+    return Promise.resolve(this.calendarSync.getLink(taskId, occurrenceKey));
+  }
+
+  async saveCalendarSyncLink(link: CalendarSyncLink): Promise<CalendarSyncLink> {
+    return Promise.resolve(this.calendarSync.saveLink(link));
+  }
+
+  async deleteCalendarSyncLink(taskId: string, occurrenceKey: string): Promise<void> {
+    this.calendarSync.deleteLink(taskId, occurrenceKey);
+    return Promise.resolve();
+  }
+
+  async detachCalendarSyncLink(
+    taskId: string,
+    occurrenceKey: string,
+    reason: CalendarSyncDetachReason,
+  ): Promise<void> {
+    this.calendarSync.detachLink(taskId, occurrenceKey, reason, nowIso());
+    return Promise.resolve();
+  }
+
+  async clearCalendarSyncLinks(): Promise<void> {
+    this.calendarSync.clearLinks();
     return Promise.resolve();
   }
 }

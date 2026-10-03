@@ -1,5 +1,7 @@
 import { afterEach, vi } from "vitest";
+import { defaultCalendarSyncSettings } from "../../domain/calendar-sync";
 import { createEmptyDailyEntry, defaultAppSettings } from "../../domain/daily-entry";
+import { buildCalendarSyncSignatureForTask } from "../calendar/eligibility";
 import { createEmptyMonthlyReview } from "../../domain/monthly-review";
 import type { MidWeekLaggingSnapshot } from "../../domain/mid-week-review";
 import type { CatalogVerse, RescueTimeSnapshotCacheEntry } from "../../domain/types";
@@ -2322,6 +2324,330 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         await repository.computeDailyTaskStats("2026-01-20");
 
         expect(await repository.promoteDueScheduledTasks("2026-01-20")).toBe(1);
+      });
+    });
+
+    describe("calendar sync", () => {
+      const connectedSettings = () => ({
+        ...defaultCalendarSyncSettings("2026-01-01T00:00:00.000Z"),
+        enabled: true,
+        connectedAccountId: "account:1",
+        calendarId: "calendar:trackdidia",
+        state: "active" as const,
+      });
+
+      it("returns default settings before any save", async () => {
+        const repository = await factory();
+        await expect(repository.getCalendarSyncSettings()).resolves.toMatchObject({
+          enabled: false,
+          state: "disconnected",
+          generation: 1,
+        });
+      });
+
+      it("round-trips saved settings", async () => {
+        const repository = await factory();
+        await repository.saveCalendarSyncSettings(connectedSettings());
+        await expect(repository.getCalendarSyncSettings()).resolves.toMatchObject({
+          enabled: true,
+          connectedAccountId: "account:1",
+          calendarId: "calendar:trackdidia",
+          state: "active",
+        });
+      });
+
+      it("bumps generation and clears links when the connected account changes", async () => {
+        const repository = await factory();
+        const first = await repository.saveCalendarSyncSettings(connectedSettings());
+        expect(first.generation).toBe(1);
+        await repository.saveCalendarSyncLink({
+          taskId: "task:1",
+          occurrenceKey: "2026-01-12",
+          calendarId: "calendar:trackdidia",
+          eventId: "event:1",
+          generation: 1,
+          state: "synced",
+          payloadSignature: "{}",
+          eventStartAt: "2026-01-12T09:00:00",
+          detachReason: null,
+          failureCount: 0,
+          lastError: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        });
+
+        const second = await repository.saveCalendarSyncSettings({
+          ...connectedSettings(),
+          generation: first.generation,
+          connectedAccountId: "account:2",
+        });
+        expect(second.generation).toBe(2);
+        await expect(repository.listCalendarSyncLinks()).resolves.toEqual([]);
+      });
+
+      it("does not bump generation on a plain disconnect", async () => {
+        const repository = await factory();
+        const first = await repository.saveCalendarSyncSettings(connectedSettings());
+        const second = await repository.saveCalendarSyncSettings({
+          ...first,
+          enabled: false,
+          state: "disconnected",
+        });
+        expect(second.generation).toBe(first.generation);
+      });
+
+      it("saves, lists, gets, detaches, deletes and clears links", async () => {
+        const repository = await factory();
+        const link = {
+          taskId: "task:1",
+          occurrenceKey: "2026-01-12",
+          calendarId: "calendar:trackdidia",
+          eventId: "event:1",
+          generation: 1,
+          state: "synced" as const,
+          payloadSignature: "{}",
+          eventStartAt: "2026-01-12T09:00:00",
+          detachReason: null,
+          failureCount: 0,
+          lastError: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        };
+        await repository.saveCalendarSyncLink(link);
+        await expect(repository.getCalendarSyncLink("task:1", "2026-01-12")).resolves.toMatchObject(
+          {
+            taskId: "task:1",
+            state: "synced",
+          },
+        );
+        await expect(repository.listCalendarSyncLinks()).resolves.toHaveLength(1);
+
+        await repository.detachCalendarSyncLink("task:1", "2026-01-12", "completed");
+        await expect(repository.getCalendarSyncLink("task:1", "2026-01-12")).resolves.toMatchObject(
+          {
+            state: "detached",
+            detachReason: "completed",
+          },
+        );
+
+        await repository.deleteCalendarSyncLink("task:1", "2026-01-12");
+        await expect(repository.getCalendarSyncLink("task:1", "2026-01-12")).resolves.toBeNull();
+
+        await repository.saveCalendarSyncLink(link);
+        await repository.clearCalendarSyncLinks();
+        await expect(repository.listCalendarSyncLinks()).resolves.toEqual([]);
+      });
+
+      describe("promotion capture", () => {
+        it("captures a recurring occurrence promoted in the same listTasks() call", async () => {
+          vi.useFakeTimers();
+          vi.setSystemTime(new Date("2026-01-12T06:00:00.000Z"));
+
+          const repository = await factory();
+          await repository.saveCalendarSyncSettings(connectedSettings());
+          await repository.saveRecurringTaskTemplate({
+            id: "recurring-template:standup",
+            title: "Standup",
+            notes: "",
+            targetBucket: "scheduled",
+            contextIds: [],
+            projectId: null,
+            ruleType: "daily",
+            dailyInterval: 1,
+            weeklyInterval: 1,
+            weeklyDays: [0],
+            monthlyMode: "day_of_month",
+            dayOfMonth: 1,
+            nthWeek: 1,
+            weekday: 6,
+            scheduledTime: "09:00",
+            startDate: "2026-01-12",
+            status: "active",
+            lastGeneratedForDate: null,
+            pendingMissedOccurrences: 0,
+            statusChangedAt: "2026-01-12T00:00:00.000Z",
+            createdAt: "2026-01-12T00:00:00.000Z",
+            updatedAt: "2026-01-12T00:00:00.000Z",
+          });
+
+          const tasks = await repository.listTasks();
+          expect(tasks).toHaveLength(1);
+          expect(tasks[0]).toMatchObject({ bucket: "next_action", scheduledFor: null });
+
+          const links = await repository.listCalendarSyncLinks();
+          expect(links).toHaveLength(1);
+          expect(links[0]).toMatchObject({
+            taskId: tasks[0].id,
+            occurrenceKey: "2026-01-12",
+            state: "pending",
+            eventId: null,
+          });
+          const payload = JSON.parse(links[0].payloadSignature) as { start: { dateTime: string } };
+          // America/Toronto is UTC-5 in January: 09:00 local is 14:00 UTC.
+          expect(payload.start.dateTime).toBe("2026-01-12T14:00:00.000Z");
+        });
+
+        it("captures a task dated later today, promoted by listTasks() before the reconciler runs", async () => {
+          vi.useFakeTimers();
+          vi.setSystemTime(new Date("2026-01-12T06:00:00.000Z"));
+
+          const repository = await factory();
+          await repository.saveCalendarSyncSettings(connectedSettings());
+          const task = await repository.createTask({
+            title: "Plus tard aujourd'hui",
+            bucket: "scheduled",
+            scheduledFor: "2026-01-12T20:00:00",
+          });
+
+          await repository.listTasks();
+
+          const link = await repository.getCalendarSyncLink(task.id, "2026-01-12");
+          expect(link).toMatchObject({ state: "pending", eventId: null });
+        });
+
+        it("captures nothing when sync is disabled", async () => {
+          vi.useFakeTimers();
+          vi.setSystemTime(new Date("2026-01-12T06:00:00.000Z"));
+
+          const repository = await factory();
+          await repository.saveCalendarSyncSettings({ ...connectedSettings(), enabled: false });
+          const task = await repository.createTask({
+            title: "Due today",
+            bucket: "scheduled",
+            scheduledFor: "2026-01-12T09:00:00",
+          });
+
+          await repository.listTasks();
+
+          await expect(repository.getCalendarSyncLink(task.id, "2026-01-12")).resolves.toBeNull();
+        });
+
+        it("captures nothing when disconnected", async () => {
+          vi.useFakeTimers();
+          vi.setSystemTime(new Date("2026-01-12T06:00:00.000Z"));
+
+          const repository = await factory();
+          await repository.saveCalendarSyncSettings({
+            ...connectedSettings(),
+            enabled: true,
+            state: "disconnected",
+          });
+          const task = await repository.createTask({
+            title: "Due today",
+            bucket: "scheduled",
+            scheduledFor: "2026-01-12T09:00:00",
+          });
+
+          await repository.listTasks();
+
+          await expect(repository.getCalendarSyncLink(task.id, "2026-01-12")).resolves.toBeNull();
+        });
+
+        it("captures while needs_confirmation is pending", async () => {
+          vi.useFakeTimers();
+          vi.setSystemTime(new Date("2026-01-12T06:00:00.000Z"));
+
+          const repository = await factory();
+          await repository.saveCalendarSyncSettings({
+            ...connectedSettings(),
+            state: "needs_confirmation",
+          });
+          const task = await repository.createTask({
+            title: "Due today",
+            bucket: "scheduled",
+            scheduledFor: "2026-01-12T09:00:00",
+          });
+
+          await repository.listTasks();
+
+          await expect(
+            repository.getCalendarSyncLink(task.id, "2026-01-12"),
+          ).resolves.toMatchObject({
+            state: "pending",
+          });
+        });
+
+        it("leaves an unchanged synced link alone", async () => {
+          vi.useFakeTimers();
+          vi.setSystemTime(new Date("2026-01-12T06:00:00.000Z"));
+
+          const repository = await factory();
+          await repository.saveCalendarSyncSettings(connectedSettings());
+          const task = await repository.createTask({
+            title: "Due today",
+            bucket: "scheduled",
+            scheduledFor: "2026-01-12T09:00:00",
+          });
+          await repository.listTasks();
+          const captured = await repository.getCalendarSyncLink(task.id, "2026-01-12");
+          const synced = await repository.saveCalendarSyncLink({
+            ...captured!,
+            state: "synced",
+            eventId: "event:1",
+          });
+
+          vi.setSystemTime(new Date("2026-01-12T07:00:00.000Z"));
+          await repository.listTasks();
+
+          await expect(repository.getCalendarSyncLink(task.id, "2026-01-12")).resolves.toEqual(
+            synced,
+          );
+        });
+
+        it("turns a synced link into a pending update when the task was edited before promotion", async () => {
+          vi.useFakeTimers();
+          // Not yet due: the task is still Scheduled, not promoted.
+          vi.setSystemTime(new Date("2026-01-11T12:00:00.000Z"));
+
+          const repository = await factory();
+          const settings = await repository.saveCalendarSyncSettings(connectedSettings());
+          const task = await repository.createTask({
+            title: "Original title",
+            bucket: "scheduled",
+            scheduledFor: "2026-01-12T09:00:00",
+          });
+          const { signature } = buildCalendarSyncSignatureForTask(task, settings);
+          await repository.saveCalendarSyncLink({
+            taskId: task.id,
+            occurrenceKey: "2026-01-12",
+            calendarId: settings.calendarId ?? "",
+            eventId: "event:1",
+            generation: settings.generation,
+            state: "synced",
+            payloadSignature: signature,
+            eventStartAt: task.scheduledFor as string,
+            detachReason: null,
+            failureCount: 0,
+            lastError: null,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          });
+
+          await repository.saveTask({ ...task, title: "Edited title" });
+
+          // Now due: listTasks() promotes it, and the capture notices the edit.
+          vi.setSystemTime(new Date("2026-01-12T06:00:00.000Z"));
+          await repository.listTasks();
+
+          const afterPromotion = await repository.getCalendarSyncLink(task.id, "2026-01-12");
+          expect(afterPromotion).toMatchObject({ state: "pending", eventId: "event:1" });
+        });
+
+        it("writes nothing when sync is off and there is no existing link", async () => {
+          vi.useFakeTimers();
+          vi.setSystemTime(new Date("2026-01-12T06:00:00.000Z"));
+
+          const repository = await factory();
+          await repository.createTask({
+            title: "Due today",
+            bucket: "scheduled",
+            scheduledFor: "2026-01-12T09:00:00",
+          });
+
+          await repository.listTasks();
+
+          await expect(repository.listCalendarSyncLinks()).resolves.toEqual([]);
+        });
       });
     });
 

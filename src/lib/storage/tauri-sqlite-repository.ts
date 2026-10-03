@@ -1,4 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
+import type {
+  CalendarSyncDetachReason,
+  CalendarSyncLink,
+  CalendarSyncSettings,
+} from "../../domain/calendar-sync";
 import {
   buildAnnualGoalSnapshots,
   cloneAnnualGoal,
@@ -85,7 +90,12 @@ import {
   reconcileProjectPlannedTasks,
   swapPlannedOrder,
 } from "../gtd/planned";
-import { promoteDueScheduledTasks as selectDueScheduledPromotions } from "../gtd/scheduled";
+import { calendarOccurrenceKeyFor } from "../calendar/eligibility";
+import {
+  buildCalendarSyncCaptureLink,
+  isCalendarSyncCaptureActive,
+  promoteDueScheduledTasks as selectDueScheduledPromotions,
+} from "../gtd/scheduled";
 import {
   addDays,
   cloneProject,
@@ -127,6 +137,7 @@ import {
   relationshipDrawDefinitions,
   relationshipPersonalContextId,
 } from "../relationship-draws";
+import { CalendarSyncSqliteStore } from "./calendar-sync-sqlite-store";
 import { DbSerialQueue } from "./db-serial-queue";
 import { EmailTriageSqliteStore } from "./email-triage-sqlite-store";
 import type { Database as SqliteDatabase } from "./email-triage-sqlite-db";
@@ -1117,12 +1128,59 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    id: 37,
+    name: "create_calendar_sync",
+    sql: `
+      CREATE TABLE IF NOT EXISTS calendar_sync_settings (
+        id TEXT PRIMARY KEY CHECK (id = 'global'),
+        enabled INTEGER NOT NULL DEFAULT 0,
+        provider TEXT NOT NULL DEFAULT 'google',
+        oauth_client_id TEXT NOT NULL DEFAULT '',
+        connected_account_id TEXT,
+        calendar_id TEXT,
+        calendar_summary TEXT NOT NULL DEFAULT 'TrackDidia',
+        default_duration_minutes INTEGER NOT NULL DEFAULT 30,
+        include_notes INTEGER NOT NULL DEFAULT 0,
+        mark_busy INTEGER NOT NULL DEFAULT 0,
+        reminders_enabled INTEGER NOT NULL DEFAULT 0,
+        state TEXT NOT NULL DEFAULT 'disconnected',
+        generation INTEGER NOT NULL DEFAULT 1,
+        last_sync_at TEXT,
+        last_error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS calendar_sync_links (
+        task_id TEXT NOT NULL,
+        occurrence_key TEXT NOT NULL,
+        calendar_id TEXT NOT NULL,
+        event_id TEXT,
+        generation INTEGER NOT NULL,
+        state TEXT NOT NULL,
+        payload_signature TEXT NOT NULL,
+        event_start_at TEXT NOT NULL,
+        detach_reason TEXT,
+        failure_count INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (task_id, occurrence_key)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_sync_links_event
+        ON calendar_sync_links (calendar_id, event_id);
+      CREATE INDEX IF NOT EXISTS idx_calendar_sync_links_state
+        ON calendar_sync_links (state);
+    `,
+  },
 ];
 
 export class TauriSqliteRepository implements AppRepository {
   private dbPromise: Promise<SqliteDatabase> | null = null;
   private readonly writeQueue = new DbSerialQueue();
   private emailTriageStore: EmailTriageSqliteStore | null = null;
+  private calendarSyncStore: CalendarSyncSqliteStore | null = null;
 
   /**
    * `openDb` defaults to the real Tauri-backed `Database.load`; tests inject an in-memory
@@ -1133,6 +1191,13 @@ export class TauriSqliteRepository implements AppRepository {
     private readonly connectionString = "sqlite:trackdidia.db",
     private readonly openDb: (path: string) => Promise<SqliteDatabase> = Database.load,
   ) {}
+
+  private getCalendarSyncStore(): CalendarSyncSqliteStore {
+    if (!this.calendarSyncStore) {
+      this.calendarSyncStore = new CalendarSyncSqliteStore(() => this.getDb());
+    }
+    return this.calendarSyncStore;
+  }
 
   private getEmailTriageStore(): EmailTriageSqliteStore {
     if (!this.emailTriageStore) {
@@ -3568,6 +3633,13 @@ export class TauriSqliteRepository implements AppRepository {
 
         const previousById = new Map(snapshot.map((task) => [task.id, task] as const));
 
+        // Promotion capture (specs/todo/calendar-sync.md): the instant before
+        // `scheduledFor` is cleared is the only place it still exists. Goes directly
+        // through `getCalendarSyncStore()`, never through the public repository methods
+        // (those would re-enter `runExclusive`, which is not reentrant).
+        const calendarSyncSettings = await this.getCalendarSyncStore().getSettings();
+        const captureActive = isCalendarSyncCaptureActive(calendarSyncSettings);
+
         for (const next of updated) {
           const previous = previousById.get(next.id) ?? null;
           await this.persistTask(next);
@@ -3578,6 +3650,25 @@ export class TauriSqliteRepository implements AppRepository {
               eventDate: localEventDate,
             })),
           );
+
+          if (captureActive && previous) {
+            const occurrenceKey = calendarOccurrenceKeyFor(previous);
+            if (occurrenceKey !== null) {
+              const existingLink = await this.getCalendarSyncStore().getLink(
+                previous.id,
+                occurrenceKey,
+              );
+              const captureLink = buildCalendarSyncCaptureLink(
+                previous,
+                existingLink,
+                calendarSyncSettings,
+                next.updatedAt,
+              );
+              if (captureLink) {
+                await this.getCalendarSyncStore().saveLink(captureLink);
+              }
+            }
+          }
         }
 
         await this.reconcileProjectsInternal(
@@ -5170,5 +5261,44 @@ export class TauriSqliteRepository implements AppRepository {
 
   async emailTriageSaveAlias(accountId: string, conversationKey: string, messageIdHeader: string) {
     return this.getEmailTriageStore().saveAlias(accountId, conversationKey, messageIdHeader);
+  }
+
+  async getCalendarSyncSettings(): Promise<CalendarSyncSettings> {
+    return this.getCalendarSyncStore().getSettings();
+  }
+
+  async saveCalendarSyncSettings(settings: CalendarSyncSettings): Promise<CalendarSyncSettings> {
+    return this.getCalendarSyncStore().saveSettings(settings);
+  }
+
+  async listCalendarSyncLinks(): Promise<CalendarSyncLink[]> {
+    return this.getCalendarSyncStore().listLinks();
+  }
+
+  async getCalendarSyncLink(
+    taskId: string,
+    occurrenceKey: string,
+  ): Promise<CalendarSyncLink | null> {
+    return this.getCalendarSyncStore().getLink(taskId, occurrenceKey);
+  }
+
+  async saveCalendarSyncLink(link: CalendarSyncLink): Promise<CalendarSyncLink> {
+    return this.getCalendarSyncStore().saveLink(link);
+  }
+
+  async deleteCalendarSyncLink(taskId: string, occurrenceKey: string): Promise<void> {
+    await this.getCalendarSyncStore().deleteLink(taskId, occurrenceKey);
+  }
+
+  async detachCalendarSyncLink(
+    taskId: string,
+    occurrenceKey: string,
+    reason: CalendarSyncDetachReason,
+  ): Promise<void> {
+    await this.getCalendarSyncStore().detachLink(taskId, occurrenceKey, reason, nowIso());
+  }
+
+  async clearCalendarSyncLinks(): Promise<void> {
+    await this.getCalendarSyncStore().clearLinks();
   }
 }
