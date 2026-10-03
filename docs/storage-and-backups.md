@@ -76,6 +76,8 @@ queue again. Direct nesting on the same connection is rejected; re-entering the
 writer queue remains prohibited and covered by its watchdog. Public weekly/monthly
 review, weekly objective, and AI memory saves acquire a transaction before invoking
 their internal writer. The migration runner uses the same transaction lifecycle.
+Email mutations use this queue and transaction context too; see the
+[email atomicity contract](email-triage.md) for composed review and task writes.
 
 Changing the Tauri identifier changes the app-data location from the operating
 system's perspective. Do not change it without a deliberate user-data migration.

@@ -410,12 +410,24 @@ interface AiMemoryRow {
 export class TauriSqliteRepository implements AppRepository {
   private dbPromise: Promise<SqliteDatabase> | null = null;
   private readonly writeQueue = new DbSerialQueue();
-  readonly emailTriage = new EmailTriageSqliteStore(() => this.getDb(), {
-    getTaskByExternalId: (externalId) => this.getTaskByExternalId(externalId),
-    createTask: (input) => this.createTask(input),
-    saveTask: (task) => this.saveTask(task),
-    persistEvents: (events) => this.persistEvents(events),
-  });
+  readonly emailTriage = new EmailTriageSqliteStore(
+    () => this.getDb(),
+    {
+      getTaskByExternalId: (externalId) => this.getTaskByExternalId(externalId),
+      createTask: (input) => this.createTask(input),
+      saveTask: (task) => this.saveTask(task),
+      persistEvents: (events) => this.persistEvents(events),
+      handlesLifecycleEvents: true,
+    },
+    (work) => this.writeTransaction(work),
+    (tx) => ({
+      getTaskByExternalId: (externalId) => this.getTaskByExternalId(externalId),
+      createTask: (input) => this.createTaskInternal(tx, input),
+      saveTask: (task) => this.saveTaskInternal(tx, task),
+      persistEvents: (events) => this.persistEvents(events),
+      handlesLifecycleEvents: true,
+    }),
+  );
 
   /**
    * `openDb` defaults to the real Tauri-backed `Database.load`; tests inject an in-memory
