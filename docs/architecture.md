@@ -102,7 +102,11 @@ React page
 ## Route catalog
 
 All routes render under `AppShell`, which supplies the sidebar, daily quote, and
-floating Pomodoro timer.
+floating Pomodoro timer. The sidebar's nav list is normally static, but a nav
+entry can carry a `flag` naming an `AppSettings` boolean; `AppShell` reads
+`settings` from `useAppContext()` and filters that entry out when the flag is
+false. `finances` (`/finances`) is the first such conditional entry, gated on
+`settings.financeEnabled`.
 
 | Route | Screen | Purpose |
 |---|---|---|
@@ -121,12 +125,24 @@ floating Pomodoro timer.
 | `/pomodoro` | Pomodoro | Focus/break timer, task switching, daily history |
 | `/recurrences` | Recurrences | Create, filter, pause/resume/cancel recurring series |
 | `/email-triage` | Email triage | Account cards, review queue, disabled-by-default settings |
+| `/finances` | Finance overview | Account list with derived balances and links; always registered, redirects to `/` while `financeEnabled` is false |
+| `/finances/transactions` | Finance transactions | Paged, filtered transaction list with inline category edit, splits, transfer/exclude toggles, bulk toolbar |
+| `/finances/import` | Finance import | CSV file import: decode, profile mapping, preview, account binding, result panel, batch history with undo |
+| `/finances/accounts` | Finance accounts | Household members and accounts CRUD, opening/manual balances, reconciliation banner |
 | `/references` | References | Non-actionable material |
 | `/scheduled` | Scheduled | Day/week planning, deadlines, recurrence previews |
 | `/waiting-for` | Waiting For | Work awaiting external action |
 | `/someday-maybe` | Someday / Maybe | Deferred possibilities |
 | `/parametres` | Settings | AI, debug, relationship draws, backup, GTD import |
 | `/waiting-someday` | Redirect | Legacy alias redirected to `/waiting-for` |
+
+`/finances/*` is always registered in `App.tsx` (a `FinanceRoutes` element reads
+`settings.financeEnabled` and renders `<Navigate to="/" replace />` instead of
+its child routes while the flag is off), so a stale bookmark or deep link never
+404s — it just lands on Today. Only the four finance screens that exist ship a
+tab in the shared `FinanceTabs` bar on every `/finances*` page; budget, reports,
+and review are later phases and have no tab yet. See
+[`docs/finance.md`](finance.md) for what each finance screen does.
 
 See the product pages linked from [`index.md`](index.md) for behavior inside each
 screen.
@@ -147,8 +163,17 @@ screen.
 8. Promote active Scheduled tasks whose local `scheduledFor` date is today or
    earlier to Next Actions.
 9. Generate enabled relationship activity tasks for the current local date.
-10. Expose the repository and settings to the UI.
-11. After a successful bootstrap (not browser preview and not the startup
+10. If `settings.financeEnabled` is true and `settings.financeCategoriesSeededAt`
+    is empty, seed the default finance category taxonomy
+    (`seedFinanceDefaultCategories()`, idempotent `INSERT OR IGNORE`) and set the
+    marker. This step is wrapped in its own `try`/`catch` — a failure is logged
+    and swallowed, never thrown, so it cannot turn into a new way to hit the
+    eight-second timeout below. The same seed-once-on-enable also runs from
+    `SettingsPage` when a user flips `financeEnabled` from false to true there,
+    so whichever path flips the flag first does the seeding and the other is a
+    no-op.
+11. Expose the repository and settings to the UI.
+12. After a successful bootstrap (not browser preview and not the startup
     fallback), start the email triage coordinator. It still no-ops while the
     feature flag is off, and it probes the OS vault only after that flag is on.
     On desktop, connected Gmail and Microsoft Graph accounts use the live adapter

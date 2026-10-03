@@ -25,7 +25,7 @@ Chronological documentation activity is recorded in domain logs under
 | [recurrences-and-pomodoro.md](recurrences-and-pomodoro.md) | Recurrence templates/generation/previews and Pomodoro sessions/segments/notifications |
 | [ai-settings-and-privacy.md](ai-settings-and-privacy.md) | Local/AI coaching, OpenRouter request data, relationship draws, debug and settings |
 | [email-triage.md](email-triage.md) | Disabled-by-default local email triage (Gmail, Graph, Yahoo; gated mutation; tray) |
-| [finance.md](finance.md) | Unshipped household finance domain: schema, import/dedupe/transfer detection, repository contract (Phase 2 of a phased build) |
+| [finance.md](finance.md) | Household finance domain: schema, import/dedupe/transfer detection, repository contract, and the accounts/import/transactions screens behind `financeEnabled` (Phases 2-3 of a phased build) |
 
 ## Source map
 
@@ -45,7 +45,9 @@ Chronological documentation activity is recorded in domain logs under
 | Desktop configuration | `src-tauri/tauri.conf.json` |
 | Finance domain types | `src/domain/finance.ts` |
 | Finance SQLite/memory stores | `src/lib/storage/finance-sqlite-store.ts`, `src/lib/storage/finance-memory-store.ts` |
-| Finance pure engines (money, CSV, dedupe, transfers) | `src/lib/finance/` |
+| Finance pure engines (money, CSV, dedupe, transfers, import mapping) | `src/lib/finance/` |
+| Finance derived-balance arithmetic | `src/domain/finance/account-balance.ts` |
+| Finance screens | `src/pages/FinanceOverviewPage.tsx`, `FinanceAccountsPage.tsx`, `FinanceImportPage.tsx`, `FinanceTransactionsPage.tsx`, `src/components/finance/FinanceTabs.tsx` |
 
 ## Reading paths
 
