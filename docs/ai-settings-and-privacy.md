@@ -668,7 +668,7 @@ SQLite settings (`Paramètres → RescueTime`); it never reads a repo-root `.env
 
 RescueTime HTTP uses dual transport via `fetchRescueTimeJson`:
 
-- **Tauri desktop:** native `rescuetime_http_get` (Rust host) to avoid webview CORS limits.
+- **Tauri desktop:** the shared native `provider_http_request` command, restricted to HTTPS and an allowlist that includes `www.rescuetime.com`, to avoid webview CORS limits. Authenticated requests do not follow redirects. RescueTime responses have an 8 MB size cap.
 - **Browser preview / non-Tauri:** browser `fetch()` with `Authorization: Bearer` (same pattern as OpenRouter).
 
 Both paths call the same RescueTime endpoints:
@@ -689,7 +689,7 @@ Authorization: Bearer {rescuetimeApiKey}
 The weekly review also fetches a **productivity pulse** with
 `restrict_kind=productivity`, `restrict_source_type=computers`, and no
 `restrict_schedule_id` (full-week computer time only, Sunday–Saturday). Browser and
-native RescueTime requests use a 20-second abortable timeout.
+native RescueTime requests use a 20-second timeout.
 
 The key is stored locally in the singleton `app_settings` row, merged with defaults
 on read, and included in SQLite backups. It is never logged by the app. You can
