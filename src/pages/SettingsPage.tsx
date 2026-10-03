@@ -15,6 +15,7 @@ import type { AiPayloadScope, AppSettings } from "../domain/types";
 import { formatPulseSlotHours, parsePulseSlotHours } from "../lib/ai/pulse/slot-hours";
 import { BACKUP_RETENTION_COUNT, isBackupDestinationConfigured } from "../lib/backup";
 import { formatDateTimeShort } from "../lib/date";
+import { currencyExponent, minorToInputString, parseAmountToMinor } from "../lib/finance/money";
 import { RescueTimeGoalsService } from "../lib/rescuetime/rescuetime-goals-service";
 import type { StorageInfo } from "../lib/storage/repository";
 
@@ -41,9 +42,22 @@ export const SettingsPage = () => {
   const [choosingBackupFolder, setChoosingBackupFolder] = useState(false);
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
   const relationshipSave = useSectionSave(() => saveSettings(draftSettings));
+  const [financeSafetyBufferDraft, setFinanceSafetyBufferDraft] = useState(() =>
+    minorToInputString(
+      settings.financeSafetyBufferMinor,
+      currencyExponent(settings.financeBaseCurrency),
+    ),
+  );
   const financeSave = useSectionSave(async () => {
     const enabling = draftSettings.financeEnabled && !settings.financeEnabled;
-    let nextSettings = draftSettings;
+    const exponent = currencyExponent(draftSettings.financeBaseCurrency);
+    const parsedBuffer = parseAmountToMinor(financeSafetyBufferDraft || "0", { exponent });
+    let nextSettings = {
+      ...draftSettings,
+      financeSafetyBufferMinor: parsedBuffer.ok
+        ? parsedBuffer.amountMinor
+        : settings.financeSafetyBufferMinor,
+    };
 
     if (enabling && !settings.financeCategoriesSeededAt) {
       await repository.seedFinanceDefaultCategories();
@@ -58,6 +72,12 @@ export const SettingsPage = () => {
     setPulseSlotsDraft(formatPulseSlotHours(settings.aiPulseSlots));
     setCostRateDraft(String(settings.aiCostPerMillionTokens));
     setPulseSlotsError("");
+    setFinanceSafetyBufferDraft(
+      minorToInputString(
+        settings.financeSafetyBufferMinor,
+        currencyExponent(settings.financeBaseCurrency),
+      ),
+    );
   }, [settings]);
 
   const parsedCostRate = useMemo((): number | null => {
@@ -530,6 +550,44 @@ export const SettingsPage = () => {
                 }))
               }
               placeholder={t("finance.baseCurrencyPlaceholder")}
+            />
+          </label>
+
+          <label className="switch-row">
+            <input
+              type="checkbox"
+              checked={draftSettings.financeAlertsOnToday}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  financeAlertsOnToday: event.target.checked,
+                }))
+              }
+            />
+            <span>{t("finance.alertsOnToday")}</span>
+          </label>
+
+          <label className="switch-row">
+            <input
+              type="checkbox"
+              checked={draftSettings.financeNotifyRunout}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  financeNotifyRunout: event.target.checked,
+                }))
+              }
+            />
+            <span>{t("finance.notifyRunout")}</span>
+          </label>
+
+          <label>
+            <span>{t("finance.safetyBufferMinor")}</span>
+            <input
+              type="text"
+              value={financeSafetyBufferDraft}
+              onChange={(event) => setFinanceSafetyBufferDraft(event.target.value)}
+              placeholder={t("finance.safetyBufferMinorPlaceholder")}
             />
           </label>
         </div>

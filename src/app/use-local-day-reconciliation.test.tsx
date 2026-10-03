@@ -11,6 +11,15 @@ import { AppContext, type AppContextValue } from "./app-context";
 import { useGtdWorkspace } from "./use-gtd";
 import { useLocalDayReconciliation } from "./use-local-day-reconciliation";
 
+const { notifyCompletion } = vi.hoisted(() => ({ notifyCompletion: vi.fn(async () => true) }));
+
+vi.mock("../lib/pomodoro/sound", () => ({
+  unlockPomodoroSound: vi.fn(async () => undefined),
+  playPomodoroChime: vi.fn(async () => undefined),
+  notifyPomodoroCompletion: notifyCompletion,
+  resolvePomodoroChimeVariant: vi.fn(() => "focus"),
+}));
+
 class FakeProvider implements AiProvider {
   async generateStructured() {
     return {
@@ -63,11 +72,13 @@ const NextActionTitles = () => {
 const MountedGtdView = ({
   repository,
   financeEnabled = false,
+  financeNotifyRunout = false,
 }: {
   repository: MemoryRepository;
   financeEnabled?: boolean;
+  financeNotifyRunout?: boolean;
 }) => {
-  const calendarDay = useLocalDayReconciliation(repository, financeEnabled);
+  const calendarDay = useLocalDayReconciliation(repository, financeEnabled, financeNotifyRunout);
   const value = useMemo<AppContextValue>(
     () => ({
       repository,
@@ -192,5 +203,78 @@ describe("useLocalDayReconciliation", () => {
     const snapshots = await repository.listFinanceAccountBalanceSnapshots(account.id);
     expect(snapshots).toHaveLength(1);
     expect(snapshots[0]).toMatchObject({ asOfDate: "2026-09-07", balanceMinor: 100_00 });
+  });
+
+  it("notifies at most once per day for an exhausted envelope when financeNotifyRunout is on", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 8, 7, 12, 0, 0, 0));
+    notifyCompletion.mockClear();
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const account = await repository.saveFinanceAccount({
+      id: "",
+      name: "Compte cheques",
+      institution: null,
+      type: "checking",
+      currency: "CAD",
+      ownerPersonId: null,
+      ownership: "individual",
+      onBudget: true,
+      closed: false,
+      openingBalanceMinor: 100_00,
+      currentBalanceMinor: null,
+      balanceAsOf: null,
+      externalKey: null,
+      notes: null,
+      sortOrder: 0,
+      createdAt: "",
+      updatedAt: "",
+    });
+    await repository.seedFinanceDefaultCategories();
+    await repository.setFinanceBudgetAssignment("2026-09", "fincat:alimentation.epicerie", 5_000);
+    await repository.saveFinanceTransaction({
+      id: "",
+      accountId: account.id,
+      postedDate: "2026-09-07",
+      amountMinor: -5_000,
+      currency: "CAD",
+      descriptionRaw: "IGA",
+      descriptionOriginal: null,
+      merchantKey: "IGA",
+      merchantDisplay: null,
+      categoryId: "fincat:alimentation.epicerie",
+      categorySource: "default",
+      categoryConfidence: null,
+      categorizedAt: null,
+      personId: null,
+      notes: null,
+      labelsJson: null,
+      pending: false,
+      isTransfer: false,
+      transferGroupId: null,
+      excludedFromBudget: false,
+      excludedFromReports: false,
+      hasSplits: false,
+      importBatchId: null,
+      dedupeHash: "dedupe-1",
+      sourceRowJson: null,
+      createdAt: "",
+      updatedAt: "",
+    });
+
+    render(<MountedGtdView repository={repository} financeEnabled financeNotifyRunout />);
+    await flushEffects();
+
+    // Both the exhausted envelope and the (low-balance) cash runout fire once each.
+    expect(notifyCompletion).toHaveBeenCalledTimes(2);
+    const notifiedKeys = await repository.listNotifiedFinanceAlertKeys("2026-09-07");
+    expect(notifiedKeys).toHaveLength(2);
+    expect(notifiedKeys.some((key) => key.startsWith("envelope_exhausted:"))).toBe(true);
+
+    // A second mount (window focus, visibility) on the same day must not re-notify.
+    render(<MountedGtdView repository={repository} financeEnabled financeNotifyRunout />);
+    await flushEffects();
+    expect(notifyCompletion).toHaveBeenCalledTimes(2);
   });
 });

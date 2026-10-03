@@ -70,4 +70,54 @@ describe("SettingsPage finance section", () => {
     expect(seedSpy).not.toHaveBeenCalled();
     expect(saveSettings).toHaveBeenCalledTimes(1);
   });
+
+  it("saves the alerts/notify flags and parses the safety buffer into minor units", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const saveSettings = vi.fn().mockResolvedValue(undefined);
+
+    const settings = {
+      ...defaultAppSettings(),
+      financeEnabled: true,
+      financeCategoriesSeededAt: "2024-01-01T00:00:00.000Z",
+      financeAlertsOnToday: false,
+      financeNotifyRunout: false,
+      financeSafetyBufferMinor: 0,
+    };
+
+    await renderWithApp(<SettingsPage />, {
+      repository,
+      contextOverrides: { settings, saveSettings },
+    });
+
+    const user = userEvent.setup();
+    const alertsToggle = screen
+      .getByText("Afficher les alertes sur la page Aujourd'hui")
+      .closest("label")
+      ?.querySelector("input");
+    const notifyToggle = screen
+      .getByText("Notifications de dépassement/manque de liquidités")
+      .closest("label")
+      ?.querySelector("input");
+    expect(alertsToggle).not.toBeNull();
+    expect(notifyToggle).not.toBeNull();
+    if (alertsToggle) {
+      await user.click(alertsToggle);
+    }
+    if (notifyToggle) {
+      await user.click(notifyToggle);
+    }
+
+    const bufferInput = screen.getByPlaceholderText("0,00");
+    await user.clear(bufferInput);
+    await user.type(bufferInput, "250.00");
+
+    await user.click(screen.getByText("Enregistrer"));
+
+    expect(saveSettings).toHaveBeenCalledTimes(1);
+    const savedArg = saveSettings.mock.calls[0][0];
+    expect(savedArg.financeAlertsOnToday).toBe(true);
+    expect(savedArg.financeNotifyRunout).toBe(true);
+    expect(savedArg.financeSafetyBufferMinor).toBe(25_000);
+  });
 });

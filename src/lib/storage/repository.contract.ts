@@ -4285,6 +4285,99 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           expect(series.some((s) => s.merchantKey === "GYM")).toBe(true);
         });
       });
+
+      describe("forecasting and alerts (Phase 7)", () => {
+        it("buildFinanceSnapshot carries today's budget state and on-budget accounts", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.seedFinanceDefaultCategories();
+          const today = getTodayDate();
+          const monthKey = today.slice(0, 7);
+          await repository.setFinanceBudgetAssignment(
+            monthKey,
+            "fincat:alimentation.epicerie",
+            10_000,
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-1",
+              accountId: "account-1",
+              postedDate: today,
+              amountMinor: -2_000,
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+
+          const snapshot = await repository.buildFinanceSnapshot(today);
+          expect(snapshot.today).toBe(today);
+          expect(snapshot.monthKey).toBe(monthKey);
+          expect(snapshot.accounts.some((a) => a.id === "account-1")).toBe(true);
+          const category = snapshot.budgetState.categories.find(
+            (c) => c.categoryId === "fincat:alimentation.epicerie",
+          );
+          expect(category?.assignedMinor).toBe(10_000);
+          expect(category?.activityMinor).toBe(-2_000);
+        });
+
+        it("computeFinanceForecast produces an envelope entry and an alert once an envelope is exhausted", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.seedFinanceDefaultCategories();
+          const today = getTodayDate();
+          const monthKey = today.slice(0, 7);
+          await repository.setFinanceBudgetAssignment(
+            monthKey,
+            "fincat:alimentation.epicerie",
+            5_000,
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-1",
+              accountId: "account-1",
+              postedDate: today,
+              amountMinor: -5_000,
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+
+          const { forecast, alerts } = await repository.computeFinanceForecast(today);
+          const envelope = forecast.envelopes.find(
+            (e) => e.categoryId === "fincat:alimentation.epicerie",
+          );
+          expect(envelope?.spentMinor).toBe(5_000);
+          expect(envelope?.status).toBe("exhausted");
+          expect(
+            alerts.some(
+              (a) =>
+                a.kind === "envelope_exhausted" && a.categoryId === "fincat:alimentation.epicerie",
+            ),
+          ).toBe(true);
+        });
+
+        it("rate-limits the alert notification ledger once per day per key", async () => {
+          const repository = await factory();
+          const today = getTodayDate();
+
+          expect(await repository.listNotifiedFinanceAlertKeys(today)).toEqual([]);
+          await repository.recordFinanceAlertNotifications(today, [
+            "envelope_exhausted:cat:2026-03",
+          ]);
+          expect(await repository.listNotifiedFinanceAlertKeys(today)).toEqual([
+            "envelope_exhausted:cat:2026-03",
+          ]);
+
+          // Recording the same key again on the same day stays idempotent (no duplicates).
+          await repository.recordFinanceAlertNotifications(today, [
+            "envelope_exhausted:cat:2026-03",
+          ]);
+          expect(await repository.listNotifiedFinanceAlertKeys(today)).toEqual([
+            "envelope_exhausted:cat:2026-03",
+          ]);
+
+          // A different day's ledger is independent.
+          expect(await repository.listNotifiedFinanceAlertKeys("2000-01-01")).toEqual([]);
+        });
+      });
     });
   });
 };

@@ -342,7 +342,8 @@ storage-layer summary.
 - `finance_budget_entries`, `finance_budget_months`: YNAB-style envelope assignments
   and advisory month-close state (Phase 5; schema ships now, no arithmetic yet).
 - `finance_recurring_series`, `finance_account_balance_snapshots`: recurring-bill
-  detection and daily balance history (Phase 6/7; schema ships now).
+  detection (Phase 6) and daily balance history, also read by the Phase 7
+  forecast engine (active series and `onBudgetBalance` respectively).
 - `finance_import_profiles`, `finance_import_batches`: saved column-mapping profiles
   (unique by header signature) and one row per import run, used by
   `undoFinanceImportBatch`.
@@ -354,6 +355,15 @@ hard-references those ids. The deterministic default French taxonomy
 holds the fixed-id list, seeded idempotently (`INSERT OR IGNORE`) through
 `seedFinanceDefaultCategories()` on both repositories, gated on
 `AppSettings.financeCategoriesSeededAt`.
+
+Migration 38 (`create_finance_alert_notifications`, additive, next free id
+after 37) adds a single small table, `finance_alert_notifications
+(alert_key, notified_on_date, notified_at)` with primary key
+`(alert_key, notified_on_date)`. It exists only to rate-limit the Phase 7
+desktop notification to once per day per alert key (see
+[finance.md](finance.md#forecasting-and-proactive-alerts-phase-7)); it is
+never read when rendering the alerts list itself. Like every other finance
+table, it is included in `VACUUM INTO` backups automatically.
 
 ## Backup behavior
 

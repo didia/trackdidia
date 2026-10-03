@@ -544,6 +544,16 @@ Before any model call, `CoachPulseService` builds a typed daily snapshot via
 `buildGoalPacingSnapshot`. All apply `aiPayloadScope` redaction centrally. Settings
 can preview the exact payload per scope when debug mode is enabled (see below).
 
+**Finance is not part of any coach payload yet.** `AppSettings.financeCoachContextEnabled`
+exists (default `false`) but nothing reads it: no snapshot builder joins
+finance data into the daily pulse or any other AI surface. The finance spec
+(see [docs/finance.md](finance.md#forecasting-and-proactive-alerts-phase-7))
+allows a compact "category statuses and names only, no amounts" snapshot to
+be added later, behind this flag, following the pattern above — deliberately
+deferred past Phase 7 rather than rushed. Finance's own AI categorization
+stage (`financeAiCategorizationEnabled`, the `finance_categorization`
+surface) is a separate, also-unshipped Phase 8.
+
 ### Persistence (`ai_messages`, `ai_proposals`, `ai_memories`)
 
 Every coach result is persisted in SQLite (migrations 21–24):

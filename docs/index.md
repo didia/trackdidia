@@ -25,7 +25,7 @@ Chronological documentation activity is recorded in domain logs under
 | [recurrences-and-pomodoro.md](recurrences-and-pomodoro.md) | Recurrence templates/generation/previews and Pomodoro sessions/segments/notifications |
 | [ai-settings-and-privacy.md](ai-settings-and-privacy.md) | Local/AI coaching, OpenRouter request data, relationship draws, debug and settings |
 | [email-triage.md](email-triage.md) | Disabled-by-default local email triage (Gmail, Graph, Yahoo; gated mutation; tray) |
-| [finance.md](finance.md) | Household finance domain: schema, import/dedupe/transfer detection, the classification pipeline (rules/memory/seeds), the zero-based envelope budget model, net worth/cash flow/reports/recurring-bill detection/daily balance snapshots, repository contract, and the accounts/import/transactions/budget/reports/review/rules screens behind `financeEnabled` (Phases 2-6 of a phased build) |
+| [finance.md](finance.md) | Household finance domain: schema, import/dedupe/transfer detection, the classification pipeline (rules/memory/seeds), the zero-based envelope budget model, net worth/cash flow/reports/recurring-bill detection/daily balance snapshots, proactive runout/cash-flow forecasting and alerts with a rate-limited desktop notification, repository contract, and the accounts/import/transactions/budget/reports/review/rules screens behind `financeEnabled` (Phases 2-7 of a phased build) |
 
 ## Source map
 
@@ -50,6 +50,9 @@ Chronological documentation activity is recorded in domain logs under
 | Finance budget engine (envelopes, Ready to Assign, rollover, quick actions) | `src/domain/finance/budget.ts` |
 | Finance net worth / cash flow / reports engines | `src/domain/finance/net-worth.ts`, `src/domain/finance/cash-flow.ts`, `src/domain/finance/reports.ts` |
 | Finance recurring-bill detection | `src/lib/finance/recurring-detection.ts` |
+| Finance forecasting and alerts engine | `src/domain/finance/forecast.ts` |
+| Finance alert notification policy | `src/lib/finance/alert-notification-policy.ts` |
+| Finance Today alerts card | `src/components/FinanceAlertsCard.tsx` |
 | Finance screens | `src/pages/FinanceOverviewPage.tsx`, `FinanceAccountsPage.tsx`, `FinanceImportPage.tsx`, `FinanceTransactionsPage.tsx`, `FinanceBudgetPage.tsx`, `FinanceReportsPage.tsx`, `FinanceReviewPage.tsx`, `FinanceRulesPage.tsx`, `src/components/finance/FinanceTabs.tsx` |
 
 ## Reading paths

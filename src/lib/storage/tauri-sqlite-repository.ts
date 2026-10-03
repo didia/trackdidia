@@ -1361,6 +1361,18 @@ export const migrations: Migration[] = [
         ('fincat:split', 'Répartition', NULL, 'internal', 0, 1, 0, 2, '1970-01-01T00:00:00.000Z', '1970-01-01T00:00:00.000Z');
     `,
   },
+  {
+    id: 38,
+    name: "create_finance_alert_notifications",
+    sql: `
+      CREATE TABLE IF NOT EXISTS finance_alert_notifications (
+        alert_key TEXT NOT NULL,
+        notified_on_date TEXT NOT NULL,
+        notified_at TEXT NOT NULL,
+        PRIMARY KEY (alert_key, notified_on_date)
+      );
+    `,
+  },
 ];
 
 export class TauriSqliteRepository implements AppRepository {
@@ -5743,5 +5755,27 @@ export class TauriSqliteRepository implements AppRepository {
 
   async listFinanceAccountBalanceSnapshots(accountId: string) {
     return this.getFinanceStore().listAccountBalanceSnapshots(accountId);
+  }
+
+  // --- Finance (Phase 7 — Forecasting and proactive alerts) -----------------------------
+
+  async buildFinanceSnapshot(asOfDate: string) {
+    const settings = await this.getSettings();
+    return this.getFinanceStore().buildSnapshot(asOfDate, settings.financeSafetyBufferMinor);
+  }
+
+  async computeFinanceForecast(asOfDate: string) {
+    const settings = await this.getSettings();
+    return this.getFinanceStore().computeForecast(asOfDate, settings.financeSafetyBufferMinor);
+  }
+
+  async listNotifiedFinanceAlertKeys(onDate: string) {
+    return this.getFinanceStore().listNotifiedFinanceAlertKeys(onDate);
+  }
+
+  async recordFinanceAlertNotifications(onDate: string, alertKeys: string[]) {
+    return this.runExclusive(() =>
+      this.getFinanceStore().recordFinanceAlertNotifications(onDate, alertKeys),
+    );
   }
 }

@@ -1216,3 +1216,111 @@ describe("TodayPage pastor verse card", () => {
     expect(screen.getByRole("button", { name: /ajouter à ma liste/i })).toBeEnabled();
   });
 });
+
+const buildFinanceAccount = (overrides: Record<string, unknown> = {}) => {
+  const timestamp = new Date().toISOString();
+  return {
+    id: "",
+    name: "Compte chèques",
+    institution: null,
+    type: "checking" as const,
+    currency: "CAD",
+    ownerPersonId: null,
+    ownership: "individual" as const,
+    onBudget: true,
+    closed: false,
+    openingBalanceMinor: 0,
+    currentBalanceMinor: null,
+    balanceAsOf: null,
+    externalKey: null,
+    notes: null,
+    sortOrder: 0,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    ...overrides,
+  };
+};
+
+describe("TodayPage finance alerts card", () => {
+  const seedExhaustedEnvelope = async (repository: MemoryRepository) => {
+    const account = await repository.saveFinanceAccount(buildFinanceAccount());
+    await repository.seedFinanceDefaultCategories();
+    const monthKey = getTodayDate().slice(0, 7);
+    await repository.setFinanceBudgetAssignment(monthKey, "fincat:alimentation.epicerie", 5_000);
+    await repository.saveFinanceTransaction({
+      id: "",
+      accountId: account.id,
+      postedDate: getTodayDate(),
+      amountMinor: -5_000,
+      currency: "CAD",
+      descriptionRaw: "IGA",
+      descriptionOriginal: null,
+      merchantKey: "IGA",
+      merchantDisplay: null,
+      categoryId: "fincat:alimentation.epicerie",
+      categorySource: "default",
+      categoryConfidence: null,
+      categorizedAt: null,
+      personId: null,
+      notes: null,
+      labelsJson: null,
+      pending: false,
+      isTransfer: false,
+      transferGroupId: null,
+      excludedFromBudget: false,
+      excludedFromReports: false,
+      hasSplits: false,
+      importBatchId: null,
+      dedupeHash: "dedupe-1",
+      sourceRowJson: null,
+      createdAt: "",
+      updatedAt: "",
+    });
+  };
+
+  it("is absent when financeEnabled is false", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await seedExhaustedEnvelope(repository);
+
+    await renderWithApp(<TodayPage />, {
+      repository,
+      contextOverrides: {
+        settings: { ...defaultAppSettings(), financeEnabled: false, financeAlertsOnToday: true },
+      },
+    });
+
+    expect(screen.queryByText("Alertes finances")).not.toBeInTheDocument();
+  });
+
+  it("is absent when financeAlertsOnToday is false", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await seedExhaustedEnvelope(repository);
+
+    await renderWithApp(<TodayPage />, {
+      repository,
+      contextOverrides: {
+        settings: { ...defaultAppSettings(), financeEnabled: true, financeAlertsOnToday: false },
+      },
+    });
+
+    expect(screen.queryByText("Alertes finances")).not.toBeInTheDocument();
+  });
+
+  it("shows the exhausted envelope alert when financeEnabled and financeAlertsOnToday are on", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await seedExhaustedEnvelope(repository);
+
+    await renderWithApp(<TodayPage />, {
+      repository,
+      contextOverrides: {
+        settings: { ...defaultAppSettings(), financeEnabled: true, financeAlertsOnToday: true },
+      },
+    });
+
+    expect(await screen.findByText("Alertes finances")).toBeInTheDocument();
+    expect(await screen.findByText(/enveloppe épuisée/i)).toBeInTheDocument();
+  });
+});
