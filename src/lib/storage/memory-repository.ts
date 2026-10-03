@@ -1,4 +1,9 @@
 import {
+  defaultAppSettings,
+  normalizeAppSettings,
+  type SettingsUpdater,
+} from "../../domain/settings";
+import {
   taskForAcceptEffect,
   type AcceptEffect,
   type AiProposalAcceptResult,
@@ -13,7 +18,6 @@ import {
   applyDailyTaskStats,
   cloneEntry,
   createEmptyDailyEntry,
-  defaultAppSettings,
 } from "../../domain/daily-entry";
 import { mergeObjectiveSecondsPayload } from "../../domain/rescuetime-goals";
 import { journalPeriodOverlaps } from "../../domain/journal-feed";
@@ -125,7 +129,6 @@ import {
   getRelationshipDrawActivities,
   getRelationshipDrawProcessedDate,
   getRelationshipDrawSourceExternalId,
-  mergeAppSettingsWithDefaults,
   pickRelationshipDrawActivity,
   relationshipDrawDefinitions,
   relationshipPersonalContextId,
@@ -519,28 +522,32 @@ export class MemoryRepository implements AppRepository {
   }
 
   async getSettings(): Promise<AppSettings> {
-    return mergeAppSettingsWithDefaults(this.settings, defaultAppSettings());
+    return structuredClone(normalizeAppSettings(this.settings));
   }
 
   async saveSettings(settings: AppSettings): Promise<void> {
-    this.settings = mergeAppSettingsWithDefaults(settings, defaultAppSettings());
+    this.settings = structuredClone(normalizeAppSettings(settings));
+  }
+
+  async updateSettings(updater: SettingsUpdater): Promise<AppSettings> {
+    // No await: read/apply/write form one synchronous operation. Clone before exposing
+    // the snapshot so an updater that mutates and throws cannot damage stored settings.
+    const current = structuredClone(normalizeAppSettings(this.settings));
+    const next = normalizeAppSettings(updater(current));
+    this.settings = structuredClone(next);
+    return structuredClone(next);
   }
 
   async addPastorCustomVerse(
     candidate: CatalogVerse,
   ): Promise<{ added: boolean; settings: AppSettings }> {
-    // No `await` between reading `this.settings` and writing it back — nothing else can run in
-    // between, so this is race-free the same way the SQLite implementation's single serialized
-    // read-then-write transaction is.
-    const current = mergeAppSettingsWithDefaults(this.settings, defaultAppSettings());
-    const { added, customVerses } = addCustomVerse(current.aiPastorCustomVerses, candidate);
-    if (!added) {
-      return { added: false, settings: current };
-    }
-
-    const next = { ...current, aiPastorCustomVerses: customVerses };
-    this.settings = next;
-    return { added: true, settings: next };
+    let added = false;
+    const settings = await this.updateSettings((current) => {
+      const result = addCustomVerse(current.aiPastorCustomVerses, candidate);
+      added = result.added;
+      return { ...current, aiPastorCustomVerses: result.customVerses };
+    });
+    return { added, settings };
   }
 
   async getAiMessage(
@@ -1513,7 +1520,15 @@ export class MemoryRepository implements AppRepository {
       createdCount += 1;
     }
 
-    await this.saveSettings(nextSettings);
+    await this.updateSettings((current) => {
+      const next = { ...current };
+      for (const definition of relationshipDrawDefinitions) {
+        if (nextSettings[definition.processedDateKey] !== settings[definition.processedDateKey]) {
+          next[definition.processedDateKey] = nextSettings[definition.processedDateKey];
+        }
+      }
+      return next;
+    });
     return createdCount;
   }
 
