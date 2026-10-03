@@ -1,3 +1,4 @@
+import { createSerialQueue } from "../lib/serial-queue";
 import {
   createContext,
   useContext,
@@ -82,7 +83,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   const startupStageRef = useRef(startupStage);
   const autoBackupRunningRef = useRef(false);
   const pulseRunningRef = useRef(false);
-  const startupWorkQueueRef = useRef(Promise.resolve());
+  const [startupWorkQueue] = useState(createSerialQueue);
   const appOpenStartedAtRef = useRef<string | null>(null);
   const appOpenIntervalsRef = useRef<AppOpenInterval[]>([]);
   const [pulseRevision, setPulseRevision] = useState(0);
@@ -124,10 +125,9 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   );
 
   const enqueueStartupWork = (work: () => Promise<void>) => {
-    startupWorkQueueRef.current = startupWorkQueueRef.current.then(work).catch((error) => {
+    return startupWorkQueue.run(work).catch((error) => {
       logDebug("error", "app.bootstrap", "Echec tache de demarrage en file", error);
     });
-    return startupWorkQueueRef.current;
   };
 
   useEffect(() => {

@@ -88,7 +88,16 @@ generate or scrape it. See
 - `PersistedTextarea` debounces persistence by 450 ms unless `debounceMs={0}` is
   supplied. It also flushes the pending draft on unmount. Daily entries, weekly
   reviews, and monthly reviews serialize those saves so an earlier in-flight
-  snapshot cannot overwrite later notes.
+  snapshot cannot overwrite later notes. Use `useLatestValueSaver` with a stable
+  persistence callback for keyed snapshots, dirty tracking, and settlement. Each
+  date/week/month keeps its own latest value; loading waits for that key and checks
+  its version before replacing the draft. `remember` stages an externally accepted
+  snapshot, `markSaved` records its captured version after the atomic repository
+  call, and `hydrate` seeds a clean loaded value.
+- Use `createSerialQueue` (`src/lib/serial-queue.ts`) for ordered asynchronous work.
+  Each call keeps its own error and later work continues after a failure; `idle`
+  waits for queued work, including submissions while waiting. `DbSerialQueue` is
+  the SQLite wrapper with its existing 15-second reentrancy watchdog.
 
 ## Repository changes
 

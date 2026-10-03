@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
+import { useLatestValueSaver } from "../app/use-latest-value-saver";
 import { useLatestRequest } from "../app/use-latest-request";
 import { useAppContext } from "../app/app-context";
 import {
@@ -92,7 +93,13 @@ export const MonthlyReviewPage = () => {
   const [synthesisLoading, setSynthesisLoading] = useState(false);
   const [synthesisNotice, setSynthesisNotice] = useState<string | null>(null);
   const latestReviewRef = useRef<MonthlyReview | null>(null);
-  const saveChainRef = useRef(Promise.resolve());
+  const persistReview = useCallback(
+    async (value: MonthlyReview) => {
+      await repository.saveMonthlyReview(value);
+    },
+    [repository],
+  );
+  const reviewSaver = useLatestValueSaver<string, MonthlyReview>(persistReview);
   const noteRefs = useRef<Partial<Record<MonthlyReviewSectionKey, PersistedTextareaHandle | null>>>(
     {},
   );
@@ -109,6 +116,9 @@ export const MonthlyReviewPage = () => {
       setSynthesisResult(null);
       setLoading(true);
       await monthRequest.run(async (signal) => {
+        await reviewSaver.settled(requestedMonthKey);
+        if (!signal.isLatest()) return;
+        const loadVersion = reviewSaver.version(requestedMonthKey);
         const [existingReview, computedSummary, annualSnapshots] = await Promise.all([
           repository.getMonthlyReview(requestedMonthKey),
           repository.computeMonthlyReviewSummary(requestedMonthKey),
@@ -117,7 +127,14 @@ export const MonthlyReviewPage = () => {
         if (!signal.isLatest()) {
           return;
         }
-        const nextReview = existingReview ?? createEmptyMonthlyReview(requestedMonthKey);
+        const keepLocal =
+          reviewSaver.version(requestedMonthKey) !== loadVersion ||
+          reviewSaver.isDirty(requestedMonthKey);
+        const nextReview =
+          (keepLocal ? reviewSaver.get(requestedMonthKey) : undefined) ??
+          existingReview ??
+          createEmptyMonthlyReview(requestedMonthKey);
+        if (!keepLocal) reviewSaver.hydrate(requestedMonthKey, nextReview);
         latestReviewRef.current = nextReview;
         setSelectedMonthKey(requestedMonthKey);
         setReview(nextReview);
@@ -126,7 +143,7 @@ export const MonthlyReviewPage = () => {
         setLoading(false);
       });
     },
-    [monthRequest, repository, synthesisRequest],
+    [monthRequest, repository, reviewSaver, synthesisRequest],
   );
 
   useEffect(() => {
@@ -212,13 +229,17 @@ export const MonthlyReviewPage = () => {
 
       const nextReview = updateMonthlyReviewNote(currentReview, section.sectionKey, section.text);
       latestReviewRef.current = nextReview;
+      reviewSaver.remember(monthKey, nextReview);
       setReview(nextReview);
       noteRefs.current[section.sectionKey]?.setDraft(section.text);
 
+      await reviewSaver.settled(monthKey);
+      const acceptedVersion = reviewSaver.version(monthKey);
       const accepted = await repository.acceptAiProposal(proposal.id, {
         kind: "monthlyReview",
-        review: nextReview,
+        review: reviewSaver.get(monthKey) ?? nextReview,
       });
+      reviewSaver.markSaved(monthKey, acceptedVersion);
       setSynthesisResult((current) =>
         current
           ? {
@@ -305,18 +326,9 @@ export const MonthlyReviewPage = () => {
     (nextReview: MonthlyReview) => {
       latestReviewRef.current = nextReview;
       setReview(nextReview);
-      saveChainRef.current = saveChainRef.current
-        .catch(() => undefined)
-        .then(async () => {
-          const snapshot = latestReviewRef.current;
-          if (!snapshot) {
-            return;
-          }
-          await repository.saveMonthlyReview(snapshot);
-        });
-      return saveChainRef.current;
+      return reviewSaver.set(nextReview.monthKey, nextReview);
     },
-    [repository],
+    [reviewSaver],
   );
 
   const selectedGoalSnapshots = useMemo(

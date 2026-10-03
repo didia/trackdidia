@@ -99,6 +99,57 @@ describe("useDailyEntry", () => {
     expect(result.current.entry?.nightReflection).toBe("Ma reflexion");
   });
 
+  it("keeps queued saves attached to their date when navigating to another entry", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const oldDate = addDays(getTodayDate(), -2);
+    const newDate = addDays(oldDate, 1);
+    const originalSave = repository.saveDailyEntry.bind(repository);
+    let releaseFirst!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const saveSpy = vi.spyOn(repository, "saveDailyEntry").mockImplementationOnce(async (entry) => {
+      await gate;
+      return originalSave(entry);
+    });
+    const { result, rerender } = renderHook(({ date }) => useDailyEntry(date), {
+      initialProps: { date: oldDate },
+      wrapper: wrapRepository(repository),
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    let first!: Promise<void>;
+    act(() => {
+      first = result.current.save((current) =>
+        updateNote(current, "morningIntention", "old first"),
+      );
+    });
+    await waitFor(() => expect(saveSpy).toHaveBeenCalledOnce());
+    let second!: Promise<void>;
+    act(() => {
+      second = result.current.save((current) =>
+        updateNote(current, "nightReflection", "old latest"),
+      );
+    });
+    rerender({ date: newDate });
+    await waitFor(() => expect(result.current.entry?.date).toBe(newDate));
+    await act(async () => {
+      await result.current.save((current) => updateNote(current, "morningIntention", "new date"));
+      releaseFirst();
+      await Promise.all([first, second]);
+    });
+    expect(await repository.getDailyEntry(oldDate)).toMatchObject({
+      morningIntention: "old first",
+      nightReflection: "old latest",
+    });
+    expect(await repository.getDailyEntry(newDate)).toMatchObject({
+      morningIntention: "new date",
+      nightReflection: "",
+    });
+    expect(result.current.entry?.date).toBe(newDate);
+    expect(result.current.entry?.morningIntention).toBe("new date");
+  });
+
   it("prefills today's empty intention from yesterday's focus without persisting", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
