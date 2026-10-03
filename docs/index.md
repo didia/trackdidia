@@ -25,6 +25,7 @@ Chronological documentation activity is recorded in domain logs under
 | [recurrences-and-pomodoro.md](recurrences-and-pomodoro.md) | Recurrence templates/generation/previews and Pomodoro sessions/segments/notifications |
 | [ai-settings-and-privacy.md](ai-settings-and-privacy.md) | Local/AI coaching, OpenRouter request data, relationship draws, debug and settings |
 | [email-triage.md](email-triage.md) | Disabled-by-default local email triage (Gmail, Graph, Yahoo; gated mutation; tray) |
+| [finance.md](finance.md) | Unshipped household finance domain: schema, import/dedupe/transfer detection, repository contract (Phase 2 of a phased build) |
 
 ## Source map
 
@@ -42,6 +43,9 @@ Chronological documentation activity is recorded in domain logs under
 | Browser preview storage | `src/lib/storage/memory-repository.ts` |
 | Native data paths | `src-tauri/src/main.rs` |
 | Desktop configuration | `src-tauri/tauri.conf.json` |
+| Finance domain types | `src/domain/finance.ts` |
+| Finance SQLite/memory stores | `src/lib/storage/finance-sqlite-store.ts`, `src/lib/storage/finance-memory-store.ts` |
+| Finance pure engines (money, CSV, dedupe, transfers) | `src/lib/finance/` |
 
 ## Reading paths
 

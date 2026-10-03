@@ -129,6 +129,7 @@ import {
 } from "../relationship-draws";
 import { DbSerialQueue } from "./db-serial-queue";
 import { EmailTriageSqliteStore } from "./email-triage-sqlite-store";
+import { FinanceSqliteStore } from "./finance-sqlite-store";
 import type { Database as SqliteDatabase } from "./email-triage-sqlite-db";
 import type {
   AppRepository,
@@ -1117,12 +1118,256 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    id: 37,
+    name: "add_finance_foundation",
+    sql: `
+      CREATE TABLE IF NOT EXISTS finance_people (
+        id TEXT PRIMARY KEY,
+        display_name TEXT NOT NULL,
+        color TEXT,
+        archived INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS finance_accounts (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        institution TEXT,
+        type TEXT NOT NULL,
+        currency TEXT NOT NULL,
+        owner_person_id TEXT,
+        ownership TEXT NOT NULL DEFAULT 'individual',
+        on_budget INTEGER NOT NULL DEFAULT 1,
+        closed INTEGER NOT NULL DEFAULT 0,
+        opening_balance_minor INTEGER NOT NULL DEFAULT 0,
+        current_balance_minor INTEGER,
+        balance_as_of TEXT,
+        external_key TEXT,
+        notes TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS finance_categories (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        parent_id TEXT,
+        kind TEXT NOT NULL,
+        archived INTEGER NOT NULL DEFAULT 0,
+        is_system INTEGER NOT NULL DEFAULT 0,
+        defers_to_next_month INTEGER NOT NULL DEFAULT 0,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS finance_transactions (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL,
+        posted_date TEXT NOT NULL,
+        amount_minor INTEGER NOT NULL,
+        currency TEXT NOT NULL,
+        description_raw TEXT NOT NULL,
+        description_original TEXT,
+        merchant_key TEXT NOT NULL,
+        merchant_display TEXT,
+        category_id TEXT,
+        category_source TEXT NOT NULL DEFAULT 'default',
+        category_confidence REAL,
+        categorized_at TEXT,
+        person_id TEXT,
+        notes TEXT,
+        labels_json TEXT,
+        pending INTEGER NOT NULL DEFAULT 0,
+        is_transfer INTEGER NOT NULL DEFAULT 0,
+        transfer_group_id TEXT,
+        excluded_from_budget INTEGER NOT NULL DEFAULT 0,
+        excluded_from_reports INTEGER NOT NULL DEFAULT 0,
+        has_splits INTEGER NOT NULL DEFAULT 0,
+        import_batch_id TEXT,
+        dedupe_hash TEXT NOT NULL,
+        source_row_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS finance_transaction_splits (
+        id TEXT PRIMARY KEY,
+        transaction_id TEXT NOT NULL,
+        amount_minor INTEGER NOT NULL,
+        category_id TEXT,
+        notes TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS finance_rules (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        priority INTEGER NOT NULL DEFAULT 0,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        matcher_json TEXT NOT NULL,
+        actions_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_applied_at TEXT,
+        applied_count INTEGER NOT NULL DEFAULT 0
+      );
+
+      CREATE TABLE IF NOT EXISTS finance_merchant_memory (
+        merchant_key TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        sign INTEGER NOT NULL,
+        category_id TEXT NOT NULL,
+        hit_count INTEGER NOT NULL DEFAULT 0,
+        correction_count INTEGER NOT NULL DEFAULT 0,
+        confidence REAL NOT NULL DEFAULT 0,
+        source TEXT NOT NULL,
+        last_applied_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (merchant_key, account_id, sign)
+      );
+
+      CREATE TABLE IF NOT EXISTS finance_category_suggestions (
+        id TEXT PRIMARY KEY,
+        transaction_id TEXT NOT NULL,
+        merchant_key TEXT NOT NULL,
+        suggested_category_id TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        origin TEXT NOT NULL,
+        rationale TEXT,
+        model TEXT,
+        prompt_version TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        decided_at TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS finance_budget_entries (
+        month_key TEXT NOT NULL,
+        category_id TEXT NOT NULL,
+        assigned_minor INTEGER NOT NULL DEFAULT 0,
+        overspend_policy TEXT NOT NULL DEFAULT 'reduce_next_ready_to_assign',
+        note TEXT,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (month_key, category_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS finance_budget_months (
+        month_key TEXT PRIMARY KEY,
+        ready_to_assign_note TEXT,
+        closed_at TEXT,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS finance_recurring_series (
+        id TEXT PRIMARY KEY,
+        merchant_key TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        category_id TEXT,
+        cadence TEXT NOT NULL,
+        expected_amount_minor INTEGER NOT NULL,
+        amount_tolerance_minor INTEGER NOT NULL,
+        day_of_month INTEGER,
+        last_seen_date TEXT NOT NULL,
+        next_expected_date TEXT NOT NULL,
+        occurrence_count INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'active',
+        confirmed_by_user INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS finance_account_balance_snapshots (
+        account_id TEXT NOT NULL,
+        as_of_date TEXT NOT NULL,
+        balance_minor INTEGER NOT NULL,
+        source TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (account_id, as_of_date)
+      );
+
+      CREATE TABLE IF NOT EXISTS finance_import_profiles (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        signature TEXT NOT NULL,
+        column_map_json TEXT NOT NULL,
+        date_format TEXT NOT NULL,
+        amount_mode TEXT NOT NULL,
+        sign_convention TEXT,
+        default_account_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_used_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS finance_import_batches (
+        id TEXT PRIMARY KEY,
+        profile_id TEXT,
+        file_name TEXT NOT NULL,
+        file_hash TEXT NOT NULL,
+        account_id TEXT,
+        row_count INTEGER NOT NULL DEFAULT 0,
+        imported_count INTEGER NOT NULL DEFAULT 0,
+        duplicate_count INTEGER NOT NULL DEFAULT 0,
+        skipped_count INTEGER NOT NULL DEFAULT 0,
+        error_count INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'running',
+        error_summary TEXT,
+        started_at TEXT NOT NULL,
+        finished_at TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_finance_txn_account_date
+        ON finance_transactions (account_id, posted_date);
+      CREATE INDEX IF NOT EXISTS idx_finance_txn_date
+        ON finance_transactions (posted_date);
+      CREATE INDEX IF NOT EXISTS idx_finance_txn_category_date
+        ON finance_transactions (category_id, posted_date);
+      CREATE INDEX IF NOT EXISTS idx_finance_txn_merchant
+        ON finance_transactions (merchant_key);
+      CREATE INDEX IF NOT EXISTS idx_finance_txn_batch
+        ON finance_transactions (import_batch_id);
+      CREATE INDEX IF NOT EXISTS idx_finance_txn_transfer_group
+        ON finance_transactions (transfer_group_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS uniq_finance_txn_dedupe
+        ON finance_transactions (account_id, dedupe_hash);
+      CREATE INDEX IF NOT EXISTS idx_finance_splits_txn
+        ON finance_transaction_splits (transaction_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS uniq_finance_suggestion_pending
+        ON finance_category_suggestions (transaction_id)
+        WHERE status = 'pending';
+      CREATE INDEX IF NOT EXISTS idx_finance_suggestions_status
+        ON finance_category_suggestions (status, created_at);
+      CREATE INDEX IF NOT EXISTS idx_finance_budget_month
+        ON finance_budget_entries (month_key);
+      CREATE INDEX IF NOT EXISTS idx_finance_recurring_next
+        ON finance_recurring_series (status, next_expected_date);
+      CREATE UNIQUE INDEX IF NOT EXISTS uniq_finance_profile_signature
+        ON finance_import_profiles (signature);
+      CREATE UNIQUE INDEX IF NOT EXISTS uniq_finance_account_external_key
+        ON finance_accounts (external_key)
+        WHERE external_key IS NOT NULL;
+
+      INSERT OR IGNORE INTO finance_categories (
+        id, name, parent_id, kind, archived, is_system, defers_to_next_month, sort_order, created_at, updated_at
+      ) VALUES
+        ('fincat:non-categorise', 'Non catégorisé', NULL, 'expense', 0, 1, 0, 0, '1970-01-01T00:00:00.000Z', '1970-01-01T00:00:00.000Z'),
+        ('fincat:transfert', 'Transfert', NULL, 'transfer', 0, 1, 0, 1, '1970-01-01T00:00:00.000Z', '1970-01-01T00:00:00.000Z'),
+        ('fincat:split', 'Répartition', NULL, 'internal', 0, 1, 0, 2, '1970-01-01T00:00:00.000Z', '1970-01-01T00:00:00.000Z');
+    `,
+  },
 ];
 
 export class TauriSqliteRepository implements AppRepository {
   private dbPromise: Promise<SqliteDatabase> | null = null;
   private readonly writeQueue = new DbSerialQueue();
   private emailTriageStore: EmailTriageSqliteStore | null = null;
+  private financeStore: FinanceSqliteStore | null = null;
 
   /**
    * `openDb` defaults to the real Tauri-backed `Database.load`; tests inject an in-memory
@@ -1144,6 +1389,13 @@ export class TauriSqliteRepository implements AppRepository {
       });
     }
     return this.emailTriageStore;
+  }
+
+  private getFinanceStore(): FinanceSqliteStore {
+    if (!this.financeStore) {
+      this.financeStore = new FinanceSqliteStore(() => this.getDb());
+    }
+    return this.financeStore;
   }
 
   private async getTaskByExternalId(externalId: string): Promise<Task | null> {
@@ -5170,5 +5422,170 @@ export class TauriSqliteRepository implements AppRepository {
 
   async emailTriageSaveAlias(accountId: string, conversationKey: string, messageIdHeader: string) {
     return this.getEmailTriageStore().saveAlias(accountId, conversationKey, messageIdHeader);
+  }
+
+  // --- Finance (Phase 2) ---------------------------------------------------------------
+
+  async listFinancePeople() {
+    return this.getFinanceStore().listPeople();
+  }
+
+  async saveFinancePerson(person: import("../../domain/finance").FinancePerson) {
+    return this.getFinanceStore().savePerson(person);
+  }
+
+  async listFinanceAccounts(filters?: import("../../domain/finance").FinanceAccountFilters) {
+    return this.getFinanceStore().listAccounts(filters);
+  }
+
+  async saveFinanceAccount(account: import("../../domain/finance").FinanceAccount) {
+    return this.getFinanceStore().saveAccount(account);
+  }
+
+  async closeFinanceAccount(id: string) {
+    return this.getFinanceStore().closeAccount(id);
+  }
+
+  async listFinanceCategories(includeArchived?: boolean) {
+    return this.getFinanceStore().listCategories(includeArchived);
+  }
+
+  async saveFinanceCategory(category: import("../../domain/finance").FinanceCategory) {
+    return this.getFinanceStore().saveCategory(category);
+  }
+
+  async archiveFinanceCategory(id: string, reassignToId: string) {
+    return this.getFinanceStore().archiveCategory(id, reassignToId);
+  }
+
+  async seedFinanceDefaultCategories() {
+    return this.getFinanceStore().seedDefaultCategories();
+  }
+
+  async listFinanceRules() {
+    return this.getFinanceStore().listRules();
+  }
+
+  async saveFinanceRule(rule: import("../../domain/finance").FinanceRule) {
+    return this.getFinanceStore().saveRule(rule);
+  }
+
+  async deleteFinanceRule(id: string) {
+    return this.getFinanceStore().deleteRule(id);
+  }
+
+  async listFinanceMerchantMemory(
+    filters?: import("../../domain/finance").FinanceMerchantMemoryFilters,
+  ) {
+    return this.getFinanceStore().listMerchantMemory(filters);
+  }
+
+  async upsertFinanceMerchantMemory(
+    entry: import("../../domain/finance").FinanceMerchantMemoryEntry,
+  ) {
+    return this.getFinanceStore().upsertMerchantMemory(entry);
+  }
+
+  async forgetFinanceMerchantMemory(merchantKey: string, accountId: string, sign: -1 | 0 | 1) {
+    return this.getFinanceStore().forgetMerchantMemory(merchantKey, accountId, sign);
+  }
+
+  async listFinanceTransactions(
+    filters?: import("../../domain/finance").FinanceTransactionFilters,
+  ) {
+    return this.getFinanceStore().listTransactions(filters);
+  }
+
+  async countFinanceTransactions(
+    filters?: import("../../domain/finance").FinanceTransactionFilters,
+  ) {
+    return this.getFinanceStore().countTransactions(filters);
+  }
+
+  async getFinanceTransaction(id: string) {
+    return this.getFinanceStore().getTransaction(id);
+  }
+
+  async saveFinanceTransaction(txn: import("../../domain/finance").FinanceTransaction) {
+    return this.getFinanceStore().saveTransaction(txn);
+  }
+
+  async setFinanceTransactionCategory(
+    input: import("../../domain/finance").SetFinanceTransactionCategoryInput,
+  ) {
+    return this.runExclusive(() => this.getFinanceStore().setTransactionCategory(input));
+  }
+
+  async bulkUpdateFinanceTransactions(
+    ids: string[],
+    patch: import("../../domain/finance").BulkUpdateFinanceTransactionsPatch,
+  ) {
+    return this.getFinanceStore().bulkUpdateTransactions(ids, patch);
+  }
+
+  async saveFinanceTransactionSplits(
+    transactionId: string,
+    splits: import("../../domain/finance").FinanceTransactionSplit[],
+  ) {
+    return this.getFinanceStore().saveTransactionSplits(transactionId, splits);
+  }
+
+  async listFinanceTransactionSplits(transactionId: string) {
+    return this.getFinanceStore().listTransactionSplits(transactionId);
+  }
+
+  async setFinanceTransfer(
+    pair: import("../../domain/finance").SetFinanceTransferPair | null,
+    groupId?: string,
+  ) {
+    return this.getFinanceStore().setTransfer(pair, groupId);
+  }
+
+  async clearFinanceTransfer(transactionId: string) {
+    return this.getFinanceStore().clearTransfer(transactionId);
+  }
+
+  async listFinanceImportProfiles() {
+    return this.getFinanceStore().listImportProfiles();
+  }
+
+  async saveFinanceImportProfile(profile: import("../../domain/finance").FinanceImportProfile) {
+    return this.getFinanceStore().saveImportProfile(profile);
+  }
+
+  async findFinanceImportProfileBySignature(signature: string) {
+    return this.getFinanceStore().findImportProfileBySignature(signature);
+  }
+
+  async importFinanceTransactions(input: import("../../domain/finance").FinanceImportRequest) {
+    return this.runExclusive(() => this.getFinanceStore().importTransactions(input));
+  }
+
+  async listFinanceImportBatches(limit?: number) {
+    return this.getFinanceStore().listImportBatches(limit);
+  }
+
+  async undoFinanceImportBatch(batchId: string) {
+    return this.runExclusive(() => this.getFinanceStore().undoImportBatch(batchId));
+  }
+
+  async listFinanceCategorySuggestions(
+    status?: import("../../domain/finance").FinanceCategorySuggestion["status"],
+    limit?: number,
+  ) {
+    return this.getFinanceStore().listCategorySuggestions(status, limit);
+  }
+
+  async saveFinanceCategorySuggestions(
+    suggestions: import("../../domain/finance").FinanceCategorySuggestion[],
+  ) {
+    return this.getFinanceStore().saveCategorySuggestions(suggestions);
+  }
+
+  async decideFinanceCategorySuggestion(
+    id: string,
+    decision: import("../../domain/finance").DecideFinanceCategorySuggestionInput,
+  ) {
+    return this.runExclusive(() => this.getFinanceStore().decideCategorySuggestion(id, decision));
   }
 }
