@@ -20,6 +20,22 @@ export const currencyExponent = (code: string): number => {
   return normalized in CURRENCY_EXPONENTS ? CURRENCY_EXPONENTS[normalized] : 2;
 };
 
+/**
+ * Renders minor units as a plain decimal string for an editable input field
+ * (e.g. `1234` at exponent `2` → `"12.34"`), via string slicing rather than
+ * `amountMinor / 10 ** exponent` — division risks a binary-float rounding
+ * artifact in the displayed string. The result round-trips through
+ * `parseAmountToMinor({ exponent })`.
+ */
+export const minorToInputString = (amountMinor: number, exponent: number): string => {
+  const negative = amountMinor < 0;
+  const absDigits = String(Math.abs(amountMinor)).padStart(exponent + 1, "0");
+  const wholePart = exponent > 0 ? absDigits.slice(0, -exponent) : absDigits;
+  const fractionPart = exponent > 0 ? absDigits.slice(-exponent) : "";
+  const result = exponent > 0 ? `${wholePart}.${fractionPart}` : wholePart;
+  return negative ? `-${result}` : result;
+};
+
 export type ParseAmountResult = { ok: true; amountMinor: number } | { ok: false; reason: string };
 
 export interface ParseAmountOptions {

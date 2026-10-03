@@ -5,6 +5,7 @@
     "transactions": "Transactions",
     "import": "Importer",
     "accounts": "Comptes",
+    "budget": "Budget",
     "review": "Revue",
     "rules": "Règles"
   },
@@ -245,5 +246,40 @@
     "enable": "Activer",
     "disable": "Désactiver",
     "delete": "Supprimer"
+  },
+  "budget": {
+    "hero": {
+      "eyebrow": "Finances",
+      "title": "Budget"
+    },
+    "monthSelectorTitle": "Mois",
+    "previousMonth": "Mois précédent",
+    "nextMonth": "Mois suivant",
+    "closeMonth": "Clôturer le mois",
+    "reopenMonth": "Rouvrir le mois",
+    "readyToAssignTitle": "Prêt à assigner",
+    "readyToAssignNote": "Note",
+    "cardBalancesTitle": "Solde des cartes de crédit",
+    "envelopesTitle": "Enveloppes",
+    "fields": {
+      "assigned": "Assigné",
+      "activity": "Activité",
+      "available": "Disponible"
+    },
+    "overspendPolicies": {
+      "reduce_next_ready_to_assign": "Réduire le prêt à assigner du mois suivant",
+      "carry_negative": "Reporter le déficit"
+    },
+    "quickActions": {
+      "lastMonth": "Mois dernier",
+      "average3Months": "Moy. 3 mois",
+      "assignAllReadyToAssign": "Assigner tout le prêt à assigner",
+      "coverOverspending": "Couvrir",
+      "pickSourceCategory": "Choisir une catégorie source"
+    },
+    "pace": "{{percent}}% dépensé",
+    "unbudgetedTitle": "Non budgété ({{count}})",
+    "noUnbudgeted": "Aucune catégorie non budgétée.",
+    "unbudgetedAssign": "Assigner"
   }
 }

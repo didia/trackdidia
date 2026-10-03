@@ -5600,4 +5600,48 @@ export class TauriSqliteRepository implements AppRepository {
   ) {
     return this.runExclusive(() => this.getFinanceStore().revertCategoryBackfill(entries));
   }
+
+  // --- Finance (Phase 5 — Budget) -------------------------------------------------------
+
+  async getFinanceBudgetMonth(monthKey: string) {
+    return this.getFinanceStore().getBudgetMonth(monthKey);
+  }
+
+  async setFinanceBudgetAssignment(monthKey: string, categoryId: string, assignedMinor: number) {
+    return this.runExclusive(() =>
+      this.getFinanceStore().setBudgetAssignment(monthKey, categoryId, assignedMinor),
+    );
+  }
+
+  async setFinanceCategoryOverspendPolicy(
+    monthKey: string,
+    categoryId: string,
+    policy: import("../../domain/finance").FinanceOverspendPolicy,
+  ) {
+    return this.runExclusive(() =>
+      this.getFinanceStore().setCategoryOverspendPolicy(monthKey, categoryId, policy),
+    );
+  }
+
+  async computeFinanceBudgetState(monthKey: string) {
+    return this.getFinanceStore().computeBudgetState(monthKey);
+  }
+
+  async computeFinanceCoverOverspending(
+    monthKey: string,
+    fromCategoryId: string,
+    toCategoryId: string,
+  ) {
+    return this.getFinanceStore().computeCoverOverspending(monthKey, fromCategoryId, toCategoryId);
+  }
+
+  async setFinanceBudgetMonthClosed(monthKey: string, closed: boolean) {
+    return this.runExclusive(() => this.getFinanceStore().setBudgetMonthClosed(monthKey, closed));
+  }
+
+  async setFinanceBudgetReadyToAssignNote(monthKey: string, note: string | null) {
+    return this.runExclusive(() =>
+      this.getFinanceStore().setBudgetReadyToAssignNote(monthKey, note),
+    );
+  }
 }

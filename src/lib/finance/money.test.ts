@@ -3,6 +3,7 @@ import {
   currencyExponent,
   formatMoney,
   formatMoneySigned,
+  minorToInputString,
   parseAmountToMinor,
   sumMoney,
 } from "./money";
@@ -100,5 +101,23 @@ describe("finance money", () => {
     const result = sumMoney(values);
     expect(result.amountMinor).toBe(110_000);
     expect(Number.isInteger(result.amountMinor)).toBe(true);
+  });
+
+  it("minorToInputString renders minor units as a plain decimal string, round-tripping through parseAmountToMinor", () => {
+    expect(minorToInputString(1234, 2)).toBe("12.34");
+    expect(minorToInputString(-1234, 2)).toBe("-12.34");
+    expect(minorToInputString(5, 2)).toBe("0.05");
+    expect(minorToInputString(0, 2)).toBe("0.00");
+    expect(minorToInputString(500, 0)).toBe("500");
+    expect(minorToInputString(-500, 0)).toBe("-500");
+
+    expect(parseAmountToMinor(minorToInputString(123456, 2), { exponent: 2 })).toEqual({
+      ok: true,
+      amountMinor: 123456,
+    });
+    expect(parseAmountToMinor(minorToInputString(-123456, 2), { exponent: 2 })).toEqual({
+      ok: true,
+      amountMinor: -123456,
+    });
   });
 });
