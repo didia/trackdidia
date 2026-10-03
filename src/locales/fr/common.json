@@ -72,5 +72,6 @@
     "stageLabel": "Étape :",
     "sqliteFallback": "Échec du stockage SQLite au démarrage. L'application utilise un mode temporaire non persistant.",
     "detail": "Détail :"
-  }
+  },
+  "aiGenerationFailed": "L'IA n'a pas pu repondre."
 }
