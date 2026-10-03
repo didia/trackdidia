@@ -1,4 +1,5 @@
 import { decodeProposal, isMonthlySectionKey } from "./proposals/payloads";
+import { runStructuredSurface, sourceFromStatus } from "./structured-generation";
 import type {
   AiMessage,
   AiProposal,
@@ -86,18 +87,6 @@ const buildProposals = (
   return proposals;
 };
 
-const resultSourceFromMessage = (message: AiMessage): MonthlySynthesisResult["source"] => {
-  if (message.status === "ok") {
-    return "cache";
-  }
-
-  if (message.status === "fallback") {
-    return "fallback";
-  }
-
-  return "local";
-};
-
 const cachedResult = async (
   repository: AppRepository,
   message: AiMessage,
@@ -116,31 +105,7 @@ const cachedResult = async (
     message,
     synthesis: parsed.value,
     proposals,
-    source: resultSourceFromMessage(message),
-  };
-};
-
-const persistResult = async (
-  repository: AppRepository,
-  message: AiMessage,
-  monthKey: string,
-  synthesis: MonthlySynthesisResponse,
-  knownGoalIds: Set<string>,
-): Promise<MonthlySynthesisResult> => {
-  const proposals = buildProposals(
-    message.id,
-    monthKey,
-    synthesis,
-    message.createdAt,
-    knownGoalIds,
-  );
-  const saved = await repository.saveCoachPulseEpisode(message, proposals);
-
-  return {
-    message: saved.message,
-    synthesis,
-    proposals: saved.proposals,
-    source: message.status === "ok" ? "ai" : message.status === "fallback" ? "fallback" : "local",
+    source: sourceFromStatus(message.status, { cached: true }),
   };
 };
 
@@ -164,7 +129,6 @@ export class MonthlySynthesisService {
     const scopeKey = monthKey;
     const createdAt = nowIso();
     const asOfDate = clampAiAsOfDate(getTodayDate(), snapshot.monthEndDate);
-    const aiConfigured = settings.aiEnabled && settings.aiApiKey.trim().length > 0;
 
     const activeMemories = await repository.listAiMemories({
       status: "active",
@@ -182,160 +146,42 @@ export class MonthlySynthesisService {
       asOfDate,
     });
 
-    if (!bypassCache) {
-      if (aiConfigured) {
-        const cached = await repository.getAiMessage("monthly_synthesis", scopeKey, inputHash);
-        if (cached) {
-          const result = await cachedResult(repository, cached);
-          if (result) {
-            return { ...result, source: "cache" };
-          }
-        }
-      } else {
-        const skipped = await repository.getAiMessageRecord(
-          "monthly_synthesis",
-          scopeKey,
-          inputHash,
-        );
-        if (skipped?.status === "skipped") {
-          const result = await cachedResult(repository, skipped);
-          if (result) {
-            return { ...result, source: "cache" };
-          }
-        }
-      }
-    }
-
-    const localSynthesis = buildLocalMonthlySynthesis(snapshot);
-    const existingMessage = await repository.getAiMessageRecord(
-      "monthly_synthesis",
-      scopeKey,
-      inputHash,
-    );
-    const baseMessage = (): AiMessage => ({
-      id: existingMessage?.id ?? createEntityId("ai-message"),
+    const result = await runStructuredSurface({
+      repository,
+      provider: this.provider,
+      settings,
       surface: "monthly_synthesis",
       scopeKey,
-      stance: null,
       kind: "monthly",
-      inputHash,
       promptVersion: MONTHLY_SYNTHESIS_PROMPT_VERSION,
-      model: settings.aiSurfaceModels.monthly_synthesis ?? settings.aiModel,
-      status: "ok",
-      bodyJson: JSON.stringify(localSynthesis),
-      bodyText: synthesisToBodyText(localSynthesis),
-      deltaClass: null,
-      notified: false,
-      tokensPrompt: null,
-      tokensCompletion: null,
-      latencyMs: null,
+      inputHash,
       createdAt,
-    });
-
-    if (!aiConfigured) {
-      const skippedMessage = {
-        ...baseMessage(),
-        status: "skipped" as const,
-        model: "local",
-      };
-
-      return persistResult(repository, skippedMessage, monthKey, localSynthesis, knownGoalIds);
-    }
-
-    try {
-      const first = await this.provider.generateStructured({
+      bypassCache,
+      reuseMessageId: true,
+      localFallback: buildLocalMonthlySynthesis(snapshot),
+      toBodyText: synthesisToBodyText,
+      parse: parseMonthlySynthesisJson,
+      request: (repairHint) => ({
         surface: "monthly_synthesis",
         settings,
         snapshot,
         memoryBlock,
-      });
-
-      let parsed = parseMonthlySynthesisJson(first.text);
-      let finalText = first.text;
-      let usage = first.usage;
-      let model = first.model;
-
-      if (!parsed.ok) {
-        const repair = await this.provider.generateStructured({
-          surface: "monthly_synthesis",
-          settings,
-          snapshot,
-          memoryBlock,
-          repairHint: parsed.error,
-        });
-        parsed = parseMonthlySynthesisJson(repair.text);
-        finalText = repair.text;
-        usage = {
-          tokensPrompt: usage.tokensPrompt + repair.usage.tokensPrompt,
-          tokensCompletion: usage.tokensCompletion + repair.usage.tokensCompletion,
-          latencyMs: usage.latencyMs + repair.usage.latencyMs,
-        };
-        model = repair.model;
-      }
-
-      if (!parsed.ok) {
-        const message: AiMessage = {
-          ...baseMessage(),
-          status: "fallback",
-          model,
-          bodyJson: JSON.stringify(localSynthesis),
-          bodyText: synthesisToBodyText(localSynthesis),
-          tokensPrompt: usage.tokensPrompt,
-          tokensCompletion: usage.tokensCompletion,
-          latencyMs: usage.latencyMs,
-        };
-
-        const result = await persistResult(
-          repository,
-          message,
-          monthKey,
-          localSynthesis,
-          knownGoalIds,
-        );
-        return {
-          ...result,
-          source: "fallback",
-          warning: parsed.error,
-        };
-      }
-
-      const message: AiMessage = {
-        ...baseMessage(),
-        status: "ok",
-        model,
-        bodyJson: finalText,
-        bodyText: synthesisToBodyText(parsed.value),
-        tokensPrompt: usage.tokensPrompt,
-        tokensCompletion: usage.tokensCompletion,
-        latencyMs: usage.latencyMs,
-      };
-
-      const result = await persistResult(repository, message, monthKey, parsed.value, knownGoalIds);
-      return {
-        ...result,
-        source: "ai",
-      };
-    } catch (error) {
-      const message: AiMessage = {
-        ...baseMessage(),
-        status: "fallback",
-        bodyJson: JSON.stringify(localSynthesis),
-        bodyText: synthesisToBodyText(localSynthesis),
-      };
-
-      const result = await persistResult(
-        repository,
-        message,
-        monthKey,
-        localSynthesis,
-        knownGoalIds,
-      );
-      return {
-        ...result,
-        source: "fallback",
-        warning: error instanceof Error ? error.message : "L'IA n'a pas pu repondre.",
-      };
-    }
+        repairHint,
+      }),
+      buildProposals: (id, response, at) =>
+        buildProposals(id, monthKey, response, at, knownGoalIds),
+      cachedResult: async (message) => {
+        const cached = await cachedResult(repository, message);
+        return cached ? { response: cached.synthesis, proposals: cached.proposals } : null;
+      },
+    });
+    return {
+      message: result.message,
+      synthesis: result.response,
+      proposals: result.proposals,
+      source: result.source,
+      warning: result.warning,
+    };
   }
 }
 
@@ -347,6 +193,7 @@ export const monthlySectionKeyFromProposal = (
     ? decoded.payload.sectionKey
     : null;
 };
+
 export const monthlyReviewSectionFromProposal = (
   proposal: AiProposal,
 ): { sectionKey: MonthlyReviewSectionKey; text: string } | null => {

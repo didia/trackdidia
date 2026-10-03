@@ -124,16 +124,7 @@ import {
   recurringInstanceWasRewound,
   syncTemplateStatusChange,
 } from "../recurring/engine";
-import {
-  buildRelationshipDrawTaskTitle,
-  findActiveRelationshipDrawTask,
-  getRelationshipDrawActivities,
-  getRelationshipDrawProcessedDate,
-  getRelationshipDrawSourceExternalId,
-  pickRelationshipDrawActivity,
-  relationshipDrawDefinitions,
-  relationshipPersonalContextId,
-} from "../relationship-draws";
+import { buildDailyRelationshipDrawPlan } from "../relationship-draws";
 import type { AppRepository, PomodoroStartOptions, StorageInfo } from "./repository";
 import { EmailTriageMemoryStore } from "./email-triage-memory-store";
 
@@ -1345,6 +1336,10 @@ export class MemoryRepository implements AppRepository {
   }
 
   async createTask(input: CreateTaskInput): Promise<Task> {
+    return this.createTaskInternal(input);
+  }
+
+  private createTaskInternal(input: CreateTaskInput): Task {
     const draft = createTaskFromInput(input);
     const nextTask = this.applyPlannedAdjustments(null, draft);
     this.assertPlannedProjectExists(nextTask);
@@ -1500,63 +1495,24 @@ export class MemoryRepository implements AppRepository {
   }
 
   async generateDailyRelationshipTasks(date: string): Promise<number> {
-    const settings = await this.getSettings();
-
-    if (!settings.relationshipDrawsEnabled) {
-      return 0;
-    }
-
-    let nextSettings = settings;
     let createdCount = 0;
-    const taskSnapshot = [...this.tasks.values()];
-
-    for (const definition of relationshipDrawDefinitions) {
-      if (getRelationshipDrawProcessedDate(nextSettings, definition) === date) {
-        continue;
-      }
-
-      if (findActiveRelationshipDrawTask(taskSnapshot, definition.category)) {
-        nextSettings = {
-          ...nextSettings,
-          [definition.processedDateKey]: date,
-        };
-        continue;
-      }
-
-      const activity = pickRelationshipDrawActivity(
-        getRelationshipDrawActivities(nextSettings, definition),
-      );
-      if (!activity) {
-        continue;
-      }
-
-      const createdTask = await this.createTask({
-        title: buildRelationshipDrawTaskTitle(definition, activity),
-        notes: definition.notes,
-        bucket: "next_action",
-        contextIds: [relationshipPersonalContextId],
-        source: "manual",
-        sourceExternalId: getRelationshipDrawSourceExternalId(definition.category, date),
-        createdAt: `${date}T00:00:00.000Z`,
-        updatedAt: `${date}T00:00:00.000Z`,
-      });
-
-      taskSnapshot.push(createdTask);
-      nextSettings = {
-        ...nextSettings,
-        [definition.processedDateKey]: date,
-      };
-      createdCount += 1;
-    }
-
     await this.updateSettings((current) => {
-      const next = { ...current };
-      for (const definition of relationshipDrawDefinitions) {
-        if (nextSettings[definition.processedDateKey] !== settings[definition.processedDateKey]) {
-          next[definition.processedDateKey] = nextSettings[definition.processedDateKey];
-        }
+      const plan = buildDailyRelationshipDrawPlan(date, current, [...this.tasks.values()]);
+      const snapshot = {
+        tasks: new Map(this.tasks),
+        contexts: new Map(this.contexts),
+        events: new Map(this.events),
+        projects: new Map(this.projects),
+      };
+      try {
+        // No await: the active-task check, inserts, and settings update cannot interleave.
+        for (const input of plan.taskInputs) this.createTaskInternal(input);
+        createdCount = plan.taskInputs.length;
+        return plan.settings;
+      } catch (error) {
+        Object.assign(this, snapshot);
+        throw error;
       }
-      return next;
     });
     return createdCount;
   }

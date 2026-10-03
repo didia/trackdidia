@@ -1,4 +1,4 @@
-import type { AppSettings, Task } from "../domain/types";
+import type { AppSettings, CreateTaskInput, Task } from "../domain/types";
 import { t } from "../i18n";
 import { buildContextId } from "./gtd/shared";
 import { toLocalDateString } from "./date";
@@ -96,3 +96,37 @@ export const isTaskFromRelationshipDrawDate = (task: Task, date: string): boolea
 
 export const getRelationshipDrawTaskDate = (task: Task): string =>
   toLocalDateString(task.createdAt);
+
+/** Plan from the settings/tasks read inside the caller's protected write operation. */
+export const buildDailyRelationshipDrawPlan = (
+  date: string,
+  settings: AppSettings,
+  tasks: Task[],
+): { taskInputs: CreateTaskInput[]; settings: AppSettings } => {
+  let nextSettings = settings;
+  const taskInputs: CreateTaskInput[] = [];
+  if (!settings.relationshipDrawsEnabled) return { taskInputs, settings };
+
+  for (const definition of relationshipDrawDefinitions) {
+    // Local YYYY-MM-DD keys sort chronologically; stale calls must not reopen an older day.
+    if (getRelationshipDrawProcessedDate(nextSettings, definition) >= date) continue;
+    if (!findActiveRelationshipDrawTask(tasks, definition.category)) {
+      const activity = pickRelationshipDrawActivity(
+        getRelationshipDrawActivities(nextSettings, definition),
+      );
+      if (!activity) continue;
+      taskInputs.push({
+        title: buildRelationshipDrawTaskTitle(definition, activity),
+        notes: definition.notes,
+        bucket: "next_action",
+        contextIds: [relationshipPersonalContextId],
+        source: "manual",
+        sourceExternalId: getRelationshipDrawSourceExternalId(definition.category, date),
+        createdAt: `${date}T00:00:00.000Z`,
+        updatedAt: `${date}T00:00:00.000Z`,
+      });
+    }
+    nextSettings = setRelationshipDrawProcessedDate(nextSettings, definition, date);
+  }
+  return { taskInputs, settings: nextSettings };
+};

@@ -157,6 +157,32 @@ Evening closure (`/fermeture-soir`) auto-loads the `close` stance on page open:
 There is **no** gate requiring the user to write journal text first, and no
 **Demander au coach** button on Today or evening close while auto-load is active.
 
+### Shared structured generation
+
+`src/lib/ai/structured-generation.ts` owns cache lookup, message construction,
+one repair attempt, usage addition, proposal episode persistence and fallback
+handling for coach pulse, weekly synthesis, monthly synthesis, goal pacing and
+Pastor verse. Each service still builds its own snapshot, input hash, validator,
+local response and proposal payloads. Generic failure copy lives in the French
+`common` locale.
+
+The services pass their existing policies explicitly:
+
+- Weekly, monthly and goal pacing reuse successful AI cache entries, or skipped
+  local entries when AI is unconfigured. Monthly and goal pacing reuse the existing
+  message ID for the same input hash.
+- Coach pulse reuses successful episodes, retains its delta gate and resolves
+  due close commitments on cached and persisted outcomes. Automatic local paint
+  without a delta remains ephemeral.
+- Pastor's loader owns date-sticky caching. Offline picks persist as `local`;
+  temporary local paint and failed explicit regeneration do not enter history.
+  Accepted Pastor bodies store validated JSON; other services retain raw provider JSON.
+
+A second invalid response records both calls' usage. A thrown provider, repair or
+persistence error follows the existing fallback policy: the configured model and
+null usage are recorded. Cache hashes, prompt versions and surface-specific parsing
+remain unchanged.
+
 ### Structured output and accept-step
 
 The model returns JSON validated against the S1 `coach_pulse` schema (stance-aware).
@@ -642,6 +668,12 @@ Structured `coach_pulse` requests include:
 - a French system prompt with stance context and optional memory block;
 - the redacted daily snapshot plus deterministic commitment resolution when applicable.
 
+Both coach requests and email triage classification use the shared `openrouter-client.ts`
+request builder and response parser. Coach surfaces use webview `fetch` to preserve their
+existing retry behavior; email triage uses the native, host-allowlisted
+`provider_http_request` command and makes one attempt. Both send the same bearer,
+referer, and title headers. The shared timeout helper is also used by RescueTime.
+
 Transport hardening:
 
 - abortable timeout via `settings.aiTimeoutMs` (default 20 s), mirroring RescueTime;
@@ -744,13 +776,19 @@ per local day. Each category has an editable list of candidate activities.
 
 Generation behavior:
 
-1. Skip a category already marked processed for the date.
+1. Skip a category already marked processed for this date or a later date.
 2. If an active generated task for that category exists, do not create another and
    mark the date processed.
 3. Randomly select a non-empty configured activity.
 4. Create a manual Next Action in the Personal context.
 5. Use a deterministic category/date source external ID.
-6. Save the processed date in settings.
+6. Advance the processed date in settings without moving it backwards.
+
+The settings read, active-task check, task creation, and processed-date update form
+one protected write operation. SQLite commits tasks, lifecycle events, and markers
+in one transaction; memory applies them synchronously and restores affected maps
+if task creation fails. Overlapping startup/page loads therefore keep one active
+draw per category, preserve other settings, and retain the newest processed date.
 
 This design avoids accumulating a new relationship task while yesterday's task is
 still active. Completing or cancelling that task allows a future day's generation.
