@@ -20,8 +20,8 @@ describe("EmailTriagePage", () => {
   it("disables Connect Gmail in browser preview", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
-    await repository.saveEmailTriageGlobalSettings({
-      ...(await repository.getEmailTriageGlobalSettings()),
+    await repository.emailTriage.saveGlobalSettings({
+      ...(await repository.emailTriage.getGlobalSettings()),
       enabled: true,
       gmailOAuthClientId: "client-id",
       updatedAt: nowIso(),
@@ -33,8 +33,8 @@ describe("EmailTriagePage", () => {
   it("disables Connect Microsoft in browser preview", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
-    await repository.saveEmailTriageGlobalSettings({
-      ...(await repository.getEmailTriageGlobalSettings()),
+    await repository.emailTriage.saveGlobalSettings({
+      ...(await repository.emailTriage.getGlobalSettings()),
       enabled: true,
       microsoftOAuthClientId: "client-id",
       updatedAt: nowIso(),
@@ -46,8 +46,8 @@ describe("EmailTriagePage", () => {
   it("disables Connect Yahoo in browser preview", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
-    await repository.saveEmailTriageGlobalSettings({
-      ...(await repository.getEmailTriageGlobalSettings()),
+    await repository.emailTriage.saveGlobalSettings({
+      ...(await repository.emailTriage.getGlobalSettings()),
       enabled: true,
       updatedAt: nowIso(),
     });
@@ -59,7 +59,7 @@ describe("EmailTriagePage", () => {
     const repository = new MemoryRepository();
     await repository.initialize();
     const timestamp = nowIso();
-    await repository.saveEmailTriageAccount({
+    await repository.emailTriage.saveAccount({
       id: createEntityId("email-account"),
       provider: "gmail",
       providerAccountId: "me@example.com",
@@ -78,8 +78,8 @@ describe("EmailTriagePage", () => {
       createdAt: timestamp,
       updatedAt: timestamp,
     });
-    await repository.saveEmailTriageGlobalSettings({
-      ...(await repository.getEmailTriageGlobalSettings()),
+    await repository.emailTriage.saveGlobalSettings({
+      ...(await repository.emailTriage.getGlobalSettings()),
       enabled: true,
       updatedAt: timestamp,
     });
@@ -95,7 +95,7 @@ describe("EmailTriagePage", () => {
     const repository = new MemoryRepository();
     await repository.initialize();
     const timestamp = nowIso();
-    const account = await repository.saveEmailTriageAccount({
+    const account = await repository.emailTriage.saveAccount({
       id: createEntityId("email-account"),
       provider: "gmail",
       providerAccountId: "acct",
@@ -114,11 +114,11 @@ describe("EmailTriagePage", () => {
       createdAt: timestamp,
       updatedAt: timestamp,
     });
-    const conversation = await repository.emailTriageUpsertConversation(account.id, "thread-1", {
+    const conversation = await repository.emailTriage.upsertConversation(account.id, "thread-1", {
       decisionVersion: 1,
       routingState: "review",
     });
-    await repository.emailTriageCreateReview({
+    await repository.emailTriage.createReview({
       accountId: account.id,
       conversationId: conversation.id,
       messageId: "msg-1",
@@ -131,8 +131,8 @@ describe("EmailTriagePage", () => {
         sourceUrl: null,
       },
     });
-    await repository.saveEmailTriageGlobalSettings({
-      ...(await repository.getEmailTriageGlobalSettings()),
+    await repository.emailTriage.saveGlobalSettings({
+      ...(await repository.emailTriage.getGlobalSettings()),
       enabled: true,
       updatedAt: timestamp,
     });
@@ -145,14 +145,14 @@ describe("EmailTriagePage", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /Ignorer/i }));
     expect(await screen.findByText(/Motif requis pour ignorer/i)).toBeInTheDocument();
-    expect((await repository.listEmailTriageReviews("pending")).length).toBe(1);
+    expect((await repository.emailTriage.listReviews("pending")).length).toBe(1);
   });
 
   it("surfaces a resolve error instead of failing silently", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
     const timestamp = nowIso();
-    const account = await repository.saveEmailTriageAccount({
+    const account = await repository.emailTriage.saveAccount({
       id: createEntityId("email-account"),
       provider: "gmail",
       providerAccountId: "acct",
@@ -171,11 +171,11 @@ describe("EmailTriagePage", () => {
       createdAt: timestamp,
       updatedAt: timestamp,
     });
-    const conversation = await repository.emailTriageUpsertConversation(account.id, "thread-1", {
+    const conversation = await repository.emailTriage.upsertConversation(account.id, "thread-1", {
       decisionVersion: 2,
       routingState: "review",
     });
-    await repository.emailTriageCreateReview({
+    await repository.emailTriage.createReview({
       accountId: account.id,
       conversationId: conversation.id,
       messageId: "msg-1",
@@ -188,8 +188,8 @@ describe("EmailTriagePage", () => {
         sourceUrl: null,
       },
     });
-    await repository.saveEmailTriageGlobalSettings({
-      ...(await repository.getEmailTriageGlobalSettings()),
+    await repository.emailTriage.saveGlobalSettings({
+      ...(await repository.emailTriage.getGlobalSettings()),
       enabled: true,
       updatedAt: timestamp,
     });
@@ -202,7 +202,7 @@ describe("EmailTriagePage", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /Pertinent/i }));
     expect(await screen.findByText(/Conversation version mismatch/i)).toBeInTheDocument();
-    expect((await repository.listEmailTriageReviews("pending")).length).toBe(1);
+    expect((await repository.emailTriage.listReviews("pending")).length).toBe(1);
   });
 
   it("shows provider-neutral reconnect copy for Microsoft accounts", async () => {
@@ -213,7 +213,7 @@ describe("EmailTriagePage", () => {
     const repository = new MemoryRepository();
     await repository.initialize();
     const timestamp = nowIso();
-    await repository.saveEmailTriageAccount({
+    await repository.emailTriage.saveAccount({
       id: createEntityId("email-account"),
       provider: "microsoft_graph",
       providerAccountId: "oid-1",
@@ -232,8 +232,8 @@ describe("EmailTriagePage", () => {
       createdAt: timestamp,
       updatedAt: timestamp,
     });
-    await repository.saveEmailTriageGlobalSettings({
-      ...(await repository.getEmailTriageGlobalSettings()),
+    await repository.emailTriage.saveGlobalSettings({
+      ...(await repository.emailTriage.getGlobalSettings()),
       enabled: true,
       microsoftOAuthClientId: "client-id",
       updatedAt: timestamp,
@@ -254,7 +254,7 @@ describe("EmailTriagePage", () => {
     const repository = new MemoryRepository();
     await repository.initialize();
     const timestamp = nowIso();
-    const account = await repository.saveEmailTriageAccount({
+    const account = await repository.emailTriage.saveAccount({
       id: createEntityId("email-account"),
       provider: "gmail",
       providerAccountId: "acct",
@@ -273,11 +273,11 @@ describe("EmailTriagePage", () => {
       createdAt: timestamp,
       updatedAt: timestamp,
     });
-    const conversation = await repository.emailTriageUpsertConversation(account.id, "thread-1", {
+    const conversation = await repository.emailTriage.upsertConversation(account.id, "thread-1", {
       decisionVersion: 1,
       routingState: "review",
     });
-    await repository.emailTriageCreateReview({
+    await repository.emailTriage.createReview({
       accountId: account.id,
       conversationId: conversation.id,
       messageId: "msg-1",
@@ -290,8 +290,8 @@ describe("EmailTriagePage", () => {
         sourceUrl: null,
       },
     });
-    await repository.saveEmailTriageGlobalSettings({
-      ...(await repository.getEmailTriageGlobalSettings()),
+    await repository.emailTriage.saveGlobalSettings({
+      ...(await repository.emailTriage.getGlobalSettings()),
       enabled: true,
       updatedAt: timestamp,
     });
@@ -304,15 +304,15 @@ describe("EmailTriagePage", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /Pertinent/i }));
     expect(await screen.findByText(/Aucune revue en attente/i)).toBeInTheDocument();
-    expect((await repository.listEmailTriageReviews("pending")).length).toBe(0);
-    expect((await repository.listEmailTriageReviews("resolved")).length).toBe(1);
+    expect((await repository.emailTriage.listReviews("pending")).length).toBe(0);
+    expect((await repository.emailTriage.listReviews("resolved")).length).toBe(1);
   });
 
   it("shows tray and autostart checkboxes outside browser preview", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
-    await repository.saveEmailTriageGlobalSettings({
-      ...(await repository.getEmailTriageGlobalSettings()),
+    await repository.emailTriage.saveGlobalSettings({
+      ...(await repository.emailTriage.getGlobalSettings()),
       enabled: true,
       updatedAt: nowIso(),
     });
@@ -327,8 +327,8 @@ describe("EmailTriagePage", () => {
   it("hides tray and autostart checkboxes in browser preview", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
-    await repository.saveEmailTriageGlobalSettings({
-      ...(await repository.getEmailTriageGlobalSettings()),
+    await repository.emailTriage.saveGlobalSettings({
+      ...(await repository.emailTriage.getGlobalSettings()),
       enabled: true,
       updatedAt: nowIso(),
     });
@@ -340,8 +340,8 @@ describe("EmailTriagePage", () => {
   it("disables global mutation without a passed evaluation", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
-    await repository.saveEmailTriageGlobalSettings({
-      ...(await repository.getEmailTriageGlobalSettings()),
+    await repository.emailTriage.saveGlobalSettings({
+      ...(await repository.emailTriage.getGlobalSettings()),
       enabled: true,
       updatedAt: nowIso(),
     });
@@ -359,8 +359,8 @@ describe("EmailTriagePage", () => {
   it("shows automation checkbox that requires a passed evaluation to enable", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
-    await repository.saveEmailTriageGlobalSettings({
-      ...(await repository.getEmailTriageGlobalSettings()),
+    await repository.emailTriage.saveGlobalSettings({
+      ...(await repository.emailTriage.getGlobalSettings()),
       enabled: true,
       updatedAt: nowIso(),
     });
@@ -378,8 +378,8 @@ describe("EmailTriagePage", () => {
   it("disables evaluation while classifier settings differ from persisted", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
-    await repository.saveEmailTriageGlobalSettings({
-      ...(await repository.getEmailTriageGlobalSettings()),
+    await repository.emailTriage.saveGlobalSettings({
+      ...(await repository.emailTriage.getGlobalSettings()),
       enabled: true,
       updatedAt: nowIso(),
     });
@@ -401,7 +401,7 @@ describe("EmailTriagePage", () => {
     const repository = new MemoryRepository();
     await repository.initialize();
     const timestamp = nowIso();
-    const account = await repository.saveEmailTriageAccount({
+    const account = await repository.emailTriage.saveAccount({
       id: createEntityId("email-account"),
       provider: "gmail",
       providerAccountId: "acct",
@@ -420,11 +420,11 @@ describe("EmailTriagePage", () => {
       createdAt: timestamp,
       updatedAt: timestamp,
     });
-    const conversation = await repository.emailTriageUpsertConversation(account.id, "thread-1", {
+    const conversation = await repository.emailTriage.upsertConversation(account.id, "thread-1", {
       decisionVersion: 1,
       routingState: "review",
     });
-    await repository.emailTriageCreateReview({
+    await repository.emailTriage.createReview({
       accountId: account.id,
       conversationId: conversation.id,
       messageId: "msg-1",
@@ -437,8 +437,8 @@ describe("EmailTriagePage", () => {
         sourceUrl: null,
       },
     });
-    await repository.saveEmailTriageGlobalSettings({
-      ...(await repository.getEmailTriageGlobalSettings()),
+    await repository.emailTriage.saveGlobalSettings({
+      ...(await repository.emailTriage.getGlobalSettings()),
       enabled: true,
       updatedAt: timestamp,
     });
@@ -451,15 +451,15 @@ describe("EmailTriagePage", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /Retirer de la file/i }));
     expect(await screen.findByText(/Aucune revue en attente/i)).toBeInTheDocument();
-    const nextConversation = await repository.emailTriageGetConversation(conversation.id);
+    const nextConversation = await repository.emailTriage.getConversation(conversation.id);
     expect(nextConversation?.routingState).toBe("dismissed");
   });
 
   it("shows run evaluation control outside browser preview", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
-    await repository.saveEmailTriageGlobalSettings({
-      ...(await repository.getEmailTriageGlobalSettings()),
+    await repository.emailTriage.saveGlobalSettings({
+      ...(await repository.emailTriage.getGlobalSettings()),
       enabled: true,
       updatedAt: nowIso(),
     });
@@ -473,8 +473,8 @@ describe("EmailTriagePage", () => {
   it("keeps an unsaved tray setting after evaluation completes", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
-    await repository.saveEmailTriageGlobalSettings({
-      ...(await repository.getEmailTriageGlobalSettings()),
+    await repository.emailTriage.saveGlobalSettings({
+      ...(await repository.emailTriage.getGlobalSettings()),
       enabled: true,
       updatedAt: nowIso(),
     });

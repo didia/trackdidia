@@ -7,7 +7,8 @@ import type {
   CoachPulseStance,
 } from "../../../domain/types";
 import { t } from "../../../i18n";
-import { createEntityId, nowIso, toLocalDateString } from "../../gtd/shared";
+import { createEntityId, nowIso } from "../../gtd/shared";
+import { toLocalDateString } from "../../date";
 import { notifyPomodoroCompletion } from "../../pomodoro/sound";
 import type { AppRepository } from "../../storage/repository";
 import type { CoachPulseService } from "../coach-pulse-service";

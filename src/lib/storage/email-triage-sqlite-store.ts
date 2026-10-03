@@ -32,6 +32,7 @@ import type {
   PersistMessageBatchInput,
   PersistMessageBatchResult,
 } from "../email-triage/sync-engine";
+import type { EmailTriageStore } from "./email-triage-store";
 
 interface AccountRow {
   id: string;
@@ -73,7 +74,7 @@ const mapAccount = (row: AccountRow): EmailTriageAccount => ({
   updatedAt: row.updated_at,
 });
 
-export class EmailTriageSqliteStore {
+export class EmailTriageSqliteStore implements EmailTriageStore {
   constructor(
     private readonly getDb: () => Promise<Database>,
     private readonly taskOps: {

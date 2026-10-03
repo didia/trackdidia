@@ -67,7 +67,7 @@ import {
   listWeekDates,
 } from "../../domain/weekly-review";
 import { monthKeyToLocalRange } from "../ai/analytics/month-range";
-import { getTodayDate } from "../date";
+import { getTodayDate, isSunday } from "../date";
 import { addCustomVerse } from "../pastor/custom-verse";
 import {
   buildCarryoverEvents,
@@ -86,23 +86,20 @@ import {
   swapPlannedOrder,
 } from "../gtd/planned";
 import { promoteDueScheduledTasks as selectDueScheduledPromotions } from "../gtd/scheduled";
-import {
-  addDays,
-  buildContextId,
-  cloneProject,
-  cloneTask,
-  createEntityId,
-  nowIso,
-  toLocalDateString,
-} from "../gtd/shared";
+import { buildContextId, cloneProject, cloneTask, createEntityId, nowIso } from "../gtd/shared";
+import { addDays, toLocalDateString } from "../date";
 import {
   buildPomodoroSessionDetails,
   buildPomodoroState,
   buildPomodoroTaskSummaries,
   computeDailyPomodoroStats,
-  createPomodoroSegment,
-  createPomodoroSession,
   getPomodoroRunningBreakSessionIdsToAutoCompleteWhenReset,
+  pauseSession,
+  requirePomodoroSession,
+  resumeSession,
+  startSession,
+  stopSession,
+  switchSessionTask,
 } from "../pomodoro/engine";
 import {
   applySeriesChangesToTemplate,
@@ -151,7 +148,7 @@ export class MemoryRepository implements AppRepository {
   private aiMessages = new Map<string, AiMessage>();
   private aiProposals = new Map<string, AiProposal>();
   private aiMemories = new Map<string, AiMemory>();
-  private readonly emailTriage = new EmailTriageMemoryStore({
+  readonly emailTriage = new EmailTriageMemoryStore({
     getTaskByExternalId: (externalId) =>
       [...this.tasks.values()].find((task) => task.sourceExternalId === externalId),
     createTask: (input) => {
@@ -1597,7 +1594,7 @@ export class MemoryRepository implements AppRepository {
   async computeDailyTaskStats(date: string): Promise<DailyTaskStats> {
     await this.generateDueRecurringTasks(date);
     await this.promoteDueScheduledTasks(getTodayDate());
-    if (date <= getTodayDate() && new Date(`${date}T12:00:00`).getDay() === 0) {
+    if (date <= getTodayDate() && isSunday(date)) {
       await this.applyWeeklyCarryover(date);
     }
 
@@ -1607,7 +1604,7 @@ export class MemoryRepository implements AppRepository {
   async getDailyTaskBreakdown(date: string) {
     await this.generateDueRecurringTasks(date);
     await this.promoteDueScheduledTasks(getTodayDate());
-    if (date <= getTodayDate() && new Date(`${date}T12:00:00`).getDay() === 0) {
+    if (date <= getTodayDate() && isSunday(date)) {
       await this.applyWeeklyCarryover(date);
     }
 
@@ -1640,22 +1637,9 @@ export class MemoryRepository implements AppRepository {
     }
 
     const startedAt = nowIso();
-    const kind = options.kind ?? state.nextSessionKind;
-    const cycleIndex =
-      kind === "focus"
-        ? state.nextFocusCycleIndex
-        : Math.max(1, state.completedFocusCountInCycle || 1);
-    const session = createPomodoroSession(kind, startedAt, cycleIndex);
+    const { session, segmentsToUpsert } = startSession(state, options, startedAt);
     this.pomodoroSessions.set(session.id, session);
-
-    if (kind === "focus") {
-      const normalizedTitle = options.taskId ? null : (options.title ?? "").trim() || null;
-      const segment = createPomodoroSegment(
-        session.id,
-        startedAt,
-        options.taskId ?? null,
-        normalizedTitle,
-      );
+    for (const segment of segmentsToUpsert) {
       this.pomodoroSegments.set(segment.id, segment);
     }
 
@@ -1667,116 +1651,61 @@ export class MemoryRepository implements AppRepository {
     status: "completed" | "cancelled",
     at = nowIso(),
   ): Promise<PomodoroState> {
-    const session = this.pomodoroSessions.get(sessionId);
-
-    if (!session) {
-      throw new Error(`Session Pomodoro ${sessionId} introuvable`);
-    }
+    const session = requirePomodoroSession(this.pomodoroSessions.get(sessionId), sessionId);
 
     if (session.status !== "running" && session.status !== "paused") {
       return this.getPomodoroState();
     }
 
-    const closedAt =
-      status === "completed" &&
-      session.status === "running" &&
-      new Date(at).getTime() >= new Date(session.endsAt).getTime()
-        ? session.endsAt
-        : at;
-
-    this.pomodoroSessions.set(sessionId, {
-      ...session,
-      status,
-      pausedRemainingMs: null,
-      completedAt: status === "completed" ? closedAt : null,
-      cancelledAt: status === "cancelled" ? closedAt : null,
-    });
-
-    for (const [segmentId, segment] of this.pomodoroSegments.entries()) {
-      if (segment.sessionId !== sessionId || segment.endedAt !== null) {
-        continue;
-      }
-
-      this.pomodoroSegments.set(segmentId, {
-        ...segment,
-        endedAt: closedAt,
-      });
+    const openSegments = [...this.pomodoroSegments.values()].filter(
+      (segment) => segment.sessionId === sessionId && segment.endedAt === null,
+    );
+    const transition = stopSession(session, openSegments, status, at);
+    this.pomodoroSessions.set(sessionId, transition.session);
+    for (const segment of transition.segmentsToUpsert) {
+      this.pomodoroSegments.set(segment.id, segment);
     }
 
     return this.getPomodoroState();
   }
 
   async pausePomodoroSession(sessionId: string, at = nowIso()): Promise<PomodoroState> {
-    const session = this.pomodoroSessions.get(sessionId);
-
-    if (!session) {
-      throw new Error(`Session Pomodoro ${sessionId} introuvable`);
-    }
+    const session = requirePomodoroSession(this.pomodoroSessions.get(sessionId), sessionId);
 
     if (session.status !== "running") {
       return this.getPomodoroState();
     }
 
-    const remainingMs = Math.max(0, new Date(session.endsAt).getTime() - new Date(at).getTime());
-
-    this.pomodoroSessions.set(sessionId, {
-      ...session,
-      status: "paused",
-      pausedRemainingMs: remainingMs,
-    });
-
-    for (const [segmentId, segment] of this.pomodoroSegments.entries()) {
-      if (segment.sessionId !== sessionId || segment.endedAt !== null) {
-        continue;
-      }
-
-      this.pomodoroSegments.set(segmentId, {
-        ...segment,
-        endedAt: at,
-      });
+    const openSegments = [...this.pomodoroSegments.values()].filter(
+      (segment) => segment.sessionId === sessionId && segment.endedAt === null,
+    );
+    const transition = pauseSession(session, openSegments, at);
+    this.pomodoroSessions.set(sessionId, transition.session);
+    for (const segment of transition.segmentsToUpsert) {
+      this.pomodoroSegments.set(segment.id, segment);
     }
 
     return this.getPomodoroState();
   }
 
   async resumePomodoroSession(sessionId: string, at = nowIso()): Promise<PomodoroState> {
-    const session = this.pomodoroSessions.get(sessionId);
-
-    if (!session) {
-      throw new Error(`Session Pomodoro ${sessionId} introuvable`);
-    }
+    const session = requirePomodoroSession(this.pomodoroSessions.get(sessionId), sessionId);
 
     if (session.status !== "paused") {
       return this.getPomodoroState();
     }
 
-    const remainingMs =
-      session.pausedRemainingMs ??
-      Math.max(0, new Date(session.endsAt).getTime() - new Date(at).getTime());
-    const nextEndsAt = new Date(new Date(at).getTime() + remainingMs).toISOString();
-
-    this.pomodoroSessions.set(sessionId, {
-      ...session,
-      status: "running",
-      endsAt: nextEndsAt,
-      pausedRemainingMs: null,
-    });
-
-    if (session.kind === "focus") {
-      const latestSegment = [...this.pomodoroSegments.values()]
-        .filter((segment) => segment.sessionId === sessionId)
-        .sort((left, right) => left.startedAt.localeCompare(right.startedAt))
-        .at(-1);
-
-      if (latestSegment) {
-        const nextSegment = createPomodoroSegment(
-          sessionId,
-          at,
-          latestSegment.taskId,
-          latestSegment.title,
-        );
-        this.pomodoroSegments.set(nextSegment.id, nextSegment);
-      }
+    const latestSegment =
+      session.kind === "focus"
+        ? [...this.pomodoroSegments.values()]
+            .filter((segment) => segment.sessionId === sessionId)
+            .sort((left, right) => left.startedAt.localeCompare(right.startedAt))
+            .at(-1)
+        : null;
+    const transition = resumeSession(session, latestSegment, at);
+    this.pomodoroSessions.set(sessionId, transition.session);
+    for (const segment of transition.segmentsToUpsert) {
+      this.pomodoroSegments.set(segment.id, segment);
     }
 
     return this.getPomodoroState();
@@ -1810,11 +1739,7 @@ export class MemoryRepository implements AppRepository {
     title: string | null = null,
     changedAt = nowIso(),
   ): Promise<PomodoroState> {
-    const session = this.pomodoroSessions.get(sessionId);
-
-    if (!session) {
-      throw new Error(`Session Pomodoro ${sessionId} introuvable`);
-    }
+    const session = requirePomodoroSession(this.pomodoroSessions.get(sessionId), sessionId);
 
     if (session.status !== "running" || session.kind !== "focus") {
       return this.getPomodoroState();
@@ -1824,21 +1749,13 @@ export class MemoryRepository implements AppRepository {
       (segment) => segment.sessionId === sessionId && segment.endedAt === null,
     );
 
-    const normalizedTitle = taskId ? null : (title ?? "").trim() || null;
-
-    if (openSegment?.taskId === taskId && (openSegment.title ?? null) === normalizedTitle) {
+    const transition = switchSessionTask(session, openSegment, taskId, title, changedAt);
+    if (!transition) {
       return this.getPomodoroState();
     }
-
-    if (openSegment) {
-      this.pomodoroSegments.set(openSegment.id, {
-        ...openSegment,
-        endedAt: changedAt,
-      });
+    for (const segment of transition.segmentsToUpsert) {
+      this.pomodoroSegments.set(segment.id, segment);
     }
-
-    const nextSegment = createPomodoroSegment(sessionId, changedAt, taskId, normalizedTitle);
-    this.pomodoroSegments.set(nextSegment.id, nextSegment);
     return this.getPomodoroState();
   }
 
@@ -1900,15 +1817,11 @@ export class MemoryRepository implements AppRepository {
     const candidates = [template.startDate];
 
     if (template.lastGeneratedForDate) {
-      const next = new Date(`${template.lastGeneratedForDate}T12:00:00`);
-      next.setDate(next.getDate() + 1);
-      candidates.push(next.toISOString().slice(0, 10));
+      candidates.push(addDays(template.lastGeneratedForDate, 1));
     }
 
     if (activeTask?.recurrenceDueDate) {
-      const next = new Date(`${activeTask.recurrenceDueDate}T12:00:00`);
-      next.setDate(next.getDate() + 1);
-      candidates.push(next.toISOString().slice(0, 10));
+      candidates.push(addDays(activeTask.recurrenceDueDate, 1));
     }
 
     return candidates.sort().at(-1) ?? template.startDate;
@@ -2075,162 +1988,5 @@ export class MemoryRepository implements AppRepository {
     };
     this.contexts.set(id, context);
     return context;
-  }
-
-  async getEmailTriageGlobalSettings() {
-    return Promise.resolve(this.emailTriage.getGlobalSettings());
-  }
-
-  async saveEmailTriageGlobalSettings(
-    settings: import("../../domain/email-triage").EmailTriageGlobalSettings,
-  ) {
-    this.emailTriage.saveGlobalSettings(settings);
-    return Promise.resolve();
-  }
-
-  async listEmailTriageAccounts() {
-    return Promise.resolve(this.emailTriage.listAccounts());
-  }
-
-  async getEmailTriageAccount(accountId: string) {
-    return Promise.resolve(this.emailTriage.getAccount(accountId));
-  }
-
-  async saveEmailTriageAccount(account: import("../../domain/email-triage").EmailTriageAccount) {
-    return Promise.resolve(this.emailTriage.saveAccount(account));
-  }
-
-  async deleteEmailTriageAccount(accountId: string) {
-    this.emailTriage.deleteAccount(accountId);
-    return Promise.resolve();
-  }
-
-  async listEmailTriageReviews(
-    status?: import("../../domain/email-triage").EmailTriageReview["status"],
-  ) {
-    return Promise.resolve(this.emailTriage.listReviews(status));
-  }
-
-  async resolveEmailTriageReview(input: {
-    reviewId: string;
-    expectedDecisionVersion: number;
-    resolution: import("../../domain/email-triage").EmailTriageReview["resolution"];
-    ignoreReason?: string | null;
-  }) {
-    return Promise.resolve(this.emailTriage.resolveReview(input));
-  }
-
-  async listEmailTriageEvaluations(limit?: number) {
-    return Promise.resolve(this.emailTriage.listEvaluations(limit));
-  }
-
-  async saveEmailTriageEvaluation(
-    evaluation: import("../../domain/email-triage").EmailTriageEvaluation,
-  ) {
-    return Promise.resolve(this.emailTriage.saveEvaluation(evaluation));
-  }
-
-  async getLatestMatchingEmailTriageEvaluation(
-    settings: import("../../domain/email-triage").EmailTriageGlobalSettings,
-  ) {
-    return Promise.resolve(this.emailTriage.getLatestMatchingEvaluation(settings));
-  }
-
-  async dismissEmailTriageReview(reviewId: string) {
-    return Promise.resolve(this.emailTriage.dismissReview(reviewId));
-  }
-
-  async listEmailTriageAuditEvents(accountId?: string, limit?: number) {
-    return Promise.resolve(this.emailTriage.listAuditEvents(accountId, limit));
-  }
-
-  async recoverEmailTriageStaleEffects() {
-    return Promise.resolve(this.emailTriage.recoverStaleEffects());
-  }
-
-  async emailTriageUpsertConversation(
-    accountId: string,
-    conversationKey: string,
-    patch: Partial<import("../../domain/email-triage").EmailTriageConversation>,
-  ) {
-    return Promise.resolve(this.emailTriage.upsertConversation(accountId, conversationKey, patch));
-  }
-
-  async emailTriageGetConversationByKey(accountId: string, conversationKey: string) {
-    return Promise.resolve(this.emailTriage.getConversationByKey(accountId, conversationKey));
-  }
-
-  async emailTriageUpdateAccountSyncState(
-    accountId: string,
-    syncState: Record<string, unknown>,
-    patch?: Partial<import("../../domain/email-triage").EmailTriageAccount>,
-  ) {
-    return Promise.resolve(this.emailTriage.updateAccountSyncState(accountId, syncState, patch));
-  }
-
-  async emailTriagePersistMessageBatch(
-    input: import("../email-triage/sync-engine").PersistMessageBatchInput,
-  ) {
-    return Promise.resolve(this.emailTriage.persistMessageBatch(input));
-  }
-
-  async emailTriageGetMessageByProviderId(accountId: string, providerMessageId: string) {
-    return Promise.resolve(this.emailTriage.getMessageByProviderId(accountId, providerMessageId));
-  }
-
-  async emailTriageGetConversation(conversationId: string) {
-    return Promise.resolve(this.emailTriage.getConversation(conversationId));
-  }
-
-  async emailTriageDismissPendingReviews(conversationId: string) {
-    this.emailTriage.dismissPendingReviews(conversationId);
-    return Promise.resolve();
-  }
-
-  async emailTriageListPendingEffects(conversationId: string) {
-    return Promise.resolve(this.emailTriage.listPendingEffects(conversationId));
-  }
-
-  async emailTriageListPendingEffectsForAccount(accountId: string) {
-    return Promise.resolve(this.emailTriage.listPendingEffectsForAccount(accountId));
-  }
-
-  async emailTriageSaveDesiredEffect(
-    effect: import("../../domain/email-triage").EmailTriageDesiredEffect,
-  ) {
-    return Promise.resolve(this.emailTriage.saveDesiredEffect(effect));
-  }
-
-  async emailTriageGetTaskByExternalId(externalId: string) {
-    return Promise.resolve(this.emailTriage.getTaskByExternalId(externalId));
-  }
-
-  async emailTriageApplyGtdUpdate(
-    input: import("../email-triage/sync-engine").ApplyGtdUpdateInput,
-  ) {
-    return Promise.resolve(this.emailTriage.applyGtdUpdate(input));
-  }
-
-  async emailTriageCreateReview(input: import("../email-triage/sync-engine").CreateReviewInput) {
-    return Promise.resolve(this.emailTriage.createReview(input));
-  }
-
-  async listEmailTriageMessages(accountId: string, limit?: number) {
-    return Promise.resolve(this.emailTriage.listMessages(accountId, limit));
-  }
-
-  async listEmailTriageClassificationAttempts(messageId: string) {
-    return Promise.resolve(this.emailTriage.listClassificationAttempts(messageId));
-  }
-
-  async emailTriageFindConversationKeyByMessageId(accountId: string, messageIdHeader: string) {
-    return Promise.resolve(
-      this.emailTriage.findConversationKeyByMessageId(accountId, messageIdHeader),
-    );
-  }
-
-  async emailTriageSaveAlias(accountId: string, conversationKey: string, messageIdHeader: string) {
-    this.emailTriage.saveAlias(accountId, conversationKey, messageIdHeader);
-    return Promise.resolve();
   }
 }

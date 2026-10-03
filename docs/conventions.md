@@ -130,9 +130,9 @@ TrackDidia uses two related representations:
 
 Rules:
 
-- Use `getTodayDate()` and `toLocalDateString()` for local calendar identity.
-- Use local noon when doing date-only arithmetic to avoid DST/midnight shifts.
-- Weeks begin Sunday through `getWeekStartSunday()`.
+- Use `getTodayDate()` and `toLocalDateString()` from `src/lib/date.ts` for local calendar identity.
+- Use `atLocalNoon()`, `addDays()`, and `addMonths()` from that module for date-only arithmetic across DST and month boundaries.
+- Weeks begin Sunday through `getWeekStartSunday()` in that module.
 - Use `buildIsoFromLocalDateAndTime()` for Scheduled inputs.
 - Do not compare the first ten characters of an arbitrary ISO timestamp when local
   date semantics matter; use the shared local-date helpers.

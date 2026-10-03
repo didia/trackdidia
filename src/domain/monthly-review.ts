@@ -1,4 +1,11 @@
-import { addDays, getWeekStartSunday } from "../lib/gtd/shared";
+import {
+  addDays,
+  addMonths,
+  atLocalNoon,
+  getWeekStartSunday,
+  toLocalDateString,
+  toMonthKey,
+} from "../lib/date";
 import { average } from "../lib/math";
 import { computeDisciplineScore, resolveMetricValue } from "./daily-entry";
 import type {
@@ -19,18 +26,15 @@ const clampMonthKey = (monthKey: string): string =>
 const createDateFromMonthKey = (monthKey: string, day: number): string =>
   `${clampMonthKey(monthKey)}-${String(day).padStart(2, "0")}`;
 
-export const getMonthKey = (date: string): string => date.slice(0, 7);
+export const getMonthKey = (date: string): string => toMonthKey(date);
 
 export const getMonthStartDate = (monthKey: string): string => createDateFromMonthKey(monthKey, 1);
 
 export const getMonthEndDate = (monthKey: string): string => {
-  const start = new Date(`${getMonthStartDate(monthKey)}T12:00:00`);
+  const start = atLocalNoon(getMonthStartDate(monthKey));
   const end = new Date(start);
   end.setMonth(end.getMonth() + 1, 0);
-  const year = end.getFullYear();
-  const month = String(end.getMonth() + 1).padStart(2, "0");
-  const day = String(end.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return toLocalDateString(end);
 };
 
 export const listMonthDates = (monthKey: string): string[] => {
@@ -61,14 +65,10 @@ export const listWeekStartsForMonth = (monthKey: string): string[] => {
   return starts;
 };
 
-export const getPreviousMonthKey = (date: string): string => {
-  const current = new Date(`${date.slice(0, 7)}-01T12:00:00`);
-  current.setMonth(current.getMonth() - 1);
-  return `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, "0")}`;
-};
+export const getPreviousMonthKey = (date: string): string => addMonths(toMonthKey(date), -1);
 
 export const isFirstSaturdayOfMonth = (date: string): boolean => {
-  const current = new Date(`${date}T12:00:00`);
+  const current = atLocalNoon(date);
   return current.getDay() === 6 && current.getDate() <= 7;
 };
 

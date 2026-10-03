@@ -22,7 +22,7 @@ import { formatDateLong, formatDateTimeShort, getTodayDate } from "../lib/date";
 import { logDebug } from "../lib/debug";
 import { formatTimestamp } from "../lib/format";
 import { bucketLabelKeys } from "../lib/gtd/labels";
-import { isSunday, isWednesday } from "../lib/gtd/shared";
+import { isSunday, isWednesday } from "../lib/date";
 import type { DailyTaskBreakdown } from "../lib/storage/repository";
 
 export const TodayPage = () => {

@@ -9,6 +9,7 @@ import { PageHeader } from "../components/PageHeader";
 import { ContextFilterChips } from "../components/ContextFilterChips";
 import { SectionCard } from "../components/SectionCard";
 import type { Task } from "../domain/types";
+import { getTodayDate } from "../lib/date";
 import { effectiveTaskContextIds } from "../lib/gtd/engine";
 import { nextActionAgeDays } from "../lib/gtd/next-action-age";
 
@@ -52,9 +53,7 @@ export const NextActionsPage = () => {
   const [sortMode, setSortMode] = useState<NextActionSortMode>("created");
 
   const nextActionTasks = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    const todayDate = getTodayDate();
 
     const base = tasks
       .filter((task) => task.bucket === "next_action")

@@ -32,8 +32,9 @@ import type {
   PersistMessageBatchInput,
   PersistMessageBatchResult,
 } from "../email-triage/sync-engine";
+import type { EmailTriageStore } from "./email-triage-store";
 
-export class EmailTriageMemoryStore {
+export class EmailTriageMemoryStore implements EmailTriageStore {
   globalSettings: EmailTriageGlobalSettings = defaultEmailTriageGlobalSettings();
   accounts = new Map<string, EmailTriageAccount>();
   conversations = new Map<string, EmailTriageConversation>();

@@ -114,9 +114,11 @@ describe("persistGmailAccountCredentials", () => {
   it("deletes the vault secret if a new account row fails to save", async () => {
     vi.mocked(loadVaultSecret).mockResolvedValue(null);
     const repository = {
-      saveEmailTriageAccount: vi.fn(async () => {
-        throw new Error("disk full");
-      }),
+      emailTriage: {
+        saveAccount: vi.fn(async () => {
+          throw new Error("disk full");
+        }),
+      },
     };
     await expect(
       persistGmailAccountCredentials({
@@ -139,9 +141,11 @@ describe("persistGmailAccountCredentials", () => {
   it("restores the previous vault secret if reconnect persistence fails", async () => {
     vi.mocked(loadVaultSecret).mockResolvedValue("old-creds");
     const repository = {
-      saveEmailTriageAccount: vi.fn(async () => {
-        throw new Error("sqlite failed");
-      }),
+      emailTriage: {
+        saveAccount: vi.fn(async () => {
+          throw new Error("sqlite failed");
+        }),
+      },
     };
     await expect(
       persistGmailAccountCredentials({
@@ -193,9 +197,11 @@ describe("persistYahooAccountCredentials", () => {
   it("deletes the vault secret if a new account row fails to save", async () => {
     vi.mocked(loadVaultSecret).mockResolvedValue(null);
     const repository = {
-      saveEmailTriageAccount: vi.fn(async () => {
-        throw new Error("disk full");
-      }),
+      emailTriage: {
+        saveAccount: vi.fn(async () => {
+          throw new Error("disk full");
+        }),
+      },
     };
     await expect(
       persistYahooAccountCredentials({
@@ -221,9 +227,11 @@ describe("persistYahooAccountCredentials", () => {
     });
     vi.mocked(loadVaultSecret).mockResolvedValue(previous);
     const repository = {
-      saveEmailTriageAccount: vi.fn(async () => {
-        throw new Error("sqlite failed");
-      }),
+      emailTriage: {
+        saveAccount: vi.fn(async () => {
+          throw new Error("sqlite failed");
+        }),
+      },
     };
     await expect(
       persistYahooAccountCredentials({

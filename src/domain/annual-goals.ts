@@ -6,7 +6,7 @@ import {
 } from "./annual-goal-measurement";
 import { principleDefinitions } from "./definitions";
 import { resolveMetricValue } from "./daily-entry";
-import { getTodayDate } from "../lib/date";
+import { atLocalNoon, getTodayDate } from "../lib/date";
 import { average } from "../lib/math";
 import { getMonthKey, getMonthStartDate } from "./monthly-review";
 import type {
@@ -550,9 +550,9 @@ export const computeYearProgressFraction = (year: number, asOfDate: string): num
     }
   }
 
-  const start = new Date(`${year}-01-01T12:00:00`);
-  const end = new Date(`${year}-12-31T12:00:00`);
-  const asOf = new Date(`${asOfDate}T12:00:00`);
+  const start = atLocalNoon(`${year}-01-01`);
+  const end = atLocalNoon(`${year}-12-31`);
+  const asOf = atLocalNoon(asOfDate);
 
   if (asOf <= start) {
     return 0;

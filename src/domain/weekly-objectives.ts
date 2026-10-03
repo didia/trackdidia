@@ -1,4 +1,4 @@
-import { addDays } from "../lib/gtd/shared";
+import { addDays } from "../lib/date";
 import type {
   WeeklyObjective,
   WeeklyObjectiveItemSnapshot,

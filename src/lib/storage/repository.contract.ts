@@ -5,7 +5,7 @@ import type { MidWeekLaggingSnapshot } from "../../domain/mid-week-review";
 import type { CatalogVerse, RescueTimeSnapshotCacheEntry } from "../../domain/types";
 import { createEmptyWeeklyReview } from "../../domain/weekly-review";
 import { getTodayDate } from "../date";
-import { addDays } from "../gtd/shared";
+import { addDays } from "../date";
 import { loadVerseCatalog } from "../pastor/verse-catalog";
 import type { AppRepository } from "./repository";
 

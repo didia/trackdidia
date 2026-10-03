@@ -67,7 +67,7 @@ import {
 import { t } from "../../i18n";
 import { monthKeyToLocalRange } from "../ai/analytics/month-range";
 import { buildBackupFileName, isBackupDestinationConfigured, resolveBackupDir } from "../backup";
-import { getTodayDate } from "../date";
+import { getTodayDate, isSunday } from "../date";
 import { formatUnknownError, logDebug } from "../debug";
 import {
   buildCarryoverEvents,
@@ -86,22 +86,20 @@ import {
   swapPlannedOrder,
 } from "../gtd/planned";
 import { promoteDueScheduledTasks as selectDueScheduledPromotions } from "../gtd/scheduled";
-import {
-  addDays,
-  cloneProject,
-  cloneTask,
-  createEntityId,
-  nowIso,
-  toLocalDateString,
-} from "../gtd/shared";
+import { cloneProject, cloneTask, createEntityId, nowIso } from "../gtd/shared";
+import { addDays, toLocalDateString } from "../date";
 import {
   buildPomodoroSessionDetails,
   buildPomodoroState,
   buildPomodoroTaskSummaries,
   computeDailyPomodoroStats,
-  createPomodoroSegment,
-  createPomodoroSession,
   getPomodoroRunningBreakSessionIdsToAutoCompleteWhenReset,
+  pauseSession,
+  requirePomodoroSession,
+  resumeSession,
+  startSession,
+  stopSession,
+  switchSessionTask,
 } from "../pomodoro/engine";
 import {
   applySeriesChangesToTemplate,
@@ -1122,7 +1120,12 @@ export const migrations: Migration[] = [
 export class TauriSqliteRepository implements AppRepository {
   private dbPromise: Promise<SqliteDatabase> | null = null;
   private readonly writeQueue = new DbSerialQueue();
-  private emailTriageStore: EmailTriageSqliteStore | null = null;
+  readonly emailTriage = new EmailTriageSqliteStore(() => this.getDb(), {
+    getTaskByExternalId: (externalId) => this.getTaskByExternalId(externalId),
+    createTask: (input) => this.createTask(input),
+    saveTask: (task) => this.saveTask(task),
+    persistEvents: (events) => this.persistEvents(events),
+  });
 
   /**
    * `openDb` defaults to the real Tauri-backed `Database.load`; tests inject an in-memory
@@ -1133,18 +1136,6 @@ export class TauriSqliteRepository implements AppRepository {
     private readonly connectionString = "sqlite:trackdidia.db",
     private readonly openDb: (path: string) => Promise<SqliteDatabase> = Database.load,
   ) {}
-
-  private getEmailTriageStore(): EmailTriageSqliteStore {
-    if (!this.emailTriageStore) {
-      this.emailTriageStore = new EmailTriageSqliteStore(() => this.getDb(), {
-        getTaskByExternalId: (externalId) => this.getTaskByExternalId(externalId),
-        createTask: (input) => this.createTask(input),
-        saveTask: (task) => this.saveTask(task),
-        persistEvents: (events) => this.persistEvents(events),
-      });
-    }
-    return this.emailTriageStore;
-  }
 
   private async getTaskByExternalId(externalId: string): Promise<Task | null> {
     const db = await this.getDb();
@@ -3999,7 +3990,7 @@ export class TauriSqliteRepository implements AppRepository {
   async computeDailyTaskStats(date: string) {
     await this.generateDueRecurringTasks(date);
     await this.promoteDueScheduledTasks(getTodayDate());
-    if (date <= getTodayDate() && new Date(`${date}T12:00:00`).getDay() === 0) {
+    if (date <= getTodayDate() && isSunday(date)) {
       await this.applyWeeklyCarryover(date);
     }
 
@@ -4010,7 +4001,7 @@ export class TauriSqliteRepository implements AppRepository {
   async getDailyTaskBreakdown(date: string) {
     await this.generateDueRecurringTasks(date);
     await this.promoteDueScheduledTasks(getTodayDate());
-    if (date <= getTodayDate() && new Date(`${date}T12:00:00`).getDay() === 0) {
+    if (date <= getTodayDate() && isSunday(date)) {
       await this.applyWeeklyCarryover(date);
     }
 
@@ -4045,20 +4036,11 @@ export class TauriSqliteRepository implements AppRepository {
       }
 
       const startedAt = nowIso();
-      const kind = options.kind ?? state.nextSessionKind;
-      const cycleIndex =
-        kind === "focus"
-          ? state.nextFocusCycleIndex
-          : Math.max(1, state.completedFocusCountInCycle || 1);
-      const session = createPomodoroSession(kind, startedAt, cycleIndex);
+      const { session, segmentsToUpsert } = startSession(state, options, startedAt);
 
       await this.persistPomodoroSession(session);
-
-      if (kind === "focus") {
-        const normalizedTitle = options.taskId ? null : (options.title ?? "").trim() || null;
-        await this.persistPomodoroSegment(
-          createPomodoroSegment(session.id, startedAt, options.taskId ?? null, normalizedTitle),
-        );
+      for (const segment of segmentsToUpsert) {
+        await this.persistPomodoroSegment(segment);
       }
 
       return this.getPomodoroState();
@@ -4078,37 +4060,17 @@ export class TauriSqliteRepository implements AppRepository {
     status: "completed" | "cancelled",
     at = nowIso(),
   ) {
-    const session = await this.getPomodoroSessionById(sessionId);
-
-    if (!session) {
-      throw new Error(`Session Pomodoro ${sessionId} introuvable`);
-    }
+    const session = requirePomodoroSession(await this.getPomodoroSessionById(sessionId), sessionId);
 
     if (session.status !== "running" && session.status !== "paused") {
       return this.getPomodoroState();
     }
 
-    const closedAt =
-      status === "completed" &&
-      session.status === "running" &&
-      new Date(at).getTime() >= new Date(session.endsAt).getTime()
-        ? session.endsAt
-        : at;
-
-    await this.persistPomodoroSession({
-      ...session,
-      status,
-      pausedRemainingMs: null,
-      completedAt: status === "completed" ? closedAt : null,
-      cancelledAt: status === "cancelled" ? closedAt : null,
-    });
-
     const openSegments = await this.getOpenPomodoroSegments(sessionId);
-    for (const segment of openSegments) {
-      await this.persistPomodoroSegment({
-        ...segment,
-        endedAt: closedAt,
-      });
+    const transition = stopSession(session, openSegments, status, at);
+    await this.persistPomodoroSession(transition.session);
+    for (const segment of transition.segmentsToUpsert) {
+      await this.persistPomodoroSegment(segment);
     }
 
     return this.getPomodoroState();
@@ -4116,30 +4078,20 @@ export class TauriSqliteRepository implements AppRepository {
 
   async pausePomodoroSession(sessionId: string, at = nowIso()) {
     return this.runExclusive(async () => {
-      const session = await this.getPomodoroSessionById(sessionId);
-
-      if (!session) {
-        throw new Error(`Session Pomodoro ${sessionId} introuvable`);
-      }
+      const session = requirePomodoroSession(
+        await this.getPomodoroSessionById(sessionId),
+        sessionId,
+      );
 
       if (session.status !== "running") {
         return this.getPomodoroState();
       }
 
-      const remainingMs = Math.max(0, new Date(session.endsAt).getTime() - new Date(at).getTime());
-
-      await this.persistPomodoroSession({
-        ...session,
-        status: "paused",
-        pausedRemainingMs: remainingMs,
-      });
-
       const openSegments = await this.getOpenPomodoroSegments(sessionId);
-      for (const segment of openSegments) {
-        await this.persistPomodoroSegment({
-          ...segment,
-          endedAt: at,
-        });
+      const transition = pauseSession(session, openSegments, at);
+      await this.persistPomodoroSession(transition.session);
+      for (const segment of transition.segmentsToUpsert) {
+        await this.persistPomodoroSegment(segment);
       }
 
       return this.getPomodoroState();
@@ -4148,39 +4100,26 @@ export class TauriSqliteRepository implements AppRepository {
 
   async resumePomodoroSession(sessionId: string, at = nowIso()) {
     return this.runExclusive(async () => {
-      const session = await this.getPomodoroSessionById(sessionId);
-
-      if (!session) {
-        throw new Error(`Session Pomodoro ${sessionId} introuvable`);
-      }
+      const session = requirePomodoroSession(
+        await this.getPomodoroSessionById(sessionId),
+        sessionId,
+      );
 
       if (session.status !== "paused") {
         return this.getPomodoroState();
       }
 
-      const remainingMs =
-        session.pausedRemainingMs ??
-        Math.max(0, new Date(session.endsAt).getTime() - new Date(at).getTime());
-      const nextEndsAt = new Date(new Date(at).getTime() + remainingMs).toISOString();
-
-      await this.persistPomodoroSession({
-        ...session,
-        status: "running",
-        endsAt: nextEndsAt,
-        pausedRemainingMs: null,
-      });
-
-      if (session.kind === "focus") {
-        const latestSegment = (await this.getAllPomodoroSegments())
-          .filter((segment) => segment.sessionId === sessionId)
-          .sort((left, right) => left.startedAt.localeCompare(right.startedAt))
-          .at(-1);
-
-        if (latestSegment) {
-          await this.persistPomodoroSegment(
-            createPomodoroSegment(sessionId, at, latestSegment.taskId, latestSegment.title),
-          );
-        }
+      const latestSegment =
+        session.kind === "focus"
+          ? (await this.getAllPomodoroSegments())
+              .filter((segment) => segment.sessionId === sessionId)
+              .sort((left, right) => left.startedAt.localeCompare(right.startedAt))
+              .at(-1)
+          : null;
+      const transition = resumeSession(session, latestSegment, at);
+      await this.persistPomodoroSession(transition.session);
+      for (const segment of transition.segmentsToUpsert) {
+        await this.persistPomodoroSegment(segment);
       }
 
       return this.getPomodoroState();
@@ -4225,11 +4164,10 @@ export class TauriSqliteRepository implements AppRepository {
     changedAt = nowIso(),
   ) {
     return this.runExclusive(async () => {
-      const session = await this.getPomodoroSessionById(sessionId);
-
-      if (!session) {
-        throw new Error(`Session Pomodoro ${sessionId} introuvable`);
-      }
+      const session = requirePomodoroSession(
+        await this.getPomodoroSessionById(sessionId),
+        sessionId,
+      );
 
       if (session.status !== "running" || session.kind !== "focus") {
         return this.getPomodoroState();
@@ -4237,22 +4175,13 @@ export class TauriSqliteRepository implements AppRepository {
 
       const openSegments = await this.getOpenPomodoroSegments(sessionId);
       const openSegment = openSegments[0] ?? null;
-      const normalizedTitle = taskId ? null : (title ?? "").trim() || null;
-
-      if (openSegment?.taskId === taskId && (openSegment.title ?? null) === normalizedTitle) {
+      const transition = switchSessionTask(session, openSegment, taskId, title, changedAt);
+      if (!transition) {
         return this.getPomodoroState();
       }
-
-      if (openSegment) {
-        await this.persistPomodoroSegment({
-          ...openSegment,
-          endedAt: changedAt,
-        });
+      for (const segment of transition.segmentsToUpsert) {
+        await this.persistPomodoroSegment(segment);
       }
-
-      await this.persistPomodoroSegment(
-        createPomodoroSegment(sessionId, changedAt, taskId, normalizedTitle),
-      );
       return this.getPomodoroState();
     });
   }
@@ -4740,15 +4669,11 @@ export class TauriSqliteRepository implements AppRepository {
     const candidates = [template.startDate];
 
     if (template.lastGeneratedForDate) {
-      const next = new Date(`${template.lastGeneratedForDate}T12:00:00`);
-      next.setDate(next.getDate() + 1);
-      candidates.push(next.toISOString().slice(0, 10));
+      candidates.push(addDays(template.lastGeneratedForDate, 1));
     }
 
     if (activeTask?.recurrenceDueDate) {
-      const next = new Date(`${activeTask.recurrenceDueDate}T12:00:00`);
-      next.setDate(next.getDate() + 1);
-      candidates.push(next.toISOString().slice(0, 10));
+      candidates.push(addDays(activeTask.recurrenceDueDate, 1));
     }
 
     const sorted = [...candidates].sort();
@@ -5019,156 +4944,5 @@ export class TauriSqliteRepository implements AppRepository {
         [contextId, name, timestamp, timestamp],
       );
     }
-  }
-
-  async getEmailTriageGlobalSettings() {
-    return this.getEmailTriageStore().getGlobalSettings();
-  }
-
-  async saveEmailTriageGlobalSettings(
-    settings: import("../../domain/email-triage").EmailTriageGlobalSettings,
-  ) {
-    await this.getEmailTriageStore().saveGlobalSettings(settings);
-  }
-
-  async listEmailTriageAccounts() {
-    return this.getEmailTriageStore().listAccounts();
-  }
-
-  async getEmailTriageAccount(accountId: string) {
-    return this.getEmailTriageStore().getAccount(accountId);
-  }
-
-  async saveEmailTriageAccount(account: import("../../domain/email-triage").EmailTriageAccount) {
-    return this.getEmailTriageStore().saveAccount(account);
-  }
-
-  async deleteEmailTriageAccount(accountId: string) {
-    await this.getEmailTriageStore().deleteAccount(accountId);
-  }
-
-  async listEmailTriageReviews(
-    status?: import("../../domain/email-triage").EmailTriageReview["status"],
-  ) {
-    return this.getEmailTriageStore().listReviews(status);
-  }
-
-  async resolveEmailTriageReview(input: {
-    reviewId: string;
-    expectedDecisionVersion: number;
-    resolution: import("../../domain/email-triage").EmailTriageReview["resolution"];
-    ignoreReason?: string | null;
-  }) {
-    return this.getEmailTriageStore().resolveReview(input);
-  }
-
-  async listEmailTriageEvaluations(limit?: number) {
-    return this.getEmailTriageStore().listEvaluations(limit);
-  }
-
-  async saveEmailTriageEvaluation(
-    evaluation: import("../../domain/email-triage").EmailTriageEvaluation,
-  ) {
-    return this.getEmailTriageStore().saveEvaluation(evaluation);
-  }
-
-  async getLatestMatchingEmailTriageEvaluation(
-    settings: import("../../domain/email-triage").EmailTriageGlobalSettings,
-  ) {
-    return this.getEmailTriageStore().getLatestMatchingEvaluation(settings);
-  }
-
-  async dismissEmailTriageReview(reviewId: string) {
-    return this.getEmailTriageStore().dismissReview(reviewId);
-  }
-
-  async listEmailTriageAuditEvents(accountId?: string, limit?: number) {
-    return this.getEmailTriageStore().listAuditEvents(accountId, limit);
-  }
-
-  async recoverEmailTriageStaleEffects() {
-    return this.getEmailTriageStore().recoverStaleEffects();
-  }
-
-  async emailTriageUpsertConversation(
-    accountId: string,
-    conversationKey: string,
-    patch: Partial<import("../../domain/email-triage").EmailTriageConversation>,
-  ) {
-    return this.getEmailTriageStore().upsertConversation(accountId, conversationKey, patch);
-  }
-
-  async emailTriageGetConversationByKey(accountId: string, conversationKey: string) {
-    return this.getEmailTriageStore().getConversationByKey(accountId, conversationKey);
-  }
-
-  async emailTriageUpdateAccountSyncState(
-    accountId: string,
-    syncState: Record<string, unknown>,
-    patch?: Partial<import("../../domain/email-triage").EmailTriageAccount>,
-  ) {
-    return this.getEmailTriageStore().updateAccountSyncState(accountId, syncState, patch);
-  }
-
-  async emailTriagePersistMessageBatch(
-    input: import("../email-triage/sync-engine").PersistMessageBatchInput,
-  ) {
-    return this.getEmailTriageStore().persistMessageBatch(input);
-  }
-
-  async emailTriageGetMessageByProviderId(accountId: string, providerMessageId: string) {
-    return this.getEmailTriageStore().getMessageByProviderId(accountId, providerMessageId);
-  }
-
-  async emailTriageGetConversation(conversationId: string) {
-    return this.getEmailTriageStore().getConversation(conversationId);
-  }
-
-  async emailTriageDismissPendingReviews(conversationId: string) {
-    await this.getEmailTriageStore().dismissPendingReviews(conversationId);
-  }
-
-  async emailTriageListPendingEffects(conversationId: string) {
-    return this.getEmailTriageStore().listPendingEffects(conversationId);
-  }
-
-  async emailTriageListPendingEffectsForAccount(accountId: string) {
-    return this.getEmailTriageStore().listPendingEffectsForAccount(accountId);
-  }
-
-  async emailTriageSaveDesiredEffect(
-    effect: import("../../domain/email-triage").EmailTriageDesiredEffect,
-  ) {
-    return this.getEmailTriageStore().saveDesiredEffect(effect);
-  }
-
-  async emailTriageGetTaskByExternalId(externalId: string) {
-    return this.getEmailTriageStore().getTaskByExternalId(externalId);
-  }
-
-  async emailTriageApplyGtdUpdate(
-    input: import("../email-triage/sync-engine").ApplyGtdUpdateInput,
-  ) {
-    return this.getEmailTriageStore().applyGtdUpdate(input);
-  }
-
-  async emailTriageCreateReview(input: import("../email-triage/sync-engine").CreateReviewInput) {
-    return this.getEmailTriageStore().createReview(input);
-  }
-
-  async listEmailTriageMessages(accountId: string, limit?: number) {
-    return this.getEmailTriageStore().listMessages(accountId, limit);
-  }
-
-  async listEmailTriageClassificationAttempts(messageId: string) {
-    return this.getEmailTriageStore().listClassificationAttempts(messageId);
-  }
-
-  async emailTriageFindConversationKeyByMessageId(accountId: string, messageIdHeader: string) {
-    return this.getEmailTriageStore().findConversationKeyByMessageId(accountId, messageIdHeader);
-  }
-
-  async emailTriageSaveAlias(accountId: string, conversationKey: string, messageIdHeader: string) {
-    return this.getEmailTriageStore().saveAlias(accountId, conversationKey, messageIdHeader);
   }
 }

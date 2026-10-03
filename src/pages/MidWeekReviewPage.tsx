@@ -31,7 +31,8 @@ import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
 import { logDebug } from "../lib/debug";
 import { formatDateLong } from "../lib/date";
 import { formatPercent, formatTimestamp } from "../lib/format";
-import { addDays, getWeekStartSunday, isSunday, nowIso } from "../lib/gtd/shared";
+import { nowIso } from "../lib/gtd/shared";
+import { addDays, getWeekStartSunday, isSunday } from "../lib/date";
 import {
   RescueTimeGoalsService,
   type RescueTimeProductivityPulseSnapshot,

@@ -1,5 +1,6 @@
 import type { EmailTriageAccount, EmailTriageGlobalSettings } from "../../domain/email-triage";
 import type { AppRepository } from "../storage/repository";
+import type { EmailTriageStore } from "../storage/email-triage-store";
 import { isTauriRuntime } from "../storage/factory";
 import { MockGmailAdapter } from "./providers/mock-gmail";
 import { MockGraphAdapter } from "./providers/mock-graph";
@@ -152,10 +153,10 @@ export const createEmailTriageAdapter = async (
     const imap = createTauriYahooImapClient();
     const resolver =
       repository !== undefined
-        ? new RepositoryBackedYahooConversationResolver(account.id, repository)
+        ? new RepositoryBackedYahooConversationResolver(account.id, repository.emailTriage)
         : new RepositoryBackedYahooConversationResolver(account.id, {
-            emailTriageFindConversationKeyByMessageId: async () => null,
-            emailTriageSaveAlias: async () => undefined,
+            findConversationKeyByMessageId: async () => null,
+            saveAlias: async () => undefined,
           });
     return new YahooAdapter(
       imap,
@@ -183,7 +184,7 @@ export const createEmailTriageAdapter = async (
       },
       repository
         ? async (providerMessageId, destination) => {
-            const current = await repository.getEmailTriageAccount(account.id);
+            const current = await repository.emailTriage.getAccount(account.id);
             if (!current) {
               return;
             }
@@ -194,7 +195,7 @@ export const createEmailTriageAdapter = async (
               >) ?? {}),
               [providerMessageId]: destination,
             };
-            await repository.emailTriageUpdateAccountSyncState(account.id, {
+            await repository.emailTriage.updateAccountSyncState(account.id, {
               ...current.syncState,
               markerDestinations,
             });
@@ -202,7 +203,7 @@ export const createEmailTriageAdapter = async (
         : undefined,
       repository
         ? async (providerMessageId) => {
-            const current = await repository.getEmailTriageAccount(account.id);
+            const current = await repository.emailTriage.getAccount(account.id);
             const destinations = current?.syncState.markerDestinations as
               | Record<string, { mailbox: string; uid: number | null; messageId?: string | null }>
               | undefined;
@@ -260,7 +261,7 @@ export const createEmailTriageAdapter = async (
 };
 
 export const persistGmailAccountCredentials = async (options: {
-  repository: Pick<AppRepository, "saveEmailTriageAccount">;
+  repository: { emailTriage: Pick<EmailTriageStore, "saveAccount"> };
   account: EmailTriageAccount;
   credentials: string;
   accessToken: string;
@@ -270,7 +271,7 @@ export const persistGmailAccountCredentials = async (options: {
   await storeVaultSecret("provider_credentials", options.credentials, options.account.id);
   setCachedAccessToken(options.account.id, options.accessToken, options.expiresIn);
   try {
-    await options.repository.saveEmailTriageAccount(options.account);
+    await options.repository.emailTriage.saveAccount(options.account);
   } catch (error) {
     clearCachedAccessToken(options.account.id);
     try {
@@ -287,7 +288,7 @@ export const persistGmailAccountCredentials = async (options: {
 };
 
 export const persistYahooAccountCredentials = async (options: {
-  repository: Pick<AppRepository, "saveEmailTriageAccount">;
+  repository: { emailTriage: Pick<EmailTriageStore, "saveAccount"> };
   account: EmailTriageAccount;
   credentials: string;
   appPassword: string;
@@ -296,7 +297,7 @@ export const persistYahooAccountCredentials = async (options: {
   await storeVaultSecret("provider_credentials", options.credentials, options.account.id);
   setCachedYahooAppPassword(options.account.id, options.appPassword);
   try {
-    await options.repository.saveEmailTriageAccount(options.account);
+    await options.repository.emailTriage.saveAccount(options.account);
   } catch (error) {
     clearCachedYahooAppPassword(options.account.id);
     try {
