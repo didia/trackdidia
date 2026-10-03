@@ -157,6 +157,32 @@ Evening closure (`/fermeture-soir`) auto-loads the `close` stance on page open:
 There is **no** gate requiring the user to write journal text first, and no
 **Demander au coach** button on Today or evening close while auto-load is active.
 
+### Shared structured generation
+
+`src/lib/ai/structured-generation.ts` owns cache lookup, message construction,
+one repair attempt, usage addition, proposal episode persistence and fallback
+handling for coach pulse, weekly synthesis, monthly synthesis, goal pacing and
+Pastor verse. Each service still builds its own snapshot, input hash, validator,
+local response and proposal payloads. Generic failure copy lives in the French
+`common` locale.
+
+The services pass their existing policies explicitly:
+
+- Weekly, monthly and goal pacing reuse successful AI cache entries, or skipped
+  local entries when AI is unconfigured. Monthly and goal pacing reuse the existing
+  message ID for the same input hash.
+- Coach pulse reuses successful episodes, retains its delta gate and resolves
+  due close commitments on cached and persisted outcomes. Automatic local paint
+  without a delta remains ephemeral.
+- Pastor's loader owns date-sticky caching. Offline picks persist as `local`;
+  temporary local paint and failed explicit regeneration do not enter history.
+  Accepted Pastor bodies store validated JSON; other services retain raw provider JSON.
+
+A second invalid response records both calls' usage. A thrown provider, repair or
+persistence error follows the existing fallback policy: the configured model and
+null usage are recorded. Cache hashes, prompt versions and surface-specific parsing
+remain unchanged.
+
 ### Structured output and accept-step
 
 The model returns JSON validated against the S1 `coach_pulse` schema (stance-aware).
