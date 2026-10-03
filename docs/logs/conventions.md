@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-10-03 | Fixed daily/weekly/monthly reloads after rejected saves: keep the keyed dirty draft editable, clear loading for the latest request, and acknowledge review textarea save promises | `docs/conventions.md` | `use-daily-entry.ts`, review pages, failed-save navigation/retry regression tests; PR #193 |
 | 2026-10-03 | Consolidated ordered async work in `createSerialQueue` and date/week/month snapshot persistence in `useLatestValueSaver`; daily and monthly loads now wait for their own pending saves and retain edits made during loading | `docs/conventions.md` | `serial-queue.ts`, `use-latest-value-saver.ts`, daily/review hooks and pages, queue and save-race tests |
 | 2026-10-03 | Documented named transactional versus queue-only writer modes and corrected the obsolete migration transaction guidance | `docs/conventions.md` | `transaction.ts`, `tauri-sqlite-repository.ts`, migration runner |
 | 2026-10-03 | Removed obsolete migration transaction debt: the extracted runner preserves one transaction per migration plus its ledger insert, with rollback tests | `docs/conventions.md` | `migrations/index.ts`, `migrations/index.test.ts` |

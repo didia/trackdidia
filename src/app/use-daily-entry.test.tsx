@@ -150,6 +150,73 @@ describe("useDailyEntry", () => {
     expect(result.current.entry?.morningIntention).toBe("new date");
   });
 
+  it.each([
+    "before returning",
+    "while loading",
+  ])("restores a dirty date when its save rejects %s and allows retry", async (failureTiming) => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const oldDate = addDays(getTodayDate(), -2);
+    const newDate = addDays(oldDate, 1);
+    await repository.saveDailyEntry(
+      updateNote(createEmptyDailyEntry(oldDate), "morningIntention", "Stored intention"),
+    );
+    let rejectSave!: (error: Error) => void;
+    const gate = new Promise<void>((_, reject) => {
+      rejectSave = reject;
+    });
+    const saveSpy = vi.spyOn(repository, "saveDailyEntry").mockImplementationOnce(async () => {
+      await gate;
+    });
+    const { result, rerender } = renderHook(({ date }) => useDailyEntry(date), {
+      initialProps: { date: oldDate },
+      wrapper: wrapRepository(repository),
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    let failedSave!: Promise<void>;
+    act(() => {
+      failedSave = result.current.save((current) =>
+        updateNote(current, "morningIntention", "Unsaved intention"),
+      );
+    });
+    const rejection = expect(failedSave).rejects.toThrow("disk full");
+    await waitFor(() => expect(saveSpy).toHaveBeenCalledOnce());
+    rerender({ date: newDate });
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+      expect(result.current.entry?.date).toBe(newDate);
+    });
+    if (failureTiming === "before returning") {
+      await act(async () => {
+        rejectSave(new Error("disk full"));
+        await rejection;
+      });
+    }
+    rerender({ date: oldDate });
+    if (failureTiming === "while loading") {
+      expect(result.current.loading).toBe(true);
+      await act(async () => {
+        rejectSave(new Error("disk full"));
+        await rejection;
+      });
+    }
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+      expect(result.current.entry?.date).toBe(oldDate);
+      expect(result.current.entry?.morningIntention).toBe("Unsaved intention");
+    });
+    expect((await repository.getDailyEntry(oldDate))?.morningIntention).toBe("Stored intention");
+    await act(async () => {
+      await result.current.save((current) => updateNote(current, "nightReflection", "Retry"));
+      await result.current.reload();
+    });
+    expect(await repository.getDailyEntry(oldDate)).toMatchObject({
+      morningIntention: "Unsaved intention",
+      nightReflection: "Retry",
+    });
+    expect(result.current.entry?.nightReflection).toBe("Retry");
+  });
+
   it("prefills today's empty intention from yesterday's focus without persisting", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();

@@ -116,31 +116,37 @@ export const MonthlyReviewPage = () => {
       setSynthesisResult(null);
       setLoading(true);
       await monthRequest.run(async (signal) => {
-        await reviewSaver.settled(requestedMonthKey);
-        if (!signal.isLatest()) return;
-        const loadVersion = reviewSaver.version(requestedMonthKey);
-        const [existingReview, computedSummary, annualSnapshots] = await Promise.all([
-          repository.getMonthlyReview(requestedMonthKey),
-          repository.computeMonthlyReviewSummary(requestedMonthKey),
-          repository.computeAnnualGoalSnapshots(Number(requestedMonthKey.slice(0, 4))),
-        ]);
-        if (!signal.isLatest()) {
-          return;
+        try {
+          await reviewSaver.settled(requestedMonthKey).catch((error: unknown) => {
+            // A rejected write leaves a dirty snapshot that the load must keep editable.
+            if (!reviewSaver.isDirty(requestedMonthKey)) throw error;
+          });
+          if (!signal.isLatest()) return;
+          const loadVersion = reviewSaver.version(requestedMonthKey);
+          const [existingReview, computedSummary, annualSnapshots] = await Promise.all([
+            repository.getMonthlyReview(requestedMonthKey),
+            repository.computeMonthlyReviewSummary(requestedMonthKey),
+            repository.computeAnnualGoalSnapshots(Number(requestedMonthKey.slice(0, 4))),
+          ]);
+          if (!signal.isLatest()) {
+            return;
+          }
+          const keepLocal =
+            reviewSaver.version(requestedMonthKey) !== loadVersion ||
+            reviewSaver.isDirty(requestedMonthKey);
+          const nextReview =
+            (keepLocal ? reviewSaver.get(requestedMonthKey) : undefined) ??
+            existingReview ??
+            createEmptyMonthlyReview(requestedMonthKey);
+          if (!keepLocal) reviewSaver.hydrate(requestedMonthKey, nextReview);
+          latestReviewRef.current = nextReview;
+          setSelectedMonthKey(requestedMonthKey);
+          setReview(nextReview);
+          setSummary(computedSummary);
+          setGoalSnapshots(annualSnapshots);
+        } finally {
+          if (signal.isLatest()) setLoading(false);
         }
-        const keepLocal =
-          reviewSaver.version(requestedMonthKey) !== loadVersion ||
-          reviewSaver.isDirty(requestedMonthKey);
-        const nextReview =
-          (keepLocal ? reviewSaver.get(requestedMonthKey) : undefined) ??
-          existingReview ??
-          createEmptyMonthlyReview(requestedMonthKey);
-        if (!keepLocal) reviewSaver.hydrate(requestedMonthKey, nextReview);
-        latestReviewRef.current = nextReview;
-        setSelectedMonthKey(requestedMonthKey);
-        setReview(nextReview);
-        setSummary(computedSummary);
-        setGoalSnapshots(annualSnapshots);
-        setLoading(false);
       });
     },
     [monthRequest, repository, reviewSaver, synthesisRequest],
@@ -660,7 +666,7 @@ export const MonthlyReviewPage = () => {
                     if (!currentReview) {
                       return;
                     }
-                    void saveReview(updateMonthlyReviewNote(currentReview, section.key, value));
+                    return saveReview(updateMonthlyReviewNote(currentReview, section.key, value));
                   }}
                 />
               </label>

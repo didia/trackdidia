@@ -61,38 +61,44 @@ export const useDailyEntry = (date: string) => {
     () =>
       dailyRequest.run(async (signal) => {
         setLoading(true);
-        await saver.settled(date);
-        if (!signal.isLatest()) return;
-        const loadVersion = saver.version(date);
-        const isToday = date === getTodayDate();
-        if (isToday) {
-          await repository.generateDailyRelationshipTasks(date);
-        }
-        const [existing, yesterday, stats, nextPomodoroStats] = await Promise.all([
-          repository.getDailyEntry(date),
-          isToday ? repository.getDailyEntry(addDays(date, -1)) : Promise.resolve(null),
-          repository.computeDailyTaskStats(date),
-          repository.computeDailyPomodoroStats(date),
-        ]);
-        if (!signal.isLatest()) return;
-        setTaskStats(stats);
-        setPomodoroStats(nextPomodoroStats);
+        try {
+          await saver.settled(date).catch((error: unknown) => {
+            // A rejected write leaves a dirty snapshot that the load must keep editable.
+            if (!saver.isDirty(date)) throw error;
+          });
+          if (!signal.isLatest()) return;
+          const loadVersion = saver.version(date);
+          const isToday = date === getTodayDate();
+          if (isToday) {
+            await repository.generateDailyRelationshipTasks(date);
+          }
+          const [existing, yesterday, stats, nextPomodoroStats] = await Promise.all([
+            repository.getDailyEntry(date),
+            isToday ? repository.getDailyEntry(addDays(date, -1)) : Promise.resolve(null),
+            repository.computeDailyTaskStats(date),
+            repository.computeDailyPomodoroStats(date),
+          ]);
+          if (!signal.isLatest()) return;
+          setTaskStats(stats);
+          setPomodoroStats(nextPomodoroStats);
 
-        const decorated = existing
-          ? applyDailyPomodoroStats(applyDailyTaskStats(existing, stats), nextPomodoroStats)
-          : applyDailyPomodoroStats(
-              applyDailyTaskStats(createEmptyDailyEntry(date), stats),
-              nextPomodoroStats,
-            );
-        // Carry-forward is today-only so historical catch-up (e.g. Finaliser hier) cannot
-        // silently persist a synthesized intention the user never saw.
-        const nextEntry = isToday
-          ? prefillMorningIntentionFromYesterday(decorated, yesterday)
-          : decorated;
-        const keepLocal = saver.version(date) !== loadVersion || saver.isDirty(date);
-        if (!keepLocal) saver.hydrate(date, nextEntry);
-        publishEntry(keepLocal ? (saver.get(date) ?? nextEntry) : nextEntry);
-        setLoading(false);
+          const decorated = existing
+            ? applyDailyPomodoroStats(applyDailyTaskStats(existing, stats), nextPomodoroStats)
+            : applyDailyPomodoroStats(
+                applyDailyTaskStats(createEmptyDailyEntry(date), stats),
+                nextPomodoroStats,
+              );
+          // Carry-forward is today-only so historical catch-up (e.g. Finaliser hier) cannot
+          // silently persist a synthesized intention the user never saw.
+          const nextEntry = isToday
+            ? prefillMorningIntentionFromYesterday(decorated, yesterday)
+            : decorated;
+          const keepLocal = saver.version(date) !== loadVersion || saver.isDirty(date);
+          if (!keepLocal) saver.hydrate(date, nextEntry);
+          publishEntry(keepLocal ? (saver.get(date) ?? nextEntry) : nextEntry);
+        } finally {
+          if (signal.isLatest()) setLoading(false);
+        }
       }),
     [date, repository, saver, dailyRequest],
   );

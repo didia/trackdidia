@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, vi } from "vitest";
 import { createEmptyAnnualGoal } from "../domain/annual-goals";
@@ -72,6 +72,65 @@ describe("MonthlyReviewPage", () => {
         }),
       });
     });
+  });
+
+  it.each([
+    "before returning",
+    "while loading",
+  ])("restores a failed month's draft when the save rejects %s and allows retry", async (failureTiming) => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveMonthlyReview(
+      updateMonthlyReviewNote(createEmptyMonthlyReview("2026-03"), "bilan", "Stored notes"),
+    );
+    const originalSave = repository.saveMonthlyReview.bind(repository);
+    let releaseSave!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseSave = resolve;
+    });
+    let failWrites = true;
+    let failedWrites = 0;
+    const saveSpy = vi.spyOn(repository, "saveMonthlyReview").mockImplementation(async (review) => {
+      if (failWrites) {
+        await gate;
+        failedWrites += 1;
+        throw new Error("disk full");
+      }
+      return originalSave(review);
+    });
+    await renderWithApp(<MonthlyReviewPage />, { repository, route: "/mois?month=2026-03" });
+    const notes = await screen.findByLabelText(/notes bilan/i);
+    fireEvent.change(notes, { target: { value: "Unsaved notes" } });
+    await waitFor(() => expect(saveSpy).toHaveBeenCalled());
+    if (failureTiming === "before returning") {
+      await act(async () => releaseSave());
+      await waitFor(() => expect(failedWrites).toBeGreaterThan(0));
+    }
+    fireEvent.change(screen.getByLabelText(/mois à relire/i), { target: { value: "2026-04" } });
+    fireEvent.click(screen.getByRole("button", { name: /charger le mois/i }));
+    await waitFor(() => expect(screen.getByLabelText(/notes bilan/i)).toHaveValue(""));
+    fireEvent.change(screen.getByLabelText(/mois à relire/i), { target: { value: "2026-03" } });
+    fireEvent.click(screen.getByRole("button", { name: /charger le mois/i }));
+    if (failureTiming === "while loading") {
+      expect(screen.getByText("Chargement de la revue mensuelle...")).toBeInTheDocument();
+      await act(async () => releaseSave());
+    }
+    await waitFor(() => expect(screen.getByLabelText(/notes bilan/i)).toHaveValue("Unsaved notes"));
+    expect(screen.getByLabelText(/mois à relire/i)).toHaveValue("2026-03");
+    expect((await repository.getMonthlyReview("2026-03"))?.notes.bilan).toBe("Stored notes");
+    failWrites = false;
+    fireEvent.change(screen.getByLabelText(/notes bilan/i), {
+      target: { value: "Unsaved notes retry" },
+    });
+    await waitFor(async () => {
+      expect((await repository.getMonthlyReview("2026-03"))?.notes.bilan).toBe(
+        "Unsaved notes retry",
+      );
+    });
+    fireEvent.click(screen.getByRole("button", { name: /charger le mois/i }));
+    await waitFor(() =>
+      expect(screen.getByLabelText(/notes bilan/i)).toHaveValue("Unsaved notes retry"),
+    );
   });
 
   it("defaults to the previous month on the first Saturday", async () => {

@@ -93,7 +93,13 @@ generate or scrape it. See
   date/week/month keeps its own latest value; loading waits for that key and checks
   its version before replacing the draft. `remember` stages an externally accepted
   snapshot, `markSaved` records its captured version after the atomic repository
-  call, and `hydrate` seeds a clean loaded value.
+  call, and `hydrate` seeds a clean loaded value. `settled` still rejects failed
+  writes; daily and review loaders catch that rejection when the key retains a
+  dirty snapshot, then display that snapshot instead of replacing it with stored
+  data. Their loading cleanup is guarded by `signal.isLatest()` in `finally`.
+  The draft remains available while the hook/page stays mounted; a later edit can
+  retry the save. Review textareas return the save promise to `PersistedTextarea`
+  so rejected writes are handled by its existing dirty-draft/retry behavior.
 - Use `createSerialQueue` (`src/lib/serial-queue.ts`) for ordered asynchronous work.
   Each call keeps its own error and later work continues after a failure; `idle`
   waits for queued work, including submissions while waiting. `DbSerialQueue` is

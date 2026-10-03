@@ -307,9 +307,15 @@ export const WeeklyReviewPage = () => {
         try {
           const notesWeekStart = dimancheNotesWeekStart(normalized, calendarDay);
           const notesOnNextWeek = notesWeekStart !== normalized;
-          await reviewSaver.settled(normalized);
+          await reviewSaver.settled(normalized).catch((error: unknown) => {
+            // Retain failed drafts for both the displayed review and next Sunday's notes.
+            if (!reviewSaver.isDirty(normalized)) throw error;
+          });
           if (notesOnNextWeek) {
-            await reviewSaver.settled(notesWeekStart);
+            await reviewSaver.settled(notesWeekStart).catch((error: unknown) => {
+              // Retain failed drafts for both the displayed review and next Sunday's notes.
+              if (!reviewSaver.isDirty(notesWeekStart)) throw error;
+            });
           }
           if (!signal.isLatest()) {
             return;
@@ -1526,7 +1532,7 @@ export const WeeklyReviewPage = () => {
                   onPersist={(value) => {
                     const currentReview =
                       latestReviewRef.current ?? createEmptyWeeklyReview(review.weekStartDate);
-                    void saveReview(updateWeeklyReviewNote(currentReview, section.key, value));
+                    return saveReview(updateWeeklyReviewNote(currentReview, section.key, value));
                   }}
                   placeholder={t("weekly.ritual.notesPlaceholder", {
                     section: section.title.toLowerCase(),
@@ -1547,7 +1553,7 @@ export const WeeklyReviewPage = () => {
                     onPersist={(value) => {
                       const currentDimanche =
                         latestDimancheReviewRef.current ?? createEmptyWeeklyReview(notesWeekStart);
-                      void saveDimancheReview(
+                      return saveDimancheReview(
                         updateWeeklyReviewNote(currentDimanche, "dimanche", value),
                       );
                     }}
