@@ -7,6 +7,7 @@ import { SectionCard } from "../components/SectionCard";
 import {
   addMonthsToMonthKey,
   computeEnvelopePaceFromState,
+  computeUnbudgetedAssignAmountMinor,
   selectUnbudgetedCategories,
   type FinanceBudgetState,
 } from "../domain/finance/budget";
@@ -17,7 +18,12 @@ import type {
   FinanceOverspendPolicy,
 } from "../domain/finance";
 import { getMonthKey, getMonthEndDate, listMonthDates } from "../domain/monthly-review";
-import { formatMoney, parseAmountToMinor } from "../lib/finance/money";
+import {
+  currencyExponent,
+  formatMoney,
+  minorToInputString,
+  parseAmountToMinor,
+} from "../lib/finance/money";
 import { getTodayDate } from "../lib/date";
 
 const OVERSPEND_POLICIES: FinanceOverspendPolicy[] = [
@@ -46,6 +52,7 @@ export const FinanceBudgetPage = () => {
   const { t } = useTranslation("finance");
   const { repository, settings } = useAppContext();
   const baseCurrency = settings.financeBaseCurrency;
+  const exponent = currencyExponent(baseCurrency);
   const today = getTodayDate();
 
   const [monthKey, setMonthKey] = useState(() => getMonthKey(today));
@@ -74,7 +81,7 @@ export const FinanceBudgetPage = () => {
       Object.fromEntries(
         nextState.categories.map((category) => [
           category.categoryId,
-          String(category.assignedMinor / 100),
+          minorToInputString(category.assignedMinor, exponent),
         ]),
       ),
     );
@@ -89,7 +96,7 @@ export const FinanceBudgetPage = () => {
       };
     }
     setCardBalances(balances);
-  }, [repository, monthKey]);
+  }, [repository, monthKey, exponent]);
 
   useEffect(() => {
     void load();
@@ -120,7 +127,7 @@ export const FinanceBudgetPage = () => {
   }, [monthKey, today]);
 
   const commitAssignment = async (categoryId: string, text: string) => {
-    const parsed = parseAmountToMinor(text || "0", { exponent: 2 });
+    const parsed = parseAmountToMinor(text || "0", { exponent });
     if (!parsed.ok) {
       return;
     }
@@ -143,39 +150,24 @@ export const FinanceBudgetPage = () => {
     await load();
   };
 
+  // Every quick-action amount below is read straight off `computeFinanceBudgetState`'s
+  // result (`stateCategoryById`) — the page only renders and writes, never recomputes.
+
   const assignLastMonth = async (categoryId: string) => {
-    const prevState = await repository.computeFinanceBudgetState(addMonthsToMonthKey(monthKey, -1));
-    const prevAmount =
-      prevState.categories.find((category) => category.categoryId === categoryId)?.assignedMinor ??
-      0;
-    await repository.setFinanceBudgetAssignment(monthKey, categoryId, prevAmount);
+    const amount = stateCategoryById.get(categoryId)?.lastMonthAssignedMinor ?? 0;
+    await repository.setFinanceBudgetAssignment(monthKey, categoryId, amount);
     await load();
   };
 
   const assignAverageLast3Months = async (categoryId: string) => {
-    const prevStates = await Promise.all(
-      [1, 2, 3].map((offset) =>
-        repository.computeFinanceBudgetState(addMonthsToMonthKey(monthKey, -offset)),
-      ),
-    );
-    const sum = prevStates.reduce(
-      (total, prevState) =>
-        total +
-        (prevState.categories.find((category) => category.categoryId === categoryId)
-          ?.assignedMinor ?? 0),
-      0,
-    );
-    await repository.setFinanceBudgetAssignment(monthKey, categoryId, Math.round(sum / 3));
+    const amount = stateCategoryById.get(categoryId)?.average3MonthsAssignedMinor ?? 0;
+    await repository.setFinanceBudgetAssignment(monthKey, categoryId, amount);
     await load();
   };
 
   const assignAllReadyToAssign = async (categoryId: string) => {
-    if (!state) {
-      return;
-    }
-    const current = stateCategoryById.get(categoryId)?.assignedMinor ?? 0;
-    const nextAssigned = current + Math.max(0, state.readyToAssignMinor);
-    await repository.setFinanceBudgetAssignment(monthKey, categoryId, nextAssigned);
+    const amount = stateCategoryById.get(categoryId)?.assignAllReadyToAssignMinor ?? 0;
+    await repository.setFinanceBudgetAssignment(monthKey, categoryId, amount);
     await load();
   };
 
@@ -184,26 +176,20 @@ export const FinanceBudgetPage = () => {
     if (!fromCategoryId) {
       return;
     }
-    const toCategory = stateCategoryById.get(toCategoryId);
-    const fromCategory = stateCategoryById.get(fromCategoryId);
-    if (!toCategory || !fromCategory) {
-      return;
-    }
-    const deficit = toCategory.availableMinor < 0 ? -toCategory.availableMinor : 0;
-    const amountMinor = Math.max(0, Math.min(deficit, fromCategory.availableMinor));
-    if (amountMinor === 0) {
+    const result = await repository.computeFinanceCoverOverspending(
+      monthKey,
+      fromCategoryId,
+      toCategoryId,
+    );
+    if (result.amountMinor === 0) {
       return;
     }
     await repository.setFinanceBudgetAssignment(
       monthKey,
       fromCategoryId,
-      fromCategory.assignedMinor - amountMinor,
+      result.fromNewAssignedMinor,
     );
-    await repository.setFinanceBudgetAssignment(
-      monthKey,
-      toCategoryId,
-      toCategory.assignedMinor + amountMinor,
-    );
+    await repository.setFinanceBudgetAssignment(monthKey, toCategoryId, result.toNewAssignedMinor);
     await load();
   };
 
@@ -215,7 +201,7 @@ export const FinanceBudgetPage = () => {
     await repository.setFinanceBudgetAssignment(
       monthKey,
       categoryId,
-      Math.abs(category.activityMinor),
+      computeUnbudgetedAssignAmountMinor(category.activityMinor),
     );
     await load();
   };

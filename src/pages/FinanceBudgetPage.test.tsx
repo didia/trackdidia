@@ -152,4 +152,49 @@ describe("FinanceBudgetPage", () => {
       ).toContain(formatMoney({ amountMinor: 800, currency: "CAD" }));
     });
   });
+
+  it("'Mois dernier' writes exactly the pure helper's lastMonthAssignedMinor amount", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveFinanceAccount(buildAccount());
+    await repository.seedFinanceDefaultCategories();
+
+    const monthKey = getTodayDate().slice(0, 7);
+    const [year, month] = monthKey.split("-").map(Number);
+    const previousMonthKey = `${month === 1 ? year - 1 : year}-${String(
+      month === 1 ? 12 : month - 1,
+    ).padStart(2, "0")}`;
+    await repository.setFinanceBudgetAssignment(
+      previousMonthKey,
+      "fincat:alimentation.epicerie",
+      2_000,
+    );
+
+    // Read the pure helper's precomputed amount directly off the repository's
+    // `computeFinanceBudgetState` result — the page must write exactly this,
+    // never a value it recomputes itself.
+    const stateBeforeClick = await repository.computeFinanceBudgetState(monthKey);
+    const expectedAmount = stateBeforeClick.categories.find(
+      (category) => category.categoryId === "fincat:alimentation.epicerie",
+    )?.lastMonthAssignedMinor;
+    expect(expectedAmount).toBe(2_000);
+
+    const user = userEvent.setup();
+    await renderWithApp(<FinanceBudgetPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+
+    await screen.findByText("Épicerie");
+    const row = screen.getByTestId("budget-row-fincat:alimentation.epicerie");
+    await user.click(within(row).getByText("Mois dernier"));
+
+    await waitFor(async () => {
+      const stateAfterClick = await repository.computeFinanceBudgetState(monthKey);
+      const assignedMinor = stateAfterClick.categories.find(
+        (category) => category.categoryId === "fincat:alimentation.epicerie",
+      )?.assignedMinor;
+      expect(assignedMinor).toBe(expectedAmount);
+    });
+  });
 });

@@ -303,15 +303,15 @@ and left exactly as they were, with their `import_batch_id` intact.
 every number the budget page renders comes from this file, matching the
 `computeWeeklyReviewSummary` centralization pattern. Both
 `FinanceSqliteStore.computeBudgetState` and
-`FinanceMemoryStore.computeBudgetState` load the **same input shape** — every
-on-budget, non-`excluded_from_budget` transaction (splits expanded via
-`finance_transaction_splits`) from the first budgeted month through the end
-of the requested month, every `finance_budget_entries` row (any month, past
-or future), and every category — and hand it to the same
-`computeFinanceBudgetState`. **Rollover is never stored**: `carryIn` is
-recomputed from scratch on every call, so correcting a transaction six
-months back automatically fixes every later month with no migration and no
-stale cached balance.
+`FinanceMemoryStore.computeBudgetState` load the **same input shape**
+(via a private `buildBudgetComputationInput`, shared with
+`computeCoverOverspending` below) — **two** separate transaction arrays
+through the end of the requested month (see "the two transaction arrays"
+below), every `finance_budget_entries` row (any month, past or future), and
+every category — and hand it to the same `computeFinanceBudgetState`.
+**Rollover is never stored**: `carryIn` is recomputed from scratch on every
+call, so correcting a transaction six months back automatically fixes every
+later month with no migration and no stale cached balance.
 
 Core formulas (all minor units):
 
@@ -325,30 +325,58 @@ carryIn(cat, month)    = 0 for the first budgeted month; otherwise the previous 
 readyToAssign(M)       = onBudgetBalance(end of M)
                        − Σ available(cat, M) over kind = 'expense' categories (incl. Uncategorized)
                        − Σ assigned(cat, m) for all m > M
-                       − deferredIncome(M) + deferredIncome(M − 1)
+                       − deferredIncome(M)
 ```
 
-`onBudgetBalance(M)` sums `opening_balance_minor` plus every transaction up
-to the end of `M`, across on-budget accounts — using the *same* filtered
-input as `activity`, which is safe because a transfer between two on-budget
-accounts cancels in that aggregate sum whether or not it is present.
-`deferredIncome(M)` is the positive activity of `kind = 'income'` categories
-with `defers_to_next_month = 1`; assigning money to an income-kind category
-throws (`assertFinanceCategoryAssignable`), since such a row would be
-counted by neither side of the balance invariant
-(`budget.test.ts` asserts that invariant directly, under both overspend
-policies, on the spec's worked example).
+There is **no** `+ deferredIncome(M − 1)` release term: `onBudgetBalance` is
+a stock (an account balance at a point in time), not a flow, so money held
+back from the previous month is still sitting in that same balance at the
+end of this one with no further adjustment needed — adding a release term
+back in would double-count it. `deferredIncome(M)` is the positive activity
+of `kind = 'income'` categories with `defers_to_next_month = 1`; assigning
+money to an income-kind category throws (`assertFinanceCategoryAssignable`),
+since such a row would be counted by neither side of the balance invariant
+(`budget.test.ts` asserts that invariant directly — independently
+recomputing the expected balance from the test's own raw account/transaction
+fixtures rather than by calling `computeFinanceOnBudgetBalance` itself —
+under both overspend policies, on the spec's worked example, and across
+consecutive deferred-income months).
 
-Other exports: `setFinanceBudgetAssignment`-style helpers
-(`computeAssignLastMonthAmount`, `computeAssignAverageLast3MonthsAmount`,
-`computeCoverOverspending`, `computeAssignAllReadyToAssign`) are pure
-read-then-write helpers the budget page calls before writing through
-`repository.setFinanceBudgetAssignment`; `selectUnbudgetedCategories` picks
-out the "Non budgété" band (activity with no assignment — `assignedMinor ===
-0` always means "never assigned" because assigning `0` deletes the row); and
-`computeEnvelopePace`/`computeEnvelopePaceFromState` give a simple
-spent-vs-elapsed-days fraction per envelope (no forecasting yet — that is
-`src/domain/finance/forecast.ts`, a later phase).
+**The two transaction arrays.** `FinanceBudgetComputationInput` carries
+`transactions` (on-budget, `excluded_from_budget = 0`, splits expanded —
+drives `activity`/`available`) and a *separate* `balanceTransactions`
+(**every** on-budget transaction, regardless of `excluded_from_budget`).
+`onBudgetBalance(M) = opening_balance_minor + Σ balanceTransactions up to end
+of M`, across on-budget accounts — deliberately including excluded rows,
+since a transfer (or any other excluded transaction) still moves real money
+in and out of the account; `activity` must still exclude it. One
+`excluded_from_budget` flag cannot serve both purposes, so the two pure
+functions read two different arrays built from the same underlying
+`finance_transactions` table.
+
+**Quick-action amounts live on the category state, not in the UI.**
+`computeFinanceBudgetState` computes `lastMonthAssignedMinor`,
+`average3MonthsAssignedMinor`, and `assignAllReadyToAssignMinor` on every
+`FinanceBudgetCategoryState` it returns (each delegates to the matching pure
+helper — `computeAssignLastMonthAmount`, `computeAssignAverageLast3MonthsAmount`,
+and the in-place `assignedMinor + max(0, readyToAssignMinor)` computation),
+so `FinanceBudgetPage`'s "Mois dernier"/"Moy. 3 mois"/"Assigner tout le prêt
+à assigner" buttons just read a field off the state it already holds and
+write it straight through `setFinanceBudgetAssignment` — **no arithmetic in
+the page**. "Cover overspending from another category" is the one quick
+action that needs two categories' data at once, so it stays a dedicated
+repository method, `computeFinanceCoverOverspending(monthKey, fromCategoryId,
+toCategoryId)`, implemented identically on both stores via the same private
+`buildBudgetComputationInput` used by `computeBudgetState`, delegating to the
+pure `computeCoverOverspending`; the page calls it, then writes both
+categories' new assignments. `selectUnbudgetedCategories` picks out the "Non
+budgété" band (activity with no assignment — `assignedMinor === 0` always
+means "never assigned" because assigning `0` deletes the row) and
+`computeUnbudgetedAssignAmountMinor` is the one-click "Assigner" amount (the
+positive size of the activity); `computeEnvelopePace`/
+`computeEnvelopePaceFromState` give a simple spent-vs-elapsed-days fraction
+per envelope (no forecasting yet — that is `src/domain/finance/forecast.ts`,
+a later phase).
 
 Repository methods: `getFinanceBudgetMonth` reads the advisory
 `finance_budget_months` row (`ready_to_assign_note`, `closed_at`), defaulting
@@ -360,9 +388,9 @@ the policy onto the `(monthKey, categoryId)` entry — creating it with
 `assigned_minor = 0` if it does not exist yet, purely so the policy has
 somewhere to live — and onto every **already-existing** later entry for that
 category; it never creates a future entry just to carry the policy forward.
-`setFinanceBudgetMonthClosed`/`setFinanceBudgetReadyToAssignNote` write the
-advisory `finance_budget_months` row; closing a month is a UI-level freeze
-and changes no arithmetic.
+`computeFinanceCoverOverspending` (above). `setFinanceBudgetMonthClosed`/
+`setFinanceBudgetReadyToAssignNote` write the advisory `finance_budget_months`
+row; closing a month is a UI-level freeze and changes no arithmetic.
 
 ## Screens (Phases 3–5)
 
@@ -551,21 +579,27 @@ rows selected) mark the pair as a transfer.
 A month selector (previous/next, via `addMonthsToMonthKey`), a "Prêt à
 assigner" header (amount plus an editable note persisted through
 `setFinanceBudgetReadyToAssignNote`), and an envelope grid grouped by
-category group (`parent_id === null`), with Assigned (inline-editable,
-parsed via `parseAmountToMinor`, committed on blur through
+category group (`parent_id === null`), with Assigned (inline-editable —
+rendered via `minorToInputString(assignedMinor, currencyExponent(baseCurrency))`,
+never `amountMinor / 100`, and parsed on blur via `parseAmountToMinor({
+exponent: currencyExponent(baseCurrency) })` before writing through
 `setFinanceBudgetAssignment`), Activity, and Available columns per leaf
-category. Per-row controls: an overspend-policy select
-(`setFinanceCategoryOverspendPolicy`), "Mois dernier" and "Moy. 3 mois"
-quick-assign buttons, "Assigner tout le prêt à assigner", and — only while a
-category's `availableMinor` is negative — a source-category picker plus
-"Couvrir" that moves exactly the smaller of the deficit and the source's
-available from one category's assignment to the other's. A "Non budgété"
-band (from `selectUnbudgetedCategories`) lists every category with activity
-and no assignment, each with a one-click "Assigner" that assigns the exact
-spent amount. A plain "solde des cartes de crédit" line lists each on-budget
-credit-card account's derived balance (`computeDerivedBalanceMinor`) — the v1
-simplification from the spec's "Credit-card payment categories" decision,
-not a payment envelope. "Clôturer le mois"/"Rouvrir le mois" toggle
+category. Per-row controls, **all reading an already-computed field off
+`computeFinanceBudgetState`'s result rather than recomputing anything in the
+page**: an overspend-policy select (`setFinanceCategoryOverspendPolicy`),
+"Mois dernier" (writes `category.lastMonthAssignedMinor`), "Moy. 3 mois"
+(writes `category.average3MonthsAssignedMinor`), "Assigner tout le prêt à
+assigner" (writes `category.assignAllReadyToAssignMinor`), and — only while
+a category's `availableMinor` is negative — a source-category picker plus
+"Couvrir" that calls `repository.computeFinanceCoverOverspending` and writes
+back its two new assignment totals. A "Non budgété" band (from
+`selectUnbudgetedCategories`) lists every category with activity and no
+assignment, each with a one-click "Assigner" that writes
+`computeUnbudgetedAssignAmountMinor(category.activityMinor)`. A plain "solde
+des cartes de crédit" line lists each on-budget credit-card account's
+derived balance (`computeDerivedBalanceMinor`) — the v1 simplification from
+the spec's "Credit-card payment categories" decision, not a payment
+envelope. "Clôturer le mois"/"Rouvrir le mois" toggle
 `finance_budget_months.closed_at` and disable every input while closed; this
 is advisory only and never changes arithmetic.
 

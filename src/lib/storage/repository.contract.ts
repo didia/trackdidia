@@ -3910,6 +3910,71 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           const reloaded = await repository.getFinanceBudgetMonth("2026-01");
           expect(reloaded.readyToAssignNote).toBe("Réservé pour les vacances");
         });
+
+        it("onBudgetBalance includes an excluded_from_budget transaction that activity ignores", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.seedFinanceDefaultCategories();
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-income",
+              accountId: "account-1",
+              postedDate: "2026-01-02",
+              amountMinor: 10_000,
+              categoryId: "fincat:revenu.salaire",
+            }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-excluded",
+              accountId: "account-1",
+              postedDate: "2026-01-15",
+              amountMinor: -4_000,
+              categoryId: "fincat:non-categorise",
+              excludedFromBudget: true,
+            }),
+          );
+
+          const state = await repository.computeFinanceBudgetState("2026-01");
+          expect(state.onBudgetBalanceMinor).toBe(6_000);
+          expect(state.readyToAssignMinor).toBe(6_000);
+          const uncategorized = state.categories.find(
+            (c) => c.categoryId === "fincat:non-categorise",
+          );
+          expect(uncategorized?.activityMinor ?? 0).toBe(0);
+        });
+
+        it("computeFinanceCoverOverspending delegates to the pure helper", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.seedFinanceDefaultCategories();
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-spend",
+              accountId: "account-1",
+              postedDate: "2026-01-10",
+              amountMinor: -1_200,
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+          await repository.setFinanceBudgetAssignment(
+            "2026-01",
+            "fincat:alimentation.epicerie",
+            1_000,
+          );
+          await repository.setFinanceBudgetAssignment("2026-01", "fincat:loisirs.sorties", 100);
+
+          const result = await repository.computeFinanceCoverOverspending(
+            "2026-01",
+            "fincat:loisirs.sorties",
+            "fincat:alimentation.epicerie",
+          );
+          expect(result).toEqual({
+            amountMinor: 100,
+            fromNewAssignedMinor: 0,
+            toNewAssignedMinor: 1_100,
+          });
+        });
       });
     });
   });

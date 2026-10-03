@@ -33,7 +33,9 @@ import type {
 } from "../../domain/finance";
 import {
   assertFinanceCategoryAssignable,
+  computeCoverOverspending,
   computeFinanceBudgetState,
+  type CoverOverspendingResult,
   type FinanceBudgetComputationInput,
   type FinanceBudgetState,
 } from "../../domain/finance/budget";
@@ -1264,17 +1266,15 @@ export class FinanceMemoryStore {
    * Loads the same input shape `FinanceSqliteStore.computeBudgetState` loads
    * and hands it to the same pure function — see "Computation shape".
    */
-  computeBudgetState(monthKey: string): FinanceBudgetState {
+  private buildBudgetComputationInput(monthKey: string): FinanceBudgetComputationInput {
     const monthEnd = getMonthEndDate(monthKey);
     const accounts = [...this.accounts.values()].filter((account) => account.onBudget);
     const onBudgetAccountIds = new Set(accounts.map((account) => account.id));
 
-    const transactions = [...this.transactions.values()].filter(
-      (txn) =>
-        !txn.excludedFromBudget &&
-        onBudgetAccountIds.has(txn.accountId) &&
-        txn.postedDate <= monthEnd,
+    const onBudgetThroughMonthEnd = [...this.transactions.values()].filter(
+      (txn) => onBudgetAccountIds.has(txn.accountId) && txn.postedDate <= monthEnd,
     );
+    const transactions = onBudgetThroughMonthEnd.filter((txn) => !txn.excludedFromBudget);
     const splitTransactionIds = new Set(
       transactions.filter((txn) => txn.hasSplits).map((txn) => txn.id),
     );
@@ -1282,7 +1282,7 @@ export class FinanceMemoryStore {
       splitTransactionIds.has(split.transactionId),
     );
 
-    const input: FinanceBudgetComputationInput = {
+    return {
       monthKey,
       accounts: accounts.map((account) => ({
         id: account.id,
@@ -1297,6 +1297,11 @@ export class FinanceMemoryStore {
         categoryId: txn.categoryId,
         hasSplits: txn.hasSplits,
       })),
+      balanceTransactions: onBudgetThroughMonthEnd.map((txn) => ({
+        accountId: txn.accountId,
+        postedDate: txn.postedDate,
+        amountMinor: txn.amountMinor,
+      })),
       splits: splits.map((split) => ({
         transactionId: split.transactionId,
         amountMinor: split.amountMinor,
@@ -1309,7 +1314,19 @@ export class FinanceMemoryStore {
         defersToNextMonth: category.defersToNextMonth,
       })),
     };
+  }
 
-    return computeFinanceBudgetState(input);
+  computeBudgetState(monthKey: string): FinanceBudgetState {
+    return computeFinanceBudgetState(this.buildBudgetComputationInput(monthKey));
+  }
+
+  /** Delegates to the pure `computeCoverOverspending` — see `AppRepository.computeFinanceCoverOverspending`. */
+  computeCoverOverspending(
+    monthKey: string,
+    fromCategoryId: string,
+    toCategoryId: string,
+  ): CoverOverspendingResult {
+    const input = this.buildBudgetComputationInput(monthKey);
+    return computeCoverOverspending(fromCategoryId, toCategoryId, monthKey, input);
   }
 }

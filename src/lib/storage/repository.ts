@@ -70,7 +70,7 @@ import type {
   SetFinanceTransferPair,
   UndoFinanceImportBatchResult,
 } from "../../domain/finance";
-import type { FinanceBudgetState } from "../../domain/finance/budget";
+import type { CoverOverspendingResult, FinanceBudgetState } from "../../domain/finance/budget";
 
 export interface NativeStoragePaths {
   databasePath: string;
@@ -488,6 +488,17 @@ export interface AppRepository {
   ): Promise<void>;
   /** Envelope grid + Ready to Assign for `monthKey`, built by `computeFinanceBudgetState` — never materialized. */
   computeFinanceBudgetState(monthKey: string): Promise<FinanceBudgetState>;
+  /**
+   * "Cover overspending from another category" quick action: delegates to the pure
+   * `computeCoverOverspending`. Returns the amount actually movable (capped at the
+   * deficit and the source's available) and both categories' new assignment totals;
+   * the caller still writes them via two `setFinanceBudgetAssignment` calls.
+   */
+  computeFinanceCoverOverspending(
+    monthKey: string,
+    fromCategoryId: string,
+    toCategoryId: string,
+  ): Promise<CoverOverspendingResult>;
   /** Advisory freeze/unfreeze of a month's budget inputs; changes no arithmetic. */
   setFinanceBudgetMonthClosed(monthKey: string, closed: boolean): Promise<FinanceBudgetMonth>;
   setFinanceBudgetReadyToAssignNote(

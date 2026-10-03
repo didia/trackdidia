@@ -34,7 +34,9 @@ import type {
 } from "../../domain/finance";
 import {
   assertFinanceCategoryAssignable,
+  computeCoverOverspending,
   computeFinanceBudgetState,
+  type CoverOverspendingResult,
   type FinanceBudgetComputationInput,
   type FinanceBudgetState,
 } from "../../domain/finance/budget";
@@ -2072,12 +2074,17 @@ export class FinanceSqliteStore {
   }
 
   /**
-   * Loads the input shape `computeFinanceBudgetState` needs — on-budget,
-   * non-excluded transactions (splits expanded) through the end of `monthKey`,
-   * every budget entry, and every category — and hands it to that one pure
-   * function. See specs/todo/finance.md "Computation shape".
+   * Loads the input shape `computeFinanceBudgetState` (and the other budget
+   * pure functions) need: on-budget, non-excluded transactions (splits
+   * expanded) through the end of `monthKey` for per-category `activity`;
+   * **every** on-budget transaction through the end of `monthKey`,
+   * regardless of `excluded_from_budget`, for `onBudgetBalance` (see
+   * `balanceTransactions` on `FinanceBudgetComputationInput`); every budget
+   * entry; and every category. See specs/todo/finance.md "Computation shape".
    */
-  async computeBudgetState(monthKey: string): Promise<FinanceBudgetState> {
+  private async buildBudgetComputationInput(
+    monthKey: string,
+  ): Promise<FinanceBudgetComputationInput> {
     const db = await this.getDb();
     const monthEnd = getMonthEndDate(monthKey);
 
@@ -2085,13 +2092,23 @@ export class FinanceSqliteStore {
       (account) => account.onBudget,
     );
     const onBudgetAccountIds = accounts.map((account) => account.id);
+    const accountPlaceholders = onBudgetAccountIds.map((_, i) => `$${i + 2}`).join(",");
 
     const transactionRows =
       onBudgetAccountIds.length > 0
         ? await db.select<TransactionRow[]>(
             `SELECT * FROM finance_transactions
              WHERE excluded_from_budget = 0 AND posted_date <= $1
-               AND account_id IN (${onBudgetAccountIds.map((_, i) => `$${i + 2}`).join(",")})`,
+               AND account_id IN (${accountPlaceholders})`,
+            [monthEnd, ...onBudgetAccountIds],
+          )
+        : [];
+
+    const balanceTransactionRows =
+      onBudgetAccountIds.length > 0
+        ? await db.select<TransactionRow[]>(
+            `SELECT * FROM finance_transactions
+             WHERE posted_date <= $1 AND account_id IN (${accountPlaceholders})`,
             [monthEnd, ...onBudgetAccountIds],
           )
         : [];
@@ -2111,7 +2128,7 @@ export class FinanceSqliteStore {
     const categories = await this.listCategories(true);
     const entries = await this.listBudgetEntries();
 
-    const input: FinanceBudgetComputationInput = {
+    return {
       monthKey,
       accounts: accounts.map((account) => ({
         id: account.id,
@@ -2126,6 +2143,11 @@ export class FinanceSqliteStore {
         categoryId: row.category_id,
         hasSplits: Boolean(row.has_splits),
       })),
+      balanceTransactions: balanceTransactionRows.map((row) => ({
+        accountId: row.account_id,
+        postedDate: row.posted_date,
+        amountMinor: row.amount_minor,
+      })),
       splits: splitRows.map((row) => ({
         transactionId: row.transaction_id,
         amountMinor: row.amount_minor,
@@ -2138,8 +2160,21 @@ export class FinanceSqliteStore {
         defersToNextMonth: category.defersToNextMonth,
       })),
     };
+  }
 
+  async computeBudgetState(monthKey: string): Promise<FinanceBudgetState> {
+    const input = await this.buildBudgetComputationInput(monthKey);
     return computeFinanceBudgetState(input);
+  }
+
+  /** Delegates to the pure `computeCoverOverspending` — see `AppRepository.computeFinanceCoverOverspending`. */
+  async computeCoverOverspending(
+    monthKey: string,
+    fromCategoryId: string,
+    toCategoryId: string,
+  ): Promise<CoverOverspendingResult> {
+    const input = await this.buildBudgetComputationInput(monthKey);
+    return computeCoverOverspending(fromCategoryId, toCategoryId, monthKey, input);
   }
 
   private async rollbackQuietly(db: Database): Promise<void> {

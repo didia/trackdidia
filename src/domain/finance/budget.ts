@@ -29,6 +29,12 @@ export type FinanceBudgetSplitInput = Pick<
   "transactionId" | "amountMinor" | "categoryId"
 >;
 
+/** Every transaction on an on-budget account, regardless of `excludedFromBudget` — see below. */
+export type FinanceBudgetBalanceTransactionInput = Pick<
+  FinanceTransaction,
+  "accountId" | "postedDate" | "amountMinor"
+>;
+
 export type FinanceBudgetCategoryInput = Pick<FinanceCategory, "id" | "kind" | "defersToNextMonth">;
 
 /**
@@ -38,18 +44,21 @@ export type FinanceBudgetCategoryInput = Pick<FinanceCategory, "id" | "kind" | "
  *
  * `transactions` must already be restricted by the caller to on-budget
  * accounts, `excluded_from_budget = 0`, from the first budgeted month
- * through the end of `monthKey` (see "Computation shape" in the spec). A
- * transfer between two on-budget accounts is `excluded_from_budget = 1` on
- * both legs and is therefore absent from this array — which is correct for
- * `onBudgetBalance` too, since the two legs cancel in the aggregate sum
- * across on-budget accounts regardless of whether they are included.
- * `entries` is every budget entry for every month, past and future — the
- * "Σ assigned in months > M" term needs entries after `monthKey`.
+ * through the end of `monthKey` (see "Computation shape" in the spec) — it
+ * drives per-category `activity`/`available`. `balanceTransactions` is a
+ * *separate* array: every transaction on an on-budget account through the
+ * end of `monthKey`, **regardless of `excluded_from_budget`** — per the
+ * spec, `onBudgetBalance = opening + Σ ALL transactions`, so a transfer
+ * (which is deliberately excluded from `activity`) must still move money in
+ * and out of the real account balance. `entries` is every budget entry for
+ * every month, past and future — the "Σ assigned in months > M" term needs
+ * entries after `monthKey`.
  */
 export interface FinanceBudgetComputationInput {
   monthKey: string;
   accounts: FinanceBudgetAccountInput[];
   transactions: FinanceBudgetTransactionInput[];
+  balanceTransactions: FinanceBudgetBalanceTransactionInput[];
   splits: FinanceBudgetSplitInput[];
   entries: FinanceBudgetEntry[];
   categories: FinanceBudgetCategoryInput[];
@@ -240,7 +249,11 @@ export const computeFinanceCategoryCarryIn = (
   return (series.get(monthKey) ?? EMPTY_POINT).carryInMinor;
 };
 
-/** `onBudgetBalance = opening + Σ transactions, summed across on-budget accounts, up to end of month`. */
+/**
+ * `onBudgetBalance = opening + Σ ALL transactions`, summed across on-budget
+ * accounts, up to end of month — using `balanceTransactions`, not
+ * `transactions`, so an `excluded_from_budget` transfer still moves money.
+ */
 export const computeFinanceOnBudgetBalance = (
   monthKey: string,
   input: FinanceBudgetComputationInput,
@@ -256,7 +269,7 @@ export const computeFinanceOnBudgetBalance = (
       total += account.openingBalanceMinor;
     }
   }
-  for (const txn of input.transactions) {
+  for (const txn of input.balanceTransactions) {
     if (onBudgetAccountIds.has(txn.accountId) && txn.postedDate <= monthEnd) {
       total += txn.amountMinor;
     }
@@ -295,6 +308,12 @@ export interface FinanceBudgetCategoryState {
   carryInMinor: number;
   availableMinor: number;
   overspendPolicy: FinanceOverspendPolicy;
+  /** "Assign last month's amount" quick action — the amount it would assign. */
+  lastMonthAssignedMinor: number;
+  /** "Assign average of last 3 months" quick action — the amount it would assign. */
+  average3MonthsAssignedMinor: number;
+  /** "Assign all Ready to Assign" quick action — the category's new total assignment. */
+  assignAllReadyToAssignMinor: number;
 }
 
 export interface FinanceBudgetState {
@@ -306,7 +325,13 @@ export interface FinanceBudgetState {
 
 /**
  * `readyToAssign(M) = onBudgetBalance(end of M) − Σ available(expense cats, M)
- *  − Σ assigned(m > M) − deferredIncome(M) + deferredIncome(M − 1)`.
+ *  − Σ assigned(m > M) − deferredIncome(M)`.
+ *
+ * There is no `+ deferredIncome(M − 1)` release term: `onBudgetBalance` is a
+ * stock (the account balance at a point in time), not a flow, so the money
+ * held back from `M − 1` is still sitting in that same balance at the end of
+ * `M` with no further adjustment needed — adding `deferredIncome(M − 1)`
+ * back in would double-count it.
  */
 export const computeFinanceReadyToAssign = (
   monthKey: string,
@@ -321,34 +346,38 @@ export const computeFinanceBudgetState = (
   const activityMap = buildActivityByCategoryMonth(input);
   const expenseCategories = input.categories.filter((category) => category.kind === "expense");
 
-  const categories: FinanceBudgetCategoryState[] = expenseCategories.map((category) => {
+  const basePoints = expenseCategories.map((category) => {
     const series = computeSeriesUpTo(category.id, monthKey, input, activityMap);
     const point = series.get(monthKey) ?? EMPTY_POINT;
-    return {
-      categoryId: category.id,
-      assignedMinor: point.assignedMinor,
-      activityMinor: point.activityMinor,
-      carryInMinor: point.carryInMinor,
-      availableMinor: point.availableMinor,
-      overspendPolicy: getOverspendPolicy(category.id, monthKey, input),
-    };
+    return { category, point };
   });
 
   const onBudgetBalanceMinor = computeFinanceOnBudgetBalance(monthKey, input);
-  const sumAvailable = categories.reduce((total, category) => total + category.availableMinor, 0);
+  const sumAvailable = basePoints.reduce((total, { point }) => total + point.availableMinor, 0);
   const sumFutureAssigned = input.entries.reduce(
     (total, entry) => total + (entry.monthKey > monthKey ? entry.assignedMinor : 0),
     0,
   );
   const deferredThisMonth = computeDeferredIncomeInternal(monthKey, input, activityMap);
-  const deferredPrevMonth = computeDeferredIncomeInternal(
-    getPreviousMonthKey(monthKey),
-    input,
-    activityMap,
-  );
 
   const readyToAssignMinor =
-    onBudgetBalanceMinor - sumAvailable - sumFutureAssigned - deferredThisMonth + deferredPrevMonth;
+    onBudgetBalanceMinor - sumAvailable - sumFutureAssigned - deferredThisMonth;
+
+  const categories: FinanceBudgetCategoryState[] = basePoints.map(({ category, point }) => ({
+    categoryId: category.id,
+    assignedMinor: point.assignedMinor,
+    activityMinor: point.activityMinor,
+    carryInMinor: point.carryInMinor,
+    availableMinor: point.availableMinor,
+    overspendPolicy: getOverspendPolicy(category.id, monthKey, input),
+    lastMonthAssignedMinor: computeAssignLastMonthAmount(category.id, monthKey, input),
+    average3MonthsAssignedMinor: computeAssignAverageLast3MonthsAmount(
+      category.id,
+      monthKey,
+      input,
+    ),
+    assignAllReadyToAssignMinor: point.assignedMinor + Math.max(0, readyToAssignMinor),
+  }));
 
   return { monthKey, onBudgetBalanceMinor, readyToAssignMinor, categories };
 };
@@ -457,6 +486,10 @@ export const listUnbudgetedCategoryActivity = (
   }
   return result;
 };
+
+/** The one-click "Assigner" amount for an unbudgeted category — the positive size of its activity. */
+export const computeUnbudgetedAssignAmountMinor = (activityMinor: number): number =>
+  Math.abs(activityMinor);
 
 /** Every category in `state.categories` with activity and no assignment — the "Non budgété" band. */
 export const selectUnbudgetedCategories = (
