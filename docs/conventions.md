@@ -130,6 +130,19 @@ Repository transaction callbacks use `writeTransaction`; internal writers accept
 its active `TxContext` and never re-enter the writer. Queue-only work uses
 `writeExclusive`.
 
+## Money and minor units
+
+Finance code (`src/lib/finance/`, `src/domain/finance.ts`) represents every
+amount as `INTEGER` minor units (e.g. cents) plus an ISO-4217 `currency` code,
+never as a decimal/float. No helper in `src/lib/finance/money.ts` accepts or
+returns a decimal number; `addMoney`/`sumMoney` throw on mixed currencies
+rather than silently truncating. Dedupe hashing (`src/lib/finance/hash.ts`)
+uses a 128-bit hash, not the 32-bit `hashString` in `src/lib/hash.ts`, because
+a collision at finance-import volumes would silently drop a real transaction.
+The hash preimage is a JSON-framed array so field boundaries stay unambiguous.
+Amount parsing is strict: excess fractional digits and malformed thousands
+grouping are errors, and the default exponent comes from the currency.
+
 ## Dates and time zones
 
 TrackDidia uses two related representations:

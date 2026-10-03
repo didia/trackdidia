@@ -5,6 +5,8 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-10-03 | Documented strict finance amount parsing, currency-derived default exponent, and JSON-framed dedupe hash preimage (PR review fixes) | `docs/conventions.md` | `src/lib/finance/money.ts`, `import-profile.ts` |
+| 2026-10-02 | Added the finance money/minor-units convention (Phase 1 of the finance domain: pure `money.ts`, `hash.ts`, `csv.ts`, `import-profile.ts`, `transfers.ts`, and a near-duplicate detector; no migration or UI yet) | `docs/conventions.md` | `src/lib/finance/*.ts`, `src/domain/finance.ts` |
 | 2026-10-03 | Combined the current migration catalog/rollback guidance with the transaction helper writer rules while resolving the base-branch conflicts | `docs/conventions.md` | `migrations/index.ts`, `transaction.ts`, PR #195 |
 | 2026-10-03 | Documented named transactional versus queue-only writer modes and corrected the obsolete migration transaction guidance | `docs/conventions.md` | `transaction.ts`, `tauri-sqlite-repository.ts`, migration runner |
 | 2026-10-03 | Corrected SQLite change instructions to reference the extracted migration catalog and per-migration transaction/rollback behavior | `docs/conventions.md` | `migrations/index.ts`, `docs/storage-and-backups.md`; PR #194 |
