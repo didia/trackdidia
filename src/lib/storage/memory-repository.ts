@@ -93,9 +93,13 @@ import {
   buildPomodoroState,
   buildPomodoroTaskSummaries,
   computeDailyPomodoroStats,
-  createPomodoroSegment,
-  createPomodoroSession,
   getPomodoroRunningBreakSessionIdsToAutoCompleteWhenReset,
+  pauseSession,
+  requirePomodoroSession,
+  resumeSession,
+  startSession,
+  stopSession,
+  switchSessionTask,
 } from "../pomodoro/engine";
 import {
   applySeriesChangesToTemplate,
@@ -1633,22 +1637,9 @@ export class MemoryRepository implements AppRepository {
     }
 
     const startedAt = nowIso();
-    const kind = options.kind ?? state.nextSessionKind;
-    const cycleIndex =
-      kind === "focus"
-        ? state.nextFocusCycleIndex
-        : Math.max(1, state.completedFocusCountInCycle || 1);
-    const session = createPomodoroSession(kind, startedAt, cycleIndex);
+    const { session, segmentsToUpsert } = startSession(state, options, startedAt);
     this.pomodoroSessions.set(session.id, session);
-
-    if (kind === "focus") {
-      const normalizedTitle = options.taskId ? null : (options.title ?? "").trim() || null;
-      const segment = createPomodoroSegment(
-        session.id,
-        startedAt,
-        options.taskId ?? null,
-        normalizedTitle,
-      );
+    for (const segment of segmentsToUpsert) {
       this.pomodoroSegments.set(segment.id, segment);
     }
 
@@ -1660,116 +1651,61 @@ export class MemoryRepository implements AppRepository {
     status: "completed" | "cancelled",
     at = nowIso(),
   ): Promise<PomodoroState> {
-    const session = this.pomodoroSessions.get(sessionId);
-
-    if (!session) {
-      throw new Error(`Session Pomodoro ${sessionId} introuvable`);
-    }
+    const session = requirePomodoroSession(this.pomodoroSessions.get(sessionId), sessionId);
 
     if (session.status !== "running" && session.status !== "paused") {
       return this.getPomodoroState();
     }
 
-    const closedAt =
-      status === "completed" &&
-      session.status === "running" &&
-      new Date(at).getTime() >= new Date(session.endsAt).getTime()
-        ? session.endsAt
-        : at;
-
-    this.pomodoroSessions.set(sessionId, {
-      ...session,
-      status,
-      pausedRemainingMs: null,
-      completedAt: status === "completed" ? closedAt : null,
-      cancelledAt: status === "cancelled" ? closedAt : null,
-    });
-
-    for (const [segmentId, segment] of this.pomodoroSegments.entries()) {
-      if (segment.sessionId !== sessionId || segment.endedAt !== null) {
-        continue;
-      }
-
-      this.pomodoroSegments.set(segmentId, {
-        ...segment,
-        endedAt: closedAt,
-      });
+    const openSegments = [...this.pomodoroSegments.values()].filter(
+      (segment) => segment.sessionId === sessionId && segment.endedAt === null,
+    );
+    const transition = stopSession(session, openSegments, status, at);
+    this.pomodoroSessions.set(sessionId, transition.session);
+    for (const segment of transition.segmentsToUpsert) {
+      this.pomodoroSegments.set(segment.id, segment);
     }
 
     return this.getPomodoroState();
   }
 
   async pausePomodoroSession(sessionId: string, at = nowIso()): Promise<PomodoroState> {
-    const session = this.pomodoroSessions.get(sessionId);
-
-    if (!session) {
-      throw new Error(`Session Pomodoro ${sessionId} introuvable`);
-    }
+    const session = requirePomodoroSession(this.pomodoroSessions.get(sessionId), sessionId);
 
     if (session.status !== "running") {
       return this.getPomodoroState();
     }
 
-    const remainingMs = Math.max(0, new Date(session.endsAt).getTime() - new Date(at).getTime());
-
-    this.pomodoroSessions.set(sessionId, {
-      ...session,
-      status: "paused",
-      pausedRemainingMs: remainingMs,
-    });
-
-    for (const [segmentId, segment] of this.pomodoroSegments.entries()) {
-      if (segment.sessionId !== sessionId || segment.endedAt !== null) {
-        continue;
-      }
-
-      this.pomodoroSegments.set(segmentId, {
-        ...segment,
-        endedAt: at,
-      });
+    const openSegments = [...this.pomodoroSegments.values()].filter(
+      (segment) => segment.sessionId === sessionId && segment.endedAt === null,
+    );
+    const transition = pauseSession(session, openSegments, at);
+    this.pomodoroSessions.set(sessionId, transition.session);
+    for (const segment of transition.segmentsToUpsert) {
+      this.pomodoroSegments.set(segment.id, segment);
     }
 
     return this.getPomodoroState();
   }
 
   async resumePomodoroSession(sessionId: string, at = nowIso()): Promise<PomodoroState> {
-    const session = this.pomodoroSessions.get(sessionId);
-
-    if (!session) {
-      throw new Error(`Session Pomodoro ${sessionId} introuvable`);
-    }
+    const session = requirePomodoroSession(this.pomodoroSessions.get(sessionId), sessionId);
 
     if (session.status !== "paused") {
       return this.getPomodoroState();
     }
 
-    const remainingMs =
-      session.pausedRemainingMs ??
-      Math.max(0, new Date(session.endsAt).getTime() - new Date(at).getTime());
-    const nextEndsAt = new Date(new Date(at).getTime() + remainingMs).toISOString();
-
-    this.pomodoroSessions.set(sessionId, {
-      ...session,
-      status: "running",
-      endsAt: nextEndsAt,
-      pausedRemainingMs: null,
-    });
-
-    if (session.kind === "focus") {
-      const latestSegment = [...this.pomodoroSegments.values()]
-        .filter((segment) => segment.sessionId === sessionId)
-        .sort((left, right) => left.startedAt.localeCompare(right.startedAt))
-        .at(-1);
-
-      if (latestSegment) {
-        const nextSegment = createPomodoroSegment(
-          sessionId,
-          at,
-          latestSegment.taskId,
-          latestSegment.title,
-        );
-        this.pomodoroSegments.set(nextSegment.id, nextSegment);
-      }
+    const latestSegment =
+      session.kind === "focus"
+        ? [...this.pomodoroSegments.values()]
+            .filter((segment) => segment.sessionId === sessionId)
+            .sort((left, right) => left.startedAt.localeCompare(right.startedAt))
+            .at(-1)
+        : null;
+    const transition = resumeSession(session, latestSegment, at);
+    this.pomodoroSessions.set(sessionId, transition.session);
+    for (const segment of transition.segmentsToUpsert) {
+      this.pomodoroSegments.set(segment.id, segment);
     }
 
     return this.getPomodoroState();
@@ -1803,11 +1739,7 @@ export class MemoryRepository implements AppRepository {
     title: string | null = null,
     changedAt = nowIso(),
   ): Promise<PomodoroState> {
-    const session = this.pomodoroSessions.get(sessionId);
-
-    if (!session) {
-      throw new Error(`Session Pomodoro ${sessionId} introuvable`);
-    }
+    const session = requirePomodoroSession(this.pomodoroSessions.get(sessionId), sessionId);
 
     if (session.status !== "running" || session.kind !== "focus") {
       return this.getPomodoroState();
@@ -1817,21 +1749,13 @@ export class MemoryRepository implements AppRepository {
       (segment) => segment.sessionId === sessionId && segment.endedAt === null,
     );
 
-    const normalizedTitle = taskId ? null : (title ?? "").trim() || null;
-
-    if (openSegment?.taskId === taskId && (openSegment.title ?? null) === normalizedTitle) {
+    const transition = switchSessionTask(session, openSegment, taskId, title, changedAt);
+    if (!transition) {
       return this.getPomodoroState();
     }
-
-    if (openSegment) {
-      this.pomodoroSegments.set(openSegment.id, {
-        ...openSegment,
-        endedAt: changedAt,
-      });
+    for (const segment of transition.segmentsToUpsert) {
+      this.pomodoroSegments.set(segment.id, segment);
     }
-
-    const nextSegment = createPomodoroSegment(sessionId, changedAt, taskId, normalizedTitle);
-    this.pomodoroSegments.set(nextSegment.id, nextSegment);
     return this.getPomodoroState();
   }
 
