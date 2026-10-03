@@ -1,3 +1,4 @@
+- 2026-10-03: Unified Gmail/Microsoft OAuth connection and token refresh, centralized guarded token decoding and provider-neutral session names, and verified reconnect/rotation behavior with mocked native flows.
 # Email triage log
 
 - 2026-10-02: Email persistence now uses the focused `EmailTriageStore` contract

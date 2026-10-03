@@ -41,7 +41,11 @@ export const createTauriHttpClient = () => ({
   },
 });
 
-export type GmailHttpClient = ReturnType<typeof createTauriHttpClient>;
+export interface ProviderHttpClient {
+  request(input: ProviderHttpRequest): Promise<ProviderHttpResponse>;
+}
+/** Compatibility name for older callers. */
+export type GmailHttpClient = ProviderHttpClient;
 
 export const assertHttpSuccess = (response: ProviderHttpResponse, context: string): void => {
   if (response.status >= 200 && response.status < 300) {
