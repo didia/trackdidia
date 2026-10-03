@@ -32,13 +32,19 @@ const readFileAsArrayBuffer = (file: File): Promise<ArrayBuffer> =>
     reader.readAsArrayBuffer(file);
   });
 
-/** Keeps only the last 4 characters when a bound account label looks like an account number. */
-const shortenIfAccountNumber = (label: string): string => {
-  const digitsOnly = label.replace(/\D/g, "");
-  if (digitsOnly.length >= 6) {
-    return `****${digitsOnly.slice(-4)}`;
+// A contiguous run of 6+ digits bounded by non-digits (or string ends) is
+// treated as an account number; anything shorter (e.g. a 4-digit branch code)
+// is left alone. Per spec: mask like a dedupe hash, not a full account
+// number — keep only the last 4 digits of that run.
+const ACCOUNT_NUMBER_RUN = /\b\d{6,}\b/;
+
+/** Keeps only the last 4 digits of a contiguous 6+ digit run when the label looks like an account number. */
+export const shortenIfAccountNumber = (label: string): string => {
+  const match = label.match(ACCOUNT_NUMBER_RUN);
+  if (!match) {
+    return label;
   }
-  return label;
+  return `****${match[0].slice(-4)}`;
 };
 
 interface PendingFile {
@@ -62,6 +68,11 @@ export const FinanceImportPage = () => {
   const [dateFormat, setDateFormat] = useState<FinanceImportProfile["dateFormat"]>("YYYY-MM-DD");
   const [amountMode, setAmountMode] = useState<FinanceImportProfile["amountMode"]>("single_signed");
   const [dateAmbiguous, setDateAmbiguous] = useState(false);
+  // Set when the file's header signature matches a saved profile (or the
+  // bundled Mint profile): reused as the profile id on import so re-importing
+  // the same export updates that one row instead of colliding with
+  // uniq_finance_profile_signature by minting a fresh id every time.
+  const [matchedProfileId, setMatchedProfileId] = useState<string | null>(null);
   const [singleAccountId, setSingleAccountId] = useState("");
   const [accountBindings, setAccountBindings] = useState<Record<string, string>>({});
   const [newAccountNames, setNewAccountNames] = useState<Record<string, string>>({});
@@ -103,9 +114,11 @@ export const FinanceImportPage = () => {
         setDateFormat(matchedProfile.dateFormat);
         setAmountMode(matchedProfile.amountMode);
         setDateAmbiguous(false);
+        setMatchedProfileId(matchedProfile.id);
         return;
       }
 
+      setMatchedProfileId(null);
       setColumnMap({});
       setAmountMode("single_signed");
       const dateColumnIndex = nextHeader.findIndex((name) => /date/i.test(name));
@@ -182,6 +195,31 @@ export const FinanceImportPage = () => {
     }));
   };
 
+  // Matches a file's raw account label against a saved account's
+  // externalKey, trying both the raw label and its masked form — an account
+  // created from an earlier import stores only the masked externalKey (see
+  // shortenIfAccountNumber), so a repeat import whose raw label still
+  // contains the full account number must mask it the same way to bind
+  // silently instead of asking the user to re-bind every time.
+  const findAccountForExternalKey = useCallback(
+    (key: string): FinanceAccount | undefined => {
+      const masked = shortenIfAccountNumber(key);
+      return accounts.find(
+        (account) => account.externalKey === key || account.externalKey === masked,
+      );
+    },
+    [accounts],
+  );
+
+  // Mirrors the <select>'s own default (an already-bound account, matched by
+  // externalKey, pre-selected without the user touching the dropdown): used
+  // so re-importing the same file resolves accounts correctly even when the
+  // user never re-opens a binding select that already shows the right value.
+  const resolveBindingForKey = useCallback(
+    (key: string): string => accountBindings[key] ?? findAccountForExternalKey(key)?.id ?? "",
+    [accountBindings, findAccountForExternalKey],
+  );
+
   const runImport = async () => {
     if (!currentFile) {
       return;
@@ -191,7 +229,7 @@ export const FinanceImportPage = () => {
     // Create-new-account bindings for any external key the user chose "new" for.
     const createdAccounts: FinanceAccount[] = [];
     for (const key of externalAccountKeys) {
-      if (accountBindings[key] !== "__new__") {
+      if (resolveBindingForKey(key) !== "__new__") {
         continue;
       }
       const name = (newAccountNames[key] ?? key).trim() || key;
@@ -219,7 +257,10 @@ export const FinanceImportPage = () => {
       setAccountBindings((current) => ({ ...current, [key]: account.id }));
     }
 
-    const mergedBindings: Record<string, string> = { ...accountBindings };
+    const mergedBindings: Record<string, string> = {};
+    for (const key of externalAccountKeys) {
+      mergedBindings[key] = resolveBindingForKey(key);
+    }
     for (const account of createdAccounts) {
       const matchingKey = externalAccountKeys.find((key) => mergedBindings[key] === "__new__");
       if (matchingKey) {
@@ -228,7 +269,7 @@ export const FinanceImportPage = () => {
     }
 
     const profile: FinanceImportProfile = {
-      id: createEntityId("finance-import-profile"),
+      id: matchedProfileId ?? createEntityId("finance-import-profile"),
       name: currentFile.name,
       signature: buildHeaderSignature(header),
       columnMap,
@@ -434,7 +475,7 @@ export const FinanceImportPage = () => {
             <div className="stack">
               <p>{t("import.accountBindingTitle")}</p>
               {externalAccountKeys.map((key) => {
-                const matchingAccount = accounts.find((account) => account.externalKey === key);
+                const matchingAccount = findAccountForExternalKey(key);
                 return (
                   <div key={key} className="inline-form">
                     <span>{key}</span>

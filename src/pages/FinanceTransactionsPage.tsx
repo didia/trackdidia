@@ -17,6 +17,13 @@ import { createEntityId, nowIso } from "../lib/gtd/shared";
 
 const PAGE_SIZE = 25;
 
+// The system "Uncategorized" category id — see src/lib/finance/default-categories.ts
+// and docs/finance.md "Data model". Transactions never carry a null categoryId
+// in practice (import always defaults to this id), but the per-row select
+// falls back to it rather than offering an empty "" option with no category
+// behind it.
+const UNCATEGORIZED_CATEGORY_ID = "fincat:non-categorise";
+
 interface SplitDraftRow {
   id: string;
   amountText: string;
@@ -48,6 +55,7 @@ export const FinanceTransactionsPage = () => {
   const [splitDrafts, setSplitDrafts] = useState<SplitDraftRow[]>([]);
   const [splitError, setSplitError] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [transferPairWarning, setTransferPairWarning] = useState<string | null>(null);
 
   const filters = useMemo(
     () => ({
@@ -108,15 +116,28 @@ export const FinanceTransactionsPage = () => {
     await load();
   };
 
-  const toggleTransfer = async (transaction: FinanceTransaction) => {
-    if (transaction.isTransfer) {
-      await repository.clearFinanceTransfer(transaction.id);
-    } else {
-      // Marking a single row as a transfer without a known partner is not
-      // supported from this toolbar — only clearing is available here. A
-      // paired set action belongs to a future phase's transfer-matching UI.
+  const unmarkTransfer = async (transaction: FinanceTransaction) => {
+    await repository.clearFinanceTransfer(transaction.id);
+    await load();
+  };
+
+  const markSelectedAsTransferPair = async () => {
+    const selected = transactions.filter((transaction) => selectedIds.has(transaction.id));
+    if (selected.length !== 2) {
       return;
     }
+    const [first, second] = selected;
+    setTransferPairWarning(
+      first.accountId === second.accountId
+        ? t("transactions.transferPair.sameAccountWarning")
+        : Math.abs(first.amountMinor) !== Math.abs(second.amountMinor)
+          ? t("transactions.transferPair.amountMismatchWarning")
+          : null,
+    );
+    await repository.setFinanceTransfer({
+      transactionIdA: first.id,
+      transactionIdB: second.id,
+    });
     await load();
   };
 
@@ -339,7 +360,19 @@ export const FinanceTransactionsPage = () => {
             >
               {t("transactions.bulkExcludeReports")}
             </button>
+            <button
+              type="button"
+              className="button"
+              disabled={selectedIds.size !== 2}
+              onClick={() => void markSelectedAsTransferPair()}
+            >
+              {t("transactions.markTransferPair")}
+            </button>
           </div>
+          {selectedIds.size !== 2 ? (
+            <p className="field-card__helper">{t("transactions.transferPair.needsTwo")}</p>
+          ) : null}
+          {transferPairWarning ? <p className="banner">{transferPairWarning}</p> : null}
         </SectionCard>
       ) : null}
 
@@ -368,15 +401,19 @@ export const FinanceTransactionsPage = () => {
                 <label>
                   <span>{t("transactions.category")}</span>
                   <select
-                    value={transaction.categoryId ?? ""}
+                    value={transaction.categoryId ?? UNCATEGORIZED_CATEGORY_ID}
                     onChange={(event) => void setCategory(transaction, event.target.value)}
                   >
-                    <option value="">{t("transactions.filters.all")}</option>
-                    {categories.map((category) => (
-                      <option key={category.id} value={category.id}>
-                        {category.name}
-                      </option>
-                    ))}
+                    <option value={UNCATEGORIZED_CATEGORY_ID}>
+                      {t("transactions.uncategorized")}
+                    </option>
+                    {categories
+                      .filter((category) => category.id !== UNCATEGORIZED_CATEGORY_ID)
+                      .map((category) => (
+                        <option key={category.id} value={category.id}>
+                          {category.name}
+                        </option>
+                      ))}
                   </select>
                 </label>
                 <label>
@@ -398,15 +435,15 @@ export const FinanceTransactionsPage = () => {
                   </select>
                 </label>
                 <div className="actions-row">
-                  <button
-                    type="button"
-                    className="button"
-                    onClick={() => void toggleTransfer(transaction)}
-                  >
-                    {transaction.isTransfer
-                      ? t("transactions.unmarkTransfer")
-                      : t("transactions.markTransfer")}
-                  </button>
+                  {transaction.isTransfer ? (
+                    <button
+                      type="button"
+                      className="button"
+                      onClick={() => void unmarkTransfer(transaction)}
+                    >
+                      {t("transactions.unmarkTransfer")}
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className="button"

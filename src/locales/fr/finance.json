@@ -12,6 +12,7 @@
       "title": "Aperçu"
     },
     "totalTitle": "Solde total (comptes budgétés)",
+    "otherCurrenciesWarning": "Comptes exclus du total (devise différente de la devise de référence) : {{currencies}}.",
     "accountsTitle": "Comptes",
     "loading": "Chargement...",
     "noAccounts": "Aucun compte. Ajoutez-en un dans l'onglet Comptes."
@@ -154,14 +155,20 @@
     "listTitle": "Transactions",
     "noResults": "Aucune transaction ne correspond aux filtres.",
     "category": "Catégorie",
+    "uncategorized": "Non catégorisé",
     "scope": "Portée",
     "scopes": {
       "this": "Cette transaction",
       "this_and_future": "Cette transaction et les futures",
       "all_matching": "Toutes les transactions correspondantes"
     },
-    "markTransfer": "Marquer comme virement",
+    "markTransferPair": "Marquer la paire comme virement",
     "unmarkTransfer": "Retirer le virement",
+    "transferPair": {
+      "needsTwo": "Sélectionnez exactement deux transactions pour les marquer comme un virement.",
+      "sameAccountWarning": "Les deux transactions sont sur le même compte — ce n'est probablement pas un virement entre comptes.",
+      "amountMismatchWarning": "Les montants des deux transactions ne correspondent pas — vérifiez qu'il s'agit bien d'un virement."
+    },
     "excludeFromBudget": "Exclure du budget",
     "includeInBudget": "Inclure dans le budget",
     "excludeFromReports": "Exclure des rapports",

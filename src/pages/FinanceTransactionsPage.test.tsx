@@ -98,4 +98,112 @@ describe("FinanceTransactionsPage", () => {
     expect(updated?.categoryId).toBe("fincat:alimentation.epicerie");
     expect(updated?.categorySource).toBe("user");
   });
+
+  it("marks two selected transactions as a transfer pair from the bulk toolbar", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await seedAccountAndTransactions(repository);
+    await repository.saveFinanceAccount({
+      id: "finance-account:savings",
+      name: "Compte épargne",
+      institution: null,
+      type: "savings",
+      currency: "CAD",
+      ownerPersonId: null,
+      ownership: "individual",
+      onBudget: true,
+      closed: false,
+      openingBalanceMinor: 0,
+      currentBalanceMinor: null,
+      balanceAsOf: null,
+      externalKey: null,
+      notes: null,
+      sortOrder: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    await repository.saveFinanceTransaction({
+      id: "finance-txn:2",
+      accountId: "finance-account:savings",
+      postedDate: "2024-01-05",
+      amountMinor: 1234,
+      currency: "CAD",
+      descriptionRaw: "Virement reçu",
+      descriptionOriginal: null,
+      merchantKey: "VIREMENT RECU",
+      merchantDisplay: null,
+      categoryId: "fincat:non-categorise",
+      categorySource: "default",
+      categoryConfidence: null,
+      categorizedAt: null,
+      personId: null,
+      notes: null,
+      labelsJson: null,
+      pending: false,
+      isTransfer: false,
+      transferGroupId: null,
+      excludedFromBudget: false,
+      excludedFromReports: false,
+      hasSplits: false,
+      importBatchId: null,
+      dedupeHash: "hash-2",
+      sourceRowJson: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+
+    const user = userEvent.setup();
+    await renderWithApp(<FinanceTransactionsPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+
+    await screen.findByText("Épicerie Metro");
+    await screen.findByText("Virement reçu");
+
+    const checkboxes = screen
+      .getAllByRole("checkbox")
+      .filter((checkbox) => checkbox.closest(".inline-form"));
+    expect(checkboxes).toHaveLength(2);
+    await user.click(checkboxes[0]);
+    await user.click(checkboxes[1]);
+
+    const markButton = await screen.findByRole("button", {
+      name: "Marquer la paire comme virement",
+    });
+    expect(markButton).not.toBeDisabled();
+    await user.click(markButton);
+
+    const first = await repository.getFinanceTransaction("finance-txn:1");
+    const second = await repository.getFinanceTransaction("finance-txn:2");
+    expect(first?.isTransfer).toBe(true);
+    expect(second?.isTransfer).toBe(true);
+    expect(first?.transferGroupId).toBe(second?.transferGroupId);
+  });
+
+  it("disables the transfer-pair button unless exactly two rows are selected", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await seedAccountAndTransactions(repository);
+
+    const user = userEvent.setup();
+    await renderWithApp(<FinanceTransactionsPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+
+    await screen.findByText("Épicerie Metro");
+    const checkbox = screen
+      .getAllByRole("checkbox")
+      .find((element) => element.closest(".inline-form"));
+    expect(checkbox).toBeTruthy();
+    if (checkbox) {
+      await user.click(checkbox);
+    }
+
+    const markButton = await screen.findByRole("button", {
+      name: "Marquer la paire comme virement",
+    });
+    expect(markButton).toBeDisabled();
+  });
 });

@@ -8,11 +8,22 @@ import { computeDerivedBalanceMinor } from "../domain/finance/account-balance";
 import type { FinanceAccount, FinanceTransaction } from "../domain/finance";
 import { formatMoney } from "../lib/finance/money";
 
+/** Groups a flat transaction list by accountId, fetched once per load. */
+const groupByAccountId = (
+  transactions: FinanceTransaction[],
+): Record<string, FinanceTransaction[]> => {
+  const grouped: Record<string, FinanceTransaction[]> = {};
+  for (const transaction of transactions) {
+    (grouped[transaction.accountId] ??= []).push(transaction);
+  }
+  return grouped;
+};
+
 // Minimal account overview for Phase 3 — a fuller dashboard (net worth, cash
 // flow, trends) is Phase 6. See docs/finance.md "Screens".
 export const FinanceOverviewPage = () => {
   const { t } = useTranslation("finance");
-  const { repository } = useAppContext();
+  const { repository, settings } = useAppContext();
   const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
   const [transactionsByAccount, setTransactionsByAccount] = useState<
     Record<string, FinanceTransaction[]>
@@ -21,18 +32,12 @@ export const FinanceOverviewPage = () => {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const nextAccounts = await repository.listFinanceAccounts({ includeClosed: false });
-    const entries = await Promise.all(
-      nextAccounts.map(
-        async (account) =>
-          [
-            account.id,
-            await repository.listFinanceTransactions({ accountIds: [account.id] }),
-          ] as const,
-      ),
-    );
+    const [nextAccounts, allTransactions] = await Promise.all([
+      repository.listFinanceAccounts({ includeClosed: false }),
+      repository.listFinanceTransactions(),
+    ]);
     setAccounts(nextAccounts);
-    setTransactionsByAccount(Object.fromEntries(entries));
+    setTransactionsByAccount(groupByAccountId(allTransactions));
     setLoading(false);
   }, [repository]);
 
@@ -40,16 +45,26 @@ export const FinanceOverviewPage = () => {
     void load();
   }, [load]);
 
+  const baseCurrency = settings.financeBaseCurrency;
+
+  // The total only sums accounts in the base currency — mixing currencies
+  // into one minor-unit total would silently misreport the amount. Other
+  // currencies show their own account card but are called out separately.
+  const otherCurrencyAccounts = useMemo(
+    () => accounts.filter((account) => account.onBudget && account.currency !== baseCurrency),
+    [accounts, baseCurrency],
+  );
+
   const totalBalanceMinor = useMemo(
     () =>
       accounts
-        .filter((account) => account.onBudget)
+        .filter((account) => account.onBudget && account.currency === baseCurrency)
         .reduce(
           (total, account) =>
             total + computeDerivedBalanceMinor(account, transactionsByAccount[account.id] ?? []),
           0,
         ),
-    [accounts, transactionsByAccount],
+    [accounts, transactionsByAccount, baseCurrency],
   );
 
   return (
@@ -59,8 +74,17 @@ export const FinanceOverviewPage = () => {
 
       <SectionCard title={t("overview.totalTitle")}>
         <p className="hero__copy">
-          {formatMoney({ amountMinor: totalBalanceMinor, currency: "CAD" })}
+          {formatMoney({ amountMinor: totalBalanceMinor, currency: baseCurrency })}
         </p>
+        {otherCurrencyAccounts.length > 0 ? (
+          <p className="banner">
+            {t("overview.otherCurrenciesWarning", {
+              currencies: [
+                ...new Set(otherCurrencyAccounts.map((account) => account.currency)),
+              ].join(", "),
+            })}
+          </p>
+        ) : null}
       </SectionCard>
 
       <SectionCard title={t("overview.accountsTitle")}>
