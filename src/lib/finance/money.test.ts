@@ -19,7 +19,7 @@ describe("finance money", () => {
   });
 
   it("respects explicit decimalSeparator/thousandsSeparator options over the ambiguity heuristic", () => {
-    expect(parseAmountToMinor("1.234", { decimalSeparator: ".", thousandsSeparator: "" })).toEqual({
+    expect(parseAmountToMinor("1.23", { decimalSeparator: ".", thousandsSeparator: "" })).toEqual({
       ok: true,
       amountMinor: 123,
     });
@@ -100,5 +100,15 @@ describe("finance money", () => {
     const result = sumMoney(values);
     expect(result.amountMinor).toBe(110_000);
     expect(Number.isInteger(result.amountMinor)).toBe(true);
+  });
+});
+
+describe("parseAmountToMinor strictness", () => {
+  it("rejects malformed grouping and excess precision", () => {
+    expect(parseAmountToMinor("12.34.56").ok).toBe(false);
+    expect(parseAmountToMinor("1,23,4").ok).toBe(false);
+    expect(parseAmountToMinor("1.999", { exponent: 2, decimalSeparator: "." }).ok).toBe(false);
+    expect(parseAmountToMinor("1.5", { exponent: 0, decimalSeparator: "." }).ok).toBe(false);
+    expect(parseAmountToMinor("1,234,567.89")).toEqual({ ok: true, amountMinor: 123456789 });
   });
 });

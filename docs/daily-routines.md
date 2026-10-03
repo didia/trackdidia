@@ -187,7 +187,7 @@ There are fourteen equally weighted principles:
 4. Écriture
 5. Apprentissage
 6. Managed solitude
-7. Respect de vie comme Jésus
+7. Aucune violation de mes principes
 8. Rétro journalier
 9. Temps de qualité avec enfants
 10. Prière du soir

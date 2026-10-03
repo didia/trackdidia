@@ -11,7 +11,7 @@ import { createEmptyWeeklyObjective } from "../../../domain/weekly-objectives";
 import { buildWeekDates } from "../../../domain/weekly-review";
 import { t } from "../../../i18n";
 import { getTodayDate } from "../../date";
-import { addDays } from "../../gtd/shared";
+import { addDays } from "../../date";
 import type { AppRepository } from "../../storage/repository";
 import { applyAcceptedProposal } from "../memory/apply-proposal";
 

@@ -1,6 +1,7 @@
 import {
   createContext,
   useContext,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -9,7 +10,8 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
-import { applyLegacyAiMaxTokensUpgrade, defaultAppSettings } from "../domain/daily-entry";
+import { applyLegacyAiMaxTokensUpgrade, defaultAppSettings } from "../domain/settings";
+import type { SettingsUpdater } from "../domain/settings";
 import type { AppSettings } from "../domain/types";
 import { CoachPulseService } from "../lib/ai/coach-pulse-service";
 import { DebugPanel } from "../components/DebugPanel";
@@ -43,13 +45,7 @@ import { getTodayDate } from "../lib/date";
 export interface AppContextValue {
   repository: AppRepository;
   settings: AppSettings;
-  saveSettings: (settings: AppSettings) => Promise<void>;
-  /**
-   * Syncs local settings state after a caller already persisted `settings` atomically elsewhere
-   * (e.g. `AppRepository.addPastorCustomVerse`), without issuing a second replace-all write —
-   * unlike `saveSettings`, this never calls `repository.saveSettings`.
-   */
-  syncSettings: (settings: AppSettings) => void;
+  updateSettings: (updater: SettingsUpdater) => Promise<AppSettings>;
   coachService: CoachPulseService;
   browserPreview: boolean;
   debugEnabled: boolean;
@@ -100,6 +96,32 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     allowStart: !loading && !startupError,
     settings,
   });
+
+  const updateSettings = useCallback(
+    async (updater: SettingsUpdater) => {
+      if (!repository) throw new Error("Repository is not initialized");
+      let previousKey = "";
+      const nextSettings = await repository.updateSettings((current) => {
+        previousKey = current.rescuetimeApiKey.trim();
+        return updater(current);
+      });
+      settingsRef.current = nextSettings;
+      setSettings(nextSettings);
+      const nextKey = nextSettings.rescuetimeApiKey.trim();
+      if (previousKey !== nextKey) {
+        // Never log the key. Cache correctness already uses credential fingerprints.
+        try {
+          await repository.pruneRescueTimeSnapshotCache(
+            nextKey ? await rescueTimeCredentialFingerprint(nextKey) : null,
+          );
+        } catch {
+          // Housekeeping failure must not fail a successfully persisted update.
+        }
+      }
+      return nextSettings;
+    },
+    [repository],
+  );
 
   const enqueueStartupWork = (work: () => Promise<void>) => {
     startupWorkQueueRef.current = startupWorkQueueRef.current.then(work).catch((error) => {
@@ -169,13 +191,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
           repository,
           coachService,
           settings: settingsRef.current,
-          saveSettings: async (nextSettings) => {
-            settingsRef.current = nextSettings;
-            await repository.saveSettings(nextSettings);
-            if (!cancelled) {
-              setSettings(nextSettings);
-            }
-          },
+          updateSettings,
           appOpenIntervals: openIntervals,
           focusSessionActive,
         });
@@ -226,14 +242,12 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       window.clearInterval(intervalId);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [repository, coachService, pomodoro.state.activeSession]);
+  }, [repository, coachService, pomodoro.state.activeSession, updateSettings]);
 
   useEffect(() => {
     if (!repository) {
       return;
     }
-
-    let cancelled = false;
 
     const runAutoBackupIfDue = async (trigger: "startup" | "interval") => {
       if (autoBackupRunningRef.current || !settings.autoBackupEnabled) {
@@ -265,17 +279,11 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         }
 
         const backup = await repository.createBackup("auto");
-        const nextSettings = {
-          ...settings,
+        await updateSettings((current) => ({
+          ...current,
           lastBackupAt: backup.createdAt,
           lastBackupPath: backup.backupPath,
-        };
-
-        await repository.saveSettings(nextSettings);
-
-        if (!cancelled) {
-          setSettings(nextSettings);
-        }
+        }));
 
         logDebug("info", "storage.backup", "Backup automatique termine", backup);
       } catch (error) {
@@ -293,10 +301,9 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     }, AUTO_BACKUP_CHECK_INTERVAL_MS);
 
     return () => {
-      cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [repository, settings]);
+  }, [repository, settings, updateSettings]);
 
   useEffect(() => {
     let cancelled = false;
@@ -342,8 +349,10 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
           new Date().toISOString(),
         );
         if (upgradedAiMaxTokens) {
-          nextSettings = upgradedAiMaxTokens;
-          await nextRepository.saveSettings(nextSettings);
+          nextSettings = await nextRepository.updateSettings(
+            (current) =>
+              applyLegacyAiMaxTokensUpgrade(current, new Date().toISOString()) ?? current,
+          );
           logDebug("info", "app.bootstrap", "Migration aiMaxTokens terminee", {
             aiMaxTokens: nextSettings.aiMaxTokens,
           });
@@ -360,11 +369,11 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
             buildContextId("Reading"),
             "reference",
           );
-          nextSettings = {
-            ...nextSettings,
-            gtdReferencesMigrationDoneAt: new Date().toISOString(),
-          };
-          await nextRepository.saveSettings(nextSettings);
+          nextSettings = await nextRepository.updateSettings((current) => ({
+            ...current,
+            gtdReferencesMigrationDoneAt:
+              current.gtdReferencesMigrationDoneAt || new Date().toISOString(),
+          }));
           logDebug("info", "app.bootstrap", "Migration Reading -> References terminee", {
             movedCount,
           });
@@ -373,11 +382,11 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         if (!nextSettings.gtdScheduledNormalizationDoneAt) {
           markStage(t("startup.normalizeScheduled"));
           const movedCount = await nextRepository.moveTasksWithScheduledDatesToBucket("scheduled");
-          nextSettings = {
-            ...nextSettings,
-            gtdScheduledNormalizationDoneAt: new Date().toISOString(),
-          };
-          await nextRepository.saveSettings(nextSettings);
+          nextSettings = await nextRepository.updateSettings((current) => ({
+            ...current,
+            gtdScheduledNormalizationDoneAt:
+              current.gtdScheduledNormalizationDoneAt || new Date().toISOString(),
+          }));
           logDebug("info", "app.bootstrap", "Migration vers Scheduled terminee", {
             movedCount,
           });
@@ -453,29 +462,6 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     );
   }
 
-  const saveSettings = async (nextSettings: AppSettings) => {
-    const previousKey = settings.rescuetimeApiKey.trim();
-    const nextKey = nextSettings.rescuetimeApiKey.trim();
-    setSettings(nextSettings);
-    await repository.saveSettings(nextSettings);
-
-    if (previousKey !== nextKey) {
-      // Housekeeping only: cached entries are already scoped by key fingerprint, so
-      // correctness never depends on this. Never log the key.
-      try {
-        await repository.pruneRescueTimeSnapshotCache(
-          nextKey ? await rescueTimeCredentialFingerprint(nextKey) : null,
-        );
-      } catch {
-        // Swallowed: a prune failure must not fail the settings save.
-      }
-    }
-  };
-
-  const syncSettings = (nextSettings: AppSettings) => {
-    setSettings(nextSettings);
-  };
-
   const setDebugEnabled = (enabled: boolean) => {
     persistDebugEnabled(enabled);
     setDebugEnabledState(enabled);
@@ -487,8 +473,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       value={{
         repository,
         settings,
-        saveSettings,
-        syncSettings,
+        updateSettings,
         coachService,
         browserPreview,
         debugEnabled,

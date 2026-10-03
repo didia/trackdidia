@@ -34,36 +34,6 @@ fn resolve_storage_paths(app: tauri::AppHandle) -> Result<StoragePaths, String> 
     })
 }
 
-#[tauri::command]
-async fn rescuetime_http_get(url: String, api_key: String) -> Result<String, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(20))
-        .build()
-        .map_err(|error| format!("RescueTime HTTP client failed: {error}"))?;
-    let response = client
-        .get(&url)
-        .header("Authorization", format!("Bearer {api_key}"))
-        .send()
-        .await
-        .map_err(|error| format!("RescueTime HTTP request failed: {error}"))?;
-
-    let status = response.status();
-    let body = response
-        .text()
-        .await
-        .map_err(|error| format!("RescueTime HTTP response unreadable: {error}"))?;
-
-    if !status.is_success() {
-        return Err(format!(
-            "RescueTime API {}: {}",
-            status.as_u16(),
-            body.chars().take(200).collect::<String>()
-        ));
-    }
-
-    Ok(body)
-}
-
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
@@ -82,7 +52,6 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             resolve_storage_paths,
-            rescuetime_http_get,
             backup::ensure_backup_dir,
             backup::prune_backups,
             db::db_connect,

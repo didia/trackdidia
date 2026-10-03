@@ -8,7 +8,7 @@ import type {
   FinanceImportProfile,
 } from "../../domain/finance";
 import { hash128 } from "./hash";
-import { type ParseAmountOptions, parseAmountToMinor } from "./money";
+import { currencyExponent, type ParseAmountOptions, parseAmountToMinor } from "./money";
 
 export type { FinanceDateFormat } from "../../domain/finance";
 
@@ -145,7 +145,19 @@ export const parseDateWithFormat = (text: string, format: FinanceDateFormat): st
   const trimmed = text.trim();
 
   if (format === "YYYY-MM-DD") {
-    return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null;
+    const iso = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!iso) {
+      return null;
+    }
+    const isoMonth = Number.parseInt(iso[2], 10);
+    const isoDay = Number.parseInt(iso[3], 10);
+    const isoYear = Number.parseInt(iso[1], 10);
+    return isoMonth >= 1 &&
+      isoMonth <= 12 &&
+      isoDay >= 1 &&
+      isoDay <= daysInMonth(isoYear, isoMonth)
+      ? trimmed
+      : null;
   }
 
   const match = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
@@ -196,14 +208,15 @@ export interface DedupeHashInput {
 
 export const dedupeHash = (input: DedupeHashInput): string =>
   hash128(
-    [
+    // JSON framing keeps field boundaries unambiguous (e.g. "SHOP1"+0 vs "SHOP"+10).
+    JSON.stringify([
       input.accountId,
       input.postedDate,
-      String(input.amountMinor),
+      input.amountMinor,
       input.currency,
       normalizeDescription(input.descriptionRaw),
-      String(input.occurrenceIndex),
-    ].join(""),
+      input.occurrenceIndex,
+    ]),
   );
 
 /**
@@ -358,7 +371,7 @@ const resolveAmountMinor = (
 ): AmountResult => {
   const mode: FinanceImportAmountMode = profile.amountMode;
   const amountOptions: ParseAmountOptions = {
-    exponent: options.exponent,
+    exponent: options.exponent ?? currencyExponent(options.currency),
     decimalSeparator: profile.decimalSeparator,
     thousandsSeparator: profile.thousandsSeparator,
   };

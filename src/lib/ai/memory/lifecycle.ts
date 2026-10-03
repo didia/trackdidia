@@ -1,6 +1,6 @@
 import { computeCorrelationFindings } from "../../../domain/insights/correlations";
 import type { DailyEntry } from "../../../domain/types";
-import { addDays } from "../../gtd/shared";
+import { addDays } from "../../date";
 import type { AppRepository } from "../../storage/repository";
 import { resolveCommitment } from "./commitment-resolution";
 import { PATTERN_CONTRADICTION_DIFF } from "./constants";

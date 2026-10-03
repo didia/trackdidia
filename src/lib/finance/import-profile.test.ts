@@ -266,3 +266,42 @@ describe("mapImportRowToTransaction with generic profiles", () => {
     expect(result.ok).toBe(false);
   });
 });
+
+describe("review regressions", () => {
+  it("does not collide dedupe hashes across field boundaries", () => {
+    const base = {
+      accountId: "a",
+      postedDate: "2026-01-01",
+      amountMinor: -100,
+      currency: "CAD",
+    };
+    expect(dedupeHash({ ...base, descriptionRaw: "SHOP1", occurrenceIndex: 0 })).not.toBe(
+      dedupeHash({ ...base, descriptionRaw: "SHOP", occurrenceIndex: 10 }),
+    );
+  });
+
+  it("rejects nonexistent ISO calendar dates", () => {
+    expect(parseDateWithFormat("2026-02-31", "YYYY-MM-DD")).toBeNull();
+    expect(parseDateWithFormat("2026-13-01", "YYYY-MM-DD")).toBeNull();
+    expect(parseDateWithFormat("2026-02-28", "YYYY-MM-DD")).toBe("2026-02-28");
+  });
+});
+
+describe("currency exponent default", () => {
+  it("uses zero decimals for JPY when no exponent is given", () => {
+    const profile = {
+      ...MINT_PROFILE,
+      columnMap: { date: 0, description: 1, amount: 2, account: 3 },
+      dateFormat: "YYYY-MM-DD" as const,
+      amountMode: "single_signed" as const,
+    };
+    const header = ["Date", "Description", "Amount", "Account"];
+    const result = mapImportRowToTransaction(
+      ["2026-01-01", "Ramen", "1000", "Cash"],
+      header,
+      profile,
+      { currency: "JPY" },
+    );
+    expect(result.ok && result.row.amountMinor).toBe(1000);
+  });
+});

@@ -22,16 +22,16 @@ import { formatDateLong, formatDateTimeShort, getTodayDate } from "../lib/date";
 import { logDebug } from "../lib/debug";
 import { formatTimestamp } from "../lib/format";
 import { bucketLabelKeys } from "../lib/gtd/labels";
-import { isSunday, isWednesday } from "../lib/gtd/shared";
+import { isSunday, isWednesday } from "../lib/date";
 import type { DailyTaskBreakdown } from "../lib/storage/repository";
 
 export const TodayPage = () => {
   const { t } = useTranslation("today");
   const today = getTodayDate();
   const { entry, loading, save } = useDailyEntry(today);
-  const { repository, settings, syncSettings, browserPreview, pomodoro, pulseRevision } =
+  const { repository, settings, updateSettings, browserPreview, pomodoro, pulseRevision } =
     useAppContext();
-  const pastorVerse = usePastorVerse(today, settings, repository, syncSettings);
+  const pastorVerse = usePastorVerse(today, settings, repository, updateSettings);
   const {
     result: coachResult,
     loading: coachLoading,

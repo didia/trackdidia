@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { buildIsoFromLocalDateAndTime, getTodayDate, toLocalDateInputValue } from "../lib/date";
-import { addDays } from "../lib/gtd/shared";
+import { addDays } from "../lib/date";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { renderWithApp } from "../test/test-utils";
 import { ScheduledPage } from "./ScheduledPage";

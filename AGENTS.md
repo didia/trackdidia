@@ -50,7 +50,7 @@ The source-of-truth order is:
 
 1. Executable code and tests
 2. SQLite migrations in
-   [`src/lib/storage/tauri-sqlite-repository.ts`](src/lib/storage/tauri-sqlite-repository.ts)
+   [`src/lib/storage/migrations/index.ts`](src/lib/storage/migrations/index.ts)
 3. Canonical pages in `docs/`
 4. [`README.md`](README.md) and [`PRD.md`](PRD.md)
 
@@ -96,8 +96,9 @@ All application data access goes through `AppRepository` in
 
 - Calendar dates use local `YYYY-MM-DD` values.
 - Weeks run Sunday through Saturday.
-- Use the helpers in `src/lib/date.ts`, `src/lib/gtd/shared.ts`, and the review domain
-  modules instead of hand-rolling UTC date arithmetic.
+- Use the local-calendar helpers in `src/lib/date.ts` and review domain modules
+  instead of hand-rolling UTC date arithmetic. `src/lib/gtd/shared.ts`
+  temporarily re-exports the generic date helpers for older GTD callers.
 - Daily GTD counts are event-derived. Task lifecycle changes must continue to emit
   the events expected by `buildDailyTaskStats`.
 - Suggested GTD/Pomodoro metrics are fallbacks; an explicit daily metric value wins.

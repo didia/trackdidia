@@ -1,7 +1,7 @@
 import type { AiProposal, WeeklyObjective, WeeklyRitualSectionKey } from "../../../domain/types";
 import { createEmptyWeeklyObjective } from "../../../domain/weekly-objectives";
 import { buildWeekDates } from "../../../domain/weekly-review";
-import { addDays } from "../../gtd/shared";
+import { addDays } from "../../date";
 
 export const weeklyObjectiveIdFromProposal = (proposalId: string): string =>
   proposalId.replace(/^ai-proposal:/, "weekly-objective:");

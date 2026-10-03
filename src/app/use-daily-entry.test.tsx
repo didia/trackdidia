@@ -4,7 +4,7 @@ import { createEmptyDailyEntry, defaultAppSettings, updateNote } from "../domain
 import { CoachPulseService } from "../lib/ai/coach-pulse-service";
 import type { AiProvider } from "../lib/ai/provider";
 import { getTodayDate } from "../lib/date";
-import { addDays } from "../lib/gtd/shared";
+import { addDays } from "../lib/date";
 import { buildPomodoroSessionDetails, buildPomodoroState } from "../lib/pomodoro/engine";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { AppContext, type AppContextValue } from "./app-context";
@@ -24,8 +24,7 @@ const wrapRepository = (repository: MemoryRepository) => {
   const value: AppContextValue = {
     repository,
     settings: defaultAppSettings(),
-    saveSettings: async () => undefined,
-    syncSettings: () => undefined,
+    updateSettings: (updater) => repository.updateSettings(updater),
     coachService: new CoachPulseService(new FakeProvider()),
     browserPreview: true,
     debugEnabled: false,

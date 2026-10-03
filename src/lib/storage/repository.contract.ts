@@ -1,3 +1,4 @@
+import { gtdAcceptEffectFromProposal } from "../ai/proposals/accept-effect";
 import { afterEach, vi } from "vitest";
 import { createEmptyDailyEntry, defaultAppSettings } from "../../domain/daily-entry";
 import { createEmptyMonthlyReview } from "../../domain/monthly-review";
@@ -5,7 +6,7 @@ import type { MidWeekLaggingSnapshot } from "../../domain/mid-week-review";
 import type { CatalogVerse, RescueTimeSnapshotCacheEntry } from "../../domain/types";
 import { createEmptyWeeklyReview } from "../../domain/weekly-review";
 import { getTodayDate } from "../date";
-import { addDays } from "../gtd/shared";
+import { addDays } from "../date";
 import { loadVerseCatalog } from "../pastor/verse-catalog";
 import type { AppRepository } from "./repository";
 
@@ -210,6 +211,54 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         expect(
           tasks.filter((task) => task.sourceExternalId?.startsWith("relationship-draw:spouse:")),
         ).toHaveLength(2);
+      });
+
+      it.each([
+        ["2026-10-03", "2026-10-04"],
+        ["2026-10-04", "2026-10-03"],
+        ["2026-10-04", "2026-10-04"],
+      ])("serializes overlapping relationship draws for %s and %s", async (firstDate, secondDate) => {
+        const repository = await factory();
+        await repository.updateSettings((current) => ({
+          ...current,
+          relationshipDrawsEnabled: true,
+          relationshipDrawChildrenActivities: ["Lire ensemble"],
+          relationshipDrawSpouseActivities: ["Boire un thé"],
+        }));
+        const [firstCount, secondCount] = await Promise.all([
+          repository.generateDailyRelationshipTasks(firstDate),
+          repository.generateDailyRelationshipTasks(secondDate),
+          repository.updateSettings((current) => ({ ...current, lastBackupAt: "backup" })),
+        ]);
+        expect(firstCount + secondCount).toBe(2);
+        const tasks = await repository.listTasks({ includeCompleted: true });
+        for (const category of ["children", "spouse"]) {
+          expect(
+            tasks.filter((task) =>
+              task.sourceExternalId?.startsWith(`relationship-draw:${category}:`),
+            ),
+          ).toHaveLength(1);
+        }
+        expect(await repository.getSettings()).toMatchObject({
+          relationshipDrawChildrenProcessedDate: "2026-10-04",
+          relationshipDrawSpouseProcessedDate: "2026-10-04",
+          lastBackupAt: "backup",
+        });
+      });
+
+      it("does not move relationship markers backwards or regenerate an older completed day", async () => {
+        const repository = await factory();
+        await repository.generateDailyRelationshipTasks("2026-10-04");
+        const tasks = await repository.listTasks({ includeCompleted: true });
+        for (const task of tasks) {
+          await repository.completeTask(task.id, "2026-10-04T21:00:00.000Z");
+        }
+        expect(await repository.generateDailyRelationshipTasks("2026-10-03")).toBe(0);
+        expect(await repository.getSettings()).toMatchObject({
+          relationshipDrawChildrenProcessedDate: "2026-10-04",
+          relationshipDrawSpouseProcessedDate: "2026-10-04",
+        });
+        expect(await repository.listTasks({ includeCompleted: true })).toHaveLength(tasks.length);
       });
 
       it("moves reading tasks into the References bucket", async () => {
@@ -1537,7 +1586,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         ).resolves.toEqual(expect.objectContaining({ id: "ai-message:z" }));
       });
 
-      it("acceptAiWeeklyObjectiveProposal is idempotent", async () => {
+      it("acceptAiProposal for weekly objectives is idempotent", async () => {
         const repository = await factory();
         const proposal = {
           id: "ai-proposal:objective",
@@ -1570,14 +1619,20 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           updatedAt: "2026-08-29T08:00:00.000Z",
         };
 
-        const first = await repository.acceptAiWeeklyObjectiveProposal(proposal, objective);
-        const second = await repository.acceptAiWeeklyObjectiveProposal(proposal, objective);
+        const first = await repository.acceptAiProposal(proposal.id, {
+          kind: "weeklyObjective",
+          objective: objective,
+        });
+        const second = await repository.acceptAiProposal(proposal.id, {
+          kind: "weeklyObjective",
+          objective: objective,
+        });
 
-        expect(first.objective.id).toBe(second.objective.id);
+        expect(first.appliedEntityId).toBe(second.appliedEntityId);
         expect(await repository.listWeeklyObjectives()).toHaveLength(1);
       });
 
-      it("acceptAiMonthlyReviewSectionDraftProposal is idempotent", async () => {
+      it("acceptAiProposal for monthly reviews is idempotent", async () => {
         const repository = await factory();
         const proposal = {
           id: "ai-proposal:monthly-section",
@@ -1622,10 +1677,16 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           updatedAt: "2026-08-29T08:00:00.000Z",
         };
 
-        const first = await repository.acceptAiMonthlyReviewSectionDraftProposal(proposal, review);
-        const second = await repository.acceptAiMonthlyReviewSectionDraftProposal(proposal, review);
+        const first = await repository.acceptAiProposal(proposal.id, {
+          kind: "monthlyReview",
+          review: review,
+        });
+        const second = await repository.acceptAiProposal(proposal.id, {
+          kind: "monthlyReview",
+          review: review,
+        });
 
-        expect(first.review.monthKey).toBe(second.review.monthKey);
+        expect(first.appliedEntityId).toBe(second.appliedEntityId);
         expect(first.proposal.status).toBe("accepted");
         expect(second.proposal.status).toBe("accepted");
         await expect(repository.getMonthlyReview("2026-04")).resolves.toMatchObject({
@@ -1633,7 +1694,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         });
       });
 
-      it("acceptAiGtdActionProposal skips completed tasks", async () => {
+      it("acceptAiProposal skips completed tasks", async () => {
         const repository = await factory();
         const timestamp = "2026-08-29T12:00:00.000Z";
         await repository.saveTask({
@@ -1673,8 +1734,11 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         };
         await repository.saveAiProposal(proposal);
 
-        const result = await repository.acceptAiGtdActionProposal(proposal, "2026-08-29");
-        expect(result.taskId).toBeNull();
+        const result = await repository.acceptAiProposal(
+          proposal.id,
+          gtdAcceptEffectFromProposal(proposal, "2026-08-29"),
+        );
+        expect(result.appliedEntityId).toBeNull();
         expect(result.proposal.status).toBe("pending");
       });
 
@@ -2126,7 +2190,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         expect(cleared.scheduledFor).toBeNull();
       });
 
-      it("acceptAiGtdActionProposal remains idempotent and reconciles the project atomically", async () => {
+      it("acceptAiProposal for GTD remains idempotent and reconciles the project atomically", async () => {
         const repository = await factory();
         await makeProject(repository, "project:ai");
         const active = await repository.createTask({
@@ -2154,8 +2218,11 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         };
         await repository.saveAiProposal(proposal);
 
-        const first = await repository.acceptAiGtdActionProposal(proposal, "2026-06-01");
-        expect(first.taskId).toBe(active.id);
+        const first = await repository.acceptAiProposal(
+          proposal.id,
+          gtdAcceptEffectFromProposal(proposal, "2026-06-01"),
+        );
+        expect(first.appliedEntityId).toBe(active.id);
         expect(first.proposal.status).toBe("accepted");
 
         const afterDrop = await repository.listTasks({
@@ -2164,9 +2231,12 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         });
         expect(afterDrop.find((task) => task.id === "task:ai-planned")?.bucket).toBe("next_action");
 
-        const second = await repository.acceptAiGtdActionProposal(proposal, "2026-06-01");
+        const second = await repository.acceptAiProposal(
+          proposal.id,
+          gtdAcceptEffectFromProposal(proposal, "2026-06-01"),
+        );
         expect(second.proposal.status).toBe("accepted");
-        expect(second.taskId).toBe(active.id);
+        expect(second.appliedEntityId).toBe(active.id);
 
         // A repeat call must not promote yet another planned task.
         const afterSecond = await repository.listTasks({

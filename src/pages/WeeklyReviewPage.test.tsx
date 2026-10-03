@@ -18,7 +18,7 @@ import { WeeklySynthesisService } from "../lib/ai/weekly-synthesis-service";
 import * as dateModule from "../lib/date";
 import { formatDateLong } from "../lib/date";
 import { formatPercent } from "../lib/format";
-import { addDays } from "../lib/gtd/shared";
+import { addDays } from "../lib/date";
 import { WeeklyObjectivesService } from "../lib/rescuetime/weekly-objectives-service";
 import { createEmptyWeeklyObjective } from "../domain/weekly-objectives";
 import { RescueTimeGoalsService } from "../lib/rescuetime/rescuetime-goals-service";
