@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-10-03 | Replaced five proposal accept methods with one atomic/idempotent `acceptAiProposal` effect primitive; both repositories share pure GTD mutation rules and roll back entity/template changes if the decision fails | `docs/storage-and-backups.md` | `accept-effect.ts`, both repositories, `accept-ai-proposal.test.ts`, repository contract |
 | 2026-10-03 | Centralized transaction lifecycle in `runSqliteTransaction` and repository `writeTransaction`; early returns commit automatically, primary errors survive rollback failures, and transactional internal writers require active branded contexts | `docs/storage-and-backups.md` | `transaction.ts`, `transaction.test.ts`, `tauri-sqlite-repository.ts`, migration runner |
 | 2026-10-03 | Extracted all 36 unchanged migration SQL strings into `migrations/index.ts`, with a reusable runner and declarative column guards for migrations 26/33/34; tests lock shipped SQL hashes and verify ledger/schema rollback and interrupted retries | `docs/storage-and-backups.md`, `docs/index.md` | `migrations/index.ts`, `migrations/index.test.ts`, `shipped-migrations.json`, `tauri-sqlite-repository.ts` |
 | 2026-09-30 | Migration 36 creates `mid_week_decisions` with a snapshot-preserving upsert; `getMidWeekDecisions` / `saveMidWeekDecisions` in both repositories | `docs/storage-and-backups.md`, `docs/reviews-and-goals.md` | Migration `create_mid_week_decisions`, `repository.contract.ts` |
