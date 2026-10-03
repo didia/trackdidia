@@ -634,6 +634,12 @@ Structured `coach_pulse` requests include:
 - a French system prompt with stance context and optional memory block;
 - the redacted daily snapshot plus deterministic commitment resolution when applicable.
 
+Both coach requests and email triage classification use the shared `openrouter-client.ts`
+request builder and response parser. Coach surfaces use webview `fetch` to preserve their
+existing retry behavior; email triage uses the native, host-allowlisted
+`provider_http_request` command and makes one attempt. Both send the same bearer,
+referer, and title headers. The shared timeout helper is also used by RescueTime.
+
 Transport hardening:
 
 - abortable timeout via `settings.aiTimeoutMs` (default 20 s), mirroring RescueTime;
@@ -736,13 +742,19 @@ per local day. Each category has an editable list of candidate activities.
 
 Generation behavior:
 
-1. Skip a category already marked processed for the date.
+1. Skip a category already marked processed for this date or a later date.
 2. If an active generated task for that category exists, do not create another and
    mark the date processed.
 3. Randomly select a non-empty configured activity.
 4. Create a manual Next Action in the Personal context.
 5. Use a deterministic category/date source external ID.
-6. Save the processed date in settings.
+6. Advance the processed date in settings without moving it backwards.
+
+The settings read, active-task check, task creation, and processed-date update form
+one protected write operation. SQLite commits tasks, lifecycle events, and markers
+in one transaction; memory applies them synchronously and restores affected maps
+if task creation fails. Overlapping startup/page loads therefore keep one active
+draw per category, preserve other settings, and retain the newest processed date.
 
 This design avoids accumulating a new relationship task while yesterday's task is
 still active. Completing or cancelling that task allows a future day's generation.

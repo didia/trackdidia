@@ -125,16 +125,7 @@ import {
   recurringInstanceWasRewound,
   syncTemplateStatusChange,
 } from "../recurring/engine";
-import {
-  buildRelationshipDrawTaskTitle,
-  findActiveRelationshipDrawTask,
-  getRelationshipDrawActivities,
-  getRelationshipDrawProcessedDate,
-  getRelationshipDrawSourceExternalId,
-  pickRelationshipDrawActivity,
-  relationshipDrawDefinitions,
-  relationshipPersonalContextId,
-} from "../relationship-draws";
+import { buildDailyRelationshipDrawPlan } from "../relationship-draws";
 import { DbSerialQueue } from "./db-serial-queue";
 import { EmailTriageSqliteStore } from "./email-triage-sqlite-store";
 import type { Database as SqliteDatabase } from "./email-triage-sqlite-db";
@@ -2564,21 +2555,27 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async createTask(input: Parameters<AppRepository["createTask"]>[0]): Promise<Task> {
-    return this.writeTransaction(async (tx) => {
-      transactionDb(tx);
+    return this.writeTransaction((tx) => this.createTaskInternal(tx, input));
+  }
 
-      const draft = createTaskFromInput(input);
-      const allTasks = await this.getAllTasks();
-      const nextTask = adjustPlannedFieldsForSave(null, draft, allTasks);
-      await this.assertPlannedProjectExists(tx, nextTask);
+  /** Reuses the caller's transaction so generation checks and inserts share one writer slot. */
+  private async createTaskInternal(
+    tx: TxContext,
+    input: Parameters<AppRepository["createTask"]>[0],
+  ): Promise<Task> {
+    transactionDb(tx);
 
-      await this.persistTask(nextTask);
-      await this.persistEvents(buildLifecycleEvents(null, nextTask));
-      await this.reconcileProjectsInternal(tx, [nextTask.projectId]);
+    const draft = createTaskFromInput(input);
+    const allTasks = await this.getAllTasks();
+    const nextTask = adjustPlannedFieldsForSave(null, draft, allTasks);
+    await this.assertPlannedProjectExists(tx, nextTask);
 
-      const stored = await this.getTaskById(nextTask.id);
-      return cloneTask(stored ?? nextTask);
-    });
+    await this.persistTask(nextTask);
+    await this.persistEvents(buildLifecycleEvents(null, nextTask));
+    await this.reconcileProjectsInternal(tx, [nextTask.projectId]);
+
+    const stored = await this.getTaskById(nextTask.id);
+    return cloneTask(stored ?? nextTask);
   }
 
   async saveTask(task: Task): Promise<Task> {
@@ -2842,65 +2839,16 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async generateDailyRelationshipTasks(date: string): Promise<number> {
-    const settings = await this.getSettings();
-
-    if (!settings.relationshipDrawsEnabled) {
-      return 0;
-    }
-
-    let nextSettings = settings;
-    let createdCount = 0;
-    const taskSnapshot = await this.getAllTasks();
-
-    for (const definition of relationshipDrawDefinitions) {
-      if (getRelationshipDrawProcessedDate(nextSettings, definition) === date) {
-        continue;
+    return this.writeTransaction(async (tx) => {
+      const current = await this.getSettings();
+      if (!current.relationshipDrawsEnabled) return 0;
+      const plan = buildDailyRelationshipDrawPlan(date, current, await this.getAllTasks());
+      for (const input of plan.taskInputs) await this.createTaskInternal(tx, input);
+      if (plan.settings !== current) {
+        await this.writeSettingsRow(transactionDb(tx), plan.settings);
       }
-
-      if (findActiveRelationshipDrawTask(taskSnapshot, definition.category)) {
-        nextSettings = {
-          ...nextSettings,
-          [definition.processedDateKey]: date,
-        };
-        continue;
-      }
-
-      const activity = pickRelationshipDrawActivity(
-        getRelationshipDrawActivities(nextSettings, definition),
-      );
-      if (!activity) {
-        continue;
-      }
-
-      const createdTask = await this.createTask({
-        title: buildRelationshipDrawTaskTitle(definition, activity),
-        notes: definition.notes,
-        bucket: "next_action",
-        contextIds: [relationshipPersonalContextId],
-        source: "manual",
-        sourceExternalId: getRelationshipDrawSourceExternalId(definition.category, date),
-        createdAt: `${date}T00:00:00.000Z`,
-        updatedAt: `${date}T00:00:00.000Z`,
-      });
-
-      taskSnapshot.push(createdTask);
-      nextSettings = {
-        ...nextSettings,
-        [definition.processedDateKey]: date,
-      };
-      createdCount += 1;
-    }
-
-    await this.updateSettings((current) => {
-      const next = { ...current };
-      for (const definition of relationshipDrawDefinitions) {
-        if (nextSettings[definition.processedDateKey] !== settings[definition.processedDateKey]) {
-          next[definition.processedDateKey] = nextSettings[definition.processedDateKey];
-        }
-      }
-      return next;
+      return plan.taskInputs.length;
     });
-    return createdCount;
   }
 
   async computeDailyTaskStats(date: string) {
