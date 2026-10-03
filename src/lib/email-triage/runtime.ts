@@ -4,25 +4,21 @@ import type { EmailTriageAccount } from "../../domain/email-triage";
 import type { AppRepository } from "../storage/repository";
 import { isTauriRuntime } from "../storage/factory";
 import { createEntityId, nowIso } from "../gtd/shared";
-import { GmailApiClient } from "./providers/gmail-api";
-import { GraphApiClient, type GraphMeProfile } from "./providers/graph-api";
 import { createTauriYahooImapClient } from "./providers/yahoo-api";
 import { clearCachedYahooAppPassword, serializeYahooCredentials } from "./oauth/yahoo-credentials";
 import { createTauriHttpClient } from "./provider-http";
 import {
-  exchangeGmailAuthorizationCode,
+  exchangeAuthorizationCode,
   maskEmailAddress,
-  resolveGmailOAuthClientId,
   serializeProviderCredentials,
-  buildGmailAuthorizationUrl,
-} from "./oauth/gmail-oauth";
+  type OAuthTokens,
+} from "./oauth/shared";
 import {
-  buildMicrosoftAuthorizationUrl,
-  classifyMicrosoftAuthorizationCallbackError,
-  exchangeMicrosoftAuthorizationCode,
-  type MicrosoftOAuthTokens,
-  resolveMicrosoftOAuthClientId,
-} from "./oauth/microsoft-oauth";
+  gmailOAuthProvider,
+  microsoftOAuthProvider,
+  type OAuthProviderDescriptor,
+  type OAuthProfile,
+} from "./oauth/providers";
 import {
   snapshotReconnectTarget,
   type ReconnectTargetSnapshot,
@@ -38,18 +34,18 @@ import { clearCachedAccessToken, setCachedAccessToken } from "./token-cache";
 import { checkVaultAvailability, deleteVaultSecret } from "./vault";
 import {
   getEmailTriageCoordinator,
-  persistGmailAccountCredentials,
+  persistProviderAccountCredentials,
   persistYahooAccountCredentials,
-} from "./gmail-session";
+} from "./provider-session";
 
 export {
   createEmailTriageAdapter,
   getEmailTriageCoordinator,
-  persistGmailAccountCredentials,
+  persistProviderAccountCredentials,
   persistYahooAccountCredentials,
   setEmailTriageCoordinator,
   syncEmailTriageAccountNow,
-} from "./gmail-session";
+} from "./provider-session";
 
 export interface ProviderConnectResult {
   ok: boolean;
@@ -62,268 +58,113 @@ export type GmailConnectResult = ProviderConnectResult;
 export type MicrosoftConnectResult = ProviderConnectResult;
 export type YahooConnectResult = ProviderConnectResult;
 
-export const connectGmailAccount = async (
+export interface OAuthConnectOptions {
+  reconnectAccountId?: string | null;
+  clientId?: string | null;
+}
+
+export const connectOAuthAccount = async (
   repository: AppRepository,
-  options: { reconnectAccountId?: string | null; clientId?: string | null } = {},
-): Promise<GmailConnectResult> => {
-  if (!isTauriRuntime()) {
-    return { ok: false, error: "browser_preview" };
-  }
+  descriptor: OAuthProviderDescriptor,
+  options: OAuthConnectOptions = {},
+): Promise<ProviderConnectResult> => {
+  if (!isTauriRuntime()) return { ok: false, error: "browser_preview" };
   let settings = await repository.emailTriage.getGlobalSettings();
+  const key = descriptor.settingsClientIdKey;
   const draftClientId = options.clientId?.trim();
-  if (draftClientId && draftClientId !== settings.gmailOAuthClientId.trim()) {
-    settings = {
-      ...settings,
-      gmailOAuthClientId: draftClientId,
-      updatedAt: nowIso(),
-    };
+  if (draftClientId && draftClientId !== settings[key].trim()) {
+    settings = { ...settings, [key]: draftClientId, updatedAt: nowIso() };
     await repository.emailTriage.saveGlobalSettings(settings);
   }
-  const clientId = resolveGmailOAuthClientId(settings.gmailOAuthClientId);
-  if (!clientId) {
-    return { ok: false, error: "missing_client_id" };
-  }
+  const clientId = descriptor.resolveClientId(settings[key]);
+  if (!clientId) return { ok: false, error: "missing_client_id" };
 
   let reconnectSnapshot: ReconnectTargetSnapshot | null = null;
   if (options.reconnectAccountId) {
     const target = await repository.emailTriage.getAccount(options.reconnectAccountId);
-    if (!target) {
-      return { ok: false, error: "account_not_found" };
-    }
+    if (!target) return { ok: false, error: "account_not_found" };
     reconnectSnapshot = snapshotReconnectTarget(target);
   }
-
   const oauthState = generateOAuthState();
   const verifier = generatePkceVerifier();
   const challenge = await createPkceChallenge(verifier);
   const loopback = await invoke<{ port: number; redirectUri: string }>("oauth_loopback_start", {
     expectedState: oauthState,
   });
-  const authUrl = buildGmailAuthorizationUrl({
-    clientId,
-    redirectUri: loopback.redirectUri,
-    state: oauthState,
-    codeChallenge: challenge,
-  });
-  await openUrl(authUrl);
-  const callback = await invoke<{ code?: string; state?: string; error?: string }>(
-    "oauth_loopback_wait",
-    { timeoutMs: 180_000 },
-  );
-  if (callback.error) {
-    return { ok: false, error: callback.error };
-  }
-  if (!validateOAuthState(oauthState, callback.state) || !callback.code) {
-    return { ok: false, error: "oauth_state_mismatch" };
-  }
-
-  const http = createTauriHttpClient();
-  const tokens = await exchangeGmailAuthorizationCode(http, {
-    clientId,
-    code: callback.code,
-    redirectUri: loopback.redirectUri,
-    codeVerifier: verifier,
-  });
-  if (!tokens.refreshToken) {
-    return { ok: false, error: "missing_refresh_token" };
-  }
-
-  setCachedAccessToken("oauth-bootstrap", tokens.accessToken, tokens.expiresIn);
-  const bootstrapApi = new GmailApiClient(http, async () => tokens.accessToken);
-  const profile = await bootstrapApi.getProfile();
-  clearCachedAccessToken("oauth-bootstrap");
-
-  const providerAccountId = profile.emailAddress.trim().toLowerCase();
-  const timestamp = nowIso();
-  const existing = (await repository.emailTriage.listAccounts()).find(
-    (account) => account.provider === "gmail" && account.providerAccountId === providerAccountId,
-  );
-  const coordinator = getEmailTriageCoordinator();
-
-  if (reconnectSnapshot) {
-    const validation = validateReconnectCanProceed({
-      snapshot: reconnectSnapshot,
-      currentAccount: await repository.emailTriage.getAccount(reconnectSnapshot.id),
-      authenticatedProviderAccountId: providerAccountId,
-    });
-    if (!validation.ok) {
-      return {
-        ok: false,
-        error: validation.error,
-        reconnectMismatch: validation.error === "reconnect_account_mismatch",
-      };
-    }
-    const target = (await repository.emailTriage.getAccount(reconnectSnapshot.id))!;
-    await persistGmailAccountCredentials({
-      repository,
-      account: {
-        ...target,
-        enabled: true,
-        state: "active",
-        recoveryState: "none",
-        lastError: null,
-        syncState: {
-          ...target.syncState,
-        },
-        updatedAt: timestamp,
-      },
-      credentials: serializeProviderCredentials({
-        refreshToken: tokens.refreshToken,
-        tokenType: tokens.tokenType,
-        scope: tokens.scope,
-      }),
-      accessToken: tokens.accessToken,
-      expiresIn: tokens.expiresIn,
-    });
-    coordinator?.scheduleAccount(
-      {
-        ...(await repository.emailTriage.getAccount(target.id))!,
-      },
-      settings,
-    );
-    void coordinator?.runAccountSync(target.id);
-    return { ok: true, accountId: target.id };
-  }
-
-  const accountId = existing?.id ?? createEntityId("email-account");
-  const account: EmailTriageAccount = {
-    id: accountId,
-    provider: "gmail",
-    providerAccountId,
-    label: profile.emailAddress,
-    maskedAddress: maskEmailAddress(profile.emailAddress),
-    generation: existing?.generation ?? 1,
-    enabled: true,
-    mutationEnabled: false,
-    paused: false,
-    state: "active",
-    recoveryState: "none",
-    lastSuccessAt: null,
-    lastError: null,
-    pollIntervalMinutes: settings.pollIntervalMinutes,
-    syncState: existing?.syncState ?? {
-      baselineHistoryId: profile.historyId,
-      cursorHistoryId: profile.historyId,
-      trackedMessageIds: [],
-    },
-    createdAt: existing?.createdAt ?? timestamp,
-    updatedAt: timestamp,
-  };
-  await persistGmailAccountCredentials({
-    repository,
-    account,
-    credentials: serializeProviderCredentials({
-      refreshToken: tokens.refreshToken,
-      tokenType: tokens.tokenType,
-      scope: tokens.scope,
+  await openUrl(
+    descriptor.authUrl({
+      clientId,
+      redirectUri: loopback.redirectUri,
+      state: oauthState,
+      codeChallenge: challenge,
     }),
-    accessToken: tokens.accessToken,
-    expiresIn: tokens.expiresIn,
-  });
-  coordinator?.scheduleAccount(account, settings);
-  void coordinator?.runAccountSync(accountId);
-  return { ok: true, accountId };
-};
-
-export const connectMicrosoftAccount = async (
-  repository: AppRepository,
-  options: { reconnectAccountId?: string | null; clientId?: string | null } = {},
-): Promise<MicrosoftConnectResult> => {
-  if (!isTauriRuntime()) {
-    return { ok: false, error: "browser_preview" };
-  }
-  let settings = await repository.emailTriage.getGlobalSettings();
-  const draftClientId = options.clientId?.trim();
-  if (draftClientId && draftClientId !== settings.microsoftOAuthClientId.trim()) {
-    settings = {
-      ...settings,
-      microsoftOAuthClientId: draftClientId,
-      updatedAt: nowIso(),
-    };
-    await repository.emailTriage.saveGlobalSettings(settings);
-  }
-  const clientId = resolveMicrosoftOAuthClientId(settings.microsoftOAuthClientId);
-  if (!clientId) {
-    return { ok: false, error: "missing_client_id" };
-  }
-
-  let reconnectSnapshot: ReconnectTargetSnapshot | null = null;
-  if (options.reconnectAccountId) {
-    const target = await repository.emailTriage.getAccount(options.reconnectAccountId);
-    if (!target) {
-      return { ok: false, error: "account_not_found" };
-    }
-    reconnectSnapshot = snapshotReconnectTarget(target);
-  }
-
-  const oauthState = generateOAuthState();
-  const verifier = generatePkceVerifier();
-  const challenge = await createPkceChallenge(verifier);
-  const loopback = await invoke<{ port: number; redirectUri: string }>("oauth_loopback_start", {
-    expectedState: oauthState,
-  });
-  const authUrl = buildMicrosoftAuthorizationUrl({
-    clientId,
-    redirectUri: loopback.redirectUri,
-    state: oauthState,
-    codeChallenge: challenge,
-  });
-  await openUrl(authUrl);
+  );
   const callback = await invoke<{
     code?: string;
     state?: string;
     error?: string;
     errorDescription?: string;
   }>("oauth_loopback_wait", { timeoutMs: 180_000 });
-  if (callback.error) {
+  if (callback.error)
     return {
       ok: false,
-      error: classifyMicrosoftAuthorizationCallbackError(callback.error, callback.errorDescription),
+      error: descriptor.mapCallbackError(callback.error, callback.errorDescription),
     };
-  }
-  if (!validateOAuthState(oauthState, callback.state) || !callback.code) {
+  if (!validateOAuthState(oauthState, callback.state) || !callback.code)
     return { ok: false, error: "oauth_state_mismatch" };
-  }
 
   const http = createTauriHttpClient();
-  let tokens: MicrosoftOAuthTokens;
+  let tokens: OAuthTokens;
   try {
-    tokens = await exchangeMicrosoftAuthorizationCode(http, {
-      clientId,
-      code: callback.code,
-      redirectUri: loopback.redirectUri,
-      codeVerifier: verifier,
-    });
+    tokens = await exchangeAuthorizationCode(
+      http,
+      descriptor.tokenUrl,
+      {
+        clientId,
+        code: callback.code,
+        redirectUri: loopback.redirectUri,
+        codeVerifier: verifier,
+      },
+      descriptor.exchangePolicy,
+      descriptor.tokenScope,
+    );
   } catch (error) {
-    if (error instanceof Error && error.message === "admin_consent_required") {
-      return { ok: false, error: "admin_consent_required" };
-    }
-    return { ok: false, error: "connect_failed" };
+    if (descriptor.mapConnectError)
+      return { ok: false, error: descriptor.mapConnectError(error, "exchange") };
+    throw error;
   }
-  if (!tokens.refreshToken) {
-    return { ok: false, error: "missing_refresh_token" };
-  }
-
+  if (!tokens.refreshToken) return { ok: false, error: "missing_refresh_token" };
+  const refreshToken = tokens.refreshToken;
+  let profile: OAuthProfile;
   setCachedAccessToken("oauth-bootstrap", tokens.accessToken, tokens.expiresIn);
-  const bootstrapApi = new GraphApiClient(http, async () => tokens.accessToken);
-  let profile: GraphMeProfile;
   try {
-    profile = await bootstrapApi.getMe();
-  } catch {
+    profile = await descriptor.fetchProfile(http, tokens.accessToken);
+  } catch (error) {
+    if (descriptor.mapConnectError)
+      return { ok: false, error: descriptor.mapConnectError(error, "profile") };
+    throw error;
+  } finally {
     clearCachedAccessToken("oauth-bootstrap");
-    return { ok: false, error: "connect_failed" };
   }
-  clearCachedAccessToken("oauth-bootstrap");
-
-  const providerAccountId = profile.id;
-  const displayAddress =
-    profile.userPrincipalName ?? profile.mail ?? profile.displayName ?? profile.id;
+  const { providerAccountId, displayAddress } = profile;
   const timestamp = nowIso();
   const existing = (await repository.emailTriage.listAccounts()).find(
     (account) =>
-      account.provider === "microsoft_graph" && account.providerAccountId === providerAccountId,
+      account.provider === descriptor.provider && account.providerAccountId === providerAccountId,
   );
   const coordinator = getEmailTriageCoordinator();
+  const persist = (account: EmailTriageAccount) =>
+    persistProviderAccountCredentials({
+      repository,
+      account,
+      credentials: serializeProviderCredentials({
+        refreshToken,
+        tokenType: tokens.tokenType,
+        scope: tokens.scope,
+      }),
+      accessToken: tokens.accessToken,
+      expiresIn: tokens.expiresIn,
+    });
 
   if (reconnectSnapshot) {
     const validation = validateReconnectCanProceed({
@@ -331,97 +172,76 @@ export const connectMicrosoftAccount = async (
       currentAccount: await repository.emailTriage.getAccount(reconnectSnapshot.id),
       authenticatedProviderAccountId: providerAccountId,
     });
-    if (!validation.ok) {
+    if (!validation.ok)
       return {
         ok: false,
         error: validation.error,
         reconnectMismatch: validation.error === "reconnect_account_mismatch",
       };
-    }
     const target = (await repository.emailTriage.getAccount(reconnectSnapshot.id))!;
-    await persistGmailAccountCredentials({
-      repository,
-      account: {
-        ...target,
-        enabled: true,
-        state: "active",
-        recoveryState: "none",
-        lastError: null,
-        syncState: {
-          ...target.syncState,
-        },
-        updatedAt: timestamp,
-      },
-      credentials: serializeProviderCredentials({
-        refreshToken: tokens.refreshToken,
-        tokenType: tokens.tokenType,
-        scope: tokens.scope,
-      }),
-      accessToken: tokens.accessToken,
-      expiresIn: tokens.expiresIn,
+    await persist({
+      ...target,
+      enabled: true,
+      state: "active",
+      recoveryState: "none",
+      lastError: null,
+      syncState: { ...target.syncState },
+      updatedAt: timestamp,
     });
     coordinator?.scheduleAccount(
-      {
-        ...(await repository.emailTriage.getAccount(target.id))!,
-      },
+      { ...(await repository.emailTriage.getAccount(target.id))! },
       settings,
     );
     void coordinator?.runAccountSync(target.id);
     return { ok: true, accountId: target.id };
   }
-
   const accountId = existing?.id ?? createEntityId("email-account");
-  const account: EmailTriageAccount = existing
-    ? {
-        ...existing,
-        label: displayAddress,
-        maskedAddress: maskEmailAddress(displayAddress),
-        enabled: true,
-        state: "active",
-        lastError: null,
-        recoveryState: "none",
-        updatedAt: timestamp,
-      }
-    : {
-        id: accountId,
-        provider: "microsoft_graph",
-        providerAccountId,
-        label: displayAddress,
-        maskedAddress: maskEmailAddress(displayAddress),
-        generation: 1,
-        enabled: true,
-        mutationEnabled: false,
-        paused: false,
-        state: "baselining",
-        recoveryState: "none",
-        lastSuccessAt: null,
-        lastError: null,
-        pollIntervalMinutes: settings.pollIntervalMinutes,
-        syncState: {
-          baselineAt: null,
-          deltaLink: null,
-          nextLink: null,
-          snapshotComplete: false,
-          trackedMessageIds: [],
-        },
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      };
-  await persistGmailAccountCredentials({
-    repository,
-    account,
-    credentials: serializeProviderCredentials({
-      refreshToken: tokens.refreshToken,
-      tokenType: tokens.tokenType,
-      scope: tokens.scope,
-    }),
-    accessToken: tokens.accessToken,
-    expiresIn: tokens.expiresIn,
-  });
+  const account: EmailTriageAccount =
+    existing && descriptor.preserveExistingAccount
+      ? {
+          ...existing,
+          label: displayAddress,
+          maskedAddress: maskEmailAddress(displayAddress),
+          enabled: true,
+          state: "active",
+          lastError: null,
+          recoveryState: "none",
+          updatedAt: timestamp,
+        }
+      : {
+          id: accountId,
+          provider: descriptor.provider,
+          providerAccountId,
+          label: displayAddress,
+          maskedAddress: maskEmailAddress(displayAddress),
+          generation: existing?.generation ?? 1,
+          enabled: true,
+          mutationEnabled: false,
+          paused: false,
+          state: descriptor.initialAccountState,
+          recoveryState: "none",
+          lastSuccessAt: null,
+          lastError: null,
+          pollIntervalMinutes: settings.pollIntervalMinutes,
+          syncState: existing?.syncState ?? descriptor.initialSyncState(profile),
+          createdAt: existing?.createdAt ?? timestamp,
+          updatedAt: timestamp,
+        };
+  await persist(account);
   coordinator?.scheduleAccount(account, settings);
   void coordinator?.runAccountSync(accountId);
   return { ok: true, accountId };
 };
+
+export const connectGmailAccount = (
+  repository: AppRepository,
+  options: OAuthConnectOptions = {},
+): Promise<GmailConnectResult> => connectOAuthAccount(repository, gmailOAuthProvider, options);
+export const connectMicrosoftAccount = (
+  repository: AppRepository,
+  options: OAuthConnectOptions = {},
+): Promise<MicrosoftConnectResult> =>
+  connectOAuthAccount(repository, microsoftOAuthProvider, options);
 
 export const connectYahooAccount = async (
   repository: AppRepository,
@@ -593,3 +413,5 @@ export const openExternalUrl = async (url: string, browserPreview: boolean): Pro
   }
   await openUrl(url);
 };
+
+export { persistProviderAccountCredentials as persistGmailAccountCredentials } from "./provider-session";

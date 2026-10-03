@@ -213,6 +213,54 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         ).toHaveLength(2);
       });
 
+      it.each([
+        ["2026-10-03", "2026-10-04"],
+        ["2026-10-04", "2026-10-03"],
+        ["2026-10-04", "2026-10-04"],
+      ])("serializes overlapping relationship draws for %s and %s", async (firstDate, secondDate) => {
+        const repository = await factory();
+        await repository.updateSettings((current) => ({
+          ...current,
+          relationshipDrawsEnabled: true,
+          relationshipDrawChildrenActivities: ["Lire ensemble"],
+          relationshipDrawSpouseActivities: ["Boire un thé"],
+        }));
+        const [firstCount, secondCount] = await Promise.all([
+          repository.generateDailyRelationshipTasks(firstDate),
+          repository.generateDailyRelationshipTasks(secondDate),
+          repository.updateSettings((current) => ({ ...current, lastBackupAt: "backup" })),
+        ]);
+        expect(firstCount + secondCount).toBe(2);
+        const tasks = await repository.listTasks({ includeCompleted: true });
+        for (const category of ["children", "spouse"]) {
+          expect(
+            tasks.filter((task) =>
+              task.sourceExternalId?.startsWith(`relationship-draw:${category}:`),
+            ),
+          ).toHaveLength(1);
+        }
+        expect(await repository.getSettings()).toMatchObject({
+          relationshipDrawChildrenProcessedDate: "2026-10-04",
+          relationshipDrawSpouseProcessedDate: "2026-10-04",
+          lastBackupAt: "backup",
+        });
+      });
+
+      it("does not move relationship markers backwards or regenerate an older completed day", async () => {
+        const repository = await factory();
+        await repository.generateDailyRelationshipTasks("2026-10-04");
+        const tasks = await repository.listTasks({ includeCompleted: true });
+        for (const task of tasks) {
+          await repository.completeTask(task.id, "2026-10-04T21:00:00.000Z");
+        }
+        expect(await repository.generateDailyRelationshipTasks("2026-10-03")).toBe(0);
+        expect(await repository.getSettings()).toMatchObject({
+          relationshipDrawChildrenProcessedDate: "2026-10-04",
+          relationshipDrawSpouseProcessedDate: "2026-10-04",
+        });
+        expect(await repository.listTasks({ includeCompleted: true })).toHaveLength(tasks.length);
+      });
+
       it("moves reading tasks into the References bucket", async () => {
         const repository = await factory();
 

@@ -32,6 +32,68 @@ import * as weeklyReviews from "./weeklyReviews";
 
 const now = "2026-10-03T12:00:00.000Z";
 const date = "2026-10-03";
+const repositoryReads = new Map<
+  object,
+  { table: string; read: (repo: TauriSqliteRepository) => Promise<unknown> }
+>([
+  [
+    dailyEntries,
+    { table: "daily_entries", read: (repo) => repo.listDailyEntriesInRange(date, date) },
+  ],
+  [weeklyReviews, { table: "weekly_reviews", read: (repo) => repo.getWeeklyReview("2026-09-27") }],
+  [monthlyReviews, { table: "monthly_reviews", read: (repo) => repo.getMonthlyReview("2026-10") }],
+  [annualGoals, { table: "annual_goals", read: (repo) => repo.listAnnualGoals() }],
+  [weeklyObjectives, { table: "weekly_objectives", read: (repo) => repo.listWeeklyObjectives() }],
+  [
+    weeklyObjectiveResults,
+    {
+      table: "weekly_objective_results",
+      read: (repo) => repo.getWeeklyObjectiveResults("2026-09-27"),
+    },
+  ],
+  [contexts, { table: "gtd_contexts", read: (repo) => repo.listContexts() }],
+  [projects, { table: "gtd_projects", read: (repo) => repo.listProjects() }],
+  [tasks, { table: "gtd_tasks", read: (repo) => repo.listTasks() }],
+  [taskEvents, { table: "gtd_task_events", read: (repo) => repo.listTaskEvents() }],
+  [
+    recurringTemplates,
+    { table: "recurring_task_templates", read: (repo) => repo.listRecurringTaskTemplates() },
+  ],
+  [
+    pomodoroSessions,
+    { table: "pomodoro_sessions", read: (repo) => repo.listPomodoroSessions(date) },
+  ],
+  [
+    pomodoroSegments,
+    {
+      table: "pomodoro_segments",
+      read: async (repo) =>
+        (await repo.listPomodoroSessions(date)).flatMap((session) => session.segments),
+    },
+  ],
+  [aiMessages, { table: "ai_messages", read: (repo) => repo.listAiMessages() }],
+  [aiProposals, { table: "ai_proposals", read: (repo) => repo.listAiProposals("message") }],
+  [aiMemories, { table: "ai_memories", read: (repo) => repo.listAiMemories() }],
+  [
+    emailAccounts,
+    { table: "email_triage_accounts", read: async (repo) => repo.emailTriage.listAccounts() },
+  ],
+  [
+    emailReviews,
+    { table: "email_triage_reviews", read: async (repo) => repo.emailTriage.listReviews() },
+  ],
+  [
+    midWeekDecisions,
+    { table: "mid_week_decisions", read: (repo) => repo.getMidWeekDecisions("2026-09-27") },
+  ],
+  [
+    rescueTimeCache,
+    {
+      table: "rescuetime_snapshot_cache",
+      read: (repo) => repo.getRescueTimeSnapshotCache("2026-09-27", "goals", "fingerprint"),
+    },
+  ],
+]);
 const roundTrip = <Entity, Row>(
   mapper: { COLUMNS: string; toParams(entity: Entity): unknown[]; fromRow(row: Row): Entity },
   entity: Entity,
@@ -46,6 +108,31 @@ const roundTrip = <Entity, Row>(
       params,
     );
     expect(mapper.fromRow(rows[0])).toEqual(entity);
+  });
+  it("reads every mapped field through the repository's actual SELECT", async () => {
+    const db = createNodeSqliteDatabase();
+    const repo = new TauriSqliteRepository("sqlite::memory:", async () => db);
+    await repo.initialize();
+    const mapping = repositoryReads.get(mapper);
+    if (!mapping) throw new Error("Missing repository read for mapper");
+    const columns = mapper.COLUMNS.split(", ");
+    await db.execute(
+      `INSERT INTO ${mapping.table} (${mapper.COLUMNS}) VALUES (${columns.map((_, index) => `$${index + 1}`).join(", ")})`,
+      mapper.toParams(entity),
+    );
+    if (mapping.table === "pomodoro_segments") {
+      // Session details expose segments only when their owning session exists.
+      await db.execute(
+        "INSERT INTO pomodoro_sessions (id, kind, status, started_at, ends_at, cycle_index, date) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        ["session", "focus", "completed", now, now, 1, date],
+      );
+    }
+    const result = await mapping.read(repo);
+    if (Array.isArray(result)) {
+      expect(result).toContainEqual(expect.objectContaining(entity));
+    } else {
+      expect(result).toEqual(entity);
+    }
   });
 };
 

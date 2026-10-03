@@ -63,6 +63,9 @@ own their row shape, selected/inserted columns, decoding, and bound values.
 Normal task saves and Google Tasks import share the complete task insert; import
 uses `ON CONFLICT(id) DO NOTHING`, while saves update the existing row. Legacy
 JSON handling and null defaults remain in the corresponding mapper.
+Mapper tests cover bound-value round trips and inserts into migrated tables read
+through repository queries, so an omitted selected column is checked separately
+from the insert mapping.
 
 The pool uses `max_connections(1)`, `min_connections(1)`, `idle_timeout(None)`,
 and `max_lifetime(None)`. JS issues `BEGIN IMMEDIATE` / `COMMIT` as separate
@@ -109,9 +112,8 @@ history ending at a calendar date, `listDailyEntriesInRange(startDate, endDate)`
 (persisted daily rows without GTD/Pomodoro decoration, unlike the capped list
 helpers), `listWeeklyReviewsOverlapping(startDate, endDate)`, and
 `listMonthlyReviewsOverlapping(startDate, endDate)` for the Journal timeline, and
-atomic accept methods for synthesis proposals (`acceptAiWeeklyObjectiveProposal`,
-`acceptAiReviewSectionDraftProposal`, `acceptAiMonthlyReviewSectionDraftProposal`,
-`acceptAiGtdActionProposal`).
+the [atomic AI proposal acceptance operation](#atomic-ai-proposal-acceptance)
+(`acceptAiProposal`).
 
 The SQLite and memory implementations must remain behaviorally aligned, except for
 native-only storage information and backup creation.
