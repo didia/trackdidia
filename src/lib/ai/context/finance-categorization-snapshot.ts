@@ -2,13 +2,21 @@
 // specs/done/finance.md "AI stage" and docs/ai-settings-and-privacy.md.
 //
 // Privacy contract, enforced here and nowhere else:
-// - Sent: a sanitized merchant string, the transaction sign, an occurrence count, an amount
-//   bucket (`<10`, `10-50`, `50-200`, `200-1000`, `>1000`, in base currency), the account type,
+// - The "merchant string" sent is `finance_transactions.merchant_key` — i.e.
+//   `normalizeDescription(descriptionRaw)` (uppercased, accents stripped) — run through
+//   `sanitizeMerchantDescriptor` and clamped to 60 characters. That sanitizer only strips email
+//   addresses, card/account-looking fragments (`\b[\dX*]{6,}\b`), digit runs of 4+ characters,
+//   and short dash/dot/space-separated digit groups that look like a phone number. It does
+//   **not** attempt to redact free text: a counterparty name, a partial address, or any other
+//   word embedded in the original description (e.g. "INTERAC E-TRANSFER JEAN DUPONT") is sent
+//   as-is. Do not describe this as removing all personal information — it removes only
+//   structured identifiers (account/card numbers, emails, phone-like digit groups).
+// - Also sent: the transaction sign, an occurrence count, an amount bucket (`<10`, `10-50`,
+//   `50-200`, `200-1000`, `>1000`, in base currency, never the exact amount), the account type,
 //   and the allowed category id/name list.
-// - Never sent: account names, institutions, account numbers, balances, net worth, person names,
-//   exact amounts, dates, notes, labels, or full descriptions.
-// - The merchant sanitizer strips digit runs of length >= 4, email addresses, and anything that
-//   looks like a card/account fragment (`\b[\dX*]{6,}\b`), then clamps to 60 characters.
+// - Never sent (structured fields, not derived from the free-text descriptor): account names,
+//   institutions, account numbers, balances, net worth, `personId`, exact amounts, dates, notes,
+//   or labels.
 // - A request is capped at 40 merchants and 16 KiB; over-cap input is split into several
 //   requests, never truncated.
 // - `scope === "metrics"` disables the AI stage entirely (merchant strings are structure, not
@@ -61,18 +69,32 @@ const MAX_MERCHANT_LENGTH = 60;
 const EMAIL_PATTERN = /[\w.+-]+@[\w-]+\.[\w.-]+/g;
 const CARD_OR_ACCOUNT_FRAGMENT_PATTERN = /\b[\dX*]{6,}\b/gi;
 const LONG_DIGIT_RUN_PATTERN = /\d{4,}/g;
+/**
+ * Phone-number-shaped fragments: two or more dash/dot/space-separated groups of 2-4 digits each
+ * (e.g. `514-555-1234`, `514-555`, or a dangling `514-555-` with nothing after the trailing
+ * separator — the `\b` only needs to close after the last digit group, so the trailing separator
+ * itself is left behind as harmless punctuation rather than blocking the match).
+ */
+const PHONE_FRAGMENT_PATTERN = /\b\d{2,4}(?:[-.\s]\d{2,4}){1,3}\b/g;
 
 /**
- * Strips anything identifiable from a raw merchant descriptor: email addresses, card/account
- * fragments, and digit runs of 4 or more (store numbers, partial account numbers), then clamps
- * to 60 characters. Order matters: the card/account fragment pattern must run before the plain
- * digit-run strip so a fragment mixing digits with `X`/`*` masking characters is still caught as
- * one unit instead of leaving masking characters behind.
+ * Strips **structured identifiers** from a raw merchant descriptor — email addresses,
+ * card/account fragments, digit runs of 4 or more (store numbers, partial account numbers), and
+ * phone-number-shaped digit groups — then clamps to 60 characters. This is *not* a general
+ * free-text redactor: it does not detect or remove a counterparty name, a partial address, or
+ * any other plain word in the description (see the module comment above). Order matters: the
+ * card/account fragment pattern must run before the plain digit-run strip so a fragment mixing
+ * digits with `X`/`*` masking characters is still caught as one unit instead of leaving masking
+ * characters behind; the phone pattern runs before the digit-run strip so a full phone number's
+ * last group (4 digits) is consumed as part of the phone match rather than by the cruder
+ * digit-run strip alone (same end result, but keeps the phone pattern meaningful on its own for
+ * shorter, non-4-digit-terminated numbers).
  */
 export const sanitizeMerchantDescriptor = (raw: string): string => {
   const sanitized = raw
     .replace(EMAIL_PATTERN, " ")
     .replace(CARD_OR_ACCOUNT_FRAGMENT_PATTERN, " ")
+    .replace(PHONE_FRAGMENT_PATTERN, " ")
     .replace(LONG_DIGIT_RUN_PATTERN, " ")
     .replace(/\s+/g, " ")
     .trim()

@@ -268,13 +268,6 @@ export interface FinanceCategorizationResponse {
   merchants: FinanceCategorizationItem[];
 }
 
-export interface FinanceCategorizationResult {
-  message: AiMessage;
-  categorization: FinanceCategorizationResponse;
-  source: "ai" | "local" | "fallback" | "cache";
-  warning?: string;
-}
-
 export type MidWeekSteeringEffort = "low" | "medium" | "high";
 
 export interface MidWeekSteeringAction {

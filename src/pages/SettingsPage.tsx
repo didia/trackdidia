@@ -615,6 +615,7 @@ export const SettingsPage = () => {
             />
             <span>{t("finance.aiCategorizationEnabled")}</span>
           </label>
+          <p className="field-card__helper">{t("finance.aiCategorizationPrivacyNote")}</p>
 
           <label className="switch-row">
             <input

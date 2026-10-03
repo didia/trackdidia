@@ -483,6 +483,11 @@ export interface ApplyFinanceCategorizationResultsOutcome {
   suggestionsCreated: number;
   /** Transactions whose category was set directly because the auto-apply gate held. */
   autoApplied: number;
-  /** Transactions skipped because `(merchantKey, categoryId)` was dismissed in the last 90 days. */
+  /**
+   * Original merchant keys skipped because `(merchantKey, categoryId)` was dismissed in the
+   * last 90 days — counted once per merchant key (not per transaction, and not per AI result:
+   * a result whose `merchantKeyMap` entry maps to several original merchant keys counts each
+   * dismissed key separately).
+   */
   suppressedDismissed: number;
 }

@@ -254,6 +254,7 @@
     "safetyBufferMinor": "Coussin de sécurité (liquidités)",
     "safetyBufferMinorPlaceholder": "0,00",
     "aiCategorizationEnabled": "Activer la catégorisation IA des marchands inconnus",
+    "aiCategorizationPrivacyNote": "Envoie au modèle IA configuré la description nettoyée de la transaction (numéros de carte/compte, courriels et numéros de téléphone retirés) — elle peut tout de même contenir un nom de contrepartie ou une partie d'adresse. Le montant exact, les dates, les notes et les noms/numéros de compte ne sont jamais envoyés.",
     "aiAutoApplyEnabled": "Appliquer automatiquement les suggestions IA à confiance élevée",
     "aiAutoApplyMinConfidence": "Seuil de confiance pour l'application automatique",
     "aiAutoApplyMinConfidencePlaceholder": "0,90",

@@ -216,4 +216,69 @@ describe("FinanceReviewPage", () => {
 
     expect(screen.getByText("Classer les en attente (IA)")).not.toBeDisabled();
   });
+
+  it("surfaces a translated error (not raw technical text) when the AI run fails outright", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.seedFinanceDefaultCategories();
+    await repository.saveFinanceAccount(buildAccount());
+    await repository.saveFinanceTransaction(buildTxn());
+    vi.spyOn(repository, "listFinanceUnknownMerchants").mockRejectedValue(
+      new Error("boom: should never reach the UI"),
+    );
+
+    const user = userEvent.setup();
+    await renderWithApp(<FinanceReviewPage />, {
+      repository,
+      contextOverrides: {
+        settings: {
+          ...defaultAppSettings(),
+          financeEnabled: true,
+          financeAiCategorizationEnabled: true,
+          aiEnabled: true,
+          aiApiKey: "secret",
+        },
+      },
+    });
+
+    await user.click(screen.getByText("Classer les en attente (IA)"));
+
+    const message = await screen.findByText("Échec de la classification IA. Réessayez plus tard.");
+    expect(message).toBeInTheDocument();
+    expect(screen.queryByText(/boom/)).not.toBeInTheDocument();
+  });
+
+  it("surfaces a translated warning (not raw provider text) when the AI provider call itself fails", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.seedFinanceDefaultCategories();
+    await repository.saveFinanceAccount(buildAccount());
+    await repository.saveFinanceTransaction(buildTxn());
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new Error("network down: should never reach the UI"));
+
+    const user = userEvent.setup();
+    await renderWithApp(<FinanceReviewPage />, {
+      repository,
+      contextOverrides: {
+        settings: {
+          ...defaultAppSettings(),
+          financeEnabled: true,
+          financeAiCategorizationEnabled: true,
+          aiEnabled: true,
+          aiApiKey: "secret",
+        },
+      },
+    });
+
+    await user.click(screen.getByText("Classer les en attente (IA)"));
+
+    const message = await screen.findByText(
+      "La classification IA a échoué pour au moins un lot de marchands ; aucune suggestion n'a été créée pour ce lot. Réessayez plus tard.",
+    );
+    expect(message).toBeInTheDocument();
+    expect(screen.queryByText(/network down/)).not.toBeInTheDocument();
+    fetchSpy.mockRestore();
+  });
 });

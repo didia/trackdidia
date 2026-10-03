@@ -37,6 +37,23 @@ describe("sanitizeMerchantDescriptor", () => {
     expect(sanitizeMerchantDescriptor("VISA XXXX1234XX")).not.toMatch(/XXXX1234XX/);
   });
 
+  it("strips a full phone-number-shaped fragment", () => {
+    const result = sanitizeMerchantDescriptor("INTERAC E-TRANSFER JEAN DUPONT 514-555-1234");
+    expect(result).not.toMatch(/514/);
+    expect(result).not.toMatch(/555/);
+    expect(result).not.toMatch(/1234/);
+  });
+
+  it("strips a dangling partial phone fragment with a trailing separator", () => {
+    const result = sanitizeMerchantDescriptor("INTERAC E-TRANSFER JEAN DUPONT 514-555-");
+    expect(result).not.toMatch(/514/);
+    expect(result).not.toMatch(/555/);
+  });
+
+  it("leaves a single short digit group alone (not phone-shaped on its own)", () => {
+    expect(sanitizeMerchantDescriptor("WALMART #123")).toContain("123");
+  });
+
   it("clamps to 60 characters", () => {
     const long = "A".repeat(200);
     expect(sanitizeMerchantDescriptor(long).length).toBeLessThanOrEqual(60);

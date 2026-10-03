@@ -565,9 +565,16 @@ the privacy contract, since that is what makes the surface safe to ship.
 **Sent**, per merchant, at most 40 merchants / 16 KiB per request (an
 over-cap batch is split into more requests, never truncated):
 
-- a sanitized merchant string (email addresses, card/account-looking
-  fragments, and digit runs of 4+ characters stripped; clamped to 60
-  characters)
+- the **cleaned transaction descriptor** — `finance_transactions.merchant_key`
+  (the normalized, uppercased, accent-stripped `descriptionRaw`), with email
+  addresses, card/account-looking fragments, digit runs of 4+ characters, and
+  phone-number-shaped digit groups stripped, clamped to 60 characters. **This
+  is not a general redactor**: it removes structured identifiers only. A
+  counterparty name, a partial address, or any other plain word present in
+  the original description (e.g. an e-transfer line like "INTERAC E-TRANSFER
+  JEAN DUPONT") is sent as-is — see
+  `src/lib/ai/context/finance-categorization-snapshot.ts`'s module comment
+  for exactly what the sanitizer does and does not catch.
 - the transaction sign (`-1` | `0` | `1`)
 - an occurrence count
 - an amount **bucket** (`<10`, `10-50`, `50-200`, `200-1000`, `>1000`, in
@@ -578,11 +585,15 @@ over-cap batch is split into more requests, never truncated):
   only — the three system categories, Uncategorized/Transfer/Split, are
   excluded)
 
-**Never sent**: account names, institutions, account numbers, balances, net
-worth, person names, exact amounts, dates, notes, labels, or full
-transaction descriptions. `src/lib/ai/context/finance-categorization-snapshot.test.ts`
-serializes the built payload and asserts by substring that none of these
-appear.
+**Never sent** — structured fields that never exist on the payload shape at
+all, as opposed to free text the sanitizer might miss: account names,
+institutions, account numbers, balances, net worth, `personId`, exact
+amounts, dates, notes, or labels.
+`src/lib/ai/context/finance-categorization-snapshot.test.ts` serializes the
+built payload and asserts by substring that none of these structured fields
+appear; it does not and cannot assert that no free-text name or address ever
+leaks, because the descriptor is sent as cleaned free text, not as a fully
+redacted one.
 
 **Gating** — all three must be on, checked by both the service and the
 `/finances/review` button:

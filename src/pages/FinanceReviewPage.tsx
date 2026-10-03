@@ -11,6 +11,7 @@ import type {
 } from "../domain/finance";
 import { FinanceCategorizationService } from "../lib/ai/finance-categorization-service";
 import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
+import { logDebug } from "../lib/debug";
 
 const ACCEPT_ALL_THRESHOLD = 0.8;
 
@@ -125,14 +126,29 @@ export const FinanceReviewPage = () => {
     setClassifyingPending(true);
     try {
       const result = await categorizationService.classifyPending(repository, settings);
-      setClassifyPendingMessage(
-        t("review.classifyPendingResult", {
-          merchants: result.merchantsRequested,
-          suggestions: result.suggestionsCreated,
-          autoApplied: result.autoApplied,
-        }),
-      );
+      // `result.warning` means the AI call itself failed (or was unreadable) for at least one
+      // chunk — surface that instead of a success-shaped "0 suggestion(s)" message, which would
+      // otherwise read as "nothing to do" rather than "the request failed". The warning text
+      // itself is raw/technical (provider error text or a validator message) and must not reach
+      // the French UI verbatim; log it for diagnostics instead.
+      if (result.warning) {
+        logDebug("warn", "finance.review", "Avertissement de categorisation IA", result.warning);
+        setClassifyPendingMessage(t("review.classifyPendingWarning"));
+      } else {
+        setClassifyPendingMessage(
+          t("review.classifyPendingResult", {
+            merchants: result.merchantsRequested,
+            suggestions: result.suggestionsCreated,
+            autoApplied: result.autoApplied,
+          }),
+        );
+      }
       await load();
+    } catch (error) {
+      // A repository failure (e.g. listing unknown merchants) rejects outright rather than
+      // coming back as `result.warning` — raw technical text must never reach the French UI.
+      logDebug("error", "finance.review", "Echec de la categorisation IA a la demande", error);
+      setClassifyPendingMessage(t("review.classifyPendingError"));
     } finally {
       setClassifyingPending(false);
     }

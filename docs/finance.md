@@ -940,7 +940,7 @@ A sixth classification stage, run out-of-band from `classifyTransaction` (see
 "Classification pipeline" above): `src/lib/ai/finance-categorization-service.ts`
 sends **merchants**, not transactions, to the configured OpenRouter model and
 applies the answer back to every matching row. See
-[docs/ai-settings-and-privacy.md](ai-settings-and-privacy.md#finance_categorization)
+[docs/ai-settings-and-privacy.md](ai-settings-and-privacy.md#finance-categorization-finance_categorization)
 for exactly what is and is not sent and the gating flags.
 
 ### Gating
@@ -975,17 +975,25 @@ suggestion is decided or a correction clears the category back to
 
 `src/lib/ai/context/finance-categorization-snapshot.ts`'s
 `buildFinanceCategorizationSnapshots` sanitizes each unknown-merchant group
-into a request item — `sanitizeMerchantDescriptor` strips email addresses,
-card/account-looking fragments (`\b[\dX*]{6,}\b`), and digit runs of 4+
-characters, then clamps to 60 characters — and buckets the representative
-amount into `<10`/`10-50`/`50-200`/`200-1000`/`>1000` (base currency,
-integer-minor-unit comparisons only, never a float division). It then
-chunks the sanitized list into one or more requests of **at most 40
-merchants and 16 KiB of serialized JSON each** — an over-cap batch is split
-into more requests, never truncated — each paired with a `merchantKeyMap`
-(sanitized request key -> original `merchant_key` value(s), needed because
-sanitization can rarely make two distinct merchants collide on the same
-text) so results can be applied back to the right rows.
+into a request item. The "merchant string" sent is the group's `merchantKey`
+— i.e. `normalizeDescription(descriptionRaw)`, the same normalized
+(uppercased, accent-stripped) descriptor already used for matching — run
+through `sanitizeMerchantDescriptor` (strips email addresses, card/account-
+looking fragments `\b[\dX*]{6,}\b`, digit runs of 4+ characters, and
+phone-number-shaped digit groups) and clamped to 60 characters. **This
+removes structured identifiers only, not every piece of personal
+information**: a counterparty name, a partial address, or any other plain
+word present in the original description is sent as-is (e.g. an e-transfer
+line like "INTERAC E-TRANSFER JEAN DUPONT" keeps the name). It also buckets
+the representative amount into `<10`/`10-50`/`50-200`/`200-1000`/`>1000`
+(base currency, integer-minor-unit comparisons only, never a float
+division). It then chunks the sanitized list into one or more requests of
+**at most 40 merchants and 16 KiB of serialized JSON each** — an over-cap
+batch is split into more requests, never truncated — each paired with a
+`merchantKeyMap` (sanitized request key -> original `merchant_key`
+value(s), needed because sanitization can rarely make two distinct
+merchants collide on the same text) so results can be applied back to the
+right rows.
 
 ### Service, cache, and the schema
 
@@ -1010,16 +1018,17 @@ every other surface's loader.
 
 `AppRepository.applyFinanceCategorizationResults` is the one short exclusive
 block (one `BEGIN IMMEDIATE`) that writes the outcome. For each result, for
-every currently-eligible transaction (`category_source != "user"`, not a
-transfer, still `Uncategorized`) sharing (one of) its original merchant
-key(s):
+each of its original merchant key(s) (via `merchantKeyMap`):
 
 - If `(merchantKey, categoryId)` was dismissed in the last 90 days
   (`src/lib/finance/dismissed-suggestions.ts`, the same window memory/seed
-  suggestions honor), nothing is written for that row —
-  `suppressedDismissed` counts it.
-- Otherwise a `finance_category_suggestions` row is always written
-  (`origin: "ai"`, with `rationale`, `model`, `promptVersion`).
+  suggestions honor), nothing is written for **any** transaction under that
+  merchant key — `suppressedDismissed` counts the merchant key once, not
+  the number of transactions it would otherwise have touched.
+- Otherwise, for every currently-eligible transaction under that merchant
+  key (`category_source != "user"`, not a transfer, still `Uncategorized`),
+  a `finance_category_suggestions` row is always written (`origin: "ai"`,
+  with `rationale`, `model`, `promptVersion`).
 - When `settings.financeAiAutoApplyEnabled` **and**
   `result.confidence >= settings.financeAiAutoApplyMinConfidence` both hold
   (and, by construction, the row was never user-set or already decided by a
@@ -1057,5 +1066,5 @@ unparsable draft) — all three rendered `disabled` (not hidden) while
 
 - [Storage and backups](storage-and-backups.md#finance-tables)
 - [Conventions](conventions.md) (minor-units rule)
-- [AI settings and privacy](ai-settings-and-privacy.md#finance_categorization)
+- [AI settings and privacy](ai-settings-and-privacy.md#finance-categorization-finance_categorization)
 - [specs/done/finance.md](../specs/done/finance.md) — the full phased spec, now shipped
