@@ -8,6 +8,7 @@ import {
   listFinanceCategorySpendDrilldown,
   type FinanceReportComputationInput,
 } from "./reports";
+import { UNCATEGORIZED_CATEGORY_ID } from "../../lib/finance/classify";
 
 const GROCERIES = "fincat:groceries";
 const RESTAURANTS = "fincat:restaurants";
@@ -74,6 +75,24 @@ describe("computeFinanceCategorySpend", () => {
     expect(groceries?.totalMinor).toBe(100_00);
     expect(restaurants?.totalMinor).toBe(45_00);
     expect(rows.find((row) => row.key === INCOME)).toBeUndefined();
+  });
+
+  it("maps a null categoryId to the real fincat:non-categorise system category, not a bare literal", () => {
+    const input: FinanceReportComputationInput = {
+      ...baseInput,
+      transactions: [
+        txn({ id: "u1", categoryId: null, merchantKey: "UNKNOWN", amountMinor: -42_00 }),
+      ],
+    };
+    const rows = computeFinanceCategorySpend(
+      input,
+      { from: "2026-03-01", to: "2026-03-31" },
+      "category",
+    );
+    expect(rows).toEqual([
+      { key: UNCATEGORIZED_CATEGORY_ID, groupBy: "category", totalMinor: 42_00, lineIds: ["u1"] },
+    ]);
+    expect(rows.some((row) => row.key === "uncategorized")).toBe(false);
   });
 
   it("rolls up by category group", () => {

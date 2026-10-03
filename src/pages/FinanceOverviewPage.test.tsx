@@ -159,4 +159,39 @@ describe("FinanceOverviewPage", () => {
     const series = await repository.listFinanceRecurringSeries();
     expect(series.find((s) => s.merchantKey === "NETFLIX")?.confirmedByUser).toBe(true);
   });
+
+  it("renders a null-category top category as 'Non catégorisé', never the raw 'uncategorized' key", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveFinanceAccount({
+      id: "account-1",
+      name: "Compte chèques",
+      institution: null,
+      type: "checking",
+      currency: "CAD",
+      ownerPersonId: null,
+      ownership: "individual",
+      onBudget: true,
+      closed: false,
+      openingBalanceMinor: 0,
+      currentBalanceMinor: null,
+      balanceAsOf: null,
+      externalKey: null,
+      notes: null,
+      sortOrder: 0,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    await repository.saveFinanceTransaction(buildTxn({ categoryId: null, amountMinor: -4200 }));
+
+    await renderWithApp(<FinanceOverviewPage />, {
+      repository,
+      contextOverrides: {
+        settings: { ...defaultAppSettings(), financeEnabled: true, financeBaseCurrency: "CAD" },
+      },
+    });
+
+    expect(await screen.findByText(/Non catégorisé/)).toBeInTheDocument();
+    expect(screen.queryByText(/uncategorized/i)).not.toBeInTheDocument();
+  });
 });

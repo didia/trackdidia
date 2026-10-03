@@ -9,6 +9,7 @@
 // never a SQL `GROUP BY` in one and a JS reduce in the other.
 
 import { getWeekStartSunday } from "../../lib/gtd/shared";
+import { UNCATEGORIZED_CATEGORY_ID } from "../../lib/finance/classify";
 import { getMonthKey } from "../monthly-review";
 import type { FinanceCategory, FinanceTransaction, FinanceTransactionSplit } from "../finance";
 
@@ -117,20 +118,24 @@ export const filterFinanceReportLinesByRange = (
 ): FinanceReportLine[] =>
   lines.filter((line) => line.postedDate >= range.from && line.postedDate <= range.to);
 
-/** `group` resolves a category to its parent group id, or itself when it has no parent. */
+/**
+ * `group` resolves a category to its parent group id, or itself when it has
+ * no parent. A `null` `categoryId` maps to the real `fincat:non-categorise`
+ * system category — never a bare literal — so the UI resolves its name the
+ * same way it resolves every other category, through
+ * `listFinanceCategories()`, instead of needing a special-cased label.
+ */
 const resolveGroupKey = (
   categoryId: string | null,
   groupBy: FinanceReportGroupBy,
   categoriesById: Map<string, FinanceReportCategoryInput>,
 ): string => {
-  if (categoryId === null) {
-    return "uncategorized";
-  }
+  const resolvedCategoryId = categoryId ?? UNCATEGORIZED_CATEGORY_ID;
   if (groupBy === "category") {
-    return categoryId;
+    return resolvedCategoryId;
   }
-  const category = categoriesById.get(categoryId);
-  return category?.parentId ?? categoryId;
+  const category = categoriesById.get(resolvedCategoryId);
+  return category?.parentId ?? resolvedCategoryId;
 };
 
 export interface FinanceCategorySpendRow {

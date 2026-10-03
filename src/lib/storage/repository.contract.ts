@@ -4198,6 +4198,38 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           expect(stillThere?.confirmedByUser).toBe(true);
         });
 
+        it("detectFinanceRecurringSeries persists an integer expected_amount_minor for an even occurrence count", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          // Sorted amounts [-1002, -1001, -1000, -1000]; the raw median is the
+          // fractional -1000.5 — must round to an integer before it reaches
+          // the INTEGER `expected_amount_minor` column.
+          const amountsByDate: Record<string, number> = {
+            "2026-01-15": -1002,
+            "2026-02-15": -1001,
+            "2026-03-15": -1000,
+            "2026-04-15": -1000,
+          };
+          for (const [postedDate, amountMinor] of Object.entries(amountsByDate)) {
+            await repository.saveFinanceTransaction(
+              buildFinanceTransaction({
+                id: `txn-${postedDate}`,
+                accountId: "account-1",
+                postedDate,
+                amountMinor,
+                merchantKey: "GYM",
+              }),
+            );
+          }
+
+          await repository.detectFinanceRecurringSeries();
+          const series = await repository.listFinanceRecurringSeries();
+          const gym = series.find((s) => s.merchantKey === "GYM");
+          expect(gym?.expectedAmountMinor).toBe(-1001);
+          expect(Number.isInteger(gym?.expectedAmountMinor)).toBe(true);
+          expect(typeof gym?.expectedAmountMinor).toBe("number");
+        });
+
         it("snapshotFinanceAccountBalances is idempotent per day and feeds the net-worth history", async () => {
           const repository = await factory();
           const checking = await repository.saveFinanceAccount(

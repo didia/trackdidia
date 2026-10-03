@@ -96,6 +96,19 @@ describe("detectFinanceRecurringSeries", () => {
     expect(endedToo[0].flags).toContain("ended");
   });
 
+  it("rounds a fractional median amount to an integer minor-unit value (even occurrence count)", () => {
+    const transactions = [
+      txn("2026-01-15", -1002),
+      txn("2026-02-15", -1001),
+      txn("2026-03-15", -1000),
+      txn("2026-04-15", -1000),
+    ];
+    // Sorted amounts [-1002, -1001, -1000, -1000]; raw median is -1000.5.
+    const [series] = detectFinanceRecurringSeries(transactions, [], "2026-04-16");
+    expect(Number.isInteger(series.expectedAmountMinor)).toBe(true);
+    expect(series.expectedAmountMinor).toBe(-1001);
+  });
+
   it("flags amount_changed when the newest occurrence is outside tolerance", () => {
     const transactions = [
       txn("2026-01-15", -1599),

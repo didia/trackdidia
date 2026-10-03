@@ -2,6 +2,7 @@
 // specs/todo/finance.md "Recurring bills". No I/O; `today` is injected so
 // tests are deterministic.
 
+import { addDays } from "../gtd/shared";
 import type { FinanceRecurringCadence, FinanceRecurringStatus } from "../../domain/finance";
 
 export interface RecurringDetectionTransactionInput {
@@ -75,11 +76,24 @@ const CADENCE_BANDS: CadenceBand[] = [
  */
 const cadenceToleranceDays = (band: CadenceBand): number => (band.max - band.min) / 2;
 
+/**
+ * `median` can land on a half-integer for an even-length list (e.g. two
+ * occurrences of -1000 and -1003 median to -1001.5). Callers that feed this
+ * into a day-gap calculation only ever consume it through `Math.round` (see
+ * `computeNextExpectedDate`/`missedAfterDate` below — never pass a raw
+ * fractional gap further), and callers that feed it into
+ * `expectedAmountMinor` must round via `roundHalfAwayFromZero` before it
+ * reaches a minor-units (integer) column.
+ */
 const median = (values: number[]): number => {
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 };
+
+/** Symmetric round-half-away-from-zero — `roundHalfAwayFromZero(-1001.5) === -1002`, not `-1001`. */
+const roundHalfAwayFromZero = (value: number): number =>
+  value < 0 ? -Math.round(-value) : Math.round(value);
 
 const stdDev = (values: number[]): number => {
   if (values.length === 0) {
@@ -123,13 +137,6 @@ export const addMonthsClamped = (date: string, months: number): string => {
   return formatDate(targetYear, targetMonth, clampedDay);
 };
 
-const addDaysPlain = (date: string, days: number): string => {
-  const { year, month, day } = parseDate(date);
-  const base = new Date(year, month - 1, day);
-  base.setDate(base.getDate() + days);
-  return formatDate(base.getFullYear(), base.getMonth() + 1, base.getDate());
-};
-
 const computeNextExpectedDate = (
   lastSeenDate: string,
   band: CadenceBand,
@@ -137,7 +144,7 @@ const computeNextExpectedDate = (
 ): string =>
   band.monthsAnchored !== null
     ? addMonthsClamped(lastSeenDate, band.monthsAnchored)
-    : addDaysPlain(lastSeenDate, Math.round(medianGap));
+    : addDays(lastSeenDate, Math.round(medianGap));
 
 const seriesKey = (merchantKey: string, accountId: string, sign: -1 | 1): string =>
   `${merchantKey}\u0000${accountId}\u0000${sign}`;
@@ -212,7 +219,9 @@ export const detectFinanceRecurringSeries = (
     }
 
     const amounts = sorted.map((txn) => txn.amountMinor);
-    const expectedAmountMinor = median(amounts);
+    // `median` can be a half-integer for an even occurrence count; minor
+    // units are always integers, so round before this leaves the engine.
+    const expectedAmountMinor = roundHalfAwayFromZero(median(amounts));
     const amountToleranceMinor = Math.max(Math.round(Math.abs(expectedAmountMinor) * 0.05), 100);
     const lastSeen = sorted[sorted.length - 1];
     const nextExpectedDate = computeNextExpectedDate(lastSeen.postedDate, band, medianGap);
@@ -226,11 +235,11 @@ export const detectFinanceRecurringSeries = (
     }
 
     const toleranceDays = cadenceToleranceDays(band);
-    const missedAfterDate = addDaysPlain(nextExpectedDate, Math.round(toleranceDays));
+    const missedAfterDate = addDays(nextExpectedDate, Math.round(toleranceDays));
     if (today > missedAfterDate) {
       flags.push("missed");
       const secondCycleExpected = computeNextExpectedDate(nextExpectedDate, band, medianGap);
-      const endedAfterDate = addDaysPlain(secondCycleExpected, Math.round(toleranceDays));
+      const endedAfterDate = addDays(secondCycleExpected, Math.round(toleranceDays));
       if (today > endedAfterDate) {
         flags.push("ended");
       }
