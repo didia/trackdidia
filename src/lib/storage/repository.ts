@@ -1,3 +1,4 @@
+import type { AcceptEffect, AiProposalAcceptResult } from "../ai/proposals/accept-effect";
 import type { EmailTriageStore } from "./email-triage-store";
 import type {
   AiMemory,
@@ -168,26 +169,10 @@ export interface AppRepository {
     status: "accepted" | "dismissed",
     appliedEntityId?: string,
   ): Promise<AiProposal>;
-  acceptAiMemoryProposal(
-    proposal: AiProposal,
-    memory: AiMemory,
-  ): Promise<{ memory: AiMemory; proposal: AiProposal }>;
-  acceptAiWeeklyObjectiveProposal(
-    proposal: AiProposal,
-    objective: WeeklyObjective,
-  ): Promise<{ objective: WeeklyObjective; proposal: AiProposal }>;
-  acceptAiReviewSectionDraftProposal(
-    proposal: AiProposal,
-    review: WeeklyReview,
-  ): Promise<{ review: WeeklyReview; proposal: AiProposal }>;
-  acceptAiMonthlyReviewSectionDraftProposal(
-    proposal: AiProposal,
-    review: MonthlyReview,
-  ): Promise<{ review: MonthlyReview; proposal: AiProposal }>;
-  acceptAiGtdActionProposal(
-    proposal: AiProposal,
-    scheduledDate: string,
-  ): Promise<{ taskId: string | null; proposal: AiProposal }>;
+  acceptAiProposal(
+    proposalId: string,
+    effect: AcceptEffect | null,
+  ): Promise<AiProposalAcceptResult>;
   listAiMemories(filters?: AiMemoryFilters): Promise<AiMemory[]>;
   saveAiMemory(memory: AiMemory): Promise<AiMemory>;
   archiveAiMemory(id: string, reason: "expired" | "contradicted" | "resolved"): Promise<void>;

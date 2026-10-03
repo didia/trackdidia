@@ -1,3 +1,4 @@
+import { gtdAcceptEffectFromProposal } from "../ai/proposals/accept-effect";
 import { afterEach, vi } from "vitest";
 import { createEmptyDailyEntry, defaultAppSettings } from "../../domain/daily-entry";
 import { createEmptyMonthlyReview } from "../../domain/monthly-review";
@@ -1537,7 +1538,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         ).resolves.toEqual(expect.objectContaining({ id: "ai-message:z" }));
       });
 
-      it("acceptAiWeeklyObjectiveProposal is idempotent", async () => {
+      it("acceptAiProposal for weekly objectives is idempotent", async () => {
         const repository = await factory();
         const proposal = {
           id: "ai-proposal:objective",
@@ -1570,14 +1571,20 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           updatedAt: "2026-08-29T08:00:00.000Z",
         };
 
-        const first = await repository.acceptAiWeeklyObjectiveProposal(proposal, objective);
-        const second = await repository.acceptAiWeeklyObjectiveProposal(proposal, objective);
+        const first = await repository.acceptAiProposal(proposal.id, {
+          kind: "weeklyObjective",
+          objective: objective,
+        });
+        const second = await repository.acceptAiProposal(proposal.id, {
+          kind: "weeklyObjective",
+          objective: objective,
+        });
 
-        expect(first.objective.id).toBe(second.objective.id);
+        expect(first.appliedEntityId).toBe(second.appliedEntityId);
         expect(await repository.listWeeklyObjectives()).toHaveLength(1);
       });
 
-      it("acceptAiMonthlyReviewSectionDraftProposal is idempotent", async () => {
+      it("acceptAiProposal for monthly reviews is idempotent", async () => {
         const repository = await factory();
         const proposal = {
           id: "ai-proposal:monthly-section",
@@ -1622,10 +1629,16 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           updatedAt: "2026-08-29T08:00:00.000Z",
         };
 
-        const first = await repository.acceptAiMonthlyReviewSectionDraftProposal(proposal, review);
-        const second = await repository.acceptAiMonthlyReviewSectionDraftProposal(proposal, review);
+        const first = await repository.acceptAiProposal(proposal.id, {
+          kind: "monthlyReview",
+          review: review,
+        });
+        const second = await repository.acceptAiProposal(proposal.id, {
+          kind: "monthlyReview",
+          review: review,
+        });
 
-        expect(first.review.monthKey).toBe(second.review.monthKey);
+        expect(first.appliedEntityId).toBe(second.appliedEntityId);
         expect(first.proposal.status).toBe("accepted");
         expect(second.proposal.status).toBe("accepted");
         await expect(repository.getMonthlyReview("2026-04")).resolves.toMatchObject({
@@ -1633,7 +1646,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         });
       });
 
-      it("acceptAiGtdActionProposal skips completed tasks", async () => {
+      it("acceptAiProposal skips completed tasks", async () => {
         const repository = await factory();
         const timestamp = "2026-08-29T12:00:00.000Z";
         await repository.saveTask({
@@ -1673,8 +1686,11 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         };
         await repository.saveAiProposal(proposal);
 
-        const result = await repository.acceptAiGtdActionProposal(proposal, "2026-08-29");
-        expect(result.taskId).toBeNull();
+        const result = await repository.acceptAiProposal(
+          proposal.id,
+          gtdAcceptEffectFromProposal(proposal, "2026-08-29"),
+        );
+        expect(result.appliedEntityId).toBeNull();
         expect(result.proposal.status).toBe("pending");
       });
 
@@ -2126,7 +2142,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         expect(cleared.scheduledFor).toBeNull();
       });
 
-      it("acceptAiGtdActionProposal remains idempotent and reconciles the project atomically", async () => {
+      it("acceptAiProposal for GTD remains idempotent and reconciles the project atomically", async () => {
         const repository = await factory();
         await makeProject(repository, "project:ai");
         const active = await repository.createTask({
@@ -2154,8 +2170,11 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         };
         await repository.saveAiProposal(proposal);
 
-        const first = await repository.acceptAiGtdActionProposal(proposal, "2026-06-01");
-        expect(first.taskId).toBe(active.id);
+        const first = await repository.acceptAiProposal(
+          proposal.id,
+          gtdAcceptEffectFromProposal(proposal, "2026-06-01"),
+        );
+        expect(first.appliedEntityId).toBe(active.id);
         expect(first.proposal.status).toBe("accepted");
 
         const afterDrop = await repository.listTasks({
@@ -2164,9 +2183,12 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         });
         expect(afterDrop.find((task) => task.id === "task:ai-planned")?.bucket).toBe("next_action");
 
-        const second = await repository.acceptAiGtdActionProposal(proposal, "2026-06-01");
+        const second = await repository.acceptAiProposal(
+          proposal.id,
+          gtdAcceptEffectFromProposal(proposal, "2026-06-01"),
+        );
         expect(second.proposal.status).toBe("accepted");
-        expect(second.taskId).toBe(active.id);
+        expect(second.appliedEntityId).toBe(active.id);
 
         // A repeat call must not promote yet another planned task.
         const afterSecond = await repository.listTasks({

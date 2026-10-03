@@ -215,10 +215,10 @@ export const MonthlyReviewPage = () => {
       setReview(nextReview);
       noteRefs.current[section.sectionKey]?.setDraft(section.text);
 
-      const accepted = await repository.acceptAiMonthlyReviewSectionDraftProposal(
-        proposal,
-        nextReview,
-      );
+      const accepted = await repository.acceptAiProposal(proposal.id, {
+        kind: "monthlyReview",
+        review: nextReview,
+      });
       setSynthesisResult((current) =>
         current
           ? {

@@ -100,12 +100,25 @@ history ending at a calendar date, `listDailyEntriesInRange(startDate, endDate)`
 (persisted daily rows without GTD/Pomodoro decoration, unlike the capped list
 helpers), `listWeeklyReviewsOverlapping(startDate, endDate)`, and
 `listMonthlyReviewsOverlapping(startDate, endDate)` for the Journal timeline, and
-atomic accept methods for synthesis proposals (`acceptAiWeeklyObjectiveProposal`,
-`acceptAiReviewSectionDraftProposal`, `acceptAiMonthlyReviewSectionDraftProposal`,
-`acceptAiGtdActionProposal`).
+the [atomic AI proposal acceptance operation](#atomic-ai-proposal-acceptance)
+(`acceptAiProposal`).
 
 The SQLite and memory implementations must remain behaviorally aligned, except for
 native-only storage information and backup creation.
+
+## Atomic AI proposal acceptance
+
+`AppRepository.acceptAiProposal(proposalId, effect)` handles memory, weekly
+objective, weekly/monthly review, and GTD effects through one decision path. It
+loads the proposal by ID, returns the recorded applied ID when already accepted,
+applies a new effect, and marks the proposal accepted together. A null effect or a
+missing/inactive task leaves the proposal pending. Task changes use the current
+stored task; a recurring drop resets its template backlog alongside lifecycle
+and project reconciliation changes.
+
+SQLite uses the writer transaction. The memory implementation applies its
+internal writers synchronously and restores affected maps on failure, so no async
+caller can interleave with the effect and decision. Memory remains non-persistent.
 
 ## Migration system
 

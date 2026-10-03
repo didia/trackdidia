@@ -159,8 +159,14 @@ Phase 3 proposal types:
 | `memory` | Creates an `ai_memories` row from a distillation candidate |
 
 Accepting `memory` or `commitment` persists the memory row and proposal decision
-atomically via `acceptAiMemoryProposal`, using a stable memory id derived from the
-proposal id so retries reconcile instead of duplicating.
+atomically via `acceptAiProposal(proposalId, effect)`, using a stable memory id
+derived from the proposal id so retries reconcile instead of duplicating. This
+primitive also handles weekly objectives, weekly/monthly ritual notes, and GTD
+actions; each effect and its decision share one write boundary. Repeat accepts
+return the stored applied ID without applying the effect again. GTD actions read
+the current task in that boundary, reuse a pure mutation helper, and leave missing
+or inactive tasks pending. Dropping a recurring task also resets the template
+backlog in the same boundary.
 
 Proposals are stored in `ai_proposals` with `pending | accepted | dismissed | expired`
 status. Draft accepts (`intention_draft`, `tomorrow_focus_draft`) save the journal
