@@ -6,7 +6,7 @@ import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
 import { formatDateShort, getTodayDate } from "../lib/date";
 import { createEntityId } from "../lib/gtd/shared";
-import { addDays } from "../lib/gtd/shared";
+import { addDays } from "../lib/date";
 import { projectsForAssignment, projectAssignmentLabel } from "../lib/gtd/engine";
 import { createRecurringTemplate, findNextRecurringDate } from "../lib/recurring/engine";
 

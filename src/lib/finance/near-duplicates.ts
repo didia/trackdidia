@@ -37,22 +37,21 @@ const dateDiffDays = (a: string, b: string): number =>
 
 /** Dice coefficient over normalized description tokens, in [0, 1]. */
 export const descriptionSimilarity = (a: string, b: string): number => {
-  const tokensA = normalizeDescription(a).split(" ").filter(Boolean);
-  const tokensB = normalizeDescription(b).split(" ").filter(Boolean);
+  const setA = new Set(normalizeDescription(a).split(" ").filter(Boolean));
+  const setB = new Set(normalizeDescription(b).split(" ").filter(Boolean));
 
-  if (tokensA.length === 0 || tokensB.length === 0) {
+  if (setA.size === 0 || setB.size === 0) {
     return 0;
   }
 
-  const setB = new Set(tokensB);
   let shared = 0;
-  for (const token of tokensA) {
+  for (const token of setA) {
     if (setB.has(token)) {
       shared += 1;
     }
   }
 
-  return (2 * shared) / (tokensA.length + tokensB.length);
+  return (2 * shared) / (setA.size + setB.size);
 };
 
 /**

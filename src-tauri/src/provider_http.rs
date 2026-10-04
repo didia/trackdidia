@@ -7,6 +7,7 @@ use std::collections::HashMap;
 
 const DEFAULT_TIMEOUT_MS: u64 = 20_000;
 const MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
+const MAX_RESCUETIME_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 
 const ALLOWED_HOSTS: &[&str] = &[
     "oauth2.googleapis.com",
@@ -17,6 +18,7 @@ const ALLOWED_HOSTS: &[&str] = &[
     "graph.microsoft.com",
     "openrouter.ai",
     "api.openrouter.ai",
+    "www.rescuetime.com",
 ];
 
 #[derive(Deserialize)]
@@ -77,6 +79,15 @@ fn redirect_policy(headers: &HeaderMap) -> Policy {
 #[tauri::command]
 pub async fn provider_http_request(request: ProviderHttpRequest) -> Result<ProviderHttpResponse, String> {
     validate_request_url(&request.url)?;
+    let is_rescuetime = reqwest::Url::parse(&request.url)
+        .ok()
+        .and_then(|url| url.host_str().map(|host| host.eq_ignore_ascii_case("www.rescuetime.com")))
+        .unwrap_or(false);
+    let max_response_bytes = if is_rescuetime {
+        MAX_RESCUETIME_RESPONSE_BYTES
+    } else {
+        MAX_RESPONSE_BYTES
+    };
 
     let method = Method::from_bytes(request.method.as_bytes())
         .map_err(|error| format!("Invalid HTTP method: {error}"))?;
@@ -113,7 +124,7 @@ pub async fn provider_http_request(request: ProviderHttpRequest) -> Result<Provi
     while let Some(chunk) = stream.next().await {
         let chunk =
             chunk.map_err(|error| sanitize_error_message(format!("HTTP response unreadable: {error}")))?;
-        if body.len() + chunk.len() > MAX_RESPONSE_BYTES {
+        if body.len() + chunk.len() > max_response_bytes {
             return Err("HTTP response too large".to_string());
         }
         body.extend_from_slice(&chunk);
@@ -122,4 +133,17 @@ pub async fn provider_http_request(request: ProviderHttpRequest) -> Result<Provi
     let body = String::from_utf8(body).map_err(|_| "HTTP response is not valid UTF-8".to_string())?;
 
     Ok(ProviderHttpResponse { status, body })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_request_url;
+
+    #[test]
+    fn rescuetime_is_allowlisted_only_on_https() {
+        assert!(validate_request_url("https://www.rescuetime.com/anapi/data").is_ok());
+        assert!(validate_request_url("http://www.rescuetime.com/anapi/data").is_err());
+        assert!(validate_request_url("https://rescuetime.com/anapi/data").is_err());
+        assert!(validate_request_url("https://www.rescuetime.com.evil.example/anapi/data").is_err());
+    }
 }

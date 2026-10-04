@@ -1,4 +1,4 @@
-import { addDays } from "../../lib/gtd/shared";
+import { addDays } from "../../lib/date";
 import { createEmptyDailyEntry, updatePrinciple } from "../daily-entry";
 import type { DailyEntry } from "../types";
 import { computeCorrelationFindings } from "./correlations";

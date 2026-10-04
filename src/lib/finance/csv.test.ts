@@ -80,3 +80,11 @@ describe("finance csv parser", () => {
     expect(() => parseCsv('"unterminated quote\nDate,Amount\n1/2/2026,-5.00')).not.toThrow();
   });
 });
+
+describe("unterminated quotes", () => {
+  it("warns and drops the merged record", () => {
+    const result = parseCsv('Date,Description\n2026-01-01,"broken\n2026-01-02,Good\n');
+    expect(result.rows).toHaveLength(0);
+    expect(result.warnings.join(" ")).toContain("unterminated");
+  });
+});

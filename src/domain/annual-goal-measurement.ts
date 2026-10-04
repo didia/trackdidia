@@ -1,4 +1,4 @@
-import { addDays } from "../lib/gtd/shared";
+import { addDays, atLocalNoon } from "../lib/date";
 import {
   ANNUAL_GOAL_PACE_TOLERANCE,
   computeYearProgressFraction,
@@ -60,9 +60,9 @@ const computeFractionElapsedBetween = (
   endDate: string,
   asOfDate: string,
 ): number => {
-  const start = new Date(`${startDate}T12:00:00`);
-  const end = new Date(`${endDate}T12:00:00`);
-  const asOf = new Date(`${asOfDate}T12:00:00`);
+  const start = atLocalNoon(startDate);
+  const end = atLocalNoon(endDate);
+  const asOf = atLocalNoon(asOfDate);
 
   if (asOf <= start) {
     return 0;

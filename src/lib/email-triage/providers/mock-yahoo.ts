@@ -156,24 +156,24 @@ const parseMockProviderMessageId = (providerMessageId: string): { uid: number } 
 export class RepositoryBackedYahooConversationResolver implements YahooConversationResolver {
   constructor(
     private readonly accountId: string,
-    private readonly repository: {
-      emailTriageFindConversationKeyByMessageId(
+    private readonly store: {
+      findConversationKeyByMessageId(
         accountId: string,
         messageIdHeader: string,
-      ): Promise<string | null>;
-      emailTriageSaveAlias(
+      ): string | null | Promise<string | null>;
+      saveAlias(
         accountId: string,
         conversationKey: string,
         messageIdHeader: string,
-      ): Promise<void>;
+      ): void | Promise<void>;
     },
   ) {}
 
-  findConversationKeyByMessageId(messageId: string): Promise<string | null> {
-    return this.repository.emailTriageFindConversationKeyByMessageId(this.accountId, messageId);
+  async findConversationKeyByMessageId(messageId: string): Promise<string | null> {
+    return this.store.findConversationKeyByMessageId(this.accountId, messageId);
   }
 
-  registerAlias(messageIdHeader: string, conversationKey: string): Promise<void> {
-    return this.repository.emailTriageSaveAlias(this.accountId, conversationKey, messageIdHeader);
+  async registerAlias(messageIdHeader: string, conversationKey: string): Promise<void> {
+    await this.store.saveAlias(this.accountId, conversationKey, messageIdHeader);
   }
 }

@@ -7,6 +7,21 @@ slice persists accounts, conversations, classification metadata, reviews, desire
 and audit data. Live Gmail, Microsoft Graph, and Yahoo adapters sync on desktop. **Slice 5**
 adds system-tray hide-on-close, launch-at-login, and gated automatic provider mutation.
 
+Email persistence is exposed through `AppRepository.emailTriage`, whose
+`EmailTriageStore` contract is implemented by the SQLite and in-memory stores.
+The browser store remains non-persistent across reloads.
+
+Review creation, resolution, dismissal, and GTD task changes use shared pure
+planners. Every SQLite email mutation joins the repository writer queue and runs
+in one transaction; composed operations reuse that transaction. Resolving a review
+commits its decision, audit record, conversation version, message routing, GTD task,
+and lifecycle events together. A failed write leaves the review pending and permits
+a retry. The memory store restores its email and GTD maps on failure.
+
+Message batches also commit messages and classification attempts together. Each
+message requires one identity lookup before its upsert. Concurrent review decisions
+still enforce the expected conversation version and compare-and-set errors.
+
 ## Shipped in this slice
 
 ### Tray and launch-at-login (slice 5)
@@ -43,6 +58,23 @@ adds system-tray hide-on-close, launch-at-login, and gated automatic provider mu
   (permanent dismiss: all pending reviews for that conversation, `routingState: dismissed`,
   no provider mutation)
 - Tray and autostart preference apply failures surface independently and do not abort settings save
+
+### Shared OAuth lifecycle
+
+Gmail and Microsoft descriptors in `src/lib/email-triage/oauth/providers.ts`
+supply authorization URLs, client-ID selection, profile identity, initial sync
+state and error policies to one `connectOAuthAccount` path. It validates PKCE
+state and reconnect identity/generation before credential persistence, then
+schedules the account. Temporary bootstrap access tokens are cleared even when
+a profile request fails.
+
+`oauth/shared.ts` owns form-encoded token exchange/refresh, guarded JSON decoding,
+credential serialization and address masking. Session and adapter orchestration
+lives in `provider-session.ts`; the old Gmail session module remains a compatibility
+export. Access tokens stay in memory, refresh credentials stay in the OS vault,
+and Microsoft rotation preserves the stored scope. Provider-specific reconnect
+and consent behavior is retained. These modules do not log credentials, codes,
+verifiers or token responses.
 
 ### Gmail (slice 2)
 

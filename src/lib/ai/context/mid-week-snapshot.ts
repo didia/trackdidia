@@ -6,7 +6,7 @@ import {
 } from "../../../domain/mid-week-review";
 import type { AiPayloadScope, DailyEntry } from "../../../domain/types";
 import { t } from "../../../i18n";
-import { addDays } from "../../gtd/shared";
+import { addDays } from "../../date";
 import type { Surface } from "./types";
 
 const NOTE_CHAR_CAP = 1_200;

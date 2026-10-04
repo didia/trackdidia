@@ -1,12 +1,50 @@
 import { t } from "../i18n";
 
-export const getTodayDate = (): string => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
+/** Format an instant using the user's local calendar date. */
+export const toLocalDateString = (value: string | Date): string => {
+  const date = typeof value === "string" ? new Date(value) : value;
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 };
+
+export const atLocalNoon = (date: string): Date => new Date(`${date}T12:00:00`);
+
+export const addDays = (date: string, amount: number): string => {
+  const next = atLocalNoon(date);
+  next.setDate(next.getDate() + amount);
+  return toLocalDateString(next);
+};
+
+export const isSunday = (date: string): boolean => atLocalNoon(date).getDay() === 0;
+
+export const isWednesday = (date: string): boolean => atLocalNoon(date).getDay() === 3;
+
+export const getWeekStartSunday = (date: string): string => {
+  const current = atLocalNoon(date);
+  current.setDate(current.getDate() - current.getDay());
+  return toLocalDateString(current);
+};
+
+export const getDayRange = (date: string): { startMs: number; endMs: number } => {
+  const start = new Date(`${date}T00:00:00`);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return { startMs: start.getTime(), endMs: end.getTime() };
+};
+
+/** Extract a month key from a local date key or a Date instant. */
+export const toMonthKey = (value: string | Date): string =>
+  (typeof value === "string" ? value : toLocalDateString(value)).slice(0, 7);
+
+export const addMonths = (monthKey: string, amount: number): string => {
+  const next = atLocalNoon(`${monthKey}-01`);
+  next.setMonth(next.getMonth() + amount);
+  return toMonthKey(next);
+};
+
+export const getTodayDate = (): string => toLocalDateString(new Date());
 
 /** Milliseconds until the next local midnight, at least 1ms to avoid a 0-delay loop. */
 export const msUntilNextLocalMidnight = (now = new Date()): number => {
@@ -27,13 +65,13 @@ export const formatDateLong = (date: string): string =>
     year: "numeric",
     month: "long",
     day: "numeric",
-  }).format(new Date(`${date}T12:00:00`));
+  }).format(atLocalNoon(date));
 
 export const formatDateShort = (date: string): string =>
   new Intl.DateTimeFormat("fr-CA", {
     month: "short",
     day: "numeric",
-  }).format(new Date(`${date}T12:00:00`));
+  }).format(atLocalNoon(date));
 
 export const formatDateTimeShort = (value: string): string =>
   new Intl.DateTimeFormat("fr-CA", {
@@ -48,11 +86,7 @@ export const toLocalDateInputValue = (value: string | null): string => {
     return "";
   }
 
-  const date = new Date(value);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return toLocalDateString(value);
 };
 
 export const toLocalTimeInputValue = (value: string | null): string => {

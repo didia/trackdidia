@@ -57,6 +57,16 @@ The desktop host owns a single-connection sqlx pool (`src-tauri/src/db.rs`) and
 exposes it as `db_connect` / `db_execute` / `db_select`. TypeScript still owns
 queries and migrations; it does not use `tauri-plugin-sql`.
 
+The native wrapper, email store, transaction helper, and test adapter implement
+`src/lib/storage/sqlite-db.ts`. Table mappings in `src/lib/storage/sqlite/rows/`
+own their row shape, selected/inserted columns, decoding, and bound values.
+Normal task saves and Google Tasks import share the complete task insert; import
+uses `ON CONFLICT(id) DO NOTHING`, while saves update the existing row. Legacy
+JSON handling and null defaults remain in the corresponding mapper.
+Mapper tests cover bound-value round trips and inserts into migrated tables read
+through repository queries, so an omitted selected column is checked separately
+from the insert mapping.
+
 The pool uses `max_connections(1)`, `min_connections(1)`, `idle_timeout(None)`,
 and `max_lifetime(None)`. JS issues `BEGIN IMMEDIATE` / `COMMIT` as separate
 commands, so one physical connection must stay open for the process lifetime.
@@ -64,9 +74,20 @@ Capping `max_connections` alone is not enough: sqlx can still close that
 connection between statements via its idle-timeout or max-lifetime reapers.
 
 Startup also sets `PRAGMA journal_mode=WAL` and `PRAGMA busy_timeout = 5000`.
-WAL lets readers proceed during a write. Multi-statement transactions go through
-`runExclusive` so concurrent JS callers do not interleave statements on the
-shared connection.
+WAL lets readers proceed during a write. `TauriSqliteRepository.writeTransaction`
+acquires the writer queue, runs `BEGIN IMMEDIATE`, and commits when its callback
+resolves, including an early return. A callback or commit failure triggers a
+best-effort rollback that preserves the primary error. `writeExclusive` names
+queue-only operations, so those callers do not interleave with transactions.
+
+Transactional internal writers receive a branded `TxContext`, checked at runtime
+for an active callback lifetime. They reuse it rather than entering the writer
+queue again. Direct nesting on the same connection is rejected; re-entering the
+writer queue remains prohibited and covered by its watchdog. Public weekly/monthly
+review, weekly objective, and AI memory saves acquire a transaction before invoking
+their internal writer. The migration runner uses the same transaction lifecycle.
+Email mutations use this queue and transaction context too; see the
+[email atomicity contract](email-triage.md) for composed review and task writes.
 
 Changing the Tauri identifier changes the app-data location from the operating
 system's perspective. Do not change it without a deliberate user-data migration.
@@ -91,28 +112,56 @@ history ending at a calendar date, `listDailyEntriesInRange(startDate, endDate)`
 (persisted daily rows without GTD/Pomodoro decoration, unlike the capped list
 helpers), `listWeeklyReviewsOverlapping(startDate, endDate)`, and
 `listMonthlyReviewsOverlapping(startDate, endDate)` for the Journal timeline, and
-atomic accept methods for synthesis proposals (`acceptAiWeeklyObjectiveProposal`,
-`acceptAiReviewSectionDraftProposal`, `acceptAiMonthlyReviewSectionDraftProposal`,
-`acceptAiGtdActionProposal`).
+the [atomic AI proposal acceptance operation](#atomic-ai-proposal-acceptance)
+(`acceptAiProposal`).
 
 The SQLite and memory implementations must remain behaviorally aligned, except for
 native-only storage information and backup creation.
 
+## Atomic AI proposal acceptance
+
+`AppRepository.acceptAiProposal(proposalId, effect)` handles memory, weekly
+objective, daily entry, goal evaluation, weekly/monthly review, and GTD effects through one decision path. It
+loads the proposal by ID, returns the recorded applied ID when already accepted,
+applies a new effect, and marks the proposal accepted together. A null effect or a
+missing/inactive task or missing goal leaves the proposal pending. Dismissed and
+expired proposals cannot apply new effects. Task changes use the current
+stored task; a recurring drop resets its template backlog alongside lifecycle
+and project reconciliation changes.
+
+SQLite uses the writer transaction. The memory implementation applies its
+internal writers synchronously and restores affected maps on failure, so no async
+caller can interleave with the effect and decision. Memory remains non-persistent.
+
 ## Migration system
 
 The `migrations` array in
-`src/lib/storage/tauri-sqlite-repository.ts` is the schema source of truth.
+[`src/lib/storage/migrations/index.ts`](../src/lib/storage/migrations/index.ts)
+is the schema source of truth. Its `runMigrations(db)` runner is called by repository
+initialization.
 
 Startup:
 
 1. Open the database.
 2. Create `schema_migrations`.
 3. Read applied IDs.
-4. Execute unapplied migrations in ascending array order.
-5. Insert each applied migration ID/name/timestamp.
+4. Execute each unapplied migration in ascending array order, with its ledger
+   ID/name/timestamp insert in the same `BEGIN IMMEDIATE` transaction.
+5. Commit on success; roll back both schema changes and the ledger on failure.
 6. Seed the singleton settings row when absent.
 
-Never renumber or rewrite a released migration. Add the next ID.
+Never renumber or rewrite a released migration. Add the next ID. Tests retain the
+IDs, names, and SHA-256 hashes of the first 36 shipped SQL strings.
+
+Column guards live beside migrations 26, 33, and 34 as
+`guards.skipIfColumnExists`. The generic resolver checks table columns and skips
+only the named `ALTER TABLE` statement when it already exists; repeatable indexes
+and normalization statements still run. This lets an older partially applied
+database record the migration safely.
+
+`relocateDimancheNotesOnce` remains a settings-marker data normalization after
+schema initialization. It changes review content rather than the schema and keeps
+its existing idempotent `dimancheNotesRelocatedAt` marker.
 
 ### Current migration catalog
 
@@ -155,6 +204,7 @@ Never renumber or rewrite a released migration. Add the next ID.
 | 35 | `create_rescuetime_snapshot_cache` | Creates `rescuetime_snapshot_cache` (`week_start_date`, `kind`, `credential_fingerprint`, `payload_json`, `fetched_at`; primary key on the first three) |
 | 36 | `create_mid_week_decisions` | Creates `mid_week_decisions` (one row per week: decisions text, `decided_on_date`, nullable `lagging_snapshot_json`, `updated_at`) |
 | 37 | `add_finance_foundation` | Creates the fourteen `finance_*` tables (people, accounts, categories, transactions, transaction splits, rules, merchant memory, category suggestions, budget entries/months, recurring series, account balance snapshots, import profiles, import batches) and their indexes; inserts the three system categories (`fincat:non-categorise`, `fincat:transfert`, `fincat:split`) |
+| 38 | `add_finance_import_profile_separators` | Adds nullable `decimal_separator` / `thousands_separator` columns to `finance_import_profiles` via guarded, idempotent `ALTER TABLE` |
 
 ## Table reference
 
@@ -191,8 +241,11 @@ Singleton row constrained to `id = 1`.
 | `id` | Always `1` |
 | `value` | Serialized `AppSettings`, including the optional OpenRouter key |
 
-Settings are merged with current defaults on read, which lets newly introduced
-settings appear on existing installations without an immediate JSON backfill.
+Settings are normalized by `src/domain/settings.ts` on read, which lets newly
+introduced settings appear without an immediate JSON backfill. Application writes
+use `updateSettings` to read, apply a synchronous updater and persist in one writer
+transaction. See [settings storage](ai-settings-and-privacy.md#settings-storage)
+for field ownership and form behavior.
 
 ### `gtd_contexts`
 

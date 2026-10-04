@@ -1,3 +1,5 @@
+import type { AcceptEffect, AiProposalAcceptResult } from "../ai/proposals/accept-effect";
+import type { EmailTriageStore } from "./email-triage-store";
 import type {
   AiMemory,
   AiMemoryFilters,
@@ -155,15 +157,9 @@ export interface AppRepository {
   computeAnnualGoalSnapshots(year: number, asOfDate?: string): Promise<AnnualGoalSnapshot[]>;
   getSettings(): Promise<AppSettings>;
   saveSettings(settings: AppSettings): Promise<void>;
-  /**
-   * Atomically merges `candidate` into `settings.aiPastorCustomVerses` ("Ajouter à ma liste"):
-   * reads the settings row and writes the merged result as a single serialized operation, so a
-   * concurrent `saveSettings` call for an unrelated field (pulse/backup metadata) cannot lose
-   * this addition, and this addition cannot lose that concurrent write. Scoped to this one field
-   * rather than a generic settings patch — see docs/ai-settings-and-privacy.md. `added` is
-   * `false` when the reference already exists in the merged catalog (no-op, current settings
-   * returned unchanged).
-   */
+  /** Read, apply and persist within one writer slot. The updater must be synchronous. */
+  updateSettings(updater: (current: AppSettings) => AppSettings): Promise<AppSettings>;
+  /** Convenience wrapper over updateSettings; duplicate references are harmless. */
   addPastorCustomVerse(candidate: CatalogVerse): Promise<{ added: boolean; settings: AppSettings }>;
   getAiMessage(surface: AiSurface, scopeKey: string, inputHash: string): Promise<AiMessage | null>;
   /** Latest row for surface/scope/hash regardless of status (e.g. weekly distill markers). */
@@ -196,26 +192,10 @@ export interface AppRepository {
     status: "accepted" | "dismissed",
     appliedEntityId?: string,
   ): Promise<AiProposal>;
-  acceptAiMemoryProposal(
-    proposal: AiProposal,
-    memory: AiMemory,
-  ): Promise<{ memory: AiMemory; proposal: AiProposal }>;
-  acceptAiWeeklyObjectiveProposal(
-    proposal: AiProposal,
-    objective: WeeklyObjective,
-  ): Promise<{ objective: WeeklyObjective; proposal: AiProposal }>;
-  acceptAiReviewSectionDraftProposal(
-    proposal: AiProposal,
-    review: WeeklyReview,
-  ): Promise<{ review: WeeklyReview; proposal: AiProposal }>;
-  acceptAiMonthlyReviewSectionDraftProposal(
-    proposal: AiProposal,
-    review: MonthlyReview,
-  ): Promise<{ review: MonthlyReview; proposal: AiProposal }>;
-  acceptAiGtdActionProposal(
-    proposal: AiProposal,
-    scheduledDate: string,
-  ): Promise<{ taskId: string | null; proposal: AiProposal }>;
+  acceptAiProposal(
+    proposalId: string,
+    effect: AcceptEffect | null,
+  ): Promise<AiProposalAcceptResult>;
   listAiMemories(filters?: AiMemoryFilters): Promise<AiMemory[]>;
   saveAiMemory(memory: AiMemory): Promise<AiMemory>;
   archiveAiMemory(id: string, reason: "expired" | "contradicted" | "resolved"): Promise<void>;
@@ -288,103 +268,7 @@ export interface AppRepository {
     scope: RecurringEditScope,
     changes: RecurringTaskChanges,
   ): Promise<Task>;
-  getEmailTriageGlobalSettings(): Promise<
-    import("../../domain/email-triage").EmailTriageGlobalSettings
-  >;
-  saveEmailTriageGlobalSettings(
-    settings: import("../../domain/email-triage").EmailTriageGlobalSettings,
-  ): Promise<void>;
-  listEmailTriageAccounts(): Promise<import("../../domain/email-triage").EmailTriageAccount[]>;
-  getEmailTriageAccount(
-    accountId: string,
-  ): Promise<import("../../domain/email-triage").EmailTriageAccount | null>;
-  saveEmailTriageAccount(
-    account: import("../../domain/email-triage").EmailTriageAccount,
-  ): Promise<import("../../domain/email-triage").EmailTriageAccount>;
-  deleteEmailTriageAccount(accountId: string): Promise<void>;
-  listEmailTriageReviews(
-    status?: import("../../domain/email-triage").EmailTriageReview["status"],
-  ): Promise<import("../../domain/email-triage").EmailTriageReview[]>;
-  resolveEmailTriageReview(input: {
-    reviewId: string;
-    expectedDecisionVersion: number;
-    resolution: import("../../domain/email-triage").EmailTriageReview["resolution"];
-    ignoreReason?: string | null;
-  }): Promise<import("../../domain/email-triage").EmailTriageReview>;
-  listEmailTriageEvaluations(
-    limit?: number,
-  ): Promise<import("../../domain/email-triage").EmailTriageEvaluation[]>;
-  saveEmailTriageEvaluation(
-    evaluation: import("../../domain/email-triage").EmailTriageEvaluation,
-  ): Promise<import("../../domain/email-triage").EmailTriageEvaluation>;
-  getLatestMatchingEmailTriageEvaluation(
-    settings: import("../../domain/email-triage").EmailTriageGlobalSettings,
-  ): Promise<import("../../domain/email-triage").EmailTriageEvaluation | null>;
-  dismissEmailTriageReview(
-    reviewId: string,
-  ): Promise<import("../../domain/email-triage").EmailTriageReview>;
-  listEmailTriageAuditEvents(
-    accountId?: string,
-    limit?: number,
-  ): Promise<import("../../domain/email-triage").EmailTriageAuditEvent[]>;
-  recoverEmailTriageStaleEffects(): Promise<number>;
-  emailTriageUpsertConversation(
-    accountId: string,
-    conversationKey: string,
-    patch: Partial<import("../../domain/email-triage").EmailTriageConversation>,
-  ): Promise<import("../../domain/email-triage").EmailTriageConversation>;
-  emailTriageGetConversationByKey(
-    accountId: string,
-    conversationKey: string,
-  ): Promise<import("../../domain/email-triage").EmailTriageConversation | null>;
-  emailTriageUpdateAccountSyncState(
-    accountId: string,
-    syncState: Record<string, unknown>,
-    patch?: Partial<import("../../domain/email-triage").EmailTriageAccount>,
-  ): Promise<import("../../domain/email-triage").EmailTriageAccount>;
-  emailTriagePersistMessageBatch(
-    input: import("../email-triage/sync-engine").PersistMessageBatchInput,
-  ): Promise<import("../email-triage/sync-engine").PersistMessageBatchResult>;
-  emailTriageGetMessageByProviderId(
-    accountId: string,
-    providerMessageId: string,
-  ): Promise<import("../../domain/email-triage").EmailTriageMessage | null>;
-  emailTriageGetConversation(
-    conversationId: string,
-  ): Promise<import("../../domain/email-triage").EmailTriageConversation | null>;
-  emailTriageDismissPendingReviews(conversationId: string): Promise<void>;
-  emailTriageListPendingEffects(
-    conversationId: string,
-  ): Promise<import("../../domain/email-triage").EmailTriageDesiredEffect[]>;
-  emailTriageListPendingEffectsForAccount(
-    accountId: string,
-  ): Promise<import("../../domain/email-triage").EmailTriageDesiredEffect[]>;
-  emailTriageSaveDesiredEffect(
-    effect: import("../../domain/email-triage").EmailTriageDesiredEffect,
-  ): Promise<import("../../domain/email-triage").EmailTriageDesiredEffect>;
-  emailTriageGetTaskByExternalId(externalId: string): Promise<Task | null>;
-  emailTriageApplyGtdUpdate(
-    input: import("../email-triage/sync-engine").ApplyGtdUpdateInput,
-  ): Promise<Task | null>;
-  emailTriageCreateReview(
-    input: import("../email-triage/sync-engine").CreateReviewInput,
-  ): Promise<import("../../domain/email-triage").EmailTriageReview>;
-  listEmailTriageMessages(
-    accountId: string,
-    limit?: number,
-  ): Promise<import("../../domain/email-triage").EmailTriageMessage[]>;
-  listEmailTriageClassificationAttempts(
-    messageId: string,
-  ): Promise<import("../../domain/email-triage").EmailTriageClassificationAttempt[]>;
-  emailTriageFindConversationKeyByMessageId(
-    accountId: string,
-    messageIdHeader: string,
-  ): Promise<string | null>;
-  emailTriageSaveAlias(
-    accountId: string,
-    conversationKey: string,
-    messageIdHeader: string,
-  ): Promise<void>;
+  readonly emailTriage: EmailTriageStore;
 
   // --- Finance (Phase 2 — Schema and repository parity) ---------------------------------
 
@@ -435,7 +319,7 @@ export interface AppRepository {
   saveFinanceImportProfile(profile: FinanceImportProfile): Promise<FinanceImportProfile>;
   findFinanceImportProfileBySignature(signature: string): Promise<FinanceImportProfile | null>;
   /**
-   * One `runExclusive` block / one `BEGIN IMMEDIATE`: chunked multi-row inserts, exact-hash
+   * One `writeExclusive` block / one `BEGIN IMMEDIATE`: chunked multi-row inserts, exact-hash
    * dedupe, near-duplicate detection, and transfer detection across the whole history. See
    * specs/todo/finance.md "Write-path discipline".
    */

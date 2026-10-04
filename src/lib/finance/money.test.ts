@@ -4,6 +4,7 @@ import {
   formatMoney,
   formatMoneySigned,
   minorToInputString,
+  normalizeCurrencyCode,
   parseAmountToMinor,
   sumMoney,
 } from "./money";
@@ -20,7 +21,7 @@ describe("finance money", () => {
   });
 
   it("respects explicit decimalSeparator/thousandsSeparator options over the ambiguity heuristic", () => {
-    expect(parseAmountToMinor("1.234", { decimalSeparator: ".", thousandsSeparator: "" })).toEqual({
+    expect(parseAmountToMinor("1.23", { decimalSeparator: ".", thousandsSeparator: "" })).toEqual({
       ok: true,
       amountMinor: 123,
     });
@@ -119,5 +120,28 @@ describe("finance money", () => {
       ok: true,
       amountMinor: -123456,
     });
+  });
+});
+
+describe("parseAmountToMinor strictness", () => {
+  it("rejects malformed grouping and excess precision", () => {
+    expect(parseAmountToMinor("12.34.56").ok).toBe(false);
+    expect(parseAmountToMinor("1,23,4").ok).toBe(false);
+    expect(parseAmountToMinor("1.999", { exponent: 2, decimalSeparator: "." }).ok).toBe(false);
+    expect(parseAmountToMinor("1.5", { exponent: 0, decimalSeparator: "." }).ok).toBe(false);
+    expect(parseAmountToMinor("1,234,567.89")).toEqual({ ok: true, amountMinor: 123456789 });
+  });
+});
+
+describe("currency validation", () => {
+  it("normalizes valid codes and rejects malformed ones", () => {
+    expect(normalizeCurrencyCode(" cad ")).toBe("CAD");
+    expect(normalizeCurrencyCode("CA")).toBeNull();
+    expect(normalizeCurrencyCode("")).toBeNull();
+    expect(normalizeCurrencyCode("C4D")).toBeNull();
+  });
+
+  it("formatMoney does not throw on a malformed stored currency", () => {
+    expect(() => formatMoney({ amountMinor: 1234, currency: "CA" })).not.toThrow();
   });
 });

@@ -5,24 +5,17 @@ import type {
   RecurringTemplateFilters,
   Task,
 } from "../../domain/types";
-import { cloneTask, createEntityId, toLocalDateString } from "../gtd/shared";
+import { addDays, atLocalNoon, toLocalDateString } from "../date";
+import { cloneTask, createEntityId } from "../gtd/shared";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
-const atLocalNoon = (date: string): Date => new Date(`${date}T12:00:00`);
-
-const addDays = (date: string, amount: number): string => {
-  const next = atLocalNoon(date);
-  next.setDate(next.getDate() + amount);
-  return toLocalDateString(next);
-};
 
 const diffDays = (left: string, right: string): number =>
   Math.floor((atLocalNoon(left).getTime() - atLocalNoon(right).getTime()) / MS_PER_DAY);
 
 const buildScheduledFor = (date: string, time: string | null): string | null => {
   if (!time) {
-    return new Date(`${date}T12:00:00`).toISOString();
+    return atLocalNoon(date).toISOString();
   }
 
   return new Date(`${date}T${time}:00`).toISOString();

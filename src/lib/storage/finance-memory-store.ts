@@ -54,6 +54,7 @@ import {
 } from "../finance/import-profile";
 import { applyMerchantMemoryCorrection } from "../finance/memory";
 import { findNearDuplicates } from "../finance/near-duplicates";
+import { validateSplitTotal } from "../finance/splits";
 import { detectTransfers, type TransferCandidateTransaction } from "../finance/transfers";
 import { createEntityId, nowIso } from "../gtd/shared";
 
@@ -204,6 +205,17 @@ export class FinanceMemoryStore {
       if (txn.categoryId === id) {
         this.transactions.set(txn.id, { ...txn, categoryId: reassignToId, updatedAt: nowIso() });
         reassigned += 1;
+      }
+    }
+    for (const [splitId, split] of this.splits.entries()) {
+      if (split.categoryId === id) {
+        this.splits.set(splitId, { ...split, categoryId: reassignToId });
+        reassigned += 1;
+      }
+    }
+    for (const [key, entry] of this.merchantMemory.entries()) {
+      if (entry.categoryId === id) {
+        this.merchantMemory.set(key, { ...entry, categoryId: reassignToId, updatedAt: nowIso() });
       }
     }
     const category = this.categories.get(id);
@@ -387,6 +399,8 @@ export class FinanceMemoryStore {
       updatedAt: now,
     });
 
+    this.retirePendingSuggestions(txn.id);
+
     let updated = 1;
     const backfill: FinanceCategoryBackfillEntry[] = [];
     if (input.scope === "all_matching") {
@@ -403,10 +417,13 @@ export class FinanceMemoryStore {
             categoryConfidence: candidate.categoryConfidence,
             categorizedAt: candidate.categorizedAt,
             appliedCategoryId: input.categoryId,
+            appliedAt: now,
           });
+          this.retirePendingSuggestions(candidate.id);
           this.transactions.set(candidate.id, {
             ...candidate,
             categoryId: input.categoryId,
+            categorySource: "user",
             categoryConfidence: null,
             categorizedAt: now,
             updatedAt: now,
@@ -434,10 +451,10 @@ export class FinanceMemoryStore {
 
   /**
    * Reverts the `backfill` entries from a `scope: "all_matching"` call — a
-   * single undo. Skips (and does not count) a row whose `category_source`
-   * is now `"user"` or whose current `category_id` no longer equals
-   * `entry.appliedCategoryId` — either means something else touched the row
-   * after the bulk edit, and an undo of the older edit must not clobber it.
+   * a row whose `category_id` no longer equals `entry.appliedCategoryId` or whose
+   * `categorized_at` is no longer `entry.appliedAt` — either means something else
+   * touched the row after the bulk edit, and an undo of the older edit must not
+   * clobber it. Bulk-edited rows are `user`-owned, so they stay protected from automation.
    */
   revertCategoryBackfill(entries: FinanceCategoryBackfillEntry[]): number {
     const now = nowIso();
@@ -447,7 +464,11 @@ export class FinanceMemoryStore {
       if (!txn) {
         continue;
       }
-      if (txn.categorySource === "user" || txn.categoryId !== entry.appliedCategoryId) {
+      if (
+        txn.categorySource !== "user" ||
+        txn.categoryId !== entry.appliedCategoryId ||
+        txn.categorizedAt !== entry.appliedAt
+      ) {
         continue;
       }
       this.transactions.set(entry.transactionId, {
@@ -504,6 +525,12 @@ export class FinanceMemoryStore {
     splits: FinanceTransactionSplit[],
   ): FinanceTransaction {
     const now = nowIso();
+    const txn = this.transactions.get(transactionId);
+    if (!txn) {
+      throw new Error(`finance transaction not found: ${transactionId}`);
+    }
+    // Validate everything before mutating so a rejected edit leaves the old allocation intact.
+    validateSplitTotal(txn.amountMinor, splits);
     for (const [splitId, split] of [...this.splits.entries()]) {
       if (split.transactionId === transactionId) {
         this.splits.delete(splitId);
@@ -515,16 +542,18 @@ export class FinanceMemoryStore {
       this.splits.set(id, { ...split, id, transactionId, sortOrder: index, createdAt: now });
     });
 
-    const txn = this.transactions.get(transactionId);
-    if (!txn) {
-      throw new Error(`finance transaction not found: ${transactionId}`);
-    }
     const hasSplits = splits.length > 0;
+    const clearedSplitCategory = !hasSplits && txn.categoryId === "fincat:split";
     const updated: FinanceTransaction = {
       ...txn,
       hasSplits,
-      categoryId: hasSplits ? "fincat:split" : txn.categoryId,
-      categorySource: hasSplits ? "user" : txn.categorySource,
+      categoryId: hasSplits
+        ? "fincat:split"
+        : clearedSplitCategory
+          ? "fincat:non-categorise"
+          : txn.categoryId,
+      categorySource: hasSplits ? "user" : clearedSplitCategory ? "default" : txn.categorySource,
+      categoryConfidence: hasSplits || clearedSplitCategory ? null : txn.categoryConfidence,
       updatedAt: now,
     };
     this.transactions.set(transactionId, updated);
@@ -735,6 +764,7 @@ export class FinanceMemoryStore {
         postedDate: txn.postedDate,
         descriptionRaw: txn.descriptionRaw,
         isTransfer: txn.isTransfer,
+        transferGroupId: txn.transferGroupId,
         excludedFromBudget: txn.excludedFromBudget,
         accountOnBudget: this.accounts.get(txn.accountId)?.onBudget ?? true,
       }));
@@ -814,19 +844,24 @@ export class FinanceMemoryStore {
       }
     }
 
+    const skipped = input.rejected?.skipped ?? 0;
+    const errors = input.rejected?.errors ?? 0;
+    warnings.push(...(input.rejected?.warnings ?? []));
     const batch: FinanceImportBatch = {
       id: batchId,
       profileId: input.profileId,
       fileName: input.fileName,
       fileHash: input.fileHash,
       accountId: input.accountId,
-      rowCount: input.rows.length,
+      rowCount: input.rows.length + skipped + errors,
       importedCount: imported,
       duplicateCount: duplicates,
-      skippedCount: 0,
-      errorCount: 0,
+      skippedCount: skipped,
+      errorCount: errors,
       status: "completed",
-      errorSummary: null,
+      errorSummary: input.rejected?.warnings.length
+        ? input.rejected.warnings.slice(0, 20).join("\n")
+        : null,
       startedAt: now,
       finishedAt: now,
     };
@@ -834,11 +869,11 @@ export class FinanceMemoryStore {
 
     return {
       batchId,
-      rowCount: input.rows.length,
+      rowCount: input.rows.length + skipped + errors,
       imported,
       duplicates,
-      skipped: 0,
-      errors: 0,
+      skipped,
+      errors,
       newAccounts: 0,
       transfersDetected,
       pendingSuggestions,
@@ -852,16 +887,37 @@ export class FinanceMemoryStore {
     };
   }
 
+  /** Deletes pending proposals a newer decision supersedes; `keepAi` spares AI-origin rows. */
+  private retirePendingSuggestions(transactionId: string, keepAi = false): void {
+    for (const [id, suggestion] of [...this.categorySuggestions.entries()]) {
+      if (
+        suggestion.transactionId === transactionId &&
+        suggestion.status === "pending" &&
+        !(keepAi && suggestion.origin === "ai")
+      ) {
+        this.categorySuggestions.delete(id);
+      }
+    }
+  }
+
   private insertPendingSuggestion(
     transactionId: string,
     suggestedCategoryId: string,
     origin: FinanceCategorySuggestion["origin"] = "memory",
     confidence = 0.5,
   ): boolean {
-    const existingPending = [...this.categorySuggestions.values()].some(
+    const existingPending = [...this.categorySuggestions.values()].find(
       (suggestion) => suggestion.transactionId === transactionId && suggestion.status === "pending",
     );
     if (existingPending) {
+      if (existingPending.suggestedCategoryId !== suggestedCategoryId) {
+        this.categorySuggestions.set(existingPending.id, {
+          ...existingPending,
+          suggestedCategoryId,
+          confidence,
+          origin,
+        });
+      }
       return false;
     }
     const txn = this.transactions.get(transactionId);
@@ -966,6 +1022,11 @@ export class FinanceMemoryStore {
         });
       }
     }
+    if (outcome.categorySource !== "default") {
+      this.retirePendingSuggestions(transactionId);
+    } else if (!outcome.suggestion) {
+      this.retirePendingSuggestions(transactionId, true);
+    }
     const suggestionCreated = outcome.suggestion
       ? this.insertPendingSuggestion(
           transactionId,
@@ -1030,20 +1091,28 @@ export class FinanceMemoryStore {
       throw new Error(`finance import batch not found: ${batchId}`);
     }
 
-    const batchesForAccount = [...this.importBatches.values()]
-      .filter((item) => item.accountId === batch.accountId)
-      .sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.id.localeCompare(a.id));
-    const mostRecent = batchesForAccount[0];
-    if (!mostRecent || mostRecent.id !== batchId) {
-      throw new Error(
-        `undoFinanceImportBatch is restricted to the most recent batch for account ${batch.accountId}`,
-      );
-    }
-
-    const now = nowIso();
     const rowsInBatch = [...this.transactions.values()].filter(
       (txn) => txn.importBatchId === batchId,
     );
+    // Every account the batch touched must have this batch as its newest one. Map insertion
+    // order breaks equal-timestamp ties (later insert wins), mirroring SQLite's rowid.
+    const accountIds = new Set<string>(rowsInBatch.map((txn) => txn.accountId));
+    if (batch.accountId) {
+      accountIds.add(batch.accountId);
+    }
+    const orderedBatches = [...this.importBatches.values()].map((item, index) => ({ item, index }));
+    for (const accountId of accountIds) {
+      const mostRecent = orderedBatches
+        .filter(({ item }) => item.accountId === accountId)
+        .sort((a, b) => b.item.startedAt.localeCompare(a.item.startedAt) || b.index - a.index)[0];
+      if (mostRecent && mostRecent.item.id !== batchId) {
+        throw new Error(
+          `undoFinanceImportBatch is restricted to the most recent batch for account ${accountId}`,
+        );
+      }
+    }
+
+    const now = nowIso();
 
     let deleted = 0;
     let refusedUserCategorized = 0;
@@ -1068,6 +1137,16 @@ export class FinanceMemoryStore {
       if (row.transferGroupId) {
         for (const partner of [...this.transactions.values()]) {
           if (partner.transferGroupId === row.transferGroupId && partner.id !== row.id) {
+            if (partner.categorySource === "user") {
+              // Keep the user's category, provenance, and exclusions; only drop the dead link.
+              this.transactions.set(partner.id, {
+                ...partner,
+                isTransfer: false,
+                transferGroupId: null,
+                updatedAt: now,
+              });
+              continue;
+            }
             this.transactions.set(partner.id, {
               ...partner,
               isTransfer: false,
@@ -1133,6 +1212,10 @@ export class FinanceMemoryStore {
       throw new Error(`finance category suggestion not found: ${id}`);
     }
 
+    if (suggestion.status !== "pending") {
+      // Already decided (e.g. a repeated click): never learn from the same suggestion twice.
+      return suggestion;
+    }
     const updated: FinanceCategorySuggestion = {
       ...suggestion,
       status: decision.status,

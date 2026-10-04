@@ -88,7 +88,22 @@ generate or scrape it. See
 - `PersistedTextarea` debounces persistence by 450 ms unless `debounceMs={0}` is
   supplied. It also flushes the pending draft on unmount. Daily entries, weekly
   reviews, and monthly reviews serialize those saves so an earlier in-flight
-  snapshot cannot overwrite later notes.
+  snapshot cannot overwrite later notes. Use `useLatestValueSaver` with a stable
+  persistence callback for keyed snapshots, dirty tracking, and settlement. Each
+  date/week/month keeps its own latest value; loading waits for that key and checks
+  its version before replacing the draft. `remember` stages an externally accepted
+  snapshot, `markSaved` records its captured version after the atomic repository
+  call, and `hydrate` seeds a clean loaded value. `settled` still rejects failed
+  writes; daily and review loaders catch that rejection when the key retains a
+  dirty snapshot, then display that snapshot instead of replacing it with stored
+  data. Their loading cleanup is guarded by `signal.isLatest()` in `finally`.
+  The draft remains available while the hook/page stays mounted; a later edit can
+  retry the save. Review textareas return the save promise to `PersistedTextarea`
+  so rejected writes are handled by its existing dirty-draft/retry behavior.
+- Use `createSerialQueue` (`src/lib/serial-queue.ts`) for ordered asynchronous work.
+  Each call keeps its own error and later work continues after a failure; `idle`
+  waits for queued work, including submissions while waiting. `DbSerialQueue` is
+  the SQLite wrapper with its existing 15-second reentrancy watchdog.
 
 ## Repository changes
 
@@ -106,7 +121,9 @@ as backups may explicitly throw in memory mode.
 
 ## SQLite changes
 
-The migration list in `TauriSqliteRepository` is the schema source of truth.
+The `migrations` array in
+[`src/lib/storage/migrations/index.ts`](../src/lib/storage/migrations/index.ts)
+is the schema source of truth.
 
 - Add one new migration with the next integer ID.
 - Do not edit a migration that may already exist in a user's
@@ -117,9 +134,16 @@ The migration list in `TauriSqliteRepository` is the schema source of truth.
 - Prefer idempotent backfills and explicit defaults.
 - Test startup against both a fresh database and an existing database when practical.
 
-The repository currently applies migrations sequentially but does not wrap the
-whole migration body and migration-record insert in an explicit transaction. Keep
-migration SQL simple and safe to retry where SQLite permits it.
+After ensuring the migration ledger exists, `runMigrations` applies each unapplied
+migration sequentially, wrapping its SQL and `schema_migrations` insert in one
+`BEGIN IMMEDIATE` transaction. A failure rolls back both the schema changes and
+ledger insert, then stops the runner; previously committed migrations remain
+applied. See [Migration system](storage-and-backups.md#migration-system) for the
+startup sequence, shipped-SQL preservation tests, and declarative column guards.
+
+Repository transaction callbacks use `writeTransaction`; internal writers accept
+its active `TxContext` and never re-enter the writer. Queue-only work uses
+`writeExclusive`.
 
 ## Money and minor units
 
@@ -130,6 +154,9 @@ returns a decimal number; `addMoney`/`sumMoney` throw on mixed currencies
 rather than silently truncating. Dedupe hashing (`src/lib/finance/hash.ts`)
 uses a 128-bit hash, not the 32-bit `hashString` in `src/lib/hash.ts`, because
 a collision at finance-import volumes would silently drop a real transaction.
+The hash preimage is a JSON-framed array so field boundaries stay unambiguous.
+Amount parsing is strict: excess fractional digits and malformed thousands
+grouping are errors, and the default exponent comes from the currency.
 
 ## Dates and time zones
 
@@ -140,9 +167,9 @@ TrackDidia uses two related representations:
 
 Rules:
 
-- Use `getTodayDate()` and `toLocalDateString()` for local calendar identity.
-- Use local noon when doing date-only arithmetic to avoid DST/midnight shifts.
-- Weeks begin Sunday through `getWeekStartSunday()`.
+- Use `getTodayDate()` and `toLocalDateString()` from `src/lib/date.ts` for local calendar identity.
+- Use `atLocalNoon()`, `addDays()`, and `addMonths()` from that module for date-only arithmetic across DST and month boundaries.
+- Weeks begin Sunday through `getWeekStartSunday()` in that module.
 - Use `buildIsoFromLocalDateAndTime()` for Scheduled inputs.
 - Do not compare the first ten characters of an arbitrary ISO timestamp when local
   date semantics matter; use the shared local-date helpers.
@@ -224,5 +251,3 @@ documentation.
    JSON and therefore in every database backup.
 3. **Backup restore is manual.** The app can create snapshots but cannot validate or
    restore one through the UI.
-4. **Migrations are not explicitly transactional as a unit.** A partial multi-
-   statement failure may require operator investigation before retry.

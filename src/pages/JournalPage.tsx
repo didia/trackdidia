@@ -15,13 +15,13 @@ import {
   type JournalSortOrder,
 } from "../domain/journal-feed";
 import type { MonthlyReviewSectionKey, WeeklyRitualSectionKey } from "../domain/types";
-import { formatDateLong } from "../lib/date";
+import { atLocalNoon, formatDateLong } from "../lib/date";
 
 const formatMonthYear = (date: string): string =>
   new Intl.DateTimeFormat("fr-CA", {
     month: "long",
     year: "numeric",
-  }).format(new Date(`${date}T12:00:00`));
+  }).format(atLocalNoon(date));
 
 export const JournalPage = () => {
   const { t } = useTranslation("journal");

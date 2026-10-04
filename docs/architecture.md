@@ -197,7 +197,9 @@ and Pomodoro consumers reload without navigation.
 
 `AppRepository` is the persistence contract. It covers daily entries, reviews,
 annual goals, settings/backups, GTD entities, recurrence templates, task-derived
-statistics, Pomodoro sessions, and the email triage foundation tables.
+statistics, and Pomodoro sessions. Its `emailTriage` property exposes the separate
+`EmailTriageStore` contract for the email triage foundation tables. Both repository
+implementations construct their matching email store with the same task callbacks.
 
 The two implementations intentionally share pure functions:
 

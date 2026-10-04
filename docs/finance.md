@@ -76,9 +76,10 @@ ISO strings from `nowIso()`.
 fixed ids (`fincat:alimentation`, `fincat:alimentation.epicerie`, …), distinct from
 the three system categories above. `AppRepository.seedFinanceDefaultCategories()`
 seeds it idempotently (`INSERT OR IGNORE`, so re-running is always a no-op) on both
-repositories, gated on `AppSettings.financeCategoriesSeededAt`, the same
-one-time-marker pattern as the GTD normalizations in `app-context.tsx`. Phase 4
-added `fincat:logement.telecommunications` (additively — existing ids are never
+repositories. Settings calls it when finance is first enabled, and startup calls it on
+every launch while finance is enabled, so taxonomy entries added by later releases reach
+installations that were seeded earlier (`AppSettings.financeCategoriesSeededAt` is only
+set once, as a record of the first seed). Phase 4 added `fincat:logement.telecommunications` (additively — existing ids are never
 renumbered) so the bundled telecom seed heuristic has a category to point at.
 
 ## Settings
@@ -98,7 +99,7 @@ automatically — no migration needed):
 | `financeCoachContextEnabled` | `false` | Adds a compact finance snapshot to the coach payload (Phase 7) |
 | `financeNotifyRunout` | `true` | Desktop notification for a runout alert (Phase 7) |
 | `financeSafetyBufferMinor` | `0` | Minor-unit floor for cash-runout forecasting (Phase 7) |
-| `financeCategoriesSeededAt` | `""` | One-time marker for the default taxonomy seed |
+| `financeCategoriesSeededAt` | `""` | Records the first default taxonomy seed (startup re-seeds additively regardless) |
 
 ## Repository contract
 
@@ -112,13 +113,21 @@ assertions against both.
 
 Covered in this phase: people, accounts, categories (including the default-taxonomy
 seed and archive-with-reassign), rules, merchant memory, transactions (including
-splits and transfers), import profiles/batches, transaction import with undo, and
+splits and transfers), import profiles/batches (including their decimal/thousands
+separators), transaction import with undo, and
 the category-suggestion queue. Phase 4 added the classification pipeline itself
 (below), `reclassifyFinancePending()`, and `revertFinanceCategoryBackfill()`.
 Phase 5 added the budget methods — `getFinanceBudgetMonth`,
 `setFinanceBudgetAssignment`, `setFinanceCategoryOverspendPolicy`,
 `computeFinanceBudgetState`, `setFinanceBudgetMonthClosed`, and
 `setFinanceBudgetReadyToAssignNote` — covered below under "Budget (Phase 5)".
+Every finance mutation goes through the repository
+writer queue (`writeExclusive`), so a save can never be rolled back by a concurrent
+import. `saveFinanceTransactionSplits` validates that a non-empty allocation sums
+exactly to the parent amount before touching anything and replaces splits in one
+transaction; clearing the last split restores `fincat:non-categorise`. An
+`all_matching` category correction marks every changed row `category_source = 'user'`,
+and archiving a category also reassigns split and merchant-memory references.
 **Not** covered yet (later phases): any other `compute*` report/forecast
 method, recurring-series detection/storage, balance snapshots, or AI
 suggestion generation — these remain unimplemented on both repositories until
@@ -145,30 +154,22 @@ place that writes a user correction:
   target transaction; the distinction is about *intent* (future transactions
   will benefit from the memory update either way), not a different write path.
 - `scope: "all_matching"` additionally recategorizes every other transaction
-  sharing the same `merchant_key` whose `category_source !== 'user'`, nulling
-  `category_confidence` on each (their `category_source` itself is left
-  unchanged — still `'default'`/`'rule'`/`'memory'`, whatever it was — so a
-  later `reclassifyFinancePending()` can still revise them if a rule or
-  stronger memory signal appears). Because a backfilled row's `category_id`
-  can be a real category while its `category_source` stays `'default'`,
-  `classifyTransaction`'s "keep the existing category" guard (see
-  "Classification pipeline" below) keys off `category_id !==
-  'fincat:non-categorise'`, not `category_source` — otherwise a
-  `reclassifyFinancePending()` immediately after an `all_matching` edit would
-  silently reset the backfilled rows back to Uncategorized the moment their
-  `merchant_key` matches nothing better than a suggestion.
+  sharing the same `merchant_key` whose `category_source !== 'user'`, marking each
+  `category_source = 'user'` and nulling `category_confidence`: the user explicitly
+  applied the correction, so later imports, `reclassifyFinancePending()` and transfer
+  detection never overwrite it (and undoing an import cannot delete it).
   The result's `backfill` array captures each backfilled row's prior `category_id`,
   `category_source`, `category_confidence`, `categorized_at`, and the
-  `categoryId` the bulk edit applied (`appliedCategoryId`); passing that array
+  `categoryId` and `categorized_at` stamp the bulk edit applied (`appliedCategoryId`,
+  `appliedAt`); passing that array
   to `revertFinanceCategoryBackfill()` is the single undo the UI offers right
   after an `all_matching` edit (`FinanceTransactionsPage`'s backfill banner),
   one `BEGIN IMMEDIATE`/`COMMIT` on the SQLite side. The target transaction's
   own `category_source = 'user'` write is **not** part of the undo — only the
-  backfilled rows revert, and even then only a row whose `category_source` is
-  still not `'user'` **and** whose `category_id` still equals
-  `appliedCategoryId` — if the user manually re-categorized it, or a later
-  automatic pass moved it again, the undo leaves that row alone rather than
-  clobbering the newer edit.
+  backfilled rows revert, and even then only a row whose `category_id` still equals
+  `appliedCategoryId` **and** whose `categorized_at` is still `appliedAt` — if the
+  user manually re-categorized it afterwards, the undo leaves that row alone rather
+  than clobbering the newer edit.
 
 `decideFinanceCategorySuggestion` routes an `accepted`/`corrected` decision through
 this same entry point (`scope: "this"`), so accepting a suggestion reinforces
@@ -270,7 +271,7 @@ column mapping are Phase 1/3 concerns; see `src/lib/finance/csv.ts` and
    (`batchId`, counts, `transfersDetected`, `pendingSuggestions`, `warnings`,
    `nearDuplicates`).
 
-On `TauriSqliteRepository`, the whole call is one `runExclusive` block issuing a
+On `TauriSqliteRepository`, the whole call is one `writeExclusive` block issuing a
 single `BEGIN IMMEDIATE`/`COMMIT` inside `FinanceSqliteStore.importTransactions` —
 it never calls another queue-taking repository method, so it cannot deadlock
 `DbSerialQueue`. A 5,000-row import completes inside this one block (see
@@ -286,12 +287,13 @@ ignored — nothing in the pipeline reads it yet.
 ### Undo
 
 `undoFinanceImportBatch(batchId)` is **restricted to the most recent batch for that
-batch's account** — if a later batch for the same account exists, the call throws
+batch's account, and for every account represented by its rows** — if a later batch for any of those accounts exists, the call throws
 rather than silently doing nothing, because that later batch may have deduped
 against a row this undo would otherwise delete. It deletes a batch row's splits and
 **all** of its category suggestions (pending or already decided — a deleted
 transaction cannot leave an orphaned suggestion behind), repairs the transfer
-group of a surviving partner (clearing
+group of a surviving partner (a partner the user categorized keeps its category,
+provenance, and exclusions and only loses the dead group link; otherwise clearing
 `is_transfer`/`transfer_group_id`, restoring a pending suggestion so the partner
 does not silently fall out of the budget), and **refuses to delete any row whose
 `category_source = 'user'`** — those rows are counted in `refusedUserCategorized`
@@ -556,9 +558,18 @@ text search, uncategorized-only) transaction list. Each row supports:
   "Learning entry point" above) — the banner and its undo apply to only the
   most recent `all_matching` edit in the page's session.
 - A split editor (`FinanceTransactionSplit[]`) with client-side sum-invariant
-  validation: saving is rejected unless every split amount parses and the
-  splits sum to exactly the parent transaction's `amountMinor`, matching the
-  invariant the repository documents but does not itself enforce.
+  validation matching the repositories' own `validateSplitTotal`: a non-empty
+  allocation must parse and sum exactly to the parent's `amountMinor`; removing
+  every row saves an empty list, which clears the splits and restores the
+  uncategorized parent. Save stays disabled until that transaction's existing
+  splits have loaded, and a superseded load is ignored.
+- Accounts can be edited in place (id, external key, notes, closed state and order
+  are preserved; the currency is locked once saved). Currencies are validated with
+  `normalizeCurrencyCode` before persisting, in accounts and in Settings.
+- Imports parse each row with its bound account's currency, mask the account column
+  in the stored source row and in default account names, and pass CSV parser
+  warnings and mapping errors to the repository as `FinanceImportRequest.rejected`
+  so they land in the batch's skipped/error counts, `error_summary` and warnings.
 - Unmark transfer (calls `clearFinanceTransfer`) is a per-row action. Marking
   a *pair* as a transfer is a bulk action instead: selecting exactly two rows
   enables "Marquer la paire comme virement" in the bulk toolbar, which calls
@@ -648,3 +659,16 @@ already exist.
 - [Storage and backups](storage-and-backups.md#finance-tables)
 - [Conventions](conventions.md) (minor-units rule)
 - [specs/todo/finance.md](../specs/todo/finance.md) — the full phased spec
+
+## Suggestion lifecycle (Phase 4 review fixes)
+
+A pending suggestion is retired (deleted) when a newer category decision supersedes
+it: a manual `setFinanceTransactionCategory` (including `all_matching` backfilled
+rows) or a rule/transfer outcome during reclassification. A reclassification that
+proposes a different category updates the pending row instead of keeping the stale
+one, and one that proposes nothing drops non-AI pending rows.
+`decideFinanceCategorySuggestion` only acts on `pending` suggestions; repeating it on
+a decided one is a no-op, so merchant memory is never reinforced twice. The review
+page also disables its actions while one is running. When several enabled rules
+match, `addLabels` is the deduplicated union across all of them. The transactions
+page keeps the last bulk-undo banner through unrelated single-row edits.

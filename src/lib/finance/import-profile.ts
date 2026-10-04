@@ -8,7 +8,7 @@ import type {
   FinanceImportProfile,
 } from "../../domain/finance";
 import { hash128 } from "./hash";
-import { type ParseAmountOptions, parseAmountToMinor } from "./money";
+import { currencyExponent, type ParseAmountOptions, parseAmountToMinor } from "./money";
 
 export type { FinanceDateFormat } from "../../domain/finance";
 
@@ -145,7 +145,19 @@ export const parseDateWithFormat = (text: string, format: FinanceDateFormat): st
   const trimmed = text.trim();
 
   if (format === "YYYY-MM-DD") {
-    return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null;
+    const iso = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!iso) {
+      return null;
+    }
+    const isoMonth = Number.parseInt(iso[2], 10);
+    const isoDay = Number.parseInt(iso[3], 10);
+    const isoYear = Number.parseInt(iso[1], 10);
+    return isoMonth >= 1 &&
+      isoMonth <= 12 &&
+      isoDay >= 1 &&
+      isoDay <= daysInMonth(isoYear, isoMonth)
+      ? trimmed
+      : null;
   }
 
   const match = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
@@ -165,6 +177,19 @@ export const parseDateWithFormat = (text: string, format: FinanceDateFormat): st
   }
 
   return `${year}-${String(monthNum).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
+};
+
+// A contiguous run of 6+ digits bounded by non-digits is treated as an account number;
+// shorter runs (e.g. a 4-digit branch code) are left alone. Only the last 4 digits survive.
+const ACCOUNT_NUMBER_RUN = /\b\d{6,}\b/;
+
+/** Keeps only the last 4 digits of a contiguous 6+ digit run when the label looks like an account number. */
+export const shortenIfAccountNumber = (label: string): string => {
+  const match = label.match(ACCOUNT_NUMBER_RUN);
+  if (!match) {
+    return label;
+  }
+  return `****${match[0].slice(-4)}`;
 };
 
 /**
@@ -196,14 +221,15 @@ export interface DedupeHashInput {
 
 export const dedupeHash = (input: DedupeHashInput): string =>
   hash128(
-    [
+    // JSON framing keeps field boundaries unambiguous (e.g. "SHOP1"+0 vs "SHOP"+10).
+    JSON.stringify([
       input.accountId,
       input.postedDate,
-      String(input.amountMinor),
+      input.amountMinor,
       input.currency,
       normalizeDescription(input.descriptionRaw),
-      String(input.occurrenceIndex),
-    ].join(""),
+      input.occurrenceIndex,
+    ]),
   );
 
 /**
@@ -324,9 +350,11 @@ export const mapImportRowToTransaction = (
   const externalAccountKey = field(profile.columnMap.account);
   const labelsJson = buildLabelsJson(labels);
 
+  // Never persist a full account number: mask the mapped account column in the stored row.
   const sourceRowJson = JSON.stringify(
     header.reduce<Record<string, string>>((acc, columnName, index) => {
-      acc[columnName] = row[index] ?? "";
+      const cell = row[index] ?? "";
+      acc[columnName] = index === profile.columnMap.account ? shortenIfAccountNumber(cell) : cell;
       return acc;
     }, {}),
   );
@@ -358,7 +386,7 @@ const resolveAmountMinor = (
 ): AmountResult => {
   const mode: FinanceImportAmountMode = profile.amountMode;
   const amountOptions: ParseAmountOptions = {
-    exponent: options.exponent,
+    exponent: options.exponent ?? currencyExponent(options.currency),
     decimalSeparator: profile.decimalSeparator,
     thousandsSeparator: profile.thousandsSeparator,
   };
