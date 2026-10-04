@@ -5264,6 +5264,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
               },
             ],
             merchantKeyMap: { "MARCHAND INCONNU": ["MARCHAND INCONNU"] },
+            transactionIds: ["txn-1"],
             model: "test-model",
             promptVersion: "finance_categorization.v1",
             autoApply: false,
@@ -5291,6 +5292,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
               },
             ],
             merchantKeyMap: { "MARCHAND INCONNU": ["MARCHAND INCONNU"] },
+            transactionIds: ["txn-1"],
             model: "test-model",
             promptVersion: "finance_categorization.v1",
             autoApply: true,
@@ -5320,6 +5322,73 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           });
         });
 
+        for (const autoApply of [false, true]) {
+          it(`leaves siblings with a pending suggestion or outside the request untouched (autoApply=${autoApply})`, async () => {
+            const repository = await factory();
+            await repository.saveFinanceAccount(account({ id: "account-1" }));
+            for (const id of ["txn-old", "txn-new", "txn-late"]) {
+              await repository.saveFinanceTransaction(
+                buildFinanceTransaction({ id, merchantKey: "MARCHAND INCONNU" }),
+              );
+            }
+            // `txn-old` already carries a pending suggestion (e.g. from the seed or memory stage).
+            await repository.applyFinanceCategorizationResults({
+              results: [
+                {
+                  merchantKey: "MARCHAND INCONNU",
+                  categoryId: "fincat:transport.essence",
+                  confidence: 0.5,
+                  rationale: "Existing",
+                },
+              ],
+              merchantKeyMap: { "MARCHAND INCONNU": ["MARCHAND INCONNU"] },
+              transactionIds: ["txn-old"],
+              model: "old-model",
+              promptVersion: "finance_categorization.v1",
+              autoApply: false,
+              autoApplyMinConfidence: 0.9,
+            });
+
+            // `txn-late` appeared after the request was built, so it is not in `transactionIds`.
+            const outcome = await repository.applyFinanceCategorizationResults({
+              results: [
+                {
+                  merchantKey: "MARCHAND INCONNU",
+                  categoryId: "fincat:alimentation.epicerie",
+                  confidence: 0.95,
+                  rationale: "New",
+                },
+              ],
+              merchantKeyMap: { "MARCHAND INCONNU": ["MARCHAND INCONNU"] },
+              transactionIds: ["txn-old", "txn-new"],
+              model: "new-model",
+              promptVersion: "finance_categorization.v1",
+              autoApply,
+              autoApplyMinConfidence: 0.9,
+            });
+
+            expect(outcome.suggestionsCreated).toBe(1);
+            expect(outcome.autoApplied).toBe(autoApply ? 1 : 0);
+            const pending = await repository.listFinanceCategorySuggestions("pending");
+            const byTransaction = new Map(pending.map((entry) => [entry.transactionId, entry]));
+            expect(byTransaction.get("txn-old")).toMatchObject({
+              suggestedCategoryId: "fincat:transport.essence",
+              model: "old-model",
+            });
+            expect(byTransaction.has("txn-late")).toBe(false);
+            expect(byTransaction.has("txn-new")).toBe(!autoApply);
+            await expect(repository.getFinanceTransaction("txn-old")).resolves.toMatchObject({
+              categoryId: "fincat:non-categorise",
+            });
+            await expect(repository.getFinanceTransaction("txn-late")).resolves.toMatchObject({
+              categoryId: "fincat:non-categorise",
+            });
+            await expect(repository.getFinanceTransaction("txn-new")).resolves.toMatchObject({
+              categorySource: autoApply ? "ai" : "default",
+            });
+          });
+        }
+
         it("auto-applies and accepts the suggestion when confidence meets the threshold", async () => {
           const repository = await factory();
           await repository.saveFinanceAccount(account({ id: "account-1" }));
@@ -5337,6 +5406,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
               },
             ],
             merchantKeyMap: { "MARCHAND INCONNU": ["MARCHAND INCONNU"] },
+            transactionIds: ["txn-1"],
             model: "test-model",
             promptVersion: "finance_categorization.v1",
             autoApply: true,
@@ -5381,6 +5451,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
               },
             ],
             merchantKeyMap: { "MARCHAND INCONNU": ["MARCHAND INCONNU"] },
+            transactionIds: ["txn-1"],
             model: "test-model",
             promptVersion: "finance_categorization.v1",
             autoApply: true,
@@ -5435,6 +5506,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
               },
             ],
             merchantKeyMap: { "MARCHAND INCONNU": ["MARCHAND INCONNU"] },
+            transactionIds: ["txn-1"],
             model: "test-model",
             promptVersion: "finance_categorization.v1",
             autoApply: true,
@@ -5468,6 +5540,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
               },
             ],
             merchantKeyMap: { "MARCHAND INCONNU": ["MARCHAND INCONNU"] },
+            transactionIds: ["txn-1", "txn-2"],
             model: "test-model",
             promptVersion: "finance_categorization.v1",
             autoApply: true,

@@ -60,6 +60,8 @@ export interface FinanceCategorizationSnapshotChunk {
   snapshot: FinanceCategorizationSnapshot;
   /** Sanitized merchant key -> original `finance_transactions.merchant_key` value(s) it represents. */
   merchantKeyMap: Record<string, string[]>;
+  /** Every transaction id behind this chunk's merchants — apply writes only to these. */
+  transactionIds: string[];
 }
 
 const MAX_MERCHANTS_PER_REQUEST = 40;
@@ -148,13 +150,26 @@ export const buildFinanceCategorizationSnapshots = (
 
   // Sanitization can (rarely) make two distinct raw merchant keys collide on the same sanitized
   // string; disambiguate with a `#n` suffix so every request item still has a unique key, and
-  // record every original key the disambiguated entry represents in its chunk's key map.
-  const seenBaseKeyCounts = new Map<string, number>();
-  const items = inputs.unknownMerchants.map((group) => {
-    const base = sanitizeMerchantDescriptor(group.merchantKey);
-    const occurrence = seenBaseKeyCounts.get(base) ?? 0;
-    seenBaseKeyCounts.set(base, occurrence + 1);
-    const key = occurrence === 0 ? base : `${base}#${occurrence + 1}`;
+  // record every original key the disambiguated entry represents in its chunk's key map. The
+  // suffix is allocated against every key already in use (including natural keys such as
+  // `FOO#2`), so a disambiguated key can never collide with a different merchant's key.
+  const bases = inputs.unknownMerchants.map((group) =>
+    sanitizeMerchantDescriptor(group.merchantKey),
+  );
+  const usedKeys = new Set(bases);
+  const seenBases = new Set<string>();
+  const items = inputs.unknownMerchants.map((group, index) => {
+    const base = bases[index];
+    let key = base;
+    if (seenBases.has(base)) {
+      let suffix = 2;
+      while (usedKeys.has(`${base}#${suffix}`)) {
+        suffix += 1;
+      }
+      key = `${base}#${suffix}`;
+      usedKeys.add(key);
+    }
+    seenBases.add(base);
     const merchant: FinanceCategorizationSnapshotMerchant = {
       merchantKey: key,
       sign: group.sign,
@@ -162,12 +177,18 @@ export const buildFinanceCategorizationSnapshots = (
       amountBucket: amountBucketFor(group.amountMinorSample, inputs.baseCurrency),
       accountType: group.accountType,
     };
-    return { key, originalMerchantKey: group.merchantKey, merchant };
+    return {
+      key,
+      originalMerchantKey: group.merchantKey,
+      transactionIds: group.transactionIds,
+      merchant,
+    };
   });
 
   const chunks: FinanceCategorizationSnapshotChunk[] = [];
   let currentItems: typeof items = [];
   let currentKeyMap: Record<string, string[]> = {};
+  let currentTransactionIds: string[] = [];
 
   const buildSnapshot = (chunkItems: typeof items): FinanceCategorizationSnapshot => ({
     surface: "finance_categorization",
@@ -180,10 +201,20 @@ export const buildFinanceCategorizationSnapshots = (
     if (currentItems.length === 0) {
       return;
     }
-    chunks.push({ snapshot: buildSnapshot(currentItems), merchantKeyMap: currentKeyMap });
+    chunks.push({
+      snapshot: buildSnapshot(currentItems),
+      merchantKeyMap: currentKeyMap,
+      transactionIds: currentTransactionIds,
+    });
     currentItems = [];
     currentKeyMap = {};
+    currentTransactionIds = [];
   };
+
+  // Fail closed: when the category list alone already busts the cap, no request can be sent.
+  if (payloadByteLength(buildSnapshot([])) > MAX_PAYLOAD_BYTES) {
+    return [];
+  }
 
   for (const item of items) {
     const candidate = [...currentItems, item];
@@ -193,7 +224,12 @@ export const buildFinanceCategorizationSnapshots = (
     if (currentItems.length > 0 && exceedsCap) {
       flush();
     }
+    // A merchant that does not fit even in an empty chunk is skipped, never sent over the cap.
+    if (currentItems.length === 0 && payloadByteLength(buildSnapshot([item])) > MAX_PAYLOAD_BYTES) {
+      continue;
+    }
     currentItems.push(item);
+    currentTransactionIds.push(...item.transactionIds);
     currentKeyMap[item.key] = [...(currentKeyMap[item.key] ?? []), item.originalMerchantKey];
   }
   flush();

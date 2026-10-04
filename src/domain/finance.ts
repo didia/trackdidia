@@ -478,6 +478,12 @@ export interface ApplyFinanceCategorizationResultsInput {
    * `finance-categorization-snapshot.ts`).
    */
   merchantKeyMap: Record<string, string[]>;
+  /**
+   * The transaction ids that were listed (and sent to the model) for this request. Apply only
+   * touches these, and still skips any that gained a pending suggestion during the AI round
+   * trip — siblings that were never requested, or already carry a suggestion, are left alone.
+   */
+  transactionIds: string[];
   model: string;
   promptVersion: string;
   autoApply: boolean;

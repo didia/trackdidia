@@ -1407,6 +1407,12 @@ export class FinanceMemoryStore {
     let suggestionsCreated = 0;
     let autoApplied = 0;
     let suppressedDismissed = 0;
+    const requestedIds = new Set(input.transactionIds);
+    const pendingTransactionIds = new Set(
+      [...this.categorySuggestions.values()]
+        .filter((suggestion) => suggestion.status === "pending")
+        .map((suggestion) => suggestion.transactionId),
+    );
 
     for (const result of input.results) {
       const originalKeys = input.merchantKeyMap[result.merchantKey] ?? [result.merchantKey];
@@ -1425,15 +1431,10 @@ export class FinanceMemoryStore {
         );
 
         for (const txn of targets) {
-          const autoApply = input.autoApply && result.confidence >= input.autoApplyMinConfidence;
-
-          // Clear any stale pending suggestion for this row — only one pending suggestion per
-          // transaction may exist (mirrors the partial unique index on the SQLite side).
-          for (const [suggestionId, suggestion] of [...this.categorySuggestions.entries()]) {
-            if (suggestion.transactionId === txn.id && suggestion.status === "pending") {
-              this.categorySuggestions.delete(suggestionId);
-            }
+          if (!requestedIds.has(txn.id) || pendingTransactionIds.has(txn.id)) {
+            continue;
           }
+          const autoApply = input.autoApply && result.confidence >= input.autoApplyMinConfidence;
 
           const suggestionId = createEntityId("finance-suggestion");
           this.categorySuggestions.set(suggestionId, {
@@ -1451,6 +1452,7 @@ export class FinanceMemoryStore {
             createdAt: now,
           });
           suggestionsCreated += 1;
+          pendingTransactionIds.add(txn.id);
 
           if (autoApply) {
             this.transactions.set(txn.id, {

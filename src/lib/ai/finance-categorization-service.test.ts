@@ -150,6 +150,44 @@ describe("FinanceCategorizationService", () => {
     expect(second.chunksProcessed).toBe(0);
   });
 
+  it("does not replay a cached answer that only collides with a dismissed suggestion", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await seedAccount(repository);
+    await seedUnknownTransaction(repository);
+    const provider: AiProvider = {
+      generateStructured: vi.fn(async () => ({
+        text: JSON.stringify({
+          merchants: [
+            {
+              merchantKey: "EPICERIE METRO",
+              categoryId: "fincat:alimentation.epicerie",
+              confidence: 0.7,
+              rationale: "Chaîne d'épicerie reconnue.",
+            },
+          ],
+        }),
+        model: "test-model",
+        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 50 },
+      })),
+    };
+    const service = new FinanceCategorizationService(provider);
+    const settings = financeSettings({ aiEnabled: true, aiApiKey: "secret" });
+
+    const first = await service.classifyPending(repository, settings);
+    expect(first.merchantsSent).toBe(1);
+    const [pending] = await repository.listFinanceCategorySuggestions("pending");
+    await repository.decideFinanceCategorySuggestion(pending.id, { status: "dismissed" });
+
+    // The row is unknown again with an identical snapshot: the cache hit only suppresses, so the
+    // service goes back to the provider instead of reporting a silent empty success.
+    const second = await service.classifyPending(repository, settings);
+    expect(provider.generateStructured).toHaveBeenCalledTimes(2);
+    expect(second.merchantsSent).toBe(1);
+    expect(second.suppressedDismissed).toBe(1);
+    expect(second.suggestionsCreated).toBe(0);
+  });
+
   it("auto-applies when financeAiAutoApplyEnabled and confidence meets the threshold", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();

@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { defaultAppSettings } from "../domain/daily-entry";
 import { MemoryRepository } from "../lib/storage/memory-repository";
@@ -279,6 +279,39 @@ describe("FinanceReviewPage", () => {
     );
     expect(message).toBeInTheDocument();
     expect(screen.queryByText(/network down/)).not.toBeInTheDocument();
+    fetchSpy.mockRestore();
+  });
+
+  it("ignores a second classify click fired before React re-renders", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.seedFinanceDefaultCategories();
+    await repository.saveFinanceAccount(buildAccount());
+    await repository.saveFinanceTransaction(buildTxn());
+    const listSpy = vi.spyOn(repository, "listFinanceUnknownMerchants");
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new Error("network down: should never reach the UI"));
+
+    await renderWithApp(<FinanceReviewPage />, {
+      repository,
+      contextOverrides: {
+        settings: {
+          ...defaultAppSettings(),
+          financeEnabled: true,
+          financeAiCategorizationEnabled: true,
+          aiEnabled: true,
+          aiApiKey: "secret",
+        },
+      },
+    });
+
+    const button = screen.getByText("Classer les en attente (IA)");
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    await screen.findByText(/La classification IA a échoué/);
+    expect(listSpy).toHaveBeenCalledTimes(1);
     fetchSpy.mockRestore();
   });
 });

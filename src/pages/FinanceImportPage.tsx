@@ -77,6 +77,7 @@ export const FinanceImportPage = () => {
   const [newAccountNames, setNewAccountNames] = useState<Record<string, string>>({});
   const [summary, setSummary] = useState<FinanceImportSummary | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [aiWarning, setAiWarning] = useState<string | null>(null);
   const [undoError, setUndoError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [parserWarnings, setParserWarnings] = useState<string[]>([]);
@@ -228,6 +229,7 @@ export const FinanceImportPage = () => {
       return;
     }
     setImportError(null);
+    setAiWarning(null);
     setImporting(true);
     try {
       const baseCurrency = (settings.financeBaseCurrency || "CAD").toUpperCase();
@@ -337,7 +339,16 @@ export const FinanceImportPage = () => {
       // error: the import itself already succeeded.
       if (settings.financeAiCategorizationEnabled) {
         try {
-          await categorizationService.classifyPending(repository, settings);
+          const aiResult = await categorizationService.classifyPending(repository, settings);
+          if (aiResult.warning) {
+            logDebug(
+              "warn",
+              "finance.import",
+              "Avertissement de categorisation IA post-import",
+              aiResult.warning,
+            );
+            setAiWarning(t("import.aiCategorizationWarning"));
+          }
         } catch (aiError) {
           logDebug("warn", "finance.import", "Echec de la categorisation IA post-import", aiError);
         }
@@ -566,6 +577,7 @@ export const FinanceImportPage = () => {
             </div>
           ) : null}
           {importError ? <p className="field-error">{importError}</p> : null}
+          {aiWarning ? <p className="field-card__helper">{aiWarning}</p> : null}
 
           <div className="form-actions">
             <button

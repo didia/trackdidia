@@ -2046,6 +2046,11 @@ export class FinanceSqliteStore {
       let suggestionsCreated = 0;
       let autoApplied = 0;
       let suppressedDismissed = 0;
+      const requestedIds = new Set(input.transactionIds);
+      const pendingRows = await db.select<Array<{ transaction_id: string }>>(
+        "SELECT transaction_id FROM finance_category_suggestions WHERE status = 'pending'",
+      );
+      const pendingTransactionIds = new Set(pendingRows.map((row) => row.transaction_id));
 
       for (const result of input.results) {
         const originalKeys = input.merchantKeyMap[result.merchantKey] ?? [result.merchantKey];
@@ -2063,12 +2068,10 @@ export class FinanceSqliteStore {
           );
 
           for (const txn of targets) {
+            if (!requestedIds.has(txn.id) || pendingTransactionIds.has(txn.id)) {
+              continue;
+            }
             const autoApply = input.autoApply && result.confidence >= input.autoApplyMinConfidence;
-
-            await db.execute(
-              "DELETE FROM finance_category_suggestions WHERE transaction_id = $1 AND status = 'pending'",
-              [txn.id],
-            );
 
             await db.execute(
               `INSERT INTO finance_category_suggestions (
@@ -2090,6 +2093,7 @@ export class FinanceSqliteStore {
               ],
             );
             suggestionsCreated += 1;
+            pendingTransactionIds.add(txn.id);
 
             if (autoApply) {
               await db.execute(

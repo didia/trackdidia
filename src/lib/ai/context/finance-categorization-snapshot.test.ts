@@ -189,4 +189,52 @@ describe("buildFinanceCategorizationSnapshots", () => {
     const [merchant] = chunk.snapshot.merchants;
     expect(chunk.merchantKeyMap[merchant.merchantKey]).toEqual(["EPICERIE METRO"]);
   });
+
+  it("keeps request keys unique when a disambiguation suffix would collide with a real key", () => {
+    const chunks = buildFinanceCategorizationSnapshots(
+      {
+        unknownMerchants: [
+          group({ merchantKey: "FOO#2", transactionIds: ["a"] }),
+          group({ merchantKey: "FOO", transactionIds: ["b"] }),
+          group({ merchantKey: "FOO 9999", transactionIds: ["c"] }),
+        ],
+        allowedCategories,
+        baseCurrency: "CAD",
+      },
+      "full",
+    );
+    const [chunk] = chunks;
+    const keys = chunk.snapshot.merchants.map((merchant) => merchant.merchantKey);
+    expect(new Set(keys).size).toBe(3);
+    expect(chunk.merchantKeyMap["FOO#2"]).toEqual(["FOO#2"]);
+    expect(chunk.merchantKeyMap.FOO).toEqual(["FOO"]);
+    expect(Object.values(chunk.merchantKeyMap).flat().sort()).toEqual(["FOO", "FOO 9999", "FOO#2"]);
+  });
+
+  it("carries the listed transaction ids of every merchant in the chunk", () => {
+    const [chunk] = buildFinanceCategorizationSnapshots(
+      {
+        unknownMerchants: [
+          group({ merchantKey: "A", transactionIds: ["a1", "a2"] }),
+          group({ merchantKey: "B", transactionIds: ["b1"] }),
+        ],
+        allowedCategories,
+        baseCurrency: "CAD",
+      },
+      "full",
+    );
+    expect(chunk.transactionIds).toEqual(["a1", "a2", "b1"]);
+  });
+
+  it("fails closed when the allowed categories alone already exceed 16 KiB", () => {
+    const hugeCategories = Array.from({ length: 400 }, (_, index) => ({
+      id: `cat-${index}`,
+      name: `Une categorie personnalisee tres longue numero ${index} ${"x".repeat(40)}`,
+    }));
+    const chunks = buildFinanceCategorizationSnapshots(
+      { unknownMerchants: [group()], allowedCategories: hugeCategories, baseCurrency: "CAD" },
+      "full",
+    );
+    expect(chunks).toEqual([]);
+  });
 });

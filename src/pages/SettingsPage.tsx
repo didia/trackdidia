@@ -112,14 +112,19 @@ export const SettingsPage = () => {
     if (parsedBuffer.amountMinor !== baselineRef.current.financeSafetyBufferMinor) {
       patch.financeSafetyBufferMinor = parsedBuffer.amountMinor;
     }
-    const parsedMinConfidence = Number(financeAiAutoApplyMinConfidenceDraft.trim());
+    // Accept the French decimal comma ("0,95"), matching the placeholder and the buffer field.
+    const parsedMinConfidence = Number(
+      financeAiAutoApplyMinConfidenceDraft.trim().replace(",", "."),
+    );
     if (
-      financeAiAutoApplyMinConfidenceDraft.trim() !== "" &&
-      Number.isFinite(parsedMinConfidence) &&
-      parsedMinConfidence >= 0 &&
-      parsedMinConfidence <= 1 &&
-      parsedMinConfidence !== baselineRef.current.financeAiAutoApplyMinConfidence
+      financeAiAutoApplyMinConfidenceDraft.trim() === "" ||
+      !Number.isFinite(parsedMinConfidence) ||
+      parsedMinConfidence < 0 ||
+      parsedMinConfidence > 1
     ) {
+      throw new Error(t("finance.aiAutoApplyMinConfidenceInvalid"));
+    }
+    if (parsedMinConfidence !== baselineRef.current.financeAiAutoApplyMinConfidence) {
       patch.financeAiAutoApplyMinConfidence = parsedMinConfidence;
     }
 

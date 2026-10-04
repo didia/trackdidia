@@ -241,6 +241,45 @@ describe("FinanceImportPage", () => {
     });
   });
 
+  it("shows a non-blocking warning when the post-import AI run fails without throwing", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const user = userEvent.setup();
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new Error("network down: should never reach the UI"));
+
+    await renderWithApp(<FinanceImportPage />, {
+      repository,
+      contextOverrides: {
+        settings: {
+          ...defaultAppSettings(),
+          financeEnabled: true,
+          financeAiCategorizationEnabled: true,
+          aiEnabled: true,
+          aiApiKey: "secret",
+        },
+      },
+    });
+
+    const file = new File([MINT_FIXTURE], "mint-export.csv", { type: "text/csv" });
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    await user.upload(input, file);
+    await screen.findByText("Mappage des colonnes");
+    const bindingSelect = screen
+      .getAllByRole("combobox")
+      .find((select) => select.querySelector('option[value="__new__"]')) as HTMLSelectElement;
+    await user.selectOptions(bindingSelect, "__new__");
+    await user.click(screen.getByRole("button", { name: "Importer" }));
+    await screen.findByText("Résultat de l'import");
+
+    expect(
+      await screen.findByText(/L'import a réussi, mais la classification IA a échoué/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/network down/)).not.toBeInTheDocument();
+    fetchSpy.mockRestore();
+  });
+
   it("reports dropped CSV records and never stores a raw account number", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();

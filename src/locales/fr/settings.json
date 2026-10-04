@@ -262,6 +262,7 @@
     "save": "Enregistrer",
     "saved": "Paramètres de finances enregistrés.",
     "saveError": "Échec de l'enregistrement des paramètres de finances.",
+    "aiAutoApplyMinConfidenceInvalid": "Le seuil de confiance doit être un nombre entre 0 et 1. Rien n'a été enregistré.",
     "safetyBufferInvalid": "Le coussin de sécurité n'est pas un montant valide. Rien n'a été enregistré.",
     "seeding": "Préparation des catégories par défaut..."
   }

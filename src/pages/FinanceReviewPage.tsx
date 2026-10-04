@@ -146,37 +146,56 @@ export const FinanceReviewPage = () => {
     settings.aiApiKey.trim().length > 0 &&
     settings.aiPayloadScope !== "metrics";
 
-  const classifyPending = async () => {
-    setClassifyingPending(true);
-    try {
-      const result = await categorizationService.classifyPending(repository, settings);
-      // `result.warning` means the AI call itself failed (or was unreadable) for at least one
-      // chunk — surface that instead of a success-shaped "0 suggestion(s)" message, which would
-      // otherwise read as "nothing to do" rather than "the request failed". The warning text
-      // itself is raw/technical (provider error text or a validator message) and must not reach
-      // the French UI verbatim; log it for diagnostics instead.
-      if (result.warning) {
-        logDebug("warn", "finance.review", "Avertissement de categorisation IA", result.warning);
-        setClassifyPendingMessage(t("review.classifyPendingWarning"));
-      } else {
-        setClassifyPendingMessage(
-          t("review.classifyPendingResult", {
-            merchants: result.merchantsRequested,
-            suggestions: result.suggestionsCreated,
-            autoApplied: result.autoApplied,
-          }),
-        );
+  const classifyPending = () =>
+    exclusive(async () => {
+      setClassifyingPending(true);
+      try {
+        // The button is an explicit re-run, so skip the input-hash cache: a dismissed suggestion
+        // would otherwise replay the same cached answer forever.
+        const result = await categorizationService.classifyPending(repository, settings, {
+          bypassCache: true,
+        });
+        // `result.warning` means the AI call itself failed (or was unreadable) for at least one
+        // chunk. The warning text itself is raw/technical (provider error text or a validator
+        // message) and must not reach the French UI verbatim; log it for diagnostics instead.
+        // Counts from chunks that did succeed are kept so a partial apply is not read as a total
+        // failure.
+        const counts = {
+          merchants: result.merchantsSent,
+          suggestions: result.suggestionsCreated,
+          autoApplied: result.autoApplied,
+        };
+        const parts: string[] = [];
+        if (result.warning) {
+          logDebug("warn", "finance.review", "Avertissement de categorisation IA", result.warning);
+          parts.push(
+            result.suggestionsCreated > 0
+              ? t("review.classifyPendingPartialWarning", counts)
+              : t("review.classifyPendingWarning"),
+          );
+        } else {
+          parts.push(
+            result.merchantsSent > 0
+              ? t("review.classifyPendingResult", counts)
+              : t("review.classifyPendingResultNoRequest", counts),
+          );
+        }
+        if (result.suppressedDismissed > 0) {
+          parts.push(
+            t("review.classifyPendingDismissedNote", { count: result.suppressedDismissed }),
+          );
+        }
+        setClassifyPendingMessage(parts.join(" "));
+        await load();
+      } catch (error) {
+        // A repository failure (e.g. listing unknown merchants) rejects outright rather than
+        // coming back as `result.warning` — raw technical text must never reach the French UI.
+        logDebug("error", "finance.review", "Echec de la categorisation IA a la demande", error);
+        setClassifyPendingMessage(t("review.classifyPendingError"));
+      } finally {
+        setClassifyingPending(false);
       }
-      await load();
-    } catch (error) {
-      // A repository failure (e.g. listing unknown merchants) rejects outright rather than
-      // coming back as `result.warning` — raw technical text must never reach the French UI.
-      logDebug("error", "finance.review", "Echec de la categorisation IA a la demande", error);
-      setClassifyPendingMessage(t("review.classifyPendingError"));
-    } finally {
-      setClassifyingPending(false);
-    }
-  };
+    });
 
   return (
     <div className="page">
@@ -206,7 +225,7 @@ export const FinanceReviewPage = () => {
           <button
             type="button"
             className="button"
-            disabled={!aiCategorizationAvailable || classifyingPending}
+            disabled={!aiCategorizationAvailable || classifyingPending || busy}
             title={t("review.classifyPendingCostHint")}
             onClick={() => void classifyPending()}
           >

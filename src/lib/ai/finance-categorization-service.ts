@@ -29,7 +29,10 @@ export interface FinanceCategorizationRunResult extends ApplyFinanceCategorizati
   /** False when the surface is disabled (`financeAiCategorizationEnabled` off) — nothing ran. */
   ran: boolean;
   chunksProcessed: number;
+  /** Merchants in the built snapshot(s), whether or not a provider request was needed. */
   merchantsRequested: number;
+  /** Merchants actually sent to the provider (cache hits and unconfigured AI send nothing). */
+  merchantsSent: number;
   warning?: string;
 }
 
@@ -57,12 +60,24 @@ export class FinanceCategorizationService {
     options: { bypassCache?: boolean } = {},
   ): Promise<FinanceCategorizationRunResult> {
     if (!settings.financeAiCategorizationEnabled || settings.aiPayloadScope === "metrics") {
-      return { ran: false, chunksProcessed: 0, merchantsRequested: 0, ...ZERO_OUTCOME };
+      return {
+        ran: false,
+        chunksProcessed: 0,
+        merchantsRequested: 0,
+        merchantsSent: 0,
+        ...ZERO_OUTCOME,
+      };
     }
 
     const unknownMerchants = await repository.listFinanceUnknownMerchants(400);
     if (unknownMerchants.length === 0) {
-      return { ran: true, chunksProcessed: 0, merchantsRequested: 0, ...ZERO_OUTCOME };
+      return {
+        ran: true,
+        chunksProcessed: 0,
+        merchantsRequested: 0,
+        merchantsSent: 0,
+        ...ZERO_OUTCOME,
+      };
     }
 
     const categories = await repository.listFinanceCategories();
@@ -75,7 +90,13 @@ export class FinanceCategorizationService {
       settings.aiPayloadScope,
     );
     if (chunks.length === 0) {
-      return { ran: true, chunksProcessed: 0, merchantsRequested: 0, ...ZERO_OUTCOME };
+      return {
+        ran: true,
+        chunksProcessed: 0,
+        merchantsRequested: 0,
+        merchantsSent: 0,
+        ...ZERO_OUTCOME,
+      };
     }
 
     const aiConfigured = settings.aiEnabled && settings.aiApiKey.trim().length > 0;
@@ -85,6 +106,7 @@ export class FinanceCategorizationService {
     let autoApplied = 0;
     let suppressedDismissed = 0;
     let merchantsRequested = 0;
+    let merchantsSent = 0;
     let warning: string | undefined;
 
     for (const chunk of chunks) {
@@ -93,6 +115,9 @@ export class FinanceCategorizationService {
       suggestionsCreated += outcome.suggestionsCreated;
       autoApplied += outcome.autoApplied;
       suppressedDismissed += outcome.suppressedDismissed;
+      if (outcome.sent) {
+        merchantsSent += chunk.snapshot.merchants.length;
+      }
       if (outcome.warning) {
         warning = outcome.warning;
       }
@@ -102,6 +127,7 @@ export class FinanceCategorizationService {
       ran: true,
       chunksProcessed: chunks.length,
       merchantsRequested,
+      merchantsSent,
       suggestionsCreated,
       autoApplied,
       suppressedDismissed,
@@ -115,7 +141,7 @@ export class FinanceCategorizationService {
     chunk: FinanceCategorizationSnapshotChunk,
     aiConfigured: boolean,
     bypassCache: boolean,
-  ): Promise<ApplyFinanceCategorizationResultsOutcome & { warning?: string }> {
+  ): Promise<ApplyFinanceCategorizationResultsOutcome & { warning?: string; sent?: boolean }> {
     const allowedCategoryIds = new Set(
       chunk.snapshot.allowedCategories.map((category) => category.id),
     );
@@ -141,6 +167,7 @@ export class FinanceCategorizationService {
       return repository.applyFinanceCategorizationResults({
         results: parsed.merchants,
         merchantKeyMap: chunk.merchantKeyMap,
+        transactionIds: chunk.transactionIds,
         model,
         promptVersion,
         autoApply: settings.financeAiAutoApplyEnabled,
@@ -158,7 +185,12 @@ export class FinanceCategorizationService {
             allowedMerchantKeys,
           );
           if (parsed.ok) {
-            return applyParsed(parsed.value, cached.model, cached.promptVersion);
+            const outcome = await applyParsed(parsed.value, cached.model, cached.promptVersion);
+            // A cached answer that only collides with dismissed suggestions would stay stuck
+            // (same snapshot -> same hash -> same answer), so treat it as a cache miss.
+            if (outcome.suggestionsCreated > 0 || outcome.suppressedDismissed === 0) {
+              return outcome;
+            }
           }
         }
       } else {
@@ -201,7 +233,9 @@ export class FinanceCategorizationService {
       return ZERO_OUTCOME;
     }
 
+    let sent = false;
     try {
+      sent = true;
       const first = await this.provider.generateStructured({
         surface: "finance_categorization",
         settings,
@@ -250,7 +284,7 @@ export class FinanceCategorizationService {
           },
           [],
         );
-        return { ...ZERO_OUTCOME, warning: parsed.error };
+        return { ...ZERO_OUTCOME, warning: parsed.error, sent };
       }
 
       await repository.saveCoachPulseEpisode(
@@ -266,11 +300,15 @@ export class FinanceCategorizationService {
         [],
       );
 
-      return applyParsed(parsed.value, model, FINANCE_CATEGORIZATION_PROMPT_VERSION);
+      return {
+        ...(await applyParsed(parsed.value, model, FINANCE_CATEGORIZATION_PROMPT_VERSION)),
+        sent,
+      };
     } catch (error) {
       await repository.saveCoachPulseEpisode({ ...baseMessage(), status: "fallback" }, []);
       return {
         ...ZERO_OUTCOME,
+        sent,
         warning: error instanceof Error ? error.message : "L'IA n'a pas pu repondre.",
       };
     }

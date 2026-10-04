@@ -697,11 +697,22 @@ created — useful right after creating or editing a rule on `/finances/rules`.
 
 "Classer les en attente (IA)" calls `FinanceCategorizationService.classifyPending`
 (see "AI categorization (Phase 8)" below) and is disabled — not hidden — unless
-all three gating flags are on (`settings.aiEnabled`, a non-empty
-`settings.aiApiKey`, and `settings.financeAiCategorizationEnabled`), with a
-helper line explaining the dependency and a `title` tooltip stating the action
-has a cost. The result message reports how many merchants were sent, how many
-suggestions were created, and how many were auto-applied.
+all three flags are on (`settings.aiEnabled`, a non-empty
+`settings.aiApiKey`, and `settings.financeAiCategorizationEnabled`; the
+service itself only checks `financeAiCategorizationEnabled` and
+`aiPayloadScope !== "metrics"` and records a `skipped` run when AI is
+unconfigured), with a helper line explaining the dependency and a `title`
+tooltip stating the action has a cost. The click is serialized with the other
+review actions (`exclusive`/`busyRef`, so a double-click cannot start two
+runs and "Réappliquer les règles" cannot run mid-call), and it passes
+`bypassCache: true` because it is an explicit re-run. The result message
+reports how many merchants were actually sent to the provider (a cached answer
+says none were sent), how many suggestions were created and auto-applied, and
+how many were skipped because they were recently dismissed; when a later chunk
+fails, the counts from the chunks that succeeded are kept next to the warning.
+After an import, a non-throwing AI failure (`result.warning`) is logged and
+shown as a non-blocking line on the import page; the import itself still
+succeeds.
 
 ### FinanceRulesPage (`/finances/rules`, Phase 4)
 
@@ -994,17 +1005,20 @@ classification stage still works: the feature degrades, it does not break.
 
 ### Unknown merchants
 
-`AppRepository.listFinanceUnknownMerchants(limit = 40)` is a plain read (no
+`AppRepository.listFinanceUnknownMerchants(limit)` (the service asks for 400;
+the repository default is 40) is a plain read (no
 write transaction) returning merchant-level groups — `merchantKey`, a
 representative `sign` (mode), `occurrenceCount`, a representative
 `amountMinorSample` (median absolute amount), a representative `accountType`
 (mode), and the matching `transactionIds` — for every currently
 `category_source != "user"`, non-transfer, `Uncategorized` transaction that
 has **no pending suggestion yet** (i.e. stages 2-5 all produced nothing at
-all, not even a below-threshold suggestion). Once a merchant gets a pending
-suggestion (from any origin), it drops out of this list until that
-suggestion is decided or a correction clears the category back to
-`Uncategorized`.
+all, not even a below-threshold suggestion). Exclusion is per transaction, not
+per merchant: a merchant with one suggested and one bare row is still listed,
+but its `transactionIds` contain only the bare row. Those ids travel with the
+request (`transactionIds` on each snapshot chunk and on
+`applyFinanceCategorizationResults`) so apply never touches siblings that were
+not part of the request.
 
 ### Snapshot and privacy caps
 
@@ -1028,7 +1042,10 @@ batch is split into more requests, never truncated — each paired with a
 `merchantKeyMap` (sanitized request key -> original `merchant_key`
 value(s), needed because sanitization can rarely make two distinct
 merchants collide on the same text) so results can be applied back to the
-right rows.
+right rows. Collision suffixes (`#2`, `#3`, …) are allocated against every key
+already in use, so a suffixed key can never equal another merchant's real key.
+If the category list alone exceeds 16 KiB, no request is built at all (fail
+closed), and a single merchant that cannot fit in an empty chunk is skipped.
 
 ### Service, cache, and the schema
 
@@ -1036,18 +1053,21 @@ right rows.
 (`FINANCE_CATEGORIZATION_PROMPT_VERSION = "finance_categorization.v1"`)
 lists unknown merchants, builds the snapshot chunks, and for each chunk:
 caches by `buildAiInputHash({ promptVersion, scope, snapshot })` exactly like
-`GoalPacingService`; when AI is unconfigured, persists a `status: "skipped"`
+`GoalPacingService` (a cached answer that only collides with recently dismissed
+suggestions creates nothing and is treated as a cache miss, so the provider is
+called again); when AI is unconfigured, persists a `status: "skipped"`
 `AiMessage` and applies nothing; otherwise calls the provider, does **one**
 repair round-trip on invalid JSON (`finance-categorization-validator.ts`
 rejects an out-of-list category id, a merchant key outside the request, a
-confidence outside `[0, 1]`, or any extra field), persists `status: "ok"` or
+confidence outside `[0, 1]`, or an extra field on a merchant object; extra
+top-level keys are ignored), persists `status: "ok"` or
 `"fallback"`, and — on a valid response — applies the result. Every run
 (including `"skipped"`) is persisted via `saveCoachPulseEpisode` exactly like
 `GoalPacingService`'s `ok`/`fallback` rows, so it is picked up by the
 existing AI cost/usage dashboard (`computeAiUsageForMonth`) with no surface
--specific code there. `finance-categorization-loader.ts` hydrates the most
-recent run (any scope) for display, rejecting a stale prompt version like
-every other surface's loader.
+-specific code there. `finance-categorization-loader.ts` can hydrate the most
+recent run (any scope), rejecting a stale prompt version like every other
+surface's loader; no screen calls it yet.
 
 ### Applying results
 
@@ -1061,7 +1081,10 @@ each of its original merchant key(s) (via `merchantKeyMap`):
   merchant key — `suppressedDismissed` counts the merchant key once, not
   the number of transactions it would otherwise have touched.
 - Otherwise, for every currently-eligible transaction under that merchant
-  key (`category_source != "user"`, not a transfer, still `Uncategorized`),
+  key (`category_source != "user"`, not a transfer, still `Uncategorized`)
+  that is in the request's `transactionIds` **and** has no pending suggestion
+  (one may have appeared during the AI round trip — existing pending
+  suggestions are never overwritten),
   a `finance_category_suggestions` row is always written (`origin: "ai"`,
   with `rationale`, `model`, `promptVersion`).
 - When `settings.financeAiAutoApplyEnabled` **and**
@@ -1092,9 +1115,9 @@ Only two, both explicit — **never** a timer, **never** at startup:
 ### Settings UI
 
 `SettingsPage`'s "Finances" section gained `financeAiCategorizationEnabled`,
-`financeAiAutoApplyEnabled`, and `financeAiAutoApplyMinConfidence` (parsed
-safely, clamped to `[0, 1]`, falling back to the previous value on an
-unparsable draft) — all three rendered `disabled` (not hidden) while
+`financeAiAutoApplyEnabled`, and `financeAiAutoApplyMinConfidence` (accepts a
+comma or dot decimal; a value outside `[0, 1]` or unparsable aborts the save
+with `finance.aiAutoApplyMinConfidenceInvalid`, like the safety buffer) — all three rendered `disabled` (not hidden) while
 `settings.aiEnabled` is false, with a helper line stating the dependency.
 
 ## Related documentation
