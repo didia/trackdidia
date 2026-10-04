@@ -120,4 +120,43 @@ describe("SettingsPage finance section", () => {
     expect(savedArg.financeNotifyRunout).toBe(true);
     expect(savedArg.financeSafetyBufferMinor).toBe(25_000);
   });
+
+  it("rejects an invalid safety buffer without saving anything or showing success", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const seedSpy = vi.spyOn(repository, "seedFinanceDefaultCategories");
+    const updateSettings = vi.fn().mockResolvedValue(undefined);
+
+    const settings = {
+      ...defaultAppSettings(),
+      financeEnabled: false,
+      financeCategoriesSeededAt: "",
+    };
+
+    await renderWithApp(<SettingsPage />, {
+      repository,
+      contextOverrides: { settings, updateSettings },
+    });
+
+    const user = userEvent.setup();
+    const toggle = screen
+      .getByText("Activer les finances")
+      .closest("label")
+      ?.querySelector("input");
+    if (toggle) {
+      await user.click(toggle);
+    }
+    const bufferInput = screen.getByPlaceholderText("0,00");
+    await user.clear(bufferInput);
+    await user.type(bufferInput, "250 dollars");
+
+    await user.click(screen.getByText("Enregistrer"));
+
+    expect(
+      await screen.findByText(/coussin de sécurité n'est pas un montant valide/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Paramètres de finances enregistrés.")).not.toBeInTheDocument();
+    expect(updateSettings).not.toHaveBeenCalled();
+    expect(seedSpy).not.toHaveBeenCalled();
+  });
 });

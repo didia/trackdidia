@@ -58,6 +58,7 @@ import { getMonthEndDate, getMonthKey } from "../../domain/monthly-review";
 import {
   buildFinanceAlerts,
   computeFinanceForecast,
+  restrictBudgetInputThrough,
   type FinanceAlert,
   type FinanceForecast,
   type FinanceSnapshot,
@@ -1807,16 +1808,16 @@ export class FinanceMemoryStore {
    */
   buildSnapshot(today: string, safetyBufferMinor: number): FinanceSnapshot {
     const monthKey = getMonthKey(today);
-    const monthEnd = getMonthEndDate(monthKey);
-    const budgetInput = this.buildBudgetComputationInput(monthKey);
+    const budgetInput = restrictBudgetInputThrough(
+      this.buildBudgetComputationInput(monthKey),
+      today,
+    );
     const budgetState = computeFinanceBudgetState(budgetInput);
 
     const onBudgetAccountIds = new Set(budgetInput.accounts.map((account) => account.id));
     const paceTransactionRows = [...this.transactions.values()].filter(
       (txn) =>
-        onBudgetAccountIds.has(txn.accountId) &&
-        !txn.excludedFromBudget &&
-        txn.postedDate <= monthEnd,
+        onBudgetAccountIds.has(txn.accountId) && !txn.excludedFromBudget && txn.postedDate <= today,
     );
 
     let firstActivityMonthKey: string | null = null;
@@ -1862,6 +1863,8 @@ export class FinanceMemoryStore {
           categoryId: series.categoryId,
           cadence: series.cadence,
           expectedAmountMinor: series.expectedAmountMinor,
+          dayOfMonth: series.dayOfMonth,
+          lastSeenDate: series.lastSeenDate,
           nextExpectedDate: series.nextExpectedDate,
         })),
     };

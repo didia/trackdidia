@@ -99,10 +99,12 @@ export const SettingsPage = () => {
     }
     const exponent = currencyExponent(patch.financeBaseCurrency ?? settings.financeBaseCurrency);
     const parsedBuffer = parseAmountToMinor(financeSafetyBufferDraft || "0", { exponent });
-    if (
-      parsedBuffer.ok &&
-      parsedBuffer.amountMinor !== baselineRef.current.financeSafetyBufferMinor
-    ) {
+    if (!parsedBuffer.ok) {
+      // Nothing is persisted (including the seed below) so the user never sees a success banner
+      // for a threshold that was silently dropped.
+      throw new Error(t("finance.safetyBufferInvalid"));
+    }
+    if (parsedBuffer.amountMinor !== baselineRef.current.financeSafetyBufferMinor) {
       patch.financeSafetyBufferMinor = parsedBuffer.amountMinor;
     }
 

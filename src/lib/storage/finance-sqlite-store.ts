@@ -59,6 +59,7 @@ import { getMonthEndDate, getMonthKey } from "../../domain/monthly-review";
 import {
   buildFinanceAlerts,
   computeFinanceForecast,
+  restrictBudgetInputThrough,
   type FinanceAlert,
   type FinanceForecast,
   type FinanceSnapshot,
@@ -2903,9 +2904,11 @@ export class FinanceSqliteStore {
   async buildSnapshot(today: string, safetyBufferMinor: number): Promise<FinanceSnapshot> {
     const db = await this.getDb();
     const monthKey = getMonthKey(today);
-    const monthEnd = getMonthEndDate(monthKey);
 
-    const budgetInput = await this.buildBudgetComputationInput(monthKey);
+    const budgetInput = restrictBudgetInputThrough(
+      await this.buildBudgetComputationInput(monthKey),
+      today,
+    );
     const budgetState = computeFinanceBudgetState(budgetInput);
 
     const onBudgetAccountIds = budgetInput.accounts.map((account) => account.id);
@@ -2916,7 +2919,7 @@ export class FinanceSqliteStore {
             `SELECT * FROM finance_transactions
              WHERE excluded_from_budget = 0 AND posted_date <= $1
                AND account_id IN (${accountPlaceholders})`,
-            [monthEnd, ...onBudgetAccountIds],
+            [today, ...onBudgetAccountIds],
           )
         : [];
     const splitTransactionIds = transactionRows
@@ -2972,6 +2975,8 @@ export class FinanceSqliteStore {
         categoryId: series.categoryId,
         cadence: series.cadence,
         expectedAmountMinor: series.expectedAmountMinor,
+        dayOfMonth: series.dayOfMonth,
+        lastSeenDate: series.lastSeenDate,
         nextExpectedDate: series.nextExpectedDate,
       })),
     };

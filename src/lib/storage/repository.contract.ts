@@ -5146,6 +5146,76 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           ).toBe(true);
         });
 
+        it("does not count future-dated transactions as spending already done", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.seedFinanceDefaultCategories();
+          await repository.setFinanceBudgetAssignment(
+            "2026-03",
+            "fincat:alimentation.epicerie",
+            25_000,
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-future",
+              accountId: "account-1",
+              postedDate: "2026-03-20",
+              amountMinor: -10_000,
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+
+          const { forecast } = await repository.computeFinanceForecast("2026-03-10");
+          const envelope = forecast.envelopes.find(
+            (e) => e.categoryId === "fincat:alimentation.epicerie",
+          );
+          expect(envelope?.spentMinor).toBe(0);
+          expect(envelope?.currentPaceMinor).toBe(0);
+          expect(envelope?.status).toBe("on_track");
+          expect(envelope?.runoutDate).toBeNull();
+        });
+
+        it("ignores recurring series on off-budget accounts", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(
+            account({ id: "account-1", openingBalanceMinor: 100_000 }),
+          );
+          await repository.saveFinanceAccount(
+            account({ id: "account-off", name: "Hors budget", onBudget: false }),
+          );
+          await repository.seedFinanceDefaultCategories();
+          await repository.setFinanceBudgetAssignment(
+            "2026-03",
+            "fincat:alimentation.epicerie",
+            50_000,
+          );
+          await repository.saveFinanceRecurringSeries({
+            id: "series-off",
+            merchantKey: "LOAN",
+            accountId: "account-off",
+            categoryId: "fincat:alimentation.epicerie",
+            cadence: "monthly",
+            expectedAmountMinor: -200_000,
+            amountToleranceMinor: 100,
+            dayOfMonth: 12,
+            lastSeenDate: "2026-02-12",
+            nextExpectedDate: "2026-03-12",
+            occurrenceCount: 3,
+            status: "active",
+            confirmedByUser: true,
+            createdAt: "2026-03-01T00:00:00.000Z",
+            updatedAt: "2026-03-01T00:00:00.000Z",
+          });
+
+          const { forecast, alerts } = await repository.computeFinanceForecast("2026-03-10");
+          expect(forecast.cashRunoutDate).toBeNull();
+          const envelope = forecast.envelopes.find(
+            (e) => e.categoryId === "fincat:alimentation.epicerie",
+          );
+          expect(envelope?.knownUpcomingMinor).toBe(0);
+          expect(alerts).toEqual([]);
+        });
+
         it("rate-limits the alert notification ledger once per day per key", async () => {
           const repository = await factory();
           const today = getTodayDate();

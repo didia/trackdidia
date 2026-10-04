@@ -7,8 +7,11 @@
 import type { AppSettings } from "../types";
 import { UNCATEGORIZED_CATEGORY_ID } from "../../lib/finance/classify";
 import { addDays } from "../../lib/gtd/shared";
-import { addMonthsClamped } from "../../lib/finance/recurring-detection";
-import { addMonthsToMonthKey, type FinanceBudgetState } from "./budget";
+import {
+  addMonthsToMonthKey,
+  type FinanceBudgetComputationInput,
+  type FinanceBudgetState,
+} from "./budget";
 import { getMonthEndDate, getMonthKey } from "../monthly-review";
 import type { FinanceAccount, FinanceRecurringCadence } from "../finance";
 
@@ -50,6 +53,9 @@ export interface FinanceForecastRecurringSeriesInput {
   categoryId: string | null;
   cadence: FinanceRecurringCadence;
   expectedAmountMinor: number;
+  /** Calendar day the monthly/quarterly/annual series is anchored to (`null` for weekly/biweekly/semimonthly). */
+  dayOfMonth: number | null;
+  lastSeenDate: string;
   nextExpectedDate: string;
 }
 
@@ -76,6 +82,24 @@ export interface FinanceSnapshot {
   firstActivityMonthKey: string | null;
   recurringSeries: FinanceForecastRecurringSeriesInput[];
 }
+
+/**
+ * The budget input as of `today`: transactions (and their splits) dated after `today` are
+ * dropped so the envelope's `spent`/`available` — and the pace derived from the same rows — never
+ * count future-dated rows as spending that has already happened.
+ */
+export const restrictBudgetInputThrough = (
+  input: FinanceBudgetComputationInput,
+  today: string,
+): FinanceBudgetComputationInput => {
+  const transactions = input.transactions.filter((txn) => txn.postedDate <= today);
+  const keptIds = new Set(transactions.map((txn) => txn.id));
+  return {
+    ...input,
+    transactions,
+    splits: input.splits.filter((split) => keptIds.has(split.transactionId)),
+  };
+};
 
 // --- Small pure helpers ------------------------------------------------------------------------
 
@@ -277,7 +301,7 @@ export interface FinanceEnvelopeForecast {
   currentPaceMinor: number;
   historicalPaceMinor: number | null;
   blendedPaceMinor: number;
-  /** Σ expected amount of active recurring bills for this category still due this month. */
+  /** Σ expected amount of every remaining occurrence this month of active recurring bills for this category. */
   knownUpcomingMinor: number;
   projectedTotalMinor: number;
   runoutDate: string | null;
@@ -295,40 +319,86 @@ export interface FinanceForecast {
   onBudgetBalanceTodayMinor: number;
 }
 
-const advanceByCadence = (date: string, cadence: FinanceRecurringCadence): string => {
-  switch (cadence) {
-    case "weekly":
-      return addDays(date, 7);
-    case "biweekly":
-      return addDays(date, 14);
-    case "semimonthly":
-      return addDays(date, 15);
-    case "monthly":
-      return addMonthsClamped(date, 1);
-    case "quarterly":
-      return addMonthsClamped(date, 3);
-    case "annual":
-      return addMonthsClamped(date, 12);
-    default:
-      return date;
-  }
+const MONTHS_PER_CADENCE: Partial<Record<FinanceRecurringCadence, number>> = {
+  monthly: 1,
+  quarterly: 3,
+  annual: 12,
 };
 
-/** Every occurrence date of `series` strictly after `afterDateExclusive`, through `throughDateInclusive`. */
+/** `YYYY-MM-DD` for `day` in `monthKey`, clamped to that month's last day. */
+const dateInMonth = (monthKey: string, day: number): string =>
+  `${monthKey}-${String(Math.min(day, daysInMonth(monthKey))).padStart(2, "0")}`;
+
+/**
+ * Every occurrence date of `series` strictly after `afterDateExclusive`, through
+ * `throughDateInclusive`. Calendar cadences are recomputed from their anchor day(s) for each
+ * month instead of chained from the previous (possibly clamped) date, so a 31st-of-month bill
+ * returns to the 31st after February and a 1st/15th pair never drifts to the 16th.
+ */
 const projectRecurringOccurrences = (
   series: FinanceForecastRecurringSeriesInput,
   afterDateExclusive: string,
   throughDateInclusive: string,
 ): string[] => {
   const dates: string[] = [];
-  let cursor = series.nextExpectedDate;
-  let guard = 0;
-  while (cursor <= throughDateInclusive && guard < 500) {
-    if (cursor > afterDateExclusive) {
-      dates.push(cursor);
+  const push = (date: string) => {
+    if (date > afterDateExclusive && date <= throughDateInclusive) {
+      dates.push(date);
     }
-    cursor = advanceByCadence(cursor, series.cadence);
-    guard += 1;
+  };
+
+  const stepDays = series.cadence === "weekly" ? 7 : series.cadence === "biweekly" ? 14 : null;
+  if (stepDays !== null) {
+    let cursor = series.nextExpectedDate;
+    for (let guard = 0; cursor <= throughDateInclusive && guard < 500; guard += 1) {
+      push(cursor);
+      cursor = addDays(cursor, stepDays);
+    }
+    return dates;
+  }
+
+  const startMonthKey = getMonthKey(series.nextExpectedDate);
+
+  const monthStep = MONTHS_PER_CADENCE[series.cadence];
+  if (monthStep !== undefined) {
+    const anchorDay = series.dayOfMonth ?? dayOfMonth(series.nextExpectedDate);
+    for (let index = 0; index < 500; index += 1) {
+      const date = dateInMonth(addMonthsToMonthKey(startMonthKey, index * monthStep), anchorDay);
+      if (date > throughDateInclusive) {
+        break;
+      }
+      if (date >= series.nextExpectedDate) {
+        push(date);
+      }
+    }
+    return dates;
+  }
+
+  // Semimonthly: the series does not store its two anchor days. The next expected date is one
+  // anchor and the last seen charge sits within a few days of the other.
+  const nextDay = dayOfMonth(series.nextExpectedDate);
+  const otherDay = dayOfMonth(series.lastSeenDate);
+  const [lowDay, highDay] = nextDay <= otherDay ? [nextDay, otherDay] : [otherDay, nextDay];
+  if (highDay - lowDay < 10 || highDay - lowDay > 20) {
+    let cursor = series.nextExpectedDate;
+    for (let guard = 0; cursor <= throughDateInclusive && guard < 500; guard += 1) {
+      push(cursor);
+      cursor = addDays(cursor, 15);
+    }
+    return dates;
+  }
+  for (let index = 0; index < 250; index += 1) {
+    const monthKey = addMonthsToMonthKey(startMonthKey, index);
+    const pair = [dateInMonth(monthKey, lowDay), dateInMonth(monthKey, highDay)];
+    if (pair[0] > throughDateInclusive) {
+      break;
+    }
+    // Dates before the series' own next expected date were already seen or missed.
+    for (const date of pair) {
+      if (date >= series.nextExpectedDate) {
+        push(date);
+      }
+    }
   }
   return dates;
 };
@@ -393,13 +463,21 @@ export const computeFinanceForecast = (snapshot: FinanceSnapshot): FinanceForeca
   const trailingDaysInMonth = trailingMonthKeys.map(daysInMonth);
   const hasEnoughHistory = countPriorMonthsAvailable(snapshot.firstActivityMonthKey, monthKey) >= 3;
 
+  // Recurring flows only count when they hit an on-budget account; the stock balance and the
+  // pace inputs are already on-budget-only, so an off-budget bill or paycheck would otherwise
+  // trigger or mask alerts against money it can never touch.
+  const onBudgetAccountIds = new Set(
+    snapshot.accounts.filter((account) => account.onBudget).map((account) => account.id),
+  );
+  const recurringSeries = snapshot.recurringSeries.filter((series) =>
+    onBudgetAccountIds.has(series.accountId),
+  );
+  const activeBillSeries = recurringSeries.filter((series) => series.expectedAmountMinor < 0);
+
   const nonRecurringByCategoryMonth = buildNonRecurringOutflowByCategoryMonth(
     snapshot.paceTransactions,
     snapshot.paceSplits,
-    snapshot.recurringSeries,
-  );
-  const activeBillSeries = snapshot.recurringSeries.filter(
-    (series) => series.expectedAmountMinor < 0,
+    recurringSeries,
   );
 
   const envelopes: FinanceEnvelopeForecast[] = snapshot.budgetState.categories
@@ -421,15 +499,20 @@ export const computeFinanceForecast = (snapshot: FinanceSnapshot): FinanceForeca
         hasEnoughHistory,
       );
 
+      // Every remaining occurrence this month, not just each series' next one (a weekly bill
+      // lands several times before month end).
+      const billOccurrences = activeBillSeries
+        .filter((series) => series.categoryId === category.categoryId)
+        .flatMap((series) =>
+          projectRecurringOccurrences(series, today, monthEnd).map((date) => ({
+            date,
+            amountMinor: -series.expectedAmountMinor,
+          })),
+        );
       const upcomingThrough = (d: string) =>
-        activeBillSeries
-          .filter(
-            (series) =>
-              series.categoryId === category.categoryId &&
-              series.nextExpectedDate > today &&
-              series.nextExpectedDate <= d,
-          )
-          .reduce((sum, series) => sum + -series.expectedAmountMinor, 0);
+        billOccurrences
+          .filter((occurrence) => occurrence.date <= d)
+          .reduce((sum, occurrence) => sum + occurrence.amountMinor, 0);
 
       const knownUpcomingMinor = upcomingThrough(monthEnd);
       const projectedTotalMinor =
@@ -495,7 +578,7 @@ export const computeFinanceForecast = (snapshot: FinanceSnapshot): FinanceForeca
     today,
     onBudgetBalanceTodayMinor,
     discretionaryPace.blendedPaceMinor,
-    snapshot.recurringSeries,
+    recurringSeries,
     snapshot.safetyBufferMinor,
   );
 

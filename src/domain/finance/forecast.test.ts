@@ -35,6 +35,8 @@ const recurring = (
   accountId: CHECKING,
   categoryId: CATEGORY_A,
   cadence: "monthly",
+  dayOfMonth: null,
+  lastSeenDate: "2024-01-01",
   ...overrides,
 });
 
@@ -384,6 +386,102 @@ describe("computeFinanceForecast", () => {
       // The clamped second occurrence (Jan 31 + 1 month -> Feb 28, since
       // 2026 is not a leap year) drops the balance to -50000.
       expect(forecast.cashRunoutDate).toBe("2026-02-28");
+    });
+  });
+
+  describe("recurring projection", () => {
+    it("projects every occurrence of a weekly bill inside the envelope, not only the next one", () => {
+      const snapshot = buildSnapshot({
+        today: "2026-03-01",
+        monthKey: "2026-03",
+        budgetState: budgetState("2026-03", [
+          categoryState(CATEGORY_A, { assignedMinor: 25_000, availableMinor: 25_000 }),
+        ]),
+        recurringSeries: [
+          recurring({
+            cadence: "weekly",
+            expectedAmountMinor: -10_000,
+            nextExpectedDate: "2026-03-05",
+          }),
+        ],
+      });
+
+      const envelope = computeFinanceForecast(snapshot).envelopes[0];
+      // March 5/12/19/26 -> 4 bills.
+      expect(envelope.knownUpcomingMinor).toBe(40_000);
+      expect(envelope.status).toBe("will_run_out");
+      expect(envelope.runoutDate).toBe("2026-03-19");
+    });
+
+    it("ignores recurring series on off-budget accounts for cash and envelope forecasts", () => {
+      const snapshot = buildSnapshot({
+        today: "2026-03-01",
+        monthKey: "2026-03",
+        accounts: [
+          { id: CHECKING, onBudget: true, openingBalanceMinor: 100_000 },
+          { id: "account-off", onBudget: false, openingBalanceMinor: 0 },
+        ],
+        budgetState: budgetState("2026-03", [
+          categoryState(CATEGORY_A, { assignedMinor: 50_000, availableMinor: 50_000 }),
+        ]),
+        recurringSeries: [
+          recurring({
+            accountId: "account-off",
+            expectedAmountMinor: -200_000,
+            nextExpectedDate: "2026-03-02",
+          }),
+          recurring({
+            accountId: "account-off",
+            categoryId: null,
+            expectedAmountMinor: 500_000,
+            nextExpectedDate: "2026-03-03",
+          }),
+        ],
+      });
+
+      const forecast = computeFinanceForecast(snapshot);
+      expect(forecast.cashRunoutDate).toBeNull();
+      expect(forecast.envelopes[0].knownUpcomingMinor).toBe(0);
+      expect(forecast.envelopes[0].status).toBe("on_track");
+    });
+
+    it("returns a 31st-anchored monthly bill to the 31st after February", () => {
+      const snapshot = buildSnapshot({
+        today: "2026-02-01",
+        monthKey: "2026-02",
+        accounts: [{ id: CHECKING, onBudget: true, openingBalanceMinor: 150_000 }],
+        recurringSeries: [
+          recurring({
+            categoryId: null,
+            expectedAmountMinor: -100_000,
+            dayOfMonth: 31,
+            nextExpectedDate: "2026-02-28",
+          }),
+        ],
+      });
+
+      // 150k -> 50k (Feb 28, clamped) -> -50k on Mar 31 (chaining would say Mar 28).
+      expect(computeFinanceForecast(snapshot).cashRunoutDate).toBe("2026-03-31");
+    });
+
+    it("keeps both semimonthly anchors instead of a fixed 15-day gap", () => {
+      const snapshot = buildSnapshot({
+        today: "2026-01-31",
+        monthKey: "2026-01",
+        accounts: [{ id: CHECKING, onBudget: true, openingBalanceMinor: 15_000 }],
+        recurringSeries: [
+          recurring({
+            categoryId: null,
+            cadence: "semimonthly",
+            expectedAmountMinor: -10_000,
+            lastSeenDate: "2026-01-15",
+            nextExpectedDate: "2026-02-01",
+          }),
+        ],
+      });
+
+      // Feb 1 -> 5k, Feb 15 -> -5k (a 15-day gap would say Feb 16).
+      expect(computeFinanceForecast(snapshot).cashRunoutDate).toBe("2026-02-15");
     });
   });
 });

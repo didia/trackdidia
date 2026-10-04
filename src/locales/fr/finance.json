@@ -318,6 +318,8 @@
     "subtitle": "Enveloppes et liquidités à surveiller",
     "viewAll": "Voir toutes les finances",
     "none": "Aucune alerte pour le moment.",
+    "loadError": "Impossible de charger les alertes finances.",
+    "retry": "Réessayer",
     "lowConfidence": "estimation provisoire",
     "cashRunout": "Liquidités : manque prévu le {{date}}",
     "envelopeExhausted": "{{category}} : enveloppe épuisée",

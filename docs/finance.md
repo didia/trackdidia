@@ -799,8 +799,12 @@ assignedMinor + carryInMinor > 0`; unbudgeted categories are out of scope
 entirely — no ladder, no alert, matching the "Non budgété" band's own
 semantics):
 
-- `spentMinor` is the category's full actual activity this month, read off
-  `computeFinanceBudgetState` (never recomputed).
+- `spentMinor` is the category's actual activity this month **through
+  `asOfDate`**, read off `computeFinanceBudgetState` over a budget input
+  restricted by `restrictBudgetInputThrough` (never recomputed). A
+  future-dated transaction is not spending that has already happened, so it
+  affects neither `spentMinor`, the pace, nor `firstActivityMonthKey` until its
+  date arrives.
 - `currentPaceMinor` / `historicalPaceMinor` exclude transactions matched to
   an **active** recurring series (`merchantKey` + `accountId` + sign) so a
   lump-sum bill is counted once, in `spentMinor`, never smoothed into a pace.
@@ -813,9 +817,11 @@ semantics):
   ladder collapses to pure current pace (rendered as "estimation
   provisoire" — the fallback that would otherwise read an undefined
   historical rate).
-- `knownUpcomingMinor` sums active recurring **bills** (`expectedAmountMinor < 0`)
-  for the category whose `nextExpectedDate` falls in the remaining month,
-  added as a lump sum, never smoothed.
+- `knownUpcomingMinor` sums **every remaining occurrence this month** of the
+  category's active recurring **bills** (`expectedAmountMinor < 0`) — a weekly
+  bill counts each week, not just its next date — each added as a lump sum on
+  its own day, never smoothed. Only series on on-budget accounts count (an
+  off-budget bill or paycheck can neither trigger nor mask an alert).
 - `projectedTotalMinor = spentMinor + blendedPaceMinor * remainingDays +
   knownUpcomingMinor`; `runoutDate` is the first remaining day this
   crosses the envelope, found by a day-by-day walk (so a lump-sum bill lands
@@ -829,10 +835,13 @@ semantics):
 `onBudgetBalance(today)` (every transaction on on-budget accounts through
 today, regardless of `excludedFromBudget`, the same stock-balance rule as the
 budget's `onBudgetBalance`) forward 60 days, adding every active recurring
-series's **projected occurrences** in that window (a monthly bill due the
-5th is projected again next month, via `addMonthsClamped` — correctly
-clamped across 28/31-day month boundaries) as income (positive) or bills
-(negative), and subtracting a blended **discretionary pace** (the same
+on-budget series's **projected occurrences** in that window as income
+(positive) or bills (negative). Occurrences of monthly/quarterly/annual
+series are recomputed from the stored `dayOfMonth` anchor for each month
+(a 31st bill is the 28th in February and the 31st again in March, never
+chained from the clamped date); semimonthly occurrences use both anchor days
+(the day of `nextExpectedDate` and of `lastSeenDate`) instead of a fixed
+15-day gap; weekly/biweekly add 7/14 days, and subtracting a blended **discretionary pace** (the same
 blend, aggregated across all non-recurring, non-transfer, on-budget outflow).
 The first day the projected balance drops below
 `settings.financeSafetyBufferMinor` is `cashRunoutDate` (`null` if it never
@@ -853,7 +862,7 @@ once-per-day-per-key notification rate limit meaningful.
 `computeFinanceBudgetState` input/output, on-budget accounts and every
 transaction on them through `asOfDate` (for `onBudgetBalance`), every
 on-budget/`excludedFromBudget = 0` transaction through the current month's
-end (for pace math — the same filter `budget.ts`'s `activity` uses), the
+`asOfDate` (for pace math — the same filter `budget.ts`'s `activity` uses), the
 earliest activity month (for the `lowConfidence` 3-month check), and every
 **active** recurring series. `computeFinanceForecast(asOfDate)` loads that
 snapshot and calls the two pure functions above.
@@ -883,11 +892,14 @@ bootstrap" trigger) and again at the next local midnight, on window focus,
 and on becoming visible — when `financeEnabled && financeNotifyRunout` it
 also calls `computeFinanceForecast(today)`, evaluates the notification
 policy against today's ledger, sends at most one OS notification per
-due alert via `notifyPomodoroCompletion` (the existing
+due alert (every pass re-forecasts and the per-day ledger alone suppresses
+keys already delivered; overlapping passes are serialized so none can read the
+ledger before another records into it) via `notifyPomodoroCompletion` (the existing
 `tauri-plugin-notification` wrapper also used by the Pomodoro and coach-pulse
 surfaces — no new plugin, no new capability), and records the keys actually
-notified. No network call is involved; every failure is caught and logged as
-counts only (alert count, notified count — never amounts), and this never
+notified (each key is recorded right after its delivery). No network call is
+involved; every failure is caught and logged with a fixed message or counts
+only (alert count, notified count — never amounts or the raw error), and this never
 blocks the eight-second startup fallback.
 
 ### Surfacing
@@ -897,7 +909,8 @@ blocks the eight-second startup fallback.
   alerts by rank plus a link to `/finances`. An empty alert set renders a
   quiet "no alerts" message rather than nothing, so the card's presence
   itself is not a silent all-clear signal that could be confused with "not
-  loaded yet".
+  loaded yet". A failed load shows an error banner with a "Réessayer" button
+  instead of an empty card.
 - **`FinanceOverviewPage`** (`/finances`) gained an "Alertes finances"
   section above the net-worth card, grouped by severity (critical/warning/info),
   showing every alert — not just the top 3.
