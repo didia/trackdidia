@@ -1,19 +1,9 @@
-import { proposalPreviewText } from "../lib/ai/proposals/apply-proposal";
+import type { ProposalDecisions } from "../app/use-proposal-decisions";
+import { ProposalList } from "./ProposalList";
 import { useTranslation } from "react-i18next";
 import { principleDefinitions } from "../domain/definitions";
-import type { AiProposal, AppSettings, CoachPulseResult, PrincipleKey } from "../domain/types";
+import type { AppSettings, CoachPulseResult, PrincipleKey } from "../domain/types";
 import { t as translate } from "../i18n";
-
-const proposalTypeKeys = {
-  intention_draft: "proposal.intentionDraft",
-  tomorrow_focus_draft: "proposal.tomorrowFocus",
-  commitment: "proposal.commitment",
-  memory: "proposal.memory",
-  review_section_draft: "proposal.reviewSection",
-  weekly_objective: "proposal.weeklyObjective",
-  gtd_action: "proposal.gtdAction",
-  goal_evaluation: "proposal.goalEvaluation",
-} as const satisfies Partial<Record<AiProposal["type"], string>>;
 
 const principleLabel = (key: PrincipleKey | null | undefined): string | null => {
   if (!key) {
@@ -32,9 +22,7 @@ interface CoachPulsePanelProps {
   autoloadAi?: boolean;
   onRequestCoach?: () => void;
   onRegenerate: () => void;
-  applyingProposalIds?: string[];
-  onAcceptProposal: (proposal: AiProposal) => void;
-  onDismissProposal: (proposal: AiProposal) => void;
+  decisions: ProposalDecisions;
 }
 
 export const CoachPulsePanel = ({
@@ -45,9 +33,7 @@ export const CoachPulsePanel = ({
   autoloadAi = false,
   onRequestCoach,
   onRegenerate,
-  applyingProposalIds = [],
-  onAcceptProposal,
-  onDismissProposal,
+  decisions,
 }: CoachPulsePanelProps) => {
   const { t } = useTranslation("coach");
   const { t: tCommon } = useTranslation("common");
@@ -63,8 +49,6 @@ export const CoachPulsePanel = ({
   }
 
   const pulse = result?.pulse;
-  const pendingProposals =
-    result?.proposals.filter((proposal) => proposal.status === "pending") ?? [];
   const principleRecovery = principleLabel(pulse?.principleToRecover);
 
   return (
@@ -144,40 +128,7 @@ export const CoachPulsePanel = ({
         </small>
       ) : null}
 
-      {pendingProposals.length > 0 ? (
-        <div className="coach-pulse__proposals">
-          <strong>{t("proposals")}</strong>
-          {pendingProposals.map((proposal) => {
-            const isApplying = applyingProposalIds.includes(proposal.id);
-            const preview = proposalPreviewText(proposal);
-            const typeKey = proposalTypeKeys[proposal.type];
-            return (
-              <article key={proposal.id} className="coach-pulse__proposal">
-                <span>{typeKey ? t(typeKey) : t("proposal.generic")}</span>
-                <p>{preview}</p>
-                <div className="section-actions">
-                  <button
-                    className="button button--primary"
-                    type="button"
-                    disabled={isApplying}
-                    onClick={() => onAcceptProposal(proposal)}
-                  >
-                    {isApplying ? tCommon("status.applying") : t("accept")}
-                  </button>
-                  <button
-                    className="button button--ghost"
-                    type="button"
-                    disabled={isApplying}
-                    onClick={() => onDismissProposal(proposal)}
-                  >
-                    {t("dismiss")}
-                  </button>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      ) : null}
+      <ProposalList surface="pulse" proposals={result?.proposals ?? []} decisions={decisions} />
 
       <div className="section-actions coach-pulse__actions">
         {!autoloadAi && onRequestCoach ? (
