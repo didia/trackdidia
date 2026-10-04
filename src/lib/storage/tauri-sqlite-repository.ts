@@ -2857,26 +2857,38 @@ export class TauriSqliteRepository implements AppRepository {
     );
   }
 
-  async computeFinanceBudgetState(monthKey: string) {
-    return this.getFinanceStore().computeBudgetState(monthKey);
+  async computeFinanceBudgetState(monthKey: string, baseCurrency: string) {
+    return this.getFinanceStore().computeBudgetState(monthKey, baseCurrency);
   }
 
   async applyFinanceCoverOverspending(
     monthKey: string,
+    baseCurrency: string,
     fromCategoryId: string,
     toCategoryId: string,
   ) {
     return this.writeExclusive(() =>
-      this.getFinanceStore().applyCoverOverspending(monthKey, fromCategoryId, toCategoryId),
+      this.getFinanceStore().applyCoverOverspending(
+        monthKey,
+        baseCurrency,
+        fromCategoryId,
+        toCategoryId,
+      ),
     );
   }
 
   async computeFinanceCoverOverspending(
     monthKey: string,
+    baseCurrency: string,
     fromCategoryId: string,
     toCategoryId: string,
   ) {
-    return this.getFinanceStore().computeCoverOverspending(monthKey, fromCategoryId, toCategoryId);
+    return this.getFinanceStore().computeCoverOverspending(
+      monthKey,
+      baseCurrency,
+      fromCategoryId,
+      toCategoryId,
+    );
   }
 
   async setFinanceBudgetMonthClosed(monthKey: string, closed: boolean) {
@@ -2993,12 +3005,20 @@ export class TauriSqliteRepository implements AppRepository {
 
   async buildFinanceSnapshot(asOfDate: string) {
     const settings = await this.getSettings();
-    return this.getFinanceStore().buildSnapshot(asOfDate, settings.financeSafetyBufferMinor);
+    return this.getFinanceStore().buildSnapshot(
+      asOfDate,
+      settings.financeSafetyBufferMinor,
+      settings.financeBaseCurrency,
+    );
   }
 
   async computeFinanceForecast(asOfDate: string) {
     const settings = await this.getSettings();
-    return this.getFinanceStore().computeForecast(asOfDate, settings.financeSafetyBufferMinor);
+    return this.getFinanceStore().computeForecast(
+      asOfDate,
+      settings.financeSafetyBufferMinor,
+      settings.financeBaseCurrency,
+    );
   }
 
   async listNotifiedFinanceAlertKeys(onDate: string) {

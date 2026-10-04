@@ -2510,12 +2510,13 @@ export class FinanceSqliteStore {
    */
   private async buildBudgetComputationInput(
     monthKey: string,
+    baseCurrency: string,
   ): Promise<FinanceBudgetComputationInput> {
     const db = await this.getDb();
     const monthEnd = getMonthEndDate(monthKey);
 
     const accounts = (await this.listAccounts({ includeClosed: true })).filter(
-      (account) => account.onBudget,
+      (account) => account.onBudget && account.currency === baseCurrency,
     );
     const onBudgetAccountIds = accounts.map((account) => account.id);
     const accountPlaceholders = onBudgetAccountIds.map((_, i) => `$${i + 2}`).join(",");
@@ -2588,20 +2589,26 @@ export class FinanceSqliteStore {
     };
   }
 
-  async computeBudgetState(monthKey: string): Promise<FinanceBudgetState> {
-    const input = await this.buildBudgetComputationInput(monthKey);
+  async computeBudgetState(monthKey: string, baseCurrency: string): Promise<FinanceBudgetState> {
+    const input = await this.buildBudgetComputationInput(monthKey, baseCurrency);
     return computeFinanceBudgetState(input);
   }
 
   /** Moves the cover amount between both rows in one transaction; callers hold the writer. */
   async applyCoverOverspending(
     monthKey: string,
+    baseCurrency: string,
     fromCategoryId: string,
     toCategoryId: string,
   ): Promise<CoverOverspendingResult> {
     const db = await this.getDb();
     return this.inTransaction(db, async () => {
-      const result = await this.computeCoverOverspending(monthKey, fromCategoryId, toCategoryId);
+      const result = await this.computeCoverOverspending(
+        monthKey,
+        baseCurrency,
+        fromCategoryId,
+        toCategoryId,
+      );
       if (result.amountMinor > 0) {
         await this.setBudgetAssignment(monthKey, fromCategoryId, result.fromNewAssignedMinor);
         await this.setBudgetAssignment(monthKey, toCategoryId, result.toNewAssignedMinor);
@@ -2613,10 +2620,11 @@ export class FinanceSqliteStore {
   /** Delegates to the pure `computeCoverOverspending` — see `AppRepository.computeFinanceCoverOverspending`. */
   async computeCoverOverspending(
     monthKey: string,
+    baseCurrency: string,
     fromCategoryId: string,
     toCategoryId: string,
   ): Promise<CoverOverspendingResult> {
-    const input = await this.buildBudgetComputationInput(monthKey);
+    const input = await this.buildBudgetComputationInput(monthKey, baseCurrency);
     return computeCoverOverspending(fromCategoryId, toCategoryId, monthKey, input);
   }
 
@@ -3088,12 +3096,16 @@ export class FinanceSqliteStore {
    * on what counts as spending. `budgetState` is `computeFinanceBudgetState`
    * — reused, never recomputed, for `envelope`/`available`/`activity`.
    */
-  async buildSnapshot(today: string, safetyBufferMinor: number): Promise<FinanceSnapshot> {
+  async buildSnapshot(
+    today: string,
+    safetyBufferMinor: number,
+    baseCurrency: string,
+  ): Promise<FinanceSnapshot> {
     const db = await this.getDb();
     const monthKey = getMonthKey(today);
 
     const budgetInput = restrictBudgetInputThrough(
-      await this.buildBudgetComputationInput(monthKey),
+      await this.buildBudgetComputationInput(monthKey, baseCurrency),
       today,
     );
     const budgetState = computeFinanceBudgetState(budgetInput);
@@ -3121,9 +3133,16 @@ export class FinanceSqliteStore {
           )
         : [];
 
-    const activeSeriesRows = await db.select<RecurringSeriesRow[]>(
-      "SELECT * FROM finance_recurring_series WHERE status = 'active'",
-    );
+    const activeSeriesRows =
+      onBudgetAccountIds.length > 0
+        ? await db.select<RecurringSeriesRow[]>(
+            `SELECT * FROM finance_recurring_series
+             WHERE status = 'active' AND account_id IN (${onBudgetAccountIds
+               .map((_, i) => `$${i + 1}`)
+               .join(",")})`,
+            onBudgetAccountIds,
+          )
+        : [];
 
     let firstActivityMonthKey: string | null = null;
     for (const row of transactionRows) {
@@ -3172,8 +3191,9 @@ export class FinanceSqliteStore {
   async computeForecast(
     today: string,
     safetyBufferMinor: number,
+    baseCurrency: string,
   ): Promise<{ forecast: FinanceForecast; alerts: FinanceAlert[] }> {
-    const snapshot = await this.buildSnapshot(today, safetyBufferMinor);
+    const snapshot = await this.buildSnapshot(today, safetyBufferMinor, baseCurrency);
     const forecast = computeFinanceForecast(snapshot);
     const alerts = buildFinanceAlerts(forecast, { financeSafetyBufferMinor: safetyBufferMinor });
     return { forecast, alerts };

@@ -1963,27 +1963,29 @@ export class MemoryRepository implements AppRepository {
     return Promise.resolve(this.finance.setCategoryOverspendPolicy(monthKey, categoryId, policy));
   }
 
-  async computeFinanceBudgetState(monthKey: string) {
-    return Promise.resolve(this.finance.computeBudgetState(monthKey));
+  async computeFinanceBudgetState(monthKey: string, baseCurrency: string) {
+    return Promise.resolve(this.finance.computeBudgetState(monthKey, baseCurrency));
   }
 
   async applyFinanceCoverOverspending(
     monthKey: string,
+    baseCurrency: string,
     fromCategoryId: string,
     toCategoryId: string,
   ) {
     return Promise.resolve(
-      this.finance.applyCoverOverspending(monthKey, fromCategoryId, toCategoryId),
+      this.finance.applyCoverOverspending(monthKey, baseCurrency, fromCategoryId, toCategoryId),
     );
   }
 
   async computeFinanceCoverOverspending(
     monthKey: string,
+    baseCurrency: string,
     fromCategoryId: string,
     toCategoryId: string,
   ) {
     return Promise.resolve(
-      this.finance.computeCoverOverspending(monthKey, fromCategoryId, toCategoryId),
+      this.finance.computeCoverOverspending(monthKey, baseCurrency, fromCategoryId, toCategoryId),
     );
   }
 
@@ -2100,13 +2102,23 @@ export class MemoryRepository implements AppRepository {
 
   async buildFinanceSnapshot(asOfDate: string) {
     const settings = await this.getSettings();
-    return Promise.resolve(this.finance.buildSnapshot(asOfDate, settings.financeSafetyBufferMinor));
+    return Promise.resolve(
+      this.finance.buildSnapshot(
+        asOfDate,
+        settings.financeSafetyBufferMinor,
+        settings.financeBaseCurrency,
+      ),
+    );
   }
 
   async computeFinanceForecast(asOfDate: string) {
     const settings = await this.getSettings();
     return Promise.resolve(
-      this.finance.computeForecast(asOfDate, settings.financeSafetyBufferMinor),
+      this.finance.computeForecast(
+        asOfDate,
+        settings.financeSafetyBufferMinor,
+        settings.financeBaseCurrency,
+      ),
     );
   }
 
