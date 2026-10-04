@@ -1410,9 +1410,14 @@ export class FinanceMemoryStore {
    * Loads the same input shape `FinanceSqliteStore.computeBudgetState` loads
    * and hands it to the same pure function — see "Computation shape".
    */
-  private buildBudgetComputationInput(monthKey: string): FinanceBudgetComputationInput {
+  private buildBudgetComputationInput(
+    monthKey: string,
+    baseCurrency: string,
+  ): FinanceBudgetComputationInput {
     const monthEnd = getMonthEndDate(monthKey);
-    const accounts = [...this.accounts.values()].filter((account) => account.onBudget);
+    const accounts = [...this.accounts.values()].filter(
+      (account) => account.onBudget && account.currency === baseCurrency,
+    );
     const onBudgetAccountIds = new Set(accounts.map((account) => account.id));
 
     const onBudgetThroughMonthEnd = [...this.transactions.values()].filter(
@@ -1460,17 +1465,23 @@ export class FinanceMemoryStore {
     };
   }
 
-  computeBudgetState(monthKey: string): FinanceBudgetState {
-    return computeFinanceBudgetState(this.buildBudgetComputationInput(monthKey));
+  computeBudgetState(monthKey: string, baseCurrency: string): FinanceBudgetState {
+    return computeFinanceBudgetState(this.buildBudgetComputationInput(monthKey, baseCurrency));
   }
 
   /** Moves the cover amount between both rows in one synchronous step. */
   applyCoverOverspending(
     monthKey: string,
+    baseCurrency: string,
     fromCategoryId: string,
     toCategoryId: string,
   ): CoverOverspendingResult {
-    const result = this.computeCoverOverspending(monthKey, fromCategoryId, toCategoryId);
+    const result = this.computeCoverOverspending(
+      monthKey,
+      baseCurrency,
+      fromCategoryId,
+      toCategoryId,
+    );
     if (result.amountMinor > 0) {
       this.setBudgetAssignment(monthKey, fromCategoryId, result.fromNewAssignedMinor);
       this.setBudgetAssignment(monthKey, toCategoryId, result.toNewAssignedMinor);
@@ -1481,10 +1492,11 @@ export class FinanceMemoryStore {
   /** Delegates to the pure `computeCoverOverspending` — see `AppRepository.computeFinanceCoverOverspending`. */
   computeCoverOverspending(
     monthKey: string,
+    baseCurrency: string,
     fromCategoryId: string,
     toCategoryId: string,
   ): CoverOverspendingResult {
-    const input = this.buildBudgetComputationInput(monthKey);
+    const input = this.buildBudgetComputationInput(monthKey, baseCurrency);
     return computeCoverOverspending(fromCategoryId, toCategoryId, monthKey, input);
   }
 
@@ -1806,10 +1818,10 @@ export class FinanceMemoryStore {
    * on what counts as spending. `budgetState` is `computeFinanceBudgetState`
    * — reused, never recomputed. Mirrors `FinanceSqliteStore.buildSnapshot`.
    */
-  buildSnapshot(today: string, safetyBufferMinor: number): FinanceSnapshot {
+  buildSnapshot(today: string, safetyBufferMinor: number, baseCurrency: string): FinanceSnapshot {
     const monthKey = getMonthKey(today);
     const budgetInput = restrictBudgetInputThrough(
-      this.buildBudgetComputationInput(monthKey),
+      this.buildBudgetComputationInput(monthKey, baseCurrency),
       today,
     );
     const budgetState = computeFinanceBudgetState(budgetInput);
@@ -1856,7 +1868,7 @@ export class FinanceMemoryStore {
         })),
       firstActivityMonthKey,
       recurringSeries: [...this.recurringSeries.values()]
-        .filter((series) => series.status === "active")
+        .filter((series) => series.status === "active" && onBudgetAccountIds.has(series.accountId))
         .map((series) => ({
           merchantKey: series.merchantKey,
           accountId: series.accountId,
@@ -1873,8 +1885,9 @@ export class FinanceMemoryStore {
   computeForecast(
     today: string,
     safetyBufferMinor: number,
+    baseCurrency: string,
   ): { forecast: FinanceForecast; alerts: FinanceAlert[] } {
-    const snapshot = this.buildSnapshot(today, safetyBufferMinor);
+    const snapshot = this.buildSnapshot(today, safetyBufferMinor, baseCurrency);
     const forecast = computeFinanceForecast(snapshot);
     const alerts = buildFinanceAlerts(forecast, { financeSafetyBufferMinor: safetyBufferMinor });
     return { forecast, alerts };

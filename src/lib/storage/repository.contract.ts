@@ -4443,7 +4443,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
             overspendPolicy: "reduce_next_ready_to_assign",
           });
 
-          const state = await repository.computeFinanceBudgetState("2026-01");
+          const state = await repository.computeFinanceBudgetState("2026-01", "CAD");
           expect(state.categories).toEqual(
             expect.arrayContaining([
               expect.objectContaining({
@@ -4471,7 +4471,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           );
 
           expect(result).toBeNull();
-          const state = await repository.computeFinanceBudgetState("2026-01");
+          const state = await repository.computeFinanceBudgetState("2026-01", "CAD");
           const category = state.categories.find(
             (c) => c.categoryId === "fincat:alimentation.epicerie",
           );
@@ -4523,7 +4523,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
 
           // February never had an entry, so the policy change must not create one —
           // its default policy stays `reduce_next_ready_to_assign`, not `carry_negative`.
-          const februaryState = await repository.computeFinanceBudgetState("2026-02");
+          const februaryState = await repository.computeFinanceBudgetState("2026-02", "CAD");
           const february = februaryState.categories.find(
             (c) => c.categoryId === "fincat:alimentation.epicerie",
           );
@@ -4558,7 +4558,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
             3_000,
           );
 
-          const state = await repository.computeFinanceBudgetState("2026-01");
+          const state = await repository.computeFinanceBudgetState("2026-01", "CAD");
           expect(state.readyToAssignMinor).toBe(7_000);
           expect(state.onBudgetBalanceMinor).toBe(7_000);
           expect(state.categories).toEqual(
@@ -4568,6 +4568,120 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
                 assignedMinor: 3_000,
                 activityMinor: -3_000,
                 availableMinor: 0,
+              }),
+            ]),
+          );
+        });
+
+        it("scopes budget arithmetic to the requested base currency", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(
+            account({ id: "cad", currency: "CAD", openingBalanceMinor: 10_000 }),
+          );
+          await repository.saveFinanceAccount(
+            account({ id: "jpy", currency: "JPY", openingBalanceMinor: 500_000 }),
+          );
+          await repository.seedFinanceDefaultCategories();
+          const categories = await repository.listFinanceCategories();
+          const salary = categories.find((category) => category.id === "fincat:revenu.salaire");
+          expect(salary).toBeDefined();
+          await repository.saveFinanceCategory({ ...salary!, defersToNextMonth: true });
+
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "cad-spend",
+              accountId: "cad",
+              amountMinor: -2_000,
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+          const splitParent = await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "cad-split",
+              accountId: "cad",
+              amountMinor: -3_000,
+              categoryId: "fincat:split",
+              hasSplits: true,
+            }),
+          );
+          await repository.saveFinanceTransactionSplits(splitParent.id, [
+            {
+              id: "",
+              transactionId: splitParent.id,
+              amountMinor: -1_000,
+              categoryId: "fincat:alimentation.epicerie",
+              notes: null,
+              sortOrder: 0,
+              createdAt: "",
+            },
+            {
+              id: "",
+              transactionId: splitParent.id,
+              amountMinor: -2_000,
+              categoryId: "fincat:loisirs.sorties",
+              notes: null,
+              sortOrder: 1,
+              createdAt: "",
+            },
+          ]);
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "cad-excluded",
+              accountId: "cad",
+              amountMinor: -700,
+              excludedFromBudget: true,
+            }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "cad-deferred",
+              accountId: "cad",
+              amountMinor: 4_000,
+              categoryId: "fincat:revenu.salaire",
+            }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "jpy-income",
+              accountId: "jpy",
+              amountMinor: 100_000,
+              currency: "JPY",
+              categoryId: "fincat:revenu.salaire",
+            }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "jpy-spend",
+              accountId: "jpy",
+              amountMinor: -50_000,
+              currency: "JPY",
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+
+          const cad = await repository.computeFinanceBudgetState("2026-04", "CAD");
+          expect(cad.onBudgetBalanceMinor).toBe(8_300);
+          expect(cad.readyToAssignMinor).toBe(9_300);
+          expect(cad.categories).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                categoryId: "fincat:alimentation.epicerie",
+                activityMinor: -3_000,
+              }),
+              expect.objectContaining({
+                categoryId: "fincat:loisirs.sorties",
+                activityMinor: -2_000,
+              }),
+            ]),
+          );
+
+          const jpy = await repository.computeFinanceBudgetState("2026-04", "JPY");
+          expect(jpy.onBudgetBalanceMinor).toBe(550_000);
+          expect(jpy.categories).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                categoryId: "fincat:alimentation.epicerie",
+                activityMinor: -50_000,
               }),
             ]),
           );
@@ -4620,7 +4734,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
             }),
           );
 
-          const state = await repository.computeFinanceBudgetState("2026-01");
+          const state = await repository.computeFinanceBudgetState("2026-01", "CAD");
           expect(state.onBudgetBalanceMinor).toBe(6_000);
           expect(state.readyToAssignMinor).toBe(6_000);
           const uncategorized = state.categories.find(
@@ -4640,7 +4754,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
 
           await repository.setFinanceBudgetAssignment("2026-01", "fincat:alimentation.epicerie", 0);
 
-          const state = await repository.computeFinanceBudgetState("2026-01");
+          const state = await repository.computeFinanceBudgetState("2026-01", "CAD");
           expect(
             state.categories.find((c) => c.categoryId === "fincat:alimentation.epicerie")
               ?.overspendPolicy,
@@ -4669,12 +4783,13 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
 
           const result = await repository.applyFinanceCoverOverspending(
             "2026-01",
+            "CAD",
             "fincat:loisirs.sorties",
             "fincat:alimentation.epicerie",
           );
 
           expect(result.amountMinor).toBe(100);
-          const state = await repository.computeFinanceBudgetState("2026-01");
+          const state = await repository.computeFinanceBudgetState("2026-01", "CAD");
           const assigned = (id: string) =>
             state.categories.find((c) => c.categoryId === id)?.assignedMinor;
           expect(assigned("fincat:alimentation.epicerie")).toBe(1_100);
@@ -4703,6 +4818,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
 
           const result = await repository.computeFinanceCoverOverspending(
             "2026-01",
+            "CAD",
             "fincat:loisirs.sorties",
             "fincat:alimentation.epicerie",
           );
@@ -5175,6 +5291,68 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           expect(envelope?.runoutDate).toBeNull();
         });
 
+        it("scopes snapshot and forecast values to the configured base currency", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(
+            account({ id: "cad", currency: "CAD", openingBalanceMinor: 10_000 }),
+          );
+          await repository.saveFinanceAccount(
+            account({ id: "jpy", currency: "JPY", openingBalanceMinor: 900_000 }),
+          );
+          await repository.seedFinanceDefaultCategories();
+          await repository.setFinanceBudgetAssignment(
+            "2026-03",
+            "fincat:alimentation.epicerie",
+            10_000,
+          );
+          const recurring = (id: string, accountId: string, amountMinor: number) =>
+            repository.saveFinanceRecurringSeries({
+              id,
+              merchantKey: id,
+              accountId,
+              categoryId: "fincat:alimentation.epicerie",
+              cadence: "monthly",
+              expectedAmountMinor: amountMinor,
+              amountToleranceMinor: 100,
+              dayOfMonth: 12,
+              lastSeenDate: "2026-02-12",
+              nextExpectedDate: "2026-03-12",
+              occurrenceCount: 3,
+              status: "active",
+              confirmedByUser: true,
+              createdAt: "2026-03-01T00:00:00.000Z",
+              updatedAt: "2026-03-01T00:00:00.000Z",
+            });
+          await recurring("cad-bill", "cad", -1_000);
+          await recurring("jpy-bill", "jpy", -500_000);
+
+          const cadSnapshot = await repository.buildFinanceSnapshot("2026-03-10");
+          const { forecast: cadForecast } = await repository.computeFinanceForecast("2026-03-10");
+          expect(cadSnapshot.accounts.map((entry) => entry.id)).toEqual(["cad"]);
+          expect(cadSnapshot.recurringSeries.map((entry) => entry.accountId)).toEqual(["cad"]);
+          expect(cadSnapshot.budgetState.onBudgetBalanceMinor).toBe(10_000);
+          expect(cadForecast.cashRunoutDate).toBeNull();
+          expect(
+            cadForecast.envelopes.find(
+              (entry) => entry.categoryId === "fincat:alimentation.epicerie",
+            )?.knownUpcomingMinor,
+          ).toBe(1_000);
+
+          const settings = await repository.getSettings();
+          await repository.saveSettings({ ...settings, financeBaseCurrency: "JPY" });
+          const jpySnapshot = await repository.buildFinanceSnapshot("2026-03-10");
+          const { forecast: jpyForecast } = await repository.computeFinanceForecast("2026-03-10");
+          expect(jpySnapshot.accounts.map((entry) => entry.id)).toEqual(["jpy"]);
+          expect(jpySnapshot.recurringSeries.map((entry) => entry.accountId)).toEqual(["jpy"]);
+          expect(jpySnapshot.budgetState.onBudgetBalanceMinor).toBe(900_000);
+          expect(jpyForecast.cashRunoutDate).toBe("2026-04-12");
+          expect(
+            jpyForecast.envelopes.find(
+              (entry) => entry.categoryId === "fincat:alimentation.epicerie",
+            )?.knownUpcomingMinor,
+          ).toBe(500_000);
+        });
+
         it("ignores recurring series on off-budget accounts", async () => {
           const repository = await factory();
           await repository.saveFinanceAccount(
@@ -5207,7 +5385,9 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
             updatedAt: "2026-03-01T00:00:00.000Z",
           });
 
+          const snapshot = await repository.buildFinanceSnapshot("2026-03-10");
           const { forecast, alerts } = await repository.computeFinanceForecast("2026-03-10");
+          expect(snapshot.recurringSeries).toEqual([]);
           expect(forecast.cashRunoutDate).toBeNull();
           const envelope = forecast.envelopes.find(
             (e) => e.categoryId === "fincat:alimentation.epicerie",

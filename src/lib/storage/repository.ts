@@ -405,7 +405,7 @@ export interface AppRepository {
     policy: FinanceOverspendPolicy,
   ): Promise<void>;
   /** Envelope grid + Ready to Assign for `monthKey`, built by `computeFinanceBudgetState` — never materialized. */
-  computeFinanceBudgetState(monthKey: string): Promise<FinanceBudgetState>;
+  computeFinanceBudgetState(monthKey: string, baseCurrency: string): Promise<FinanceBudgetState>;
   /**
    * "Cover overspending from another category" quick action: delegates to the pure
    * `computeCoverOverspending`. Returns the amount actually movable (capped at the
@@ -414,6 +414,7 @@ export interface AppRepository {
    */
   computeFinanceCoverOverspending(
     monthKey: string,
+    baseCurrency: string,
     fromCategoryId: string,
     toCategoryId: string,
   ): Promise<CoverOverspendingResult>;
@@ -423,6 +424,7 @@ export interface AppRepository {
    */
   applyFinanceCoverOverspending(
     monthKey: string,
+    baseCurrency: string,
     fromCategoryId: string,
     toCategoryId: string,
   ): Promise<CoverOverspendingResult>;
