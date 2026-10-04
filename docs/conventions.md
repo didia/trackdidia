@@ -100,6 +100,14 @@ generate or scrape it. See
   The draft remains available while the hook/page stays mounted; a later edit can
   retry the save. Review textareas return the save promise to `PersistedTextarea`
   so rejected writes are handled by its existing dirty-draft/retry behavior.
+- Weekly and monthly review screens share their scaffolding under `src/app/reviews/`
+  and `RitualSectionList`: `useWeeklyReviewNotes` (displayed week plus the next
+  week's Dimanche row on one keyed saver, including section-draft acceptance),
+  `useRescueTimeWeek`, `useWeeklyMemoryProposals`, `useReviewSynthesis` (result,
+  loading flag, and latest-wins request around a per-surface runner),
+  `buildRitualSections` / `RitualSectionList`, and the `?date=` / `?month=` parsers
+  in `review-query-params.ts`. Pages keep layout and period selection; new review
+  surfaces should reuse these instead of copying the skeleton.
 - Use `createSerialQueue` (`src/lib/serial-queue.ts`) for ordered asynchronous work.
   Each call keeps its own error and later work continues after a failure; `idle`
   waits for queued work, including submissions while waiting. `DbSerialQueue` is

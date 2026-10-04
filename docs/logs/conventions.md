@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-10-03 | Decomposed `WeeklyReviewPage` and shared ritual/synthesis scaffolding with `MonthlyReviewPage` via `src/app/reviews/` hooks, `RitualSectionList`, and tested query-param helpers (no behavior change; proposal acceptance stays on `useProposalAcceptance`) | `docs/conventions.md` | `src/app/reviews/*`, `RitualSectionList.tsx`, `WeeklyReviewPage.tsx`, `MonthlyReviewPage.tsx` |
 | 2026-10-03 | Fixed daily/weekly/monthly reloads after rejected saves: keep the keyed dirty draft editable, clear loading for the latest request, and acknowledge review textarea save promises | `docs/conventions.md` | `use-daily-entry.ts`, review pages, failed-save navigation/retry regression tests; PR #193 |
 | 2026-10-03 | Consolidated ordered async work in `createSerialQueue` and date/week/month snapshot persistence in `useLatestValueSaver`; daily and monthly loads now wait for their own pending saves and retain edits made during loading | `docs/conventions.md` | `serial-queue.ts`, `use-latest-value-saver.ts`, daily/review hooks and pages, queue and save-race tests |
 | 2026-10-03 | Documented strict finance amount parsing, currency-derived default exponent, and JSON-framed dedupe hash preimage (PR review fixes) | `docs/conventions.md` | `src/lib/finance/money.ts`, `import-profile.ts` |
