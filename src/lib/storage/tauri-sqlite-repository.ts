@@ -3633,7 +3633,7 @@ export class TauriSqliteRepository implements AppRepository {
 
         const previousById = new Map(snapshot.map((task) => [task.id, task] as const));
 
-        // Promotion capture (specs/todo/calendar-sync.md): the instant before
+        // Promotion capture (specs/done/calendar-sync.md): the instant before
         // `scheduledFor` is cleared is the only place it still exists. Goes directly
         // through `getCalendarSyncStore()`, never through the public repository methods
         // (those would re-enter `runExclusive`, which is not reentrant).

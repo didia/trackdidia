@@ -125,7 +125,7 @@ floating Pomodoro timer.
 | `/scheduled` | Scheduled | Day/week planning, deadlines, recurrence previews |
 | `/waiting-for` | Waiting For | Work awaiting external action |
 | `/someday-maybe` | Someday / Maybe | Deferred possibilities |
-| `/parametres` | Settings | AI, debug, relationship draws, backup, GTD import |
+| `/parametres` | Settings | AI, debug, relationship draws, backup, GTD import, calendar sync |
 | `/waiting-someday` | Redirect | Legacy alias redirected to `/waiting-for` |
 
 See the product pages linked from [`index.md`](index.md) for behavior inside each
@@ -153,6 +153,10 @@ screen.
     feature flag is off, and it probes the OS vault only after that flag is on.
     On desktop, connected Gmail and Microsoft Graph accounts use the live adapter
     when vault credentials exist; Yahoo uses live IMAP on desktop (mock in browser preview).
+12. After bootstrap, the calendar sync hook mounts beside the email triage
+    coordinator (repository present, not browser preview, startup settled) and runs
+    one reconcile pass; it still no-ops while the feature is disabled or
+    disconnected. See [Calendar sync](calendar-sync.md).
 
 The startup operation has an eight-second timeout. An exception or timeout activates
 a new `MemoryRepository`, shows a warning banner, and keeps the UI usable. Data
@@ -213,6 +217,13 @@ transitions through the repository, auto-completes expired sessions, and refresh
 the daily session/task summaries. A focus session can contain several segments when
 the selected task changes.
 
+### Calendar sync
+
+Disabled by default and desktop-only. A pure planner diffs calendar-eligible tasks
+against a sidecar link table on every reconcile pass and a reconciler executes the
+plan against the Google Calendar API, rather than hooking every task-write path.
+See [Calendar sync](calendar-sync.md).
+
 ## Native boundary
 
 The Rust host is intentionally small:
@@ -246,3 +257,4 @@ default core access, notifications, and dialogs.
 - [Recurrences and Pomodoro](recurrences-and-pomodoro.md)
 - [AI, settings, and privacy](ai-settings-and-privacy.md)
 - [Email triage](email-triage.md)
+- [Calendar sync](calendar-sync.md)

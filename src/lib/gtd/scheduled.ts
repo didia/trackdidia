@@ -32,7 +32,7 @@ export const promoteDueScheduledTasks = (tasks: Task[], today: string, now: stri
     }));
 
 /**
- * Promotion capture (see "Promotion capture" in `specs/todo/calendar-sync.md`): the
+ * Promotion capture (see "Promotion capture" in `specs/done/calendar-sync.md`): the
  * instant before `scheduledFor` is cleared is the only place that instant still exists.
  * `task` is the task as it is about to be promoted (its original `scheduledFor`, before
  * promotion mutates it). Returns the upsert both repositories must persist in the same
@@ -63,7 +63,7 @@ export const buildCalendarSyncCaptureLink = (
 
   // Terminal detach reasons (everything except `promoted`, which is a placeholder) must
   // never be reset back to `pending`: a `completed`/`cancelled` link is a record of the
-  // day, not a draft to resurrect. See "Reclaimable links" in specs/todo/calendar-sync.md.
+  // day, not a draft to resurrect. See "Reclaimable links" in specs/done/calendar-sync.md.
   if (existingLink?.state === "detached" && existingLink.detachReason !== "promoted") {
     return null;
   }

@@ -154,7 +154,7 @@ Never renumber or rewrite a released migration. Add the next ID.
 | 34 | `add_weekly_objective_ends_on_week_start_date` | Adds nullable `ends_on_week_start_date` to `weekly_objectives` (last week a manual objective still counts; marking it achieved sets this to the previous Sunday) |
 | 35 | `create_rescuetime_snapshot_cache` | Creates `rescuetime_snapshot_cache` (`week_start_date`, `kind`, `credential_fingerprint`, `payload_json`, `fetched_at`; primary key on the first three) |
 | 36 | `create_mid_week_decisions` | Creates `mid_week_decisions` (one row per week: decisions text, `decided_on_date`, nullable `lagging_snapshot_json`, `updated_at`) |
-| 37 | `create_calendar_sync` | Creates `calendar_sync_settings` (singleton `id = 'global'`) and `calendar_sync_links` (composite primary key `(task_id, occurrence_key)`, nullable `event_id`, unique index on `(calendar_id, event_id)`, index on `state`) for the one-way TrackDidia -> Google Calendar sync model and planner (Phase 0; no network calls yet) |
+| 37 | `create_calendar_sync` | Creates `calendar_sync_settings` (singleton `id = 'global'`) and `calendar_sync_links` (composite primary key `(task_id, occurrence_key)`, nullable `event_id`, unique index on `(calendar_id, event_id)`, index on `state`) for the one-way TrackDidia -> Google Calendar sync model, planner, and reconciler |
 
 ## Table reference
 
@@ -290,11 +290,9 @@ daily/review data.
 
 ### Calendar sync tables
 
-Migration 37 adds sidecar tables for the (unshipped beyond Phase 0) one-way
-TrackDidia -> Google Calendar sync; see
-[`specs/todo/calendar-sync.md`](../specs/todo/calendar-sync.md). No `gtd_tasks` column
-changes. Phase 0 ships the schema, the pure planner (`src/lib/calendar/planner.ts`) and
-the promotion-capture step only; no network or OAuth code exists yet.
+Migration 37 adds sidecar tables for the one-way, disabled-by-default TrackDidia ->
+Google Calendar sync; see [Calendar sync](calendar-sync.md). No `gtd_tasks` column
+changes.
 
 - `calendar_sync_settings`: singleton `id = 'global'` for enable flag, OAuth client id,
   connected account/calendar ids, calendar summary, the four dormant columns
@@ -311,8 +309,12 @@ the promotion-capture step only; no network or OAuth code exists yet.
   doubles as the stored snapshot for `pending` links. `detach_reason` records why a
   terminal link stopped syncing (`promoted` | `completed` | `cancelled` |
   `unscheduled` | `task_deleted` | `missing_remote`). Included in backups; a restored
-  stale link is handled by `missing_remote`, calendar recreation, and the planner's
-  empty-task-set safety valve (not yet wired to the network in Phase 0).
+  stale link is handled by `missing_remote` detachment, calendar recreation on a 404 of
+  the calendar itself, and the reconciler's empty-task-set safety valve.
+
+The OAuth refresh token for the connected Google account lives in the OS vault under
+the fixed `calendar_credentials` kind (`src-tauri/src/vault.rs`), never in SQLite or a
+backup; the access token stays in memory only.
 
 ### Email triage tables
 
@@ -437,4 +439,5 @@ code task.
 - [GTD](gtd.md)
 - [AI, settings, and privacy](ai-settings-and-privacy.md)
 - [Email triage](email-triage.md)
+- [Calendar sync](calendar-sync.md)
 - [Desktop builds](desktop-builds.md)

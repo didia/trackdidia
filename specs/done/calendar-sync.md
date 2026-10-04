@@ -1,6 +1,8 @@
 # Spec — One-way TrackDidia → Google Calendar sync for dated tasks
 
-**Status:** approved, unshipped.
+**Status:** shipped (phases 0-3). See [`docs/calendar-sync.md`](../../docs/calendar-sync.md)
+for the canonical, maintained description of shipped behavior; this spec is kept for
+historical design rationale and is no longer updated.
 **Scope:** mirror dated tasks (Scheduled, and Planned with a planned date) into a dedicated
 Google Calendar, and remove the calendar entry when the task is removed from TrackDidia.
 One-way only: calendar edits never flow back. Desktop only, disabled by default.
@@ -21,7 +23,7 @@ planned date). See [`docs/gtd.md`](../../docs/gtd.md).
 | Provider | Google Calendar API v3 |
 | Direction | One-way, TrackDidia is authoritative |
 | Calendar | Dedicated app-created **"TrackDidia"** calendar. Forced by the scope below; no calendar picker, and the primary calendar is not reachable without the broader `calendar.events` scope and Google verification |
-| OAuth scope | `https://www.googleapis.com/auth/calendar.app.created` (fallback `calendar.events.owned`) |
+| OAuth scope | `https://www.googleapis.com/auth/calendar.app.created` plus the non-sensitive `email` scope (shipped: `calendar.app.created` alone cannot identify the connected account, so `email` is requested alongside it; no `calendar.events.owned` fallback was implemented) |
 | Auth machinery | Reuse the Gmail installed-app flow: PKCE, loopback listener, refresh token in the OS vault, access token in memory |
 | Sync model | **Desired-state reconciliation** over a link table, not an outbox; one capture hook in the promotion step |
 | Event shape | Timed events, title only, 30 min default duration, one event per occurrence (no RRULE) |
@@ -205,10 +207,12 @@ tomorrow's task clears tomorrow's calendar, while today's and past entries stay 
 record of the day, so the 00:05 auto-promotion of a task scheduled for today at 14:00
 cannot wipe today's agenda. State it in `docs/calendar-sync.md` and in the Settings copy.
 
-## Data model — migration 34
+## Data model — migration 34 (shipped as migration 37)
 
-33 (`add_weekly_objective_starts_on_week_start_date`) is the highest shipped. Sidecar
-tables only; no `ALTER TABLE` on `gtd_tasks`.
+33 (`add_weekly_objective_starts_on_week_start_date`) was the highest shipped migration
+when this spec was drafted; by the time this landed, migrations 34-36 had shipped for
+other features, so this table-creating migration is `37` (`create_calendar_sync`) in the
+code, not `34`. Sidecar tables only; no `ALTER TABLE` on `gtd_tasks`.
 
 ```sql
 CREATE TABLE IF NOT EXISTS calendar_sync_settings (
@@ -396,7 +400,7 @@ google-calendar-api,google-calendar-oauth,vault,session,reconciler,connect}.ts`;
 `src/lib/storage/calendar-sync-{sqlite,memory}-store.ts`; `src/app/use-calendar-sync.ts`;
 `docs/calendar-sync.md` + `docs/logs/calendar-sync.md`.
 
-**Changed:** `tauri-sqlite-repository.ts` (migration 34, store delegation, and the
+**Changed:** `tauri-sqlite-repository.ts` (migration 37, store delegation, and the
 promotion-capture step beside `promoteDueScheduledTasks`; no change to `persistTask` or any
 other write path), `memory-repository.ts` (same capture step), the shared
 `src/lib/gtd/scheduled.ts` helper if the capture needs a pure builder there, `repository.ts` (settings get/
@@ -507,14 +511,15 @@ database, after a manual backup.
 
 ## Phases
 
-0. **Model and planner (no network):** migration 34 + test, stores, repository methods,
-   domain, eligibility, planner and tests.
+0. **Model and planner (no network):** migration 37 + test, stores, repository methods,
+   domain, eligibility, planner and tests. Shipped in commit 5516cdd.
 1. **Connection:** vault kind, OAuth, API client, `ensureCalendar`, trimmed Settings card,
-   loopback guard. Reconciler not mounted.
+   loopback guard. Reconciler not mounted. Shipped in commit 86800cf.
 2. **Reconciler:** reconciler, session, hook, trigger sites, error handling, calendar
-   recreation, `needs_confirmation`, manual sync. First real desktop run.
+   recreation, `needs_confirmation`, manual sync. First real desktop run. Shipped in
+   commit ed8583c.
 3. **Docs and polish:** `docs/calendar-sync.md` + log, registrations, boundary removal,
-   spec to `specs/done/`.
+   spec to `specs/done/`. Shipped.
 
 ## Non-goals
 

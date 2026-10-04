@@ -2,7 +2,7 @@
  * Connect / reconnect / disconnect the single Google Calendar connection. Mirrors the shape
  * of `src/lib/email-triage/runtime.ts`'s Gmail connect flow: PKCE, loopback listener,
  * refresh token in the OS vault, access token in memory. See "Loopback collision" and the
- * Settings card section in `specs/todo/calendar-sync.md`.
+ * Settings card section in `specs/done/calendar-sync.md`.
  */
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -167,7 +167,7 @@ export const disconnectCalendarSyncAccount = async (repository: AppRepository): 
   clearCalendarSyncAccessTokenCache();
   // Identity (connectedAccountId/calendarId) is kept so reconnecting the same account
   // resumes without bumping `generation` or clearing links; see "generation" in
-  // specs/todo/calendar-sync.md.
+  // specs/done/calendar-sync.md.
   await repository.saveCalendarSyncSettings({
     ...settings,
     enabled: false,

@@ -1343,7 +1343,7 @@ export class MemoryRepository implements AppRepository {
     const updated = selectDueScheduledPromotions(snapshot, date, now);
     const previousById = new Map(snapshot.map((task) => [task.id, task] as const));
 
-    // Promotion capture (specs/todo/calendar-sync.md): synchronous, in the same block as
+    // Promotion capture (specs/done/calendar-sync.md): synchronous, in the same block as
     // the promotion itself, through the synchronous `CalendarSyncMemoryStore` accessors.
     const calendarSyncSettings = this.calendarSync.getSettings();
     const captureActive = isCalendarSyncCaptureActive(calendarSyncSettings);
