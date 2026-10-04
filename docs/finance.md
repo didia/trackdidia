@@ -145,30 +145,22 @@ place that writes a user correction:
   target transaction; the distinction is about *intent* (future transactions
   will benefit from the memory update either way), not a different write path.
 - `scope: "all_matching"` additionally recategorizes every other transaction
-  sharing the same `merchant_key` whose `category_source !== 'user'`, nulling
-  `category_confidence` on each (their `category_source` itself is left
-  unchanged — still `'default'`/`'rule'`/`'memory'`, whatever it was — so a
-  later `reclassifyFinancePending()` can still revise them if a rule or
-  stronger memory signal appears). Because a backfilled row's `category_id`
-  can be a real category while its `category_source` stays `'default'`,
-  `classifyTransaction`'s "keep the existing category" guard (see
-  "Classification pipeline" below) keys off `category_id !==
-  'fincat:non-categorise'`, not `category_source` — otherwise a
-  `reclassifyFinancePending()` immediately after an `all_matching` edit would
-  silently reset the backfilled rows back to Uncategorized the moment their
-  `merchant_key` matches nothing better than a suggestion.
+  sharing the same `merchant_key` whose `category_source !== 'user'`, marking each
+  `category_source = 'user'` and nulling `category_confidence`: the user explicitly
+  applied the correction, so later imports, `reclassifyFinancePending()` and transfer
+  detection never overwrite it (and undoing an import cannot delete it).
   The result's `backfill` array captures each backfilled row's prior `category_id`,
   `category_source`, `category_confidence`, `categorized_at`, and the
-  `categoryId` the bulk edit applied (`appliedCategoryId`); passing that array
+  `categoryId` and `categorized_at` stamp the bulk edit applied (`appliedCategoryId`,
+  `appliedAt`); passing that array
   to `revertFinanceCategoryBackfill()` is the single undo the UI offers right
   after an `all_matching` edit (`FinanceTransactionsPage`'s backfill banner),
   one `BEGIN IMMEDIATE`/`COMMIT` on the SQLite side. The target transaction's
   own `category_source = 'user'` write is **not** part of the undo — only the
-  backfilled rows revert, and even then only a row whose `category_source` is
-  still not `'user'` **and** whose `category_id` still equals
-  `appliedCategoryId` — if the user manually re-categorized it, or a later
-  automatic pass moved it again, the undo leaves that row alone rather than
-  clobbering the newer edit.
+  backfilled rows revert, and even then only a row whose `category_id` still equals
+  `appliedCategoryId` **and** whose `categorized_at` is still `appliedAt` — if the
+  user manually re-categorized it afterwards, the undo leaves that row alone rather
+  than clobbering the newer edit.
 
 `decideFinanceCategorySuggestion` routes an `accepted`/`corrected` decision through
 this same entry point (`scope: "this"`), so accepting a suggestion reinforces

@@ -400,6 +400,7 @@ export class FinanceMemoryStore {
             categoryConfidence: candidate.categoryConfidence,
             categorizedAt: candidate.categorizedAt,
             appliedCategoryId: input.categoryId,
+            appliedAt: now,
           });
           this.transactions.set(candidate.id, {
             ...candidate,
@@ -432,10 +433,10 @@ export class FinanceMemoryStore {
 
   /**
    * Reverts the `backfill` entries from a `scope: "all_matching"` call — a
-   * single undo. Skips (and does not count) a row whose `category_source`
-   * is now `"user"` or whose current `category_id` no longer equals
-   * `entry.appliedCategoryId` — either means something else touched the row
-   * after the bulk edit, and an undo of the older edit must not clobber it.
+   * a row whose `category_id` no longer equals `entry.appliedCategoryId` or whose
+   * `categorized_at` is no longer `entry.appliedAt` — either means something else
+   * touched the row after the bulk edit, and an undo of the older edit must not
+   * clobber it. Bulk-edited rows are `user`-owned, so they stay protected from automation.
    */
   revertCategoryBackfill(entries: FinanceCategoryBackfillEntry[]): number {
     const now = nowIso();
@@ -445,7 +446,11 @@ export class FinanceMemoryStore {
       if (!txn) {
         continue;
       }
-      if (txn.categorySource === "user" || txn.categoryId !== entry.appliedCategoryId) {
+      if (
+        txn.categorySource !== "user" ||
+        txn.categoryId !== entry.appliedCategoryId ||
+        txn.categorizedAt !== entry.appliedAt
+      ) {
         continue;
       }
       this.transactions.set(entry.transactionId, {

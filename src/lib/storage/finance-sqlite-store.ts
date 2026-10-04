@@ -878,6 +878,7 @@ export class FinanceSqliteStore {
           categoryConfidence: row.category_confidence,
           categorizedAt: row.categorized_at,
           appliedCategoryId: input.categoryId,
+          appliedAt: now,
         });
       }
       const result = await db.execute(
@@ -906,10 +907,10 @@ export class FinanceSqliteStore {
   /**
    * Reverts the `backfill` entries from a `scope: "all_matching"` call — a
    * single undo, one `BEGIN IMMEDIATE`/`COMMIT`. Skips (and does not count)
-   * a row whose `category_source` is now `"user"` or whose current
-   * `category_id` no longer equals `entry.appliedCategoryId` — either means
-   * something else touched the row after the bulk edit, and an undo of the
-   * older edit must not clobber it.
+   * a row whose `category_id` no longer equals `entry.appliedCategoryId` or whose
+   * `categorized_at` is no longer `entry.appliedAt` — either means something else
+   * touched the row after the bulk edit, and an undo of the older edit must not
+   * clobber it. Bulk-edited rows are `user`-owned, so they stay protected from automation.
    */
   async revertCategoryBackfill(entries: FinanceCategoryBackfillEntry[]): Promise<number> {
     if (entries.length === 0) {
@@ -926,7 +927,8 @@ export class FinanceSqliteStore {
           `UPDATE finance_transactions SET
             category_id = $2, category_source = $3, category_confidence = $4,
             categorized_at = $5, updated_at = $6
-          WHERE id = $1 AND category_source != 'user' AND category_id = $7`,
+          WHERE id = $1 AND category_source = 'user' AND category_id = $7
+            AND categorized_at = $8`,
           [
             entry.transactionId,
             entry.categoryId,
@@ -935,6 +937,7 @@ export class FinanceSqliteStore {
             entry.categorizedAt,
             now,
             entry.appliedCategoryId,
+            entry.appliedAt,
           ],
         );
         reverted += result.rowsAffected;
