@@ -12,6 +12,7 @@ const group = (
   sign: -1,
   occurrenceCount: 3,
   amountMinorSample: 4_500,
+  currency: "CAD",
   accountType: "checking",
   transactionIds: ["txn-1", "txn-2", "txn-3"],
   ...overrides,
@@ -236,5 +237,26 @@ describe("buildFinanceCategorizationSnapshots", () => {
       "full",
     );
     expect(chunks).toEqual([]);
+  });
+});
+
+describe("buildFinanceCategorizationSnapshots currency handling", () => {
+  it("never labels a foreign-currency amount with a base-currency bucket", () => {
+    const [chunk] = buildFinanceCategorizationSnapshots(
+      {
+        unknownMerchants: [
+          group({ merchantKey: "TOKYO CAFE", currency: "JPY", amountMinorSample: 1_500 }),
+          group({ merchantKey: "CAFE MONTREAL", currency: "CAD", amountMinorSample: 1_500 }),
+        ],
+        allowedCategories,
+        baseCurrency: "CAD",
+      },
+      "full",
+    );
+    const bucketByKey = Object.fromEntries(
+      chunk.snapshot.merchants.map((merchant) => [merchant.merchantKey, merchant.amountBucket]),
+    );
+    expect(bucketByKey["TOKYO CAFE"]).toBe("unknown");
+    expect(bucketByKey["CAFE MONTREAL"]).toBe("10-50");
   });
 });

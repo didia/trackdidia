@@ -457,6 +457,11 @@ export interface FinanceUnknownMerchantGroup {
   sign: -1 | 0 | 1;
   occurrenceCount: number;
   amountMinorSample: number;
+  /**
+   * Currency of `amountMinorSample`: the group's most common transaction currency. The sample is
+   * a median over that currency's transactions only, so incompatible minor units are never mixed.
+   */
+  currency: string;
   accountType: FinanceAccountType;
   transactionIds: string[];
 }

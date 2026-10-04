@@ -293,7 +293,7 @@ describe("FinanceCategorizationService", () => {
     );
 
     expect(result.suggestionsCreated).toBe(0);
-    expect(result.warning).toBe("network down");
+    expect(result.warning).toBe("provider request failed");
   });
 
   it("rejects an out-of-list category id, treating the response as invalid and falling back", async () => {

@@ -1369,20 +1369,31 @@ export class FinanceMemoryStore {
 
     const result: FinanceUnknownMerchantGroup[] = [...groups.entries()]
       .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([merchantKey, txns]) => ({
-        merchantKey,
-        sign: FinanceMemoryStore.modeOf(
-          txns.map((txn): -1 | 0 | 1 => (txn.amountMinor > 0 ? 1 : txn.amountMinor < 0 ? -1 : 0)),
-          0,
-        ),
-        occurrenceCount: txns.length,
-        amountMinorSample: FinanceMemoryStore.medianAbs(txns.map((txn) => txn.amountMinor)),
-        accountType: FinanceMemoryStore.modeOf(
-          txns.map((txn): FinanceAccountType => this.accounts.get(txn.accountId)?.type ?? "other"),
-          "other",
-        ),
-        transactionIds: txns.map((txn) => txn.id),
-      }));
+      .map(([merchantKey, txns]) => {
+        const currency = FinanceMemoryStore.modeOf(
+          txns.map((txn) => txn.currency),
+          txns[0].currency,
+        );
+        return {
+          merchantKey,
+          sign: FinanceMemoryStore.modeOf(
+            txns.map((txn): -1 | 0 | 1 => (txn.amountMinor > 0 ? 1 : txn.amountMinor < 0 ? -1 : 0)),
+            0,
+          ),
+          occurrenceCount: txns.length,
+          amountMinorSample: FinanceMemoryStore.medianAbs(
+            txns.filter((txn) => txn.currency === currency).map((txn) => txn.amountMinor),
+          ),
+          currency,
+          accountType: FinanceMemoryStore.modeOf(
+            txns.map(
+              (txn): FinanceAccountType => this.accounts.get(txn.accountId)?.type ?? "other",
+            ),
+            "other",
+          ),
+          transactionIds: txns.map((txn) => txn.id),
+        };
+      });
 
     return result.slice(0, limit);
   }

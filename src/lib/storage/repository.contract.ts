@@ -5455,6 +5455,30 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           await expect(repository.listFinanceUnknownMerchants()).resolves.toEqual([]);
         });
 
+        it("reports the sample currency and never mixes currencies in the amount sample", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({ id: "cad-1", merchantKey: "CAFE", amountMinor: -500 }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({ id: "cad-2", merchantKey: "CAFE", amountMinor: -700 }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "jpy-1",
+              merchantKey: "CAFE",
+              amountMinor: -90_000,
+              currency: "JPY",
+            }),
+          );
+
+          const [group] = await repository.listFinanceUnknownMerchants();
+          expect(group.currency).toBe("CAD");
+          expect(group.occurrenceCount).toBe(3);
+          expect(group.amountMinorSample).toBeLessThan(1_000);
+        });
+
         it("writes a pending ai-origin suggestion with rationale/model/promptVersion, but does not auto-apply below threshold", async () => {
           const repository = await factory();
           await repository.saveFinanceAccount(account({ id: "account-1" }));

@@ -1049,7 +1049,9 @@ word present in the original description is sent as-is (e.g. an e-transfer
 line like "INTERAC E-TRANSFER JEAN DUPONT" keeps the name). It also buckets
 the representative amount into `<10`/`10-50`/`50-200`/`200-1000`/`>1000`
 (base currency, integer-minor-unit comparisons only, never a float
-division). It then chunks the sanitized list into one or more requests of
+division). A group's `amountMinorSample` is a median over its most common
+currency only (`FinanceUnknownMerchantGroup.currency`); when that currency is
+not the base currency there is no FX conversion, so the bucket is `unknown`. It then chunks the sanitized list into one or more requests of
 **at most 40 merchants and 16 KiB of serialized JSON each** — an over-cap
 batch is split into more requests, never truncated — each paired with a
 `merchantKeyMap` (sanitized request key -> original `merchant_key`
@@ -1072,8 +1074,13 @@ called again); when AI is unconfigured, persists a `status: "skipped"`
 `AiMessage` and applies nothing; otherwise calls the provider, does **one**
 repair round-trip on invalid JSON (`finance-categorization-validator.ts`
 rejects an out-of-list category id, a merchant key outside the request, a
-confidence outside `[0, 1]`, or an extra field on a merchant object; extra
-top-level keys are ignored), persists `status: "ok"` or
+confidence outside `[0, 1]`, an extra field on a merchant object, a
+duplicated merchant key, or a response that does not contain exactly one entry
+per requested merchant, so an empty or contradictory answer goes to repair and
+then fallback instead of being cached as `ok`; extra top-level keys are
+ignored). Validator errors and the service's `warning` are constant,
+value-free strings (never a merchant descriptor or provider error text),
+because callers log them, persists `status: "ok"` or
 `"fallback"`, and — on a valid response — applies the result. Every run
 (including `"skipped"`) is persisted via `saveCoachPulseEpisode` exactly like
 `GoalPacingService`'s `ok`/`fallback` rows, so it is picked up by the

@@ -175,9 +175,11 @@ export const FinanceReviewPage = () => {
           );
         } else {
           parts.push(
-            result.merchantsSent > 0
-              ? t("review.classifyPendingResult", counts)
-              : t("review.classifyPendingResultNoRequest", counts),
+            result.merchantsRequested === 0
+              ? t("review.classifyPendingNothing")
+              : result.merchantsSent > 0
+                ? t("review.classifyPendingResult", counts)
+                : t("review.classifyPendingResultNoRequest", counts),
           );
         }
         if (result.suppressedDismissed > 0) {

@@ -12,7 +12,8 @@
 //   as-is. Do not describe this as removing all personal information — it removes only
 //   structured identifiers (account/card numbers, emails, phone-like digit groups).
 // - Also sent: the transaction sign, an occurrence count, an amount bucket (`<10`, `10-50`,
-//   `50-200`, `200-1000`, `>1000`, in base currency, never the exact amount), the account type,
+//   `50-200`, `200-1000`, `>1000`, in base currency, never the exact amount; `unknown` when the
+//   merchant's transactions are in another currency, since nothing converts them), the account type,
 //   and the allowed category id/name list.
 // - Never sent (structured fields, not derived from the free-text descriptor): account names,
 //   institutions, account numbers, balances, net worth, `personId`, exact amounts, dates, notes,
@@ -26,7 +27,14 @@ import type { AiPayloadScope } from "../../../domain/types";
 import type { FinanceAccountType, FinanceUnknownMerchantGroup } from "../../../domain/finance";
 import { currencyExponent } from "../../finance/money";
 
-export type FinanceCategorizationAmountBucket = "<10" | "10-50" | "50-200" | "200-1000" | ">1000";
+/** `unknown` = the merchant's amounts are not in the base currency and no FX conversion exists. */
+export type FinanceCategorizationAmountBucket =
+  | "<10"
+  | "10-50"
+  | "50-200"
+  | "200-1000"
+  | ">1000"
+  | "unknown";
 
 export interface FinanceCategorizationSnapshotMerchant {
   /** The sanitized, request-unique key. Never the raw `finance_transactions.merchant_key`. */
@@ -174,7 +182,10 @@ export const buildFinanceCategorizationSnapshots = (
       merchantKey: key,
       sign: group.sign,
       occurrenceCount: group.occurrenceCount,
-      amountBucket: amountBucketFor(group.amountMinorSample, inputs.baseCurrency),
+      amountBucket:
+        group.currency.toUpperCase() === inputs.baseCurrency.toUpperCase()
+          ? amountBucketFor(group.amountMinorSample, inputs.baseCurrency)
+          : "unknown",
       accountType: group.accountType,
     };
     return {

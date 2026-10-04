@@ -309,7 +309,9 @@ export class FinanceCategorizationService {
       return {
         ...ZERO_OUTCOME,
         sent,
-        warning: error instanceof Error ? error.message : "L'IA n'a pas pu repondre.",
+        // Constant on purpose: provider/transport error text can embed request content and this
+        // warning is logged by callers.
+        warning: "provider request failed",
       };
     }
   }

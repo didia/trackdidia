@@ -2009,20 +2009,31 @@ export class FinanceSqliteStore {
 
     const result: FinanceUnknownMerchantGroup[] = [...groups.entries()]
       .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([merchantKey, txns]) => ({
-        merchantKey,
-        sign: FinanceSqliteStore.modeOf(
-          txns.map((txn): -1 | 0 | 1 => (txn.amount_minor > 0 ? 1 : txn.amount_minor < 0 ? -1 : 0)),
-          0,
-        ),
-        occurrenceCount: txns.length,
-        amountMinorSample: FinanceSqliteStore.medianAbs(txns.map((txn) => txn.amount_minor)),
-        accountType: FinanceSqliteStore.modeOf(
-          txns.map((txn): FinanceAccountType => accountTypeById.get(txn.account_id) ?? "other"),
-          "other",
-        ),
-        transactionIds: txns.map((txn) => txn.id),
-      }));
+      .map(([merchantKey, txns]) => {
+        const currency = FinanceSqliteStore.modeOf(
+          txns.map((txn) => txn.currency),
+          txns[0].currency,
+        );
+        return {
+          merchantKey,
+          sign: FinanceSqliteStore.modeOf(
+            txns.map((txn): -1 | 0 | 1 =>
+              txn.amount_minor > 0 ? 1 : txn.amount_minor < 0 ? -1 : 0,
+            ),
+            0,
+          ),
+          occurrenceCount: txns.length,
+          amountMinorSample: FinanceSqliteStore.medianAbs(
+            txns.filter((txn) => txn.currency === currency).map((txn) => txn.amount_minor),
+          ),
+          currency,
+          accountType: FinanceSqliteStore.modeOf(
+            txns.map((txn): FinanceAccountType => accountTypeById.get(txn.account_id) ?? "other"),
+            "other",
+          ),
+          transactionIds: txns.map((txn) => txn.id),
+        };
+      });
 
     return result.slice(0, limit);
   }
