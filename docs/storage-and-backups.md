@@ -205,6 +205,7 @@ its existing idempotent `dimancheNotesRelocatedAt` marker.
 | 37 | `add_finance_foundation` | Creates the fourteen `finance_*` tables (people, accounts, categories, transactions, transaction splits, rules, merchant memory, category suggestions, budget entries/months, recurring series, account balance snapshots, import profiles, import batches) and their indexes; inserts the three system categories (`fincat:non-categorise`, `fincat:transfert`, `fincat:split`) |
 | 38 | `add_finance_import_profile_separators` | Adds nullable `decimal_separator` / `thousands_separator` columns to `finance_import_profiles` via guarded, idempotent `ALTER TABLE` |
 | 39 | `create_finance_alert_notifications` | Creates `finance_alert_notifications` with primary key `(alert_key, notified_on_date)`, the once-per-day-per-key ledger for Phase 7 finance alert notifications |
+| 40 | `create_calendar_sync` | Creates `calendar_sync_settings` (singleton `id = 'global'`) and `calendar_sync_links` (composite primary key `(task_id, occurrence_key)`, nullable `event_id`, unique index on `(calendar_id, event_id)`, index on `state`) for the one-way TrackDidia -> Google Calendar sync model and planner (Phase 0; no network calls yet) |
 
 ## Table reference
 
@@ -340,6 +341,39 @@ Each row is one contiguous activity slice within a session: `session_id`, option
 
 Computed summaries and goal snapshots are not persisted; they are rebuilt from
 daily/review data.
+
+### Calendar sync tables
+
+Migration 40 adds sidecar tables for the (unshipped beyond Phase 0) one-way
+TrackDidia -> Google Calendar sync; see
+[`specs/todo/calendar-sync.md`](../specs/todo/calendar-sync.md). No `gtd_tasks` column
+changes. Phase 0 ships the schema, the pure planner (`src/lib/calendar/planner.ts`) and
+the promotion-capture step only; no network or OAuth code exists yet.
+
+- `calendar_sync_settings`: singleton `id = 'global'` for enable flag, OAuth client id,
+  connected account/calendar ids, calendar summary, the four dormant columns
+  (`default_duration_minutes`, `include_notes`, `mark_busy`, `reminders_enabled`, no v1
+  UI), connection `state` (`disconnected` | `active` | `reconnect_required` |
+  `needs_confirmation`), and `generation` (the connection's identity epoch: bumped and
+  every link cleared when the connected account or calendar id changes; a plain
+  disconnect does not bump it, so reconnecting the same account resumes).
+- `calendar_sync_links`: one row per calendar-eligible `(task_id, occurrence_key)`
+  (`occurrence_key` is the local `YYYY-MM-DD` of `scheduledFor`). `event_id` is
+  nullable (`pending` and `failed` links can exist without an event); the unique index
+  on `(calendar_id, event_id)` only constrains rows that own one, since SQLite allows
+  any number of `NULL`s. `payload_signature` is the canonical event body JSON — it
+  doubles as the stored snapshot for `pending` links. `detach_reason` records why a
+  terminal link stopped syncing (`promoted` | `completed` | `cancelled` |
+  `unscheduled` | `task_deleted` | `missing_remote`). Included in backups; a restored
+  stale link is handled by `missing_remote`, calendar recreation, and the planner's
+  empty-task-set safety valve (not yet wired to the network in Phase 0).
+
+Write discipline: the public calendar-sync mutators on `TauriSqliteRepository` go through
+the single SQLite writer (settings via `writeTransaction`, so an identity change updates
+the row and clears links atomically). Promotion capture runs inside the promotion
+transaction and uses the store directly. A synced link whose payload is unchanged is
+detached as `promoted` at capture, terminal detachments are never reopened, and a captured
+edit on an event that already exists becomes a planner update (not a create).
 
 ### Email triage tables
 

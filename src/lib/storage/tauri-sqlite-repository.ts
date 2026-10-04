@@ -29,6 +29,11 @@ import {
 import { runSqliteTransaction, transactionDb, type TxContext } from "./transaction";
 import { runMigrations } from "./migrations";
 import { invoke } from "@tauri-apps/api/core";
+import type {
+  CalendarSyncDetachReason,
+  CalendarSyncLink,
+  CalendarSyncSettings,
+} from "../../domain/calendar-sync";
 import {
   buildAnnualGoalSnapshots,
   cloneAnnualGoal,
@@ -116,9 +121,14 @@ import {
   reconcileProjectPlannedTasks,
   swapPlannedOrder,
 } from "../gtd/planned";
+import { calendarOccurrenceKeyFor } from "../calendar/eligibility";
 import { reconcileGtdDay, type ReconcileDayResult } from "../gtd/reconcile";
+import {
+  buildCalendarSyncCaptureLink,
+  isCalendarSyncCaptureActive,
+  promoteDueScheduledTasks as selectDueScheduledPromotions,
+} from "../gtd/scheduled";
 import { applyScheduleChange } from "../gtd/schedule";
-import { promoteDueScheduledTasks as selectDueScheduledPromotions } from "../gtd/scheduled";
 import { decorateDailyEntries } from "./decorate-entries";
 import { cloneProject, cloneTask, createEntityId, nowIso } from "../gtd/shared";
 import { addDays, toLocalDateString } from "../date";
@@ -151,6 +161,7 @@ import {
   syncTemplateStatusChange,
 } from "../recurring/engine";
 import { buildDailyRelationshipDrawPlan } from "../relationship-draws";
+import { CalendarSyncSqliteStore } from "./calendar-sync-sqlite-store";
 import { DbSerialQueue } from "./db-serial-queue";
 import { EmailTriageSqliteStore } from "./email-triage-sqlite-store";
 import { FinanceSqliteStore } from "./finance-sqlite-store";
@@ -196,6 +207,7 @@ export class TauriSqliteRepository implements AppRepository {
   private dbPromise: Promise<SqliteDatabase> | null = null;
   private financeStore: FinanceSqliteStore | null = null;
   private readonly writeQueue = new DbSerialQueue();
+  private calendarSyncStore: CalendarSyncSqliteStore | null = null;
   readonly emailTriage = new EmailTriageSqliteStore(
     () => this.getDb(),
     {
@@ -224,6 +236,13 @@ export class TauriSqliteRepository implements AppRepository {
     private readonly connectionString = "sqlite:trackdidia.db",
     private readonly openDb: (path: string) => Promise<SqliteDatabase> = Database.load,
   ) {}
+
+  private getCalendarSyncStore(): CalendarSyncSqliteStore {
+    if (!this.calendarSyncStore) {
+      this.calendarSyncStore = new CalendarSyncSqliteStore(() => this.getDb());
+    }
+    return this.calendarSyncStore;
+  }
 
   private getFinanceStore(): FinanceSqliteStore {
     if (!this.financeStore) {
@@ -1847,6 +1866,13 @@ export class TauriSqliteRepository implements AppRepository {
 
       const previousById = new Map(snapshot.map((task) => [task.id, task] as const));
 
+      // Promotion capture (specs/todo/calendar-sync.md): the instant before
+      // `scheduledFor` is cleared is the only place it still exists. Goes directly
+      // through `getCalendarSyncStore()`, never through the public repository methods
+      // (those would re-enter `runExclusive`, which is not reentrant).
+      const calendarSyncSettings = await this.getCalendarSyncStore().getSettings();
+      const captureActive = isCalendarSyncCaptureActive(calendarSyncSettings);
+
       for (const next of updated) {
         const previous = previousById.get(next.id) ?? null;
         await this.persistTask(next);
@@ -1857,6 +1883,25 @@ export class TauriSqliteRepository implements AppRepository {
             eventDate: localEventDate,
           })),
         );
+
+        if (captureActive && previous) {
+          const occurrenceKey = calendarOccurrenceKeyFor(previous);
+          if (occurrenceKey !== null) {
+            const existingLink = await this.getCalendarSyncStore().getLink(
+              previous.id,
+              occurrenceKey,
+            );
+            const captureLink = buildCalendarSyncCaptureLink(
+              previous,
+              existingLink,
+              calendarSyncSettings,
+              next.updatedAt,
+            );
+            if (captureLink) {
+              await this.getCalendarSyncStore().saveLink(captureLink);
+            }
+          }
+        }
       }
 
       await this.reconcileProjectsInternal(
@@ -3041,5 +3086,52 @@ export class TauriSqliteRepository implements AppRepository {
     input: import("../../domain/finance").ApplyFinanceCategorizationResultsInput,
   ) {
     return this.writeExclusive(() => this.getFinanceStore().applyCategorizationResults(input));
+  }
+
+  // --- Calendar sync (Phase 0) -----------------------------------------------------------
+
+  async getCalendarSyncSettings(): Promise<CalendarSyncSettings> {
+    return this.getCalendarSyncStore().getSettings();
+  }
+
+  // Public mutators go through the single writer so they cannot interleave with (and be
+  // rolled back by) another transaction on the shared connection. Promotion capture runs
+  // inside its own transaction and reaches the store directly, never these methods.
+  async saveCalendarSyncSettings(settings: CalendarSyncSettings): Promise<CalendarSyncSettings> {
+    // Transaction: an identity change updates the settings row and clears links atomically.
+    return this.writeTransaction(() => this.getCalendarSyncStore().saveSettings(settings));
+  }
+
+  async listCalendarSyncLinks(): Promise<CalendarSyncLink[]> {
+    return this.getCalendarSyncStore().listLinks();
+  }
+
+  async getCalendarSyncLink(
+    taskId: string,
+    occurrenceKey: string,
+  ): Promise<CalendarSyncLink | null> {
+    return this.getCalendarSyncStore().getLink(taskId, occurrenceKey);
+  }
+
+  async saveCalendarSyncLink(link: CalendarSyncLink): Promise<CalendarSyncLink> {
+    return this.writeExclusive(() => this.getCalendarSyncStore().saveLink(link));
+  }
+
+  async deleteCalendarSyncLink(taskId: string, occurrenceKey: string): Promise<void> {
+    await this.writeExclusive(() => this.getCalendarSyncStore().deleteLink(taskId, occurrenceKey));
+  }
+
+  async detachCalendarSyncLink(
+    taskId: string,
+    occurrenceKey: string,
+    reason: CalendarSyncDetachReason,
+  ): Promise<void> {
+    await this.writeExclusive(() =>
+      this.getCalendarSyncStore().detachLink(taskId, occurrenceKey, reason, nowIso()),
+    );
+  }
+
+  async clearCalendarSyncLinks(): Promise<void> {
+    await this.writeExclusive(() => this.getCalendarSyncStore().clearLinks());
   }
 }

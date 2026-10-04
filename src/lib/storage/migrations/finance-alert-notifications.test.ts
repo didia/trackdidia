@@ -12,7 +12,7 @@ describe("migration 39 create_finance_alert_notifications", () => {
 
   it("is the next free id after migration 38", () => {
     const ids = migrations.map((item) => item.id);
-    expect(Math.max(...ids)).toBe(39);
+    expect(ids).toContain(39);
     expect(ids).toContain(38);
   });
 });

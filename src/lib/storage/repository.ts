@@ -2,6 +2,11 @@ import type { AcceptEffect, AiProposalAcceptResult } from "../ai/proposals/accep
 import type { ReconcileDayResult } from "../gtd/reconcile";
 import type { EmailTriageStore } from "./email-triage-store";
 import type {
+  CalendarSyncDetachReason,
+  CalendarSyncLink,
+  CalendarSyncSettings,
+} from "../../domain/calendar-sync";
+import type {
   AiMemory,
   AiMemoryFilters,
   AiMessage,
@@ -513,4 +518,20 @@ export interface AppRepository {
   applyFinanceCategorizationResults(
     input: ApplyFinanceCategorizationResultsInput,
   ): Promise<ApplyFinanceCategorizationResultsOutcome>;
+
+  // --- Calendar sync (Phase 0) -----------------------------------------------------------
+
+  getCalendarSyncSettings(): Promise<CalendarSyncSettings>;
+  /** Upsert. Bumps `generation` and clears every link when the account or calendar changes. */
+  saveCalendarSyncSettings(settings: CalendarSyncSettings): Promise<CalendarSyncSettings>;
+  listCalendarSyncLinks(): Promise<CalendarSyncLink[]>;
+  getCalendarSyncLink(taskId: string, occurrenceKey: string): Promise<CalendarSyncLink | null>;
+  saveCalendarSyncLink(link: CalendarSyncLink): Promise<CalendarSyncLink>;
+  deleteCalendarSyncLink(taskId: string, occurrenceKey: string): Promise<void>;
+  detachCalendarSyncLink(
+    taskId: string,
+    occurrenceKey: string,
+    reason: CalendarSyncDetachReason,
+  ): Promise<void>;
+  clearCalendarSyncLinks(): Promise<void>;
 }

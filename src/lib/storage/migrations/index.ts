@@ -1017,6 +1017,52 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    id: 40,
+    name: "create_calendar_sync",
+    sql: `
+      CREATE TABLE IF NOT EXISTS calendar_sync_settings (
+        id TEXT PRIMARY KEY CHECK (id = 'global'),
+        enabled INTEGER NOT NULL DEFAULT 0,
+        provider TEXT NOT NULL DEFAULT 'google',
+        oauth_client_id TEXT NOT NULL DEFAULT '',
+        connected_account_id TEXT,
+        calendar_id TEXT,
+        calendar_summary TEXT NOT NULL DEFAULT 'TrackDidia',
+        default_duration_minutes INTEGER NOT NULL DEFAULT 30,
+        include_notes INTEGER NOT NULL DEFAULT 0,
+        mark_busy INTEGER NOT NULL DEFAULT 0,
+        reminders_enabled INTEGER NOT NULL DEFAULT 0,
+        state TEXT NOT NULL DEFAULT 'disconnected',
+        generation INTEGER NOT NULL DEFAULT 1,
+        last_sync_at TEXT,
+        last_error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS calendar_sync_links (
+        task_id TEXT NOT NULL,
+        occurrence_key TEXT NOT NULL,
+        calendar_id TEXT NOT NULL,
+        event_id TEXT,
+        generation INTEGER NOT NULL,
+        state TEXT NOT NULL,
+        payload_signature TEXT NOT NULL,
+        event_start_at TEXT NOT NULL,
+        detach_reason TEXT,
+        failure_count INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (task_id, occurrence_key)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_sync_links_event
+        ON calendar_sync_links (calendar_id, event_id);
+      CREATE INDEX IF NOT EXISTS idx_calendar_sync_links_state
+        ON calendar_sync_links (state);
+    `,
+  },
 ];
 
 /** Retains all repeatable SQL while skipping only guarded statements already applied. */
