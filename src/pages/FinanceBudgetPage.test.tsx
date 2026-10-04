@@ -1,13 +1,15 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { vi } from "vitest";
 import { defaultAppSettings } from "../domain/daily-entry";
 import { getTodayDate } from "../lib/date";
 import { formatMoney } from "../lib/finance/money";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { renderWithApp } from "../test/test-utils";
 import { FinanceBudgetPage } from "./FinanceBudgetPage";
+import { addMonthsToMonthKey } from "../domain/finance/budget";
 
-const buildAccount = () => {
+const buildAccount = (overrides: Record<string, unknown> = {}) => {
   const timestamp = new Date().toISOString();
   return {
     id: "account-1",
@@ -27,6 +29,7 @@ const buildAccount = () => {
     sortOrder: 0,
     createdAt: timestamp,
     updatedAt: timestamp,
+    ...overrides,
   };
 };
 
@@ -65,6 +68,305 @@ const buildTxn = (overrides: Record<string, unknown> = {}) => {
 };
 
 describe("FinanceBudgetPage", () => {
+  it("keeps another category's draft while an assignment save refreshes", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveFinanceAccount(buildAccount());
+    await repository.seedFinanceDefaultCategories();
+    let releaseSave: (() => void) | undefined;
+    const saveGate = new Promise<void>((resolve) => {
+      releaseSave = resolve;
+    });
+    const save = repository.setFinanceBudgetAssignment.bind(repository);
+    vi.spyOn(repository, "setFinanceBudgetAssignment").mockImplementation(async (...args) => {
+      await saveGate;
+      return save(...args);
+    });
+
+    await renderWithApp(<FinanceBudgetPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+    const grocery = await screen.findByTestId("budget-row-fincat:alimentation.epicerie");
+    const restaurant = screen.getByTestId("budget-row-fincat:alimentation.restaurants");
+    fireEvent.change(within(grocery).getByRole("textbox"), { target: { value: "50" } });
+    fireEvent.blur(within(grocery).getByRole("textbox"));
+    fireEvent.change(within(restaurant).getByRole("textbox"), { target: { value: "25" } });
+
+    await act(async () => releaseSave?.());
+    await waitFor(() => expect(within(grocery).getByRole("textbox")).toHaveValue("50.00"));
+    expect(within(restaurant).getByRole("textbox")).toHaveValue("25");
+  });
+
+  it("queues a same-field clear while an earlier assignment save is pending", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveFinanceAccount(buildAccount());
+    await repository.seedFinanceDefaultCategories();
+    let releaseSave: (() => void) | undefined;
+    const saveGate = new Promise<void>((resolve) => {
+      releaseSave = resolve;
+    });
+    const save = repository.setFinanceBudgetAssignment.bind(repository);
+    vi.spyOn(repository, "setFinanceBudgetAssignment").mockImplementation(async (...args) => {
+      await saveGate;
+      return save(...args);
+    });
+
+    await renderWithApp(<FinanceBudgetPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+    const row = await screen.findByTestId("budget-row-fincat:alimentation.epicerie");
+    const input = within(row).getByRole("textbox");
+    fireEvent.change(input, { target: { value: "50" } });
+    fireEvent.blur(input);
+    fireEvent.change(input, { target: { value: "0" } });
+    fireEvent.blur(input);
+
+    await act(async () => releaseSave?.());
+    await waitFor(async () => {
+      const state = await repository.computeFinanceBudgetState(getTodayDate().slice(0, 7), "CAD");
+      expect(
+        state.categories.find((category) => category.categoryId === "fincat:alimentation.epicerie")
+          ?.assignedMinor,
+      ).toBe(0);
+    });
+    expect(input).toHaveValue("0.00");
+  });
+
+  it("keeps the newer note draft while an older note save refreshes", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveFinanceAccount(buildAccount());
+    await repository.seedFinanceDefaultCategories();
+    let releaseSave: (() => void) | undefined;
+    const saveGate = new Promise<void>((resolve) => {
+      releaseSave = resolve;
+    });
+    const save = repository.setFinanceBudgetReadyToAssignNote.bind(repository);
+    vi.spyOn(repository, "setFinanceBudgetReadyToAssignNote").mockImplementation(
+      async (...args) => {
+        await saveGate;
+        return save(...args);
+      },
+    );
+
+    await renderWithApp(<FinanceBudgetPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+    const note = await screen.findByLabelText("Note");
+    fireEvent.change(note, { target: { value: "old note" } });
+    fireEvent.blur(note);
+    fireEvent.change(note, { target: { value: "new note" } });
+
+    await act(async () => releaseSave?.());
+    await waitFor(() => expect(note).toHaveValue("new note"));
+  });
+
+  it("keeps an assignment draft available for retry after a failed save", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveFinanceAccount(buildAccount());
+    await repository.seedFinanceDefaultCategories();
+    const save = repository.setFinanceBudgetAssignment.bind(repository);
+    vi.spyOn(repository, "setFinanceBudgetAssignment")
+      .mockRejectedValueOnce(new Error("save failed"))
+      .mockImplementation(save);
+
+    await renderWithApp(<FinanceBudgetPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+    const row = await screen.findByTestId("budget-row-fincat:alimentation.epicerie");
+    const input = within(row).getByRole("textbox");
+    fireEvent.change(input, { target: { value: "50" } });
+    fireEvent.blur(input);
+    expect(await screen.findByRole("alert")).toHaveTextContent("save failed");
+    expect(input).toHaveValue("50");
+
+    fireEvent.blur(input);
+    await waitFor(async () => {
+      const state = await repository.computeFinanceBudgetState(getTodayDate().slice(0, 7), "CAD");
+      expect(
+        state.categories.find((category) => category.categoryId === "fincat:alimentation.epicerie")
+          ?.assignedMinor,
+      ).toBe(5_000);
+    });
+  });
+
+  it("does not surface an old-month load failure after a newer month has loaded", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveFinanceAccount(buildAccount());
+    await repository.seedFinanceDefaultCategories();
+    let rejectOldLoad: ((error: Error) => void) | undefined;
+    const oldLoad = new Promise<never>((_resolve, reject) => {
+      rejectOldLoad = reject;
+    });
+    const getBudgetMonth = repository.getFinanceBudgetMonth.bind(repository);
+    vi.spyOn(repository, "getFinanceBudgetMonth").mockImplementation((key) =>
+      key === getTodayDate().slice(0, 7) ? oldLoad : getBudgetMonth(key),
+    );
+
+    await renderWithApp(<FinanceBudgetPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+    fireEvent.click(screen.getByText("Mois suivant"));
+    await screen.findByTestId("budget-row-fincat:alimentation.epicerie");
+    await act(async () => rejectOldLoad?.(new Error("old month failed")));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  });
+
+  it("disables close and assignment mutations until the newly selected month loads", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveFinanceAccount(buildAccount());
+    await repository.seedFinanceDefaultCategories();
+    const nextMonth = addMonthsToMonthKey(getTodayDate().slice(0, 7), 1);
+    let releaseNextLoad: (() => void) | undefined;
+    const nextLoad = new Promise<void>((resolve) => {
+      releaseNextLoad = resolve;
+    });
+    const getBudgetMonth = repository.getFinanceBudgetMonth.bind(repository);
+    vi.spyOn(repository, "getFinanceBudgetMonth").mockImplementation(async (key) => {
+      if (key === nextMonth) await nextLoad;
+      return getBudgetMonth(key);
+    });
+
+    await renderWithApp(<FinanceBudgetPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+    const row = await screen.findByTestId("budget-row-fincat:alimentation.epicerie");
+    fireEvent.click(screen.getByText("Mois suivant"));
+    await waitFor(() => expect(screen.getByText("Clôturer le mois")).toBeDisabled());
+    expect(within(row).getByRole("textbox")).toBeDisabled();
+
+    await act(async () => releaseNextLoad?.());
+    await waitFor(() => expect(screen.getByText("Clôturer le mois")).not.toBeDisabled());
+  });
+
+  it("allows a closed month to be reopened", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveFinanceAccount(buildAccount());
+    await repository.seedFinanceDefaultCategories();
+
+    const user = userEvent.setup();
+    await renderWithApp(<FinanceBudgetPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+
+    const closeButton = await screen.findByText("Clôturer le mois");
+    await user.click(closeButton);
+    const reopenButton = await screen.findByText("Rouvrir le mois");
+    expect(reopenButton).not.toBeDisabled();
+    await user.click(reopenButton);
+    await waitFor(() => expect(screen.getByText("Clôturer le mois")).not.toBeDisabled());
+  });
+
+  it("keeps mutations disabled until the latest A load completes after A → B → A", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveFinanceAccount(buildAccount());
+    await repository.seedFinanceDefaultCategories();
+    const currentMonth = getTodayDate().slice(0, 7);
+    const nextMonth = addMonthsToMonthKey(currentMonth, 1);
+    let currentMonthCalls = 0;
+    let releaseLatestCurrentLoad: (() => void) | undefined;
+    const latestCurrentLoad = new Promise<void>((resolve) => {
+      releaseLatestCurrentLoad = resolve;
+    });
+    const getBudgetMonth = repository.getFinanceBudgetMonth.bind(repository);
+    vi.spyOn(repository, "getFinanceBudgetMonth").mockImplementation(async (key) => {
+      if (key === currentMonth && ++currentMonthCalls === 2) await latestCurrentLoad;
+      return getBudgetMonth(key);
+    });
+
+    await renderWithApp(<FinanceBudgetPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+    const row = await screen.findByTestId("budget-row-fincat:alimentation.epicerie");
+    fireEvent.click(screen.getByText("Mois suivant"));
+    await waitFor(() => expect(screen.getByText(nextMonth)).toBeInTheDocument());
+    fireEvent.click(screen.getByText("Mois précédent"));
+    await waitFor(() => expect(screen.getByText(currentMonth)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Clôturer le mois")).toBeDisabled());
+    expect(within(row).getByRole("textbox")).toBeDisabled();
+
+    await act(async () => releaseLatestCurrentLoad?.());
+    await waitFor(() => expect(screen.getByText("Clôturer le mois")).not.toBeDisabled());
+  });
+
+  it("warns for a closed foreign on-budget account and shows its card balance in its own currency", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveFinanceAccount(buildAccount());
+    await repository.saveFinanceAccount(
+      buildAccount({
+        id: "card-usd",
+        name: "Carte USD fermée",
+        type: "credit_card",
+        currency: "USD",
+        closed: true,
+        openingBalanceMinor: -1_234,
+      }),
+    );
+    await repository.seedFinanceDefaultCategories();
+
+    await renderWithApp(<FinanceBudgetPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+    expect(await screen.findByRole("status")).toHaveTextContent("USD");
+    expect(await screen.findByText(/Carte USD fermée/)).toHaveTextContent("$ US");
+  });
+
+  it("persists an old-month save without replacing the newly selected month", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveFinanceAccount(buildAccount());
+    await repository.seedFinanceDefaultCategories();
+    const currentMonth = getTodayDate().slice(0, 7);
+    const nextMonth = addMonthsToMonthKey(currentMonth, 1);
+    await repository.setFinanceBudgetAssignment(nextMonth, "fincat:alimentation.epicerie", 2_000);
+    let releaseSave: (() => void) | undefined;
+    const saveGate = new Promise<void>((resolve) => {
+      releaseSave = resolve;
+    });
+    const save = repository.setFinanceBudgetAssignment.bind(repository);
+    vi.spyOn(repository, "setFinanceBudgetAssignment").mockImplementation(async (...args) => {
+      await saveGate;
+      return save(...args);
+    });
+
+    await renderWithApp(<FinanceBudgetPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+    const grocery = await screen.findByTestId("budget-row-fincat:alimentation.epicerie");
+    fireEvent.change(within(grocery).getByRole("textbox"), { target: { value: "50" } });
+    fireEvent.blur(within(grocery).getByRole("textbox"));
+    fireEvent.click(screen.getByText("Mois suivant"));
+    await waitFor(() => expect(within(grocery).getByRole("textbox")).toHaveValue("20.00"));
+
+    await act(async () => releaseSave?.());
+    await waitFor(async () => {
+      expect(
+        (await repository.computeFinanceBudgetState(currentMonth, "CAD")).categories.find(
+          (category) => category.categoryId === "fincat:alimentation.epicerie",
+        )?.assignedMinor,
+      ).toBe(5_000);
+    });
+    expect(screen.getByText(nextMonth)).toBeInTheDocument();
+    expect(within(grocery).getByRole("textbox")).toHaveValue("20.00");
+  });
+
   it("assigning money updates Available and Ready to Assign", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -173,7 +475,7 @@ describe("FinanceBudgetPage", () => {
     // Read the pure helper's precomputed amount directly off the repository's
     // `computeFinanceBudgetState` result — the page must write exactly this,
     // never a value it recomputes itself.
-    const stateBeforeClick = await repository.computeFinanceBudgetState(monthKey);
+    const stateBeforeClick = await repository.computeFinanceBudgetState(monthKey, "CAD");
     const expectedAmount = stateBeforeClick.categories.find(
       (category) => category.categoryId === "fincat:alimentation.epicerie",
     )?.lastMonthAssignedMinor;
@@ -190,7 +492,7 @@ describe("FinanceBudgetPage", () => {
     await user.click(within(row).getByText("Mois dernier"));
 
     await waitFor(async () => {
-      const stateAfterClick = await repository.computeFinanceBudgetState(monthKey);
+      const stateAfterClick = await repository.computeFinanceBudgetState(monthKey, "CAD");
       const assignedMinor = stateAfterClick.categories.find(
         (category) => category.categoryId === "fincat:alimentation.epicerie",
       )?.assignedMinor;
@@ -238,7 +540,7 @@ describe("FinanceBudgetPage", () => {
     await user.click(input);
     await user.tab();
 
-    const state = await repository.computeFinanceBudgetState(monthKey);
+    const state = await repository.computeFinanceBudgetState(monthKey, "CAD");
     expect(
       state.categories.find((c) => c.categoryId === "fincat:alimentation.epicerie")
         ?.overspendPolicy,
@@ -274,10 +576,10 @@ describe("FinanceBudgetPage", () => {
     fireEvent.click(secondButton as HTMLElement);
 
     await waitFor(async () => {
-      const state = await repository.computeFinanceBudgetState(monthKey);
+      const state = await repository.computeFinanceBudgetState(monthKey, "CAD");
       expect(state.readyToAssignMinor).toBe(0);
     });
-    const state = await repository.computeFinanceBudgetState(monthKey);
+    const state = await repository.computeFinanceBudgetState(monthKey, "CAD");
     expect(state.readyToAssignMinor).toBe(0);
   });
 });

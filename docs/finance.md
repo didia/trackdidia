@@ -332,7 +332,7 @@ and left exactly as they were, with their `import_batch_id` intact.
 every number the budget page renders comes from this file, matching the
 `computeWeeklyReviewSummary` centralization pattern. Both
 `FinanceSqliteStore.computeBudgetState` and
-`FinanceMemoryStore.computeBudgetState` load the **same input shape**
+`FinanceMemoryStore.computeBudgetState` take an explicit `baseCurrency` and load the **same input shape**
 (via a private `buildBudgetComputationInput`, shared with
 `computeCoverOverspending` below) — **two** separate transaction arrays
 through the end of the requested month (see "the two transaction arrays"
@@ -372,11 +372,11 @@ under both overspend policies, on the spec's worked example, and across
 consecutive deferred-income months).
 
 **The two transaction arrays.** `FinanceBudgetComputationInput` carries
-`transactions` (on-budget, `excluded_from_budget = 0`, splits expanded —
+`transactions` (on-budget accounts in that base currency only, `excluded_from_budget = 0`, splits expanded —
 drives `activity`/`available`) and a *separate* `balanceTransactions`
 (**every** on-budget transaction, regardless of `excluded_from_budget`).
 `onBudgetBalance(M) = opening_balance_minor + Σ balanceTransactions up to end
-of M`, across on-budget accounts — deliberately including excluded rows,
+of M`, across on-budget accounts in the selected base currency — deliberately including excluded rows,
 since a transfer (or any other excluded transaction) still moves real money
 in and out of the account; `activity` must still exclude it. One
 `excluded_from_budget` flag cannot serve both purposes, so the two pure
@@ -394,11 +394,11 @@ so `FinanceBudgetPage`'s "Mois dernier"/"Moy. 3 mois"/"Assigner tout le prêt
 write it straight through `setFinanceBudgetAssignment` — **no arithmetic in
 the page**. "Cover overspending from another category" is the one quick
 action that needs two categories' data at once, so it stays a dedicated
-repository method, `computeFinanceCoverOverspending(monthKey, fromCategoryId,
-toCategoryId)`, implemented identically on both stores via the same private
+repository method, `computeFinanceCoverOverspending(monthKey, baseCurrency,
+fromCategoryId, toCategoryId)`, implemented identically on both stores via the same private
 `buildBudgetComputationInput` used by `computeBudgetState`, delegating to the
 pure `computeCoverOverspending`; the page calls
-`applyFinanceCoverOverspending(monthKey, fromCategoryId, toCategoryId)`, which
+`applyFinanceCoverOverspending(monthKey, baseCurrency, fromCategoryId, toCategoryId)`, which
 writes both categories' new assignments in one writer-queue transaction.
 `selectUnbudgetedCategories` picks out the "Non budgété" band (no assignment,
 negative activity, and `availableMinor < 0` — spending already covered by
@@ -642,7 +642,18 @@ write of both totals). Parent categories that hold spending or an assignment get
 their own row above their leaves. Writes run through one in-page queue and
 quick actions re-read `computeFinanceBudgetState` inside the queued task, so
 overlapping clicks cannot reuse a stale Ready to Assign; a stale month load is
-discarded and write/load failures render an alert. Blurring an unchanged
+discarded and write/load failures render an alert. A queued write remains tied
+to its original month after navigation, but it cannot refresh or overwrite the
+newly selected month. Draft assignments and notes retain newer local edits while
+an older save or refresh is in flight. The budget totals exclude on-budget
+accounts in other currencies and show the same currency-exclusion notice as the
+Overview; credit-card balances remain visible in each card's own currency.
+Closed on-budget accounts are included when determining that currency-exclusion
+notice because their balances still participate in budget arithmetic. While a
+selected month is loading, every budget mutation, including close/reopen, is
+disabled; once loaded, close/reopen derives its action from that month's stored
+`closed_at` value.
+Blurring an unchanged
 assignment is a no-op. A "Non budgété" band (from
 `selectUnbudgetedCategories`) lists categories with uncovered spending, each
 with a one-click "Assigner" that adds `computeUnbudgetedAssignAmountMinor(category)`. A plain "solde
@@ -820,8 +831,9 @@ semantics):
 - `knownUpcomingMinor` sums **every remaining occurrence this month** of the
   category's active recurring **bills** (`expectedAmountMinor < 0`) — a weekly
   bill counts each week, not just its next date — each added as a lump sum on
-  its own day, never smoothed. Only series on on-budget accounts count (an
-  off-budget bill or paycheck can neither trigger nor mask an alert).
+  its own day, never smoothed. Only series on on-budget accounts in
+  `financeBaseCurrency` count (an off-budget or foreign-currency bill or
+  paycheck can neither trigger nor mask an alert).
 - `projectedTotalMinor = spentMinor + blendedPaceMinor * remainingDays +
   knownUpcomingMinor`; `runoutDate` is the first remaining day this
   crosses the envelope, found by a day-by-day walk (so a lump-sum bill lands
@@ -859,12 +871,13 @@ once-per-day-per-key notification rate limit meaningful.
 ### Repository surface
 
 `buildFinanceSnapshot(asOfDate)` loads: the current month's
-`computeFinanceBudgetState` input/output, on-budget accounts and every
+`computeFinanceBudgetState` input/output, on-budget accounts in
+`financeBaseCurrency` and every
 transaction on them through `asOfDate` (for `onBudgetBalance`), every
 on-budget/`excludedFromBudget = 0` transaction through the current month's
 `asOfDate` (for pace math — the same filter `budget.ts`'s `activity` uses), the
 earliest activity month (for the `lowConfidence` 3-month check), and every
-**active** recurring series. `computeFinanceForecast(asOfDate)` loads that
+**active** recurring series on those accounts. `computeFinanceForecast(asOfDate)` loads that
 snapshot and calls the two pure functions above.
 
 ### Alert notification ledger and policy
