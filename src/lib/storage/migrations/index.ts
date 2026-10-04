@@ -983,6 +983,28 @@ export const migrations: Migration[] = [
         ('fincat:split', 'Répartition', NULL, 'internal', 0, 1, 0, 2, '1970-01-01T00:00:00.000Z', '1970-01-01T00:00:00.000Z');
     `,
   },
+  {
+    id: 38,
+    name: "add_finance_import_profile_separators",
+    sql: `
+      ALTER TABLE finance_import_profiles ADD COLUMN decimal_separator TEXT;
+      ALTER TABLE finance_import_profiles ADD COLUMN thousands_separator TEXT;
+    `,
+    guards: {
+      skipIfColumnExists: [
+        {
+          table: "finance_import_profiles",
+          column: "decimal_separator",
+          statement: "ALTER TABLE finance_import_profiles ADD COLUMN decimal_separator TEXT;",
+        },
+        {
+          table: "finance_import_profiles",
+          column: "thousands_separator",
+          statement: "ALTER TABLE finance_import_profiles ADD COLUMN thousands_separator TEXT;",
+        },
+      ],
+    },
+  },
 ];
 
 /** Retains all repeatable SQL while skipping only guarded statements already applied. */

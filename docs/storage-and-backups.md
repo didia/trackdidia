@@ -203,6 +203,7 @@ its existing idempotent `dimancheNotesRelocatedAt` marker.
 | 35 | `create_rescuetime_snapshot_cache` | Creates `rescuetime_snapshot_cache` (`week_start_date`, `kind`, `credential_fingerprint`, `payload_json`, `fetched_at`; primary key on the first three) |
 | 36 | `create_mid_week_decisions` | Creates `mid_week_decisions` (one row per week: decisions text, `decided_on_date`, nullable `lagging_snapshot_json`, `updated_at`) |
 | 37 | `add_finance_foundation` | Creates the fourteen `finance_*` tables (people, accounts, categories, transactions, transaction splits, rules, merchant memory, category suggestions, budget entries/months, recurring series, account balance snapshots, import profiles, import batches) and their indexes; inserts the three system categories (`fincat:non-categorise`, `fincat:transfert`, `fincat:split`) |
+| 38 | `add_finance_import_profile_separators` | Adds nullable `decimal_separator` / `thousands_separator` columns to `finance_import_profiles` via guarded, idempotent `ALTER TABLE` |
 
 ## Table reference
 

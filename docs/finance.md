@@ -101,8 +101,16 @@ assertions against both.
 
 Covered in this phase: people, accounts, categories (including the default-taxonomy
 seed and archive-with-reassign), rules, merchant memory, transactions (including
-splits and transfers), import profiles/batches, transaction import with undo, and
-the category-suggestion queue. **Not** covered yet (later phases): any `compute*`
+splits and transfers), import profiles/batches (including their decimal/thousands
+separators), transaction import with undo, and
+the category-suggestion queue. Every finance mutation goes through the repository
+writer queue (`writeExclusive`), so a save can never be rolled back by a concurrent
+import. `saveFinanceTransactionSplits` validates that a non-empty allocation sums
+exactly to the parent amount before touching anything and replaces splits in one
+transaction; clearing the last split restores `fincat:non-categorise`. An
+`all_matching` category correction marks every changed row `category_source = 'user'`,
+and archiving a category also reassigns split and merchant-memory references.
+**Not** covered yet (later phases): any `compute*`
 report/forecast method, recurring-series detection/storage, budget state, balance
 snapshots, or AI suggestion generation — these remain unimplemented on both
 repositories until their respective phase.
@@ -172,12 +180,13 @@ merchant memory → seed heuristics → AI → default) is Phase 4.
 ### Undo
 
 `undoFinanceImportBatch(batchId)` is **restricted to the most recent batch for that
-batch's account** — if a later batch for the same account exists, the call throws
+batch's account, and for every account represented by its rows** — if a later batch for any of those accounts exists, the call throws
 rather than silently doing nothing, because that later batch may have deduped
 against a row this undo would otherwise delete. It deletes a batch row's splits and
 **all** of its category suggestions (pending or already decided — a deleted
 transaction cannot leave an orphaned suggestion behind), repairs the transfer
-group of a surviving partner (clearing
+group of a surviving partner (a partner the user categorized keeps its category,
+provenance, and exclusions and only loses the dead group link; otherwise clearing
 `is_transfer`/`transfer_group_id`, restoring a pending suggestion so the partner
 does not silently fall out of the budget), and **refuses to delete any row whose
 `category_source = 'user'`** — those rows are counted in `refusedUserCategorized`

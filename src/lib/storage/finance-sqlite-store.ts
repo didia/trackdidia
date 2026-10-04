@@ -35,6 +35,7 @@ import {
 import { applyMerchantMemoryCorrection } from "../finance/memory";
 import { findNearDuplicates } from "../finance/near-duplicates";
 import { detectTransfers, type TransferCandidateTransaction } from "../finance/transfers";
+import { validateSplitTotal } from "../finance/splits";
 import { createEntityId, nowIso } from "../gtd/shared";
 
 interface PersonRow {
@@ -293,6 +294,8 @@ interface ImportProfileRow {
   date_format: FinanceImportProfile["dateFormat"];
   amount_mode: FinanceImportProfile["amountMode"];
   sign_convention: string | null;
+  decimal_separator: string | null;
+  thousands_separator: string | null;
   default_account_id: string | null;
   created_at: string;
   updated_at: string;
@@ -307,6 +310,12 @@ const mapImportProfile = (row: ImportProfileRow): FinanceImportProfile => ({
   dateFormat: row.date_format,
   amountMode: row.amount_mode,
   signConvention: row.sign_convention,
+  ...(row.decimal_separator !== null
+    ? { decimalSeparator: row.decimal_separator as FinanceImportProfile["decimalSeparator"] }
+    : {}),
+  ...(row.thousands_separator !== null
+    ? { thousandsSeparator: row.thousands_separator as FinanceImportProfile["thousandsSeparator"] }
+    : {}),
   defaultAccountId: row.default_account_id,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -515,15 +524,26 @@ export class FinanceSqliteStore {
   async archiveCategory(id: string, reassignToId: string): Promise<number> {
     const db = await this.getDb();
     const now = nowIso();
-    const result = await db.execute(
-      "UPDATE finance_transactions SET category_id = $2, updated_at = $3 WHERE category_id = $1",
-      [id, reassignToId, now],
-    );
-    await db.execute("UPDATE finance_categories SET archived = 1, updated_at = $2 WHERE id = $1", [
-      id,
-      now,
-    ]);
-    return result.rowsAffected;
+    return this.inTransaction(db, async () => {
+      const result = await db.execute(
+        "UPDATE finance_transactions SET category_id = $2, updated_at = $3 WHERE category_id = $1",
+        [id, reassignToId, now],
+      );
+      const splitResult = await db.execute(
+        "UPDATE finance_transaction_splits SET category_id = $2 WHERE category_id = $1",
+        [id, reassignToId],
+      );
+      // Merchant memory must not keep resurrecting the archived category.
+      await db.execute(
+        "UPDATE finance_merchant_memory SET category_id = $2, updated_at = $3 WHERE category_id = $1",
+        [id, reassignToId, now],
+      );
+      await db.execute(
+        "UPDATE finance_categories SET archived = 1, updated_at = $2 WHERE id = $1",
+        [id, now],
+      );
+      return result.rowsAffected + splitResult.rowsAffected;
+    });
   }
 
   /** Idempotent INSERT OR IGNORE seed of the default French taxonomy. Returns rows newly inserted. */
@@ -833,7 +853,7 @@ export class FinanceSqliteStore {
     let updated = 1;
     if (input.scope === "all_matching") {
       const result = await db.execute(
-        "UPDATE finance_transactions SET category_id = $2, categorized_at = $3, updated_at = $3 WHERE merchant_key = $1 AND category_source != 'user' AND id != $4",
+        "UPDATE finance_transactions SET category_id = $2, category_source = 'user', category_confidence = NULL, categorized_at = $3, updated_at = $3 WHERE merchant_key = $1 AND category_source != 'user' AND id != $4",
         [txn.merchantKey, input.categoryId, now, input.transactionId],
       );
       updated += result.rowsAffected;
@@ -913,29 +933,47 @@ export class FinanceSqliteStore {
   ): Promise<FinanceTransaction> {
     const db = await this.getDb();
     const now = nowIso();
-    await db.execute("DELETE FROM finance_transaction_splits WHERE transaction_id = $1", [
-      transactionId,
-    ]);
-
-    for (const [index, split] of splits.entries()) {
-      const id = split.id || createEntityId("finance-split");
-      await db.execute(
-        `INSERT INTO finance_transaction_splits (
-          id, transaction_id, amount_minor, category_id, notes, sort_order, created_at
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [id, transactionId, split.amountMinor, split.categoryId, split.notes, index, now],
-      );
+    const parent = await this.getTransaction(transactionId);
+    if (!parent) {
+      throw new Error(`finance transaction not found: ${transactionId}`);
     }
+    validateSplitTotal(parent.amountMinor, splits);
 
-    await db.execute(
-      `UPDATE finance_transactions SET
-        has_splits = $2,
-        category_id = CASE WHEN $2 = 1 THEN 'fincat:split' ELSE category_id END,
-        category_source = CASE WHEN $2 = 1 THEN 'user' ELSE category_source END,
-        updated_at = $3
-      WHERE id = $1`,
-      [transactionId, splits.length > 0 ? 1 : 0, now],
-    );
+    await this.inTransaction(db, async () => {
+      await db.execute("DELETE FROM finance_transaction_splits WHERE transaction_id = $1", [
+        transactionId,
+      ]);
+
+      for (const [index, split] of splits.entries()) {
+        const id = split.id || createEntityId("finance-split");
+        await db.execute(
+          `INSERT INTO finance_transaction_splits (
+            id, transaction_id, amount_minor, category_id, notes, sort_order, created_at
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [id, transactionId, split.amountMinor, split.categoryId, split.notes, index, now],
+        );
+      }
+
+      // Removing the final split must not leave the internal split category behind.
+      await db.execute(
+        `UPDATE finance_transactions SET
+          has_splits = $2,
+          category_id = CASE
+            WHEN $2 = 1 THEN 'fincat:split'
+            WHEN category_id = 'fincat:split' THEN 'fincat:non-categorise'
+            ELSE category_id END,
+          category_source = CASE
+            WHEN $2 = 1 THEN 'user'
+            WHEN category_id = 'fincat:split' THEN 'default'
+            ELSE category_source END,
+          category_confidence = CASE
+            WHEN $2 = 1 OR category_id = 'fincat:split' THEN NULL
+            ELSE category_confidence END,
+          updated_at = $3
+        WHERE id = $1`,
+        [transactionId, splits.length > 0 ? 1 : 0, now],
+      );
+    });
 
     const txn = await this.getTransaction(transactionId);
     if (!txn) {
@@ -1012,8 +1050,9 @@ export class FinanceSqliteStore {
     await db.execute(
       `INSERT INTO finance_import_profiles (
         id, name, signature, column_map_json, date_format, amount_mode, sign_convention,
-        default_account_id, created_at, updated_at, last_used_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        default_account_id, created_at, updated_at, last_used_at,
+        decimal_separator, thousands_separator
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         signature = excluded.signature,
@@ -1021,6 +1060,8 @@ export class FinanceSqliteStore {
         date_format = excluded.date_format,
         amount_mode = excluded.amount_mode,
         sign_convention = excluded.sign_convention,
+        decimal_separator = excluded.decimal_separator,
+        thousands_separator = excluded.thousands_separator,
         default_account_id = excluded.default_account_id,
         updated_at = excluded.updated_at,
         last_used_at = excluded.last_used_at`,
@@ -1036,6 +1077,8 @@ export class FinanceSqliteStore {
         profile.createdAt || now,
         now,
         profile.lastUsedAt,
+        profile.decimalSeparator ?? null,
+        profile.thousandsSeparator ?? null,
       ],
     );
     const rows = await db.select<ImportProfileRow[]>(
@@ -1243,6 +1286,7 @@ export class FinanceSqliteStore {
           postedDate: row.posted_date,
           descriptionRaw: row.description_raw,
           isTransfer: Boolean(row.is_transfer),
+          transferGroupId: row.transfer_group_id,
           excludedFromBudget: Boolean(row.excluded_from_budget),
           accountOnBudget: accountOnBudgetByAccountId.get(row.account_id) ?? true,
         }));
@@ -1411,23 +1455,32 @@ export class FinanceSqliteStore {
         throw new Error(`finance import batch not found: ${batchId}`);
       }
 
-      const mostRecentRows = await db.select<Array<{ id: string }>>(
-        `SELECT id FROM finance_import_batches
-         WHERE account_id = $1
-         ORDER BY started_at DESC, id DESC
-         LIMIT 1`,
-        [batch.account_id],
-      );
-      if (mostRecentRows[0]?.id !== batchId) {
-        throw new Error(
-          `undoFinanceImportBatch is restricted to the most recent batch for account ${batch.account_id}`,
-        );
-      }
-
       const batchTransactionRows = await db.select<TransactionRow[]>(
         "SELECT * FROM finance_transactions WHERE import_batch_id = $1",
         [batchId],
       );
+
+      // A batch may contain rows for several accounts; none of them may be covered by a newer
+      // batch, otherwise undoing would punch a hole in that account's history.
+      const accountIds = new Set<string>(batchTransactionRows.map((row) => row.account_id));
+      if (batch.account_id) {
+        accountIds.add(batch.account_id);
+      }
+      for (const accountId of accountIds) {
+        const mostRecentRows = await db.select<Array<{ id: string }>>(
+          `SELECT id FROM finance_import_batches
+           WHERE account_id = $1
+           ORDER BY started_at DESC, rowid DESC
+           LIMIT 1`,
+          [accountId],
+        );
+        const mostRecentId = mostRecentRows[0]?.id;
+        if (mostRecentId !== undefined && mostRecentId !== batchId) {
+          throw new Error(
+            `undoFinanceImportBatch is restricted to the most recent batch for account ${accountId}`,
+          );
+        }
+      }
 
       let deleted = 0;
       let refusedUserCategorized = 0;
@@ -1451,6 +1504,18 @@ export class FinanceSqliteStore {
             [row.transfer_group_id, row.id],
           );
           for (const partner of partnerRows) {
+            if (partner.category_source === "user") {
+              // Keep the user's category, provenance, and exclusions; only drop the dead link.
+              await db.execute(
+                `UPDATE finance_transactions SET
+                  is_transfer = 0,
+                  transfer_group_id = NULL,
+                  updated_at = $2
+                WHERE id = $1`,
+                [partner.id, now],
+              );
+              continue;
+            }
             await db.execute(
               `UPDATE finance_transactions SET
                 is_transfer = 0,
@@ -1580,6 +1645,19 @@ export class FinanceSqliteStore {
     }
 
     return mapSuggestion({ ...before, status: decision.status, decided_at: now });
+  }
+
+  /** Runs `work` in one BEGIN IMMEDIATE/COMMIT; callers must already hold the repository writer. */
+  private async inTransaction<T>(db: Database, work: () => Promise<T>): Promise<T> {
+    await db.execute("BEGIN IMMEDIATE");
+    try {
+      const result = await work();
+      await db.execute("COMMIT");
+      return result;
+    } catch (error) {
+      await this.rollbackQuietly(db);
+      throw error;
+    }
   }
 
   private async rollbackQuietly(db: Database): Promise<void> {

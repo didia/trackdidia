@@ -2807,7 +2807,7 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async saveFinancePerson(person: import("../../domain/finance").FinancePerson) {
-    return this.getFinanceStore().savePerson(person);
+    return this.writeExclusive(() => this.getFinanceStore().savePerson(person));
   }
 
   async listFinanceAccounts(filters?: import("../../domain/finance").FinanceAccountFilters) {
@@ -2815,11 +2815,11 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async saveFinanceAccount(account: import("../../domain/finance").FinanceAccount) {
-    return this.getFinanceStore().saveAccount(account);
+    return this.writeExclusive(() => this.getFinanceStore().saveAccount(account));
   }
 
   async closeFinanceAccount(id: string) {
-    return this.getFinanceStore().closeAccount(id);
+    return this.writeExclusive(() => this.getFinanceStore().closeAccount(id));
   }
 
   async listFinanceCategories(includeArchived?: boolean) {
@@ -2827,15 +2827,15 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async saveFinanceCategory(category: import("../../domain/finance").FinanceCategory) {
-    return this.getFinanceStore().saveCategory(category);
+    return this.writeExclusive(() => this.getFinanceStore().saveCategory(category));
   }
 
   async archiveFinanceCategory(id: string, reassignToId: string) {
-    return this.getFinanceStore().archiveCategory(id, reassignToId);
+    return this.writeExclusive(() => this.getFinanceStore().archiveCategory(id, reassignToId));
   }
 
   async seedFinanceDefaultCategories() {
-    return this.getFinanceStore().seedDefaultCategories();
+    return this.writeExclusive(() => this.getFinanceStore().seedDefaultCategories());
   }
 
   async listFinanceRules() {
@@ -2843,11 +2843,11 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async saveFinanceRule(rule: import("../../domain/finance").FinanceRule) {
-    return this.getFinanceStore().saveRule(rule);
+    return this.writeExclusive(() => this.getFinanceStore().saveRule(rule));
   }
 
   async deleteFinanceRule(id: string) {
-    return this.getFinanceStore().deleteRule(id);
+    return this.writeExclusive(() => this.getFinanceStore().deleteRule(id));
   }
 
   async listFinanceMerchantMemory(
@@ -2859,11 +2859,13 @@ export class TauriSqliteRepository implements AppRepository {
   async upsertFinanceMerchantMemory(
     entry: import("../../domain/finance").FinanceMerchantMemoryEntry,
   ) {
-    return this.getFinanceStore().upsertMerchantMemory(entry);
+    return this.writeExclusive(() => this.getFinanceStore().upsertMerchantMemory(entry));
   }
 
   async forgetFinanceMerchantMemory(merchantKey: string, accountId: string, sign: -1 | 0 | 1) {
-    return this.getFinanceStore().forgetMerchantMemory(merchantKey, accountId, sign);
+    return this.writeExclusive(() =>
+      this.getFinanceStore().forgetMerchantMemory(merchantKey, accountId, sign),
+    );
   }
 
   async listFinanceTransactions(
@@ -2883,7 +2885,7 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async saveFinanceTransaction(txn: import("../../domain/finance").FinanceTransaction) {
-    return this.getFinanceStore().saveTransaction(txn);
+    return this.writeExclusive(() => this.getFinanceStore().saveTransaction(txn));
   }
 
   async setFinanceTransactionCategory(
@@ -2896,14 +2898,16 @@ export class TauriSqliteRepository implements AppRepository {
     ids: string[],
     patch: import("../../domain/finance").BulkUpdateFinanceTransactionsPatch,
   ) {
-    return this.getFinanceStore().bulkUpdateTransactions(ids, patch);
+    return this.writeExclusive(() => this.getFinanceStore().bulkUpdateTransactions(ids, patch));
   }
 
   async saveFinanceTransactionSplits(
     transactionId: string,
     splits: import("../../domain/finance").FinanceTransactionSplit[],
   ) {
-    return this.getFinanceStore().saveTransactionSplits(transactionId, splits);
+    return this.writeExclusive(() =>
+      this.getFinanceStore().saveTransactionSplits(transactionId, splits),
+    );
   }
 
   async listFinanceTransactionSplits(transactionId: string) {
@@ -2914,11 +2918,11 @@ export class TauriSqliteRepository implements AppRepository {
     pair: import("../../domain/finance").SetFinanceTransferPair | null,
     groupId?: string,
   ) {
-    return this.getFinanceStore().setTransfer(pair, groupId);
+    return this.writeExclusive(() => this.getFinanceStore().setTransfer(pair, groupId));
   }
 
   async clearFinanceTransfer(transactionId: string) {
-    return this.getFinanceStore().clearTransfer(transactionId);
+    return this.writeExclusive(() => this.getFinanceStore().clearTransfer(transactionId));
   }
 
   async listFinanceImportProfiles() {
@@ -2926,7 +2930,7 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async saveFinanceImportProfile(profile: import("../../domain/finance").FinanceImportProfile) {
-    return this.getFinanceStore().saveImportProfile(profile);
+    return this.writeExclusive(() => this.getFinanceStore().saveImportProfile(profile));
   }
 
   async findFinanceImportProfileBySignature(signature: string) {
@@ -2955,7 +2959,7 @@ export class TauriSqliteRepository implements AppRepository {
   async saveFinanceCategorySuggestions(
     suggestions: import("../../domain/finance").FinanceCategorySuggestion[],
   ) {
-    return this.getFinanceStore().saveCategorySuggestions(suggestions);
+    return this.writeExclusive(() => this.getFinanceStore().saveCategorySuggestions(suggestions));
   }
 
   async decideFinanceCategorySuggestion(
