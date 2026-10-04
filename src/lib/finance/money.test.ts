@@ -3,6 +3,7 @@ import {
   currencyExponent,
   formatMoney,
   formatMoneySigned,
+  normalizeCurrencyCode,
   parseAmountToMinor,
   sumMoney,
 } from "./money";
@@ -110,5 +111,18 @@ describe("parseAmountToMinor strictness", () => {
     expect(parseAmountToMinor("1.999", { exponent: 2, decimalSeparator: "." }).ok).toBe(false);
     expect(parseAmountToMinor("1.5", { exponent: 0, decimalSeparator: "." }).ok).toBe(false);
     expect(parseAmountToMinor("1,234,567.89")).toEqual({ ok: true, amountMinor: 123456789 });
+  });
+});
+
+describe("currency validation", () => {
+  it("normalizes valid codes and rejects malformed ones", () => {
+    expect(normalizeCurrencyCode(" cad ")).toBe("CAD");
+    expect(normalizeCurrencyCode("CA")).toBeNull();
+    expect(normalizeCurrencyCode("")).toBeNull();
+    expect(normalizeCurrencyCode("C4D")).toBeNull();
+  });
+
+  it("formatMoney does not throw on a malformed stored currency", () => {
+    expect(() => formatMoney({ amountMinor: 1234, currency: "CA" })).not.toThrow();
   });
 });

@@ -741,19 +741,24 @@ export class FinanceMemoryStore {
       }
     }
 
+    const skipped = input.rejected?.skipped ?? 0;
+    const errors = input.rejected?.errors ?? 0;
+    warnings.push(...(input.rejected?.warnings ?? []));
     const batch: FinanceImportBatch = {
       id: batchId,
       profileId: input.profileId,
       fileName: input.fileName,
       fileHash: input.fileHash,
       accountId: input.accountId,
-      rowCount: input.rows.length,
+      rowCount: input.rows.length + skipped + errors,
       importedCount: imported,
       duplicateCount: duplicates,
-      skippedCount: 0,
-      errorCount: 0,
+      skippedCount: skipped,
+      errorCount: errors,
       status: "completed",
-      errorSummary: null,
+      errorSummary: input.rejected?.warnings.length
+        ? input.rejected.warnings.slice(0, 20).join("\n")
+        : null,
       startedAt: now,
       finishedAt: now,
     };
@@ -761,11 +766,11 @@ export class FinanceMemoryStore {
 
     return {
       batchId,
-      rowCount: input.rows.length,
+      rowCount: input.rows.length + skipped + errors,
       imported,
       duplicates,
-      skipped: 0,
-      errors: 0,
+      skipped,
+      errors,
       newAccounts: 0,
       transfersDetected,
       pendingSuggestions,

@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { defaultAppSettings } from "../domain/daily-entry";
 import { MemoryRepository } from "../lib/storage/memory-repository";
@@ -205,5 +205,69 @@ describe("FinanceTransactionsPage", () => {
       name: "Marquer la paire comme virement",
     });
     expect(markButton).toBeDisabled();
+  });
+
+  it("returns to the first page when a filter changes", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await seedAccountAndTransactions(repository);
+    for (let index = 2; index <= 30; index += 1) {
+      await repository.saveFinanceTransaction({
+        ...(await repository.getFinanceTransaction("finance-txn:1"))!,
+        id: `finance-txn:${index}`,
+        descriptionRaw: `Achat ${index}`,
+        merchantKey: `ACHAT ${index}`,
+        dedupeHash: `hash-${index}`,
+      });
+    }
+
+    const user = userEvent.setup();
+    await renderWithApp(<FinanceTransactionsPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+    await screen.findByText(/Page 1 \/ 2/);
+    await user.click(screen.getByRole("button", { name: /Suivant/ }));
+    await screen.findByText(/Page 2 \/ 2/);
+
+    const searchInput = screen
+      .getAllByRole("textbox")
+      .find((input) => input.closest("label")?.textContent === "Recherche") as HTMLInputElement;
+    await user.type(searchInput, "Achat 7");
+
+    expect(await screen.findByText("Achat 7")).toBeInTheDocument();
+  });
+
+  it("removes the last split and restores an ordinary category", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await seedAccountAndTransactions(repository);
+    await repository.saveFinanceTransactionSplits("finance-txn:1", [
+      {
+        id: "split-1",
+        transactionId: "finance-txn:1",
+        amountMinor: -1234,
+        categoryId: "fincat:alimentation.epicerie",
+        notes: null,
+        sortOrder: 0,
+        createdAt: timestamp,
+      },
+    ]);
+
+    const user = userEvent.setup();
+    await renderWithApp(<FinanceTransactionsPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+    await user.click(await screen.findByText("Diviser"));
+    await user.click(await screen.findByText("Retirer"));
+    await user.click(screen.getByRole("button", { name: "Enregistrer" }));
+
+    await waitFor(async () => {
+      await expect(repository.getFinanceTransaction("finance-txn:1")).resolves.toMatchObject({
+        hasSplits: false,
+        categoryId: "fincat:non-categorise",
+      });
+    });
   });
 });

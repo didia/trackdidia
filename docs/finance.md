@@ -71,7 +71,7 @@ ISO strings from `nowIso()`.
 fixed ids (`fincat:alimentation`, `fincat:alimentation.epicerie`, …), distinct from
 the three system categories above. `AppRepository.seedFinanceDefaultCategories()`
 seeds it idempotently (`INSERT OR IGNORE`, so re-running is always a no-op) on both
-repositories. No caller invokes it yet; a later phase gates the call on
+repositories. Settings calls it when finance is first enabled, and the call is gated on
 `AppSettings.financeCategoriesSeededAt`, the same one-time-marker pattern as the GTD
 normalizations in `app-context.tsx`.
 
@@ -349,9 +349,18 @@ text search, uncategorized-only) transaction list. Each row supports:
   change sends a concrete, non-empty `categoryId`; both `FinanceSqliteStore`
   and `FinanceMemoryStore` also reject an empty `categoryId` defensively.
 - A split editor (`FinanceTransactionSplit[]`) with client-side sum-invariant
-  validation: saving is rejected unless every split amount parses and the
-  splits sum to exactly the parent transaction's `amountMinor`, matching the
-  invariant the repository documents but does not itself enforce.
+  validation matching the repositories' own `validateSplitTotal`: a non-empty
+  allocation must parse and sum exactly to the parent's `amountMinor`; removing
+  every row saves an empty list, which clears the splits and restores the
+  uncategorized parent. Save stays disabled until that transaction's existing
+  splits have loaded, and a superseded load is ignored.
+- Accounts can be edited in place (id, external key, notes, closed state and order
+  are preserved; the currency is locked once saved). Currencies are validated with
+  `normalizeCurrencyCode` before persisting, in accounts and in Settings.
+- Imports parse each row with its bound account's currency, mask the account column
+  in the stored source row and in default account names, and pass CSV parser
+  warnings and mapping errors to the repository as `FinanceImportRequest.rejected`
+  so they land in the batch's skipped/error counts, `error_summary` and warnings.
 - Unmark transfer (calls `clearFinanceTransfer`) is a per-row action. Marking
   a *pair* as a transfer is a bulk action instead: selecting exactly two rows
   enables "Marquer la paire comme virement" in the bulk toolbar, which calls

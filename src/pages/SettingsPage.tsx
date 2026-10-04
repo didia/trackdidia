@@ -10,6 +10,7 @@ import { SectionCard } from "../components/SectionCard";
 import { AiPayloadPreviewSection } from "../components/settings/AiPayloadPreviewSection";
 import { StorageOverviewSection } from "../components/settings/StorageOverviewSection";
 import { useSectionSave } from "../components/settings/useSectionSave";
+import { normalizeCurrencyCode } from "../lib/finance/money";
 import { defaultAppSettings, rebaseSettingsDraft, settingsDraftPatch } from "../domain/settings";
 import type { AiPayloadScope, AppSettings } from "../domain/types";
 import { formatPulseSlotHours, parsePulseSlotHours } from "../lib/ai/pulse/slot-hours";
@@ -77,6 +78,13 @@ export const SettingsPage = () => {
   const financeSave = useSectionSave(async () => {
     const enabling = draftSettings.financeEnabled && !settings.financeEnabled;
     const patch = settingsDraftPatch(draftSettings, baselineRef.current, financePreferenceKeys);
+    if (patch.financeBaseCurrency !== undefined) {
+      const normalized = normalizeCurrencyCode(patch.financeBaseCurrency);
+      if (!normalized) {
+        throw new Error("invalid finance base currency");
+      }
+      patch.financeBaseCurrency = normalized;
+    }
 
     if (enabling && !settings.financeCategoriesSeededAt) {
       await repository.seedFinanceDefaultCategories();
