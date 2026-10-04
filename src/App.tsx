@@ -7,6 +7,8 @@ import { EveningClosurePage } from "./pages/EveningClosurePage";
 import { FinanceAccountsPage } from "./pages/FinanceAccountsPage";
 import { FinanceImportPage } from "./pages/FinanceImportPage";
 import { FinanceOverviewPage } from "./pages/FinanceOverviewPage";
+import { FinanceReviewPage } from "./pages/FinanceReviewPage";
+import { FinanceRulesPage } from "./pages/FinanceRulesPage";
 import { FinanceTransactionsPage } from "./pages/FinanceTransactionsPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { InboxPage } from "./pages/InboxPage";
@@ -40,6 +42,8 @@ export const FinanceRoutes = () => {
       <Route path="transactions" element={<FinanceTransactionsPage />} />
       <Route path="import" element={<FinanceImportPage />} />
       <Route path="accounts" element={<FinanceAccountsPage />} />
+      <Route path="review" element={<FinanceReviewPage />} />
+      <Route path="rules" element={<FinanceRulesPage />} />
     </Routes>
   );
 };

@@ -181,6 +181,85 @@ describe("FinanceTransactionsPage", () => {
     expect(first?.transferGroupId).toBe(second?.transferGroupId);
   });
 
+  it("shows the category source badge", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await seedAccountAndTransactions(repository);
+
+    await renderWithApp(<FinanceTransactionsPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+
+    await screen.findByText("Épicerie Metro");
+    expect(screen.getByText("Non catégorisé", { selector: ".tag-chip" })).toBeInTheDocument();
+  });
+
+  it("all_matching recategorizes other rows for the same merchant and offers a single undo", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await seedAccountAndTransactions(repository);
+    await repository.saveFinanceTransaction({
+      id: "finance-txn:3",
+      accountId: "finance-account:checking",
+      postedDate: "2024-01-06",
+      amountMinor: -2000,
+      currency: "CAD",
+      descriptionRaw: "Épicerie Metro",
+      descriptionOriginal: null,
+      merchantKey: "EPICERIE METRO",
+      merchantDisplay: null,
+      categoryId: "fincat:non-categorise",
+      categorySource: "default",
+      categoryConfidence: null,
+      categorizedAt: null,
+      personId: null,
+      notes: null,
+      labelsJson: null,
+      pending: false,
+      isTransfer: false,
+      transferGroupId: null,
+      excludedFromBudget: false,
+      excludedFromReports: false,
+      hasSplits: false,
+      importBatchId: null,
+      dedupeHash: "hash-3",
+      sourceRowJson: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+
+    const user = userEvent.setup();
+    await renderWithApp(<FinanceTransactionsPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+
+    await screen.findAllByText("Épicerie Metro");
+    const scopeSelects = screen.getAllByLabelText("Portée");
+    await user.selectOptions(scopeSelects[0], "all_matching");
+    const categorySelects = screen.getAllByLabelText("Catégorie");
+    await user.selectOptions(categorySelects[1], "fincat:alimentation.epicerie");
+
+    expect(
+      await screen.findByText(
+        "1 autre(s) transaction(s) du même marchand ont aussi été mises à jour.",
+      ),
+    ).toBeInTheDocument();
+    // finance-txn:3 (posted 2024-01-06) sorts first and is the direct target
+    // (categorySource becomes "user"); finance-txn:1 (2024-01-05) is the
+    // "other" row the all_matching scope backfilled.
+    await expect(repository.getFinanceTransaction("finance-txn:1")).resolves.toMatchObject({
+      categoryId: "fincat:alimentation.epicerie",
+    });
+
+    await user.click(screen.getByText("Annuler la recatégorisation groupée"));
+    await expect(repository.getFinanceTransaction("finance-txn:1")).resolves.toMatchObject({
+      categoryId: "fincat:non-categorise",
+      categorySource: "default",
+    });
+  });
+
   it("disables the transfer-pair button unless exactly two rows are selected", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
