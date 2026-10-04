@@ -132,14 +132,16 @@ import {
 import {
   applySeriesChangesToTemplate,
   buildRecurringPreviewOccurrences,
-  buildTaskFromRecurringTemplate,
+  cancelActiveTaskForTemplate,
   cloneRecurringTemplate,
   createRecurringTemplate,
   filterRecurringTemplates,
-  listDueDatesBetween,
-  prepareRecurringGeneration,
+  mergeOccurrenceEdit,
+  planDueRecurrenceGeneration,
+  planRecurrencePreparation,
+  planTemplateUpdateOnTaskClose,
   recurrenceGenerationHorizon,
-  recurringInstanceWasRewound,
+  syncActiveTaskWithTemplate,
   syncTemplateStatusChange,
 } from "../recurring/engine";
 import { buildDailyRelationshipDrawPlan } from "../relationship-draws";
@@ -1772,42 +1774,37 @@ export class TauriSqliteRepository implements AppRepository {
       await this.persistRecurringTemplate(nextTemplate);
       const activeTask = await this.findActiveRecurringTask(nextTemplate.id);
       if (activeTask) {
-        await this.persistTask(this.syncActiveTaskWithTemplate(activeTask, nextTemplate));
+        await this.persistTask(syncActiveTaskWithTemplate(activeTask, nextTemplate));
       }
       return cloneRecurringTemplate(nextTemplate);
     });
   }
 
   async pauseRecurringTaskTemplate(id: string) {
-    return this.writeExclusive(async () => {
-      const template = await this.requireRecurringTemplate(id);
-      const nextTemplate = syncTemplateStatusChange(template, "paused");
-      await this.persistRecurringTemplate(nextTemplate);
-      return cloneRecurringTemplate(nextTemplate);
-    });
+    return this.setTemplateStatus(id, "paused");
   }
 
   async resumeRecurringTaskTemplate(id: string) {
-    return this.writeExclusive(async () => {
-      const template = await this.requireRecurringTemplate(id);
-      const nextTemplate = syncTemplateStatusChange(template, "active");
-      await this.persistRecurringTemplate(nextTemplate);
-      return cloneRecurringTemplate(nextTemplate);
-    });
+    return this.setTemplateStatus(id, "active");
   }
 
   async cancelRecurringTaskTemplate(id: string) {
+    return this.setTemplateStatus(id, "cancelled");
+  }
+
+  private async setTemplateStatus(
+    id: string,
+    status: RecurringTaskTemplate["status"],
+  ): Promise<RecurringTaskTemplate> {
     return this.writeExclusive(async () => {
       const template = await this.requireRecurringTemplate(id);
-      const nextTemplate = syncTemplateStatusChange(template, "cancelled");
+      const nextTemplate = syncTemplateStatusChange(template, status);
       await this.persistRecurringTemplate(nextTemplate);
-      const activeTask = await this.findActiveRecurringTask(id);
-      if (activeTask) {
-        await this.persistTask({
-          ...cloneTask(activeTask),
-          status: "cancelled",
-          updatedAt: nowIso(),
-        });
+      if (status === "cancelled") {
+        const activeTask = await this.findActiveRecurringTask(id);
+        if (activeTask) {
+          await this.persistTask(cancelActiveTaskForTemplate(activeTask, nowIso()));
+        }
       }
       return cloneRecurringTemplate(nextTemplate);
     });
@@ -1826,79 +1823,31 @@ export class TauriSqliteRepository implements AppRepository {
         }
 
         const instance = await this.findRecurringInstance(original.id);
-        const prepared = prepareRecurringGeneration(original, instance, today);
-        let template = prepared.template;
-        let activeTask = prepared.instance?.status === "active" ? prepared.instance : null;
-
-        if (prepared.changed) {
-          const timestamp = nowIso();
-          template = {
-            ...cloneRecurringTemplate(template),
-            updatedAt: timestamp,
-          };
-          await this.persistRecurringTemplate(template);
-          if (recurringInstanceWasRewound(instance, prepared.instance) && prepared.instance) {
-            const previousInstance = instance ? cloneTask(instance) : null;
-            const nextInstance = {
-              ...cloneTask(prepared.instance),
-              updatedAt: timestamp,
-            };
-            await this.persistTask(nextInstance);
-            if (previousInstance) {
-              await this.persistEvents(buildLifecycleEvents(previousInstance, nextInstance));
-            }
-            if (nextInstance.status === "active") {
-              activeTask = nextInstance;
-            }
-          }
+        const prepared = planRecurrencePreparation(original, instance, today, nowIso());
+        if (prepared.templateChanged) {
+          await this.persistRecurringTemplate(prepared.template);
+        }
+        if (prepared.instanceUpdate) {
+          const { previousTask, nextTask } = prepared.instanceUpdate;
+          await this.persistTask(nextTask);
+          await this.persistEvents(buildLifecycleEvents(previousTask, nextTask));
         }
 
-        const startDate = this.findProcessingStartDate(template, activeTask);
-        const dueDates = this.listDueDatesBetween(template, startDate, horizon);
-
-        if (dueDates.length === 0) {
+        const plan = planDueRecurrenceGeneration(
+          prepared.template,
+          prepared.activeTask,
+          horizon,
+          nowIso(),
+        );
+        if (!plan) {
           continue;
         }
 
-        const latestDueDate = dueDates[dueDates.length - 1];
-        const nextPending =
-          (activeTask?.pendingPastRecurrences ?? 0) + dueDates.length - 1 + (activeTask ? 1 : 0);
-        const previousPending = activeTask?.pendingPastRecurrences ?? 0;
-        const pendingPastRecurrences = Math.max(previousPending, nextPending);
-        const timestamp = nowIso();
-
-        const nextTask = activeTask
-          ? {
-              ...cloneTask(activeTask),
-              bucket: template.targetBucket,
-              contextIds: [...template.contextIds],
-              projectId: template.projectId,
-              title: activeTask.title,
-              notes: activeTask.notes,
-              scheduledFor:
-                template.targetBucket === "scheduled"
-                  ? buildTaskFromRecurringTemplate(template, latestDueDate, pendingPastRecurrences)
-                      .scheduledFor
-                  : null,
-              recurrenceDueDate: latestDueDate,
-              pendingPastRecurrences,
-              updatedAt: timestamp,
-            }
-          : buildTaskFromRecurringTemplate(
-              template,
-              latestDueDate,
-              Math.max(0, dueDates.length - 1),
-            );
-
-        await this.persistTask(nextTask);
-        await this.persistEvents(
-          buildLifecycleEvents(activeTask ? cloneTask(activeTask) : null, nextTask),
-        );
+        await this.persistTask(plan.nextTask);
+        await this.persistEvents(buildLifecycleEvents(plan.previousTask, plan.nextTask));
         await this.persistRecurringTemplate({
-          ...cloneRecurringTemplate(template),
-          lastGeneratedForDate: latestDueDate,
-          pendingMissedOccurrences: nextTask.pendingPastRecurrences,
-          updatedAt: timestamp,
+          ...cloneRecurringTemplate(prepared.template),
+          ...plan.templatePatch,
         });
 
         changedCount += 1;
@@ -1963,22 +1912,13 @@ export class TauriSqliteRepository implements AppRepository {
     }
 
     if (scope === "occurrence") {
-      return this.saveTask({
-        ...task,
-        title: changes.title ?? task.title,
-        notes: changes.notes ?? task.notes,
-        bucket: changes.bucket ?? task.bucket,
-        contextIds: changes.contextIds ?? task.contextIds,
-        projectId: changes.projectId === undefined ? task.projectId : changes.projectId,
-        scheduledFor: changes.scheduledFor === undefined ? task.scheduledFor : changes.scheduledFor,
-        deadline: changes.deadline === undefined ? task.deadline : changes.deadline,
-      });
+      return this.saveTask(mergeOccurrenceEdit(task, changes));
     }
 
     const template = await this.requireRecurringTemplate(task.recurringTemplateId);
     const nextTemplate = applySeriesChangesToTemplate(template, changes);
     await this.saveRecurringTaskTemplate(nextTemplate);
-    return this.saveTask(this.syncActiveTaskWithTemplate(task, nextTemplate));
+    return this.saveTask(syncActiveTaskWithTemplate(task, nextTemplate));
   }
 
   async createTask(input: Parameters<AppRepository["createTask"]>[0]): Promise<Task> {
@@ -2215,18 +2155,9 @@ export class TauriSqliteRepository implements AppRepository {
 
       if (current.recurringTemplateId) {
         const template = await this.requireRecurringTemplate(current.recurringTemplateId);
-        const nextLastGeneratedForDate =
-          current.recurrenceDueDate &&
-          (!template.lastGeneratedForDate ||
-            current.recurrenceDueDate > template.lastGeneratedForDate)
-            ? current.recurrenceDueDate
-            : template.lastGeneratedForDate;
-        await this.persistRecurringTemplate({
-          ...cloneRecurringTemplate(template),
-          lastGeneratedForDate: nextLastGeneratedForDate,
-          pendingMissedOccurrences: 0,
-          updatedAt: nowIso(),
-        });
+        await this.persistRecurringTemplate(
+          planTemplateUpdateOnTaskClose(template, current, "completed", nowIso()),
+        );
       }
 
       return nextTask;
@@ -2246,11 +2177,9 @@ export class TauriSqliteRepository implements AppRepository {
 
       if (current.recurringTemplateId) {
         const template = await this.requireRecurringTemplate(current.recurringTemplateId);
-        await this.persistRecurringTemplate({
-          ...cloneRecurringTemplate(template),
-          pendingMissedOccurrences: 0,
-          updatedAt: nowIso(),
-        });
+        await this.persistRecurringTemplate(
+          planTemplateUpdateOnTaskClose(template, current, "cancelled", nowIso()),
+        );
       }
 
       return nextTask;
@@ -2660,52 +2589,6 @@ export class TauriSqliteRepository implements AppRepository {
           candidate.status === "active",
       ) ?? null
     );
-  }
-
-  private findProcessingStartDate(
-    template: RecurringTaskTemplate,
-    activeTask: Task | null,
-  ): string {
-    const candidates = [template.startDate];
-
-    if (template.lastGeneratedForDate) {
-      candidates.push(addDays(template.lastGeneratedForDate, 1));
-    }
-
-    if (activeTask?.recurrenceDueDate) {
-      candidates.push(addDays(activeTask.recurrenceDueDate, 1));
-    }
-
-    const sorted = [...candidates].sort();
-    return sorted.length > 0 ? sorted[sorted.length - 1] : template.startDate;
-  }
-
-  private listDueDatesBetween(
-    template: RecurringTaskTemplate,
-    rangeStart: string,
-    rangeEnd: string,
-  ): string[] {
-    return listDueDatesBetween(template, rangeStart, rangeEnd);
-  }
-
-  private syncActiveTaskWithTemplate(task: Task, template: RecurringTaskTemplate): Task {
-    return {
-      ...cloneTask(task),
-      title: template.title,
-      notes: template.notes,
-      bucket: template.targetBucket,
-      contextIds: [...template.contextIds],
-      projectId: template.projectId,
-      scheduledFor:
-        template.targetBucket === "scheduled" && task.recurrenceDueDate
-          ? buildTaskFromRecurringTemplate(
-              template,
-              task.recurrenceDueDate,
-              task.pendingPastRecurrences,
-            ).scheduledFor
-          : null,
-      updatedAt: nowIso(),
-    };
   }
 
   private async persistTask(task: Task, conflict: "update" | "ignore" = "update"): Promise<void> {
