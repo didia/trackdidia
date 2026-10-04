@@ -1,4 +1,4 @@
-import { useProposalAcceptance } from "../app/use-proposal-acceptance";
+import { useProposalDecisions } from "../app/use-proposal-decisions";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
@@ -16,7 +16,6 @@ import {
   updateMonthlyReviewNote,
 } from "../domain/monthly-review";
 import type {
-  AiProposal,
   AnnualGoalSnapshot,
   MonthlyReview,
   MonthlyReviewSectionKey,
@@ -72,7 +71,6 @@ const monthlySectionMeta: Array<{
 ];
 
 export const MonthlyReviewPage = () => {
-  const proposalAcceptance = useProposalAcceptance();
   const { t } = useTranslation("reviews");
   const { repository, settings } = useAppContext();
   const synthesisService = useMemo(() => new MonthlySynthesisService(new OpenRouterProvider()), []);
@@ -218,79 +216,58 @@ export const MonthlyReviewPage = () => {
   const synthesisMatchesMonth =
     synthesisResult?.message.scopeKey === summary?.monthKey && synthesisResult !== null;
 
-  const handleAcceptSynthesisProposal = async (proposal: AiProposal) => {
-    if (!summary || synthesisResult?.message.scopeKey !== summary.monthKey) return;
-    if (!proposalAcceptance.begin(proposal.id)) return;
-    try {
-      const monthKey = summary.monthKey;
-      const applied = await applyCoachProposal(repository, proposal, {
-        acceptedDate: monthKey,
-        monthly: {
-          monthKey,
-          withReview: async (sectionKey, work) => {
-            const current = latestReviewRef.current ?? review ?? createEmptyMonthlyReview(monthKey);
-            if (!reviewSaver.get(monthKey)) reviewSaver.hydrate(monthKey, current);
-            return reviewSaver.run(monthKey, async (snapshot) => {
-              const beforeVersion = reviewSaver.version(monthKey);
-              const outcome = await work(snapshot);
-              if (!outcome.monthlyReview) return outcome;
-              const latest = reviewSaver.get(monthKey) ?? snapshot;
-              const unchanged = reviewSaver.version(monthKey) === beforeVersion;
-              const next =
-                latest.notes[sectionKey] === snapshot.notes[sectionKey]
-                  ? updateMonthlyReviewNote(
-                      latest,
-                      sectionKey,
-                      outcome.monthlyReview.notes[sectionKey],
-                    )
-                  : latest;
-              reviewSaver.remember(monthKey, next);
-              if (unchanged) reviewSaver.markSaved(monthKey, reviewSaver.version(monthKey));
-              if (latestReviewRef.current?.monthKey === monthKey) {
-                latestReviewRef.current = next;
-                setReview(next);
-                noteRefs.current[sectionKey]?.setDraft(next.notes[sectionKey]);
-              }
-              return { ...outcome, text: next.notes[sectionKey], monthlyReview: next };
-            });
+  const decisions = useProposalDecisions(
+    synthesisMatchesMonth ? synthesisResult : null,
+    setSynthesisResult,
+    {
+      onAccept: async (proposal) => {
+        if (!summary) return {};
+        const monthKey = summary.monthKey;
+        const applied = await applyCoachProposal(repository, proposal, {
+          acceptedDate: monthKey,
+          monthly: {
+            monthKey,
+            withReview: async (sectionKey, work) => {
+              const current =
+                latestReviewRef.current ?? review ?? createEmptyMonthlyReview(monthKey);
+              if (!reviewSaver.get(monthKey)) reviewSaver.hydrate(monthKey, current);
+              return reviewSaver.run(monthKey, async (snapshot) => {
+                const beforeVersion = reviewSaver.version(monthKey);
+                const outcome = await work(snapshot);
+                if (!outcome.monthlyReview) return outcome;
+                const latest = reviewSaver.get(monthKey) ?? snapshot;
+                const unchanged = reviewSaver.version(monthKey) === beforeVersion;
+                const next =
+                  latest.notes[sectionKey] === snapshot.notes[sectionKey]
+                    ? updateMonthlyReviewNote(
+                        latest,
+                        sectionKey,
+                        outcome.monthlyReview.notes[sectionKey],
+                      )
+                    : latest;
+                reviewSaver.remember(monthKey, next);
+                if (unchanged) reviewSaver.markSaved(monthKey, reviewSaver.version(monthKey));
+                if (latestReviewRef.current?.monthKey === monthKey) {
+                  latestReviewRef.current = next;
+                  setReview(next);
+                  noteRefs.current[sectionKey]?.setDraft(next.notes[sectionKey]);
+                }
+                return { ...outcome, text: next.notes[sectionKey], monthlyReview: next };
+              });
+            },
           },
-        },
-      });
-      if (!applied.proposal) return;
-      if (applied.goalMissing) setSynthesisNotice(t("monthly.synthesis.goalMissing"));
-      if (applied.goalId)
-        setGoalSnapshots(await repository.computeAnnualGoalSnapshots(Number(monthKey.slice(0, 4))));
-      setSynthesisResult((current) =>
-        current
-          ? {
-              ...current,
-              proposals: current.proposals.map((item) =>
-                item.id === proposal.id ? applied.proposal! : item,
-              ),
-            }
-          : current,
-      );
-    } finally {
-      proposalAcceptance.end(proposal.id);
-    }
-  };
-
-  const handleDismissSynthesisProposal = async (proposal: AiProposal) => {
-    if (proposalAcceptance.isApplying(proposal.id)) return;
-    await repository.decideAiProposal(proposal.id, "dismissed");
-    setSynthesisResult((current) =>
-      current
-        ? {
-            ...current,
-            proposals: current.proposals.map((item) =>
-              item.id === proposal.id
-                ? { ...item, status: "dismissed", decidedAt: new Date().toISOString() }
-                : item,
-            ),
-          }
-        : current,
-    );
-  };
+        });
+        if (applied.proposal) {
+          if (applied.goalMissing) setSynthesisNotice(t("monthly.synthesis.goalMissing"));
+          if (applied.goalId)
+            setGoalSnapshots(
+              await repository.computeAnnualGoalSnapshots(Number(monthKey.slice(0, 4))),
+            );
+        }
+        return applied;
+      },
+    },
+  );
 
   const saveReview = useCallback(
     (nextReview: MonthlyReview) => {
@@ -446,9 +423,7 @@ export const MonthlyReviewPage = () => {
               bypassCache: true,
             });
           }}
-          applyingProposalIds={proposalAcceptance.applyingProposalIds}
-          onAcceptProposal={(proposal) => void handleAcceptSynthesisProposal(proposal)}
-          onDismissProposal={(proposal) => void handleDismissSynthesisProposal(proposal)}
+          decisions={decisions}
         />
       </SectionCard>
 

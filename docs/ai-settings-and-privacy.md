@@ -217,9 +217,16 @@ Daily and review draft acceptance joins the corresponding autosave queue. Later
 manual edits remain editable and persist after the atomic accept; a later edit of
 the same field wins. Repeat accepts return the stored decision without draft UI
 effects, so they cannot replace a manual note or mark an unwritten snapshot saved.
-Daily, weekly, and monthly proposal buttons are disabled for the whole acceptance
-call, with a synchronous guard that also blocks repeat clicks before the next render.
-A failed accept releases that guard and rolls back the entity and decision together.
+Today, Evening, Weekly, and Monthly screens share `useProposalDecisions`
+(`src/app/use-proposal-decisions.ts`) and render suggestions through `ProposalList`
+(`src/components/ProposalList.tsx`, per-surface label map plus `proposalPreviewText`).
+The hook exposes `accept`, `dismiss`, and `isApplying(id)`: a ref-backed in-flight set
+rejects repeat clicks synchronously (before the next render) and keeps both buttons
+disabled for the whole accept or dismiss; it also ignores proposals not in the current
+result. Each screen supplies only its `onAccept` side effects; the hook swaps in the
+decided row (or marks the proposal dismissed) and logs failures with `logDebug`.
+A failed accept releases the guard, leaves the proposal pending, and rolls back the
+entity and decision together.
 Goal evaluation effects read the current goal inside the writer, preserving other
 months and goal fields. Missing or inactive tasks stay pending; the monthly screen
 still dismisses a missing goal and displays its existing notice.

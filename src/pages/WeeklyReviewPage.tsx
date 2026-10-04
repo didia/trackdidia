@@ -1,4 +1,4 @@
-import { useProposalAcceptance } from "../app/use-proposal-acceptance";
+import { useProposalDecisions } from "../app/use-proposal-decisions";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
@@ -133,8 +133,6 @@ export const WeeklyReviewPage = () => {
   const [weeklyMemoryProposals, setWeeklyMemoryProposals] = useState<AiProposal[]>([]);
   const [synthesisResult, setSynthesisResult] = useState<WeeklySynthesisResult | null>(null);
   const [synthesisLoading, setSynthesisLoading] = useState(false);
-  const proposalAcceptance = useProposalAcceptance();
-  const { applyingProposalIds } = proposalAcceptance;
   const latestReviewRef = useRef<WeeklyReview | null>(null);
   const latestDimancheReviewRef = useRef<WeeklyReview | null>(null);
   const persistReview = useCallback(
@@ -491,99 +489,61 @@ export const WeeklyReviewPage = () => {
   const synthesisMatchesWeek =
     synthesisResult?.message.scopeKey === summary?.weekStartDate && synthesisResult !== null;
 
-  const handleAcceptSynthesisProposal = async (proposal: AiProposal) => {
-    if (
-      !summary ||
-      synthesisResult?.message.scopeKey !== summary.weekStartDate ||
-      proposalAcceptance.isApplying(proposal.id)
-    )
-      return;
-    if (!proposalAcceptance.begin(proposal.id)) return;
-    try {
-      const weekStartDate = summary.weekStartDate;
-      const applied = await applyCoachProposal(repository, proposal, {
-        acceptedDate: weekStartDate,
-        weekly: {
-          withReview: async (sectionKey, work) => {
-            const notesWeekStart = dimancheNotesWeekStart(weekStartDate, calendarDay);
-            const nextSunday = sectionKey === "dimanche" && notesWeekStart !== weekStartDate;
-            const current = nextSunday
-              ? (latestDimancheReviewRef.current ?? createEmptyWeeklyReview(notesWeekStart))
-              : (latestReviewRef.current ?? review ?? createEmptyWeeklyReview(weekStartDate));
-            const scope = current.weekStartDate;
-            if (!reviewSaver.get(scope)) reviewSaver.hydrate(scope, current);
-            return reviewSaver.run(scope, async (snapshot) => {
-              const beforeVersion = reviewSaver.version(scope);
-              const outcome = await work(snapshot);
-              if (!outcome.weeklyReview) return outcome;
-              const latest = reviewSaver.get(scope) ?? snapshot;
-              const unchanged = reviewSaver.version(scope) === beforeVersion;
-              const next =
-                latest.notes[sectionKey] === snapshot.notes[sectionKey]
-                  ? updateWeeklyReviewNote(
-                      latest,
-                      sectionKey,
-                      outcome.weeklyReview.notes[sectionKey],
-                    )
-                  : latest;
-              reviewSaver.remember(scope, next);
-              if (unchanged) reviewSaver.markSaved(scope, reviewSaver.version(scope));
-              if (latestReviewRef.current?.weekStartDate === weekStartDate) {
-                if (nextSunday) {
-                  latestDimancheReviewRef.current = next;
-                  setDimancheReview(next);
-                  nextWeekDimancheRef.current?.setDraft(next.notes[sectionKey]);
-                } else {
-                  latestReviewRef.current = next;
-                  setReview(next);
-                  noteRefs.current[sectionKey]?.setDraft(next.notes[sectionKey]);
+  const decisions = useProposalDecisions(
+    synthesisMatchesWeek ? synthesisResult : null,
+    setSynthesisResult,
+    {
+      onAccept: async (proposal) => {
+        if (!summary) return {};
+        const weekStartDate = summary.weekStartDate;
+        const applied = await applyCoachProposal(repository, proposal, {
+          acceptedDate: weekStartDate,
+          weekly: {
+            withReview: async (sectionKey, work) => {
+              const notesWeekStart = dimancheNotesWeekStart(weekStartDate, calendarDay);
+              const nextSunday = sectionKey === "dimanche" && notesWeekStart !== weekStartDate;
+              const current = nextSunday
+                ? (latestDimancheReviewRef.current ?? createEmptyWeeklyReview(notesWeekStart))
+                : (latestReviewRef.current ?? review ?? createEmptyWeeklyReview(weekStartDate));
+              const scope = current.weekStartDate;
+              if (!reviewSaver.get(scope)) reviewSaver.hydrate(scope, current);
+              return reviewSaver.run(scope, async (snapshot) => {
+                const beforeVersion = reviewSaver.version(scope);
+                const outcome = await work(snapshot);
+                if (!outcome.weeklyReview) return outcome;
+                const latest = reviewSaver.get(scope) ?? snapshot;
+                const unchanged = reviewSaver.version(scope) === beforeVersion;
+                const next =
+                  latest.notes[sectionKey] === snapshot.notes[sectionKey]
+                    ? updateWeeklyReviewNote(
+                        latest,
+                        sectionKey,
+                        outcome.weeklyReview.notes[sectionKey],
+                      )
+                    : latest;
+                reviewSaver.remember(scope, next);
+                if (unchanged) reviewSaver.markSaved(scope, reviewSaver.version(scope));
+                if (latestReviewRef.current?.weekStartDate === weekStartDate) {
+                  if (nextSunday) {
+                    latestDimancheReviewRef.current = next;
+                    setDimancheReview(next);
+                    nextWeekDimancheRef.current?.setDraft(next.notes[sectionKey]);
+                  } else {
+                    latestReviewRef.current = next;
+                    setReview(next);
+                    noteRefs.current[sectionKey]?.setDraft(next.notes[sectionKey]);
+                  }
                 }
-              }
-              return { ...outcome, text: next.notes[sectionKey], weeklyReview: next };
-            });
+                return { ...outcome, text: next.notes[sectionKey], weeklyReview: next };
+              });
+            },
           },
-        },
-      });
-      if (!applied.proposal) return;
-      if (applied.objectiveId) await loadStandingObjectives(weekStartDate);
-      setSynthesisResult((current) =>
-        current
-          ? {
-              ...current,
-              proposals: current.proposals.map((item) =>
-                item.id === proposal.id ? applied.proposal! : item,
-              ),
-            }
-          : current,
-      );
-    } finally {
-      proposalAcceptance.end(proposal.id);
-    }
-  };
-
-  const handleDismissSynthesisProposal = async (proposal: AiProposal) => {
-    if (!summary || synthesisResult?.message.scopeKey !== summary.weekStartDate) {
-      return;
-    }
-
-    if (proposalAcceptance.isApplying(proposal.id)) {
-      return;
-    }
-
-    await repository.decideAiProposal(proposal.id, "dismissed");
-    setSynthesisResult((current) =>
-      current
-        ? {
-            ...current,
-            proposals: current.proposals.map((item) =>
-              item.id === proposal.id
-                ? { ...item, status: "dismissed", decidedAt: new Date().toISOString() }
-                : item,
-            ),
-          }
-        : current,
-    );
-  };
+        });
+        if (applied.proposal && applied.objectiveId) await loadStandingObjectives(weekStartDate);
+        return applied;
+      },
+    },
+  );
 
   const refreshWeeklyMemoryProposals = useCallback(
     async (weekStartDate: string) => {
@@ -893,7 +853,6 @@ export const WeeklyReviewPage = () => {
           result={synthesisMatchesWeek ? synthesisResult : null}
           loading={synthesisLoading}
           settings={settings}
-          applyingProposalIds={applyingProposalIds}
           onRequestCoach={() => {
             if (!summary) {
               return;
@@ -910,8 +869,7 @@ export const WeeklyReviewPage = () => {
               bypassCache: true,
             });
           }}
-          onAcceptProposal={(proposal) => void handleAcceptSynthesisProposal(proposal)}
-          onDismissProposal={(proposal) => void handleDismissSynthesisProposal(proposal)}
+          decisions={decisions}
         />
       </SectionCard>
 

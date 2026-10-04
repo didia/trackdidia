@@ -43,7 +43,7 @@ describe("useBootstrap", () => {
   it("activates the fallback when a step of bootstrapApplication throws", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
-    vi.spyOn(repository, "generateDueRecurringTasks").mockRejectedValue(new Error("step failed"));
+    vi.spyOn(repository, "reconcileDay").mockRejectedValue(new Error("step failed"));
     factory.createRepository.mockResolvedValue(repository);
 
     const { result } = renderHook(() => useBootstrap());

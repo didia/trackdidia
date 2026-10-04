@@ -9,6 +9,7 @@ import type {
   WeeklyObjective,
   WeeklyReview,
 } from "../../../domain/types";
+import { applyScheduleChange } from "../../gtd/schedule";
 import { cloneTask } from "../../gtd/shared";
 
 export type GtdProposalAction = "schedule" | "defer" | "delegate" | "drop";
@@ -58,18 +59,7 @@ export const taskForAcceptEffect = (
   const next = cloneTask(task);
   switch (effect.action) {
     case "schedule":
-      return {
-        ...next,
-        scheduledFor: effect.scheduledDate,
-        bucket:
-          task.bucket === "planned"
-            ? "planned"
-            : effect.scheduledDate
-              ? "scheduled"
-              : task.bucket === "scheduled"
-                ? "next_action"
-                : task.bucket,
-      };
+      return applyScheduleChange(next, effect.scheduledDate);
     case "defer":
       return { ...next, bucket: "someday_maybe" };
     case "delegate":

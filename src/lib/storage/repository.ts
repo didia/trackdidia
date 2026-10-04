@@ -1,4 +1,5 @@
 import type { AcceptEffect, AiProposalAcceptResult } from "../ai/proposals/accept-effect";
+import type { ReconcileDayResult } from "../gtd/reconcile";
 import type { EmailTriageStore } from "./email-triage-store";
 import type {
   AiMemory,
@@ -50,6 +51,7 @@ import type {
   FinanceAccount,
   FinanceAccountFilters,
   FinanceCategory,
+  FinanceCategoryBackfillEntry,
   FinanceCategorySuggestion,
   FinanceImportBatch,
   FinanceImportProfile,
@@ -62,6 +64,7 @@ import type {
   FinanceTransaction,
   FinanceTransactionFilters,
   FinanceTransactionSplit,
+  ReclassifyFinancePendingResult,
   SetFinanceTransactionCategoryInput,
   SetFinanceTransactionCategoryResult,
   SetFinanceTransferPair,
@@ -97,6 +100,11 @@ export interface PomodoroStartOptions {
 
 export interface AppRepository {
   initialize(): Promise<void>;
+  /**
+   * Daily entry reads (`getDailyEntry`, `listDailyEntries*`) all return entries decorated once with
+   * suggested GTD/Pomodoro metrics derived from persisted data. They never write or reconcile, so
+   * callers must not re-apply `applyDailyTaskStats`/`applyDailyPomodoroStats` to them.
+   */
   getDailyEntry(date: string): Promise<DailyEntry | null>;
   saveDailyEntry(entry: DailyEntry): Promise<void>;
   listDailyEntries(limit?: number): Promise<DailyEntry[]>;
@@ -223,7 +231,16 @@ export interface AppRepository {
   movePlannedTask(taskId: string, direction: "up" | "down"): Promise<Task[]>;
   clearPastRecurrences(taskId: string): Promise<Task>;
   generateDailyRelationshipTasks(date: string): Promise<number>;
+  /**
+   * Explicit time-driven write entry point: generates due recurrences for `date`, promotes due
+   * Scheduled tasks, applies Sunday carryover, and completes expired Pomodoro sessions. Only time
+   * owners (bootstrap, local-day boundary, explicit refresh) call it; every read below is
+   * side-effect free.
+   */
+  reconcileDay(date: string, now?: string): Promise<ReconcileDayResult>;
+  /** Pure read over persisted tasks/events; does not reconcile. */
   computeDailyTaskStats(date: string): Promise<DailyTaskStats>;
+  /** Pure read over persisted tasks/events; does not reconcile. */
   getDailyTaskBreakdown(date: string): Promise<DailyTaskBreakdown>;
   applyWeeklyCarryover(weekStartDate: string): Promise<number>;
   getPomodoroState(): Promise<PomodoroState>;
@@ -332,4 +349,15 @@ export interface AppRepository {
     id: string,
     decision: DecideFinanceCategorySuggestionInput,
   ): Promise<FinanceCategorySuggestion>;
+
+  // --- Finance (Phase 4 — Classification: rules, memory, seeds, review queue) -----------
+
+  /**
+   * Re-runs `classifyTransaction` (rules, memory, seeds — no AI, no transfer
+   * re-detection) over every non-`user` transaction. Used after a rule is
+   * created/edited ("Réappliquer les règles") and by `/finances/review`.
+   */
+  reclassifyFinancePending(): Promise<ReclassifyFinancePendingResult>;
+  /** Reverts the `backfill` entries from a `scope: "all_matching"` call — a single undo. */
+  revertFinanceCategoryBackfill(entries: FinanceCategoryBackfillEntry[]): Promise<number>;
 }

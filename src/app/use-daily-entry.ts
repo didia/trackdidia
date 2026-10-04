@@ -52,6 +52,8 @@ export const useDailyEntry = (date: string) => {
       if (!latest || latest.date !== snapshot.date) {
         return;
       }
+      // `latest` is the local, possibly unsaved edit (not a repository read), so it still needs
+      // the freshly derived suggestions applied once.
       publishEntry(applyDailyPomodoroStats(applyDailyTaskStats(latest, stats), nextPomodoroStats));
     },
     [repository],
@@ -84,12 +86,14 @@ export const useDailyEntry = (date: string) => {
           setTaskStats(stats);
           setPomodoroStats(nextPomodoroStats);
 
-          const decorated = existing
-            ? applyDailyPomodoroStats(applyDailyTaskStats(existing, stats), nextPomodoroStats)
-            : applyDailyPomodoroStats(
-                applyDailyTaskStats(createEmptyDailyEntry(date), stats),
-                nextPomodoroStats,
-              );
+          // `getDailyEntry` already returns suggested metrics; only a day with no row needs the
+          // stats applied to its synthesized empty entry.
+          const decorated =
+            existing ??
+            applyDailyPomodoroStats(
+              applyDailyTaskStats(createEmptyDailyEntry(date), stats),
+              nextPomodoroStats,
+            );
           // Carry-forward is today-only so historical catch-up (e.g. Finaliser hier) cannot
           // silently persist a synthesized intention the user never saw.
           const nextEntry = isToday

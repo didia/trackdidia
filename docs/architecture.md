@@ -129,6 +129,8 @@ false. `finances` (`/finances`) is the first such conditional entry, gated on
 | `/finances/transactions` | Finance transactions | Paged, filtered transaction list with inline category edit, splits, transfer/exclude toggles, bulk toolbar |
 | `/finances/import` | Finance import | CSV file import: decode, profile mapping, preview, account binding, result panel, batch history with undo |
 | `/finances/accounts` | Finance accounts | Household members and accounts CRUD, opening/manual balances, reconciliation banner |
+| `/finances/review` | Finance review | Pending category-suggestion queue grouped by merchant: accept/correct/dismiss, bulk accept-above-threshold, "Réappliquer les règles" |
+| `/finances/rules` | Finance rules | Classification rule CRUD, enable/disable, apply to existing transactions |
 | `/references` | References | Non-actionable material |
 | `/scheduled` | Scheduled | Day/week planning, deadlines, recurrence previews |
 | `/waiting-for` | Waiting For | Work awaiting external action |
@@ -139,9 +141,9 @@ false. `finances` (`/finances`) is the first such conditional entry, gated on
 `/finances/*` is always registered in `App.tsx` (a `FinanceRoutes` element reads
 `settings.financeEnabled` and renders `<Navigate to="/" replace />` instead of
 its child routes while the flag is off), so a stale bookmark or deep link never
-404s — it just lands on Today. Only the four finance screens that exist ship a
-tab in the shared `FinanceTabs` bar on every `/finances*` page; budget, reports,
-and review are later phases and have no tab yet. See
+404s — it just lands on Today. Only the six finance screens that exist ship a
+tab in the shared `FinanceTabs` bar on every `/finances*` page; budget and
+reports are later phases and have no tab yet. See
 [`docs/finance.md`](finance.md) for what each finance screen does.
 
 See the product pages linked from [`index.md`](index.md) for behavior inside each
@@ -176,11 +178,12 @@ screen.
       - move the `Reading` context to References (`gtdReferencesMigrationDoneAt`),
       - move dated work to Scheduled (`gtdScheduledNormalizationDoneAt`).
    3. Log GTD overview counts from the repository.
-   4. Generate due recurring tasks for the current local date.
-   5. Promote active Scheduled tasks whose local `scheduledFor` date is today or
-      earlier to Next Actions.
-   6. Generate enabled relationship activity tasks for the current local date.
-   7. If `settings.financeEnabled` is true and `settings.financeCategoriesSeededAt`
+   4. Call `repository.reconcileDay(today)`: generate due recurring tasks for the
+      current local date, promote active Scheduled tasks whose local `scheduledFor`
+      date is today or earlier to Next Actions, apply weekly carryover for the most
+      recent Sunday (back-filling a missed one), and complete expired Pomodoro sessions.
+   5. Generate enabled relationship activity tasks for the current local date.
+   6. If `settings.financeEnabled` is true and `settings.financeCategoriesSeededAt`
       is empty, seed the default finance category taxonomy
       (`seedFinanceDefaultCategories()`, idempotent `INSERT OR IGNORE`) and set the
       marker through the same helper. This step is wrapped in its own `try`/`catch`
@@ -219,9 +222,26 @@ The context value is memoized (`useMemo`) and `updateSettings`/`setDebugEnabled`
 
 After bootstrap, `AppProvider` keeps `calendarDay` (the current local `YYYY-MM-DD`)
 in context. A timeout until the next local midnight, plus window `focus` and
-`visibilitychange` when the document becomes visible, regenerates due recurrences,
-promotes due Scheduled tasks, and republishes the new date so already-mounted GTD
+`visibilitychange` when the document becomes visible, call `reconcileDay(today)`
+once per repository and day, then republish the new date so already-mounted GTD
 and Pomodoro consumers reload without navigation.
+
+### Reads are side-effect free; reconciliation is explicit
+
+Repository reads never write: `listTasks`, `computeDailyTaskStats`,
+`getDailyTaskBreakdown`, `computeDailyPomodoroStats`, `getDailyEntry`, and
+`listDailyEntries*` no longer generate recurrences, promote Scheduled tasks, write
+Sunday carryover, or complete expired Pomodoro sessions. Those time-driven writes
+live in `reconcileDay(date, now?)` (shared `reconcileGtdDay` in
+`src/lib/gtd/reconcile.ts`, exposed on both repositories). Only time owners call it:
+
+- `AppProvider` bootstrap and `useLocalDayReconciliation` (day boundary);
+- explicit refresh after a user write that can make work due today: every
+  `useGtdWorkspace` mutation reload, recurrence template save/resume on
+  `/recurrences`, and an accepted AI proposal that creates or schedules a task.
+
+The initial `useGtdWorkspace` load, History, Weekly, AI snapshots, and the Pomodoro
+refresh (which only settles expired sessions) read without reconciling.
 
 ## Repository boundary
 
@@ -253,6 +273,14 @@ decorate an entry with suggested values computed from:
 - completed focus sessions (`pomodoris`).
 
 `resolveMetricValue()` returns an explicit user value first, then its suggestion.
+
+Decoration is the repository's job and happens once, purely: `getDailyEntry` and all
+three `listDailyEntries*` methods (including `listDailyEntriesInRange`) load tasks,
+events, and Pomodoro sessions once and derive suggestions with
+`decorateDailyEntries` (`src/lib/storage/decorate-entries.ts`). `saveDailyEntry`
+stores the entry as given. Callers must not re-apply `applyDailyTaskStats` /
+`applyDailyPomodoroStats` to a repository-returned entry; they only apply them to a
+synthesized empty entry (a day with no row) or to a local, unsaved edit.
 
 ### Reviews and goals
 

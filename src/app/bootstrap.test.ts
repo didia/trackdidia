@@ -90,7 +90,7 @@ describe("runOnceWithSettingsMarker", () => {
 });
 
 describe("bootstrapApplication", () => {
-  it("runs steps in the contract order: settings, normalizations, recurrences, promotion, relationship", async () => {
+  it("runs steps in the contract order: settings, normalizations, reconcileDay, relationship", async () => {
     const repository = await createRepository();
     const calls: string[] = [];
     const track = <K extends keyof MemoryRepository>(name: K) => {
@@ -104,8 +104,7 @@ describe("bootstrapApplication", () => {
     track("getGtdOverview");
     track("moveTasksWithContextToBucket");
     track("moveTasksWithScheduledDatesToBucket");
-    track("generateDueRecurringTasks");
-    track("promoteDueScheduledTasks");
+    track("reconcileDay");
     track("generateDailyRelationshipTasks");
     const stages: string[] = [];
 
@@ -119,14 +118,9 @@ describe("bootstrapApplication", () => {
       firstIndex("moveTasksWithScheduledDatesToBucket"),
     );
     expect(firstIndex("moveTasksWithScheduledDatesToBucket")).toBeLessThan(
-      firstIndex("generateDueRecurringTasks"),
+      firstIndex("reconcileDay"),
     );
-    expect(firstIndex("generateDueRecurringTasks")).toBeLessThan(
-      firstIndex("promoteDueScheduledTasks"),
-    );
-    expect(firstIndex("promoteDueScheduledTasks")).toBeLessThan(
-      firstIndex("generateDailyRelationshipTasks"),
-    );
+    expect(firstIndex("reconcileDay")).toBeLessThan(firstIndex("generateDailyRelationshipTasks"));
     expect(stages).toHaveLength(6);
     expect(stages[0]).toBe("Chargement des paramètres");
     expect(stages.at(-1)).toBe("Finalisation du bootstrap");
@@ -177,20 +171,18 @@ describe("bootstrapApplication", () => {
     expect(second.aiMaxTokensUpgradeDoneAt).toBe(first.aiMaxTokensUpgradeDoneAt);
   });
 
-  it("still runs recurrence generation and promotion when markers are already set", async () => {
+  it("still runs reconcileDay when markers are already set", async () => {
     const repository = await createRepository({
       aiMaxTokensUpgradeDoneAt: "2026-01-01T00:00:00.000Z",
       gtdReferencesMigrationDoneAt: "2026-01-01T00:00:00.000Z",
       gtdScheduledNormalizationDoneAt: "2026-01-01T00:00:00.000Z",
     });
-    const recurrences = vi.spyOn(repository, "generateDueRecurringTasks");
-    const promotion = vi.spyOn(repository, "promoteDueScheduledTasks");
+    const reconcile = vi.spyOn(repository, "reconcileDay");
     const relationship = vi.spyOn(repository, "generateDailyRelationshipTasks");
 
     await bootstrapApplication(repository);
 
-    expect(recurrences).toHaveBeenCalledTimes(1);
-    expect(promotion).toHaveBeenCalledTimes(1);
+    expect(reconcile).toHaveBeenCalledTimes(1);
     expect(relationship).toHaveBeenCalledTimes(1);
   });
 
@@ -225,11 +217,11 @@ describe("bootstrapApplication", () => {
 
   it("propagates a failing step so the caller can activate the fallback", async () => {
     const repository = await createRepository();
-    vi.spyOn(repository, "generateDueRecurringTasks").mockRejectedValue(new Error("recurrences"));
-    const promotion = vi.spyOn(repository, "promoteDueScheduledTasks");
+    vi.spyOn(repository, "reconcileDay").mockRejectedValue(new Error("recurrences"));
+    const relationship = vi.spyOn(repository, "generateDailyRelationshipTasks");
 
     await expect(bootstrapApplication(repository)).rejects.toThrow("recurrences");
-    expect(promotion).not.toHaveBeenCalled();
+    expect(relationship).not.toHaveBeenCalled();
   });
 
   it("leaves the failed one-time step's marker empty so it retries on the next boot", async () => {

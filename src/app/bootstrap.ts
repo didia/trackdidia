@@ -53,9 +53,10 @@ export interface BootstrapOptions {
 
 /**
  * Startup data sequence for an already created and initialized repository:
- * settings upgrade -> one-time normalizations -> due recurrences -> Scheduled promotion ->
- * relationship draws -> optional finance seed. Resolves with the final settings; any thrown
- * error propagates so the caller (`useBootstrap`) can activate the in-memory fallback.
+ * settings upgrade -> one-time normalizations -> `reconcileDay` (recurrences, Scheduled
+ * promotion, Sunday carryover, expired Pomodoros) -> relationship draws -> optional finance
+ * seed. Resolves with the final settings; any thrown error propagates so the caller
+ * (`useBootstrap`) can activate the in-memory fallback.
  */
 export const bootstrapApplication = async (
   repository: AppRepository,
@@ -117,11 +118,11 @@ export const bootstrapApplication = async (
 
   onStage?.(t("startup.generateRecurrences"));
   const today = getTodayDate();
-  const generatedCount = await repository.generateDueRecurringTasks(today);
-  const promotedScheduledCount = await repository.promoteDueScheduledTasks(today);
+  const reconciliation = await repository.reconcileDay(today);
   logDebug("info", "app.bootstrap", "Generation des recurrences terminee", {
-    generatedCount,
-    promotedScheduledCount,
+    generatedRecurrences: reconciliation.generatedRecurrences,
+    promotedScheduled: reconciliation.promotedScheduled,
+    carryoverEvents: reconciliation.carryoverEvents,
   });
 
   onStage?.(t("startup.generateRelationship"));

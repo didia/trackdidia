@@ -183,6 +183,8 @@ const acceptEffect = async (
       break;
     case "gtdTask":
       result.taskId = accepted.appliedEntityId;
+      // A task scheduled for today must leave Scheduled now; repository reads no longer promote.
+      if (accepted.effectApplied) await repository.reconcileDay(getTodayDate());
       break;
     case "goalEvaluation":
       result.goalId = accepted.appliedEntityId;

@@ -523,6 +523,8 @@ export const RecurrencesPage = () => {
             disabled={!draft.title.trim()}
             onClick={async () => {
               await repository.saveRecurringTaskTemplate(draft);
+              // Reads no longer generate occurrences; a template starting today needs it now.
+              await repository.reconcileDay(getTodayDate());
               setDraft(createDraftTemplate());
               await load();
             }}
@@ -627,6 +629,7 @@ export const RecurrencesPage = () => {
                 nextOccurrence={previews[template.id] ?? null}
                 onSave={async (nextTemplate) => {
                   await repository.saveRecurringTaskTemplate(nextTemplate);
+                  await repository.reconcileDay(getTodayDate());
                   await load();
                 }}
                 onPause={async (id) => {
@@ -635,6 +638,7 @@ export const RecurrencesPage = () => {
                 }}
                 onResume={async (id) => {
                   await repository.resumeRecurringTaskTemplate(id);
+                  await repository.reconcileDay(getTodayDate());
                   await load();
                 }}
                 onCancel={async (id) => {
