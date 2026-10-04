@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { isInvalidGrantError, ProviderHttpError } from "../email-triage/provider-http";
+import { ProviderHttpError } from "../email-triage/provider-http";
 import type { CalendarSyncEventPayload } from "../../domain/calendar-sync";
 import {
   CALENDAR_SYNC_LOOKUP_MAX_PAGES,
@@ -128,14 +128,15 @@ describe("GoogleCalendarApiClient.lookupEventsByOccurrence", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
-  it("does not flatten an invalid_grant response into request_failed", async () => {
+  it("retries a rejected access token once without declaring the refresh grant dead", async () => {
     const request = vi.fn(async () => ({
       status: 401,
       body: JSON.stringify({ error: "invalid_grant" }),
     }));
     const client = makeClient(request);
     const result = await client.lookupEventsByOccurrence("cal-1", "task-1", "2024-01-05");
-    expect(result).toEqual({ ok: false, reason: "reconnect_required" });
+    expect(result).toEqual({ ok: false, reason: "request_failed" });
+    expect(request).toHaveBeenCalledTimes(2);
   });
 
   it("reports a thrown network error distinctly", async () => {
@@ -201,6 +202,28 @@ describe("GoogleCalendarApiClient.createOrAdoptEvent", () => {
     expect(deleted[0]).toContain("/events/b");
   });
 
+  it.each([
+    429, 403,
+  ])("preserves a %s rate limit and never inserts after an incomplete scan", async (status) => {
+    const request = vi.fn(async (_input: { method: string }) => ({
+      status,
+      body: JSON.stringify({ error: { errors: [{ reason: "rateLimitExceeded" }] } }),
+    }));
+    const client = makeClient(request);
+    expect(await client.lookupEventsByOccurrence("cal", "task", "date")).toEqual({
+      ok: false,
+      reason: "rate_limited",
+    });
+    expect(
+      await client.createOrAdoptEvent({
+        calendarId: "cal",
+        taskId: "task",
+        occurrenceKey: "date",
+        payload: samplePayload,
+      }),
+    ).toEqual({ status: "rate_limited" });
+    expect(request.mock.calls.every(([input]) => input.method === "GET")).toBe(true);
+  });
   it("inserts nothing when the lookup fails", async () => {
     const request = vi.fn(async ({ method }: { method: string }) => {
       if (method === "GET") {
@@ -345,8 +368,10 @@ describe("calendar sync error classification", () => {
     expect(isCalendarSyncRateLimitError(new ProviderHttpError("x", 403, "{}"))).toBe(false);
   });
 
-  it("reuses the shared invalid_grant classifier", () => {
-    expect(isCalendarSyncInvalidGrantError).toBe(isInvalidGrantError);
+  it("recognizes an invalid refresh grant without treating any 401 as revocation", () => {
+    expect(
+      isCalendarSyncInvalidGrantError(new ProviderHttpError("x", 401, "Invalid Credentials")),
+    ).toBe(false);
     expect(
       isCalendarSyncInvalidGrantError(
         new ProviderHttpError("invalid_grant", 400, JSON.stringify({ error: "invalid_grant" })),

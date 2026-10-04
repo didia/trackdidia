@@ -216,6 +216,9 @@
     "calculatedWithRate": "Coût calculé avec le tarif {{rate}} USD / million de jetons (prompt + completion). Les tarifs OpenRouter varient selon le modèle — ajuste le tarif dans Paramètres IA."
   },
   "calendar": {
+    "loading": "Chargement du calendrier…",
+    "loadError": "Impossible de charger les réglages du calendrier.",
+    "retry": "Réessayer",
     "title": "Calendrier Google",
     "subtitle": "Synchronisation à sens unique des tâches datées (Planifiées et Prévues avec projet) vers un calendrier Google dédié. Les modifications du calendrier ne reviennent jamais vers TrackDidia.",
     "copy": {
@@ -249,6 +252,7 @@
       "needs_confirmation": "Confirmation requise"
     },
     "connectErrors": {
+      "access_denied": "Connexion annulée. Vous pouvez réessayer.",
       "browser_preview": "Connexion indisponible en prévisualisation navigateur.",
       "missing_client_id": "Identifiant client OAuth manquant.",
       "oauth_state_mismatch": "État OAuth invalide. Réessayez.",

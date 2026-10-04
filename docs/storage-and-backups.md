@@ -344,11 +344,13 @@ daily/review data.
 
 ### Calendar sync tables
 
-Migration 40 adds sidecar tables for the (unshipped beyond Phase 0) one-way
+Migration 40 adds sidecar tables for the one-way
 TrackDidia -> Google Calendar sync; see
 [`specs/todo/calendar-sync.md`](../specs/todo/calendar-sync.md). No `gtd_tasks` column
-changes. Phase 0 ships the schema, the pure planner (`src/lib/calendar/planner.ts`) and
-the promotion-capture step only; no network or OAuth code exists yet.
+changes. The schema, pure planner (`src/lib/calendar/planner.ts`), promotion-capture step,
+and desktop OAuth connection/API client are implemented. Event reconciliation is not
+mounted yet. See [Google Calendar connection](ai-settings-and-privacy.md#google-calendar-connection)
+for credentials, failure recovery, and serialized preference writes.
 
 - `calendar_sync_settings`: singleton `id = 'global'` for enable flag, OAuth client id,
   connected account/calendar ids, calendar summary, the four dormant columns
@@ -366,7 +368,7 @@ the promotion-capture step only; no network or OAuth code exists yet.
   terminal link stopped syncing (`promoted` | `completed` | `cancelled` |
   `unscheduled` | `task_deleted` | `missing_remote`). Included in backups; a restored
   stale link is handled by `missing_remote`, calendar recreation, and the planner's
-  empty-task-set safety valve (not yet wired to the network in Phase 0).
+  empty-task-set safety valve (not yet wired to a background reconciler).
 
 Write discipline: the public calendar-sync mutators on `TauriSqliteRepository` go through
 the single SQLite writer (settings via `writeTransaction`, so an identity change updates

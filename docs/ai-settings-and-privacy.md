@@ -54,6 +54,44 @@ Default highlights:
 The settings object also holds internal timestamps for GTD bootstrap normalizations,
 the last backup, and per-category relationship processing.
 
+## Google Calendar connection
+
+The desktop Settings card can connect, reconnect, or disconnect one Google account and
+create its dedicated TrackDidia calendar. Browser preview shows an unavailable notice.
+The event API client and pure planner exist, but no background reconciler is mounted yet;
+connecting alone does not send task events. See [calendar sidecar storage](storage-and-backups.md#calendar-sync-tables)
+for settings, links, and identity generations.
+
+OAuth uses PKCE and a loopback callback, requesting `calendar.app.created` and the
+non-sensitive `email` scope to identify the account through Google's userinfo endpoint.
+The refresh token lives only in the OS vault's `calendar_credentials` entry; access tokens
+are cached in memory. The shared OAuth lease remains held through profile lookup, calendar
+creation, and the vault/settings commit, preventing a second calendar or email OAuth flow
+from interleaving it.
+
+Calendar preference saves, connects, and disconnects share an ordered mutation queue that
+survives Settings remounts. A preference save reads the latest row inside that queue and
+changes only `enabled` and `oauthClientId` (plus `updatedAt`), preserving connection identity
+and links. The card waits for its initial load, offers retry on a load failure, and disables
+all calendar controls while a local action is running. Rapid clicks share a synchronous
+guard. Consent denial displays a French cancellation message; unknown callback errors use
+a generic translated error.
+
+A connection attempt reads the previous vault secret before creating a calendar. If the
+vault/settings commit fails, it clears the access-token cache, restores the previous secret
+(or removes the new one on first connect), and attempts to delete only a calendar created
+by that attempt. Both compensations are attempted even if one fails; cleanup failures are
+reported as a failed connection. Same-account reconnect reuses the stored calendar id.
+Disconnect commits `disconnected` and disables sync before deleting credentials, keeping
+identity and links for reconnect. A failed settings write leaves credentials intact; a
+failed credential deletion leaves sync safely disabled. The card reloads stored status
+after failed actions as well as successful ones.
+
+Calendar API requests retry one HTTP 401 after forcing a token refresh. Only a missing
+credential or revoked refresh grant requires reconnect; a repeated 401 or transient refresh
+failure remains retryable. Event lookup exhausts pagination before adopting or inserting,
+and preserves rate limits as `rate_limited` rather than a generic lookup failure.
+
 ## Coach modes (`coach_pulse`)
 
 TrackDidia uses a unified **`coach_pulse`** surface with stance-aware structured

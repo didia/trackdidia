@@ -9,7 +9,7 @@
  * from `https://www.googleapis.com/oauth2/v3/userinfo` (same host, no extra capability).
  */
 import type { CalendarSyncEventPayload } from "../../domain/calendar-sync";
-import { isInvalidGrantError, ProviderHttpError } from "../email-triage/provider-http";
+import { ProviderHttpError } from "../email-triage/provider-http";
 import type { GmailHttpClient } from "../email-triage/provider-http";
 import { assertHttpSuccess, parseJsonBody } from "../email-triage/provider-http";
 
@@ -25,10 +25,13 @@ export interface CalendarEventLookupHit {
 
 export type CalendarEventLookupResult =
   | { ok: true; hits: CalendarEventLookupHit[] }
-  | { ok: false; reason: "request_failed" | "page_cap_reached" | "reconnect_required" };
+  | {
+      ok: false;
+      reason: "request_failed" | "page_cap_reached" | "reconnect_required" | "rate_limited";
+    };
 
 export interface CreateOrAdoptEventResult {
-  status: "inserted" | "adopted" | "lookup_failed" | "reconnect_required";
+  status: "inserted" | "adopted" | "lookup_failed" | "reconnect_required" | "rate_limited";
   eventId?: string;
   /** Present only when `status === "adopted"`; every other hit was deleted in the same run. */
   duplicateEventIdsDeleted?: string[];
@@ -36,13 +39,14 @@ export interface CreateOrAdoptEventResult {
 
 /**
  * `lookupEventsByOccurrence` must not flatten an authentication failure (the access-token
- * getter throwing `reconnect_required`, or Google rejecting the request with
- * `invalid_grant`) into a generic `request_failed`: Phase 2's reconciler needs to tell "the
+ * getter throwing `reconnect_required`, or the refresh endpoint rejecting the grant
+ * with `invalid_grant`) into a generic `request_failed`: Phase 2's reconciler needs to tell "the
  * grant is dead, stop and ask the user to reconnect" apart from "transient failure, retry
  * later with backoff".
  */
 const isReconnectRequiredError = (error: unknown): boolean =>
-  (error instanceof Error && error.message === "reconnect_required") || isInvalidGrantError(error);
+  (error instanceof Error && error.message === "reconnect_required") ||
+  isCalendarSyncInvalidGrantError(error);
 
 export interface CalendarAccountProfile {
   email: string;
@@ -51,7 +55,7 @@ export interface CalendarAccountProfile {
 export class GoogleCalendarApiClient {
   constructor(
     private readonly http: GmailHttpClient,
-    private readonly getAccessToken: () => Promise<string>,
+    private readonly getAccessToken: (forceRefresh?: boolean) => Promise<string>,
   ) {}
 
   private async authorizedRequest(
@@ -66,16 +70,21 @@ export class GoogleCalendarApiClient {
         target.searchParams.append(key, value);
       }
     }
-    return this.http.request({
-      method,
-      url: target.toString(),
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
-        ...(options.body ? { "Content-Type": "application/json" } : {}),
-      },
-      body: options.body ? JSON.stringify(options.body) : undefined,
-    });
+    const request = (accessToken: string) =>
+      this.http.request({
+        method,
+        url: target.toString(),
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/json",
+          ...(options.body ? { "Content-Type": "application/json" } : {}),
+        },
+        body: options.body ? JSON.stringify(options.body) : undefined,
+      });
+    const response = await request(token);
+    if (response.status !== 401) return response;
+    // Rejected access tokens can still have a valid refresh grant. Retry exactly once.
+    return request(await this.getAccessToken(true));
   }
 
   async getAccountProfile(): Promise<CalendarAccountProfile> {
@@ -113,7 +122,7 @@ export class GoogleCalendarApiClient {
    * page may still carry a `nextPageToken`. Follows it up to `CALENDAR_SYNC_LOOKUP_MAX_PAGES`
    * pages; a request failure or hitting the page cap is reported distinctly so the caller
    * never falls through to an insert on an incomplete scan. An authentication failure (the
-   * access-token getter throwing `reconnect_required`, or Google rejecting the request with
+   * access-token getter throwing `reconnect_required`, or the refresh endpoint returning
    * `invalid_grant`) is reported as its own `reconnect_required` reason, never flattened
    * into `request_failed`: Phase 2's reconciler needs to tell "retry later" apart from "the
    * grant is dead, stop and ask the user to reconnect".
@@ -145,15 +154,18 @@ export class GoogleCalendarApiClient {
         if (isReconnectRequiredError(error)) {
           return { ok: false, reason: "reconnect_required" };
         }
+        if (isCalendarSyncRateLimitError(error)) {
+          return { ok: false, reason: "rate_limited" };
+        }
         return { ok: false, reason: "request_failed" };
       }
       if (response.status < 200 || response.status >= 300) {
         if (
-          isReconnectRequiredError(
+          isCalendarSyncRateLimitError(
             new ProviderHttpError("calendar_sync_lookup_failed", response.status, response.body),
           )
         ) {
-          return { ok: false, reason: "reconnect_required" };
+          return { ok: false, reason: "rate_limited" };
         }
         return { ok: false, reason: "request_failed" };
       }
@@ -169,6 +181,16 @@ export class GoogleCalendarApiClient {
       pageToken = payload.nextPageToken;
     }
     return { ok: false, reason: "page_cap_reached" };
+  }
+
+  /** Compensates only for a calendar created by an unsuccessful connection attempt. */
+  async deleteCalendar(calendarId: string): Promise<void> {
+    const response = await this.authorizedRequest(
+      "DELETE",
+      `${CALENDAR_API_BASE}/calendars/${encodeURIComponent(calendarId)}`,
+    );
+    if (response.status === 404 || response.status === 410) return;
+    assertHttpSuccess(response, "calendar_sync_delete_calendar");
   }
 
   async insertEvent(calendarId: string, payload: CalendarSyncEventPayload): Promise<string> {
@@ -227,7 +249,10 @@ export class GoogleCalendarApiClient {
     );
     if (!lookup.ok) {
       return {
-        status: lookup.reason === "reconnect_required" ? "reconnect_required" : "lookup_failed",
+        status:
+          lookup.reason === "reconnect_required" || lookup.reason === "rate_limited"
+            ? lookup.reason
+            : "lookup_failed",
       };
     }
     if (lookup.hits.length === 0) {
@@ -260,4 +285,5 @@ export const isCalendarSyncRateLimitError = (error: unknown): boolean => {
   return error.status === 403 && error.body.includes("rateLimitExceeded");
 };
 
-export const isCalendarSyncInvalidGrantError = isInvalidGrantError;
+export const isCalendarSyncInvalidGrantError = (error: unknown): boolean =>
+  error instanceof ProviderHttpError && error.body.includes("invalid_grant");
