@@ -1,8 +1,7 @@
-import { createSerialQueue } from "../lib/serial-queue";
 import {
   createContext,
-  useContext,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -11,37 +10,28 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
-import { applyLegacyAiMaxTokensUpgrade, defaultAppSettings } from "../domain/settings";
+import { DebugPanel } from "../components/DebugPanel";
 import type { SettingsUpdater } from "../domain/settings";
 import type { AppSettings } from "../domain/types";
 import { CoachPulseService } from "../lib/ai/coach-pulse-service";
-import { DebugPanel } from "../components/DebugPanel";
-import { t } from "../i18n";
-import { rescueTimeCredentialFingerprint } from "../lib/rescuetime/credential-fingerprint";
 import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
+import { isBackupDestinationMissing } from "../lib/backup";
 import {
   getDebugEnabled,
   installDebugInstrumentation,
   logDebug,
   setDebugEnabled as persistDebugEnabled,
 } from "../lib/debug";
-import { createRepository, isTauriRuntime } from "../lib/storage/factory";
-import { MemoryRepository } from "../lib/storage/memory-repository";
+import { rescueTimeCredentialFingerprint } from "../lib/rescuetime/credential-fingerprint";
+import { createSerialQueue } from "../lib/serial-queue";
+import { isTauriRuntime } from "../lib/storage/factory";
 import type { AppRepository } from "../lib/storage/repository";
-import { buildContextId } from "../lib/gtd/shared";
-import {
-  AUTO_BACKUP_CHECK_INTERVAL_MS,
-  isAutoBackupDue,
-  isBackupDestinationConfigured,
-  isBackupDestinationMissing,
-} from "../lib/backup";
-import { PULSE_CHECK_INTERVAL_MS } from "../lib/ai/pulse/constants";
-import { runPulseEngine } from "../lib/ai/pulse/pulse-engine";
-import type { AppOpenInterval } from "../domain/insights/movement";
-import { useLocalDayReconciliation } from "./use-local-day-reconciliation";
+import { useAutoBackupScheduler } from "./use-auto-backup-scheduler";
+import { useBootstrap } from "./use-bootstrap";
 import { useEmailTriageCoordinator } from "./use-email-triage-coordinator";
+import { useLocalDayReconciliation } from "./use-local-day-reconciliation";
 import { usePomodoroController, type PomodoroControllerValue } from "./use-pomodoro-controller";
-import { getTodayDate } from "../lib/date";
+import { usePulseScheduler } from "./use-pulse-scheduler";
 
 export interface AppContextValue {
   repository: AppRepository;
@@ -73,30 +63,40 @@ export const useAppContext = (): AppContextValue => {
 export const AppProvider = ({ children }: PropsWithChildren) => {
   const { t: tCommon } = useTranslation("common");
   const { t: tSettings } = useTranslation("settings");
-  const [repository, setRepository] = useState<AppRepository | null>(null);
-  const [settings, setSettings] = useState(defaultAppSettings());
-  const [loading, setLoading] = useState(true);
-  const [startupError, setStartupError] = useState<string | null>(null);
-  const [startupStage, setStartupStage] = useState(() => t("startup.bootstrap"));
-  const [debugEnabled, setDebugEnabledState] = useState(getDebugEnabled());
+  const { repository, settings, setSettings, loading, startupError, startupStage } = useBootstrap();
+  const [debugEnabled, setDebugEnabledState] = useState(getDebugEnabled);
   const coachService = useMemo(() => new CoachPulseService(new OpenRouterProvider()), []);
-  const startupStageRef = useRef(startupStage);
-  const autoBackupRunningRef = useRef(false);
-  const pulseRunningRef = useRef(false);
   const [startupWorkQueue] = useState(createSerialQueue);
-  const appOpenStartedAtRef = useRef<string | null>(null);
-  const appOpenIntervalsRef = useRef<AppOpenInterval[]>([]);
-  const [pulseRevision, setPulseRevision] = useState(0);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const calendarDay = useLocalDayReconciliation(repository);
   const pomodoro = usePomodoroController(repository, calendarDay);
+  const pomodoroRef = useRef(pomodoro);
+  pomodoroRef.current = pomodoro;
   const browserPreview = !isTauriRuntime();
   const { reconfigure: reconfigureEmailTriage } = useEmailTriageCoordinator(repository, {
     browserPreview,
     allowStart: !loading && !startupError,
     settings,
   });
+
+  const getSettings = useCallback(() => settingsRef.current, []);
+  const getFocusSessionActive = useCallback(() => {
+    const activeSession = pomodoroRef.current.state.activeSession;
+    return activeSession?.kind === "focus" && activeSession.status === "running";
+  }, []);
+  const enqueueStartupWork = useCallback(
+    (work: () => Promise<void>) => startupWorkQueue.run(work),
+    [startupWorkQueue],
+  );
+
+  const publishSettings = useCallback(
+    (nextSettings: AppSettings) => {
+      settingsRef.current = nextSettings;
+      setSettings(nextSettings);
+    },
+    [setSettings],
+  );
 
   const updateSettings = useCallback(
     async (updater: SettingsUpdater) => {
@@ -106,8 +106,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         previousKey = current.rescuetimeApiKey.trim();
         return updater(current);
       });
-      settingsRef.current = nextSettings;
-      setSettings(nextSettings);
+      publishSettings(nextSettings);
       const nextKey = nextSettings.rescuetimeApiKey.trim();
       if (previousKey !== nextKey) {
         // Never log the key. Cache correctness already uses credential fingerprints.
@@ -121,14 +120,8 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       }
       return nextSettings;
     },
-    [repository],
+    [repository, publishSettings],
   );
-
-  const enqueueStartupWork = (work: () => Promise<void>) => {
-    return startupWorkQueue.run(work).catch((error) => {
-      logDebug("error", "app.bootstrap", "Echec tache de demarrage en file", error);
-    });
-  };
 
   useEffect(() => {
     installDebugInstrumentation();
@@ -138,332 +131,52 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     });
   }, []);
 
-  useEffect(() => {
-    if (!repository) {
-      return;
-    }
+  const pulseRevision = usePulseScheduler(repository, coachService, getFocusSessionActive, {
+    getSettings,
+    updateSettings,
+    enqueueStartupWork,
+  });
+  useAutoBackupScheduler(repository, getSettings, publishSettings, { enqueueStartupWork });
 
-    let cancelled = false;
-
-    const closeOpenInterval = () => {
-      const startedAt = appOpenStartedAtRef.current;
-      if (!startedAt) {
-        return;
-      }
-
-      appOpenIntervalsRef.current.push({
-        startedAt,
-        endedAt: new Date().toISOString(),
-      });
-      appOpenStartedAtRef.current = null;
-    };
-
-    const markAppOpen = () => {
-      if (document.visibilityState !== "visible" || appOpenStartedAtRef.current) {
-        return;
-      }
-
-      appOpenStartedAtRef.current = new Date().toISOString();
-    };
-
-    const runPulseEvaluation = async (trigger: "startup" | "interval") => {
-      if (pulseRunningRef.current || cancelled) {
-        return;
-      }
-
-      pulseRunningRef.current = true;
-      logDebug("info", "ai.pulse", "Evaluation pulse", { trigger });
-
-      try {
-        const activeSession = pomodoro.state.activeSession;
-        const focusSessionActive =
-          activeSession?.kind === "focus" && activeSession.status === "running";
-
-        const openIntervals = [...appOpenIntervalsRef.current];
-        if (appOpenStartedAtRef.current) {
-          openIntervals.push({
-            startedAt: appOpenStartedAtRef.current,
-            endedAt: new Date().toISOString(),
-          });
-        }
-
-        const result = await runPulseEngine({
-          repository,
-          coachService,
-          settings: settingsRef.current,
-          updateSettings,
-          appOpenIntervals: openIntervals,
-          focusSessionActive,
-        });
-
-        // Publish even if this effect was cleaned up mid-flight (settings or
-        // session changed). Today otherwise keeps the local brief after the
-        // first-open settings write cancels the invocation that persisted the AI pulse.
-        if (result.result || result.recordedMissed > 0) {
-          setPulseRevision((current) => current + 1);
-        }
-
-        logDebug("info", "ai.pulse", "Evaluation pulse terminee", {
-          ranSlot: result.ranSlot?.scopeKey ?? null,
-          recordedMissed: result.recordedMissed,
-        });
-      } catch (error) {
-        logDebug("error", "ai.pulse", "Echec evaluation pulse", error);
-      } finally {
-        pulseRunningRef.current = false;
-      }
-    };
-
-    markAppOpen();
-    void enqueueStartupWork(async () => {
-      await runPulseEvaluation("startup");
-    });
-
-    const intervalId = window.setInterval(() => {
-      runPulseEvaluation("interval").catch((error) => {
-        logDebug("error", "ai.pulse", "Echec inattendu evaluation pulse (interval)", error);
-      });
-    }, PULSE_CHECK_INTERVAL_MS);
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "hidden") {
-        closeOpenInterval();
-        return;
-      }
-
-      markAppOpen();
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    return () => {
-      cancelled = true;
-      closeOpenInterval();
-      window.clearInterval(intervalId);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [repository, coachService, pomodoro.state.activeSession, updateSettings]);
-
-  useEffect(() => {
-    if (!repository) {
-      return;
-    }
-
-    const runAutoBackupIfDue = async (trigger: "startup" | "interval") => {
-      if (autoBackupRunningRef.current || !settings.autoBackupEnabled) {
-        return;
-      }
-
-      if (!isBackupDestinationConfigured(settings.backupDestinationDir)) {
-        logDebug("info", "storage.backup", "Backup automatique ignore: dossier non configure", {
-          trigger,
-        });
-        return;
-      }
-
-      if (!isAutoBackupDue(settings.lastBackupAt, settings.autoBackupIntervalHours)) {
-        return;
-      }
-
-      autoBackupRunningRef.current = true;
-      logDebug("info", "storage.backup", "Verification backup automatique", {
-        trigger,
-        lastBackupAt: settings.lastBackupAt,
-        intervalHours: settings.autoBackupIntervalHours,
-      });
-
-      try {
-        const storageInfo = await repository?.getStorageInfo();
-        if (!storageInfo) {
-          return;
-        }
-
-        const backup = await repository.createBackup("auto");
-        await updateSettings((current) => ({
-          ...current,
-          lastBackupAt: backup.createdAt,
-          lastBackupPath: backup.backupPath,
-        }));
-
-        logDebug("info", "storage.backup", "Backup automatique termine", backup);
-      } catch (error) {
-        logDebug("error", "storage.backup", "Echec du backup automatique", error);
-      } finally {
-        autoBackupRunningRef.current = false;
-      }
-    };
-
-    void enqueueStartupWork(() => runAutoBackupIfDue("startup"));
-    const intervalId = window.setInterval(() => {
-      runAutoBackupIfDue("interval").catch((error) => {
-        logDebug("error", "storage.backup", "Echec inattendu backup automatique (interval)", error);
-      });
-    }, AUTO_BACKUP_CHECK_INTERVAL_MS);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [repository, settings, updateSettings]);
-
-  useEffect(() => {
-    let cancelled = false;
-    let settled = false;
-
-    const markStage = (stage: string) => {
-      startupStageRef.current = stage;
-      setStartupStage(stage);
-      logDebug("info", "app.bootstrap", stage);
-    };
-
-    const activateFallback = async (message: string, error?: unknown) => {
-      if (settled || cancelled) {
-        return;
-      }
-
-      settled = true;
-      const fallbackRepository = new MemoryRepository();
-      await fallbackRepository.initialize();
-
-      if (!cancelled) {
-        setRepository(fallbackRepository);
-        setSettings(defaultAppSettings());
-        setStartupError(message);
-        setLoading(false);
-        logDebug(
-          "error",
-          "app.bootstrap",
-          "Bootstrap en echec, fallback memoire active",
-          error ?? message,
-        );
-      }
-    };
-
-    const bootstrap = async () => {
-      try {
-        markStage(t("startup.createRepository"));
-        const nextRepository = await createRepository();
-        markStage(t("startup.loadSettings"));
-        let nextSettings = await nextRepository.getSettings();
-        const upgradedAiMaxTokens = applyLegacyAiMaxTokensUpgrade(
-          nextSettings,
-          new Date().toISOString(),
-        );
-        if (upgradedAiMaxTokens) {
-          nextSettings = await nextRepository.updateSettings(
-            (current) =>
-              applyLegacyAiMaxTokensUpgrade(current, new Date().toISOString()) ?? current,
-          );
-          logDebug("info", "app.bootstrap", "Migration aiMaxTokens terminee", {
-            aiMaxTokens: nextSettings.aiMaxTokens,
-          });
-        }
-        const gtdOverview = await nextRepository.getGtdOverview();
-        logDebug("info", "app.bootstrap", "Etat GTD au demarrage", {
-          gtdImportDoneAt: nextSettings.gtdImportDoneAt,
-          gtdOverview,
-        });
-
-        if (!nextSettings.gtdReferencesMigrationDoneAt) {
-          markStage(t("startup.migrateReferences"));
-          const movedCount = await nextRepository.moveTasksWithContextToBucket(
-            buildContextId("Reading"),
-            "reference",
-          );
-          nextSettings = await nextRepository.updateSettings((current) => ({
-            ...current,
-            gtdReferencesMigrationDoneAt:
-              current.gtdReferencesMigrationDoneAt || new Date().toISOString(),
-          }));
-          logDebug("info", "app.bootstrap", "Migration Reading -> References terminee", {
-            movedCount,
-          });
-        }
-
-        if (!nextSettings.gtdScheduledNormalizationDoneAt) {
-          markStage(t("startup.normalizeScheduled"));
-          const movedCount = await nextRepository.moveTasksWithScheduledDatesToBucket("scheduled");
-          nextSettings = await nextRepository.updateSettings((current) => ({
-            ...current,
-            gtdScheduledNormalizationDoneAt:
-              current.gtdScheduledNormalizationDoneAt || new Date().toISOString(),
-          }));
-          logDebug("info", "app.bootstrap", "Migration vers Scheduled terminee", {
-            movedCount,
-          });
-        }
-
-        markStage(t("startup.generateRecurrences"));
-        const generatedCount = await nextRepository.generateDueRecurringTasks(getTodayDate());
-        const promotedScheduledCount = await nextRepository.promoteDueScheduledTasks(
-          getTodayDate(),
-        );
-        logDebug("info", "app.bootstrap", "Generation des recurrences terminee", {
-          generatedCount,
-          promotedScheduledCount,
-        });
-
-        markStage(t("startup.generateRelationship"));
-        const generatedRelationshipCount = await nextRepository.generateDailyRelationshipTasks(
-          getTodayDate(),
-        );
-        nextSettings = await nextRepository.getSettings();
-        logDebug("info", "app.bootstrap", "Generation des activites relationnelles terminee", {
-          generatedRelationshipCount,
-        });
-
-        // Idempotent one-time seed, gated on the feature flag and a settings marker — never
-        // on the network, and swallowed on failure so it cannot add a new way to miss the
-        // 8-second timeout below. See docs/finance.md "Settings".
-        if (nextSettings.financeEnabled && !nextSettings.financeCategoriesSeededAt) {
-          try {
-            const seededCount = await nextRepository.seedFinanceDefaultCategories();
-            nextSettings = {
-              ...nextSettings,
-              financeCategoriesSeededAt: new Date().toISOString(),
-            };
-            await nextRepository.saveSettings(nextSettings);
-            logDebug("info", "app.bootstrap", "Seed des categories de finance terminee", {
-              seededCount,
-            });
-          } catch (error) {
-            logDebug("error", "app.bootstrap", "Echec du seed des categories de finance", error);
-          }
-        }
-
-        markStage(t("startup.finalize"));
-
-        settled = true;
-
-        if (!cancelled) {
-          setRepository(nextRepository);
-          setSettings(nextSettings);
-          setStartupError(null);
-          setLoading(false);
-          logDebug("info", "app.bootstrap", "Bootstrap termine");
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : t("startup.unknownError");
-        await activateFallback(message, error);
-      }
-    };
-
-    const timeoutId = window.setTimeout(() => {
-      activateFallback(t("startup.timeout", { stage: startupStageRef.current })).catch((error) => {
-        logDebug("error", "app.bootstrap", "Echec inattendu du fallback (timeout)", error);
-      });
-    }, 8_000);
-
-    bootstrap().catch((error) => {
-      logDebug("error", "app.bootstrap", "Echec inattendu du bootstrap (non intercepte)", error);
-    });
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeoutId);
-    };
+  const setDebugEnabled = useCallback((enabled: boolean) => {
+    persistDebugEnabled(enabled);
+    setDebugEnabledState(enabled);
+    logDebug("info", "debug", enabled ? "Mode debug active" : "Mode debug desactive");
   }, []);
 
-  if (loading || !repository) {
+  const value = useMemo<AppContextValue | null>(
+    () =>
+      repository
+        ? {
+            repository,
+            settings,
+            updateSettings,
+            coachService,
+            browserPreview,
+            debugEnabled,
+            setDebugEnabled,
+            pomodoro,
+            pulseRevision,
+            calendarDay,
+            reconfigureEmailTriage,
+          }
+        : null,
+    [
+      repository,
+      settings,
+      updateSettings,
+      coachService,
+      browserPreview,
+      debugEnabled,
+      setDebugEnabled,
+      pomodoro,
+      pulseRevision,
+      calendarDay,
+      reconfigureEmailTriage,
+    ],
+  );
+
+  if (loading || !value) {
     return (
       <>
         <div className="splash">
@@ -476,33 +189,13 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
             </p>
           </div>
         </div>
-        <DebugPanel enabled={true} forced={debugEnabled || true} />
+        <DebugPanel enabled forced />
       </>
     );
   }
 
-  const setDebugEnabled = (enabled: boolean) => {
-    persistDebugEnabled(enabled);
-    setDebugEnabledState(enabled);
-    logDebug("info", "debug", enabled ? "Mode debug active" : "Mode debug desactive");
-  };
-
   return (
-    <AppContext.Provider
-      value={{
-        repository,
-        settings,
-        updateSettings,
-        coachService,
-        browserPreview,
-        debugEnabled,
-        setDebugEnabled,
-        pomodoro,
-        pulseRevision,
-        calendarDay,
-        reconfigureEmailTriage,
-      }}
-    >
+    <AppContext.Provider value={value}>
       {startupError ? (
         <div className="banner">
           {tCommon("startup.sqliteFallback")}
