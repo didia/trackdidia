@@ -3031,6 +3031,16 @@ export class TauriSqliteRepository implements AppRepository {
     return this.getFinanceStore().computeBudgetState(monthKey);
   }
 
+  async applyFinanceCoverOverspending(
+    monthKey: string,
+    fromCategoryId: string,
+    toCategoryId: string,
+  ) {
+    return this.writeExclusive(() =>
+      this.getFinanceStore().applyCoverOverspending(monthKey, fromCategoryId, toCategoryId),
+    );
+  }
+
   async computeFinanceCoverOverspending(
     monthKey: string,
     fromCategoryId: string,

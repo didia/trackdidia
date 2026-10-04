@@ -33,6 +33,7 @@ import type {
 } from "../../domain/finance";
 import {
   assertFinanceCategoryAssignable,
+  hasBudgetEntryMetadata,
   computeCoverOverspending,
   computeFinanceBudgetState,
   type CoverOverspendingResult,
@@ -1256,7 +1257,7 @@ export class FinanceMemoryStore {
     );
   }
 
-  /** Rejects `kind = "income"` categories; assigning `0` deletes the row. */
+  /** Rejects `kind = "income"` categories; assigning `0` deletes the row unless it holds a non-default policy or a note. */
   setBudgetAssignment(
     monthKey: string,
     categoryId: string,
@@ -1269,13 +1270,13 @@ export class FinanceMemoryStore {
     assertFinanceCategoryAssignable(category);
 
     const key = this.budgetEntryKey(monthKey, categoryId);
-    if (assignedMinor === 0) {
+    const existing = this.budgetEntries.get(key);
+    if (assignedMinor === 0 && !hasBudgetEntryMetadata(existing)) {
       this.budgetEntries.delete(key);
       return null;
     }
 
     const now = nowIso();
-    const existing = this.budgetEntries.get(key);
     const saved: FinanceBudgetEntry = {
       monthKey,
       categoryId,
@@ -1401,6 +1402,20 @@ export class FinanceMemoryStore {
 
   computeBudgetState(monthKey: string): FinanceBudgetState {
     return computeFinanceBudgetState(this.buildBudgetComputationInput(monthKey));
+  }
+
+  /** Moves the cover amount between both rows in one synchronous step. */
+  applyCoverOverspending(
+    monthKey: string,
+    fromCategoryId: string,
+    toCategoryId: string,
+  ): CoverOverspendingResult {
+    const result = this.computeCoverOverspending(monthKey, fromCategoryId, toCategoryId);
+    if (result.amountMinor > 0) {
+      this.setBudgetAssignment(monthKey, fromCategoryId, result.fromNewAssignedMinor);
+      this.setBudgetAssignment(monthKey, toCategoryId, result.toNewAssignedMinor);
+    }
+    return result;
   }
 
   /** Delegates to the pure `computeCoverOverspending` — see `AppRepository.computeFinanceCoverOverspending`. */

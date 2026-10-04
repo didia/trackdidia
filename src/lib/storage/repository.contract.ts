@@ -4437,6 +4437,58 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           expect(uncategorized?.activityMinor ?? 0).toBe(0);
         });
 
+        it("keeps a zero row that carries a non-default overspend policy", async () => {
+          const repository = await factory();
+          await repository.seedFinanceDefaultCategories();
+          await repository.setFinanceCategoryOverspendPolicy(
+            "2026-01",
+            "fincat:alimentation.epicerie",
+            "carry_negative",
+          );
+
+          await repository.setFinanceBudgetAssignment("2026-01", "fincat:alimentation.epicerie", 0);
+
+          const state = await repository.computeFinanceBudgetState("2026-01");
+          expect(
+            state.categories.find((c) => c.categoryId === "fincat:alimentation.epicerie")
+              ?.overspendPolicy,
+          ).toBe("carry_negative");
+        });
+
+        it("applyFinanceCoverOverspending moves both rows together", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.seedFinanceDefaultCategories();
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-spend",
+              accountId: "account-1",
+              postedDate: "2026-01-10",
+              amountMinor: -1_200,
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+          await repository.setFinanceBudgetAssignment(
+            "2026-01",
+            "fincat:alimentation.epicerie",
+            1_000,
+          );
+          await repository.setFinanceBudgetAssignment("2026-01", "fincat:loisirs.sorties", 100);
+
+          const result = await repository.applyFinanceCoverOverspending(
+            "2026-01",
+            "fincat:loisirs.sorties",
+            "fincat:alimentation.epicerie",
+          );
+
+          expect(result.amountMinor).toBe(100);
+          const state = await repository.computeFinanceBudgetState("2026-01");
+          const assigned = (id: string) =>
+            state.categories.find((c) => c.categoryId === id)?.assignedMinor;
+          expect(assigned("fincat:alimentation.epicerie")).toBe(1_100);
+          expect(assigned("fincat:loisirs.sorties")).toBe(0);
+        });
+
         it("computeFinanceCoverOverspending delegates to the pure helper", async () => {
           const repository = await factory();
           await repository.saveFinanceAccount(account({ id: "account-1" }));

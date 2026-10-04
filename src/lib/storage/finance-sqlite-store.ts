@@ -34,6 +34,7 @@ import type {
 } from "../../domain/finance";
 import {
   assertFinanceCategoryAssignable,
+  hasBudgetEntryMetadata,
   computeCoverOverspending,
   computeFinanceBudgetState,
   type CoverOverspendingResult,
@@ -2098,7 +2099,14 @@ export class FinanceSqliteStore {
     }
     assertFinanceCategoryAssignable(mapCategory(category));
 
-    if (assignedMinor === 0) {
+    const existingRows = await db.select<BudgetEntryRow[]>(
+      "SELECT * FROM finance_budget_entries WHERE month_key = $1 AND category_id = $2",
+      [monthKey, categoryId],
+    );
+    if (
+      assignedMinor === 0 &&
+      !hasBudgetEntryMetadata(existingRows[0] ? mapBudgetEntry(existingRows[0]) : undefined)
+    ) {
       await db.execute(
         "DELETE FROM finance_budget_entries WHERE month_key = $1 AND category_id = $2",
         [monthKey, categoryId],
@@ -2107,10 +2115,6 @@ export class FinanceSqliteStore {
     }
 
     const now = nowIso();
-    const existingRows = await db.select<BudgetEntryRow[]>(
-      "SELECT * FROM finance_budget_entries WHERE month_key = $1 AND category_id = $2",
-      [monthKey, categoryId],
-    );
     const policy = existingRows[0]?.overspend_policy ?? "reduce_next_ready_to_assign";
     const note = existingRows[0]?.note ?? null;
 
@@ -2295,6 +2299,23 @@ export class FinanceSqliteStore {
   async computeBudgetState(monthKey: string): Promise<FinanceBudgetState> {
     const input = await this.buildBudgetComputationInput(monthKey);
     return computeFinanceBudgetState(input);
+  }
+
+  /** Moves the cover amount between both rows in one transaction; callers hold the writer. */
+  async applyCoverOverspending(
+    monthKey: string,
+    fromCategoryId: string,
+    toCategoryId: string,
+  ): Promise<CoverOverspendingResult> {
+    const db = await this.getDb();
+    return this.inTransaction(db, async () => {
+      const result = await this.computeCoverOverspending(monthKey, fromCategoryId, toCategoryId);
+      if (result.amountMinor > 0) {
+        await this.setBudgetAssignment(monthKey, fromCategoryId, result.fromNewAssignedMinor);
+        await this.setBudgetAssignment(monthKey, toCategoryId, result.toNewAssignedMinor);
+      }
+      return result;
+    });
   }
 
   /** Delegates to the pure `computeCoverOverspending` — see `AppRepository.computeFinanceCoverOverspending`. */

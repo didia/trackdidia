@@ -2123,6 +2123,16 @@ export class MemoryRepository implements AppRepository {
     return Promise.resolve(this.finance.computeBudgetState(monthKey));
   }
 
+  async applyFinanceCoverOverspending(
+    monthKey: string,
+    fromCategoryId: string,
+    toCategoryId: string,
+  ) {
+    return Promise.resolve(
+      this.finance.applyCoverOverspending(monthKey, fromCategoryId, toCategoryId),
+    );
+  }
+
   async computeFinanceCoverOverspending(
     monthKey: string,
     fromCategoryId: string,

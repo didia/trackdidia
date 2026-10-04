@@ -370,12 +370,14 @@ action that needs two categories' data at once, so it stays a dedicated
 repository method, `computeFinanceCoverOverspending(monthKey, fromCategoryId,
 toCategoryId)`, implemented identically on both stores via the same private
 `buildBudgetComputationInput` used by `computeBudgetState`, delegating to the
-pure `computeCoverOverspending`; the page calls it, then writes both
-categories' new assignments. `selectUnbudgetedCategories` picks out the "Non
-budgété" band (activity with no assignment — `assignedMinor === 0` always
-means "never assigned" because assigning `0` deletes the row) and
-`computeUnbudgetedAssignAmountMinor` is the one-click "Assigner" amount (the
-positive size of the activity); `computeEnvelopePace`/
+pure `computeCoverOverspending`; the page calls
+`applyFinanceCoverOverspending(monthKey, fromCategoryId, toCategoryId)`, which
+writes both categories' new assignments in one writer-queue transaction.
+`selectUnbudgetedCategories` picks out the "Non budgété" band (no assignment,
+negative activity, and `availableMinor < 0` — spending already covered by
+carry-in, and refunds, are never listed) and `computeUnbudgetedAssignAmountMinor`
+is the one-click "Assigner" amount (the uncovered deficit, `max(0, -available)`);
+`computeEnvelopePace`/
 `computeEnvelopePaceFromState` give a simple spent-vs-elapsed-days fraction
 per envelope (no forecasting yet — that is `src/domain/finance/forecast.ts`,
 a later phase).
@@ -385,7 +387,9 @@ Repository methods: `getFinanceBudgetMonth` reads the advisory
 to an unsaved empty row rather than throwing when the month has never been
 touched. `setFinanceBudgetAssignment(monthKey, categoryId, assignedMinor)` is
 an idempotent upsert into `finance_budget_entries`; assigning `0` deletes the
-row. `setFinanceCategoryOverspendPolicy(monthKey, categoryId, policy)` writes
+row unless it holds a non-default overspend policy or a note (then the row is kept at
+`0`, so an untouched `0.00` field blurring cannot reset the policy).
+`setFinanceCategoryOverspendPolicy(monthKey, categoryId, policy)` writes
 the policy onto the `(monthKey, categoryId)` entry — creating it with
 `assigned_minor = 0` if it does not exist yet, purely so the policy has
 somewhere to live — and onto every **already-existing** later entry for that
@@ -602,11 +606,15 @@ page**: an overspend-policy select (`setFinanceCategoryOverspendPolicy`),
 (writes `category.average3MonthsAssignedMinor`), "Assigner tout le prêt à
 assigner" (writes `category.assignAllReadyToAssignMinor`), and — only while
 a category's `availableMinor` is negative — a source-category picker plus
-"Couvrir" that calls `repository.computeFinanceCoverOverspending` and writes
-back its two new assignment totals. A "Non budgété" band (from
-`selectUnbudgetedCategories`) lists every category with activity and no
-assignment, each with a one-click "Assigner" that writes
-`computeUnbudgetedAssignAmountMinor(category.activityMinor)`. A plain "solde
+"Couvrir" that calls `repository.applyFinanceCoverOverspending` (one atomic
+write of both totals). Parent categories that hold spending or an assignment get
+their own row above their leaves. Writes run through one in-page queue and
+quick actions re-read `computeFinanceBudgetState` inside the queued task, so
+overlapping clicks cannot reuse a stale Ready to Assign; a stale month load is
+discarded and write/load failures render an alert. Blurring an unchanged
+assignment is a no-op. A "Non budgété" band (from
+`selectUnbudgetedCategories`) lists categories with uncovered spending, each
+with a one-click "Assigner" that adds `computeUnbudgetedAssignAmountMinor(category)`. A plain "solde
 des cartes de crédit" line lists each on-budget credit-card account's
 derived balance (`computeDerivedBalanceMinor`) — the v1 simplification from
 the spec's "Credit-card payment categories" decision, not a payment

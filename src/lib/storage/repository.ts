@@ -355,7 +355,7 @@ export interface AppRepository {
   /** The advisory `finance_budget_months` row (`closed_at`, `ready_to_assign_note`); never persisted until written. */
   getFinanceBudgetMonth(monthKey: string): Promise<FinanceBudgetMonth>;
   /**
-   * Idempotent upsert; assigning `0` deletes the row (see
+   * Idempotent upsert; assigning `0` deletes the row unless it holds a non-default policy or note (see
    * `src/domain/finance/budget.ts`'s "Non budgété" doc comment). Rejects
    * `kind = "income"` categories via `assertFinanceCategoryAssignable`.
    */
@@ -379,6 +379,15 @@ export interface AppRepository {
    * the caller still writes them via two `setFinanceBudgetAssignment` calls.
    */
   computeFinanceCoverOverspending(
+    monthKey: string,
+    fromCategoryId: string,
+    toCategoryId: string,
+  ): Promise<CoverOverspendingResult>;
+  /**
+   * Atomically moves the cover amount from `fromCategoryId` to `toCategoryId` (both rows
+   * written in one transaction) and returns what was moved.
+   */
+  applyFinanceCoverOverspending(
     monthKey: string,
     fromCategoryId: string,
     toCategoryId: string,
