@@ -368,6 +368,13 @@ the promotion-capture step only; no network or OAuth code exists yet.
   stale link is handled by `missing_remote`, calendar recreation, and the planner's
   empty-task-set safety valve (not yet wired to the network in Phase 0).
 
+Write discipline: the public calendar-sync mutators on `TauriSqliteRepository` go through
+the single SQLite writer (settings via `writeTransaction`, so an identity change updates
+the row and clears links atomically). Promotion capture runs inside the promotion
+transaction and uses the store directly. A synced link whose payload is unchanged is
+detached as `promoted` at capture, terminal detachments are never reopened, and a captured
+edit on an event that already exists becomes a planner update (not a create).
+
 ### Email triage tables
 
 Migration 29 adds a nullable `gtd_tasks.source_url` plus nine tables. Raw MIME and

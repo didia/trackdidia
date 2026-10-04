@@ -94,15 +94,40 @@ export function planCalendarSync(input: PlanCalendarSyncInput): CalendarSyncPlan
   const consumedLinkKeys = new Set<string>();
 
   const materializePending = (link: CalendarSyncLink): void => {
+    const payload = JSON.parse(link.payloadSignature) as CalendarSyncEventPayload;
     if (daysBetweenLocalDates(link.occurrenceKey, today) > CALENDAR_SYNC_PENDING_STALENESS_DAYS) {
-      purges.push({ taskId: link.taskId, occurrenceKey: link.occurrenceKey });
+      if (link.eventId === null) {
+        purges.push({ taskId: link.taskId, occurrenceKey: link.occurrenceKey });
+      } else {
+        // The event already exists: the stale edit is not applied, but ownership is kept
+        // as a promoted record rather than dropped.
+        detaches.push({
+          taskId: link.taskId,
+          occurrenceKey: link.occurrenceKey,
+          reason: "promoted",
+        });
+      }
+      return;
+    }
+    if (link.eventId !== null) {
+      // A captured edit on an event that already exists: PATCH from the snapshot, then
+      // the executor detaches the link as `promoted` (`fromPendingSnapshot`).
+      updates.push({
+        taskId: link.taskId,
+        occurrenceKey: link.occurrenceKey,
+        calendarId: link.calendarId,
+        eventId: link.eventId,
+        payload,
+        payloadSignature: link.payloadSignature,
+        fromPendingSnapshot: true,
+      });
       return;
     }
     creates.push({
       taskId: link.taskId,
       occurrenceKey: link.occurrenceKey,
       calendarId: link.calendarId,
-      payload: JSON.parse(link.payloadSignature) as CalendarSyncEventPayload,
+      payload,
       payloadSignature: link.payloadSignature,
       fromPendingSnapshot: true,
     });
@@ -147,8 +172,19 @@ export function planCalendarSync(input: PlanCalendarSyncInput): CalendarSyncPlan
 
     if (link.state === "pending") {
       if (!recurring && eligibleKey !== null) {
-        // Suppressed pending create: the user re-dated before the reconciler ran.
-        purges.push({ taskId: link.taskId, occurrenceKey: link.occurrenceKey });
+        if (link.eventId === null) {
+          // Suppressed pending create: the user re-dated before the reconciler ran.
+          purges.push({ taskId: link.taskId, occurrenceKey: link.occurrenceKey });
+        } else {
+          // The link owns an event (captured edit): dropping it would orphan the event.
+          deletes.push({
+            taskId: link.taskId,
+            occurrenceKey: link.occurrenceKey,
+            calendarId: link.calendarId,
+            eventId: link.eventId,
+            reason: "reschedule",
+          });
+        }
         consumedLinkKeys.add(key);
         continue;
       }
@@ -159,6 +195,18 @@ export function planCalendarSync(input: PlanCalendarSyncInput): CalendarSyncPlan
     }
 
     // synced or failed
+    if (eligibleKey !== null && recurring && link.occurrenceKey <= today) {
+      // Recurrence generation reuses the task id: the new key is a new occurrence, not a
+      // reschedule, so the earlier occurrence's event stays as its record.
+      detaches.push({
+        taskId: link.taskId,
+        occurrenceKey: link.occurrenceKey,
+        reason: "promoted",
+      });
+      consumedLinkKeys.add(key);
+      continue;
+    }
+
     if (eligibleKey !== null) {
       // Reschedule refinement: delete the old event regardless of its date; the
       // replacement is created below in pass 2.
@@ -239,6 +287,7 @@ export function planCalendarSync(input: PlanCalendarSyncInput): CalendarSyncPlan
           eventId: existing.eventId,
           payload,
           payloadSignature: signature,
+          fromPendingSnapshot: false,
         });
       }
       continue;
@@ -254,7 +303,9 @@ export function planCalendarSync(input: PlanCalendarSyncInput): CalendarSyncPlan
         payloadSignature: signature,
         fromPendingSnapshot: false,
       });
-    } else if (existing.payloadSignature !== signature) {
+    } else if (existing.state === "pending" || existing.payloadSignature !== signature) {
+      // A pending link's signature is the unapplied snapshot, not what the event holds, so
+      // it always needs the PATCH even when it equals the live signature.
       updates.push({
         taskId: task.id,
         occurrenceKey: eligibleKey,
@@ -262,12 +313,14 @@ export function planCalendarSync(input: PlanCalendarSyncInput): CalendarSyncPlan
         eventId: existing.eventId,
         payload,
         payloadSignature: signature,
+        fromPendingSnapshot: false,
       });
     }
   }
 
   const activeLinkCount = links.filter((link) => link.state !== "detached").length;
-  const deleteThreshold = Math.max(10, Math.ceil(0.25 * activeLinkCount));
+  // Deliberately unrounded: 11 deletes against 41 links (threshold 10.25) must confirm.
+  const deleteThreshold = Math.max(10, 0.25 * activeLinkCount);
 
   if (deletes.length > deleteThreshold) {
     if (confirmedMassDelete !== undefined && deletes.length <= confirmedMassDelete) {

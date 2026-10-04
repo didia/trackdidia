@@ -3094,8 +3094,12 @@ export class TauriSqliteRepository implements AppRepository {
     return this.getCalendarSyncStore().getSettings();
   }
 
+  // Public mutators go through the single writer so they cannot interleave with (and be
+  // rolled back by) another transaction on the shared connection. Promotion capture runs
+  // inside its own transaction and reaches the store directly, never these methods.
   async saveCalendarSyncSettings(settings: CalendarSyncSettings): Promise<CalendarSyncSettings> {
-    return this.getCalendarSyncStore().saveSettings(settings);
+    // Transaction: an identity change updates the settings row and clears links atomically.
+    return this.writeTransaction(() => this.getCalendarSyncStore().saveSettings(settings));
   }
 
   async listCalendarSyncLinks(): Promise<CalendarSyncLink[]> {
@@ -3110,11 +3114,11 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async saveCalendarSyncLink(link: CalendarSyncLink): Promise<CalendarSyncLink> {
-    return this.getCalendarSyncStore().saveLink(link);
+    return this.writeExclusive(() => this.getCalendarSyncStore().saveLink(link));
   }
 
   async deleteCalendarSyncLink(taskId: string, occurrenceKey: string): Promise<void> {
-    await this.getCalendarSyncStore().deleteLink(taskId, occurrenceKey);
+    await this.writeExclusive(() => this.getCalendarSyncStore().deleteLink(taskId, occurrenceKey));
   }
 
   async detachCalendarSyncLink(
@@ -3122,10 +3126,12 @@ export class TauriSqliteRepository implements AppRepository {
     occurrenceKey: string,
     reason: CalendarSyncDetachReason,
   ): Promise<void> {
-    await this.getCalendarSyncStore().detachLink(taskId, occurrenceKey, reason, nowIso());
+    await this.writeExclusive(() =>
+      this.getCalendarSyncStore().detachLink(taskId, occurrenceKey, reason, nowIso()),
+    );
   }
 
   async clearCalendarSyncLinks(): Promise<void> {
-    await this.getCalendarSyncStore().clearLinks();
+    await this.writeExclusive(() => this.getCalendarSyncStore().clearLinks());
   }
 }

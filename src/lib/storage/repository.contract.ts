@@ -2982,6 +2982,90 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           expect(afterPromotion).toMatchObject({ state: "pending", eventId: "event:1" });
         });
 
+        it("detaches an unchanged synced link as promoted when its Scheduled task is promoted", async () => {
+          vi.useFakeTimers();
+          vi.setSystemTime(new Date("2026-01-11T12:00:00.000Z"));
+
+          const repository = await factory();
+          const settings = await repository.saveCalendarSyncSettings(connectedSettings());
+          const task = await repository.createTask({
+            title: "Unchanged",
+            bucket: "scheduled",
+            scheduledFor: "2026-01-12T09:00:00",
+          });
+          const { signature } = buildCalendarSyncSignatureForTask(task, settings);
+          await repository.saveCalendarSyncLink({
+            taskId: task.id,
+            occurrenceKey: "2026-01-12",
+            calendarId: settings.calendarId ?? "",
+            eventId: "event:1",
+            generation: settings.generation,
+            state: "synced",
+            payloadSignature: signature,
+            eventStartAt: task.scheduledFor as string,
+            detachReason: null,
+            failureCount: 0,
+            lastError: null,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          });
+
+          vi.setSystemTime(new Date("2026-01-12T06:00:00.000Z"));
+          await repository.promoteDueScheduledTasks("2026-01-12");
+
+          await expect(
+            repository.getCalendarSyncLink(task.id, "2026-01-12"),
+          ).resolves.toMatchObject({
+            state: "detached",
+            detachReason: "promoted",
+            eventId: "event:1",
+          });
+        });
+
+        it("preserves terminal detachments when their Scheduled task is promoted", async () => {
+          for (const detachReason of [
+            "missing_remote",
+            "completed",
+            "cancelled",
+            "unscheduled",
+            "task_deleted",
+          ] as const) {
+            vi.useFakeTimers();
+            vi.setSystemTime(new Date("2026-01-11T12:00:00.000Z"));
+
+            const repository = await factory();
+            const settings = await repository.saveCalendarSyncSettings(connectedSettings());
+            const task = await repository.createTask({
+              title: `Terminal ${detachReason}`,
+              bucket: "scheduled",
+              scheduledFor: "2026-01-12T09:00:00",
+            });
+            const { signature } = buildCalendarSyncSignatureForTask(task, settings);
+            const terminal = await repository.saveCalendarSyncLink({
+              taskId: task.id,
+              occurrenceKey: "2026-01-12",
+              calendarId: settings.calendarId ?? "",
+              eventId: null,
+              generation: settings.generation,
+              state: "detached",
+              payloadSignature: signature,
+              eventStartAt: task.scheduledFor as string,
+              detachReason,
+              failureCount: 0,
+              lastError: null,
+              createdAt: "2026-01-01T00:00:00.000Z",
+              updatedAt: "2026-01-01T00:00:00.000Z",
+            });
+
+            vi.setSystemTime(new Date("2026-01-12T06:00:00.000Z"));
+            await repository.promoteDueScheduledTasks("2026-01-12");
+
+            await expect(repository.getCalendarSyncLink(task.id, "2026-01-12")).resolves.toEqual(
+              terminal,
+            );
+          }
+        });
+
         it("writes nothing when sync is off and there is no existing link", async () => {
           vi.useFakeTimers();
           vi.setSystemTime(new Date("2026-01-12T06:00:00.000Z"));

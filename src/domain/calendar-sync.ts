@@ -76,6 +76,10 @@ export const defaultCalendarSyncSettings = (now: string): CalendarSyncSettings =
   updatedAt: now,
 });
 
+/**
+ * `failed` only ever describes a live (task-backed) create/update; a failed captured
+ * snapshot stays `pending` (see `CalendarSyncCreateAction.fromPendingSnapshot`).
+ */
 export type CalendarSyncLinkState = "pending" | "synced" | "detached" | "failed";
 
 export type CalendarSyncDetachReason =
@@ -130,7 +134,13 @@ export interface CalendarSyncCreateAction {
   calendarId: string;
   payload: CalendarSyncEventPayload;
   payloadSignature: string;
-  /** True when this create originates from a captured `pending` snapshot, not a live task. */
+  /**
+   * True when this create originates from a captured `pending` snapshot, not a live task.
+   * Executor contract: a failed create/update from a pending snapshot leaves the link
+   * `pending` (incrementing `failureCount`, recording `lastError`) instead of `failed`.
+   * The task has already lost its date, so `failed` would be re-planned as an exit and the
+   * occurrence would be lost; `pending` keeps retrying under the staleness cap and backoff.
+   */
   fromPendingSnapshot: boolean;
 }
 
@@ -141,6 +151,12 @@ export interface CalendarSyncUpdateAction {
   eventId: string;
   payload: CalendarSyncEventPayload;
   payloadSignature: string;
+  /**
+   * True when this update applies a captured `pending` snapshot to an event the link
+   * already owns. After success the executor detaches the link as `promoted` (the task
+   * has already left the desired set); otherwise it marks the link `synced`.
+   */
+  fromPendingSnapshot: boolean;
 }
 
 export type CalendarSyncDeleteReason = "exit" | "reschedule" | "rescheduled_after_promotion";
