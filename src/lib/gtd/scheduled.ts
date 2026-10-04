@@ -61,6 +61,13 @@ export const buildCalendarSyncCaptureLink = (
     return null;
   }
 
+  // Terminal detach reasons (everything except `promoted`, which is a placeholder) must
+  // never be reset back to `pending`: a `completed`/`cancelled` link is a record of the
+  // day, not a draft to resurrect. See "Reclaimable links" in specs/todo/calendar-sync.md.
+  if (existingLink?.state === "detached" && existingLink.detachReason !== "promoted") {
+    return null;
+  }
+
   return {
     taskId: task.id,
     occurrenceKey,

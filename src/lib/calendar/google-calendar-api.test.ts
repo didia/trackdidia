@@ -118,6 +118,20 @@ describe("GoogleCalendarApiClient.lookupEventsByOccurrence", () => {
     expect(result).toEqual({ ok: false, reason: "request_failed" });
   });
 
+  it("classifies a 404 on the lookup itself as calendar_not_found, never request_failed", async () => {
+    const request = vi.fn(async () => ({ status: 404, body: "" }));
+    const client = makeClient(request);
+    const result = await client.lookupEventsByOccurrence("cal-1", "task-1", "2024-01-05");
+    expect(result).toEqual({ ok: false, reason: "calendar_not_found" });
+  });
+
+  it("classifies a 410 on the lookup itself as calendar_not_found, never request_failed", async () => {
+    const request = vi.fn(async () => ({ status: 410, body: "" }));
+    const client = makeClient(request);
+    const result = await client.lookupEventsByOccurrence("cal-1", "task-1", "2024-01-05");
+    expect(result).toEqual({ ok: false, reason: "calendar_not_found" });
+  });
+
   it("does not flatten a reconnect_required token-getter rejection into request_failed", async () => {
     const request = vi.fn(async () => ({ status: 200, body: JSON.stringify({ items: [] }) }));
     const client = new GoogleCalendarApiClient({ request }, async () => {
@@ -216,6 +230,23 @@ describe("GoogleCalendarApiClient.createOrAdoptEvent", () => {
       payload: samplePayload,
     });
     expect(result).toEqual({ status: "lookup_failed" });
+  });
+
+  it("reports calendar_not_found distinctly and never inserts when the lookup 404s", async () => {
+    const request = vi.fn(async ({ method }: { method: string }) => {
+      if (method === "GET") {
+        return { status: 404, body: "" };
+      }
+      throw new Error("must not insert when the calendar itself is gone");
+    });
+    const client = makeClient(request);
+    const result = await client.createOrAdoptEvent({
+      calendarId: "cal-1",
+      taskId: "task-1",
+      occurrenceKey: "2024-01-05",
+      payload: samplePayload,
+    });
+    expect(result).toEqual({ status: "calendar_not_found" });
   });
 
   it("inserts when the lookup exhaustively finds zero hits", async () => {

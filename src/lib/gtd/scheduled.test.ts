@@ -193,4 +193,35 @@ describe("buildCalendarSyncCaptureLink", () => {
     const task = baseTask({ bucket: "next_action", scheduledFor: null });
     expect(buildCalendarSyncCaptureLink(task, null, settings, now)).toBeNull();
   });
+
+  it("never resets a terminal detached link (completed) back to pending", () => {
+    const task = baseTask({ scheduledFor: "2026-01-12T09:00:00" });
+    const existing = baseLink(task, settings, {
+      state: "detached",
+      detachReason: "completed",
+      eventId: "event:1",
+    });
+    expect(buildCalendarSyncCaptureLink(task, existing, settings, now)).toBeNull();
+  });
+
+  it("never resets a terminal detached link (cancelled) back to pending", () => {
+    const task = baseTask({ scheduledFor: "2026-01-12T09:00:00" });
+    const existing = baseLink(task, settings, {
+      state: "detached",
+      detachReason: "cancelled",
+      eventId: "event:1",
+    });
+    expect(buildCalendarSyncCaptureLink(task, existing, settings, now)).toBeNull();
+  });
+
+  it("still reclaims a detached `promoted` link back to pending", () => {
+    const task = baseTask({ scheduledFor: "2026-01-12T09:00:00" });
+    const existing = baseLink(task, settings, {
+      state: "detached",
+      detachReason: "promoted",
+      eventId: "event:1",
+    });
+    const link = buildCalendarSyncCaptureLink(task, existing, settings, now);
+    expect(link).toMatchObject({ state: "pending", eventId: "event:1" });
+  });
 });

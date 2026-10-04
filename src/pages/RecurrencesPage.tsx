@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Project, RecurringTaskTemplate, TaskContext } from "../domain/types";
 import { useAppContext } from "../app/app-context";
+import { requestCalendarSync } from "../app/use-calendar-sync";
 import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
 import { formatDateShort, getTodayDate } from "../lib/date";
@@ -523,6 +524,7 @@ export const RecurrencesPage = () => {
             disabled={!draft.title.trim()}
             onClick={async () => {
               await repository.saveRecurringTaskTemplate(draft);
+              requestCalendarSync();
               setDraft(createDraftTemplate());
               await load();
             }}
@@ -627,18 +629,22 @@ export const RecurrencesPage = () => {
                 nextOccurrence={previews[template.id] ?? null}
                 onSave={async (nextTemplate) => {
                   await repository.saveRecurringTaskTemplate(nextTemplate);
+                  requestCalendarSync();
                   await load();
                 }}
                 onPause={async (id) => {
                   await repository.pauseRecurringTaskTemplate(id);
+                  requestCalendarSync();
                   await load();
                 }}
                 onResume={async (id) => {
                   await repository.resumeRecurringTaskTemplate(id);
+                  requestCalendarSync();
                   await load();
                 }}
                 onCancel={async (id) => {
                   await repository.cancelRecurringTaskTemplate(id);
+                  requestCalendarSync();
                   await load();
                 }}
               />

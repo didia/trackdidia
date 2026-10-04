@@ -37,6 +37,7 @@ import { runPulseEngine } from "../lib/ai/pulse/pulse-engine";
 import type { AppOpenInterval } from "../domain/insights/movement";
 import { useLocalDayReconciliation } from "./use-local-day-reconciliation";
 import { useEmailTriageCoordinator } from "./use-email-triage-coordinator";
+import { useCalendarSync } from "./use-calendar-sync";
 import { usePomodoroController, type PomodoroControllerValue } from "./use-pomodoro-controller";
 import { getTodayDate } from "../lib/date";
 
@@ -99,6 +100,11 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     browserPreview,
     allowStart: !loading && !startupError,
     settings,
+  });
+  // Never mounted under the startup fallback or browser preview: zero API/vault access.
+  useCalendarSync(repository, {
+    browserPreview,
+    allowStart: !loading && !startupError,
   });
 
   const enqueueStartupWork = (work: () => Promise<void>) => {

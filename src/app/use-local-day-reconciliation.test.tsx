@@ -11,6 +11,11 @@ import { AppContext, type AppContextValue } from "./app-context";
 import { useGtdWorkspace } from "./use-gtd";
 import { useLocalDayReconciliation } from "./use-local-day-reconciliation";
 
+const requestCalendarSyncMock = vi.fn();
+vi.mock("./use-calendar-sync", () => ({
+  requestCalendarSync: () => requestCalendarSyncMock(),
+}));
+
 class FakeProvider implements AiProvider {
   async generateStructured() {
     return {
@@ -149,5 +154,25 @@ describe("useLocalDayReconciliation", () => {
     await flushEffects();
 
     expect(screen.getByText("Appelee au reveil")).toBeInTheDocument();
+  });
+
+  it("nudges the calendar-sync reconciler once per day after promotion", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 8, 7, 23, 59, 0, 0));
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await seedDueTomorrow(repository, "Appelee a minuit");
+
+    render(<MountedGtdView repository={repository} />);
+    await flushEffects();
+    requestCalendarSyncMock.mockClear();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2 * 60 * 1000);
+    });
+    await flushEffects();
+
+    expect(requestCalendarSyncMock).toHaveBeenCalled();
   });
 });

@@ -21,6 +21,11 @@ import {
   reconnectCalendarSyncAccount,
 } from "../lib/calendar/connect";
 import { resolveCalendarSyncOAuthClientId } from "../lib/calendar/google-calendar-oauth";
+import {
+  confirmMassDelete as confirmCalendarSyncMassDelete,
+  parseCalendarSyncMassDeleteCount,
+  syncNow as syncCalendarSyncNow,
+} from "../lib/calendar/reconciler";
 import { formatDateTimeShort } from "../lib/date";
 import { nowIso } from "../lib/gtd/shared";
 import { RescueTimeGoalsService } from "../lib/rescuetime/rescuetime-goals-service";
@@ -58,6 +63,7 @@ export const SettingsPage = () => {
   const [calendarSettingsMessage, setCalendarSettingsMessage] = useState("");
   const [calendarConnecting, setCalendarConnecting] = useState(false);
   const [calendarActionError, setCalendarActionError] = useState<string | null>(null);
+  const [calendarSyncRunning, setCalendarSyncRunning] = useState(false);
 
   useEffect(() => {
     setDraftSettings(settings);
@@ -161,6 +167,37 @@ export const SettingsPage = () => {
       setCalendarActionError("disconnect_failed");
     } finally {
       setCalendarConnecting(false);
+    }
+  };
+
+  const calendarMassDeleteCount = parseCalendarSyncMassDeleteCount(calendarSettings.lastError);
+
+  const handleSyncCalendarNow = async () => {
+    setCalendarSyncRunning(true);
+    setCalendarActionError(null);
+    try {
+      await syncCalendarSyncNow(repository);
+    } catch {
+      setCalendarActionError("sync_failed");
+    } finally {
+      await loadCalendarSyncSettings();
+      setCalendarSyncRunning(false);
+    }
+  };
+
+  const handleConfirmCalendarMassDelete = async () => {
+    if (calendarMassDeleteCount === null) {
+      return;
+    }
+    setCalendarSyncRunning(true);
+    setCalendarActionError(null);
+    try {
+      await confirmCalendarSyncMassDelete(repository, calendarMassDeleteCount);
+    } catch {
+      setCalendarActionError("sync_failed");
+    } finally {
+      await loadCalendarSyncSettings();
+      setCalendarSyncRunning(false);
     }
   };
 
@@ -647,6 +684,14 @@ export const SettingsPage = () => {
                   >
                     {t("calendar.disconnect")}
                   </button>
+                  <button
+                    className="button"
+                    type="button"
+                    disabled={calendarSyncRunning}
+                    onClick={() => void handleSyncCalendarNow()}
+                  >
+                    {calendarSyncRunning ? t("calendar.syncing") : t("calendar.syncNow")}
+                  </button>
                 </>
               )}
             </div>
@@ -657,6 +702,28 @@ export const SettingsPage = () => {
                   defaultValue: calendarActionError,
                 })}
               </p>
+            ) : null}
+
+            {calendarSettings.state === "needs_confirmation" ? (
+              <div className="banner">
+                <p>
+                  {calendarMassDeleteCount !== null
+                    ? t("calendar.needsConfirmation.body", { n: calendarMassDeleteCount })
+                    : t("calendar.needsConfirmation.bodyUnknown")}
+                </p>
+                <button
+                  className="button button--primary"
+                  type="button"
+                  disabled={calendarSyncRunning || calendarMassDeleteCount === null}
+                  onClick={() => void handleConfirmCalendarMassDelete()}
+                >
+                  {t("calendar.needsConfirmation.confirm")}
+                </button>
+              </div>
+            ) : null}
+
+            {calendarSettings.state === "reconnect_required" ? (
+              <div className="banner">{t("calendar.reconnectPrompt")}</div>
             ) : null}
 
             <div className="status-grid">

@@ -1,9 +1,14 @@
 import { screen, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { getTodayDate } from "../lib/date";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { renderWithApp } from "../test/test-utils";
 import { useGtdWorkspace } from "./use-gtd";
+
+const requestCalendarSyncMock = vi.fn();
+vi.mock("./use-calendar-sync", () => ({
+  requestCalendarSync: () => requestCalendarSyncMock(),
+}));
 
 const Probe = () => {
   const { tasks, taskEvents, loading } = useGtdWorkspace();
@@ -34,5 +39,15 @@ describe("useGtdWorkspace", () => {
       expect(screen.getByTestId("buckets").textContent).toContain(`${task.id}:next_action`),
     );
     await waitFor(() => expect(screen.getByTestId("events").textContent).toContain(task.id));
+  });
+
+  it("nudges the calendar-sync reconciler at the end of load()", async () => {
+    requestCalendarSyncMock.mockClear();
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    await renderWithApp(<Probe />, { repository });
+
+    await waitFor(() => expect(requestCalendarSyncMock).toHaveBeenCalled());
   });
 });

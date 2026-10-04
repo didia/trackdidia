@@ -241,6 +241,14 @@
     "never": "Jamais",
     "lastErrorLabel": "Dernière erreur",
     "browserPreviewNotice": "Synchronisation du calendrier indisponible en prévisualisation navigateur (fonctionnalité de bureau uniquement).",
+    "syncNow": "Synchroniser maintenant",
+    "syncing": "Synchronisation...",
+    "reconnectPrompt": "La connexion a expiré ou a été révoquée. Reconnectez le compte Google pour reprendre la synchronisation.",
+    "needsConfirmation": {
+      "body": "La synchronisation veut supprimer {{n}} entrées du calendrier en une seule fois. Confirmez pour continuer, ou modifiez vos tâches pour réduire ce nombre.",
+      "bodyUnknown": "La synchronisation attend une confirmation avant de supprimer un grand nombre d'entrées du calendrier.",
+      "confirm": "Confirmer la suppression"
+    },
     "state": {
       "disconnected": "Déconnecté",
       "active": "Actif",
@@ -254,7 +262,8 @@
       "missing_refresh_token": "Google n'a pas renvoyé de jeton d'actualisation.",
       "oauth_loopback_busy": "Une autre connexion OAuth (courriel) est déjà en cours. Terminez-la ou annulez-la avant de réessayer.",
       "connect_failed": "La connexion au calendrier Google a échoué.",
-      "disconnect_failed": "La déconnexion du calendrier Google a échoué."
+      "disconnect_failed": "La déconnexion du calendrier Google a échoué.",
+      "sync_failed": "La synchronisation du calendrier a échoué."
     }
   },
   "debug": {

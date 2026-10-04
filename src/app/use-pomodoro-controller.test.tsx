@@ -6,12 +6,19 @@ import { MemoryRepository } from "../lib/storage/memory-repository";
 const { announceCompletion } = vi.hoisted(() => ({
   announceCompletion: vi.fn(async () => undefined),
 }));
+const { requestCalendarSyncMock } = vi.hoisted(() => ({
+  requestCalendarSyncMock: vi.fn(),
+}));
 
 vi.mock("../lib/pomodoro/sound", () => ({
   unlockPomodoroSound: vi.fn(async () => undefined),
   playPomodoroChime: vi.fn(async () => undefined),
   notifyPomodoroCompletion: announceCompletion,
   resolvePomodoroChimeVariant: vi.fn(() => "focus"),
+}));
+
+vi.mock("./use-calendar-sync", () => ({
+  requestCalendarSync: () => requestCalendarSyncMock(),
 }));
 
 import { usePomodoroController } from "./use-pomodoro-controller";
@@ -294,5 +301,22 @@ describe("usePomodoroController", () => {
 
     expect(result.current.loading).toBe(false);
     expect(result.current.reloadError).toBe("Impossible de rafraichir les taches.");
+  });
+
+  it("nudges the calendar-sync reconciler after completing the current task", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const task = await repository.createTask({ title: "Focus task", bucket: "next_action" });
+    await repository.startPomodoro({ taskId: task.id, title: task.title });
+
+    const { result } = renderHook(() => usePomodoroController(repository));
+    await flushControllerQueue();
+    requestCalendarSyncMock.mockClear();
+
+    await act(async () => {
+      await result.current.completeCurrentTask();
+    });
+
+    expect(requestCalendarSyncMock).toHaveBeenCalled();
   });
 });
