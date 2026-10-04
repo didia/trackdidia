@@ -1,0 +1,374 @@
+{
+  "tabs": {
+    "label": "Navigation finances",
+    "overview": "Aperçu",
+    "transactions": "Transactions",
+    "import": "Importer",
+    "accounts": "Comptes",
+    "budget": "Budget",
+    "reports": "Rapports",
+    "review": "Revue",
+    "rules": "Règles"
+  },
+  "overview": {
+    "hero": {
+      "eyebrow": "Finances",
+      "title": "Aperçu"
+    },
+    "otherCurrenciesWarning": "Comptes exclus du total (devise différente de la devise de référence) : {{currencies}}.",
+    "accountsTitle": "Comptes",
+    "loading": "Chargement...",
+    "loadError": "Impossible de charger l'aperçu financier.",
+    "closedAccount": "(fermé)",
+    "noAccounts": "Aucun compte. Ajoutez-en un dans l'onglet Comptes.",
+    "netWorthTitle": "Valeur nette",
+    "assetsLabel": "Actifs",
+    "liabilitiesLabel": "Passifs",
+    "cashFlowTitle": "Flux de trésorerie du mois",
+    "incomeLabel": "Revenus",
+    "expenseLabel": "Dépenses",
+    "netLabel": "Net",
+    "trendTitle": "Tendance des dépenses (6 mois)",
+    "topCategoriesTitle": "Principales catégories",
+    "noTopCategories": "Aucune dépense ce mois-ci.",
+    "recurringTitle": "Factures récurrentes à venir",
+    "noRecurring": "Aucune facture récurrente détectée.",
+    "recurringNextDate": "Prochaine échéance : {{date}}",
+    "recurringConfirm": "Confirmer",
+    "recurringPause": "Mettre en pause",
+    "recurringEnd": "Terminer"
+  },
+  "accounts": {
+    "hero": {
+      "eyebrow": "Finances",
+      "title": "Comptes"
+    },
+    "peopleTitle": "Membres du foyer",
+    "peoplePlaceholder": "Nom",
+    "addPerson": "Ajouter",
+    "archive": "Archiver",
+    "unarchive": "Désarchiver",
+    "addAccountTitle": "Ajouter un compte",
+    "editAccountTitle": "Modifier le compte",
+    "saveAccount": "Enregistrer le compte",
+    "cancelEdit": "Annuler",
+    "edit": "Modifier",
+    "fields": {
+      "name": "Nom",
+      "institution": "Institution",
+      "type": "Type",
+      "currency": "Devise",
+      "owner": "Propriétaire",
+      "noOwner": "Aucun",
+      "ownership": "Propriété",
+      "onBudget": "Compté dans le budget",
+      "openingBalance": "Solde d'ouverture",
+      "balanceAsOf": "Date du solde d'ouverture",
+      "manualBalance": "Solde manuel (relevé)",
+      "manualBalancePlaceholder": "Optionnel"
+    },
+    "types": {
+      "checking": "Chèques",
+      "savings": "Épargne",
+      "cash": "Argent comptant",
+      "credit_card": "Carte de crédit",
+      "line_of_credit": "Marge de crédit",
+      "loan": "Prêt",
+      "mortgage": "Hypothèque",
+      "investment": "Placement",
+      "asset": "Actif",
+      "other": "Autre"
+    },
+    "ownership": {
+      "individual": "Individuel",
+      "joint": "Conjoint"
+    },
+    "errors": {
+      "nameRequired": "Le nom du compte est requis.",
+      "invalidOpeningBalance": "Solde d'ouverture invalide.",
+      "invalidCurrency": "Devise invalide (code à trois lettres, ex. CAD).",
+      "invalidManualBalance": "Solde manuel invalide."
+    },
+    "addAccount": "Ajouter le compte",
+    "listTitle": "Comptes existants",
+    "noAccounts": "Aucun compte pour le moment.",
+    "closedTag": "fermé",
+    "derivedBalance": "Solde calculé",
+    "discrepancy": "Écart de réconciliation : calculé {{derived}}, relevé {{manual}}.",
+    "reopen": "Rouvrir",
+    "close": "Fermer"
+  },
+  "import": {
+    "hero": {
+      "eyebrow": "Finances",
+      "title": "Importer"
+    },
+    "backupNoticeTitle": "Avant d'importer",
+    "backupNotice": "Prenez une sauvegarde manuelle avant d'importer un fichier — l'annulation n'est possible que pour le lot le plus récent par compte.",
+    "backupNow": "Sauvegarder maintenant",
+    "selectFileTitle": "Choisir un ou plusieurs fichiers CSV",
+    "reencodedWarning": "Le fichier n'était pas de l'UTF-8 valide ; il a été relu en windows-1252.",
+    "mappingTitle": "Mappage des colonnes",
+    "fields": {
+      "date": "Date",
+      "description": "Description",
+      "descriptionOriginal": "Description originale",
+      "amount": "Montant",
+      "debit": "Débit",
+      "credit": "Crédit",
+      "transactionType": "Type de transaction",
+      "account": "Compte",
+      "categoryHint": "Catégorie (indice)",
+      "notes": "Notes",
+      "labels": "Étiquettes",
+      "none": "Aucune"
+    },
+    "amountModeLabel": "Mode de montant",
+    "amountModes": {
+      "single_signed": "Colonne unique signée",
+      "debit_credit_columns": "Colonnes débit / crédit",
+      "amount_with_type_column": "Montant + type de transaction"
+    },
+    "dateFormatLabel": "Format de date",
+    "dateAmbiguous": "Le format de date est ambigu pour cet échantillon — vérifiez le format choisi.",
+    "singleAccountLabel": "Compte (fichier à un seul compte)",
+    "accountBindingTitle": "Associer les comptes du fichier",
+    "createNewAccount": "Créer un nouveau compte",
+    "newAccountNamePlaceholder": "Nom du nouveau compte",
+    "runImport": "Importer",
+    "errors": {
+      "noAccount": "Choisissez ou créez un compte avant d'importer.",
+      "rowErrors": "{{count}} ligne(s) n'ont pas pu être importées.",
+      "importFailed": "Échec de l'import."
+    },
+    "resultTitle": "Résultat de l'import",
+    "result": {
+      "imported": "Importées : {{count}}",
+      "duplicates": "Doublons : {{count}}",
+      "skipped": "Ignorées : {{count}}",
+      "errors": "Erreurs : {{count}}",
+      "newAccounts": "Nouveaux comptes : {{count}}",
+      "transfersDetected": "Virements détectés : {{count}}",
+      "nearDuplicatesTitle": "Quasi-doublons détectés",
+      "nearDuplicateEntry": "Similarité {{similarity}}% · écart de {{dateDiff}} jour(s)"
+    },
+    "historyTitle": "Historique des imports",
+    "noHistory": "Aucun import pour le moment.",
+    "undo": "Annuler ce lot",
+    "undoRefused": "{{count}} ligne(s) catégorisées manuellement n'ont pas été supprimées.",
+    "undoFailed": "Échec de l'annulation.",
+    "aiCategorizationWarning": "L'import a réussi, mais la classification IA a échoué : des suggestions IA peuvent manquer. Utilisez « Classer les en attente (IA) » dans la file de révision pour réessayer."
+  },
+  "transactions": {
+    "hero": {
+      "eyebrow": "Finances",
+      "title": "Transactions"
+    },
+    "filtersTitle": "Filtres",
+    "filters": {
+      "dateFrom": "Du",
+      "dateTo": "Au",
+      "account": "Compte",
+      "category": "Catégorie",
+      "person": "Personne",
+      "search": "Recherche",
+      "uncategorizedOnly": "Non catégorisées seulement",
+      "all": "Toutes"
+    },
+    "bulkTitle": "{{count}} sélectionnée(s)",
+    "bulkApplyCategory": "Appliquer une catégorie",
+    "bulkExcludeBudget": "Exclure du budget",
+    "bulkExcludeReports": "Exclure des rapports",
+    "listTitle": "Transactions",
+    "noResults": "Aucune transaction ne correspond aux filtres.",
+    "category": "Catégorie",
+    "uncategorized": "Non catégorisé",
+    "scope": "Portée",
+    "scopes": {
+      "this": "Cette transaction",
+      "this_and_future": "Cette transaction et les futures",
+      "all_matching": "Toutes les transactions correspondantes"
+    },
+    "markTransferPair": "Marquer la paire comme virement",
+    "unmarkTransfer": "Retirer le virement",
+    "transferPair": {
+      "needsTwo": "Sélectionnez exactement deux transactions pour les marquer comme un virement.",
+      "sameAccountWarning": "Les deux transactions sont sur le même compte — ce n'est probablement pas un virement entre comptes.",
+      "amountMismatchWarning": "Les montants des deux transactions ne correspondent pas — vérifiez qu'il s'agit bien d'un virement."
+    },
+    "excludeFromBudget": "Exclure du budget",
+    "includeInBudget": "Inclure dans le budget",
+    "excludeFromReports": "Exclure des rapports",
+    "includeInReports": "Inclure dans les rapports",
+    "editSplits": "Diviser",
+    "split": {
+      "invalidAmount": "Montant de répartition invalide.",
+      "sumMismatch": "La somme des répartitions doit égaler le montant de la transaction.",
+      "remove": "Retirer",
+      "addRow": "Ajouter une ligne",
+      "save": "Enregistrer",
+      "cancel": "Annuler"
+    },
+    "previousPage": "Précédent",
+    "nextPage": "Suivant",
+    "pageIndicator": "Page {{page}} / {{pageCount}}",
+    "categorySource": {
+      "user": "Manuel",
+      "rule": "Règle",
+      "memory": "Mémoire",
+      "seed": "Suggestion intégrée",
+      "ai": "IA",
+      "default": "Non catégorisé"
+    },
+    "backfill": {
+      "title": "Recatégorisation groupée",
+      "message": "{{count}} autre(s) transaction(s) du même marchand ont aussi été mises à jour.",
+      "undo": "Annuler la recatégorisation groupée"
+    }
+  },
+  "review": {
+    "hero": {
+      "eyebrow": "Finances",
+      "title": "Revue"
+    },
+    "actionsTitle": "Actions",
+    "acceptAllAboveThreshold": "Accepter tout au-dessus de {{threshold}}%",
+    "reapplyRules": "Réappliquer les règles",
+    "reclassifyResult": "{{reclassified}} transaction(s) recatégorisée(s), {{suggestions}} nouvelle(s) suggestion(s).",
+    "queueTitle": "File d'attente ({{count}})",
+    "noPending": "Aucune suggestion en attente.",
+    "accept": "Accepter",
+    "correct": "Corriger",
+    "dismiss": "Rejeter",
+    "pickCategory": "Choisir une catégorie",
+    "classifyPending": "Classer les en attente (IA)",
+    "classifyPendingRunning": "Classification en cours...",
+    "classifyPendingCostHint": "Envoie les descriptions nettoyées des marchands inconnus (par lots de 40 ; numéros de carte/compte, courriels et numéros de téléphone retirés, mais un nom de contrepartie peut rester) au modèle IA configuré — chaque appel a un coût, visible dans le tableau de bord IA des paramètres.",
+    "classifyPendingUnavailable": "Activez l'IA et la catégorisation IA des finances dans les paramètres pour utiliser cette action.",
+    "classifyPendingResult": "{{merchants}} marchand(s) envoyé(s) à l'IA, {{suggestions}} suggestion(s) créée(s), {{autoApplied}} appliquée(s) automatiquement.",
+    "classifyPendingNothing": "Aucun marchand inconnu à classer.",
+    "classifyPendingResultNoRequest": "Aucun marchand envoyé à l'IA (réponse déjà en mémoire) : {{suggestions}} suggestion(s) créée(s), {{autoApplied}} appliquée(s) automatiquement.",
+    "classifyPendingDismissedNote": "{{count}} suggestion(s) ignorée(s) car déjà refusée(s) récemment.",
+    "classifyPendingWarning": "La classification IA a échoué pour au moins un lot de marchands ; aucune suggestion n'a été créée pour ce lot. Réessayez plus tard.",
+    "classifyPendingPartialWarning": "La classification IA a échoué pour au moins un lot de marchands. Les autres lots ont créé {{suggestions}} suggestion(s), dont {{autoApplied}} appliquée(s) automatiquement. Réessayez plus tard pour le reste.",
+    "classifyPendingError": "Échec de la classification IA. Réessayez plus tard."
+  },
+  "rules": {
+    "hero": {
+      "eyebrow": "Finances",
+      "title": "Règles"
+    },
+    "addTitle": "Ajouter une règle",
+    "fields": {
+      "name": "Nom",
+      "priority": "Priorité",
+      "descriptionContains": "La description contient",
+      "category": "Catégorie",
+      "pickCategory": "Choisir une catégorie"
+    },
+    "errors": {
+      "nameRequired": "Le nom de la règle est requis.",
+      "categoryRequired": "Choisissez une catégorie.",
+      "invalidPriority": "Priorité invalide."
+    },
+    "addRule": "Ajouter la règle",
+    "listTitle": "Règles existantes",
+    "noRules": "Aucune règle pour le moment.",
+    "applyToExisting": "Appliquer aux transactions existantes",
+    "applyResult": "{{reclassified}} transaction(s) recatégorisée(s), {{suggestions}} nouvelle(s) suggestion(s).",
+    "priorityLabel": "Priorité",
+    "appliedCount": "Appliquée {{count}} fois",
+    "enable": "Activer",
+    "disable": "Désactiver",
+    "delete": "Supprimer"
+  },
+  "budget": {
+    "hero": {
+      "eyebrow": "Finances",
+      "title": "Budget"
+    },
+    "monthSelectorTitle": "Mois",
+    "previousMonth": "Mois précédent",
+    "nextMonth": "Mois suivant",
+    "closeMonth": "Clôturer le mois",
+    "reopenMonth": "Rouvrir le mois",
+    "readyToAssignTitle": "Prêt à assigner",
+    "readyToAssignNote": "Note",
+    "cardBalancesTitle": "Solde des cartes de crédit",
+    "envelopesTitle": "Enveloppes",
+    "fields": {
+      "assigned": "Assigné",
+      "activity": "Activité",
+      "available": "Disponible"
+    },
+    "overspendPolicies": {
+      "reduce_next_ready_to_assign": "Réduire le prêt à assigner du mois suivant",
+      "carry_negative": "Reporter le déficit"
+    },
+    "quickActions": {
+      "lastMonth": "Mois dernier",
+      "average3Months": "Moy. 3 mois",
+      "assignAllReadyToAssign": "Assigner tout le prêt à assigner",
+      "coverOverspending": "Couvrir",
+      "pickSourceCategory": "Choisir une catégorie source"
+    },
+    "pace": "{{percent}}% dépensé",
+    "unbudgetedTitle": "Non budgété ({{count}})",
+    "noUnbudgeted": "Aucune catégorie non budgétée.",
+    "unbudgetedAssign": "Assigner",
+    "runoutDate": "Épuisement prévu le {{date}}",
+    "lowConfidence": "(estimation provisoire)",
+    "forecastStatus": {
+      "on_track": "Sur la bonne voie",
+      "watch": "À surveiller",
+      "will_run_out": "Dépassement prévu",
+      "exhausted": "Épuisé"
+    }
+  },
+  "alerts": {
+    "title": "Alertes finances",
+    "subtitle": "Enveloppes et liquidités à surveiller",
+    "viewAll": "Voir toutes les finances",
+    "none": "Aucune alerte pour le moment.",
+    "loadError": "Impossible de charger les alertes finances.",
+    "retry": "Réessayer",
+    "lowConfidence": "estimation provisoire",
+    "cashRunout": "Liquidités : manque prévu le {{date}}",
+    "envelopeExhausted": "{{category}} : enveloppe épuisée",
+    "envelopeWillRunOut": "{{category}} : dépassement prévu le {{date}}",
+    "envelopeWatch": "{{category}} : à surveiller",
+    "severity": {
+      "critical": "Critique",
+      "warning": "Avertissement",
+      "info": "Info"
+    }
+  },
+  "reports": {
+    "hero": {
+      "eyebrow": "Finances",
+      "title": "Rapports"
+    },
+    "rangeTitle": "Période",
+    "fields": {
+      "from": "Du",
+      "to": "Au",
+      "period": "Période",
+      "category": "Catégorie",
+      "current": "Période actuelle",
+      "previous": "Période précédente",
+      "delta": "Écart"
+    },
+    "noData": "Aucune donnée pour cette période.",
+    "invalidRange": "La période est invalide : renseignez deux dates, la première avant la seconde.",
+    "loadError": "Impossible de charger les rapports.",
+    "categoryTitle": "Dépenses par catégorie",
+    "drilldownAction": "Voir le détail",
+    "drilldownTitle": "Transactions de cette catégorie",
+    "closeDrilldown": "Fermer",
+    "merchantTitle": "Dépenses par marchand",
+    "personTitle": "Dépenses par personne",
+    "unassignedPerson": "Non assigné",
+    "trendTitle": "Revenus et dépenses",
+    "monthOverMonthTitle": "Comparaison d'un mois à l'autre"
+  }
+}

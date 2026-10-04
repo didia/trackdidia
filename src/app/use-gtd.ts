@@ -23,15 +23,19 @@ export const useGtdWorkspace = () => {
   tasksRef.current = tasks;
 
   const load = useCallback(
-    async (options?: { preserveVisibleState?: boolean }) => {
+    async (options?: { preserveVisibleState?: boolean; reconcile?: boolean }) => {
       if (!options?.preserveVisibleState) {
         setLoading(true);
       }
 
-      // Recurrence generation and Scheduled promotion are reconciled inside
-      // `repository.listTasks`; relationship tasks are not, so generate them here.
+      // `listTasks` is side-effect free. Bootstrap and the local-day hook already reconcile the
+      // day, so only explicit refreshes after a user mutation (e.g. scheduling a task for today)
+      // reconcile again here, before reading tasks and events.
+      if (options?.reconcile) {
+        await repository.reconcileDay(getTodayDate());
+      }
+      // Relationship tasks are generated separately from day reconciliation.
       await repository.generateDailyRelationshipTasks(getTodayDate());
-      // listTasks may write promotion events, so read events only after it settles.
       const nextTasks = await repository.listTasks({ includeCompleted: false });
       const [nextProjects, nextContexts, nextEvents] = await Promise.all([
         repository.listProjects(),
@@ -56,7 +60,7 @@ export const useGtdWorkspace = () => {
       <A extends unknown[], R>(fn: (...args: A) => Promise<R>) =>
       async (...args: A): Promise<R> => {
         const result = await fn(...args);
-        await load({ preserveVisibleState: true });
+        await load({ preserveVisibleState: true, reconcile: true });
         return result;
       };
 

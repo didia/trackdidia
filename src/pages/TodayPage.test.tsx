@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { resetPastorVerseAutoAttemptsForTesting } from "../app/use-pastor-verse";
 import { createEmptyDailyEntry, defaultAppSettings, updateNote } from "../domain/daily-entry";
@@ -7,7 +7,7 @@ import type { CoachPulseService } from "../lib/ai/coach-pulse-service";
 import { PASTOR_VERSE_PROMPT_VERSION, PastorVerseService } from "../lib/ai/pastor-verse-service";
 import { getTodayDate } from "../lib/date";
 import * as dateModule from "../lib/date";
-import { addDays } from "../lib/gtd/shared";
+import { addDays } from "../lib/date";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { renderWithApp } from "../test/test-utils";
 import { TodayPage } from "./TodayPage";
@@ -78,9 +78,18 @@ describe("TodayPage coach proposals", () => {
     await repository.saveAiMessage(buildCoachResult(proposal).message);
     await repository.saveAiProposal(proposal);
     const saveDailyEntry = vi.spyOn(repository, "saveDailyEntry");
-    const decideAiProposal = vi.spyOn(repository, "decideAiProposal");
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const originalAccept = repository.acceptAiProposal.bind(repository);
+    const acceptAiProposal = vi
+      .spyOn(repository, "acceptAiProposal")
+      .mockImplementation(async (...args) => {
+        await gate;
+        return originalAccept(...args);
+      });
 
-    const user = userEvent.setup();
     await renderWithApp(<TodayPage />, {
       repository,
       contextOverrides: { coachService, settings: defaultAppSettings() },
@@ -89,15 +98,26 @@ describe("TodayPage coach proposals", () => {
     await screen.findByText("Focus profond");
     saveDailyEntry.mockClear();
 
-    await user.click(screen.getByRole("button", { name: /accepter/i }));
+    const acceptButton = screen.getByRole("button", { name: /accepter/i });
+    act(() => {
+      fireEvent.click(acceptButton);
+      fireEvent.click(acceptButton);
+    });
+    await waitFor(() => expect(acceptAiProposal).toHaveBeenCalledTimes(1));
+    expect(acceptButton).toBeDisabled();
+    expect(screen.getByRole("button", { name: /ignorer/i })).toBeDisabled();
+    await act(async () => {
+      release();
+    });
 
     expect(await screen.findByDisplayValue("Focus profond")).toBeInTheDocument();
-    expect(decideAiProposal).toHaveBeenCalledWith(
+    expect(acceptAiProposal).toHaveBeenCalledWith(
       "ai-proposal:intention",
-      "accepted",
-      getTodayDate(),
+      expect.objectContaining({ kind: "dailyEntry" }),
     );
-    expect(saveDailyEntry).toHaveBeenCalled();
+    const stored = await repository.getDailyEntry(getTodayDate());
+    expect(stored?.morningIntention).toBe("Focus profond");
+    expect((await repository.listAiProposals(proposal.messageId))[0].status).toBe("accepted");
   });
 
   it("records dismissed proposals without saving the daily entry", async () => {
@@ -1163,8 +1183,7 @@ describe("TodayPage pastor verse card", () => {
     const addButton = await screen.findByRole("button", { name: /ajouter à ma liste/i });
     await user.click(addButton);
 
-    // Persisted through the atomic `AppRepository.addPastorCustomVerse` (not a full-settings
-    // `saveSettings` replace-all) — see the concurrency fix in `use-pastor-verse.ts`.
+    // Persisted through the same atomic updater used by other settings writers.
     await waitFor(async () => {
       const settings = await repository.getSettings();
       expect(settings.aiPastorCustomVerses).toEqual([
@@ -1195,11 +1214,6 @@ describe("TodayPage pastor verse card", () => {
         }),
       }),
     );
-    vi.spyOn(repository, "addPastorCustomVerse").mockRejectedValueOnce(
-      // The raw technical message (e.g. a SQLite `UNIQUE constraint failed: ...`) must never
-      // reach the French UI — only a translated warning does (see `pastor.addToListError`).
-      new Error("UNIQUE constraint failed: app_settings.id"),
-    );
 
     const user = userEvent.setup();
     await renderWithApp(<TodayPage />, {
@@ -1208,11 +1222,124 @@ describe("TodayPage pastor verse card", () => {
     });
 
     const addButton = await screen.findByRole("button", { name: /ajouter à ma liste/i });
+    vi.spyOn(repository, "updateSettings").mockRejectedValueOnce(
+      // The raw technical message (e.g. a SQLite `UNIQUE constraint failed: ...`) must never
+      // reach the French UI — only a translated warning does (see `pastor.addToListError`).
+      new Error("UNIQUE constraint failed: app_settings.id"),
+    );
     await user.click(addButton);
 
     expect(await screen.findByText("L'ajout à ta liste a échoué. Réessaie.")).toBeInTheDocument();
     expect(screen.queryByText(/UNIQUE constraint failed/i)).not.toBeInTheDocument();
     // Failure must leave the action retryable, never optimistically marked as done.
     expect(screen.getByRole("button", { name: /ajouter à ma liste/i })).toBeEnabled();
+  });
+});
+
+const buildFinanceAccount = (overrides: Record<string, unknown> = {}) => {
+  const timestamp = new Date().toISOString();
+  return {
+    id: "",
+    name: "Compte chèques",
+    institution: null,
+    type: "checking" as const,
+    currency: "CAD",
+    ownerPersonId: null,
+    ownership: "individual" as const,
+    onBudget: true,
+    closed: false,
+    openingBalanceMinor: 0,
+    currentBalanceMinor: null,
+    balanceAsOf: null,
+    externalKey: null,
+    notes: null,
+    sortOrder: 0,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    ...overrides,
+  };
+};
+
+describe("TodayPage finance alerts card", () => {
+  const seedExhaustedEnvelope = async (repository: MemoryRepository) => {
+    const account = await repository.saveFinanceAccount(buildFinanceAccount());
+    await repository.seedFinanceDefaultCategories();
+    const monthKey = getTodayDate().slice(0, 7);
+    await repository.setFinanceBudgetAssignment(monthKey, "fincat:alimentation.epicerie", 5_000);
+    await repository.saveFinanceTransaction({
+      id: "",
+      accountId: account.id,
+      postedDate: getTodayDate(),
+      amountMinor: -5_000,
+      currency: "CAD",
+      descriptionRaw: "IGA",
+      descriptionOriginal: null,
+      merchantKey: "IGA",
+      merchantDisplay: null,
+      categoryId: "fincat:alimentation.epicerie",
+      categorySource: "default",
+      categoryConfidence: null,
+      categorizedAt: null,
+      personId: null,
+      notes: null,
+      labelsJson: null,
+      pending: false,
+      isTransfer: false,
+      transferGroupId: null,
+      excludedFromBudget: false,
+      excludedFromReports: false,
+      hasSplits: false,
+      importBatchId: null,
+      dedupeHash: "dedupe-1",
+      sourceRowJson: null,
+      createdAt: "",
+      updatedAt: "",
+    });
+  };
+
+  it("is absent when financeEnabled is false", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await seedExhaustedEnvelope(repository);
+
+    await renderWithApp(<TodayPage />, {
+      repository,
+      contextOverrides: {
+        settings: { ...defaultAppSettings(), financeEnabled: false, financeAlertsOnToday: true },
+      },
+    });
+
+    expect(screen.queryByText("Alertes finances")).not.toBeInTheDocument();
+  });
+
+  it("is absent when financeAlertsOnToday is false", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await seedExhaustedEnvelope(repository);
+
+    await renderWithApp(<TodayPage />, {
+      repository,
+      contextOverrides: {
+        settings: { ...defaultAppSettings(), financeEnabled: true, financeAlertsOnToday: false },
+      },
+    });
+
+    expect(screen.queryByText("Alertes finances")).not.toBeInTheDocument();
+  });
+
+  it("shows the exhausted envelope alert when financeEnabled and financeAlertsOnToday are on", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await seedExhaustedEnvelope(repository);
+
+    await renderWithApp(<TodayPage />, {
+      repository,
+      contextOverrides: {
+        settings: { ...defaultAppSettings(), financeEnabled: true, financeAlertsOnToday: true },
+      },
+    });
+
+    expect(await screen.findByText("Alertes finances")).toBeInTheDocument();
+    expect(await screen.findByText(/enveloppe épuisée/i)).toBeInTheDocument();
   });
 });

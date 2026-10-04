@@ -37,24 +37,17 @@ import { connectGmailAccount } from "./runtime";
 class FakeEmailTriageRepository {
   settings: EmailTriageGlobalSettings = defaultEmailTriageGlobalSettings();
 
-  async getEmailTriageGlobalSettings(): Promise<EmailTriageGlobalSettings> {
-    return { ...this.settings };
-  }
-
-  async saveEmailTriageGlobalSettings(
-    settings: EmailTriageGlobalSettings,
-  ): Promise<EmailTriageGlobalSettings> {
-    this.settings = { ...settings };
-    return { ...this.settings };
-  }
-
-  async listEmailTriageAccounts() {
-    return [];
-  }
-
-  async getEmailTriageAccount() {
-    return null;
-  }
+  emailTriage = {
+    getGlobalSettings: async (): Promise<EmailTriageGlobalSettings> => ({ ...this.settings }),
+    saveGlobalSettings: async (
+      settings: EmailTriageGlobalSettings,
+    ): Promise<EmailTriageGlobalSettings> => {
+      this.settings = { ...settings };
+      return { ...this.settings };
+    },
+    listAccounts: async () => [],
+    getAccount: async () => null,
+  };
 }
 
 describe("connectGmailAccount loopback guard", () => {

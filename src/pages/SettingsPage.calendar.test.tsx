@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 import { MemoryRepository } from "../lib/storage/memory-repository";
@@ -48,7 +48,8 @@ describe("SettingsPage calendar sync card", () => {
     expect(checkbox).not.toBeChecked();
 
     await user.click(checkbox);
-    await user.click(screen.getByRole("button", { name: "Enregistrer" }));
+    const calendarSection = screen.getByRole("region", { name: "Calendrier Google" });
+    await user.click(within(calendarSection).getByRole("button", { name: "Enregistrer" }));
 
     await waitFor(async () => {
       const saved = await repository.getCalendarSyncSettings();

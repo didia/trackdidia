@@ -1,5 +1,5 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppContext } from "../app/app-context";
 import { AiCoachAnalyticsSection } from "../components/AiCoachAnalyticsSection";
@@ -10,8 +10,8 @@ import { SectionCard } from "../components/SectionCard";
 import { AiPayloadPreviewSection } from "../components/settings/AiPayloadPreviewSection";
 import { StorageOverviewSection } from "../components/settings/StorageOverviewSection";
 import { useSectionSave } from "../components/settings/useSectionSave";
-import { defaultAppSettings } from "../domain/daily-entry";
 import { defaultCalendarSyncSettings, type CalendarSyncSettings } from "../domain/calendar-sync";
+import { defaultAppSettings, rebaseSettingsDraft, settingsDraftPatch } from "../domain/settings";
 import type { AiPayloadScope, AppSettings } from "../domain/types";
 import { formatPulseSlotHours, parsePulseSlotHours } from "../lib/ai/pulse/slot-hours";
 import { BACKUP_RETENTION_COUNT, isBackupDestinationConfigured } from "../lib/backup";
@@ -23,14 +23,53 @@ import {
 import { resolveCalendarSyncOAuthClientId } from "../lib/calendar/google-calendar-oauth";
 import { formatDateTimeShort } from "../lib/date";
 import { nowIso } from "../lib/gtd/shared";
+import {
+  currencyExponent,
+  minorToInputString,
+  normalizeCurrencyCode,
+  parseAmountToMinor,
+} from "../lib/finance/money";
 import { RescueTimeGoalsService } from "../lib/rescuetime/rescuetime-goals-service";
 import type { StorageInfo } from "../lib/storage/repository";
 
 const payloadScopeValues: AiPayloadScope[] = ["metrics", "metrics_and_structure", "full"];
 
+const aiPreferenceKeys: (keyof AppSettings)[] = [
+  "aiEnabled",
+  "aiApiKey",
+  "aiBaseUrl",
+  "aiModel",
+  "aiPayloadScope",
+  "aiSurfaceModels",
+  "aiMaxTokens",
+  "aiTimeoutMs",
+  "aiMemoryEnabled",
+  "aiPulseEnabled",
+  "aiPulseSlots",
+  "aiPulseNotifyEnabled",
+  "aiPulseNotifyDays",
+  "aiPulseMaxNotificationsPerDay",
+  "aiPastorEnabled",
+  "aiCostPerMillionTokens",
+];
+const financePreferenceKeys: (keyof AppSettings)[] = [
+  "financeEnabled",
+  "financeBaseCurrency",
+  "financeAlertsOnToday",
+  "financeNotifyRunout",
+  "financeAiCategorizationEnabled",
+  "financeAiAutoApplyEnabled",
+];
+
+const relationshipPreferenceKeys: (keyof AppSettings)[] = [
+  "relationshipDrawsEnabled",
+  "relationshipDrawChildrenActivities",
+  "relationshipDrawSpouseActivities",
+];
+
 export const SettingsPage = () => {
   const { t } = useTranslation("settings");
-  const { repository, settings, saveSettings, debugEnabled, setDebugEnabled, browserPreview } =
+  const { repository, settings, updateSettings, debugEnabled, setDebugEnabled, browserPreview } =
     useAppContext();
   const goalsService = useMemo(() => new RescueTimeGoalsService(repository), [repository]);
   const [draftSettings, setDraftSettings] = useState<AppSettings>(settings);
@@ -48,7 +87,72 @@ export const SettingsPage = () => {
   const [creatingBackup, setCreatingBackup] = useState(false);
   const [choosingBackupFolder, setChoosingBackupFolder] = useState(false);
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
-  const relationshipSave = useSectionSave(() => saveSettings(draftSettings));
+  const baselineRef = useRef(settings);
+  const savePreferences = (draft: AppSettings, keys: (keyof AppSettings)[]) => {
+    const patch = settingsDraftPatch(draft, baselineRef.current, keys);
+    return updateSettings((current) => ({ ...current, ...patch }));
+  };
+  const relationshipSave = useSectionSave(async () => {
+    await savePreferences(draftSettings, relationshipPreferenceKeys);
+  });
+  const [financeSafetyBufferDraft, setFinanceSafetyBufferDraft] = useState(() =>
+    minorToInputString(
+      settings.financeSafetyBufferMinor,
+      currencyExponent(settings.financeBaseCurrency),
+    ),
+  );
+  const [financeAiAutoApplyMinConfidenceDraft, setFinanceAiAutoApplyMinConfidenceDraft] = useState(
+    () => String(settings.financeAiAutoApplyMinConfidence),
+  );
+  const financeSave = useSectionSave(async () => {
+    const enabling = draftSettings.financeEnabled && !settings.financeEnabled;
+    const patch = settingsDraftPatch(draftSettings, baselineRef.current, financePreferenceKeys);
+    if (patch.financeBaseCurrency !== undefined) {
+      const normalized = normalizeCurrencyCode(patch.financeBaseCurrency);
+      if (!normalized) {
+        throw new Error("invalid finance base currency");
+      }
+      patch.financeBaseCurrency = normalized;
+    }
+    const exponent = currencyExponent(patch.financeBaseCurrency ?? settings.financeBaseCurrency);
+    const parsedBuffer = parseAmountToMinor(financeSafetyBufferDraft || "0", { exponent });
+    if (!parsedBuffer.ok) {
+      // Nothing is persisted (including the seed below) so the user never sees a success banner
+      // for a threshold that was silently dropped.
+      throw new Error(t("finance.safetyBufferInvalid"));
+    }
+    if (parsedBuffer.amountMinor !== baselineRef.current.financeSafetyBufferMinor) {
+      patch.financeSafetyBufferMinor = parsedBuffer.amountMinor;
+    }
+    // Accept the French decimal comma ("0,95"), matching the placeholder and the buffer field.
+    const parsedMinConfidence = Number(
+      financeAiAutoApplyMinConfidenceDraft.trim().replace(",", "."),
+    );
+    if (
+      financeAiAutoApplyMinConfidenceDraft.trim() === "" ||
+      !Number.isFinite(parsedMinConfidence) ||
+      parsedMinConfidence < 0 ||
+      parsedMinConfidence > 1
+    ) {
+      throw new Error(t("finance.aiAutoApplyMinConfidenceInvalid"));
+    }
+    if (parsedMinConfidence !== baselineRef.current.financeAiAutoApplyMinConfidence) {
+      patch.financeAiAutoApplyMinConfidence = parsedMinConfidence;
+    }
+
+    if (enabling && !settings.financeCategoriesSeededAt) {
+      await repository.seedFinanceDefaultCategories();
+      const seededAt = new Date().toISOString();
+      await updateSettings((current) => ({
+        ...current,
+        ...patch,
+        financeCategoriesSeededAt: current.financeCategoriesSeededAt || seededAt,
+      }));
+      return;
+    }
+
+    await updateSettings((current) => ({ ...current, ...patch }));
+  });
   const [calendarSettings, setCalendarSettings] = useState<CalendarSyncSettings>(() =>
     defaultCalendarSyncSettings(new Date().toISOString()),
   );
@@ -60,10 +164,36 @@ export const SettingsPage = () => {
   const [calendarActionError, setCalendarActionError] = useState<string | null>(null);
 
   useEffect(() => {
-    setDraftSettings(settings);
-    setPulseSlotsDraft(formatPulseSlotHours(settings.aiPulseSlots));
-    setCostRateDraft(String(settings.aiCostPerMillionTokens));
-    setPulseSlotsError("");
+    const baseline = baselineRef.current;
+    setDraftSettings((draft) => rebaseSettingsDraft(draft, baseline, settings));
+    setPulseSlotsDraft((draft) =>
+      draft === formatPulseSlotHours(baseline.aiPulseSlots)
+        ? formatPulseSlotHours(settings.aiPulseSlots)
+        : draft,
+    );
+    setFinanceAiAutoApplyMinConfidenceDraft((draft) =>
+      draft === String(baseline.financeAiAutoApplyMinConfidence)
+        ? String(settings.financeAiAutoApplyMinConfidence)
+        : draft,
+    );
+    setCostRateDraft((draft) =>
+      draft === String(baseline.aiCostPerMillionTokens)
+        ? String(settings.aiCostPerMillionTokens)
+        : draft,
+    );
+    setFinanceSafetyBufferDraft((draft) =>
+      draft ===
+      minorToInputString(
+        baseline.financeSafetyBufferMinor,
+        currencyExponent(baseline.financeBaseCurrency),
+      )
+        ? minorToInputString(
+            settings.financeSafetyBufferMinor,
+            currencyExponent(settings.financeBaseCurrency),
+          )
+        : draft,
+    );
+    baselineRef.current = settings;
   }, [settings]);
 
   const parsedCostRate = useMemo((): number | null => {
@@ -182,14 +312,17 @@ export const SettingsPage = () => {
             setPulseSlotsError("");
             setSavingSettings(true);
             const trimmedCostRate = costRateDraft.trim();
-            await saveSettings({
-              ...draftSettings,
-              aiPulseSlots: parsedSlots.hours,
-              aiCostPerMillionTokens:
-                trimmedCostRate === ""
-                  ? settings.aiCostPerMillionTokens
-                  : Math.max(0, Number(trimmedCostRate)),
-            });
+            await savePreferences(
+              {
+                ...draftSettings,
+                aiPulseSlots: parsedSlots.hours,
+                aiCostPerMillionTokens:
+                  trimmedCostRate === ""
+                    ? settings.aiCostPerMillionTokens
+                    : Math.max(0, Number(trimmedCostRate)),
+              },
+              aiPreferenceKeys,
+            );
             setSavingSettings(false);
           }}
         >
@@ -410,7 +543,10 @@ export const SettingsPage = () => {
               type="button"
               onClick={() => {
                 const defaults = defaultAppSettings();
-                setDraftSettings(defaults);
+                setDraftSettings((current) => ({
+                  ...current,
+                  ...Object.fromEntries(aiPreferenceKeys.map((key) => [key, defaults[key]])),
+                }));
                 setPulseSlotsDraft(formatPulseSlotHours(defaults.aiPulseSlots));
                 setCostRateDraft(String(defaults.aiCostPerMillionTokens));
                 setPulseSlotsError("");
@@ -444,7 +580,7 @@ export const SettingsPage = () => {
             setRescuetimeMessage("");
 
             try {
-              await saveSettings(draftSettings);
+              await savePreferences(draftSettings, ["rescuetimeApiKey"]);
               setRescuetimeMessage(t("rescuetime.saved"));
             } catch (error) {
               setRescuetimeMessage(
@@ -574,6 +710,135 @@ export const SettingsPage = () => {
             }
           >
             {relationshipSave.saving ? t("ai.saving") : t("relationship.save")}
+          </button>
+        </div>
+      </SectionCard>
+
+      <SectionCard title={t("finance.title")} subtitle={t("finance.subtitle")}>
+        {financeSave.message ? <div className="banner">{financeSave.message}</div> : null}
+
+        <div className="settings-form">
+          <label className="switch-row">
+            <input
+              type="checkbox"
+              checked={draftSettings.financeEnabled}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  financeEnabled: event.target.checked,
+                }))
+              }
+            />
+            <span>{t("finance.enable")}</span>
+          </label>
+
+          <label>
+            <span>{t("finance.baseCurrency")}</span>
+            <input
+              type="text"
+              value={draftSettings.financeBaseCurrency}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  financeBaseCurrency: event.target.value,
+                }))
+              }
+              placeholder={t("finance.baseCurrencyPlaceholder")}
+            />
+          </label>
+
+          <label className="switch-row">
+            <input
+              type="checkbox"
+              checked={draftSettings.financeAlertsOnToday}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  financeAlertsOnToday: event.target.checked,
+                }))
+              }
+            />
+            <span>{t("finance.alertsOnToday")}</span>
+          </label>
+
+          <label className="switch-row">
+            <input
+              type="checkbox"
+              checked={draftSettings.financeNotifyRunout}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  financeNotifyRunout: event.target.checked,
+                }))
+              }
+            />
+            <span>{t("finance.notifyRunout")}</span>
+          </label>
+
+          <label>
+            <span>{t("finance.safetyBufferMinor")}</span>
+            <input
+              type="text"
+              value={financeSafetyBufferDraft}
+              onChange={(event) => setFinanceSafetyBufferDraft(event.target.value)}
+              placeholder={t("finance.safetyBufferMinorPlaceholder")}
+            />
+          </label>
+
+          <label className="switch-row">
+            <input
+              type="checkbox"
+              disabled={!draftSettings.aiEnabled}
+              checked={draftSettings.financeAiCategorizationEnabled}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  financeAiCategorizationEnabled: event.target.checked,
+                }))
+              }
+            />
+            <span>{t("finance.aiCategorizationEnabled")}</span>
+          </label>
+          <p className="field-card__helper">{t("finance.aiCategorizationPrivacyNote")}</p>
+
+          <label className="switch-row">
+            <input
+              type="checkbox"
+              disabled={!draftSettings.aiEnabled}
+              checked={draftSettings.financeAiAutoApplyEnabled}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  financeAiAutoApplyEnabled: event.target.checked,
+                }))
+              }
+            />
+            <span>{t("finance.aiAutoApplyEnabled")}</span>
+          </label>
+
+          <label>
+            <span>{t("finance.aiAutoApplyMinConfidence")}</span>
+            <input
+              type="text"
+              disabled={!draftSettings.aiEnabled}
+              value={financeAiAutoApplyMinConfidenceDraft}
+              onChange={(event) => setFinanceAiAutoApplyMinConfidenceDraft(event.target.value)}
+              placeholder={t("finance.aiAutoApplyMinConfidencePlaceholder")}
+            />
+          </label>
+          {!draftSettings.aiEnabled ? (
+            <p className="field-card__helper">{t("finance.aiRequiresAiEnabled")}</p>
+          ) : null}
+        </div>
+
+        <div className="form-actions">
+          <button
+            className="button button--primary"
+            type="button"
+            disabled={financeSave.saving}
+            onClick={() => void financeSave.run(t("finance.saved"), t("finance.saveError"))}
+          >
+            {financeSave.saving ? t("finance.seeding") : t("finance.save")}
           </button>
         </div>
       </SectionCard>
@@ -801,12 +1066,7 @@ export const SettingsPage = () => {
                   return;
                 }
 
-                const nextSettings = {
-                  ...settings,
-                  backupDestinationDir: selected,
-                };
-                await saveSettings(nextSettings);
-                setDraftSettings(nextSettings);
+                await updateSettings((current) => ({ ...current, backupDestinationDir: selected }));
                 const nextStorageInfo = await repository.getStorageInfo();
                 setStorageInfo(nextStorageInfo);
                 setBackupMessage(t("backup.folderSaved"));
@@ -828,14 +1088,11 @@ export const SettingsPage = () => {
               setBackupMessage("");
 
               try {
-                const nextSettings = {
-                  ...settings,
-                  autoBackupEnabled: draftSettings.autoBackupEnabled,
-                  autoBackupIntervalHours: draftSettings.autoBackupIntervalHours,
-                  backupDestinationDir: draftSettings.backupDestinationDir,
-                };
-                await saveSettings(nextSettings);
-                setDraftSettings(nextSettings);
+                await savePreferences(draftSettings, [
+                  "autoBackupEnabled",
+                  "autoBackupIntervalHours",
+                  "backupDestinationDir",
+                ]);
                 setBackupMessage(t("backup.prefsSaved"));
               } catch (error) {
                 setBackupMessage(error instanceof Error ? error.message : t("backup.prefsError"));
@@ -860,13 +1117,11 @@ export const SettingsPage = () => {
 
               try {
                 const backup = await repository.createBackup("manual");
-                const nextSettings = {
-                  ...settings,
+                await updateSettings((current) => ({
+                  ...current,
                   lastBackupAt: backup.createdAt,
                   lastBackupPath: backup.backupPath,
-                };
-                await saveSettings(nextSettings);
-                setDraftSettings(nextSettings);
+                }));
                 setBackupMessage(t("backup.created", { path: backup.backupPath }));
               } catch (error) {
                 setBackupMessage(error instanceof Error ? error.message : t("backup.createError"));

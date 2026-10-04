@@ -25,6 +25,7 @@ Chronological documentation activity is recorded in domain logs under
 | [recurrences-and-pomodoro.md](recurrences-and-pomodoro.md) | Recurrence templates/generation/previews and Pomodoro sessions/segments/notifications |
 | [ai-settings-and-privacy.md](ai-settings-and-privacy.md) | Local/AI coaching, OpenRouter request data, relationship draws, debug and settings |
 | [email-triage.md](email-triage.md) | Disabled-by-default local email triage (Gmail, Graph, Yahoo; gated mutation; tray) |
+| [finance.md](finance.md) | Household finance domain: schema, import/dedupe/transfer detection, the classification pipeline (rules/memory/seeds/AI), the zero-based envelope budget model, net worth/cash flow/reports/recurring-bill detection/daily balance snapshots, proactive runout/cash-flow forecasting and alerts with a rate-limited desktop notification, optional AI merchant categorization (`finance_categorization`), repository contract, and the accounts/import/transactions/budget/reports/review/rules screens behind `financeEnabled` (all 8 phases shipped) |
 
 ## Source map
 
@@ -38,10 +39,22 @@ Chronological documentation activity is recorded in domain logs under
 | Monthly formulas | `src/domain/monthly-review.ts` |
 | Annual goal sources | `src/domain/annual-goals.ts` |
 | Repository API | `src/lib/storage/repository.ts` |
-| SQLite schema/migrations | `src/lib/storage/tauri-sqlite-repository.ts` |
+| SQLite schema/migrations | `src/lib/storage/migrations/index.ts` |
 | Browser preview storage | `src/lib/storage/memory-repository.ts` |
 | Native data paths | `src-tauri/src/main.rs` |
 | Desktop configuration | `src-tauri/tauri.conf.json` |
+| Finance domain types | `src/domain/finance.ts` |
+| Finance SQLite/memory stores | `src/lib/storage/finance-sqlite-store.ts`, `src/lib/storage/finance-memory-store.ts` |
+| Finance pure engines (money, CSV, dedupe, transfers, import mapping, classification, seed heuristics) | `src/lib/finance/` |
+| Finance derived-balance arithmetic | `src/domain/finance/account-balance.ts` |
+| Finance budget engine (envelopes, Ready to Assign, rollover, quick actions) | `src/domain/finance/budget.ts` |
+| Finance net worth / cash flow / reports engines | `src/domain/finance/net-worth.ts`, `src/domain/finance/cash-flow.ts`, `src/domain/finance/reports.ts` |
+| Finance recurring-bill detection | `src/lib/finance/recurring-detection.ts` |
+| Finance forecasting and alerts engine | `src/domain/finance/forecast.ts` |
+| Finance alert notification policy | `src/lib/finance/alert-notification-policy.ts` |
+| Finance Today alerts card | `src/components/FinanceAlertsCard.tsx` |
+| Finance screens | `src/pages/FinanceOverviewPage.tsx`, `FinanceAccountsPage.tsx`, `FinanceImportPage.tsx`, `FinanceTransactionsPage.tsx`, `FinanceBudgetPage.tsx`, `FinanceReportsPage.tsx`, `FinanceReviewPage.tsx`, `FinanceRulesPage.tsx`, `src/components/finance/FinanceTabs.tsx` |
+| Finance AI categorization (`finance_categorization` surface) | `src/lib/ai/finance-categorization-service.ts`, `src/lib/ai/finance-categorization-loader.ts`, `src/lib/ai/context/finance-categorization-snapshot.ts`, `src/lib/ai/proposals/finance-categorization-schema-prompt.ts`, `src/lib/ai/proposals/finance-categorization-validator.ts` |
 
 ## Reading paths
 

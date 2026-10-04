@@ -79,4 +79,29 @@ describe("backup helpers", () => {
     const merged = mergeAppSettingsWithDefaults({}, defaultAppSettings());
     expect(merged.aiPastorEnabled).toBe(false);
   });
+
+  it("defaults every finance flag on existing settings rows missing them", () => {
+    const merged = mergeAppSettingsWithDefaults({}, defaultAppSettings());
+    expect(merged).toMatchObject({
+      financeEnabled: false,
+      financeBaseCurrency: "CAD",
+      financeAiCategorizationEnabled: false,
+      financeAiAutoApplyEnabled: false,
+      financeAiAutoApplyMinConfidence: 0.9,
+      financeAlertsOnToday: true,
+      financeCoachContextEnabled: false,
+      financeNotifyRunout: true,
+      financeSafetyBufferMinor: 0,
+      financeCategoriesSeededAt: "",
+    });
+  });
+
+  it("preserves a stored financeEnabled: true and a non-default base currency", () => {
+    const merged = mergeAppSettingsWithDefaults(
+      { financeEnabled: true, financeBaseCurrency: "USD" },
+      defaultAppSettings(),
+    );
+    expect(merged.financeEnabled).toBe(true);
+    expect(merged.financeBaseCurrency).toBe("USD");
+  });
 });

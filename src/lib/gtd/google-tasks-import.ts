@@ -26,7 +26,7 @@ interface GoogleTasksExport {
   items?: GoogleTaskList[];
 }
 
-interface ImportPayload {
+export interface ImportPayload {
   contexts: TaskContext[];
   projects: Project[];
   tasks: Task[];

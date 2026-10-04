@@ -70,6 +70,30 @@ Completing the current recurring task resets the template's pending missed count
 Cancelling it also clears that count. The task card can explicitly clear the task's
 displayed past count.
 
+The generation algorithm is not implemented in the repositories. `src/lib/recurring/engine.ts`
+owns pure planners that return data, and `TauriSqliteRepository` and `MemoryRepository` only
+persist their results:
+
+- `planRecurrencePreparation` rewinds a future watermark or premature instance;
+- `planDueRecurrenceGeneration` returns `{ nextTask, previousTask, templatePatch }` (or `null`
+  when nothing is due);
+- `planTemplateUpdateOnTaskClose` computes the template change when a generated task is
+  completed or cancelled;
+- `mergeOccurrenceEdit` and `syncActiveTaskWithTemplate` build the task for occurrence and
+  series edits;
+- `findProcessingStartDate` uses the local-calendar `addDays` helper.
+
+Repositories persist `nextTask`, the lifecycle events from `buildLifecycleEvents(previousTask,
+nextTask)`, and the template patch (inside their existing writer queue). Pause, resume, and
+cancel share one private `setTemplateStatus` per repository.
+
+Drifted-field sync has one canonical behavior in both implementations:
+
+| Path | `title` / `notes` | `contextIds` / `projectId` | Destination / `scheduledFor` |
+|---|---|---|---|
+| Generation advances an active task | kept from the task | reapplied from the template | reapplied from the template |
+| Template save or series edit (`syncActiveTaskWithTemplate`) | reapplied from the template | reapplied from the template | reapplied from the template |
+
 Each generation pass reapplies the template's current `contextIds` and `projectId` to the
 active task, even when a previous occurrence's own `saveTask`/`moveTask` call, or an
 `applyRecurringEditScope(..., "occurrence", ...)` edit, had changed them on that task row: a
@@ -87,13 +111,12 @@ Due recurrence generation runs:
 - during application bootstrap;
 - when the local calendar day changes while the app is already open (next midnight,
   window focus, or becoming visible);
-- before GTD workspace loads;
-- before daily task statistics/breakdowns;
-- when listing tasks;
-- when the Pomodoro controller loads eligible tasks.
+- after each GTD workspace mutation, recurrence template save/resume, and accepted
+  AI task proposal (explicit `reconcileDay` refresh).
 
-Each of those passes then promotes due Scheduled tasks to Next Actions (see
-[gtd.md](gtd.md#scheduled)). A generated instance whose destination is Scheduled is
+Reads (`listTasks`, daily statistics/breakdowns, the initial GTD workspace load, and
+Pomodoro loads) do not generate recurrences. Each pass (`reconcileDay`) then promotes
+due Scheduled tasks to Next Actions (see [gtd.md](gtd.md#scheduled)). A generated instance whose destination is Scheduled is
 immediately eligible: when its local `scheduledFor` date is today or earlier, it
 moves to Next Actions and `scheduledFor` is cleared.
 
@@ -107,7 +130,7 @@ Generation starts after the latest of:
 
 The horizon is local today, even when a caller passes a later date. Weekly and
 monthly summaries read every day of the open period, including days that have not
-arrived. Those reads do not advance `lastGeneratedForDate` or the single active
+arrived. Those reads never write; reconciling a future date does not advance `lastGeneratedForDate` or the single active
 instance, and they do not write weekly carryover for a future Sunday. If a template
 is already stamped with a future `lastGeneratedForDate`, the next generation rewinds
 that watermark to the local day the current instance was completed, or pulls an
@@ -192,6 +215,10 @@ segments:
 - resuming opens a new segment with the latest task/title;
 - completing/cancelling closes every open segment.
 
+The pure Pomodoro engine decides start, pause, resume, stop, and activity-switch
+transitions. Both repositories persist the returned session and segment changes;
+the SQLite repository keeps these writes inside its writer queue.
+
 Eligible GTD tasks are active Next Actions. Scheduled tasks stay off the picker
 until they are promoted to Next Actions.
 
@@ -208,7 +235,8 @@ Pomodoro page share state.
   reconciliation complete valid running sessions at `endsAt`. It is cleaned up on
   session/repository changes and does not loop for malformed deadlines.
 - Timer actions, expiry, and explicit reloads are serialized. Full refreshes also
-  generate due recurrences and normalize expired sessions; ordinary timer actions
+  normalize expired sessions (recurrence generation belongs to `reconcileDay`, not
+  the Pomodoro refresh); ordinary timer actions
   refresh only Pomodoro collections. Each ordinary action first reconciles a valid
   expired running session, so it cannot pause or alter an already elapsed timer.
   Snapshot commits ignore stale repository or unmounted-controller work.
@@ -279,7 +307,9 @@ Completing a GTD task during focus detaches it from the continuing session.
 - kind is focus;
 - status is completed.
 
-Cancelled focus sessions do not count. The value decorates the daily `pomodoris`
+Cancelled focus sessions do not count. `computeDailyPomodoroStats` is a pure read and
+does not complete expired sessions; the controller (or `reconcileDay`) settles them.
+The value decorates the daily `pomodoris`
 metric as a suggestion.
 
 Time-by-task summaries sum segment wall-clock duration, capped at the supplied

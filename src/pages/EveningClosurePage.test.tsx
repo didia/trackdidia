@@ -80,7 +80,7 @@ describe("EveningClosurePage coach proposals", () => {
 
     await repository.saveAiProposal(proposal);
     const saveDailyEntry = vi.spyOn(repository, "saveDailyEntry");
-    const decideAiProposal = vi.spyOn(repository, "decideAiProposal");
+    const acceptAiProposal = vi.spyOn(repository, "acceptAiProposal");
 
     const user = userEvent.setup();
     await renderWithApp(<EveningClosurePage />, {
@@ -95,8 +95,13 @@ describe("EveningClosurePage coach proposals", () => {
     await user.click(screen.getByRole("button", { name: /accepter/i }));
 
     expect(await screen.findByDisplayValue("Preparer la presentation")).toBeInTheDocument();
-    expect(decideAiProposal).toHaveBeenCalledWith("ai-proposal:tomorrow", "accepted", today);
-    expect(saveDailyEntry).toHaveBeenCalled();
+    expect(acceptAiProposal).toHaveBeenCalledWith(
+      "ai-proposal:tomorrow",
+      expect.objectContaining({ kind: "dailyEntry" }),
+    );
+    const stored = await repository.getDailyEntry(today);
+    expect(stored?.tomorrowFocus).toBe("Preparer la presentation");
+    expect((await repository.listAiProposals(proposal.messageId))[0].status).toBe("accepted");
   });
 
   it("records dismissed proposals without saving the daily entry", async () => {

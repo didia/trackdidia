@@ -41,8 +41,7 @@ export const renderWithApp = async (ui: ReactElement, options: RenderOptions = {
   const contextBase: Omit<AppContextValue, "pulseRevision"> = {
     repository,
     settings: defaultAppSettings(),
-    saveSettings: async () => undefined,
-    syncSettings: () => undefined,
+    updateSettings: (updater) => repository.updateSettings(updater),
     coachService: new CoachPulseService(new FakeProvider()),
     browserPreview: true,
     debugEnabled: false,

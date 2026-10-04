@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { migrations } from "../tauri-sqlite-repository";
+import { migrations } from "./index";
 
 describe("migration 35 create_rescuetime_snapshot_cache", () => {
   it("creates the cache table keyed by week, kind and credential fingerprint", () => {

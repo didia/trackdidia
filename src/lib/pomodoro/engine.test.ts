@@ -9,8 +9,58 @@ import {
   getPomodoroRunningBreakSessionIdsToAutoCompleteWhenReset,
   getPomodoroTiming,
   isPomodoroTaskEligible,
+  pauseSession,
+  resumeSession,
   shouldShowFloatingPomodoro,
+  startSession,
+  stopSession,
+  switchSessionTask,
 } from "./engine";
+
+describe("pomodoro session transitions", () => {
+  const startedAt = "2026-04-01T09:00:00.000Z";
+
+  it("starts a focus session with a normalized activity title", () => {
+    const state = buildPomodoroState([], [], startedAt);
+    const transition = startSession(state, { title: "  Planning  " }, startedAt);
+
+    expect(transition.session).toMatchObject({ kind: "focus", cycleIndex: 1 });
+    expect(transition.segmentsToUpsert).toMatchObject([{ title: "Planning", taskId: null }]);
+  });
+
+  it("clamps a late completion and its open segment to the deadline", () => {
+    const session = createPomodoroSession("focus", startedAt, 1);
+    const segment = createPomodoroSegment(session.id, startedAt, "task-1");
+    const transition = stopSession(session, [segment], "completed", "2026-04-01T10:00:00.000Z");
+
+    expect(transition.session.completedAt).toBe(session.endsAt);
+    expect(transition.segmentsToUpsert[0].endedAt).toBe(session.endsAt);
+  });
+
+  it("resumes with zero remaining when the old deadline passed and the pause has no stored remainder", () => {
+    const session = {
+      ...createPomodoroSession("focus", startedAt, 1),
+      status: "paused" as const,
+      pausedRemainingMs: null,
+    };
+    const segment = createPomodoroSegment(session.id, startedAt, "task-1");
+    const at = "2026-04-01T10:00:00.000Z";
+    const transition = resumeSession(session, segment, at);
+
+    expect(transition.session.endsAt).toBe(at);
+    expect(transition.segmentsToUpsert).toMatchObject([{ taskId: "task-1", startedAt: at }]);
+  });
+
+  it("keeps a same-task switch as a no-op and closes the segment on pause", () => {
+    const session = createPomodoroSession("focus", startedAt, 1);
+    const segment = createPomodoroSegment(session.id, startedAt, "task-1");
+    expect(switchSessionTask(session, segment, "task-1", "ignored", startedAt)).toBeNull();
+
+    const transition = pauseSession(session, [segment], "2026-04-01T09:10:00.000Z");
+    expect(transition.session.pausedRemainingMs).toBe(15 * 60 * 1000);
+    expect(transition.segmentsToUpsert[0].endedAt).toBe("2026-04-01T09:10:00.000Z");
+  });
+});
 
 const taskFixture = (overrides: Partial<Task> = {}): Task => ({
   id: "task-1",

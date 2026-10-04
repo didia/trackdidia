@@ -79,11 +79,12 @@ const mapLink = (row: LinkRow): CalendarSyncLink => ({
 
 /**
  * SQLite-backed store for calendar sync settings and links. Follows the
- * `EmailTriageSqliteStore` precedent: constructed with `() => this.getDb()`, its public
- * methods are plain delegating calls that must never be wrapped in `runExclusive` by the
- * repository — the promotion-capture step in `TauriSqliteRepository` reaches it directly
- * (`this.getCalendarSyncStore()`) from inside its own `runExclusive`/`BEGIN IMMEDIATE`
- * block, and `DbSerialQueue` is not reentrant.
+ * `EmailTriageSqliteStore` precedent: constructed with `() => this.getDb()`, its methods
+ * are plain delegating calls that never enter the writer queue themselves — the
+ * promotion-capture step in `TauriSqliteRepository` reaches it directly
+ * (`this.getCalendarSyncStore()`) from inside its own `writeTransaction`, and
+ * `DbSerialQueue` is not reentrant. The repository's public mutators wrap these calls in
+ * `writeExclusive`/`writeTransaction` so they serialize with every other writer.
  */
 export class CalendarSyncSqliteStore {
   constructor(private readonly getDb: () => Promise<Database>) {}
