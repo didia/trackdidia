@@ -209,8 +209,7 @@ export const MonthlyReviewPage = () => {
         monthly: {
           monthKey,
           withReview: async (sectionKey, work) => {
-            const current =
-              latestReviewRef.current ?? review ?? createEmptyMonthlyReview(monthKey);
+            const current = latestReviewRef.current ?? review ?? createEmptyMonthlyReview(monthKey);
             if (!reviewSaver.get(monthKey)) reviewSaver.hydrate(monthKey, current);
             return reviewSaver.run(monthKey, async (snapshot) => {
               const beforeVersion = reviewSaver.version(monthKey);
