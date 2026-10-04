@@ -4,102 +4,273 @@ import { useAppContext } from "../app/app-context";
 import { FinanceTabs } from "../components/finance/FinanceTabs";
 import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
-import { computeDerivedBalanceMinor } from "../domain/finance/account-balance";
-import type { FinanceAccount, FinanceTransaction } from "../domain/finance";
+import { addMonthsToMonthKey } from "../domain/finance/budget";
+import type { FinanceAccount, FinanceCategory, FinanceRecurringSeries } from "../domain/finance";
+import type { FinanceCashFlowSummary } from "../domain/finance/cash-flow";
+import type { FinanceNetWorthSnapshot } from "../domain/finance/net-worth";
+import type { FinanceCategorySpendRow, FinanceTrendPoint } from "../domain/finance/reports";
+import { getMonthEndDate, getMonthKey, getMonthStartDate } from "../domain/monthly-review";
+import { getTodayDate } from "../lib/date";
 import { formatMoney } from "../lib/finance/money";
 
-/** Groups a flat transaction list by accountId, fetched once per load. */
-const groupByAccountId = (
-  transactions: FinanceTransaction[],
-): Record<string, FinanceTransaction[]> => {
-  const grouped: Record<string, FinanceTransaction[]> = {};
-  for (const transaction of transactions) {
-    (grouped[transaction.accountId] ??= []).push(transaction);
-  }
-  return grouped;
-};
+const TOP_CATEGORY_COUNT = 5;
+const TREND_MONTHS = 6;
+const UPCOMING_RECURRING_COUNT = 5;
 
-// Minimal account overview for Phase 3 — a fuller dashboard (net worth, cash
-// flow, trends) is Phase 6. See docs/finance.md "Screens".
 export const FinanceOverviewPage = () => {
   const { t } = useTranslation("finance");
   const { repository, settings } = useAppContext();
+  const baseCurrency = settings.financeBaseCurrency;
+  const today = getTodayDate();
+  const monthKey = getMonthKey(today);
+
   const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
-  const [transactionsByAccount, setTransactionsByAccount] = useState<
-    Record<string, FinanceTransaction[]>
-  >({});
+  const [categories, setCategories] = useState<FinanceCategory[]>([]);
+  const [netWorth, setNetWorth] = useState<FinanceNetWorthSnapshot | null>(null);
+  const [cashFlow, setCashFlow] = useState<FinanceCashFlowSummary | null>(null);
+  const [trend, setTrend] = useState<FinanceTrendPoint[]>([]);
+  const [topCategories, setTopCategories] = useState<FinanceCategorySpendRow[]>([]);
+  const [recurringSeries, setRecurringSeries] = useState<FinanceRecurringSeries[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [nextAccounts, allTransactions] = await Promise.all([
-      repository.listFinanceAccounts({ includeClosed: false }),
-      repository.listFinanceTransactions(),
-    ]);
-    setAccounts(nextAccounts);
-    setTransactionsByAccount(groupByAccountId(allTransactions));
-    setLoading(false);
-  }, [repository]);
+    setLoadError(false);
+    try {
+      // Re-detect first so missed/ended series and dates reflect today, not the last import.
+      await repository.detectFinanceRecurringSeries().catch(() => undefined);
+      const trendFromMonthKey = addMonthsToMonthKey(monthKey, -(TREND_MONTHS - 1));
+      const [
+        nextAccounts,
+        nextCategories,
+        nextNetWorth,
+        nextCashFlow,
+        nextTrend,
+        nextTopCategories,
+        nextRecurringSeries,
+      ] = await Promise.all([
+        repository.listFinanceAccounts({ includeClosed: true }),
+        repository.listFinanceCategories(),
+        repository.computeFinanceNetWorth(today),
+        repository.computeFinanceCashFlow(monthKey),
+        repository.computeFinanceTrend(
+          { from: getMonthStartDate(trendFromMonthKey), to: getMonthEndDate(monthKey) },
+          "month",
+        ),
+        repository.computeFinanceCategorySpend(
+          { from: getMonthStartDate(monthKey), to: getMonthEndDate(monthKey) },
+          "category",
+        ),
+        repository.listFinanceRecurringSeries("active"),
+      ]);
+      setAccounts(nextAccounts);
+      setCategories(nextCategories);
+      setNetWorth(nextNetWorth);
+      setCashFlow(nextCashFlow);
+      setTrend(nextTrend);
+      setTopCategories(nextTopCategories.slice(0, TOP_CATEGORY_COUNT));
+      setRecurringSeries(nextRecurringSeries);
+    } catch {
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
+  }, [repository, today, monthKey]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const baseCurrency = settings.financeBaseCurrency;
-
-  // The total only sums accounts in the base currency — mixing currencies
-  // into one minor-unit total would silently misreport the amount. Other
-  // currencies show their own account card but are called out separately.
-  const otherCurrencyAccounts = useMemo(
-    () => accounts.filter((account) => account.onBudget && account.currency !== baseCurrency),
-    [accounts, baseCurrency],
+  const categoryNameById = useMemo(
+    () => new Map(categories.map((category) => [category.id, category.name])),
+    [categories],
   );
 
-  const totalBalanceMinor = useMemo(
+  const upcomingRecurring = useMemo(
     () =>
-      accounts
-        .filter((account) => account.onBudget && account.currency === baseCurrency)
-        .reduce(
-          (total, account) =>
-            total + computeDerivedBalanceMinor(account, transactionsByAccount[account.id] ?? []),
-          0,
-        ),
-    [accounts, transactionsByAccount, baseCurrency],
+      [...recurringSeries]
+        .sort((a, b) => a.nextExpectedDate.localeCompare(b.nextExpectedDate))
+        .slice(0, UPCOMING_RECURRING_COUNT),
+    [recurringSeries],
   );
+
+  // One column per month of the six-month span, zero when the month has no spending.
+  const trendColumns = useMemo(() => {
+    const expenseByPeriod = new Map(trend.map((point) => [point.periodKey, point.expenseMinor]));
+    return Array.from({ length: TREND_MONTHS }, (_, index) => {
+      const periodKey = addMonthsToMonthKey(monthKey, index - (TREND_MONTHS - 1));
+      return { periodKey, expenseMinor: expenseByPeriod.get(periodKey) ?? 0 };
+    });
+  }, [trend, monthKey]);
+
+  const maxTrendExpenseMinor = useMemo(
+    () => Math.max(1, ...trendColumns.map((column) => column.expenseMinor)),
+    [trendColumns],
+  );
+
+  const accountById = useMemo(
+    () => new Map(accounts.map((account) => [account.id, account])),
+    [accounts],
+  );
+
+  const confirmRecurring = async (series: FinanceRecurringSeries) => {
+    await repository.saveFinanceRecurringSeries({ ...series, confirmedByUser: true });
+    await load();
+  };
+
+  const pauseRecurring = async (series: FinanceRecurringSeries) => {
+    await repository.saveFinanceRecurringSeries({
+      ...series,
+      status: "paused",
+      confirmedByUser: true,
+    });
+    await load();
+  };
+
+  const endRecurring = async (series: FinanceRecurringSeries) => {
+    await repository.saveFinanceRecurringSeries({
+      ...series,
+      status: "ended",
+      confirmedByUser: true,
+    });
+    await load();
+  };
 
   return (
     <div className="page">
       <PageHeader eyebrow={t("overview.hero.eyebrow")} title={t("overview.hero.title")} />
       <FinanceTabs />
 
-      <SectionCard title={t("overview.totalTitle")}>
-        <p className="hero__copy">
-          {formatMoney({ amountMinor: totalBalanceMinor, currency: baseCurrency })}
-        </p>
-        {otherCurrencyAccounts.length > 0 ? (
-          <p className="banner">
-            {t("overview.otherCurrenciesWarning", {
-              currencies: [
-                ...new Set(otherCurrencyAccounts.map((account) => account.currency)),
-              ].join(", "),
-            })}
-          </p>
+      <SectionCard title={t("overview.netWorthTitle")}>
+        {netWorth ? (
+          <>
+            <p className="hero__copy">
+              {formatMoney({ amountMinor: netWorth.netWorthMinor, currency: baseCurrency })}
+            </p>
+            <dl className="definition-list">
+              <div>
+                <dt>{t("overview.assetsLabel")}</dt>
+                <dd>
+                  {formatMoney({ amountMinor: netWorth.assetsMinor, currency: baseCurrency })}
+                </dd>
+              </div>
+              <div>
+                <dt>{t("overview.liabilitiesLabel")}</dt>
+                <dd>
+                  {formatMoney({ amountMinor: netWorth.liabilitiesMinor, currency: baseCurrency })}
+                </dd>
+              </div>
+            </dl>
+            {netWorth.excludedCurrencies.length > 0 ? (
+              <p className="banner">
+                {t("overview.otherCurrenciesWarning", {
+                  currencies: netWorth.excludedCurrencies.join(", "),
+                })}
+              </p>
+            ) : null}
+          </>
         ) : null}
+      </SectionCard>
+
+      <SectionCard title={t("overview.cashFlowTitle")}>
+        {cashFlow ? (
+          <dl className="definition-list">
+            <div>
+              <dt>{t("overview.incomeLabel")}</dt>
+              <dd>{formatMoney({ amountMinor: cashFlow.incomeMinor, currency: baseCurrency })}</dd>
+            </div>
+            <div>
+              <dt>{t("overview.expenseLabel")}</dt>
+              <dd>{formatMoney({ amountMinor: cashFlow.expenseMinor, currency: baseCurrency })}</dd>
+            </div>
+            <div>
+              <dt>{t("overview.netLabel")}</dt>
+              <dd>{formatMoney({ amountMinor: cashFlow.netMinor, currency: baseCurrency })}</dd>
+            </div>
+          </dl>
+        ) : null}
+      </SectionCard>
+
+      <SectionCard title={t("overview.trendTitle")}>
+        <div className="finance-trend">
+          {trendColumns.map((column) => (
+            <div key={column.periodKey} className="finance-trend__column">
+              <span className="finance-trend__amount">
+                {formatMoney({ amountMinor: column.expenseMinor, currency: baseCurrency })}
+              </span>
+              <div className="finance-trend__track">
+                <div
+                  className="finance-trend__bar"
+                  style={{ height: `${(column.expenseMinor / maxTrendExpenseMinor) * 100}%` }}
+                />
+              </div>
+              <span className="finance-trend__label">{column.periodKey}</span>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
+      <SectionCard title={t("overview.topCategoriesTitle")}>
+        {!loading && topCategories.length === 0 ? <p>{t("overview.noTopCategories")}</p> : null}
+        <ol className="stack">
+          {topCategories.map((row) => (
+            <li key={row.key}>
+              {categoryNameById.get(row.key) ?? row.key} —{" "}
+              {formatMoney({ amountMinor: row.totalMinor, currency: baseCurrency })}
+            </li>
+          ))}
+        </ol>
+      </SectionCard>
+
+      <SectionCard title={t("overview.recurringTitle")}>
+        {!loading && upcomingRecurring.length === 0 ? <p>{t("overview.noRecurring")}</p> : null}
+        <div className="stack">
+          {upcomingRecurring.map((series) => (
+            <article key={series.id} className="list-card">
+              <h3>{series.merchantKey}</h3>
+              <p>
+                {t("overview.recurringNextDate", { date: series.nextExpectedDate })} —{" "}
+                {formatMoney({
+                  amountMinor: series.expectedAmountMinor,
+                  currency: accountById.get(series.accountId)?.currency ?? baseCurrency,
+                })}
+              </p>
+              <div className="button-row">
+                {!series.confirmedByUser ? (
+                  <button type="button" onClick={() => void confirmRecurring(series)}>
+                    {t("overview.recurringConfirm")}
+                  </button>
+                ) : null}
+                <button type="button" onClick={() => void pauseRecurring(series)}>
+                  {t("overview.recurringPause")}
+                </button>
+                <button type="button" onClick={() => void endRecurring(series)}>
+                  {t("overview.recurringEnd")}
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
       </SectionCard>
 
       <SectionCard title={t("overview.accountsTitle")}>
         {loading ? <p>{t("overview.loading")}</p> : null}
-        {!loading && accounts.length === 0 ? <p>{t("overview.noAccounts")}</p> : null}
+        {loadError ? <p className="banner">{t("overview.loadError")}</p> : null}
+        {!loading && !loadError && accounts.length === 0 ? <p>{t("overview.noAccounts")}</p> : null}
         <div className="stack">
-          {accounts.map((account) => {
-            const balanceMinor = computeDerivedBalanceMinor(
-              account,
-              transactionsByAccount[account.id] ?? [],
-            );
+          {(netWorth?.accounts ?? []).map((line) => {
+            const account = accountById.get(line.accountId);
+            if (!account) {
+              return null;
+            }
             return (
               <article key={account.id} className="list-card">
-                <h3>{account.name}</h3>
-                <p>{formatMoney({ amountMinor: balanceMinor, currency: account.currency })}</p>
+                <h3>
+                  {account.name}
+                  {account.closed ? ` ${t("overview.closedAccount")}` : ""}
+                </h3>
+                <p>{formatMoney({ amountMinor: line.balanceMinor, currency: line.currency })}</p>
               </article>
             );
           })}

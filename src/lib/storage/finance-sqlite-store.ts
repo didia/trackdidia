@@ -7,6 +7,7 @@ import type {
   BulkUpdateFinanceTransactionsPatch,
   DecideFinanceCategorySuggestionInput,
   FinanceAccount,
+  FinanceAccountBalanceSnapshot,
   FinanceAccountFilters,
   FinanceBudgetEntry,
   FinanceBudgetMonth,
@@ -21,6 +22,7 @@ import type {
   FinanceMerchantMemoryFilters,
   FinanceOverspendPolicy,
   FinancePerson,
+  FinanceRecurringSeries,
   FinanceRule,
   FinanceRuleActions,
   FinanceTransaction,
@@ -41,7 +43,37 @@ import {
   type FinanceBudgetComputationInput,
   type FinanceBudgetState,
 } from "../../domain/finance/budget";
+import {
+  computeFinanceCashFlow,
+  type FinanceCashFlowComputationInput,
+  type FinanceCashFlowSummary,
+} from "../../domain/finance/cash-flow";
+import {
+  buildFinanceNetWorthHistory,
+  computeFinanceNetWorth,
+  type FinanceNetWorthComputationInput,
+  type FinanceNetWorthHistoryPoint,
+  type FinanceNetWorthSnapshot,
+} from "../../domain/finance/net-worth";
 import { getMonthEndDate } from "../../domain/monthly-review";
+import {
+  computeFinanceCategorySpend,
+  computeFinanceMerchantSpend,
+  computeFinanceMonthOverMonth,
+  computeFinancePersonSpend,
+  computeFinanceTrend,
+  listFinanceCategorySpendDrilldown,
+  type FinanceCategorySpendRow,
+  type FinanceDateRange,
+  type FinanceMerchantSpendRow,
+  type FinanceMonthOverMonthRow,
+  type FinancePersonSpendRow,
+  type FinanceReportComputationInput,
+  type FinanceReportGroupBy,
+  type FinanceReportLine,
+  type FinanceTrendGranularity,
+  type FinanceTrendPoint,
+} from "../../domain/finance/reports";
 import type { Database } from "./sqlite-db";
 import { getTodayDate } from "../date";
 import {
@@ -57,6 +89,11 @@ import {
 } from "../finance/import-profile";
 import { applyMerchantMemoryCorrection } from "../finance/memory";
 import { findNearDuplicates } from "../finance/near-duplicates";
+import {
+  detectFinanceRecurringSeries,
+  type RecurringDetectionExistingSeriesInput,
+  type RecurringDetectionTransactionInput,
+} from "../finance/recurring-detection";
 import { detectTransfers, type TransferCandidateTransaction } from "../finance/transfers";
 import { validateSplitTotal } from "../finance/splits";
 import { createEntityId, nowIso } from "../gtd/shared";
@@ -306,6 +343,58 @@ const mapSuggestion = (row: SuggestionRow): FinanceCategorySuggestion => ({
   promptVersion: row.prompt_version,
   status: row.status,
   decidedAt: row.decided_at,
+  createdAt: row.created_at,
+});
+
+interface RecurringSeriesRow {
+  id: string;
+  merchant_key: string;
+  account_id: string;
+  category_id: string | null;
+  cadence: FinanceRecurringSeries["cadence"];
+  expected_amount_minor: number;
+  amount_tolerance_minor: number;
+  day_of_month: number | null;
+  last_seen_date: string;
+  next_expected_date: string;
+  occurrence_count: number;
+  status: FinanceRecurringSeries["status"];
+  confirmed_by_user: number;
+  created_at: string;
+  updated_at: string;
+}
+
+const mapRecurringSeries = (row: RecurringSeriesRow): FinanceRecurringSeries => ({
+  id: row.id,
+  merchantKey: row.merchant_key,
+  accountId: row.account_id,
+  categoryId: row.category_id,
+  cadence: row.cadence,
+  expectedAmountMinor: row.expected_amount_minor,
+  amountToleranceMinor: row.amount_tolerance_minor,
+  dayOfMonth: row.day_of_month,
+  lastSeenDate: row.last_seen_date,
+  nextExpectedDate: row.next_expected_date,
+  occurrenceCount: row.occurrence_count,
+  status: row.status,
+  confirmedByUser: Boolean(row.confirmed_by_user),
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+interface BalanceSnapshotRow {
+  account_id: string;
+  as_of_date: string;
+  balance_minor: number;
+  source: FinanceAccountBalanceSnapshot["source"];
+  created_at: string;
+}
+
+const mapBalanceSnapshot = (row: BalanceSnapshotRow): FinanceAccountBalanceSnapshot => ({
+  accountId: row.account_id,
+  asOfDate: row.as_of_date,
+  balanceMinor: row.balance_minor,
+  source: row.source,
   createdAt: row.created_at,
 });
 
@@ -1529,6 +1618,11 @@ export class FinanceSqliteStore {
         }
       }
 
+      // Recurring-bill detection runs after every import, over the whole
+      // history, inside the same transaction — see specs/todo/finance.md
+      // "Recurring bills".
+      await this.detectRecurringSeriesWithDb(db, today);
+
       const skipped = input.rejected?.skipped ?? 0;
       const errors = input.rejected?.errors ?? 0;
       warnings.push(...(input.rejected?.warnings ?? []));
@@ -1940,6 +2034,9 @@ export class FinanceSqliteStore {
         deleted += 1;
       }
 
+      // Drop unconfirmed recurring series whose transactions this undo removed.
+      await this.detectRecurringSeriesWithDb(db, getTodayDate());
+
       await db.execute("COMMIT");
       return { deleted, refusedUserCategorized };
     } catch (error) {
@@ -2334,5 +2431,455 @@ export class FinanceSqliteStore {
     } catch {
       // Best effort; the original error is what the caller surfaces.
     }
+  }
+
+  // --- net worth / cash flow / reports / recurring (Phase 6) -----------------------------
+
+  /**
+   * Every transaction on every account regardless of `excluded_from_budget`/
+   * `excluded_from_reports`/`on_budget` — the net-worth balance rule (see
+   * AGENTS.md "Repository parity"). Mirrors `FinanceMemoryStore`'s loader.
+   */
+  private async buildNetWorthComputationInput(
+    asOfDate: string,
+    baseCurrency: string,
+  ): Promise<FinanceNetWorthComputationInput> {
+    const db = await this.getDb();
+    const accountRows = await db.select<AccountRow[]>("SELECT * FROM finance_accounts");
+    const transactionRows = await db.select<TransactionRow[]>(
+      "SELECT account_id, posted_date, amount_minor FROM finance_transactions WHERE posted_date <= $1",
+      [asOfDate],
+    );
+    return {
+      asOfDate,
+      baseCurrency,
+      accounts: accountRows.map((row) => ({
+        id: row.id,
+        type: row.type,
+        currency: row.currency,
+        closed: Boolean(row.closed),
+        openingBalanceMinor: row.opening_balance_minor,
+      })),
+      transactions: transactionRows.map((row) => ({
+        accountId: row.account_id,
+        postedDate: row.posted_date,
+        amountMinor: row.amount_minor,
+      })),
+    };
+  }
+
+  async computeNetWorth(asOfDate: string, baseCurrency: string): Promise<FinanceNetWorthSnapshot> {
+    return computeFinanceNetWorth(await this.buildNetWorthComputationInput(asOfDate, baseCurrency));
+  }
+
+  async listNetWorthHistory(baseCurrency: string): Promise<FinanceNetWorthHistoryPoint[]> {
+    const db = await this.getDb();
+    const snapshotRows = await db.select<BalanceSnapshotRow[]>(
+      "SELECT * FROM finance_account_balance_snapshots",
+    );
+    const accountRows = await db.select<AccountRow[]>("SELECT * FROM finance_accounts");
+    return buildFinanceNetWorthHistory(
+      snapshotRows.map(mapBalanceSnapshot),
+      accountRows.map((row) => ({
+        id: row.id,
+        type: row.type,
+        currency: row.currency,
+        closed: Boolean(row.closed),
+        openingBalanceMinor: row.opening_balance_minor,
+      })),
+      baseCurrency,
+    );
+  }
+
+  private async buildCashFlowComputationInput(
+    monthKey: string,
+    baseCurrency: string,
+  ): Promise<FinanceCashFlowComputationInput> {
+    const db = await this.getDb();
+    const transactionRows = await db.select<TransactionRow[]>("SELECT * FROM finance_transactions");
+    const splitRows = await db.select<SplitRow[]>("SELECT * FROM finance_transaction_splits");
+    return {
+      monthKey,
+      baseCurrency,
+      transactions: transactionRows.map((row) => ({
+        id: row.id,
+        postedDate: row.posted_date,
+        amountMinor: row.amount_minor,
+        currency: row.currency,
+        isTransfer: Boolean(row.is_transfer),
+        excludedFromReports: Boolean(row.excluded_from_reports),
+        hasSplits: Boolean(row.has_splits),
+      })),
+      splits: splitRows.map((row) => ({
+        transactionId: row.transaction_id,
+        amountMinor: row.amount_minor,
+      })),
+    };
+  }
+
+  async computeCashFlow(monthKey: string, baseCurrency: string): Promise<FinanceCashFlowSummary> {
+    return computeFinanceCashFlow(await this.buildCashFlowComputationInput(monthKey, baseCurrency));
+  }
+
+  private async buildReportComputationInput(
+    baseCurrency: string,
+  ): Promise<FinanceReportComputationInput> {
+    const db = await this.getDb();
+    const transactionRows = await db.select<TransactionRow[]>("SELECT * FROM finance_transactions");
+    const splitRows = await db.select<SplitRow[]>("SELECT * FROM finance_transaction_splits");
+    const categoryRows = await db.select<CategoryRow[]>("SELECT * FROM finance_categories");
+    return {
+      baseCurrency,
+      transactions: transactionRows.map((row) => ({
+        id: row.id,
+        postedDate: row.posted_date,
+        amountMinor: row.amount_minor,
+        currency: row.currency,
+        categoryId: row.category_id,
+        merchantKey: row.merchant_key,
+        merchantDisplay: row.merchant_display,
+        personId: row.person_id,
+        isTransfer: Boolean(row.is_transfer),
+        excludedFromReports: Boolean(row.excluded_from_reports),
+        hasSplits: Boolean(row.has_splits),
+      })),
+      splits: splitRows.map((row) => ({
+        id: row.id,
+        transactionId: row.transaction_id,
+        amountMinor: row.amount_minor,
+        categoryId: row.category_id,
+      })),
+      categories: categoryRows.map((row) => ({
+        id: row.id,
+        parentId: row.parent_id,
+        name: row.name,
+      })),
+    };
+  }
+
+  async computeCategorySpend(
+    range: FinanceDateRange,
+    groupBy: FinanceReportGroupBy,
+    baseCurrency: string,
+  ): Promise<FinanceCategorySpendRow[]> {
+    return computeFinanceCategorySpend(
+      await this.buildReportComputationInput(baseCurrency),
+      range,
+      groupBy,
+    );
+  }
+
+  async listCategorySpendDrilldown(
+    range: FinanceDateRange,
+    groupBy: FinanceReportGroupBy,
+    key: string,
+    baseCurrency: string,
+  ): Promise<FinanceReportLine[]> {
+    return listFinanceCategorySpendDrilldown(
+      await this.buildReportComputationInput(baseCurrency),
+      range,
+      groupBy,
+      key,
+    );
+  }
+
+  async computeMerchantSpend(
+    range: FinanceDateRange,
+    limit: number,
+    baseCurrency: string,
+  ): Promise<FinanceMerchantSpendRow[]> {
+    return computeFinanceMerchantSpend(
+      await this.buildReportComputationInput(baseCurrency),
+      range,
+      limit,
+    );
+  }
+
+  async computePersonSpend(
+    range: FinanceDateRange,
+    baseCurrency: string,
+  ): Promise<FinancePersonSpendRow[]> {
+    return computeFinancePersonSpend(await this.buildReportComputationInput(baseCurrency), range);
+  }
+
+  async computeTrend(
+    range: FinanceDateRange,
+    granularity: FinanceTrendGranularity,
+    baseCurrency: string,
+  ): Promise<FinanceTrendPoint[]> {
+    return computeFinanceTrend(
+      await this.buildReportComputationInput(baseCurrency),
+      range,
+      granularity,
+    );
+  }
+
+  async computeMonthOverMonth(
+    currentRange: FinanceDateRange,
+    previousRange: FinanceDateRange,
+    groupBy: FinanceReportGroupBy,
+    baseCurrency: string,
+  ): Promise<FinanceMonthOverMonthRow[]> {
+    return computeFinanceMonthOverMonth(
+      await this.buildReportComputationInput(baseCurrency),
+      currentRange,
+      previousRange,
+      groupBy,
+    );
+  }
+
+  // --- recurring series (Phase 6) ---------------------------------------------------------
+
+  async listRecurringSeries(
+    status?: FinanceRecurringSeries["status"],
+  ): Promise<FinanceRecurringSeries[]> {
+    const db = await this.getDb();
+    const rows = status
+      ? await db.select<RecurringSeriesRow[]>(
+          "SELECT * FROM finance_recurring_series WHERE status = $1",
+          [status],
+        )
+      : await db.select<RecurringSeriesRow[]>("SELECT * FROM finance_recurring_series");
+    return rows
+      .map(mapRecurringSeries)
+      .sort(
+        (a, b) =>
+          a.merchantKey.localeCompare(b.merchantKey) || a.accountId.localeCompare(b.accountId),
+      );
+  }
+
+  async saveRecurringSeries(series: FinanceRecurringSeries): Promise<FinanceRecurringSeries> {
+    const db = await this.getDb();
+    const now = nowIso();
+    const id = series.id || createEntityId("finance-recurring");
+    const existingRows = await db.select<RecurringSeriesRow[]>(
+      "SELECT created_at FROM finance_recurring_series WHERE id = $1",
+      [id],
+    );
+    const createdAt = existingRows[0]?.created_at ?? series.createdAt ?? now;
+    await db.execute(
+      `INSERT INTO finance_recurring_series (
+        id, merchant_key, account_id, category_id, cadence, expected_amount_minor,
+        amount_tolerance_minor, day_of_month, last_seen_date, next_expected_date,
+        occurrence_count, status, confirmed_by_user, created_at, updated_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+      ON CONFLICT(id) DO UPDATE SET
+        merchant_key = excluded.merchant_key,
+        account_id = excluded.account_id,
+        category_id = excluded.category_id,
+        cadence = excluded.cadence,
+        expected_amount_minor = excluded.expected_amount_minor,
+        amount_tolerance_minor = excluded.amount_tolerance_minor,
+        day_of_month = excluded.day_of_month,
+        last_seen_date = excluded.last_seen_date,
+        next_expected_date = excluded.next_expected_date,
+        occurrence_count = excluded.occurrence_count,
+        status = excluded.status,
+        confirmed_by_user = excluded.confirmed_by_user,
+        updated_at = excluded.updated_at`,
+      [
+        id,
+        series.merchantKey,
+        series.accountId,
+        series.categoryId,
+        series.cadence,
+        series.expectedAmountMinor,
+        series.amountToleranceMinor,
+        series.dayOfMonth,
+        series.lastSeenDate,
+        series.nextExpectedDate,
+        series.occurrenceCount,
+        series.status,
+        series.confirmedByUser ? 1 : 0,
+        createdAt,
+        now,
+      ],
+    );
+    const rows = await db.select<RecurringSeriesRow[]>(
+      "SELECT * FROM finance_recurring_series WHERE id = $1",
+      [id],
+    );
+    return mapRecurringSeries(rows[0]);
+  }
+
+  /** Public, on-demand entry point (not inside an import transaction). */
+  async detectRecurringSeries(today: string): Promise<{ created: number; updated: number }> {
+    const db = await this.getDb();
+    return this.inTransaction(db, () => this.detectRecurringSeriesWithDb(db, today));
+  }
+
+  /**
+   * Re-runs detection over the full history and upserts every result,
+   * preserving `confirmed_by_user` series — see `AppRepository`'s
+   * `detectFinanceRecurringSeries` contract. Callable from inside an
+   * existing transaction (`importTransactions`) or standalone.
+   */
+  private async detectRecurringSeriesWithDb(
+    db: Database,
+    today: string,
+  ): Promise<{ created: number; updated: number }> {
+    const transactionRows = await db.select<
+      Array<{
+        merchant_key: string;
+        account_id: string;
+        category_id: string | null;
+        amount_minor: number;
+        posted_date: string;
+      }>
+    >(
+      `SELECT merchant_key, account_id, category_id, amount_minor, posted_date
+       FROM finance_transactions
+       WHERE is_transfer = 0 AND excluded_from_reports = 0`,
+    );
+    const seriesRows = await db.select<RecurringSeriesRow[]>(
+      "SELECT * FROM finance_recurring_series",
+    );
+
+    const transactions: RecurringDetectionTransactionInput[] = transactionRows.map((row) => ({
+      merchantKey: row.merchant_key,
+      accountId: row.account_id,
+      categoryId: row.category_id,
+      amountMinor: row.amount_minor,
+      postedDate: row.posted_date,
+    }));
+    const existing: RecurringDetectionExistingSeriesInput[] = seriesRows.map((row) => {
+      const mapped = mapRecurringSeries(row);
+      return {
+        id: mapped.id,
+        merchantKey: mapped.merchantKey,
+        accountId: mapped.accountId,
+        categoryId: mapped.categoryId,
+        cadence: mapped.cadence,
+        expectedAmountMinor: mapped.expectedAmountMinor,
+        amountToleranceMinor: mapped.amountToleranceMinor,
+        dayOfMonth: mapped.dayOfMonth,
+        lastSeenDate: mapped.lastSeenDate,
+        nextExpectedDate: mapped.nextExpectedDate,
+        occurrenceCount: mapped.occurrenceCount,
+        status: mapped.status,
+        confirmedByUser: mapped.confirmedByUser,
+      };
+    });
+
+    const detected = detectFinanceRecurringSeries(transactions, existing, today);
+    let created = 0;
+    let updated = 0;
+    const now = nowIso();
+
+    for (const item of detected) {
+      const isNew = item.id === "";
+      const id = isNew ? createEntityId("finance-recurring") : item.id;
+      const existingRows = isNew
+        ? []
+        : await db.select<Array<{ created_at: string }>>(
+            "SELECT created_at FROM finance_recurring_series WHERE id = $1",
+            [id],
+          );
+      const createdAt = existingRows[0]?.created_at ?? now;
+
+      await db.execute(
+        `INSERT INTO finance_recurring_series (
+          id, merchant_key, account_id, category_id, cadence, expected_amount_minor,
+          amount_tolerance_minor, day_of_month, last_seen_date, next_expected_date,
+          occurrence_count, status, confirmed_by_user, created_at, updated_at
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+        ON CONFLICT(id) DO UPDATE SET
+          merchant_key = excluded.merchant_key,
+          account_id = excluded.account_id,
+          category_id = excluded.category_id,
+          cadence = excluded.cadence,
+          expected_amount_minor = excluded.expected_amount_minor,
+          amount_tolerance_minor = excluded.amount_tolerance_minor,
+          day_of_month = excluded.day_of_month,
+          last_seen_date = excluded.last_seen_date,
+          next_expected_date = excluded.next_expected_date,
+          occurrence_count = excluded.occurrence_count,
+          status = excluded.status,
+          confirmed_by_user = excluded.confirmed_by_user,
+          updated_at = excluded.updated_at`,
+        [
+          id,
+          item.merchantKey,
+          item.accountId,
+          item.categoryId,
+          item.cadence,
+          item.expectedAmountMinor,
+          item.amountToleranceMinor,
+          item.dayOfMonth,
+          item.lastSeenDate,
+          item.nextExpectedDate,
+          item.occurrenceCount,
+          item.status,
+          item.confirmedByUser ? 1 : 0,
+          createdAt,
+          now,
+        ],
+      );
+      if (isNew) {
+        created += 1;
+      } else {
+        updated += 1;
+      }
+    }
+
+    // The pure result is the full set: an unconfirmed series it no longer returns
+    // (import undone, cadence broken) has nothing behind it, so drop the row.
+    const keptIds = new Set(
+      detected.map((item) => item.id).filter((id): id is string => id !== ""),
+    );
+    for (const row of seriesRows) {
+      if (row.confirmed_by_user === 0 && !keptIds.has(row.id)) {
+        await db.execute("DELETE FROM finance_recurring_series WHERE id = $1", [row.id]);
+      }
+    }
+
+    return { created, updated };
+  }
+
+  // --- balance snapshots (Phase 6) ----------------------------------------------------------
+
+  /** Idempotent per day: upserts one row per account for `asOfDate`. Returns the account count. */
+  async snapshotAccountBalances(asOfDate: string): Promise<number> {
+    const db = await this.getDb();
+    const now = nowIso();
+    const accountRows = await db.select<AccountRow[]>("SELECT * FROM finance_accounts");
+    const transactionRows = await db.select<TransactionRow[]>(
+      "SELECT account_id, posted_date, amount_minor FROM finance_transactions WHERE posted_date <= $1",
+      [asOfDate],
+    );
+    const balanceByAccountId = new Map<string, number>();
+    for (const account of accountRows) {
+      balanceByAccountId.set(account.id, account.opening_balance_minor);
+    }
+    for (const row of transactionRows) {
+      balanceByAccountId.set(
+        row.account_id,
+        (balanceByAccountId.get(row.account_id) ?? 0) + row.amount_minor,
+      );
+    }
+
+    // One transaction so a failure never leaves the day with only a prefix of accounts.
+    await this.inTransaction(db, async () => {
+      for (const account of accountRows) {
+        await db.execute(
+          `INSERT INTO finance_account_balance_snapshots (
+            account_id, as_of_date, balance_minor, source, created_at
+          ) VALUES ($1,$2,$3,'derived',$4)
+          ON CONFLICT(account_id, as_of_date) DO UPDATE SET
+            balance_minor = excluded.balance_minor`,
+          [account.id, asOfDate, balanceByAccountId.get(account.id) ?? 0, now],
+        );
+      }
+    });
+    return accountRows.length;
+  }
+
+  async listAccountBalanceSnapshots(accountId: string): Promise<FinanceAccountBalanceSnapshot[]> {
+    const db = await this.getDb();
+    const rows = await db.select<BalanceSnapshotRow[]>(
+      "SELECT * FROM finance_account_balance_snapshots WHERE account_id = $1 ORDER BY as_of_date",
+      [accountId],
+    );
+    return rows.map(mapBalanceSnapshot);
   }
 }

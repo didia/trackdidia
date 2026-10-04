@@ -8,6 +8,7 @@ import { FinanceAccountsPage } from "./pages/FinanceAccountsPage";
 import { FinanceBudgetPage } from "./pages/FinanceBudgetPage";
 import { FinanceImportPage } from "./pages/FinanceImportPage";
 import { FinanceOverviewPage } from "./pages/FinanceOverviewPage";
+import { FinanceReportsPage } from "./pages/FinanceReportsPage";
 import { FinanceReviewPage } from "./pages/FinanceReviewPage";
 import { FinanceRulesPage } from "./pages/FinanceRulesPage";
 import { FinanceTransactionsPage } from "./pages/FinanceTransactionsPage";
@@ -42,6 +43,7 @@ export const FinanceRoutes = () => {
       <Route index element={<FinanceOverviewPage />} />
       <Route path="transactions" element={<FinanceTransactionsPage />} />
       <Route path="budget" element={<FinanceBudgetPage />} />
+      <Route path="reports" element={<FinanceReportsPage />} />
       <Route path="import" element={<FinanceImportPage />} />
       <Route path="accounts" element={<FinanceAccountsPage />} />
       <Route path="review" element={<FinanceReviewPage />} />

@@ -1982,4 +1982,105 @@ export class MemoryRepository implements AppRepository {
   async setFinanceBudgetReadyToAssignNote(monthKey: string, note: string | null) {
     return Promise.resolve(this.finance.setBudgetReadyToAssignNote(monthKey, note));
   }
+
+  // --- Finance (Phase 6 — Tracking, reports, recurring, net worth) ---------------------
+
+  async computeFinanceNetWorth(asOfDate: string) {
+    const settings = await this.getSettings();
+    return Promise.resolve(this.finance.computeNetWorth(asOfDate, settings.financeBaseCurrency));
+  }
+
+  async listFinanceNetWorthHistory() {
+    const settings = await this.getSettings();
+    return Promise.resolve(this.finance.listNetWorthHistory(settings.financeBaseCurrency));
+  }
+
+  async computeFinanceCashFlow(monthKey: string) {
+    const settings = await this.getSettings();
+    return Promise.resolve(this.finance.computeCashFlow(monthKey, settings.financeBaseCurrency));
+  }
+
+  async computeFinanceCategorySpend(
+    range: import("../../domain/finance/reports").FinanceDateRange,
+    groupBy: import("../../domain/finance/reports").FinanceReportGroupBy,
+  ) {
+    const settings = await this.getSettings();
+    return Promise.resolve(
+      this.finance.computeCategorySpend(range, groupBy, settings.financeBaseCurrency),
+    );
+  }
+
+  async listFinanceCategorySpendDrilldown(
+    range: import("../../domain/finance/reports").FinanceDateRange,
+    groupBy: import("../../domain/finance/reports").FinanceReportGroupBy,
+    key: string,
+  ) {
+    const settings = await this.getSettings();
+    return Promise.resolve(
+      this.finance.listCategorySpendDrilldown(range, groupBy, key, settings.financeBaseCurrency),
+    );
+  }
+
+  async computeFinanceMerchantSpend(
+    range: import("../../domain/finance/reports").FinanceDateRange,
+    limit: number,
+  ) {
+    const settings = await this.getSettings();
+    return Promise.resolve(
+      this.finance.computeMerchantSpend(range, limit, settings.financeBaseCurrency),
+    );
+  }
+
+  async computeFinancePersonSpend(range: import("../../domain/finance/reports").FinanceDateRange) {
+    const settings = await this.getSettings();
+    return Promise.resolve(this.finance.computePersonSpend(range, settings.financeBaseCurrency));
+  }
+
+  async computeFinanceTrend(
+    range: import("../../domain/finance/reports").FinanceDateRange,
+    granularity: import("../../domain/finance/reports").FinanceTrendGranularity,
+  ) {
+    const settings = await this.getSettings();
+    return Promise.resolve(
+      this.finance.computeTrend(range, granularity, settings.financeBaseCurrency),
+    );
+  }
+
+  async computeFinanceMonthOverMonth(
+    currentRange: import("../../domain/finance/reports").FinanceDateRange,
+    previousRange: import("../../domain/finance/reports").FinanceDateRange,
+    groupBy: import("../../domain/finance/reports").FinanceReportGroupBy,
+  ) {
+    const settings = await this.getSettings();
+    return Promise.resolve(
+      this.finance.computeMonthOverMonth(
+        currentRange,
+        previousRange,
+        groupBy,
+        settings.financeBaseCurrency,
+      ),
+    );
+  }
+
+  async listFinanceRecurringSeries(
+    status?: import("../../domain/finance").FinanceRecurringSeries["status"],
+  ) {
+    return Promise.resolve(this.finance.listRecurringSeries(status));
+  }
+
+  async saveFinanceRecurringSeries(series: import("../../domain/finance").FinanceRecurringSeries) {
+    return Promise.resolve(this.finance.saveRecurringSeries(series));
+  }
+
+  async detectFinanceRecurringSeries() {
+    return Promise.resolve(this.finance.detectRecurringSeries(getTodayDate()));
+  }
+
+  async snapshotFinanceAccountBalances(asOfDate: string) {
+    return Promise.resolve(this.finance.snapshotAccountBalances(asOfDate));
+  }
+
+  async listFinanceAccountBalanceSnapshots(accountId: string) {
+    return Promise.resolve(this.finance.listAccountBalanceSnapshots(accountId));
+  }
 }

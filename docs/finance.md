@@ -4,24 +4,28 @@ See also: [changelog](logs/finance.md).
 
 TrackDidia is building a household finance domain: CSV transaction import, a
 learning categorization loop, multi-person/multi-account tracking, and
-YNAB-style envelope budgeting (with, in a later phase, proactive runout
-forecasting). This page documents **Phase 2 — Schema and repository parity**
-(the SQLite schema, the `FinanceSqliteStore`/`FinanceMemoryStore` persistence
-layer, and the `AppRepository` contract), **Phase 3 — Accounts, import, and
-transaction screens** (the first finance UI), **Phase 4 — Classification:
-rules, memory, seeds, review queue** (the automatic categorization pipeline,
-the `/finances/review` suggestion queue, and the `/finances/rules` rule
-manager), and **Phase 5 — Budget** (the zero-based envelope model in
+YNAB-style envelope budgeting, and proactive runout forecasting. This page
+documents **Phase 2 — Schema and repository parity** (the SQLite schema, the
+`FinanceSqliteStore`/`FinanceMemoryStore` persistence layer, and the
+`AppRepository` contract), **Phase 3 — Accounts, import, and transaction
+screens** (the first finance UI), **Phase 4 — Classification: rules, memory,
+seeds, review queue** (the automatic categorization pipeline, the
+`/finances/review` suggestion queue, and the `/finances/rules` rule manager),
+**Phase 5 — Budget** (the zero-based envelope model in
 `src/domain/finance/budget.ts`, `setFinanceBudgetAssignment`/
-`computeFinanceBudgetState`, and the `/finances/budget` screen). There is
-still no proactive runout forecasting and no AI categorization stage — see
+`computeFinanceBudgetState`, and the `/finances/budget` screen), and
+**Phase 6 — Tracking, reports, recurring, net worth** (net worth, cash flow,
+category/merchant/person reports with drill-down, recurring-bill detection,
+daily balance snapshots, and the `/finances` dashboard and `/finances/reports`
+screens — see "Tracking, reports, recurring, net worth" below). There is
+still no forecasting/alerts and no AI categorization stage — see
 [specs/todo/finance.md](../specs/todo/finance.md) for the full phased plan.
 
 The feature is **unshipped to end users by default**: `AppSettings.financeEnabled`
 defaults to `false`. With it off, the sidebar has no "Finances" entry and
 `/finances*` redirects to `/`. A household that turns it on in Settings gets
-the seven screens documented in "Screens" below; later phases (reports,
-forecasting, AI) are not built yet. This page describes what the storage layer
+the eight screens documented in "Screens" below; later phases (forecasting,
+AI) are not built yet. This page describes what the storage layer
 and the UI can do today so later phases (and reviewers) have a canonical
 reference.
 
@@ -128,10 +132,17 @@ exactly to the parent amount before touching anything and replaces splits in one
 transaction; clearing the last split restores `fincat:non-categorise`. An
 `all_matching` category correction marks every changed row `category_source = 'user'`,
 and archiving a category also reassigns split and merchant-memory references.
-**Not** covered yet (later phases): any other `compute*` report/forecast
-method, recurring-series detection/storage, balance snapshots, or AI
-suggestion generation — these remain unimplemented on both repositories until
-their respective phase.
+Phase 6 added `computeFinanceNetWorth`, `listFinanceNetWorthHistory`,
+`computeFinanceCashFlow`, `computeFinanceCategorySpend`,
+`listFinanceCategorySpendDrilldown`, `computeFinanceMerchantSpend`,
+`computeFinancePersonSpend`, `computeFinanceTrend`,
+`computeFinanceMonthOverMonth`, `listFinanceRecurringSeries`,
+`saveFinanceRecurringSeries`, `detectFinanceRecurringSeries`,
+`snapshotFinanceAccountBalances`, and `listFinanceAccountBalanceSnapshots` —
+covered below under "Tracking, reports, recurring, net worth (Phase 6)".
+**Not** covered yet (later phases): forecast/alert methods or AI suggestion
+generation — these remain unimplemented on both repositories until their
+respective phase.
 
 ### Learning entry point
 
@@ -444,9 +455,10 @@ call sites that race harmlessly because the seed is `INSERT OR IGNORE`:
 
 | Route | Screen |
 |---|---|
-| `/finances` | `FinanceOverviewPage` — minimal account list with derived balances and links to the other screens; a fuller dashboard (net worth, cash flow, trends) is Phase 6 |
+| `/finances` | `FinanceOverviewPage` — net worth, this month's cash flow, account list with derived balances, a 6-month spending trend, top categories, and upcoming recurring bills (Phase 6) |
 | `/finances/transactions` | `FinanceTransactionsPage` |
 | `/finances/budget` | `FinanceBudgetPage` (Phase 5) |
+| `/finances/reports` | `FinanceReportsPage` — category/merchant/person spend with drill-down, income-vs-expense trend, month-over-month comparison (Phase 6) |
 | `/finances/import` | `FinanceImportPage` |
 | `/finances/accounts` | `FinanceAccountsPage` |
 | `/finances/review` | `FinanceReviewPage` (Phase 4) |
@@ -454,15 +466,18 @@ call sites that race harmlessly because the seed is `INSERT OR IGNORE`:
 
 Every `/finances*` page renders `FinanceTabs`
 (`src/components/finance/FinanceTabs.tsx`), a shared in-page nav bar. It only
-lists tabs for screens that exist today (Overview, Transactions, Import,
-Accounts, Review, Rules); Budget and Reports have no tab until their phases
-ship — adding a tab that 404s or redirects would be worse than omitting it.
+lists tabs for screens that exist today (Overview, Transactions, Budget,
+Reports, Import, Accounts, Review, Rules) — adding a tab that 404s or
+redirects would be worse than omitting it.
 
-`FinanceOverviewPage`'s total only sums on-budget accounts whose `currency`
-equals `AppSettings.financeBaseCurrency` — minor units from different
-currencies are never added together. Any on-budget account in a different
-currency still gets its own card (shown in its own currency) and is called
-out by name in a banner next to the total rather than silently excluded.
+`FinanceOverviewPage`'s net worth and cash-flow totals only sum accounts/
+transactions whose `currency` equals `AppSettings.financeBaseCurrency` —
+minor units from different currencies are never added together. Any account
+in a different currency still gets its own card (shown in its own currency)
+and is called out by name in a banner (`excludedCurrencies`) rather than
+silently excluded. Net worth itself counts **every** account regardless of
+`onBudget`/`excludedFromBudget` — those are budget-only exclusions and never
+remove money from net worth (see AGENTS.md "Repository parity").
 
 ### FinanceAccountsPage (`/finances/accounts`)
 
@@ -661,6 +676,98 @@ existantes" calls the same `reclassifyFinancePending()` as the review page's
 "Réappliquer les règles" — the two buttons are the same action surfaced on two
 screens, matching how a newly added rule should retroactively reach rows that
 already exist.
+
+## Tracking, reports, recurring, net worth (Phase 6)
+
+Pure engines, loaded the same way in both repositories and handed to the same
+function (never a SQL `GROUP BY` in one and a JS reduce in the other):
+
+- `src/domain/finance/net-worth.ts` — `computeFinanceNetWorth(asOfDate)`
+  splits every account by type into asset/liability
+  (`classifyFinanceAccountKind`: `credit_card`/`line_of_credit`/`loan`/
+  `mortgage` are liabilities, everything else is an asset), sums balances
+  (opening + every transaction through `asOfDate`, **regardless of**
+  `excludedFromBudget`/`excludedFromReports`/`onBudget`) in `baseCurrency`
+  only, and returns `netWorthMinor = assetsMinor - liabilitiesMinor` plus a
+  per-account line list and the set of `excludedCurrencies`.
+  `buildFinanceNetWorthHistory` folds daily
+  `finance_account_balance_snapshots` rows into a `{ asOfDate, netWorthMinor }`
+  series (a liability's snapshot balance is conventionally already negative,
+  so the series is a plain per-day sum of raw balances — no sign flip).
+- `src/domain/finance/cash-flow.ts` — `computeFinanceCashFlow(monthKey)`
+  sums income/expense/net for one month from splits-expanded, transfer- and
+  `excludedFromReports`-free lines in `baseCurrency`.
+- `src/domain/finance/reports.ts` — `buildFinanceReportLines` is the one
+  split-expansion/filter step every report function calls:
+  `computeFinanceCategorySpend` (by category or category group, via
+  `FinanceReportGroupBy`), `listFinanceCategorySpendDrilldown` (the exact
+  lines summing to one category row — the UI's drill-down), `computeFinanceMerchantSpend`,
+  `computeFinancePersonSpend`, `computeFinanceTrend` (income/expense by month
+  or week), and `computeFinanceMonthOverMonth` (per-category spend across two
+  arbitrary ranges).
+- `src/lib/finance/recurring-detection.ts` — `detectFinanceRecurringSeries`
+  groups the full transaction history by `merchantKey` + `accountId` + sign (the same merchant on two accounts is two series), requires ≥ 3
+  occurrences, classifies a cadence (weekly/biweekly/semimonthly/monthly/
+  quarterly/annual) from the median day gap when its stddev is within that
+  cadence's band half-width, sets `expectedAmountMinor` to the median amount
+  and `amountToleranceMinor` to `max(5% of median, 100)`, and computes
+  `nextExpectedDate` — calendar-month anchored with end-of-month clamping for
+  monthly/quarterly/annual cadences (`addMonthsClamped`; the 31st in a
+  30-day/February month lands on that month's last day), plain day arithmetic
+  for weekly/biweekly; semimonthly follows two stable days of the month. When the median gap fits both the biweekly and semimonthly bands, two stable anchor days (e.g. the 1st and 15th) classify it semimonthly and `nextExpectedDate` is the next anchor day. Flags `missed` (today past
+  `nextExpectedDate` by more than the cadence's tolerance), `amount_changed`
+  (newest occurrence outside tolerance), and `ended` (two consecutive
+  misses). A series the user confirmed (`confirmedByUser`) is always returned
+  by re-detection, even when the fresh group no longer meets the
+  3-occurrence/cadence threshold — confirmation pins the series. Both stores feed it only non-transfer, non-`excludedFromReports` transactions, and treat its result as the full set: after the upsert, any unconfirmed series it no longer returns is deleted (import undone, cadence broken). Detection also runs at the end of `undoImportBatch`, inside its transaction.
+
+Repository methods (both implementations, delegating to the pure functions
+above): `computeFinanceNetWorth`, `listFinanceNetWorthHistory`,
+`computeFinanceCashFlow`, `computeFinanceCategorySpend`,
+`listFinanceCategorySpendDrilldown`, `computeFinanceMerchantSpend`,
+`computeFinancePersonSpend`, `computeFinanceTrend`,
+`computeFinanceMonthOverMonth`, `listFinanceRecurringSeries`,
+`saveFinanceRecurringSeries`, `detectFinanceRecurringSeries` (re-runs
+detection and upserts every result, preserving confirmed series — called
+after every `importFinanceTransactions`, inside its transaction, and on
+demand from `/finances`), `snapshotFinanceAccountBalances(asOfDate)` (derives
+and upserts one `finance_account_balance_snapshots` row per account, source
+`'derived'`, idempotent per day — an upsert on the `(account_id, as_of_date)`
+primary key, written in one transaction so a day never keeps a prefix of accounts), and `listFinanceAccountBalanceSnapshots(accountId)`.
+
+### Bootstrap: daily balance snapshots
+
+`useLocalDayReconciliation` (`src/app/use-local-day-reconciliation.ts`) takes
+a `financeEnabled` flag alongside the repository. On the same local-day
+reconciliation pass that regenerates recurrences and promotes Scheduled
+tasks, when `financeEnabled` it also calls
+`snapshotFinanceAccountBalances(today)` so the net-worth history has one
+point per day the app was open. The call is independently try/caught —
+a snapshot failure is logged with a fixed message (the error is never logged, so no
+amounts or row data) and never blocks recurrence/promotion or the eight-second startup
+timeout. The upsert is idempotent, so every pass (focus, visibility, midnight, and
+turning `financeEnabled` on, which is an effect dependency) refreshes today's point,
+and it still runs when `reconcileDay` throws.
+
+### FinanceOverviewPage (`/finances`, Phase 6)
+
+Net worth (total plus assets/liabilities, with the non-base-currency banner
+described above), this month's cash flow (income/expense/net), a 6-month
+spending-trend bar chart (one column per month, zero-filled, each printing its
+amount; plain CSS bars sized from `computeFinanceTrend`'s `expenseMinor`, no charting
+dependency), the current month's top five
+spending categories (`computeFinanceCategorySpend`), the account list rendered from the same `computeFinanceNetWorth` lines as the total (so closed accounts and the as-of-today cutoff agree with it; closed accounts are labelled), and up to five upcoming active
+recurring series sorted by `nextExpectedDate` and formatted in the account's own currency, each with Confirmer/Mettre en
+pause/Terminer actions that write through `saveFinanceRecurringSeries`. `load` first calls `detectFinanceRecurringSeries()` so dates and missed/ended series reflect today, and surfaces a load failure instead of a stuck "Chargement...".
+
+### FinanceReportsPage (`/finances/reports`, Phase 6)
+
+A date-range picker (defaults to the current month) feeding every report
+below: spending by category with a "Voir le détail" drill-down that lists
+the exact transactions summing to that row's total (via
+`listFinanceCategorySpendDrilldown`), spending by merchant (top 10), spending
+by person, an income-vs-expense table by month, and a month-over-month
+per-category comparison against the preceding window of the same length as the selected range. An empty or inverted range is refused before any repository call; loads and drill-downs carry a request id so a stale response is ignored, changing the range closes the open drill-down, and a rejected load shows an error. The drill-down panel takes focus and closes on Escape.
 
 ## Related documentation
 
