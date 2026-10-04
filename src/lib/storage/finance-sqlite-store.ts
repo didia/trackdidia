@@ -863,6 +863,12 @@ export class FinanceSqliteStore {
       [input.transactionId, input.categoryId, now],
     );
 
+    // A newer category decision supersedes any pending proposal for the rows it touches.
+    await db.execute(
+      "DELETE FROM finance_category_suggestions WHERE transaction_id = $1 AND status = 'pending'",
+      [input.transactionId],
+    );
+
     let updated = 1;
     const backfill: FinanceCategoryBackfillEntry[] = [];
     if (input.scope === "all_matching") {
@@ -880,6 +886,12 @@ export class FinanceSqliteStore {
           appliedCategoryId: input.categoryId,
           appliedAt: now,
         });
+      }
+      for (const entry of backfill) {
+        await db.execute(
+          "DELETE FROM finance_category_suggestions WHERE transaction_id = $1 AND status = 'pending'",
+          [entry.transactionId],
+        );
       }
       const result = await db.execute(
         "UPDATE finance_transactions SET category_id = $2, category_source = 'user', category_confidence = NULL, categorized_at = $3, updated_at = $3 WHERE merchant_key = $1 AND category_source != 'user' AND id != $4",
@@ -1538,11 +1550,18 @@ export class FinanceSqliteStore {
       [input.transactionId],
     );
     const merchantKey = txnRows[0]?.merchant_key ?? "";
-    const existingPending = await db.select<Array<{ id: string }>>(
-      "SELECT id FROM finance_category_suggestions WHERE transaction_id = $1 AND status = 'pending'",
+    const existingPending = await db.select<Array<{ id: string; suggested_category_id: string }>>(
+      "SELECT id, suggested_category_id FROM finance_category_suggestions WHERE transaction_id = $1 AND status = 'pending'",
       [input.transactionId],
     );
     if (existingPending.length > 0) {
+      const [pending] = existingPending;
+      if (pending.suggested_category_id !== input.suggestedCategoryId) {
+        await db.execute(
+          "UPDATE finance_category_suggestions SET suggested_category_id = $2, confidence = $3, origin = $4 WHERE id = $1",
+          [pending.id, input.suggestedCategoryId, input.confidence ?? 0.5, input.origin],
+        );
+      }
       return false;
     }
     await db.execute(
@@ -1679,6 +1698,19 @@ export class FinanceSqliteStore {
       await db.execute(
         "UPDATE finance_rules SET applied_count = applied_count + 1, last_applied_at = $2 WHERE id = $1",
         [outcome.matchedRule.id, now],
+      );
+    }
+    if (outcome.categorySource !== "default") {
+      // A rule/transfer/user decision supersedes every earlier proposal.
+      await db.execute(
+        "DELETE FROM finance_category_suggestions WHERE transaction_id = $1 AND status = 'pending'",
+        [transactionId],
+      );
+    } else if (!outcome.suggestion) {
+      // Nothing is proposed any more; keep only AI proposals, which this pass never produces.
+      await db.execute(
+        "DELETE FROM finance_category_suggestions WHERE transaction_id = $1 AND status = 'pending' AND origin != 'ai'",
+        [transactionId],
       );
     }
     const suggestionCreated = outcome.suggestion
@@ -1947,10 +1979,17 @@ export class FinanceSqliteStore {
       throw new Error(`finance category suggestion not found: ${id}`);
     }
 
-    await db.execute(
-      "UPDATE finance_category_suggestions SET status = $2, decided_at = $3 WHERE id = $1",
+    if (before.status !== "pending") {
+      // Already decided (e.g. a repeated click): never learn from the same suggestion twice.
+      return mapSuggestion(before);
+    }
+    const claimed = await db.execute(
+      "UPDATE finance_category_suggestions SET status = $2, decided_at = $3 WHERE id = $1 AND status = 'pending'",
       [id, decision.status, now],
     );
+    if (claimed.rowsAffected === 0) {
+      return mapSuggestion(before);
+    }
 
     if (decision.status === "accepted" || decision.status === "corrected") {
       await this.setTransactionCategory({

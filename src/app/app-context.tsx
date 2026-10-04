@@ -411,17 +411,20 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
           generatedRelationshipCount,
         });
 
-        // Idempotent one-time seed, gated on the feature flag and a settings marker — never
-        // on the network, and swallowed on failure so it cannot add a new way to miss the
-        // 8-second timeout below. See docs/finance.md "Settings".
-        if (nextSettings.financeEnabled && !nextSettings.financeCategoriesSeededAt) {
+        // Additive, idempotent seed (INSERT OR IGNORE), run on every start while finance is
+        // enabled so taxonomy entries added by later releases reach existing installations.
+        // Gated on the feature flag, never on the network, and swallowed on failure so it
+        // cannot add a new way to miss the 8-second timeout below. See docs/finance.md "Settings".
+        if (nextSettings.financeEnabled) {
           try {
             const seededCount = await nextRepository.seedFinanceDefaultCategories();
-            nextSettings = {
-              ...nextSettings,
-              financeCategoriesSeededAt: new Date().toISOString(),
-            };
-            await nextRepository.saveSettings(nextSettings);
+            if (!nextSettings.financeCategoriesSeededAt) {
+              nextSettings = {
+                ...nextSettings,
+                financeCategoriesSeededAt: new Date().toISOString(),
+              };
+              await nextRepository.saveSettings(nextSettings);
+            }
             logDebug("info", "app.bootstrap", "Seed des categories de finance terminee", {
               seededCount,
             });

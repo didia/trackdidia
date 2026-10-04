@@ -131,11 +131,10 @@ export const FinanceTransactionsPage = () => {
       categoryId,
       scope,
     });
-    setLastBackfill(
-      scope === "all_matching" && result.backfill.length > 0
-        ? { count: result.backfill.length, entries: result.backfill }
-        : null,
-    );
+    // Only a newer bulk edit replaces the undo handle; ordinary edits leave it intact.
+    if (scope === "all_matching" && result.backfill.length > 0) {
+      setLastBackfill({ count: result.backfill.length, entries: result.backfill });
+    }
     await load();
   };
 

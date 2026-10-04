@@ -73,9 +73,10 @@ ISO strings from `nowIso()`.
 fixed ids (`fincat:alimentation`, `fincat:alimentation.epicerie`, …), distinct from
 the three system categories above. `AppRepository.seedFinanceDefaultCategories()`
 seeds it idempotently (`INSERT OR IGNORE`, so re-running is always a no-op) on both
-repositories. Settings calls it when finance is first enabled, and the call is gated on
-`AppSettings.financeCategoriesSeededAt`, the same one-time-marker pattern as the GTD
-normalizations in `app-context.tsx`. Phase 4 added `fincat:logement.telecommunications` (additively — existing ids are never
+repositories. Settings calls it when finance is first enabled, and startup calls it on
+every launch while finance is enabled, so taxonomy entries added by later releases reach
+installations that were seeded earlier (`AppSettings.financeCategoriesSeededAt` is only
+set once, as a record of the first seed). Phase 4 added `fincat:logement.telecommunications` (additively — existing ids are never
 renumbered) so the bundled telecom seed heuristic has a category to point at.
 
 ## Settings
@@ -95,7 +96,7 @@ automatically — no migration needed):
 | `financeCoachContextEnabled` | `false` | Adds a compact finance snapshot to the coach payload (Phase 7) |
 | `financeNotifyRunout` | `true` | Desktop notification for a runout alert (Phase 7) |
 | `financeSafetyBufferMinor` | `0` | Minor-unit floor for cash-runout forecasting (Phase 7) |
-| `financeCategoriesSeededAt` | `""` | One-time marker for the default taxonomy seed |
+| `financeCategoriesSeededAt` | `""` | Records the first default taxonomy seed (startup re-seeds additively regardless) |
 
 ## Repository contract
 
@@ -525,3 +526,16 @@ already exist.
 - [Storage and backups](storage-and-backups.md#finance-tables)
 - [Conventions](conventions.md) (minor-units rule)
 - [specs/todo/finance.md](../specs/todo/finance.md) — the full phased spec
+
+## Suggestion lifecycle (Phase 4 review fixes)
+
+A pending suggestion is retired (deleted) when a newer category decision supersedes
+it: a manual `setFinanceTransactionCategory` (including `all_matching` backfilled
+rows) or a rule/transfer outcome during reclassification. A reclassification that
+proposes a different category updates the pending row instead of keeping the stale
+one, and one that proposes nothing drops non-AI pending rows.
+`decideFinanceCategorySuggestion` only acts on `pending` suggestions; repeating it on
+a decided one is a no-op, so merchant memory is never reinforced twice. The review
+page also disables its actions while one is running. When several enabled rules
+match, `addLabels` is the deduplicated union across all of them. The transactions
+page keeps the last bulk-undo banner through unrelated single-row edits.

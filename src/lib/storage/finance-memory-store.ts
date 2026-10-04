@@ -384,6 +384,8 @@ export class FinanceMemoryStore {
       updatedAt: now,
     });
 
+    this.retirePendingSuggestions(txn.id);
+
     let updated = 1;
     const backfill: FinanceCategoryBackfillEntry[] = [];
     if (input.scope === "all_matching") {
@@ -402,6 +404,7 @@ export class FinanceMemoryStore {
             appliedCategoryId: input.categoryId,
             appliedAt: now,
           });
+          this.retirePendingSuggestions(candidate.id);
           this.transactions.set(candidate.id, {
             ...candidate,
             categoryId: input.categoryId,
@@ -869,16 +872,37 @@ export class FinanceMemoryStore {
     };
   }
 
+  /** Deletes pending proposals a newer decision supersedes; `keepAi` spares AI-origin rows. */
+  private retirePendingSuggestions(transactionId: string, keepAi = false): void {
+    for (const [id, suggestion] of [...this.categorySuggestions.entries()]) {
+      if (
+        suggestion.transactionId === transactionId &&
+        suggestion.status === "pending" &&
+        !(keepAi && suggestion.origin === "ai")
+      ) {
+        this.categorySuggestions.delete(id);
+      }
+    }
+  }
+
   private insertPendingSuggestion(
     transactionId: string,
     suggestedCategoryId: string,
     origin: FinanceCategorySuggestion["origin"] = "memory",
     confidence = 0.5,
   ): boolean {
-    const existingPending = [...this.categorySuggestions.values()].some(
+    const existingPending = [...this.categorySuggestions.values()].find(
       (suggestion) => suggestion.transactionId === transactionId && suggestion.status === "pending",
     );
     if (existingPending) {
+      if (existingPending.suggestedCategoryId !== suggestedCategoryId) {
+        this.categorySuggestions.set(existingPending.id, {
+          ...existingPending,
+          suggestedCategoryId,
+          confidence,
+          origin,
+        });
+      }
       return false;
     }
     const txn = this.transactions.get(transactionId);
@@ -982,6 +1006,11 @@ export class FinanceMemoryStore {
           lastAppliedAt: now,
         });
       }
+    }
+    if (outcome.categorySource !== "default") {
+      this.retirePendingSuggestions(transactionId);
+    } else if (!outcome.suggestion) {
+      this.retirePendingSuggestions(transactionId, true);
     }
     const suggestionCreated = outcome.suggestion
       ? this.insertPendingSuggestion(
@@ -1168,6 +1197,10 @@ export class FinanceMemoryStore {
       throw new Error(`finance category suggestion not found: ${id}`);
     }
 
+    if (suggestion.status !== "pending") {
+      // Already decided (e.g. a repeated click): never learn from the same suggestion twice.
+      return suggestion;
+    }
     const updated: FinanceCategorySuggestion = {
       ...suggestion,
       status: decision.status,

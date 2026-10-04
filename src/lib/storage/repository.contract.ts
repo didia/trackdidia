@@ -4101,6 +4101,73 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         });
       });
 
+      it("retires a pending suggestion when a rule supersedes it, and a repeated decision is a no-op", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "stale.csv",
+          fileHash: "hash-stale-1",
+          rows: [importRow({ accountId: "account-1", descriptionRaw: "IGA MONTREAL" })],
+        });
+        expect(await repository.listFinanceCategorySuggestions("pending")).toHaveLength(1);
+
+        await repository.saveFinanceRule({
+          id: "",
+          name: "Resto",
+          priority: 0,
+          enabled: true,
+          matcher: { descriptionContains: "IGA" },
+          actions: { categoryId: "fincat:alimentation.restaurants" },
+          createdAt: "",
+          updatedAt: "",
+          lastAppliedAt: null,
+          appliedCount: 0,
+        });
+        await repository.reclassifyFinancePending();
+        expect(await repository.listFinanceCategorySuggestions("pending")).toHaveLength(0);
+      });
+
+      it("retires pending suggestions on a manual category change and never learns twice from one suggestion", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "twice.csv",
+          fileHash: "hash-twice-1",
+          rows: [importRow({ accountId: "account-1", descriptionRaw: "IGA MONTREAL" })],
+        });
+        const [pending] = await repository.listFinanceCategorySuggestions("pending");
+        await repository.decideFinanceCategorySuggestion(pending.id, { status: "accepted" });
+        const first = await repository.listFinanceMerchantMemory();
+        await repository.decideFinanceCategorySuggestion(pending.id, { status: "accepted" });
+        expect(await repository.listFinanceMerchantMemory()).toEqual(first);
+
+        await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "manual.csv",
+          fileHash: "hash-manual-1",
+          rows: [
+            importRow({
+              accountId: "account-1",
+              postedDate: "2026-05-01",
+              amountMinor: -1234,
+              descriptionRaw: "VIDEOTRON LTEE",
+            }),
+          ],
+        });
+        const [telecom] = await repository.listFinanceCategorySuggestions("pending");
+        await repository.setFinanceTransactionCategory({
+          transactionId: telecom.transactionId,
+          categoryId: "fincat:alimentation.restaurants",
+          scope: "this",
+        });
+        expect(await repository.listFinanceCategorySuggestions("pending")).toHaveLength(0);
+      });
+
       it("reclassifyFinancePending leaves an all_matching-backfilled category in place when the new pass only suggests", async () => {
         const repository = await factory();
         await repository.saveFinanceAccount(account({ id: "account-1" }));
