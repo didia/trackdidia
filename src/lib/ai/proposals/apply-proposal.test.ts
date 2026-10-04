@@ -59,6 +59,7 @@ describe("applyCoachProposal gtd_action", () => {
       createdAt: now,
     };
 
+    await repository.saveAiProposal(proposal);
     const applied = await applyCoachProposal(repository, proposal, "2026-08-02");
 
     expect(applied.taskId).toBe("task-schedule");
@@ -87,6 +88,7 @@ describe("applyCoachProposal gtd_action", () => {
       createdAt: now,
     };
 
+    await repository.saveAiProposal(proposal);
     const applied = await applyCoachProposal(repository, proposal, "2026-08-02");
 
     expect(applied.taskId).toBeUndefined();
@@ -119,6 +121,7 @@ describe("applyCoachProposal gtd_action", () => {
       createdAt: now,
     };
 
+    await repository.saveAiProposal(proposal);
     const applied = await applyCoachProposal(repository, proposal, "2026-08-02");
     expect(applied.taskId).toBeUndefined();
     const tasks = await repository.listTasks({ includeCompleted: true });
@@ -155,6 +158,7 @@ describe("applyCoachProposal goal_evaluation", () => {
       createdAt: now,
     };
 
+    await repository.saveAiProposal(proposal);
     const applied = await applyCoachProposal(repository, proposal, "2026-04");
 
     expect(applied.goalId).toBe(goal.id);

@@ -1,6 +1,5 @@
 import { act, render, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { defaultAppSettings } from "../domain/daily-entry";
 import { rescueTimeCredentialFingerprint } from "../lib/rescuetime/credential-fingerprint";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { AppProvider, type AppContextValue, useAppContext } from "./app-context";
@@ -17,7 +16,7 @@ vi.mock("../lib/storage/factory", () => ({
   },
 }));
 
-describe("AppProvider saveSettings RescueTime cache pruning", () => {
+describe("AppProvider updateSettings RescueTime cache pruning", () => {
   afterEach(() => {
     repositoryBox.current = null;
   });
@@ -47,13 +46,16 @@ describe("AppProvider saveSettings RescueTime cache pruning", () => {
     const getContext = await mountProvider(repository);
 
     await act(async () => {
-      await getContext().saveSettings({ ...defaultAppSettings(), rescuetimeApiKey: " new-key " });
+      await getContext().updateSettings((current) => ({
+        ...current,
+        rescuetimeApiKey: " new-key ",
+      }));
     });
 
     expect(prune).toHaveBeenCalledWith(await rescueTimeCredentialFingerprint("new-key"));
 
     await act(async () => {
-      await getContext().saveSettings({ ...defaultAppSettings(), rescuetimeApiKey: "" });
+      await getContext().updateSettings((current) => ({ ...current, rescuetimeApiKey: "" }));
     });
     expect(prune).toHaveBeenLastCalledWith(null);
   });
@@ -67,14 +69,14 @@ describe("AppProvider saveSettings RescueTime cache pruning", () => {
     const getContext = await mountProvider(repository);
 
     await act(async () => {
-      await getContext().saveSettings({ ...defaultAppSettings(), aiEnabled: true });
+      await getContext().updateSettings((current) => ({ ...current, aiEnabled: true }));
     });
     expect(prune).not.toHaveBeenCalled();
 
     await act(async () => {
       await expect(
-        getContext().saveSettings({ ...defaultAppSettings(), rescuetimeApiKey: "another" }),
-      ).resolves.toBeUndefined();
+        getContext().updateSettings((current) => ({ ...current, rescuetimeApiKey: "another" })),
+      ).resolves.toMatchObject({ rescuetimeApiKey: "another" });
     });
     expect(prune).toHaveBeenCalledTimes(1);
     expect((await repository.getSettings()).rescuetimeApiKey).toBe("another");

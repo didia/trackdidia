@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppContext } from "../app/app-context";
 import { FinanceTabs } from "../components/finance/FinanceTabs";
@@ -49,6 +49,14 @@ const buildGroups = (categories: FinanceCategory[]): CategoryGroup[] => {
   }));
 };
 
+/** A parent category can receive spending directly; give it a row once it has any figure. */
+const hasBudgetFigures = (row: FinanceBudgetState["categories"][number] | undefined): boolean =>
+  row !== undefined &&
+  (row.activityMinor !== 0 || row.assignedMinor !== 0 || row.availableMinor !== 0);
+
+const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
 export const FinanceBudgetPage = () => {
   const { t } = useTranslation("finance");
   const { repository, settings } = useAppContext();
@@ -68,7 +76,15 @@ export const FinanceBudgetPage = () => {
   const [coverFromByCategory, setCoverFromByCategory] = useState<Record<string, string>>({});
   const [forecast, setForecast] = useState<FinanceForecast | null>(null);
 
+  const [error, setError] = useState<string | null>(null);
+  const loadIdRef = useRef(0);
+  // Every write runs through this chain so overlapping clicks execute one at a time; each
+  // task re-reads fresh state from the repository instead of trusting the rendered snapshot.
+  const queueRef = useRef<Promise<void>>(Promise.resolve());
+
   const load = useCallback(async () => {
+    const loadId = ++loadIdRef.current;
+    const isStale = () => loadId !== loadIdRef.current;
     const isCurrentMonth = monthKey === getMonthKey(today);
     const [nextMonth, nextState, nextCategories, accounts, forecastResult] = await Promise.all([
       repository.getFinanceBudgetMonth(monthKey),
@@ -78,6 +94,9 @@ export const FinanceBudgetPage = () => {
       // The forecast is always relative to "today" — only meaningful while viewing the current month.
       isCurrentMonth ? repository.computeFinanceForecast(today) : Promise.resolve(null),
     ]);
+    if (isStale()) {
+      return;
+    }
     setBudgetMonth(nextMonth);
     setState(nextState);
     setCategories(nextCategories);
@@ -101,12 +120,30 @@ export const FinanceBudgetPage = () => {
         minor: computeDerivedBalanceMinor(account, transactions),
       };
     }
-    setCardBalances(balances);
+    if (!isStale()) {
+      setCardBalances(balances);
+    }
   }, [repository, monthKey, exponent, today]);
 
   useEffect(() => {
-    void load();
+    setError(null);
+    load().catch((loadError: unknown) => setError(errorMessage(loadError)));
   }, [load]);
+
+  const enqueue = (task: () => Promise<void>) => {
+    const run = queueRef.current.then(async () => {
+      try {
+        await task();
+        await load();
+        setError(null);
+      } catch (taskError) {
+        setError(errorMessage(taskError));
+        await load().catch(() => undefined);
+      }
+    });
+    queueRef.current = run;
+    return run;
+  };
 
   const categoryNameById = useMemo(
     () => new Map(categories.map((category) => [category.id, category.name])),
@@ -132,85 +169,71 @@ export const FinanceBudgetPage = () => {
     return { elapsedDays, totalDays };
   }, [monthKey, today]);
 
-  const commitAssignment = async (categoryId: string, text: string) => {
+  const commitAssignment = (categoryId: string, text: string) => {
     const parsed = parseAmountToMinor(text || "0", { exponent });
     if (!parsed.ok) {
       return;
     }
-    await repository.setFinanceBudgetAssignment(monthKey, categoryId, parsed.amountMinor);
-    await load();
+    // An untouched field (e.g. a displayed 0.00) must not rewrite the row.
+    if (parsed.amountMinor === (stateCategoryById.get(categoryId)?.assignedMinor ?? 0)) {
+      return;
+    }
+    return enqueue(async () => {
+      await repository.setFinanceBudgetAssignment(monthKey, categoryId, parsed.amountMinor);
+    });
   };
 
-  const changePolicy = async (categoryId: string, policy: FinanceOverspendPolicy) => {
-    await repository.setFinanceCategoryOverspendPolicy(monthKey, categoryId, policy);
-    await load();
-  };
+  const changePolicy = (categoryId: string, policy: FinanceOverspendPolicy) =>
+    enqueue(async () => {
+      await repository.setFinanceCategoryOverspendPolicy(monthKey, categoryId, policy);
+    });
 
-  const saveNote = async () => {
-    await repository.setFinanceBudgetReadyToAssignNote(monthKey, noteDraft || null);
-    await load();
-  };
+  const saveNote = () =>
+    enqueue(async () => {
+      await repository.setFinanceBudgetReadyToAssignNote(monthKey, noteDraft || null);
+    });
 
-  const toggleClosed = async () => {
-    await repository.setFinanceBudgetMonthClosed(monthKey, !closed);
-    await load();
-  };
+  const toggleClosed = () =>
+    enqueue(async () => {
+      await repository.setFinanceBudgetMonthClosed(monthKey, !closed);
+    });
 
-  // Every quick-action amount below is read straight off `computeFinanceBudgetState`'s
-  // result (`stateCategoryById`) — the page only renders and writes, never recomputes.
+  // Quick-action amounts come from a fresh `computeFinanceBudgetState` read inside the queued
+  // task (never the rendered snapshot), so overlapping clicks cannot reuse a stale Ready to Assign.
+  const assignFromFreshState = (
+    categoryId: string,
+    pick: (row: FinanceBudgetState["categories"][number]) => number,
+  ) =>
+    enqueue(async () => {
+      const fresh = await repository.computeFinanceBudgetState(monthKey);
+      const row = fresh.categories.find((candidate) => candidate.categoryId === categoryId);
+      await repository.setFinanceBudgetAssignment(monthKey, categoryId, row ? pick(row) : 0);
+    });
 
-  const assignLastMonth = async (categoryId: string) => {
-    const amount = stateCategoryById.get(categoryId)?.lastMonthAssignedMinor ?? 0;
-    await repository.setFinanceBudgetAssignment(monthKey, categoryId, amount);
-    await load();
-  };
+  const assignLastMonth = (categoryId: string) =>
+    assignFromFreshState(categoryId, (row) => row.lastMonthAssignedMinor);
 
-  const assignAverageLast3Months = async (categoryId: string) => {
-    const amount = stateCategoryById.get(categoryId)?.average3MonthsAssignedMinor ?? 0;
-    await repository.setFinanceBudgetAssignment(monthKey, categoryId, amount);
-    await load();
-  };
+  const assignAverageLast3Months = (categoryId: string) =>
+    assignFromFreshState(categoryId, (row) => row.average3MonthsAssignedMinor);
 
-  const assignAllReadyToAssign = async (categoryId: string) => {
-    const amount = stateCategoryById.get(categoryId)?.assignAllReadyToAssignMinor ?? 0;
-    await repository.setFinanceBudgetAssignment(monthKey, categoryId, amount);
-    await load();
-  };
+  const assignAllReadyToAssign = (categoryId: string) =>
+    assignFromFreshState(categoryId, (row) => row.assignAllReadyToAssignMinor);
 
-  const coverOverspending = async (toCategoryId: string) => {
+  const coverOverspending = (toCategoryId: string) => {
     const fromCategoryId = coverFromByCategory[toCategoryId];
     if (!fromCategoryId) {
       return;
     }
-    const result = await repository.computeFinanceCoverOverspending(
-      monthKey,
-      fromCategoryId,
-      toCategoryId,
-    );
-    if (result.amountMinor === 0) {
-      return;
-    }
-    await repository.setFinanceBudgetAssignment(
-      monthKey,
-      fromCategoryId,
-      result.fromNewAssignedMinor,
-    );
-    await repository.setFinanceBudgetAssignment(monthKey, toCategoryId, result.toNewAssignedMinor);
-    await load();
+    return enqueue(async () => {
+      await repository.applyFinanceCoverOverspending(monthKey, fromCategoryId, toCategoryId);
+    });
   };
 
-  const assignUnbudgeted = async (categoryId: string) => {
-    const category = stateCategoryById.get(categoryId);
-    if (!category) {
-      return;
-    }
-    await repository.setFinanceBudgetAssignment(
-      monthKey,
+  const assignUnbudgeted = (categoryId: string) =>
+    assignFromFreshState(
       categoryId,
-      computeUnbudgetedAssignAmountMinor(category.activityMinor),
+      (row) => row.assignedMinor + computeUnbudgetedAssignAmountMinor(row),
     );
-    await load();
-  };
 
   const renderCategoryRow = (category: FinanceCategory) => {
     const row = stateCategoryById.get(category.id);
@@ -338,6 +361,12 @@ export const FinanceBudgetPage = () => {
       <PageHeader eyebrow={t("budget.hero.eyebrow")} title={t("budget.hero.title")} />
       <FinanceTabs />
 
+      {error ? (
+        <p role="alert" className="hero__copy">
+          {error}
+        </p>
+      ) : null}
+
       <SectionCard title={t("budget.monthSelectorTitle")}>
         <div className="actions-row">
           <button
@@ -395,9 +424,10 @@ export const FinanceBudgetPage = () => {
             <article key={group.id} className="list-card">
               <h3>{group.name}</h3>
               <div className="stack">
-                {leaves.length > 0
-                  ? leaves.map((leaf) => renderCategoryRow(leaf))
-                  : renderCategoryRow(group)}
+                {leaves.length === 0 || hasBudgetFigures(stateCategoryById.get(group.id))
+                  ? renderCategoryRow(group)
+                  : null}
+                {leaves.map((leaf) => renderCategoryRow(leaf))}
               </div>
             </article>
           ))}

@@ -1,20 +1,25 @@
+import { useProposalDecisions } from "../app/use-proposal-decisions";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
-import { useLatestRequest } from "../app/use-latest-request";
 import { useAppContext } from "../app/app-context";
+import { resolveInitialMonthlyReviewMonth } from "../app/reviews/review-query-params";
+import { buildRitualSections, type RitualSectionMeta } from "../app/reviews/ritual-sections";
+import {
+  type ReviewSynthesisContext,
+  useReviewSynthesis,
+} from "../app/reviews/use-review-synthesis";
+import { useLatestRequest } from "../app/use-latest-request";
+import { useLatestValueSaver } from "../app/use-latest-value-saver";
 import {
   applyMonthlyReviewTransition,
   createEmptyMonthlyReview,
   getMonthEndDate,
-  getMonthKey,
   getMonthStartDate,
-  getDefaultMonthlyReviewMonthKey,
   updateMonthlyReviewChecklist,
   updateMonthlyReviewNote,
 } from "../domain/monthly-review";
 import type {
-  AiProposal,
   AnnualGoalSnapshot,
   MonthlyReview,
   MonthlyReviewSectionKey,
@@ -22,7 +27,8 @@ import type {
   MonthlySynthesisResult,
 } from "../domain/types";
 import { MonthlySynthesisPanel } from "../components/MonthlySynthesisPanel";
-import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
+import type { PersistedTextareaHandle } from "../components/PersistedTextarea";
+import { RitualSectionList } from "../components/RitualSectionList";
 import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
 import { formatDateLong, getTodayDate } from "../lib/date";
@@ -30,32 +36,17 @@ import { formatPercent } from "../lib/format";
 import { formatTimestamp } from "../lib/format";
 import { resolveMonthlySnapshotInputs } from "../lib/ai/context/monthly-snapshot";
 import { loadLatestMonthlySynthesis } from "../lib/ai/monthly-synthesis-loader";
-import {
-  MonthlySynthesisService,
-  monthlyReviewSectionFromProposal,
-} from "../lib/ai/monthly-synthesis-service";
+import { MonthlySynthesisService } from "../lib/ai/monthly-synthesis-service";
 import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
 import { applyCoachProposal } from "../lib/ai/proposals/apply-proposal";
 
-interface MonthlySectionDefinition {
-  key: MonthlyReviewSectionKey;
-  title: string;
-  subtitle: string;
-  prompt: string;
-  linkTo?: string;
-  linkLabel?: string;
+interface MonthlySynthesisRunOptions {
+  monthKey: string;
+  trigger: "auto" | "explicit";
+  bypassCache?: boolean;
 }
 
-const monthlySectionMeta: Array<{
-  key: MonthlyReviewSectionKey;
-  linkTo?: string;
-  linkKey?:
-    | "monthly.ritual.journaux.link"
-    | "monthly.ritual.progressionObjectifs.link"
-    | "monthly.ritual.nettoyageListes.link"
-    | "monthly.ritual.calendrier.link"
-    | "monthly.ritual.grosProjets.link";
-}> = [
+const monthlySectionMeta: ReadonlyArray<RitualSectionMeta<MonthlyReviewSectionKey>> = [
   { key: "bilan" },
   { key: "journaux", linkTo: "/semaine", linkKey: "monthly.ritual.journaux.link" },
   { key: "finances" },
@@ -78,26 +69,78 @@ export const MonthlyReviewPage = () => {
   const synthesisService = useMemo(() => new MonthlySynthesisService(new OpenRouterProvider()), []);
   const today = getTodayDate();
   const [searchParams] = useSearchParams();
-  const monthFromQuery = searchParams.get("month");
-  const initialMonth =
-    monthFromQuery && /^\d{4}-\d{2}$/.test(monthFromQuery)
-      ? getMonthKey(`${monthFromQuery}-01`)
-      : getDefaultMonthlyReviewMonthKey(today);
+  const initialMonth = resolveInitialMonthlyReviewMonth(searchParams.get("month"), today);
   const [selectedMonthKey, setSelectedMonthKey] = useState(initialMonth);
   const [review, setReview] = useState<MonthlyReview | null>(null);
   const [summary, setSummary] = useState<MonthlyReviewSummary | null>(null);
   const [goalSnapshots, setGoalSnapshots] = useState<AnnualGoalSnapshot[]>([]);
   const [loading, setLoading] = useState(true);
-  const [synthesisResult, setSynthesisResult] = useState<MonthlySynthesisResult | null>(null);
-  const [synthesisLoading, setSynthesisLoading] = useState(false);
   const [synthesisNotice, setSynthesisNotice] = useState<string | null>(null);
   const latestReviewRef = useRef<MonthlyReview | null>(null);
-  const saveChainRef = useRef(Promise.resolve());
+  const persistReview = useCallback(
+    async (value: MonthlyReview) => {
+      await repository.saveMonthlyReview(value);
+    },
+    [repository],
+  );
+  const reviewSaver = useLatestValueSaver<string, MonthlyReview>(persistReview);
   const noteRefs = useRef<Partial<Record<MonthlyReviewSectionKey, PersistedTextareaHandle | null>>>(
     {},
   );
   const monthRequest = useLatestRequest();
-  const synthesisRequest = useLatestRequest();
+
+  const runSynthesisRequest = useCallback(
+    async (
+      options: MonthlySynthesisRunOptions,
+      { signal, setResult }: ReviewSynthesisContext<MonthlySynthesisResult>,
+    ) => {
+      if (options.trigger === "auto") {
+        const stored = await loadLatestMonthlySynthesis(
+          repository,
+          synthesisService,
+          options.monthKey,
+        );
+        if (!signal.isLatest()) {
+          return;
+        }
+        if (stored) {
+          setResult(stored);
+        }
+      }
+
+      const snapshotInputs = await resolveMonthlySnapshotInputs(repository, options.monthKey);
+
+      if (!signal.isLatest()) {
+        return;
+      }
+
+      const result = await synthesisService.buildSynthesis(repository, {
+        monthKey: options.monthKey,
+        settings,
+        snapshotInputs,
+        trigger: options.trigger,
+        bypassCache: options.bypassCache,
+      });
+
+      if (!signal.isLatest()) {
+        return;
+      }
+
+      setResult(result);
+    },
+    [repository, settings, synthesisService],
+  );
+  const {
+    visibleResult: synthesisResult,
+    setResult: setSynthesisResult,
+    loading: synthesisLoading,
+    run: runSynthesis,
+    clear: clearSynthesis,
+    invalidate: invalidateSynthesis,
+  } = useReviewSynthesis<MonthlySynthesisResult, MonthlySynthesisRunOptions>(
+    summary?.monthKey ?? null,
+    runSynthesisRequest,
+  );
 
   const loadMonth = useCallback(
     async (requestedMonthKey: string) => {
@@ -105,85 +148,49 @@ export const MonthlyReviewPage = () => {
         return;
       }
 
-      synthesisRequest.invalidate();
-      setSynthesisResult(null);
+      invalidateSynthesis();
+      clearSynthesis();
       setLoading(true);
       await monthRequest.run(async (signal) => {
-        const [existingReview, computedSummary, annualSnapshots] = await Promise.all([
-          repository.getMonthlyReview(requestedMonthKey),
-          repository.computeMonthlyReviewSummary(requestedMonthKey),
-          repository.computeAnnualGoalSnapshots(Number(requestedMonthKey.slice(0, 4))),
-        ]);
-        if (!signal.isLatest()) {
-          return;
+        try {
+          await reviewSaver.settled(requestedMonthKey).catch((error: unknown) => {
+            // A rejected write leaves a dirty snapshot that the load must keep editable.
+            if (!reviewSaver.isDirty(requestedMonthKey)) throw error;
+          });
+          if (!signal.isLatest()) return;
+          const loadVersion = reviewSaver.version(requestedMonthKey);
+          const [existingReview, computedSummary, annualSnapshots] = await Promise.all([
+            repository.getMonthlyReview(requestedMonthKey),
+            repository.computeMonthlyReviewSummary(requestedMonthKey),
+            repository.computeAnnualGoalSnapshots(Number(requestedMonthKey.slice(0, 4))),
+          ]);
+          if (!signal.isLatest()) {
+            return;
+          }
+          const keepLocal =
+            reviewSaver.version(requestedMonthKey) !== loadVersion ||
+            reviewSaver.isDirty(requestedMonthKey);
+          const nextReview =
+            (keepLocal ? reviewSaver.get(requestedMonthKey) : undefined) ??
+            existingReview ??
+            createEmptyMonthlyReview(requestedMonthKey);
+          if (!keepLocal) reviewSaver.hydrate(requestedMonthKey, nextReview);
+          latestReviewRef.current = nextReview;
+          setSelectedMonthKey(requestedMonthKey);
+          setReview(nextReview);
+          setSummary(computedSummary);
+          setGoalSnapshots(annualSnapshots);
+        } finally {
+          if (signal.isLatest()) setLoading(false);
         }
-        const nextReview = existingReview ?? createEmptyMonthlyReview(requestedMonthKey);
-        latestReviewRef.current = nextReview;
-        setSelectedMonthKey(requestedMonthKey);
-        setReview(nextReview);
-        setSummary(computedSummary);
-        setGoalSnapshots(annualSnapshots);
-        setLoading(false);
       });
     },
-    [monthRequest, repository, synthesisRequest],
+    [clearSynthesis, invalidateSynthesis, monthRequest, repository, reviewSaver],
   );
 
   useEffect(() => {
     void loadMonth(selectedMonthKey);
   }, [loadMonth]);
-
-  const runSynthesis = useCallback(
-    async (options: { monthKey: string; trigger: "auto" | "explicit"; bypassCache?: boolean }) => {
-      await synthesisRequest.run(async (signal) => {
-        setSynthesisLoading(true);
-        if (options.trigger !== "auto") {
-          setSynthesisResult(null);
-        }
-
-        try {
-          if (options.trigger === "auto") {
-            const stored = await loadLatestMonthlySynthesis(
-              repository,
-              synthesisService,
-              options.monthKey,
-            );
-            if (!signal.isLatest()) {
-              return;
-            }
-            if (stored) {
-              setSynthesisResult(stored);
-            }
-          }
-
-          const snapshotInputs = await resolveMonthlySnapshotInputs(repository, options.monthKey);
-
-          if (!signal.isLatest()) {
-            return;
-          }
-
-          const result = await synthesisService.buildSynthesis(repository, {
-            monthKey: options.monthKey,
-            settings,
-            snapshotInputs,
-            trigger: options.trigger,
-            bypassCache: options.bypassCache,
-          });
-
-          if (!signal.isLatest()) {
-            return;
-          }
-
-          setSynthesisResult(result);
-        } finally {
-          if (signal.isLatest()) {
-            setSynthesisLoading(false);
-          }
-        }
-      });
-    },
-    [repository, settings, synthesisRequest, synthesisService],
-  );
 
   useEffect(() => {
     if (!summary || loading) {
@@ -193,130 +200,61 @@ export const MonthlyReviewPage = () => {
     void runSynthesis({ monthKey: summary.monthKey, trigger: "auto" });
   }, [summary?.monthKey, loading, runSynthesis]);
 
-  const synthesisMatchesMonth =
-    synthesisResult?.message.scopeKey === summary?.monthKey && synthesisResult !== null;
-
-  const handleAcceptSynthesisProposal = async (proposal: AiProposal) => {
-    if (!summary || synthesisResult?.message.scopeKey !== summary.monthKey) {
-      return;
-    }
-
-    const monthKey = summary.monthKey;
-    const currentReview = latestReviewRef.current ?? review ?? createEmptyMonthlyReview(monthKey);
-
-    if (proposal.type === "review_section_draft") {
-      const section = monthlyReviewSectionFromProposal(proposal);
-      if (!section) {
-        return;
+  const decisions = useProposalDecisions(synthesisResult, setSynthesisResult, {
+    onAccept: async (proposal) => {
+      if (!summary) return {};
+      const monthKey = summary.monthKey;
+      const applied = await applyCoachProposal(repository, proposal, {
+        acceptedDate: monthKey,
+        monthly: {
+          monthKey,
+          withReview: async (sectionKey, work) => {
+            const current = latestReviewRef.current ?? review ?? createEmptyMonthlyReview(monthKey);
+            if (!reviewSaver.get(monthKey)) reviewSaver.hydrate(monthKey, current);
+            return reviewSaver.run(monthKey, async (snapshot) => {
+              const beforeVersion = reviewSaver.version(monthKey);
+              const outcome = await work(snapshot);
+              if (!outcome.monthlyReview) return outcome;
+              const latest = reviewSaver.get(monthKey) ?? snapshot;
+              const unchanged = reviewSaver.version(monthKey) === beforeVersion;
+              const next =
+                latest.notes[sectionKey] === snapshot.notes[sectionKey]
+                  ? updateMonthlyReviewNote(
+                      latest,
+                      sectionKey,
+                      outcome.monthlyReview.notes[sectionKey],
+                    )
+                  : latest;
+              reviewSaver.remember(monthKey, next);
+              if (unchanged) reviewSaver.markSaved(monthKey, reviewSaver.version(monthKey));
+              if (latestReviewRef.current?.monthKey === monthKey) {
+                latestReviewRef.current = next;
+                setReview(next);
+                noteRefs.current[sectionKey]?.setDraft(next.notes[sectionKey]);
+              }
+              return { ...outcome, text: next.notes[sectionKey], monthlyReview: next };
+            });
+          },
+        },
+      });
+      if (applied.proposal) {
+        if (applied.goalMissing) setSynthesisNotice(t("monthly.synthesis.goalMissing"));
+        if (applied.goalId)
+          setGoalSnapshots(
+            await repository.computeAnnualGoalSnapshots(Number(monthKey.slice(0, 4))),
+          );
       }
-
-      const nextReview = updateMonthlyReviewNote(currentReview, section.sectionKey, section.text);
-      latestReviewRef.current = nextReview;
-      setReview(nextReview);
-      noteRefs.current[section.sectionKey]?.setDraft(section.text);
-
-      const accepted = await repository.acceptAiMonthlyReviewSectionDraftProposal(
-        proposal,
-        nextReview,
-      );
-      setSynthesisResult((current) =>
-        current
-          ? {
-              ...current,
-              proposals: current.proposals.map((item) =>
-                item.id === proposal.id ? accepted.proposal : item,
-              ),
-            }
-          : current,
-      );
-      return;
-    }
-
-    if (proposal.type === "goal_evaluation") {
-      const payload = JSON.parse(proposal.payloadJson) as { monthKey?: string };
-      if (payload.monthKey !== monthKey) {
-        return;
-      }
-    }
-
-    const applied = await applyCoachProposal(repository, proposal, monthKey);
-
-    if (proposal.type === "goal_evaluation" && !applied.goalId) {
-      await repository.decideAiProposal(proposal.id, "dismissed");
-      setSynthesisNotice(t("monthly.synthesis.goalMissing"));
-      setSynthesisResult((current) =>
-        current
-          ? {
-              ...current,
-              proposals: current.proposals.map((item) =>
-                item.id === proposal.id
-                  ? { ...item, status: "dismissed", decidedAt: new Date().toISOString() }
-                  : item,
-              ),
-            }
-          : current,
-      );
-      return;
-    }
-
-    if (proposal.type === "goal_evaluation" && applied.goalId) {
-      const annualSnapshots = await repository.computeAnnualGoalSnapshots(
-        Number(monthKey.slice(0, 4)),
-      );
-      setGoalSnapshots(annualSnapshots);
-    }
-
-    await repository.decideAiProposal(
-      proposal.id,
-      "accepted",
-      applied.goalId ?? applied.objectiveId ?? applied.taskId ?? applied.memoryId ?? monthKey,
-    );
-    setSynthesisResult((current) =>
-      current
-        ? {
-            ...current,
-            proposals: current.proposals.map((item) =>
-              item.id === proposal.id
-                ? { ...item, status: "accepted", decidedAt: new Date().toISOString() }
-                : item,
-            ),
-          }
-        : current,
-    );
-  };
-
-  const handleDismissSynthesisProposal = async (proposal: AiProposal) => {
-    await repository.decideAiProposal(proposal.id, "dismissed");
-    setSynthesisResult((current) =>
-      current
-        ? {
-            ...current,
-            proposals: current.proposals.map((item) =>
-              item.id === proposal.id
-                ? { ...item, status: "dismissed", decidedAt: new Date().toISOString() }
-                : item,
-            ),
-          }
-        : current,
-    );
-  };
+      return applied;
+    },
+  });
 
   const saveReview = useCallback(
     (nextReview: MonthlyReview) => {
       latestReviewRef.current = nextReview;
       setReview(nextReview);
-      saveChainRef.current = saveChainRef.current
-        .catch(() => undefined)
-        .then(async () => {
-          const snapshot = latestReviewRef.current;
-          if (!snapshot) {
-            return;
-          }
-          await repository.saveMonthlyReview(snapshot);
-        });
-      return saveChainRef.current;
+      return reviewSaver.set(nextReview.monthKey, nextReview);
     },
-    [repository],
+    [reviewSaver],
   );
 
   const selectedGoalSnapshots = useMemo(
@@ -327,16 +265,9 @@ export const MonthlyReviewPage = () => {
     [goalSnapshots, selectedMonthKey],
   );
 
-  const monthlySections = useMemo<MonthlySectionDefinition[]>(
+  const monthlySections = useMemo(
     () =>
-      monthlySectionMeta.map((section) => ({
-        key: section.key,
-        title: t(`monthly.ritual.${section.key}.title`),
-        subtitle: t(`monthly.ritual.${section.key}.subtitle`),
-        prompt: t(`monthly.ritual.${section.key}.prompt`),
-        linkTo: section.linkTo,
-        linkLabel: section.linkKey ? t(section.linkKey) : undefined,
-      })),
+      buildRitualSections(monthlySectionMeta, (key) => String(t(key as never)), "monthly.ritual"),
     [t],
   );
 
@@ -444,7 +375,7 @@ export const MonthlyReviewPage = () => {
 
       <SectionCard title={t("monthly.coach.title")} subtitle={t("monthly.coach.subtitle")}>
         <MonthlySynthesisPanel
-          result={synthesisMatchesMonth ? synthesisResult : null}
+          result={synthesisResult}
           loading={synthesisLoading}
           notice={synthesisNotice}
           settings={settings}
@@ -464,8 +395,7 @@ export const MonthlyReviewPage = () => {
               bypassCache: true,
             });
           }}
-          onAcceptProposal={(proposal) => void handleAcceptSynthesisProposal(proposal)}
-          onDismissProposal={(proposal) => void handleDismissSynthesisProposal(proposal)}
+          decisions={decisions}
         />
       </SectionCard>
 
@@ -602,66 +532,33 @@ export const MonthlyReviewPage = () => {
       </SectionCard>
 
       <SectionCard title={t("monthly.ritual.title")} subtitle={t("monthly.ritual.subtitle")}>
-        <div className="monthly-ritual-stack">
-          {monthlySections.map((section) => (
-            <article key={section.key} className="weekly-ritual-card">
-              <div className="weekly-ritual-card__header">
-                <div>
-                  <h3>{section.title}</h3>
-                  <p>{section.subtitle}</p>
-                </div>
-                <label className="switch-row">
-                  <input
-                    aria-label={t("monthly.ritual.doneAria", { section: section.title })}
-                    type="checkbox"
-                    checked={review.ritualChecklist[section.key]}
-                    onChange={(event) => {
-                      const currentReview = latestReviewRef.current;
-                      if (!currentReview) {
-                        return;
-                      }
-                      void saveReview(
-                        updateMonthlyReviewChecklist(
-                          currentReview,
-                          section.key,
-                          event.target.checked,
-                        ),
-                      );
-                    }}
-                  />
-                  <span>{t("monthly.ritual.done")}</span>
-                </label>
-              </div>
-              <p className="empty-copy">{section.prompt}</p>
-              <label className="stacked-field">
-                <span>{t("monthly.ritual.notesLabel", { section: section.title })}</span>
-                <PersistedTextarea
-                  ref={(handle) => {
-                    noteRefs.current[section.key] = handle;
-                  }}
-                  key={`${review.monthKey}-${section.key}`}
-                  rows={4}
-                  debounceMs={0}
-                  savedValue={review.notes[section.key]}
-                  onPersist={(value) => {
-                    const currentReview = latestReviewRef.current;
-                    if (!currentReview) {
-                      return;
-                    }
-                    void saveReview(updateMonthlyReviewNote(currentReview, section.key, value));
-                  }}
-                />
-              </label>
-              {section.linkTo && section.linkLabel ? (
-                <div className="section-actions">
-                  <Link className="button button--ghost" to={section.linkTo}>
-                    {section.linkLabel}
-                  </Link>
-                </div>
-              ) : null}
-            </article>
-          ))}
-        </div>
+        <RitualSectionList
+          className="monthly-ritual-stack"
+          sections={monthlySections}
+          scopeKey={review.monthKey}
+          checklist={review.ritualChecklist}
+          notes={review.notes}
+          noteRefs={noteRefs}
+          labels={{
+            done: t("monthly.ritual.done"),
+            doneAria: (section) => t("monthly.ritual.doneAria", { section }),
+            notesLabel: (section) => t("monthly.ritual.notesLabel", { section }),
+          }}
+          onToggle={(sectionKey, checked) => {
+            const currentReview = latestReviewRef.current;
+            if (!currentReview) {
+              return;
+            }
+            void saveReview(updateMonthlyReviewChecklist(currentReview, sectionKey, checked));
+          }}
+          onPersistNote={(sectionKey, value) => {
+            const currentReview = latestReviewRef.current;
+            if (!currentReview) {
+              return;
+            }
+            return saveReview(updateMonthlyReviewNote(currentReview, sectionKey, value));
+          }}
+        />
       </SectionCard>
 
       <SectionCard title={t("monthly.state.title")} subtitle={t("monthly.state.subtitle")}>

@@ -1,18 +1,33 @@
+import { useProposalDecisions } from "../app/use-proposal-decisions";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAppContext } from "../app/app-context";
-import { type LatestRequest, useAsyncResource, useLatestRequest } from "../app/use-latest-request";
-import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
+import {
+  enqueueMidWeekDecisionSave,
+  getFailedMidWeekDraft,
+  waitForMidWeekDecisionSaves,
+} from "../app/mid-week-decision-saves";
+import { resolveInitialWeeklyReviewWeek } from "../app/reviews/review-query-params";
+import { buildRitualSections, type RitualSectionMeta } from "../app/reviews/ritual-sections";
+import { useReviewSynthesis } from "../app/reviews/use-review-synthesis";
+import { useRescueTimeWeek } from "../app/reviews/use-rescuetime-week";
+import { useWeeklyMemoryProposals } from "../app/reviews/use-weekly-memory-proposals";
+import { useWeeklyReviewNotes } from "../app/reviews/use-weekly-review-notes";
+import { useAsyncResource, useLatestRequest } from "../app/use-latest-request";
 import { PageHeader } from "../components/PageHeader";
+import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
+import { RitualSectionList } from "../components/RitualSectionList";
 import { SectionCard } from "../components/SectionCard";
 import { WeeklySynthesisPanel } from "../components/WeeklySynthesisPanel";
 import { deriveStatusLabel } from "../domain/daily-entry";
-import type { RescueTimeGoalsSnapshot } from "../domain/rescuetime-goals";
+import {
+  buildMidWeekReviewSummary,
+  compareMidWeekSnapshot,
+  type MidWeekStatus,
+} from "../domain/mid-week-review";
 import type {
   AiProposal,
-  WeeklyObjectivesSnapshot,
-  WeeklyReview,
   WeeklyReviewSummary,
   WeeklyRitualSectionKey,
   WeeklySynthesisResult,
@@ -28,57 +43,16 @@ import {
   updateWeeklyReviewNote,
 } from "../domain/weekly-review";
 import { resolveWeeklySnapshotInputs } from "../lib/ai/context/weekly-snapshot";
-import {
-  createWeeklyMemoryProposals,
-  loadWeeklyMemoryProposals,
-} from "../lib/ai/memory/weekly-distillation";
 import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
 import { applyCoachProposal, proposalPreviewText } from "../lib/ai/proposals/apply-proposal";
-import {
-  buildWeeklyObjectiveFromProposal,
-  reviewSectionFromProposal,
-} from "../lib/ai/proposals/weekly-proposal-ids";
 import { loadLatestWeeklySynthesis } from "../lib/ai/weekly-synthesis-loader";
 import { WeeklySynthesisService } from "../lib/ai/weekly-synthesis-service";
-import { formatDateLong, formatDateShort, getTodayDate } from "../lib/date";
+import { addDays, formatDateLong, formatDateShort, getTodayDate } from "../lib/date";
 import { formatPercent, formatTimestamp } from "../lib/format";
-import { addDays, nowIso } from "../lib/gtd/shared";
-import {
-  enqueueMidWeekDecisionSave,
-  getFailedMidWeekDraft,
-  waitForMidWeekDecisionSaves,
-} from "../app/mid-week-decision-saves";
+import { nowIso } from "../lib/gtd/shared";
 import { loadDecoratedWeekEntries } from "../lib/storage/week-entries";
-import {
-  buildMidWeekReviewSummary,
-  compareMidWeekSnapshot,
-  type MidWeekStatus,
-} from "../domain/mid-week-review";
-import {
-  RescueTimeGoalsService,
-  type RescueTimeProductivityPulseSnapshot,
-} from "../lib/rescuetime/rescuetime-goals-service";
-import { WeeklyObjectivesService } from "../lib/rescuetime/weekly-objectives-service";
 
-interface RitualSectionDefinition {
-  key: WeeklyRitualSectionKey;
-  title: string;
-  subtitle: string;
-  prompt: string;
-  linkTo?: string;
-  linkLabel?: string;
-}
-
-const ritualSectionMeta: Array<{
-  key: WeeklyRitualSectionKey;
-  linkTo?: string;
-  linkKey?:
-    | "weekly.ritual.collecte.link"
-    | "weekly.ritual.calendrier.link"
-    | "weekly.ritual.gtd.link"
-    | "weekly.ritual.alignement.link"
-    | "weekly.ritual.dimanche.link";
-}> = [
+const ritualSectionMeta: ReadonlyArray<RitualSectionMeta<WeeklyRitualSectionKey>> = [
   { key: "bilan" },
   { key: "budget" },
   { key: "tempsEtPlan" },
@@ -88,6 +62,13 @@ const ritualSectionMeta: Array<{
   { key: "alignement", linkTo: "/projects", linkKey: "weekly.ritual.alignement.link" },
   { key: "dimanche", linkTo: "/historique", linkKey: "weekly.ritual.dimanche.link" },
 ];
+
+interface WeeklySynthesisRunOptions {
+  weekStartDate: string;
+  trigger: "auto" | "explicit";
+  bypassCache?: boolean;
+  skipHashCheck?: boolean;
+}
 
 const formatMidWeekValue = (value: number | null, unit: string | null): string => {
   if (value === null) {
@@ -103,217 +84,111 @@ export const WeeklyReviewPage = () => {
   const { t } = useTranslation("reviews");
   const { t: tCommon } = useTranslation("common");
   const { repository, settings, calendarDay } = useAppContext();
-  const goalsService = useMemo(() => new RescueTimeGoalsService(repository), [repository]);
-  const objectivesService = useMemo(() => new WeeklyObjectivesService(repository), [repository]);
   const synthesisService = useMemo(() => new WeeklySynthesisService(new OpenRouterProvider()), []);
   const [searchParams] = useSearchParams();
   const dateFromQuery = searchParams.get("date");
   const [selectedWeekStart, setSelectedWeekStart] = useState(() =>
-    buildWeekDates(
-      dateFromQuery && /^\d{4}-\d{2}-\d{2}$/.test(dateFromQuery)
-        ? dateFromQuery
-        : getDefaultWeeklyReviewWeekStart(getTodayDate()),
-    ),
+    resolveInitialWeeklyReviewWeek(dateFromQuery, getTodayDate()),
   );
-  const [review, setReview] = useState<WeeklyReview | null>(null);
-  const [dimancheReview, setDimancheReview] = useState<WeeklyReview | null>(null);
   const [summary, setSummary] = useState<WeeklyReviewSummary | null>(null);
-  const [goalsSnapshot, setGoalsSnapshot] = useState<RescueTimeGoalsSnapshot | null>(null);
-  const [standingObjectivesSnapshot, setStandingObjectivesSnapshot] =
-    useState<WeeklyObjectivesSnapshot | null>(null);
-  const [standingObjectivesLoading, setStandingObjectivesLoading] = useState(true);
-  const [pulseSnapshot, setPulseSnapshot] = useState<RescueTimeProductivityPulseSnapshot | null>(
-    null,
-  );
-  const [goalsLoading, setGoalsLoading] = useState(true);
-  const [pulseLoading, setPulseLoading] = useState(true);
-  const [goalsRefreshing, setGoalsRefreshing] = useState(false);
-  const [pulseRefreshing, setPulseRefreshing] = useState(false);
-  const [rescueTimeMessage, setRescueTimeMessage] = useState("");
   const [loading, setLoading] = useState(true);
-  const [weeklyMemoryProposals, setWeeklyMemoryProposals] = useState<AiProposal[]>([]);
-  const [synthesisResult, setSynthesisResult] = useState<WeeklySynthesisResult | null>(null);
-  const [synthesisLoading, setSynthesisLoading] = useState(false);
-  const [applyingProposalIds, setApplyingProposalIds] = useState<string[]>([]);
-  const latestReviewRef = useRef<WeeklyReview | null>(null);
-  const latestDimancheReviewRef = useRef<WeeklyReview | null>(null);
-  const reviewSnapshotsRef = useRef(new Map<string, WeeklyReview>());
-  const reviewSnapshotSeqRef = useRef(new Map<string, number>());
-  const reviewSaveChainsRef = useRef(new Map<string, Promise<void>>());
-  const reviewSaveInFlightRef = useRef(new Map<string, number>());
+  const {
+    review,
+    dimancheReview,
+    latestReviewRef,
+    latestDimancheReviewRef,
+    load: loadNotes,
+    saveReview,
+    saveDimancheReview,
+    withSectionReview,
+  } = useWeeklyReviewNotes(calendarDay);
+  const {
+    goals: goalsSnapshot,
+    pulse: pulseSnapshot,
+    standingObjectives: standingObjectivesSnapshot,
+    goalsLoading,
+    pulseLoading,
+    standingObjectivesLoading,
+    goalsRefreshing,
+    pulseRefreshing,
+    message: rescueTimeMessage,
+    load: loadRescueTimeData,
+    refresh: refreshRescueTimeData,
+    reloadStandingObjectives: loadStandingObjectives,
+    getSnapshots: getRescueTimeSnapshots,
+  } = useRescueTimeWeek(selectedWeekStart);
+  const memoryProposals = useWeeklyMemoryProposals(review);
   const noteRefs = useRef<Partial<Record<WeeklyRitualSectionKey, PersistedTextareaHandle | null>>>(
     {},
   );
   const nextWeekDimancheRef = useRef<PersistedTextareaHandle | null>(null);
   const weekRequest = useLatestRequest();
-  const goalsRequest = useLatestRequest();
-  const pulseRequest = useLatestRequest();
-  const standingObjectivesRequest = useLatestRequest();
-  const synthesisRequest = useLatestRequest();
-  const goalsSnapshotRef = useRef(goalsSnapshot);
-  const pulseSnapshotRef = useRef(pulseSnapshot);
-  goalsSnapshotRef.current = goalsSnapshot;
-  pulseSnapshotRef.current = pulseSnapshot;
 
-  const loadSnapshot = useCallback(
-    async <T,>(
-      request: LatestRequest,
-      config: {
-        compute: (weekStart: string) => Promise<T>;
-        apply: (snapshot: T) => void;
-        setLoading: (value: boolean) => void;
-        setRefreshing: (value: boolean) => void;
-        refreshErrorKey: "weekly.rescueGoals.refreshError" | "weekly.rescueGoals.pulseRefreshError";
-      },
-      requestedWeekStart: string,
-      options?: { refreshing?: boolean },
+  const runSynthesisRequest = useCallback(
+    async (
+      options: WeeklySynthesisRunOptions,
+      {
+        signal,
+        setResult,
+      }: { signal: { isLatest: () => boolean }; setResult: (r: WeeklySynthesisResult) => void },
     ) => {
-      await request.run(async (signal) => {
-        const setBusy = options?.refreshing ? config.setRefreshing : config.setLoading;
-        setBusy(true);
-        setRescueTimeMessage("");
-        try {
-          const snapshot = await config.compute(requestedWeekStart);
-          if (!signal.isLatest()) {
-            return;
-          }
-          config.apply(snapshot);
-        } catch (error) {
-          if (!signal.isLatest()) {
-            return;
-          }
-          if (options?.refreshing) {
-            setRescueTimeMessage(
-              error instanceof Error ? error.message : t(config.refreshErrorKey),
-            );
-          }
-        } finally {
-          if (signal.isLatest()) {
-            setBusy(false);
-          }
+      if (options.trigger === "auto") {
+        const stored = await loadLatestWeeklySynthesis(
+          repository,
+          synthesisService,
+          options.weekStartDate,
+        );
+        if (!signal.isLatest()) {
+          return;
         }
-      });
-    },
-    [t],
-  );
-
-  const loadGoalsSnapshot = useCallback(
-    (requestedWeekStart: string, options?: { refreshing?: boolean }) =>
-      loadSnapshot(
-        goalsRequest,
-        {
-          compute: (weekStart) => goalsService.computeGoalsSnapshot(weekStart),
-          apply: setGoalsSnapshot,
-          setLoading: setGoalsLoading,
-          setRefreshing: setGoalsRefreshing,
-          refreshErrorKey: "weekly.rescueGoals.refreshError",
-        },
-        requestedWeekStart,
-        options,
-      ),
-    [goalsRequest, goalsService, loadSnapshot],
-  );
-
-  const loadPulseSnapshot = useCallback(
-    (requestedWeekStart: string, options?: { refreshing?: boolean }) =>
-      loadSnapshot(
-        pulseRequest,
-        {
-          compute: (weekStart) => goalsService.computeProductivityPulse(weekStart),
-          apply: setPulseSnapshot,
-          setLoading: setPulseLoading,
-          setRefreshing: setPulseRefreshing,
-          refreshErrorKey: "weekly.rescueGoals.pulseRefreshError",
-        },
-        requestedWeekStart,
-        options,
-      ),
-    [goalsService, loadSnapshot, pulseRequest],
-  );
-
-  const loadStandingObjectives = useCallback(
-    async (requestedWeekStart: string) => {
-      await standingObjectivesRequest.run(async (signal) => {
-        setStandingObjectivesLoading(true);
-        try {
-          const snapshot =
-            await objectivesService.computeWeeklyObjectivesSnapshot(requestedWeekStart);
-          if (!signal.isLatest()) {
-            return;
-          }
-          setStandingObjectivesSnapshot(snapshot);
-        } finally {
-          if (signal.isLatest()) {
-            setStandingObjectivesLoading(false);
-          }
+        if (stored) {
+          setResult(stored);
         }
+      }
+
+      if (options.skipHashCheck) {
+        return;
+      }
+
+      const { goals: latestGoals, pulse: latestPulse } = getRescueTimeSnapshots();
+      const goals = latestGoals?.weekStartDate === options.weekStartDate ? latestGoals : null;
+      const pulse = latestPulse?.weekStartDate === options.weekStartDate ? latestPulse : null;
+      const snapshotInputs = await resolveWeeklySnapshotInputs(repository, options.weekStartDate, {
+        productivityPulse: pulse?.pulse ?? null,
+        rescueTimeGoalsScore: goals?.score ?? null,
+        rescueTimeGoalItems: goals?.items ?? [],
+        rescuetimeConfigured: Boolean(settings.rescuetimeApiKey.trim()),
       });
+
+      if (!signal.isLatest()) {
+        return;
+      }
+
+      const result = await synthesisService.buildSynthesis(repository, {
+        weekStartDate: options.weekStartDate,
+        settings,
+        snapshotInputs,
+        trigger: options.trigger,
+        bypassCache: options.bypassCache,
+      });
+
+      if (!signal.isLatest()) {
+        return;
+      }
+
+      setResult(result);
     },
-    [objectivesService, standingObjectivesRequest],
+    [getRescueTimeSnapshots, repository, settings, synthesisService],
   );
-
-  const loadRescueTimeData = useCallback(
-    (requestedWeekStart: string) => {
-      setGoalsSnapshot(null);
-      setPulseSnapshot(null);
-      setStandingObjectivesSnapshot(null);
-      setGoalsRefreshing(false);
-      setPulseRefreshing(false);
-      setRescueTimeMessage("");
-      void loadGoalsSnapshot(requestedWeekStart);
-      void loadPulseSnapshot(requestedWeekStart);
-      void loadStandingObjectives(requestedWeekStart);
-    },
-    [loadGoalsSnapshot, loadPulseSnapshot, loadStandingObjectives],
-  );
-
-  const refreshRescueTimeData = useCallback(
-    (requestedWeekStart: string) => {
-      void loadGoalsSnapshot(requestedWeekStart, { refreshing: true });
-      void loadPulseSnapshot(requestedWeekStart, { refreshing: true });
-    },
-    [loadGoalsSnapshot, loadPulseSnapshot],
-  );
-
-  const rememberReviewSnapshot = useCallback((nextReview: WeeklyReview) => {
-    const weekStartDate = buildWeekDates(nextReview.weekStartDate);
-    const stored = { ...nextReview, weekStartDate };
-    reviewSnapshotsRef.current.set(weekStartDate, stored);
-    reviewSnapshotSeqRef.current.set(
-      weekStartDate,
-      (reviewSnapshotSeqRef.current.get(weekStartDate) ?? 0) + 1,
-    );
-    return stored;
-  }, []);
-
-  const enqueueReviewSave = useCallback(
-    (weekStartDate: string) => {
-      reviewSaveInFlightRef.current.set(
-        weekStartDate,
-        (reviewSaveInFlightRef.current.get(weekStartDate) ?? 0) + 1,
-      );
-      const previous = reviewSaveChainsRef.current.get(weekStartDate) ?? Promise.resolve();
-      const next = previous
-        .catch(() => undefined)
-        .then(async () => {
-          const snapshot = reviewSnapshotsRef.current.get(weekStartDate);
-          if (!snapshot) {
-            return;
-          }
-          await repository.saveWeeklyReview(snapshot);
-        })
-        .finally(() => {
-          const remaining = (reviewSaveInFlightRef.current.get(weekStartDate) ?? 1) - 1;
-          if (remaining <= 0) {
-            reviewSaveInFlightRef.current.delete(weekStartDate);
-          } else {
-            reviewSaveInFlightRef.current.set(weekStartDate, remaining);
-          }
-        });
-      reviewSaveChainsRef.current.set(weekStartDate, next);
-      return next;
-    },
-    [repository],
+  const {
+    visibleResult: synthesisResult,
+    setResult: setSynthesisResult,
+    loading: synthesisLoading,
+    run: runSynthesis,
+    clear: clearSynthesis,
+  } = useReviewSynthesis<WeeklySynthesisResult, WeeklySynthesisRunOptions>(
+    summary?.weekStartDate ?? null,
+    runSynthesisRequest,
   );
 
   const loadWeek = useCallback(
@@ -321,72 +196,16 @@ export const WeeklyReviewPage = () => {
       await weekRequest.run(async (signal) => {
         const normalized = buildWeekDates(requestedWeekStart);
         setLoading(true);
-        setSynthesisResult(null);
+        clearSynthesis();
         try {
-          const notesWeekStart = dimancheNotesWeekStart(normalized, calendarDay);
-          const notesOnNextWeek = notesWeekStart !== normalized;
-          const settleWeek = async (weekStartDate: string) => {
-            let pending = reviewSaveChainsRef.current.get(weekStartDate);
-            while (pending) {
-              await pending;
-              if (!signal.isLatest()) {
-                return;
-              }
-              const latest = reviewSaveChainsRef.current.get(weekStartDate);
-              if (!latest || latest === pending) {
-                return;
-              }
-              pending = latest;
-            }
-          };
-          await settleWeek(normalized);
-          if (notesOnNextWeek) {
-            await settleWeek(notesWeekStart);
-          }
-          if (!signal.isLatest()) {
-            return;
-          }
-          const displayedSeq = reviewSnapshotSeqRef.current.get(normalized) ?? 0;
-          const dimancheSeq = reviewSnapshotSeqRef.current.get(notesWeekStart) ?? 0;
-          const [existingReview, computedSummary, existingDimancheReview] = await Promise.all([
-            repository.getWeeklyReview(normalized),
+          const loaded = await loadNotes(normalized, signal.isLatest, () =>
             repository.computeWeeklyReviewSummary(normalized),
-            notesOnNextWeek ? repository.getWeeklyReview(notesWeekStart) : Promise.resolve(null),
-          ]);
-          if (!signal.isLatest()) {
+          );
+          if (!loaded) {
             return;
           }
-          const keepDisplayedSnapshot =
-            (reviewSnapshotSeqRef.current.get(normalized) ?? 0) !== displayedSeq ||
-            (reviewSaveInFlightRef.current.get(normalized) ?? 0) > 0;
-          const keepDimancheSnapshot =
-            notesOnNextWeek &&
-            ((reviewSnapshotSeqRef.current.get(notesWeekStart) ?? 0) !== dimancheSeq ||
-              (reviewSaveInFlightRef.current.get(notesWeekStart) ?? 0) > 0);
-          const nextReview = keepDisplayedSnapshot
-            ? (reviewSnapshotsRef.current.get(normalized) ??
-              existingReview ??
-              createEmptyWeeklyReview(normalized))
-            : (existingReview ?? createEmptyWeeklyReview(normalized));
-          const nextDimancheReview = notesOnNextWeek
-            ? keepDimancheSnapshot
-              ? (reviewSnapshotsRef.current.get(notesWeekStart) ??
-                existingDimancheReview ??
-                createEmptyWeeklyReview(notesWeekStart))
-              : (existingDimancheReview ?? createEmptyWeeklyReview(notesWeekStart))
-            : null;
-          if (!keepDisplayedSnapshot) {
-            reviewSnapshotsRef.current.set(normalized, nextReview);
-          }
-          if (nextDimancheReview && !keepDimancheSnapshot) {
-            reviewSnapshotsRef.current.set(notesWeekStart, nextDimancheReview);
-          }
-          latestReviewRef.current = nextReview;
-          latestDimancheReviewRef.current = nextDimancheReview;
           setSelectedWeekStart(normalized);
-          setReview(nextReview);
-          setDimancheReview(nextDimancheReview);
-          setSummary(computedSummary);
+          setSummary(loaded.companion);
           void loadRescueTimeData(normalized);
         } finally {
           if (signal.isLatest()) {
@@ -395,118 +214,12 @@ export const WeeklyReviewPage = () => {
         }
       });
     },
-    [calendarDay, loadRescueTimeData, repository, weekRequest],
+    [clearSynthesis, loadNotes, loadRescueTimeData, repository, weekRequest],
   );
 
   useEffect(() => {
     void loadWeek(selectedWeekStart);
   }, [loadWeek]);
-
-  const saveReview = useCallback(
-    (nextReview: WeeklyReview) => {
-      const stored = rememberReviewSnapshot(nextReview);
-      latestReviewRef.current = stored;
-      setReview(stored);
-      if (latestDimancheReviewRef.current?.weekStartDate === stored.weekStartDate) {
-        latestDimancheReviewRef.current = stored;
-        setDimancheReview(stored);
-      }
-      return enqueueReviewSave(stored.weekStartDate);
-    },
-    [enqueueReviewSave, rememberReviewSnapshot],
-  );
-
-  const saveDimancheReview = useCallback(
-    (nextReview: WeeklyReview) => {
-      const stored = rememberReviewSnapshot(nextReview);
-      latestDimancheReviewRef.current = stored;
-      setDimancheReview(stored);
-      if (latestReviewRef.current?.weekStartDate === stored.weekStartDate) {
-        latestReviewRef.current = stored;
-        setReview(stored);
-      }
-      return enqueueReviewSave(stored.weekStartDate);
-    },
-    [enqueueReviewSave, rememberReviewSnapshot],
-  );
-
-  const runSynthesis = useCallback(
-    async (options: {
-      weekStartDate: string;
-      trigger: "auto" | "explicit";
-      bypassCache?: boolean;
-      skipHashCheck?: boolean;
-    }) => {
-      await synthesisRequest.run(async (signal) => {
-        setSynthesisLoading(true);
-        if (options.trigger !== "auto") {
-          setSynthesisResult(null);
-        }
-
-        try {
-          if (options.trigger === "auto") {
-            const stored = await loadLatestWeeklySynthesis(
-              repository,
-              synthesisService,
-              options.weekStartDate,
-            );
-            if (!signal.isLatest()) {
-              return;
-            }
-            if (stored) {
-              setSynthesisResult(stored);
-            }
-          }
-
-          if (options.skipHashCheck) {
-            return;
-          }
-
-          const goals =
-            goalsSnapshotRef.current?.weekStartDate === options.weekStartDate
-              ? goalsSnapshotRef.current
-              : null;
-          const pulse =
-            pulseSnapshotRef.current?.weekStartDate === options.weekStartDate
-              ? pulseSnapshotRef.current
-              : null;
-          const snapshotInputs = await resolveWeeklySnapshotInputs(
-            repository,
-            options.weekStartDate,
-            {
-              productivityPulse: pulse?.pulse ?? null,
-              rescueTimeGoalsScore: goals?.score ?? null,
-              rescueTimeGoalItems: goals?.items ?? [],
-              rescuetimeConfigured: Boolean(settings.rescuetimeApiKey.trim()),
-            },
-          );
-
-          if (!signal.isLatest()) {
-            return;
-          }
-
-          const result = await synthesisService.buildSynthesis(repository, {
-            weekStartDate: options.weekStartDate,
-            settings,
-            snapshotInputs,
-            trigger: options.trigger,
-            bypassCache: options.bypassCache,
-          });
-
-          if (!signal.isLatest()) {
-            return;
-          }
-
-          setSynthesisResult(result);
-        } finally {
-          if (signal.isLatest()) {
-            setSynthesisLoading(false);
-          }
-        }
-      });
-    },
-    [repository, settings, synthesisRequest, synthesisService],
-  );
 
   useEffect(() => {
     if (!summary || loading) {
@@ -520,222 +233,30 @@ export const WeeklyReviewPage = () => {
     });
   }, [summary?.weekStartDate, loading, goalsLoading, pulseLoading, runSynthesis]);
 
-  const synthesisMatchesWeek =
-    synthesisResult?.message.scopeKey === summary?.weekStartDate && synthesisResult !== null;
-
-  const handleAcceptSynthesisProposal = async (proposal: AiProposal) => {
-    if (!summary || synthesisResult?.message.scopeKey !== summary.weekStartDate) {
-      return;
-    }
-
-    if (applyingProposalIds.includes(proposal.id)) {
-      return;
-    }
-
-    setApplyingProposalIds((current) => [...current, proposal.id]);
-
-    try {
+  const decisions = useProposalDecisions(synthesisResult, setSynthesisResult, {
+    onAccept: async (proposal) => {
+      if (!summary) return {};
       const weekStartDate = summary.weekStartDate;
-      const currentReview =
-        latestReviewRef.current ?? review ?? createEmptyWeeklyReview(weekStartDate);
-
-      if (proposal.type === "review_section_draft") {
-        const section = reviewSectionFromProposal(proposal);
-        if (!section) {
-          return;
-        }
-
-        const notesWeekStart = dimancheNotesWeekStart(weekStartDate, calendarDay);
-        if (section.sectionKey === "dimanche" && notesWeekStart !== weekStartDate) {
-          const currentDimanche =
-            latestDimancheReviewRef.current ?? createEmptyWeeklyReview(notesWeekStart);
-          const nextDimanche = rememberReviewSnapshot(
-            updateWeeklyReviewNote(currentDimanche, "dimanche", section.text),
-          );
-          latestDimancheReviewRef.current = nextDimanche;
-          setDimancheReview(nextDimanche);
-          nextWeekDimancheRef.current?.setDraft(section.text);
-          await (reviewSaveChainsRef.current.get(notesWeekStart) ?? Promise.resolve());
-          const latestDimanche = reviewSnapshotsRef.current.get(notesWeekStart) ?? nextDimanche;
-
-          const accepted = await repository.acceptAiReviewSectionDraftProposal(
-            proposal,
-            latestDimanche,
-          );
-          setSynthesisResult((current) =>
-            current
-              ? {
-                  ...current,
-                  proposals: current.proposals.map((item) =>
-                    item.id === proposal.id ? accepted.proposal : item,
-                  ),
-                }
-              : current,
-          );
-          return;
-        }
-
-        const nextReview = rememberReviewSnapshot(
-          updateWeeklyReviewNote(currentReview, section.sectionKey, section.text),
-        );
-        latestReviewRef.current = nextReview;
-        setReview(nextReview);
-        noteRefs.current[section.sectionKey]?.setDraft(section.text);
-        await (reviewSaveChainsRef.current.get(nextReview.weekStartDate) ?? Promise.resolve());
-        const latestReview = reviewSnapshotsRef.current.get(nextReview.weekStartDate) ?? nextReview;
-
-        const accepted = await repository.acceptAiReviewSectionDraftProposal(
-          proposal,
-          latestReview,
-        );
-        setSynthesisResult((current) =>
-          current
-            ? {
-                ...current,
-                proposals: current.proposals.map((item) =>
-                  item.id === proposal.id ? accepted.proposal : item,
-                ),
+      const applied = await applyCoachProposal(repository, proposal, {
+        acceptedDate: weekStartDate,
+        weekly: {
+          withReview: (sectionKey, work) =>
+            withSectionReview(weekStartDate, sectionKey, work, (target, text) => {
+              if (target === "nextWeek") {
+                nextWeekDimancheRef.current?.setDraft(text);
+              } else {
+                noteRefs.current[sectionKey]?.setDraft(text);
               }
-            : current,
-        );
-        return;
-      }
-
-      if (proposal.type === "weekly_objective") {
-        const objectives = await repository.listWeeklyObjectives();
-        const objective = buildWeeklyObjectiveFromProposal(
-          proposal,
-          objectives.length,
-          weekStartDate,
-        );
-        if (!objective) {
-          return;
-        }
-
-        const accepted = await repository.acceptAiWeeklyObjectiveProposal(proposal, objective);
-        await loadStandingObjectives(weekStartDate);
-        setSynthesisResult((current) =>
-          current
-            ? {
-                ...current,
-                proposals: current.proposals.map((item) =>
-                  item.id === proposal.id ? accepted.proposal : item,
-                ),
-              }
-            : current,
-        );
-        return;
-      }
-
-      if (proposal.type === "gtd_action") {
-        const accepted = await repository.acceptAiGtdActionProposal(proposal, getTodayDate());
-        if (!accepted.taskId) {
-          return;
-        }
-
-        setSynthesisResult((current) =>
-          current
-            ? {
-                ...current,
-                proposals: current.proposals.map((item) =>
-                  item.id === proposal.id ? accepted.proposal : item,
-                ),
-              }
-            : current,
-        );
-        return;
-      }
-
-      const applied = await applyCoachProposal(repository, proposal, weekStartDate);
-      if (applied.proposalDecided) {
-        setSynthesisResult((current) =>
-          current
-            ? {
-                ...current,
-                proposals: current.proposals.map((item) =>
-                  item.id === proposal.id
-                    ? { ...item, status: "accepted", decidedAt: new Date().toISOString() }
-                    : item,
-                ),
-              }
-            : current,
-        );
-        return;
-      }
-
-      await repository.decideAiProposal(
-        proposal.id,
-        "accepted",
-        applied.objectiveId ?? applied.taskId ?? applied.memoryId ?? weekStartDate,
-      );
-      setSynthesisResult((current) =>
-        current
-          ? {
-              ...current,
-              proposals: current.proposals.map((item) =>
-                item.id === proposal.id
-                  ? { ...item, status: "accepted", decidedAt: new Date().toISOString() }
-                  : item,
-              ),
-            }
-          : current,
-      );
-    } finally {
-      setApplyingProposalIds((current) => current.filter((id) => id !== proposal.id));
-    }
-  };
-
-  const handleDismissSynthesisProposal = async (proposal: AiProposal) => {
-    if (!summary || synthesisResult?.message.scopeKey !== summary.weekStartDate) {
-      return;
-    }
-
-    if (applyingProposalIds.includes(proposal.id)) {
-      return;
-    }
-
-    await repository.decideAiProposal(proposal.id, "dismissed");
-    setSynthesisResult((current) =>
-      current
-        ? {
-            ...current,
-            proposals: current.proposals.map((item) =>
-              item.id === proposal.id
-                ? { ...item, status: "dismissed", decidedAt: new Date().toISOString() }
-                : item,
-            ),
-          }
-        : current,
-    );
-  };
-
-  const refreshWeeklyMemoryProposals = useCallback(
-    async (weekStartDate: string) => {
-      const proposals = await loadWeeklyMemoryProposals(repository, weekStartDate);
-      setWeeklyMemoryProposals(proposals);
+            }),
+        },
+      });
+      if (applied.proposal && applied.objectiveId) await loadStandingObjectives(weekStartDate);
+      return applied;
     },
-    [repository],
-  );
+  });
 
-  useEffect(() => {
-    if (review?.status !== "closed") {
-      setWeeklyMemoryProposals([]);
-      return;
-    }
-
-    void refreshWeeklyMemoryProposals(review.weekStartDate);
-  }, [review?.status, review?.weekStartDate, refreshWeeklyMemoryProposals]);
-
-  const handleAcceptWeeklyMemoryProposal = async (proposal: AiProposal) => {
-    const weekStartDate = latestReviewRef.current?.weekStartDate ?? selectedWeekStart;
-    await applyCoachProposal(repository, proposal, weekStartDate);
-    setWeeklyMemoryProposals((current) => current.filter((item) => item.id !== proposal.id));
-  };
-
-  const handleDismissWeeklyMemoryProposal = async (proposal: AiProposal) => {
-    await repository.decideAiProposal(proposal.id, "dismissed");
-    setWeeklyMemoryProposals((current) => current.filter((item) => item.id !== proposal.id));
-  };
+  const handleAcceptWeeklyMemoryProposal = (proposal: AiProposal) =>
+    memoryProposals.accept(proposal, latestReviewRef.current?.weekStartDate ?? selectedWeekStart);
 
   const hasValidSelectedWeek = useMemo(
     () => /^\d{4}-\d{2}-\d{2}$/.test(selectedWeekStart),
@@ -745,20 +266,6 @@ export const WeeklyReviewPage = () => {
     () => (hasValidSelectedWeek ? addDays(selectedWeekStart, 6) : ""),
     [hasValidSelectedWeek, selectedWeekStart],
   );
-
-  const previousRescuetimeApiKeyRef = useRef(settings.rescuetimeApiKey);
-
-  useEffect(() => {
-    if (previousRescuetimeApiKeyRef.current === settings.rescuetimeApiKey) {
-      return;
-    }
-
-    previousRescuetimeApiKeyRef.current = settings.rescuetimeApiKey;
-
-    if (hasValidSelectedWeek) {
-      void loadRescueTimeData(selectedWeekStart);
-    }
-  }, [settings.rescuetimeApiKey, hasValidSelectedWeek, loadRescueTimeData, selectedWeekStart]);
 
   // Read-only mid-week decisions card. Entries are loaded only when a snapshot exists so plain
   // week navigation adds no queries.
@@ -875,16 +382,8 @@ export const WeeklyReviewPage = () => {
     });
   }, [goalsSnapshot, pulseSnapshot, summary]);
 
-  const ritualSections = useMemo<RitualSectionDefinition[]>(
-    () =>
-      ritualSectionMeta.map((section) => ({
-        key: section.key,
-        title: t(`weekly.ritual.${section.key}.title`),
-        subtitle: t(`weekly.ritual.${section.key}.subtitle`),
-        prompt: t(`weekly.ritual.${section.key}.prompt`),
-        linkTo: section.linkTo,
-        linkLabel: section.linkKey ? t(section.linkKey) : undefined,
-      })),
+  const ritualSections = useMemo(
+    () => buildRitualSections(ritualSectionMeta, (key) => String(t(key as never)), "weekly.ritual"),
     [t],
   );
 
@@ -1014,10 +513,9 @@ export const WeeklyReviewPage = () => {
 
       <SectionCard title={t("weekly.coach.title")} subtitle={t("weekly.coach.subtitle")}>
         <WeeklySynthesisPanel
-          result={synthesisMatchesWeek ? synthesisResult : null}
+          result={synthesisResult}
           loading={synthesisLoading}
           settings={settings}
-          applyingProposalIds={applyingProposalIds}
           onRequestCoach={() => {
             if (!summary) {
               return;
@@ -1034,8 +532,7 @@ export const WeeklyReviewPage = () => {
               bypassCache: true,
             });
           }}
-          onAcceptProposal={(proposal) => void handleAcceptSynthesisProposal(proposal)}
-          onDismissProposal={(proposal) => void handleDismissSynthesisProposal(proposal)}
+          decisions={decisions}
         />
       </SectionCard>
 
@@ -1507,89 +1004,58 @@ export const WeeklyReviewPage = () => {
       </SectionCard>
 
       <SectionCard title={t("weekly.ritual.title")} subtitle={t("weekly.ritual.subtitle")}>
-        <div className="weekly-ritual-stack">
-          {ritualSections.map((section) => (
-            <article key={section.key} className="weekly-ritual-card">
-              <div className="weekly-ritual-card__header">
-                <div>
-                  <h3>{section.title}</h3>
-                  <p>{section.subtitle}</p>
-                </div>
-                <label className="switch-row">
-                  <input
-                    aria-label={t("weekly.ritual.doneAria", { section: section.title })}
-                    type="checkbox"
-                    checked={review.ritualChecklist[section.key]}
-                    onChange={(event) => {
-                      const currentReview = latestReviewRef.current;
-                      if (!currentReview) {
-                        return;
-                      }
-                      void saveReview(
-                        updateWeeklyReviewChecklist(
-                          currentReview,
-                          section.key,
-                          event.target.checked,
-                        ),
-                      );
-                    }}
-                  />
-                  <span>{t("weekly.ritual.done")}</span>
-                </label>
-              </div>
-              <p className="empty-copy">{section.prompt}</p>
+        <RitualSectionList
+          className="weekly-ritual-stack"
+          sections={ritualSections}
+          scopeKey={review.weekStartDate}
+          checklist={review.ritualChecklist}
+          notes={review.notes}
+          noteRefs={noteRefs}
+          labels={{
+            done: t("weekly.ritual.done"),
+            doneAria: (section) => t("weekly.ritual.doneAria", { section }),
+            notesLabel: (section) => t("weekly.ritual.notesLabel", { section }),
+          }}
+          notesPlaceholder={(section) =>
+            t("weekly.ritual.notesPlaceholder", { section: section.title.toLowerCase() })
+          }
+          onToggle={(sectionKey, checked) => {
+            const currentReview = latestReviewRef.current;
+            if (!currentReview) {
+              return;
+            }
+            void saveReview(updateWeeklyReviewChecklist(currentReview, sectionKey, checked));
+          }}
+          onPersistNote={(sectionKey, value) => {
+            const currentReview =
+              latestReviewRef.current ?? createEmptyWeeklyReview(review.weekStartDate);
+            return saveReview(updateWeeklyReviewNote(currentReview, sectionKey, value));
+          }}
+          renderAfterNotes={(section) =>
+            section.key === "dimanche" && notesOnNextWeek ? (
               <label className="stacked-field">
-                <span>{t("weekly.ritual.notesLabel", { section: section.title })}</span>
+                <span>{t("weekly.ritual.nextWeekNotesLabel")}</span>
                 <PersistedTextarea
-                  key={`${review.weekStartDate}-${section.key}`}
+                  key={`${notesWeekStart}-dimanche-next`}
                   ref={(handle) => {
-                    noteRefs.current[section.key] = handle;
+                    nextWeekDimancheRef.current = handle;
                   }}
                   rows={4}
                   debounceMs={0}
-                  savedValue={review.notes[section.key]}
+                  savedValue={dimancheReview?.notes.dimanche ?? ""}
                   onPersist={(value) => {
-                    const currentReview =
-                      latestReviewRef.current ?? createEmptyWeeklyReview(review.weekStartDate);
-                    void saveReview(updateWeeklyReviewNote(currentReview, section.key, value));
+                    const currentDimanche =
+                      latestDimancheReviewRef.current ?? createEmptyWeeklyReview(notesWeekStart);
+                    return saveDimancheReview(
+                      updateWeeklyReviewNote(currentDimanche, "dimanche", value),
+                    );
                   }}
-                  placeholder={t("weekly.ritual.notesPlaceholder", {
-                    section: section.title.toLowerCase(),
-                  })}
+                  placeholder={t("weekly.ritual.nextWeekNotesPlaceholder")}
                 />
               </label>
-              {section.key === "dimanche" && notesOnNextWeek ? (
-                <label className="stacked-field">
-                  <span>{t("weekly.ritual.nextWeekNotesLabel")}</span>
-                  <PersistedTextarea
-                    key={`${notesWeekStart}-dimanche-next`}
-                    ref={(handle) => {
-                      nextWeekDimancheRef.current = handle;
-                    }}
-                    rows={4}
-                    debounceMs={0}
-                    savedValue={dimancheReview?.notes.dimanche ?? ""}
-                    onPersist={(value) => {
-                      const currentDimanche =
-                        latestDimancheReviewRef.current ?? createEmptyWeeklyReview(notesWeekStart);
-                      void saveDimancheReview(
-                        updateWeeklyReviewNote(currentDimanche, "dimanche", value),
-                      );
-                    }}
-                    placeholder={t("weekly.ritual.nextWeekNotesPlaceholder")}
-                  />
-                </label>
-              ) : null}
-              {section.linkTo && section.linkLabel ? (
-                <div className="section-actions">
-                  <Link className="button button--ghost" to={section.linkTo}>
-                    {section.linkLabel}
-                  </Link>
-                </div>
-              ) : null}
-            </article>
-          ))}
-        </div>
+            ) : null
+          }
+        />
       </SectionCard>
 
       <SectionCard title={t("weekly.state.title")} subtitle={t("weekly.state.subtitle")}>
@@ -1609,10 +1075,10 @@ export const WeeklyReviewPage = () => {
         </div>
       </SectionCard>
 
-      {weeklyMemoryProposals.length > 0 ? (
+      {memoryProposals.proposals.length > 0 ? (
         <SectionCard title={t("weekly.memory.title")} subtitle={t("weekly.memory.subtitle")}>
           <div className="coach-pulse__proposals">
-            {weeklyMemoryProposals.map((proposal) => (
+            {memoryProposals.proposals.map((proposal) => (
               <article key={proposal.id} className="coach-pulse__proposal">
                 <span>{t("weekly.memory.itemLabel")}</span>
                 <p>{proposalPreviewText(proposal)}</p>
@@ -1627,7 +1093,7 @@ export const WeeklyReviewPage = () => {
                   <button
                     className="button button--ghost"
                     type="button"
-                    onClick={() => void handleDismissWeeklyMemoryProposal(proposal)}
+                    onClick={() => void memoryProposals.dismiss(proposal)}
                   >
                     {t("weekly.memory.dismiss")}
                   </button>
@@ -1649,13 +1115,7 @@ export const WeeklyReviewPage = () => {
             }
             void (async () => {
               const closedReview = applyWeeklyReviewTransition(currentReview, "closed");
-              const historyEntries = await repository.listDailyEntries(120);
-              const proposals = await createWeeklyMemoryProposals(
-                repository,
-                closedReview.weekStartDate,
-                historyEntries,
-              );
-              setWeeklyMemoryProposals(proposals);
+              await memoryProposals.distillForClose(closedReview);
               await saveReview(closedReview);
             })();
           }}

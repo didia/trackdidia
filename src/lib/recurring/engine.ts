@@ -1,28 +1,22 @@
 import type {
   RecurringPreviewOccurrence,
   RecurringTargetBucket,
+  RecurringTaskChanges,
   RecurringTaskTemplate,
   RecurringTemplateFilters,
   Task,
 } from "../../domain/types";
-import { cloneTask, createEntityId, toLocalDateString } from "../gtd/shared";
+import { addDays, atLocalNoon, toLocalDateString } from "../date";
+import { cloneTask, createEntityId, nowIso } from "../gtd/shared";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
-const atLocalNoon = (date: string): Date => new Date(`${date}T12:00:00`);
-
-const addDays = (date: string, amount: number): string => {
-  const next = atLocalNoon(date);
-  next.setDate(next.getDate() + amount);
-  return toLocalDateString(next);
-};
 
 const diffDays = (left: string, right: string): number =>
   Math.floor((atLocalNoon(left).getTime() - atLocalNoon(right).getTime()) / MS_PER_DAY);
 
 const buildScheduledFor = (date: string, time: string | null): string | null => {
   if (!time) {
-    return new Date(`${date}T12:00:00`).toISOString();
+    return atLocalNoon(date).toISOString();
   }
 
   return new Date(`${date}T${time}:00`).toISOString();
@@ -259,6 +253,7 @@ export const buildTaskFromRecurringTemplate = (
   template: RecurringTaskTemplate,
   dueDate: string,
   pendingPastRecurrences: number,
+  now: string = nowIso(),
 ): Task => ({
   id: `recurring-task:${template.id}`,
   title: template.title,
@@ -283,8 +278,8 @@ export const buildTaskFromRecurringTemplate = (
   source: "manual",
   sourceExternalId: null,
   sourceUrl: null,
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString(),
+  createdAt: now,
+  updatedAt: now,
 });
 
 export const syncTemplateStatusChange = (
@@ -482,7 +477,12 @@ export const recurringInstanceWasRewound = (previous: Task | null, next: Task | 
   );
 };
 
-export const findProcessingRangeStart = (
+/**
+ * First local date a generation pass inspects: the latest of the template start,
+ * the day after `lastGeneratedForDate`, and the day after the active task's due date.
+ * Dates are `YYYY-MM-DD` keys, so lexicographic order is calendar order.
+ */
+export const findProcessingStartDate = (
   template: RecurringTaskTemplate,
   activeTask: Task | null,
 ): string => {
@@ -496,5 +496,201 @@ export const findProcessingRangeStart = (
     candidates.push(addDays(activeTask.recurrenceDueDate, 1));
   }
 
-  return candidates.sort()[0] ?? template.startDate;
+  return candidates.sort().at(-1) ?? template.startDate;
 };
+
+/**
+ * Full template resync for an active generated task (template save, series edit):
+ * title, notes, destination, contexts, project, and the derived `scheduledFor`.
+ * Generation itself keeps the task's own title/notes; see `planDueRecurrenceGeneration`.
+ */
+export const syncActiveTaskWithTemplate = (
+  task: Task,
+  template: RecurringTaskTemplate,
+  now: string = nowIso(),
+): Task => ({
+  ...cloneTask(task),
+  title: template.title,
+  notes: template.notes,
+  bucket: template.targetBucket,
+  contextIds: [...template.contextIds],
+  projectId: template.projectId,
+  scheduledFor:
+    template.targetBucket === "scheduled" && task.recurrenceDueDate
+      ? buildTaskFromRecurringTemplate(
+          template,
+          task.recurrenceDueDate,
+          task.pendingPastRecurrences,
+          now,
+        ).scheduledFor
+      : null,
+  updatedAt: now,
+});
+
+export type RecurrenceTemplatePatch = Pick<
+  RecurringTaskTemplate,
+  "lastGeneratedForDate" | "pendingMissedOccurrences" | "updatedAt"
+>;
+
+export type PlannedRecurrenceGeneration = {
+  /** Task to persist: a new instance, or the active instance advanced to the latest due date. */
+  nextTask: Task;
+  /** Active instance before the advance (`null` when a new instance is created); feeds `buildLifecycleEvents`. */
+  previousTask: Task | null;
+  templatePatch: RecurrenceTemplatePatch;
+};
+
+/**
+ * Pure plan for one generation pass over one template. `horizon` is the last local date
+ * that may materialize (`recurrenceGenerationHorizon(requestedDate, today)`); `now` is the
+ * ISO instant stamped on written rows. Returns `null` when nothing is due.
+ *
+ * Several missed due dates collapse into one instance on the latest due date, with the
+ * earlier ones counted in `pendingPastRecurrences`. An advanced active instance reapplies the
+ * template's destination, contexts, and project but keeps its own title and notes.
+ */
+export const planDueRecurrenceGeneration = (
+  template: RecurringTaskTemplate,
+  activeTask: Task | null,
+  horizon: string,
+  now: string,
+): PlannedRecurrenceGeneration | null => {
+  const startDate = findProcessingStartDate(template, activeTask);
+  const dueDates = listDueDatesBetween(template, startDate, horizon);
+  if (dueDates.length === 0) {
+    return null;
+  }
+
+  const latestDueDate = dueDates[dueDates.length - 1];
+  const previousPending = activeTask?.pendingPastRecurrences ?? 0;
+  const pendingPastRecurrences = Math.max(
+    previousPending,
+    previousPending + dueDates.length - 1 + (activeTask ? 1 : 0),
+  );
+
+  const nextTask = activeTask
+    ? {
+        ...cloneTask(activeTask),
+        bucket: template.targetBucket,
+        contextIds: [...template.contextIds],
+        projectId: template.projectId,
+        title: activeTask.title,
+        notes: activeTask.notes,
+        scheduledFor:
+          template.targetBucket === "scheduled"
+            ? buildTaskFromRecurringTemplate(template, latestDueDate, pendingPastRecurrences, now)
+                .scheduledFor
+            : null,
+        recurrenceDueDate: latestDueDate,
+        pendingPastRecurrences,
+        updatedAt: now,
+      }
+    : buildTaskFromRecurringTemplate(
+        template,
+        latestDueDate,
+        Math.max(0, dueDates.length - 1),
+        now,
+      );
+
+  return {
+    nextTask,
+    previousTask: activeTask ? cloneTask(activeTask) : null,
+    templatePatch: {
+      lastGeneratedForDate: latestDueDate,
+      pendingMissedOccurrences: nextTask.pendingPastRecurrences,
+      updatedAt: now,
+    },
+  };
+};
+
+export type PlannedRecurrencePreparation = {
+  /** Template to continue with; equals the input when nothing changed. */
+  template: RecurringTaskTemplate;
+  /** Active instance to feed into `planDueRecurrenceGeneration`. */
+  activeTask: Task | null;
+  /** True when `template` differs from the stored row and must be persisted. */
+  templateChanged: boolean;
+  /** Present when the existing instance was rewound/cancelled and must be persisted with events. */
+  instanceUpdate: { previousTask: Task; nextTask: Task } | null;
+};
+
+/** Wraps `prepareRecurringGeneration` with the timestamps and rewind detection both repositories persist. */
+export const planRecurrencePreparation = (
+  template: RecurringTaskTemplate,
+  instance: Task | null,
+  today: string,
+  now: string,
+): PlannedRecurrencePreparation => {
+  const prepared = prepareRecurringGeneration(template, instance, today);
+  let activeTask = prepared.instance?.status === "active" ? prepared.instance : null;
+
+  if (!prepared.changed) {
+    return {
+      template: prepared.template,
+      activeTask,
+      templateChanged: false,
+      instanceUpdate: null,
+    };
+  }
+
+  let instanceUpdate: PlannedRecurrencePreparation["instanceUpdate"] = null;
+  if (instance && prepared.instance && recurringInstanceWasRewound(instance, prepared.instance)) {
+    const nextTask = { ...cloneTask(prepared.instance), updatedAt: now };
+    instanceUpdate = { previousTask: cloneTask(instance), nextTask };
+    if (nextTask.status === "active") {
+      activeTask = nextTask;
+    }
+  }
+
+  return {
+    template: { ...cloneRecurringTemplate(prepared.template), updatedAt: now },
+    activeTask,
+    templateChanged: true,
+    instanceUpdate,
+  };
+};
+
+/**
+ * Template bookkeeping after a generated instance is completed or cancelled. Completion also
+ * advances `lastGeneratedForDate` to the closed instance's due date when that moves it forward.
+ * Both outcomes reset the pending missed count.
+ */
+export const planTemplateUpdateOnTaskClose = (
+  template: RecurringTaskTemplate,
+  closedTask: Task,
+  outcome: "completed" | "cancelled",
+  now: string,
+): RecurringTaskTemplate => {
+  const lastGeneratedForDate =
+    outcome === "completed" &&
+    closedTask.recurrenceDueDate &&
+    (!template.lastGeneratedForDate || closedTask.recurrenceDueDate > template.lastGeneratedForDate)
+      ? closedTask.recurrenceDueDate
+      : template.lastGeneratedForDate;
+
+  return {
+    ...cloneRecurringTemplate(template),
+    lastGeneratedForDate,
+    pendingMissedOccurrences: 0,
+    updatedAt: now,
+  };
+};
+
+/** Occurrence-scope edit: only the fields present in `changes` replace the task's values. */
+export const mergeOccurrenceEdit = (task: Task, changes: RecurringTaskChanges): Task => ({
+  ...task,
+  title: changes.title ?? task.title,
+  notes: changes.notes ?? task.notes,
+  bucket: changes.bucket ?? task.bucket,
+  contextIds: changes.contextIds ?? task.contextIds,
+  projectId: changes.projectId === undefined ? task.projectId : changes.projectId,
+  scheduledFor: changes.scheduledFor === undefined ? task.scheduledFor : changes.scheduledFor,
+  deadline: changes.deadline === undefined ? task.deadline : changes.deadline,
+});
+
+/** Active generated task cancelled because its template was cancelled. */
+export const cancelActiveTaskForTemplate = (task: Task, now: string): Task => ({
+  ...cloneTask(task),
+  status: "cancelled",
+  updatedAt: now,
+});

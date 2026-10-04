@@ -7,8 +7,9 @@ import type { AppRepository } from "../lib/storage/repository";
 import { t } from "../i18n";
 
 /**
- * Tracks the current local calendar day and, when it changes, regenerates due
- * recurrences and promotes due Scheduled tasks. A timeout until the next local
+ * Tracks the current local calendar day and, when it changes, runs
+ * `repository.reconcileDay` (due recurrences, Scheduled promotion, Sunday carryover, expired
+ * Pomodoro completion). A timeout until the next local
  * midnight plus window focus and becoming visible all trigger the check so
  * already-mounted GTD/Pomodoro views can reload without navigation.
  *
@@ -36,7 +37,6 @@ export const useLocalDayReconciliation = (
   const financeEnabledRef = useRef(financeEnabled);
   const financeNotifyRunoutRef = useRef(financeNotifyRunout);
   const promotedForRef = useRef<{ day: string; repository: AppRepository } | null>(null);
-  const snapshottedForRef = useRef<{ day: string; repository: AppRepository } | null>(null);
   const alertsCheckedForRef = useRef<{ day: string; repository: AppRepository } | null>(null);
 
   calendarDayRef.current = calendarDay;
@@ -48,6 +48,20 @@ export const useLocalDayReconciliation = (
     let cancelled = false;
     let timeoutId: number | undefined;
 
+    const snapshotFinance = async (candidate: AppRepository | null, today: string) => {
+      if (!candidate || !financeEnabledRef.current) {
+        return;
+      }
+      try {
+        const count = await candidate.snapshotFinanceAccountBalances(today);
+        logDebug("info", "app.localDay", "Snapshot des soldes finance effectue", { count });
+      } catch {
+        // Never blocks the day-boundary reconciliation; log a fixed message only, never the
+        // error (its message/stack could carry row data).
+        logDebug("error", "app.localDay", "Echec du snapshot des soldes finance");
+      }
+    };
+
     const reconcile = async () => {
       const today = getTodayDate();
       const candidate = repositoryRef.current;
@@ -58,30 +72,19 @@ export const useLocalDayReconciliation = (
 
       if (candidate && !alreadyPromoted) {
         try {
-          await candidate.generateDueRecurringTasks(today);
-          await candidate.promoteDueScheduledTasks(today);
+          await candidate.reconcileDay(today);
           promotedForRef.current = { day: today, repository: candidate };
         } catch (error) {
           logDebug("error", "app.localDay", "Echec de la reconciliation du jour local", error);
+          // Still attempt the finance snapshot below; the calendar day is not republished.
+          await snapshotFinance(candidate, today);
           return;
         }
       }
 
-      const alreadySnapshotted =
-        candidate !== null &&
-        snapshottedForRef.current?.day === today &&
-        snapshottedForRef.current.repository === candidate;
-
-      if (candidate && financeEnabledRef.current && !alreadySnapshotted) {
-        try {
-          const count = await candidate.snapshotFinanceAccountBalances(today);
-          snapshottedForRef.current = { day: today, repository: candidate };
-          logDebug("info", "app.localDay", "Snapshot des soldes finance effectue", { count });
-        } catch (error) {
-          // Never blocks the day-boundary reconciliation above; counts/durations only.
-          logDebug("error", "app.localDay", "Echec du snapshot des soldes finance", error);
-        }
-      }
+      // The upsert is idempotent per (account, day), so every pass refreshes today's point
+      // instead of freezing the first observation of the day.
+      await snapshotFinance(candidate, today);
 
       const alreadyCheckedAlerts =
         candidate !== null &&
@@ -181,7 +184,7 @@ export const useLocalDayReconciliation = (
       window.removeEventListener("focus", onResume);
       document.removeEventListener("visibilitychange", onResume);
     };
-  }, [repository]);
+  }, [repository, financeEnabled]);
 
   return calendarDay;
 };

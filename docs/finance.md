@@ -81,7 +81,7 @@ ISO strings from `nowIso()`.
   **`finance_recurring_series`**, **`finance_account_balance_snapshots`** — read
   by the budget (Phase 5), recurring-detection and net-worth (Phase 6), and
   forecasting (Phase 7) engines described below.
-- **`finance_alert_notifications`** (migration `38_create_finance_alert_notifications`,
+- **`finance_alert_notifications`** (migration `39_create_finance_alert_notifications`,
   additive, touches no other table) — `(alert_key, notified_on_date)` primary
   key plus `notified_at`. The once-per-day-per-alert-key rate-limit ledger for
   the Phase 7 desktop notification; see "Forecasting and proactive alerts
@@ -93,9 +93,10 @@ ISO strings from `nowIso()`.
 fixed ids (`fincat:alimentation`, `fincat:alimentation.epicerie`, …), distinct from
 the three system categories above. `AppRepository.seedFinanceDefaultCategories()`
 seeds it idempotently (`INSERT OR IGNORE`, so re-running is always a no-op) on both
-repositories, gated on `AppSettings.financeCategoriesSeededAt`, the same
-one-time-marker pattern as the GTD normalizations in `app-context.tsx`. Phase 4
-added `fincat:logement.telecommunications` (additively — existing ids are never
+repositories. Settings calls it when finance is first enabled, and startup calls it on
+every launch while finance is enabled, so taxonomy entries added by later releases reach
+installations that were seeded earlier (`AppSettings.financeCategoriesSeededAt` is only
+set once, as a record of the first seed). Phase 4 added `fincat:logement.telecommunications` (additively — existing ids are never
 renumbered) so the bundled telecom seed heuristic has a category to point at.
 
 ## Settings
@@ -115,7 +116,7 @@ automatically — no migration needed):
 | `financeCoachContextEnabled` | `false` | Reserved for a compact finance snapshot in the coach payload; **not implemented** — see "Forecasting and proactive alerts (Phase 7)" |
 | `financeNotifyRunout` | `true` | Gates the rate-limited desktop notification for `will_run_out`/`exhausted` envelopes and a cash runout inside 14 days (Phase 7, implemented) |
 | `financeSafetyBufferMinor` | `0` | Minor-unit floor for the household cash-runout forecast (Phase 7, implemented) |
-| `financeCategoriesSeededAt` | `""` | One-time marker for the default taxonomy seed |
+| `financeCategoriesSeededAt` | `""` | Records the first default taxonomy seed (startup re-seeds additively regardless) |
 
 ## Repository contract
 
@@ -129,13 +130,21 @@ assertions against both.
 
 Covered in this phase: people, accounts, categories (including the default-taxonomy
 seed and archive-with-reassign), rules, merchant memory, transactions (including
-splits and transfers), import profiles/batches, transaction import with undo, and
+splits and transfers), import profiles/batches (including their decimal/thousands
+separators), transaction import with undo, and
 the category-suggestion queue. Phase 4 added the classification pipeline itself
 (below), `reclassifyFinancePending()`, and `revertFinanceCategoryBackfill()`.
 Phase 5 added the budget methods — `getFinanceBudgetMonth`,
 `setFinanceBudgetAssignment`, `setFinanceCategoryOverspendPolicy`,
 `computeFinanceBudgetState`, `setFinanceBudgetMonthClosed`, and
 `setFinanceBudgetReadyToAssignNote` — covered below under "Budget (Phase 5)".
+Every finance mutation goes through the repository
+writer queue (`writeExclusive`), so a save can never be rolled back by a concurrent
+import. `saveFinanceTransactionSplits` validates that a non-empty allocation sums
+exactly to the parent amount before touching anything and replaces splits in one
+transaction; clearing the last split restores `fincat:non-categorise`. An
+`all_matching` category correction marks every changed row `category_source = 'user'`,
+and archiving a category also reassigns split and merchant-memory references.
 Phase 6 added `computeFinanceNetWorth`, `listFinanceNetWorthHistory`,
 `computeFinanceCashFlow`, `computeFinanceCategorySpend`,
 `listFinanceCategorySpendDrilldown`, `computeFinanceMerchantSpend`,
@@ -172,30 +181,22 @@ place that writes a user correction:
   target transaction; the distinction is about *intent* (future transactions
   will benefit from the memory update either way), not a different write path.
 - `scope: "all_matching"` additionally recategorizes every other transaction
-  sharing the same `merchant_key` whose `category_source !== 'user'`, nulling
-  `category_confidence` on each (their `category_source` itself is left
-  unchanged — still `'default'`/`'rule'`/`'memory'`, whatever it was — so a
-  later `reclassifyFinancePending()` can still revise them if a rule or
-  stronger memory signal appears). Because a backfilled row's `category_id`
-  can be a real category while its `category_source` stays `'default'`,
-  `classifyTransaction`'s "keep the existing category" guard (see
-  "Classification pipeline" below) keys off `category_id !==
-  'fincat:non-categorise'`, not `category_source` — otherwise a
-  `reclassifyFinancePending()` immediately after an `all_matching` edit would
-  silently reset the backfilled rows back to Uncategorized the moment their
-  `merchant_key` matches nothing better than a suggestion.
+  sharing the same `merchant_key` whose `category_source !== 'user'`, marking each
+  `category_source = 'user'` and nulling `category_confidence`: the user explicitly
+  applied the correction, so later imports, `reclassifyFinancePending()` and transfer
+  detection never overwrite it (and undoing an import cannot delete it).
   The result's `backfill` array captures each backfilled row's prior `category_id`,
   `category_source`, `category_confidence`, `categorized_at`, and the
-  `categoryId` the bulk edit applied (`appliedCategoryId`); passing that array
+  `categoryId` and `categorized_at` stamp the bulk edit applied (`appliedCategoryId`,
+  `appliedAt`); passing that array
   to `revertFinanceCategoryBackfill()` is the single undo the UI offers right
   after an `all_matching` edit (`FinanceTransactionsPage`'s backfill banner),
   one `BEGIN IMMEDIATE`/`COMMIT` on the SQLite side. The target transaction's
   own `category_source = 'user'` write is **not** part of the undo — only the
-  backfilled rows revert, and even then only a row whose `category_source` is
-  still not `'user'` **and** whose `category_id` still equals
-  `appliedCategoryId` — if the user manually re-categorized it, or a later
-  automatic pass moved it again, the undo leaves that row alone rather than
-  clobbering the newer edit.
+  backfilled rows revert, and even then only a row whose `category_id` still equals
+  `appliedCategoryId` **and** whose `categorized_at` is still `appliedAt` — if the
+  user manually re-categorized it afterwards, the undo leaves that row alone rather
+  than clobbering the newer edit.
 
 `decideFinanceCategorySuggestion` routes an `accepted`/`corrected` decision through
 this same entry point (`scope: "this"`), so accepting a suggestion reinforces
@@ -297,7 +298,7 @@ column mapping are Phase 1/3 concerns; see `src/lib/finance/csv.ts` and
    (`batchId`, counts, `transfersDetected`, `pendingSuggestions`, `warnings`,
    `nearDuplicates`).
 
-On `TauriSqliteRepository`, the whole call is one `runExclusive` block issuing a
+On `TauriSqliteRepository`, the whole call is one `writeExclusive` block issuing a
 single `BEGIN IMMEDIATE`/`COMMIT` inside `FinanceSqliteStore.importTransactions` —
 it never calls another queue-taking repository method, so it cannot deadlock
 `DbSerialQueue`. A 5,000-row import completes inside this one block (see
@@ -313,12 +314,13 @@ ignored — nothing in the pipeline reads it yet.
 ### Undo
 
 `undoFinanceImportBatch(batchId)` is **restricted to the most recent batch for that
-batch's account** — if a later batch for the same account exists, the call throws
+batch's account, and for every account represented by its rows** — if a later batch for any of those accounts exists, the call throws
 rather than silently doing nothing, because that later batch may have deduped
 against a row this undo would otherwise delete. It deletes a batch row's splits and
 **all** of its category suggestions (pending or already decided — a deleted
 transaction cannot leave an orphaned suggestion behind), repairs the transfer
-group of a surviving partner (clearing
+group of a surviving partner (a partner the user categorized keeps its category,
+provenance, and exclusions and only loses the dead group link; otherwise clearing
 `is_transfer`/`transfer_group_id`, restoring a pending suggestion so the partner
 does not silently fall out of the budget), and **refuses to delete any row whose
 `category_source = 'user'`** — those rows are counted in `refusedUserCategorized`
@@ -395,12 +397,14 @@ action that needs two categories' data at once, so it stays a dedicated
 repository method, `computeFinanceCoverOverspending(monthKey, fromCategoryId,
 toCategoryId)`, implemented identically on both stores via the same private
 `buildBudgetComputationInput` used by `computeBudgetState`, delegating to the
-pure `computeCoverOverspending`; the page calls it, then writes both
-categories' new assignments. `selectUnbudgetedCategories` picks out the "Non
-budgété" band (activity with no assignment — `assignedMinor === 0` always
-means "never assigned" because assigning `0` deletes the row) and
-`computeUnbudgetedAssignAmountMinor` is the one-click "Assigner" amount (the
-positive size of the activity); `computeEnvelopePace`/
+pure `computeCoverOverspending`; the page calls
+`applyFinanceCoverOverspending(monthKey, fromCategoryId, toCategoryId)`, which
+writes both categories' new assignments in one writer-queue transaction.
+`selectUnbudgetedCategories` picks out the "Non budgété" band (no assignment,
+negative activity, and `availableMinor < 0` — spending already covered by
+carry-in, and refunds, are never listed) and `computeUnbudgetedAssignAmountMinor`
+is the one-click "Assigner" amount (the uncovered deficit, `max(0, -available)`);
+`computeEnvelopePace`/
 `computeEnvelopePaceFromState` give a simple spent-vs-elapsed-days fraction
 per envelope (no forecasting yet — that is `src/domain/finance/forecast.ts`,
 a later phase).
@@ -410,7 +414,9 @@ Repository methods: `getFinanceBudgetMonth` reads the advisory
 to an unsaved empty row rather than throwing when the month has never been
 touched. `setFinanceBudgetAssignment(monthKey, categoryId, assignedMinor)` is
 an idempotent upsert into `finance_budget_entries`; assigning `0` deletes the
-row. `setFinanceCategoryOverspendPolicy(monthKey, categoryId, policy)` writes
+row unless it holds a non-default overspend policy or a note (then the row is kept at
+`0`, so an untouched `0.00` field blurring cannot reset the policy).
+`setFinanceCategoryOverspendPolicy(monthKey, categoryId, policy)` writes
 the policy onto the `(monthKey, categoryId)` entry — creating it with
 `assigned_minor = 0` if it does not exist yet, purely so the policy has
 somewhere to live — and onto every **already-existing** later entry for that
@@ -587,9 +593,18 @@ text search, uncategorized-only) transaction list. Each row supports:
   "Learning entry point" above) — the banner and its undo apply to only the
   most recent `all_matching` edit in the page's session.
 - A split editor (`FinanceTransactionSplit[]`) with client-side sum-invariant
-  validation: saving is rejected unless every split amount parses and the
-  splits sum to exactly the parent transaction's `amountMinor`, matching the
-  invariant the repository documents but does not itself enforce.
+  validation matching the repositories' own `validateSplitTotal`: a non-empty
+  allocation must parse and sum exactly to the parent's `amountMinor`; removing
+  every row saves an empty list, which clears the splits and restores the
+  uncategorized parent. Save stays disabled until that transaction's existing
+  splits have loaded, and a superseded load is ignored.
+- Accounts can be edited in place (id, external key, notes, closed state and order
+  are preserved; the currency is locked once saved). Currencies are validated with
+  `normalizeCurrencyCode` before persisting, in accounts and in Settings.
+- Imports parse each row with its bound account's currency, mask the account column
+  in the stored source row and in default account names, and pass CSV parser
+  warnings and mapping errors to the repository as `FinanceImportRequest.rejected`
+  so they land in the batch's skipped/error counts, `error_summary` and warnings.
 - Unmark transfer (calls `clearFinanceTransfer`) is a per-row action. Marking
   a *pair* as a transfer is a bulk action instead: selecting exactly two rows
   enables "Marquer la paire comme virement" in the bulk toolbar, which calls
@@ -622,11 +637,15 @@ page**: an overspend-policy select (`setFinanceCategoryOverspendPolicy`),
 (writes `category.average3MonthsAssignedMinor`), "Assigner tout le prêt à
 assigner" (writes `category.assignAllReadyToAssignMinor`), and — only while
 a category's `availableMinor` is negative — a source-category picker plus
-"Couvrir" that calls `repository.computeFinanceCoverOverspending` and writes
-back its two new assignment totals. A "Non budgété" band (from
-`selectUnbudgetedCategories`) lists every category with activity and no
-assignment, each with a one-click "Assigner" that writes
-`computeUnbudgetedAssignAmountMinor(category.activityMinor)`. A plain "solde
+"Couvrir" that calls `repository.applyFinanceCoverOverspending` (one atomic
+write of both totals). Parent categories that hold spending or an assignment get
+their own row above their leaves. Writes run through one in-page queue and
+quick actions re-read `computeFinanceBudgetState` inside the queued task, so
+overlapping clicks cannot reuse a stale Ready to Assign; a stale month load is
+discarded and write/load failures render an alert. Blurring an unchanged
+assignment is a no-op. A "Non budgété" band (from
+`selectUnbudgetedCategories`) lists categories with uncovered spending, each
+with a one-click "Assigner" that adds `computeUnbudgetedAssignAmountMinor(category)`. A plain "solde
 des cartes de crédit" line lists each on-budget credit-card account's
 derived balance (`computeDerivedBalanceMinor`) — the v1 simplification from
 the spec's "Credit-card payment categories" decision, not a payment
@@ -703,7 +722,7 @@ function (never a SQL `GROUP BY` in one and a JS reduce in the other):
   or week), and `computeFinanceMonthOverMonth` (per-category spend across two
   arbitrary ranges).
 - `src/lib/finance/recurring-detection.ts` — `detectFinanceRecurringSeries`
-  groups the full transaction history by `merchantKey` + sign, requires ≥ 3
+  groups the full transaction history by `merchantKey` + `accountId` + sign (the same merchant on two accounts is two series), requires ≥ 3
   occurrences, classifies a cadence (weekly/biweekly/semimonthly/monthly/
   quarterly/annual) from the median day gap when its stddev is within that
   cadence's band half-width, sets `expectedAmountMinor` to the median amount
@@ -711,12 +730,12 @@ function (never a SQL `GROUP BY` in one and a JS reduce in the other):
   `nextExpectedDate` — calendar-month anchored with end-of-month clamping for
   monthly/quarterly/annual cadences (`addMonthsClamped`; the 31st in a
   30-day/February month lands on that month's last day), plain day arithmetic
-  for weekly/biweekly/semimonthly. Flags `missed` (today past
+  for weekly/biweekly; semimonthly follows two stable days of the month. When the median gap fits both the biweekly and semimonthly bands, two stable anchor days (e.g. the 1st and 15th) classify it semimonthly and `nextExpectedDate` is the next anchor day. Flags `missed` (today past
   `nextExpectedDate` by more than the cadence's tolerance), `amount_changed`
   (newest occurrence outside tolerance), and `ended` (two consecutive
   misses). A series the user confirmed (`confirmedByUser`) is always returned
   by re-detection, even when the fresh group no longer meets the
-  3-occurrence/cadence threshold — confirmation pins the series.
+  3-occurrence/cadence threshold — confirmation pins the series. Both stores feed it only non-transfer, non-`excludedFromReports` transactions, and treat its result as the full set: after the upsert, any unconfirmed series it no longer returns is deleted (import undone, cadence broken). Detection also runs at the end of `undoImportBatch`, inside its transaction.
 
 Repository methods (both implementations, delegating to the pure functions
 above): `computeFinanceNetWorth`, `listFinanceNetWorthHistory`,
@@ -730,7 +749,7 @@ after every `importFinanceTransactions`, inside its transaction, and on
 demand from `/finances`), `snapshotFinanceAccountBalances(asOfDate)` (derives
 and upserts one `finance_account_balance_snapshots` row per account, source
 `'derived'`, idempotent per day — an upsert on the `(account_id, as_of_date)`
-primary key), and `listFinanceAccountBalanceSnapshots(accountId)`.
+primary key, written in one transaction so a day never keeps a prefix of accounts), and `listFinanceAccountBalanceSnapshots(accountId)`.
 
 ### Bootstrap: daily balance snapshots
 
@@ -740,19 +759,22 @@ reconciliation pass that regenerates recurrences and promotes Scheduled
 tasks, when `financeEnabled` it also calls
 `snapshotFinanceAccountBalances(today)` so the net-worth history has one
 point per day the app was open. The call is independently try/caught —
-a snapshot failure is logged (a row count only, never amounts) and never
-blocks recurrence/promotion or the eight-second startup timeout.
+a snapshot failure is logged with a fixed message (the error is never logged, so no
+amounts or row data) and never blocks recurrence/promotion or the eight-second startup
+timeout. The upsert is idempotent, so every pass (focus, visibility, midnight, and
+turning `financeEnabled` on, which is an effect dependency) refreshes today's point,
+and it still runs when `reconcileDay` throws.
 
 ### FinanceOverviewPage (`/finances`, Phase 6)
 
 Net worth (total plus assets/liabilities, with the non-base-currency banner
 described above), this month's cash flow (income/expense/net), a 6-month
-spending-trend bar chart (plain CSS bars sized from `computeFinanceTrend`'s
-`expenseMinor`, no charting dependency), the current month's top five
-spending categories (`computeFinanceCategorySpend`), the account list with
-derived balances (unchanged from Phase 3), and up to five upcoming active
-recurring series sorted by `nextExpectedDate`, each with Confirmer/Mettre en
-pause/Terminer actions that write through `saveFinanceRecurringSeries`.
+spending-trend bar chart (one column per month, zero-filled, each printing its
+amount; plain CSS bars sized from `computeFinanceTrend`'s `expenseMinor`, no charting
+dependency), the current month's top five
+spending categories (`computeFinanceCategorySpend`), the account list rendered from the same `computeFinanceNetWorth` lines as the total (so closed accounts and the as-of-today cutoff agree with it; closed accounts are labelled), and up to five upcoming active
+recurring series sorted by `nextExpectedDate` and formatted in the account's own currency, each with Confirmer/Mettre en
+pause/Terminer actions that write through `saveFinanceRecurringSeries`. `load` first calls `detectFinanceRecurringSeries()` so dates and missed/ended series reflect today, and surfaces a load failure instead of a stuck "Chargement...".
 
 ### FinanceReportsPage (`/finances/reports`, Phase 6)
 
@@ -761,7 +783,7 @@ below: spending by category with a "Voir le détail" drill-down that lists
 the exact transactions summing to that row's total (via
 `listFinanceCategorySpendDrilldown`), spending by merchant (top 10), spending
 by person, an income-vs-expense table by month, and a month-over-month
-per-category comparison against the immediately preceding month.
+per-category comparison against the preceding window of the same length as the selected range. An empty or inverted range is refused before any repository call; loads and drill-downs carry a request id so a stale response is ignored, changing the range closes the open drill-down, and a rejected load shows an error. The drill-down panel takes focus and closes on Escape.
 
 ## Forecasting and proactive alerts (Phase 7)
 
@@ -838,7 +860,7 @@ snapshot and calls the two pure functions above.
 
 ### Alert notification ledger and policy
 
-`finance_alert_notifications` (migration 38) is a tiny additive table —
+`finance_alert_notifications` (migration 39) is a tiny additive table —
 `(alert_key, notified_on_date)` primary key, `notified_at` — read via
 `listNotifiedFinanceAlertKeys(onDate)` and written via
 `recordFinanceAlertNotifications(onDate, alertKeys)`. It exists purely to
@@ -914,3 +936,16 @@ repository parity and the migration. `TodayPage.test.tsx` and
 - [Storage and backups](storage-and-backups.md#finance-tables)
 - [Conventions](conventions.md) (minor-units rule)
 - [specs/todo/finance.md](../specs/todo/finance.md) — the full phased spec
+
+## Suggestion lifecycle (Phase 4 review fixes)
+
+A pending suggestion is retired (deleted) when a newer category decision supersedes
+it: a manual `setFinanceTransactionCategory` (including `all_matching` backfilled
+rows) or a rule/transfer outcome during reclassification. A reclassification that
+proposes a different category updates the pending row instead of keeping the stale
+one, and one that proposes nothing drops non-AI pending rows.
+`decideFinanceCategorySuggestion` only acts on `pending` suggestions; repeating it on
+a decided one is a no-op, so merchant memory is never reinforced twice. The review
+page also disables its actions while one is running. When several enabled rules
+match, `addLabels` is the deduplicated union across all of them. The transactions
+page keeps the last bulk-undo banner through unrelated single-row edits.

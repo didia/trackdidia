@@ -16,6 +16,7 @@ import {
   computeFinanceOnBudgetBalance,
   computeFinanceReadyToAssign,
   computeUnbudgetedAssignAmountMinor,
+  hasBudgetEntryMetadata,
   listUnbudgetedCategoryActivity,
   selectUnbudgetedCategories,
   type FinanceBudgetComputationInput,
@@ -100,14 +101,65 @@ const expectBalanceInvariant = (monthKey: string, input: FinanceBudgetComputatio
   const state = computeFinanceBudgetState({ ...input, monthKey });
   expect(state.onBudgetBalanceMinor).toBe(expectedBalance);
 
-  const sumAvailable = state.categories.reduce((total, c) => total + c.availableMinor, 0);
-  const sumFutureAssigned = input.entries.reduce(
-    (total, e) => total + (e.monthKey > monthKey ? e.assignedMinor : 0),
-    0,
+  // Expected Ready to Assign, derived by hand from the fixture rows (no engine helpers):
+  // naive month-by-month envelope walk, deferred income from raw positive rows.
+  const expenseIds = input.categories.filter((c) => c.kind === "expense").map((c) => c.id);
+  const monthKeyOf = (date: string) => date.slice(0, 7);
+  const allMonths = [
+    ...input.transactions.map((t) => monthKeyOf(t.postedDate)),
+    ...input.entries.map((e) => e.monthKey),
+    monthKey,
+  ].sort();
+  let expectedSumAvailable = 0;
+  for (const categoryId of expenseIds) {
+    let available = 0;
+    let month = allMonths[0];
+    for (;;) {
+      const assigned = input.entries
+        .filter((e) => e.categoryId === categoryId && e.monthKey === month)
+        .reduce((total, e) => total + e.assignedMinor, 0);
+      let activity = 0;
+      for (const t of input.transactions) {
+        if (monthKeyOf(t.postedDate) !== month) continue;
+        if (t.hasSplits) {
+          activity += input.splits
+            .filter((sp) => sp.transactionId === t.id && sp.categoryId === categoryId)
+            .reduce((total, sp) => total + sp.amountMinor, 0);
+        } else if ((t.categoryId ?? "fincat:non-categorise") === categoryId) {
+          activity += t.amountMinor;
+        }
+      }
+      available += assigned + activity;
+      if (month === monthKey) break;
+      if (available < 0) {
+        const policy = input.entries.find(
+          (e) => e.categoryId === categoryId && e.monthKey === month,
+        )?.overspendPolicy;
+        if (policy !== "carry_negative") available = 0;
+      }
+      const [y, m] = month.split("-").map(Number);
+      month = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
+    }
+    expectedSumAvailable += available;
+  }
+  const deferredIds = new Set(
+    input.categories.filter((c) => c.kind === "income" && c.defersToNextMonth).map((c) => c.id),
   );
-  const deferredThisMonth = computeFinanceDeferredIncome(monthKey, input);
-  expect(state.onBudgetBalanceMinor).toBe(
-    sumAvailable + state.readyToAssignMinor + sumFutureAssigned + deferredThisMonth,
+  const expectedDeferred = input.transactions
+    .filter(
+      (t) =>
+        monthKeyOf(t.postedDate) === monthKey &&
+        t.categoryId !== null &&
+        deferredIds.has(t.categoryId) &&
+        t.amountMinor > 0,
+    )
+    .reduce((total, t) => total + t.amountMinor, 0);
+  const expectedFutureAssigned = input.entries
+    .filter((e) => e.monthKey > monthKey)
+    .reduce((total, e) => total + e.assignedMinor, 0);
+
+  expect(state.readyToAssignMinor).toBe(
+    expectedBalance - expectedSumAvailable - expectedFutureAssigned - expectedDeferred,
   );
 };
 
@@ -425,15 +477,16 @@ describe("assigning 0 removes the row", () => {
       categories,
     };
     expect(listUnbudgetedCategoryActivity("2026-01", input)).toEqual([
-      { categoryId: CATEGORY_A, activityMinor: -500 },
+      { categoryId: CATEGORY_A, activityMinor: -500, deficitMinor: 500 },
     ]);
   });
 });
 
 describe("computeUnbudgetedAssignAmountMinor", () => {
-  it("returns the positive size of the activity regardless of sign", () => {
-    expect(computeUnbudgetedAssignAmountMinor(-500)).toBe(500);
-    expect(computeUnbudgetedAssignAmountMinor(500)).toBe(500);
+  it("returns only the uncovered deficit, never a positive available", () => {
+    expect(computeUnbudgetedAssignAmountMinor({ availableMinor: -500 })).toBe(500);
+    expect(computeUnbudgetedAssignAmountMinor({ availableMinor: 500 })).toBe(0);
+    expect(computeUnbudgetedAssignAmountMinor({ availableMinor: 0 })).toBe(0);
   });
 });
 
@@ -586,5 +639,34 @@ describe("selectUnbudgetedCategories", () => {
     expect(selectUnbudgetedCategories(state)).toEqual([
       expect.objectContaining({ categoryId: CATEGORY_A, activityMinor: -500 }),
     ]);
+  });
+
+  it("excludes spending already covered by carry-in and refunds", () => {
+    const transactions = [
+      txn(CHECKING, "2026-01-02", 10_000, INCOME),
+      txn(CHECKING, "2026-02-05", -1_000, CATEGORY_A),
+      txn(CHECKING, "2026-02-06", 500, CATEGORY_B),
+    ];
+    const input: FinanceBudgetComputationInput = {
+      monthKey: "2026-02",
+      accounts,
+      transactions,
+      balanceTransactions: transactions,
+      splits: [],
+      entries: [entry("2026-01", CATEGORY_A, 5_000)],
+      categories,
+    };
+    const state = computeFinanceBudgetState(input);
+    expect(state.categories.find((c) => c.categoryId === CATEGORY_A)?.availableMinor).toBe(4_000);
+    expect(selectUnbudgetedCategories(state)).toEqual([]);
+  });
+});
+
+describe("hasBudgetEntryMetadata", () => {
+  it("is true only for a non-default policy or a note", () => {
+    expect(hasBudgetEntryMetadata(undefined)).toBe(false);
+    expect(hasBudgetEntryMetadata(entry("2026-01", CATEGORY_A, 0))).toBe(false);
+    expect(hasBudgetEntryMetadata(entry("2026-01", CATEGORY_A, 0, "carry_negative"))).toBe(true);
+    expect(hasBudgetEntryMetadata({ ...entry("2026-01", CATEGORY_A, 0), note: "x" })).toBe(true);
   });
 });

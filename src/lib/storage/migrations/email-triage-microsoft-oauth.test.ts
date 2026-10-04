@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { migrations } from "../tauri-sqlite-repository";
+import { migrations } from "./index";
 
 describe("migration 31 add_email_triage_microsoft_oauth_client_id", () => {
   it("adds microsoft_oauth_client_id without rewriting earlier migrations", () => {

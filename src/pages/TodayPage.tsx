@@ -1,3 +1,4 @@
+import { useProposalDecisions } from "../app/use-proposal-decisions";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
@@ -16,23 +17,20 @@ import { SectionCard } from "../components/SectionCard";
 import { resolveMetricValue, updateNote } from "../domain/daily-entry";
 import { getDefaultMonthlyReviewMonthKey, isFirstSaturdayOfMonth } from "../domain/monthly-review";
 import { getDefaultWeeklyReviewWeekStart } from "../domain/weekly-review";
-import type { AiProposal } from "../domain/types";
 
-import { applyCoachProposal } from "../lib/ai/proposals/apply-proposal";
 import { formatDateLong, formatDateTimeShort, getTodayDate } from "../lib/date";
-import { logDebug } from "../lib/debug";
 import { formatTimestamp } from "../lib/format";
 import { bucketLabelKeys } from "../lib/gtd/labels";
-import { isSunday, isWednesday } from "../lib/gtd/shared";
+import { isSunday, isWednesday } from "../lib/date";
 import type { DailyTaskBreakdown } from "../lib/storage/repository";
 
 export const TodayPage = () => {
   const { t } = useTranslation("today");
   const today = getTodayDate();
-  const { entry, loading, save } = useDailyEntry(today);
-  const { repository, settings, syncSettings, browserPreview, pomodoro, pulseRevision } =
+  const { entry, loading, save, applyProposal } = useDailyEntry(today);
+  const { repository, settings, updateSettings, browserPreview, pomodoro, pulseRevision } =
     useAppContext();
-  const pastorVerse = usePastorVerse(today, settings, repository, syncSettings);
+  const pastorVerse = usePastorVerse(today, settings, repository, updateSettings);
   const {
     result: coachResult,
     loading: coachLoading,
@@ -61,60 +59,21 @@ export const TodayPage = () => {
     return breakdownRequest.invalidate;
   }, [breakdownRequest, entry, repository]);
 
-  const handleAcceptProposal = async (proposal: AiProposal) => {
-    const currentEntry = entryRef.current;
-    if (!currentEntry) {
-      return;
-    }
-
-    try {
-      const applied = await applyCoachProposal(repository, proposal, currentEntry.date);
-
-      if (proposal.type === "intention_draft" && applied.text !== undefined) {
-        const intention = applied.text;
-        await save((latest) => updateNote(latest, "morningIntention", intention));
-        morningIntentionRef.current?.setDraft(intention);
-      }
-
-      if (!applied.proposalDecided) {
-        await repository.decideAiProposal(
-          proposal.id,
-          "accepted",
-          applied.memoryId ?? currentEntry.date,
-        );
-      }
-      setCoachResult((current) =>
-        current
-          ? {
-              ...current,
-              proposals: current.proposals.map((item) =>
-                item.id === proposal.id
-                  ? { ...item, status: "accepted", decidedAt: new Date().toISOString() }
-                  : item,
-              ),
-            }
-          : current,
-      );
-    } catch (error) {
-      logDebug("error", "ai.coach", "Failed to accept coach proposal", error);
-    }
-  };
-
-  const handleDismissProposal = async (proposal: AiProposal) => {
-    await repository.decideAiProposal(proposal.id, "dismissed");
-    setCoachResult((current) =>
-      current
-        ? {
-            ...current,
-            proposals: current.proposals.map((item) =>
-              item.id === proposal.id
-                ? { ...item, status: "dismissed", decidedAt: new Date().toISOString() }
-                : item,
-            ),
-          }
-        : current,
-    );
-  };
+  const decisions = useProposalDecisions(coachResult, setCoachResult, {
+    onAccept: async (proposal) => {
+      const currentEntry = entryRef.current;
+      if (!currentEntry) return {};
+      const applied = await applyProposal(proposal);
+      if (
+        applied.proposal &&
+        applied.dailyNote &&
+        applied.dailyNote.field === "morningIntention" &&
+        entryRef.current?.date === currentEntry.date
+      )
+        morningIntentionRef.current?.setDraft(applied.dailyNote.text);
+      return applied;
+    },
+  });
 
   if (loading || !entry) {
     return (
@@ -231,8 +190,7 @@ export const TodayPage = () => {
         settings={settings}
         autoloadAi
         onRegenerate={() => void loadCoach({ trigger: "explicit", bypassCache: true })}
-        onAcceptProposal={(proposal) => void handleAcceptProposal(proposal)}
-        onDismissProposal={(proposal) => void handleDismissProposal(proposal)}
+        decisions={decisions}
       />
 
       <SectionCard title={t("state.title")} subtitle={t("state.subtitle")}>

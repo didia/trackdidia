@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
 import type { SQLInputValue } from "node:sqlite";
-import type { Database as SqliteDatabase } from "../../lib/storage/email-triage-sqlite-db";
+import type { Database as SqliteDatabase } from "../../lib/storage/sqlite-db";
 
 // `node:sqlite` is a recently-added experimental builtin: Node's `module.isBuiltin` recognizes
 // it, but Vite's static `builtinModules` externalization list (as of the pinned Vite version)

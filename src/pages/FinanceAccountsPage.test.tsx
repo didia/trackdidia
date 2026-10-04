@@ -73,4 +73,81 @@ describe("FinanceAccountsPage", () => {
     await user.click(screen.getByText("Rouvrir"));
     expect(await screen.findByRole("heading", { name: "Compte de secours" })).toBeInTheDocument();
   });
+
+  it("rejects an invalid currency before saving", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const user = userEvent.setup();
+    await renderWithApp(<FinanceAccountsPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+
+    const labelInput = (label: string) =>
+      screen
+        .getAllByRole("textbox")
+        .find((input) => input.closest("label")?.textContent === label) as HTMLInputElement;
+    await user.type(labelInput("Nom"), "Compte");
+    await user.clear(labelInput("Devise"));
+    await user.type(labelInput("Devise"), "CA");
+    await user.click(screen.getByText("Ajouter le compte"));
+
+    expect(await screen.findByText(/Devise invalide/)).toBeInTheDocument();
+    await expect(repository.listFinanceAccounts()).resolves.toEqual([]);
+  });
+
+  it("edits an existing account in place, keeping its id and key", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const timestamp = new Date().toISOString();
+    await repository.saveFinanceAccount({
+      id: "finance-account:imported",
+      name: "****7890",
+      institution: null,
+      type: "checking",
+      currency: "CAD",
+      ownerPersonId: null,
+      ownership: "individual",
+      onBudget: true,
+      closed: false,
+      openingBalanceMinor: 0,
+      currentBalanceMinor: null,
+      balanceAsOf: null,
+      externalKey: "****7890",
+      notes: null,
+      sortOrder: 0,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    const user = userEvent.setup();
+    await renderWithApp(<FinanceAccountsPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+
+    await user.click(await screen.findByText("Modifier"));
+    const nameInput = screen
+      .getAllByRole("textbox")
+      .find((input) => input.closest("label")?.textContent === "Nom") as HTMLInputElement;
+    await user.clear(nameInput);
+    await user.type(nameInput, "Chèques");
+    const openingInput = screen
+      .getAllByRole("textbox")
+      .find(
+        (input) => input.closest("label")?.textContent === "Solde d'ouverture",
+      ) as HTMLInputElement;
+    await user.clear(openingInput);
+    await user.type(openingInput, "250.00");
+    await user.click(screen.getByText("Enregistrer le compte"));
+
+    await screen.findByRole("heading", { name: "Chèques" });
+    const accounts = await repository.listFinanceAccounts();
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]).toMatchObject({
+      id: "finance-account:imported",
+      name: "Chèques",
+      externalKey: "****7890",
+      openingBalanceMinor: 25_000,
+    });
+  });
 });

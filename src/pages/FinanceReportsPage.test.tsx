@@ -99,7 +99,7 @@ describe("FinanceReportsPage", () => {
     expect(within(categorySection).getByText(/Épicerie/)).toBeInTheDocument();
     expect(within(categorySection).getByText("100,00 $")).toBeInTheDocument();
 
-    await userEvent.click(within(categorySection).getByRole("button", { name: "Voir le détail" }));
+    await userEvent.click(within(categorySection).getByRole("button", { name: /Voir le détail/ }));
 
     expect(await within(categorySection).findAllByText(/IGA/)).toHaveLength(2);
     // The two drill-down lines must sum to the category's total: 80 + 20 = 100.

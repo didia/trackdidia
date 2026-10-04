@@ -1,7 +1,7 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { defaultAppSettings } from "../domain/daily-entry";
-import { getTodayDate } from "../lib/date";
+import { addDays, getTodayDate } from "../lib/date";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { renderWithApp } from "../test/test-utils";
 import { FinanceOverviewPage } from "./FinanceOverviewPage";
@@ -125,23 +125,16 @@ describe("FinanceOverviewPage", () => {
     await repository.saveFinanceTransaction(
       buildTxn({ categoryId: "fincat:alimentation.epicerie", amountMinor: -5000 }),
     );
-    await repository.saveFinanceRecurringSeries({
-      id: "",
-      merchantKey: "NETFLIX",
-      accountId: "account-1",
-      categoryId: null,
-      cadence: "monthly",
-      expectedAmountMinor: -1599,
-      amountToleranceMinor: 100,
-      dayOfMonth: 15,
-      lastSeenDate: "2026-01-15",
-      nextExpectedDate: "2026-02-15",
-      occurrenceCount: 3,
-      status: "active",
-      confirmedByUser: false,
-      createdAt: "",
-      updatedAt: "",
-    });
+    for (const daysAgo of [60, 30, 0]) {
+      await repository.saveFinanceTransaction(
+        buildTxn({
+          merchantKey: "NETFLIX",
+          descriptionRaw: "NETFLIX",
+          amountMinor: -1599,
+          postedDate: addDays(getTodayDate(), -daysAgo),
+        }),
+      );
+    }
 
     await renderWithApp(<FinanceOverviewPage />, {
       repository,
