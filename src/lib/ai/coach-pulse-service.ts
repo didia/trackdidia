@@ -1,3 +1,4 @@
+import { runStructuredSurface } from "./structured-generation";
 import type { Finding } from "../../domain/insights/types";
 import type {
   AiDeltaClass,
@@ -198,32 +199,6 @@ const cachedResult = async (
   }
 };
 
-const persistResult = async (
-  repository: AppRepository,
-  message: AiMessage,
-  pulse: CoachPulseResponse,
-): Promise<CoachPulseResult> => {
-  const proposals = buildProposals(message.id, pulse, message.createdAt);
-  const saved = await repository.saveCoachPulseEpisode(message, proposals);
-
-  return {
-    message: saved.message,
-    pulse,
-    proposals: saved.proposals,
-    source: message.status === "ok" ? "ai" : message.status === "fallback" ? "fallback" : "local",
-  };
-};
-
-const finalizeClosePulse = async (
-  repository: AppRepository,
-  result: CoachPulseResult,
-  entry: DailyEntry,
-  createdAt: string,
-): Promise<CoachPulseResult> => {
-  await resolveDueCommitmentsOnClose(repository, entry.date, entry, createdAt);
-  return result;
-};
-
 export class CoachPulseService {
   constructor(private readonly provider: AiProvider) {}
 
@@ -281,18 +256,6 @@ export class CoachPulseService {
       commitmentResolution,
     });
 
-    if (!bypassCache) {
-      const cached = await repository.getAiMessage("coach_pulse", scopeKey, inputHash);
-      if (cached) {
-        const result = await cachedResult(repository, cached);
-        if (result) {
-          return stance === "close"
-            ? finalizeClosePulse(repository, result, entry, createdAt)
-            : result;
-        }
-      }
-    }
-
     const findings = snapshot.findings as Finding[];
     const localPulse = buildLocalCoachPulse(stance, findings, deltaClass ?? undefined, {
       previousDayTomorrowFocus:
@@ -311,145 +274,52 @@ export class CoachPulseService {
         openIgnoresDeltaGate);
     const shouldCallProvider =
       !localOnly && aiConfigured && (trigger === "explicit" || autoMayCallProvider);
-    const baseMessage = (): AiMessage => ({
-      id: createEntityId("ai-message"),
+    const result = await runStructuredSurface({
+      repository,
+      provider: this.provider,
+      settings,
       surface: "coach_pulse",
       scopeKey,
       stance,
       kind: stance,
-      inputHash,
-      promptVersion: COACH_PULSE_PROMPT_VERSION,
-      model: settings.aiSurfaceModels.coach_pulse ?? settings.aiModel,
-      status: "ok",
-      bodyJson: JSON.stringify(localPulse),
-      bodyText: pulseToBodyText(localPulse),
       deltaClass,
-      notified: false,
-      tokensPrompt: null,
-      tokensCompletion: null,
-      latencyMs: null,
+      promptVersion: COACH_PULSE_PROMPT_VERSION,
+      inputHash,
       createdAt,
-    });
-
-    if (!shouldCallProvider) {
-      const skippedMessage = {
-        ...baseMessage(),
-        status: "skipped" as const,
-        model: "local",
-      };
-
-      if (trigger === "explicit" || deltaClass !== null) {
-        const result = await persistResult(repository, skippedMessage, localPulse);
-        return stance === "close"
-          ? finalizeClosePulse(repository, result, entry, createdAt)
-          : result;
-      }
-
-      return {
-        message: skippedMessage,
-        pulse: localPulse,
-        proposals: [],
-        source: "local",
-      };
-    }
-
-    try {
-      const first = await this.provider.generateStructured({
+      bypassCache,
+      cachePolicy: "ok-only",
+      shouldCallProvider,
+      persistLocal: trigger === "explicit" || deltaClass !== null,
+      localFallback: localPulse,
+      toBodyText: pulseToBodyText,
+      parse: (text) => parseCoachPulseJson(text, stance),
+      request: (repairHint) => ({
         surface: "coach_pulse",
         stance,
         settings,
         snapshot,
         memoryBlock,
         commitmentResolution,
-      });
-
-      let parsed = parseCoachPulseJson(first.text, stance);
-      let finalText = first.text;
-      let usage = first.usage;
-      let model = first.model;
-
-      if (!parsed.ok) {
-        const repair = await this.provider.generateStructured({
-          surface: "coach_pulse",
-          stance,
-          settings,
-          snapshot,
-          memoryBlock,
-          commitmentResolution,
-          repairHint: parsed.error,
-        });
-        parsed = parseCoachPulseJson(repair.text, stance);
-        finalText = repair.text;
-        usage = {
-          tokensPrompt: usage.tokensPrompt + repair.usage.tokensPrompt,
-          tokensCompletion: usage.tokensCompletion + repair.usage.tokensCompletion,
-          latencyMs: usage.latencyMs + repair.usage.latencyMs,
-        };
-        model = repair.model;
-      }
-
-      if (!parsed.ok) {
-        const message: AiMessage = {
-          ...baseMessage(),
-          status: "fallback",
-          model,
-          bodyJson: JSON.stringify(localPulse),
-          bodyText: pulseToBodyText(localPulse),
-          tokensPrompt: usage.tokensPrompt,
-          tokensCompletion: usage.tokensCompletion,
-          latencyMs: usage.latencyMs,
-        };
-
-        const result = await persistResult(repository, message, localPulse);
-        const finalized =
-          stance === "close"
-            ? await finalizeClosePulse(repository, result, entry, createdAt)
-            : result;
-        return {
-          ...finalized,
-          source: "fallback",
-          warning: parsed.error,
-        };
-      }
-
-      const message: AiMessage = {
-        ...baseMessage(),
-        status: "ok",
-        model,
-        bodyJson: finalText,
-        bodyText: pulseToBodyText(parsed.value),
-        tokensPrompt: usage.tokensPrompt,
-        tokensCompletion: usage.tokensCompletion,
-        latencyMs: usage.latencyMs,
-      };
-
-      const result = await persistResult(repository, message, parsed.value);
-      const finalized =
+        repairHint,
+      }),
+      buildProposals,
+      cachedResult: async (message) => {
+        const cached = await cachedResult(repository, message);
+        return cached ? { response: cached.pulse, proposals: cached.proposals } : null;
+      },
+      finalize:
         stance === "close"
-          ? await finalizeClosePulse(repository, result, entry, createdAt)
-          : result;
-      return {
-        ...finalized,
-        source: "ai",
-      };
-    } catch (error) {
-      const message: AiMessage = {
-        ...baseMessage(),
-        status: "fallback",
-        bodyJson: JSON.stringify(localPulse),
-        bodyText: pulseToBodyText(localPulse),
-      };
-
-      const result = await persistResult(repository, message, localPulse);
-      const finalized =
-        stance === "close"
-          ? await finalizeClosePulse(repository, result, entry, createdAt)
-          : result;
-      return {
-        ...finalized,
-        source: "fallback",
-        warning: error instanceof Error ? error.message : "L'IA n'a pas pu repondre.",
-      };
-    }
+          ? async () => {
+              await resolveDueCommitmentsOnClose(repository, entry.date, entry, createdAt);
+            }
+          : undefined,
+    });
+    return {
+      message: result.message,
+      pulse: result.response,
+      proposals: result.proposals,
+      source: result.source,
+      warning: result.warning,
+    };
   }
 }

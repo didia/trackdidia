@@ -39,7 +39,7 @@ Chronological documentation activity is recorded in domain logs under
 | Monthly formulas | `src/domain/monthly-review.ts` |
 | Annual goal sources | `src/domain/annual-goals.ts` |
 | Repository API | `src/lib/storage/repository.ts` |
-| SQLite schema/migrations | `src/lib/storage/tauri-sqlite-repository.ts` |
+| SQLite schema/migrations | `src/lib/storage/migrations/index.ts` |
 | Browser preview storage | `src/lib/storage/memory-repository.ts` |
 | Native data paths | `src-tauri/src/main.rs` |
 | Desktop configuration | `src-tauri/tauri.conf.json` |

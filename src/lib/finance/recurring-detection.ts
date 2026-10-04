@@ -104,11 +104,44 @@ const stdDev = (values: number[]): number => {
   return Math.sqrt(variance);
 };
 
+const SEMIMONTHLY_DAY_TOLERANCE = 3;
+
+/**
+ * Two stable days of the month (e.g. the 1st and the 15th) when every charge
+ * sits within a few days of one of two anchors. Returns the sorted anchor
+ * days, or null when the dates do not form such a pair.
+ */
+const semimonthlyAnchors = (dates: string[]): [number, number] | null => {
+  const days = dates.map((date) => parseDate(date).day).sort((a, b) => a - b);
+  const low = days.filter((day) => day - days[0] <= SEMIMONTHLY_DAY_TOLERANCE);
+  const high = days.filter((day) => day - days[0] > SEMIMONTHLY_DAY_TOLERANCE);
+  if (low.length === 0 || high.length === 0) {
+    return null;
+  }
+  if (high[high.length - 1] - high[0] > SEMIMONTHLY_DAY_TOLERANCE) {
+    return null;
+  }
+  const lowAnchor = low[Math.floor(low.length / 2)];
+  const highAnchor = high[Math.floor(high.length / 2)];
+  const spread = highAnchor - lowAnchor;
+  return spread >= 10 && spread <= 20 ? [lowAnchor, highAnchor] : null;
+};
+
 /** Picks the cadence whose target midpoint is closest to `medianGap`, if the stddev gate passes. */
-const classifyCadence = (medianGap: number, gapStdDev: number): CadenceBand | null => {
+const classifyCadence = (
+  medianGap: number,
+  gapStdDev: number,
+  anchors: [number, number] | null,
+): CadenceBand | null => {
   const candidates = CADENCE_BANDS.filter((band) => medianGap >= band.min && medianGap <= band.max);
   if (candidates.length === 0) {
     return null;
+  }
+  const semimonthly = candidates.find((band) => band.cadence === "semimonthly");
+  if (semimonthly && anchors && gapStdDev <= cadenceToleranceDays(semimonthly)) {
+    // Biweekly and semimonthly bands overlap; two stable days of the month
+    // is the semimonthly pattern, so it wins over the closer-midpoint rule.
+    return semimonthly;
   }
   candidates.sort(
     (a, b) => Math.abs(medianGap - (a.min + a.max) / 2) - Math.abs(medianGap - (b.min + b.max) / 2),
@@ -137,14 +170,37 @@ export const addMonthsClamped = (date: string, months: number): string => {
   return formatDate(targetYear, targetMonth, clampedDay);
 };
 
+/** The first anchor-day date strictly after `date`. */
+const nextSemimonthlyDate = (date: string, anchors: [number, number]): string => {
+  const { year, month } = parseDate(date);
+  const monthStart = formatDate(year, month, 1);
+  const candidates = [0, 1].flatMap((offset) => {
+    const base = addMonthsClamped(monthStart, offset);
+    const parsed = parseDate(base);
+    return anchors.map((anchor) =>
+      formatDate(
+        parsed.year,
+        parsed.month,
+        Math.min(anchor, daysInMonth(parsed.year, parsed.month)),
+      ),
+    );
+  });
+  return candidates.filter((candidate) => candidate > date).sort()[0];
+};
+
 const computeNextExpectedDate = (
   lastSeenDate: string,
   band: CadenceBand,
   medianGap: number,
-): string =>
-  band.monthsAnchored !== null
+  anchors: [number, number] | null = null,
+): string => {
+  if (band.cadence === "semimonthly" && anchors) {
+    return nextSemimonthlyDate(lastSeenDate, anchors);
+  }
+  return band.monthsAnchored !== null
     ? addMonthsClamped(lastSeenDate, band.monthsAnchored)
     : addDays(lastSeenDate, Math.round(medianGap));
+};
 
 const seriesKey = (merchantKey: string, accountId: string, sign: -1 | 1): string =>
   `${merchantKey}\u0000${accountId}\u0000${sign}`;
@@ -167,7 +223,7 @@ const mostCommonCategoryId = (categoryIds: Array<string | null>): string | null 
 
 /**
  * Detects recurring series over the full history, grouped by
- * `merchantKey` + sign, requiring at least 3 occurrences. A series the user
+ * `merchantKey` + account + sign, requiring at least 3 occurrences. A series the user
  * has confirmed (`confirmedByUser`) is always included in the result —
  * re-detection can update its stats but never drops it, even if the fresh
  * group no longer meets the 3-occurrence/cadence threshold.
@@ -213,7 +269,8 @@ export const detectFinanceRecurringSeries = (
     }
     const medianGap = median(gaps);
     const gapStdDev = stdDev(gaps);
-    const band = classifyCadence(medianGap, gapStdDev);
+    const anchors = semimonthlyAnchors(sorted.map((txn) => txn.postedDate));
+    const band = classifyCadence(medianGap, gapStdDev, anchors);
     if (!band) {
       continue;
     }
@@ -224,7 +281,7 @@ export const detectFinanceRecurringSeries = (
     const expectedAmountMinor = roundHalfAwayFromZero(median(amounts));
     const amountToleranceMinor = Math.max(Math.round(Math.abs(expectedAmountMinor) * 0.05), 100);
     const lastSeen = sorted[sorted.length - 1];
-    const nextExpectedDate = computeNextExpectedDate(lastSeen.postedDate, band, medianGap);
+    const nextExpectedDate = computeNextExpectedDate(lastSeen.postedDate, band, medianGap, anchors);
     const dayOfMonth = band.monthsAnchored !== null ? parseDate(lastSeen.postedDate).day : null;
 
     const existing = existingByKey.get(key);
@@ -238,7 +295,12 @@ export const detectFinanceRecurringSeries = (
     const missedAfterDate = addDays(nextExpectedDate, Math.round(toleranceDays));
     if (today > missedAfterDate) {
       flags.push("missed");
-      const secondCycleExpected = computeNextExpectedDate(nextExpectedDate, band, medianGap);
+      const secondCycleExpected = computeNextExpectedDate(
+        nextExpectedDate,
+        band,
+        medianGap,
+        anchors,
+      );
       const endedAfterDate = addDays(secondCycleExpected, Math.round(toleranceDays));
       if (today > endedAfterDate) {
         flags.push("ended");

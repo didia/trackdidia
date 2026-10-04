@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { EmailTriageCoordinator } from "../lib/email-triage/coordinator";
 import type { EmailTriageAccount } from "../domain/email-triage";
 import type { AppRepository } from "../lib/storage/repository";
@@ -8,7 +8,7 @@ import {
   createEmailTriageAdapter,
   getEmailTriageCoordinator,
   setEmailTriageCoordinator,
-} from "../lib/email-triage/gmail-session";
+} from "../lib/email-triage/provider-session";
 import { loadVaultSecret } from "../lib/email-triage/vault";
 import type { EmailTriageClassifierProvider } from "../lib/email-triage/classifier";
 import type { AppSettings } from "../domain/types";
@@ -28,49 +28,49 @@ const mockClassifierProvider: EmailTriageClassifierProvider = {
 };
 
 const buildEmailTriageRepositoryPort = (repository: AppRepository) => ({
-  getGlobalSettings: () => repository.getEmailTriageGlobalSettings(),
-  getAccount: (accountId: string) => repository.getEmailTriageAccount(accountId),
-  updateAccountSyncState: (
+  getGlobalSettings: async () => repository.emailTriage.getGlobalSettings(),
+  getAccount: async (accountId: string) => repository.emailTriage.getAccount(accountId),
+  updateAccountSyncState: async (
     accountId: string,
     syncState: Record<string, unknown>,
     patch?: Partial<EmailTriageAccount>,
-  ) => repository.emailTriageUpdateAccountSyncState(accountId, syncState, patch),
-  upsertConversation: (
+  ) => repository.emailTriage.updateAccountSyncState(accountId, syncState, patch),
+  upsertConversation: async (
     accountId: string,
     conversationKey: string,
     patch: Partial<import("../domain/email-triage").EmailTriageConversation>,
-  ) => repository.emailTriageUpsertConversation(accountId, conversationKey, patch),
-  getConversationByKey: (accountId: string, conversationKey: string) =>
-    repository.emailTriageGetConversationByKey(accountId, conversationKey),
-  persistMessageBatch: (
+  ) => repository.emailTriage.upsertConversation(accountId, conversationKey, patch),
+  getConversationByKey: async (accountId: string, conversationKey: string) =>
+    repository.emailTriage.getConversationByKey(accountId, conversationKey),
+  persistMessageBatch: async (
     input: import("../lib/email-triage/sync-engine").PersistMessageBatchInput,
-  ) => repository.emailTriagePersistMessageBatch(input),
-  getMessageByProviderId: (accountId: string, providerMessageId: string) =>
-    repository.emailTriageGetMessageByProviderId(accountId, providerMessageId),
-  getConversation: (conversationId: string) =>
-    repository.emailTriageGetConversation(conversationId),
-  dismissPendingReviews: (conversationId: string) =>
-    repository.emailTriageDismissPendingReviews(conversationId),
-  listPendingEffects: (conversationId: string) =>
-    repository.emailTriageListPendingEffects(conversationId),
-  listPendingEffectsForAccount: (accountId: string) =>
-    repository.emailTriageListPendingEffectsForAccount(accountId),
+  ) => repository.emailTriage.persistMessageBatch(input),
+  getMessageByProviderId: async (accountId: string, providerMessageId: string) =>
+    repository.emailTriage.getMessageByProviderId(accountId, providerMessageId),
+  getConversation: async (conversationId: string) =>
+    repository.emailTriage.getConversation(conversationId),
+  dismissPendingReviews: async (conversationId: string) =>
+    repository.emailTriage.dismissPendingReviews(conversationId),
+  listPendingEffects: async (conversationId: string) =>
+    repository.emailTriage.listPendingEffects(conversationId),
+  listPendingEffectsForAccount: async (accountId: string) =>
+    repository.emailTriage.listPendingEffectsForAccount(accountId),
   saveDesiredEffect: async (effect: import("../domain/email-triage").EmailTriageDesiredEffect) => {
-    await repository.emailTriageSaveDesiredEffect(effect);
+    await repository.emailTriage.saveDesiredEffect(effect);
   },
-  getTaskByExternalId: (externalId: string) =>
-    repository.emailTriageGetTaskByExternalId(externalId),
-  applyEmailTriageGtdUpdate: (
+  getTaskByExternalId: async (externalId: string) =>
+    repository.emailTriage.getTaskByExternalId(externalId),
+  applyEmailTriageGtdUpdate: async (
     input: import("../lib/email-triage/sync-engine").ApplyGtdUpdateInput,
-  ) => repository.emailTriageApplyGtdUpdate(input),
+  ) => repository.emailTriage.applyGtdUpdate(input),
   createReview: async (input: import("../lib/email-triage/sync-engine").CreateReviewInput) => {
-    await repository.emailTriageCreateReview(input);
+    await repository.emailTriage.createReview(input);
   },
-  listAccounts: () => repository.listEmailTriageAccounts(),
-  recoverStaleEffects: () => repository.recoverEmailTriageStaleEffects(),
-  getLatestMatchingEvaluation: (
+  listAccounts: async () => repository.emailTriage.listAccounts(),
+  recoverStaleEffects: async () => repository.emailTriage.recoverStaleEffects(),
+  getLatestMatchingEvaluation: async (
     settings: import("../domain/email-triage").EmailTriageGlobalSettings,
-  ) => repository.getLatestMatchingEmailTriageEvaluation(settings),
+  ) => repository.emailTriage.getLatestMatchingEvaluation(settings),
 });
 
 export const useEmailTriageCoordinator = (
@@ -89,7 +89,7 @@ export const useEmailTriageCoordinator = (
     let cancelled = false;
     const classifierProvider = createOpenRouterClassifierProvider(options.settings.aiBaseUrl);
 
-    void repository.getEmailTriageGlobalSettings().then((settings) => {
+    void Promise.resolve(repository.emailTriage.getGlobalSettings()).then((settings) => {
       if (!cancelled) {
         void applyEmailTriageDesktopPrefs(settings, options.browserPreview).catch(() => undefined);
       }
@@ -98,7 +98,7 @@ export const useEmailTriageCoordinator = (
     const coordinator = new EmailTriageCoordinator({
       repository: buildEmailTriageRepositoryPort(repository),
       createAdapter: async (account) => {
-        const settings = await repository.getEmailTriageGlobalSettings();
+        const settings = await repository.emailTriage.getGlobalSettings();
         return createEmailTriageAdapter(account, settings, repository);
       },
       classifierProvider: {
@@ -134,9 +134,9 @@ export const useEmailTriageCoordinator = (
     };
   }, [repository, options.browserPreview, options.allowStart, options.settings.aiBaseUrl]);
 
-  return {
-    reconfigure: async () => {
-      await coordinatorRef.current?.reconfigure();
-    },
-  };
+  const reconfigure = useCallback(async () => {
+    await coordinatorRef.current?.reconfigure();
+  }, []);
+
+  return { reconfigure };
 };

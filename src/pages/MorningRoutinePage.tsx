@@ -19,7 +19,7 @@ import {
 } from "../domain/daily-entry";
 import { morningMetricKeys, morningPrincipleKeys } from "../domain/definitions";
 import { formatDateLong, getTodayDate } from "../lib/date";
-import { addDays } from "../lib/gtd/shared";
+import { addDays } from "../lib/date";
 
 export const MorningRoutinePage = () => {
   const { t } = useTranslation("morning");

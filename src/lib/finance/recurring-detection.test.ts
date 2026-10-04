@@ -53,6 +53,18 @@ describe("detectFinanceRecurringSeries", () => {
     expect(series.cadence).toBe("biweekly");
   });
 
+  it("classifies charges on the 1st and 15th as semimonthly and anchors the next date", () => {
+    const dates: string[] = [];
+    for (let month = 1; month <= 10; month += 1) {
+      const mm = String(month).padStart(2, "0");
+      dates.push(`2026-${mm}-01`, `2026-${mm}-15`);
+    }
+    const transactions = dates.map((date) => txn(date, -250000, { merchantKey: "PAYROLL" }));
+    const [series] = detectFinanceRecurringSeries(transactions, [], "2026-10-16");
+    expect(series.cadence).toBe("semimonthly");
+    expect(series.nextExpectedDate).toBe("2026-11-01");
+  });
+
   it("classifies an annual cadence", () => {
     const transactions = [
       txn("2023-06-01", -12000, { merchantKey: "INSURANCE" }),

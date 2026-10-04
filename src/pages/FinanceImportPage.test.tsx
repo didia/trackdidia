@@ -240,4 +240,38 @@ describe("FinanceImportPage", () => {
       expect(messages[0].status).toBe("skipped");
     });
   });
+
+  it("reports dropped CSV records and never stores a raw account number", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const user = userEvent.setup();
+    await renderWithApp(<FinanceImportPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+
+    const csv = [
+      MINT_FIXTURE.split("\n")[0],
+      '"1/15/2026","Metro","METRO","54.32","debit","Groceries","Checking 1234567890","",""',
+      '"1/16/2026","Broken","X","1.00","debit","Groceries","Checking 1234567890","","","EXTRA"',
+    ].join("\n");
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    await user.upload(input, new File([csv], "mint.csv", { type: "text/csv" }));
+    await screen.findByText("Mappage des colonnes");
+    expect(screen.getByText(/row skipped/)).toBeInTheDocument();
+
+    const bindingSelect = screen
+      .getAllByRole("combobox")
+      .find((select) => select.querySelector('option[value="__new__"]')) as HTMLSelectElement;
+    await user.selectOptions(bindingSelect, "__new__");
+    await user.click(screen.getByRole("button", { name: "Importer" }));
+    await screen.findByText("Résultat de l'import");
+
+    const [account] = await repository.listFinanceAccounts();
+    expect(account.name).toBe("****7890");
+    const transactions = await repository.listFinanceTransactions();
+    expect(JSON.stringify([account, transactions])).not.toContain("1234567890");
+    const [batch] = await repository.listFinanceImportBatches(1);
+    expect(batch.skippedCount).toBe(1);
+  });
 });

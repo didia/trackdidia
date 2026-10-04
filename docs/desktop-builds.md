@@ -123,9 +123,8 @@ The Rust host registers:
 - system tray (`tray-icon` feature) for optional hide-on-close email triage polling;
 - the custom `resolve_storage_paths` command;
 - the custom `ensure_backup_dir` and `prune_backups` commands;
-- the custom `rescuetime_http_get` command;
 - the custom `provider_http_request`, `oauth_loopback_start`, and `oauth_loopback_wait`
-  commands (Gmail OAuth and provider HTTP from the Rust host);
+  commands (email OAuth and provider HTTP, including RescueTime, from the Rust host);
 - the custom `db_connect`, `db_execute`, and `db_select` commands (`src-tauri/src/db.rs`),
   a hand-rolled single-connection sqlx pool that replaces `tauri-plugin-sql`.
 

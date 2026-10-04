@@ -197,4 +197,87 @@ describe("FinanceBudgetPage", () => {
       expect(assignedMinor).toBe(expectedAmount);
     });
   });
+
+  it("renders a row for a parent category that has spending", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveFinanceAccount(buildAccount());
+    await repository.seedFinanceDefaultCategories();
+    await repository.saveFinanceTransaction(
+      buildTxn({ id: "txn-parent", amountMinor: -2_500, categoryId: "fincat:alimentation" }),
+    );
+
+    await renderWithApp(<FinanceBudgetPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+
+    expect(await screen.findByTestId("budget-row-fincat:alimentation")).toBeTruthy();
+  });
+
+  it("does not delete a policy-only zero row when an untouched 0.00 field blurs", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveFinanceAccount(buildAccount());
+    await repository.seedFinanceDefaultCategories();
+    const monthKey = getTodayDate().slice(0, 7);
+    await repository.setFinanceCategoryOverspendPolicy(
+      monthKey,
+      "fincat:alimentation.epicerie",
+      "carry_negative",
+    );
+
+    const user = userEvent.setup();
+    await renderWithApp(<FinanceBudgetPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+
+    const row = await screen.findByTestId("budget-row-fincat:alimentation.epicerie");
+    const input = within(row).getByRole("textbox");
+    await user.click(input);
+    await user.tab();
+
+    const state = await repository.computeFinanceBudgetState(monthKey);
+    expect(
+      state.categories.find((c) => c.categoryId === "fincat:alimentation.epicerie")
+        ?.overspendPolicy,
+    ).toBe("carry_negative");
+  });
+
+  it("two overlapping 'assign all' clicks never assign Ready to Assign twice", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveFinanceAccount(buildAccount());
+    await repository.seedFinanceDefaultCategories();
+    await repository.saveFinanceTransaction(
+      buildTxn({ id: "txn-income", amountMinor: 10_000, categoryId: "fincat:revenu.salaire" }),
+    );
+    const monthKey = getTodayDate().slice(0, 7);
+
+    await renderWithApp(<FinanceBudgetPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+
+    const first = await screen.findByTestId("budget-row-fincat:alimentation.epicerie");
+    const second = screen.getByTestId("budget-row-fincat:loisirs.sorties");
+    const label = "Assigner tout le prêt à assigner";
+    const firstButton = within(first)
+      .getAllByRole("button")
+      .find((b) => b.textContent?.includes(label));
+    const secondButton = within(second)
+      .getAllByRole("button")
+      .find((b) => b.textContent?.includes(label));
+    expect(firstButton).toBeTruthy();
+    fireEvent.click(firstButton as HTMLElement);
+    fireEvent.click(secondButton as HTMLElement);
+
+    await waitFor(async () => {
+      const state = await repository.computeFinanceBudgetState(monthKey);
+      expect(state.readyToAssignMinor).toBe(0);
+    });
+    const state = await repository.computeFinanceBudgetState(monthKey);
+    expect(state.readyToAssignMinor).toBe(0);
+  });
 });

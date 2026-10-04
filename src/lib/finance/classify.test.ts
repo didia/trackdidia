@@ -43,6 +43,20 @@ const memoryEntry = (
 });
 
 describe("classifyTransaction", () => {
+  it("unions addLabels across every matching rule", () => {
+    const outcome = classifyTransaction(baseTxn(), {
+      rules: [
+        rule({ id: "a", priority: 0, actions: { addLabels: ["business"] } }),
+        rule({
+          id: "b",
+          priority: 1,
+          actions: { categoryId: "fincat:transport.essence", addLabels: ["tax", "business"] },
+        }),
+      ],
+    });
+    expect(outcome.ruleActions?.addLabels).toEqual(["business", "tax"]);
+  });
+
   it("stage 1: a user-set category is never touched, even with matching rules/memory/seeds", () => {
     const txn = baseTxn({ categorySource: "user", categoryId: "fincat:alimentation.restaurants" });
     const outcome = classifyTransaction(txn, {

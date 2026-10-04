@@ -1,4 +1,6 @@
 import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { vi } from "vitest";
 import { defaultAppSettings } from "../domain/daily-entry";
 import { getTodayDate } from "../lib/date";
 import { MemoryRepository } from "../lib/storage/memory-repository";
@@ -104,5 +106,33 @@ describe("FinanceAlertsCard", () => {
       "href",
       "/finances",
     );
+  });
+
+  it("shows an error with a retry when the forecast load fails, then recovers", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const forecast = vi
+      .spyOn(repository, "computeFinanceForecast")
+      .mockRejectedValueOnce(new Error("boom"));
+
+    await renderWithApp(<FinanceAlertsCard />, {
+      repository,
+      contextOverrides: {
+        settings: { ...defaultAppSettings(), financeEnabled: true, financeAlertsOnToday: true },
+      },
+    });
+
+    expect(
+      await screen.findByText("Impossible de charger les alertes finances."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Aucune alerte pour le moment.")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Réessayer" }));
+
+    expect(await screen.findByText("Aucune alerte pour le moment.")).toBeInTheDocument();
+    expect(forecast).toHaveBeenCalledTimes(2);
+    expect(
+      screen.queryByText("Impossible de charger les alertes finances."),
+    ).not.toBeInTheDocument();
   });
 });

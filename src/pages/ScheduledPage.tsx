@@ -10,7 +10,8 @@ import { SegmentedToggle } from "../components/SegmentedToggle";
 import { SectionCard } from "../components/SectionCard";
 import type { RecurringPreviewOccurrence } from "../domain/types";
 import { formatDateLong, formatDateTimeShort, getTodayDate } from "../lib/date";
-import { addDays, getWeekStartSunday, isTaskScheduledForDate } from "../lib/gtd/shared";
+import { isTaskScheduledForDate } from "../lib/gtd/shared";
+import { addDays, getWeekStartSunday } from "../lib/date";
 
 export const ScheduledPage = () => {
   const { t } = useTranslation("gtd");

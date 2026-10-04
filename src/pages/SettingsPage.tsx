@@ -1,5 +1,5 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppContext } from "../app/app-context";
 import { AiCoachAnalyticsSection } from "../components/AiCoachAnalyticsSection";
@@ -10,7 +10,8 @@ import { SectionCard } from "../components/SectionCard";
 import { AiPayloadPreviewSection } from "../components/settings/AiPayloadPreviewSection";
 import { StorageOverviewSection } from "../components/settings/StorageOverviewSection";
 import { useSectionSave } from "../components/settings/useSectionSave";
-import { defaultAppSettings } from "../domain/daily-entry";
+import { normalizeCurrencyCode } from "../lib/finance/money";
+import { defaultAppSettings, rebaseSettingsDraft, settingsDraftPatch } from "../domain/settings";
 import type { AiPayloadScope, AppSettings } from "../domain/types";
 import { formatPulseSlotHours, parsePulseSlotHours } from "../lib/ai/pulse/slot-hours";
 import { BACKUP_RETENTION_COUNT, isBackupDestinationConfigured } from "../lib/backup";
@@ -21,9 +22,42 @@ import type { StorageInfo } from "../lib/storage/repository";
 
 const payloadScopeValues: AiPayloadScope[] = ["metrics", "metrics_and_structure", "full"];
 
+const aiPreferenceKeys: (keyof AppSettings)[] = [
+  "aiEnabled",
+  "aiApiKey",
+  "aiBaseUrl",
+  "aiModel",
+  "aiPayloadScope",
+  "aiSurfaceModels",
+  "aiMaxTokens",
+  "aiTimeoutMs",
+  "aiMemoryEnabled",
+  "aiPulseEnabled",
+  "aiPulseSlots",
+  "aiPulseNotifyEnabled",
+  "aiPulseNotifyDays",
+  "aiPulseMaxNotificationsPerDay",
+  "aiPastorEnabled",
+  "aiCostPerMillionTokens",
+];
+const financePreferenceKeys: (keyof AppSettings)[] = [
+  "financeEnabled",
+  "financeBaseCurrency",
+  "financeAlertsOnToday",
+  "financeNotifyRunout",
+  "financeAiCategorizationEnabled",
+  "financeAiAutoApplyEnabled",
+];
+
+const relationshipPreferenceKeys: (keyof AppSettings)[] = [
+  "relationshipDrawsEnabled",
+  "relationshipDrawChildrenActivities",
+  "relationshipDrawSpouseActivities",
+];
+
 export const SettingsPage = () => {
   const { t } = useTranslation("settings");
-  const { repository, settings, saveSettings, debugEnabled, setDebugEnabled, browserPreview } =
+  const { repository, settings, updateSettings, debugEnabled, setDebugEnabled, browserPreview } =
     useAppContext();
   const goalsService = useMemo(() => new RescueTimeGoalsService(repository), [repository]);
   const [draftSettings, setDraftSettings] = useState<AppSettings>(settings);
@@ -41,7 +75,14 @@ export const SettingsPage = () => {
   const [creatingBackup, setCreatingBackup] = useState(false);
   const [choosingBackupFolder, setChoosingBackupFolder] = useState(false);
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
-  const relationshipSave = useSectionSave(() => saveSettings(draftSettings));
+  const baselineRef = useRef(settings);
+  const savePreferences = (draft: AppSettings, keys: (keyof AppSettings)[]) => {
+    const patch = settingsDraftPatch(draft, baselineRef.current, keys);
+    return updateSettings((current) => ({ ...current, ...patch }));
+  };
+  const relationshipSave = useSectionSave(async () => {
+    await savePreferences(draftSettings, relationshipPreferenceKeys);
+  });
   const [financeSafetyBufferDraft, setFinanceSafetyBufferDraft] = useState(() =>
     minorToInputString(
       settings.financeSafetyBufferMinor,
@@ -53,41 +94,80 @@ export const SettingsPage = () => {
   );
   const financeSave = useSectionSave(async () => {
     const enabling = draftSettings.financeEnabled && !settings.financeEnabled;
-    const exponent = currencyExponent(draftSettings.financeBaseCurrency);
+    const patch = settingsDraftPatch(draftSettings, baselineRef.current, financePreferenceKeys);
+    if (patch.financeBaseCurrency !== undefined) {
+      const normalized = normalizeCurrencyCode(patch.financeBaseCurrency);
+      if (!normalized) {
+        throw new Error("invalid finance base currency");
+      }
+      patch.financeBaseCurrency = normalized;
+    }
+    const exponent = currencyExponent(patch.financeBaseCurrency ?? settings.financeBaseCurrency);
     const parsedBuffer = parseAmountToMinor(financeSafetyBufferDraft || "0", { exponent });
+    if (!parsedBuffer.ok) {
+      // Nothing is persisted (including the seed below) so the user never sees a success banner
+      // for a threshold that was silently dropped.
+      throw new Error(t("finance.safetyBufferInvalid"));
+    }
+    if (parsedBuffer.amountMinor !== baselineRef.current.financeSafetyBufferMinor) {
+      patch.financeSafetyBufferMinor = parsedBuffer.amountMinor;
+    }
     const parsedMinConfidence = Number(financeAiAutoApplyMinConfidenceDraft.trim());
-    const financeAiAutoApplyMinConfidence =
-      Number.isFinite(parsedMinConfidence) && parsedMinConfidence >= 0 && parsedMinConfidence <= 1
-        ? parsedMinConfidence
-        : settings.financeAiAutoApplyMinConfidence;
-    let nextSettings = {
-      ...draftSettings,
-      financeSafetyBufferMinor: parsedBuffer.ok
-        ? parsedBuffer.amountMinor
-        : settings.financeSafetyBufferMinor,
-      financeAiAutoApplyMinConfidence,
-    };
+    if (
+      financeAiAutoApplyMinConfidenceDraft.trim() !== "" &&
+      Number.isFinite(parsedMinConfidence) &&
+      parsedMinConfidence >= 0 &&
+      parsedMinConfidence <= 1 &&
+      parsedMinConfidence !== baselineRef.current.financeAiAutoApplyMinConfidence
+    ) {
+      patch.financeAiAutoApplyMinConfidence = parsedMinConfidence;
+    }
 
     if (enabling && !settings.financeCategoriesSeededAt) {
       await repository.seedFinanceDefaultCategories();
-      nextSettings = { ...nextSettings, financeCategoriesSeededAt: new Date().toISOString() };
+      const seededAt = new Date().toISOString();
+      await updateSettings((current) => ({
+        ...current,
+        ...patch,
+        financeCategoriesSeededAt: current.financeCategoriesSeededAt || seededAt,
+      }));
+      return;
     }
 
-    await saveSettings(nextSettings);
+    await updateSettings((current) => ({ ...current, ...patch }));
   });
 
   useEffect(() => {
-    setDraftSettings(settings);
-    setPulseSlotsDraft(formatPulseSlotHours(settings.aiPulseSlots));
-    setCostRateDraft(String(settings.aiCostPerMillionTokens));
-    setPulseSlotsError("");
-    setFinanceSafetyBufferDraft(
-      minorToInputString(
-        settings.financeSafetyBufferMinor,
-        currencyExponent(settings.financeBaseCurrency),
-      ),
+    const baseline = baselineRef.current;
+    setDraftSettings((draft) => rebaseSettingsDraft(draft, baseline, settings));
+    setPulseSlotsDraft((draft) =>
+      draft === formatPulseSlotHours(baseline.aiPulseSlots)
+        ? formatPulseSlotHours(settings.aiPulseSlots)
+        : draft,
     );
-    setFinanceAiAutoApplyMinConfidenceDraft(String(settings.financeAiAutoApplyMinConfidence));
+    setFinanceAiAutoApplyMinConfidenceDraft((draft) =>
+      draft === String(baseline.financeAiAutoApplyMinConfidence)
+        ? String(settings.financeAiAutoApplyMinConfidence)
+        : draft,
+    );
+    setCostRateDraft((draft) =>
+      draft === String(baseline.aiCostPerMillionTokens)
+        ? String(settings.aiCostPerMillionTokens)
+        : draft,
+    );
+    setFinanceSafetyBufferDraft((draft) =>
+      draft ===
+      minorToInputString(
+        baseline.financeSafetyBufferMinor,
+        currencyExponent(baseline.financeBaseCurrency),
+      )
+        ? minorToInputString(
+            settings.financeSafetyBufferMinor,
+            currencyExponent(settings.financeBaseCurrency),
+          )
+        : draft,
+    );
+    baselineRef.current = settings;
   }, [settings]);
 
   const parsedCostRate = useMemo((): number | null => {
@@ -134,14 +214,17 @@ export const SettingsPage = () => {
             setPulseSlotsError("");
             setSavingSettings(true);
             const trimmedCostRate = costRateDraft.trim();
-            await saveSettings({
-              ...draftSettings,
-              aiPulseSlots: parsedSlots.hours,
-              aiCostPerMillionTokens:
-                trimmedCostRate === ""
-                  ? settings.aiCostPerMillionTokens
-                  : Math.max(0, Number(trimmedCostRate)),
-            });
+            await savePreferences(
+              {
+                ...draftSettings,
+                aiPulseSlots: parsedSlots.hours,
+                aiCostPerMillionTokens:
+                  trimmedCostRate === ""
+                    ? settings.aiCostPerMillionTokens
+                    : Math.max(0, Number(trimmedCostRate)),
+              },
+              aiPreferenceKeys,
+            );
             setSavingSettings(false);
           }}
         >
@@ -362,7 +445,10 @@ export const SettingsPage = () => {
               type="button"
               onClick={() => {
                 const defaults = defaultAppSettings();
-                setDraftSettings(defaults);
+                setDraftSettings((current) => ({
+                  ...current,
+                  ...Object.fromEntries(aiPreferenceKeys.map((key) => [key, defaults[key]])),
+                }));
                 setPulseSlotsDraft(formatPulseSlotHours(defaults.aiPulseSlots));
                 setCostRateDraft(String(defaults.aiCostPerMillionTokens));
                 setPulseSlotsError("");
@@ -396,7 +482,7 @@ export const SettingsPage = () => {
             setRescuetimeMessage("");
 
             try {
-              await saveSettings(draftSettings);
+              await savePreferences(draftSettings, ["rescuetimeApiKey"]);
               setRescuetimeMessage(t("rescuetime.saved"));
             } catch (error) {
               setRescuetimeMessage(
@@ -768,12 +854,7 @@ export const SettingsPage = () => {
                   return;
                 }
 
-                const nextSettings = {
-                  ...settings,
-                  backupDestinationDir: selected,
-                };
-                await saveSettings(nextSettings);
-                setDraftSettings(nextSettings);
+                await updateSettings((current) => ({ ...current, backupDestinationDir: selected }));
                 const nextStorageInfo = await repository.getStorageInfo();
                 setStorageInfo(nextStorageInfo);
                 setBackupMessage(t("backup.folderSaved"));
@@ -795,14 +876,11 @@ export const SettingsPage = () => {
               setBackupMessage("");
 
               try {
-                const nextSettings = {
-                  ...settings,
-                  autoBackupEnabled: draftSettings.autoBackupEnabled,
-                  autoBackupIntervalHours: draftSettings.autoBackupIntervalHours,
-                  backupDestinationDir: draftSettings.backupDestinationDir,
-                };
-                await saveSettings(nextSettings);
-                setDraftSettings(nextSettings);
+                await savePreferences(draftSettings, [
+                  "autoBackupEnabled",
+                  "autoBackupIntervalHours",
+                  "backupDestinationDir",
+                ]);
                 setBackupMessage(t("backup.prefsSaved"));
               } catch (error) {
                 setBackupMessage(error instanceof Error ? error.message : t("backup.prefsError"));
@@ -827,13 +905,11 @@ export const SettingsPage = () => {
 
               try {
                 const backup = await repository.createBackup("manual");
-                const nextSettings = {
-                  ...settings,
+                await updateSettings((current) => ({
+                  ...current,
                   lastBackupAt: backup.createdAt,
                   lastBackupPath: backup.backupPath,
-                };
-                await saveSettings(nextSettings);
-                setDraftSettings(nextSettings);
+                }));
                 setBackupMessage(t("backup.created", { path: backup.backupPath }));
               } catch (error) {
                 setBackupMessage(error instanceof Error ? error.message : t("backup.createError"));

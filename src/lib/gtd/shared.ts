@@ -1,4 +1,14 @@
 import type { Project, Task, TaskContext } from "../../domain/types";
+import { toLocalDateString } from "../date";
+
+export {
+  addDays,
+  getDayRange,
+  getWeekStartSunday,
+  isSunday,
+  isWednesday,
+  toLocalDateString,
+} from "../date";
 
 export const createEntityId = (prefix: string): string => {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -19,38 +29,6 @@ export const slugify = (value: string): string =>
     .replace(/\s+/g, "-");
 
 export const buildContextId = (name: string): string => `context:${slugify(name)}`;
-
-export const getDayRange = (date: string): { startMs: number; endMs: number } => {
-  const start = new Date(`${date}T00:00:00`);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-  return { startMs: start.getTime(), endMs: end.getTime() };
-};
-
-export const toLocalDateString = (value: string | Date): string => {
-  const date = typeof value === "string" ? new Date(value) : value;
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
-
-export const addDays = (date: string, amount: number): string => {
-  const next = new Date(`${date}T12:00:00`);
-  next.setDate(next.getDate() + amount);
-  return toLocalDateString(next);
-};
-
-export const isSunday = (date: string): boolean => new Date(`${date}T12:00:00`).getDay() === 0;
-
-export const isWednesday = (date: string): boolean => new Date(`${date}T12:00:00`).getDay() === 3;
-
-export const getWeekStartSunday = (date: string): string => {
-  const current = new Date(`${date}T12:00:00`);
-  const delta = current.getDay();
-  current.setDate(current.getDate() - delta);
-  return toLocalDateString(current);
-};
 
 export const isSameLocalDate = (value: string | null | undefined, date: string): boolean => {
   if (!value) {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppContext } from "../app/app-context";
 import { FinanceTabs } from "../components/finance/FinanceTabs";
@@ -33,6 +33,23 @@ export const FinanceReviewPage = () => {
   const [reclassifyMessage, setReclassifyMessage] = useState<string | null>(null);
   const [classifyingPending, setClassifyingPending] = useState(false);
   const [classifyPendingMessage, setClassifyPendingMessage] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+
+  /** Serializes decision actions so a repeated click cannot submit the same suggestion twice. */
+  const exclusive = async (work: () => Promise<void>) => {
+    if (busyRef.current) {
+      return;
+    }
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      await work();
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  };
 
   const load = useCallback(async () => {
     const [suggestions, nextCategories, allTransactions] = await Promise.all([
@@ -73,48 +90,55 @@ export const FinanceReviewPage = () => {
     return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [rows]);
 
-  const accept = async (suggestion: FinanceCategorySuggestion) => {
-    await repository.decideFinanceCategorySuggestion(suggestion.id, { status: "accepted" });
-    setCorrectingId(null);
-    await load();
-  };
-
-  const dismiss = async (suggestion: FinanceCategorySuggestion) => {
-    await repository.decideFinanceCategorySuggestion(suggestion.id, { status: "dismissed" });
-    setCorrectingId(null);
-    await load();
-  };
-
-  const correct = async (suggestion: FinanceCategorySuggestion, categoryId: string) => {
-    if (!categoryId) {
-      return;
-    }
-    await repository.decideFinanceCategorySuggestion(suggestion.id, {
-      status: "corrected",
-      categoryId,
+  const accept = (suggestion: FinanceCategorySuggestion) =>
+    exclusive(async () => {
+      await repository.decideFinanceCategorySuggestion(suggestion.id, { status: "accepted" });
+      setCorrectingId(null);
+      await load();
     });
-    setCorrectingId(null);
-    await load();
-  };
 
-  const acceptAllAboveThreshold = async () => {
-    const eligible = rows.filter((row) => row.suggestion.confidence >= ACCEPT_ALL_THRESHOLD);
-    for (const row of eligible) {
-      await repository.decideFinanceCategorySuggestion(row.suggestion.id, { status: "accepted" });
-    }
-    await load();
-  };
+  const dismiss = (suggestion: FinanceCategorySuggestion) =>
+    exclusive(async () => {
+      await repository.decideFinanceCategorySuggestion(suggestion.id, { status: "dismissed" });
+      setCorrectingId(null);
+      await load();
+    });
 
-  const reapplyRules = async () => {
-    const result = await repository.reclassifyFinancePending();
-    setReclassifyMessage(
-      t("review.reclassifyResult", {
-        reclassified: result.reclassified,
-        suggestions: result.suggestionsCreated,
-      }),
-    );
-    await load();
-  };
+  const correct = (suggestion: FinanceCategorySuggestion, categoryId: string) =>
+    exclusive(async () => {
+      if (!categoryId) {
+        return;
+      }
+      await repository.decideFinanceCategorySuggestion(suggestion.id, {
+        status: "corrected",
+        categoryId,
+      });
+      setCorrectingId(null);
+      await load();
+    });
+
+  const acceptAllAboveThreshold = () =>
+    exclusive(async () => {
+      const eligible = rows.filter((row) => row.suggestion.confidence >= ACCEPT_ALL_THRESHOLD);
+      for (const row of eligible) {
+        await repository.decideFinanceCategorySuggestion(row.suggestion.id, {
+          status: "accepted",
+        });
+      }
+      await load();
+    });
+
+  const reapplyRules = () =>
+    exclusive(async () => {
+      const result = await repository.reclassifyFinancePending();
+      setReclassifyMessage(
+        t("review.reclassifyResult", {
+          reclassified: result.reclassified,
+          suggestions: result.suggestionsCreated,
+        }),
+      );
+      await load();
+    });
 
   const aiCategorizationAvailable =
     settings.financeAiCategorizationEnabled &&
@@ -164,14 +188,19 @@ export const FinanceReviewPage = () => {
           <button
             type="button"
             className="button"
-            disabled={rows.length === 0}
+            disabled={busy || rows.length === 0}
             onClick={() => void acceptAllAboveThreshold()}
           >
             {t("review.acceptAllAboveThreshold", {
               threshold: Math.round(ACCEPT_ALL_THRESHOLD * 100),
             })}
           </button>
-          <button type="button" className="button" onClick={() => void reapplyRules()}>
+          <button
+            type="button"
+            className="button"
+            disabled={busy}
+            onClick={() => void reapplyRules()}
+          >
             {t("review.reapplyRules")}
           </button>
           <button
@@ -211,6 +240,7 @@ export const FinanceReviewPage = () => {
                     <button
                       type="button"
                       className="button"
+                      disabled={busy}
                       onClick={() => void accept(suggestion)}
                     >
                       {t("review.accept")}
@@ -218,6 +248,7 @@ export const FinanceReviewPage = () => {
                     <button
                       type="button"
                       className="button"
+                      disabled={busy}
                       onClick={() =>
                         setCorrectingId((current) =>
                           current === suggestion.id ? null : suggestion.id,
@@ -229,6 +260,7 @@ export const FinanceReviewPage = () => {
                     <button
                       type="button"
                       className="button"
+                      disabled={busy}
                       onClick={() => void dismiss(suggestion)}
                     >
                       {t("review.dismiss")}
@@ -236,6 +268,7 @@ export const FinanceReviewPage = () => {
                     {correctingId === suggestion.id ? (
                       <select
                         defaultValue=""
+                        disabled={busy}
                         onChange={(event) => void correct(suggestion, event.target.value)}
                       >
                         <option value="" disabled>

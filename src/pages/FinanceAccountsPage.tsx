@@ -16,7 +16,12 @@ import type {
   FinanceTransaction,
 } from "../domain/finance";
 import { createEntityId, nowIso } from "../lib/gtd/shared";
-import { currencyExponent, formatMoney, parseAmountToMinor } from "../lib/finance/money";
+import {
+  currencyExponent,
+  formatMoney,
+  normalizeCurrencyCode,
+  parseAmountToMinor,
+} from "../lib/finance/money";
 import { getTodayDate } from "../lib/date";
 
 const ACCOUNT_TYPES: FinanceAccountType[] = [
@@ -47,6 +52,27 @@ interface AccountDraft {
   manualBalanceText: string;
 }
 
+const minorToText = (amountMinor: number, currency: string): string => {
+  const exponent = currencyExponent(currency);
+  return (amountMinor / 10 ** exponent).toFixed(exponent);
+};
+
+const draftFromAccount = (account: FinanceAccount): AccountDraft => ({
+  name: account.name,
+  institution: account.institution ?? "",
+  type: account.type,
+  currency: account.currency,
+  ownerPersonId: account.ownerPersonId ?? "",
+  ownership: account.ownership,
+  onBudget: account.onBudget,
+  openingBalanceText: minorToText(account.openingBalanceMinor, account.currency),
+  balanceAsOf: account.balanceAsOf ?? "",
+  manualBalanceText:
+    account.currentBalanceMinor === null
+      ? ""
+      : minorToText(account.currentBalanceMinor, account.currency),
+});
+
 const emptyDraft = (currency: string): AccountDraft => ({
   name: "",
   institution: "",
@@ -73,6 +99,7 @@ export const FinanceAccountsPage = () => {
     emptyDraft(settings.financeBaseCurrency),
   );
   const [accountError, setAccountError] = useState("");
+  const [editingAccount, setEditingAccount] = useState<FinanceAccount | null>(null);
 
   const load = useCallback(async () => {
     const [nextPeople, nextAccounts, allTransactions] = await Promise.all([
@@ -132,7 +159,13 @@ export const FinanceAccountsPage = () => {
       return;
     }
 
-    const exponent = currencyExponent(accountDraft.currency || settings.financeBaseCurrency);
+    const currency = normalizeCurrencyCode(accountDraft.currency || settings.financeBaseCurrency);
+    if (!currency) {
+      setAccountError(t("accounts.errors.invalidCurrency"));
+      return;
+    }
+
+    const exponent = currencyExponent(currency);
     const openingParsed = parseAmountToMinor(accountDraft.openingBalanceText || "0", { exponent });
     if (!openingParsed.ok) {
       setAccountError(t("accounts.errors.invalidOpeningBalance"));
@@ -151,27 +184,42 @@ export const FinanceAccountsPage = () => {
 
     setAccountError("");
     const timestamp = nowIso();
+    // Editing keeps the account's identity (id, key, notes, closed state, order) so imported
+    // transactions stay attached to it; only the form's fields change.
     await repository.saveFinanceAccount({
-      id: createEntityId("finance-account"),
+      id: editingAccount?.id ?? createEntityId("finance-account"),
       name,
       institution: accountDraft.institution.trim() || null,
       type: accountDraft.type,
-      currency: accountDraft.currency || settings.financeBaseCurrency,
+      currency,
       ownerPersonId: accountDraft.ownerPersonId || null,
       ownership: accountDraft.ownership,
       onBudget: accountDraft.onBudget,
-      closed: false,
+      closed: editingAccount?.closed ?? false,
       openingBalanceMinor: openingParsed.amountMinor,
       currentBalanceMinor: manualBalanceMinor,
       balanceAsOf: accountDraft.balanceAsOf || null,
-      externalKey: null,
-      notes: null,
-      sortOrder: accounts.length,
-      createdAt: timestamp,
+      externalKey: editingAccount?.externalKey ?? null,
+      notes: editingAccount?.notes ?? null,
+      sortOrder: editingAccount?.sortOrder ?? accounts.length,
+      createdAt: editingAccount?.createdAt ?? timestamp,
       updatedAt: timestamp,
     });
+    setEditingAccount(null);
     setAccountDraft(emptyDraft(settings.financeBaseCurrency));
     await load();
+  };
+
+  const startEditing = (account: FinanceAccount) => {
+    setEditingAccount(account);
+    setAccountDraft(draftFromAccount(account));
+    setAccountError("");
+  };
+
+  const cancelEditing = () => {
+    setEditingAccount(null);
+    setAccountDraft(emptyDraft(settings.financeBaseCurrency));
+    setAccountError("");
   };
 
   const toggleOnBudget = async (account: FinanceAccount) => {
@@ -227,7 +275,9 @@ export const FinanceAccountsPage = () => {
         </div>
       </SectionCard>
 
-      <SectionCard title={t("accounts.addAccountTitle")}>
+      <SectionCard
+        title={editingAccount ? t("accounts.editAccountTitle") : t("accounts.addAccountTitle")}
+      >
         <div className="form-grid">
           <label>
             <span>{t("accounts.fields.name")}</span>
@@ -269,6 +319,7 @@ export const FinanceAccountsPage = () => {
             <span>{t("accounts.fields.currency")}</span>
             <input
               value={accountDraft.currency}
+              disabled={editingAccount !== null}
               onChange={(event) =>
                 setAccountDraft((current) => ({ ...current, currency: event.target.value }))
               }
@@ -363,8 +414,13 @@ export const FinanceAccountsPage = () => {
             className="button button--primary"
             onClick={() => void addAccount()}
           >
-            {t("accounts.addAccount")}
+            {editingAccount ? t("accounts.saveAccount") : t("accounts.addAccount")}
           </button>
+          {editingAccount ? (
+            <button type="button" className="button" onClick={cancelEditing}>
+              {t("accounts.cancelEdit")}
+            </button>
+          ) : null}
         </div>
       </SectionCard>
 
@@ -414,6 +470,9 @@ export const FinanceAccountsPage = () => {
                   <span>{t("accounts.fields.onBudget")}</span>
                 </label>
                 <div className="actions-row">
+                  <button type="button" className="button" onClick={() => startEditing(account)}>
+                    {t("accounts.edit")}
+                  </button>
                   <button
                     type="button"
                     className="button"

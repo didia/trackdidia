@@ -83,8 +83,7 @@ const MountedGtdView = ({
     () => ({
       repository,
       settings: defaultAppSettings(),
-      saveSettings: async () => undefined,
-      syncSettings: () => undefined,
+      updateSettings: (updater) => repository.updateSettings(updater),
       coachService: new CoachPulseService(new FakeProvider()),
       browserPreview: true,
       debugEnabled: false,
@@ -276,5 +275,115 @@ describe("useLocalDayReconciliation", () => {
     render(<MountedGtdView repository={repository} financeEnabled financeNotifyRunout />);
     await flushEffects();
     expect(notifyCompletion).toHaveBeenCalledTimes(2);
+  });
+
+  describe("finance alert notifications across overlapping and repeated passes", () => {
+    const seedAccount = (repository: MemoryRepository) =>
+      repository.saveFinanceAccount({
+        id: "",
+        name: "Compte cheques",
+        institution: null,
+        type: "checking",
+        currency: "CAD",
+        ownerPersonId: null,
+        ownership: "individual",
+        onBudget: true,
+        closed: false,
+        openingBalanceMinor: 1_000_000,
+        currentBalanceMinor: null,
+        balanceAsOf: null,
+        externalKey: null,
+        notes: null,
+        sortOrder: 0,
+        createdAt: "",
+        updatedAt: "",
+      });
+
+    const exhaustEnvelope = async (repository: MemoryRepository, accountId: string) => {
+      await repository.seedFinanceDefaultCategories();
+      await repository.setFinanceBudgetAssignment("2026-09", "fincat:alimentation.epicerie", 5_000);
+      await repository.saveFinanceTransaction({
+        id: "",
+        accountId,
+        postedDate: "2026-09-07",
+        amountMinor: -5_000,
+        currency: "CAD",
+        descriptionRaw: "IGA",
+        descriptionOriginal: null,
+        merchantKey: "IGA",
+        merchantDisplay: null,
+        categoryId: "fincat:alimentation.epicerie",
+        categorySource: "default",
+        categoryConfidence: null,
+        categorizedAt: null,
+        personId: null,
+        notes: null,
+        labelsJson: null,
+        pending: false,
+        isTransfer: false,
+        transferGroupId: null,
+        excludedFromBudget: false,
+        excludedFromReports: false,
+        hasSplits: false,
+        importBatchId: null,
+        dedupeHash: "dedupe-1",
+        sourceRowJson: null,
+        createdAt: "",
+        updatedAt: "",
+      });
+    };
+
+    it("sends a single notification when focus and visibility fire while the first pass is in flight", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 8, 7, 12, 0, 0, 0));
+      notifyCompletion.mockClear();
+
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      const account = await seedAccount(repository);
+      await exhaustEnvelope(repository, account.id);
+
+      render(<MountedGtdView repository={repository} financeEnabled financeNotifyRunout />);
+      // Startup pass has not finished; resume events arrive immediately.
+      act(() => {
+        window.dispatchEvent(new Event("focus"));
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await flushEffects();
+
+      expect(notifyCompletion).toHaveBeenCalledTimes(1);
+      expect(await repository.listNotifiedFinanceAlertKeys("2026-09-07")).toHaveLength(1);
+    });
+
+    it("re-evaluates on a later same-day resume and notifies an alert that appeared meanwhile", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 8, 7, 12, 0, 0, 0));
+      notifyCompletion.mockClear();
+
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      const account = await seedAccount(repository);
+
+      render(<MountedGtdView repository={repository} financeEnabled financeNotifyRunout />);
+      await flushEffects();
+      expect(notifyCompletion).not.toHaveBeenCalled();
+
+      await exhaustEnvelope(repository, account.id);
+      act(() => {
+        window.dispatchEvent(new Event("focus"));
+      });
+      await flushEffects();
+
+      expect(notifyCompletion).toHaveBeenCalledTimes(1);
+      const keys = await repository.listNotifiedFinanceAlertKeys("2026-09-07");
+      expect(keys.some((key) => key.startsWith("envelope_exhausted:"))).toBe(true);
+
+      // The ledger still suppresses a repeat on the next resume.
+      act(() => {
+        window.dispatchEvent(new Event("focus"));
+      });
+      await flushEffects();
+      expect(notifyCompletion).toHaveBeenCalledTimes(1);
+    });
   });
 });

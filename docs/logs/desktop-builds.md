@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-10-02 | Removed the separate RescueTime HTTP command; RescueTime now uses the allowlisted native provider HTTP command | `docs/desktop-builds.md` | `main.rs`, `provider_http.rs` |
 | 2026-09-08 | Email triage tray (`tray-icon`), autostart plugin, and `email_triage_set_desktop_prefs` command | `docs/desktop-builds.md`, `docs/email-triage.md` | `email_triage_desktop.rs`, `capabilities/default.json` |
 | 2026-09-08 | Added `tauri-plugin-opener` plus Gmail OAuth loopback and provider HTTP Tauri commands | `docs/desktop-builds.md`, `docs/email-triage.md` | `oauth_loopback.rs`, `provider_http.rs`, `capabilities/default.json` |
 | 2026-09-04 | `Tasks.json` is no longer a local build prerequisite | `docs/desktop-builds.md` | removed static imports |

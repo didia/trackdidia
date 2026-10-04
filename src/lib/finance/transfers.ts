@@ -24,6 +24,8 @@ export interface TransferCandidateTransaction {
   postedDate: string; // local YYYY-MM-DD
   descriptionRaw: string;
   isTransfer: boolean;
+  /** Set once the row is part of a matched pair; a probable transfer has none yet. */
+  transferGroupId?: string | null;
   excludedFromBudget: boolean;
   accountOnBudget: boolean;
 }
@@ -140,10 +142,11 @@ export const detectTransfers = (candidates: TransferCandidateTransaction[]): Tra
   const actions: TransferAction[] = [];
   const paired = new Set<string>();
 
-  // Step 1: a user has already excluded this row from the budget, or it's
-  // already marked as a transfer — neither is eligible for (re-)detection.
+  // Step 1: rows the user excluded from the budget or that already belong to a
+  // matched pair are not eligible. A probable transfer (isTransfer without a
+  // group) stays eligible so its counterpart imported later can still pair.
   const eligible = candidates.filter(
-    (candidate) => !candidate.isTransfer && !candidate.excludedFromBudget,
+    (candidate) => !candidate.transferGroupId && !candidate.excludedFromBudget,
   );
 
   // Sort by id for deterministic iteration order.
@@ -215,7 +218,7 @@ export const detectTransfers = (candidates: TransferCandidateTransaction[]): Tra
   }
 
   for (const candidate of sorted) {
-    if (paired.has(candidate.id)) {
+    if (paired.has(candidate.id) || candidate.isTransfer) {
       continue;
     }
 

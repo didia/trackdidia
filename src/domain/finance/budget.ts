@@ -419,6 +419,13 @@ export const computeAssignAverageLast3MonthsAmount = (
   return Math.round(sum / 3);
 };
 
+/** A zero-assignment row still carries a non-default overspend policy or a note. */
+export const hasBudgetEntryMetadata = (
+  entry: Pick<FinanceBudgetEntry, "overspendPolicy" | "note"> | undefined,
+): boolean =>
+  entry !== undefined &&
+  (entry.overspendPolicy !== "reduce_next_ready_to_assign" || entry.note !== null);
+
 export interface CoverOverspendingResult {
   /** The amount actually movable: capped at both the deficit and the source's available. */
   amountMinor: number;
@@ -460,44 +467,41 @@ export const computeAssignAllReadyToAssign = (
 export interface UnbudgetedCategoryActivity {
   categoryId: string;
   activityMinor: number;
+  /** The uncovered deficit: how much an assignment must add to bring Available back to zero. */
+  deficitMinor: number;
 }
 
 /**
- * "Non budgété" band — every expense category with activity this month and
- * no assignment. Assigning `0` deletes the budget entry row (see
- * `assertFinanceCategoryAssignable`'s caller), so `assignedMinor === 0`
- * always means "never assigned", not "assigned to zero".
+ * "Non budgété" band — expense categories with no assignment this month whose spending is
+ * not covered by carry-in: `available < 0`. A funded envelope (carry-in covers the activity)
+ * or a refund is never listed, and the one-click amount is only the uncovered deficit.
  */
 export const listUnbudgetedCategoryActivity = (
   monthKey: string,
   input: FinanceBudgetComputationInput,
-): UnbudgetedCategoryActivity[] => {
-  const activityMap = buildActivityByCategoryMonth(input);
-  const result: UnbudgetedCategoryActivity[] = [];
-  for (const category of input.categories) {
-    if (category.kind !== "expense") {
-      continue;
-    }
-    const assignedMinor = getAssignedMinor(category.id, monthKey, input);
-    const activityMinor = activityMap.get(category.id)?.get(monthKey) ?? 0;
-    if (assignedMinor === 0 && activityMinor !== 0) {
-      result.push({ categoryId: category.id, activityMinor });
-    }
-  }
-  return result;
-};
+): UnbudgetedCategoryActivity[] =>
+  selectUnbudgetedCategories(computeFinanceBudgetState({ ...input, monthKey })).map((category) => ({
+    categoryId: category.categoryId,
+    activityMinor: category.activityMinor,
+    deficitMinor: computeUnbudgetedAssignAmountMinor(category),
+  }));
 
-/** The one-click "Assigner" amount for an unbudgeted category — the positive size of its activity. */
-export const computeUnbudgetedAssignAmountMinor = (activityMinor: number): number =>
-  Math.abs(activityMinor);
+/** The one-click "Assigner" amount for an unbudgeted category — its uncovered deficit only. */
+export function computeUnbudgetedAssignAmountMinor(
+  category: Pick<FinanceBudgetCategoryState, "availableMinor">,
+): number {
+  return Math.max(0, -category.availableMinor);
+}
 
-/** Every category in `state.categories` with activity and no assignment — the "Non budgété" band. */
-export const selectUnbudgetedCategories = (
+/** Expense categories with no assignment whose negative activity is not covered by carry-in. */
+export function selectUnbudgetedCategories(
   state: Pick<FinanceBudgetState, "categories">,
-): FinanceBudgetCategoryState[] =>
-  state.categories.filter(
-    (category) => category.assignedMinor === 0 && category.activityMinor !== 0,
+): FinanceBudgetCategoryState[] {
+  return state.categories.filter(
+    (category) =>
+      category.assignedMinor === 0 && category.activityMinor < 0 && category.availableMinor < 0,
   );
+}
 
 export interface FinanceEnvelopePace {
   categoryId: string;

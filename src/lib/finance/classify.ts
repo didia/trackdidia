@@ -216,7 +216,14 @@ export const classifyTransaction = (
     if (!matchesRuleMatcher(rule.matcher, txn)) {
       continue;
     }
-    mergedActions = { ...(mergedActions ?? {}), ...rule.actions };
+    const addLabels: string[] = [
+      ...new Set([...(mergedActions?.addLabels ?? []), ...(rule.actions.addLabels ?? [])]),
+    ];
+    mergedActions = {
+      ...(mergedActions ?? {}),
+      ...rule.actions,
+      ...(addLabels.length > 0 ? { addLabels } : {}),
+    };
     if (!matchedRule && rule.actions.categoryId) {
       matchedRule = rule;
     }

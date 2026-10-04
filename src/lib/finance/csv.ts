@@ -52,7 +52,7 @@ export const parseCsv = (rawText: string, delimiterOverride?: string): ParsedCsv
   const text = stripBom(rawText);
   const delimiter = delimiterOverride ?? sniffDelimiter(firstLine(text));
 
-  const records = tokenizeRecords(text, delimiter);
+  const { records, unterminatedRecordIndex } = tokenizeRecords(text, delimiter);
   const warnings: string[] = [];
 
   if (records.length === 0) {
@@ -82,6 +82,12 @@ export const parseCsv = (rawText: string, delimiterOverride?: string): ParsedCsv
     rows.push(record);
   }
 
+  if (unterminatedRecordIndex !== null) {
+    warnings.push(
+      `line ${unterminatedRecordIndex + 1}: unterminated quoted field; this record and the rest of the file were skipped`,
+    );
+  }
+
   return { header, rows, warnings };
 };
 
@@ -95,7 +101,10 @@ const firstLine = (text: string): string => {
  * (doubled quotes escape a literal quote, and a quoted field may contain
  * embedded delimiters and newlines) and any of \r\n, \n, \r as a line ending.
  */
-const tokenizeRecords = (text: string, delimiter: string): string[][] => {
+const tokenizeRecords = (
+  text: string,
+  delimiter: string,
+): { records: string[][]; unterminatedRecordIndex: number | null } => {
   const records: string[][] = [];
   let currentRecord: string[] = [];
   let currentField = "";
@@ -164,10 +173,16 @@ const tokenizeRecords = (text: string, delimiter: string): string[][] => {
     index += 1;
   }
 
+  // An unclosed quote swallows everything after it; drop that merged record and
+  // report it instead of emitting it as a valid row.
+  if (inQuotes) {
+    return { records, unterminatedRecordIndex: records.length };
+  }
+
   // Flush a trailing field/record not terminated by a newline.
   if (currentField.length > 0 || currentRecord.length > 0) {
     pushRecord();
   }
 
-  return records;
+  return { records, unterminatedRecordIndex: null };
 };

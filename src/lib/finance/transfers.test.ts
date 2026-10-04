@@ -101,10 +101,33 @@ describe("detectTransfers", () => {
       accountId: "checking",
       amountMinor: -1000,
       isTransfer: true,
+      transferGroupId: "g1",
     });
-    const b = candidate({ id: "txn-b", accountId: "savings", amountMinor: 1000, isTransfer: true });
+    const b = candidate({
+      id: "txn-b",
+      accountId: "savings",
+      amountMinor: 1000,
+      isTransfer: true,
+      transferGroupId: "g1",
+    });
 
     expect(detectTransfers([a, b])).toHaveLength(0);
+  });
+
+  it("pairs a previously probable (ungrouped) transfer with a later matching leg", () => {
+    const a = candidate({
+      id: "txn-a",
+      accountId: "checking",
+      amountMinor: -1000,
+      descriptionRaw: "VIREMENT",
+      isTransfer: true,
+      transferGroupId: null,
+    });
+    const b = candidate({ id: "txn-b", accountId: "savings", amountMinor: 1000 });
+
+    const actions = detectTransfers([a, b]);
+    expect(actions).toHaveLength(1);
+    expect(actions[0].type).toBe("matched_pair");
   });
 
   it("raises a single-sided keyword match as a probable transfer, not a silent exclusion", () => {

@@ -1,3 +1,6 @@
+import type { AcceptEffect } from "../ai/proposals/accept-effect";
+import { applyCoachProposal, type ProposalApplyContext } from "../ai/proposals/apply-proposal";
+import { gtdAcceptEffectFromProposal } from "../ai/proposals/accept-effect";
 import { afterEach, vi } from "vitest";
 import { createEmptyDailyEntry, defaultAppSettings } from "../../domain/daily-entry";
 import type {
@@ -5,13 +8,14 @@ import type {
   FinanceImportRow,
   FinancePerson,
   FinanceTransaction,
+  FinanceTransactionSplit,
 } from "../../domain/finance";
 import { createEmptyMonthlyReview } from "../../domain/monthly-review";
 import type { MidWeekLaggingSnapshot } from "../../domain/mid-week-review";
 import type { CatalogVerse, RescueTimeSnapshotCacheEntry } from "../../domain/types";
 import { createEmptyWeeklyReview } from "../../domain/weekly-review";
 import { getTodayDate } from "../date";
-import { addDays } from "../gtd/shared";
+import { addDays } from "../date";
 import { loadVerseCatalog } from "../pastor/verse-catalog";
 import type { AppRepository } from "./repository";
 
@@ -216,6 +220,54 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         expect(
           tasks.filter((task) => task.sourceExternalId?.startsWith("relationship-draw:spouse:")),
         ).toHaveLength(2);
+      });
+
+      it.each([
+        ["2026-10-03", "2026-10-04"],
+        ["2026-10-04", "2026-10-03"],
+        ["2026-10-04", "2026-10-04"],
+      ])("serializes overlapping relationship draws for %s and %s", async (firstDate, secondDate) => {
+        const repository = await factory();
+        await repository.updateSettings((current) => ({
+          ...current,
+          relationshipDrawsEnabled: true,
+          relationshipDrawChildrenActivities: ["Lire ensemble"],
+          relationshipDrawSpouseActivities: ["Boire un thé"],
+        }));
+        const [firstCount, secondCount] = await Promise.all([
+          repository.generateDailyRelationshipTasks(firstDate),
+          repository.generateDailyRelationshipTasks(secondDate),
+          repository.updateSettings((current) => ({ ...current, lastBackupAt: "backup" })),
+        ]);
+        expect(firstCount + secondCount).toBe(2);
+        const tasks = await repository.listTasks({ includeCompleted: true });
+        for (const category of ["children", "spouse"]) {
+          expect(
+            tasks.filter((task) =>
+              task.sourceExternalId?.startsWith(`relationship-draw:${category}:`),
+            ),
+          ).toHaveLength(1);
+        }
+        expect(await repository.getSettings()).toMatchObject({
+          relationshipDrawChildrenProcessedDate: "2026-10-04",
+          relationshipDrawSpouseProcessedDate: "2026-10-04",
+          lastBackupAt: "backup",
+        });
+      });
+
+      it("does not move relationship markers backwards or regenerate an older completed day", async () => {
+        const repository = await factory();
+        await repository.generateDailyRelationshipTasks("2026-10-04");
+        const tasks = await repository.listTasks({ includeCompleted: true });
+        for (const task of tasks) {
+          await repository.completeTask(task.id, "2026-10-04T21:00:00.000Z");
+        }
+        expect(await repository.generateDailyRelationshipTasks("2026-10-03")).toBe(0);
+        expect(await repository.getSettings()).toMatchObject({
+          relationshipDrawChildrenProcessedDate: "2026-10-04",
+          relationshipDrawSpouseProcessedDate: "2026-10-04",
+        });
+        expect(await repository.listTasks({ includeCompleted: true })).toHaveLength(tasks.length);
       });
 
       it("moves reading tasks into the References bucket", async () => {
@@ -434,6 +486,16 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           scheduledFor: `${today}T09:00:00`,
           createdAt: `${addDays(today, -2)}T08:00:00`,
         });
+
+        // Stats are pure reads: before reconciliation the task is still Scheduled and not "added".
+        await expect(repository.computeDailyTaskStats(today)).resolves.toMatchObject({
+          tasksAdded: 0,
+        });
+        expect(await repository.listTaskEvents({ types: ["task_moved_to_next_action"] })).toEqual(
+          [],
+        );
+
+        await repository.reconcileDay(today);
 
         await expect(repository.computeDailyTaskStats(today)).resolves.toMatchObject({
           tasksAdded: 1,
@@ -713,7 +775,12 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           updatedAt: "2026-09-07T00:00:00.000Z",
         });
 
+        // Reads never generate: a summary that spans future days leaves the watermark untouched.
         await repository.computeWeeklyReviewSummary("2026-09-27");
+        expect((await repository.listRecurringTaskTemplates())[0]?.lastGeneratedForDate).toBeNull();
+        expect(await repository.listTasks({ includeCompleted: true })).toHaveLength(0);
+
+        await repository.reconcileDay("2026-09-07");
 
         const templates = await repository.listRecurringTaskTemplates();
         expect(templates[0]?.lastGeneratedForDate).toBe("2026-09-07");
@@ -1543,7 +1610,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         ).resolves.toEqual(expect.objectContaining({ id: "ai-message:z" }));
       });
 
-      it("acceptAiWeeklyObjectiveProposal is idempotent", async () => {
+      it("acceptAiProposal for weekly objectives is idempotent", async () => {
         const repository = await factory();
         const proposal = {
           id: "ai-proposal:objective",
@@ -1576,14 +1643,93 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           updatedAt: "2026-08-29T08:00:00.000Z",
         };
 
-        const first = await repository.acceptAiWeeklyObjectiveProposal(proposal, objective);
-        const second = await repository.acceptAiWeeklyObjectiveProposal(proposal, objective);
+        const first = await repository.acceptAiProposal(proposal.id, {
+          kind: "weeklyObjective",
+          objective: objective,
+        });
+        const second = await repository.acceptAiProposal(proposal.id, {
+          kind: "weeklyObjective",
+          objective: objective,
+        });
 
-        expect(first.objective.id).toBe(second.objective.id);
+        expect(first.effectApplied).toBe(true);
+        expect(second.effectApplied).toBe(false);
+        expect(first.appliedEntityId).toBe(second.appliedEntityId);
         expect(await repository.listWeeklyObjectives()).toHaveLength(1);
       });
 
-      it("acceptAiMonthlyReviewSectionDraftProposal is idempotent", async () => {
+      it.each([
+        "dailyEntry",
+        "weeklyReview",
+        "monthlyReview",
+      ] as const)("distinguishes repeat %s acceptance from a write and preserves manual edits", async (kind) => {
+        const repository = await factory();
+        const daily = createEmptyDailyEntry("2026-10-03");
+        daily.morningIntention = "Coach draft";
+        const weekly = createEmptyWeeklyReview("2026-09-27");
+        weekly.notes.bilan = "Coach draft";
+        const monthly = createEmptyMonthlyReview("2026-10");
+        monthly.notes.bilan = "Coach draft";
+        const effect: AcceptEffect =
+          kind === "dailyEntry"
+            ? { kind, entry: daily }
+            : kind === "weeklyReview"
+              ? { kind, review: weekly }
+              : { kind, review: monthly };
+        const proposal = {
+          id: "ai-proposal:repeat-draft",
+          messageId: "ai-message:repeat-draft",
+          type:
+            kind === "dailyEntry"
+              ? ("intention_draft" as const)
+              : ("review_section_draft" as const),
+          payloadJson: JSON.stringify({ text: "Coach draft", sectionKey: "bilan" }),
+          status: "pending" as const,
+          appliedEntityId: null,
+          decidedAt: null,
+          createdAt: "2026-10-03T12:00:00.000Z",
+        };
+        await repository.saveAiProposal(proposal);
+        const first = await repository.acceptAiProposal(proposal.id, effect);
+        expect(first.effectApplied).toBe(true);
+        let context: ProposalApplyContext;
+        let readNote: () => Promise<string | undefined>;
+        if (kind === "dailyEntry") {
+          const manual = { ...daily, morningIntention: "Manual edit" };
+          await repository.saveDailyEntry(manual);
+          context = { acceptedDate: daily.date, dailyEntry: manual };
+          readNote = async () => (await repository.getDailyEntry(daily.date))?.morningIntention;
+        } else if (kind === "weeklyReview") {
+          const manual = { ...weekly, notes: { ...weekly.notes, bilan: "Manual edit" } };
+          await repository.saveWeeklyReview(manual);
+          context = {
+            acceptedDate: weekly.weekStartDate,
+            weekly: { withReview: (_, work) => work(manual) },
+          };
+          readNote = async () =>
+            (await repository.getWeeklyReview(weekly.weekStartDate))?.notes.bilan;
+        } else {
+          const manual = { ...monthly, notes: { ...monthly.notes, bilan: "Manual edit" } };
+          await repository.saveMonthlyReview(manual);
+          context = {
+            acceptedDate: monthly.monthKey,
+            monthly: { monthKey: monthly.monthKey, withReview: (_, work) => work(manual) },
+          };
+          readNote = async () => (await repository.getMonthlyReview(monthly.monthKey))?.notes.bilan;
+        }
+        const repeat = await repository.acceptAiProposal(proposal.id, effect);
+        expect(repeat.effectApplied).toBe(false);
+        expect(repeat.appliedEntityId).toBe(first.appliedEntityId);
+        const outcome = await applyCoachProposal(repository, proposal, context);
+        expect(outcome).toMatchObject({ accepted: true, proposal: first.proposal });
+        expect(outcome.dailyNote).toBeUndefined();
+        expect(outcome.weeklyReview).toBeUndefined();
+        expect(outcome.monthlyReview).toBeUndefined();
+        expect(outcome.text).toBeUndefined();
+        expect(await readNote()).toBe("Manual edit");
+      });
+
+      it("acceptAiProposal for monthly reviews is idempotent", async () => {
         const repository = await factory();
         const proposal = {
           id: "ai-proposal:monthly-section",
@@ -1628,10 +1774,18 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           updatedAt: "2026-08-29T08:00:00.000Z",
         };
 
-        const first = await repository.acceptAiMonthlyReviewSectionDraftProposal(proposal, review);
-        const second = await repository.acceptAiMonthlyReviewSectionDraftProposal(proposal, review);
+        const first = await repository.acceptAiProposal(proposal.id, {
+          kind: "monthlyReview",
+          review: review,
+        });
+        const second = await repository.acceptAiProposal(proposal.id, {
+          kind: "monthlyReview",
+          review: review,
+        });
 
-        expect(first.review.monthKey).toBe(second.review.monthKey);
+        expect(first.effectApplied).toBe(true);
+        expect(second.effectApplied).toBe(false);
+        expect(first.appliedEntityId).toBe(second.appliedEntityId);
         expect(first.proposal.status).toBe("accepted");
         expect(second.proposal.status).toBe("accepted");
         await expect(repository.getMonthlyReview("2026-04")).resolves.toMatchObject({
@@ -1639,7 +1793,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         });
       });
 
-      it("acceptAiGtdActionProposal skips completed tasks", async () => {
+      it("acceptAiProposal skips completed tasks", async () => {
         const repository = await factory();
         const timestamp = "2026-08-29T12:00:00.000Z";
         await repository.saveTask({
@@ -1679,8 +1833,11 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         };
         await repository.saveAiProposal(proposal);
 
-        const result = await repository.acceptAiGtdActionProposal(proposal, "2026-08-29");
-        expect(result.taskId).toBeNull();
+        const result = await repository.acceptAiProposal(
+          proposal.id,
+          gtdAcceptEffectFromProposal(proposal, "2026-08-29"),
+        );
+        expect(result.appliedEntityId).toBeNull();
         expect(result.proposal.status).toBe("pending");
       });
 
@@ -1706,20 +1863,197 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         expect(entries.map((entry) => entry.date)).toEqual(["2026-04-30", "2026-04-01"]);
       });
 
-      it("listDailyEntriesInRange does not recompute daily task or pomodoro stats", async () => {
+      it("decorates every daily entry read the same way", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2026-04-08T12:00:00.000Z"));
         const repository = await factory();
+        const today = "2026-04-08";
 
-        for (const date of ["2026-04-01", "2026-04-02"]) {
-          await repository.saveDailyEntry(createEmptyDailyEntry(date));
-        }
+        await repository.createTask({
+          id: "task-start",
+          title: "Deja la hier",
+          bucket: "next_action",
+          createdAt: `${addDays(today, -1)}T08:00:00`,
+        });
+        await repository.saveDailyEntry(createEmptyDailyEntry(today));
 
-        const taskSpy = vi.spyOn(repository, "computeDailyTaskStats");
-        const pomodoroSpy = vi.spyOn(repository, "computeDailyPomodoroStats");
+        const fromGet = (await repository.getDailyEntry(today))?.suggestedMetrics;
+        const [fromList] = await repository.listDailyEntries(10);
+        const [fromOnOrBefore] = await repository.listDailyEntriesOnOrBefore(today, 10);
+        const [fromRange] = await repository.listDailyEntriesInRange(today, today);
 
-        await repository.listDailyEntriesInRange("2026-04-01", "2026-04-02");
+        expect(fromGet).toMatchObject({ tachesDebut: 1, pomodoris: 0 });
+        expect(fromList?.suggestedMetrics).toEqual(fromGet);
+        expect(fromOnOrBefore?.suggestedMetrics).toEqual(fromGet);
+        expect(fromRange?.suggestedMetrics).toEqual(fromGet);
+      });
 
-        expect(taskSpy).not.toHaveBeenCalled();
-        expect(pomodoroSpy).not.toHaveBeenCalled();
+      it("keeps entry, task and pomodoro reads side-effect free until reconcileDay runs", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2026-04-12T12:00:00.000Z"));
+        const repository = await factory();
+        const sunday = "2026-04-12";
+
+        await repository.createTask({
+          id: "task-next",
+          title: "Avant dimanche",
+          bucket: "next_action",
+          createdAt: "2026-04-10T08:00:00",
+        });
+        await repository.createTask({
+          id: "task-due",
+          title: "Due aujourd'hui",
+          bucket: "scheduled",
+          scheduledFor: `${sunday}T09:00:00`,
+          createdAt: "2026-04-09T08:00:00",
+        });
+        await repository.saveRecurringTaskTemplate({
+          id: "recurring-template:daily",
+          title: "Quotidienne",
+          notes: "",
+          targetBucket: "next_action",
+          contextIds: [],
+          projectId: null,
+          ruleType: "daily",
+          dailyInterval: 1,
+          weeklyInterval: 1,
+          weeklyDays: [0],
+          monthlyMode: "day_of_month",
+          dayOfMonth: 1,
+          nthWeek: 1,
+          weekday: 0,
+          scheduledTime: null,
+          startDate: sunday,
+          status: "active",
+          lastGeneratedForDate: null,
+          pendingMissedOccurrences: 0,
+          statusChangedAt: "2026-04-09T00:00:00.000Z",
+          createdAt: "2026-04-09T00:00:00.000Z",
+          updatedAt: "2026-04-09T00:00:00.000Z",
+        });
+        await repository.saveDailyEntry(createEmptyDailyEntry(sunday));
+        const started = await repository.startPomodoro();
+        expect(started.activeSession).not.toBeNull();
+        vi.setSystemTime(new Date("2026-04-12T13:00:00.000Z"));
+
+        const snapshot = async () => ({
+          tasks: await repository.listTasks({ includeCompleted: true }),
+          events: await repository.listTaskEvents(),
+          templates: await repository.listRecurringTaskTemplates(),
+          sessions: await repository.listPomodoroSessions(sunday),
+        });
+        const before = await snapshot();
+        expect(before.sessions.map((session) => session.status)).toEqual(["running"]);
+
+        await repository.listTasks();
+        await repository.computeDailyTaskStats(sunday);
+        await repository.getDailyTaskBreakdown(sunday);
+        await repository.computeDailyPomodoroStats(sunday);
+        await repository.getDailyEntry(sunday);
+        await repository.listDailyEntries(10);
+        await repository.listDailyEntriesOnOrBefore(sunday, 10);
+        await repository.listDailyEntriesInRange(sunday, sunday);
+        await repository.computeWeeklyReviewSummary("2026-04-12");
+        await repository.computeMonthlyReviewSummary("2026-04");
+
+        expect(await snapshot()).toEqual(before);
+        await expect(repository.computeDailyPomodoroStats(sunday)).resolves.toMatchObject({
+          completedFocusSessions: 0,
+        });
+
+        const result = await repository.reconcileDay(sunday);
+
+        expect(result.generatedRecurrences).toBe(1);
+        expect(result.promotedScheduled).toBe(1);
+        expect(result.carryoverEvents).toBeGreaterThan(0);
+        expect(result.pomodoroState.activeSession).toBeNull();
+        expect(
+          (await repository.listPomodoroSessions(sunday)).map((session) => session.status),
+        ).toEqual(["completed"]);
+        await expect(repository.computeDailyPomodoroStats(sunday)).resolves.toMatchObject({
+          completedFocusSessions: 1,
+        });
+        const carryoverKeys = (await repository.listTaskEvents())
+          .filter((event) => event.type === "weekly_carryover")
+          .map((event) => event.dedupeKey);
+        expect(carryoverKeys).toContain(`weekly_carryover:${sunday}:task-next`);
+        expect(new Set(carryoverKeys).size).toBe(carryoverKeys.length);
+      });
+
+      it("reconcileDay is idempotent and never carries over for a future Sunday", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2026-04-12T12:00:00.000Z"));
+        const repository = await factory();
+        const sunday = "2026-04-12";
+
+        await repository.createTask({
+          id: "task-next",
+          title: "Avant dimanche",
+          bucket: "next_action",
+          createdAt: "2026-04-10T08:00:00",
+        });
+
+        const first = await repository.reconcileDay(sunday);
+        const eventsAfterFirst = await repository.listTaskEvents();
+        const stats = await repository.computeDailyTaskStats(sunday);
+        const second = await repository.reconcileDay(sunday);
+
+        expect(first.carryoverEvents).toBe(1);
+        expect(second).toMatchObject({
+          generatedRecurrences: 0,
+          promotedScheduled: 0,
+          carryoverEvents: 0,
+        });
+        expect(await repository.listTaskEvents()).toEqual(eventsAfterFirst);
+        await expect(repository.computeDailyTaskStats(sunday)).resolves.toEqual(stats);
+
+        // Clock moves back before the Sunday; 2026-04-19 was never reconciled, so only the
+        // `date <= today` clamp (not the dedupe key) keeps its carryover from being written.
+        vi.setSystemTime(new Date("2026-04-08T12:00:00.000Z"));
+        const future = await repository.reconcileDay("2026-04-19");
+        expect(future.carryoverEvents).toBe(0);
+        const futureEvents = await repository.listTaskEvents();
+        expect(
+          futureEvents.filter((event) =>
+            event.dedupeKey?.startsWith("weekly_carryover:2026-04-19:"),
+          ),
+        ).toEqual([]);
+        expect(futureEvents.filter((event) => event.type === "weekly_carryover")).toHaveLength(1);
+
+        const weekday = await repository.reconcileDay("2026-04-08");
+        expect(weekday.carryoverEvents).toBe(0);
+      });
+
+      it("reconcileDay back-fills carryover for the most recent Sunday the app never reconciled", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2026-04-15T12:00:00.000Z"));
+        const repository = await factory();
+        const sunday = "2026-04-12";
+
+        await repository.createTask({
+          id: "task-before-sunday",
+          title: "Avant dimanche",
+          bucket: "next_action",
+          createdAt: "2026-04-10T08:00:00",
+        });
+        await expect(repository.computeDailyTaskStats(sunday)).resolves.toMatchObject({
+          tasksAdded: 0,
+        });
+
+        const result = await repository.reconcileDay("2026-04-15");
+
+        expect(result.carryoverEvents).toBe(1);
+        const carryoverKeys = (await repository.listTaskEvents())
+          .filter((event) => event.type === "weekly_carryover")
+          .map((event) => event.dedupeKey);
+        expect(carryoverKeys).toEqual([`weekly_carryover:${sunday}:task-before-sunday`]);
+        await expect(repository.computeDailyTaskStats(sunday)).resolves.toMatchObject({
+          tasksAdded: 1,
+        });
+
+        await expect(repository.reconcileDay("2026-04-15")).resolves.toMatchObject({
+          carryoverEvents: 0,
+        });
       });
 
       it("listWeeklyReviewsOverlapping includes a week that started the previous month", async () => {
@@ -2132,7 +2466,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         expect(cleared.scheduledFor).toBeNull();
       });
 
-      it("acceptAiGtdActionProposal remains idempotent and reconciles the project atomically", async () => {
+      it("acceptAiProposal for GTD remains idempotent and reconciles the project atomically", async () => {
         const repository = await factory();
         await makeProject(repository, "project:ai");
         const active = await repository.createTask({
@@ -2160,8 +2494,11 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         };
         await repository.saveAiProposal(proposal);
 
-        const first = await repository.acceptAiGtdActionProposal(proposal, "2026-06-01");
-        expect(first.taskId).toBe(active.id);
+        const first = await repository.acceptAiProposal(
+          proposal.id,
+          gtdAcceptEffectFromProposal(proposal, "2026-06-01"),
+        );
+        expect(first.appliedEntityId).toBe(active.id);
         expect(first.proposal.status).toBe("accepted");
 
         const afterDrop = await repository.listTasks({
@@ -2170,9 +2507,12 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         });
         expect(afterDrop.find((task) => task.id === "task:ai-planned")?.bucket).toBe("next_action");
 
-        const second = await repository.acceptAiGtdActionProposal(proposal, "2026-06-01");
+        const second = await repository.acceptAiProposal(
+          proposal.id,
+          gtdAcceptEffectFromProposal(proposal, "2026-06-01"),
+        );
         expect(second.proposal.status).toBe("accepted");
-        expect(second.taskId).toBe(active.id);
+        expect(second.appliedEntityId).toBe(active.id);
 
         // A repeat call must not promote yet another planned task.
         const afterSecond = await repository.listTasks({
@@ -3251,6 +3591,284 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         await expect(repository.countFinanceTransactions({})).resolves.toBe(1);
       });
 
+      const buildSplit = (
+        transactionId: string,
+        amountMinor: number,
+        overrides: Partial<FinanceTransactionSplit> = {},
+      ): FinanceTransactionSplit => ({
+        id: "",
+        transactionId,
+        amountMinor,
+        categoryId: "fincat:alimentation.epicerie",
+        notes: null,
+        sortOrder: 0,
+        createdAt: "",
+        ...overrides,
+      });
+
+      it("rejects splits that do not sum to the parent amount and keeps the old allocation", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const txn = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-split", amountMinor: -5000 }),
+        );
+        await repository.saveFinanceTransactionSplits(txn.id, [
+          buildSplit(txn.id, -2000),
+          buildSplit(txn.id, -3000),
+        ]);
+
+        await expect(
+          repository.saveFinanceTransactionSplits(txn.id, [buildSplit(txn.id, -1000)]),
+        ).rejects.toThrow();
+        const splits = await repository.listFinanceTransactionSplits(txn.id);
+        expect(splits.map((split) => split.amountMinor)).toEqual([-2000, -3000]);
+      });
+
+      it("keeps the previous splits when a replacement fails midway", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const txn = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-split", amountMinor: -1000 }),
+        );
+        await repository.saveFinanceTransactionSplits(txn.id, [
+          buildSplit(txn.id, -1000, { id: "split-dup" }),
+        ]);
+
+        await expect(
+          repository.saveFinanceTransactionSplits(txn.id, [
+            buildSplit(txn.id, -500, { id: "split-dup" }),
+            buildSplit(txn.id, -500, { id: "split-dup" }),
+          ]),
+        ).rejects.toThrow();
+        const splits = await repository.listFinanceTransactionSplits(txn.id);
+        expect(splits.map((split) => split.amountMinor)).toEqual([-1000]);
+      });
+
+      it("restores an ordinary category when the final split is removed", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const txn = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-split", amountMinor: -1000 }),
+        );
+        await repository.saveFinanceTransactionSplits(txn.id, [buildSplit(txn.id, -1000)]);
+
+        const cleared = await repository.saveFinanceTransactionSplits(txn.id, []);
+        expect(cleared.hasSplits).toBe(false);
+        expect(cleared.categoryId).toBe("fincat:non-categorise");
+        expect(cleared.categorySource).toBe("default");
+      });
+
+      it("reassigns split category references when archiving a category", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const txn = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-split", amountMinor: -1000 }),
+        );
+        await repository.saveFinanceTransactionSplits(txn.id, [
+          buildSplit(txn.id, -1000, { categoryId: "fincat:alimentation.epicerie" }),
+        ]);
+
+        await repository.archiveFinanceCategory(
+          "fincat:alimentation.epicerie",
+          "fincat:transport.essence",
+        );
+        const splits = await repository.listFinanceTransactionSplits(txn.id);
+        expect(splits[0].categoryId).toBe("fincat:transport.essence");
+      });
+
+      it("marks every all_matching correction as user-owned so later imports keep it", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const a = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-a",
+            descriptionRaw: "VIREMENT FRAIS",
+            merchantKey: "VIREMENT FRAIS",
+          }),
+        );
+        const b = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-b",
+            descriptionRaw: "VIREMENT FRAIS",
+            merchantKey: "VIREMENT FRAIS",
+          }),
+        );
+        await repository.setFinanceTransactionCategory({
+          transactionId: a.id,
+          categoryId: "fincat:transport.essence",
+          scope: "all_matching",
+        });
+        await expect(repository.getFinanceTransaction(b.id)).resolves.toMatchObject({
+          categorySource: "user",
+        });
+
+        await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "later.csv",
+          fileHash: "hash-later",
+          rows: [importRow({ descriptionRaw: "COFFEE", merchantKey: "COFFEE", amountMinor: -300 })],
+        });
+        await expect(repository.getFinanceTransaction(b.id)).resolves.toMatchObject({
+          categoryId: "fincat:transport.essence",
+        });
+      });
+
+      it("round-trips import profile amount separators", async () => {
+        const repository = await factory();
+        const saved = await repository.saveFinanceImportProfile({
+          id: "",
+          name: "FR",
+          signature: "sig-sep",
+          columnMap: { date: 0, description: 1, amount: 2 },
+          dateFormat: "YYYY-MM-DD",
+          amountMode: "single_signed",
+          signConvention: null,
+          decimalSeparator: ",",
+          thousandsSeparator: " ",
+          defaultAccountId: null,
+          createdAt: "",
+          updatedAt: "",
+          lastUsedAt: null,
+        });
+        const found = await repository.findFinanceImportProfileBySignature("sig-sep");
+        expect(found).toMatchObject({
+          id: saved.id,
+          decimalSeparator: ",",
+          thousandsSeparator: " ",
+        });
+      });
+
+      it("does not re-pair a grouped transfer leg with a later matching row", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-checking" }));
+        await repository.saveFinanceAccount(
+          account({ id: "account-invest", name: "Placements", onBudget: false }),
+        );
+        await repository.saveFinanceAccount(account({ id: "account-savings", name: "Épargne" }));
+
+        await repository.importFinanceTransactions({
+          accountId: "account-checking",
+          profileId: null,
+          fileName: "one.csv",
+          fileHash: "hash-one",
+          rows: [
+            importRow({ accountId: "account-checking", amountMinor: -5000, descriptionRaw: "A" }),
+            importRow({ accountId: "account-invest", amountMinor: 5000, descriptionRaw: "A" }),
+          ],
+        });
+        const before = await repository.listFinanceTransactions({
+          accountIds: ["account-checking"],
+        });
+        expect(before[0].isTransfer).toBe(true);
+
+        await repository.importFinanceTransactions({
+          accountId: "account-savings",
+          profileId: null,
+          fileName: "two.csv",
+          fileHash: "hash-two",
+          rows: [
+            importRow({ accountId: "account-savings", amountMinor: 5000, descriptionRaw: "B" }),
+          ],
+        });
+        const after = await repository.listFinanceTransactions({
+          accountIds: ["account-checking"],
+        });
+        expect(after[0].transferGroupId).toBe(before[0].transferGroupId);
+        expect(after[0].excludedFromBudget).toBe(before[0].excludedFromBudget);
+      });
+
+      it("refuses to undo a batch whose rows belong to an account covered by a newer batch", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-a" }));
+        await repository.saveFinanceAccount(account({ id: "account-b", name: "B" }));
+        const rowB = importRow({
+          accountId: "account-b",
+          descriptionRaw: "B ROW",
+          merchantKey: "B",
+        });
+
+        const first = await repository.importFinanceTransactions({
+          accountId: "account-a",
+          profileId: null,
+          fileName: "mixed.csv",
+          fileHash: "hash-mixed",
+          rows: [importRow({ accountId: "account-a", descriptionRaw: "A ROW" }), rowB],
+        });
+        await repository.importFinanceTransactions({
+          accountId: "account-b",
+          profileId: null,
+          fileName: "b.csv",
+          fileHash: "hash-b",
+          rows: [rowB],
+        });
+
+        await expect(repository.undoFinanceImportBatch(first.batchId)).rejects.toThrow(
+          /most recent batch/,
+        );
+        await expect(repository.countFinanceTransactions({})).resolves.toBe(2);
+      });
+
+      it("keeps a user-categorized transfer partner's category when the other leg is undone", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-checking" }));
+        await repository.saveFinanceAccount(account({ id: "account-savings", name: "Épargne" }));
+
+        await repository.importFinanceTransactions({
+          accountId: "account-checking",
+          profileId: null,
+          fileName: "c.csv",
+          fileHash: "hash-c",
+          rows: [
+            importRow({ accountId: "account-checking", amountMinor: -5000, descriptionRaw: "VIR" }),
+          ],
+        });
+        const savings = await repository.importFinanceTransactions({
+          accountId: "account-savings",
+          profileId: null,
+          fileName: "s.csv",
+          fileHash: "hash-s",
+          rows: [
+            importRow({ accountId: "account-savings", amountMinor: 5000, descriptionRaw: "VIR" }),
+          ],
+        });
+        const [checking] = await repository.listFinanceTransactions({
+          accountIds: ["account-checking"],
+        });
+        await repository.setFinanceTransactionCategory({
+          transactionId: checking.id,
+          categoryId: "fincat:transport.essence",
+          scope: "this",
+        });
+
+        await repository.undoFinanceImportBatch(savings.batchId);
+        await expect(repository.getFinanceTransaction(checking.id)).resolves.toMatchObject({
+          categoryId: "fincat:transport.essence",
+          categorySource: "user",
+          isTransfer: false,
+          transferGroupId: null,
+        });
+      });
+
+      it("keeps a concurrent finance write that lands while an import is running", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+
+        const [, saved] = await Promise.all([
+          repository.importFinanceTransactions({
+            accountId: "account-1",
+            profileId: null,
+            fileName: "big.csv",
+            fileHash: "hash-big",
+            rows: [importRow()],
+          }),
+          repository.saveFinancePerson(person({ displayName: "Concurrent" })),
+        ]);
+        await expect(repository.listFinancePeople()).resolves.toEqual([
+          expect.objectContaining({ id: saved.id, displayName: "Concurrent" }),
+        ]);
+      });
+
       it("saves and finds an import profile by signature", async () => {
         const repository = await factory();
         const saved = await repository.saveFinanceImportProfile({
@@ -3675,6 +4293,73 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         });
       });
 
+      it("retires a pending suggestion when a rule supersedes it, and a repeated decision is a no-op", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "stale.csv",
+          fileHash: "hash-stale-1",
+          rows: [importRow({ accountId: "account-1", descriptionRaw: "IGA MONTREAL" })],
+        });
+        expect(await repository.listFinanceCategorySuggestions("pending")).toHaveLength(1);
+
+        await repository.saveFinanceRule({
+          id: "",
+          name: "Resto",
+          priority: 0,
+          enabled: true,
+          matcher: { descriptionContains: "IGA" },
+          actions: { categoryId: "fincat:alimentation.restaurants" },
+          createdAt: "",
+          updatedAt: "",
+          lastAppliedAt: null,
+          appliedCount: 0,
+        });
+        await repository.reclassifyFinancePending();
+        expect(await repository.listFinanceCategorySuggestions("pending")).toHaveLength(0);
+      });
+
+      it("retires pending suggestions on a manual category change and never learns twice from one suggestion", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "twice.csv",
+          fileHash: "hash-twice-1",
+          rows: [importRow({ accountId: "account-1", descriptionRaw: "IGA MONTREAL" })],
+        });
+        const [pending] = await repository.listFinanceCategorySuggestions("pending");
+        await repository.decideFinanceCategorySuggestion(pending.id, { status: "accepted" });
+        const first = await repository.listFinanceMerchantMemory();
+        await repository.decideFinanceCategorySuggestion(pending.id, { status: "accepted" });
+        expect(await repository.listFinanceMerchantMemory()).toEqual(first);
+
+        await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "manual.csv",
+          fileHash: "hash-manual-1",
+          rows: [
+            importRow({
+              accountId: "account-1",
+              postedDate: "2026-05-01",
+              amountMinor: -1234,
+              descriptionRaw: "VIDEOTRON LTEE",
+            }),
+          ],
+        });
+        const [telecom] = await repository.listFinanceCategorySuggestions("pending");
+        await repository.setFinanceTransactionCategory({
+          transactionId: telecom.transactionId,
+          categoryId: "fincat:alimentation.restaurants",
+          scope: "this",
+        });
+        expect(await repository.listFinanceCategorySuggestions("pending")).toHaveLength(0);
+      });
+
       it("reclassifyFinancePending leaves an all_matching-backfilled category in place when the new pass only suggests", async () => {
         const repository = await factory();
         await repository.saveFinanceAccount(account({ id: "account-1" }));
@@ -3944,6 +4629,58 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           expect(uncategorized?.activityMinor ?? 0).toBe(0);
         });
 
+        it("keeps a zero row that carries a non-default overspend policy", async () => {
+          const repository = await factory();
+          await repository.seedFinanceDefaultCategories();
+          await repository.setFinanceCategoryOverspendPolicy(
+            "2026-01",
+            "fincat:alimentation.epicerie",
+            "carry_negative",
+          );
+
+          await repository.setFinanceBudgetAssignment("2026-01", "fincat:alimentation.epicerie", 0);
+
+          const state = await repository.computeFinanceBudgetState("2026-01");
+          expect(
+            state.categories.find((c) => c.categoryId === "fincat:alimentation.epicerie")
+              ?.overspendPolicy,
+          ).toBe("carry_negative");
+        });
+
+        it("applyFinanceCoverOverspending moves both rows together", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.seedFinanceDefaultCategories();
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-spend",
+              accountId: "account-1",
+              postedDate: "2026-01-10",
+              amountMinor: -1_200,
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+          await repository.setFinanceBudgetAssignment(
+            "2026-01",
+            "fincat:alimentation.epicerie",
+            1_000,
+          );
+          await repository.setFinanceBudgetAssignment("2026-01", "fincat:loisirs.sorties", 100);
+
+          const result = await repository.applyFinanceCoverOverspending(
+            "2026-01",
+            "fincat:loisirs.sorties",
+            "fincat:alimentation.epicerie",
+          );
+
+          expect(result.amountMinor).toBe(100);
+          const state = await repository.computeFinanceBudgetState("2026-01");
+          const assigned = (id: string) =>
+            state.categories.find((c) => c.categoryId === id)?.assignedMinor;
+          expect(assigned("fincat:alimentation.epicerie")).toBe(1_100);
+          expect(assigned("fincat:loisirs.sorties")).toBe(0);
+        });
+
         it("computeFinanceCoverOverspending delegates to the pure helper", async () => {
           const repository = await factory();
           await repository.saveFinanceAccount(account({ id: "account-1" }));
@@ -4198,6 +4935,61 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           expect(stillThere?.confirmedByUser).toBe(true);
         });
 
+        it("detectFinanceRecurringSeries skips transfers", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          for (const postedDate of ["2026-01-01", "2026-02-01", "2026-03-01"]) {
+            await repository.saveFinanceTransaction(
+              buildFinanceTransaction({
+                id: `transfer-${postedDate}`,
+                accountId: "account-1",
+                postedDate,
+                amountMinor: -50_000_00,
+                merchantKey: "PAIEMENT",
+                isTransfer: true,
+              }),
+            );
+            await repository.saveFinanceTransaction(
+              buildFinanceTransaction({
+                id: `gym-${postedDate}`,
+                accountId: "account-1",
+                postedDate,
+                amountMinor: -30_00,
+                merchantKey: "GYM",
+              }),
+            );
+          }
+
+          await repository.detectFinanceRecurringSeries();
+          const series = await repository.listFinanceRecurringSeries();
+          expect(series.map((item) => item.merchantKey)).toEqual(["GYM"]);
+        });
+
+        it("undoing the import behind an unconfirmed series removes the series", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          const summary = await repository.importFinanceTransactions({
+            accountId: "account-1",
+            profileId: null,
+            fileName: "netflix.csv",
+            fileHash: "hash-recurring-undo",
+            rows: ["2026-01-01", "2026-02-01", "2026-03-01"].map((postedDate) =>
+              importRow({
+                accountId: "account-1",
+                postedDate,
+                descriptionRaw: "NETFLIX",
+                merchantKey: "NETFLIX",
+                amountMinor: -15_99,
+              }),
+            ),
+          });
+          expect(await repository.listFinanceRecurringSeries()).toHaveLength(1);
+
+          await repository.undoFinanceImportBatch(summary.batchId);
+
+          expect(await repository.listFinanceRecurringSeries()).toEqual([]);
+        });
+
         it("detectFinanceRecurringSeries persists an integer expected_amount_minor for an even occurrence count", async () => {
           const repository = await factory();
           await repository.saveFinanceAccount(account({ id: "account-1" }));
@@ -4352,6 +5144,76 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
                 a.kind === "envelope_exhausted" && a.categoryId === "fincat:alimentation.epicerie",
             ),
           ).toBe(true);
+        });
+
+        it("does not count future-dated transactions as spending already done", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.seedFinanceDefaultCategories();
+          await repository.setFinanceBudgetAssignment(
+            "2026-03",
+            "fincat:alimentation.epicerie",
+            25_000,
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-future",
+              accountId: "account-1",
+              postedDate: "2026-03-20",
+              amountMinor: -10_000,
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+
+          const { forecast } = await repository.computeFinanceForecast("2026-03-10");
+          const envelope = forecast.envelopes.find(
+            (e) => e.categoryId === "fincat:alimentation.epicerie",
+          );
+          expect(envelope?.spentMinor).toBe(0);
+          expect(envelope?.currentPaceMinor).toBe(0);
+          expect(envelope?.status).toBe("on_track");
+          expect(envelope?.runoutDate).toBeNull();
+        });
+
+        it("ignores recurring series on off-budget accounts", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(
+            account({ id: "account-1", openingBalanceMinor: 100_000 }),
+          );
+          await repository.saveFinanceAccount(
+            account({ id: "account-off", name: "Hors budget", onBudget: false }),
+          );
+          await repository.seedFinanceDefaultCategories();
+          await repository.setFinanceBudgetAssignment(
+            "2026-03",
+            "fincat:alimentation.epicerie",
+            50_000,
+          );
+          await repository.saveFinanceRecurringSeries({
+            id: "series-off",
+            merchantKey: "LOAN",
+            accountId: "account-off",
+            categoryId: "fincat:alimentation.epicerie",
+            cadence: "monthly",
+            expectedAmountMinor: -200_000,
+            amountToleranceMinor: 100,
+            dayOfMonth: 12,
+            lastSeenDate: "2026-02-12",
+            nextExpectedDate: "2026-03-12",
+            occurrenceCount: 3,
+            status: "active",
+            confirmedByUser: true,
+            createdAt: "2026-03-01T00:00:00.000Z",
+            updatedAt: "2026-03-01T00:00:00.000Z",
+          });
+
+          const { forecast, alerts } = await repository.computeFinanceForecast("2026-03-10");
+          expect(forecast.cashRunoutDate).toBeNull();
+          const envelope = forecast.envelopes.find(
+            (e) => e.categoryId === "fincat:alimentation.epicerie",
+          );
+          expect(envelope?.knownUpcomingMinor).toBe(0);
+          expect(alerts).toEqual([]);
         });
 
         it("rate-limits the alert notification ledger once per day per key", async () => {

@@ -18,6 +18,8 @@
     "otherCurrenciesWarning": "Comptes exclus du total (devise différente de la devise de référence) : {{currencies}}.",
     "accountsTitle": "Comptes",
     "loading": "Chargement...",
+    "loadError": "Impossible de charger l'aperçu financier.",
+    "closedAccount": "(fermé)",
     "noAccounts": "Aucun compte. Ajoutez-en un dans l'onglet Comptes.",
     "netWorthTitle": "Valeur nette",
     "assetsLabel": "Actifs",
@@ -47,6 +49,10 @@
     "archive": "Archiver",
     "unarchive": "Désarchiver",
     "addAccountTitle": "Ajouter un compte",
+    "editAccountTitle": "Modifier le compte",
+    "saveAccount": "Enregistrer le compte",
+    "cancelEdit": "Annuler",
+    "edit": "Modifier",
     "fields": {
       "name": "Nom",
       "institution": "Institution",
@@ -80,6 +86,7 @@
     "errors": {
       "nameRequired": "Le nom du compte est requis.",
       "invalidOpeningBalance": "Solde d'ouverture invalide.",
+      "invalidCurrency": "Devise invalide (code à trois lettres, ex. CAD).",
       "invalidManualBalance": "Solde manuel invalide."
     },
     "addAccount": "Ajouter le compte",
@@ -318,6 +325,8 @@
     "subtitle": "Enveloppes et liquidités à surveiller",
     "viewAll": "Voir toutes les finances",
     "none": "Aucune alerte pour le moment.",
+    "loadError": "Impossible de charger les alertes finances.",
+    "retry": "Réessayer",
     "lowConfidence": "estimation provisoire",
     "cashRunout": "Liquidités : manque prévu le {{date}}",
     "envelopeExhausted": "{{category}} : enveloppe épuisée",
@@ -345,6 +354,8 @@
       "delta": "Écart"
     },
     "noData": "Aucune donnée pour cette période.",
+    "invalidRange": "La période est invalide : renseignez deux dates, la première avant la seconde.",
+    "loadError": "Impossible de charger les rapports.",
     "categoryTitle": "Dépenses par catégorie",
     "drilldownAction": "Voir le détail",
     "drilldownTitle": "Transactions de cette catégorie",

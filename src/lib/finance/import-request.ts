@@ -46,7 +46,9 @@ export interface BuildImportRowsOptions {
   header: string[];
   rows: string[][];
   profile: FinanceImportProfile;
-  /** Base currency used when the profile/row has none. */
+  /** Currency of a resolved account; a row is parsed with its own account's currency/exponent. */
+  resolveCurrency?: (accountId: string) => string;
+  /** Fallback currency for rows whose account cannot be resolved. */
   currency: string;
   /**
    * Resolves a row's raw external account label (the profile's mapped account
@@ -71,8 +73,7 @@ export interface BuildImportRowsResult {
  * resolved are reported as errors rather than thrown.
  */
 export const buildImportRows = (options: BuildImportRowsOptions): BuildImportRowsResult => {
-  const { header, rows, profile, currency, resolveAccountId } = options;
-  const exponent = currencyExponent(currency);
+  const { header, rows, profile, currency, resolveAccountId, resolveCurrency } = options;
 
   const mapped: Array<{ lineNumber: number; accountId: string; row: NormalizedImportRow }> = [];
   const errors: MappedImportRowError[] = [];
@@ -80,7 +81,10 @@ export const buildImportRows = (options: BuildImportRowsOptions): BuildImportRow
 
   rows.forEach((row, index) => {
     const lineNumber = index + 2; // 1-based, header is line 1
-    const result = mapImportRowToTransaction(row, header, profile, { currency, exponent });
+    let result = mapImportRowToTransaction(row, header, profile, {
+      currency,
+      exponent: currencyExponent(currency),
+    });
 
     if (!result.ok) {
       errors.push({ lineNumber, reason: result.reason });
@@ -97,6 +101,18 @@ export const buildImportRows = (options: BuildImportRowsOptions): BuildImportRow
         reason: `unresolved account "${result.row.externalAccountKey ?? ""}"`,
       });
       return;
+    }
+
+    const accountCurrency = resolveCurrency?.(accountId) ?? currency;
+    if (accountCurrency !== currency) {
+      result = mapImportRowToTransaction(row, header, profile, {
+        currency: accountCurrency,
+        exponent: currencyExponent(accountCurrency),
+      });
+      if (!result.ok) {
+        errors.push({ lineNumber, reason: result.reason });
+        return;
+      }
     }
 
     mapped.push({ lineNumber, accountId, row: result.row });
@@ -127,6 +143,8 @@ export interface BuildImportRequestOptions extends BuildImportRowsOptions {
   profileId: string | null;
   fileName: string;
   fileHash: string;
+  /** Warnings from `parseCsv` (records it dropped); carried into the batch counts and warnings. */
+  parserWarnings?: string[];
 }
 
 /** Builds the full FinanceImportRequest from parsed CSV rows. */
@@ -138,6 +156,7 @@ export const buildImportRequest = (
   unresolvedAccountKeys: string[];
 } => {
   const { rows, errors, unresolvedAccountKeys } = buildImportRows(options);
+  const parserWarnings = options.parserWarnings ?? [];
 
   return {
     request: {
@@ -146,6 +165,14 @@ export const buildImportRequest = (
       fileName: options.fileName,
       fileHash: options.fileHash,
       rows,
+      rejected: {
+        skipped: parserWarnings.length,
+        errors: errors.length,
+        warnings: [
+          ...parserWarnings,
+          ...errors.map((error) => `line ${error.lineNumber}: ${error.reason}`),
+        ],
+      },
     },
     errors,
     unresolvedAccountKeys,

@@ -15,7 +15,7 @@ describe("SettingsPage finance section", () => {
     const repository = new MemoryRepository();
     await repository.initialize();
     const seedSpy = vi.spyOn(repository, "seedFinanceDefaultCategories");
-    const saveSettings = vi.fn().mockResolvedValue(undefined);
+    const updateSettings = vi.fn().mockResolvedValue(undefined);
 
     const settings = {
       ...defaultAppSettings(),
@@ -25,7 +25,7 @@ describe("SettingsPage finance section", () => {
 
     await renderWithApp(<SettingsPage />, {
       repository,
-      contextOverrides: { settings, saveSettings },
+      contextOverrides: { settings, updateSettings },
     });
 
     const user = userEvent.setup();
@@ -41,8 +41,8 @@ describe("SettingsPage finance section", () => {
     await user.click(screen.getByText("Enregistrer"));
 
     expect(seedSpy).toHaveBeenCalledTimes(1);
-    expect(saveSettings).toHaveBeenCalledTimes(1);
-    const savedArg = saveSettings.mock.calls[0][0];
+    expect(updateSettings).toHaveBeenCalledTimes(1);
+    const savedArg = updateSettings.mock.calls[0][0](settings);
     expect(savedArg.financeEnabled).toBe(true);
     expect(savedArg.financeCategoriesSeededAt).not.toBe("");
   });
@@ -51,7 +51,7 @@ describe("SettingsPage finance section", () => {
     const repository = new MemoryRepository();
     await repository.initialize();
     const seedSpy = vi.spyOn(repository, "seedFinanceDefaultCategories");
-    const saveSettings = vi.fn().mockResolvedValue(undefined);
+    const updateSettings = vi.fn().mockResolvedValue(undefined);
 
     const settings = {
       ...defaultAppSettings(),
@@ -61,20 +61,20 @@ describe("SettingsPage finance section", () => {
 
     await renderWithApp(<SettingsPage />, {
       repository,
-      contextOverrides: { settings, saveSettings },
+      contextOverrides: { settings, updateSettings },
     });
 
     const user = userEvent.setup();
     await user.click(screen.getByText("Enregistrer"));
 
     expect(seedSpy).not.toHaveBeenCalled();
-    expect(saveSettings).toHaveBeenCalledTimes(1);
+    expect(updateSettings).toHaveBeenCalledTimes(1);
   });
 
   it("saves the alerts/notify flags and parses the safety buffer into minor units", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
-    const saveSettings = vi.fn().mockResolvedValue(undefined);
+    const updateSettings = vi.fn().mockResolvedValue(undefined);
 
     const settings = {
       ...defaultAppSettings(),
@@ -87,7 +87,7 @@ describe("SettingsPage finance section", () => {
 
     await renderWithApp(<SettingsPage />, {
       repository,
-      contextOverrides: { settings, saveSettings },
+      contextOverrides: { settings, updateSettings },
     });
 
     const user = userEvent.setup();
@@ -114,8 +114,8 @@ describe("SettingsPage finance section", () => {
 
     await user.click(screen.getByText("Enregistrer"));
 
-    expect(saveSettings).toHaveBeenCalledTimes(1);
-    const savedArg = saveSettings.mock.calls[0][0];
+    expect(updateSettings).toHaveBeenCalledTimes(1);
+    const savedArg = updateSettings.mock.calls[0][0](settings);
     expect(savedArg.financeAlertsOnToday).toBe(true);
     expect(savedArg.financeNotifyRunout).toBe(true);
     expect(savedArg.financeSafetyBufferMinor).toBe(25_000);
@@ -124,7 +124,7 @@ describe("SettingsPage finance section", () => {
   it("disables the finance AI sub-settings while aiEnabled is false, but still saves other finance changes", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
-    const saveSettings = vi.fn().mockResolvedValue(undefined);
+    const updateSettings = vi.fn().mockResolvedValue(undefined);
 
     const settings = {
       ...defaultAppSettings(),
@@ -135,7 +135,7 @@ describe("SettingsPage finance section", () => {
 
     await renderWithApp(<SettingsPage />, {
       repository,
-      contextOverrides: { settings, saveSettings },
+      contextOverrides: { settings, updateSettings },
     });
 
     const categorizationToggle = screen
@@ -145,13 +145,13 @@ describe("SettingsPage finance section", () => {
     expect(categorizationToggle).toBeDisabled();
 
     await userEvent.setup().click(screen.getByText("Enregistrer"));
-    expect(saveSettings).toHaveBeenCalledTimes(1);
+    expect(updateSettings).toHaveBeenCalledTimes(1);
   });
 
   it("saves the finance AI categorization settings and parses the auto-apply confidence", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
-    const saveSettings = vi.fn().mockResolvedValue(undefined);
+    const updateSettings = vi.fn().mockResolvedValue(undefined);
 
     const settings = {
       ...defaultAppSettings(),
@@ -166,7 +166,7 @@ describe("SettingsPage finance section", () => {
 
     await renderWithApp(<SettingsPage />, {
       repository,
-      contextOverrides: { settings, saveSettings },
+      contextOverrides: { settings, updateSettings },
     });
 
     const user = userEvent.setup();
@@ -192,10 +192,49 @@ describe("SettingsPage finance section", () => {
 
     await user.click(screen.getByText("Enregistrer"));
 
-    expect(saveSettings).toHaveBeenCalledTimes(1);
-    const savedArg = saveSettings.mock.calls[0][0];
+    expect(updateSettings).toHaveBeenCalledTimes(1);
+    const savedArg = updateSettings.mock.calls[0][0](settings);
     expect(savedArg.financeAiCategorizationEnabled).toBe(true);
     expect(savedArg.financeAiAutoApplyEnabled).toBe(true);
     expect(savedArg.financeAiAutoApplyMinConfidence).toBe(0.95);
+  });
+
+  it("rejects an invalid safety buffer without saving anything or showing success", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const seedSpy = vi.spyOn(repository, "seedFinanceDefaultCategories");
+    const updateSettings = vi.fn().mockResolvedValue(undefined);
+
+    const settings = {
+      ...defaultAppSettings(),
+      financeEnabled: false,
+      financeCategoriesSeededAt: "",
+    };
+
+    await renderWithApp(<SettingsPage />, {
+      repository,
+      contextOverrides: { settings, updateSettings },
+    });
+
+    const user = userEvent.setup();
+    const toggle = screen
+      .getByText("Activer les finances")
+      .closest("label")
+      ?.querySelector("input");
+    if (toggle) {
+      await user.click(toggle);
+    }
+    const bufferInput = screen.getByPlaceholderText("0,00");
+    await user.clear(bufferInput);
+    await user.type(bufferInput, "250 dollars");
+
+    await user.click(screen.getByText("Enregistrer"));
+
+    expect(
+      await screen.findByText(/coussin de sécurité n'est pas un montant valide/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Paramètres de finances enregistrés.")).not.toBeInTheDocument();
+    expect(updateSettings).not.toHaveBeenCalled();
+    expect(seedSpy).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,5 @@
 import { normalizeRescueTimeLabel, type RescueTimeGoalRecord } from "../../domain/rescuetime-goals";
-import { addDays } from "../gtd/shared";
+import { addDays } from "../date";
 import { fetchRescueTimeJson } from "./http-transport";
 import type { RescueTimeAnalyticPayload } from "./parse-analytic-data";
 import { parseRankRows } from "./parse-analytic-data";

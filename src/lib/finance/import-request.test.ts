@@ -112,3 +112,60 @@ describe("buildImportRequest", () => {
     expect(request.rows).toHaveLength(1);
   });
 });
+
+describe("buildImportRequest review regressions", () => {
+  const accountProfile: FinanceImportProfile = {
+    ...profile,
+    columnMap: { ...profile.columnMap, account: 3 },
+  };
+
+  it("parses each row with its bound account's currency", () => {
+    const result = buildImportRows({
+      header: ["Date", "Description", "Amount", "Account"],
+      rows: [
+        ["2024-01-05", "Cad row", "-10.00", "Checking"],
+        ["2024-01-05", "Yen row", "-1000", "Yen"],
+      ],
+      profile: accountProfile,
+      currency: "CAD",
+      resolveAccountId: (key) => (key === "Yen" ? "acc-jpy" : "acc-cad"),
+      resolveCurrency: (id) => (id === "acc-jpy" ? "JPY" : "CAD"),
+    });
+
+    expect(result.rows.map((row) => [row.currency, row.amountMinor])).toEqual([
+      ["CAD", -1000],
+      ["JPY", -1000],
+    ]);
+  });
+
+  it("masks the account column in the stored source row", () => {
+    const result = buildImportRows({
+      header: ["Date", "Description", "Amount", "Account"],
+      rows: [["2024-01-05", "Store", "-1.00", "Checking 1234567890"]],
+      profile: accountProfile,
+      currency: "CAD",
+      resolveAccountId: () => "acc",
+    });
+
+    expect(result.rows[0].sourceRowJson).not.toContain("1234567890");
+    expect(result.rows[0].sourceRowJson).toContain("****7890");
+  });
+
+  it("carries parser warnings and mapping errors into request.rejected", () => {
+    const { request } = buildImportRequest({
+      accountId: "acc",
+      profileId: null,
+      fileName: "f.csv",
+      fileHash: "h",
+      header: ["Date", "Description", "Amount"],
+      rows: [["bad-date", "Store", "-1.00"]],
+      profile,
+      currency: "CAD",
+      parserWarnings: ["line 3: expected 3 fields, got 4; row skipped"],
+      resolveAccountId: () => "acc",
+    });
+
+    expect(request.rejected).toMatchObject({ skipped: 1, errors: 1 });
+    expect(request.rejected?.warnings).toHaveLength(2);
+  });
+});
