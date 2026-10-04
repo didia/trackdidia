@@ -15,7 +15,8 @@ import {
   parseObjectiveSecondsPayload,
 } from "../../domain/rescuetime-goals";
 import { getTodayDate } from "../date";
-import { addDays, nowIso } from "../gtd/shared";
+import { nowIso } from "../gtd/shared";
+import { addDays } from "../date";
 import type { AppRepository } from "../storage/repository";
 import { defaultRescueTimeClient, type RescueTimeClient } from "./client";
 import {

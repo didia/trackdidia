@@ -1,12 +1,18 @@
-import { afterEach, vi } from "vitest";
 import {
+  addDays,
+  addMonths,
   buildIsoFromLocalDateAndTime,
   clampAiAsOfDate,
+  getDayRange,
+  getWeekStartSunday,
   isPastLocalDate,
+  isSunday,
   msUntilNextLocalMidnight,
   stableAiNowIso,
   toLocalDateInputValue,
+  toLocalDateString,
   toLocalTimeInputValue,
+  toMonthKey,
 } from "./date";
 
 describe("date helpers", () => {
@@ -73,5 +79,54 @@ describe("isPastLocalDate", () => {
     expect(isPastLocalDate(new Date(2026, 5, 14, 23, 59, 0).toISOString())).toBe(true);
     expect(isPastLocalDate(new Date(2026, 5, 15, 0, 5, 0).toISOString())).toBe(false);
     expect(isPastLocalDate(new Date(2026, 5, 16, 0, 5, 0).toISOString())).toBe(false);
+  });
+});
+
+const originalTimeZone = process.env.TZ;
+
+afterEach(() => {
+  if (originalTimeZone === undefined) {
+    delete process.env.TZ;
+  } else {
+    process.env.TZ = originalTimeZone;
+  }
+});
+
+describe("local calendar helpers", () => {
+  it("matches the former local-noon day increment across a full year", () => {
+    for (const timeZone of ["America/Toronto", "Pacific/Kiritimati", "Etc/GMT+12"]) {
+      process.env.TZ = timeZone;
+      for (let day = 0; day < 365; day += 1) {
+        const current = new Date(2026, 0, day + 1, 12);
+        const date = toLocalDateString(current);
+        const oldNext = new Date(`${date}T12:00:00`);
+        oldNext.setDate(oldNext.getDate() + 1);
+        expect(addDays(date, 1)).toBe(toLocalDateString(oldNext));
+      }
+    }
+  });
+
+  it("uses local dates at extreme UTC offsets and across year boundaries", () => {
+    process.env.TZ = "Pacific/Kiritimati";
+    expect(toLocalDateString("2026-01-01T10:30:00.000Z")).toBe("2026-01-02");
+    expect(addDays("2026-12-31", 1)).toBe("2027-01-01");
+    expect(getWeekStartSunday("2027-01-01")).toBe("2026-12-27");
+    expect(isSunday("2026-12-27")).toBe(true);
+
+    process.env.TZ = "Etc/GMT+12";
+    expect(toLocalDateString("2026-01-01T10:30:00.000Z")).toBe("2025-12-31");
+    expect(addDays("2026-12-31", 1)).toBe("2027-01-01");
+    expect(addMonths("2026-01", -1)).toBe("2025-12");
+    expect(toMonthKey("2026-08-15")).toBe("2026-08");
+  });
+
+  it("keeps midnight day ranges at 23 and 25 hours through DST", () => {
+    process.env.TZ = "America/Toronto";
+    const spring = getDayRange("2026-03-08");
+    const fall = getDayRange("2026-11-01");
+    expect(spring.endMs - spring.startMs).toBe(23 * 60 * 60 * 1000);
+    expect(fall.endMs - fall.startMs).toBe(25 * 60 * 60 * 1000);
+    expect(addDays("2026-03-08", 1)).toBe("2026-03-09");
+    expect(addDays("2026-11-01", 1)).toBe("2026-11-02");
   });
 });

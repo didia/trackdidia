@@ -15,7 +15,7 @@ describe("SettingsPage finance section", () => {
     const repository = new MemoryRepository();
     await repository.initialize();
     const seedSpy = vi.spyOn(repository, "seedFinanceDefaultCategories");
-    const saveSettings = vi.fn().mockResolvedValue(undefined);
+    const updateSettings = vi.fn().mockResolvedValue(undefined);
 
     const settings = {
       ...defaultAppSettings(),
@@ -25,7 +25,7 @@ describe("SettingsPage finance section", () => {
 
     await renderWithApp(<SettingsPage />, {
       repository,
-      contextOverrides: { settings, saveSettings },
+      contextOverrides: { settings, updateSettings },
     });
 
     const user = userEvent.setup();
@@ -41,8 +41,8 @@ describe("SettingsPage finance section", () => {
     await user.click(screen.getByText("Enregistrer"));
 
     expect(seedSpy).toHaveBeenCalledTimes(1);
-    expect(saveSettings).toHaveBeenCalledTimes(1);
-    const savedArg = saveSettings.mock.calls[0][0];
+    expect(updateSettings).toHaveBeenCalledTimes(1);
+    const savedArg = updateSettings.mock.calls[0][0](settings);
     expect(savedArg.financeEnabled).toBe(true);
     expect(savedArg.financeCategoriesSeededAt).not.toBe("");
   });
@@ -51,7 +51,7 @@ describe("SettingsPage finance section", () => {
     const repository = new MemoryRepository();
     await repository.initialize();
     const seedSpy = vi.spyOn(repository, "seedFinanceDefaultCategories");
-    const saveSettings = vi.fn().mockResolvedValue(undefined);
+    const updateSettings = vi.fn().mockResolvedValue(undefined);
 
     const settings = {
       ...defaultAppSettings(),
@@ -61,13 +61,13 @@ describe("SettingsPage finance section", () => {
 
     await renderWithApp(<SettingsPage />, {
       repository,
-      contextOverrides: { settings, saveSettings },
+      contextOverrides: { settings, updateSettings },
     });
 
     const user = userEvent.setup();
     await user.click(screen.getByText("Enregistrer"));
 
     expect(seedSpy).not.toHaveBeenCalled();
-    expect(saveSettings).toHaveBeenCalledTimes(1);
+    expect(updateSettings).toHaveBeenCalledTimes(1);
   });
 });

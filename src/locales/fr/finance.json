@@ -47,6 +47,10 @@
     "archive": "Archiver",
     "unarchive": "Désarchiver",
     "addAccountTitle": "Ajouter un compte",
+    "editAccountTitle": "Modifier le compte",
+    "saveAccount": "Enregistrer le compte",
+    "cancelEdit": "Annuler",
+    "edit": "Modifier",
     "fields": {
       "name": "Nom",
       "institution": "Institution",
@@ -80,6 +84,7 @@
     "errors": {
       "nameRequired": "Le nom du compte est requis.",
       "invalidOpeningBalance": "Solde d'ouverture invalide.",
+      "invalidCurrency": "Devise invalide (code à trois lettres, ex. CAD).",
       "invalidManualBalance": "Solde manuel invalide."
     },
     "addAccount": "Ajouter le compte",

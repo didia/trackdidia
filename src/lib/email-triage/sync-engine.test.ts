@@ -58,43 +58,43 @@ const gmailMessage = (id: string, threadId: string, body = "SECRET_BODY"): MockG
 const memoryPort = (
   repository: import("../storage/memory-repository").MemoryRepository,
 ): EmailTriageRepositoryPort => ({
-  getGlobalSettings: () => repository.getEmailTriageGlobalSettings(),
-  getAccount: (accountId: string) => repository.getEmailTriageAccount(accountId),
-  updateAccountSyncState: (
+  getGlobalSettings: async () => repository.emailTriage.getGlobalSettings(),
+  getAccount: async (accountId: string) => repository.emailTriage.getAccount(accountId),
+  updateAccountSyncState: async (
     accountId: string,
     syncState: Record<string, unknown>,
     patch?: Partial<EmailTriageAccount>,
-  ) => repository.emailTriageUpdateAccountSyncState(accountId, syncState, patch),
-  upsertConversation: (
+  ) => repository.emailTriage.updateAccountSyncState(accountId, syncState, patch),
+  upsertConversation: async (
     accountId: string,
     conversationKey: string,
     patch: Partial<import("../../domain/email-triage").EmailTriageConversation>,
-  ) => repository.emailTriageUpsertConversation(accountId, conversationKey, patch),
-  getConversationByKey: (accountId: string, conversationKey: string) =>
-    repository.emailTriageGetConversationByKey(accountId, conversationKey),
-  persistMessageBatch: (input: import("./sync-engine").PersistMessageBatchInput) =>
-    repository.emailTriagePersistMessageBatch(input),
-  getMessageByProviderId: (accountId: string, providerMessageId: string) =>
-    repository.emailTriageGetMessageByProviderId(accountId, providerMessageId),
-  getConversation: (conversationId: string) =>
-    repository.emailTriageGetConversation(conversationId),
-  dismissPendingReviews: (conversationId: string) =>
-    repository.emailTriageDismissPendingReviews(conversationId),
-  listPendingEffects: (conversationId: string) =>
-    repository.emailTriageListPendingEffects(conversationId),
-  listPendingEffectsForAccount: (accountId: string) =>
-    repository.emailTriageListPendingEffectsForAccount(accountId),
+  ) => repository.emailTriage.upsertConversation(accountId, conversationKey, patch),
+  getConversationByKey: async (accountId: string, conversationKey: string) =>
+    repository.emailTriage.getConversationByKey(accountId, conversationKey),
+  persistMessageBatch: async (input: import("./sync-engine").PersistMessageBatchInput) =>
+    repository.emailTriage.persistMessageBatch(input),
+  getMessageByProviderId: async (accountId: string, providerMessageId: string) =>
+    repository.emailTriage.getMessageByProviderId(accountId, providerMessageId),
+  getConversation: async (conversationId: string) =>
+    repository.emailTriage.getConversation(conversationId),
+  dismissPendingReviews: async (conversationId: string) =>
+    repository.emailTriage.dismissPendingReviews(conversationId),
+  listPendingEffects: async (conversationId: string) =>
+    repository.emailTriage.listPendingEffects(conversationId),
+  listPendingEffectsForAccount: async (accountId: string) =>
+    repository.emailTriage.listPendingEffectsForAccount(accountId),
   saveDesiredEffect: async (
     effect: import("../../domain/email-triage").EmailTriageDesiredEffect,
   ) => {
-    await repository.emailTriageSaveDesiredEffect(effect);
+    await repository.emailTriage.saveDesiredEffect(effect);
   },
-  getTaskByExternalId: (externalId: string) =>
-    repository.emailTriageGetTaskByExternalId(externalId),
-  applyEmailTriageGtdUpdate: (input: import("./sync-engine").ApplyGtdUpdateInput) =>
-    repository.emailTriageApplyGtdUpdate(input),
+  getTaskByExternalId: async (externalId: string) =>
+    repository.emailTriage.getTaskByExternalId(externalId),
+  applyEmailTriageGtdUpdate: async (input: import("./sync-engine").ApplyGtdUpdateInput) =>
+    repository.emailTriage.applyGtdUpdate(input),
   createReview: async (input: import("./sync-engine").CreateReviewInput) => {
-    await repository.emailTriageCreateReview(input);
+    await repository.emailTriage.createReview(input);
   },
 });
 
@@ -200,7 +200,7 @@ describe("sync-engine processProviderPage", () => {
     const { MemoryRepository } = await import("../storage/memory-repository");
     const repository = new MemoryRepository();
     await repository.initialize();
-    const account = await repository.saveEmailTriageAccount(baseAccount());
+    const account = await repository.emailTriage.saveAccount(baseAccount());
     const history: MockGmailHistoryEntry[] = [
       { historyId: "2", messagesAdded: [{ id: "m1", threadId: "t1" }] },
     ];
@@ -230,7 +230,7 @@ describe("sync-engine processProviderPage", () => {
     };
     await processProviderPage(options);
     await processProviderPage(options);
-    const reviews = await repository.listEmailTriageReviews("pending");
+    const reviews = await repository.emailTriage.listReviews("pending");
     expect(reviews).toHaveLength(1);
     expect(JSON.stringify(reviews)).not.toContain("SECRET_BODY");
     expect(reviews[0]?.sanitizedPreview).not.toHaveProperty("bodyExcerpt");
@@ -240,7 +240,7 @@ describe("sync-engine processProviderPage", () => {
     const { MemoryRepository } = await import("../storage/memory-repository");
     const repository = new MemoryRepository();
     await repository.initialize();
-    const account = await repository.saveEmailTriageAccount(baseAccount());
+    const account = await repository.emailTriage.saveAccount(baseAccount());
     const history: MockGmailHistoryEntry[] = [
       { historyId: "2", messagesAdded: [{ id: "m1", threadId: "t1" }] },
     ];
@@ -252,7 +252,7 @@ describe("sync-engine processProviderPage", () => {
         failGtd = false;
         throw new Error("gtd fail");
       }
-      return repository.emailTriageApplyGtdUpdate(input);
+      return repository.emailTriage.applyGtdUpdate(input);
     };
     const options = {
       repository: port,
@@ -275,10 +275,10 @@ describe("sync-engine processProviderPage", () => {
       mutationEnabled: false,
     };
     await expect(processProviderPage(options)).rejects.toThrow(/gtd fail/);
-    expect(await repository.emailTriageGetTaskByExternalId("email-triage:acct-1:t1")).toBeNull();
+    expect(await repository.emailTriage.getTaskByExternalId("email-triage:acct-1:t1")).toBeNull();
     await processProviderPage(options);
     expect(
-      await repository.emailTriageGetTaskByExternalId("email-triage:acct-1:t1"),
+      await repository.emailTriage.getTaskByExternalId("email-triage:acct-1:t1"),
     ).not.toBeNull();
   });
 
@@ -286,7 +286,7 @@ describe("sync-engine processProviderPage", () => {
     const { MemoryRepository } = await import("../storage/memory-repository");
     const repository = new MemoryRepository();
     await repository.initialize();
-    const account = await repository.saveEmailTriageAccount(baseAccount());
+    const account = await repository.emailTriage.saveAccount(baseAccount());
     const history: MockGmailHistoryEntry[] = [
       { historyId: "2", messagesAdded: [{ id: "m1", threadId: "t1" }] },
     ];
@@ -313,17 +313,17 @@ describe("sync-engine processProviderPage", () => {
       mutationEnabled: false,
     };
     await processProviderPage(options);
-    const pending = await repository.listEmailTriageReviews("pending");
+    const pending = await repository.emailTriage.listReviews("pending");
     expect(pending).toHaveLength(1);
-    await repository.resolveEmailTriageReview({
+    await repository.emailTriage.resolveReview({
       reviewId: pending[0]!.id,
       expectedDecisionVersion: pending[0]!.expectedDecisionVersion,
       resolution: "relevant",
     });
     await processProviderPage(options);
-    expect(await repository.listEmailTriageReviews("pending")).toHaveLength(0);
-    expect(await repository.listEmailTriageReviews("resolved")).toHaveLength(1);
-    const message = await repository.emailTriageGetMessageByProviderId(account.id, "m1");
+    expect(await repository.emailTriage.listReviews("pending")).toHaveLength(0);
+    expect(await repository.emailTriage.listReviews("resolved")).toHaveLength(1);
+    const message = await repository.emailTriage.getMessageByProviderId(account.id, "m1");
     expect(message?.routingDecision).toBe("relevant");
   });
 
@@ -478,13 +478,13 @@ describe("sync-engine reconcilePendingEffects", () => {
     const { MemoryRepository } = await import("../storage/memory-repository");
     const repository = new MemoryRepository();
     await repository.initialize();
-    const account = await repository.saveEmailTriageAccount({
+    const account = await repository.emailTriage.saveAccount({
       ...baseAccount(),
       mutationEnabled: true,
     });
-    await repository.saveEmailTriageEvaluation(matchingEvaluation());
-    await repository.saveEmailTriageGlobalSettings(mutationSettings());
-    const conversation = await repository.emailTriageUpsertConversation(account.id, "thread-1", {
+    await repository.emailTriage.saveEvaluation(matchingEvaluation());
+    await repository.emailTriage.saveGlobalSettings(mutationSettings());
+    const conversation = await repository.emailTriage.upsertConversation(account.id, "thread-1", {
       decisionVersion: 2,
       routingState: "relevant",
     });
@@ -496,7 +496,7 @@ describe("sync-engine reconcilePendingEffects", () => {
       effectType: "provider_marker",
       targetMessageIds: ["m1"],
     });
-    await repository.emailTriageSaveDesiredEffect(effect);
+    await repository.emailTriage.saveDesiredEffect(effect);
     const applyMarkers = vi.fn();
     await reconcilePendingEffects(
       {
@@ -521,7 +521,7 @@ describe("sync-engine reconcilePendingEffects", () => {
       account.id,
     );
     expect(applyMarkers).not.toHaveBeenCalled();
-    const pending = await repository.emailTriageListPendingEffectsForAccount(account.id);
+    const pending = await repository.emailTriage.listPendingEffectsForAccount(account.id);
     expect(pending).toHaveLength(0);
   });
 
@@ -529,12 +529,12 @@ describe("sync-engine reconcilePendingEffects", () => {
     const { MemoryRepository } = await import("../storage/memory-repository");
     const repository = new MemoryRepository();
     await repository.initialize();
-    const account = await repository.saveEmailTriageAccount({
+    const account = await repository.emailTriage.saveAccount({
       ...baseAccount(),
       mutationEnabled: false,
     });
-    await repository.saveEmailTriageGlobalSettings(mutationSettings());
-    const conversation = await repository.emailTriageUpsertConversation(account.id, "thread-1", {
+    await repository.emailTriage.saveGlobalSettings(mutationSettings());
+    const conversation = await repository.emailTriage.upsertConversation(account.id, "thread-1", {
       decisionVersion: 1,
       routingState: "relevant",
     });
@@ -546,7 +546,7 @@ describe("sync-engine reconcilePendingEffects", () => {
       effectType: "provider_marker",
       targetMessageIds: ["m1"],
     });
-    await repository.emailTriageSaveDesiredEffect(effect);
+    await repository.emailTriage.saveDesiredEffect(effect);
     const applyMarkers = vi.fn();
     await reconcilePendingEffects(
       {
@@ -571,7 +571,7 @@ describe("sync-engine reconcilePendingEffects", () => {
       account.id,
     );
     expect(applyMarkers).not.toHaveBeenCalled();
-    const pending = await repository.emailTriageListPendingEffectsForAccount(account.id);
+    const pending = await repository.emailTriage.listPendingEffectsForAccount(account.id);
     expect(pending).toHaveLength(1);
   });
 
@@ -579,21 +579,21 @@ describe("sync-engine reconcilePendingEffects", () => {
     const { MemoryRepository } = await import("../storage/memory-repository");
     const repository = new MemoryRepository();
     await repository.initialize();
-    const account = await repository.saveEmailTriageAccount({
+    const account = await repository.emailTriage.saveAccount({
       ...baseAccount(),
       mutationEnabled: true,
     });
-    await repository.saveEmailTriageEvaluation(matchingEvaluation());
-    await repository.saveEmailTriageGlobalSettings(mutationSettings());
-    const first = await repository.emailTriageUpsertConversation(account.id, "thread-1", {
+    await repository.emailTriage.saveEvaluation(matchingEvaluation());
+    await repository.emailTriage.saveGlobalSettings(mutationSettings());
+    const first = await repository.emailTriage.upsertConversation(account.id, "thread-1", {
       decisionVersion: 1,
       routingState: "relevant",
     });
-    const second = await repository.emailTriageUpsertConversation(account.id, "thread-2", {
+    const second = await repository.emailTriage.upsertConversation(account.id, "thread-2", {
       decisionVersion: 1,
       routingState: "relevant",
     });
-    await repository.emailTriageSaveDesiredEffect(
+    await repository.emailTriage.saveDesiredEffect(
       createDesiredEffect({
         accountId: account.id,
         accountGeneration: account.generation,
@@ -603,7 +603,7 @@ describe("sync-engine reconcilePendingEffects", () => {
         targetMessageIds: ["m1"],
       }),
     );
-    await repository.emailTriageSaveDesiredEffect(
+    await repository.emailTriage.saveDesiredEffect(
       createDesiredEffect({
         accountId: account.id,
         accountGeneration: account.generation,
@@ -613,7 +613,7 @@ describe("sync-engine reconcilePendingEffects", () => {
         targetMessageIds: ["m1"],
       }),
     );
-    await repository.emailTriageSaveDesiredEffect(
+    await repository.emailTriage.saveDesiredEffect(
       createDesiredEffect({
         accountId: account.id,
         accountGeneration: account.generation,
@@ -647,20 +647,20 @@ describe("sync-engine reconcilePendingEffects", () => {
       account.id,
     );
     expect(applyMarkers).toHaveBeenCalledTimes(2);
-    expect(await repository.emailTriageListPendingEffectsForAccount(account.id)).toHaveLength(0);
+    expect(await repository.emailTriage.listPendingEffectsForAccount(account.id)).toHaveLength(0);
   });
 
   it("records when the account generation changes during applyMarkers", async () => {
     const { MemoryRepository } = await import("../storage/memory-repository");
     const repository = new MemoryRepository();
     await repository.initialize();
-    const account = await repository.saveEmailTriageAccount({
+    const account = await repository.emailTriage.saveAccount({
       ...baseAccount(),
       mutationEnabled: true,
     });
-    await repository.saveEmailTriageEvaluation(matchingEvaluation());
-    await repository.saveEmailTriageGlobalSettings(mutationSettings());
-    const conversation = await repository.emailTriageUpsertConversation(account.id, "thread-1", {
+    await repository.emailTriage.saveEvaluation(matchingEvaluation());
+    await repository.emailTriage.saveGlobalSettings(mutationSettings());
+    const conversation = await repository.emailTriage.upsertConversation(account.id, "thread-1", {
       decisionVersion: 1,
       routingState: "relevant",
     });
@@ -672,9 +672,9 @@ describe("sync-engine reconcilePendingEffects", () => {
       effectType: "provider_marker",
       targetMessageIds: ["m1"],
     });
-    await repository.emailTriageSaveDesiredEffect(effect);
+    await repository.emailTriage.saveDesiredEffect(effect);
     const applyMarkers = vi.fn(async () => {
-      await repository.saveEmailTriageAccount({
+      await repository.emailTriage.saveAccount({
         ...account,
         mutationEnabled: true,
         generation: account.generation + 1,
@@ -685,7 +685,7 @@ describe("sync-engine reconcilePendingEffects", () => {
     const saved: Array<{ lastError: string | null; status: string }> = [];
     port.saveDesiredEffect = async (effect) => {
       saved.push({ lastError: effect.lastError, status: effect.status });
-      await repository.emailTriageSaveDesiredEffect(effect);
+      await repository.emailTriage.saveDesiredEffect(effect);
     };
     await reconcilePendingEffects(
       {

@@ -5,7 +5,7 @@ import type {
   DailyStatus,
   PrincipleChecks,
 } from "../../../domain/types";
-import { addDays } from "../../gtd/shared";
+import { addDays } from "../../date";
 import { formatReferenceFr } from "../../pastor/bible-books";
 import { type PastorHistorySummary, summarizePastorHistory } from "../../pastor/history";
 import { computePrincipleSignals, type PrincipleSignals } from "../../pastor/signals";

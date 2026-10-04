@@ -1,4 +1,4 @@
-import { migrations } from "../tauri-sqlite-repository";
+import { migrations } from "./index";
 
 describe("migration 37 add_finance_foundation", () => {
   it("creates every finance table and index, is purely additive, and touches no pre-existing table", () => {

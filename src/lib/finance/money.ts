@@ -100,26 +100,42 @@ export const parseAmountToMinor = (
 
   const { decimalSeparator, thousandsSeparator } = resolveSeparators(working, options);
 
-  let digitsOnly = working;
+  let wholeRaw = working;
+  let fractionPart = "";
 
-  if (thousandsSeparator) {
-    digitsOnly = digitsOnly.split(thousandsSeparator).join("");
+  if (decimalSeparator) {
+    const decimalIndex = working.lastIndexOf(decimalSeparator);
+    if (decimalIndex !== -1) {
+      wholeRaw = working.slice(0, decimalIndex);
+      fractionPart = working.slice(decimalIndex + 1);
+    }
   }
-  // Also strip plain spaces used as thousands separators (e.g. "1 234,56").
-  digitsOnly = digitsOnly.split(" ").join("");
 
-  if (decimalSeparator === ",") {
-    digitsOnly = digitsOnly.split(",").join(".");
+  // Thousands punctuation (or plain spaces, e.g. "1 234,56") is only accepted
+  // as a leading group of 1-3 digits followed by groups of exactly three.
+  if (/\D/.test(wholeRaw)) {
+    const separators = [thousandsSeparator, " "].filter((value) => value !== "");
+    const escaped = separators.map((value) => (value === "." ? "\\." : value)).join("");
+    const grouped = new RegExp(`^\\d{1,3}(?:[${escaped}]\\d{3})+$`);
+    if (!grouped.test(wholeRaw) || new Set(wholeRaw.replace(/\d/g, "")).size > 1) {
+      return { ok: false, reason: `unparseable amount: "${text}"` };
+    }
   }
 
-  if (!/^\d+(\.\d+)?$/.test(digitsOnly)) {
+  const wholePart = wholeRaw.replace(/\D/g, "");
+
+  if (wholePart.length === 0 && fractionPart.length === 0) {
     return { ok: false, reason: `unparseable amount: "${text}"` };
   }
-
-  const [wholePart, fractionPartRaw = ""] = digitsOnly.split(".");
-  const fractionPart = fractionPartRaw.padEnd(exponent, "0").slice(0, exponent);
+  if (!/^\d*$/.test(fractionPart) || (wholePart.length === 0 && fractionPart.length === 0)) {
+    return { ok: false, reason: `unparseable amount: "${text}"` };
+  }
+  if (fractionPart.length > exponent) {
+    return { ok: false, reason: `too many decimal places for exponent ${exponent}: "${text}"` };
+  }
+  fractionPart = fractionPart.padEnd(exponent, "0");
   const scale = 10 ** exponent;
-  const wholeMinor = Number(wholePart) * scale;
+  const wholeMinor = Number(wholePart || "0") * scale;
   const fractionMinor = exponent > 0 ? Number(fractionPart) : 0;
   const amountMinor = wholeMinor + fractionMinor;
 
@@ -190,17 +206,39 @@ const resolveSeparators = (value: string, options: ParseAmountOptions): Resolved
   return { decimalSeparator: ".", thousandsSeparator: "," };
 };
 
+/**
+ * Trims and upper-cases a currency code and returns it only when Intl accepts it as a
+ * well-formed ISO-4217 code; otherwise null. Use before persisting any user-entered currency.
+ */
+export const normalizeCurrencyCode = (text: string): string | null => {
+  const code = text.trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(code)) {
+    return null;
+  }
+  try {
+    new Intl.NumberFormat("en", { style: "currency", currency: code });
+    return code;
+  } catch {
+    return null;
+  }
+};
+
 export const formatMoney = (money: Money, locale = "fr-CA"): string => {
   const exponent = currencyExponent(money.currency);
   const scale = 10 ** exponent;
   const value = money.amountMinor / scale;
 
-  return new Intl.NumberFormat(locale, {
-    style: "currency",
-    currency: money.currency,
-    minimumFractionDigits: exponent,
-    maximumFractionDigits: exponent,
-  }).format(value);
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency: money.currency,
+      minimumFractionDigits: exponent,
+      maximumFractionDigits: exponent,
+    }).format(value);
+  } catch {
+    // A malformed stored currency must not crash rendering of the whole screen.
+    return `${value.toFixed(exponent)} ${money.currency}`;
+  }
 };
 
 export const formatMoneySigned = (money: Money, locale = "fr-CA"): string => {

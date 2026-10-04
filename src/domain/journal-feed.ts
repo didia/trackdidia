@@ -1,4 +1,4 @@
-import { addDays, getWeekStartSunday } from "../lib/gtd/shared";
+import { addDays, getWeekStartSunday } from "../lib/date";
 import type {
   DailyEntry,
   MonthlyReview,

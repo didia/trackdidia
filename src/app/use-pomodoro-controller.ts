@@ -1,3 +1,4 @@
+import { createSerialQueue } from "../lib/serial-queue";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   PomodoroSessionDetails,
@@ -73,6 +74,14 @@ const readTodayPomodoroLists = (candidate: AppRepository) => {
   ]);
 };
 
+interface SessionAction {
+  label: string;
+  guard?: (session: PomodoroSessionDetails, state: PomodoroState) => boolean;
+  perform: (repository: AppRepository, session: PomodoroSessionDetails) => Promise<PomodoroState>;
+  announce?: boolean;
+  refresh?: "pomodoro" | "everything";
+}
+
 /** Shared timer state and serialized persistence orchestration for the application shell. */
 export const usePomodoroController = (
   repository: AppRepository | null,
@@ -87,26 +96,11 @@ export const usePomodoroController = (
   const stateRef = useRef<PomodoroState>(buildIdleState());
   const repositoryRef = useRef<AppRepository | null>(repository);
   const mountedRef = useRef(false);
-  const queueRef = useRef<Promise<void>>(Promise.resolve());
+  const [queue] = useState(createSerialQueue);
   const snapshotTokenRef = useRef(0);
   const announcedCompletionIdsRef = useRef(new Set<string>());
   const invalidDeadlineKeysRef = useRef(new Set<string>());
   const listRetryTimeoutRef = useRef<number | undefined>(undefined);
-  const refreshPomodoroRef = useRef<
-    (
-      candidate: AppRepository,
-      nextState?: PomodoroState,
-      options?: { scheduleRetry?: boolean },
-    ) => Promise<void>
-  >(async () => undefined);
-  const refreshEverythingRef = useRef<
-    (
-      candidate: AppRepository,
-      showLoading: boolean,
-      options?: { scheduleRetry?: boolean },
-    ) => Promise<void>
-  >(async () => undefined);
-
   repositoryRef.current = repository;
 
   const clearListRetryTimeout = useCallback(() => {
@@ -152,25 +146,15 @@ export const usePomodoroController = (
     [],
   );
 
-  const enqueue = useCallback(<T>(operation: () => Promise<T>): Promise<T> => {
-    const run = queueRef.current.then(operation);
-    // Keep later work runnable even if a caller observes (or ignores) a rejected action.
-    queueRef.current = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    return run;
-  }, []);
-
   const runQueued = useCallback(
     async (label: string, operation: () => Promise<void>) => {
       try {
-        await enqueue(operation);
+        await queue.run(operation);
       } catch (error) {
         logDebug("error", "pomodoro", `Echec de ${label}`, error);
       }
     },
-    [enqueue],
+    [queue],
   );
 
   const applyState = useCallback(
@@ -226,7 +210,7 @@ export const usePomodoroController = (
       } catch (error) {
         if (options?.scheduleRetry ?? true) {
           scheduleSnapshotRetry(candidate, token, (nextCandidate) =>
-            refreshPomodoroRef.current(nextCandidate, undefined, { scheduleRetry: false }),
+            refreshPomodoro(nextCandidate, undefined, { scheduleRetry: false }),
           );
         }
         throw error;
@@ -255,8 +239,8 @@ export const usePomodoroController = (
       }
 
       const today = getTodayDate();
-      await candidate.generateDueRecurringTasks(today);
-      await candidate.promoteDueScheduledTasks(today);
+      // Recurrence/Scheduled reconciliation is owned by bootstrap and the local-day hook; reads are
+      // side-effect free, so a refresh only settles expired sessions.
       const nextState = await candidate.completeExpiredPomodoroSessions();
       applyState(candidate, nextState);
       let nextSessions: PomodoroSessionDetails[];
@@ -275,7 +259,7 @@ export const usePomodoroController = (
       } catch (error) {
         if (options?.scheduleRetry ?? true) {
           scheduleSnapshotRetry(candidate, token, (nextCandidate) =>
-            refreshEverythingRef.current(nextCandidate, false, { scheduleRetry: false }),
+            refreshEverything(nextCandidate, false, { scheduleRetry: false }),
           );
         }
         throw error;
@@ -291,9 +275,6 @@ export const usePomodoroController = (
     },
     [applyState, clearListRetryTimeout, isCurrentRepository, scheduleSnapshotRetry],
   );
-
-  refreshPomodoroRef.current = refreshPomodoro;
-  refreshEverythingRef.current = refreshEverything;
 
   useEffect(() => {
     if (!repository) {
@@ -425,6 +406,48 @@ export const usePomodoroController = (
     state.activeSession?.status,
   ]);
 
+  const runSessionAction = useCallback(
+    async ({ label, guard, perform, announce = false, refresh = "pomodoro" }: SessionAction) => {
+      if (!repository) {
+        return;
+      }
+      await runQueued(label, async () => {
+        if (await reconcileExpiredActiveSession(repository)) {
+          return;
+        }
+        const currentState = stateRef.current;
+        const activeSession = currentState.activeSession;
+        if (
+          !isCurrentRepository(repository) ||
+          !activeSession ||
+          (guard && !guard(activeSession, currentState))
+        ) {
+          return;
+        }
+        const nextState = await perform(repository, activeSession);
+        applyState(repository, nextState);
+        if (announce) {
+          await announceCompletion(activeSession);
+        }
+        if (refresh === "everything") {
+          await refreshEverything(repository, false);
+        } else {
+          await refreshPomodoro(repository, nextState);
+        }
+      });
+    },
+    [
+      announceCompletion,
+      applyState,
+      isCurrentRepository,
+      reconcileExpiredActiveSession,
+      refreshEverything,
+      refreshPomodoro,
+      repository,
+      runQueued,
+    ],
+  );
+
   const startPomodoro = useCallback(
     async (options: PomodoroStartOptions = {}) => {
       if (!repository) {
@@ -445,105 +468,53 @@ export const usePomodoroController = (
     [isCurrentRepository, reconcileExpiredActiveSession, refreshPomodoro, repository, runQueued],
   );
 
-  const pauseCurrent = useCallback(async () => {
-    if (!repository) {
-      return;
-    }
-    await runQueued("mise en pause Pomodoro", async () => {
-      if (await reconcileExpiredActiveSession(repository)) {
-        return;
-      }
-      const activeSession = stateRef.current.activeSession;
-      if (
-        !isCurrentRepository(repository) ||
-        !activeSession ||
-        activeSession.status !== "running"
-      ) {
-        return;
-      }
-      const nextState = await repository.pausePomodoroSession(activeSession.id);
-      await refreshPomodoro(repository, nextState);
-    });
-  }, [isCurrentRepository, reconcileExpiredActiveSession, refreshPomodoro, repository, runQueued]);
+  const pauseCurrent = useCallback(
+    () =>
+      runSessionAction({
+        label: "mise en pause Pomodoro",
+        guard: (session) => session.status === "running",
+        perform: (candidate, session) => candidate.pausePomodoroSession(session.id),
+      }),
+    [runSessionAction],
+  );
 
   const resumeCurrent = useCallback(async () => {
     if (!repository) {
       return;
     }
     await unlockPomodoroSound();
-    await runQueued("reprise Pomodoro", async () => {
-      const activeSession = stateRef.current.activeSession;
-      if (!isCurrentRepository(repository) || !activeSession || activeSession.status !== "paused") {
-        return;
-      }
-      const nextState = await repository.resumePomodoroSession(activeSession.id);
-      await refreshPomodoro(repository, nextState);
+    await runSessionAction({
+      label: "reprise Pomodoro",
+      guard: (session) => session.status === "paused",
+      perform: (candidate, session) => candidate.resumePomodoroSession(session.id),
     });
-  }, [isCurrentRepository, refreshPomodoro, repository, runQueued]);
+  }, [repository, runSessionAction]);
 
-  const completeNow = useCallback(async () => {
-    if (!repository) {
-      return;
-    }
-    await runQueued("completion manuelle Pomodoro", async () => {
-      if (await reconcileExpiredActiveSession(repository)) {
-        return;
-      }
-      const activeSession = stateRef.current.activeSession;
-      if (
-        !isCurrentRepository(repository) ||
-        !activeSession ||
-        !getPomodoroTiming(activeSession, Date.now()).canCompleteNow
-      ) {
-        return;
-      }
-      const nextState = await repository.stopPomodoroSession(activeSession.id, "completed");
-      applyState(repository, nextState);
-      await announceCompletion(activeSession);
-      await refreshPomodoro(repository, nextState);
-    });
-  }, [
-    announceCompletion,
-    applyState,
-    isCurrentRepository,
-    reconcileExpiredActiveSession,
-    refreshPomodoro,
-    repository,
-    runQueued,
-  ]);
+  const completeNow = useCallback(
+    () =>
+      runSessionAction({
+        label: "completion manuelle Pomodoro",
+        guard: (session) => getPomodoroTiming(session, Date.now()).canCompleteNow,
+        perform: (candidate, session) => candidate.stopPomodoroSession(session.id, "completed"),
+        announce: true,
+      }),
+    [runSessionAction],
+  );
 
-  const completeCurrentTask = useCallback(async () => {
-    if (!repository) {
-      return;
-    }
-    await runQueued("completion de la tache Pomodoro", async () => {
-      if (await reconcileExpiredActiveSession(repository)) {
-        return;
-      }
-      const activeSession = stateRef.current.activeSession;
-      const currentTaskId = activeSession?.activeTaskId;
-      if (
-        !isCurrentRepository(repository) ||
-        !activeSession ||
-        activeSession.status !== "running" ||
-        activeSession.kind !== "focus" ||
-        !currentTaskId
-      ) {
-        return;
-      }
-      await repository.completeTask(currentTaskId);
-      const nextState = await repository.switchPomodoroTask(activeSession.id, null, null);
-      applyState(repository, nextState);
-      await refreshEverything(repository, false);
-    });
-  }, [
-    applyState,
-    isCurrentRepository,
-    reconcileExpiredActiveSession,
-    refreshEverything,
-    repository,
-    runQueued,
-  ]);
+  const completeCurrentTask = useCallback(
+    () =>
+      runSessionAction({
+        label: "completion de la tache Pomodoro",
+        guard: (session) =>
+          session.status === "running" && session.kind === "focus" && !!session.activeTaskId,
+        perform: async (candidate, session) => {
+          await candidate.completeTask(session.activeTaskId!);
+          return candidate.switchPomodoroTask(session.id, null, null);
+        },
+        refresh: "everything",
+      }),
+    [runSessionAction],
+  );
 
   const skipBreak = useCallback(async () => {
     if (!repository) {
@@ -591,41 +562,22 @@ export const usePomodoroController = (
     runQueued,
   ]);
 
-  const cancelCurrent = useCallback(async () => {
-    if (!repository) {
-      return;
-    }
-    await runQueued("annulation Pomodoro", async () => {
-      if (await reconcileExpiredActiveSession(repository)) {
-        return;
-      }
-      const activeSession = stateRef.current.activeSession;
-      if (!isCurrentRepository(repository) || !activeSession) {
-        return;
-      }
-      const nextState = await repository.stopPomodoroSession(activeSession.id, "cancelled");
-      await refreshPomodoro(repository, nextState);
-    });
-  }, [isCurrentRepository, reconcileExpiredActiveSession, refreshPomodoro, repository, runQueued]);
+  const cancelCurrent = useCallback(
+    () =>
+      runSessionAction({
+        label: "annulation Pomodoro",
+        perform: (candidate, session) => candidate.stopPomodoroSession(session.id, "cancelled"),
+      }),
+    [runSessionAction],
+  );
 
   const switchTask = useCallback(
-    async (taskId: string | null, title: string | null = null) => {
-      if (!repository) {
-        return;
-      }
-      await runQueued("changement de tache Pomodoro", async () => {
-        if (await reconcileExpiredActiveSession(repository)) {
-          return;
-        }
-        const activeSession = stateRef.current.activeSession;
-        if (!isCurrentRepository(repository) || !activeSession) {
-          return;
-        }
-        const nextState = await repository.switchPomodoroTask(activeSession.id, taskId, title);
-        await refreshPomodoro(repository, nextState);
-      });
-    },
-    [isCurrentRepository, reconcileExpiredActiveSession, refreshPomodoro, repository, runQueued],
+    (taskId: string | null, title: string | null = null) =>
+      runSessionAction({
+        label: "changement de tache Pomodoro",
+        perform: (candidate, session) => candidate.switchPomodoroTask(session.id, taskId, title),
+      }),
+    [runSessionAction],
   );
 
   const reload = useCallback(async () => {

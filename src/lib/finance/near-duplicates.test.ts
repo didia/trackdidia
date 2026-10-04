@@ -174,3 +174,12 @@ describe("findNearDuplicates", () => {
     expect(elapsedMs).toBeLessThan(3_000);
   });
 });
+
+describe("descriptionSimilarity symmetry", () => {
+  it("is symmetric and bounded when tokens repeat", () => {
+    const a = "STARBUCKS STARBUCKS STARBUCKS COFFEE";
+    const b = "STARBUCKS";
+    expect(descriptionSimilarity(a, b)).toBe(descriptionSimilarity(b, a));
+    expect(descriptionSimilarity(a, b)).toBeLessThanOrEqual(1);
+  });
+});

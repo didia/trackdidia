@@ -13,7 +13,12 @@ import type {
 } from "../domain/finance";
 import { parseCsv } from "../lib/finance/csv";
 import { createEntityId, nowIso } from "../lib/gtd/shared";
-import { buildHeaderSignature, inferDateFormat, MINT_PROFILE } from "../lib/finance/import-profile";
+import {
+  buildHeaderSignature,
+  inferDateFormat,
+  MINT_PROFILE,
+  shortenIfAccountNumber,
+} from "../lib/finance/import-profile";
 import { buildImportRequest, decodeCsvBytes } from "../lib/finance/import-request";
 import { hash128 } from "../lib/finance/hash";
 
@@ -32,20 +37,7 @@ const readFileAsArrayBuffer = (file: File): Promise<ArrayBuffer> =>
     reader.readAsArrayBuffer(file);
   });
 
-// A contiguous run of 6+ digits bounded by non-digits (or string ends) is
-// treated as an account number; anything shorter (e.g. a 4-digit branch code)
-// is left alone. Per spec: mask like a dedupe hash, not a full account
-// number — keep only the last 4 digits of that run.
-const ACCOUNT_NUMBER_RUN = /\b\d{6,}\b/;
-
-/** Keeps only the last 4 digits of a contiguous 6+ digit run when the label looks like an account number. */
-export const shortenIfAccountNumber = (label: string): string => {
-  const match = label.match(ACCOUNT_NUMBER_RUN);
-  if (!match) {
-    return label;
-  }
-  return `****${match[0].slice(-4)}`;
-};
+export { shortenIfAccountNumber };
 
 interface PendingFile {
   name: string;
@@ -55,7 +47,7 @@ interface PendingFile {
 
 export const FinanceImportPage = () => {
   const { t } = useTranslation("finance");
-  const { repository, browserPreview } = useAppContext();
+  const { repository, browserPreview, settings } = useAppContext();
   const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
   const [savedProfiles, setSavedProfiles] = useState<FinanceImportProfile[]>([]);
   const [batches, setBatches] = useState<FinanceImportBatch[]>([]);
@@ -79,6 +71,8 @@ export const FinanceImportPage = () => {
   const [summary, setSummary] = useState<FinanceImportSummary | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [undoError, setUndoError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [parserWarnings, setParserWarnings] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     const [nextAccounts, profiles, nextBatches] = await Promise.all([
@@ -154,6 +148,7 @@ export const FinanceImportPage = () => {
     setDecodeWarning(decoded[0]?.reencodedAsWindows1252 ? t("import.reencodedWarning") : null);
 
     const parsed = parseCsv(decoded[0].text);
+    setParserWarnings(parsed.warnings);
     resetMappingState(parsed.header, parsed.rows);
   };
 
@@ -165,6 +160,7 @@ export const FinanceImportPage = () => {
     setFileIndex(index);
     setDecodeWarning(file.reencodedAsWindows1252 ? t("import.reencodedWarning") : null);
     const parsed = parseCsv(file.text);
+    setParserWarnings(parsed.warnings);
     resetMappingState(parsed.header, parsed.rows);
     setAccountBindings({});
     setNewAccountNames({});
@@ -221,97 +217,107 @@ export const FinanceImportPage = () => {
   );
 
   const runImport = async () => {
-    if (!currentFile) {
+    if (!currentFile || importing) {
       return;
     }
     setImportError(null);
-
-    // Create-new-account bindings for any external key the user chose "new" for.
-    const createdAccounts: FinanceAccount[] = [];
-    for (const key of externalAccountKeys) {
-      if (resolveBindingForKey(key) !== "__new__") {
-        continue;
-      }
-      const name = (newAccountNames[key] ?? key).trim() || key;
-      const timestamp = nowIso();
-      const account = await repository.saveFinanceAccount({
-        id: createEntityId("finance-account"),
-        name,
-        institution: null,
-        type: "checking",
-        currency: accounts[0]?.currency ?? "CAD",
-        ownerPersonId: null,
-        ownership: "individual",
-        onBudget: true,
-        closed: false,
-        openingBalanceMinor: 0,
-        currentBalanceMinor: null,
-        balanceAsOf: null,
-        externalKey: shortenIfAccountNumber(key),
-        notes: null,
-        sortOrder: accounts.length + createdAccounts.length,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      });
-      createdAccounts.push(account);
-      setAccountBindings((current) => ({ ...current, [key]: account.id }));
-    }
-
-    const mergedBindings: Record<string, string> = {};
-    for (const key of externalAccountKeys) {
-      mergedBindings[key] = resolveBindingForKey(key);
-    }
-    for (const account of createdAccounts) {
-      const matchingKey = externalAccountKeys.find((key) => mergedBindings[key] === "__new__");
-      if (matchingKey) {
-        mergedBindings[matchingKey] = account.id;
-      }
-    }
-
-    const profile: FinanceImportProfile = {
-      id: matchedProfileId ?? createEntityId("finance-import-profile"),
-      name: currentFile.name,
-      signature: buildHeaderSignature(header),
-      columnMap,
-      dateFormat,
-      amountMode,
-      signConvention: null,
-      defaultAccountId: singleAccountId || null,
-      createdAt: nowIso(),
-      updatedAt: nowIso(),
-      lastUsedAt: nowIso(),
-    };
-
-    const primaryAccountId =
-      accountColumnIndex === undefined
-        ? singleAccountId
-        : (mergedBindings[externalAccountKeys[0] ?? ""] ?? singleAccountId);
-
-    if (!primaryAccountId) {
-      setImportError(t("import.errors.noAccount"));
-      return;
-    }
-
-    const { request, errors } = buildImportRequest({
-      accountId: primaryAccountId,
-      profileId: profile.id,
-      fileName: currentFile.name,
-      fileHash: hash128(currentFile.text),
-      header,
-      rows,
-      profile: { ...profile, columnMap },
-      currency: accounts.find((account) => account.id === primaryAccountId)?.currency ?? "CAD",
-      resolveAccountId: (externalAccountKey) => {
-        if (externalAccountKey === null) {
-          return singleAccountId || primaryAccountId;
-        }
-        const bound = mergedBindings[externalAccountKey];
-        return bound && bound !== "__new__" ? bound : null;
-      },
-    });
-
+    setImporting(true);
     try {
-      await repository.saveFinanceImportProfile(profile);
+      const baseCurrency = (settings.financeBaseCurrency || "CAD").toUpperCase();
+
+      // Create-new-account bindings for any external key the user chose "new" for.
+      const createdAccounts: FinanceAccount[] = [];
+      const createdAccountIdByKey = new Map<string, string>();
+      for (const key of externalAccountKeys) {
+        if (resolveBindingForKey(key) !== "__new__") {
+          continue;
+        }
+        const maskedKey = shortenIfAccountNumber(key);
+        // The default name falls back to the masked label so a raw account number is never stored.
+        const name = (newAccountNames[key] ?? "").trim() || maskedKey;
+        const timestamp = nowIso();
+        const account = await repository.saveFinanceAccount({
+          id: createEntityId("finance-account"),
+          name,
+          institution: null,
+          type: "checking",
+          currency: baseCurrency,
+          ownerPersonId: null,
+          ownership: "individual",
+          onBudget: true,
+          closed: false,
+          openingBalanceMinor: 0,
+          currentBalanceMinor: null,
+          balanceAsOf: null,
+          externalKey: maskedKey,
+          notes: null,
+          sortOrder: accounts.length + createdAccounts.length,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        });
+        createdAccounts.push(account);
+        createdAccountIdByKey.set(key, account.id);
+        setAccountBindings((current) => ({ ...current, [key]: account.id }));
+      }
+
+      const mergedBindings: Record<string, string> = {};
+      for (const key of externalAccountKeys) {
+        mergedBindings[key] = createdAccountIdByKey.get(key) ?? resolveBindingForKey(key);
+      }
+      const knownAccounts = [...accounts, ...createdAccounts];
+
+      const profile: FinanceImportProfile = {
+        id: matchedProfileId ?? createEntityId("finance-import-profile"),
+        name: currentFile.name,
+        signature: buildHeaderSignature(header),
+        columnMap,
+        dateFormat,
+        amountMode,
+        signConvention: null,
+        defaultAccountId: singleAccountId || null,
+        createdAt: nowIso(),
+        updatedAt: nowIso(),
+        lastUsedAt: nowIso(),
+      };
+
+      const primaryAccountId =
+        accountColumnIndex === undefined
+          ? singleAccountId
+          : (mergedBindings[externalAccountKeys[0] ?? ""] ?? singleAccountId);
+
+      if (!primaryAccountId) {
+        setImportError(t("import.errors.noAccount"));
+        return;
+      }
+
+      const currencyOf = (accountId: string): string =>
+        knownAccounts.find((account) => account.id === accountId)?.currency ?? baseCurrency;
+
+      const { request, errors } = buildImportRequest({
+        accountId: primaryAccountId,
+        profileId: profile.id,
+        fileName: currentFile.name,
+        fileHash: hash128(currentFile.text),
+        header,
+        rows,
+        parserWarnings,
+        profile: { ...profile, columnMap },
+        currency: currencyOf(primaryAccountId),
+        resolveCurrency: currencyOf,
+        resolveAccountId: (externalAccountKey) => {
+          if (externalAccountKey === null) {
+            return singleAccountId || primaryAccountId;
+          }
+          const bound = mergedBindings[externalAccountKey];
+          return bound && bound !== "__new__" ? bound : null;
+        },
+      });
+
+      const savedProfile = await repository.saveFinanceImportProfile(profile);
+      // Keep the saved id so a retry of this same file updates the profile instead of
+      // colliding with the unique header signature.
+      setMatchedProfileId(savedProfile.id);
+      request.profileId = savedProfile.id;
       const result = await repository.importFinanceTransactions(request);
       setSummary(result);
       if (errors.length > 0) {
@@ -320,6 +326,8 @@ export const FinanceImportPage = () => {
       await load();
     } catch (error) {
       setImportError(error instanceof Error ? error.message : t("import.errors.importFailed"));
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -532,12 +540,20 @@ export const FinanceImportPage = () => {
             </tbody>
           </table>
 
+          {parserWarnings.length > 0 ? (
+            <div className="banner">
+              {parserWarnings.map((warning) => (
+                <p key={warning}>{warning}</p>
+              ))}
+            </div>
+          ) : null}
           {importError ? <p className="field-error">{importError}</p> : null}
 
           <div className="form-actions">
             <button
               type="button"
               className="button button--primary"
+              disabled={importing}
               onClick={() => void runImport()}
             >
               {t("import.runImport")}

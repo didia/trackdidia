@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppContext } from "../app/app-context";
 import { FinanceTabs } from "../components/finance/FinanceTabs";
@@ -55,6 +55,10 @@ export const FinanceTransactionsPage = () => {
   const [splitEditorTxnId, setSplitEditorTxnId] = useState<string | null>(null);
   const [splitDrafts, setSplitDrafts] = useState<SplitDraftRow[]>([]);
   const [splitError, setSplitError] = useState("");
+  // Transaction whose existing allocation has finished loading into `splitDrafts`; Save stays
+  // disabled until it matches the open editor so stale drafts can never be written.
+  const [splitLoadedTxnId, setSplitLoadedTxnId] = useState<string | null>(null);
+  const splitRequestRef = useRef(0);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [transferPairWarning, setTransferPairWarning] = useState<string | null>(null);
   const [lastBackfill, setLastBackfill] = useState<{
@@ -106,6 +110,15 @@ export const FinanceTransactionsPage = () => {
     void load();
   }, [load]);
 
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  // Edits can shrink the result set below the current page; clamp back into range.
+  useEffect(() => {
+    if (page > 0 && page >= pageCount) {
+      setPage(pageCount - 1);
+    }
+  }, [page, pageCount]);
+
   const accountById = useMemo(
     () => new Map(accounts.map((account) => [account.id, account])),
     [accounts],
@@ -118,11 +131,10 @@ export const FinanceTransactionsPage = () => {
       categoryId,
       scope,
     });
-    setLastBackfill(
-      scope === "all_matching" && result.backfill.length > 0
-        ? { count: result.backfill.length, entries: result.backfill }
-        : null,
-    );
+    // Only a newer bulk edit replaces the undo handle; ordinary edits leave it intact.
+    if (scope === "all_matching" && result.backfill.length > 0) {
+      setLastBackfill({ count: result.backfill.length, entries: result.backfill });
+    }
     await load();
   };
 
@@ -171,9 +183,18 @@ export const FinanceTransactionsPage = () => {
   };
 
   const openSplitEditor = (transaction: FinanceTransaction) => {
+    const requestId = splitRequestRef.current + 1;
+    splitRequestRef.current = requestId;
     setSplitEditorTxnId(transaction.id);
+    setSplitLoadedTxnId(null);
+    setSplitDrafts([]);
     setSplitError("");
     void repository.listFinanceTransactionSplits(transaction.id).then((existing) => {
+      // A newer open/close superseded this read; its response must not touch the drafts.
+      if (splitRequestRef.current !== requestId) {
+        return;
+      }
+      setSplitLoadedTxnId(transaction.id);
       if (existing.length > 0) {
         setSplitDrafts(
           existing.map((split) => ({
@@ -210,7 +231,17 @@ export const FinanceTransactionsPage = () => {
     setSplitDrafts((current) => current.filter((row) => row.id !== id));
   };
 
+  const closeSplitEditor = () => {
+    splitRequestRef.current += 1;
+    setSplitEditorTxnId(null);
+    setSplitLoadedTxnId(null);
+    setSplitDrafts([]);
+  };
+
   const saveSplits = async (transaction: FinanceTransaction) => {
+    if (splitLoadedTxnId !== transaction.id) {
+      return;
+    }
     const exponent = currencyExponent(transaction.currency);
     const parsedAmounts = splitDrafts.map((row) =>
       parseAmountToMinor(row.amountText, { exponent }),
@@ -225,7 +256,8 @@ export const FinanceTransactionsPage = () => {
       (total, parsed) => total + (parsed.ok ? parsed.amountMinor : 0),
       0,
     );
-    if (sum !== transaction.amountMinor) {
+    // An empty allocation is an explicit "remove splits"; only non-empty ones must balance.
+    if (splitDrafts.length > 0 && sum !== transaction.amountMinor) {
       setSplitError(t("transactions.split.sumMismatch"));
       return;
     }
@@ -241,7 +273,7 @@ export const FinanceTransactionsPage = () => {
     }));
 
     await repository.saveFinanceTransactionSplits(transaction.id, splits);
-    setSplitEditorTxnId(null);
+    closeSplitEditor();
     setSplitError("");
     await load();
   };
@@ -274,8 +306,6 @@ export const FinanceTransactionsPage = () => {
     await load();
   };
 
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
-
   return (
     <div className="page">
       <PageHeader eyebrow={t("transactions.hero.eyebrow")} title={t("transactions.hero.title")} />
@@ -288,18 +318,31 @@ export const FinanceTransactionsPage = () => {
             <input
               type="date"
               value={dateFrom}
-              onChange={(event) => setDateFrom(event.target.value)}
+              onChange={(event) => {
+                setDateFrom(event.target.value);
+                setPage(0);
+              }}
             />
           </label>
           <label>
             <span>{t("transactions.filters.dateTo")}</span>
-            <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(event) => {
+                setDateTo(event.target.value);
+                setPage(0);
+              }}
+            />
           </label>
           <label>
             <span>{t("transactions.filters.account")}</span>
             <select
               value={accountFilter}
-              onChange={(event) => setAccountFilter(event.target.value)}
+              onChange={(event) => {
+                setAccountFilter(event.target.value);
+                setPage(0);
+              }}
             >
               <option value="">{t("transactions.filters.all")}</option>
               {accounts.map((account) => (
@@ -313,7 +356,10 @@ export const FinanceTransactionsPage = () => {
             <span>{t("transactions.filters.category")}</span>
             <select
               value={categoryFilter}
-              onChange={(event) => setCategoryFilter(event.target.value)}
+              onChange={(event) => {
+                setCategoryFilter(event.target.value);
+                setPage(0);
+              }}
             >
               <option value="">{t("transactions.filters.all")}</option>
               {categories.map((category) => (
@@ -325,7 +371,13 @@ export const FinanceTransactionsPage = () => {
           </label>
           <label>
             <span>{t("transactions.filters.person")}</span>
-            <select value={personFilter} onChange={(event) => setPersonFilter(event.target.value)}>
+            <select
+              value={personFilter}
+              onChange={(event) => {
+                setPersonFilter(event.target.value);
+                setPage(0);
+              }}
+            >
               <option value="">{t("transactions.filters.all")}</option>
               {people.map((person) => (
                 <option key={person.id} value={person.id}>
@@ -336,13 +388,22 @@ export const FinanceTransactionsPage = () => {
           </label>
           <label>
             <span>{t("transactions.filters.search")}</span>
-            <input value={search} onChange={(event) => setSearch(event.target.value)} />
+            <input
+              value={search}
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setPage(0);
+              }}
+            />
           </label>
           <label className="switch-row">
             <input
               type="checkbox"
               checked={uncategorizedOnly}
-              onChange={(event) => setUncategorizedOnly(event.target.checked)}
+              onChange={(event) => {
+                setUncategorizedOnly(event.target.checked);
+                setPage(0);
+              }}
             />
             <span>{t("transactions.filters.uncategorizedOnly")}</span>
           </label>
@@ -557,15 +618,12 @@ export const FinanceTransactionsPage = () => {
                       <button
                         type="button"
                         className="button button--primary"
+                        disabled={splitLoadedTxnId !== transaction.id}
                         onClick={() => void saveSplits(transaction)}
                       >
                         {t("transactions.split.save")}
                       </button>
-                      <button
-                        type="button"
-                        className="button"
-                        onClick={() => setSplitEditorTxnId(null)}
-                      >
+                      <button type="button" className="button" onClick={closeSplitEditor}>
                         {t("transactions.split.cancel")}
                       </button>
                     </div>

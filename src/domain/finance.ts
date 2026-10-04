@@ -331,10 +331,13 @@ export interface FinanceCategoryBackfillEntry {
   /**
    * The category the `all_matching` call wrote to this row. `revertFinanceCategoryBackfill`
    * only reverts a row whose current `category_id` still equals this value and whose
-   * `category_source` is still not `"user"` — a later unrelated edit to the row is never
-   * silently clobbered by an undo of an older bulk edit.
+   * `categorized_at` is still `appliedAt` — a later unrelated edit to the row is never
+   * silently clobbered by an undo of an older bulk edit. (The bulk edit itself marks the row
+   * `category_source = 'user'` so automation never overwrites it.)
    */
   appliedCategoryId: string;
+  /** The `categorized_at` timestamp the `all_matching` call stamped on this row. */
+  appliedAt: string;
 }
 
 export interface SetFinanceTransactionCategoryResult {
@@ -383,6 +386,11 @@ export interface FinanceImportRequest {
   fileName: string;
   fileHash: string;
   rows: FinanceImportRow[];
+  /**
+   * Records the caller could not turn into rows (CSV parse drops, mapping errors). They never
+   * reach `rows`, so the caller reports them here to land in the batch counts and warnings.
+   */
+  rejected?: { skipped: number; errors: number; warnings: string[] };
 }
 
 export interface FinanceImportNearDuplicate {
