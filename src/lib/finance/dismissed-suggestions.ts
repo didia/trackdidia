@@ -1,5 +1,5 @@
 // Pure 90-day suppression window for dismissed category suggestions. See
-// specs/todo/finance.md "Learning from corrections": "Dismissing a suggestion
+// specs/done/finance.md "Learning from corrections": "Dismissing a suggestion
 // records a negative signal: the (merchantKey, suggestedCategory) pair is
 // suppressed for future ... suggestions for 90 days." The repository stores
 // build `DismissedSuggestionPair[]` from `finance_category_suggestions` rows

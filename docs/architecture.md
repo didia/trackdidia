@@ -125,8 +125,10 @@ false. `finances` (`/finances`) is the first such conditional entry, gated on
 | `/pomodoro` | Pomodoro | Focus/break timer, task switching, daily history |
 | `/recurrences` | Recurrences | Create, filter, pause/resume/cancel recurring series |
 | `/email-triage` | Email triage | Account cards, review queue, disabled-by-default settings |
-| `/finances` | Finance overview | Account list with derived balances and links; always registered, redirects to `/` while `financeEnabled` is false |
+| `/finances` | Finance overview | Net worth, this month's cash flow, proactive runout/cash-flow alerts grouped by severity, account list with derived balances, 6-month spending trend, top categories, upcoming recurring bills; always registered, redirects to `/` while `financeEnabled` is false |
 | `/finances/transactions` | Finance transactions | Paged, filtered transaction list with inline category edit, splits, transfer/exclude toggles, bulk toolbar |
+| `/finances/budget` | Finance budget | Month selector, Ready to Assign, envelope grid with inline assignment, overspend policy, quick-assign actions, "Non budgété" band, close/reopen month |
+| `/finances/reports` | Finance reports | Category/merchant/person spend with transaction-level drill-down, income-vs-expense trend, month-over-month comparison |
 | `/finances/import` | Finance import | CSV file import: decode, profile mapping, preview, account binding, result panel, batch history with undo |
 | `/finances/accounts` | Finance accounts | Household members and accounts CRUD, opening/manual balances, reconciliation banner |
 | `/finances/review` | Finance review | Pending category-suggestion queue grouped by merchant: accept/correct/dismiss, bulk accept-above-threshold, "Réappliquer les règles" |
@@ -141,9 +143,8 @@ false. `finances` (`/finances`) is the first such conditional entry, gated on
 `/finances/*` is always registered in `App.tsx` (a `FinanceRoutes` element reads
 `settings.financeEnabled` and renders `<Navigate to="/" replace />` instead of
 its child routes while the flag is off), so a stale bookmark or deep link never
-404s — it just lands on Today. Only the six finance screens that exist ship a
-tab in the shared `FinanceTabs` bar on every `/finances*` page; budget and
-reports are later phases and have no tab yet. See
+404s — it just lands on Today. Every finance screen that exists ships a tab in
+the shared `FinanceTabs` bar on every `/finances*` page. See
 [`docs/finance.md`](finance.md) for what each finance screen does.
 
 See the product pages linked from [`index.md`](index.md) for behavior inside each
@@ -151,46 +152,110 @@ screen.
 
 ## Boot sequence
 
-`AppProvider` starts with a loading splash and runs this sequence:
+`AppProvider` is a thin composition layer. Startup lives in focused modules under
+`src/app/`:
+
+| Module | Responsibility |
+|---|---|
+| `bootstrap.ts` | `bootstrapApplication(repository, { onStage })` (pure startup data sequence) and `runOnceWithSettingsMarker` (idempotent one-time steps) |
+| `use-bootstrap.ts` | `useBootstrap()`: `createRepository`, runs `bootstrapApplication`, owns the eight-second timeout and the in-memory fallback |
+| `use-pulse-scheduler.ts` | `usePulseScheduler(...)`: startup + five-minute coach pulse evaluation and app-open interval tracking |
+| `use-auto-backup-scheduler.ts` | `useAutoBackupScheduler(...)`: startup + hourly automatic-backup check |
+| `use-local-day-reconciliation.ts` | Local-day boundary reconciliation and `calendarDay` |
+
+`useBootstrap()` starts with a loading splash and runs:
 
 1. Detect Tauri with `window.__TAURI_INTERNALS__`.
 2. In desktop mode, call the native `resolve_storage_paths` command.
 3. Create and initialize the SQLite repository; otherwise initialize memory storage.
-4. Load settings.
-5. Log GTD overview counts from the repository.
-6. Run one-time data normalizations tracked in settings:
-   - move the `Reading` context to References,
-   - move dated work to Scheduled.
-7. Generate due recurring tasks for the current local date.
-8. Promote active Scheduled tasks whose local `scheduledFor` date is today or
-   earlier to Next Actions.
-9. Generate enabled relationship activity tasks for the current local date.
-10. If `settings.financeEnabled` is true and `settings.financeCategoriesSeededAt`
-    is empty, seed the default finance category taxonomy
-    (`seedFinanceDefaultCategories()`, idempotent `INSERT OR IGNORE`) and set the
-    marker. This step is wrapped in its own `try`/`catch` — a failure is logged
-    and swallowed, never thrown, so it cannot turn into a new way to hit the
-    eight-second timeout below. The same seed-once-on-enable also runs from
-    `SettingsPage` when a user flips `financeEnabled` from false to true there,
-    so whichever path flips the flag first does the seeding and the other is a
-    no-op.
-11. Expose the repository and settings to the UI.
-12. After a successful bootstrap (not browser preview and not the startup
-    fallback), start the email triage coordinator. It still no-ops while the
-    feature flag is off, and it probes the OS vault only after that flag is on.
-    On desktop, connected Gmail and Microsoft Graph accounts use the live adapter
-    when vault credentials exist; Yahoo uses live IMAP on desktop (mock in browser preview).
+   SQLite is therefore ready before any settings or GTD read.
+4. `bootstrapApplication(repository, { onStage })` then runs, in order:
+   1. Load settings.
+   2. One-time steps through `runOnceWithSettingsMarker(repository, settings,
+      markerKey, work)`. Each is skipped when its settings marker is set; otherwise
+      the work runs first and the marker is stamped afterwards (never overwriting an
+      existing value), so a failed step is retried on the next boot:
+      - legacy `aiMaxTokens` upgrade (`aiMaxTokensUpgradeDoneAt`),
+      - move the `Reading` context to References (`gtdReferencesMigrationDoneAt`),
+      - move dated work to Scheduled (`gtdScheduledNormalizationDoneAt`).
+   3. Log GTD overview counts from the repository.
+   4. Call `repository.reconcileDay(today)`: generate due recurring tasks for the
+      current local date, promote active Scheduled tasks whose local `scheduledFor`
+      date is today or earlier to Next Actions, apply weekly carryover for the most
+      recent Sunday (back-filling a missed one), and complete expired Pomodoro sessions.
+   5. Generate enabled relationship activity tasks for the current local date.
+   6. If `settings.financeEnabled` is true and `settings.financeCategoriesSeededAt`
+      is empty, seed the default finance category taxonomy
+      (`seedFinanceDefaultCategories()`, idempotent `INSERT OR IGNORE`) and set the
+      marker through the same helper. This step is wrapped in its own `try`/`catch`
+      — a failure is logged and swallowed, never thrown, so it cannot turn into a
+      new way to hit the eight-second timeout below. The same seed-once-on-enable
+      also runs from `SettingsPage` when a user flips `financeEnabled` from false
+      to true there, so whichever path flips the flag first does the seeding and
+      the other is a no-op.
+5. Expose the repository and settings to the UI.
+6. After a successful bootstrap (not browser preview and not the startup
+   fallback), start the email triage coordinator. It still no-ops while the
+   feature flag is off, and it probes the OS vault only after that flag is on.
+   On desktop, connected Gmail and Microsoft Graph accounts use the live adapter
+   when vault credentials exist; Yahoo uses live IMAP on desktop (mock in browser preview).
 
-The startup operation has an eight-second timeout. An exception or timeout activates
-a new `MemoryRepository`, shows a warning banner, and keeps the UI usable. Data
-entered in that fallback is lost when the application reloads. The email triage
-coordinator does not start in that fallback path.
+The startup operation has an eight-second timeout (`BOOTSTRAP_TIMEOUT_MS`). An
+exception from any step or the timeout activates a new `MemoryRepository`, shows a
+warning banner (the timeout message names the stage in progress), and keeps the UI
+usable. Data entered in that fallback is lost when the application reloads. The email
+triage coordinator does not start in that fallback path.
+
+Once a repository is available, `AppProvider` starts two schedulers. Both read
+changing values (current settings, the running Pomodoro session) through refs, so
+their effects restart only when the repository changes — not on every settings write
+or Pomodoro tick — and both queue their startup check on a shared serial queue:
+
+- `usePulseScheduler` evaluates the coach pulse at startup and every five minutes,
+  skipping a run while a previous one is still in flight.
+- `useAutoBackupScheduler` checks at startup and hourly whether an automatic backup
+  is due. A single in-flight guard prevents concurrent backup checks. Because the
+  settings are read at check time, enabling automatic backup or changing its
+  interval takes effect at the next hourly check rather than immediately.
+
+The context value is memoized (`useMemo`) and `updateSettings`/`setDebugEnabled` are
+`useCallback`s, so consumers re-render only when a real input changes.
 
 After bootstrap, `AppProvider` keeps `calendarDay` (the current local `YYYY-MM-DD`)
 in context. A timeout until the next local midnight, plus window `focus` and
-`visibilitychange` when the document becomes visible, regenerates due recurrences,
-promotes due Scheduled tasks, and republishes the new date so already-mounted GTD
-and Pomodoro consumers reload without navigation.
+`visibilitychange` when the document becomes visible, call `reconcileDay(today)`
+once per repository and day, then republish the new date so already-mounted GTD
+and Pomodoro consumers reload without navigation. On the same pass, when
+`settings.financeEnabled` is true, `useLocalDayReconciliation` also calls
+`snapshotFinanceAccountBalances(today)` so the net-worth history gets one point
+per day the app was open; this call is independently try/caught (a failure is
+logged as a row count only, never amounts) and never blocks recurrence/promotion
+or the eight-second startup timeout above. When `settings.financeEnabled &&
+settings.financeNotifyRunout` the same pass also calls
+`computeFinanceForecast(today)`, evaluates the finance alert notification
+policy against the `finance_alert_notifications` ledger for today, and sends
+at most one OS notification per newly due alert key via the existing
+`notifyPomodoroCompletion` helper (no new plugin, no network call); this runs
+on first mount too — the app-wide "at startup after bootstrap" trigger — and
+is independently try/caught the same way the balance snapshot is. See
+[`docs/finance.md`](finance.md#forecasting-and-proactive-alerts-phase-7).
+
+### Reads are side-effect free; reconciliation is explicit
+
+Repository reads never write: `listTasks`, `computeDailyTaskStats`,
+`getDailyTaskBreakdown`, `computeDailyPomodoroStats`, `getDailyEntry`, and
+`listDailyEntries*` no longer generate recurrences, promote Scheduled tasks, write
+Sunday carryover, or complete expired Pomodoro sessions. Those time-driven writes
+live in `reconcileDay(date, now?)` (shared `reconcileGtdDay` in
+`src/lib/gtd/reconcile.ts`, exposed on both repositories). Only time owners call it:
+
+- `AppProvider` bootstrap and `useLocalDayReconciliation` (day boundary);
+- explicit refresh after a user write that can make work due today: every
+  `useGtdWorkspace` mutation reload, recurrence template save/resume on
+  `/recurrences`, and an accepted AI proposal that creates or schedules a task.
+
+The initial `useGtdWorkspace` load, History, Weekly, AI snapshots, and the Pomodoro
+refresh (which only settles expired sessions) read without reconciling.
 
 ## Repository boundary
 
@@ -222,6 +287,14 @@ decorate an entry with suggested values computed from:
 - completed focus sessions (`pomodoris`).
 
 `resolveMetricValue()` returns an explicit user value first, then its suggestion.
+
+Decoration is the repository's job and happens once, purely: `getDailyEntry` and all
+three `listDailyEntries*` methods (including `listDailyEntriesInRange`) load tasks,
+events, and Pomodoro sessions once and derive suggestions with
+`decorateDailyEntries` (`src/lib/storage/decorate-entries.ts`). `saveDailyEntry`
+stores the entry as given. Callers must not re-apply `applyDailyTaskStats` /
+`applyDailyPomodoroStats` to a repository-returned entry; they only apply them to a
+synthesized empty entry (a day with no row) or to a local, unsaved edit.
 
 ### Reviews and goals
 

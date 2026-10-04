@@ -200,7 +200,8 @@
       "monthly_synthesis": "Synthèse mensuelle : sections et évaluations d'objectifs annuels.",
       "goal_pacing": "Rythme annuel des objectifs (affichage seulement, sans propositions).",
       "pastor_verse": "Verset du jour « Pasteur IA » : un verset et une explication en deux temps, sans propositions.",
-      "mid_week_steering": "Pilotage de mi-semaine : lecture du rythme et actions à rattraper (affichage seulement, sans propositions)."
+      "mid_week_steering": "Pilotage de mi-semaine : lecture du rythme et actions à rattraper (affichage seulement, sans propositions).",
+      "finance_categorization": "Catégorisation de marchands de transactions financières (par lot, jamais au démarrage)."
     }
   },
   "cost": {
@@ -244,13 +245,25 @@
   },
   "finance": {
     "title": "Finances",
-    "subtitle": "Suivi des comptes et transactions. Les alertes, le coach et la catégorisation IA arrivent dans des phases ultérieures.",
+    "subtitle": "Suivi des comptes et transactions, alertes proactives de dépassement et catégorisation IA optionnelle des marchands inconnus.",
     "enable": "Activer les finances",
     "baseCurrency": "Devise de référence",
     "baseCurrencyPlaceholder": "CAD",
+    "alertsOnToday": "Afficher les alertes sur la page Aujourd'hui",
+    "notifyRunout": "Notifications de dépassement/manque de liquidités",
+    "safetyBufferMinor": "Coussin de sécurité (liquidités)",
+    "safetyBufferMinorPlaceholder": "0,00",
+    "aiCategorizationEnabled": "Activer la catégorisation IA des marchands inconnus",
+    "aiCategorizationPrivacyNote": "Envoie au modèle IA configuré la description nettoyée de la transaction (numéros de carte/compte, courriels et numéros de téléphone retirés) — elle peut tout de même contenir un nom de contrepartie ou une partie d'adresse. Le montant exact, les dates, les notes et les noms/numéros de compte ne sont jamais envoyés.",
+    "aiAutoApplyEnabled": "Appliquer automatiquement les suggestions IA à confiance élevée",
+    "aiAutoApplyMinConfidence": "Seuil de confiance pour l'application automatique",
+    "aiAutoApplyMinConfidencePlaceholder": "0,90",
+    "aiRequiresAiEnabled": "Nécessite l'IA activée ci-dessus (section Intelligence artificielle).",
     "save": "Enregistrer",
     "saved": "Paramètres de finances enregistrés.",
     "saveError": "Échec de l'enregistrement des paramètres de finances.",
+    "aiAutoApplyMinConfidenceInvalid": "Le seuil de confiance doit être un nombre entre 0 et 1. Rien n'a été enregistré.",
+    "safetyBufferInvalid": "Le coussin de sécurité n'est pas un montant valide. Rien n'a été enregistré.",
     "seeding": "Préparation des catégories par défaut..."
   }
 }

@@ -1007,6 +1007,18 @@ export const migrations: Migration[] = [
   },
   {
     id: 39,
+    name: "create_finance_alert_notifications",
+    sql: `
+      CREATE TABLE IF NOT EXISTS finance_alert_notifications (
+        alert_key TEXT NOT NULL,
+        notified_on_date TEXT NOT NULL,
+        notified_at TEXT NOT NULL,
+        PRIMARY KEY (alert_key, notified_on_date)
+      );
+    `,
+  },
+  {
+    id: 40,
     name: "create_calendar_sync",
     sql: `
       CREATE TABLE IF NOT EXISTS calendar_sync_settings (

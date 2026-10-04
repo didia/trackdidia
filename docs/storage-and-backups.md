@@ -109,8 +109,7 @@ It groups:
 
 Repository helpers include `listDailyEntriesOnOrBefore(endDate, limit)` for bounded
 history ending at a calendar date, `listDailyEntriesInRange(startDate, endDate)`
-(persisted daily rows without GTD/Pomodoro decoration, unlike the capped list
-helpers), `listWeeklyReviewsOverlapping(startDate, endDate)`, and
+(decorated like the other daily reads), `listWeeklyReviewsOverlapping(startDate, endDate)`, and
 `listMonthlyReviewsOverlapping(startDate, endDate)` for the Journal timeline, and
 the [atomic AI proposal acceptance operation](#atomic-ai-proposal-acceptance)
 (`acceptAiProposal`).
@@ -205,7 +204,8 @@ its existing idempotent `dimancheNotesRelocatedAt` marker.
 | 36 | `create_mid_week_decisions` | Creates `mid_week_decisions` (one row per week: decisions text, `decided_on_date`, nullable `lagging_snapshot_json`, `updated_at`) |
 | 37 | `add_finance_foundation` | Creates the fourteen `finance_*` tables (people, accounts, categories, transactions, transaction splits, rules, merchant memory, category suggestions, budget entries/months, recurring series, account balance snapshots, import profiles, import batches) and their indexes; inserts the three system categories (`fincat:non-categorise`, `fincat:transfert`, `fincat:split`) |
 | 38 | `add_finance_import_profile_separators` | Adds nullable `decimal_separator` / `thousands_separator` columns to `finance_import_profiles` via guarded, idempotent `ALTER TABLE` |
-| 39 | `create_calendar_sync` | Creates `calendar_sync_settings` (singleton `id = 'global'`) and `calendar_sync_links` (composite primary key `(task_id, occurrence_key)`, nullable `event_id`, unique index on `(calendar_id, event_id)`, index on `state`) for the one-way TrackDidia -> Google Calendar sync model and planner (Phase 0; no network calls yet) |
+| 39 | `create_finance_alert_notifications` | Creates `finance_alert_notifications` with primary key `(alert_key, notified_on_date)`, the once-per-day-per-key ledger for Phase 7 finance alert notifications |
+| 40 | `create_calendar_sync` | Creates `calendar_sync_settings` (singleton `id = 'global'`) and `calendar_sync_links` (composite primary key `(task_id, occurrence_key)`, nullable `event_id`, unique index on `(calendar_id, event_id)`, index on `state`) for the one-way TrackDidia -> Google Calendar sync model and planner (Phase 0; no network calls yet) |
 
 ## Table reference
 
@@ -344,7 +344,7 @@ daily/review data.
 
 ### Calendar sync tables
 
-Migration 37 adds sidecar tables for the (unshipped beyond Phase 0) one-way
+Migration 40 adds sidecar tables for the (unshipped beyond Phase 0) one-way
 TrackDidia -> Google Calendar sync; see
 [`specs/todo/calendar-sync.md`](../specs/todo/calendar-sync.md). No `gtd_tasks` column
 changes. Phase 0 ships the schema, the pure planner (`src/lib/calendar/planner.ts`) and
@@ -422,7 +422,8 @@ storage-layer summary.
 - `finance_budget_entries`, `finance_budget_months`: YNAB-style envelope assignments
   and advisory month-close state (Phase 5; schema ships now, no arithmetic yet).
 - `finance_recurring_series`, `finance_account_balance_snapshots`: recurring-bill
-  detection and daily balance history (Phase 6/7; schema ships now).
+  detection (Phase 6) and daily balance history, also read by the Phase 7
+  forecast engine (active series and `onBudgetBalance` respectively).
 - `finance_import_profiles`, `finance_import_batches`: saved column-mapping profiles
   (unique by header signature) and one row per import run, used by
   `undoFinanceImportBatch`.
@@ -434,6 +435,15 @@ hard-references those ids. The deterministic default French taxonomy
 holds the fixed-id list, seeded idempotently (`INSERT OR IGNORE`) through
 `seedFinanceDefaultCategories()` on both repositories, gated on
 `AppSettings.financeCategoriesSeededAt`.
+
+Migration 39 (`create_finance_alert_notifications`, additive, next free id
+after 38) adds a single small table, `finance_alert_notifications
+(alert_key, notified_on_date, notified_at)` with primary key
+`(alert_key, notified_on_date)`. It exists only to rate-limit the Phase 7
+desktop notification to once per day per alert key (see
+[finance.md](finance.md#forecasting-and-proactive-alerts-phase-7)); it is
+never read when rendering the alerts list itself. Like every other finance
+table, it is included in `VACUUM INTO` backups automatically.
 
 ## Backup behavior
 

@@ -40,12 +40,7 @@ import {
   updateAnnualGoalEvaluation,
   createEmptyAnnualGoal,
 } from "../../domain/annual-goals";
-import {
-  applyDailyPomodoroStats,
-  applyDailyTaskStats,
-  cloneEntry,
-  createEmptyDailyEntry,
-} from "../../domain/daily-entry";
+import { createEmptyDailyEntry } from "../../domain/daily-entry";
 import {
   buildMonthlyReviewSummary,
   cloneMonthlyReview,
@@ -100,7 +95,7 @@ import {
 import { t } from "../../i18n";
 import { monthKeyToLocalRange } from "../ai/analytics/month-range";
 import { buildBackupFileName, isBackupDestinationConfigured, resolveBackupDir } from "../backup";
-import { getTodayDate, isSunday } from "../date";
+import { getTodayDate } from "../date";
 import { formatUnknownError, logDebug } from "../debug";
 import {
   buildCarryoverEvents,
@@ -111,19 +106,30 @@ import {
   filterProjects,
   filterTasks,
 } from "../gtd/engine";
+import {
+  hasContext,
+  hasScheduledDate,
+  selectTasksForBucketNormalization,
+} from "../gtd/bucket-normalization";
+import { planGoogleRecurringCollapse } from "../gtd/google-recurring-collapse";
 import { buildGoogleTasksImport } from "../gtd/google-tasks-import";
 import { addCustomVerse } from "../pastor/custom-verse";
 import {
   adjustPlannedFieldsForSave,
+  assertPlannedProjectActive,
+  assertPlannedTaskActionable,
   reconcileProjectPlannedTasks,
   swapPlannedOrder,
 } from "../gtd/planned";
 import { calendarOccurrenceKeyFor } from "../calendar/eligibility";
+import { reconcileGtdDay, type ReconcileDayResult } from "../gtd/reconcile";
 import {
   buildCalendarSyncCaptureLink,
   isCalendarSyncCaptureActive,
   promoteDueScheduledTasks as selectDueScheduledPromotions,
 } from "../gtd/scheduled";
+import { applyScheduleChange } from "../gtd/schedule";
+import { decorateDailyEntries } from "./decorate-entries";
 import { cloneProject, cloneTask, createEntityId, nowIso } from "../gtd/shared";
 import { addDays, toLocalDateString } from "../date";
 import {
@@ -142,14 +148,16 @@ import {
 import {
   applySeriesChangesToTemplate,
   buildRecurringPreviewOccurrences,
-  buildTaskFromRecurringTemplate,
+  cancelActiveTaskForTemplate,
   cloneRecurringTemplate,
   createRecurringTemplate,
   filterRecurringTemplates,
-  listDueDatesBetween,
-  prepareRecurringGeneration,
+  mergeOccurrenceEdit,
+  planDueRecurrenceGeneration,
+  planRecurrencePreparation,
+  planTemplateUpdateOnTaskClose,
   recurrenceGenerationHorizon,
-  recurringInstanceWasRewound,
+  syncActiveTaskWithTemplate,
   syncTemplateStatusChange,
 } from "../recurring/engine";
 import { buildDailyRelationshipDrawPlan } from "../relationship-draws";
@@ -336,12 +344,11 @@ export class TauriSqliteRepository implements AppRepository {
       [date],
     );
 
-    return rows[0] ? this.decorateEntry(dailyEntriesRows.fromRow(rows[0])) : null;
+    return rows[0] ? (await this.decorateEntries([dailyEntriesRows.fromRow(rows[0])]))[0] : null;
   }
 
   async saveDailyEntry(entry: DailyEntry): Promise<void> {
-    const decoratedEntry = await this.decorateEntry(entry);
-    return this.writeTransaction((tx) => this.saveDailyEntryInternal(tx, decoratedEntry));
+    return this.writeTransaction((tx) => this.saveDailyEntryInternal(tx, entry));
   }
   private async saveDailyEntryInternal(tx: TxContext, entry: DailyEntry): Promise<void> {
     const db = transactionDb(tx);
@@ -369,7 +376,7 @@ export class TauriSqliteRepository implements AppRepository {
       [limit],
     );
 
-    return Promise.all(rows.map((row) => this.decorateEntry(dailyEntriesRows.fromRow(row))));
+    return this.decorateEntries(rows.map((row) => dailyEntriesRows.fromRow(row)));
   }
 
   async listDailyEntriesOnOrBefore(endDate: string, limit = 180): Promise<DailyEntry[]> {
@@ -382,7 +389,7 @@ export class TauriSqliteRepository implements AppRepository {
       [endDate, limit],
     );
 
-    return Promise.all(rows.map((row) => this.decorateEntry(dailyEntriesRows.fromRow(row))));
+    return this.decorateEntries(rows.map((row) => dailyEntriesRows.fromRow(row)));
   }
 
   async listDailyEntriesInRange(startDate: string, endDate: string): Promise<DailyEntry[]> {
@@ -394,9 +401,7 @@ export class TauriSqliteRepository implements AppRepository {
       [startDate, endDate],
     );
 
-    // Journal only reads note text. Skip decorateEntry so a wide range cannot
-    // fan out into per-day GTD/Pomodoro writes and full-table scans.
-    return rows.map((row) => dailyEntriesRows.fromRow(row));
+    return this.decorateEntries(rows.map((row) => dailyEntriesRows.fromRow(row)));
   }
 
   async getWeeklyReview(weekStartDate: string): Promise<WeeklyReview | null> {
@@ -540,15 +545,9 @@ export class TauriSqliteRepository implements AppRepository {
 
   async computeMonthlyReviewSummary(monthKey: string) {
     const normalized = getMonthKey(`${monthKey}-01`);
-    const entries = (
-      await Promise.all(
-        (
-          await this.listDailyEntries(5000)
-        )
-          .filter((entry) => getMonthKey(entry.date) === normalized)
-          .map((entry) => this.decorateEntry(entry)),
-      )
-    ).sort((left, right) => left.date.localeCompare(right.date));
+    const entries = (await this.listDailyEntries(5000))
+      .filter((entry) => getMonthKey(entry.date) === normalized)
+      .sort((left, right) => left.date.localeCompare(right.date));
     const weekStarts = listWeekStartsForMonth(normalized);
     const weeklySummaries = await Promise.all(
       weekStarts.map((weekStartDate) => this.computeWeeklyReviewSummary(weekStartDate)),
@@ -641,11 +640,16 @@ export class TauriSqliteRepository implements AppRepository {
 
   async computeWeeklyReviewSummary(weekStartDate: string) {
     const normalized = buildWeekDates(weekStartDate);
-    const entries = await Promise.all(
-      listWeekDates(normalized).map(async (date) => {
-        const existing = await this.getDailyEntry(date);
-        return existing ?? this.decorateEntry(createEmptyDailyEntry(date));
-      }),
+    const weekDates = listWeekDates(normalized);
+    const db = await this.getDb();
+    const rows = await db.select<dailyEntriesRows.DailyEntryRow[]>(
+      `SELECT ${dailyEntriesRows.COLUMNS} FROM daily_entries
+      WHERE date >= $1 AND date <= $2`,
+      [weekDates[0], weekDates[weekDates.length - 1]],
+    );
+    const byDate = new Map(rows.map((row) => [row.date, dailyEntriesRows.fromRow(row)] as const));
+    const entries = await this.decorateEntries(
+      weekDates.map((date) => byDate.get(date) ?? createEmptyDailyEntry(date)),
     );
 
     return buildWeeklyReviewSummary(normalized, entries);
@@ -1566,81 +1570,59 @@ export class TauriSqliteRepository implements AppRepository {
 
   async moveTasksWithContextToBucket(contextId: string, bucket: Task["bucket"]): Promise<number> {
     return this.writeExclusive(async () => {
-      const tasks = await this.getAllTasks();
-      const matchingTasks = tasks.filter(
-        (task) =>
-          task.status === "active" && task.contextIds.includes(contextId) && task.bucket !== bucket,
+      const updates = selectTasksForBucketNormalization(
+        await this.getAllTasks(),
+        hasContext(contextId),
+        bucket,
+        nowIso(),
       );
 
-      for (const task of matchingTasks) {
-        await this.persistTask({
-          ...task,
-          bucket,
-          updatedAt: nowIso(),
-        });
+      for (const updated of updates) {
+        await this.persistTask(updated);
       }
 
-      return matchingTasks.length;
+      return updates.length;
     });
   }
 
   async moveTasksWithScheduledDatesToBucket(bucket: Task["bucket"]): Promise<number> {
     return this.writeExclusive(async () => {
-      const tasks = await this.getAllTasks();
-      const matchingTasks = tasks.filter(
-        (task) => task.status === "active" && Boolean(task.scheduledFor) && task.bucket !== bucket,
+      const updates = selectTasksForBucketNormalization(
+        await this.getAllTasks(),
+        hasScheduledDate,
+        bucket,
+        nowIso(),
       );
 
-      for (const task of matchingTasks) {
-        await this.persistTask({
-          ...task,
-          bucket,
-          updatedAt: nowIso(),
-        });
+      for (const updated of updates) {
+        await this.persistTask(updated);
       }
 
-      return matchingTasks.length;
+      return updates.length;
     });
   }
 
   async collapseGoogleRecurringTasks(rawJson: unknown): Promise<number> {
     return this.writeExclusive(async () => {
       const payload = buildGoogleTasksImport(rawJson);
-      const tasks = await this.getAllTasks();
-      let changedCount = 0;
 
       for (const context of payload.contexts) {
         await this.ensureContextsExist([context.id]);
       }
 
-      for (const desiredTask of payload.tasks.filter((task) => task.recurrenceGroupId)) {
-        const sourceIds = new Set(payload.recurringSourceTaskIds[desiredTask.id] ?? []);
-        const existingMatches = tasks.filter(
-          (task) =>
-            task.source === "google_import" &&
-            (task.id === desiredTask.id ||
-              task.recurrenceGroupId === desiredTask.recurrenceGroupId ||
-              (task.sourceExternalId ? sourceIds.has(task.sourceExternalId) : false)),
-        );
+      const { upserts, deleteIds } = planGoogleRecurringCollapse(
+        payload,
+        await this.getAllTasks(),
+        nowIso(),
+      );
 
-        const previousPrimary =
-          existingMatches.find((task) => task.id === desiredTask.id) ?? existingMatches[0] ?? null;
-        await this.persistTask({
-          ...cloneTask(desiredTask),
-          notes: previousPrimary?.notes?.trim() ? previousPrimary.notes : desiredTask.notes,
-          projectId: previousPrimary?.projectId ?? desiredTask.projectId,
-          updatedAt: nowIso(),
-        });
-        changedCount += 1;
-
-        const duplicateIds = existingMatches
-          .filter((task) => task.id !== desiredTask.id)
-          .map((task) => task.id);
-
-        await this.deleteTasksByIds(duplicateIds);
+      for (const task of upserts) {
+        await this.persistTask(task);
       }
 
-      return changedCount;
+      await this.deleteTasksByIds(deleteIds);
+
+      return upserts.length;
     });
   }
 
@@ -1754,8 +1736,6 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async listTasks(filters = {}): Promise<Task[]> {
-    await this.generateDueRecurringTasks(getTodayDate());
-    await this.promoteDueScheduledTasks(getTodayDate());
     const tasks = await this.getAllTasks();
     return filterTasks(tasks, filters);
   }
@@ -1791,42 +1771,37 @@ export class TauriSqliteRepository implements AppRepository {
       await this.persistRecurringTemplate(nextTemplate);
       const activeTask = await this.findActiveRecurringTask(nextTemplate.id);
       if (activeTask) {
-        await this.persistTask(this.syncActiveTaskWithTemplate(activeTask, nextTemplate));
+        await this.persistTask(syncActiveTaskWithTemplate(activeTask, nextTemplate));
       }
       return cloneRecurringTemplate(nextTemplate);
     });
   }
 
   async pauseRecurringTaskTemplate(id: string) {
-    return this.writeExclusive(async () => {
-      const template = await this.requireRecurringTemplate(id);
-      const nextTemplate = syncTemplateStatusChange(template, "paused");
-      await this.persistRecurringTemplate(nextTemplate);
-      return cloneRecurringTemplate(nextTemplate);
-    });
+    return this.setTemplateStatus(id, "paused");
   }
 
   async resumeRecurringTaskTemplate(id: string) {
-    return this.writeExclusive(async () => {
-      const template = await this.requireRecurringTemplate(id);
-      const nextTemplate = syncTemplateStatusChange(template, "active");
-      await this.persistRecurringTemplate(nextTemplate);
-      return cloneRecurringTemplate(nextTemplate);
-    });
+    return this.setTemplateStatus(id, "active");
   }
 
   async cancelRecurringTaskTemplate(id: string) {
+    return this.setTemplateStatus(id, "cancelled");
+  }
+
+  private async setTemplateStatus(
+    id: string,
+    status: RecurringTaskTemplate["status"],
+  ): Promise<RecurringTaskTemplate> {
     return this.writeExclusive(async () => {
       const template = await this.requireRecurringTemplate(id);
-      const nextTemplate = syncTemplateStatusChange(template, "cancelled");
+      const nextTemplate = syncTemplateStatusChange(template, status);
       await this.persistRecurringTemplate(nextTemplate);
-      const activeTask = await this.findActiveRecurringTask(id);
-      if (activeTask) {
-        await this.persistTask({
-          ...cloneTask(activeTask),
-          status: "cancelled",
-          updatedAt: nowIso(),
-        });
+      if (status === "cancelled") {
+        const activeTask = await this.findActiveRecurringTask(id);
+        if (activeTask) {
+          await this.persistTask(cancelActiveTaskForTemplate(activeTask, nowIso()));
+        }
       }
       return cloneRecurringTemplate(nextTemplate);
     });
@@ -1845,79 +1820,31 @@ export class TauriSqliteRepository implements AppRepository {
         }
 
         const instance = await this.findRecurringInstance(original.id);
-        const prepared = prepareRecurringGeneration(original, instance, today);
-        let template = prepared.template;
-        let activeTask = prepared.instance?.status === "active" ? prepared.instance : null;
-
-        if (prepared.changed) {
-          const timestamp = nowIso();
-          template = {
-            ...cloneRecurringTemplate(template),
-            updatedAt: timestamp,
-          };
-          await this.persistRecurringTemplate(template);
-          if (recurringInstanceWasRewound(instance, prepared.instance) && prepared.instance) {
-            const previousInstance = instance ? cloneTask(instance) : null;
-            const nextInstance = {
-              ...cloneTask(prepared.instance),
-              updatedAt: timestamp,
-            };
-            await this.persistTask(nextInstance);
-            if (previousInstance) {
-              await this.persistEvents(buildLifecycleEvents(previousInstance, nextInstance));
-            }
-            if (nextInstance.status === "active") {
-              activeTask = nextInstance;
-            }
-          }
+        const prepared = planRecurrencePreparation(original, instance, today, nowIso());
+        if (prepared.templateChanged) {
+          await this.persistRecurringTemplate(prepared.template);
+        }
+        if (prepared.instanceUpdate) {
+          const { previousTask, nextTask } = prepared.instanceUpdate;
+          await this.persistTask(nextTask);
+          await this.persistEvents(buildLifecycleEvents(previousTask, nextTask));
         }
 
-        const startDate = this.findProcessingStartDate(template, activeTask);
-        const dueDates = this.listDueDatesBetween(template, startDate, horizon);
-
-        if (dueDates.length === 0) {
+        const plan = planDueRecurrenceGeneration(
+          prepared.template,
+          prepared.activeTask,
+          horizon,
+          nowIso(),
+        );
+        if (!plan) {
           continue;
         }
 
-        const latestDueDate = dueDates[dueDates.length - 1];
-        const nextPending =
-          (activeTask?.pendingPastRecurrences ?? 0) + dueDates.length - 1 + (activeTask ? 1 : 0);
-        const previousPending = activeTask?.pendingPastRecurrences ?? 0;
-        const pendingPastRecurrences = Math.max(previousPending, nextPending);
-        const timestamp = nowIso();
-
-        const nextTask = activeTask
-          ? {
-              ...cloneTask(activeTask),
-              bucket: template.targetBucket,
-              contextIds: [...template.contextIds],
-              projectId: template.projectId,
-              title: activeTask.title,
-              notes: activeTask.notes,
-              scheduledFor:
-                template.targetBucket === "scheduled"
-                  ? buildTaskFromRecurringTemplate(template, latestDueDate, pendingPastRecurrences)
-                      .scheduledFor
-                  : null,
-              recurrenceDueDate: latestDueDate,
-              pendingPastRecurrences,
-              updatedAt: timestamp,
-            }
-          : buildTaskFromRecurringTemplate(
-              template,
-              latestDueDate,
-              Math.max(0, dueDates.length - 1),
-            );
-
-        await this.persistTask(nextTask);
-        await this.persistEvents(
-          buildLifecycleEvents(activeTask ? cloneTask(activeTask) : null, nextTask),
-        );
+        await this.persistTask(plan.nextTask);
+        await this.persistEvents(buildLifecycleEvents(plan.previousTask, plan.nextTask));
         await this.persistRecurringTemplate({
-          ...cloneRecurringTemplate(template),
-          lastGeneratedForDate: latestDueDate,
-          pendingMissedOccurrences: nextTask.pendingPastRecurrences,
-          updatedAt: timestamp,
+          ...cloneRecurringTemplate(prepared.template),
+          ...plan.templatePatch,
         });
 
         changedCount += 1;
@@ -2008,22 +1935,13 @@ export class TauriSqliteRepository implements AppRepository {
     }
 
     if (scope === "occurrence") {
-      return this.saveTask({
-        ...task,
-        title: changes.title ?? task.title,
-        notes: changes.notes ?? task.notes,
-        bucket: changes.bucket ?? task.bucket,
-        contextIds: changes.contextIds ?? task.contextIds,
-        projectId: changes.projectId === undefined ? task.projectId : changes.projectId,
-        scheduledFor: changes.scheduledFor === undefined ? task.scheduledFor : changes.scheduledFor,
-        deadline: changes.deadline === undefined ? task.deadline : changes.deadline,
-      });
+      return this.saveTask(mergeOccurrenceEdit(task, changes));
     }
 
     const template = await this.requireRecurringTemplate(task.recurringTemplateId);
     const nextTemplate = applySeriesChangesToTemplate(template, changes);
     await this.saveRecurringTaskTemplate(nextTemplate);
-    return this.saveTask(this.syncActiveTaskWithTemplate(task, nextTemplate));
+    return this.saveTask(syncActiveTaskWithTemplate(task, nextTemplate));
   }
 
   async createTask(input: Parameters<AppRepository["createTask"]>[0]): Promise<Task> {
@@ -2124,21 +2042,7 @@ export class TauriSqliteRepository implements AppRepository {
   async scheduleTask(taskId: string, scheduledFor: string | null): Promise<Task> {
     const current = await this.requireTask(taskId);
 
-    // Reusing `scheduledFor` on an active Planned task is a planned-date display update: it
-    // must never coerce the task to Scheduled.
-    if (current.status === "active" && current.bucket === "planned") {
-      return this.saveTask({ ...current, scheduledFor });
-    }
-
-    return this.saveTask({
-      ...current,
-      bucket: scheduledFor
-        ? "scheduled"
-        : current.bucket === "scheduled"
-          ? "next_action"
-          : current.bucket,
-      scheduledFor,
-    });
+    return this.saveTask(applyScheduleChange(current, scheduledFor));
   }
 
   async promotePlannedTask(taskId: string): Promise<Task> {
@@ -2149,15 +2053,8 @@ export class TauriSqliteRepository implements AppRepository {
       // taken before the writer slot was acquired: another queued mutation (e.g. a
       // completion or a project pause) may have run first, and eligibility must be
       // evaluated against current DB state, not a stale read.
-      const task = await this.getTaskById(taskId);
-      if (!task || task.status !== "active" || task.bucket !== "planned" || !task.projectId) {
-        throw new Error(`La tache ${taskId} n'est pas planifiee et active`);
-      }
-
-      const project = await this.getProjectById(task.projectId);
-      if (!project || project.status !== "active") {
-        throw new Error("Le projet associe n'est pas actif");
-      }
+      const task = assertPlannedTaskActionable(taskId, await this.getTaskById(taskId));
+      assertPlannedProjectActive(await this.getProjectById(task.projectId));
 
       const nextTask = await this.saveTaskInternal(tx, { ...task, bucket: "next_action" });
 
@@ -2169,10 +2066,7 @@ export class TauriSqliteRepository implements AppRepository {
     return this.writeTransaction(async (tx) => {
       transactionDb(tx);
 
-      const task = await this.requireTask(taskId);
-      if (task.status !== "active" || task.bucket !== "planned" || !task.projectId) {
-        throw new Error(`La tache ${taskId} n'est pas planifiee et active`);
-      }
+      const task = assertPlannedTaskActionable(taskId, await this.requireTask(taskId));
 
       const allTasks = await this.getAllTasks();
       const updates = swapPlannedOrder(allTasks, taskId, direction, nowIso());
@@ -2260,18 +2154,9 @@ export class TauriSqliteRepository implements AppRepository {
 
       if (current.recurringTemplateId) {
         const template = await this.requireRecurringTemplate(current.recurringTemplateId);
-        const nextLastGeneratedForDate =
-          current.recurrenceDueDate &&
-          (!template.lastGeneratedForDate ||
-            current.recurrenceDueDate > template.lastGeneratedForDate)
-            ? current.recurrenceDueDate
-            : template.lastGeneratedForDate;
-        await this.persistRecurringTemplate({
-          ...cloneRecurringTemplate(template),
-          lastGeneratedForDate: nextLastGeneratedForDate,
-          pendingMissedOccurrences: 0,
-          updatedAt: nowIso(),
-        });
+        await this.persistRecurringTemplate(
+          planTemplateUpdateOnTaskClose(template, current, "completed", nowIso()),
+        );
       }
 
       return nextTask;
@@ -2291,11 +2176,9 @@ export class TauriSqliteRepository implements AppRepository {
 
       if (current.recurringTemplateId) {
         const template = await this.requireRecurringTemplate(current.recurringTemplateId);
-        await this.persistRecurringTemplate({
-          ...cloneRecurringTemplate(template),
-          pendingMissedOccurrences: 0,
-          updatedAt: nowIso(),
-        });
+        await this.persistRecurringTemplate(
+          planTemplateUpdateOnTaskClose(template, current, "cancelled", nowIso()),
+        );
       }
 
       return nextTask;
@@ -2323,24 +2206,16 @@ export class TauriSqliteRepository implements AppRepository {
     });
   }
 
-  async computeDailyTaskStats(date: string) {
-    await this.generateDueRecurringTasks(date);
-    await this.promoteDueScheduledTasks(getTodayDate());
-    if (date <= getTodayDate() && isSunday(date)) {
-      await this.applyWeeklyCarryover(date);
-    }
+  async reconcileDay(date: string, now?: string): Promise<ReconcileDayResult> {
+    return reconcileGtdDay(this, date, now);
+  }
 
+  async computeDailyTaskStats(date: string) {
     const [tasks, events] = await Promise.all([this.getAllTasks(), this.getAllEvents()]);
     return buildDailyTaskStats(tasks, events, date);
   }
 
   async getDailyTaskBreakdown(date: string) {
-    await this.generateDueRecurringTasks(date);
-    await this.promoteDueScheduledTasks(getTodayDate());
-    if (date <= getTodayDate() && isSunday(date)) {
-      await this.applyWeeklyCarryover(date);
-    }
-
     const [tasks, events] = await Promise.all([this.getAllTasks(), this.getAllEvents()]);
     return buildDailyTaskBreakdown(tasks, events, date);
   }
@@ -2544,7 +2419,6 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async computeDailyPomodoroStats(date: string) {
-    await this.completeExpiredPomodoroSessions();
     const sessions = await this.getAllPomodoroSessions();
     return computeDailyPomodoroStats(sessions, date);
   }
@@ -2558,15 +2432,17 @@ export class TauriSqliteRepository implements AppRepository {
     return this.dbPromise;
   }
 
-  private async decorateEntry(entry: DailyEntry): Promise<DailyEntry> {
-    const [taskStats, pomodoroStats] = await Promise.all([
-      this.computeDailyTaskStats(entry.date),
-      this.computeDailyPomodoroStats(entry.date),
+  /** Pure decoration over one snapshot read; never reconciles or writes. */
+  private async decorateEntries(entries: DailyEntry[]): Promise<DailyEntry[]> {
+    if (entries.length === 0) {
+      return [];
+    }
+    const [tasks, events, sessions] = await Promise.all([
+      this.getAllTasks(),
+      this.getAllEvents(),
+      this.getAllPomodoroSessions(),
     ]);
-    return applyDailyPomodoroStats(
-      applyDailyTaskStats(cloneEntry(entry), taskStats),
-      pomodoroStats,
-    );
+    return decorateDailyEntries(entries, { tasks, events, sessions });
   }
 
   private async getAllTasks(): Promise<Task[]> {
@@ -2705,52 +2581,6 @@ export class TauriSqliteRepository implements AppRepository {
           candidate.status === "active",
       ) ?? null
     );
-  }
-
-  private findProcessingStartDate(
-    template: RecurringTaskTemplate,
-    activeTask: Task | null,
-  ): string {
-    const candidates = [template.startDate];
-
-    if (template.lastGeneratedForDate) {
-      candidates.push(addDays(template.lastGeneratedForDate, 1));
-    }
-
-    if (activeTask?.recurrenceDueDate) {
-      candidates.push(addDays(activeTask.recurrenceDueDate, 1));
-    }
-
-    const sorted = [...candidates].sort();
-    return sorted.length > 0 ? sorted[sorted.length - 1] : template.startDate;
-  }
-
-  private listDueDatesBetween(
-    template: RecurringTaskTemplate,
-    rangeStart: string,
-    rangeEnd: string,
-  ): string[] {
-    return listDueDatesBetween(template, rangeStart, rangeEnd);
-  }
-
-  private syncActiveTaskWithTemplate(task: Task, template: RecurringTaskTemplate): Task {
-    return {
-      ...cloneTask(task),
-      title: template.title,
-      notes: template.notes,
-      bucket: template.targetBucket,
-      contextIds: [...template.contextIds],
-      projectId: template.projectId,
-      scheduledFor:
-        template.targetBucket === "scheduled" && task.recurrenceDueDate
-          ? buildTaskFromRecurringTemplate(
-              template,
-              task.recurrenceDueDate,
-              task.pendingPastRecurrences,
-            ).scheduledFor
-          : null,
-      updatedAt: nowIso(),
-    };
   }
 
   private async persistTask(task: Task, conflict: "update" | "ignore" = "update"): Promise<void> {
@@ -3049,6 +2879,216 @@ export class TauriSqliteRepository implements AppRepository {
   ) {
     return this.writeExclusive(() => this.getFinanceStore().revertCategoryBackfill(entries));
   }
+
+  // --- Finance (Phase 5 — Budget) -------------------------------------------------------
+
+  async getFinanceBudgetMonth(monthKey: string) {
+    return this.getFinanceStore().getBudgetMonth(monthKey);
+  }
+
+  async setFinanceBudgetAssignment(monthKey: string, categoryId: string, assignedMinor: number) {
+    return this.writeExclusive(() =>
+      this.getFinanceStore().setBudgetAssignment(monthKey, categoryId, assignedMinor),
+    );
+  }
+
+  async setFinanceCategoryOverspendPolicy(
+    monthKey: string,
+    categoryId: string,
+    policy: import("../../domain/finance").FinanceOverspendPolicy,
+  ) {
+    return this.writeExclusive(() =>
+      this.getFinanceStore().setCategoryOverspendPolicy(monthKey, categoryId, policy),
+    );
+  }
+
+  async computeFinanceBudgetState(monthKey: string, baseCurrency: string) {
+    return this.getFinanceStore().computeBudgetState(monthKey, baseCurrency);
+  }
+
+  async applyFinanceCoverOverspending(
+    monthKey: string,
+    baseCurrency: string,
+    fromCategoryId: string,
+    toCategoryId: string,
+  ) {
+    return this.writeExclusive(() =>
+      this.getFinanceStore().applyCoverOverspending(
+        monthKey,
+        baseCurrency,
+        fromCategoryId,
+        toCategoryId,
+      ),
+    );
+  }
+
+  async computeFinanceCoverOverspending(
+    monthKey: string,
+    baseCurrency: string,
+    fromCategoryId: string,
+    toCategoryId: string,
+  ) {
+    return this.getFinanceStore().computeCoverOverspending(
+      monthKey,
+      baseCurrency,
+      fromCategoryId,
+      toCategoryId,
+    );
+  }
+
+  async setFinanceBudgetMonthClosed(monthKey: string, closed: boolean) {
+    return this.writeExclusive(() => this.getFinanceStore().setBudgetMonthClosed(monthKey, closed));
+  }
+
+  async setFinanceBudgetReadyToAssignNote(monthKey: string, note: string | null) {
+    return this.writeExclusive(() =>
+      this.getFinanceStore().setBudgetReadyToAssignNote(monthKey, note),
+    );
+  }
+
+  // --- Finance (Phase 6 — Tracking, reports, recurring, net worth) ---------------------
+
+  async computeFinanceNetWorth(asOfDate: string) {
+    const settings = await this.getSettings();
+    return this.getFinanceStore().computeNetWorth(asOfDate, settings.financeBaseCurrency);
+  }
+
+  async listFinanceNetWorthHistory() {
+    const settings = await this.getSettings();
+    return this.getFinanceStore().listNetWorthHistory(settings.financeBaseCurrency);
+  }
+
+  async computeFinanceCashFlow(monthKey: string) {
+    const settings = await this.getSettings();
+    return this.getFinanceStore().computeCashFlow(monthKey, settings.financeBaseCurrency);
+  }
+
+  async computeFinanceCategorySpend(
+    range: import("../../domain/finance/reports").FinanceDateRange,
+    groupBy: import("../../domain/finance/reports").FinanceReportGroupBy,
+  ) {
+    const settings = await this.getSettings();
+    return this.getFinanceStore().computeCategorySpend(
+      range,
+      groupBy,
+      settings.financeBaseCurrency,
+    );
+  }
+
+  async listFinanceCategorySpendDrilldown(
+    range: import("../../domain/finance/reports").FinanceDateRange,
+    groupBy: import("../../domain/finance/reports").FinanceReportGroupBy,
+    key: string,
+  ) {
+    const settings = await this.getSettings();
+    return this.getFinanceStore().listCategorySpendDrilldown(
+      range,
+      groupBy,
+      key,
+      settings.financeBaseCurrency,
+    );
+  }
+
+  async computeFinanceMerchantSpend(
+    range: import("../../domain/finance/reports").FinanceDateRange,
+    limit: number,
+  ) {
+    const settings = await this.getSettings();
+    return this.getFinanceStore().computeMerchantSpend(range, limit, settings.financeBaseCurrency);
+  }
+
+  async computeFinancePersonSpend(range: import("../../domain/finance/reports").FinanceDateRange) {
+    const settings = await this.getSettings();
+    return this.getFinanceStore().computePersonSpend(range, settings.financeBaseCurrency);
+  }
+
+  async computeFinanceTrend(
+    range: import("../../domain/finance/reports").FinanceDateRange,
+    granularity: import("../../domain/finance/reports").FinanceTrendGranularity,
+  ) {
+    const settings = await this.getSettings();
+    return this.getFinanceStore().computeTrend(range, granularity, settings.financeBaseCurrency);
+  }
+
+  async computeFinanceMonthOverMonth(
+    currentRange: import("../../domain/finance/reports").FinanceDateRange,
+    previousRange: import("../../domain/finance/reports").FinanceDateRange,
+    groupBy: import("../../domain/finance/reports").FinanceReportGroupBy,
+  ) {
+    const settings = await this.getSettings();
+    return this.getFinanceStore().computeMonthOverMonth(
+      currentRange,
+      previousRange,
+      groupBy,
+      settings.financeBaseCurrency,
+    );
+  }
+
+  async listFinanceRecurringSeries(
+    status?: import("../../domain/finance").FinanceRecurringSeries["status"],
+  ) {
+    return this.getFinanceStore().listRecurringSeries(status);
+  }
+
+  async saveFinanceRecurringSeries(series: import("../../domain/finance").FinanceRecurringSeries) {
+    return this.writeExclusive(() => this.getFinanceStore().saveRecurringSeries(series));
+  }
+
+  async detectFinanceRecurringSeries() {
+    return this.writeExclusive(() => this.getFinanceStore().detectRecurringSeries(getTodayDate()));
+  }
+
+  async snapshotFinanceAccountBalances(asOfDate: string) {
+    return this.writeExclusive(() => this.getFinanceStore().snapshotAccountBalances(asOfDate));
+  }
+
+  async listFinanceAccountBalanceSnapshots(accountId: string) {
+    return this.getFinanceStore().listAccountBalanceSnapshots(accountId);
+  }
+
+  // --- Finance (Phase 7 — Forecasting and proactive alerts) -----------------------------
+
+  async buildFinanceSnapshot(asOfDate: string) {
+    const settings = await this.getSettings();
+    return this.getFinanceStore().buildSnapshot(
+      asOfDate,
+      settings.financeSafetyBufferMinor,
+      settings.financeBaseCurrency,
+    );
+  }
+
+  async computeFinanceForecast(asOfDate: string) {
+    const settings = await this.getSettings();
+    return this.getFinanceStore().computeForecast(
+      asOfDate,
+      settings.financeSafetyBufferMinor,
+      settings.financeBaseCurrency,
+    );
+  }
+
+  async listNotifiedFinanceAlertKeys(onDate: string) {
+    return this.getFinanceStore().listNotifiedFinanceAlertKeys(onDate);
+  }
+
+  async recordFinanceAlertNotifications(onDate: string, alertKeys: string[]) {
+    return this.writeExclusive(() =>
+      this.getFinanceStore().recordFinanceAlertNotifications(onDate, alertKeys),
+    );
+  }
+
+  // --- Finance (Phase 8 — AI categorization) --------------------------------------------
+
+  async listFinanceUnknownMerchants(limit?: number) {
+    return this.getFinanceStore().listUnknownMerchants(limit);
+  }
+
+  async applyFinanceCategorizationResults(
+    input: import("../../domain/finance").ApplyFinanceCategorizationResultsInput,
+  ) {
+    return this.writeExclusive(() => this.getFinanceStore().applyCategorizationResults(input));
+  }
+
+  // --- Calendar sync (Phase 0) -----------------------------------------------------------
 
   async getCalendarSyncSettings(): Promise<CalendarSyncSettings> {
     return this.getCalendarSyncStore().getSettings();

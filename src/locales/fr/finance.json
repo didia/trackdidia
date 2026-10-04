@@ -5,6 +5,8 @@
     "transactions": "Transactions",
     "import": "Importer",
     "accounts": "Comptes",
+    "budget": "Budget",
+    "reports": "Rapports",
     "review": "Revue",
     "rules": "Règles"
   },
@@ -13,11 +15,28 @@
       "eyebrow": "Finances",
       "title": "Aperçu"
     },
-    "totalTitle": "Solde total (comptes budgétés)",
     "otherCurrenciesWarning": "Comptes exclus du total (devise différente de la devise de référence) : {{currencies}}.",
     "accountsTitle": "Comptes",
     "loading": "Chargement...",
-    "noAccounts": "Aucun compte. Ajoutez-en un dans l'onglet Comptes."
+    "loadError": "Impossible de charger l'aperçu financier.",
+    "closedAccount": "(fermé)",
+    "noAccounts": "Aucun compte. Ajoutez-en un dans l'onglet Comptes.",
+    "netWorthTitle": "Valeur nette",
+    "assetsLabel": "Actifs",
+    "liabilitiesLabel": "Passifs",
+    "cashFlowTitle": "Flux de trésorerie du mois",
+    "incomeLabel": "Revenus",
+    "expenseLabel": "Dépenses",
+    "netLabel": "Net",
+    "trendTitle": "Tendance des dépenses (6 mois)",
+    "topCategoriesTitle": "Principales catégories",
+    "noTopCategories": "Aucune dépense ce mois-ci.",
+    "recurringTitle": "Factures récurrentes à venir",
+    "noRecurring": "Aucune facture récurrente détectée.",
+    "recurringNextDate": "Prochaine échéance : {{date}}",
+    "recurringConfirm": "Confirmer",
+    "recurringPause": "Mettre en pause",
+    "recurringEnd": "Terminer"
   },
   "accounts": {
     "hero": {
@@ -137,7 +156,8 @@
     "noHistory": "Aucun import pour le moment.",
     "undo": "Annuler ce lot",
     "undoRefused": "{{count}} ligne(s) catégorisées manuellement n'ont pas été supprimées.",
-    "undoFailed": "Échec de l'annulation."
+    "undoFailed": "Échec de l'annulation.",
+    "aiCategorizationWarning": "L'import a réussi, mais la classification IA a échoué : des suggestions IA peuvent manquer. Utilisez « Classer les en attente (IA) » dans la file de révision pour réessayer."
   },
   "transactions": {
     "hero": {
@@ -220,7 +240,18 @@
     "accept": "Accepter",
     "correct": "Corriger",
     "dismiss": "Rejeter",
-    "pickCategory": "Choisir une catégorie"
+    "pickCategory": "Choisir une catégorie",
+    "classifyPending": "Classer les en attente (IA)",
+    "classifyPendingRunning": "Classification en cours...",
+    "classifyPendingCostHint": "Envoie les descriptions nettoyées des marchands inconnus (par lots de 40 ; numéros de carte/compte, courriels et numéros de téléphone retirés, mais un nom de contrepartie peut rester) au modèle IA configuré — chaque appel a un coût, visible dans le tableau de bord IA des paramètres.",
+    "classifyPendingUnavailable": "Activez l'IA et la catégorisation IA des finances dans les paramètres pour utiliser cette action.",
+    "classifyPendingResult": "{{merchants}} marchand(s) envoyé(s) à l'IA, {{suggestions}} suggestion(s) créée(s), {{autoApplied}} appliquée(s) automatiquement.",
+    "classifyPendingNothing": "Aucun marchand inconnu à classer.",
+    "classifyPendingResultNoRequest": "Aucun marchand envoyé à l'IA (réponse déjà en mémoire) : {{suggestions}} suggestion(s) créée(s), {{autoApplied}} appliquée(s) automatiquement.",
+    "classifyPendingDismissedNote": "{{count}} suggestion(s) ignorée(s) car déjà refusée(s) récemment.",
+    "classifyPendingWarning": "La classification IA a échoué pour au moins un lot de marchands ; aucune suggestion n'a été créée pour ce lot. Réessayez plus tard.",
+    "classifyPendingPartialWarning": "La classification IA a échoué pour au moins un lot de marchands. Les autres lots ont créé {{suggestions}} suggestion(s), dont {{autoApplied}} appliquée(s) automatiquement. Réessayez plus tard pour le reste.",
+    "classifyPendingError": "Échec de la classification IA. Réessayez plus tard."
   },
   "rules": {
     "hero": {
@@ -250,5 +281,94 @@
     "enable": "Activer",
     "disable": "Désactiver",
     "delete": "Supprimer"
+  },
+  "budget": {
+    "hero": {
+      "eyebrow": "Finances",
+      "title": "Budget"
+    },
+    "monthSelectorTitle": "Mois",
+    "previousMonth": "Mois précédent",
+    "nextMonth": "Mois suivant",
+    "closeMonth": "Clôturer le mois",
+    "reopenMonth": "Rouvrir le mois",
+    "readyToAssignTitle": "Prêt à assigner",
+    "readyToAssignNote": "Note",
+    "cardBalancesTitle": "Solde des cartes de crédit",
+    "envelopesTitle": "Enveloppes",
+    "fields": {
+      "assigned": "Assigné",
+      "activity": "Activité",
+      "available": "Disponible"
+    },
+    "overspendPolicies": {
+      "reduce_next_ready_to_assign": "Réduire le prêt à assigner du mois suivant",
+      "carry_negative": "Reporter le déficit"
+    },
+    "quickActions": {
+      "lastMonth": "Mois dernier",
+      "average3Months": "Moy. 3 mois",
+      "assignAllReadyToAssign": "Assigner tout le prêt à assigner",
+      "coverOverspending": "Couvrir",
+      "pickSourceCategory": "Choisir une catégorie source"
+    },
+    "pace": "{{percent}}% dépensé",
+    "unbudgetedTitle": "Non budgété ({{count}})",
+    "noUnbudgeted": "Aucune catégorie non budgétée.",
+    "unbudgetedAssign": "Assigner",
+    "runoutDate": "Épuisement prévu le {{date}}",
+    "lowConfidence": "(estimation provisoire)",
+    "forecastStatus": {
+      "on_track": "Sur la bonne voie",
+      "watch": "À surveiller",
+      "will_run_out": "Dépassement prévu",
+      "exhausted": "Épuisé"
+    }
+  },
+  "alerts": {
+    "title": "Alertes finances",
+    "subtitle": "Enveloppes et liquidités à surveiller",
+    "viewAll": "Voir toutes les finances",
+    "none": "Aucune alerte pour le moment.",
+    "loadError": "Impossible de charger les alertes finances.",
+    "retry": "Réessayer",
+    "lowConfidence": "estimation provisoire",
+    "cashRunout": "Liquidités : manque prévu le {{date}}",
+    "envelopeExhausted": "{{category}} : enveloppe épuisée",
+    "envelopeWillRunOut": "{{category}} : dépassement prévu le {{date}}",
+    "envelopeWatch": "{{category}} : à surveiller",
+    "severity": {
+      "critical": "Critique",
+      "warning": "Avertissement",
+      "info": "Info"
+    }
+  },
+  "reports": {
+    "hero": {
+      "eyebrow": "Finances",
+      "title": "Rapports"
+    },
+    "rangeTitle": "Période",
+    "fields": {
+      "from": "Du",
+      "to": "Au",
+      "period": "Période",
+      "category": "Catégorie",
+      "current": "Période actuelle",
+      "previous": "Période précédente",
+      "delta": "Écart"
+    },
+    "noData": "Aucune donnée pour cette période.",
+    "invalidRange": "La période est invalide : renseignez deux dates, la première avant la seconde.",
+    "loadError": "Impossible de charger les rapports.",
+    "categoryTitle": "Dépenses par catégorie",
+    "drilldownAction": "Voir le détail",
+    "drilldownTitle": "Transactions de cette catégorie",
+    "closeDrilldown": "Fermer",
+    "merchantTitle": "Dépenses par marchand",
+    "personTitle": "Dépenses par personne",
+    "unassignedPerson": "Non assigné",
+    "trendTitle": "Revenus et dépenses",
+    "monthOverMonthTitle": "Comparaison d'un mois à l'autre"
   }
 }

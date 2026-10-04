@@ -1,5 +1,5 @@
 // Deterministic French default category taxonomy. Fixed ids so re-seeding is a
-// no-op (INSERT OR IGNORE) — see specs/todo/finance.md "Migrations" and
+// no-op (INSERT OR IGNORE) — see specs/done/finance.md "Migrations" and
 // "Bootstrap". This is distinct from the three system categories
 // (Uncategorized/Transfer/Split), which are inserted by migration 37 itself
 // because engine code hard-references their ids.

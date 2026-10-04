@@ -51,13 +51,13 @@ export const HistoryPage = () => {
       repository.computeDailyTaskStats(date),
       repository.computeDailyPomodoroStats(date),
     ]);
+    // `getDailyEntry` already returns suggested metrics; only a day with no row needs them applied.
     setSelectedEntry(
-      existing
-        ? applyDailyPomodoroStats(applyDailyTaskStats(existing, stats), pomodoroStats)
-        : applyDailyPomodoroStats(
-            applyDailyTaskStats(createEmptyDailyEntry(date), stats),
-            pomodoroStats,
-          ),
+      existing ??
+        applyDailyPomodoroStats(
+          applyDailyTaskStats(createEmptyDailyEntry(date), stats),
+          pomodoroStats,
+        ),
     );
   };
 

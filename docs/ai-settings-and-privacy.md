@@ -217,9 +217,16 @@ Daily and review draft acceptance joins the corresponding autosave queue. Later
 manual edits remain editable and persist after the atomic accept; a later edit of
 the same field wins. Repeat accepts return the stored decision without draft UI
 effects, so they cannot replace a manual note or mark an unwritten snapshot saved.
-Daily, weekly, and monthly proposal buttons are disabled for the whole acceptance
-call, with a synchronous guard that also blocks repeat clicks before the next render.
-A failed accept releases that guard and rolls back the entity and decision together.
+Today, Evening, Weekly, and Monthly screens share `useProposalDecisions`
+(`src/app/use-proposal-decisions.ts`) and render suggestions through `ProposalList`
+(`src/components/ProposalList.tsx`, per-surface label map plus `proposalPreviewText`).
+The hook exposes `accept`, `dismiss`, and `isApplying(id)`: a ref-backed in-flight set
+rejects repeat clicks synchronously (before the next render) and keeps both buttons
+disabled for the whole accept or dismiss; it also ignores proposals not in the current
+result. Each screen supplies only its `onAccept` side effects; the hook swaps in the
+decided row (or marks the proposal dismissed) and logs failures with `logDebug`.
+A failed accept releases the guard, leaves the proposal pending, and rolls back the
+entity and decision together.
 Goal evaluation effects read the current goal inside the writer, preserving other
 months and goal fields. Missing or inactive tasks stay pending; the monthly screen
 still dismisses a missing goal and displays its existing notice.
@@ -578,6 +585,70 @@ Before any model call, `CoachPulseService` builds a typed daily snapshot via
 `buildGoalPacingSnapshot`. All apply `aiPayloadScope` redaction centrally. Settings
 can preview the exact payload per scope when debug mode is enabled (see below).
 
+**Finance is not part of the coach (`coach_pulse`) payload.** `AppSettings.financeCoachContextEnabled`
+exists (default `false`) but nothing reads it: no snapshot builder joins
+finance data into the daily pulse or any other coach/synthesis surface. The
+finance spec (see [docs/finance.md](finance.md#forecasting-and-proactive-alerts-phase-7))
+allows a compact "category statuses and names only, no amounts" snapshot to
+be added later, behind this flag, following the pattern above — deliberately
+deferred rather than rushed. Finance's own AI categorization surface is
+separate and is covered below.
+
+### Finance categorization (`finance_categorization`)
+
+Unlike every surface above, `finance_categorization` is not a coach/synthesis
+read-and-display surface: it is a batch classification stage for unknown
+transaction merchants, run on demand (never on a timer, never at startup) —
+see [docs/finance.md](finance.md#ai-categorization-phase-8) for the full
+data flow, the gating flags, and the run triggers. This page documents only
+the privacy contract, since that is what makes the surface safe to ship.
+
+**Sent**, per merchant, at most 40 merchants / 16 KiB per request (an
+over-cap batch is split into more requests, never truncated):
+
+- the **cleaned transaction descriptor** — `finance_transactions.merchant_key`
+  (the normalized, uppercased, accent-stripped `descriptionRaw`), with email
+  addresses, card/account-looking fragments, digit runs of 4+ characters, and
+  phone-number-shaped digit groups stripped, clamped to 60 characters. **This
+  is not a general redactor**: it removes structured identifiers only. A
+  counterparty name, a partial address, or any other plain word present in
+  the original description (e.g. an e-transfer line like "INTERAC E-TRANSFER
+  JEAN DUPONT") is sent as-is — see
+  `src/lib/ai/context/finance-categorization-snapshot.ts`'s module comment
+  for exactly what the sanitizer does and does not catch.
+- the transaction sign (`-1` | `0` | `1`)
+- an occurrence count
+- an amount **bucket** (`<10`, `10-50`, `50-200`, `200-1000`, `>1000`, in
+  `financeBaseCurrency`) — never an exact amount
+- the account **type** (`checking`, `credit_card`, …) — never the account
+  name or institution
+- the allowed category id/name list (user-created and default categories
+  only — the three system categories, Uncategorized/Transfer/Split, are
+  excluded)
+
+**Never sent** — structured fields that never exist on the payload shape at
+all, as opposed to free text the sanitizer might miss: account names,
+institutions, account numbers, balances, net worth, `personId`, exact
+amounts, dates, notes, or labels.
+`src/lib/ai/context/finance-categorization-snapshot.test.ts` serializes the
+built payload and asserts by substring that none of these structured fields
+appear; it does not and cannot assert that no free-text name or address ever
+leaks, because the descriptor is sent as cleaned free text, not as a fully
+redacted one.
+
+**Gating** — all three must be on, checked by both the service and the
+`/finances/review` button:
+
+| Setting | Default | Effect when off |
+|---|---|---|
+| `financeAiCategorizationEnabled` | `false` | The stage does not run at all — no read, no call, no write |
+| `aiEnabled` | `false` | The stage runs but every batch is persisted `status: "skipped"` and applies nothing |
+| `aiApiKey` (non-empty) | `""` | Same as `aiEnabled` off |
+
+`aiPayloadScope === "metrics"` additionally disables the stage entirely, the
+same way it would starve any other surface of structure — a merchant string
+is structure, not a metric.
+
 ### Persistence (`ai_messages`, `ai_proposals`, `ai_memories`)
 
 Every coach result is persisted in SQLite (migrations 21–24):
@@ -651,6 +722,7 @@ stored on each `ai_messages.prompt_version` row:
 | `goal_pacing` | `goal_pacing.v1` |
 | `mid_week_steering` | `mid_week_steering.v1` |
 | `pastor_verse` | `pastor_verse.v1` |
+| `finance_categorization` | `finance_categorization.v1` |
 
 The analytics section lists active versions and surfaces low-acceptance areas as
 prompt-revision candidates.
@@ -883,3 +955,4 @@ evaluation corpus matching the current model and thresholds. See [Email triage](
 - [Storage and backups](storage-and-backups.md)
 - [Daily routines](daily-routines.md)
 - [GTD](gtd.md)
+- [Finance](finance.md#ai-categorization-phase-8)

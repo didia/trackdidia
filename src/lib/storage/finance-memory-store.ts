@@ -3,10 +3,16 @@
 // "Repository parity") — the same business rules, over Maps instead of SQL.
 
 import type {
+  ApplyFinanceCategorizationResultsInput,
+  ApplyFinanceCategorizationResultsOutcome,
   BulkUpdateFinanceTransactionsPatch,
   DecideFinanceCategorySuggestionInput,
   FinanceAccount,
+  FinanceAccountBalanceSnapshot,
   FinanceAccountFilters,
+  FinanceAccountType,
+  FinanceBudgetEntry,
+  FinanceBudgetMonth,
   FinanceCategory,
   FinanceCategoryBackfillEntry,
   FinanceCategorySuggestion,
@@ -16,18 +22,69 @@ import type {
   FinanceImportSummary,
   FinanceMerchantMemoryEntry,
   FinanceMerchantMemoryFilters,
+  FinanceOverspendPolicy,
   FinancePerson,
+  FinanceRecurringSeries,
   FinanceRule,
   FinanceRuleActions,
   FinanceTransaction,
   FinanceTransactionFilters,
   FinanceTransactionSplit,
+  FinanceUnknownMerchantGroup,
   ReclassifyFinancePendingResult,
   SetFinanceTransactionCategoryInput,
   SetFinanceTransactionCategoryResult,
   SetFinanceTransferPair,
   UndoFinanceImportBatchResult,
 } from "../../domain/finance";
+import {
+  assertFinanceCategoryAssignable,
+  hasBudgetEntryMetadata,
+  computeCoverOverspending,
+  computeFinanceBudgetState,
+  type CoverOverspendingResult,
+  type FinanceBudgetComputationInput,
+  type FinanceBudgetState,
+} from "../../domain/finance/budget";
+import {
+  computeFinanceCashFlow,
+  type FinanceCashFlowComputationInput,
+  type FinanceCashFlowSummary,
+} from "../../domain/finance/cash-flow";
+import {
+  buildFinanceNetWorthHistory,
+  computeFinanceNetWorth,
+  type FinanceNetWorthComputationInput,
+  type FinanceNetWorthHistoryPoint,
+  type FinanceNetWorthSnapshot,
+} from "../../domain/finance/net-worth";
+import { getMonthEndDate, getMonthKey } from "../../domain/monthly-review";
+import {
+  buildFinanceAlerts,
+  computeFinanceForecast,
+  restrictBudgetInputThrough,
+  type FinanceAlert,
+  type FinanceForecast,
+  type FinanceSnapshot,
+} from "../../domain/finance/forecast";
+import {
+  computeFinanceCategorySpend,
+  computeFinanceMerchantSpend,
+  computeFinanceMonthOverMonth,
+  computeFinancePersonSpend,
+  computeFinanceTrend,
+  listFinanceCategorySpendDrilldown,
+  type FinanceCategorySpendRow,
+  type FinanceDateRange,
+  type FinanceMerchantSpendRow,
+  type FinanceMonthOverMonthRow,
+  type FinancePersonSpendRow,
+  type FinanceReportComputationInput,
+  type FinanceReportGroupBy,
+  type FinanceReportLine,
+  type FinanceTrendGranularity,
+  type FinanceTrendPoint,
+} from "../../domain/finance/reports";
 import { getTodayDate } from "../date";
 import {
   classifyTransaction,
@@ -35,13 +92,22 @@ import {
   type ClassificationOutcome,
 } from "../finance/classify";
 import { DEFAULT_FINANCE_CATEGORIES } from "../finance/default-categories";
-import type { DismissedSuggestionPair } from "../finance/dismissed-suggestions";
+import {
+  isSuggestionDismissed,
+  type DismissedSuggestionPair,
+} from "../finance/dismissed-suggestions";
 import {
   dedupeHash as computeDedupeHash,
   assignOccurrenceIndices,
 } from "../finance/import-profile";
 import { applyMerchantMemoryCorrection } from "../finance/memory";
 import { findNearDuplicates } from "../finance/near-duplicates";
+import {
+  detectFinanceRecurringSeries,
+  type DetectedRecurringSeries,
+  type RecurringDetectionExistingSeriesInput,
+  type RecurringDetectionTransactionInput,
+} from "../finance/recurring-detection";
 import { validateSplitTotal } from "../finance/splits";
 import { detectTransfers, type TransferCandidateTransaction } from "../finance/transfers";
 import { createEntityId, nowIso } from "../gtd/shared";
@@ -101,6 +167,17 @@ export class FinanceMemoryStore {
   categorySuggestions = new Map<string, FinanceCategorySuggestion>();
   importProfiles = new Map<string, FinanceImportProfile>();
   importBatches = new Map<string, FinanceImportBatch>();
+  /** Keyed by `${monthKey}\u0000${categoryId}`. */
+  budgetEntries = new Map<string, FinanceBudgetEntry>();
+  budgetMonths = new Map<string, FinanceBudgetMonth>();
+  recurringSeries = new Map<string, FinanceRecurringSeries>();
+  /** Keyed by `${accountId}\u0000${asOfDate}`. */
+  balanceSnapshots = new Map<string, FinanceAccountBalanceSnapshot>();
+  /** Keyed by `${alertKey}\u0000${notifiedOnDate}` — the once-per-day-per-key notification ledger. */
+  alertNotifications = new Map<
+    string,
+    { alertKey: string; notifiedOnDate: string; notifiedAt: string }
+  >();
 
   // --- people -------------------------------------------------------------
 
@@ -738,7 +815,7 @@ export class FinanceMemoryStore {
 
     // A user-categorized row is never re-categorized by any automatic stage, including
     // transfer detection — exclude it from the candidate set entirely so it can neither be
-    // paired nor relabeled (see specs/todo/finance.md "Classification order").
+    // paired nor relabeled (see specs/done/finance.md "Classification order").
     const candidates: TransferCandidateTransaction[] = [...this.transactions.values()]
       .filter((txn) => txn.categorySource !== "user")
       .map((txn) => ({
@@ -800,7 +877,7 @@ export class FinanceMemoryStore {
     }
 
     // Classification (rules -> learned memory -> seed heuristics; no AI — see
-    // specs/todo/finance.md "Classification pipeline"). Only the rows this
+    // specs/done/finance.md "Classification pipeline"). Only the rows this
     // batch inserted that transfer detection left untouched are eligible;
     // transfer detection already decided a final category for the rest.
     const classificationRules = [...this.rules.values()];
@@ -828,6 +905,10 @@ export class FinanceMemoryStore {
         pendingSuggestions += 1;
       }
     }
+
+    // Recurring-bill detection runs after every import, over the whole
+    // history — see specs/done/finance.md "Recurring bills".
+    this.detectRecurringSeries(today);
 
     const skipped = input.rejected?.skipped ?? 0;
     const errors = input.rejected?.errors ?? 0;
@@ -1155,6 +1236,8 @@ export class FinanceMemoryStore {
       deleted += 1;
     }
 
+    this.detectRecurringSeries(getTodayDate());
+
     return { deleted, refusedUserCategorized };
   }
 
@@ -1217,5 +1300,802 @@ export class FinanceMemoryStore {
     }
 
     return updated;
+  }
+
+  // --- AI categorization (Phase 8) ---------------------------------------------------
+
+  /** Most frequent value in `values`; ties resolve to whichever value sorts first. */
+  private static modeOf<T extends string | number>(values: T[], fallback: T): T {
+    if (values.length === 0) {
+      return fallback;
+    }
+    const counts = new Map<T, number>();
+    for (const value of values) {
+      counts.set(value, (counts.get(value) ?? 0) + 1);
+    }
+    let best = fallback;
+    let bestCount = -1;
+    for (const [value, count] of [...counts.entries()].sort((a, b) =>
+      String(a[0]).localeCompare(String(b[0])),
+    )) {
+      if (count > bestCount) {
+        best = value;
+        bestCount = count;
+      }
+    }
+    return best;
+  }
+
+  /** Median of absolute values, integer-only (no float division). */
+  private static medianAbs(values: number[]): number {
+    const sorted = [...values].map((value) => Math.abs(value)).sort((a, b) => a - b);
+    if (sorted.length === 0) {
+      return 0;
+    }
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 1 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+  }
+
+  /**
+   * Merchant-level groups of currently unknown transactions — see
+   * `FinanceUnknownMerchantGroup` and specs/done/finance.md "AI stage". A transaction
+   * qualifies when it is not user-categorized, not a transfer, still carries the
+   * `Uncategorized` category, and has no pending suggestion yet (rules/memory/seeds all
+   * failed to decide). Pure read — no write, so safe to call outside any exclusive block.
+   */
+  listUnknownMerchants(limit = 40): FinanceUnknownMerchantGroup[] {
+    const pendingTransactionIds = new Set(
+      [...this.categorySuggestions.values()]
+        .filter((suggestion) => suggestion.status === "pending")
+        .map((suggestion) => suggestion.transactionId),
+    );
+    const eligible = [...this.transactions.values()].filter(
+      (txn) =>
+        txn.categorySource !== "user" &&
+        !txn.isTransfer &&
+        txn.categoryId === UNCATEGORIZED_CATEGORY_ID &&
+        !pendingTransactionIds.has(txn.id),
+    );
+
+    const groups = new Map<string, FinanceTransaction[]>();
+    for (const txn of eligible) {
+      const bucket = groups.get(txn.merchantKey);
+      if (bucket) {
+        bucket.push(txn);
+      } else {
+        groups.set(txn.merchantKey, [txn]);
+      }
+    }
+
+    const result: FinanceUnknownMerchantGroup[] = [...groups.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([merchantKey, txns]) => {
+        const currency = FinanceMemoryStore.modeOf(
+          txns.map((txn) => txn.currency),
+          txns[0].currency,
+        );
+        return {
+          merchantKey,
+          sign: FinanceMemoryStore.modeOf(
+            txns.map((txn): -1 | 0 | 1 => (txn.amountMinor > 0 ? 1 : txn.amountMinor < 0 ? -1 : 0)),
+            0,
+          ),
+          occurrenceCount: txns.length,
+          amountMinorSample: FinanceMemoryStore.medianAbs(
+            txns.filter((txn) => txn.currency === currency).map((txn) => txn.amountMinor),
+          ),
+          currency,
+          accountType: FinanceMemoryStore.modeOf(
+            txns.map(
+              (txn): FinanceAccountType => this.accounts.get(txn.accountId)?.type ?? "other",
+            ),
+            "other",
+          ),
+          transactionIds: txns.map((txn) => txn.id),
+        };
+      });
+
+    return result.slice(0, limit);
+  }
+
+  /**
+   * Applies AI categorization results — see `ApplyFinanceCategorizationResultsInput` and
+   * specs/done/finance.md "AI stage". For every result, every currently-eligible transaction
+   * sharing (one of) its original merchant key(s) gets a pending `"ai"`-origin suggestion,
+   * unless `(merchantKey, categoryId)` is within the 90-day dismissed window. When `autoApply`
+   * and `confidence >= autoApplyMinConfidence` both hold, the transaction's category is set
+   * directly (`category_source = "ai"`) and the just-written suggestion is marked `"accepted"`
+   * instead of being left in the review queue — there is nothing left for the user to decide.
+   * A `category_source === "user"` row is never touched, matching every other automatic stage.
+   */
+  applyCategorizationResults(
+    input: ApplyFinanceCategorizationResultsInput,
+  ): ApplyFinanceCategorizationResultsOutcome {
+    const now = nowIso();
+    const today = input.today ?? getTodayDate();
+    const dismissed = this.buildDismissedPairs();
+
+    let suggestionsCreated = 0;
+    let autoApplied = 0;
+    let suppressedDismissed = 0;
+    const requestedIds = new Set(input.transactionIds);
+    const pendingTransactionIds = new Set(
+      [...this.categorySuggestions.values()]
+        .filter((suggestion) => suggestion.status === "pending")
+        .map((suggestion) => suggestion.transactionId),
+    );
+
+    for (const result of input.results) {
+      const originalKeys = input.merchantKeyMap[result.merchantKey] ?? [result.merchantKey];
+      for (const merchantKey of originalKeys) {
+        if (isSuggestionDismissed(dismissed, merchantKey, result.categoryId, today)) {
+          suppressedDismissed += 1;
+          continue;
+        }
+
+        const targets = [...this.transactions.values()].filter(
+          (txn) =>
+            txn.merchantKey === merchantKey &&
+            txn.categorySource !== "user" &&
+            !txn.isTransfer &&
+            txn.categoryId === UNCATEGORIZED_CATEGORY_ID,
+        );
+
+        for (const txn of targets) {
+          if (!requestedIds.has(txn.id) || pendingTransactionIds.has(txn.id)) {
+            continue;
+          }
+          const autoApply = input.autoApply && result.confidence >= input.autoApplyMinConfidence;
+
+          const suggestionId = createEntityId("finance-suggestion");
+          this.categorySuggestions.set(suggestionId, {
+            id: suggestionId,
+            transactionId: txn.id,
+            merchantKey,
+            suggestedCategoryId: result.categoryId,
+            confidence: result.confidence,
+            origin: "ai",
+            rationale: result.rationale,
+            model: input.model,
+            promptVersion: input.promptVersion,
+            status: autoApply ? "accepted" : "pending",
+            decidedAt: autoApply ? now : null,
+            createdAt: now,
+          });
+          suggestionsCreated += 1;
+          pendingTransactionIds.add(txn.id);
+
+          if (autoApply) {
+            this.transactions.set(txn.id, {
+              ...txn,
+              categoryId: result.categoryId,
+              categorySource: "ai",
+              categoryConfidence: result.confidence,
+              categorizedAt: now,
+              updatedAt: now,
+            });
+            autoApplied += 1;
+          }
+        }
+      }
+    }
+
+    return { suggestionsCreated, autoApplied, suppressedDismissed };
+  }
+
+  // --- budget (Phase 5) -------------------------------------------------------------
+
+  private budgetEntryKey = (monthKey: string, categoryId: string): string =>
+    `${monthKey}\u0000${categoryId}`;
+
+  getBudgetMonth(monthKey: string): FinanceBudgetMonth {
+    return (
+      this.budgetMonths.get(monthKey) ?? {
+        monthKey,
+        readyToAssignNote: null,
+        closedAt: null,
+        updatedAt: "",
+      }
+    );
+  }
+
+  listBudgetEntries(): FinanceBudgetEntry[] {
+    return [...this.budgetEntries.values()].sort(
+      (a, b) => a.monthKey.localeCompare(b.monthKey) || a.categoryId.localeCompare(b.categoryId),
+    );
+  }
+
+  /** Rejects `kind = "income"` categories; assigning `0` deletes the row unless it holds a non-default policy or a note. */
+  setBudgetAssignment(
+    monthKey: string,
+    categoryId: string,
+    assignedMinor: number,
+  ): FinanceBudgetEntry | null {
+    const category = this.categories.get(categoryId);
+    if (!category) {
+      throw new Error(`finance category not found: ${categoryId}`);
+    }
+    assertFinanceCategoryAssignable(category);
+
+    const key = this.budgetEntryKey(monthKey, categoryId);
+    const existing = this.budgetEntries.get(key);
+    if (assignedMinor === 0 && !hasBudgetEntryMetadata(existing)) {
+      this.budgetEntries.delete(key);
+      return null;
+    }
+
+    const now = nowIso();
+    const saved: FinanceBudgetEntry = {
+      monthKey,
+      categoryId,
+      assignedMinor,
+      overspendPolicy: existing?.overspendPolicy ?? "reduce_next_ready_to_assign",
+      note: existing?.note ?? null,
+      updatedAt: now,
+    };
+    this.budgetEntries.set(key, saved);
+    return saved;
+  }
+
+  /**
+   * Writes the policy on `(monthKey, categoryId)` — creating the entry with
+   * `assignedMinor = 0` if absent — and on every already-existing later entry
+   * for that category; never creates a future entry just to carry it forward.
+   */
+  setCategoryOverspendPolicy(
+    monthKey: string,
+    categoryId: string,
+    policy: FinanceOverspendPolicy,
+  ): void {
+    const now = nowIso();
+    const key = this.budgetEntryKey(monthKey, categoryId);
+    const existing = this.budgetEntries.get(key);
+    this.budgetEntries.set(key, {
+      monthKey,
+      categoryId,
+      assignedMinor: existing?.assignedMinor ?? 0,
+      overspendPolicy: policy,
+      note: existing?.note ?? null,
+      updatedAt: now,
+    });
+
+    for (const entry of this.budgetEntries.values()) {
+      if (entry.categoryId === categoryId && entry.monthKey > monthKey) {
+        this.budgetEntries.set(this.budgetEntryKey(entry.monthKey, categoryId), {
+          ...entry,
+          overspendPolicy: policy,
+          updatedAt: now,
+        });
+      }
+    }
+  }
+
+  setBudgetMonthClosed(monthKey: string, closed: boolean): FinanceBudgetMonth {
+    const now = nowIso();
+    const existing = this.getBudgetMonth(monthKey);
+    const saved: FinanceBudgetMonth = {
+      ...existing,
+      closedAt: closed ? now : null,
+      updatedAt: now,
+    };
+    this.budgetMonths.set(monthKey, saved);
+    return saved;
+  }
+
+  setBudgetReadyToAssignNote(monthKey: string, note: string | null): FinanceBudgetMonth {
+    const now = nowIso();
+    const existing = this.getBudgetMonth(monthKey);
+    const saved: FinanceBudgetMonth = {
+      ...existing,
+      readyToAssignNote: note,
+      updatedAt: now,
+    };
+    this.budgetMonths.set(monthKey, saved);
+    return saved;
+  }
+
+  /**
+   * Loads the same input shape `FinanceSqliteStore.computeBudgetState` loads
+   * and hands it to the same pure function — see "Computation shape".
+   */
+  private buildBudgetComputationInput(
+    monthKey: string,
+    baseCurrency: string,
+  ): FinanceBudgetComputationInput {
+    const monthEnd = getMonthEndDate(monthKey);
+    const accounts = [...this.accounts.values()].filter(
+      (account) => account.onBudget && account.currency === baseCurrency,
+    );
+    const onBudgetAccountIds = new Set(accounts.map((account) => account.id));
+
+    const onBudgetThroughMonthEnd = [...this.transactions.values()].filter(
+      (txn) => onBudgetAccountIds.has(txn.accountId) && txn.postedDate <= monthEnd,
+    );
+    const transactions = onBudgetThroughMonthEnd.filter((txn) => !txn.excludedFromBudget);
+    const splitTransactionIds = new Set(
+      transactions.filter((txn) => txn.hasSplits).map((txn) => txn.id),
+    );
+    const splits = [...this.splits.values()].filter((split) =>
+      splitTransactionIds.has(split.transactionId),
+    );
+
+    return {
+      monthKey,
+      accounts: accounts.map((account) => ({
+        id: account.id,
+        onBudget: account.onBudget,
+        openingBalanceMinor: account.openingBalanceMinor,
+      })),
+      transactions: transactions.map((txn) => ({
+        id: txn.id,
+        accountId: txn.accountId,
+        postedDate: txn.postedDate,
+        amountMinor: txn.amountMinor,
+        categoryId: txn.categoryId,
+        hasSplits: txn.hasSplits,
+      })),
+      balanceTransactions: onBudgetThroughMonthEnd.map((txn) => ({
+        accountId: txn.accountId,
+        postedDate: txn.postedDate,
+        amountMinor: txn.amountMinor,
+      })),
+      splits: splits.map((split) => ({
+        transactionId: split.transactionId,
+        amountMinor: split.amountMinor,
+        categoryId: split.categoryId,
+      })),
+      entries: this.listBudgetEntries(),
+      categories: [...this.categories.values()].map((category) => ({
+        id: category.id,
+        kind: category.kind,
+        defersToNextMonth: category.defersToNextMonth,
+      })),
+    };
+  }
+
+  computeBudgetState(monthKey: string, baseCurrency: string): FinanceBudgetState {
+    return computeFinanceBudgetState(this.buildBudgetComputationInput(monthKey, baseCurrency));
+  }
+
+  /** Moves the cover amount between both rows in one synchronous step. */
+  applyCoverOverspending(
+    monthKey: string,
+    baseCurrency: string,
+    fromCategoryId: string,
+    toCategoryId: string,
+  ): CoverOverspendingResult {
+    const result = this.computeCoverOverspending(
+      monthKey,
+      baseCurrency,
+      fromCategoryId,
+      toCategoryId,
+    );
+    if (result.amountMinor > 0) {
+      this.setBudgetAssignment(monthKey, fromCategoryId, result.fromNewAssignedMinor);
+      this.setBudgetAssignment(monthKey, toCategoryId, result.toNewAssignedMinor);
+    }
+    return result;
+  }
+
+  /** Delegates to the pure `computeCoverOverspending` — see `AppRepository.computeFinanceCoverOverspending`. */
+  computeCoverOverspending(
+    monthKey: string,
+    baseCurrency: string,
+    fromCategoryId: string,
+    toCategoryId: string,
+  ): CoverOverspendingResult {
+    const input = this.buildBudgetComputationInput(monthKey, baseCurrency);
+    return computeCoverOverspending(fromCategoryId, toCategoryId, monthKey, input);
+  }
+
+  // --- net worth / cash flow / reports / recurring (Phase 6) -----------------------------
+
+  /**
+   * Every transaction on every account regardless of `excludedFromBudget`/
+   * `excludedFromReports`/`onBudget` — the net-worth balance rule (see
+   * AGENTS.md "Repository parity"). Mirrors `FinanceSqliteStore`'s loader.
+   */
+  private buildNetWorthComputationInput(
+    asOfDate: string,
+    baseCurrency: string,
+  ): FinanceNetWorthComputationInput {
+    return {
+      asOfDate,
+      baseCurrency,
+      accounts: [...this.accounts.values()].map((account) => ({
+        id: account.id,
+        type: account.type,
+        currency: account.currency,
+        closed: account.closed,
+        openingBalanceMinor: account.openingBalanceMinor,
+      })),
+      transactions: [...this.transactions.values()].map((txn) => ({
+        accountId: txn.accountId,
+        postedDate: txn.postedDate,
+        amountMinor: txn.amountMinor,
+      })),
+    };
+  }
+
+  computeNetWorth(asOfDate: string, baseCurrency: string): FinanceNetWorthSnapshot {
+    return computeFinanceNetWorth(this.buildNetWorthComputationInput(asOfDate, baseCurrency));
+  }
+
+  listNetWorthHistory(baseCurrency: string): FinanceNetWorthHistoryPoint[] {
+    return buildFinanceNetWorthHistory(
+      [...this.balanceSnapshots.values()],
+      [...this.accounts.values()].map((account) => ({
+        id: account.id,
+        type: account.type,
+        currency: account.currency,
+        closed: account.closed,
+        openingBalanceMinor: account.openingBalanceMinor,
+      })),
+      baseCurrency,
+    );
+  }
+
+  private buildCashFlowComputationInput(
+    monthKey: string,
+    baseCurrency: string,
+  ): FinanceCashFlowComputationInput {
+    return {
+      monthKey,
+      baseCurrency,
+      transactions: [...this.transactions.values()].map((txn) => ({
+        id: txn.id,
+        postedDate: txn.postedDate,
+        amountMinor: txn.amountMinor,
+        currency: txn.currency,
+        isTransfer: txn.isTransfer,
+        excludedFromReports: txn.excludedFromReports,
+        hasSplits: txn.hasSplits,
+      })),
+      splits: [...this.splits.values()].map((split) => ({
+        transactionId: split.transactionId,
+        amountMinor: split.amountMinor,
+      })),
+    };
+  }
+
+  computeCashFlow(monthKey: string, baseCurrency: string): FinanceCashFlowSummary {
+    return computeFinanceCashFlow(this.buildCashFlowComputationInput(monthKey, baseCurrency));
+  }
+
+  private buildReportComputationInput(baseCurrency: string): FinanceReportComputationInput {
+    return {
+      baseCurrency,
+      transactions: [...this.transactions.values()].map((txn) => ({
+        id: txn.id,
+        postedDate: txn.postedDate,
+        amountMinor: txn.amountMinor,
+        currency: txn.currency,
+        categoryId: txn.categoryId,
+        merchantKey: txn.merchantKey,
+        merchantDisplay: txn.merchantDisplay,
+        personId: txn.personId,
+        isTransfer: txn.isTransfer,
+        excludedFromReports: txn.excludedFromReports,
+        hasSplits: txn.hasSplits,
+      })),
+      splits: [...this.splits.values()].map((split) => ({
+        id: split.id,
+        transactionId: split.transactionId,
+        amountMinor: split.amountMinor,
+        categoryId: split.categoryId,
+      })),
+      categories: [...this.categories.values()].map((category) => ({
+        id: category.id,
+        parentId: category.parentId,
+        name: category.name,
+      })),
+    };
+  }
+
+  computeCategorySpend(
+    range: FinanceDateRange,
+    groupBy: FinanceReportGroupBy,
+    baseCurrency: string,
+  ): FinanceCategorySpendRow[] {
+    return computeFinanceCategorySpend(
+      this.buildReportComputationInput(baseCurrency),
+      range,
+      groupBy,
+    );
+  }
+
+  listCategorySpendDrilldown(
+    range: FinanceDateRange,
+    groupBy: FinanceReportGroupBy,
+    key: string,
+    baseCurrency: string,
+  ): FinanceReportLine[] {
+    return listFinanceCategorySpendDrilldown(
+      this.buildReportComputationInput(baseCurrency),
+      range,
+      groupBy,
+      key,
+    );
+  }
+
+  computeMerchantSpend(
+    range: FinanceDateRange,
+    limit: number,
+    baseCurrency: string,
+  ): FinanceMerchantSpendRow[] {
+    return computeFinanceMerchantSpend(
+      this.buildReportComputationInput(baseCurrency),
+      range,
+      limit,
+    );
+  }
+
+  computePersonSpend(range: FinanceDateRange, baseCurrency: string): FinancePersonSpendRow[] {
+    return computeFinancePersonSpend(this.buildReportComputationInput(baseCurrency), range);
+  }
+
+  computeTrend(
+    range: FinanceDateRange,
+    granularity: FinanceTrendGranularity,
+    baseCurrency: string,
+  ): FinanceTrendPoint[] {
+    return computeFinanceTrend(this.buildReportComputationInput(baseCurrency), range, granularity);
+  }
+
+  computeMonthOverMonth(
+    currentRange: FinanceDateRange,
+    previousRange: FinanceDateRange,
+    groupBy: FinanceReportGroupBy,
+    baseCurrency: string,
+  ): FinanceMonthOverMonthRow[] {
+    return computeFinanceMonthOverMonth(
+      this.buildReportComputationInput(baseCurrency),
+      currentRange,
+      previousRange,
+      groupBy,
+    );
+  }
+
+  // --- recurring series (Phase 6) ---------------------------------------------------------
+
+  listRecurringSeries(status?: FinanceRecurringSeries["status"]): FinanceRecurringSeries[] {
+    const all = [...this.recurringSeries.values()].sort(
+      (a, b) =>
+        a.merchantKey.localeCompare(b.merchantKey) || a.accountId.localeCompare(b.accountId),
+    );
+    return status ? all.filter((series) => series.status === status) : all;
+  }
+
+  saveRecurringSeries(series: FinanceRecurringSeries): FinanceRecurringSeries {
+    const now = nowIso();
+    const id = series.id || createEntityId("finance-recurring");
+    const existing = this.recurringSeries.get(id);
+    const saved: FinanceRecurringSeries = {
+      ...series,
+      id,
+      createdAt: existing?.createdAt ?? series.createdAt ?? now,
+      updatedAt: now,
+    };
+    this.recurringSeries.set(id, saved);
+    return saved;
+  }
+
+  /** Re-runs detection over the full history; preserves `confirmedByUser` series. See repository contract. */
+  detectRecurringSeries(today: string): { created: number; updated: number } {
+    const transactions: RecurringDetectionTransactionInput[] = [...this.transactions.values()]
+      .filter((txn) => !txn.isTransfer && !txn.excludedFromReports)
+      .map((txn) => ({
+        merchantKey: txn.merchantKey,
+        accountId: txn.accountId,
+        categoryId: txn.categoryId,
+        amountMinor: txn.amountMinor,
+        postedDate: txn.postedDate,
+      }));
+    const existing: RecurringDetectionExistingSeriesInput[] = [
+      ...this.recurringSeries.values(),
+    ].map((series) => ({
+      id: series.id,
+      merchantKey: series.merchantKey,
+      accountId: series.accountId,
+      categoryId: series.categoryId,
+      cadence: series.cadence,
+      expectedAmountMinor: series.expectedAmountMinor,
+      amountToleranceMinor: series.amountToleranceMinor,
+      dayOfMonth: series.dayOfMonth,
+      lastSeenDate: series.lastSeenDate,
+      nextExpectedDate: series.nextExpectedDate,
+      occurrenceCount: series.occurrenceCount,
+      status: series.status,
+      confirmedByUser: series.confirmedByUser,
+    }));
+
+    const detected = detectFinanceRecurringSeries(transactions, existing, today);
+    let created = 0;
+    let updated = 0;
+    const now = nowIso();
+    const keptIds = new Set<string>();
+
+    for (const item of detected) {
+      const isNew = item.id === "";
+      const id = isNew ? createEntityId("finance-recurring") : item.id;
+      keptIds.add(id);
+      const previous = this.recurringSeries.get(id);
+      const saved: FinanceRecurringSeries = this.toRecurringSeriesRow(item, id, previous, now);
+      this.recurringSeries.set(id, saved);
+      if (isNew) {
+        created += 1;
+      } else {
+        updated += 1;
+      }
+    }
+
+    // The pure result is the full set; drop unconfirmed series it no longer returns.
+    for (const [id, series] of [...this.recurringSeries.entries()]) {
+      if (!series.confirmedByUser && !keptIds.has(id)) {
+        this.recurringSeries.delete(id);
+      }
+    }
+
+    return { created, updated };
+  }
+
+  private toRecurringSeriesRow(
+    item: DetectedRecurringSeries,
+    id: string,
+    previous: FinanceRecurringSeries | undefined,
+    now: string,
+  ): FinanceRecurringSeries {
+    return {
+      id,
+      merchantKey: item.merchantKey,
+      accountId: item.accountId,
+      categoryId: item.categoryId,
+      cadence: item.cadence,
+      expectedAmountMinor: item.expectedAmountMinor,
+      amountToleranceMinor: item.amountToleranceMinor,
+      dayOfMonth: item.dayOfMonth,
+      lastSeenDate: item.lastSeenDate,
+      nextExpectedDate: item.nextExpectedDate,
+      occurrenceCount: item.occurrenceCount,
+      status: item.status,
+      confirmedByUser: item.confirmedByUser,
+      createdAt: previous?.createdAt ?? now,
+      updatedAt: now,
+    };
+  }
+
+  // --- balance snapshots (Phase 6) ----------------------------------------------------------
+
+  /** Idempotent per day: upserts one row per account for `asOfDate`. Returns the account count. */
+  snapshotAccountBalances(asOfDate: string): number {
+    const now = nowIso();
+    let count = 0;
+    for (const account of this.accounts.values()) {
+      let balance = account.openingBalanceMinor;
+      for (const txn of this.transactions.values()) {
+        if (txn.accountId === account.id && txn.postedDate <= asOfDate) {
+          balance += txn.amountMinor;
+        }
+      }
+      const key = `${account.id}\u0000${asOfDate}`;
+      this.balanceSnapshots.set(key, {
+        accountId: account.id,
+        asOfDate,
+        balanceMinor: balance,
+        source: "derived",
+        createdAt: this.balanceSnapshots.get(key)?.createdAt ?? now,
+      });
+      count += 1;
+    }
+    return count;
+  }
+
+  listAccountBalanceSnapshots(accountId: string): FinanceAccountBalanceSnapshot[] {
+    return [...this.balanceSnapshots.values()]
+      .filter((snapshot) => snapshot.accountId === accountId)
+      .sort((a, b) => a.asOfDate.localeCompare(b.asOfDate));
+  }
+
+  // --- Forecasting and alerts (Phase 7) ---------------------------------------------------
+
+  /**
+   * The forecast/alert input bundle for `AppRepository.buildFinanceSnapshot`.
+   * `paceTransactions`/`paceSplits` reuse the same on-budget,
+   * `excludedFromBudget = false` filter `budget.ts`'s `activity` uses (via
+   * `buildBudgetComputationInput`), so pace math and envelope activity agree
+   * on what counts as spending. `budgetState` is `computeFinanceBudgetState`
+   * — reused, never recomputed. Mirrors `FinanceSqliteStore.buildSnapshot`.
+   */
+  buildSnapshot(today: string, safetyBufferMinor: number, baseCurrency: string): FinanceSnapshot {
+    const monthKey = getMonthKey(today);
+    const budgetInput = restrictBudgetInputThrough(
+      this.buildBudgetComputationInput(monthKey, baseCurrency),
+      today,
+    );
+    const budgetState = computeFinanceBudgetState(budgetInput);
+
+    const onBudgetAccountIds = new Set(budgetInput.accounts.map((account) => account.id));
+    const paceTransactionRows = [...this.transactions.values()].filter(
+      (txn) =>
+        onBudgetAccountIds.has(txn.accountId) && !txn.excludedFromBudget && txn.postedDate <= today,
+    );
+
+    let firstActivityMonthKey: string | null = null;
+    for (const txn of paceTransactionRows) {
+      const month = getMonthKey(txn.postedDate);
+      if (firstActivityMonthKey === null || month < firstActivityMonthKey) {
+        firstActivityMonthKey = month;
+      }
+    }
+
+    const paceTransactionIds = new Set(paceTransactionRows.map((txn) => txn.id));
+
+    return {
+      today,
+      monthKey,
+      safetyBufferMinor,
+      accounts: budgetInput.accounts,
+      balanceTransactions: budgetInput.balanceTransactions,
+      budgetState,
+      paceTransactions: paceTransactionRows.map((txn) => ({
+        id: txn.id,
+        accountId: txn.accountId,
+        postedDate: txn.postedDate,
+        amountMinor: txn.amountMinor,
+        categoryId: txn.categoryId,
+        merchantKey: txn.merchantKey,
+        hasSplits: txn.hasSplits,
+        isTransfer: txn.isTransfer,
+      })),
+      paceSplits: [...this.splits.values()]
+        .filter((split) => paceTransactionIds.has(split.transactionId))
+        .map((split) => ({
+          transactionId: split.transactionId,
+          amountMinor: split.amountMinor,
+          categoryId: split.categoryId,
+        })),
+      firstActivityMonthKey,
+      recurringSeries: [...this.recurringSeries.values()]
+        .filter((series) => series.status === "active" && onBudgetAccountIds.has(series.accountId))
+        .map((series) => ({
+          merchantKey: series.merchantKey,
+          accountId: series.accountId,
+          categoryId: series.categoryId,
+          cadence: series.cadence,
+          expectedAmountMinor: series.expectedAmountMinor,
+          dayOfMonth: series.dayOfMonth,
+          lastSeenDate: series.lastSeenDate,
+          nextExpectedDate: series.nextExpectedDate,
+        })),
+    };
+  }
+
+  computeForecast(
+    today: string,
+    safetyBufferMinor: number,
+    baseCurrency: string,
+  ): { forecast: FinanceForecast; alerts: FinanceAlert[] } {
+    const snapshot = this.buildSnapshot(today, safetyBufferMinor, baseCurrency);
+    const forecast = computeFinanceForecast(snapshot);
+    const alerts = buildFinanceAlerts(forecast, { financeSafetyBufferMinor: safetyBufferMinor });
+    return { forecast, alerts };
+  }
+
+  // --- Alert notification ledger (Phase 7) ------------------------------------------------
+
+  listNotifiedFinanceAlertKeys(onDate: string): string[] {
+    return [...this.alertNotifications.values()]
+      .filter((entry) => entry.notifiedOnDate === onDate)
+      .map((entry) => entry.alertKey);
+  }
+
+  recordFinanceAlertNotifications(onDate: string, alertKeys: string[]): void {
+    const now = nowIso();
+    for (const alertKey of alertKeys) {
+      const key = `${alertKey}\u0000${onDate}`;
+      if (!this.alertNotifications.has(key)) {
+        this.alertNotifications.set(key, { alertKey, notifiedOnDate: onDate, notifiedAt: now });
+      }
+    }
   }
 }

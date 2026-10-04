@@ -16,6 +16,7 @@ import type { AiPayloadScope, AppSettings } from "../domain/types";
 import { formatPulseSlotHours, parsePulseSlotHours } from "../lib/ai/pulse/slot-hours";
 import { BACKUP_RETENTION_COUNT, isBackupDestinationConfigured } from "../lib/backup";
 import { formatDateTimeShort } from "../lib/date";
+import { currencyExponent, minorToInputString, parseAmountToMinor } from "../lib/finance/money";
 import { RescueTimeGoalsService } from "../lib/rescuetime/rescuetime-goals-service";
 import type { StorageInfo } from "../lib/storage/repository";
 
@@ -39,7 +40,14 @@ const aiPreferenceKeys: (keyof AppSettings)[] = [
   "aiPastorEnabled",
   "aiCostPerMillionTokens",
 ];
-const financePreferenceKeys: (keyof AppSettings)[] = ["financeEnabled", "financeBaseCurrency"];
+const financePreferenceKeys: (keyof AppSettings)[] = [
+  "financeEnabled",
+  "financeBaseCurrency",
+  "financeAlertsOnToday",
+  "financeNotifyRunout",
+  "financeAiCategorizationEnabled",
+  "financeAiAutoApplyEnabled",
+];
 
 const relationshipPreferenceKeys: (keyof AppSettings)[] = [
   "relationshipDrawsEnabled",
@@ -75,6 +83,15 @@ export const SettingsPage = () => {
   const relationshipSave = useSectionSave(async () => {
     await savePreferences(draftSettings, relationshipPreferenceKeys);
   });
+  const [financeSafetyBufferDraft, setFinanceSafetyBufferDraft] = useState(() =>
+    minorToInputString(
+      settings.financeSafetyBufferMinor,
+      currencyExponent(settings.financeBaseCurrency),
+    ),
+  );
+  const [financeAiAutoApplyMinConfidenceDraft, setFinanceAiAutoApplyMinConfidenceDraft] = useState(
+    () => String(settings.financeAiAutoApplyMinConfidence),
+  );
   const financeSave = useSectionSave(async () => {
     const enabling = draftSettings.financeEnabled && !settings.financeEnabled;
     const patch = settingsDraftPatch(draftSettings, baselineRef.current, financePreferenceKeys);
@@ -84,6 +101,31 @@ export const SettingsPage = () => {
         throw new Error("invalid finance base currency");
       }
       patch.financeBaseCurrency = normalized;
+    }
+    const exponent = currencyExponent(patch.financeBaseCurrency ?? settings.financeBaseCurrency);
+    const parsedBuffer = parseAmountToMinor(financeSafetyBufferDraft || "0", { exponent });
+    if (!parsedBuffer.ok) {
+      // Nothing is persisted (including the seed below) so the user never sees a success banner
+      // for a threshold that was silently dropped.
+      throw new Error(t("finance.safetyBufferInvalid"));
+    }
+    if (parsedBuffer.amountMinor !== baselineRef.current.financeSafetyBufferMinor) {
+      patch.financeSafetyBufferMinor = parsedBuffer.amountMinor;
+    }
+    // Accept the French decimal comma ("0,95"), matching the placeholder and the buffer field.
+    const parsedMinConfidence = Number(
+      financeAiAutoApplyMinConfidenceDraft.trim().replace(",", "."),
+    );
+    if (
+      financeAiAutoApplyMinConfidenceDraft.trim() === "" ||
+      !Number.isFinite(parsedMinConfidence) ||
+      parsedMinConfidence < 0 ||
+      parsedMinConfidence > 1
+    ) {
+      throw new Error(t("finance.aiAutoApplyMinConfidenceInvalid"));
+    }
+    if (parsedMinConfidence !== baselineRef.current.financeAiAutoApplyMinConfidence) {
+      patch.financeAiAutoApplyMinConfidence = parsedMinConfidence;
     }
 
     if (enabling && !settings.financeCategoriesSeededAt) {
@@ -108,9 +150,26 @@ export const SettingsPage = () => {
         ? formatPulseSlotHours(settings.aiPulseSlots)
         : draft,
     );
+    setFinanceAiAutoApplyMinConfidenceDraft((draft) =>
+      draft === String(baseline.financeAiAutoApplyMinConfidence)
+        ? String(settings.financeAiAutoApplyMinConfidence)
+        : draft,
+    );
     setCostRateDraft((draft) =>
       draft === String(baseline.aiCostPerMillionTokens)
         ? String(settings.aiCostPerMillionTokens)
+        : draft,
+    );
+    setFinanceSafetyBufferDraft((draft) =>
+      draft ===
+      minorToInputString(
+        baseline.financeSafetyBufferMinor,
+        currencyExponent(baseline.financeBaseCurrency),
+      )
+        ? minorToInputString(
+            settings.financeSafetyBufferMinor,
+            currencyExponent(settings.financeBaseCurrency),
+          )
         : draft,
     );
     baselineRef.current = settings;
@@ -594,6 +653,89 @@ export const SettingsPage = () => {
               placeholder={t("finance.baseCurrencyPlaceholder")}
             />
           </label>
+
+          <label className="switch-row">
+            <input
+              type="checkbox"
+              checked={draftSettings.financeAlertsOnToday}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  financeAlertsOnToday: event.target.checked,
+                }))
+              }
+            />
+            <span>{t("finance.alertsOnToday")}</span>
+          </label>
+
+          <label className="switch-row">
+            <input
+              type="checkbox"
+              checked={draftSettings.financeNotifyRunout}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  financeNotifyRunout: event.target.checked,
+                }))
+              }
+            />
+            <span>{t("finance.notifyRunout")}</span>
+          </label>
+
+          <label>
+            <span>{t("finance.safetyBufferMinor")}</span>
+            <input
+              type="text"
+              value={financeSafetyBufferDraft}
+              onChange={(event) => setFinanceSafetyBufferDraft(event.target.value)}
+              placeholder={t("finance.safetyBufferMinorPlaceholder")}
+            />
+          </label>
+
+          <label className="switch-row">
+            <input
+              type="checkbox"
+              disabled={!draftSettings.aiEnabled}
+              checked={draftSettings.financeAiCategorizationEnabled}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  financeAiCategorizationEnabled: event.target.checked,
+                }))
+              }
+            />
+            <span>{t("finance.aiCategorizationEnabled")}</span>
+          </label>
+          <p className="field-card__helper">{t("finance.aiCategorizationPrivacyNote")}</p>
+
+          <label className="switch-row">
+            <input
+              type="checkbox"
+              disabled={!draftSettings.aiEnabled}
+              checked={draftSettings.financeAiAutoApplyEnabled}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  financeAiAutoApplyEnabled: event.target.checked,
+                }))
+              }
+            />
+            <span>{t("finance.aiAutoApplyEnabled")}</span>
+          </label>
+
+          <label>
+            <span>{t("finance.aiAutoApplyMinConfidence")}</span>
+            <input
+              type="text"
+              disabled={!draftSettings.aiEnabled}
+              value={financeAiAutoApplyMinConfidenceDraft}
+              onChange={(event) => setFinanceAiAutoApplyMinConfidenceDraft(event.target.value)}
+              placeholder={t("finance.aiAutoApplyMinConfidencePlaceholder")}
+            />
+          </label>
+          {!draftSettings.aiEnabled ? (
+            <p className="field-card__helper">{t("finance.aiRequiresAiEnabled")}</p>
+          ) : null}
         </div>
 
         <div className="form-actions">

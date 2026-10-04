@@ -1,4 +1,5 @@
 import type { AcceptEffect, AiProposalAcceptResult } from "../ai/proposals/accept-effect";
+import type { ReconcileDayResult } from "../gtd/reconcile";
 import type { EmailTriageStore } from "./email-triage-store";
 import type {
   CalendarSyncDetachReason,
@@ -50,30 +51,56 @@ import type {
   WeeklyReviewSummary,
 } from "../../domain/types";
 import type {
+  ApplyFinanceCategorizationResultsInput,
+  ApplyFinanceCategorizationResultsOutcome,
   BulkUpdateFinanceTransactionsPatch,
   DecideFinanceCategorySuggestionInput,
   FinanceAccount,
   FinanceAccountFilters,
+  FinanceBudgetEntry,
+  FinanceBudgetMonth,
   FinanceCategory,
   FinanceCategoryBackfillEntry,
   FinanceCategorySuggestion,
+  FinanceAccountBalanceSnapshot,
   FinanceImportBatch,
   FinanceImportProfile,
   FinanceImportRequest,
   FinanceImportSummary,
   FinanceMerchantMemoryEntry,
   FinanceMerchantMemoryFilters,
+  FinanceOverspendPolicy,
   FinancePerson,
+  FinanceRecurringSeries,
   FinanceRule,
   FinanceTransaction,
   FinanceTransactionFilters,
   FinanceTransactionSplit,
+  FinanceUnknownMerchantGroup,
   ReclassifyFinancePendingResult,
   SetFinanceTransactionCategoryInput,
   SetFinanceTransactionCategoryResult,
   SetFinanceTransferPair,
   UndoFinanceImportBatchResult,
 } from "../../domain/finance";
+import type { CoverOverspendingResult, FinanceBudgetState } from "../../domain/finance/budget";
+import type { FinanceCashFlowSummary } from "../../domain/finance/cash-flow";
+import type {
+  FinanceNetWorthHistoryPoint,
+  FinanceNetWorthSnapshot,
+} from "../../domain/finance/net-worth";
+import type {
+  FinanceCategorySpendRow,
+  FinanceDateRange,
+  FinanceMerchantSpendRow,
+  FinanceMonthOverMonthRow,
+  FinancePersonSpendRow,
+  FinanceReportGroupBy,
+  FinanceReportLine,
+  FinanceTrendGranularity,
+  FinanceTrendPoint,
+} from "../../domain/finance/reports";
+import type { FinanceAlert, FinanceForecast, FinanceSnapshot } from "../../domain/finance/forecast";
 
 export interface NativeStoragePaths {
   databasePath: string;
@@ -104,6 +131,11 @@ export interface PomodoroStartOptions {
 
 export interface AppRepository {
   initialize(): Promise<void>;
+  /**
+   * Daily entry reads (`getDailyEntry`, `listDailyEntries*`) all return entries decorated once with
+   * suggested GTD/Pomodoro metrics derived from persisted data. They never write or reconcile, so
+   * callers must not re-apply `applyDailyTaskStats`/`applyDailyPomodoroStats` to them.
+   */
   getDailyEntry(date: string): Promise<DailyEntry | null>;
   saveDailyEntry(entry: DailyEntry): Promise<void>;
   listDailyEntries(limit?: number): Promise<DailyEntry[]>;
@@ -230,7 +262,16 @@ export interface AppRepository {
   movePlannedTask(taskId: string, direction: "up" | "down"): Promise<Task[]>;
   clearPastRecurrences(taskId: string): Promise<Task>;
   generateDailyRelationshipTasks(date: string): Promise<number>;
+  /**
+   * Explicit time-driven write entry point: generates due recurrences for `date`, promotes due
+   * Scheduled tasks, applies Sunday carryover, and completes expired Pomodoro sessions. Only time
+   * owners (bootstrap, local-day boundary, explicit refresh) call it; every read below is
+   * side-effect free.
+   */
+  reconcileDay(date: string, now?: string): Promise<ReconcileDayResult>;
+  /** Pure read over persisted tasks/events; does not reconcile. */
   computeDailyTaskStats(date: string): Promise<DailyTaskStats>;
+  /** Pure read over persisted tasks/events; does not reconcile. */
   getDailyTaskBreakdown(date: string): Promise<DailyTaskBreakdown>;
   applyWeeklyCarryover(weekStartDate: string): Promise<number>;
   getPomodoroState(): Promise<PomodoroState>;
@@ -301,7 +342,7 @@ export interface AppRepository {
   countFinanceTransactions(filters?: FinanceTransactionFilters): Promise<number>;
   getFinanceTransaction(id: string): Promise<FinanceTransaction | null>;
   saveFinanceTransaction(txn: FinanceTransaction): Promise<FinanceTransaction>;
-  /** The single learning entry point — see specs/todo/finance.md "Learning from corrections". */
+  /** The single learning entry point — see specs/done/finance.md "Learning from corrections". */
   setFinanceTransactionCategory(
     input: SetFinanceTransactionCategoryInput,
   ): Promise<SetFinanceTransactionCategoryResult>;
@@ -322,7 +363,7 @@ export interface AppRepository {
   /**
    * One `writeExclusive` block / one `BEGIN IMMEDIATE`: chunked multi-row inserts, exact-hash
    * dedupe, near-duplicate detection, and transfer detection across the whole history. See
-   * specs/todo/finance.md "Write-path discipline".
+   * specs/done/finance.md "Write-path discipline".
    */
   importFinanceTransactions(input: FinanceImportRequest): Promise<FinanceImportSummary>;
   listFinanceImportBatches(limit?: number): Promise<FinanceImportBatch[]>;
@@ -350,6 +391,133 @@ export interface AppRepository {
   reclassifyFinancePending(): Promise<ReclassifyFinancePendingResult>;
   /** Reverts the `backfill` entries from a `scope: "all_matching"` call — a single undo. */
   revertFinanceCategoryBackfill(entries: FinanceCategoryBackfillEntry[]): Promise<number>;
+
+  // --- Finance (Phase 5 — Budget) --------------------------------------------------------
+
+  /** The advisory `finance_budget_months` row (`closed_at`, `ready_to_assign_note`); never persisted until written. */
+  getFinanceBudgetMonth(monthKey: string): Promise<FinanceBudgetMonth>;
+  /**
+   * Idempotent upsert; assigning `0` deletes the row unless it holds a non-default policy or note (see
+   * `src/domain/finance/budget.ts`'s "Non budgété" doc comment). Rejects
+   * `kind = "income"` categories via `assertFinanceCategoryAssignable`.
+   */
+  setFinanceBudgetAssignment(
+    monthKey: string,
+    categoryId: string,
+    assignedMinor: number,
+  ): Promise<FinanceBudgetEntry | null>;
+  /** Writes the policy on `(monthKey, categoryId)` and every later existing entry for that category. */
+  setFinanceCategoryOverspendPolicy(
+    monthKey: string,
+    categoryId: string,
+    policy: FinanceOverspendPolicy,
+  ): Promise<void>;
+  /** Envelope grid + Ready to Assign for `monthKey`, built by `computeFinanceBudgetState` — never materialized. */
+  computeFinanceBudgetState(monthKey: string, baseCurrency: string): Promise<FinanceBudgetState>;
+  /**
+   * "Cover overspending from another category" quick action: delegates to the pure
+   * `computeCoverOverspending`. Returns the amount actually movable (capped at the
+   * deficit and the source's available) and both categories' new assignment totals;
+   * the caller still writes them via two `setFinanceBudgetAssignment` calls.
+   */
+  computeFinanceCoverOverspending(
+    monthKey: string,
+    baseCurrency: string,
+    fromCategoryId: string,
+    toCategoryId: string,
+  ): Promise<CoverOverspendingResult>;
+  /**
+   * Atomically moves the cover amount from `fromCategoryId` to `toCategoryId` (both rows
+   * written in one transaction) and returns what was moved.
+   */
+  applyFinanceCoverOverspending(
+    monthKey: string,
+    baseCurrency: string,
+    fromCategoryId: string,
+    toCategoryId: string,
+  ): Promise<CoverOverspendingResult>;
+  /** Advisory freeze/unfreeze of a month's budget inputs; changes no arithmetic. */
+  setFinanceBudgetMonthClosed(monthKey: string, closed: boolean): Promise<FinanceBudgetMonth>;
+  setFinanceBudgetReadyToAssignNote(
+    monthKey: string,
+    note: string | null,
+  ): Promise<FinanceBudgetMonth>;
+
+  // --- Finance (Phase 6 — Tracking, reports, recurring, net worth) ----------------------
+
+  /** Assets/liabilities split by account type, as of `asOfDate`. Off-budget accounts included. */
+  computeFinanceNetWorth(asOfDate: string): Promise<FinanceNetWorthSnapshot>;
+  /** Net-worth-over-time series built from `finance_account_balance_snapshots`. */
+  listFinanceNetWorthHistory(): Promise<FinanceNetWorthHistoryPoint[]>;
+  /** Income/expense/net for one month; transfers and `excludedFromReports` rows excluded. */
+  computeFinanceCashFlow(monthKey: string): Promise<FinanceCashFlowSummary>;
+  computeFinanceCategorySpend(
+    range: FinanceDateRange,
+    groupBy: FinanceReportGroupBy,
+  ): Promise<FinanceCategorySpendRow[]>;
+  /** The exact lines summing to one `FinanceCategorySpendRow.totalMinor` — the drill-down input. */
+  listFinanceCategorySpendDrilldown(
+    range: FinanceDateRange,
+    groupBy: FinanceReportGroupBy,
+    key: string,
+  ): Promise<FinanceReportLine[]>;
+  computeFinanceMerchantSpend(
+    range: FinanceDateRange,
+    limit: number,
+  ): Promise<FinanceMerchantSpendRow[]>;
+  computeFinancePersonSpend(range: FinanceDateRange): Promise<FinancePersonSpendRow[]>;
+  computeFinanceTrend(
+    range: FinanceDateRange,
+    granularity: FinanceTrendGranularity,
+  ): Promise<FinanceTrendPoint[]>;
+  computeFinanceMonthOverMonth(
+    currentRange: FinanceDateRange,
+    previousRange: FinanceDateRange,
+    groupBy: FinanceReportGroupBy,
+  ): Promise<FinanceMonthOverMonthRow[]>;
+  listFinanceRecurringSeries(
+    status?: FinanceRecurringSeries["status"],
+  ): Promise<FinanceRecurringSeries[]>;
+  saveFinanceRecurringSeries(series: FinanceRecurringSeries): Promise<FinanceRecurringSeries>;
+  /** Re-runs detection over the full history; preserves `confirmedByUser` series. Also run after import. */
+  detectFinanceRecurringSeries(): Promise<{ created: number; updated: number }>;
+  /** Idempotent per day: derives and upserts one balance snapshot per account for `asOfDate`. */
+  snapshotFinanceAccountBalances(asOfDate: string): Promise<number>;
+  listFinanceAccountBalanceSnapshots(accountId: string): Promise<FinanceAccountBalanceSnapshot[]>;
+
+  // --- Finance (Phase 7 — Forecasting and proactive alerts) -----------------------------
+
+  /** The forecast/alert input bundle for `computeFinanceForecast`; see `src/domain/finance/forecast.ts`. */
+  buildFinanceSnapshot(asOfDate: string): Promise<FinanceSnapshot>;
+  /** Loads the snapshot and calls the pure `computeFinanceForecast` + `buildFinanceAlerts`. */
+  computeFinanceForecast(
+    asOfDate: string,
+  ): Promise<{ forecast: FinanceForecast; alerts: FinanceAlert[] }>;
+  /** Alert keys already notified on `onDate` — the once-per-day-per-key rate limit ledger. */
+  listNotifiedFinanceAlertKeys(onDate: string): Promise<string[]>;
+  recordFinanceAlertNotifications(onDate: string, alertKeys: string[]): Promise<void>;
+
+  // --- Finance (Phase 8 — AI categorization) --------------------------------------------
+
+  /**
+   * Merchant-level groups of currently unknown transactions (see
+   * `FinanceUnknownMerchantGroup`), the candidate pool for the AI stage. Plain read, not
+   * wrapped in a write transaction — the caller builds the AI payload from this and calls the
+   * model *before* touching the database again, so the network call never happens inside a
+   * `DbSerialQueue`/`BEGIN IMMEDIATE` slot.
+   */
+  listFinanceUnknownMerchants(limit?: number): Promise<FinanceUnknownMerchantGroup[]>;
+  /**
+   * Applies AI categorization results in one short exclusive block: writes a pending
+   * `finance_category_suggestions` row (origin `"ai"`) for every eligible transaction sharing
+   * each result's merchant key, honoring the 90-day dismissed-pair suppression, and — only when
+   * `autoApply` and `confidence >= autoApplyMinConfidence` — sets the transaction's category
+   * directly (`category_source = "ai"`) and marks that suggestion `"accepted"`. Never touches a
+   * `category_source = "user"` row.
+   */
+  applyFinanceCategorizationResults(
+    input: ApplyFinanceCategorizationResultsInput,
+  ): Promise<ApplyFinanceCategorizationResultsOutcome>;
 
   // --- Calendar sync (Phase 0) -----------------------------------------------------------
 

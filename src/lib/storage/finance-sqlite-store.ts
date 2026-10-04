@@ -1,13 +1,19 @@
 // Finance persistence (Phase 2 — Schema and repository parity). Mirrors the
 // email-triage pattern: row mapping/query code lives here, reached through
 // thin delegating methods on `TauriSqliteRepository` (see `getFinanceStore()`).
-// See specs/todo/finance.md "Repository methods" and "CSV import".
+// See specs/done/finance.md "Repository methods" and "CSV import".
 
 import type {
+  ApplyFinanceCategorizationResultsInput,
+  ApplyFinanceCategorizationResultsOutcome,
   BulkUpdateFinanceTransactionsPatch,
   DecideFinanceCategorySuggestionInput,
   FinanceAccount,
+  FinanceAccountBalanceSnapshot,
   FinanceAccountFilters,
+  FinanceAccountType,
+  FinanceBudgetEntry,
+  FinanceBudgetMonth,
   FinanceCategory,
   FinanceCategoryBackfillEntry,
   FinanceCategorySuggestion,
@@ -17,18 +23,69 @@ import type {
   FinanceImportSummary,
   FinanceMerchantMemoryEntry,
   FinanceMerchantMemoryFilters,
+  FinanceOverspendPolicy,
   FinancePerson,
+  FinanceRecurringSeries,
   FinanceRule,
   FinanceRuleActions,
   FinanceTransaction,
   FinanceTransactionFilters,
   FinanceTransactionSplit,
+  FinanceUnknownMerchantGroup,
   ReclassifyFinancePendingResult,
   SetFinanceTransactionCategoryInput,
   SetFinanceTransactionCategoryResult,
   SetFinanceTransferPair,
   UndoFinanceImportBatchResult,
 } from "../../domain/finance";
+import {
+  assertFinanceCategoryAssignable,
+  hasBudgetEntryMetadata,
+  computeCoverOverspending,
+  computeFinanceBudgetState,
+  type CoverOverspendingResult,
+  type FinanceBudgetComputationInput,
+  type FinanceBudgetState,
+} from "../../domain/finance/budget";
+import {
+  computeFinanceCashFlow,
+  type FinanceCashFlowComputationInput,
+  type FinanceCashFlowSummary,
+} from "../../domain/finance/cash-flow";
+import {
+  buildFinanceNetWorthHistory,
+  computeFinanceNetWorth,
+  type FinanceNetWorthComputationInput,
+  type FinanceNetWorthHistoryPoint,
+  type FinanceNetWorthSnapshot,
+} from "../../domain/finance/net-worth";
+import { getMonthEndDate, getMonthKey } from "../../domain/monthly-review";
+import {
+  buildFinanceAlerts,
+  computeFinanceForecast,
+  restrictBudgetInputThrough,
+  type FinanceAlert,
+  type FinanceForecast,
+  type FinanceSnapshot,
+} from "../../domain/finance/forecast";
+import {
+  computeFinanceCategorySpend,
+  computeFinanceMerchantSpend,
+  computeFinanceMonthOverMonth,
+  computeFinancePersonSpend,
+  computeFinanceTrend,
+  listFinanceCategorySpendDrilldown,
+  type FinanceCategorySpendRow,
+  type FinanceDateRange,
+  type FinanceMerchantSpendRow,
+  type FinanceMonthOverMonthRow,
+  type FinancePersonSpendRow,
+  type FinanceReportComputationInput,
+  type FinanceReportGroupBy,
+  type FinanceReportLine,
+  type FinanceTrendGranularity,
+  type FinanceTrendPoint,
+} from "../../domain/finance/reports";
 import type { Database } from "./sqlite-db";
 import { getTodayDate } from "../date";
 import {
@@ -37,13 +94,21 @@ import {
   type ClassificationOutcome,
 } from "../finance/classify";
 import { DEFAULT_FINANCE_CATEGORIES } from "../finance/default-categories";
-import type { DismissedSuggestionPair } from "../finance/dismissed-suggestions";
+import {
+  isSuggestionDismissed,
+  type DismissedSuggestionPair,
+} from "../finance/dismissed-suggestions";
 import {
   dedupeHash as computeDedupeHash,
   assignOccurrenceIndices,
 } from "../finance/import-profile";
 import { applyMerchantMemoryCorrection } from "../finance/memory";
 import { findNearDuplicates } from "../finance/near-duplicates";
+import {
+  detectFinanceRecurringSeries,
+  type RecurringDetectionExistingSeriesInput,
+  type RecurringDetectionTransactionInput,
+} from "../finance/recurring-detection";
 import { detectTransfers, type TransferCandidateTransaction } from "../finance/transfers";
 import { validateSplitTotal } from "../finance/splits";
 import { createEntityId, nowIso } from "../gtd/shared";
@@ -296,6 +361,58 @@ const mapSuggestion = (row: SuggestionRow): FinanceCategorySuggestion => ({
   createdAt: row.created_at,
 });
 
+interface RecurringSeriesRow {
+  id: string;
+  merchant_key: string;
+  account_id: string;
+  category_id: string | null;
+  cadence: FinanceRecurringSeries["cadence"];
+  expected_amount_minor: number;
+  amount_tolerance_minor: number;
+  day_of_month: number | null;
+  last_seen_date: string;
+  next_expected_date: string;
+  occurrence_count: number;
+  status: FinanceRecurringSeries["status"];
+  confirmed_by_user: number;
+  created_at: string;
+  updated_at: string;
+}
+
+const mapRecurringSeries = (row: RecurringSeriesRow): FinanceRecurringSeries => ({
+  id: row.id,
+  merchantKey: row.merchant_key,
+  accountId: row.account_id,
+  categoryId: row.category_id,
+  cadence: row.cadence,
+  expectedAmountMinor: row.expected_amount_minor,
+  amountToleranceMinor: row.amount_tolerance_minor,
+  dayOfMonth: row.day_of_month,
+  lastSeenDate: row.last_seen_date,
+  nextExpectedDate: row.next_expected_date,
+  occurrenceCount: row.occurrence_count,
+  status: row.status,
+  confirmedByUser: Boolean(row.confirmed_by_user),
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+interface BalanceSnapshotRow {
+  account_id: string;
+  as_of_date: string;
+  balance_minor: number;
+  source: FinanceAccountBalanceSnapshot["source"];
+  created_at: string;
+}
+
+const mapBalanceSnapshot = (row: BalanceSnapshotRow): FinanceAccountBalanceSnapshot => ({
+  accountId: row.account_id,
+  asOfDate: row.as_of_date,
+  balanceMinor: row.balance_minor,
+  source: row.source,
+  createdAt: row.created_at,
+});
+
 interface ImportProfileRow {
   id: string;
   name: string;
@@ -364,6 +481,38 @@ const mapImportBatch = (row: ImportBatchRow): FinanceImportBatch => ({
   errorSummary: row.error_summary,
   startedAt: row.started_at,
   finishedAt: row.finished_at,
+});
+
+interface BudgetEntryRow {
+  month_key: string;
+  category_id: string;
+  assigned_minor: number;
+  overspend_policy: FinanceOverspendPolicy;
+  note: string | null;
+  updated_at: string;
+}
+
+const mapBudgetEntry = (row: BudgetEntryRow): FinanceBudgetEntry => ({
+  monthKey: row.month_key,
+  categoryId: row.category_id,
+  assignedMinor: row.assigned_minor,
+  overspendPolicy: row.overspend_policy,
+  note: row.note,
+  updatedAt: row.updated_at,
+});
+
+interface BudgetMonthRow {
+  month_key: string;
+  ready_to_assign_note: string | null;
+  closed_at: string | null;
+  updated_at: string;
+}
+
+const mapBudgetMonth = (row: BudgetMonthRow): FinanceBudgetMonth => ({
+  monthKey: row.month_key,
+  readyToAssignNote: row.ready_to_assign_note,
+  closedAt: row.closed_at,
+  updatedAt: row.updated_at,
 });
 
 /** Chunk size for multi-row INSERTs, staying well under SQLite's parameter limit. */
@@ -1195,7 +1344,7 @@ export class FinanceSqliteStore {
     return limit !== undefined ? batches.slice(0, limit) : batches;
   }
 
-  // --- import (single transaction; see specs/todo/finance.md "Write-path discipline") --------
+  // --- import (single transaction; see specs/done/finance.md "Write-path discipline") --------
 
   /**
    * Inserts `input.rows` as one batch: chunked multi-row INSERTs with
@@ -1362,7 +1511,7 @@ export class FinanceSqliteStore {
       );
       // A user-categorized row is never re-categorized by any automatic stage, including
       // transfer detection — exclude it from the candidate set entirely so it can neither be
-      // paired nor relabeled (see specs/todo/finance.md "Classification order").
+      // paired nor relabeled (see specs/done/finance.md "Classification order").
       const candidates: TransferCandidateTransaction[] = allTransactions
         .filter((row) => row.category_source !== "user")
         .map((row) => ({
@@ -1444,7 +1593,7 @@ export class FinanceSqliteStore {
       }
 
       // Classification (rules -> learned memory -> seed heuristics; no AI —
-      // see specs/todo/finance.md "Classification pipeline"). Only the rows
+      // see specs/done/finance.md "Classification pipeline"). Only the rows
       // this batch inserted that transfer detection left untouched are
       // eligible; transfer detection already decided a final category for
       // the rest.
@@ -1483,6 +1632,11 @@ export class FinanceSqliteStore {
           pendingSuggestions += 1;
         }
       }
+
+      // Recurring-bill detection runs after every import, over the whole
+      // history, inside the same transaction — see specs/done/finance.md
+      // "Recurring bills".
+      await this.detectRecurringSeriesWithDb(db, today);
 
       const skipped = input.rejected?.skipped ?? 0;
       const errors = input.rejected?.errors ?? 0;
@@ -1783,9 +1937,200 @@ export class FinanceSqliteStore {
     }
   }
 
+  // --- AI categorization (Phase 8) ---------------------------------------------------
+
+  /** Most frequent value in `values`; ties resolve to whichever value sorts first. */
+  private static modeOf<T extends string | number>(values: T[], fallback: T): T {
+    if (values.length === 0) {
+      return fallback;
+    }
+    const counts = new Map<T, number>();
+    for (const value of values) {
+      counts.set(value, (counts.get(value) ?? 0) + 1);
+    }
+    let best = fallback;
+    let bestCount = -1;
+    for (const [value, count] of [...counts.entries()].sort((a, b) =>
+      String(a[0]).localeCompare(String(b[0])),
+    )) {
+      if (count > bestCount) {
+        best = value;
+        bestCount = count;
+      }
+    }
+    return best;
+  }
+
+  /** Median of absolute values, integer-only (no float division). */
+  private static medianAbs(values: number[]): number {
+    const sorted = [...values].map((value) => Math.abs(value)).sort((a, b) => a - b);
+    if (sorted.length === 0) {
+      return 0;
+    }
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 1 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+  }
+
+  /**
+   * Merchant-level groups of currently unknown transactions — see
+   * `FinanceUnknownMerchantGroup` and specs/done/finance.md "AI stage". Plain read, no
+   * `BEGIN IMMEDIATE` — safe to call outside any exclusive block, which is what lets the
+   * caller run the AI request between this call and `applyCategorizationResults` without
+   * holding the writer slot across the network round-trip.
+   */
+  async listUnknownMerchants(limit = 40): Promise<FinanceUnknownMerchantGroup[]> {
+    const db = await this.getDb();
+    const pendingRows = await db.select<Array<{ transaction_id: string }>>(
+      "SELECT transaction_id FROM finance_category_suggestions WHERE status = 'pending'",
+    );
+    const pendingTransactionIds = new Set(pendingRows.map((row) => row.transaction_id));
+
+    const rows = await db.select<TransactionRow[]>(
+      `SELECT * FROM finance_transactions
+       WHERE category_source != 'user' AND is_transfer = 0 AND category_id = $1`,
+      [UNCATEGORIZED_CATEGORY_ID],
+    );
+    const eligible = rows.filter((row) => !pendingTransactionIds.has(row.id));
+
+    const accountRows = await db.select<Array<{ id: string; type: FinanceAccountType }>>(
+      "SELECT id, type FROM finance_accounts",
+    );
+    const accountTypeById = new Map(accountRows.map((row) => [row.id, row.type]));
+
+    const groups = new Map<string, TransactionRow[]>();
+    for (const row of eligible) {
+      const bucket = groups.get(row.merchant_key);
+      if (bucket) {
+        bucket.push(row);
+      } else {
+        groups.set(row.merchant_key, [row]);
+      }
+    }
+
+    const result: FinanceUnknownMerchantGroup[] = [...groups.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([merchantKey, txns]) => {
+        const currency = FinanceSqliteStore.modeOf(
+          txns.map((txn) => txn.currency),
+          txns[0].currency,
+        );
+        return {
+          merchantKey,
+          sign: FinanceSqliteStore.modeOf(
+            txns.map((txn): -1 | 0 | 1 =>
+              txn.amount_minor > 0 ? 1 : txn.amount_minor < 0 ? -1 : 0,
+            ),
+            0,
+          ),
+          occurrenceCount: txns.length,
+          amountMinorSample: FinanceSqliteStore.medianAbs(
+            txns.filter((txn) => txn.currency === currency).map((txn) => txn.amount_minor),
+          ),
+          currency,
+          accountType: FinanceSqliteStore.modeOf(
+            txns.map((txn): FinanceAccountType => accountTypeById.get(txn.account_id) ?? "other"),
+            "other",
+          ),
+          transactionIds: txns.map((txn) => txn.id),
+        };
+      });
+
+    return result.slice(0, limit);
+  }
+
+  /**
+   * Applies AI categorization results — see `ApplyFinanceCategorizationResultsInput` and
+   * specs/done/finance.md "AI stage". One `writeExclusive` block / one `BEGIN IMMEDIATE`, called
+   * only after the AI request itself has already completed (see `listUnknownMerchants`).
+   */
+  async applyCategorizationResults(
+    input: ApplyFinanceCategorizationResultsInput,
+  ): Promise<ApplyFinanceCategorizationResultsOutcome> {
+    const db = await this.getDb();
+    const now = nowIso();
+    const today = input.today ?? getTodayDate();
+
+    await db.execute("BEGIN IMMEDIATE");
+    try {
+      const dismissed = await this.buildDismissedPairsWithDb(db);
+
+      let suggestionsCreated = 0;
+      let autoApplied = 0;
+      let suppressedDismissed = 0;
+      const requestedIds = new Set(input.transactionIds);
+      const pendingRows = await db.select<Array<{ transaction_id: string }>>(
+        "SELECT transaction_id FROM finance_category_suggestions WHERE status = 'pending'",
+      );
+      const pendingTransactionIds = new Set(pendingRows.map((row) => row.transaction_id));
+
+      for (const result of input.results) {
+        const originalKeys = input.merchantKeyMap[result.merchantKey] ?? [result.merchantKey];
+        for (const merchantKey of originalKeys) {
+          if (isSuggestionDismissed(dismissed, merchantKey, result.categoryId, today)) {
+            suppressedDismissed += 1;
+            continue;
+          }
+
+          const targets = await db.select<TransactionRow[]>(
+            `SELECT * FROM finance_transactions
+             WHERE merchant_key = $1 AND category_source != 'user' AND is_transfer = 0
+               AND category_id = $2`,
+            [merchantKey, UNCATEGORIZED_CATEGORY_ID],
+          );
+
+          for (const txn of targets) {
+            if (!requestedIds.has(txn.id) || pendingTransactionIds.has(txn.id)) {
+              continue;
+            }
+            const autoApply = input.autoApply && result.confidence >= input.autoApplyMinConfidence;
+
+            await db.execute(
+              `INSERT INTO finance_category_suggestions (
+                id, transaction_id, merchant_key, suggested_category_id, confidence, origin,
+                rationale, model, prompt_version, status, decided_at, created_at
+              ) VALUES ($1,$2,$3,$4,$5,'ai',$6,$7,$8,$9,$10,$11)`,
+              [
+                createEntityId("finance-suggestion"),
+                txn.id,
+                merchantKey,
+                result.categoryId,
+                result.confidence,
+                result.rationale,
+                input.model,
+                input.promptVersion,
+                autoApply ? "accepted" : "pending",
+                autoApply ? now : null,
+                now,
+              ],
+            );
+            suggestionsCreated += 1;
+            pendingTransactionIds.add(txn.id);
+
+            if (autoApply) {
+              await db.execute(
+                `UPDATE finance_transactions SET
+                  category_id = $2, category_source = 'ai', category_confidence = $3,
+                  categorized_at = $4, updated_at = $4
+                WHERE id = $1`,
+                [txn.id, result.categoryId, result.confidence, now],
+              );
+              autoApplied += 1;
+            }
+          }
+        }
+      }
+
+      await db.execute("COMMIT");
+      return { suggestionsCreated, autoApplied, suppressedDismissed };
+    } catch (error) {
+      await this.rollbackQuietly(db);
+      throw error;
+    }
+  }
+
   /**
    * Restricted to the most recent batch for the batch's account (see
-   * specs/todo/finance.md "Overlapping exports"). One `writeExclusive` block at
+   * specs/done/finance.md "Overlapping exports"). One `writeExclusive` block at
    * the repository level; this method issues its own `BEGIN IMMEDIATE`/`COMMIT`.
    */
   async undoImportBatch(batchId: string): Promise<UndoFinanceImportBatchResult> {
@@ -1894,6 +2239,9 @@ export class FinanceSqliteStore {
         await db.execute("DELETE FROM finance_transactions WHERE id = $1", [row.id]);
         deleted += 1;
       }
+
+      // Drop unconfirmed recurring series whose transactions this undo removed.
+      await this.detectRecurringSeriesWithDb(db, getTodayDate());
 
       await db.execute("COMMIT");
       return { deleted, refusedUserCategorized };
@@ -2015,11 +2363,878 @@ export class FinanceSqliteStore {
     }
   }
 
+  // --- budget (Phase 5) -------------------------------------------------------------
+
+  async getBudgetMonth(monthKey: string): Promise<FinanceBudgetMonth> {
+    const db = await this.getDb();
+    const rows = await db.select<BudgetMonthRow[]>(
+      "SELECT * FROM finance_budget_months WHERE month_key = $1",
+      [monthKey],
+    );
+    if (rows[0]) {
+      return mapBudgetMonth(rows[0]);
+    }
+    return { monthKey, readyToAssignNote: null, closedAt: null, updatedAt: "" };
+  }
+
+  async listBudgetEntries(): Promise<FinanceBudgetEntry[]> {
+    const db = await this.getDb();
+    const rows = await db.select<BudgetEntryRow[]>(
+      "SELECT * FROM finance_budget_entries ORDER BY month_key, category_id",
+    );
+    return rows.map(mapBudgetEntry);
+  }
+
+  /** Rejects `kind = "income"` categories; assigning `0` deletes the row. */
+  async setBudgetAssignment(
+    monthKey: string,
+    categoryId: string,
+    assignedMinor: number,
+  ): Promise<FinanceBudgetEntry | null> {
+    const db = await this.getDb();
+    const categoryRows = await db.select<CategoryRow[]>(
+      "SELECT * FROM finance_categories WHERE id = $1",
+      [categoryId],
+    );
+    const category = categoryRows[0];
+    if (!category) {
+      throw new Error(`finance category not found: ${categoryId}`);
+    }
+    assertFinanceCategoryAssignable(mapCategory(category));
+
+    const existingRows = await db.select<BudgetEntryRow[]>(
+      "SELECT * FROM finance_budget_entries WHERE month_key = $1 AND category_id = $2",
+      [monthKey, categoryId],
+    );
+    if (
+      assignedMinor === 0 &&
+      !hasBudgetEntryMetadata(existingRows[0] ? mapBudgetEntry(existingRows[0]) : undefined)
+    ) {
+      await db.execute(
+        "DELETE FROM finance_budget_entries WHERE month_key = $1 AND category_id = $2",
+        [monthKey, categoryId],
+      );
+      return null;
+    }
+
+    const now = nowIso();
+    const policy = existingRows[0]?.overspend_policy ?? "reduce_next_ready_to_assign";
+    const note = existingRows[0]?.note ?? null;
+
+    await db.execute(
+      `INSERT INTO finance_budget_entries (
+        month_key, category_id, assigned_minor, overspend_policy, note, updated_at
+      ) VALUES ($1,$2,$3,$4,$5,$6)
+      ON CONFLICT(month_key, category_id) DO UPDATE SET
+        assigned_minor = excluded.assigned_minor,
+        updated_at = excluded.updated_at`,
+      [monthKey, categoryId, assignedMinor, policy, note, now],
+    );
+
+    const rows = await db.select<BudgetEntryRow[]>(
+      "SELECT * FROM finance_budget_entries WHERE month_key = $1 AND category_id = $2",
+      [monthKey, categoryId],
+    );
+    return mapBudgetEntry(rows[0]);
+  }
+
+  /**
+   * Writes the policy on the `(monthKey, categoryId)` entry — creating it with
+   * `assigned_minor = 0` if it does not exist yet, so the policy has somewhere
+   * to live — and on every *already-existing* later entry for that category;
+   * it never creates a future entry just to carry the policy forward (`carryIn`
+   * reads whatever policy the previous month's entry has, defaulting when absent).
+   */
+  async setCategoryOverspendPolicy(
+    monthKey: string,
+    categoryId: string,
+    policy: FinanceOverspendPolicy,
+  ): Promise<void> {
+    const db = await this.getDb();
+    const now = nowIso();
+
+    const existingRows = await db.select<BudgetEntryRow[]>(
+      "SELECT * FROM finance_budget_entries WHERE month_key = $1 AND category_id = $2",
+      [monthKey, categoryId],
+    );
+    if (existingRows[0]) {
+      await db.execute(
+        "UPDATE finance_budget_entries SET overspend_policy = $3, updated_at = $4 WHERE month_key = $1 AND category_id = $2",
+        [monthKey, categoryId, policy, now],
+      );
+    } else {
+      await db.execute(
+        `INSERT INTO finance_budget_entries (
+          month_key, category_id, assigned_minor, overspend_policy, note, updated_at
+        ) VALUES ($1,$2,0,$3,NULL,$4)`,
+        [monthKey, categoryId, policy, now],
+      );
+    }
+
+    await db.execute(
+      "UPDATE finance_budget_entries SET overspend_policy = $3, updated_at = $4 WHERE category_id = $1 AND month_key > $2",
+      [categoryId, monthKey, policy, now],
+    );
+  }
+
+  async setBudgetMonthClosed(monthKey: string, closed: boolean): Promise<FinanceBudgetMonth> {
+    const db = await this.getDb();
+    const now = nowIso();
+    const existing = await this.getBudgetMonth(monthKey);
+    await db.execute(
+      `INSERT INTO finance_budget_months (month_key, ready_to_assign_note, closed_at, updated_at)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT(month_key) DO UPDATE SET
+         closed_at = excluded.closed_at,
+         updated_at = excluded.updated_at`,
+      [monthKey, existing.readyToAssignNote, closed ? now : null, now],
+    );
+    return this.getBudgetMonth(monthKey);
+  }
+
+  async setBudgetReadyToAssignNote(
+    monthKey: string,
+    note: string | null,
+  ): Promise<FinanceBudgetMonth> {
+    const db = await this.getDb();
+    const now = nowIso();
+    const existing = await this.getBudgetMonth(monthKey);
+    await db.execute(
+      `INSERT INTO finance_budget_months (month_key, ready_to_assign_note, closed_at, updated_at)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT(month_key) DO UPDATE SET
+         ready_to_assign_note = excluded.ready_to_assign_note,
+         updated_at = excluded.updated_at`,
+      [monthKey, note, existing.closedAt, now],
+    );
+    return this.getBudgetMonth(monthKey);
+  }
+
+  /**
+   * Loads the input shape `computeFinanceBudgetState` (and the other budget
+   * pure functions) need: on-budget, non-excluded transactions (splits
+   * expanded) through the end of `monthKey` for per-category `activity`;
+   * **every** on-budget transaction through the end of `monthKey`,
+   * regardless of `excluded_from_budget`, for `onBudgetBalance` (see
+   * `balanceTransactions` on `FinanceBudgetComputationInput`); every budget
+   * entry; and every category. See specs/done/finance.md "Computation shape".
+   */
+  private async buildBudgetComputationInput(
+    monthKey: string,
+    baseCurrency: string,
+  ): Promise<FinanceBudgetComputationInput> {
+    const db = await this.getDb();
+    const monthEnd = getMonthEndDate(monthKey);
+
+    const accounts = (await this.listAccounts({ includeClosed: true })).filter(
+      (account) => account.onBudget && account.currency === baseCurrency,
+    );
+    const onBudgetAccountIds = accounts.map((account) => account.id);
+    const accountPlaceholders = onBudgetAccountIds.map((_, i) => `$${i + 2}`).join(",");
+
+    const transactionRows =
+      onBudgetAccountIds.length > 0
+        ? await db.select<TransactionRow[]>(
+            `SELECT * FROM finance_transactions
+             WHERE excluded_from_budget = 0 AND posted_date <= $1
+               AND account_id IN (${accountPlaceholders})`,
+            [monthEnd, ...onBudgetAccountIds],
+          )
+        : [];
+
+    const balanceTransactionRows =
+      onBudgetAccountIds.length > 0
+        ? await db.select<TransactionRow[]>(
+            `SELECT * FROM finance_transactions
+             WHERE posted_date <= $1 AND account_id IN (${accountPlaceholders})`,
+            [monthEnd, ...onBudgetAccountIds],
+          )
+        : [];
+
+    const splitTransactionIds = transactionRows
+      .filter((row) => row.has_splits)
+      .map((row) => row.id);
+    const splitRows =
+      splitTransactionIds.length > 0
+        ? await db.select<SplitRow[]>(
+            `SELECT * FROM finance_transaction_splits
+             WHERE transaction_id IN (${splitTransactionIds.map((_, i) => `$${i + 1}`).join(",")})`,
+            splitTransactionIds,
+          )
+        : [];
+
+    const categories = await this.listCategories(true);
+    const entries = await this.listBudgetEntries();
+
+    return {
+      monthKey,
+      accounts: accounts.map((account) => ({
+        id: account.id,
+        onBudget: account.onBudget,
+        openingBalanceMinor: account.openingBalanceMinor,
+      })),
+      transactions: transactionRows.map((row) => ({
+        id: row.id,
+        accountId: row.account_id,
+        postedDate: row.posted_date,
+        amountMinor: row.amount_minor,
+        categoryId: row.category_id,
+        hasSplits: Boolean(row.has_splits),
+      })),
+      balanceTransactions: balanceTransactionRows.map((row) => ({
+        accountId: row.account_id,
+        postedDate: row.posted_date,
+        amountMinor: row.amount_minor,
+      })),
+      splits: splitRows.map((row) => ({
+        transactionId: row.transaction_id,
+        amountMinor: row.amount_minor,
+        categoryId: row.category_id,
+      })),
+      entries,
+      categories: categories.map((category) => ({
+        id: category.id,
+        kind: category.kind,
+        defersToNextMonth: category.defersToNextMonth,
+      })),
+    };
+  }
+
+  async computeBudgetState(monthKey: string, baseCurrency: string): Promise<FinanceBudgetState> {
+    const input = await this.buildBudgetComputationInput(monthKey, baseCurrency);
+    return computeFinanceBudgetState(input);
+  }
+
+  /** Moves the cover amount between both rows in one transaction; callers hold the writer. */
+  async applyCoverOverspending(
+    monthKey: string,
+    baseCurrency: string,
+    fromCategoryId: string,
+    toCategoryId: string,
+  ): Promise<CoverOverspendingResult> {
+    const db = await this.getDb();
+    return this.inTransaction(db, async () => {
+      const result = await this.computeCoverOverspending(
+        monthKey,
+        baseCurrency,
+        fromCategoryId,
+        toCategoryId,
+      );
+      if (result.amountMinor > 0) {
+        await this.setBudgetAssignment(monthKey, fromCategoryId, result.fromNewAssignedMinor);
+        await this.setBudgetAssignment(monthKey, toCategoryId, result.toNewAssignedMinor);
+      }
+      return result;
+    });
+  }
+
+  /** Delegates to the pure `computeCoverOverspending` — see `AppRepository.computeFinanceCoverOverspending`. */
+  async computeCoverOverspending(
+    monthKey: string,
+    baseCurrency: string,
+    fromCategoryId: string,
+    toCategoryId: string,
+  ): Promise<CoverOverspendingResult> {
+    const input = await this.buildBudgetComputationInput(monthKey, baseCurrency);
+    return computeCoverOverspending(fromCategoryId, toCategoryId, monthKey, input);
+  }
+
   private async rollbackQuietly(db: Database): Promise<void> {
     try {
       await db.execute("ROLLBACK");
     } catch {
       // Best effort; the original error is what the caller surfaces.
+    }
+  }
+
+  // --- net worth / cash flow / reports / recurring (Phase 6) -----------------------------
+
+  /**
+   * Every transaction on every account regardless of `excluded_from_budget`/
+   * `excluded_from_reports`/`on_budget` — the net-worth balance rule (see
+   * AGENTS.md "Repository parity"). Mirrors `FinanceMemoryStore`'s loader.
+   */
+  private async buildNetWorthComputationInput(
+    asOfDate: string,
+    baseCurrency: string,
+  ): Promise<FinanceNetWorthComputationInput> {
+    const db = await this.getDb();
+    const accountRows = await db.select<AccountRow[]>("SELECT * FROM finance_accounts");
+    const transactionRows = await db.select<TransactionRow[]>(
+      "SELECT account_id, posted_date, amount_minor FROM finance_transactions WHERE posted_date <= $1",
+      [asOfDate],
+    );
+    return {
+      asOfDate,
+      baseCurrency,
+      accounts: accountRows.map((row) => ({
+        id: row.id,
+        type: row.type,
+        currency: row.currency,
+        closed: Boolean(row.closed),
+        openingBalanceMinor: row.opening_balance_minor,
+      })),
+      transactions: transactionRows.map((row) => ({
+        accountId: row.account_id,
+        postedDate: row.posted_date,
+        amountMinor: row.amount_minor,
+      })),
+    };
+  }
+
+  async computeNetWorth(asOfDate: string, baseCurrency: string): Promise<FinanceNetWorthSnapshot> {
+    return computeFinanceNetWorth(await this.buildNetWorthComputationInput(asOfDate, baseCurrency));
+  }
+
+  async listNetWorthHistory(baseCurrency: string): Promise<FinanceNetWorthHistoryPoint[]> {
+    const db = await this.getDb();
+    const snapshotRows = await db.select<BalanceSnapshotRow[]>(
+      "SELECT * FROM finance_account_balance_snapshots",
+    );
+    const accountRows = await db.select<AccountRow[]>("SELECT * FROM finance_accounts");
+    return buildFinanceNetWorthHistory(
+      snapshotRows.map(mapBalanceSnapshot),
+      accountRows.map((row) => ({
+        id: row.id,
+        type: row.type,
+        currency: row.currency,
+        closed: Boolean(row.closed),
+        openingBalanceMinor: row.opening_balance_minor,
+      })),
+      baseCurrency,
+    );
+  }
+
+  private async buildCashFlowComputationInput(
+    monthKey: string,
+    baseCurrency: string,
+  ): Promise<FinanceCashFlowComputationInput> {
+    const db = await this.getDb();
+    const transactionRows = await db.select<TransactionRow[]>("SELECT * FROM finance_transactions");
+    const splitRows = await db.select<SplitRow[]>("SELECT * FROM finance_transaction_splits");
+    return {
+      monthKey,
+      baseCurrency,
+      transactions: transactionRows.map((row) => ({
+        id: row.id,
+        postedDate: row.posted_date,
+        amountMinor: row.amount_minor,
+        currency: row.currency,
+        isTransfer: Boolean(row.is_transfer),
+        excludedFromReports: Boolean(row.excluded_from_reports),
+        hasSplits: Boolean(row.has_splits),
+      })),
+      splits: splitRows.map((row) => ({
+        transactionId: row.transaction_id,
+        amountMinor: row.amount_minor,
+      })),
+    };
+  }
+
+  async computeCashFlow(monthKey: string, baseCurrency: string): Promise<FinanceCashFlowSummary> {
+    return computeFinanceCashFlow(await this.buildCashFlowComputationInput(monthKey, baseCurrency));
+  }
+
+  private async buildReportComputationInput(
+    baseCurrency: string,
+  ): Promise<FinanceReportComputationInput> {
+    const db = await this.getDb();
+    const transactionRows = await db.select<TransactionRow[]>("SELECT * FROM finance_transactions");
+    const splitRows = await db.select<SplitRow[]>("SELECT * FROM finance_transaction_splits");
+    const categoryRows = await db.select<CategoryRow[]>("SELECT * FROM finance_categories");
+    return {
+      baseCurrency,
+      transactions: transactionRows.map((row) => ({
+        id: row.id,
+        postedDate: row.posted_date,
+        amountMinor: row.amount_minor,
+        currency: row.currency,
+        categoryId: row.category_id,
+        merchantKey: row.merchant_key,
+        merchantDisplay: row.merchant_display,
+        personId: row.person_id,
+        isTransfer: Boolean(row.is_transfer),
+        excludedFromReports: Boolean(row.excluded_from_reports),
+        hasSplits: Boolean(row.has_splits),
+      })),
+      splits: splitRows.map((row) => ({
+        id: row.id,
+        transactionId: row.transaction_id,
+        amountMinor: row.amount_minor,
+        categoryId: row.category_id,
+      })),
+      categories: categoryRows.map((row) => ({
+        id: row.id,
+        parentId: row.parent_id,
+        name: row.name,
+      })),
+    };
+  }
+
+  async computeCategorySpend(
+    range: FinanceDateRange,
+    groupBy: FinanceReportGroupBy,
+    baseCurrency: string,
+  ): Promise<FinanceCategorySpendRow[]> {
+    return computeFinanceCategorySpend(
+      await this.buildReportComputationInput(baseCurrency),
+      range,
+      groupBy,
+    );
+  }
+
+  async listCategorySpendDrilldown(
+    range: FinanceDateRange,
+    groupBy: FinanceReportGroupBy,
+    key: string,
+    baseCurrency: string,
+  ): Promise<FinanceReportLine[]> {
+    return listFinanceCategorySpendDrilldown(
+      await this.buildReportComputationInput(baseCurrency),
+      range,
+      groupBy,
+      key,
+    );
+  }
+
+  async computeMerchantSpend(
+    range: FinanceDateRange,
+    limit: number,
+    baseCurrency: string,
+  ): Promise<FinanceMerchantSpendRow[]> {
+    return computeFinanceMerchantSpend(
+      await this.buildReportComputationInput(baseCurrency),
+      range,
+      limit,
+    );
+  }
+
+  async computePersonSpend(
+    range: FinanceDateRange,
+    baseCurrency: string,
+  ): Promise<FinancePersonSpendRow[]> {
+    return computeFinancePersonSpend(await this.buildReportComputationInput(baseCurrency), range);
+  }
+
+  async computeTrend(
+    range: FinanceDateRange,
+    granularity: FinanceTrendGranularity,
+    baseCurrency: string,
+  ): Promise<FinanceTrendPoint[]> {
+    return computeFinanceTrend(
+      await this.buildReportComputationInput(baseCurrency),
+      range,
+      granularity,
+    );
+  }
+
+  async computeMonthOverMonth(
+    currentRange: FinanceDateRange,
+    previousRange: FinanceDateRange,
+    groupBy: FinanceReportGroupBy,
+    baseCurrency: string,
+  ): Promise<FinanceMonthOverMonthRow[]> {
+    return computeFinanceMonthOverMonth(
+      await this.buildReportComputationInput(baseCurrency),
+      currentRange,
+      previousRange,
+      groupBy,
+    );
+  }
+
+  // --- recurring series (Phase 6) ---------------------------------------------------------
+
+  async listRecurringSeries(
+    status?: FinanceRecurringSeries["status"],
+  ): Promise<FinanceRecurringSeries[]> {
+    const db = await this.getDb();
+    const rows = status
+      ? await db.select<RecurringSeriesRow[]>(
+          "SELECT * FROM finance_recurring_series WHERE status = $1",
+          [status],
+        )
+      : await db.select<RecurringSeriesRow[]>("SELECT * FROM finance_recurring_series");
+    return rows
+      .map(mapRecurringSeries)
+      .sort(
+        (a, b) =>
+          a.merchantKey.localeCompare(b.merchantKey) || a.accountId.localeCompare(b.accountId),
+      );
+  }
+
+  async saveRecurringSeries(series: FinanceRecurringSeries): Promise<FinanceRecurringSeries> {
+    const db = await this.getDb();
+    const now = nowIso();
+    const id = series.id || createEntityId("finance-recurring");
+    const existingRows = await db.select<RecurringSeriesRow[]>(
+      "SELECT created_at FROM finance_recurring_series WHERE id = $1",
+      [id],
+    );
+    const createdAt = existingRows[0]?.created_at ?? series.createdAt ?? now;
+    await db.execute(
+      `INSERT INTO finance_recurring_series (
+        id, merchant_key, account_id, category_id, cadence, expected_amount_minor,
+        amount_tolerance_minor, day_of_month, last_seen_date, next_expected_date,
+        occurrence_count, status, confirmed_by_user, created_at, updated_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+      ON CONFLICT(id) DO UPDATE SET
+        merchant_key = excluded.merchant_key,
+        account_id = excluded.account_id,
+        category_id = excluded.category_id,
+        cadence = excluded.cadence,
+        expected_amount_minor = excluded.expected_amount_minor,
+        amount_tolerance_minor = excluded.amount_tolerance_minor,
+        day_of_month = excluded.day_of_month,
+        last_seen_date = excluded.last_seen_date,
+        next_expected_date = excluded.next_expected_date,
+        occurrence_count = excluded.occurrence_count,
+        status = excluded.status,
+        confirmed_by_user = excluded.confirmed_by_user,
+        updated_at = excluded.updated_at`,
+      [
+        id,
+        series.merchantKey,
+        series.accountId,
+        series.categoryId,
+        series.cadence,
+        series.expectedAmountMinor,
+        series.amountToleranceMinor,
+        series.dayOfMonth,
+        series.lastSeenDate,
+        series.nextExpectedDate,
+        series.occurrenceCount,
+        series.status,
+        series.confirmedByUser ? 1 : 0,
+        createdAt,
+        now,
+      ],
+    );
+    const rows = await db.select<RecurringSeriesRow[]>(
+      "SELECT * FROM finance_recurring_series WHERE id = $1",
+      [id],
+    );
+    return mapRecurringSeries(rows[0]);
+  }
+
+  /** Public, on-demand entry point (not inside an import transaction). */
+  async detectRecurringSeries(today: string): Promise<{ created: number; updated: number }> {
+    const db = await this.getDb();
+    return this.inTransaction(db, () => this.detectRecurringSeriesWithDb(db, today));
+  }
+
+  /**
+   * Re-runs detection over the full history and upserts every result,
+   * preserving `confirmed_by_user` series — see `AppRepository`'s
+   * `detectFinanceRecurringSeries` contract. Callable from inside an
+   * existing transaction (`importTransactions`) or standalone.
+   */
+  private async detectRecurringSeriesWithDb(
+    db: Database,
+    today: string,
+  ): Promise<{ created: number; updated: number }> {
+    const transactionRows = await db.select<
+      Array<{
+        merchant_key: string;
+        account_id: string;
+        category_id: string | null;
+        amount_minor: number;
+        posted_date: string;
+      }>
+    >(
+      `SELECT merchant_key, account_id, category_id, amount_minor, posted_date
+       FROM finance_transactions
+       WHERE is_transfer = 0 AND excluded_from_reports = 0`,
+    );
+    const seriesRows = await db.select<RecurringSeriesRow[]>(
+      "SELECT * FROM finance_recurring_series",
+    );
+
+    const transactions: RecurringDetectionTransactionInput[] = transactionRows.map((row) => ({
+      merchantKey: row.merchant_key,
+      accountId: row.account_id,
+      categoryId: row.category_id,
+      amountMinor: row.amount_minor,
+      postedDate: row.posted_date,
+    }));
+    const existing: RecurringDetectionExistingSeriesInput[] = seriesRows.map((row) => {
+      const mapped = mapRecurringSeries(row);
+      return {
+        id: mapped.id,
+        merchantKey: mapped.merchantKey,
+        accountId: mapped.accountId,
+        categoryId: mapped.categoryId,
+        cadence: mapped.cadence,
+        expectedAmountMinor: mapped.expectedAmountMinor,
+        amountToleranceMinor: mapped.amountToleranceMinor,
+        dayOfMonth: mapped.dayOfMonth,
+        lastSeenDate: mapped.lastSeenDate,
+        nextExpectedDate: mapped.nextExpectedDate,
+        occurrenceCount: mapped.occurrenceCount,
+        status: mapped.status,
+        confirmedByUser: mapped.confirmedByUser,
+      };
+    });
+
+    const detected = detectFinanceRecurringSeries(transactions, existing, today);
+    let created = 0;
+    let updated = 0;
+    const now = nowIso();
+
+    for (const item of detected) {
+      const isNew = item.id === "";
+      const id = isNew ? createEntityId("finance-recurring") : item.id;
+      const existingRows = isNew
+        ? []
+        : await db.select<Array<{ created_at: string }>>(
+            "SELECT created_at FROM finance_recurring_series WHERE id = $1",
+            [id],
+          );
+      const createdAt = existingRows[0]?.created_at ?? now;
+
+      await db.execute(
+        `INSERT INTO finance_recurring_series (
+          id, merchant_key, account_id, category_id, cadence, expected_amount_minor,
+          amount_tolerance_minor, day_of_month, last_seen_date, next_expected_date,
+          occurrence_count, status, confirmed_by_user, created_at, updated_at
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+        ON CONFLICT(id) DO UPDATE SET
+          merchant_key = excluded.merchant_key,
+          account_id = excluded.account_id,
+          category_id = excluded.category_id,
+          cadence = excluded.cadence,
+          expected_amount_minor = excluded.expected_amount_minor,
+          amount_tolerance_minor = excluded.amount_tolerance_minor,
+          day_of_month = excluded.day_of_month,
+          last_seen_date = excluded.last_seen_date,
+          next_expected_date = excluded.next_expected_date,
+          occurrence_count = excluded.occurrence_count,
+          status = excluded.status,
+          confirmed_by_user = excluded.confirmed_by_user,
+          updated_at = excluded.updated_at`,
+        [
+          id,
+          item.merchantKey,
+          item.accountId,
+          item.categoryId,
+          item.cadence,
+          item.expectedAmountMinor,
+          item.amountToleranceMinor,
+          item.dayOfMonth,
+          item.lastSeenDate,
+          item.nextExpectedDate,
+          item.occurrenceCount,
+          item.status,
+          item.confirmedByUser ? 1 : 0,
+          createdAt,
+          now,
+        ],
+      );
+      if (isNew) {
+        created += 1;
+      } else {
+        updated += 1;
+      }
+    }
+
+    // The pure result is the full set: an unconfirmed series it no longer returns
+    // (import undone, cadence broken) has nothing behind it, so drop the row.
+    const keptIds = new Set(
+      detected.map((item) => item.id).filter((id): id is string => id !== ""),
+    );
+    for (const row of seriesRows) {
+      if (row.confirmed_by_user === 0 && !keptIds.has(row.id)) {
+        await db.execute("DELETE FROM finance_recurring_series WHERE id = $1", [row.id]);
+      }
+    }
+
+    return { created, updated };
+  }
+
+  // --- balance snapshots (Phase 6) ----------------------------------------------------------
+
+  /** Idempotent per day: upserts one row per account for `asOfDate`. Returns the account count. */
+  async snapshotAccountBalances(asOfDate: string): Promise<number> {
+    const db = await this.getDb();
+    const now = nowIso();
+    const accountRows = await db.select<AccountRow[]>("SELECT * FROM finance_accounts");
+    const transactionRows = await db.select<TransactionRow[]>(
+      "SELECT account_id, posted_date, amount_minor FROM finance_transactions WHERE posted_date <= $1",
+      [asOfDate],
+    );
+    const balanceByAccountId = new Map<string, number>();
+    for (const account of accountRows) {
+      balanceByAccountId.set(account.id, account.opening_balance_minor);
+    }
+    for (const row of transactionRows) {
+      balanceByAccountId.set(
+        row.account_id,
+        (balanceByAccountId.get(row.account_id) ?? 0) + row.amount_minor,
+      );
+    }
+
+    // One transaction so a failure never leaves the day with only a prefix of accounts.
+    await this.inTransaction(db, async () => {
+      for (const account of accountRows) {
+        await db.execute(
+          `INSERT INTO finance_account_balance_snapshots (
+            account_id, as_of_date, balance_minor, source, created_at
+          ) VALUES ($1,$2,$3,'derived',$4)
+          ON CONFLICT(account_id, as_of_date) DO UPDATE SET
+            balance_minor = excluded.balance_minor`,
+          [account.id, asOfDate, balanceByAccountId.get(account.id) ?? 0, now],
+        );
+      }
+    });
+    return accountRows.length;
+  }
+
+  async listAccountBalanceSnapshots(accountId: string): Promise<FinanceAccountBalanceSnapshot[]> {
+    const db = await this.getDb();
+    const rows = await db.select<BalanceSnapshotRow[]>(
+      "SELECT * FROM finance_account_balance_snapshots WHERE account_id = $1 ORDER BY as_of_date",
+      [accountId],
+    );
+    return rows.map(mapBalanceSnapshot);
+  }
+
+  // --- Forecasting and alerts (Phase 7) ---------------------------------------------------
+
+  /**
+   * The forecast/alert input bundle for `AppRepository.buildFinanceSnapshot`.
+   * `paceTransactions`/`paceSplits` reuse the same on-budget,
+   * `excluded_from_budget = 0` filter `budget.ts`'s `activity` uses (via
+   * `buildBudgetComputationInput`), so pace math and envelope activity agree
+   * on what counts as spending. `budgetState` is `computeFinanceBudgetState`
+   * — reused, never recomputed, for `envelope`/`available`/`activity`.
+   */
+  async buildSnapshot(
+    today: string,
+    safetyBufferMinor: number,
+    baseCurrency: string,
+  ): Promise<FinanceSnapshot> {
+    const db = await this.getDb();
+    const monthKey = getMonthKey(today);
+
+    const budgetInput = restrictBudgetInputThrough(
+      await this.buildBudgetComputationInput(monthKey, baseCurrency),
+      today,
+    );
+    const budgetState = computeFinanceBudgetState(budgetInput);
+
+    const onBudgetAccountIds = budgetInput.accounts.map((account) => account.id);
+    const accountPlaceholders = onBudgetAccountIds.map((_, i) => `$${i + 2}`).join(",");
+    const transactionRows =
+      onBudgetAccountIds.length > 0
+        ? await db.select<TransactionRow[]>(
+            `SELECT * FROM finance_transactions
+             WHERE excluded_from_budget = 0 AND posted_date <= $1
+               AND account_id IN (${accountPlaceholders})`,
+            [today, ...onBudgetAccountIds],
+          )
+        : [];
+    const splitTransactionIds = transactionRows
+      .filter((row) => row.has_splits)
+      .map((row) => row.id);
+    const splitRows =
+      splitTransactionIds.length > 0
+        ? await db.select<SplitRow[]>(
+            `SELECT * FROM finance_transaction_splits
+             WHERE transaction_id IN (${splitTransactionIds.map((_, i) => `$${i + 1}`).join(",")})`,
+            splitTransactionIds,
+          )
+        : [];
+
+    const activeSeriesRows =
+      onBudgetAccountIds.length > 0
+        ? await db.select<RecurringSeriesRow[]>(
+            `SELECT * FROM finance_recurring_series
+             WHERE status = 'active' AND account_id IN (${onBudgetAccountIds
+               .map((_, i) => `$${i + 1}`)
+               .join(",")})`,
+            onBudgetAccountIds,
+          )
+        : [];
+
+    let firstActivityMonthKey: string | null = null;
+    for (const row of transactionRows) {
+      const month = getMonthKey(row.posted_date);
+      if (firstActivityMonthKey === null || month < firstActivityMonthKey) {
+        firstActivityMonthKey = month;
+      }
+    }
+
+    return {
+      today,
+      monthKey,
+      safetyBufferMinor,
+      accounts: budgetInput.accounts,
+      balanceTransactions: budgetInput.balanceTransactions,
+      budgetState,
+      paceTransactions: transactionRows.map((row) => ({
+        id: row.id,
+        accountId: row.account_id,
+        postedDate: row.posted_date,
+        amountMinor: row.amount_minor,
+        categoryId: row.category_id,
+        merchantKey: row.merchant_key,
+        hasSplits: Boolean(row.has_splits),
+        isTransfer: Boolean(row.is_transfer),
+      })),
+      paceSplits: splitRows.map((row) => ({
+        transactionId: row.transaction_id,
+        amountMinor: row.amount_minor,
+        categoryId: row.category_id,
+      })),
+      firstActivityMonthKey,
+      recurringSeries: activeSeriesRows.map(mapRecurringSeries).map((series) => ({
+        merchantKey: series.merchantKey,
+        accountId: series.accountId,
+        categoryId: series.categoryId,
+        cadence: series.cadence,
+        expectedAmountMinor: series.expectedAmountMinor,
+        dayOfMonth: series.dayOfMonth,
+        lastSeenDate: series.lastSeenDate,
+        nextExpectedDate: series.nextExpectedDate,
+      })),
+    };
+  }
+
+  async computeForecast(
+    today: string,
+    safetyBufferMinor: number,
+    baseCurrency: string,
+  ): Promise<{ forecast: FinanceForecast; alerts: FinanceAlert[] }> {
+    const snapshot = await this.buildSnapshot(today, safetyBufferMinor, baseCurrency);
+    const forecast = computeFinanceForecast(snapshot);
+    const alerts = buildFinanceAlerts(forecast, { financeSafetyBufferMinor: safetyBufferMinor });
+    return { forecast, alerts };
+  }
+
+  // --- Alert notification ledger (Phase 7) ------------------------------------------------
+
+  /** Alert keys already notified on `onDate` — the once-per-day-per-key rate limit. */
+  async listNotifiedFinanceAlertKeys(onDate: string): Promise<string[]> {
+    const db = await this.getDb();
+    const rows = await db.select<Array<{ alert_key: string }>>(
+      "SELECT alert_key FROM finance_alert_notifications WHERE notified_on_date = $1",
+      [onDate],
+    );
+    return rows.map((row) => row.alert_key);
+  }
+
+  async recordFinanceAlertNotifications(onDate: string, alertKeys: string[]): Promise<void> {
+    if (alertKeys.length === 0) {
+      return;
+    }
+    const db = await this.getDb();
+    const now = nowIso();
+    for (const alertKey of alertKeys) {
+      await db.execute(
+        `INSERT INTO finance_alert_notifications (alert_key, notified_on_date, notified_at)
+         VALUES ($1, $2, $3)
+         ON CONFLICT(alert_key, notified_on_date) DO NOTHING`,
+        [alertKey, onDate, now],
+      );
     }
   }
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { EmailTriageCoordinator } from "../lib/email-triage/coordinator";
 import type { EmailTriageAccount } from "../domain/email-triage";
 import type { AppRepository } from "../lib/storage/repository";
@@ -134,9 +134,9 @@ export const useEmailTriageCoordinator = (
     };
   }, [repository, options.browserPreview, options.allowStart, options.settings.aiBaseUrl]);
 
-  return {
-    reconfigure: async () => {
-      await coordinatorRef.current?.reconfigure();
-    },
-  };
+  const reconfigure = useCallback(async () => {
+    await coordinatorRef.current?.reconfigure();
+  }, []);
+
+  return { reconfigure };
 };

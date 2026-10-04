@@ -100,6 +100,14 @@ generate or scrape it. See
   The draft remains available while the hook/page stays mounted; a later edit can
   retry the save. Review textareas return the save promise to `PersistedTextarea`
   so rejected writes are handled by its existing dirty-draft/retry behavior.
+- Weekly and monthly review screens share their scaffolding under `src/app/reviews/`
+  and `RitualSectionList`: `useWeeklyReviewNotes` (displayed week plus the next
+  week's Dimanche row on one keyed saver, including section-draft acceptance),
+  `useRescueTimeWeek`, `useWeeklyMemoryProposals`, `useReviewSynthesis` (result,
+  loading flag, and latest-wins request around a per-surface runner),
+  `buildRitualSections` / `RitualSectionList`, and the `?date=` / `?month=` parsers
+  in `review-query-params.ts`. Pages keep layout and period selection; new review
+  surfaces should reuse these instead of copying the skeleton.
 - Use `createSerialQueue` (`src/lib/serial-queue.ts`) for ordered asynchronous work.
   Each call keeps its own error and later work continues after a failure; `idle`
   waits for queued work, including submissions while waiting. `DbSerialQueue` is
@@ -154,6 +162,12 @@ returns a decimal number; `addMoney`/`sumMoney` throw on mixed currencies
 rather than silently truncating. Dedupe hashing (`src/lib/finance/hash.ts`)
 uses a 128-bit hash, not the 32-bit `hashString` in `src/lib/hash.ts`, because
 a collision at finance-import volumes would silently drop a real transaction.
+The `finance_categorization` AI surface's amount **bucket** (see
+[docs/ai-settings-and-privacy.md](ai-settings-and-privacy.md#finance-categorization-finance_categorization))
+follows the same rule at the boundary: `amountBucketFor` compares the raw
+minor-unit integer against `threshold * 10 ** currencyExponent(baseCurrency)`
+— a multiplication, never a division — so no binary-float rounding can creep
+into which bucket a borderline amount lands in.
 The hash preimage is a JSON-framed array so field boundaries stay unambiguous.
 Amount parsing is strict: excess fractional digits and malformed thousands
 grouping are errors, and the default exponent comes from the currency.
