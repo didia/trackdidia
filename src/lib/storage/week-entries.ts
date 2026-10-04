@@ -7,8 +7,8 @@ import type { AppRepository } from "./repository";
  * Loads the seven decorated daily entries of a week (suggested pomodoro and task metrics
  * applied), filling days with no entry row with an empty entry.
  *
- * Never use `listDailyEntriesInRange` here: it skips `decorateEntry` on purpose, which would
- * remove the suggested metrics.
+ * Repository entry reads are all decorated, so this stays a per-day `getDailyEntry` read;
+ * only days with no row fall back to an undecorated empty entry.
  */
 export const loadDecoratedWeekEntries = async (
   repository: AppRepository,

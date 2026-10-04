@@ -96,6 +96,7 @@ export const useReviewSynthesis = <
   return {
     result,
     visibleResult,
+    setResult,
     loading,
     run,
     clear,

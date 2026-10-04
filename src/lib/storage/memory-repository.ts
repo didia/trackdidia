@@ -14,12 +14,7 @@ import {
   updateAnnualGoalEvaluation,
   createEmptyAnnualGoal,
 } from "../../domain/annual-goals";
-import {
-  applyDailyPomodoroStats,
-  applyDailyTaskStats,
-  cloneEntry,
-  createEmptyDailyEntry,
-} from "../../domain/daily-entry";
+import { cloneEntry, createEmptyDailyEntry } from "../../domain/daily-entry";
 import { mergeObjectiveSecondsPayload } from "../../domain/rescuetime-goals";
 import { journalPeriodOverlaps } from "../../domain/journal-feed";
 import {
@@ -77,7 +72,9 @@ import {
   listWeekDates,
 } from "../../domain/weekly-review";
 import { monthKeyToLocalRange } from "../ai/analytics/month-range";
-import { getTodayDate, isSunday } from "../date";
+import { getTodayDate } from "../date";
+import { reconcileGtdDay, type ReconcileDayResult } from "../gtd/reconcile";
+import { decorateDailyEntries } from "./decorate-entries";
 import { addCustomVerse } from "../pastor/custom-verse";
 import {
   buildCarryoverEvents,
@@ -89,12 +86,21 @@ import {
   filterProjects,
   filterTasks,
 } from "../gtd/engine";
+import {
+  hasContext,
+  hasScheduledDate,
+  selectTasksForBucketNormalization,
+} from "../gtd/bucket-normalization";
+import { planGoogleRecurringCollapse } from "../gtd/google-recurring-collapse";
 import { buildGoogleTasksImport } from "../gtd/google-tasks-import";
 import {
   adjustPlannedFieldsForSave,
+  assertPlannedProjectActive,
+  assertPlannedTaskActionable,
   reconcileProjectPlannedTasks,
   swapPlannedOrder,
 } from "../gtd/planned";
+import { applyScheduleChange } from "../gtd/schedule";
 import { promoteDueScheduledTasks as selectDueScheduledPromotions } from "../gtd/scheduled";
 import { buildContextId, cloneProject, cloneTask, createEntityId, nowIso } from "../gtd/shared";
 import { addDays, toLocalDateString } from "../date";
@@ -114,14 +120,16 @@ import {
 import {
   applySeriesChangesToTemplate,
   buildRecurringPreviewOccurrences,
-  buildTaskFromRecurringTemplate,
+  cancelActiveTaskForTemplate,
   cloneRecurringTemplate,
   createRecurringTemplate,
   filterRecurringTemplates,
-  listDueDatesBetween,
-  prepareRecurringGeneration,
+  mergeOccurrenceEdit,
+  planDueRecurrenceGeneration,
+  planRecurrencePreparation,
+  planTemplateUpdateOnTaskClose,
   recurrenceGenerationHorizon,
-  recurringInstanceWasRewound,
+  syncActiveTaskWithTemplate,
   syncTemplateStatusChange,
 } from "../recurring/engine";
 import { buildDailyRelationshipDrawPlan } from "../relationship-draws";
@@ -353,11 +361,11 @@ export class MemoryRepository implements AppRepository {
 
   async getDailyEntry(date: string): Promise<DailyEntry | null> {
     const existing = this.entries.get(date);
-    return existing ? this.decorateEntry(existing) : null;
+    return existing ? (this.decorateEntries([existing])[0] ?? null) : null;
   }
 
   async saveDailyEntry(entry: DailyEntry): Promise<void> {
-    this.saveDailyEntryInternal(await this.decorateEntry(entry));
+    this.saveDailyEntryInternal(entry);
   }
 
   private saveDailyEntryInternal(entry: DailyEntry): void {
@@ -369,7 +377,7 @@ export class MemoryRepository implements AppRepository {
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, limit);
 
-    return Promise.all(sorted.map((entry) => this.decorateEntry(entry)));
+    return this.decorateEntries(sorted);
   }
 
   async listDailyEntriesOnOrBefore(endDate: string, limit = 180): Promise<DailyEntry[]> {
@@ -378,7 +386,7 @@ export class MemoryRepository implements AppRepository {
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, limit);
 
-    return Promise.all(sorted.map((entry) => this.decorateEntry(entry)));
+    return this.decorateEntries(sorted);
   }
 
   async listDailyEntriesInRange(startDate: string, endDate: string): Promise<DailyEntry[]> {
@@ -386,9 +394,7 @@ export class MemoryRepository implements AppRepository {
       .filter((entry) => entry.date >= startDate && entry.date <= endDate)
       .sort((a, b) => b.date.localeCompare(a.date));
 
-    // Journal only reads note text. Skip decorateEntry so a wide range cannot
-    // fan out into per-day GTD/Pomodoro writes and full-table scans.
-    return sorted.map((entry) => cloneEntry(entry));
+    return this.decorateEntries(sorted);
   }
 
   async getWeeklyReview(weekStartDate: string): Promise<WeeklyReview | null> {
@@ -429,11 +435,10 @@ export class MemoryRepository implements AppRepository {
 
   async computeWeeklyReviewSummary(weekStartDate: string) {
     const normalized = buildWeekDates(weekStartDate);
-    const entries = await Promise.all(
-      listWeekDates(normalized).map(async (date) => {
-        const existing = this.entries.get(date);
-        return this.decorateEntry(existing ?? createEmptyDailyEntry(date));
-      }),
+    const entries = this.decorateEntries(
+      listWeekDates(normalized).map(
+        (date) => this.entries.get(date) ?? createEmptyDailyEntry(date),
+      ),
     );
 
     return buildWeeklyReviewSummary(normalized, entries);
@@ -629,12 +634,8 @@ export class MemoryRepository implements AppRepository {
 
   async computeMonthlyReviewSummary(monthKey: string) {
     const normalized = getMonthKey(`${monthKey}-01`);
-    const entries = (
-      await Promise.all(
-        [...this.entries.values()]
-          .filter((entry) => getMonthKey(entry.date) === normalized)
-          .map((entry) => this.decorateEntry(entry)),
-      )
+    const entries = this.decorateEntries(
+      [...this.entries.values()].filter((entry) => getMonthKey(entry.date) === normalized),
     ).sort((left, right) => left.date.localeCompare(right.date));
     const weekStarts = listWeekStartsForMonth(normalized);
     const weeklySummaries = await Promise.all(
@@ -679,10 +680,8 @@ export class MemoryRepository implements AppRepository {
   }
 
   async computeAnnualGoalSnapshots(year: number, asOfDate: string = getTodayDate()) {
-    const entries = await Promise.all(
-      [...this.entries.values()]
-        .filter((entry) => entry.date.startsWith(`${year}-`))
-        .map((entry) => this.decorateEntry(entry)),
+    const entries = this.decorateEntries(
+      [...this.entries.values()].filter((entry) => entry.date.startsWith(`${year}-`)),
     );
     const weekStarts = [...new Set(entries.map((entry) => buildWeekDates(entry.date)))].sort();
     const weeklySummaries = await Promise.all(
@@ -1125,87 +1124,57 @@ export class MemoryRepository implements AppRepository {
   }
 
   async moveTasksWithContextToBucket(contextId: string, bucket: Task["bucket"]): Promise<number> {
-    let movedCount = 0;
+    const updates = selectTasksForBucketNormalization(
+      this.tasks.values(),
+      hasContext(contextId),
+      bucket,
+      nowIso(),
+    );
 
-    for (const [taskId, task] of this.tasks.entries()) {
-      if (
-        task.status !== "active" ||
-        !task.contextIds.includes(contextId) ||
-        task.bucket === bucket
-      ) {
-        continue;
-      }
-
-      this.tasks.set(taskId, {
-        ...cloneTask(task),
-        bucket,
-        updatedAt: nowIso(),
-      });
-      movedCount += 1;
+    for (const updated of updates) {
+      this.tasks.set(updated.id, updated);
     }
 
-    return movedCount;
+    return updates.length;
   }
 
   async moveTasksWithScheduledDatesToBucket(bucket: Task["bucket"]): Promise<number> {
-    let movedCount = 0;
+    const updates = selectTasksForBucketNormalization(
+      this.tasks.values(),
+      hasScheduledDate,
+      bucket,
+      nowIso(),
+    );
 
-    for (const [taskId, task] of this.tasks.entries()) {
-      if (task.status !== "active" || !task.scheduledFor || task.bucket === bucket) {
-        continue;
-      }
-
-      this.tasks.set(taskId, {
-        ...cloneTask(task),
-        bucket,
-        updatedAt: nowIso(),
-      });
-      movedCount += 1;
+    for (const updated of updates) {
+      this.tasks.set(updated.id, updated);
     }
 
-    return movedCount;
+    return updates.length;
   }
 
   async collapseGoogleRecurringTasks(rawJson: unknown): Promise<number> {
     const payload = buildGoogleTasksImport(rawJson);
-    let changedCount = 0;
 
     for (const context of payload.contexts) {
       this.contexts.set(context.id, { ...context });
     }
 
-    for (const desiredTask of payload.tasks.filter((task) => task.recurrenceGroupId)) {
-      const sourceIds = new Set(payload.recurringSourceTaskIds[desiredTask.id] ?? []);
-      const existingMatches = [...this.tasks.values()].filter(
-        (task) =>
-          task.source === "google_import" &&
-          (task.id === desiredTask.id ||
-            task.recurrenceGroupId === desiredTask.recurrenceGroupId ||
-            (task.sourceExternalId ? sourceIds.has(task.sourceExternalId) : false)),
-      );
+    const { upserts, deleteIds } = planGoogleRecurringCollapse(
+      payload,
+      [...this.tasks.values()],
+      nowIso(),
+    );
 
-      const previousPrimary =
-        existingMatches.find((task) => task.id === desiredTask.id) ?? existingMatches[0] ?? null;
-      const nextTask: Task = {
-        ...cloneTask(desiredTask),
-        notes: previousPrimary?.notes?.trim() ? previousPrimary.notes : desiredTask.notes,
-        projectId: previousPrimary?.projectId ?? desiredTask.projectId,
-        updatedAt: nowIso(),
-      };
-
-      this.tasks.set(nextTask.id, cloneTask(nextTask));
-      changedCount += 1;
-
-      for (const duplicate of existingMatches) {
-        if (duplicate.id === nextTask.id) {
-          continue;
-        }
-
-        this.tasks.delete(duplicate.id);
-      }
+    for (const task of upserts) {
+      this.tasks.set(task.id, cloneTask(task));
     }
 
-    return changedCount;
+    for (const taskId of deleteIds) {
+      this.tasks.delete(taskId);
+    }
+
+    return upserts.length;
   }
 
   async listContexts(): Promise<TaskContext[]> {
@@ -1271,8 +1240,6 @@ export class MemoryRepository implements AppRepository {
   }
 
   async listTasks(filters: TaskFilters = {}): Promise<Task[]> {
-    await this.generateDueRecurringTasks(getTodayDate());
-    await this.promoteDueScheduledTasks(getTodayDate());
     return filterTasks([...this.tasks.values()], filters);
   }
 
@@ -1315,7 +1282,7 @@ export class MemoryRepository implements AppRepository {
 
     const activeTask = this.findActiveRecurringTask(nextTemplate.id);
     if (activeTask) {
-      const syncedTask = this.syncActiveTaskWithTemplate(activeTask, nextTemplate);
+      const syncedTask = syncActiveTaskWithTemplate(activeTask, nextTemplate);
       this.tasks.set(syncedTask.id, cloneTask(syncedTask));
     }
 
@@ -1323,30 +1290,29 @@ export class MemoryRepository implements AppRepository {
   }
 
   async pauseRecurringTaskTemplate(id: string) {
-    const template = this.getExistingRecurringTemplate(id);
-    const nextTemplate = syncTemplateStatusChange(template, "paused");
-    this.recurringTemplates.set(id, cloneRecurringTemplate(nextTemplate));
-    return cloneRecurringTemplate(nextTemplate);
+    return this.setTemplateStatus(id, "paused");
   }
 
   async resumeRecurringTaskTemplate(id: string) {
-    const template = this.getExistingRecurringTemplate(id);
-    const nextTemplate = syncTemplateStatusChange(template, "active");
-    this.recurringTemplates.set(id, cloneRecurringTemplate(nextTemplate));
-    return cloneRecurringTemplate(nextTemplate);
+    return this.setTemplateStatus(id, "active");
   }
 
   async cancelRecurringTaskTemplate(id: string) {
+    return this.setTemplateStatus(id, "cancelled");
+  }
+
+  private setTemplateStatus(
+    id: string,
+    status: RecurringTaskTemplate["status"],
+  ): RecurringTaskTemplate {
     const template = this.getExistingRecurringTemplate(id);
-    const nextTemplate = syncTemplateStatusChange(template, "cancelled");
+    const nextTemplate = syncTemplateStatusChange(template, status);
     this.recurringTemplates.set(id, cloneRecurringTemplate(nextTemplate));
-    const activeTask = this.findActiveRecurringTask(id);
-    if (activeTask) {
-      this.tasks.set(activeTask.id, {
-        ...cloneTask(activeTask),
-        status: "cancelled",
-        updatedAt: nowIso(),
-      });
+    if (status === "cancelled") {
+      const activeTask = this.findActiveRecurringTask(id);
+      if (activeTask) {
+        this.tasks.set(activeTask.id, cancelActiveTaskForTemplate(activeTask, nowIso()));
+      }
     }
     return cloneRecurringTemplate(nextTemplate);
   }
@@ -1362,80 +1328,36 @@ export class MemoryRepository implements AppRepository {
       }
 
       const instance = this.findRecurringInstance(original.id);
-      const prepared = prepareRecurringGeneration(original, instance, today);
-      let template = prepared.template;
-      let activeTask = prepared.instance?.status === "active" ? prepared.instance : null;
-
-      if (prepared.changed) {
-        const timestamp = nowIso();
-        template = {
-          ...cloneRecurringTemplate(template),
-          updatedAt: timestamp,
-        };
-        this.recurringTemplates.set(template.id, cloneRecurringTemplate(template));
-        if (prepared.instance && recurringInstanceWasRewound(instance, prepared.instance)) {
-          const previousInstance = instance ? cloneTask(instance) : null;
-          const nextInstance = {
-            ...cloneTask(prepared.instance),
-            updatedAt: timestamp,
-          };
-          this.tasks.set(nextInstance.id, cloneTask(nextInstance));
-          if (previousInstance) {
-            this.persistEvents(buildLifecycleEvents(previousInstance, nextInstance));
-          }
-          if (nextInstance.status === "active") {
-            activeTask = nextInstance;
-          }
-        }
+      const prepared = planRecurrencePreparation(original, instance, today, nowIso());
+      if (prepared.templateChanged) {
+        this.recurringTemplates.set(
+          prepared.template.id,
+          cloneRecurringTemplate(prepared.template),
+        );
+      }
+      if (prepared.instanceUpdate) {
+        const { previousTask, nextTask } = prepared.instanceUpdate;
+        this.tasks.set(nextTask.id, cloneTask(nextTask));
+        this.persistEvents(buildLifecycleEvents(previousTask, nextTask));
       }
 
-      const startDate = this.findProcessingStartDate(template, activeTask);
-      const dueDates = listDueDatesBetween(template, startDate, horizon);
-
-      if (dueDates.length === 0) {
+      const plan = planDueRecurrenceGeneration(
+        prepared.template,
+        prepared.activeTask,
+        horizon,
+        nowIso(),
+      );
+      if (!plan) {
         continue;
       }
 
-      const latestDueDate = dueDates[dueDates.length - 1];
-      const nextPending =
-        (activeTask?.pendingPastRecurrences ?? 0) + dueDates.length - 1 + (activeTask ? 1 : 0);
-      const previousPending = activeTask?.pendingPastRecurrences ?? 0;
-      const pendingPastRecurrences = Math.max(previousPending, nextPending);
-      const timestamp = nowIso();
+      this.ensureContextsByIds(prepared.template.contextIds);
+      this.tasks.set(plan.nextTask.id, cloneTask(plan.nextTask));
+      this.persistEvents(buildLifecycleEvents(plan.previousTask, plan.nextTask));
 
-      const nextTask = activeTask
-        ? {
-            ...cloneTask(activeTask),
-            bucket: template.targetBucket,
-            // Reapply the template's contextIds/projectId on every generation (matching
-            // TauriSqliteRepository): a new occurrence is driven by the template's current
-            // structural fields even if a previous occurrence-scope edit changed them, while
-            // title/notes are deliberately left as the active task's (occurrence customization
-            // survives regeneration).
-            contextIds: [...template.contextIds],
-            projectId: template.projectId,
-            title: activeTask.title,
-            notes: activeTask.notes,
-            scheduledFor:
-              template.targetBucket === "scheduled"
-                ? buildTaskFromRecurringTemplate(template, latestDueDate, pendingPastRecurrences)
-                    .scheduledFor
-                : null,
-            recurrenceDueDate: latestDueDate,
-            pendingPastRecurrences,
-            updatedAt: timestamp,
-          }
-        : buildTaskFromRecurringTemplate(template, latestDueDate, Math.max(0, dueDates.length - 1));
-
-      this.ensureContextsByIds(template.contextIds);
-      this.tasks.set(nextTask.id, cloneTask(nextTask));
-      this.persistEvents(buildLifecycleEvents(activeTask ? cloneTask(activeTask) : null, nextTask));
-
-      this.recurringTemplates.set(template.id, {
-        ...cloneRecurringTemplate(template),
-        lastGeneratedForDate: latestDueDate,
-        pendingMissedOccurrences: nextTask.pendingPastRecurrences,
-        updatedAt: timestamp,
+      this.recurringTemplates.set(prepared.template.id, {
+        ...cloneRecurringTemplate(prepared.template),
+        ...plan.templatePatch,
       });
 
       changedCount += 1;
@@ -1489,22 +1411,13 @@ export class MemoryRepository implements AppRepository {
     }
 
     if (scope === "occurrence") {
-      return this.saveTask({
-        ...task,
-        title: changes.title ?? task.title,
-        notes: changes.notes ?? task.notes,
-        bucket: changes.bucket ?? task.bucket,
-        contextIds: changes.contextIds ?? task.contextIds,
-        projectId: changes.projectId === undefined ? task.projectId : changes.projectId,
-        scheduledFor: changes.scheduledFor === undefined ? task.scheduledFor : changes.scheduledFor,
-        deadline: changes.deadline === undefined ? task.deadline : changes.deadline,
-      });
+      return this.saveTask(mergeOccurrenceEdit(task, changes));
     }
 
     const template = this.getExistingRecurringTemplate(task.recurringTemplateId);
     const nextTemplate = applySeriesChangesToTemplate(template, changes);
     await this.saveRecurringTaskTemplate(nextTemplate);
-    const nextTask = this.syncActiveTaskWithTemplate(this.getExistingTask(taskId), nextTemplate);
+    const nextTask = syncActiveTaskWithTemplate(this.getExistingTask(taskId), nextTemplate);
     return this.saveTask(nextTask);
   }
 
@@ -1563,42 +1476,18 @@ export class MemoryRepository implements AppRepository {
   async scheduleTask(taskId: string, scheduledFor: string | null): Promise<Task> {
     const current = this.getExistingTask(taskId);
 
-    // Reusing `scheduledFor` on an active Planned task is a planned-date display update: it
-    // must never coerce the task to Scheduled.
-    if (current.status === "active" && current.bucket === "planned") {
-      return this.saveTask({ ...current, scheduledFor });
-    }
-
-    return this.saveTask({
-      ...current,
-      bucket: scheduledFor
-        ? "scheduled"
-        : current.bucket === "scheduled"
-          ? "next_action"
-          : current.bucket,
-      scheduledFor,
-    });
+    return this.saveTask(applyScheduleChange(current, scheduledFor));
   }
 
   async promotePlannedTask(taskId: string): Promise<Task> {
-    const task = this.getExistingTask(taskId);
-    if (task.status !== "active" || task.bucket !== "planned" || !task.projectId) {
-      throw new Error(`La tache ${taskId} n'est pas planifiee et active`);
-    }
-
-    const project = this.projects.get(task.projectId) ?? null;
-    if (!project || project.status !== "active") {
-      throw new Error("Le projet associe n'est pas actif");
-    }
+    const task = assertPlannedTaskActionable(taskId, this.getExistingTask(taskId));
+    assertPlannedProjectActive(this.projects.get(task.projectId) ?? null);
 
     return this.saveTask({ ...task, bucket: "next_action" });
   }
 
   async movePlannedTask(taskId: string, direction: "up" | "down"): Promise<Task[]> {
-    const task = this.getExistingTask(taskId);
-    if (task.status !== "active" || task.bucket !== "planned" || !task.projectId) {
-      throw new Error(`La tache ${taskId} n'est pas planifiee et active`);
-    }
+    const task = assertPlannedTaskActionable(taskId, this.getExistingTask(taskId));
 
     const updates = swapPlannedOrder([...this.tasks.values()], taskId, direction, nowIso());
     if (!updates) {
@@ -1625,18 +1514,10 @@ export class MemoryRepository implements AppRepository {
     });
     if (current.recurringTemplateId) {
       const template = this.getExistingRecurringTemplate(current.recurringTemplateId);
-      const nextLastGeneratedForDate =
-        current.recurrenceDueDate &&
-        (!template.lastGeneratedForDate ||
-          current.recurrenceDueDate > template.lastGeneratedForDate)
-          ? current.recurrenceDueDate
-          : template.lastGeneratedForDate;
-      this.recurringTemplates.set(current.recurringTemplateId, {
-        ...cloneRecurringTemplate(template),
-        lastGeneratedForDate: nextLastGeneratedForDate,
-        pendingMissedOccurrences: 0,
-        updatedAt: nowIso(),
-      });
+      this.recurringTemplates.set(
+        current.recurringTemplateId,
+        planTemplateUpdateOnTaskClose(template, current, "completed", nowIso()),
+      );
     }
     return nextTask;
   }
@@ -1650,11 +1531,10 @@ export class MemoryRepository implements AppRepository {
     });
     if (current.recurringTemplateId) {
       const template = this.getExistingRecurringTemplate(current.recurringTemplateId);
-      this.recurringTemplates.set(current.recurringTemplateId, {
-        ...cloneRecurringTemplate(template),
-        pendingMissedOccurrences: 0,
-        updatedAt: nowIso(),
-      });
+      this.recurringTemplates.set(
+        current.recurringTemplateId,
+        planTemplateUpdateOnTaskClose(template, current, "cancelled", nowIso()),
+      );
     }
     return nextTask;
   }
@@ -1690,23 +1570,15 @@ export class MemoryRepository implements AppRepository {
     return createdCount;
   }
 
-  async computeDailyTaskStats(date: string): Promise<DailyTaskStats> {
-    await this.generateDueRecurringTasks(date);
-    await this.promoteDueScheduledTasks(getTodayDate());
-    if (date <= getTodayDate() && isSunday(date)) {
-      await this.applyWeeklyCarryover(date);
-    }
+  async reconcileDay(date: string, now?: string): Promise<ReconcileDayResult> {
+    return reconcileGtdDay(this, date, now);
+  }
 
+  async computeDailyTaskStats(date: string): Promise<DailyTaskStats> {
     return buildDailyTaskStats([...this.tasks.values()], [...this.events.values()], date);
   }
 
   async getDailyTaskBreakdown(date: string) {
-    await this.generateDueRecurringTasks(date);
-    await this.promoteDueScheduledTasks(getTodayDate());
-    if (date <= getTodayDate() && isSunday(date)) {
-      await this.applyWeeklyCarryover(date);
-    }
-
     return buildDailyTaskBreakdown([...this.tasks.values()], [...this.events.values()], date);
   }
 
@@ -1876,7 +1748,6 @@ export class MemoryRepository implements AppRepository {
   }
 
   async computeDailyPomodoroStats(date: string) {
-    await this.completeExpiredPomodoroSessions();
     return computeDailyPomodoroStats([...this.pomodoroSessions.values()], date);
   }
 
@@ -1909,43 +1780,6 @@ export class MemoryRepository implements AppRepository {
     return task ? cloneTask(task) : null;
   }
 
-  private findProcessingStartDate(
-    template: RecurringTaskTemplate,
-    activeTask: Task | null,
-  ): string {
-    const candidates = [template.startDate];
-
-    if (template.lastGeneratedForDate) {
-      candidates.push(addDays(template.lastGeneratedForDate, 1));
-    }
-
-    if (activeTask?.recurrenceDueDate) {
-      candidates.push(addDays(activeTask.recurrenceDueDate, 1));
-    }
-
-    return candidates.sort().at(-1) ?? template.startDate;
-  }
-
-  private syncActiveTaskWithTemplate(task: Task, template: RecurringTaskTemplate): Task {
-    return {
-      ...cloneTask(task),
-      title: template.title,
-      notes: template.notes,
-      bucket: template.targetBucket,
-      contextIds: [...template.contextIds],
-      projectId: template.projectId,
-      scheduledFor:
-        template.targetBucket === "scheduled" && task.recurrenceDueDate
-          ? buildTaskFromRecurringTemplate(
-              template,
-              task.recurrenceDueDate,
-              task.pendingPastRecurrences,
-            ).scheduledFor
-          : null,
-      updatedAt: nowIso(),
-    };
-  }
-
   seed(entries: DailyEntry[]): void {
     for (const entry of entries) {
       this.entries.set(entry.date, entry);
@@ -1958,15 +1792,13 @@ export class MemoryRepository implements AppRepository {
     return current;
   }
 
-  private async decorateEntry(entry: DailyEntry): Promise<DailyEntry> {
-    const [taskStats, pomodoroStats] = await Promise.all([
-      this.computeDailyTaskStats(entry.date),
-      this.computeDailyPomodoroStats(entry.date),
-    ]);
-    return applyDailyPomodoroStats(
-      applyDailyTaskStats(cloneEntry(entry), taskStats),
-      pomodoroStats,
-    );
+  /** Pure decoration over the current in-memory snapshot; never reconciles or writes. */
+  private decorateEntries(entries: DailyEntry[]): DailyEntry[] {
+    return decorateDailyEntries(entries, {
+      tasks: [...this.tasks.values()],
+      events: [...this.events.values()],
+      sessions: [...this.pomodoroSessions.values()],
+    });
   }
 
   private getExistingTask(taskId: string): Task {
@@ -2087,5 +1919,17 @@ export class MemoryRepository implements AppRepository {
     };
     this.contexts.set(id, context);
     return context;
+  }
+
+  // --- Finance (Phase 4) ----------------------------------------------------------------
+
+  async reclassifyFinancePending() {
+    return Promise.resolve(this.finance.reclassifyPending());
+  }
+
+  async revertFinanceCategoryBackfill(
+    entries: import("../../domain/finance").FinanceCategoryBackfillEntry[],
+  ) {
+    return Promise.resolve(this.finance.revertCategoryBackfill(entries));
   }
 }

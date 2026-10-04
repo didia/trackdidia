@@ -1,3 +1,4 @@
+import { useProposalDecisions } from "../app/use-proposal-decisions";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
@@ -10,7 +11,6 @@ import {
 } from "../app/reviews/use-review-synthesis";
 import { useLatestRequest } from "../app/use-latest-request";
 import { useLatestValueSaver } from "../app/use-latest-value-saver";
-import { useProposalAcceptance } from "../app/use-proposal-acceptance";
 import {
   applyMonthlyReviewTransition,
   createEmptyMonthlyReview,
@@ -20,7 +20,6 @@ import {
   updateMonthlyReviewNote,
 } from "../domain/monthly-review";
 import type {
-  AiProposal,
   AnnualGoalSnapshot,
   MonthlyReview,
   MonthlyReviewSectionKey,
@@ -65,7 +64,6 @@ const monthlySectionMeta: ReadonlyArray<RitualSectionMeta<MonthlyReviewSectionKe
 ];
 
 export const MonthlyReviewPage = () => {
-  const proposalAcceptance = useProposalAcceptance();
   const { t } = useTranslation("reviews");
   const { repository, settings } = useAppContext();
   const synthesisService = useMemo(() => new MonthlySynthesisService(new OpenRouterProvider()), []);
@@ -134,12 +132,11 @@ export const MonthlyReviewPage = () => {
   );
   const {
     visibleResult: synthesisResult,
+    setResult: setSynthesisResult,
     loading: synthesisLoading,
     run: runSynthesis,
     clear: clearSynthesis,
     invalidate: invalidateSynthesis,
-    replaceProposal: replaceSynthesisProposal,
-    markProposalDismissed: markSynthesisProposalDismissed,
   } = useReviewSynthesis<MonthlySynthesisResult, MonthlySynthesisRunOptions>(
     summary?.monthKey ?? null,
     runSynthesisRequest,
@@ -203,17 +200,17 @@ export const MonthlyReviewPage = () => {
     void runSynthesis({ monthKey: summary.monthKey, trigger: "auto" });
   }, [summary?.monthKey, loading, runSynthesis]);
 
-  const handleAcceptSynthesisProposal = async (proposal: AiProposal) => {
-    if (!summary || !synthesisResult) return;
-    if (!proposalAcceptance.begin(proposal.id)) return;
-    try {
+  const decisions = useProposalDecisions(synthesisResult, setSynthesisResult, {
+    onAccept: async (proposal) => {
+      if (!summary) return {};
       const monthKey = summary.monthKey;
       const applied = await applyCoachProposal(repository, proposal, {
         acceptedDate: monthKey,
         monthly: {
           monthKey,
           withReview: async (sectionKey, work) => {
-            const current = latestReviewRef.current ?? review ?? createEmptyMonthlyReview(monthKey);
+            const current =
+              latestReviewRef.current ?? review ?? createEmptyMonthlyReview(monthKey);
             if (!reviewSaver.get(monthKey)) reviewSaver.hydrate(monthKey, current);
             return reviewSaver.run(monthKey, async (snapshot) => {
               const beforeVersion = reviewSaver.version(monthKey);
@@ -241,21 +238,16 @@ export const MonthlyReviewPage = () => {
           },
         },
       });
-      if (!applied.proposal) return;
-      if (applied.goalMissing) setSynthesisNotice(t("monthly.synthesis.goalMissing"));
-      if (applied.goalId)
-        setGoalSnapshots(await repository.computeAnnualGoalSnapshots(Number(monthKey.slice(0, 4))));
-      replaceSynthesisProposal(applied.proposal);
-    } finally {
-      proposalAcceptance.end(proposal.id);
-    }
-  };
-
-  const handleDismissSynthesisProposal = async (proposal: AiProposal) => {
-    if (proposalAcceptance.isApplying(proposal.id)) return;
-    await repository.decideAiProposal(proposal.id, "dismissed");
-    markSynthesisProposalDismissed(proposal.id);
-  };
+      if (applied.proposal) {
+        if (applied.goalMissing) setSynthesisNotice(t("monthly.synthesis.goalMissing"));
+        if (applied.goalId)
+          setGoalSnapshots(
+            await repository.computeAnnualGoalSnapshots(Number(monthKey.slice(0, 4))),
+          );
+      }
+      return applied;
+    },
+  });
 
   const saveReview = useCallback(
     (nextReview: MonthlyReview) => {
@@ -404,9 +396,7 @@ export const MonthlyReviewPage = () => {
               bypassCache: true,
             });
           }}
-          applyingProposalIds={proposalAcceptance.applyingProposalIds}
-          onAcceptProposal={(proposal) => void handleAcceptSynthesisProposal(proposal)}
-          onDismissProposal={(proposal) => void handleDismissSynthesisProposal(proposal)}
+          decisions={decisions}
         />
       </SectionCard>
 

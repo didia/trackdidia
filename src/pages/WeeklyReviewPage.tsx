@@ -1,3 +1,4 @@
+import { useProposalDecisions } from "../app/use-proposal-decisions";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
@@ -14,7 +15,6 @@ import { useRescueTimeWeek } from "../app/reviews/use-rescuetime-week";
 import { useWeeklyMemoryProposals } from "../app/reviews/use-weekly-memory-proposals";
 import { useWeeklyReviewNotes } from "../app/reviews/use-weekly-review-notes";
 import { useAsyncResource, useLatestRequest } from "../app/use-latest-request";
-import { useProposalAcceptance } from "../app/use-proposal-acceptance";
 import { PageHeader } from "../components/PageHeader";
 import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
 import { RitualSectionList } from "../components/RitualSectionList";
@@ -92,8 +92,6 @@ export const WeeklyReviewPage = () => {
   );
   const [summary, setSummary] = useState<WeeklyReviewSummary | null>(null);
   const [loading, setLoading] = useState(true);
-  const proposalAcceptance = useProposalAcceptance();
-  const { applyingProposalIds } = proposalAcceptance;
   const {
     review,
     dimancheReview,
@@ -184,11 +182,10 @@ export const WeeklyReviewPage = () => {
   );
   const {
     visibleResult: synthesisResult,
+    setResult: setSynthesisResult,
     loading: synthesisLoading,
     run: runSynthesis,
     clear: clearSynthesis,
-    replaceProposal: replaceSynthesisProposal,
-    markProposalDismissed: markSynthesisProposalDismissed,
   } = useReviewSynthesis<WeeklySynthesisResult, WeeklySynthesisRunOptions>(
     summary?.weekStartDate ?? null,
     runSynthesisRequest,
@@ -236,10 +233,9 @@ export const WeeklyReviewPage = () => {
     });
   }, [summary?.weekStartDate, loading, goalsLoading, pulseLoading, runSynthesis]);
 
-  const handleAcceptSynthesisProposal = async (proposal: AiProposal) => {
-    if (!summary || !synthesisResult || proposalAcceptance.isApplying(proposal.id)) return;
-    if (!proposalAcceptance.begin(proposal.id)) return;
-    try {
+  const decisions = useProposalDecisions(synthesisResult, setSynthesisResult, {
+    onAccept: async (proposal) => {
+      if (!summary) return {};
       const weekStartDate = summary.weekStartDate;
       const applied = await applyCoachProposal(repository, proposal, {
         acceptedDate: weekStartDate,
@@ -254,26 +250,10 @@ export const WeeklyReviewPage = () => {
             }),
         },
       });
-      if (!applied.proposal) return;
-      if (applied.objectiveId) await loadStandingObjectives(weekStartDate);
-      replaceSynthesisProposal(applied.proposal);
-    } finally {
-      proposalAcceptance.end(proposal.id);
-    }
-  };
-
-  const handleDismissSynthesisProposal = async (proposal: AiProposal) => {
-    if (!summary || !synthesisResult) {
-      return;
-    }
-
-    if (proposalAcceptance.isApplying(proposal.id)) {
-      return;
-    }
-
-    await repository.decideAiProposal(proposal.id, "dismissed");
-    markSynthesisProposalDismissed(proposal.id);
-  };
+      if (applied.proposal && applied.objectiveId) await loadStandingObjectives(weekStartDate);
+      return applied;
+    },
+  });
 
   const handleAcceptWeeklyMemoryProposal = (proposal: AiProposal) =>
     memoryProposals.accept(proposal, latestReviewRef.current?.weekStartDate ?? selectedWeekStart);
@@ -536,7 +516,6 @@ export const WeeklyReviewPage = () => {
           result={synthesisResult}
           loading={synthesisLoading}
           settings={settings}
-          applyingProposalIds={applyingProposalIds}
           onRequestCoach={() => {
             if (!summary) {
               return;
@@ -553,8 +532,7 @@ export const WeeklyReviewPage = () => {
               bypassCache: true,
             });
           }}
-          onAcceptProposal={(proposal) => void handleAcceptSynthesisProposal(proposal)}
-          onDismissProposal={(proposal) => void handleDismissSynthesisProposal(proposal)}
+          decisions={decisions}
         />
       </SectionCard>
 
