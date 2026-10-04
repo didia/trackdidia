@@ -2034,6 +2034,9 @@ export class FinanceSqliteStore {
         deleted += 1;
       }
 
+      // Drop unconfirmed recurring series whose transactions this undo removed.
+      await this.detectRecurringSeriesWithDb(db, getTodayDate());
+
       await db.execute("COMMIT");
       return { deleted, refusedUserCategorized };
     } catch (error) {
@@ -2702,7 +2705,7 @@ export class FinanceSqliteStore {
   /** Public, on-demand entry point (not inside an import transaction). */
   async detectRecurringSeries(today: string): Promise<{ created: number; updated: number }> {
     const db = await this.getDb();
-    return this.detectRecurringSeriesWithDb(db, today);
+    return this.inTransaction(db, () => this.detectRecurringSeriesWithDb(db, today));
   }
 
   /**
@@ -2724,7 +2727,9 @@ export class FinanceSqliteStore {
         posted_date: string;
       }>
     >(
-      "SELECT merchant_key, account_id, category_id, amount_minor, posted_date FROM finance_transactions",
+      `SELECT merchant_key, account_id, category_id, amount_minor, posted_date
+       FROM finance_transactions
+       WHERE is_transfer = 0 AND excluded_from_reports = 0`,
     );
     const seriesRows = await db.select<RecurringSeriesRow[]>(
       "SELECT * FROM finance_recurring_series",
@@ -2817,6 +2822,17 @@ export class FinanceSqliteStore {
       }
     }
 
+    // The pure result is the full set: an unconfirmed series it no longer returns
+    // (import undone, cadence broken) has nothing behind it, so drop the row.
+    const keptIds = new Set(
+      detected.map((item) => item.id).filter((id): id is string => id !== ""),
+    );
+    for (const row of seriesRows) {
+      if (row.confirmed_by_user === 0 && !keptIds.has(row.id)) {
+        await db.execute("DELETE FROM finance_recurring_series WHERE id = $1", [row.id]);
+      }
+    }
+
     return { created, updated };
   }
 
@@ -2842,16 +2858,19 @@ export class FinanceSqliteStore {
       );
     }
 
-    for (const account of accountRows) {
-      await db.execute(
-        `INSERT INTO finance_account_balance_snapshots (
-          account_id, as_of_date, balance_minor, source, created_at
-        ) VALUES ($1,$2,$3,'derived',$4)
-        ON CONFLICT(account_id, as_of_date) DO UPDATE SET
-          balance_minor = excluded.balance_minor`,
-        [account.id, asOfDate, balanceByAccountId.get(account.id) ?? 0, now],
-      );
-    }
+    // One transaction so a failure never leaves the day with only a prefix of accounts.
+    await this.inTransaction(db, async () => {
+      for (const account of accountRows) {
+        await db.execute(
+          `INSERT INTO finance_account_balance_snapshots (
+            account_id, as_of_date, balance_minor, source, created_at
+          ) VALUES ($1,$2,$3,'derived',$4)
+          ON CONFLICT(account_id, as_of_date) DO UPDATE SET
+            balance_minor = excluded.balance_minor`,
+          [account.id, asOfDate, balanceByAccountId.get(account.id) ?? 0, now],
+        );
+      }
+    });
     return accountRows.length;
   }
 

@@ -706,7 +706,7 @@ function (never a SQL `GROUP BY` in one and a JS reduce in the other):
   or week), and `computeFinanceMonthOverMonth` (per-category spend across two
   arbitrary ranges).
 - `src/lib/finance/recurring-detection.ts` — `detectFinanceRecurringSeries`
-  groups the full transaction history by `merchantKey` + sign, requires ≥ 3
+  groups the full transaction history by `merchantKey` + `accountId` + sign (the same merchant on two accounts is two series), requires ≥ 3
   occurrences, classifies a cadence (weekly/biweekly/semimonthly/monthly/
   quarterly/annual) from the median day gap when its stddev is within that
   cadence's band half-width, sets `expectedAmountMinor` to the median amount
@@ -714,12 +714,12 @@ function (never a SQL `GROUP BY` in one and a JS reduce in the other):
   `nextExpectedDate` — calendar-month anchored with end-of-month clamping for
   monthly/quarterly/annual cadences (`addMonthsClamped`; the 31st in a
   30-day/February month lands on that month's last day), plain day arithmetic
-  for weekly/biweekly/semimonthly. Flags `missed` (today past
+  for weekly/biweekly; semimonthly follows two stable days of the month. When the median gap fits both the biweekly and semimonthly bands, two stable anchor days (e.g. the 1st and 15th) classify it semimonthly and `nextExpectedDate` is the next anchor day. Flags `missed` (today past
   `nextExpectedDate` by more than the cadence's tolerance), `amount_changed`
   (newest occurrence outside tolerance), and `ended` (two consecutive
   misses). A series the user confirmed (`confirmedByUser`) is always returned
   by re-detection, even when the fresh group no longer meets the
-  3-occurrence/cadence threshold — confirmation pins the series.
+  3-occurrence/cadence threshold — confirmation pins the series. Both stores feed it only non-transfer, non-`excludedFromReports` transactions, and treat its result as the full set: after the upsert, any unconfirmed series it no longer returns is deleted (import undone, cadence broken). Detection also runs at the end of `undoImportBatch`, inside its transaction.
 
 Repository methods (both implementations, delegating to the pure functions
 above): `computeFinanceNetWorth`, `listFinanceNetWorthHistory`,
@@ -733,7 +733,7 @@ after every `importFinanceTransactions`, inside its transaction, and on
 demand from `/finances`), `snapshotFinanceAccountBalances(asOfDate)` (derives
 and upserts one `finance_account_balance_snapshots` row per account, source
 `'derived'`, idempotent per day — an upsert on the `(account_id, as_of_date)`
-primary key), and `listFinanceAccountBalanceSnapshots(accountId)`.
+primary key, written in one transaction so a day never keeps a prefix of accounts), and `listFinanceAccountBalanceSnapshots(accountId)`.
 
 ### Bootstrap: daily balance snapshots
 
@@ -743,19 +743,22 @@ reconciliation pass that regenerates recurrences and promotes Scheduled
 tasks, when `financeEnabled` it also calls
 `snapshotFinanceAccountBalances(today)` so the net-worth history has one
 point per day the app was open. The call is independently try/caught —
-a snapshot failure is logged (a row count only, never amounts) and never
-blocks recurrence/promotion or the eight-second startup timeout.
+a snapshot failure is logged with a fixed message (the error is never logged, so no
+amounts or row data) and never blocks recurrence/promotion or the eight-second startup
+timeout. The upsert is idempotent, so every pass (focus, visibility, midnight, and
+turning `financeEnabled` on, which is an effect dependency) refreshes today's point,
+and it still runs when `reconcileDay` throws.
 
 ### FinanceOverviewPage (`/finances`, Phase 6)
 
 Net worth (total plus assets/liabilities, with the non-base-currency banner
 described above), this month's cash flow (income/expense/net), a 6-month
-spending-trend bar chart (plain CSS bars sized from `computeFinanceTrend`'s
-`expenseMinor`, no charting dependency), the current month's top five
-spending categories (`computeFinanceCategorySpend`), the account list with
-derived balances (unchanged from Phase 3), and up to five upcoming active
-recurring series sorted by `nextExpectedDate`, each with Confirmer/Mettre en
-pause/Terminer actions that write through `saveFinanceRecurringSeries`.
+spending-trend bar chart (one column per month, zero-filled, each printing its
+amount; plain CSS bars sized from `computeFinanceTrend`'s `expenseMinor`, no charting
+dependency), the current month's top five
+spending categories (`computeFinanceCategorySpend`), the account list rendered from the same `computeFinanceNetWorth` lines as the total (so closed accounts and the as-of-today cutoff agree with it; closed accounts are labelled), and up to five upcoming active
+recurring series sorted by `nextExpectedDate` and formatted in the account's own currency, each with Confirmer/Mettre en
+pause/Terminer actions that write through `saveFinanceRecurringSeries`. `load` first calls `detectFinanceRecurringSeries()` so dates and missed/ended series reflect today, and surfaces a load failure instead of a stuck "Chargement...".
 
 ### FinanceReportsPage (`/finances/reports`, Phase 6)
 
@@ -764,7 +767,7 @@ below: spending by category with a "Voir le détail" drill-down that lists
 the exact transactions summing to that row's total (via
 `listFinanceCategorySpendDrilldown`), spending by merchant (top 10), spending
 by person, an income-vs-expense table by month, and a month-over-month
-per-category comparison against the immediately preceding month.
+per-category comparison against the preceding window of the same length as the selected range. An empty or inverted range is refused before any repository call; loads and drill-downs carry a request id so a stale response is ignored, changing the range closes the open drill-down, and a rejected load shows an error. The drill-down panel takes focus and closes on Escape.
 
 ## Related documentation
 

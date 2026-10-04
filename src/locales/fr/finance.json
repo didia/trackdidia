@@ -18,6 +18,8 @@
     "otherCurrenciesWarning": "Comptes exclus du total (devise différente de la devise de référence) : {{currencies}}.",
     "accountsTitle": "Comptes",
     "loading": "Chargement...",
+    "loadError": "Impossible de charger l'aperçu financier.",
+    "closedAccount": "(fermé)",
     "noAccounts": "Aucun compte. Ajoutez-en un dans l'onglet Comptes.",
     "netWorthTitle": "Valeur nette",
     "assetsLabel": "Actifs",
@@ -319,6 +321,8 @@
       "delta": "Écart"
     },
     "noData": "Aucune donnée pour cette période.",
+    "invalidRange": "La période est invalide : renseignez deux dates, la première avant la seconde.",
+    "loadError": "Impossible de charger les rapports.",
     "categoryTitle": "Dépenses par catégorie",
     "drilldownAction": "Voir le détail",
     "drilldownTitle": "Transactions de cette catégorie",

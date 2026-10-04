@@ -25,7 +25,6 @@ export const useLocalDayReconciliation = (
   const repositoryRef = useRef(repository);
   const financeEnabledRef = useRef(financeEnabled);
   const promotedForRef = useRef<{ day: string; repository: AppRepository } | null>(null);
-  const snapshottedForRef = useRef<{ day: string; repository: AppRepository } | null>(null);
 
   calendarDayRef.current = calendarDay;
   repositoryRef.current = repository;
@@ -34,6 +33,20 @@ export const useLocalDayReconciliation = (
   useEffect(() => {
     let cancelled = false;
     let timeoutId: number | undefined;
+
+    const snapshotFinance = async (candidate: AppRepository | null, today: string) => {
+      if (!candidate || !financeEnabledRef.current) {
+        return;
+      }
+      try {
+        const count = await candidate.snapshotFinanceAccountBalances(today);
+        logDebug("info", "app.localDay", "Snapshot des soldes finance effectue", { count });
+      } catch {
+        // Never blocks the day-boundary reconciliation; log a fixed message only, never the
+        // error (its message/stack could carry row data).
+        logDebug("error", "app.localDay", "Echec du snapshot des soldes finance");
+      }
+    };
 
     const reconcile = async () => {
       const today = getTodayDate();
@@ -49,25 +62,15 @@ export const useLocalDayReconciliation = (
           promotedForRef.current = { day: today, repository: candidate };
         } catch (error) {
           logDebug("error", "app.localDay", "Echec de la reconciliation du jour local", error);
+          // Still attempt the finance snapshot below; the calendar day is not republished.
+          await snapshotFinance(candidate, today);
           return;
         }
       }
 
-      const alreadySnapshotted =
-        candidate !== null &&
-        snapshottedForRef.current?.day === today &&
-        snapshottedForRef.current.repository === candidate;
-
-      if (candidate && financeEnabledRef.current && !alreadySnapshotted) {
-        try {
-          const count = await candidate.snapshotFinanceAccountBalances(today);
-          snapshottedForRef.current = { day: today, repository: candidate };
-          logDebug("info", "app.localDay", "Snapshot des soldes finance effectue", { count });
-        } catch (error) {
-          // Never blocks the day-boundary reconciliation above; counts/durations only.
-          logDebug("error", "app.localDay", "Echec du snapshot des soldes finance", error);
-        }
-      }
+      // The upsert is idempotent per (account, day), so every pass refreshes today's point
+      // instead of freezing the first observation of the day.
+      await snapshotFinance(candidate, today);
 
       if (!cancelled && today !== calendarDayRef.current) {
         calendarDayRef.current = today;
@@ -105,7 +108,7 @@ export const useLocalDayReconciliation = (
       window.removeEventListener("focus", onResume);
       document.removeEventListener("visibilitychange", onResume);
     };
-  }, [repository]);
+  }, [repository, financeEnabled]);
 
   return calendarDay;
 };

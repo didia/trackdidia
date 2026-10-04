@@ -4935,6 +4935,61 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           expect(stillThere?.confirmedByUser).toBe(true);
         });
 
+        it("detectFinanceRecurringSeries skips transfers", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          for (const postedDate of ["2026-01-01", "2026-02-01", "2026-03-01"]) {
+            await repository.saveFinanceTransaction(
+              buildFinanceTransaction({
+                id: `transfer-${postedDate}`,
+                accountId: "account-1",
+                postedDate,
+                amountMinor: -50_000_00,
+                merchantKey: "PAIEMENT",
+                isTransfer: true,
+              }),
+            );
+            await repository.saveFinanceTransaction(
+              buildFinanceTransaction({
+                id: `gym-${postedDate}`,
+                accountId: "account-1",
+                postedDate,
+                amountMinor: -30_00,
+                merchantKey: "GYM",
+              }),
+            );
+          }
+
+          await repository.detectFinanceRecurringSeries();
+          const series = await repository.listFinanceRecurringSeries();
+          expect(series.map((item) => item.merchantKey)).toEqual(["GYM"]);
+        });
+
+        it("undoing the import behind an unconfirmed series removes the series", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          const summary = await repository.importFinanceTransactions({
+            accountId: "account-1",
+            profileId: null,
+            fileName: "netflix.csv",
+            fileHash: "hash-recurring-undo",
+            rows: ["2026-01-01", "2026-02-01", "2026-03-01"].map((postedDate) =>
+              importRow({
+                accountId: "account-1",
+                postedDate,
+                descriptionRaw: "NETFLIX",
+                merchantKey: "NETFLIX",
+                amountMinor: -15_99,
+              }),
+            ),
+          });
+          expect(await repository.listFinanceRecurringSeries()).toHaveLength(1);
+
+          await repository.undoFinanceImportBatch(summary.batchId);
+
+          expect(await repository.listFinanceRecurringSeries()).toEqual([]);
+        });
+
         it("detectFinanceRecurringSeries persists an integer expected_amount_minor for an even occurrence count", async () => {
           const repository = await factory();
           await repository.saveFinanceAccount(account({ id: "account-1" }));

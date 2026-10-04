@@ -1216,6 +1216,8 @@ export class FinanceMemoryStore {
       deleted += 1;
     }
 
+    this.detectRecurringSeries(getTodayDate());
+
     return { deleted, refusedUserCategorized };
   }
 
@@ -1667,15 +1669,15 @@ export class FinanceMemoryStore {
 
   /** Re-runs detection over the full history; preserves `confirmedByUser` series. See repository contract. */
   detectRecurringSeries(today: string): { created: number; updated: number } {
-    const transactions: RecurringDetectionTransactionInput[] = [...this.transactions.values()].map(
-      (txn) => ({
+    const transactions: RecurringDetectionTransactionInput[] = [...this.transactions.values()]
+      .filter((txn) => !txn.isTransfer && !txn.excludedFromReports)
+      .map((txn) => ({
         merchantKey: txn.merchantKey,
         accountId: txn.accountId,
         categoryId: txn.categoryId,
         amountMinor: txn.amountMinor,
         postedDate: txn.postedDate,
-      }),
-    );
+      }));
     const existing: RecurringDetectionExistingSeriesInput[] = [
       ...this.recurringSeries.values(),
     ].map((series) => ({
@@ -1698,10 +1700,12 @@ export class FinanceMemoryStore {
     let created = 0;
     let updated = 0;
     const now = nowIso();
+    const keptIds = new Set<string>();
 
     for (const item of detected) {
       const isNew = item.id === "";
       const id = isNew ? createEntityId("finance-recurring") : item.id;
+      keptIds.add(id);
       const previous = this.recurringSeries.get(id);
       const saved: FinanceRecurringSeries = this.toRecurringSeriesRow(item, id, previous, now);
       this.recurringSeries.set(id, saved);
@@ -1709,6 +1713,13 @@ export class FinanceMemoryStore {
         created += 1;
       } else {
         updated += 1;
+      }
+    }
+
+    // The pure result is the full set; drop unconfirmed series it no longer returns.
+    for (const [id, series] of [...this.recurringSeries.entries()]) {
+      if (!series.confirmedByUser && !keptIds.has(id)) {
+        this.recurringSeries.delete(id);
       }
     }
 
