@@ -51,6 +51,7 @@ import type {
   FinanceAccount,
   FinanceAccountFilters,
   FinanceCategory,
+  FinanceCategoryBackfillEntry,
   FinanceCategorySuggestion,
   FinanceImportBatch,
   FinanceImportProfile,
@@ -63,6 +64,7 @@ import type {
   FinanceTransaction,
   FinanceTransactionFilters,
   FinanceTransactionSplit,
+  ReclassifyFinancePendingResult,
   SetFinanceTransactionCategoryInput,
   SetFinanceTransactionCategoryResult,
   SetFinanceTransferPair,
@@ -347,4 +349,15 @@ export interface AppRepository {
     id: string,
     decision: DecideFinanceCategorySuggestionInput,
   ): Promise<FinanceCategorySuggestion>;
+
+  // --- Finance (Phase 4 — Classification: rules, memory, seeds, review queue) -----------
+
+  /**
+   * Re-runs `classifyTransaction` (rules, memory, seeds — no AI, no transfer
+   * re-detection) over every non-`user` transaction. Used after a rule is
+   * created/edited ("Réappliquer les règles") and by `/finances/review`.
+   */
+  reclassifyFinancePending(): Promise<ReclassifyFinancePendingResult>;
+  /** Reverts the `backfill` entries from a `scope: "all_matching"` call — a single undo. */
+  revertFinanceCategoryBackfill(entries: FinanceCategoryBackfillEntry[]): Promise<number>;
 }

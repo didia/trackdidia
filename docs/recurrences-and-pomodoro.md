@@ -70,6 +70,30 @@ Completing the current recurring task resets the template's pending missed count
 Cancelling it also clears that count. The task card can explicitly clear the task's
 displayed past count.
 
+The generation algorithm is not implemented in the repositories. `src/lib/recurring/engine.ts`
+owns pure planners that return data, and `TauriSqliteRepository` and `MemoryRepository` only
+persist their results:
+
+- `planRecurrencePreparation` rewinds a future watermark or premature instance;
+- `planDueRecurrenceGeneration` returns `{ nextTask, previousTask, templatePatch }` (or `null`
+  when nothing is due);
+- `planTemplateUpdateOnTaskClose` computes the template change when a generated task is
+  completed or cancelled;
+- `mergeOccurrenceEdit` and `syncActiveTaskWithTemplate` build the task for occurrence and
+  series edits;
+- `findProcessingStartDate` uses the local-calendar `addDays` helper.
+
+Repositories persist `nextTask`, the lifecycle events from `buildLifecycleEvents(previousTask,
+nextTask)`, and the template patch (inside their existing writer queue). Pause, resume, and
+cancel share one private `setTemplateStatus` per repository.
+
+Drifted-field sync has one canonical behavior in both implementations:
+
+| Path | `title` / `notes` | `contextIds` / `projectId` | Destination / `scheduledFor` |
+|---|---|---|---|
+| Generation advances an active task | kept from the task | reapplied from the template | reapplied from the template |
+| Template save or series edit (`syncActiveTaskWithTemplate`) | reapplied from the template | reapplied from the template | reapplied from the template |
+
 Each generation pass reapplies the template's current `contextIds` and `projectId` to the
 active task, even when a previous occurrence's own `saveTask`/`moveTask` call, or an
 `applyRecurringEditScope(..., "occurrence", ...)` edit, had changed them on that task row: a

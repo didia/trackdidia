@@ -3,6 +3,8 @@ import type { Project, Task } from "../../domain/types";
 import {
   activePlannedTasksForProject,
   adjustPlannedFieldsForSave,
+  assertPlannedProjectActive,
+  assertPlannedTaskActionable,
   compactPlannedOrders,
   countActiveNextActions,
   nextPlannedOrder,
@@ -280,5 +282,38 @@ describe("swapPlannedOrder", () => {
       baseTask({ id: "b", projectId: "project:2", plannedOrder: 0 }),
     ];
     expect(swapPlannedOrder(tasks, "a", "down", "2026-01-02T00:00:00.000Z")).toEqual([]);
+  });
+});
+
+describe("assertPlannedTaskActionable", () => {
+  it("returns an active planned task that has a project", () => {
+    const task = baseTask();
+    expect(assertPlannedTaskActionable(task.id, task)).toBe(task);
+  });
+
+  it.each([
+    ["missing", null],
+    ["completed", baseTask({ status: "completed" })],
+    ["cancelled", baseTask({ status: "cancelled" })],
+    ["not planned", baseTask({ bucket: "next_action" })],
+    ["without a project", baseTask({ projectId: null })],
+  ])("rejects a %s task with the existing message", (_label, task) => {
+    expect(() => assertPlannedTaskActionable("task:x", task)).toThrow(
+      "La tache task:x n'est pas planifiee et active",
+    );
+  });
+});
+
+describe("assertPlannedProjectActive", () => {
+  it("accepts an active project", () => {
+    expect(() => assertPlannedProjectActive(baseProject())).not.toThrow();
+  });
+
+  it.each([
+    ["missing", null],
+    ["on hold", baseProject({ status: "on_hold" })],
+    ["completed", baseProject({ status: "completed" })],
+  ])("rejects a %s project with the existing message", (_label, project) => {
+    expect(() => assertPlannedProjectActive(project)).toThrow("Le projet associe n'est pas actif");
   });
 });

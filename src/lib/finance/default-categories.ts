@@ -62,6 +62,13 @@ export const DEFAULT_FINANCE_CATEGORIES: DefaultFinanceCategorySeed[] = [
     kind: "expense",
     sortOrder: 2,
   },
+  {
+    id: "fincat:logement.telecommunications",
+    name: "Télécommunications",
+    parentId: "fincat:logement",
+    kind: "expense",
+    sortOrder: 3,
+  },
 
   // Transport
   { id: "fincat:transport", name: "Transport", parentId: null, kind: "expense", sortOrder: 2 },
