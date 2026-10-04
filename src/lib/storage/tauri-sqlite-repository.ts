@@ -106,13 +106,22 @@ import {
   filterProjects,
   filterTasks,
 } from "../gtd/engine";
+import {
+  hasContext,
+  hasScheduledDate,
+  selectTasksForBucketNormalization,
+} from "../gtd/bucket-normalization";
+import { planGoogleRecurringCollapse } from "../gtd/google-recurring-collapse";
 import { buildGoogleTasksImport } from "../gtd/google-tasks-import";
 import { addCustomVerse } from "../pastor/custom-verse";
 import {
   adjustPlannedFieldsForSave,
+  assertPlannedProjectActive,
+  assertPlannedTaskActionable,
   reconcileProjectPlannedTasks,
   swapPlannedOrder,
 } from "../gtd/planned";
+import { applyScheduleChange } from "../gtd/schedule";
 import { promoteDueScheduledTasks as selectDueScheduledPromotions } from "../gtd/scheduled";
 import { cloneProject, cloneTask, createEntityId, nowIso } from "../gtd/shared";
 import { addDays, toLocalDateString } from "../date";
@@ -1538,81 +1547,59 @@ export class TauriSqliteRepository implements AppRepository {
 
   async moveTasksWithContextToBucket(contextId: string, bucket: Task["bucket"]): Promise<number> {
     return this.writeExclusive(async () => {
-      const tasks = await this.getAllTasks();
-      const matchingTasks = tasks.filter(
-        (task) =>
-          task.status === "active" && task.contextIds.includes(contextId) && task.bucket !== bucket,
+      const updates = selectTasksForBucketNormalization(
+        await this.getAllTasks(),
+        hasContext(contextId),
+        bucket,
+        nowIso(),
       );
 
-      for (const task of matchingTasks) {
-        await this.persistTask({
-          ...task,
-          bucket,
-          updatedAt: nowIso(),
-        });
+      for (const updated of updates) {
+        await this.persistTask(updated);
       }
 
-      return matchingTasks.length;
+      return updates.length;
     });
   }
 
   async moveTasksWithScheduledDatesToBucket(bucket: Task["bucket"]): Promise<number> {
     return this.writeExclusive(async () => {
-      const tasks = await this.getAllTasks();
-      const matchingTasks = tasks.filter(
-        (task) => task.status === "active" && Boolean(task.scheduledFor) && task.bucket !== bucket,
+      const updates = selectTasksForBucketNormalization(
+        await this.getAllTasks(),
+        hasScheduledDate,
+        bucket,
+        nowIso(),
       );
 
-      for (const task of matchingTasks) {
-        await this.persistTask({
-          ...task,
-          bucket,
-          updatedAt: nowIso(),
-        });
+      for (const updated of updates) {
+        await this.persistTask(updated);
       }
 
-      return matchingTasks.length;
+      return updates.length;
     });
   }
 
   async collapseGoogleRecurringTasks(rawJson: unknown): Promise<number> {
     return this.writeExclusive(async () => {
       const payload = buildGoogleTasksImport(rawJson);
-      const tasks = await this.getAllTasks();
-      let changedCount = 0;
 
       for (const context of payload.contexts) {
         await this.ensureContextsExist([context.id]);
       }
 
-      for (const desiredTask of payload.tasks.filter((task) => task.recurrenceGroupId)) {
-        const sourceIds = new Set(payload.recurringSourceTaskIds[desiredTask.id] ?? []);
-        const existingMatches = tasks.filter(
-          (task) =>
-            task.source === "google_import" &&
-            (task.id === desiredTask.id ||
-              task.recurrenceGroupId === desiredTask.recurrenceGroupId ||
-              (task.sourceExternalId ? sourceIds.has(task.sourceExternalId) : false)),
-        );
+      const { upserts, deleteIds } = planGoogleRecurringCollapse(
+        payload,
+        await this.getAllTasks(),
+        nowIso(),
+      );
 
-        const previousPrimary =
-          existingMatches.find((task) => task.id === desiredTask.id) ?? existingMatches[0] ?? null;
-        await this.persistTask({
-          ...cloneTask(desiredTask),
-          notes: previousPrimary?.notes?.trim() ? previousPrimary.notes : desiredTask.notes,
-          projectId: previousPrimary?.projectId ?? desiredTask.projectId,
-          updatedAt: nowIso(),
-        });
-        changedCount += 1;
-
-        const duplicateIds = existingMatches
-          .filter((task) => task.id !== desiredTask.id)
-          .map((task) => task.id);
-
-        await this.deleteTasksByIds(duplicateIds);
+      for (const task of upserts) {
+        await this.persistTask(task);
       }
 
-      return changedCount;
+      await this.deleteTasksByIds(deleteIds);
+
+      return upserts.length;
     });
   }
 
@@ -2070,21 +2057,7 @@ export class TauriSqliteRepository implements AppRepository {
   async scheduleTask(taskId: string, scheduledFor: string | null): Promise<Task> {
     const current = await this.requireTask(taskId);
 
-    // Reusing `scheduledFor` on an active Planned task is a planned-date display update: it
-    // must never coerce the task to Scheduled.
-    if (current.status === "active" && current.bucket === "planned") {
-      return this.saveTask({ ...current, scheduledFor });
-    }
-
-    return this.saveTask({
-      ...current,
-      bucket: scheduledFor
-        ? "scheduled"
-        : current.bucket === "scheduled"
-          ? "next_action"
-          : current.bucket,
-      scheduledFor,
-    });
+    return this.saveTask(applyScheduleChange(current, scheduledFor));
   }
 
   async promotePlannedTask(taskId: string): Promise<Task> {
@@ -2095,15 +2068,8 @@ export class TauriSqliteRepository implements AppRepository {
       // taken before the writer slot was acquired: another queued mutation (e.g. a
       // completion or a project pause) may have run first, and eligibility must be
       // evaluated against current DB state, not a stale read.
-      const task = await this.getTaskById(taskId);
-      if (!task || task.status !== "active" || task.bucket !== "planned" || !task.projectId) {
-        throw new Error(`La tache ${taskId} n'est pas planifiee et active`);
-      }
-
-      const project = await this.getProjectById(task.projectId);
-      if (!project || project.status !== "active") {
-        throw new Error("Le projet associe n'est pas actif");
-      }
+      const task = assertPlannedTaskActionable(taskId, await this.getTaskById(taskId));
+      assertPlannedProjectActive(await this.getProjectById(task.projectId));
 
       const nextTask = await this.saveTaskInternal(tx, { ...task, bucket: "next_action" });
 
@@ -2115,10 +2081,7 @@ export class TauriSqliteRepository implements AppRepository {
     return this.writeTransaction(async (tx) => {
       transactionDb(tx);
 
-      const task = await this.requireTask(taskId);
-      if (task.status !== "active" || task.bucket !== "planned" || !task.projectId) {
-        throw new Error(`La tache ${taskId} n'est pas planifiee et active`);
-      }
+      const task = assertPlannedTaskActionable(taskId, await this.requireTask(taskId));
 
       const allTasks = await this.getAllTasks();
       const updates = swapPlannedOrder(allTasks, taskId, direction, nowIso());

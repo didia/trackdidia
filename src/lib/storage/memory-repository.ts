@@ -89,12 +89,21 @@ import {
   filterProjects,
   filterTasks,
 } from "../gtd/engine";
+import {
+  hasContext,
+  hasScheduledDate,
+  selectTasksForBucketNormalization,
+} from "../gtd/bucket-normalization";
+import { planGoogleRecurringCollapse } from "../gtd/google-recurring-collapse";
 import { buildGoogleTasksImport } from "../gtd/google-tasks-import";
 import {
   adjustPlannedFieldsForSave,
+  assertPlannedProjectActive,
+  assertPlannedTaskActionable,
   reconcileProjectPlannedTasks,
   swapPlannedOrder,
 } from "../gtd/planned";
+import { applyScheduleChange } from "../gtd/schedule";
 import { promoteDueScheduledTasks as selectDueScheduledPromotions } from "../gtd/scheduled";
 import { buildContextId, cloneProject, cloneTask, createEntityId, nowIso } from "../gtd/shared";
 import { addDays, toLocalDateString } from "../date";
@@ -954,87 +963,57 @@ export class MemoryRepository implements AppRepository {
   }
 
   async moveTasksWithContextToBucket(contextId: string, bucket: Task["bucket"]): Promise<number> {
-    let movedCount = 0;
+    const updates = selectTasksForBucketNormalization(
+      this.tasks.values(),
+      hasContext(contextId),
+      bucket,
+      nowIso(),
+    );
 
-    for (const [taskId, task] of this.tasks.entries()) {
-      if (
-        task.status !== "active" ||
-        !task.contextIds.includes(contextId) ||
-        task.bucket === bucket
-      ) {
-        continue;
-      }
-
-      this.tasks.set(taskId, {
-        ...cloneTask(task),
-        bucket,
-        updatedAt: nowIso(),
-      });
-      movedCount += 1;
+    for (const updated of updates) {
+      this.tasks.set(updated.id, updated);
     }
 
-    return movedCount;
+    return updates.length;
   }
 
   async moveTasksWithScheduledDatesToBucket(bucket: Task["bucket"]): Promise<number> {
-    let movedCount = 0;
+    const updates = selectTasksForBucketNormalization(
+      this.tasks.values(),
+      hasScheduledDate,
+      bucket,
+      nowIso(),
+    );
 
-    for (const [taskId, task] of this.tasks.entries()) {
-      if (task.status !== "active" || !task.scheduledFor || task.bucket === bucket) {
-        continue;
-      }
-
-      this.tasks.set(taskId, {
-        ...cloneTask(task),
-        bucket,
-        updatedAt: nowIso(),
-      });
-      movedCount += 1;
+    for (const updated of updates) {
+      this.tasks.set(updated.id, updated);
     }
 
-    return movedCount;
+    return updates.length;
   }
 
   async collapseGoogleRecurringTasks(rawJson: unknown): Promise<number> {
     const payload = buildGoogleTasksImport(rawJson);
-    let changedCount = 0;
 
     for (const context of payload.contexts) {
       this.contexts.set(context.id, { ...context });
     }
 
-    for (const desiredTask of payload.tasks.filter((task) => task.recurrenceGroupId)) {
-      const sourceIds = new Set(payload.recurringSourceTaskIds[desiredTask.id] ?? []);
-      const existingMatches = [...this.tasks.values()].filter(
-        (task) =>
-          task.source === "google_import" &&
-          (task.id === desiredTask.id ||
-            task.recurrenceGroupId === desiredTask.recurrenceGroupId ||
-            (task.sourceExternalId ? sourceIds.has(task.sourceExternalId) : false)),
-      );
+    const { upserts, deleteIds } = planGoogleRecurringCollapse(
+      payload,
+      [...this.tasks.values()],
+      nowIso(),
+    );
 
-      const previousPrimary =
-        existingMatches.find((task) => task.id === desiredTask.id) ?? existingMatches[0] ?? null;
-      const nextTask: Task = {
-        ...cloneTask(desiredTask),
-        notes: previousPrimary?.notes?.trim() ? previousPrimary.notes : desiredTask.notes,
-        projectId: previousPrimary?.projectId ?? desiredTask.projectId,
-        updatedAt: nowIso(),
-      };
-
-      this.tasks.set(nextTask.id, cloneTask(nextTask));
-      changedCount += 1;
-
-      for (const duplicate of existingMatches) {
-        if (duplicate.id === nextTask.id) {
-          continue;
-        }
-
-        this.tasks.delete(duplicate.id);
-      }
+    for (const task of upserts) {
+      this.tasks.set(task.id, cloneTask(task));
     }
 
-    return changedCount;
+    for (const taskId of deleteIds) {
+      this.tasks.delete(taskId);
+    }
+
+    return upserts.length;
   }
 
   async listContexts(): Promise<TaskContext[]> {
@@ -1392,42 +1371,18 @@ export class MemoryRepository implements AppRepository {
   async scheduleTask(taskId: string, scheduledFor: string | null): Promise<Task> {
     const current = this.getExistingTask(taskId);
 
-    // Reusing `scheduledFor` on an active Planned task is a planned-date display update: it
-    // must never coerce the task to Scheduled.
-    if (current.status === "active" && current.bucket === "planned") {
-      return this.saveTask({ ...current, scheduledFor });
-    }
-
-    return this.saveTask({
-      ...current,
-      bucket: scheduledFor
-        ? "scheduled"
-        : current.bucket === "scheduled"
-          ? "next_action"
-          : current.bucket,
-      scheduledFor,
-    });
+    return this.saveTask(applyScheduleChange(current, scheduledFor));
   }
 
   async promotePlannedTask(taskId: string): Promise<Task> {
-    const task = this.getExistingTask(taskId);
-    if (task.status !== "active" || task.bucket !== "planned" || !task.projectId) {
-      throw new Error(`La tache ${taskId} n'est pas planifiee et active`);
-    }
-
-    const project = this.projects.get(task.projectId) ?? null;
-    if (!project || project.status !== "active") {
-      throw new Error("Le projet associe n'est pas actif");
-    }
+    const task = assertPlannedTaskActionable(taskId, this.getExistingTask(taskId));
+    assertPlannedProjectActive(this.projects.get(task.projectId) ?? null);
 
     return this.saveTask({ ...task, bucket: "next_action" });
   }
 
   async movePlannedTask(taskId: string, direction: "up" | "down"): Promise<Task[]> {
-    const task = this.getExistingTask(taskId);
-    if (task.status !== "active" || task.bucket !== "planned" || !task.projectId) {
-      throw new Error(`La tache ${taskId} n'est pas planifiee et active`);
-    }
+    const task = assertPlannedTaskActionable(taskId, this.getExistingTask(taskId));
 
     const updates = swapPlannedOrder([...this.tasks.values()], taskId, direction, nowIso());
     if (!updates) {

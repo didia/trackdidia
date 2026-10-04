@@ -46,7 +46,16 @@ Bulk controls complete, cancel, or move selected tasks. A bulk move to Scheduled
 skipped for tasks without `scheduledFor`. Bulk controls never offer Planned as a
 destination unless a single valid target project is known; none of today's bulk
 surfaces (Inbox, Next Actions, Scheduled, Waiting For, Someday/Maybe, References)
-resolve one, so Planned is effectively project-card-only for now.
+resolve one, so Planned is effectively project-card-only for now. The skip and
+`scheduledFor` rules live in `planBulkBucketMove` (`src/lib/gtd/bulk-move.ts`).
+
+### Scheduling rule
+
+Both repositories' `scheduleTask` and the AI GTD "schedule" accept path use
+`applyScheduleChange` (`src/lib/gtd/schedule.ts`): an active Planned task keeps its
+bucket and only updates its reused `scheduledFor`; otherwise a date moves the task to
+Scheduled, and clearing the date moves a Scheduled task to Next Actions (other buckets
+are unchanged).
 
 ## Planned bucket (project-only queue)
 
@@ -86,6 +95,10 @@ the project has none, without asking the user to maintain two lists.
   an adjacent active Planned sibling in the same project (disabled at the first/last
   position; cross-project moves are rejected). Manual promotion is allowed even when
   the project already has another active Next Action.
+  Eligibility (an existing, active, Planned task with a project; for promotion also an
+  active project) is checked by `assertPlannedTaskActionable` and
+  `assertPlannedProjectActive` in `src/lib/gtd/planned.ts`, shared by both repositories
+  with unchanged French error messages.
 - The project task-creation control on `/projects` offers Planned only while a
   project is selected, with an optional planned date/time, and appends the new task
   to that project's queue.
@@ -314,6 +327,12 @@ Google recurring instances sharing `task_recurrence_id` collapse to the newest
 scheduled/updated/created item. The active row records the group and a count of
 older pending instances.
 
+The collapse of already-stored rows (`collapseGoogleRecurringTasks`) is planned by the
+pure `planGoogleRecurringCollapse` in `src/lib/gtd/google-recurring-collapse.ts`, shared by
+both repositories: for each recurring group it upserts the desired task, keeps a non-blank
+existing note and the existing `projectId`, and deletes the other `google_import` rows that
+match by id, `recurrenceGroupId`, or a listed source id.
+
 ## Startup normalizations
 
 Settings timestamps guard three one-time compatibility passes:
@@ -321,6 +340,12 @@ Settings timestamps guard three one-time compatibility passes:
 - move tasks with the Reading context to References;
 - move all tasks with scheduled dates to Scheduled;
 - collapse Google recurrence groups using the current bundled export.
+
+The two bucket passes use `selectTasksForBucketNormalization`
+(`src/lib/gtd/bucket-normalization.ts`): active tasks matching the predicate and not already
+in the target bucket get the new `bucket` and `updatedAt`; `scheduledFor` and `plannedOrder`
+are untouched. They deliberately bypass `buildLifecycleEvents`, so they emit no task events
+and cannot retroactively change daily metrics.
 
 The bootstrap also reimports when the import timestamp is absent, or when both task
 and project counts are zero. The Settings screen can manually rerun import.
@@ -330,9 +355,19 @@ and project counts are zero. The Settings screen can manually rerun import.
 Daily relationship draws create up to two manual Next Actions in the Personal
 context: one children activity and one spouse activity.
 
+The decision is made by the pure `buildDailyRelationshipDrawPlan`
+(`src/lib/relationship-draws.ts`), which both repositories call inside their protected
+write operation; the repositories only persist the planned tasks and settings.
+
 Generation is idempotent per category/date through settings markers and deterministic
 source external IDs. If an active task from that category already exists, no new one
-is created and the category is marked processed for the day. See
+is created and the category is marked processed for the day. A category with no
+configured activities is neither drawn nor marked. Generated tasks carry
+`createdAt`/`updatedAt` of `<date>T00:00:00.000Z` (UTC midnight of the draw date, not
+local midnight). This is intentional current behavior: lifecycle events take the date
+from `createdAt.slice(0, 10)`, so the creation and Next Action events land on the draw's
+local calendar day in every time zone. Do not switch it to a local-midnight timestamp
+without changing that event-date derivation. See
 [AI, settings, and privacy](ai-settings-and-privacy.md) for configuration.
 
 ## Related documentation
