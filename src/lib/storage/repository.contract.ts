@@ -487,6 +487,16 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           createdAt: `${addDays(today, -2)}T08:00:00`,
         });
 
+        // Stats are pure reads: before reconciliation the task is still Scheduled and not "added".
+        await expect(repository.computeDailyTaskStats(today)).resolves.toMatchObject({
+          tasksAdded: 0,
+        });
+        expect(await repository.listTaskEvents({ types: ["task_moved_to_next_action"] })).toEqual(
+          [],
+        );
+
+        await repository.reconcileDay(today);
+
         await expect(repository.computeDailyTaskStats(today)).resolves.toMatchObject({
           tasksAdded: 1,
           tasksCompleted: 0,
@@ -765,7 +775,12 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           updatedAt: "2026-09-07T00:00:00.000Z",
         });
 
+        // Reads never generate: a summary that spans future days leaves the watermark untouched.
         await repository.computeWeeklyReviewSummary("2026-09-27");
+        expect((await repository.listRecurringTaskTemplates())[0]?.lastGeneratedForDate).toBeNull();
+        expect(await repository.listTasks({ includeCompleted: true })).toHaveLength(0);
+
+        await repository.reconcileDay("2026-09-07");
 
         const templates = await repository.listRecurringTaskTemplates();
         expect(templates[0]?.lastGeneratedForDate).toBe("2026-09-07");
@@ -1848,20 +1863,197 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         expect(entries.map((entry) => entry.date)).toEqual(["2026-04-30", "2026-04-01"]);
       });
 
-      it("listDailyEntriesInRange does not recompute daily task or pomodoro stats", async () => {
+      it("decorates every daily entry read the same way", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2026-04-08T12:00:00.000Z"));
         const repository = await factory();
+        const today = "2026-04-08";
 
-        for (const date of ["2026-04-01", "2026-04-02"]) {
-          await repository.saveDailyEntry(createEmptyDailyEntry(date));
-        }
+        await repository.createTask({
+          id: "task-start",
+          title: "Deja la hier",
+          bucket: "next_action",
+          createdAt: `${addDays(today, -1)}T08:00:00`,
+        });
+        await repository.saveDailyEntry(createEmptyDailyEntry(today));
 
-        const taskSpy = vi.spyOn(repository, "computeDailyTaskStats");
-        const pomodoroSpy = vi.spyOn(repository, "computeDailyPomodoroStats");
+        const fromGet = (await repository.getDailyEntry(today))?.suggestedMetrics;
+        const [fromList] = await repository.listDailyEntries(10);
+        const [fromOnOrBefore] = await repository.listDailyEntriesOnOrBefore(today, 10);
+        const [fromRange] = await repository.listDailyEntriesInRange(today, today);
 
-        await repository.listDailyEntriesInRange("2026-04-01", "2026-04-02");
+        expect(fromGet).toMatchObject({ tachesDebut: 1, pomodoris: 0 });
+        expect(fromList?.suggestedMetrics).toEqual(fromGet);
+        expect(fromOnOrBefore?.suggestedMetrics).toEqual(fromGet);
+        expect(fromRange?.suggestedMetrics).toEqual(fromGet);
+      });
 
-        expect(taskSpy).not.toHaveBeenCalled();
-        expect(pomodoroSpy).not.toHaveBeenCalled();
+      it("keeps entry, task and pomodoro reads side-effect free until reconcileDay runs", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2026-04-12T12:00:00.000Z"));
+        const repository = await factory();
+        const sunday = "2026-04-12";
+
+        await repository.createTask({
+          id: "task-next",
+          title: "Avant dimanche",
+          bucket: "next_action",
+          createdAt: "2026-04-10T08:00:00",
+        });
+        await repository.createTask({
+          id: "task-due",
+          title: "Due aujourd'hui",
+          bucket: "scheduled",
+          scheduledFor: `${sunday}T09:00:00`,
+          createdAt: "2026-04-09T08:00:00",
+        });
+        await repository.saveRecurringTaskTemplate({
+          id: "recurring-template:daily",
+          title: "Quotidienne",
+          notes: "",
+          targetBucket: "next_action",
+          contextIds: [],
+          projectId: null,
+          ruleType: "daily",
+          dailyInterval: 1,
+          weeklyInterval: 1,
+          weeklyDays: [0],
+          monthlyMode: "day_of_month",
+          dayOfMonth: 1,
+          nthWeek: 1,
+          weekday: 0,
+          scheduledTime: null,
+          startDate: sunday,
+          status: "active",
+          lastGeneratedForDate: null,
+          pendingMissedOccurrences: 0,
+          statusChangedAt: "2026-04-09T00:00:00.000Z",
+          createdAt: "2026-04-09T00:00:00.000Z",
+          updatedAt: "2026-04-09T00:00:00.000Z",
+        });
+        await repository.saveDailyEntry(createEmptyDailyEntry(sunday));
+        const started = await repository.startPomodoro();
+        expect(started.activeSession).not.toBeNull();
+        vi.setSystemTime(new Date("2026-04-12T13:00:00.000Z"));
+
+        const snapshot = async () => ({
+          tasks: await repository.listTasks({ includeCompleted: true }),
+          events: await repository.listTaskEvents(),
+          templates: await repository.listRecurringTaskTemplates(),
+          sessions: await repository.listPomodoroSessions(sunday),
+        });
+        const before = await snapshot();
+        expect(before.sessions.map((session) => session.status)).toEqual(["running"]);
+
+        await repository.listTasks();
+        await repository.computeDailyTaskStats(sunday);
+        await repository.getDailyTaskBreakdown(sunday);
+        await repository.computeDailyPomodoroStats(sunday);
+        await repository.getDailyEntry(sunday);
+        await repository.listDailyEntries(10);
+        await repository.listDailyEntriesOnOrBefore(sunday, 10);
+        await repository.listDailyEntriesInRange(sunday, sunday);
+        await repository.computeWeeklyReviewSummary("2026-04-12");
+        await repository.computeMonthlyReviewSummary("2026-04");
+
+        expect(await snapshot()).toEqual(before);
+        await expect(repository.computeDailyPomodoroStats(sunday)).resolves.toMatchObject({
+          completedFocusSessions: 0,
+        });
+
+        const result = await repository.reconcileDay(sunday);
+
+        expect(result.generatedRecurrences).toBe(1);
+        expect(result.promotedScheduled).toBe(1);
+        expect(result.carryoverEvents).toBeGreaterThan(0);
+        expect(result.pomodoroState.activeSession).toBeNull();
+        expect(
+          (await repository.listPomodoroSessions(sunday)).map((session) => session.status),
+        ).toEqual(["completed"]);
+        await expect(repository.computeDailyPomodoroStats(sunday)).resolves.toMatchObject({
+          completedFocusSessions: 1,
+        });
+        const carryoverKeys = (await repository.listTaskEvents())
+          .filter((event) => event.type === "weekly_carryover")
+          .map((event) => event.dedupeKey);
+        expect(carryoverKeys).toContain(`weekly_carryover:${sunday}:task-next`);
+        expect(new Set(carryoverKeys).size).toBe(carryoverKeys.length);
+      });
+
+      it("reconcileDay is idempotent and never carries over for a future Sunday", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2026-04-12T12:00:00.000Z"));
+        const repository = await factory();
+        const sunday = "2026-04-12";
+
+        await repository.createTask({
+          id: "task-next",
+          title: "Avant dimanche",
+          bucket: "next_action",
+          createdAt: "2026-04-10T08:00:00",
+        });
+
+        const first = await repository.reconcileDay(sunday);
+        const eventsAfterFirst = await repository.listTaskEvents();
+        const stats = await repository.computeDailyTaskStats(sunday);
+        const second = await repository.reconcileDay(sunday);
+
+        expect(first.carryoverEvents).toBe(1);
+        expect(second).toMatchObject({
+          generatedRecurrences: 0,
+          promotedScheduled: 0,
+          carryoverEvents: 0,
+        });
+        expect(await repository.listTaskEvents()).toEqual(eventsAfterFirst);
+        await expect(repository.computeDailyTaskStats(sunday)).resolves.toEqual(stats);
+
+        // Clock moves back before the Sunday; 2026-04-19 was never reconciled, so only the
+        // `date <= today` clamp (not the dedupe key) keeps its carryover from being written.
+        vi.setSystemTime(new Date("2026-04-08T12:00:00.000Z"));
+        const future = await repository.reconcileDay("2026-04-19");
+        expect(future.carryoverEvents).toBe(0);
+        const futureEvents = await repository.listTaskEvents();
+        expect(
+          futureEvents.filter((event) =>
+            event.dedupeKey?.startsWith("weekly_carryover:2026-04-19:"),
+          ),
+        ).toEqual([]);
+        expect(futureEvents.filter((event) => event.type === "weekly_carryover")).toHaveLength(1);
+
+        const weekday = await repository.reconcileDay("2026-04-08");
+        expect(weekday.carryoverEvents).toBe(0);
+      });
+
+      it("reconcileDay back-fills carryover for the most recent Sunday the app never reconciled", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2026-04-15T12:00:00.000Z"));
+        const repository = await factory();
+        const sunday = "2026-04-12";
+
+        await repository.createTask({
+          id: "task-before-sunday",
+          title: "Avant dimanche",
+          bucket: "next_action",
+          createdAt: "2026-04-10T08:00:00",
+        });
+        await expect(repository.computeDailyTaskStats(sunday)).resolves.toMatchObject({
+          tasksAdded: 0,
+        });
+
+        const result = await repository.reconcileDay("2026-04-15");
+
+        expect(result.carryoverEvents).toBe(1);
+        const carryoverKeys = (await repository.listTaskEvents())
+          .filter((event) => event.type === "weekly_carryover")
+          .map((event) => event.dedupeKey);
+        expect(carryoverKeys).toEqual([`weekly_carryover:${sunday}:task-before-sunday`]);
+        await expect(repository.computeDailyTaskStats(sunday)).resolves.toMatchObject({
+          tasksAdded: 1,
+        });
+
+        await expect(repository.reconcileDay("2026-04-15")).resolves.toMatchObject({
+          carryoverEvents: 0,
+        });
       });
 
       it("listWeeklyReviewsOverlapping includes a week that started the previous month", async () => {

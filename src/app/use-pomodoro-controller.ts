@@ -239,8 +239,8 @@ export const usePomodoroController = (
       }
 
       const today = getTodayDate();
-      await candidate.generateDueRecurringTasks(today);
-      await candidate.promoteDueScheduledTasks(today);
+      // Recurrence/Scheduled reconciliation is owned by bootstrap and the local-day hook; reads are
+      // side-effect free, so a refresh only settles expired sessions.
       const nextState = await candidate.completeExpiredPomodoroSessions();
       applyState(candidate, nextState);
       let nextSessions: PomodoroSessionDetails[];

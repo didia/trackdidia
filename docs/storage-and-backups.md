@@ -109,8 +109,7 @@ It groups:
 
 Repository helpers include `listDailyEntriesOnOrBefore(endDate, limit)` for bounded
 history ending at a calendar date, `listDailyEntriesInRange(startDate, endDate)`
-(persisted daily rows without GTD/Pomodoro decoration, unlike the capped list
-helpers), `listWeeklyReviewsOverlapping(startDate, endDate)`, and
+(decorated like the other daily reads), `listWeeklyReviewsOverlapping(startDate, endDate)`, and
 `listMonthlyReviewsOverlapping(startDate, endDate)` for the Journal timeline, and
 the [atomic AI proposal acceptance operation](#atomic-ai-proposal-acceptance)
 (`acceptAiProposal`).

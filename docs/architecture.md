@@ -159,11 +159,12 @@ screen.
 6. Run one-time data normalizations tracked in settings:
    - move the `Reading` context to References,
    - move dated work to Scheduled.
-7. Generate due recurring tasks for the current local date.
-8. Promote active Scheduled tasks whose local `scheduledFor` date is today or
-   earlier to Next Actions.
-9. Generate enabled relationship activity tasks for the current local date.
-10. If `settings.financeEnabled` is true and `settings.financeCategoriesSeededAt`
+7. Call `repository.reconcileDay(today)`: generate due recurring tasks for the
+   current local date, promote active Scheduled tasks whose local `scheduledFor`
+   date is today or earlier to Next Actions, apply weekly carryover for the most
+   recent Sunday (back-filling a missed one), and complete expired Pomodoro sessions.
+8. Generate enabled relationship activity tasks for the current local date.
+9. If `settings.financeEnabled` is true and `settings.financeCategoriesSeededAt`
     is empty, seed the default finance category taxonomy
     (`seedFinanceDefaultCategories()`, idempotent `INSERT OR IGNORE`) and set the
     marker. This step is wrapped in its own `try`/`catch` — a failure is logged
@@ -172,8 +173,8 @@ screen.
     `SettingsPage` when a user flips `financeEnabled` from false to true there,
     so whichever path flips the flag first does the seeding and the other is a
     no-op.
-11. Expose the repository and settings to the UI.
-12. After a successful bootstrap (not browser preview and not the startup
+10. Expose the repository and settings to the UI.
+11. After a successful bootstrap (not browser preview and not the startup
     fallback), start the email triage coordinator. It still no-ops while the
     feature flag is off, and it probes the OS vault only after that flag is on.
     On desktop, connected Gmail and Microsoft Graph accounts use the live adapter
@@ -186,9 +187,26 @@ coordinator does not start in that fallback path.
 
 After bootstrap, `AppProvider` keeps `calendarDay` (the current local `YYYY-MM-DD`)
 in context. A timeout until the next local midnight, plus window `focus` and
-`visibilitychange` when the document becomes visible, regenerates due recurrences,
-promotes due Scheduled tasks, and republishes the new date so already-mounted GTD
+`visibilitychange` when the document becomes visible, call `reconcileDay(today)`
+once per repository and day, then republish the new date so already-mounted GTD
 and Pomodoro consumers reload without navigation.
+
+### Reads are side-effect free; reconciliation is explicit
+
+Repository reads never write: `listTasks`, `computeDailyTaskStats`,
+`getDailyTaskBreakdown`, `computeDailyPomodoroStats`, `getDailyEntry`, and
+`listDailyEntries*` no longer generate recurrences, promote Scheduled tasks, write
+Sunday carryover, or complete expired Pomodoro sessions. Those time-driven writes
+live in `reconcileDay(date, now?)` (shared `reconcileGtdDay` in
+`src/lib/gtd/reconcile.ts`, exposed on both repositories). Only time owners call it:
+
+- `AppProvider` bootstrap and `useLocalDayReconciliation` (day boundary);
+- explicit refresh after a user write that can make work due today: every
+  `useGtdWorkspace` mutation reload, recurrence template save/resume on
+  `/recurrences`, and an accepted AI proposal that creates or schedules a task.
+
+The initial `useGtdWorkspace` load, History, Weekly, AI snapshots, and the Pomodoro
+refresh (which only settles expired sessions) read without reconciling.
 
 ## Repository boundary
 
@@ -220,6 +238,14 @@ decorate an entry with suggested values computed from:
 - completed focus sessions (`pomodoris`).
 
 `resolveMetricValue()` returns an explicit user value first, then its suggestion.
+
+Decoration is the repository's job and happens once, purely: `getDailyEntry` and all
+three `listDailyEntries*` methods (including `listDailyEntriesInRange`) load tasks,
+events, and Pomodoro sessions once and derive suggestions with
+`decorateDailyEntries` (`src/lib/storage/decorate-entries.ts`). `saveDailyEntry`
+stores the entry as given. Callers must not re-apply `applyDailyTaskStats` /
+`applyDailyPomodoroStats` to a repository-returned entry; they only apply them to a
+synthesized empty entry (a day with no row) or to a local, unsaved edit.
 
 ### Reviews and goals
 

@@ -1,6 +1,8 @@
 - 2026-10-03: Centralized settings defaults and historical normalization; application writers now merge current values atomically, and settings forms preserve runtime state and unsaved edits.
 # Storage and backups log
 
+- 2026-10-03: `listDailyEntriesInRange` now returns decorated entries like the other daily reads, and `saveDailyEntry` stores the entry as given instead of decorating first; no schema change ([#110](https://github.com/didia/trackdidia/issues/110)).
+
 - 2026-10-03: Extended atomic proposal effects to daily entries and current-goal evaluations; dismissed/expired proposals cannot mutate data, and failed writes roll back both entity and decision.
 
 - 2026-10-03: Added real-table repository reads for all 20 SQLite row mappings;
