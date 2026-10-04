@@ -21,6 +21,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-10-03 | Migration 39 adds `finance_alert_notifications` (additive, `(alert_key, notified_on_date)` primary key), the once-per-day-per-key rate-limit ledger for Phase 7 finance runout/cash-flow alert notifications; included in `VACUUM INTO` backups like every other table | `docs/storage-and-backups.md`, `docs/finance.md` | Migration `create_finance_alert_notifications`, `finance-sqlite-store.ts`, `finance-memory-store.ts` |
 | 2026-10-03 | Corrected the repository contract summary to name the unified proposal acceptance operation while preserving the current transaction/migration guidance during conflict resolution | `docs/storage-and-backups.md` | `repository.ts`, both repositories, PR #196 |
 | 2026-10-03 | Replaced five proposal accept methods with one atomic/idempotent `acceptAiProposal` effect primitive; both repositories share pure GTD mutation rules and roll back entity/template changes if the decision fails | `docs/storage-and-backups.md` | `accept-effect.ts`, both repositories, `accept-ai-proposal.test.ts`, repository contract |
 | 2026-10-03 | Centralized transaction lifecycle in `runSqliteTransaction` and repository `writeTransaction`; early returns commit automatically, primary errors survive rollback failures, and transactional internal writers require active branded contexts | `docs/storage-and-backups.md` | `transaction.ts`, `transaction.test.ts`, `tauri-sqlite-repository.ts`, migration runner |

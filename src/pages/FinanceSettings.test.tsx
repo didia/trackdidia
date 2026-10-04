@@ -70,4 +70,93 @@ describe("SettingsPage finance section", () => {
     expect(seedSpy).not.toHaveBeenCalled();
     expect(updateSettings).toHaveBeenCalledTimes(1);
   });
+
+  it("saves the alerts/notify flags and parses the safety buffer into minor units", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const updateSettings = vi.fn().mockResolvedValue(undefined);
+
+    const settings = {
+      ...defaultAppSettings(),
+      financeEnabled: true,
+      financeCategoriesSeededAt: "2024-01-01T00:00:00.000Z",
+      financeAlertsOnToday: false,
+      financeNotifyRunout: false,
+      financeSafetyBufferMinor: 0,
+    };
+
+    await renderWithApp(<SettingsPage />, {
+      repository,
+      contextOverrides: { settings, updateSettings },
+    });
+
+    const user = userEvent.setup();
+    const alertsToggle = screen
+      .getByText("Afficher les alertes sur la page Aujourd'hui")
+      .closest("label")
+      ?.querySelector("input");
+    const notifyToggle = screen
+      .getByText("Notifications de dépassement/manque de liquidités")
+      .closest("label")
+      ?.querySelector("input");
+    expect(alertsToggle).not.toBeNull();
+    expect(notifyToggle).not.toBeNull();
+    if (alertsToggle) {
+      await user.click(alertsToggle);
+    }
+    if (notifyToggle) {
+      await user.click(notifyToggle);
+    }
+
+    const bufferInput = screen.getByPlaceholderText("0,00");
+    await user.clear(bufferInput);
+    await user.type(bufferInput, "250.00");
+
+    await user.click(screen.getByText("Enregistrer"));
+
+    expect(updateSettings).toHaveBeenCalledTimes(1);
+    const savedArg = updateSettings.mock.calls[0][0](settings);
+    expect(savedArg.financeAlertsOnToday).toBe(true);
+    expect(savedArg.financeNotifyRunout).toBe(true);
+    expect(savedArg.financeSafetyBufferMinor).toBe(25_000);
+  });
+
+  it("rejects an invalid safety buffer without saving anything or showing success", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const seedSpy = vi.spyOn(repository, "seedFinanceDefaultCategories");
+    const updateSettings = vi.fn().mockResolvedValue(undefined);
+
+    const settings = {
+      ...defaultAppSettings(),
+      financeEnabled: false,
+      financeCategoriesSeededAt: "",
+    };
+
+    await renderWithApp(<SettingsPage />, {
+      repository,
+      contextOverrides: { settings, updateSettings },
+    });
+
+    const user = userEvent.setup();
+    const toggle = screen
+      .getByText("Activer les finances")
+      .closest("label")
+      ?.querySelector("input");
+    if (toggle) {
+      await user.click(toggle);
+    }
+    const bufferInput = screen.getByPlaceholderText("0,00");
+    await user.clear(bufferInput);
+    await user.type(bufferInput, "250 dollars");
+
+    await user.click(screen.getByText("Enregistrer"));
+
+    expect(
+      await screen.findByText(/coussin de sécurité n'est pas un montant valide/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Paramètres de finances enregistrés.")).not.toBeInTheDocument();
+    expect(updateSettings).not.toHaveBeenCalled();
+    expect(seedSpy).not.toHaveBeenCalled();
+  });
 });

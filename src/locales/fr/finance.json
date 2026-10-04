@@ -303,7 +303,33 @@
     "pace": "{{percent}}% dépensé",
     "unbudgetedTitle": "Non budgété ({{count}})",
     "noUnbudgeted": "Aucune catégorie non budgétée.",
-    "unbudgetedAssign": "Assigner"
+    "unbudgetedAssign": "Assigner",
+    "runoutDate": "Épuisement prévu le {{date}}",
+    "lowConfidence": "(estimation provisoire)",
+    "forecastStatus": {
+      "on_track": "Sur la bonne voie",
+      "watch": "À surveiller",
+      "will_run_out": "Dépassement prévu",
+      "exhausted": "Épuisé"
+    }
+  },
+  "alerts": {
+    "title": "Alertes finances",
+    "subtitle": "Enveloppes et liquidités à surveiller",
+    "viewAll": "Voir toutes les finances",
+    "none": "Aucune alerte pour le moment.",
+    "loadError": "Impossible de charger les alertes finances.",
+    "retry": "Réessayer",
+    "lowConfidence": "estimation provisoire",
+    "cashRunout": "Liquidités : manque prévu le {{date}}",
+    "envelopeExhausted": "{{category}} : enveloppe épuisée",
+    "envelopeWillRunOut": "{{category}} : dépassement prévu le {{date}}",
+    "envelopeWatch": "{{category}} : à surveiller",
+    "severity": {
+      "critical": "Critique",
+      "warning": "Avertissement",
+      "info": "Info"
+    }
   },
   "reports": {
     "hero": {

@@ -69,7 +69,11 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   const [startupWorkQueue] = useState(createSerialQueue);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
-  const calendarDay = useLocalDayReconciliation(repository, settings.financeEnabled);
+  const calendarDay = useLocalDayReconciliation(
+    repository,
+    settings.financeEnabled,
+    settings.financeNotifyRunout,
+  );
   const pomodoro = usePomodoroController(repository, calendarDay);
   const pomodoroRef = useRef(pomodoro);
   pomodoroRef.current = pomodoro;

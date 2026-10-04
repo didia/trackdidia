@@ -2083,4 +2083,27 @@ export class MemoryRepository implements AppRepository {
   async listFinanceAccountBalanceSnapshots(accountId: string) {
     return Promise.resolve(this.finance.listAccountBalanceSnapshots(accountId));
   }
+
+  // --- Finance (Phase 7 — Forecasting and proactive alerts) -----------------------------
+
+  async buildFinanceSnapshot(asOfDate: string) {
+    const settings = await this.getSettings();
+    return Promise.resolve(this.finance.buildSnapshot(asOfDate, settings.financeSafetyBufferMinor));
+  }
+
+  async computeFinanceForecast(asOfDate: string) {
+    const settings = await this.getSettings();
+    return Promise.resolve(
+      this.finance.computeForecast(asOfDate, settings.financeSafetyBufferMinor),
+    );
+  }
+
+  async listNotifiedFinanceAlertKeys(onDate: string) {
+    return Promise.resolve(this.finance.listNotifiedFinanceAlertKeys(onDate));
+  }
+
+  async recordFinanceAlertNotifications(onDate: string, alertKeys: string[]) {
+    this.finance.recordFinanceAlertNotifications(onDate, alertKeys);
+    return Promise.resolve();
+  }
 }

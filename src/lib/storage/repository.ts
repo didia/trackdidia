@@ -92,6 +92,7 @@ import type {
   FinanceTrendGranularity,
   FinanceTrendPoint,
 } from "../../domain/finance/reports";
+import type { FinanceAlert, FinanceForecast, FinanceSnapshot } from "../../domain/finance/forecast";
 
 export interface NativeStoragePaths {
   databasePath: string;
@@ -473,4 +474,16 @@ export interface AppRepository {
   /** Idempotent per day: derives and upserts one balance snapshot per account for `asOfDate`. */
   snapshotFinanceAccountBalances(asOfDate: string): Promise<number>;
   listFinanceAccountBalanceSnapshots(accountId: string): Promise<FinanceAccountBalanceSnapshot[]>;
+
+  // --- Finance (Phase 7 — Forecasting and proactive alerts) -----------------------------
+
+  /** The forecast/alert input bundle for `computeFinanceForecast`; see `src/domain/finance/forecast.ts`. */
+  buildFinanceSnapshot(asOfDate: string): Promise<FinanceSnapshot>;
+  /** Loads the snapshot and calls the pure `computeFinanceForecast` + `buildFinanceAlerts`. */
+  computeFinanceForecast(
+    asOfDate: string,
+  ): Promise<{ forecast: FinanceForecast; alerts: FinanceAlert[] }>;
+  /** Alert keys already notified on `onDate` — the once-per-day-per-key rate limit ledger. */
+  listNotifiedFinanceAlertKeys(onDate: string): Promise<string[]>;
+  recordFinanceAlertNotifications(onDate: string, alertKeys: string[]): Promise<void>;
 }

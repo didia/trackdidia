@@ -7,11 +7,14 @@ import { SectionCard } from "../components/SectionCard";
 import { addMonthsToMonthKey } from "../domain/finance/budget";
 import type { FinanceAccount, FinanceCategory, FinanceRecurringSeries } from "../domain/finance";
 import type { FinanceCashFlowSummary } from "../domain/finance/cash-flow";
+import type { FinanceAlert, FinanceAlertSeverity } from "../domain/finance/forecast";
 import type { FinanceNetWorthSnapshot } from "../domain/finance/net-worth";
 import type { FinanceCategorySpendRow, FinanceTrendPoint } from "../domain/finance/reports";
 import { getMonthEndDate, getMonthKey, getMonthStartDate } from "../domain/monthly-review";
-import { getTodayDate } from "../lib/date";
+import { formatDateShort, getTodayDate } from "../lib/date";
 import { formatMoney } from "../lib/finance/money";
+
+const ALERT_SEVERITY_ORDER: FinanceAlertSeverity[] = ["critical", "warning", "info"];
 
 const TOP_CATEGORY_COUNT = 5;
 const TREND_MONTHS = 6;
@@ -31,6 +34,7 @@ export const FinanceOverviewPage = () => {
   const [trend, setTrend] = useState<FinanceTrendPoint[]>([]);
   const [topCategories, setTopCategories] = useState<FinanceCategorySpendRow[]>([]);
   const [recurringSeries, setRecurringSeries] = useState<FinanceRecurringSeries[]>([]);
+  const [alerts, setAlerts] = useState<FinanceAlert[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
 
@@ -49,6 +53,7 @@ export const FinanceOverviewPage = () => {
         nextTrend,
         nextTopCategories,
         nextRecurringSeries,
+        nextForecast,
       ] = await Promise.all([
         repository.listFinanceAccounts({ includeClosed: true }),
         repository.listFinanceCategories(),
@@ -63,6 +68,7 @@ export const FinanceOverviewPage = () => {
           "category",
         ),
         repository.listFinanceRecurringSeries("active"),
+        repository.computeFinanceForecast(today),
       ]);
       setAccounts(nextAccounts);
       setCategories(nextCategories);
@@ -71,6 +77,7 @@ export const FinanceOverviewPage = () => {
       setTrend(nextTrend);
       setTopCategories(nextTopCategories.slice(0, TOP_CATEGORY_COUNT));
       setRecurringSeries(nextRecurringSeries);
+      setAlerts(nextForecast.alerts);
     } catch {
       setLoadError(true);
     } finally {
@@ -113,6 +120,36 @@ export const FinanceOverviewPage = () => {
     () => new Map(accounts.map((account) => [account.id, account])),
     [accounts],
   );
+
+  const alertsBySeverity = useMemo(() => {
+    const grouped = new Map<FinanceAlertSeverity, FinanceAlert[]>();
+    for (const alert of alerts) {
+      const bucket = grouped.get(alert.severity);
+      if (bucket) {
+        bucket.push(alert);
+      } else {
+        grouped.set(alert.severity, [alert]);
+      }
+    }
+    return grouped;
+  }, [alerts]);
+
+  const describeAlert = (alert: FinanceAlert): string => {
+    const categoryName = alert.categoryId ? (categoryNameById.get(alert.categoryId) ?? "") : "";
+    switch (alert.kind) {
+      case "cash_runout":
+        return t("alerts.cashRunout", { date: formatDateShort(alert.runoutDate ?? "") });
+      case "envelope_exhausted":
+        return t("alerts.envelopeExhausted", { category: categoryName });
+      case "envelope_will_run_out":
+        return t("alerts.envelopeWillRunOut", {
+          category: categoryName,
+          date: formatDateShort(alert.runoutDate ?? ""),
+        });
+      default:
+        return t("alerts.envelopeWatch", { category: categoryName });
+    }
+  };
 
   const confirmRecurring = async (series: FinanceRecurringSeries) => {
     await repository.saveFinanceRecurringSeries({ ...series, confirmedByUser: true });
@@ -171,6 +208,29 @@ export const FinanceOverviewPage = () => {
             ) : null}
           </>
         ) : null}
+      </SectionCard>
+
+      <SectionCard title={t("alerts.title")} subtitle={t("alerts.subtitle")}>
+        {alerts.length === 0 ? <p className="empty-copy">{t("alerts.none")}</p> : null}
+        {ALERT_SEVERITY_ORDER.map((severity) => {
+          const group = alertsBySeverity.get(severity);
+          if (!group || group.length === 0) {
+            return null;
+          }
+          return (
+            <div key={severity} className="finance-alerts-group">
+              <h3>{t(`alerts.severity.${severity}`)}</h3>
+              <ul className="finance-alerts-list">
+                {group.map((alert) => (
+                  <li key={alert.key} data-testid={`finance-alert-${alert.key}`}>
+                    <span>{describeAlert(alert)}</span>
+                    {alert.lowConfidence ? <small> ({t("alerts.lowConfidence")})</small> : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        })}
       </SectionCard>
 
       <SectionCard title={t("overview.cashFlowTitle")}>

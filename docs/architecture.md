@@ -125,7 +125,7 @@ false. `finances` (`/finances`) is the first such conditional entry, gated on
 | `/pomodoro` | Pomodoro | Focus/break timer, task switching, daily history |
 | `/recurrences` | Recurrences | Create, filter, pause/resume/cancel recurring series |
 | `/email-triage` | Email triage | Account cards, review queue, disabled-by-default settings |
-| `/finances` | Finance overview | Net worth, this month's cash flow, account list with derived balances, 6-month spending trend, top categories, upcoming recurring bills; always registered, redirects to `/` while `financeEnabled` is false |
+| `/finances` | Finance overview | Net worth, this month's cash flow, proactive runout/cash-flow alerts grouped by severity, account list with derived balances, 6-month spending trend, top categories, upcoming recurring bills; always registered, redirects to `/` while `financeEnabled` is false |
 | `/finances/transactions` | Finance transactions | Paged, filtered transaction list with inline category edit, splits, transfer/exclude toggles, bulk toolbar |
 | `/finances/budget` | Finance budget | Month selector, Ready to Assign, envelope grid with inline assignment, overspend policy, quick-assign actions, "Non budgété" band, close/reopen month |
 | `/finances/reports` | Finance reports | Category/merchant/person spend with transaction-level drill-down, income-vs-expense trend, month-over-month comparison |
@@ -230,7 +230,15 @@ and Pomodoro consumers reload without navigation. On the same pass, when
 `snapshotFinanceAccountBalances(today)` so the net-worth history gets one point
 per day the app was open; this call is independently try/caught (a failure is
 logged as a row count only, never amounts) and never blocks recurrence/promotion
-or the eight-second startup timeout above.
+or the eight-second startup timeout above. When `settings.financeEnabled &&
+settings.financeNotifyRunout` the same pass also calls
+`computeFinanceForecast(today)`, evaluates the finance alert notification
+policy against the `finance_alert_notifications` ledger for today, and sends
+at most one OS notification per newly due alert key via the existing
+`notifyPomodoroCompletion` helper (no new plugin, no network call); this runs
+on first mount too — the app-wide "at startup after bootstrap" trigger — and
+is independently try/caught the same way the balance snapshot is. See
+[`docs/finance.md`](finance.md#forecasting-and-proactive-alerts-phase-7).
 
 ### Reads are side-effect free; reconciliation is explicit
 

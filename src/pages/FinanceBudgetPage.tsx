@@ -17,6 +17,7 @@ import type {
   FinanceCategory,
   FinanceOverspendPolicy,
 } from "../domain/finance";
+import type { FinanceForecast } from "../domain/finance/forecast";
 import { getMonthKey, getMonthEndDate, listMonthDates } from "../domain/monthly-review";
 import {
   currencyExponent,
@@ -24,7 +25,7 @@ import {
   minorToInputString,
   parseAmountToMinor,
 } from "../lib/finance/money";
-import { getTodayDate } from "../lib/date";
+import { formatDateShort, getTodayDate } from "../lib/date";
 
 const OVERSPEND_POLICIES: FinanceOverspendPolicy[] = [
   "reduce_next_ready_to_assign",
@@ -73,6 +74,7 @@ export const FinanceBudgetPage = () => {
   const [assignDrafts, setAssignDrafts] = useState<Record<string, string>>({});
   const [noteDraft, setNoteDraft] = useState("");
   const [coverFromByCategory, setCoverFromByCategory] = useState<Record<string, string>>({});
+  const [forecast, setForecast] = useState<FinanceForecast | null>(null);
 
   const [error, setError] = useState<string | null>(null);
   const loadIdRef = useRef(0);
@@ -83,11 +85,14 @@ export const FinanceBudgetPage = () => {
   const load = useCallback(async () => {
     const loadId = ++loadIdRef.current;
     const isStale = () => loadId !== loadIdRef.current;
-    const [nextMonth, nextState, nextCategories, accounts] = await Promise.all([
+    const isCurrentMonth = monthKey === getMonthKey(today);
+    const [nextMonth, nextState, nextCategories, accounts, forecastResult] = await Promise.all([
       repository.getFinanceBudgetMonth(monthKey),
       repository.computeFinanceBudgetState(monthKey),
       repository.listFinanceCategories(),
       repository.listFinanceAccounts({ onBudgetOnly: true }),
+      // The forecast is always relative to "today" — only meaningful while viewing the current month.
+      isCurrentMonth ? repository.computeFinanceForecast(today) : Promise.resolve(null),
     ]);
     if (isStale()) {
       return;
@@ -95,6 +100,7 @@ export const FinanceBudgetPage = () => {
     setBudgetMonth(nextMonth);
     setState(nextState);
     setCategories(nextCategories);
+    setForecast(forecastResult?.forecast ?? null);
     setNoteDraft(nextMonth.readyToAssignNote ?? "");
     setAssignDrafts(
       Object.fromEntries(
@@ -117,7 +123,7 @@ export const FinanceBudgetPage = () => {
     if (!isStale()) {
       setCardBalances(balances);
     }
-  }, [repository, monthKey, exponent]);
+  }, [repository, monthKey, exponent, today]);
 
   useEffect(() => {
     setError(null);
@@ -239,6 +245,7 @@ export const FinanceBudgetPage = () => {
       elapsedAndTotalDays.elapsedDays,
       elapsedAndTotalDays.totalDays,
     );
+    const envelopeForecast = forecast?.envelopes.find((e) => e.categoryId === category.id) ?? null;
     return (
       <div key={category.id} className="inline-form" data-testid={`budget-row-${category.id}`}>
         <span>{category.name}</span>
@@ -335,6 +342,14 @@ export const FinanceBudgetPage = () => {
         <span data-testid={`pace-${category.id}`}>
           {t("budget.pace", { percent: Math.round(pace.fractionSpent * 100) })}
         </span>
+        {envelopeForecast ? (
+          <span data-testid={`forecast-${category.id}`}>
+            {envelopeForecast.lowConfidence ? `${t("budget.lowConfidence")} ` : ""}
+            {envelopeForecast.runoutDate
+              ? t("budget.runoutDate", { date: formatDateShort(envelopeForecast.runoutDate) })
+              : t(`budget.forecastStatus.${envelopeForecast.status}`)}
+          </span>
+        ) : null}
       </div>
     );
   };

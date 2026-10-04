@@ -9,6 +9,7 @@ import { useDailyEntry } from "../app/use-daily-entry";
 import { usePastorVerse } from "../app/use-pastor-verse";
 import { CoachPulsePanel } from "../components/CoachPulsePanel";
 import { EntrySummaryStrip } from "../components/EntrySummaryStrip";
+import { FinanceAlertsCard } from "../components/FinanceAlertsCard";
 import { PastorVerseCard } from "../components/PastorVerseCard";
 import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
 import { PageHeader } from "../components/PageHeader";
@@ -121,6 +122,8 @@ export const TodayPage = () => {
       {browserPreview ? <div className="banner">{t("banner.browserPreview")}</div> : null}
 
       <EntrySummaryStrip entry={entry} />
+
+      <FinanceAlertsCard />
 
       {isSunday(entry.date) ? (
         <SectionCard title={t("sunday.title")} subtitle={t("sunday.subtitle")}>

@@ -16,6 +16,7 @@ import type { AiPayloadScope, AppSettings } from "../domain/types";
 import { formatPulseSlotHours, parsePulseSlotHours } from "../lib/ai/pulse/slot-hours";
 import { BACKUP_RETENTION_COUNT, isBackupDestinationConfigured } from "../lib/backup";
 import { formatDateTimeShort } from "../lib/date";
+import { currencyExponent, minorToInputString, parseAmountToMinor } from "../lib/finance/money";
 import { RescueTimeGoalsService } from "../lib/rescuetime/rescuetime-goals-service";
 import type { StorageInfo } from "../lib/storage/repository";
 
@@ -39,7 +40,12 @@ const aiPreferenceKeys: (keyof AppSettings)[] = [
   "aiPastorEnabled",
   "aiCostPerMillionTokens",
 ];
-const financePreferenceKeys: (keyof AppSettings)[] = ["financeEnabled", "financeBaseCurrency"];
+const financePreferenceKeys: (keyof AppSettings)[] = [
+  "financeEnabled",
+  "financeBaseCurrency",
+  "financeAlertsOnToday",
+  "financeNotifyRunout",
+];
 
 const relationshipPreferenceKeys: (keyof AppSettings)[] = [
   "relationshipDrawsEnabled",
@@ -75,6 +81,12 @@ export const SettingsPage = () => {
   const relationshipSave = useSectionSave(async () => {
     await savePreferences(draftSettings, relationshipPreferenceKeys);
   });
+  const [financeSafetyBufferDraft, setFinanceSafetyBufferDraft] = useState(() =>
+    minorToInputString(
+      settings.financeSafetyBufferMinor,
+      currencyExponent(settings.financeBaseCurrency),
+    ),
+  );
   const financeSave = useSectionSave(async () => {
     const enabling = draftSettings.financeEnabled && !settings.financeEnabled;
     const patch = settingsDraftPatch(draftSettings, baselineRef.current, financePreferenceKeys);
@@ -84,6 +96,16 @@ export const SettingsPage = () => {
         throw new Error("invalid finance base currency");
       }
       patch.financeBaseCurrency = normalized;
+    }
+    const exponent = currencyExponent(patch.financeBaseCurrency ?? settings.financeBaseCurrency);
+    const parsedBuffer = parseAmountToMinor(financeSafetyBufferDraft || "0", { exponent });
+    if (!parsedBuffer.ok) {
+      // Nothing is persisted (including the seed below) so the user never sees a success banner
+      // for a threshold that was silently dropped.
+      throw new Error(t("finance.safetyBufferInvalid"));
+    }
+    if (parsedBuffer.amountMinor !== baselineRef.current.financeSafetyBufferMinor) {
+      patch.financeSafetyBufferMinor = parsedBuffer.amountMinor;
     }
 
     if (enabling && !settings.financeCategoriesSeededAt) {
@@ -111,6 +133,18 @@ export const SettingsPage = () => {
     setCostRateDraft((draft) =>
       draft === String(baseline.aiCostPerMillionTokens)
         ? String(settings.aiCostPerMillionTokens)
+        : draft,
+    );
+    setFinanceSafetyBufferDraft((draft) =>
+      draft ===
+      minorToInputString(
+        baseline.financeSafetyBufferMinor,
+        currencyExponent(baseline.financeBaseCurrency),
+      )
+        ? minorToInputString(
+            settings.financeSafetyBufferMinor,
+            currencyExponent(settings.financeBaseCurrency),
+          )
         : draft,
     );
     baselineRef.current = settings;
@@ -592,6 +626,44 @@ export const SettingsPage = () => {
                 }))
               }
               placeholder={t("finance.baseCurrencyPlaceholder")}
+            />
+          </label>
+
+          <label className="switch-row">
+            <input
+              type="checkbox"
+              checked={draftSettings.financeAlertsOnToday}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  financeAlertsOnToday: event.target.checked,
+                }))
+              }
+            />
+            <span>{t("finance.alertsOnToday")}</span>
+          </label>
+
+          <label className="switch-row">
+            <input
+              type="checkbox"
+              checked={draftSettings.financeNotifyRunout}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  financeNotifyRunout: event.target.checked,
+                }))
+              }
+            />
+            <span>{t("finance.notifyRunout")}</span>
+          </label>
+
+          <label>
+            <span>{t("finance.safetyBufferMinor")}</span>
+            <input
+              type="text"
+              value={financeSafetyBufferDraft}
+              onChange={(event) => setFinanceSafetyBufferDraft(event.target.value)}
+              placeholder={t("finance.safetyBufferMinorPlaceholder")}
             />
           </label>
         </div>

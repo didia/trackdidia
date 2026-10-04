@@ -54,7 +54,15 @@ import {
   type FinanceNetWorthHistoryPoint,
   type FinanceNetWorthSnapshot,
 } from "../../domain/finance/net-worth";
-import { getMonthEndDate } from "../../domain/monthly-review";
+import { getMonthEndDate, getMonthKey } from "../../domain/monthly-review";
+import {
+  buildFinanceAlerts,
+  computeFinanceForecast,
+  restrictBudgetInputThrough,
+  type FinanceAlert,
+  type FinanceForecast,
+  type FinanceSnapshot,
+} from "../../domain/finance/forecast";
 import {
   computeFinanceCategorySpend,
   computeFinanceMerchantSpend,
@@ -158,6 +166,11 @@ export class FinanceMemoryStore {
   recurringSeries = new Map<string, FinanceRecurringSeries>();
   /** Keyed by `${accountId}\u0000${asOfDate}`. */
   balanceSnapshots = new Map<string, FinanceAccountBalanceSnapshot>();
+  /** Keyed by `${alertKey}\u0000${notifiedOnDate}` — the once-per-day-per-key notification ledger. */
+  alertNotifications = new Map<
+    string,
+    { alertKey: string; notifiedOnDate: string; notifiedAt: string }
+  >();
 
   // --- people -------------------------------------------------------------
 
@@ -1781,5 +1794,107 @@ export class FinanceMemoryStore {
     return [...this.balanceSnapshots.values()]
       .filter((snapshot) => snapshot.accountId === accountId)
       .sort((a, b) => a.asOfDate.localeCompare(b.asOfDate));
+  }
+
+  // --- Forecasting and alerts (Phase 7) ---------------------------------------------------
+
+  /**
+   * The forecast/alert input bundle for `AppRepository.buildFinanceSnapshot`.
+   * `paceTransactions`/`paceSplits` reuse the same on-budget,
+   * `excludedFromBudget = false` filter `budget.ts`'s `activity` uses (via
+   * `buildBudgetComputationInput`), so pace math and envelope activity agree
+   * on what counts as spending. `budgetState` is `computeFinanceBudgetState`
+   * — reused, never recomputed. Mirrors `FinanceSqliteStore.buildSnapshot`.
+   */
+  buildSnapshot(today: string, safetyBufferMinor: number): FinanceSnapshot {
+    const monthKey = getMonthKey(today);
+    const budgetInput = restrictBudgetInputThrough(
+      this.buildBudgetComputationInput(monthKey),
+      today,
+    );
+    const budgetState = computeFinanceBudgetState(budgetInput);
+
+    const onBudgetAccountIds = new Set(budgetInput.accounts.map((account) => account.id));
+    const paceTransactionRows = [...this.transactions.values()].filter(
+      (txn) =>
+        onBudgetAccountIds.has(txn.accountId) && !txn.excludedFromBudget && txn.postedDate <= today,
+    );
+
+    let firstActivityMonthKey: string | null = null;
+    for (const txn of paceTransactionRows) {
+      const month = getMonthKey(txn.postedDate);
+      if (firstActivityMonthKey === null || month < firstActivityMonthKey) {
+        firstActivityMonthKey = month;
+      }
+    }
+
+    const paceTransactionIds = new Set(paceTransactionRows.map((txn) => txn.id));
+
+    return {
+      today,
+      monthKey,
+      safetyBufferMinor,
+      accounts: budgetInput.accounts,
+      balanceTransactions: budgetInput.balanceTransactions,
+      budgetState,
+      paceTransactions: paceTransactionRows.map((txn) => ({
+        id: txn.id,
+        accountId: txn.accountId,
+        postedDate: txn.postedDate,
+        amountMinor: txn.amountMinor,
+        categoryId: txn.categoryId,
+        merchantKey: txn.merchantKey,
+        hasSplits: txn.hasSplits,
+        isTransfer: txn.isTransfer,
+      })),
+      paceSplits: [...this.splits.values()]
+        .filter((split) => paceTransactionIds.has(split.transactionId))
+        .map((split) => ({
+          transactionId: split.transactionId,
+          amountMinor: split.amountMinor,
+          categoryId: split.categoryId,
+        })),
+      firstActivityMonthKey,
+      recurringSeries: [...this.recurringSeries.values()]
+        .filter((series) => series.status === "active")
+        .map((series) => ({
+          merchantKey: series.merchantKey,
+          accountId: series.accountId,
+          categoryId: series.categoryId,
+          cadence: series.cadence,
+          expectedAmountMinor: series.expectedAmountMinor,
+          dayOfMonth: series.dayOfMonth,
+          lastSeenDate: series.lastSeenDate,
+          nextExpectedDate: series.nextExpectedDate,
+        })),
+    };
+  }
+
+  computeForecast(
+    today: string,
+    safetyBufferMinor: number,
+  ): { forecast: FinanceForecast; alerts: FinanceAlert[] } {
+    const snapshot = this.buildSnapshot(today, safetyBufferMinor);
+    const forecast = computeFinanceForecast(snapshot);
+    const alerts = buildFinanceAlerts(forecast, { financeSafetyBufferMinor: safetyBufferMinor });
+    return { forecast, alerts };
+  }
+
+  // --- Alert notification ledger (Phase 7) ------------------------------------------------
+
+  listNotifiedFinanceAlertKeys(onDate: string): string[] {
+    return [...this.alertNotifications.values()]
+      .filter((entry) => entry.notifiedOnDate === onDate)
+      .map((entry) => entry.alertKey);
+  }
+
+  recordFinanceAlertNotifications(onDate: string, alertKeys: string[]): void {
+    const now = nowIso();
+    for (const alertKey of alertKeys) {
+      const key = `${alertKey}\u0000${onDate}`;
+      if (!this.alertNotifications.has(key)) {
+        this.alertNotifications.set(key, { alertKey, notifiedOnDate: onDate, notifiedAt: now });
+      }
+    }
   }
 }

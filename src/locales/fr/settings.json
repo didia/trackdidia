@@ -244,13 +244,18 @@
   },
   "finance": {
     "title": "Finances",
-    "subtitle": "Suivi des comptes et transactions. Les alertes, le coach et la catégorisation IA arrivent dans des phases ultérieures.",
+    "subtitle": "Suivi des comptes et transactions, alertes proactives de dépassement. La catégorisation IA arrive dans une phase ultérieure.",
     "enable": "Activer les finances",
     "baseCurrency": "Devise de référence",
     "baseCurrencyPlaceholder": "CAD",
+    "alertsOnToday": "Afficher les alertes sur la page Aujourd'hui",
+    "notifyRunout": "Notifications de dépassement/manque de liquidités",
+    "safetyBufferMinor": "Coussin de sécurité (liquidités)",
+    "safetyBufferMinorPlaceholder": "0,00",
     "save": "Enregistrer",
     "saved": "Paramètres de finances enregistrés.",
     "saveError": "Échec de l'enregistrement des paramètres de finances.",
+    "safetyBufferInvalid": "Le coussin de sécurité n'est pas un montant valide. Rien n'a été enregistré.",
     "seeding": "Préparation des catégories par défaut..."
   }
 }

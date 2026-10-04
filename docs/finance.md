@@ -17,17 +17,25 @@ seeds, review queue** (the automatic categorization pipeline, the
 **Phase 6 — Tracking, reports, recurring, net worth** (net worth, cash flow,
 category/merchant/person reports with drill-down, recurring-bill detection,
 daily balance snapshots, and the `/finances` dashboard and `/finances/reports`
-screens — see "Tracking, reports, recurring, net worth" below). There is
-still no forecasting/alerts and no AI categorization stage — see
+screens — see "Tracking, reports, recurring, net worth" below), and
+**Phase 7 — Forecasting and proactive alerts** (per-envelope runout
+forecasting, the household cash-flow runout date, ranked alerts, the
+`FinanceAlertsCard` on Today, the full alerts list on `/finances`, and a
+rate-limited desktop notification — see "Forecasting and proactive alerts
+(Phase 7)" below). There is still no AI categorization stage — see
 [specs/todo/finance.md](../specs/todo/finance.md) for the full phased plan.
+Finance coach-context in the daily pulse payload (`financeCoachContextEnabled`)
+remains unimplemented; the setting exists and defaults off, but nothing reads
+it yet (see "Forecasting and proactive alerts (Phase 7)" for why it was
+deferred rather than shipped here).
 
 The feature is **unshipped to end users by default**: `AppSettings.financeEnabled`
 defaults to `false`. With it off, the sidebar has no "Finances" entry and
 `/finances*` redirects to `/`. A household that turns it on in Settings gets
-the eight screens documented in "Screens" below; later phases (forecasting,
-AI) are not built yet. This page describes what the storage layer
-and the UI can do today so later phases (and reviewers) have a canonical
-reference.
+the eight screens documented in "Screens" below plus the Phase 7 alerts; only
+AI categorization (Phase 8) is not built yet. This page describes what the
+storage layer and the UI can do today so later phases (and reviewers) have a
+canonical reference.
 
 ## Data model
 
@@ -70,9 +78,14 @@ ISO strings from `nowIso()`.
 - **`finance_import_profiles`**, **`finance_import_batches`** — saved column-mapping
   profiles (unique by header signature) and one row per import run.
 - **`finance_budget_entries`**, **`finance_budget_months`**,
-  **`finance_recurring_series`**, **`finance_account_balance_snapshots`** — schema
-  ships now for later phases (budget, recurring-bill detection, net worth); no
-  arithmetic reads or writes them yet.
+  **`finance_recurring_series`**, **`finance_account_balance_snapshots`** — read
+  by the budget (Phase 5), recurring-detection and net-worth (Phase 6), and
+  forecasting (Phase 7) engines described below.
+- **`finance_alert_notifications`** (migration `39_create_finance_alert_notifications`,
+  additive, touches no other table) — `(alert_key, notified_on_date)` primary
+  key plus `notified_at`. The once-per-day-per-alert-key rate-limit ledger for
+  the Phase 7 desktop notification; see "Forecasting and proactive alerts
+  (Phase 7)" below.
 
 ## Default category taxonomy
 
@@ -99,10 +112,10 @@ automatically — no migration needed):
 | `financeAiCategorizationEnabled` | `false` | Gates the AI classification stage (Phase 8) |
 | `financeAiAutoApplyEnabled` | `false` | Whether an AI suggestion can auto-apply |
 | `financeAiAutoApplyMinConfidence` | `0.9` | Confidence floor for AI auto-apply |
-| `financeAlertsOnToday` | `true` | Shows the runout-forecast card on Today (Phase 7) |
-| `financeCoachContextEnabled` | `false` | Adds a compact finance snapshot to the coach payload (Phase 7) |
-| `financeNotifyRunout` | `true` | Desktop notification for a runout alert (Phase 7) |
-| `financeSafetyBufferMinor` | `0` | Minor-unit floor for cash-runout forecasting (Phase 7) |
+| `financeAlertsOnToday` | `true` | Shows `FinanceAlertsCard` on Today (Phase 7, implemented) |
+| `financeCoachContextEnabled` | `false` | Reserved for a compact finance snapshot in the coach payload; **not implemented** — see "Forecasting and proactive alerts (Phase 7)" |
+| `financeNotifyRunout` | `true` | Gates the rate-limited desktop notification for `will_run_out`/`exhausted` envelopes and a cash runout inside 14 days (Phase 7, implemented) |
+| `financeSafetyBufferMinor` | `0` | Minor-unit floor for the household cash-runout forecast (Phase 7, implemented) |
 | `financeCategoriesSeededAt` | `""` | Records the first default taxonomy seed (startup re-seeds additively regardless) |
 
 ## Repository contract
@@ -140,8 +153,11 @@ Phase 6 added `computeFinanceNetWorth`, `listFinanceNetWorthHistory`,
 `saveFinanceRecurringSeries`, `detectFinanceRecurringSeries`,
 `snapshotFinanceAccountBalances`, and `listFinanceAccountBalanceSnapshots` —
 covered below under "Tracking, reports, recurring, net worth (Phase 6)".
-**Not** covered yet (later phases): forecast/alert methods or AI suggestion
-generation — these remain unimplemented on both repositories until their
+Phase 7 added `buildFinanceSnapshot`, `computeFinanceForecast`,
+`listNotifiedFinanceAlertKeys`, and `recordFinanceAlertNotifications` —
+covered below under "Forecasting and proactive alerts (Phase 7)".
+**Not** covered yet (a later phase): AI suggestion
+generation — this remains unimplemented on both repositories until its
 respective phase.
 
 ### Learning entry point
@@ -768,6 +784,165 @@ the exact transactions summing to that row's total (via
 `listFinanceCategorySpendDrilldown`), spending by merchant (top 10), spending
 by person, an income-vs-expense table by month, and a month-over-month
 per-category comparison against the preceding window of the same length as the selected range. An empty or inverted range is refused before any repository call; loads and drill-downs carry a request id so a stale response is ignored, changing the range closes the open drill-down, and a rejected load shows an error. The drill-down panel takes focus and closes on Escape.
+
+## Forecasting and proactive alerts (Phase 7)
+
+`src/domain/finance/forecast.ts` is pure, takes one `FinanceSnapshot` input
+(built by `AppRepository.buildFinanceSnapshot(asOfDate)`), and exports
+`computeFinanceForecast(snapshot)` plus `buildFinanceAlerts(forecast, settings)`.
+Both repositories load the same rows into the same `FinanceSnapshot` shape and
+hand it to the same two functions — never a SQL aggregate in one and a JS
+reduce in the other.
+
+**Per-envelope forecast**, for every budgeted category (`envelope =
+assignedMinor + carryInMinor > 0`; unbudgeted categories are out of scope
+entirely — no ladder, no alert, matching the "Non budgété" band's own
+semantics):
+
+- `spentMinor` is the category's actual activity this month **through
+  `asOfDate`**, read off `computeFinanceBudgetState` over a budget input
+  restricted by `restrictBudgetInputThrough` (never recomputed). A
+  future-dated transaction is not spending that has already happened, so it
+  affects neither `spentMinor`, the pace, nor `firstActivityMonthKey` until its
+  date arrives.
+- `currentPaceMinor` / `historicalPaceMinor` exclude transactions matched to
+  an **active** recurring series (`merchantKey` + `accountId` + sign) so a
+  lump-sum bill is counted once, in `spentMinor`, never smoothed into a pace.
+  `historicalPaceMinor` is the **median** (not mean) of the three trailing
+  full months' non-recurring daily spend rate — a median resists a single
+  legitimate outlier (a car repair) firing an alert on unrelated categories.
+- `blendedPaceMinor` follows the elapsed-day ladder (`< 5` → historical,
+  `< 12` → 50/50 blend, otherwise current) **unless** there are fewer than 3
+  trailing full months of data, in which case `lowConfidence = true` and the
+  ladder collapses to pure current pace (rendered as "estimation
+  provisoire" — the fallback that would otherwise read an undefined
+  historical rate).
+- `knownUpcomingMinor` sums **every remaining occurrence this month** of the
+  category's active recurring **bills** (`expectedAmountMinor < 0`) — a weekly
+  bill counts each week, not just its next date — each added as a lump sum on
+  its own day, never smoothed. Only series on on-budget accounts count (an
+  off-budget bill or paycheck can neither trigger nor mask an alert).
+- `projectedTotalMinor = spentMinor + blendedPaceMinor * remainingDays +
+  knownUpcomingMinor`; `runoutDate` is the first remaining day this
+  crosses the envelope, found by a day-by-day walk (so a lump-sum bill lands
+  exactly on its posting day, not smoothed across the month).
+- Status ladder, integer comparisons only (no float threshold): `exhausted`
+  (`availableMinor <= 0`) → `will_run_out` (`projectedTotalMinor >=
+  envelopeMinor`) → `watch` (`10 * projectedTotalMinor >= 9 * envelopeMinor`,
+  i.e. `>= 90%`, strictly below the envelope) → `on_track`.
+
+**Household cash-flow runout** — the more important signal — projects
+`onBudgetBalance(today)` (every transaction on on-budget accounts through
+today, regardless of `excludedFromBudget`, the same stock-balance rule as the
+budget's `onBudgetBalance`) forward 60 days, adding every active recurring
+on-budget series's **projected occurrences** in that window as income
+(positive) or bills (negative). Occurrences of monthly/quarterly/annual
+series are recomputed from the stored `dayOfMonth` anchor for each month
+(a 31st bill is the 28th in February and the 31st again in March, never
+chained from the clamped date); semimonthly occurrences use both anchor days
+(the day of `nextExpectedDate` and of `lastSeenDate`) instead of a fixed
+15-day gap; weekly/biweekly add 7/14 days, and subtracting a blended **discretionary pace** (the same
+blend, aggregated across all non-recurring, non-transfer, on-budget outflow).
+The first day the projected balance drops below
+`settings.financeSafetyBufferMinor` is `cashRunoutDate` (`null` if it never
+crosses within 60 days).
+
+**Alerts.** `buildFinanceAlerts` ranks: a cash runout inside 14 days
+(`critical`, rank 0) → `exhausted` envelopes (`critical`, rank 1) →
+`will_run_out` envelopes (`warning`, rank 2) → `watch` envelopes (`info`,
+rank 3) → a cash runout further out than 14 days (`warning`, rank 4, still
+shown on `/finances` for visibility). Every alert carries a **stable key**
+`${kind}:${categoryId-or-"cash"}:${monthKey}` — it does not change as the
+same alert's urgency/severity changes day to day, which is what makes the
+once-per-day-per-key notification rate limit meaningful.
+
+### Repository surface
+
+`buildFinanceSnapshot(asOfDate)` loads: the current month's
+`computeFinanceBudgetState` input/output, on-budget accounts and every
+transaction on them through `asOfDate` (for `onBudgetBalance`), every
+on-budget/`excludedFromBudget = 0` transaction through the current month's
+`asOfDate` (for pace math — the same filter `budget.ts`'s `activity` uses), the
+earliest activity month (for the `lowConfidence` 3-month check), and every
+**active** recurring series. `computeFinanceForecast(asOfDate)` loads that
+snapshot and calls the two pure functions above.
+
+### Alert notification ledger and policy
+
+`finance_alert_notifications` (migration 39) is a tiny additive table —
+`(alert_key, notified_on_date)` primary key, `notified_at` — read via
+`listNotifiedFinanceAlertKeys(onDate)` and written via
+`recordFinanceAlertNotifications(onDate, alertKeys)`. It exists purely to
+rate-limit notifications; it is never read by the alerts list on `/finances`
+or by `FinanceAlertsCard`, which always show the full current alert set.
+
+`src/lib/finance/alert-notification-policy.ts`'s `evaluateFinanceAlertNotifications`
+is pure and patterned after `src/lib/ai/pulse/notification-policy.ts`:
+notifies `will_run_out`/`exhausted` envelopes and a cash runout inside 14
+days only, **never** `watch`, respects `settings.financeNotifyRunout`, and
+skips any alert key already present in the day's ledger.
+
+### Wiring: startup and the local-day boundary
+
+`useLocalDayReconciliation` (`src/app/use-local-day-reconciliation.ts`) now
+also takes `financeNotifyRunout`. On the same reconciliation pass that
+regenerates recurrences, promotes Scheduled tasks, and snapshots account
+balances — which already runs once on mount (the app's "at startup after
+bootstrap" trigger) and again at the next local midnight, on window focus,
+and on becoming visible — when `financeEnabled && financeNotifyRunout` it
+also calls `computeFinanceForecast(today)`, evaluates the notification
+policy against today's ledger, sends at most one OS notification per
+due alert (every pass re-forecasts and the per-day ledger alone suppresses
+keys already delivered; overlapping passes are serialized so none can read the
+ledger before another records into it) via `notifyPomodoroCompletion` (the existing
+`tauri-plugin-notification` wrapper also used by the Pomodoro and coach-pulse
+surfaces — no new plugin, no new capability), and records the keys actually
+notified (each key is recorded right after its delivery). No network call is
+involved; every failure is caught and logged with a fixed message or counts
+only (alert count, notified count — never amounts or the raw error), and this never
+blocks the eight-second startup fallback.
+
+### Surfacing
+
+- **`FinanceAlertsCard`** (`src/components/FinanceAlertsCard.tsx`) on Today,
+  rendered only when `financeEnabled && financeAlertsOnToday`: the top 3
+  alerts by rank plus a link to `/finances`. An empty alert set renders a
+  quiet "no alerts" message rather than nothing, so the card's presence
+  itself is not a silent all-clear signal that could be confused with "not
+  loaded yet". A failed load shows an error banner with a "Réessayer" button
+  instead of an empty card.
+- **`FinanceOverviewPage`** (`/finances`) gained an "Alertes finances"
+  section above the net-worth card, grouped by severity (critical/warning/info),
+  showing every alert — not just the top 3.
+- **`FinanceBudgetPage`** (`/finances/budget`) shows each envelope's
+  `runoutDate` (or status label when there is none) next to its existing
+  spent-percentage pace indicator, with a "(estimation provisoire)" suffix
+  when `lowConfidence`.
+- **Coach context — deferred, not shipped.** The spec allows
+  `financeCoachContextEnabled` (default off) to join a compact
+  status-and-category-names-only snapshot into the daily pulse payload "only
+  if low effort." Given the size of this phase, that integration was
+  deliberately skipped: the setting field exists (carried over from an
+  earlier phase) and defaults off, but no code reads it yet, and the coach
+  pulse payload is unchanged. Revisit alongside Phase 8 (AI categorization)
+  if the coach-pulse context is prioritized.
+
+### Tests
+
+`src/domain/finance/forecast.test.ts` hand-derives every expected number
+(mid-month pace, the `elapsedDays < 5` history branch, a rent lump sum
+landing on its exact day, median resisting a one-off outlier, an unbudgeted
+category producing no alert, the `lowConfidence` + `elapsedDays < 5` + no
+history fallback, an already-paid bill counted once, the 89%/91%/100%
+status-ladder boundaries, and the household cash-runout date across upcoming
+bills/income and a Jan-31-to-Feb-28 month boundary).
+`src/lib/finance/alert-notification-policy.test.ts` covers the once-per-day
+rate limit, `watch` never notifying, the 14-day cash-runout cutoff, and the
+`financeNotifyRunout` flag. `src/lib/storage/repository.contract.ts`'s new
+"forecasting and alerts (Phase 7)" block and
+`src/lib/storage/migrations/finance-alert-notifications.test.ts` cover
+repository parity and the migration. `TodayPage.test.tsx` and
+`FinanceAlertsCard.test.tsx` cover the Today card's gating and content.
 
 ## Related documentation
 

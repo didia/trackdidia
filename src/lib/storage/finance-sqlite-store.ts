@@ -55,7 +55,15 @@ import {
   type FinanceNetWorthHistoryPoint,
   type FinanceNetWorthSnapshot,
 } from "../../domain/finance/net-worth";
-import { getMonthEndDate } from "../../domain/monthly-review";
+import { getMonthEndDate, getMonthKey } from "../../domain/monthly-review";
+import {
+  buildFinanceAlerts,
+  computeFinanceForecast,
+  restrictBudgetInputThrough,
+  type FinanceAlert,
+  type FinanceForecast,
+  type FinanceSnapshot,
+} from "../../domain/finance/forecast";
 import {
   computeFinanceCategorySpend,
   computeFinanceMerchantSpend,
@@ -2881,5 +2889,134 @@ export class FinanceSqliteStore {
       [accountId],
     );
     return rows.map(mapBalanceSnapshot);
+  }
+
+  // --- Forecasting and alerts (Phase 7) ---------------------------------------------------
+
+  /**
+   * The forecast/alert input bundle for `AppRepository.buildFinanceSnapshot`.
+   * `paceTransactions`/`paceSplits` reuse the same on-budget,
+   * `excluded_from_budget = 0` filter `budget.ts`'s `activity` uses (via
+   * `buildBudgetComputationInput`), so pace math and envelope activity agree
+   * on what counts as spending. `budgetState` is `computeFinanceBudgetState`
+   * — reused, never recomputed, for `envelope`/`available`/`activity`.
+   */
+  async buildSnapshot(today: string, safetyBufferMinor: number): Promise<FinanceSnapshot> {
+    const db = await this.getDb();
+    const monthKey = getMonthKey(today);
+
+    const budgetInput = restrictBudgetInputThrough(
+      await this.buildBudgetComputationInput(monthKey),
+      today,
+    );
+    const budgetState = computeFinanceBudgetState(budgetInput);
+
+    const onBudgetAccountIds = budgetInput.accounts.map((account) => account.id);
+    const accountPlaceholders = onBudgetAccountIds.map((_, i) => `$${i + 2}`).join(",");
+    const transactionRows =
+      onBudgetAccountIds.length > 0
+        ? await db.select<TransactionRow[]>(
+            `SELECT * FROM finance_transactions
+             WHERE excluded_from_budget = 0 AND posted_date <= $1
+               AND account_id IN (${accountPlaceholders})`,
+            [today, ...onBudgetAccountIds],
+          )
+        : [];
+    const splitTransactionIds = transactionRows
+      .filter((row) => row.has_splits)
+      .map((row) => row.id);
+    const splitRows =
+      splitTransactionIds.length > 0
+        ? await db.select<SplitRow[]>(
+            `SELECT * FROM finance_transaction_splits
+             WHERE transaction_id IN (${splitTransactionIds.map((_, i) => `$${i + 1}`).join(",")})`,
+            splitTransactionIds,
+          )
+        : [];
+
+    const activeSeriesRows = await db.select<RecurringSeriesRow[]>(
+      "SELECT * FROM finance_recurring_series WHERE status = 'active'",
+    );
+
+    let firstActivityMonthKey: string | null = null;
+    for (const row of transactionRows) {
+      const month = getMonthKey(row.posted_date);
+      if (firstActivityMonthKey === null || month < firstActivityMonthKey) {
+        firstActivityMonthKey = month;
+      }
+    }
+
+    return {
+      today,
+      monthKey,
+      safetyBufferMinor,
+      accounts: budgetInput.accounts,
+      balanceTransactions: budgetInput.balanceTransactions,
+      budgetState,
+      paceTransactions: transactionRows.map((row) => ({
+        id: row.id,
+        accountId: row.account_id,
+        postedDate: row.posted_date,
+        amountMinor: row.amount_minor,
+        categoryId: row.category_id,
+        merchantKey: row.merchant_key,
+        hasSplits: Boolean(row.has_splits),
+        isTransfer: Boolean(row.is_transfer),
+      })),
+      paceSplits: splitRows.map((row) => ({
+        transactionId: row.transaction_id,
+        amountMinor: row.amount_minor,
+        categoryId: row.category_id,
+      })),
+      firstActivityMonthKey,
+      recurringSeries: activeSeriesRows.map(mapRecurringSeries).map((series) => ({
+        merchantKey: series.merchantKey,
+        accountId: series.accountId,
+        categoryId: series.categoryId,
+        cadence: series.cadence,
+        expectedAmountMinor: series.expectedAmountMinor,
+        dayOfMonth: series.dayOfMonth,
+        lastSeenDate: series.lastSeenDate,
+        nextExpectedDate: series.nextExpectedDate,
+      })),
+    };
+  }
+
+  async computeForecast(
+    today: string,
+    safetyBufferMinor: number,
+  ): Promise<{ forecast: FinanceForecast; alerts: FinanceAlert[] }> {
+    const snapshot = await this.buildSnapshot(today, safetyBufferMinor);
+    const forecast = computeFinanceForecast(snapshot);
+    const alerts = buildFinanceAlerts(forecast, { financeSafetyBufferMinor: safetyBufferMinor });
+    return { forecast, alerts };
+  }
+
+  // --- Alert notification ledger (Phase 7) ------------------------------------------------
+
+  /** Alert keys already notified on `onDate` — the once-per-day-per-key rate limit. */
+  async listNotifiedFinanceAlertKeys(onDate: string): Promise<string[]> {
+    const db = await this.getDb();
+    const rows = await db.select<Array<{ alert_key: string }>>(
+      "SELECT alert_key FROM finance_alert_notifications WHERE notified_on_date = $1",
+      [onDate],
+    );
+    return rows.map((row) => row.alert_key);
+  }
+
+  async recordFinanceAlertNotifications(onDate: string, alertKeys: string[]): Promise<void> {
+    if (alertKeys.length === 0) {
+      return;
+    }
+    const db = await this.getDb();
+    const now = nowIso();
+    for (const alertKey of alertKeys) {
+      await db.execute(
+        `INSERT INTO finance_alert_notifications (alert_key, notified_on_date, notified_at)
+         VALUES ($1, $2, $3)
+         ON CONFLICT(alert_key, notified_on_date) DO NOTHING`,
+        [alertKey, onDate, now],
+      );
+    }
   }
 }
