@@ -179,6 +179,19 @@ export const parseDateWithFormat = (text: string, format: FinanceDateFormat): st
   return `${year}-${String(monthNum).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
 };
 
+// A contiguous run of 6+ digits bounded by non-digits is treated as an account number;
+// shorter runs (e.g. a 4-digit branch code) are left alone. Only the last 4 digits survive.
+const ACCOUNT_NUMBER_RUN = /\b\d{6,}\b/;
+
+/** Keeps only the last 4 digits of a contiguous 6+ digit run when the label looks like an account number. */
+export const shortenIfAccountNumber = (label: string): string => {
+  const match = label.match(ACCOUNT_NUMBER_RUN);
+  if (!match) {
+    return label;
+  }
+  return `****${match[0].slice(-4)}`;
+};
+
 /**
  * Uppercases, strips accents, collapses whitespace, and removes trailing
  * reference/auth numbers. The same normalizer backs both dedupeHash and
@@ -337,9 +350,11 @@ export const mapImportRowToTransaction = (
   const externalAccountKey = field(profile.columnMap.account);
   const labelsJson = buildLabelsJson(labels);
 
+  // Never persist a full account number: mask the mapped account column in the stored row.
   const sourceRowJson = JSON.stringify(
     header.reduce<Record<string, string>>((acc, columnName, index) => {
-      acc[columnName] = row[index] ?? "";
+      const cell = row[index] ?? "";
+      acc[columnName] = index === profile.columnMap.account ? shortenIfAccountNumber(cell) : cell;
       return acc;
     }, {}),
   );

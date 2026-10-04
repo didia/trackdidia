@@ -241,5 +241,16 @@
       "completion": "Test completion Pomodoro",
       "pomodoroTestFail": "Échec du test Pomodoro"
     }
+  },
+  "finance": {
+    "title": "Finances",
+    "subtitle": "Suivi des comptes et transactions. Les alertes, le coach et la catégorisation IA arrivent dans des phases ultérieures.",
+    "enable": "Activer les finances",
+    "baseCurrency": "Devise de référence",
+    "baseCurrencyPlaceholder": "CAD",
+    "save": "Enregistrer",
+    "saved": "Paramètres de finances enregistrés.",
+    "saveError": "Échec de l'enregistrement des paramètres de finances.",
+    "seeding": "Préparation des catégories par défaut..."
   }
 }

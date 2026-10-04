@@ -10,6 +10,7 @@ import { SectionCard } from "../components/SectionCard";
 import { AiPayloadPreviewSection } from "../components/settings/AiPayloadPreviewSection";
 import { StorageOverviewSection } from "../components/settings/StorageOverviewSection";
 import { useSectionSave } from "../components/settings/useSectionSave";
+import { normalizeCurrencyCode } from "../lib/finance/money";
 import { defaultAppSettings, rebaseSettingsDraft, settingsDraftPatch } from "../domain/settings";
 import type { AiPayloadScope, AppSettings } from "../domain/types";
 import { formatPulseSlotHours, parsePulseSlotHours } from "../lib/ai/pulse/slot-hours";
@@ -38,6 +39,8 @@ const aiPreferenceKeys: (keyof AppSettings)[] = [
   "aiPastorEnabled",
   "aiCostPerMillionTokens",
 ];
+const financePreferenceKeys: (keyof AppSettings)[] = ["financeEnabled", "financeBaseCurrency"];
+
 const relationshipPreferenceKeys: (keyof AppSettings)[] = [
   "relationshipDrawsEnabled",
   "relationshipDrawChildrenActivities",
@@ -71,6 +74,30 @@ export const SettingsPage = () => {
   };
   const relationshipSave = useSectionSave(async () => {
     await savePreferences(draftSettings, relationshipPreferenceKeys);
+  });
+  const financeSave = useSectionSave(async () => {
+    const enabling = draftSettings.financeEnabled && !settings.financeEnabled;
+    const patch = settingsDraftPatch(draftSettings, baselineRef.current, financePreferenceKeys);
+    if (patch.financeBaseCurrency !== undefined) {
+      const normalized = normalizeCurrencyCode(patch.financeBaseCurrency);
+      if (!normalized) {
+        throw new Error("invalid finance base currency");
+      }
+      patch.financeBaseCurrency = normalized;
+    }
+
+    if (enabling && !settings.financeCategoriesSeededAt) {
+      await repository.seedFinanceDefaultCategories();
+      const seededAt = new Date().toISOString();
+      await updateSettings((current) => ({
+        ...current,
+        ...patch,
+        financeCategoriesSeededAt: current.financeCategoriesSeededAt || seededAt,
+      }));
+      return;
+    }
+
+    await updateSettings((current) => ({ ...current, ...patch }));
   });
 
   useEffect(() => {
@@ -531,6 +558,52 @@ export const SettingsPage = () => {
             }
           >
             {relationshipSave.saving ? t("ai.saving") : t("relationship.save")}
+          </button>
+        </div>
+      </SectionCard>
+
+      <SectionCard title={t("finance.title")} subtitle={t("finance.subtitle")}>
+        {financeSave.message ? <div className="banner">{financeSave.message}</div> : null}
+
+        <div className="settings-form">
+          <label className="switch-row">
+            <input
+              type="checkbox"
+              checked={draftSettings.financeEnabled}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  financeEnabled: event.target.checked,
+                }))
+              }
+            />
+            <span>{t("finance.enable")}</span>
+          </label>
+
+          <label>
+            <span>{t("finance.baseCurrency")}</span>
+            <input
+              type="text"
+              value={draftSettings.financeBaseCurrency}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  financeBaseCurrency: event.target.value,
+                }))
+              }
+              placeholder={t("finance.baseCurrencyPlaceholder")}
+            />
+          </label>
+        </div>
+
+        <div className="form-actions">
+          <button
+            className="button button--primary"
+            type="button"
+            disabled={financeSave.saving}
+            onClick={() => void financeSave.run(t("finance.saved"), t("finance.saveError"))}
+          >
+            {financeSave.saving ? t("finance.seeding") : t("finance.save")}
           </button>
         </div>
       </SectionCard>

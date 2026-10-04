@@ -357,6 +357,11 @@ export interface FinanceImportRequest {
   fileName: string;
   fileHash: string;
   rows: FinanceImportRow[];
+  /**
+   * Records the caller could not turn into rows (CSV parse drops, mapping errors). They never
+   * reach `rows`, so the caller reports them here to land in the batch counts and warnings.
+   */
+  rejected?: { skipped: number; errors: number; warnings: string[] };
 }
 
 export interface FinanceImportNearDuplicate {

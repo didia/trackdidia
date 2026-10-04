@@ -838,6 +838,9 @@ export class FinanceSqliteStore {
   async setTransactionCategory(
     input: SetFinanceTransactionCategoryInput,
   ): Promise<SetFinanceTransactionCategoryResult> {
+    if (!input.categoryId) {
+      throw new Error("setFinanceTransactionCategory requires a non-empty categoryId");
+    }
     const db = await this.getDb();
     const now = nowIso();
     const txn = await this.getTransaction(input.transactionId);
@@ -1137,7 +1140,7 @@ export class FinanceSqliteStore {
           input.fileName,
           input.fileHash,
           input.accountId,
-          input.rows.length,
+          input.rows.length + (input.rejected?.skipped ?? 0) + (input.rejected?.errors ?? 0),
           now,
         ],
       );
@@ -1356,8 +1359,9 @@ export class FinanceSqliteStore {
         }
       }
 
-      const skipped = 0;
-      const errors = 0;
+      const skipped = input.rejected?.skipped ?? 0;
+      const errors = input.rejected?.errors ?? 0;
+      warnings.push(...(input.rejected?.warnings ?? []));
 
       await db.execute(
         `UPDATE finance_import_batches SET
@@ -1366,16 +1370,25 @@ export class FinanceSqliteStore {
           skipped_count = $4,
           error_count = $5,
           status = 'completed',
+          error_summary = $7,
           finished_at = $6
         WHERE id = $1`,
-        [batchId, imported, duplicates, skipped, errors, now],
+        [
+          batchId,
+          imported,
+          duplicates,
+          skipped,
+          errors,
+          now,
+          input.rejected?.warnings.length ? input.rejected.warnings.slice(0, 20).join("\n") : null,
+        ],
       );
 
       await db.execute("COMMIT");
 
       return {
         batchId,
-        rowCount: input.rows.length,
+        rowCount: input.rows.length + skipped + errors,
         imported,
         duplicates,
         skipped,

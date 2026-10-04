@@ -1,0 +1,194 @@
+{
+  "tabs": {
+    "label": "Navigation finances",
+    "overview": "Aperçu",
+    "transactions": "Transactions",
+    "import": "Importer",
+    "accounts": "Comptes"
+  },
+  "overview": {
+    "hero": {
+      "eyebrow": "Finances",
+      "title": "Aperçu"
+    },
+    "totalTitle": "Solde total (comptes budgétés)",
+    "otherCurrenciesWarning": "Comptes exclus du total (devise différente de la devise de référence) : {{currencies}}.",
+    "accountsTitle": "Comptes",
+    "loading": "Chargement...",
+    "noAccounts": "Aucun compte. Ajoutez-en un dans l'onglet Comptes."
+  },
+  "accounts": {
+    "hero": {
+      "eyebrow": "Finances",
+      "title": "Comptes"
+    },
+    "peopleTitle": "Membres du foyer",
+    "peoplePlaceholder": "Nom",
+    "addPerson": "Ajouter",
+    "archive": "Archiver",
+    "unarchive": "Désarchiver",
+    "addAccountTitle": "Ajouter un compte",
+    "editAccountTitle": "Modifier le compte",
+    "saveAccount": "Enregistrer le compte",
+    "cancelEdit": "Annuler",
+    "edit": "Modifier",
+    "fields": {
+      "name": "Nom",
+      "institution": "Institution",
+      "type": "Type",
+      "currency": "Devise",
+      "owner": "Propriétaire",
+      "noOwner": "Aucun",
+      "ownership": "Propriété",
+      "onBudget": "Compté dans le budget",
+      "openingBalance": "Solde d'ouverture",
+      "balanceAsOf": "Date du solde d'ouverture",
+      "manualBalance": "Solde manuel (relevé)",
+      "manualBalancePlaceholder": "Optionnel"
+    },
+    "types": {
+      "checking": "Chèques",
+      "savings": "Épargne",
+      "cash": "Argent comptant",
+      "credit_card": "Carte de crédit",
+      "line_of_credit": "Marge de crédit",
+      "loan": "Prêt",
+      "mortgage": "Hypothèque",
+      "investment": "Placement",
+      "asset": "Actif",
+      "other": "Autre"
+    },
+    "ownership": {
+      "individual": "Individuel",
+      "joint": "Conjoint"
+    },
+    "errors": {
+      "nameRequired": "Le nom du compte est requis.",
+      "invalidOpeningBalance": "Solde d'ouverture invalide.",
+      "invalidCurrency": "Devise invalide (code à trois lettres, ex. CAD).",
+      "invalidManualBalance": "Solde manuel invalide."
+    },
+    "addAccount": "Ajouter le compte",
+    "listTitle": "Comptes existants",
+    "noAccounts": "Aucun compte pour le moment.",
+    "closedTag": "fermé",
+    "derivedBalance": "Solde calculé",
+    "discrepancy": "Écart de réconciliation : calculé {{derived}}, relevé {{manual}}.",
+    "reopen": "Rouvrir",
+    "close": "Fermer"
+  },
+  "import": {
+    "hero": {
+      "eyebrow": "Finances",
+      "title": "Importer"
+    },
+    "backupNoticeTitle": "Avant d'importer",
+    "backupNotice": "Prenez une sauvegarde manuelle avant d'importer un fichier — l'annulation n'est possible que pour le lot le plus récent par compte.",
+    "backupNow": "Sauvegarder maintenant",
+    "selectFileTitle": "Choisir un ou plusieurs fichiers CSV",
+    "reencodedWarning": "Le fichier n'était pas de l'UTF-8 valide ; il a été relu en windows-1252.",
+    "mappingTitle": "Mappage des colonnes",
+    "fields": {
+      "date": "Date",
+      "description": "Description",
+      "descriptionOriginal": "Description originale",
+      "amount": "Montant",
+      "debit": "Débit",
+      "credit": "Crédit",
+      "transactionType": "Type de transaction",
+      "account": "Compte",
+      "categoryHint": "Catégorie (indice)",
+      "notes": "Notes",
+      "labels": "Étiquettes",
+      "none": "Aucune"
+    },
+    "amountModeLabel": "Mode de montant",
+    "amountModes": {
+      "single_signed": "Colonne unique signée",
+      "debit_credit_columns": "Colonnes débit / crédit",
+      "amount_with_type_column": "Montant + type de transaction"
+    },
+    "dateFormatLabel": "Format de date",
+    "dateAmbiguous": "Le format de date est ambigu pour cet échantillon — vérifiez le format choisi.",
+    "singleAccountLabel": "Compte (fichier à un seul compte)",
+    "accountBindingTitle": "Associer les comptes du fichier",
+    "createNewAccount": "Créer un nouveau compte",
+    "newAccountNamePlaceholder": "Nom du nouveau compte",
+    "runImport": "Importer",
+    "errors": {
+      "noAccount": "Choisissez ou créez un compte avant d'importer.",
+      "rowErrors": "{{count}} ligne(s) n'ont pas pu être importées.",
+      "importFailed": "Échec de l'import."
+    },
+    "resultTitle": "Résultat de l'import",
+    "result": {
+      "imported": "Importées : {{count}}",
+      "duplicates": "Doublons : {{count}}",
+      "skipped": "Ignorées : {{count}}",
+      "errors": "Erreurs : {{count}}",
+      "newAccounts": "Nouveaux comptes : {{count}}",
+      "transfersDetected": "Virements détectés : {{count}}",
+      "nearDuplicatesTitle": "Quasi-doublons détectés",
+      "nearDuplicateEntry": "Similarité {{similarity}}% · écart de {{dateDiff}} jour(s)"
+    },
+    "historyTitle": "Historique des imports",
+    "noHistory": "Aucun import pour le moment.",
+    "undo": "Annuler ce lot",
+    "undoRefused": "{{count}} ligne(s) catégorisées manuellement n'ont pas été supprimées.",
+    "undoFailed": "Échec de l'annulation."
+  },
+  "transactions": {
+    "hero": {
+      "eyebrow": "Finances",
+      "title": "Transactions"
+    },
+    "filtersTitle": "Filtres",
+    "filters": {
+      "dateFrom": "Du",
+      "dateTo": "Au",
+      "account": "Compte",
+      "category": "Catégorie",
+      "person": "Personne",
+      "search": "Recherche",
+      "uncategorizedOnly": "Non catégorisées seulement",
+      "all": "Toutes"
+    },
+    "bulkTitle": "{{count}} sélectionnée(s)",
+    "bulkApplyCategory": "Appliquer une catégorie",
+    "bulkExcludeBudget": "Exclure du budget",
+    "bulkExcludeReports": "Exclure des rapports",
+    "listTitle": "Transactions",
+    "noResults": "Aucune transaction ne correspond aux filtres.",
+    "category": "Catégorie",
+    "uncategorized": "Non catégorisé",
+    "scope": "Portée",
+    "scopes": {
+      "this": "Cette transaction",
+      "this_and_future": "Cette transaction et les futures",
+      "all_matching": "Toutes les transactions correspondantes"
+    },
+    "markTransferPair": "Marquer la paire comme virement",
+    "unmarkTransfer": "Retirer le virement",
+    "transferPair": {
+      "needsTwo": "Sélectionnez exactement deux transactions pour les marquer comme un virement.",
+      "sameAccountWarning": "Les deux transactions sont sur le même compte — ce n'est probablement pas un virement entre comptes.",
+      "amountMismatchWarning": "Les montants des deux transactions ne correspondent pas — vérifiez qu'il s'agit bien d'un virement."
+    },
+    "excludeFromBudget": "Exclure du budget",
+    "includeInBudget": "Inclure dans le budget",
+    "excludeFromReports": "Exclure des rapports",
+    "includeInReports": "Inclure dans les rapports",
+    "editSplits": "Diviser",
+    "split": {
+      "invalidAmount": "Montant de répartition invalide.",
+      "sumMismatch": "La somme des répartitions doit égaler le montant de la transaction.",
+      "remove": "Retirer",
+      "addRow": "Ajouter une ligne",
+      "save": "Enregistrer",
+      "cancel": "Annuler"
+    },
+    "previousPage": "Précédent",
+    "nextPage": "Suivant",
+    "pageIndicator": "Page {{page}} / {{pageCount}}"
+  }
+}

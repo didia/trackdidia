@@ -190,17 +190,39 @@ const resolveSeparators = (value: string, options: ParseAmountOptions): Resolved
   return { decimalSeparator: ".", thousandsSeparator: "," };
 };
 
+/**
+ * Trims and upper-cases a currency code and returns it only when Intl accepts it as a
+ * well-formed ISO-4217 code; otherwise null. Use before persisting any user-entered currency.
+ */
+export const normalizeCurrencyCode = (text: string): string | null => {
+  const code = text.trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(code)) {
+    return null;
+  }
+  try {
+    new Intl.NumberFormat("en", { style: "currency", currency: code });
+    return code;
+  } catch {
+    return null;
+  }
+};
+
 export const formatMoney = (money: Money, locale = "fr-CA"): string => {
   const exponent = currencyExponent(money.currency);
   const scale = 10 ** exponent;
   const value = money.amountMinor / scale;
 
-  return new Intl.NumberFormat(locale, {
-    style: "currency",
-    currency: money.currency,
-    minimumFractionDigits: exponent,
-    maximumFractionDigits: exponent,
-  }).format(value);
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency: money.currency,
+      minimumFractionDigits: exponent,
+      maximumFractionDigits: exponent,
+    }).format(value);
+  } catch {
+    // A malformed stored currency must not crash rendering of the whole screen.
+    return `${value.toFixed(exponent)} ${money.currency}`;
+  }
 };
 
 export const formatMoneySigned = (money: Money, locale = "fr-CA"): string => {
