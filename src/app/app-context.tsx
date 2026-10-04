@@ -393,13 +393,11 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         }
 
         markStage(t("startup.generateRecurrences"));
-        const generatedCount = await nextRepository.generateDueRecurringTasks(getTodayDate());
-        const promotedScheduledCount = await nextRepository.promoteDueScheduledTasks(
-          getTodayDate(),
-        );
+        const reconciliation = await nextRepository.reconcileDay(getTodayDate());
         logDebug("info", "app.bootstrap", "Generation des recurrences terminee", {
-          generatedCount,
-          promotedScheduledCount,
+          generatedCount: reconciliation.generatedRecurrences,
+          promotedScheduledCount: reconciliation.promotedScheduled,
+          carryoverEvents: reconciliation.carryoverEvents,
         });
 
         markStage(t("startup.generateRelationship"));

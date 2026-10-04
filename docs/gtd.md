@@ -187,21 +187,24 @@ hold, completed, or cancelled projects as new choices.
 - deduplication when a task appears in both groups;
 - local recurrence previews, requested from the selected date through 30 days later;
 - editing/completing/cancelling actual tasks from the calendar;
-- **Auto-promotion**: after due recurrences are generated (bootstrap, GTD workspace
-  load, `listTasks`, Pomodoro refresh, daily stats, and local-day rollover while the
-  app stays open), every **active** task with `bucket === "scheduled"` whose local
+- **Auto-promotion**: `reconcileDay` (see
+  [daily reconciliation](#daily-reconciliation)) runs after due recurrences are
+  generated (bootstrap, local-day rollover while the app stays open, and explicit
+  refreshes after a user write such as a GTD mutation), and every **active** task with `bucket === "scheduled"` whose local
   `scheduledFor` calendar date is today or earlier is moved to Next Actions.
   Overdue items and recurring Scheduled instances are included. `scheduledFor` is
   cleared. Planned tasks that reuse `scheduledFor` as a display date are ignored.
   Deadlines never trigger a move. Comparison uses the local calendar date, not the
   clock time and not the UTC prefix of the stored ISO string. The Scheduled page
-  groups the same way (`isTaskScheduledForDate`). Daily stats generate recurrences
-  through the earlier of the **stats** date and local **today**, then promote as of
-  **today**. Viewing a future day does not materialize later occurrences, promote
-  early, or write weekly carryover for a future Sunday. The pass is idempotent. If Next Actions, Scheduled, or
+  groups the same way (`isTaskScheduledForDate`). Reconciliation generates
+  recurrences through the earlier of the reconciled date and local **today**, then
+  promotes as of that day (never later than **today**). Reconciling a future day
+  does not materialize later occurrences, promote early, or write weekly carryover
+  for a future Sunday. The pass is idempotent. If Next Actions, Scheduled, or
   Pomodoro stay mounted overnight, a local-day boundary (next midnight, window
-  focus, becoming visible) repeats generation and promotion and reloads those
-  views.
+  focus, becoming visible) reconciles again and reloads those views. Reads such as
+  `listTasks` never promote; a task scheduled for today through the GTD workspace
+  moves on that mutation's reload.
 
 Previews are not task rows and cannot be completed from this screen.
 
@@ -238,14 +241,40 @@ weekly_carryover:<weekStartDate>:<taskId>
 
 as a unique dedupe key, making repeated calculations for that week idempotent.
 
+## Daily reconciliation
+
+`repository.reconcileDay(date, now?)` is the only entry point for time-driven GTD and
+Pomodoro writes. It delegates to `reconcileGtdDay` (`src/lib/gtd/reconcile.ts`),
+shared by both repositories, and runs in order:
+
+1. generates due recurring tasks through `date`, and never past local today;
+2. promotes due Scheduled tasks as of `date` (never later than today);
+3. applies weekly carryover (`applyWeeklyCarryover`) for the most recent Sunday on
+   or before `date` (`getWeekStartSunday`, with `date` clamped to today), so a Sunday
+   the app was not opened on is back-filled and a future Sunday is never written;
+4. completes expired Pomodoro sessions at `now`.
+
+It returns `{ generatedRecurrences, promotedScheduled, carryoverEvents,
+pomodoroState }`. Every step is idempotent; carryover is keyed by
+`weekly_carryover:<sunday>:<taskId>`, so repeated runs write nothing new. Callers:
+bootstrap, `useLocalDayReconciliation`, `useGtdWorkspace` mutation reloads,
+recurrence template save/resume, and accepted AI task proposals. The initial GTD
+workspace load, Pomodoro refresh, History, Weekly, and AI snapshot reads do not
+reconcile.
+
+Carryover is written when the Sunday is reconciled (first app open on that Sunday,
+or the midnight/focus rollover into it), and any later reconcile in the same week
+back-fills it if that Sunday was missed, so History and weekly summaries keep a
+Sunday's `tasksAdded` even when the app was closed that day. Only the most recent
+Sunday is back-filled; reading or opening an older Sunday never writes carryover.
+The pass is idempotent via the dedupe key, and previously reconciled Sundays keep
+their stored events and numbers.
+
 ## Daily task statistics
 
-Before computing a day, the repository:
-
-1. generates due recurring tasks through the stats date, and never past local today;
-2. promotes due Scheduled tasks as of today's local date;
-3. applies weekly carryover when the date is a Sunday on or before today;
-4. loads all tasks and events.
+`computeDailyTaskStats` and `getDailyTaskBreakdown` are pure reads: they load all
+tasks and events and derive the day from the ledger without reconciling first.
+Run `reconcileDay` beforehand when fresh promotions or carryover must be included.
 
 `tasksAdded` is the unique task count from:
 

@@ -111,13 +111,12 @@ Due recurrence generation runs:
 - during application bootstrap;
 - when the local calendar day changes while the app is already open (next midnight,
   window focus, or becoming visible);
-- before GTD workspace loads;
-- before daily task statistics/breakdowns;
-- when listing tasks;
-- when the Pomodoro controller loads eligible tasks.
+- after each GTD workspace mutation, recurrence template save/resume, and accepted
+  AI task proposal (explicit `reconcileDay` refresh).
 
-Each of those passes then promotes due Scheduled tasks to Next Actions (see
-[gtd.md](gtd.md#scheduled)). A generated instance whose destination is Scheduled is
+Reads (`listTasks`, daily statistics/breakdowns, the initial GTD workspace load, and
+Pomodoro loads) do not generate recurrences. Each pass (`reconcileDay`) then promotes
+due Scheduled tasks to Next Actions (see [gtd.md](gtd.md#scheduled)). A generated instance whose destination is Scheduled is
 immediately eligible: when its local `scheduledFor` date is today or earlier, it
 moves to Next Actions and `scheduledFor` is cleared.
 
@@ -131,7 +130,7 @@ Generation starts after the latest of:
 
 The horizon is local today, even when a caller passes a later date. Weekly and
 monthly summaries read every day of the open period, including days that have not
-arrived. Those reads do not advance `lastGeneratedForDate` or the single active
+arrived. Those reads never write; reconciling a future date does not advance `lastGeneratedForDate` or the single active
 instance, and they do not write weekly carryover for a future Sunday. If a template
 is already stamped with a future `lastGeneratedForDate`, the next generation rewinds
 that watermark to the local day the current instance was completed, or pulls an
@@ -236,7 +235,8 @@ Pomodoro page share state.
   reconciliation complete valid running sessions at `endsAt`. It is cleaned up on
   session/repository changes and does not loop for malformed deadlines.
 - Timer actions, expiry, and explicit reloads are serialized. Full refreshes also
-  generate due recurrences and normalize expired sessions; ordinary timer actions
+  normalize expired sessions (recurrence generation belongs to `reconcileDay`, not
+  the Pomodoro refresh); ordinary timer actions
   refresh only Pomodoro collections. Each ordinary action first reconciles a valid
   expired running session, so it cannot pause or alter an already elapsed timer.
   Snapshot commits ignore stale repository or unmounted-controller work.
@@ -307,7 +307,9 @@ Completing a GTD task during focus detaches it from the continuing session.
 - kind is focus;
 - status is completed.
 
-Cancelled focus sessions do not count. The value decorates the daily `pomodoris`
+Cancelled focus sessions do not count. `computeDailyPomodoroStats` is a pure read and
+does not complete expired sessions; the controller (or `reconcileDay`) settles them.
+The value decorates the daily `pomodoris`
 metric as a suggestion.
 
 Time-by-task summaries sum segment wall-clock duration, capped at the supplied

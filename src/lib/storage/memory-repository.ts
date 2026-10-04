@@ -14,12 +14,7 @@ import {
   updateAnnualGoalEvaluation,
   createEmptyAnnualGoal,
 } from "../../domain/annual-goals";
-import {
-  applyDailyPomodoroStats,
-  applyDailyTaskStats,
-  cloneEntry,
-  createEmptyDailyEntry,
-} from "../../domain/daily-entry";
+import { cloneEntry, createEmptyDailyEntry } from "../../domain/daily-entry";
 import { mergeObjectiveSecondsPayload } from "../../domain/rescuetime-goals";
 import { journalPeriodOverlaps } from "../../domain/journal-feed";
 import {
@@ -77,7 +72,9 @@ import {
   listWeekDates,
 } from "../../domain/weekly-review";
 import { monthKeyToLocalRange } from "../ai/analytics/month-range";
-import { getTodayDate, isSunday } from "../date";
+import { getTodayDate } from "../date";
+import { reconcileGtdDay, type ReconcileDayResult } from "../gtd/reconcile";
+import { decorateDailyEntries } from "./decorate-entries";
 import { addCustomVerse } from "../pastor/custom-verse";
 import {
   buildCarryoverEvents,
@@ -364,11 +361,11 @@ export class MemoryRepository implements AppRepository {
 
   async getDailyEntry(date: string): Promise<DailyEntry | null> {
     const existing = this.entries.get(date);
-    return existing ? this.decorateEntry(existing) : null;
+    return existing ? (this.decorateEntries([existing])[0] ?? null) : null;
   }
 
   async saveDailyEntry(entry: DailyEntry): Promise<void> {
-    this.saveDailyEntryInternal(await this.decorateEntry(entry));
+    this.saveDailyEntryInternal(entry);
   }
 
   private saveDailyEntryInternal(entry: DailyEntry): void {
@@ -380,7 +377,7 @@ export class MemoryRepository implements AppRepository {
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, limit);
 
-    return Promise.all(sorted.map((entry) => this.decorateEntry(entry)));
+    return this.decorateEntries(sorted);
   }
 
   async listDailyEntriesOnOrBefore(endDate: string, limit = 180): Promise<DailyEntry[]> {
@@ -389,7 +386,7 @@ export class MemoryRepository implements AppRepository {
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, limit);
 
-    return Promise.all(sorted.map((entry) => this.decorateEntry(entry)));
+    return this.decorateEntries(sorted);
   }
 
   async listDailyEntriesInRange(startDate: string, endDate: string): Promise<DailyEntry[]> {
@@ -397,9 +394,7 @@ export class MemoryRepository implements AppRepository {
       .filter((entry) => entry.date >= startDate && entry.date <= endDate)
       .sort((a, b) => b.date.localeCompare(a.date));
 
-    // Journal only reads note text. Skip decorateEntry so a wide range cannot
-    // fan out into per-day GTD/Pomodoro writes and full-table scans.
-    return sorted.map((entry) => cloneEntry(entry));
+    return this.decorateEntries(sorted);
   }
 
   async getWeeklyReview(weekStartDate: string): Promise<WeeklyReview | null> {
@@ -440,11 +435,10 @@ export class MemoryRepository implements AppRepository {
 
   async computeWeeklyReviewSummary(weekStartDate: string) {
     const normalized = buildWeekDates(weekStartDate);
-    const entries = await Promise.all(
-      listWeekDates(normalized).map(async (date) => {
-        const existing = this.entries.get(date);
-        return this.decorateEntry(existing ?? createEmptyDailyEntry(date));
-      }),
+    const entries = this.decorateEntries(
+      listWeekDates(normalized).map(
+        (date) => this.entries.get(date) ?? createEmptyDailyEntry(date),
+      ),
     );
 
     return buildWeeklyReviewSummary(normalized, entries);
@@ -640,12 +634,8 @@ export class MemoryRepository implements AppRepository {
 
   async computeMonthlyReviewSummary(monthKey: string) {
     const normalized = getMonthKey(`${monthKey}-01`);
-    const entries = (
-      await Promise.all(
-        [...this.entries.values()]
-          .filter((entry) => getMonthKey(entry.date) === normalized)
-          .map((entry) => this.decorateEntry(entry)),
-      )
+    const entries = this.decorateEntries(
+      [...this.entries.values()].filter((entry) => getMonthKey(entry.date) === normalized),
     ).sort((left, right) => left.date.localeCompare(right.date));
     const weekStarts = listWeekStartsForMonth(normalized);
     const weeklySummaries = await Promise.all(
@@ -690,10 +680,8 @@ export class MemoryRepository implements AppRepository {
   }
 
   async computeAnnualGoalSnapshots(year: number, asOfDate: string = getTodayDate()) {
-    const entries = await Promise.all(
-      [...this.entries.values()]
-        .filter((entry) => entry.date.startsWith(`${year}-`))
-        .map((entry) => this.decorateEntry(entry)),
+    const entries = this.decorateEntries(
+      [...this.entries.values()].filter((entry) => entry.date.startsWith(`${year}-`)),
     );
     const weekStarts = [...new Set(entries.map((entry) => buildWeekDates(entry.date)))].sort();
     const weeklySummaries = await Promise.all(
@@ -1252,8 +1240,6 @@ export class MemoryRepository implements AppRepository {
   }
 
   async listTasks(filters: TaskFilters = {}): Promise<Task[]> {
-    await this.generateDueRecurringTasks(getTodayDate());
-    await this.promoteDueScheduledTasks(getTodayDate());
     return filterTasks([...this.tasks.values()], filters);
   }
 
@@ -1584,23 +1570,15 @@ export class MemoryRepository implements AppRepository {
     return createdCount;
   }
 
-  async computeDailyTaskStats(date: string): Promise<DailyTaskStats> {
-    await this.generateDueRecurringTasks(date);
-    await this.promoteDueScheduledTasks(getTodayDate());
-    if (date <= getTodayDate() && isSunday(date)) {
-      await this.applyWeeklyCarryover(date);
-    }
+  async reconcileDay(date: string, now?: string): Promise<ReconcileDayResult> {
+    return reconcileGtdDay(this, date, now);
+  }
 
+  async computeDailyTaskStats(date: string): Promise<DailyTaskStats> {
     return buildDailyTaskStats([...this.tasks.values()], [...this.events.values()], date);
   }
 
   async getDailyTaskBreakdown(date: string) {
-    await this.generateDueRecurringTasks(date);
-    await this.promoteDueScheduledTasks(getTodayDate());
-    if (date <= getTodayDate() && isSunday(date)) {
-      await this.applyWeeklyCarryover(date);
-    }
-
     return buildDailyTaskBreakdown([...this.tasks.values()], [...this.events.values()], date);
   }
 
@@ -1770,7 +1748,6 @@ export class MemoryRepository implements AppRepository {
   }
 
   async computeDailyPomodoroStats(date: string) {
-    await this.completeExpiredPomodoroSessions();
     return computeDailyPomodoroStats([...this.pomodoroSessions.values()], date);
   }
 
@@ -1815,15 +1792,13 @@ export class MemoryRepository implements AppRepository {
     return current;
   }
 
-  private async decorateEntry(entry: DailyEntry): Promise<DailyEntry> {
-    const [taskStats, pomodoroStats] = await Promise.all([
-      this.computeDailyTaskStats(entry.date),
-      this.computeDailyPomodoroStats(entry.date),
-    ]);
-    return applyDailyPomodoroStats(
-      applyDailyTaskStats(cloneEntry(entry), taskStats),
-      pomodoroStats,
-    );
+  /** Pure decoration over the current in-memory snapshot; never reconciles or writes. */
+  private decorateEntries(entries: DailyEntry[]): DailyEntry[] {
+    return decorateDailyEntries(entries, {
+      tasks: [...this.tasks.values()],
+      events: [...this.events.values()],
+      sessions: [...this.pomodoroSessions.values()],
+    });
   }
 
   private getExistingTask(taskId: string): Task {

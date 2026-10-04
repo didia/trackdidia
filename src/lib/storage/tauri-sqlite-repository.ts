@@ -35,12 +35,7 @@ import {
   updateAnnualGoalEvaluation,
   createEmptyAnnualGoal,
 } from "../../domain/annual-goals";
-import {
-  applyDailyPomodoroStats,
-  applyDailyTaskStats,
-  cloneEntry,
-  createEmptyDailyEntry,
-} from "../../domain/daily-entry";
+import { createEmptyDailyEntry } from "../../domain/daily-entry";
 import {
   buildMonthlyReviewSummary,
   cloneMonthlyReview,
@@ -95,7 +90,7 @@ import {
 import { t } from "../../i18n";
 import { monthKeyToLocalRange } from "../ai/analytics/month-range";
 import { buildBackupFileName, isBackupDestinationConfigured, resolveBackupDir } from "../backup";
-import { getTodayDate, isSunday } from "../date";
+import { getTodayDate } from "../date";
 import { formatUnknownError, logDebug } from "../debug";
 import {
   buildCarryoverEvents,
@@ -121,8 +116,10 @@ import {
   reconcileProjectPlannedTasks,
   swapPlannedOrder,
 } from "../gtd/planned";
+import { reconcileGtdDay, type ReconcileDayResult } from "../gtd/reconcile";
 import { applyScheduleChange } from "../gtd/schedule";
 import { promoteDueScheduledTasks as selectDueScheduledPromotions } from "../gtd/scheduled";
+import { decorateDailyEntries } from "./decorate-entries";
 import { cloneProject, cloneTask, createEntityId, nowIso } from "../gtd/shared";
 import { addDays, toLocalDateString } from "../date";
 import {
@@ -328,12 +325,11 @@ export class TauriSqliteRepository implements AppRepository {
       [date],
     );
 
-    return rows[0] ? this.decorateEntry(dailyEntriesRows.fromRow(rows[0])) : null;
+    return rows[0] ? (await this.decorateEntries([dailyEntriesRows.fromRow(rows[0])]))[0] : null;
   }
 
   async saveDailyEntry(entry: DailyEntry): Promise<void> {
-    const decoratedEntry = await this.decorateEntry(entry);
-    return this.writeTransaction((tx) => this.saveDailyEntryInternal(tx, decoratedEntry));
+    return this.writeTransaction((tx) => this.saveDailyEntryInternal(tx, entry));
   }
   private async saveDailyEntryInternal(tx: TxContext, entry: DailyEntry): Promise<void> {
     const db = transactionDb(tx);
@@ -361,7 +357,7 @@ export class TauriSqliteRepository implements AppRepository {
       [limit],
     );
 
-    return Promise.all(rows.map((row) => this.decorateEntry(dailyEntriesRows.fromRow(row))));
+    return this.decorateEntries(rows.map((row) => dailyEntriesRows.fromRow(row)));
   }
 
   async listDailyEntriesOnOrBefore(endDate: string, limit = 180): Promise<DailyEntry[]> {
@@ -374,7 +370,7 @@ export class TauriSqliteRepository implements AppRepository {
       [endDate, limit],
     );
 
-    return Promise.all(rows.map((row) => this.decorateEntry(dailyEntriesRows.fromRow(row))));
+    return this.decorateEntries(rows.map((row) => dailyEntriesRows.fromRow(row)));
   }
 
   async listDailyEntriesInRange(startDate: string, endDate: string): Promise<DailyEntry[]> {
@@ -386,9 +382,7 @@ export class TauriSqliteRepository implements AppRepository {
       [startDate, endDate],
     );
 
-    // Journal only reads note text. Skip decorateEntry so a wide range cannot
-    // fan out into per-day GTD/Pomodoro writes and full-table scans.
-    return rows.map((row) => dailyEntriesRows.fromRow(row));
+    return this.decorateEntries(rows.map((row) => dailyEntriesRows.fromRow(row)));
   }
 
   async getWeeklyReview(weekStartDate: string): Promise<WeeklyReview | null> {
@@ -532,15 +526,9 @@ export class TauriSqliteRepository implements AppRepository {
 
   async computeMonthlyReviewSummary(monthKey: string) {
     const normalized = getMonthKey(`${monthKey}-01`);
-    const entries = (
-      await Promise.all(
-        (
-          await this.listDailyEntries(5000)
-        )
-          .filter((entry) => getMonthKey(entry.date) === normalized)
-          .map((entry) => this.decorateEntry(entry)),
-      )
-    ).sort((left, right) => left.date.localeCompare(right.date));
+    const entries = (await this.listDailyEntries(5000))
+      .filter((entry) => getMonthKey(entry.date) === normalized)
+      .sort((left, right) => left.date.localeCompare(right.date));
     const weekStarts = listWeekStartsForMonth(normalized);
     const weeklySummaries = await Promise.all(
       weekStarts.map((weekStartDate) => this.computeWeeklyReviewSummary(weekStartDate)),
@@ -633,11 +621,16 @@ export class TauriSqliteRepository implements AppRepository {
 
   async computeWeeklyReviewSummary(weekStartDate: string) {
     const normalized = buildWeekDates(weekStartDate);
-    const entries = await Promise.all(
-      listWeekDates(normalized).map(async (date) => {
-        const existing = await this.getDailyEntry(date);
-        return existing ?? this.decorateEntry(createEmptyDailyEntry(date));
-      }),
+    const weekDates = listWeekDates(normalized);
+    const db = await this.getDb();
+    const rows = await db.select<dailyEntriesRows.DailyEntryRow[]>(
+      `SELECT ${dailyEntriesRows.COLUMNS} FROM daily_entries
+      WHERE date >= $1 AND date <= $2`,
+      [weekDates[0], weekDates[weekDates.length - 1]],
+    );
+    const byDate = new Map(rows.map((row) => [row.date, dailyEntriesRows.fromRow(row)] as const));
+    const entries = await this.decorateEntries(
+      weekDates.map((date) => byDate.get(date) ?? createEmptyDailyEntry(date)),
     );
 
     return buildWeeklyReviewSummary(normalized, entries);
@@ -1724,8 +1717,6 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async listTasks(filters = {}): Promise<Task[]> {
-    await this.generateDueRecurringTasks(getTodayDate());
-    await this.promoteDueScheduledTasks(getTodayDate());
     const tasks = await this.getAllTasks();
     return filterTasks(tasks, filters);
   }
@@ -2170,24 +2161,16 @@ export class TauriSqliteRepository implements AppRepository {
     });
   }
 
-  async computeDailyTaskStats(date: string) {
-    await this.generateDueRecurringTasks(date);
-    await this.promoteDueScheduledTasks(getTodayDate());
-    if (date <= getTodayDate() && isSunday(date)) {
-      await this.applyWeeklyCarryover(date);
-    }
+  async reconcileDay(date: string, now?: string): Promise<ReconcileDayResult> {
+    return reconcileGtdDay(this, date, now);
+  }
 
+  async computeDailyTaskStats(date: string) {
     const [tasks, events] = await Promise.all([this.getAllTasks(), this.getAllEvents()]);
     return buildDailyTaskStats(tasks, events, date);
   }
 
   async getDailyTaskBreakdown(date: string) {
-    await this.generateDueRecurringTasks(date);
-    await this.promoteDueScheduledTasks(getTodayDate());
-    if (date <= getTodayDate() && isSunday(date)) {
-      await this.applyWeeklyCarryover(date);
-    }
-
     const [tasks, events] = await Promise.all([this.getAllTasks(), this.getAllEvents()]);
     return buildDailyTaskBreakdown(tasks, events, date);
   }
@@ -2391,7 +2374,6 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async computeDailyPomodoroStats(date: string) {
-    await this.completeExpiredPomodoroSessions();
     const sessions = await this.getAllPomodoroSessions();
     return computeDailyPomodoroStats(sessions, date);
   }
@@ -2405,15 +2387,17 @@ export class TauriSqliteRepository implements AppRepository {
     return this.dbPromise;
   }
 
-  private async decorateEntry(entry: DailyEntry): Promise<DailyEntry> {
-    const [taskStats, pomodoroStats] = await Promise.all([
-      this.computeDailyTaskStats(entry.date),
-      this.computeDailyPomodoroStats(entry.date),
+  /** Pure decoration over one snapshot read; never reconciles or writes. */
+  private async decorateEntries(entries: DailyEntry[]): Promise<DailyEntry[]> {
+    if (entries.length === 0) {
+      return [];
+    }
+    const [tasks, events, sessions] = await Promise.all([
+      this.getAllTasks(),
+      this.getAllEvents(),
+      this.getAllPomodoroSessions(),
     ]);
-    return applyDailyPomodoroStats(
-      applyDailyTaskStats(cloneEntry(entry), taskStats),
-      pomodoroStats,
-    );
+    return decorateDailyEntries(entries, { tasks, events, sessions });
   }
 
   private async getAllTasks(): Promise<Task[]> {

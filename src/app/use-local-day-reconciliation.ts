@@ -4,8 +4,9 @@ import { logDebug } from "../lib/debug";
 import type { AppRepository } from "../lib/storage/repository";
 
 /**
- * Tracks the current local calendar day and, when it changes, regenerates due
- * recurrences and promotes due Scheduled tasks. A timeout until the next local
+ * Tracks the current local calendar day and, when it changes, runs
+ * `repository.reconcileDay` (due recurrences, Scheduled promotion, Sunday carryover, expired
+ * Pomodoro completion). A timeout until the next local
  * midnight plus window focus and becoming visible all trigger the check so
  * already-mounted GTD/Pomodoro views can reload without navigation.
  */
@@ -32,8 +33,7 @@ export const useLocalDayReconciliation = (repository: AppRepository | null): str
 
       if (candidate && !alreadyPromoted) {
         try {
-          await candidate.generateDueRecurringTasks(today);
-          await candidate.promoteDueScheduledTasks(today);
+          await candidate.reconcileDay(today);
           promotedForRef.current = { day: today, repository: candidate };
         } catch (error) {
           logDebug("error", "app.localDay", "Echec de la reconciliation du jour local", error);
