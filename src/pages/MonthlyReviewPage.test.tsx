@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, vi } from "vitest";
 import { createEmptyAnnualGoal } from "../domain/annual-goals";
@@ -72,6 +72,65 @@ describe("MonthlyReviewPage", () => {
         }),
       });
     });
+  });
+
+  it.each([
+    "before returning",
+    "while loading",
+  ])("restores a failed month's draft when the save rejects %s and allows retry", async (failureTiming) => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveMonthlyReview(
+      updateMonthlyReviewNote(createEmptyMonthlyReview("2026-03"), "bilan", "Stored notes"),
+    );
+    const originalSave = repository.saveMonthlyReview.bind(repository);
+    let releaseSave!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseSave = resolve;
+    });
+    let failWrites = true;
+    let failedWrites = 0;
+    const saveSpy = vi.spyOn(repository, "saveMonthlyReview").mockImplementation(async (review) => {
+      if (failWrites) {
+        await gate;
+        failedWrites += 1;
+        throw new Error("disk full");
+      }
+      return originalSave(review);
+    });
+    await renderWithApp(<MonthlyReviewPage />, { repository, route: "/mois?month=2026-03" });
+    const notes = await screen.findByLabelText(/notes bilan/i);
+    fireEvent.change(notes, { target: { value: "Unsaved notes" } });
+    await waitFor(() => expect(saveSpy).toHaveBeenCalled());
+    if (failureTiming === "before returning") {
+      await act(async () => releaseSave());
+      await waitFor(() => expect(failedWrites).toBeGreaterThan(0));
+    }
+    fireEvent.change(screen.getByLabelText(/mois à relire/i), { target: { value: "2026-04" } });
+    fireEvent.click(screen.getByRole("button", { name: /charger le mois/i }));
+    await waitFor(() => expect(screen.getByLabelText(/notes bilan/i)).toHaveValue(""));
+    fireEvent.change(screen.getByLabelText(/mois à relire/i), { target: { value: "2026-03" } });
+    fireEvent.click(screen.getByRole("button", { name: /charger le mois/i }));
+    if (failureTiming === "while loading") {
+      expect(screen.getByText("Chargement de la revue mensuelle...")).toBeInTheDocument();
+      await act(async () => releaseSave());
+    }
+    await waitFor(() => expect(screen.getByLabelText(/notes bilan/i)).toHaveValue("Unsaved notes"));
+    expect(screen.getByLabelText(/mois à relire/i)).toHaveValue("2026-03");
+    expect((await repository.getMonthlyReview("2026-03"))?.notes.bilan).toBe("Stored notes");
+    failWrites = false;
+    fireEvent.change(screen.getByLabelText(/notes bilan/i), {
+      target: { value: "Unsaved notes retry" },
+    });
+    await waitFor(async () => {
+      expect((await repository.getMonthlyReview("2026-03"))?.notes.bilan).toBe(
+        "Unsaved notes retry",
+      );
+    });
+    fireEvent.click(screen.getByRole("button", { name: /charger le mois/i }));
+    await waitFor(() =>
+      expect(screen.getByLabelText(/notes bilan/i)).toHaveValue("Unsaved notes retry"),
+    );
   });
 
   it("defaults to the previous month on the first Saturday", async () => {
@@ -209,7 +268,7 @@ describe("MonthlyReviewPage", () => {
     expect(proposals.find((item) => item.type === "goal_evaluation")?.status).toBe("dismissed");
   });
 
-  it("persists a section draft into the monthly review on accept", async () => {
+  it.each([false, true])("preserves monthly notes on accept (repeat: %s)", async (repeat) => {
     const repository = new MemoryRepository();
     await repository.initialize();
 
@@ -267,19 +326,48 @@ describe("MonthlyReviewPage", () => {
 
     expect(await screen.findByRole("heading", { name: /coach mensuel/i })).toBeInTheDocument();
     const acceptButtons = await screen.findAllByRole("button", { name: /^accepter$/i });
+    const expectedText = repeat ? "Manual edit" : "Brouillon coach mensuel";
+    if (repeat) {
+      // The displayed pending proposal can be stale by the time its accept runs.
+      await repository.acceptAiProposal(proposal.id, {
+        kind: "monthlyReview",
+        review: updateMonthlyReviewNote(
+          createEmptyMonthlyReview("2026-04"),
+          "bilan",
+          "Brouillon coach mensuel",
+        ),
+      });
+      const notes = screen.getByLabelText(/notes bilan/i);
+      fireEvent.change(notes, { target: { value: expectedText } });
+      fireEvent.blur(notes);
+      await waitFor(async () => {
+        expect((await repository.getMonthlyReview("2026-04"))?.notes.bilan).toBe(expectedText);
+      });
+    }
     await user.click(acceptButtons[0]);
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/notes bilan/i)).toHaveValue("Brouillon coach mensuel");
+      expect(screen.getByLabelText(/notes bilan/i)).toHaveValue(expectedText);
     });
 
     await waitFor(async () => {
       await expect(repository.getMonthlyReview("2026-04")).resolves.toMatchObject({
         notes: expect.objectContaining({
-          bilan: "Brouillon coach mensuel",
+          bilan: expectedText,
         }),
       });
     });
+    if (repeat) {
+      const finances = screen.getByLabelText(/notes finances/i);
+      fireEvent.change(finances, { target: { value: "Other field" } });
+      fireEvent.blur(finances);
+      await waitFor(async () => {
+        expect((await repository.getMonthlyReview("2026-04"))?.notes).toMatchObject({
+          bilan: expectedText,
+          finances: "Other field",
+        });
+      });
+    }
   });
 
   it("persists and accepts a local section draft when AI is off", async () => {

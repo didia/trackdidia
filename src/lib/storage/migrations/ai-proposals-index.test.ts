@@ -1,4 +1,4 @@
-import { migrations } from "../tauri-sqlite-repository";
+import { migrations } from "./index";
 
 describe("migration 25 ai_proposals index", () => {
   it("allows multiple pending proposals of the same weekly type on one message", () => {

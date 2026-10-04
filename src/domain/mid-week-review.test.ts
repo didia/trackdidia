@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays } from "../lib/gtd/shared";
+import { addDays } from "../lib/date";
 import { createEmptyDailyEntry } from "./daily-entry";
 import {
   buildMidWeekLaggingSnapshot,

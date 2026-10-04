@@ -1,5 +1,5 @@
 import { t } from "../../i18n";
-import { addDays, toLocalDateString } from "../../lib/gtd/shared";
+import { addDays, toLocalDateString } from "../../lib/date";
 import type { Project, Task } from "../types";
 import {
   AGING_WAITING_FOR_DAYS,

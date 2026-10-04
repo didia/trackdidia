@@ -25,6 +25,7 @@ Chronological documentation activity is recorded in domain logs under
 | [recurrences-and-pomodoro.md](recurrences-and-pomodoro.md) | Recurrence templates/generation/previews and Pomodoro sessions/segments/notifications |
 | [ai-settings-and-privacy.md](ai-settings-and-privacy.md) | Local/AI coaching, OpenRouter request data, relationship draws, debug and settings |
 | [email-triage.md](email-triage.md) | Disabled-by-default local email triage (Gmail, Graph, Yahoo; gated mutation; tray) |
+| [finance.md](finance.md) | Household finance domain: schema, import/dedupe/transfer detection, the classification pipeline (rules/memory/seeds), repository contract, and the accounts/import/transactions/review/rules screens behind `financeEnabled` (Phases 2-4 of a phased build) |
 
 ## Source map
 
@@ -38,10 +39,15 @@ Chronological documentation activity is recorded in domain logs under
 | Monthly formulas | `src/domain/monthly-review.ts` |
 | Annual goal sources | `src/domain/annual-goals.ts` |
 | Repository API | `src/lib/storage/repository.ts` |
-| SQLite schema/migrations | `src/lib/storage/tauri-sqlite-repository.ts` |
+| SQLite schema/migrations | `src/lib/storage/migrations/index.ts` |
 | Browser preview storage | `src/lib/storage/memory-repository.ts` |
 | Native data paths | `src-tauri/src/main.rs` |
 | Desktop configuration | `src-tauri/tauri.conf.json` |
+| Finance domain types | `src/domain/finance.ts` |
+| Finance SQLite/memory stores | `src/lib/storage/finance-sqlite-store.ts`, `src/lib/storage/finance-memory-store.ts` |
+| Finance pure engines (money, CSV, dedupe, transfers, import mapping, classification, seed heuristics) | `src/lib/finance/` |
+| Finance derived-balance arithmetic | `src/domain/finance/account-balance.ts` |
+| Finance screens | `src/pages/FinanceOverviewPage.tsx`, `FinanceAccountsPage.tsx`, `FinanceImportPage.tsx`, `FinanceTransactionsPage.tsx`, `FinanceReviewPage.tsx`, `FinanceRulesPage.tsx`, `src/components/finance/FinanceTabs.tsx` |
 
 ## Reading paths
 

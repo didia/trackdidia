@@ -1,4 +1,4 @@
-import { addDays, getWeekStartSunday, isSunday } from "../lib/gtd/shared";
+import { addDays, getTodayDate, getWeekStartSunday, isSunday } from "../lib/date";
 import { computeDisciplineScore, resolveMetricValue } from "./daily-entry";
 import type {
   DailyEntry,
@@ -87,16 +87,9 @@ export const listWeekDates = (weekStartDate: string): string[] => {
  * that week itself, even when both weeks are already past — do not use this
  * helper to decide which notes to display.
  */
-const localTodayDate = (): string => {
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${month}-${day}`;
-};
-
 export const dimancheNotesWeekStart = (
   displayedWeekStart: string,
-  today = localTodayDate(),
+  today = getTodayDate(),
 ): string => {
   const displayed = buildWeekDates(displayedWeekStart);
   const currentWeek = getWeekStartSunday(today);

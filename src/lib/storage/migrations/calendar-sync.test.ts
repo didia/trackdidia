@@ -4,11 +4,12 @@ import { describe, expect, it } from "vitest";
 // `createNodeSqliteDatabase`. Never point `TauriSqliteRepository` at a real connection string or
 // an app-data path from a test.
 import { createNodeSqliteDatabase } from "../../../test/mocks/node-sqlite-database";
-import { migrations, TauriSqliteRepository } from "../tauri-sqlite-repository";
+import { TauriSqliteRepository } from "../tauri-sqlite-repository";
+import { migrations } from "./index";
 
-describe("migration 37 create_calendar_sync", () => {
+describe("migration 39 create_calendar_sync", () => {
   it("is the highest migration id, appended without rewriting earlier migrations", () => {
-    const migration = migrations.find((item) => item.id === 37);
+    const migration = migrations.find((item) => item.id === 39);
     expect(migration).toBeDefined();
     expect(migration?.name).toBe("create_calendar_sync");
     expect(migration?.sql).toContain("CREATE TABLE IF NOT EXISTS calendar_sync_settings");
@@ -17,7 +18,7 @@ describe("migration 37 create_calendar_sync", () => {
     expect(migration?.sql).toContain(
       "CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_sync_links_event",
     );
-    expect(Math.max(...migrations.map((item) => item.id))).toBe(37);
+    expect(Math.max(...migrations.map((item) => item.id))).toBe(39);
     expect(migrations.map((item) => item.id)).toEqual(
       [...migrations.map((item) => item.id)].sort((left, right) => left - right),
     );

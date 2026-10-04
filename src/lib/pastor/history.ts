@@ -1,6 +1,6 @@
 import type { AiMessage, CatalogVerse, PastorVerseIntent } from "../../domain/types";
 import { parseStoredPastorBody } from "../ai/proposals/pastor-verse-validator";
-import { addDays } from "../gtd/shared";
+import { addDays } from "../date";
 import { formatReferenceFr } from "./bible-books";
 
 export interface PastorHistoryVerseEntry {

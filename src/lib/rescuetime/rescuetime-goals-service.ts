@@ -9,7 +9,8 @@ import {
   scoreMoreGoal,
 } from "../../domain/rescuetime-goals";
 import { buildWeekDates } from "../../domain/weekly-review";
-import { addDays, nowIso } from "../gtd/shared";
+import { nowIso } from "../gtd/shared";
+import { addDays } from "../date";
 import type { AppRepository } from "../storage/repository";
 import {
   aggregateProjectTimes,

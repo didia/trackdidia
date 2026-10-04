@@ -1,4 +1,4 @@
-import { addDays } from "../../lib/gtd/shared";
+import { addDays, atLocalNoon } from "../../lib/date";
 import { average } from "../../lib/math";
 import type { DailyEntry } from "../types";
 import type { EvidenceWindow } from "./types";
@@ -11,8 +11,8 @@ export const sortEntriesByDate = (entries: DailyEntry[]): DailyEntry[] =>
   [...entries].sort((left, right) => left.date.localeCompare(right.date));
 
 export const daysBetweenDates = (from: string, to: string): number => {
-  const startMs = new Date(`${from}T12:00:00`).getTime();
-  const endMs = new Date(`${to}T12:00:00`).getTime();
+  const startMs = atLocalNoon(from).getTime();
+  const endMs = atLocalNoon(to).getTime();
   return Math.round((endMs - startMs) / 86400000);
 };
 

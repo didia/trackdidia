@@ -1,6 +1,7 @@
-import type { AppSettings, Task } from "../domain/types";
-import { t, tList } from "../i18n";
-import { buildContextId, toLocalDateString } from "./gtd/shared";
+import type { AppSettings, CreateTaskInput, Task } from "../domain/types";
+import { t } from "../i18n";
+import { buildContextId } from "./gtd/shared";
+import { toLocalDateString } from "./date";
 
 export type RelationshipDrawCategory = "children" | "spouse";
 
@@ -16,9 +17,7 @@ export interface RelationshipDrawDefinition {
 export const relationshipPersonalContextName = t("contextPersonal", { ns: "relationship" });
 export const relationshipPersonalContextId = buildContextId(relationshipPersonalContextName);
 
-export const defaultChildrenActivities = tList("childrenActivities", "relationship");
-
-export const defaultSpouseActivities = tList("spouseActivities", "relationship");
+export { defaultChildrenActivities, defaultSpouseActivities } from "../domain/settings";
 
 export const relationshipDrawDefinitions: RelationshipDrawDefinition[] = [
   {
@@ -39,55 +38,7 @@ export const relationshipDrawDefinitions: RelationshipDrawDefinition[] = [
   },
 ];
 
-export const mergeAppSettingsWithDefaults = (
-  settings: Partial<AppSettings>,
-  defaults: AppSettings,
-): AppSettings => ({
-  ...defaults,
-  ...settings,
-  aiSurfaceModels:
-    settings.aiSurfaceModels && typeof settings.aiSurfaceModels === "object"
-      ? settings.aiSurfaceModels
-      : defaults.aiSurfaceModels,
-  aiMaxTokens:
-    typeof settings.aiMaxTokens === "number" && settings.aiMaxTokens > 0
-      ? settings.aiMaxTokens
-      : defaults.aiMaxTokens,
-  aiTimeoutMs:
-    typeof settings.aiTimeoutMs === "number" && settings.aiTimeoutMs > 0
-      ? settings.aiTimeoutMs
-      : defaults.aiTimeoutMs,
-  relationshipDrawChildrenActivities: Array.isArray(settings.relationshipDrawChildrenActivities)
-    ? settings.relationshipDrawChildrenActivities
-    : defaults.relationshipDrawChildrenActivities,
-  relationshipDrawSpouseActivities: Array.isArray(settings.relationshipDrawSpouseActivities)
-    ? settings.relationshipDrawSpouseActivities
-    : defaults.relationshipDrawSpouseActivities,
-  aiPastorCustomVerses: Array.isArray(settings.aiPastorCustomVerses)
-    ? settings.aiPastorCustomVerses
-    : defaults.aiPastorCustomVerses,
-  aiPulseSlots:
-    Array.isArray(settings.aiPulseSlots) && settings.aiPulseSlots.length > 0
-      ? settings.aiPulseSlots
-      : defaults.aiPulseSlots,
-  aiPulseNotifyDays:
-    Array.isArray(settings.aiPulseNotifyDays) && settings.aiPulseNotifyDays.length > 0
-      ? settings.aiPulseNotifyDays
-      : defaults.aiPulseNotifyDays,
-  aiPulseMaxNotificationsPerDay:
-    typeof settings.aiPulseMaxNotificationsPerDay === "number" &&
-    settings.aiPulseMaxNotificationsPerDay >= 0
-      ? settings.aiPulseMaxNotificationsPerDay
-      : defaults.aiPulseMaxNotificationsPerDay,
-  aiPulseFirstOpenAt:
-    settings.aiPulseFirstOpenAt && typeof settings.aiPulseFirstOpenAt === "object"
-      ? settings.aiPulseFirstOpenAt
-      : defaults.aiPulseFirstOpenAt,
-  aiCostPerMillionTokens:
-    typeof settings.aiCostPerMillionTokens === "number" && settings.aiCostPerMillionTokens >= 0
-      ? settings.aiCostPerMillionTokens
-      : defaults.aiCostPerMillionTokens,
-});
+export { normalizeAppSettings as mergeAppSettingsWithDefaults } from "../domain/settings";
 
 export const getRelationshipDrawActivities = (
   settings: AppSettings,
@@ -145,3 +96,37 @@ export const isTaskFromRelationshipDrawDate = (task: Task, date: string): boolea
 
 export const getRelationshipDrawTaskDate = (task: Task): string =>
   toLocalDateString(task.createdAt);
+
+/** Plan from the settings/tasks read inside the caller's protected write operation. */
+export const buildDailyRelationshipDrawPlan = (
+  date: string,
+  settings: AppSettings,
+  tasks: Task[],
+): { taskInputs: CreateTaskInput[]; settings: AppSettings } => {
+  let nextSettings = settings;
+  const taskInputs: CreateTaskInput[] = [];
+  if (!settings.relationshipDrawsEnabled) return { taskInputs, settings };
+
+  for (const definition of relationshipDrawDefinitions) {
+    // Local YYYY-MM-DD keys sort chronologically; stale calls must not reopen an older day.
+    if (getRelationshipDrawProcessedDate(nextSettings, definition) >= date) continue;
+    if (!findActiveRelationshipDrawTask(tasks, definition.category)) {
+      const activity = pickRelationshipDrawActivity(
+        getRelationshipDrawActivities(nextSettings, definition),
+      );
+      if (!activity) continue;
+      taskInputs.push({
+        title: buildRelationshipDrawTaskTitle(definition, activity),
+        notes: definition.notes,
+        bucket: "next_action",
+        contextIds: [relationshipPersonalContextId],
+        source: "manual",
+        sourceExternalId: getRelationshipDrawSourceExternalId(definition.category, date),
+        createdAt: `${date}T00:00:00.000Z`,
+        updatedAt: `${date}T00:00:00.000Z`,
+      });
+    }
+    nextSettings = setRelationshipDrawProcessedDate(nextSettings, definition, date);
+  }
+  return { taskInputs, settings: nextSettings };
+};
