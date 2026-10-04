@@ -44,6 +44,29 @@ import type {
   WeeklyReview,
   WeeklyReviewSummary,
 } from "../../domain/types";
+import type {
+  BulkUpdateFinanceTransactionsPatch,
+  DecideFinanceCategorySuggestionInput,
+  FinanceAccount,
+  FinanceAccountFilters,
+  FinanceCategory,
+  FinanceCategorySuggestion,
+  FinanceImportBatch,
+  FinanceImportProfile,
+  FinanceImportRequest,
+  FinanceImportSummary,
+  FinanceMerchantMemoryEntry,
+  FinanceMerchantMemoryFilters,
+  FinancePerson,
+  FinanceRule,
+  FinanceTransaction,
+  FinanceTransactionFilters,
+  FinanceTransactionSplit,
+  SetFinanceTransactionCategoryInput,
+  SetFinanceTransactionCategoryResult,
+  SetFinanceTransferPair,
+  UndoFinanceImportBatchResult,
+} from "../../domain/finance";
 
 export interface NativeStoragePaths {
   databasePath: string;
@@ -240,4 +263,73 @@ export interface AppRepository {
     changes: RecurringTaskChanges,
   ): Promise<Task>;
   readonly emailTriage: EmailTriageStore;
+
+  // --- Finance (Phase 2 — Schema and repository parity) ---------------------------------
+
+  listFinancePeople(): Promise<FinancePerson[]>;
+  saveFinancePerson(person: FinancePerson): Promise<FinancePerson>;
+  listFinanceAccounts(filters?: FinanceAccountFilters): Promise<FinanceAccount[]>;
+  saveFinanceAccount(account: FinanceAccount): Promise<FinanceAccount>;
+  closeFinanceAccount(id: string): Promise<FinanceAccount>;
+  listFinanceCategories(includeArchived?: boolean): Promise<FinanceCategory[]>;
+  saveFinanceCategory(category: FinanceCategory): Promise<FinanceCategory>;
+  archiveFinanceCategory(id: string, reassignToId: string): Promise<number>;
+  /** Idempotent (fixed ids, `INSERT OR IGNORE`) seed of the default French taxonomy. */
+  seedFinanceDefaultCategories(): Promise<number>;
+  listFinanceRules(): Promise<FinanceRule[]>;
+  saveFinanceRule(rule: FinanceRule): Promise<FinanceRule>;
+  deleteFinanceRule(id: string): Promise<void>;
+  listFinanceMerchantMemory(
+    filters?: FinanceMerchantMemoryFilters,
+  ): Promise<FinanceMerchantMemoryEntry[]>;
+  upsertFinanceMerchantMemory(
+    entry: FinanceMerchantMemoryEntry,
+  ): Promise<FinanceMerchantMemoryEntry>;
+  forgetFinanceMerchantMemory(
+    merchantKey: string,
+    accountId: string,
+    sign: -1 | 0 | 1,
+  ): Promise<void>;
+  listFinanceTransactions(filters?: FinanceTransactionFilters): Promise<FinanceTransaction[]>;
+  countFinanceTransactions(filters?: FinanceTransactionFilters): Promise<number>;
+  getFinanceTransaction(id: string): Promise<FinanceTransaction | null>;
+  saveFinanceTransaction(txn: FinanceTransaction): Promise<FinanceTransaction>;
+  /** The single learning entry point — see specs/todo/finance.md "Learning from corrections". */
+  setFinanceTransactionCategory(
+    input: SetFinanceTransactionCategoryInput,
+  ): Promise<SetFinanceTransactionCategoryResult>;
+  bulkUpdateFinanceTransactions(
+    ids: string[],
+    patch: BulkUpdateFinanceTransactionsPatch,
+  ): Promise<number>;
+  saveFinanceTransactionSplits(
+    transactionId: string,
+    splits: FinanceTransactionSplit[],
+  ): Promise<FinanceTransaction>;
+  listFinanceTransactionSplits(transactionId: string): Promise<FinanceTransactionSplit[]>;
+  setFinanceTransfer(pair: SetFinanceTransferPair | null, groupId?: string): Promise<void>;
+  clearFinanceTransfer(transactionId: string): Promise<void>;
+  listFinanceImportProfiles(): Promise<FinanceImportProfile[]>;
+  saveFinanceImportProfile(profile: FinanceImportProfile): Promise<FinanceImportProfile>;
+  findFinanceImportProfileBySignature(signature: string): Promise<FinanceImportProfile | null>;
+  /**
+   * One `writeExclusive` block / one `BEGIN IMMEDIATE`: chunked multi-row inserts, exact-hash
+   * dedupe, near-duplicate detection, and transfer detection across the whole history. See
+   * specs/todo/finance.md "Write-path discipline".
+   */
+  importFinanceTransactions(input: FinanceImportRequest): Promise<FinanceImportSummary>;
+  listFinanceImportBatches(limit?: number): Promise<FinanceImportBatch[]>;
+  /** Restricted to the most recent batch for the batch's account; never touches `user`-set rows. */
+  undoFinanceImportBatch(batchId: string): Promise<UndoFinanceImportBatchResult>;
+  listFinanceCategorySuggestions(
+    status?: FinanceCategorySuggestion["status"],
+    limit?: number,
+  ): Promise<FinanceCategorySuggestion[]>;
+  saveFinanceCategorySuggestions(
+    suggestions: FinanceCategorySuggestion[],
+  ): Promise<FinanceCategorySuggestion[]>;
+  decideFinanceCategorySuggestion(
+    id: string,
+    decision: DecideFinanceCategorySuggestionInput,
+  ): Promise<FinanceCategorySuggestion>;
 }

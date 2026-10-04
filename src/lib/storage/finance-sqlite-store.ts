@@ -1,0 +1,1670 @@
+// Finance persistence (Phase 2 — Schema and repository parity). Mirrors the
+// email-triage pattern: row mapping/query code lives here, reached through
+// thin delegating methods on `TauriSqliteRepository` (see `getFinanceStore()`).
+// See specs/todo/finance.md "Repository methods" and "CSV import".
+
+import type {
+  BulkUpdateFinanceTransactionsPatch,
+  DecideFinanceCategorySuggestionInput,
+  FinanceAccount,
+  FinanceAccountFilters,
+  FinanceCategory,
+  FinanceCategorySuggestion,
+  FinanceImportBatch,
+  FinanceImportProfile,
+  FinanceImportRequest,
+  FinanceImportSummary,
+  FinanceMerchantMemoryEntry,
+  FinanceMerchantMemoryFilters,
+  FinancePerson,
+  FinanceRule,
+  FinanceTransaction,
+  FinanceTransactionFilters,
+  FinanceTransactionSplit,
+  SetFinanceTransactionCategoryInput,
+  SetFinanceTransactionCategoryResult,
+  SetFinanceTransferPair,
+  UndoFinanceImportBatchResult,
+} from "../../domain/finance";
+import type { Database } from "./sqlite-db";
+import { DEFAULT_FINANCE_CATEGORIES } from "../finance/default-categories";
+import {
+  dedupeHash as computeDedupeHash,
+  assignOccurrenceIndices,
+} from "../finance/import-profile";
+import { applyMerchantMemoryCorrection } from "../finance/memory";
+import { findNearDuplicates } from "../finance/near-duplicates";
+import { detectTransfers, type TransferCandidateTransaction } from "../finance/transfers";
+import { validateSplitTotal } from "../finance/splits";
+import { createEntityId, nowIso } from "../gtd/shared";
+
+interface PersonRow {
+  id: string;
+  display_name: string;
+  color: string | null;
+  archived: number;
+  created_at: string;
+  updated_at: string;
+}
+
+const mapPerson = (row: PersonRow): FinancePerson => ({
+  id: row.id,
+  displayName: row.display_name,
+  color: row.color,
+  archived: Boolean(row.archived),
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+interface AccountRow {
+  id: string;
+  name: string;
+  institution: string | null;
+  type: FinanceAccount["type"];
+  currency: string;
+  owner_person_id: string | null;
+  ownership: FinanceAccount["ownership"];
+  on_budget: number;
+  closed: number;
+  opening_balance_minor: number;
+  current_balance_minor: number | null;
+  balance_as_of: string | null;
+  external_key: string | null;
+  notes: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+const mapAccount = (row: AccountRow): FinanceAccount => ({
+  id: row.id,
+  name: row.name,
+  institution: row.institution,
+  type: row.type,
+  currency: row.currency,
+  ownerPersonId: row.owner_person_id,
+  ownership: row.ownership,
+  onBudget: Boolean(row.on_budget),
+  closed: Boolean(row.closed),
+  openingBalanceMinor: row.opening_balance_minor,
+  currentBalanceMinor: row.current_balance_minor,
+  balanceAsOf: row.balance_as_of,
+  externalKey: row.external_key,
+  notes: row.notes,
+  sortOrder: row.sort_order,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+interface CategoryRow {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  kind: FinanceCategory["kind"];
+  archived: number;
+  is_system: number;
+  defers_to_next_month: number;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+const mapCategory = (row: CategoryRow): FinanceCategory => ({
+  id: row.id,
+  name: row.name,
+  parentId: row.parent_id,
+  kind: row.kind,
+  archived: Boolean(row.archived),
+  isSystem: Boolean(row.is_system),
+  defersToNextMonth: Boolean(row.defers_to_next_month),
+  sortOrder: row.sort_order,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+interface TransactionRow {
+  id: string;
+  account_id: string;
+  posted_date: string;
+  amount_minor: number;
+  currency: string;
+  description_raw: string;
+  description_original: string | null;
+  merchant_key: string;
+  merchant_display: string | null;
+  category_id: string | null;
+  category_source: FinanceTransaction["categorySource"];
+  category_confidence: number | null;
+  categorized_at: string | null;
+  person_id: string | null;
+  notes: string | null;
+  labels_json: string | null;
+  pending: number;
+  is_transfer: number;
+  transfer_group_id: string | null;
+  excluded_from_budget: number;
+  excluded_from_reports: number;
+  has_splits: number;
+  import_batch_id: string | null;
+  dedupe_hash: string;
+  source_row_json: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+const mapTransaction = (row: TransactionRow): FinanceTransaction => ({
+  id: row.id,
+  accountId: row.account_id,
+  postedDate: row.posted_date,
+  amountMinor: row.amount_minor,
+  currency: row.currency,
+  descriptionRaw: row.description_raw,
+  descriptionOriginal: row.description_original,
+  merchantKey: row.merchant_key,
+  merchantDisplay: row.merchant_display,
+  categoryId: row.category_id,
+  categorySource: row.category_source,
+  categoryConfidence: row.category_confidence,
+  categorizedAt: row.categorized_at,
+  personId: row.person_id,
+  notes: row.notes,
+  labelsJson: row.labels_json,
+  pending: Boolean(row.pending),
+  isTransfer: Boolean(row.is_transfer),
+  transferGroupId: row.transfer_group_id,
+  excludedFromBudget: Boolean(row.excluded_from_budget),
+  excludedFromReports: Boolean(row.excluded_from_reports),
+  hasSplits: Boolean(row.has_splits),
+  importBatchId: row.import_batch_id,
+  dedupeHash: row.dedupe_hash,
+  sourceRowJson: row.source_row_json,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+interface SplitRow {
+  id: string;
+  transaction_id: string;
+  amount_minor: number;
+  category_id: string | null;
+  notes: string | null;
+  sort_order: number;
+  created_at: string;
+}
+
+const mapSplit = (row: SplitRow): FinanceTransactionSplit => ({
+  id: row.id,
+  transactionId: row.transaction_id,
+  amountMinor: row.amount_minor,
+  categoryId: row.category_id,
+  notes: row.notes,
+  sortOrder: row.sort_order,
+  createdAt: row.created_at,
+});
+
+interface RuleRow {
+  id: string;
+  name: string;
+  priority: number;
+  enabled: number;
+  matcher_json: string;
+  actions_json: string;
+  created_at: string;
+  updated_at: string;
+  last_applied_at: string | null;
+  applied_count: number;
+}
+
+const mapRule = (row: RuleRow): FinanceRule => ({
+  id: row.id,
+  name: row.name,
+  priority: row.priority,
+  enabled: Boolean(row.enabled),
+  matcher: JSON.parse(row.matcher_json),
+  actions: JSON.parse(row.actions_json),
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+  lastAppliedAt: row.last_applied_at,
+  appliedCount: row.applied_count,
+});
+
+interface MemoryRow {
+  merchant_key: string;
+  account_id: string;
+  sign: number;
+  category_id: string;
+  hit_count: number;
+  correction_count: number;
+  confidence: number;
+  source: FinanceMerchantMemoryEntry["source"];
+  last_applied_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+const mapMemory = (row: MemoryRow): FinanceMerchantMemoryEntry => ({
+  merchantKey: row.merchant_key,
+  accountId: row.account_id,
+  sign: row.sign as -1 | 0 | 1,
+  categoryId: row.category_id,
+  hitCount: row.hit_count,
+  correctionCount: row.correction_count,
+  confidence: row.confidence,
+  source: row.source,
+  lastAppliedAt: row.last_applied_at,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+interface SuggestionRow {
+  id: string;
+  transaction_id: string;
+  merchant_key: string;
+  suggested_category_id: string;
+  confidence: number;
+  origin: FinanceCategorySuggestion["origin"];
+  rationale: string | null;
+  model: string | null;
+  prompt_version: string | null;
+  status: FinanceCategorySuggestion["status"];
+  decided_at: string | null;
+  created_at: string;
+}
+
+const mapSuggestion = (row: SuggestionRow): FinanceCategorySuggestion => ({
+  id: row.id,
+  transactionId: row.transaction_id,
+  merchantKey: row.merchant_key,
+  suggestedCategoryId: row.suggested_category_id,
+  confidence: row.confidence,
+  origin: row.origin,
+  rationale: row.rationale,
+  model: row.model,
+  promptVersion: row.prompt_version,
+  status: row.status,
+  decidedAt: row.decided_at,
+  createdAt: row.created_at,
+});
+
+interface ImportProfileRow {
+  id: string;
+  name: string;
+  signature: string;
+  column_map_json: string;
+  date_format: FinanceImportProfile["dateFormat"];
+  amount_mode: FinanceImportProfile["amountMode"];
+  sign_convention: string | null;
+  decimal_separator: string | null;
+  thousands_separator: string | null;
+  default_account_id: string | null;
+  created_at: string;
+  updated_at: string;
+  last_used_at: string | null;
+}
+
+const mapImportProfile = (row: ImportProfileRow): FinanceImportProfile => ({
+  id: row.id,
+  name: row.name,
+  signature: row.signature,
+  columnMap: JSON.parse(row.column_map_json),
+  dateFormat: row.date_format,
+  amountMode: row.amount_mode,
+  signConvention: row.sign_convention,
+  ...(row.decimal_separator !== null
+    ? { decimalSeparator: row.decimal_separator as FinanceImportProfile["decimalSeparator"] }
+    : {}),
+  ...(row.thousands_separator !== null
+    ? { thousandsSeparator: row.thousands_separator as FinanceImportProfile["thousandsSeparator"] }
+    : {}),
+  defaultAccountId: row.default_account_id,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+  lastUsedAt: row.last_used_at,
+});
+
+interface ImportBatchRow {
+  id: string;
+  profile_id: string | null;
+  file_name: string;
+  file_hash: string;
+  account_id: string | null;
+  row_count: number;
+  imported_count: number;
+  duplicate_count: number;
+  skipped_count: number;
+  error_count: number;
+  status: FinanceImportBatch["status"];
+  error_summary: string | null;
+  started_at: string;
+  finished_at: string | null;
+}
+
+const mapImportBatch = (row: ImportBatchRow): FinanceImportBatch => ({
+  id: row.id,
+  profileId: row.profile_id,
+  fileName: row.file_name,
+  fileHash: row.file_hash,
+  accountId: row.account_id,
+  rowCount: row.row_count,
+  importedCount: row.imported_count,
+  duplicateCount: row.duplicate_count,
+  skippedCount: row.skipped_count,
+  errorCount: row.error_count,
+  status: row.status,
+  errorSummary: row.error_summary,
+  startedAt: row.started_at,
+  finishedAt: row.finished_at,
+});
+
+/** Chunk size for multi-row INSERTs, staying well under SQLite's parameter limit. */
+const IMPORT_CHUNK_SIZE = 200;
+
+export class FinanceSqliteStore {
+  constructor(private readonly getDb: () => Promise<Database>) {}
+
+  // --- people -------------------------------------------------------------
+
+  async listPeople(): Promise<FinancePerson[]> {
+    const db = await this.getDb();
+    const rows = await db.select<PersonRow[]>("SELECT * FROM finance_people ORDER BY display_name");
+    return rows.map(mapPerson);
+  }
+
+  async savePerson(person: FinancePerson): Promise<FinancePerson> {
+    const db = await this.getDb();
+    const now = nowIso();
+    const id = person.id || createEntityId("finance-person");
+    await db.execute(
+      `INSERT INTO finance_people (id, display_name, color, archived, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT(id) DO UPDATE SET
+         display_name = excluded.display_name,
+         color = excluded.color,
+         archived = excluded.archived,
+         updated_at = excluded.updated_at`,
+      [id, person.displayName, person.color, person.archived ? 1 : 0, person.createdAt || now, now],
+    );
+    const rows = await db.select<PersonRow[]>("SELECT * FROM finance_people WHERE id = $1", [id]);
+    return mapPerson(rows[0]);
+  }
+
+  // --- accounts -------------------------------------------------------------
+
+  async listAccounts(filters?: FinanceAccountFilters): Promise<FinanceAccount[]> {
+    const db = await this.getDb();
+    const rows = await db.select<AccountRow[]>(
+      "SELECT * FROM finance_accounts ORDER BY sort_order, name",
+    );
+    let accounts = rows.map(mapAccount);
+    if (filters?.includeClosed !== true) {
+      accounts = accounts.filter((account) => !account.closed);
+    }
+    if (filters?.onBudgetOnly) {
+      accounts = accounts.filter((account) => account.onBudget);
+    }
+    if (filters?.ownerPersonId) {
+      accounts = accounts.filter((account) => account.ownerPersonId === filters.ownerPersonId);
+    }
+    return accounts;
+  }
+
+  async saveAccount(account: FinanceAccount): Promise<FinanceAccount> {
+    const db = await this.getDb();
+    const now = nowIso();
+    const id = account.id || createEntityId("finance-account");
+    await db.execute(
+      `INSERT INTO finance_accounts (
+        id, name, institution, type, currency, owner_person_id, ownership, on_budget, closed,
+        opening_balance_minor, current_balance_minor, balance_as_of, external_key, notes,
+        sort_order, created_at, updated_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        institution = excluded.institution,
+        type = excluded.type,
+        currency = excluded.currency,
+        owner_person_id = excluded.owner_person_id,
+        ownership = excluded.ownership,
+        on_budget = excluded.on_budget,
+        closed = excluded.closed,
+        opening_balance_minor = excluded.opening_balance_minor,
+        current_balance_minor = excluded.current_balance_minor,
+        balance_as_of = excluded.balance_as_of,
+        external_key = excluded.external_key,
+        notes = excluded.notes,
+        sort_order = excluded.sort_order,
+        updated_at = excluded.updated_at`,
+      [
+        id,
+        account.name,
+        account.institution,
+        account.type,
+        account.currency,
+        account.ownerPersonId,
+        account.ownership,
+        account.onBudget ? 1 : 0,
+        account.closed ? 1 : 0,
+        account.openingBalanceMinor,
+        account.currentBalanceMinor,
+        account.balanceAsOf,
+        account.externalKey,
+        account.notes,
+        account.sortOrder,
+        account.createdAt || now,
+        now,
+      ],
+    );
+    const rows = await db.select<AccountRow[]>("SELECT * FROM finance_accounts WHERE id = $1", [
+      id,
+    ]);
+    return mapAccount(rows[0]);
+  }
+
+  async closeAccount(id: string): Promise<FinanceAccount> {
+    const db = await this.getDb();
+    await db.execute("UPDATE finance_accounts SET closed = 1, updated_at = $2 WHERE id = $1", [
+      id,
+      nowIso(),
+    ]);
+    const rows = await db.select<AccountRow[]>("SELECT * FROM finance_accounts WHERE id = $1", [
+      id,
+    ]);
+    if (!rows[0]) {
+      throw new Error(`finance account not found: ${id}`);
+    }
+    return mapAccount(rows[0]);
+  }
+
+  // --- categories -------------------------------------------------------------
+
+  async listCategories(includeArchived?: boolean): Promise<FinanceCategory[]> {
+    const db = await this.getDb();
+    const rows = await db.select<CategoryRow[]>(
+      "SELECT * FROM finance_categories ORDER BY sort_order, name",
+    );
+    const categories = rows.map(mapCategory);
+    return includeArchived ? categories : categories.filter((category) => !category.archived);
+  }
+
+  async saveCategory(category: FinanceCategory): Promise<FinanceCategory> {
+    const db = await this.getDb();
+    const now = nowIso();
+    const id = category.id || createEntityId("fincat");
+    await db.execute(
+      `INSERT INTO finance_categories (
+        id, name, parent_id, kind, archived, is_system, defers_to_next_month, sort_order, created_at, updated_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        parent_id = excluded.parent_id,
+        kind = excluded.kind,
+        archived = excluded.archived,
+        defers_to_next_month = excluded.defers_to_next_month,
+        sort_order = excluded.sort_order,
+        updated_at = excluded.updated_at`,
+      [
+        id,
+        category.name,
+        category.parentId,
+        category.kind,
+        category.archived ? 1 : 0,
+        category.isSystem ? 1 : 0,
+        category.defersToNextMonth ? 1 : 0,
+        category.sortOrder,
+        category.createdAt || now,
+        now,
+      ],
+    );
+    const rows = await db.select<CategoryRow[]>("SELECT * FROM finance_categories WHERE id = $1", [
+      id,
+    ]);
+    return mapCategory(rows[0]);
+  }
+
+  async archiveCategory(id: string, reassignToId: string): Promise<number> {
+    const db = await this.getDb();
+    const now = nowIso();
+    return this.inTransaction(db, async () => {
+      const result = await db.execute(
+        "UPDATE finance_transactions SET category_id = $2, updated_at = $3 WHERE category_id = $1",
+        [id, reassignToId, now],
+      );
+      const splitResult = await db.execute(
+        "UPDATE finance_transaction_splits SET category_id = $2 WHERE category_id = $1",
+        [id, reassignToId],
+      );
+      // Merchant memory must not keep resurrecting the archived category.
+      await db.execute(
+        "UPDATE finance_merchant_memory SET category_id = $2, updated_at = $3 WHERE category_id = $1",
+        [id, reassignToId, now],
+      );
+      await db.execute(
+        "UPDATE finance_categories SET archived = 1, updated_at = $2 WHERE id = $1",
+        [id, now],
+      );
+      return result.rowsAffected + splitResult.rowsAffected;
+    });
+  }
+
+  /** Idempotent INSERT OR IGNORE seed of the default French taxonomy. Returns rows newly inserted. */
+  async seedDefaultCategories(): Promise<number> {
+    const db = await this.getDb();
+    const now = nowIso();
+    let inserted = 0;
+    for (const seed of DEFAULT_FINANCE_CATEGORIES) {
+      const result = await db.execute(
+        `INSERT OR IGNORE INTO finance_categories (
+          id, name, parent_id, kind, archived, is_system, defers_to_next_month, sort_order, created_at, updated_at
+        ) VALUES ($1,$2,$3,$4,0,0,0,$5,$6,$6)`,
+        [seed.id, seed.name, seed.parentId, seed.kind, seed.sortOrder, now],
+      );
+      inserted += result.rowsAffected;
+    }
+    return inserted;
+  }
+
+  // --- rules -------------------------------------------------------------
+
+  async listRules(): Promise<FinanceRule[]> {
+    const db = await this.getDb();
+    const rows = await db.select<RuleRow[]>("SELECT * FROM finance_rules ORDER BY priority, id");
+    return rows.map(mapRule);
+  }
+
+  async saveRule(rule: FinanceRule): Promise<FinanceRule> {
+    const db = await this.getDb();
+    const now = nowIso();
+    const id = rule.id || createEntityId("finance-rule");
+    await db.execute(
+      `INSERT INTO finance_rules (
+        id, name, priority, enabled, matcher_json, actions_json, created_at, updated_at,
+        last_applied_at, applied_count
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        priority = excluded.priority,
+        enabled = excluded.enabled,
+        matcher_json = excluded.matcher_json,
+        actions_json = excluded.actions_json,
+        updated_at = excluded.updated_at,
+        last_applied_at = excluded.last_applied_at,
+        applied_count = excluded.applied_count`,
+      [
+        id,
+        rule.name,
+        rule.priority,
+        rule.enabled ? 1 : 0,
+        JSON.stringify(rule.matcher),
+        JSON.stringify(rule.actions),
+        rule.createdAt || now,
+        now,
+        rule.lastAppliedAt,
+        rule.appliedCount,
+      ],
+    );
+    const rows = await db.select<RuleRow[]>("SELECT * FROM finance_rules WHERE id = $1", [id]);
+    return mapRule(rows[0]);
+  }
+
+  async deleteRule(id: string): Promise<void> {
+    const db = await this.getDb();
+    await db.execute("DELETE FROM finance_rules WHERE id = $1", [id]);
+  }
+
+  // --- merchant memory -----------------------------------------------------
+
+  async listMerchantMemory(
+    filters?: FinanceMerchantMemoryFilters,
+  ): Promise<FinanceMerchantMemoryEntry[]> {
+    const db = await this.getDb();
+    const rows = await db.select<MemoryRow[]>(
+      "SELECT * FROM finance_merchant_memory ORDER BY merchant_key, account_id, sign",
+    );
+    let entries = rows.map(mapMemory);
+    if (filters?.merchantKey) {
+      entries = entries.filter((entry) => entry.merchantKey === filters.merchantKey);
+    }
+    if (filters?.accountId !== undefined) {
+      entries = entries.filter((entry) => entry.accountId === filters.accountId);
+    }
+    return entries;
+  }
+
+  async getMerchantMemory(
+    merchantKey: string,
+    accountId: string,
+    sign: -1 | 0 | 1,
+  ): Promise<FinanceMerchantMemoryEntry | null> {
+    const db = await this.getDb();
+    const rows = await db.select<MemoryRow[]>(
+      "SELECT * FROM finance_merchant_memory WHERE merchant_key = $1 AND account_id = $2 AND sign = $3",
+      [merchantKey, accountId, sign],
+    );
+    return rows[0] ? mapMemory(rows[0]) : null;
+  }
+
+  async upsertMerchantMemory(
+    entry: FinanceMerchantMemoryEntry,
+  ): Promise<FinanceMerchantMemoryEntry> {
+    const db = await this.getDb();
+    await db.execute(
+      `INSERT INTO finance_merchant_memory (
+        merchant_key, account_id, sign, category_id, hit_count, correction_count, confidence,
+        source, last_applied_at, created_at, updated_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+      ON CONFLICT(merchant_key, account_id, sign) DO UPDATE SET
+        category_id = excluded.category_id,
+        hit_count = excluded.hit_count,
+        correction_count = excluded.correction_count,
+        confidence = excluded.confidence,
+        source = excluded.source,
+        last_applied_at = excluded.last_applied_at,
+        updated_at = excluded.updated_at`,
+      [
+        entry.merchantKey,
+        entry.accountId,
+        entry.sign,
+        entry.categoryId,
+        entry.hitCount,
+        entry.correctionCount,
+        entry.confidence,
+        entry.source,
+        entry.lastAppliedAt,
+        entry.createdAt,
+        entry.updatedAt,
+      ],
+    );
+    return entry;
+  }
+
+  async forgetMerchantMemory(
+    merchantKey: string,
+    accountId: string,
+    sign: -1 | 0 | 1,
+  ): Promise<void> {
+    const db = await this.getDb();
+    await db.execute(
+      "DELETE FROM finance_merchant_memory WHERE merchant_key = $1 AND account_id = $2 AND sign = $3",
+      [merchantKey, accountId, sign],
+    );
+  }
+
+  // --- transactions -------------------------------------------------------------
+
+  async listTransactions(filters: FinanceTransactionFilters = {}): Promise<FinanceTransaction[]> {
+    const db = await this.getDb();
+    const rows = await db.select<TransactionRow[]>(
+      "SELECT * FROM finance_transactions ORDER BY posted_date DESC, id DESC",
+    );
+    let transactions = rows.map(mapTransaction);
+
+    if (filters.dateFrom) {
+      transactions = transactions.filter((txn) => txn.postedDate >= filters.dateFrom!);
+    }
+    if (filters.dateTo) {
+      transactions = transactions.filter((txn) => txn.postedDate <= filters.dateTo!);
+    }
+    if (filters.accountIds && filters.accountIds.length > 0) {
+      const set = new Set(filters.accountIds);
+      transactions = transactions.filter((txn) => set.has(txn.accountId));
+    }
+    if (filters.categoryIds && filters.categoryIds.length > 0) {
+      const set = new Set(filters.categoryIds);
+      transactions = transactions.filter(
+        (txn) => txn.categoryId !== null && set.has(txn.categoryId),
+      );
+    }
+    if (filters.personIds && filters.personIds.length > 0) {
+      const set = new Set(filters.personIds);
+      transactions = transactions.filter((txn) => txn.personId !== null && set.has(txn.personId));
+    }
+    if (filters.search) {
+      const needle = filters.search.toLowerCase();
+      transactions = transactions.filter(
+        (txn) =>
+          txn.descriptionRaw.toLowerCase().includes(needle) ||
+          (txn.merchantDisplay ?? "").toLowerCase().includes(needle),
+      );
+    }
+    if (filters.uncategorizedOnly) {
+      transactions = transactions.filter(
+        (txn) => txn.categoryId === null || txn.categoryId === "fincat:non-categorise",
+      );
+    }
+    if (filters.includeTransfers === false) {
+      transactions = transactions.filter((txn) => !txn.isTransfer);
+    }
+    if (filters.offset) {
+      transactions = transactions.slice(filters.offset);
+    }
+    if (filters.limit !== undefined) {
+      transactions = transactions.slice(0, filters.limit);
+    }
+    return transactions;
+  }
+
+  async countTransactions(filters: FinanceTransactionFilters = {}): Promise<number> {
+    const { limit, offset, ...rest } = filters;
+    const transactions = await this.listTransactions(rest);
+    return transactions.length;
+  }
+
+  async getTransaction(id: string): Promise<FinanceTransaction | null> {
+    const db = await this.getDb();
+    const rows = await db.select<TransactionRow[]>(
+      "SELECT * FROM finance_transactions WHERE id = $1",
+      [id],
+    );
+    return rows[0] ? mapTransaction(rows[0]) : null;
+  }
+
+  async saveTransaction(txn: FinanceTransaction): Promise<FinanceTransaction> {
+    const db = await this.getDb();
+    const now = nowIso();
+    const id = txn.id || createEntityId("finance-txn");
+    await db.execute(
+      `INSERT INTO finance_transactions (
+        id, account_id, posted_date, amount_minor, currency, description_raw, description_original,
+        merchant_key, merchant_display, category_id, category_source, category_confidence,
+        categorized_at, person_id, notes, labels_json, pending, is_transfer, transfer_group_id,
+        excluded_from_budget, excluded_from_reports, has_splits, import_batch_id, dedupe_hash,
+        source_row_json, created_at, updated_at
+      ) VALUES (
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        account_id = excluded.account_id,
+        posted_date = excluded.posted_date,
+        amount_minor = excluded.amount_minor,
+        currency = excluded.currency,
+        description_raw = excluded.description_raw,
+        description_original = excluded.description_original,
+        merchant_key = excluded.merchant_key,
+        merchant_display = excluded.merchant_display,
+        category_id = excluded.category_id,
+        category_source = excluded.category_source,
+        category_confidence = excluded.category_confidence,
+        categorized_at = excluded.categorized_at,
+        person_id = excluded.person_id,
+        notes = excluded.notes,
+        labels_json = excluded.labels_json,
+        pending = excluded.pending,
+        is_transfer = excluded.is_transfer,
+        transfer_group_id = excluded.transfer_group_id,
+        excluded_from_budget = excluded.excluded_from_budget,
+        excluded_from_reports = excluded.excluded_from_reports,
+        has_splits = excluded.has_splits,
+        import_batch_id = excluded.import_batch_id,
+        dedupe_hash = excluded.dedupe_hash,
+        source_row_json = excluded.source_row_json,
+        updated_at = excluded.updated_at`,
+      [
+        id,
+        txn.accountId,
+        txn.postedDate,
+        txn.amountMinor,
+        txn.currency,
+        txn.descriptionRaw,
+        txn.descriptionOriginal,
+        txn.merchantKey,
+        txn.merchantDisplay,
+        txn.categoryId,
+        txn.categorySource,
+        txn.categoryConfidence,
+        txn.categorizedAt,
+        txn.personId,
+        txn.notes,
+        txn.labelsJson,
+        txn.pending ? 1 : 0,
+        txn.isTransfer ? 1 : 0,
+        txn.transferGroupId,
+        txn.excludedFromBudget ? 1 : 0,
+        txn.excludedFromReports ? 1 : 0,
+        txn.hasSplits ? 1 : 0,
+        txn.importBatchId,
+        txn.dedupeHash,
+        txn.sourceRowJson,
+        txn.createdAt || now,
+        now,
+      ],
+    );
+    const rows = await db.select<TransactionRow[]>(
+      "SELECT * FROM finance_transactions WHERE id = $1",
+      [id],
+    );
+    return mapTransaction(rows[0]);
+  }
+
+  async setTransactionCategory(
+    input: SetFinanceTransactionCategoryInput,
+  ): Promise<SetFinanceTransactionCategoryResult> {
+    const db = await this.getDb();
+    const now = nowIso();
+    const txn = await this.getTransaction(input.transactionId);
+    if (!txn) {
+      throw new Error(`finance transaction not found: ${input.transactionId}`);
+    }
+
+    await db.execute(
+      "UPDATE finance_transactions SET category_id = $2, category_source = 'user', category_confidence = NULL, categorized_at = $3, updated_at = $3 WHERE id = $1",
+      [input.transactionId, input.categoryId, now],
+    );
+
+    let updated = 1;
+    if (input.scope === "all_matching") {
+      const result = await db.execute(
+        "UPDATE finance_transactions SET category_id = $2, category_source = 'user', category_confidence = NULL, categorized_at = $3, updated_at = $3 WHERE merchant_key = $1 AND category_source != 'user' AND id != $4",
+        [txn.merchantKey, input.categoryId, now, input.transactionId],
+      );
+      updated += result.rowsAffected;
+    }
+
+    const sign: -1 | 0 | 1 = txn.amountMinor > 0 ? 1 : txn.amountMinor < 0 ? -1 : 0;
+    const existingMemory = await this.getMerchantMemory(txn.merchantKey, txn.accountId, sign);
+    const memory = applyMerchantMemoryCorrection({
+      existing: existingMemory,
+      merchantKey: txn.merchantKey,
+      accountId: txn.accountId,
+      sign,
+      categoryId: input.categoryId,
+      source: "user_correction",
+      now,
+    });
+    await this.upsertMerchantMemory(memory);
+
+    return { updated, memory };
+  }
+
+  async bulkUpdateTransactions(
+    ids: string[],
+    patch: BulkUpdateFinanceTransactionsPatch,
+  ): Promise<number> {
+    if (ids.length === 0) {
+      return 0;
+    }
+    const db = await this.getDb();
+    const now = nowIso();
+    let updated = 0;
+    for (const id of ids) {
+      const sets: string[] = [];
+      const params: unknown[] = [];
+      let index = 2;
+      if (patch.categoryId !== undefined) {
+        sets.push(`category_id = $${index}`);
+        params.push(patch.categoryId);
+        index += 1;
+        sets.push("category_source = 'user'");
+        sets.push(`categorized_at = $${index}`);
+        params.push(now);
+        index += 1;
+      }
+      if (patch.personId !== undefined) {
+        sets.push(`person_id = $${index}`);
+        params.push(patch.personId);
+        index += 1;
+      }
+      if (patch.excludedFromBudget !== undefined) {
+        sets.push(`excluded_from_budget = $${index}`);
+        params.push(patch.excludedFromBudget ? 1 : 0);
+        index += 1;
+      }
+      if (patch.excludedFromReports !== undefined) {
+        sets.push(`excluded_from_reports = $${index}`);
+        params.push(patch.excludedFromReports ? 1 : 0);
+        index += 1;
+      }
+      if (sets.length === 0) {
+        continue;
+      }
+      sets.push(`updated_at = $${index}`);
+      params.push(now);
+      const result = await db.execute(
+        `UPDATE finance_transactions SET ${sets.join(", ")} WHERE id = $1`,
+        [id, ...params],
+      );
+      updated += result.rowsAffected;
+    }
+    return updated;
+  }
+
+  async saveTransactionSplits(
+    transactionId: string,
+    splits: FinanceTransactionSplit[],
+  ): Promise<FinanceTransaction> {
+    const db = await this.getDb();
+    const now = nowIso();
+    const parent = await this.getTransaction(transactionId);
+    if (!parent) {
+      throw new Error(`finance transaction not found: ${transactionId}`);
+    }
+    validateSplitTotal(parent.amountMinor, splits);
+
+    await this.inTransaction(db, async () => {
+      await db.execute("DELETE FROM finance_transaction_splits WHERE transaction_id = $1", [
+        transactionId,
+      ]);
+
+      for (const [index, split] of splits.entries()) {
+        const id = split.id || createEntityId("finance-split");
+        await db.execute(
+          `INSERT INTO finance_transaction_splits (
+            id, transaction_id, amount_minor, category_id, notes, sort_order, created_at
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [id, transactionId, split.amountMinor, split.categoryId, split.notes, index, now],
+        );
+      }
+
+      // Removing the final split must not leave the internal split category behind.
+      await db.execute(
+        `UPDATE finance_transactions SET
+          has_splits = $2,
+          category_id = CASE
+            WHEN $2 = 1 THEN 'fincat:split'
+            WHEN category_id = 'fincat:split' THEN 'fincat:non-categorise'
+            ELSE category_id END,
+          category_source = CASE
+            WHEN $2 = 1 THEN 'user'
+            WHEN category_id = 'fincat:split' THEN 'default'
+            ELSE category_source END,
+          category_confidence = CASE
+            WHEN $2 = 1 OR category_id = 'fincat:split' THEN NULL
+            ELSE category_confidence END,
+          updated_at = $3
+        WHERE id = $1`,
+        [transactionId, splits.length > 0 ? 1 : 0, now],
+      );
+    });
+
+    const txn = await this.getTransaction(transactionId);
+    if (!txn) {
+      throw new Error(`finance transaction not found: ${transactionId}`);
+    }
+    return txn;
+  }
+
+  async listTransactionSplits(transactionId: string): Promise<FinanceTransactionSplit[]> {
+    const db = await this.getDb();
+    const rows = await db.select<SplitRow[]>(
+      "SELECT * FROM finance_transaction_splits WHERE transaction_id = $1 ORDER BY sort_order",
+      [transactionId],
+    );
+    return rows.map(mapSplit);
+  }
+
+  async setTransfer(pair: SetFinanceTransferPair | null, groupId?: string): Promise<void> {
+    const db = await this.getDb();
+    const now = nowIso();
+
+    if (pair === null) {
+      return;
+    }
+
+    const resolvedGroupId =
+      groupId ?? `transfer:${[pair.transactionIdA, pair.transactionIdB].sort().join(":")}`;
+
+    for (const id of [pair.transactionIdA, pair.transactionIdB]) {
+      await db.execute(
+        `UPDATE finance_transactions SET
+          is_transfer = 1,
+          transfer_group_id = $2,
+          category_id = 'fincat:transfert',
+          category_source = 'rule',
+          excluded_from_budget = 1,
+          updated_at = $3
+        WHERE id = $1`,
+        [id, resolvedGroupId, now],
+      );
+    }
+  }
+
+  async clearTransfer(transactionId: string): Promise<void> {
+    const db = await this.getDb();
+    const now = nowIso();
+    await db.execute(
+      `UPDATE finance_transactions SET
+        is_transfer = 0,
+        transfer_group_id = NULL,
+        category_id = 'fincat:non-categorise',
+        category_source = 'default',
+        excluded_from_budget = 0,
+        updated_at = $2
+      WHERE id = $1`,
+      [transactionId, now],
+    );
+  }
+
+  // --- import profiles -------------------------------------------------------------
+
+  async listImportProfiles(): Promise<FinanceImportProfile[]> {
+    const db = await this.getDb();
+    const rows = await db.select<ImportProfileRow[]>(
+      "SELECT * FROM finance_import_profiles ORDER BY name",
+    );
+    return rows.map(mapImportProfile);
+  }
+
+  async saveImportProfile(profile: FinanceImportProfile): Promise<FinanceImportProfile> {
+    const db = await this.getDb();
+    const now = nowIso();
+    const id = profile.id || createEntityId("finance-import-profile");
+    await db.execute(
+      `INSERT INTO finance_import_profiles (
+        id, name, signature, column_map_json, date_format, amount_mode, sign_convention,
+        default_account_id, created_at, updated_at, last_used_at,
+        decimal_separator, thousands_separator
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        signature = excluded.signature,
+        column_map_json = excluded.column_map_json,
+        date_format = excluded.date_format,
+        amount_mode = excluded.amount_mode,
+        sign_convention = excluded.sign_convention,
+        decimal_separator = excluded.decimal_separator,
+        thousands_separator = excluded.thousands_separator,
+        default_account_id = excluded.default_account_id,
+        updated_at = excluded.updated_at,
+        last_used_at = excluded.last_used_at`,
+      [
+        id,
+        profile.name,
+        profile.signature,
+        JSON.stringify(profile.columnMap),
+        profile.dateFormat,
+        profile.amountMode,
+        profile.signConvention,
+        profile.defaultAccountId,
+        profile.createdAt || now,
+        now,
+        profile.lastUsedAt,
+        profile.decimalSeparator ?? null,
+        profile.thousandsSeparator ?? null,
+      ],
+    );
+    const rows = await db.select<ImportProfileRow[]>(
+      "SELECT * FROM finance_import_profiles WHERE id = $1",
+      [id],
+    );
+    return mapImportProfile(rows[0]);
+  }
+
+  async findImportProfileBySignature(signature: string): Promise<FinanceImportProfile | null> {
+    const db = await this.getDb();
+    const rows = await db.select<ImportProfileRow[]>(
+      "SELECT * FROM finance_import_profiles WHERE signature = $1",
+      [signature],
+    );
+    return rows[0] ? mapImportProfile(rows[0]) : null;
+  }
+
+  // --- import batches -------------------------------------------------------------
+
+  async listImportBatches(limit?: number): Promise<FinanceImportBatch[]> {
+    const db = await this.getDb();
+    const rows = await db.select<ImportBatchRow[]>(
+      "SELECT * FROM finance_import_batches ORDER BY started_at DESC",
+    );
+    const batches = rows.map(mapImportBatch);
+    return limit !== undefined ? batches.slice(0, limit) : batches;
+  }
+
+  // --- import (single transaction; see specs/todo/finance.md "Write-path discipline") --------
+
+  /**
+   * Inserts `input.rows` as one batch: chunked multi-row INSERTs with
+   * `ON CONFLICT(account_id, dedupe_hash) DO NOTHING`, near-duplicate detection
+   * against existing rows, transfer detection across the whole history, and a
+   * written `finance_import_batches` row. Called from
+   * `TauriSqliteRepository.importFinanceTransactions`, already inside one
+   * `writeExclusive` block — this method issues its own `BEGIN IMMEDIATE`/`COMMIT`
+   * and must never call another queue-taking repository method.
+   */
+  async importTransactions(input: FinanceImportRequest): Promise<FinanceImportSummary> {
+    const db = await this.getDb();
+    const now = nowIso();
+    const batchId = createEntityId("finance-import-batch");
+
+    await db.execute("BEGIN IMMEDIATE");
+    try {
+      await db.execute(
+        `INSERT INTO finance_import_batches (
+          id, profile_id, file_name, file_hash, account_id, row_count, imported_count,
+          duplicate_count, skipped_count, error_count, status, error_summary, started_at, finished_at
+        ) VALUES ($1,$2,$3,$4,$5,$6,0,0,0,0,'running',NULL,$7,NULL)`,
+        [
+          batchId,
+          input.profileId,
+          input.fileName,
+          input.fileHash,
+          input.accountId,
+          input.rows.length,
+          now,
+        ],
+      );
+
+      const occurrenceIndices = assignOccurrenceIndices(input.rows);
+      const prepared = input.rows.map((row, index) => ({
+        row,
+        occurrenceIndex: occurrenceIndices[index],
+        dedupeHash: computeDedupeHash({
+          accountId: row.accountId,
+          postedDate: row.postedDate,
+          amountMinor: row.amountMinor,
+          currency: row.currency,
+          descriptionRaw: row.descriptionRaw,
+          occurrenceIndex: occurrenceIndices[index],
+        }),
+        id: createEntityId("finance-txn"),
+      }));
+
+      let imported = 0;
+      let duplicates = 0;
+      const warnings: string[] = [];
+
+      for (let start = 0; start < prepared.length; start += IMPORT_CHUNK_SIZE) {
+        const chunk = prepared.slice(start, start + IMPORT_CHUNK_SIZE);
+        const valuesSql: string[] = [];
+        const params: unknown[] = [];
+        let paramIndex = 1;
+
+        for (const item of chunk) {
+          const placeholders = Array.from({ length: 18 }, () => `$${paramIndex++}`).join(",");
+          valuesSql.push(`(${placeholders})`);
+          params.push(
+            item.id,
+            item.row.accountId,
+            item.row.postedDate,
+            item.row.amountMinor,
+            item.row.currency,
+            item.row.descriptionRaw,
+            item.row.descriptionOriginal,
+            item.row.merchantKey,
+            "fincat:non-categorise",
+            "default",
+            item.row.personId,
+            item.row.notes,
+            item.row.labelsJson,
+            batchId,
+            item.dedupeHash,
+            item.row.sourceRowJson,
+            now,
+            now,
+          );
+        }
+
+        const beforeCount = (
+          await db.select<Array<{ count: number }>>(
+            "SELECT COUNT(*) as count FROM finance_transactions WHERE import_batch_id = $1",
+            [batchId],
+          )
+        )[0].count;
+
+        await db.execute(
+          `INSERT INTO finance_transactions (
+            id, account_id, posted_date, amount_minor, currency, description_raw,
+            description_original, merchant_key, category_id, category_source, person_id,
+            notes, labels_json, import_batch_id, dedupe_hash, source_row_json, created_at, updated_at
+          ) VALUES ${valuesSql.join(",")}
+          ON CONFLICT(account_id, dedupe_hash) DO NOTHING`,
+          params,
+        );
+
+        const afterCount = (
+          await db.select<Array<{ count: number }>>(
+            "SELECT COUNT(*) as count FROM finance_transactions WHERE import_batch_id = $1",
+            [batchId],
+          )
+        )[0].count;
+
+        const insertedThisChunk = afterCount - beforeCount;
+        imported += insertedThisChunk;
+        duplicates += chunk.length - insertedThisChunk;
+      }
+
+      // Near-duplicate pass: compare this batch's newly inserted rows against
+      // everything else in the same accounts (excluding this batch itself).
+      const insertedRows = await db.select<TransactionRow[]>(
+        "SELECT * FROM finance_transactions WHERE import_batch_id = $1",
+        [batchId],
+      );
+      const accountIds = [...new Set(insertedRows.map((row) => row.account_id))];
+      const existingCandidates: TransactionRow[] =
+        accountIds.length > 0
+          ? await db.select<TransactionRow[]>(
+              `SELECT * FROM finance_transactions
+               WHERE (import_batch_id IS NULL OR import_batch_id != $1)
+                 AND account_id IN (${accountIds.map((_, index) => `$${index + 2}`).join(",")})`,
+              [batchId, ...accountIds],
+            )
+          : [];
+
+      const nearDuplicateMatches = findNearDuplicates(
+        insertedRows.map((row) => ({
+          id: row.id,
+          accountId: row.account_id,
+          postedDate: row.posted_date,
+          amountMinor: row.amount_minor,
+          descriptionRaw: row.description_raw,
+        })),
+        existingCandidates.map((row) => ({
+          id: row.id,
+          accountId: row.account_id,
+          postedDate: row.posted_date,
+          amountMinor: row.amount_minor,
+          descriptionRaw: row.description_raw,
+        })),
+      );
+
+      if (nearDuplicateMatches.length > 0) {
+        warnings.push(
+          `${nearDuplicateMatches.length} transaction(s) look like a near-duplicate of an existing row (pending/posted drift) and were kept for review.`,
+        );
+      }
+
+      // Transfer detection across the whole history, not just this batch.
+      const accountOnBudgetByAccountId = new Map<string, boolean>();
+      const allAccounts = await db.select<Array<{ id: string; on_budget: number }>>(
+        "SELECT id, on_budget FROM finance_accounts",
+      );
+      for (const account of allAccounts) {
+        accountOnBudgetByAccountId.set(account.id, Boolean(account.on_budget));
+      }
+
+      const allTransactions = await db.select<TransactionRow[]>(
+        "SELECT * FROM finance_transactions",
+      );
+      // A user-categorized row is never re-categorized by any automatic stage, including
+      // transfer detection — exclude it from the candidate set entirely so it can neither be
+      // paired nor relabeled (see specs/todo/finance.md "Classification order").
+      const candidates: TransferCandidateTransaction[] = allTransactions
+        .filter((row) => row.category_source !== "user")
+        .map((row) => ({
+          id: row.id,
+          accountId: row.account_id,
+          amountMinor: row.amount_minor,
+          currency: row.currency,
+          postedDate: row.posted_date,
+          descriptionRaw: row.description_raw,
+          isTransfer: Boolean(row.is_transfer),
+          transferGroupId: row.transfer_group_id,
+          excludedFromBudget: Boolean(row.excluded_from_budget),
+          accountOnBudget: accountOnBudgetByAccountId.get(row.account_id) ?? true,
+        }));
+
+      const transferActions = detectTransfers(candidates);
+      let transfersDetected = 0;
+      let pendingSuggestions = 0;
+
+      for (const action of transferActions) {
+        if (action.type === "matched_pair") {
+          transfersDetected += 1;
+          for (const leg of [action.legA, action.legB]) {
+            await db.execute(
+              `UPDATE finance_transactions SET
+                is_transfer = 1,
+                transfer_group_id = $2,
+                category_id = $3,
+                category_source = $4,
+                excluded_from_budget = $5,
+                updated_at = $6
+              WHERE id = $1`,
+              [
+                leg.transactionId,
+                action.transferGroupId,
+                leg.outcome.categoryId,
+                leg.outcome.categorySource,
+                leg.outcome.excludedFromBudget ? 1 : 0,
+                now,
+              ],
+            );
+            if (leg.outcome.pendingSuggestion) {
+              pendingSuggestions += 1;
+              await this.insertPendingSuggestionWithDb(db, {
+                transactionId: leg.transactionId,
+                suggestedCategoryId: leg.outcome.categoryId,
+                origin: "memory",
+                now,
+              });
+            }
+          }
+        } else {
+          await db.execute(
+            `UPDATE finance_transactions SET
+              is_transfer = 1,
+              category_id = $2,
+              category_source = $3,
+              excluded_from_budget = $4,
+              updated_at = $5
+            WHERE id = $1`,
+            [
+              action.transactionId,
+              action.outcome.categoryId,
+              action.outcome.categorySource,
+              action.outcome.excludedFromBudget ? 1 : 0,
+              now,
+            ],
+          );
+          if (action.outcome.pendingSuggestion) {
+            pendingSuggestions += 1;
+            await this.insertPendingSuggestionWithDb(db, {
+              transactionId: action.transactionId,
+              suggestedCategoryId: action.outcome.categoryId,
+              origin: "memory",
+              now,
+            });
+          }
+        }
+      }
+
+      const skipped = 0;
+      const errors = 0;
+
+      await db.execute(
+        `UPDATE finance_import_batches SET
+          imported_count = $2,
+          duplicate_count = $3,
+          skipped_count = $4,
+          error_count = $5,
+          status = 'completed',
+          finished_at = $6
+        WHERE id = $1`,
+        [batchId, imported, duplicates, skipped, errors, now],
+      );
+
+      await db.execute("COMMIT");
+
+      return {
+        batchId,
+        rowCount: input.rows.length,
+        imported,
+        duplicates,
+        skipped,
+        errors,
+        newAccounts: 0,
+        transfersDetected,
+        pendingSuggestions,
+        warnings,
+        nearDuplicates: nearDuplicateMatches.map((match) => ({
+          transactionId: match.candidateId,
+          existingTransactionId: match.existingId,
+          similarity: match.similarity,
+          dateDiffDays: match.dateDiffDays,
+        })),
+      };
+    } catch (error) {
+      await this.rollbackQuietly(db);
+      throw error;
+    }
+  }
+
+  private async insertPendingSuggestionWithDb(
+    db: Database,
+    input: {
+      transactionId: string;
+      suggestedCategoryId: string;
+      origin: "memory" | "seed" | "ai";
+      now: string;
+    },
+  ): Promise<void> {
+    const txnRows = await db.select<Array<{ merchant_key: string }>>(
+      "SELECT merchant_key FROM finance_transactions WHERE id = $1",
+      [input.transactionId],
+    );
+    const merchantKey = txnRows[0]?.merchant_key ?? "";
+    const existingPending = await db.select<Array<{ id: string }>>(
+      "SELECT id FROM finance_category_suggestions WHERE transaction_id = $1 AND status = 'pending'",
+      [input.transactionId],
+    );
+    if (existingPending.length > 0) {
+      return;
+    }
+    await db.execute(
+      `INSERT INTO finance_category_suggestions (
+        id, transaction_id, merchant_key, suggested_category_id, confidence, origin, rationale,
+        model, prompt_version, status, decided_at, created_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,NULL,NULL,NULL,'pending',NULL,$7)`,
+      [
+        createEntityId("finance-suggestion"),
+        input.transactionId,
+        merchantKey,
+        input.suggestedCategoryId,
+        0.5,
+        input.origin,
+        input.now,
+      ],
+    );
+  }
+
+  /**
+   * Restricted to the most recent batch for the batch's account (see
+   * specs/todo/finance.md "Overlapping exports"). One `writeExclusive` block at
+   * the repository level; this method issues its own `BEGIN IMMEDIATE`/`COMMIT`.
+   */
+  async undoImportBatch(batchId: string): Promise<UndoFinanceImportBatchResult> {
+    const db = await this.getDb();
+    const now = nowIso();
+
+    await db.execute("BEGIN IMMEDIATE");
+    try {
+      const batchRows = await db.select<ImportBatchRow[]>(
+        "SELECT * FROM finance_import_batches WHERE id = $1",
+        [batchId],
+      );
+      const batch = batchRows[0];
+      if (!batch) {
+        throw new Error(`finance import batch not found: ${batchId}`);
+      }
+
+      const batchTransactionRows = await db.select<TransactionRow[]>(
+        "SELECT * FROM finance_transactions WHERE import_batch_id = $1",
+        [batchId],
+      );
+
+      // A batch may contain rows for several accounts; none of them may be covered by a newer
+      // batch, otherwise undoing would punch a hole in that account's history.
+      const accountIds = new Set<string>(batchTransactionRows.map((row) => row.account_id));
+      if (batch.account_id) {
+        accountIds.add(batch.account_id);
+      }
+      for (const accountId of accountIds) {
+        const mostRecentRows = await db.select<Array<{ id: string }>>(
+          `SELECT id FROM finance_import_batches
+           WHERE account_id = $1
+           ORDER BY started_at DESC, rowid DESC
+           LIMIT 1`,
+          [accountId],
+        );
+        const mostRecentId = mostRecentRows[0]?.id;
+        if (mostRecentId !== undefined && mostRecentId !== batchId) {
+          throw new Error(
+            `undoFinanceImportBatch is restricted to the most recent batch for account ${accountId}`,
+          );
+        }
+      }
+
+      let deleted = 0;
+      let refusedUserCategorized = 0;
+
+      for (const row of batchTransactionRows) {
+        if (row.category_source === "user") {
+          refusedUserCategorized += 1;
+          continue;
+        }
+
+        await db.execute("DELETE FROM finance_transaction_splits WHERE transaction_id = $1", [
+          row.id,
+        ]);
+        await db.execute("DELETE FROM finance_category_suggestions WHERE transaction_id = $1", [
+          row.id,
+        ]);
+
+        if (row.transfer_group_id) {
+          const partnerRows = await db.select<TransactionRow[]>(
+            "SELECT * FROM finance_transactions WHERE transfer_group_id = $1 AND id != $2",
+            [row.transfer_group_id, row.id],
+          );
+          for (const partner of partnerRows) {
+            if (partner.category_source === "user") {
+              // Keep the user's category, provenance, and exclusions; only drop the dead link.
+              await db.execute(
+                `UPDATE finance_transactions SET
+                  is_transfer = 0,
+                  transfer_group_id = NULL,
+                  updated_at = $2
+                WHERE id = $1`,
+                [partner.id, now],
+              );
+              continue;
+            }
+            await db.execute(
+              `UPDATE finance_transactions SET
+                is_transfer = 0,
+                transfer_group_id = NULL,
+                category_id = 'fincat:non-categorise',
+                category_source = 'default',
+                excluded_from_budget = 0,
+                updated_at = $2
+              WHERE id = $1`,
+              [partner.id, now],
+            );
+            // A partial unique index allows only one pending suggestion per transaction; clear
+            // any stale one before restoring the pending suggestion this repair implies.
+            await db.execute(
+              "DELETE FROM finance_category_suggestions WHERE transaction_id = $1 AND status = 'pending'",
+              [partner.id],
+            );
+            await db.execute(
+              `INSERT INTO finance_category_suggestions (
+                id, transaction_id, merchant_key, suggested_category_id, confidence, origin,
+                rationale, model, prompt_version, status, decided_at, created_at
+              ) VALUES ($1,$2,$3,'fincat:non-categorise',0.5,'memory',NULL,NULL,NULL,'pending',NULL,$4)`,
+              [createEntityId("finance-suggestion"), partner.id, partner.merchant_key, now],
+            );
+          }
+        }
+
+        await db.execute("DELETE FROM finance_transactions WHERE id = $1", [row.id]);
+        deleted += 1;
+      }
+
+      await db.execute("COMMIT");
+      return { deleted, refusedUserCategorized };
+    } catch (error) {
+      await this.rollbackQuietly(db);
+      throw error;
+    }
+  }
+
+  // --- category suggestions -------------------------------------------------------------
+
+  async listCategorySuggestions(
+    status?: FinanceCategorySuggestion["status"],
+    limit?: number,
+  ): Promise<FinanceCategorySuggestion[]> {
+    const db = await this.getDb();
+    const rows = await db.select<SuggestionRow[]>(
+      "SELECT * FROM finance_category_suggestions ORDER BY created_at DESC",
+    );
+    let suggestions = rows.map(mapSuggestion);
+    if (status) {
+      suggestions = suggestions.filter((suggestion) => suggestion.status === status);
+    }
+    return limit !== undefined ? suggestions.slice(0, limit) : suggestions;
+  }
+
+  async saveCategorySuggestions(
+    suggestions: FinanceCategorySuggestion[],
+  ): Promise<FinanceCategorySuggestion[]> {
+    const db = await this.getDb();
+    const now = nowIso();
+    const saved: FinanceCategorySuggestion[] = [];
+    for (const suggestion of suggestions) {
+      const id = suggestion.id || createEntityId("finance-suggestion");
+      await db.execute(
+        `INSERT INTO finance_category_suggestions (
+          id, transaction_id, merchant_key, suggested_category_id, confidence, origin, rationale,
+          model, prompt_version, status, decided_at, created_at
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        ON CONFLICT(id) DO UPDATE SET
+          suggested_category_id = excluded.suggested_category_id,
+          confidence = excluded.confidence,
+          rationale = excluded.rationale,
+          status = excluded.status,
+          decided_at = excluded.decided_at`,
+        [
+          id,
+          suggestion.transactionId,
+          suggestion.merchantKey,
+          suggestion.suggestedCategoryId,
+          suggestion.confidence,
+          suggestion.origin,
+          suggestion.rationale,
+          suggestion.model,
+          suggestion.promptVersion,
+          suggestion.status,
+          suggestion.decidedAt,
+          suggestion.createdAt || now,
+        ],
+      );
+      const rows = await db.select<SuggestionRow[]>(
+        "SELECT * FROM finance_category_suggestions WHERE id = $1",
+        [id],
+      );
+      saved.push(mapSuggestion(rows[0]));
+    }
+    return saved;
+  }
+
+  async decideCategorySuggestion(
+    id: string,
+    decision: DecideFinanceCategorySuggestionInput,
+  ): Promise<FinanceCategorySuggestion> {
+    const db = await this.getDb();
+    const now = nowIso();
+
+    const beforeRows = await db.select<SuggestionRow[]>(
+      "SELECT * FROM finance_category_suggestions WHERE id = $1",
+      [id],
+    );
+    const before = beforeRows[0];
+    if (!before) {
+      throw new Error(`finance category suggestion not found: ${id}`);
+    }
+
+    await db.execute(
+      "UPDATE finance_category_suggestions SET status = $2, decided_at = $3 WHERE id = $1",
+      [id, decision.status, now],
+    );
+
+    if (decision.status === "accepted" || decision.status === "corrected") {
+      await this.setTransactionCategory({
+        transactionId: before.transaction_id,
+        categoryId: decision.categoryId ?? before.suggested_category_id,
+        scope: "this",
+      });
+    }
+
+    return mapSuggestion({ ...before, status: decision.status, decided_at: now });
+  }
+
+  /** Runs `work` in one BEGIN IMMEDIATE/COMMIT; callers must already hold the repository writer. */
+  private async inTransaction<T>(db: Database, work: () => Promise<T>): Promise<T> {
+    await db.execute("BEGIN IMMEDIATE");
+    try {
+      const result = await work();
+      await db.execute("COMMIT");
+      return result;
+    } catch (error) {
+      await this.rollbackQuietly(db);
+      throw error;
+    }
+  }
+
+  private async rollbackQuietly(db: Database): Promise<void> {
+    try {
+      await db.execute("ROLLBACK");
+    } catch {
+      // Best effort; the original error is what the caller surfaces.
+    }
+  }
+}

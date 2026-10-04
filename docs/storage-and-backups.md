@@ -203,6 +203,8 @@ its existing idempotent `dimancheNotesRelocatedAt` marker.
 | 34 | `add_weekly_objective_ends_on_week_start_date` | Adds nullable `ends_on_week_start_date` to `weekly_objectives` (last week a manual objective still counts; marking it achieved sets this to the previous Sunday) |
 | 35 | `create_rescuetime_snapshot_cache` | Creates `rescuetime_snapshot_cache` (`week_start_date`, `kind`, `credential_fingerprint`, `payload_json`, `fetched_at`; primary key on the first three) |
 | 36 | `create_mid_week_decisions` | Creates `mid_week_decisions` (one row per week: decisions text, `decided_on_date`, nullable `lagging_snapshot_json`, `updated_at`) |
+| 37 | `add_finance_foundation` | Creates the fourteen `finance_*` tables (people, accounts, categories, transactions, transaction splits, rules, merchant memory, category suggestions, budget entries/months, recurring series, account balance snapshots, import profiles, import batches) and their indexes; inserts the three system categories (`fincat:non-categorise`, `fincat:transfert`, `fincat:split`) |
+| 38 | `add_finance_import_profile_separators` | Adds nullable `decimal_separator` / `thousands_separator` columns to `finance_import_profiles` via guarded, idempotent `ALTER TABLE` |
 
 ## Table reference
 
@@ -372,6 +374,40 @@ OS vault commands (`vault_*` in `src-tauri/src/vault.rs`) can store a dedicated
 classifier key and provider credentials outside SQLite. This slice exposes the
 commands but does not write secrets from the UI.
 
+### Finance tables
+
+Migration 37 is purely additive (no `ALTER TABLE` on any existing table) and creates
+every `finance_*` table in one migration, matching the email triage precedent. See
+[finance.md](finance.md) for the full data model and repository contract; this is the
+storage-layer summary.
+
+- `finance_people`, `finance_accounts`, `finance_categories`: household, account, and
+  category taxonomy. `finance_accounts.external_key` is a nullable unique column
+  binding an imported file's account label to an account.
+- `finance_transactions`: one row per transaction, `UNIQUE(account_id, dedupe_hash)` so
+  re-importing the same file inserts nothing. `category_source = 'user'` is never
+  touched by any automatic stage.
+- `finance_transaction_splits`: a transaction's amount, split across categories; the
+  parent keeps the full amount and reports expand splits when present.
+- `finance_rules`, `finance_merchant_memory`, `finance_category_suggestions`: the
+  classification/learning loop's inputs and pending-review queue. A partial unique
+  index keeps at most one pending suggestion per transaction.
+- `finance_budget_entries`, `finance_budget_months`: YNAB-style envelope assignments
+  and advisory month-close state (Phase 5; schema ships now, no arithmetic yet).
+- `finance_recurring_series`, `finance_account_balance_snapshots`: recurring-bill
+  detection and daily balance history (Phase 6/7; schema ships now).
+- `finance_import_profiles`, `finance_import_batches`: saved column-mapping profiles
+  (unique by header signature) and one row per import run, used by
+  `undoFinanceImportBatch`.
+
+The three system categories (`fincat:non-categorise`, `fincat:transfert`,
+`fincat:split`) are inserted by migration 37 itself, because engine code
+hard-references those ids. The deterministic default French taxonomy
+(`fincat:alimentation`, …) is **not** in the migration: `src/lib/finance/default-categories.ts`
+holds the fixed-id list, seeded idempotently (`INSERT OR IGNORE`) through
+`seedFinanceDefaultCategories()` on both repositories, gated on
+`AppSettings.financeCategoriesSeededAt`.
+
 ## Backup behavior
 
 Backups require a destination folder stored in `AppSettings.backupDestinationDir`.
@@ -412,6 +448,12 @@ settings JSON (OpenRouter and RescueTime keys). Distilled personal statements in
 in the same table — no migration was needed to add that surface, since `surface` is
 `TEXT NOT NULL` without a `CHECK` constraint. The checked-in `verses.json` catalog
 itself lives in the repository, not in SQLite, so it is not part of a backup.
+
+Finance data (`finance_*` tables) lives only in the local SQLite file and is
+therefore included in every `VACUUM INTO` backup like any other table. There is no
+separate finance export or redaction step. Because an import is the largest single
+write the app has ever performed and there is no restore-from-backup UI, take a
+manual backup from Settings before the first real import.
 
 Automatic backups:
 

@@ -281,3 +281,115 @@ export interface FinanceImportBatch {
   startedAt: string;
   finishedAt: string | null;
 }
+
+// Repository-facing request/response/filter shapes (Phase 2). Mirrors the
+// "Repository methods" section of specs/todo/finance.md.
+
+export interface FinanceAccountFilters {
+  includeClosed?: boolean;
+  onBudgetOnly?: boolean;
+  ownerPersonId?: string | null;
+}
+
+export interface FinanceMerchantMemoryFilters {
+  merchantKey?: string;
+  accountId?: string;
+}
+
+export interface FinanceTransactionFilters {
+  dateFrom?: string;
+  dateTo?: string;
+  accountIds?: string[];
+  categoryIds?: string[];
+  personIds?: string[];
+  search?: string;
+  uncategorizedOnly?: boolean;
+  includeTransfers?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export type FinanceTransactionCategoryScope = "this" | "this_and_future" | "all_matching";
+
+export interface SetFinanceTransactionCategoryInput {
+  transactionId: string;
+  categoryId: string;
+  scope: FinanceTransactionCategoryScope;
+}
+
+export interface SetFinanceTransactionCategoryResult {
+  updated: number;
+  memory: FinanceMerchantMemoryEntry | null;
+}
+
+export interface BulkUpdateFinanceTransactionsPatch {
+  categoryId?: string;
+  personId?: string | null;
+  excludedFromBudget?: boolean;
+  excludedFromReports?: boolean;
+}
+
+export interface SetFinanceTransferPair {
+  transactionIdA: string;
+  transactionIdB: string;
+}
+
+/** One already-mapped CSV row, ready for insertion (parsing/mapping is Phase 1/3). */
+export interface FinanceImportRow {
+  accountId: string;
+  postedDate: string;
+  amountMinor: number;
+  currency: string;
+  descriptionRaw: string;
+  descriptionOriginal: string | null;
+  merchantKey: string;
+  categoryHint: string | null;
+  personId: string | null;
+  notes: string | null;
+  labelsJson: string | null;
+  sourceRowJson: string | null;
+}
+
+export interface FinanceImportRequest {
+  /** The batch's primary account, used for the batch row and undo scoping. */
+  accountId: string;
+  profileId: string | null;
+  fileName: string;
+  fileHash: string;
+  rows: FinanceImportRow[];
+}
+
+export interface FinanceImportNearDuplicate {
+  transactionId: string;
+  existingTransactionId: string;
+  similarity: number;
+  dateDiffDays: number;
+}
+
+export interface FinanceImportSummary {
+  batchId: string;
+  rowCount: number;
+  imported: number;
+  duplicates: number;
+  skipped: number;
+  errors: number;
+  newAccounts: number;
+  transfersDetected: number;
+  pendingSuggestions: number;
+  warnings: string[];
+  nearDuplicates: FinanceImportNearDuplicate[];
+}
+
+export interface DecideFinanceCategorySuggestionInput {
+  status: Exclude<FinanceCategorySuggestionStatus, "pending">;
+  categoryId?: string;
+}
+
+/**
+ * `deleted` is rows actually removed; `refusedUserCategorized` is rows the undo left alone
+ * because `category_source = 'user'` (see specs/todo/finance.md "Overlapping exports").
+ */
+export interface UndoFinanceImportBatchResult {
+  deleted: number;
+  refusedUserCategorized: number;
+}

@@ -3,6 +3,13 @@ import { applyCoachProposal, type ProposalApplyContext } from "../ai/proposals/a
 import { gtdAcceptEffectFromProposal } from "../ai/proposals/accept-effect";
 import { afterEach, vi } from "vitest";
 import { createEmptyDailyEntry, defaultAppSettings } from "../../domain/daily-entry";
+import type {
+  FinanceAccount,
+  FinanceImportRow,
+  FinancePerson,
+  FinanceTransaction,
+  FinanceTransactionSplit,
+} from "../../domain/finance";
 import { createEmptyMonthlyReview } from "../../domain/monthly-review";
 import type { MidWeekLaggingSnapshot } from "../../domain/mid-week-review";
 import type { CatalogVerse, RescueTimeSnapshotCacheEntry } from "../../domain/types";
@@ -2781,6 +2788,905 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           laggingSnapshot: snapshot(),
           updatedAt: "2026-08-07T10:00:00.000Z",
         });
+      });
+    });
+
+    describe("finance", () => {
+      const person = (overrides: Partial<FinancePerson> = {}): FinancePerson => ({
+        id: "",
+        displayName: "Alex",
+        color: null,
+        archived: false,
+        createdAt: "",
+        updatedAt: "",
+        ...overrides,
+      });
+
+      const account = (overrides: Partial<FinanceAccount> = {}): FinanceAccount => ({
+        id: "",
+        name: "Compte chèques",
+        institution: null,
+        type: "checking",
+        currency: "CAD",
+        ownerPersonId: null,
+        ownership: "individual",
+        onBudget: true,
+        closed: false,
+        openingBalanceMinor: 0,
+        currentBalanceMinor: null,
+        balanceAsOf: null,
+        externalKey: null,
+        notes: null,
+        sortOrder: 0,
+        createdAt: "",
+        updatedAt: "",
+        ...overrides,
+      });
+
+      const buildFinanceTransaction = (
+        overrides: Partial<FinanceTransaction> = {},
+      ): FinanceTransaction => ({
+        id: "",
+        accountId: "account-1",
+        postedDate: "2026-04-01",
+        amountMinor: -1234,
+        currency: "CAD",
+        descriptionRaw: "IGA MONTREAL",
+        descriptionOriginal: null,
+        merchantKey: "IGA MONTREAL",
+        merchantDisplay: null,
+        categoryId: "fincat:non-categorise",
+        categorySource: "default",
+        categoryConfidence: null,
+        categorizedAt: null,
+        personId: null,
+        notes: null,
+        labelsJson: null,
+        pending: false,
+        isTransfer: false,
+        transferGroupId: null,
+        excludedFromBudget: false,
+        excludedFromReports: false,
+        hasSplits: false,
+        importBatchId: null,
+        dedupeHash: `dedupe-${overrides.id ?? Math.random()}`,
+        sourceRowJson: null,
+        createdAt: "",
+        updatedAt: "",
+        ...overrides,
+      });
+
+      const importRow = (overrides: Partial<FinanceImportRow> = {}): FinanceImportRow => ({
+        accountId: "account-1",
+        postedDate: "2026-04-01",
+        amountMinor: -1234,
+        currency: "CAD",
+        descriptionRaw: "IGA MONTREAL",
+        descriptionOriginal: null,
+        merchantKey: "IGA MONTREAL",
+        categoryHint: null,
+        personId: null,
+        notes: null,
+        labelsJson: null,
+        sourceRowJson: null,
+        ...overrides,
+      });
+
+      it("creates a person and an account", async () => {
+        const repository = await factory();
+        const savedPerson = await repository.saveFinancePerson(person());
+        const savedAccount = await repository.saveFinanceAccount(
+          account({ ownerPersonId: savedPerson.id }),
+        );
+
+        await expect(repository.listFinancePeople()).resolves.toEqual([
+          expect.objectContaining({ id: savedPerson.id, displayName: "Alex" }),
+        ]);
+        await expect(repository.listFinanceAccounts()).resolves.toEqual([
+          expect.objectContaining({ id: savedAccount.id, ownerPersonId: savedPerson.id }),
+        ]);
+      });
+
+      it("excludes closed accounts by default and includes them when asked", async () => {
+        const repository = await factory();
+        const saved = await repository.saveFinanceAccount(account());
+        await repository.closeFinanceAccount(saved.id);
+
+        await expect(repository.listFinanceAccounts()).resolves.toEqual([]);
+        await expect(repository.listFinanceAccounts({ includeClosed: true })).resolves.toEqual([
+          expect.objectContaining({ id: saved.id, closed: true }),
+        ]);
+      });
+
+      it("lists the three system categories without seeding", async () => {
+        const repository = await factory();
+        const categories = await repository.listFinanceCategories();
+        expect(categories.map((category) => category.id)).toEqual(
+          expect.arrayContaining(["fincat:non-categorise", "fincat:transfert", "fincat:split"]),
+        );
+      });
+
+      it("seeds the default category taxonomy idempotently", async () => {
+        const repository = await factory();
+        const firstPass = await repository.seedFinanceDefaultCategories();
+        const secondPass = await repository.seedFinanceDefaultCategories();
+
+        expect(firstPass).toBeGreaterThan(0);
+        expect(secondPass).toBe(0);
+        await expect(repository.listFinanceCategories()).resolves.toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ id: "fincat:alimentation" }),
+            expect.objectContaining({ id: "fincat:alimentation.epicerie" }),
+          ]),
+        );
+      });
+
+      it("archives a category and reassigns its transactions", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        await repository.seedFinanceDefaultCategories();
+        const txn = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ categoryId: "fincat:alimentation.epicerie" }),
+        );
+
+        const reassigned = await repository.archiveFinanceCategory(
+          "fincat:alimentation.epicerie",
+          "fincat:non-categorise",
+        );
+
+        expect(reassigned).toBe(1);
+        await expect(repository.getFinanceTransaction(txn.id)).resolves.toMatchObject({
+          categoryId: "fincat:non-categorise",
+        });
+        const categories = await repository.listFinanceCategories(true);
+        expect(
+          categories.find((category) => category.id === "fincat:alimentation.epicerie")?.archived,
+        ).toBe(true);
+      });
+
+      it("saves and deletes a rule", async () => {
+        const repository = await factory();
+        const saved = await repository.saveFinanceRule({
+          id: "",
+          name: "Loyer",
+          priority: 0,
+          enabled: true,
+          matcher: { descriptionContains: "LOYER" },
+          actions: { categoryId: "fincat:logement.loyer-hypotheque" },
+          createdAt: "",
+          updatedAt: "",
+          lastAppliedAt: null,
+          appliedCount: 0,
+        });
+
+        await expect(repository.listFinanceRules()).resolves.toEqual([
+          expect.objectContaining({ id: saved.id, name: "Loyer" }),
+        ]);
+
+        await repository.deleteFinanceRule(saved.id);
+        await expect(repository.listFinanceRules()).resolves.toEqual([]);
+      });
+
+      it("round-trips merchant memory and forgets an entry", async () => {
+        const repository = await factory();
+        const entry = {
+          merchantKey: "IGA MONTREAL",
+          accountId: "account-1",
+          sign: -1 as const,
+          categoryId: "fincat:alimentation.epicerie",
+          hitCount: 1,
+          correctionCount: 0,
+          confidence: 0.6,
+          source: "user_correction" as const,
+          lastAppliedAt: null,
+          createdAt: "2026-04-01T00:00:00.000Z",
+          updatedAt: "2026-04-01T00:00:00.000Z",
+        };
+        await repository.upsertFinanceMerchantMemory(entry);
+
+        await expect(
+          repository.listFinanceMerchantMemory({ merchantKey: "IGA MONTREAL" }),
+        ).resolves.toEqual([entry]);
+
+        await repository.forgetFinanceMerchantMemory("IGA MONTREAL", "account-1", -1);
+        await expect(
+          repository.listFinanceMerchantMemory({ merchantKey: "IGA MONTREAL" }),
+        ).resolves.toEqual([]);
+      });
+
+      it("saves a transaction, lists/counts it by filter, and fetches it by id", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const txn = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ postedDate: "2026-04-05" }),
+        );
+
+        await expect(repository.getFinanceTransaction(txn.id)).resolves.toMatchObject({
+          id: txn.id,
+        });
+        await expect(
+          repository.listFinanceTransactions({ dateFrom: "2026-04-01", dateTo: "2026-04-30" }),
+        ).resolves.toEqual([expect.objectContaining({ id: txn.id })]);
+        await expect(
+          repository.countFinanceTransactions({ dateFrom: "2026-04-01", dateTo: "2026-04-30" }),
+        ).resolves.toBe(1);
+        await expect(
+          repository.listFinanceTransactions({ dateFrom: "2026-05-01" }),
+        ).resolves.toEqual([]);
+      });
+
+      it("setFinanceTransactionCategory sets category_source to user and learns merchant memory", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const txn = await repository.saveFinanceTransaction(buildFinanceTransaction());
+
+        const result = await repository.setFinanceTransactionCategory({
+          transactionId: txn.id,
+          categoryId: "fincat:alimentation.epicerie",
+          scope: "this",
+        });
+
+        expect(result.updated).toBe(1);
+        expect(result.memory).toMatchObject({
+          merchantKey: txn.merchantKey,
+          accountId: "account-1",
+          categoryId: "fincat:alimentation.epicerie",
+          hitCount: 1,
+        });
+        await expect(repository.getFinanceTransaction(txn.id)).resolves.toMatchObject({
+          categoryId: "fincat:alimentation.epicerie",
+          categorySource: "user",
+        });
+      });
+
+      it("setFinanceTransactionCategory with all_matching recategorizes other non-user rows for the same merchant, never a user-set one", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const first = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-1", merchantKey: "NETFLIX" }),
+        );
+        const second = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-2", merchantKey: "NETFLIX" }),
+        );
+        const userSet = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-3",
+            merchantKey: "NETFLIX",
+            categoryId: "fincat:logement.entretien",
+            categorySource: "user",
+          }),
+        );
+
+        const result = await repository.setFinanceTransactionCategory({
+          transactionId: first.id,
+          categoryId: "fincat:loisirs.abonnements",
+          scope: "all_matching",
+        });
+
+        expect(result.updated).toBe(2);
+        await expect(repository.getFinanceTransaction(second.id)).resolves.toMatchObject({
+          categoryId: "fincat:loisirs.abonnements",
+        });
+        await expect(repository.getFinanceTransaction(userSet.id)).resolves.toMatchObject({
+          categoryId: "fincat:logement.entretien",
+          categorySource: "user",
+        });
+      });
+
+      it("bulk-updates transactions and splits one with a sum invariant", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const a = await repository.saveFinanceTransaction(buildFinanceTransaction({ id: "txn-a" }));
+        const b = await repository.saveFinanceTransaction(buildFinanceTransaction({ id: "txn-b" }));
+
+        const updated = await repository.bulkUpdateFinanceTransactions([a.id, b.id], {
+          excludedFromReports: true,
+        });
+        expect(updated).toBe(2);
+        await expect(repository.getFinanceTransaction(a.id)).resolves.toMatchObject({
+          excludedFromReports: true,
+        });
+
+        const withSplits = await repository.saveFinanceTransactionSplits(a.id, [
+          {
+            id: "",
+            transactionId: a.id,
+            amountMinor: -700,
+            categoryId: "fincat:alimentation.epicerie",
+            notes: null,
+            sortOrder: 0,
+            createdAt: "",
+          },
+          {
+            id: "",
+            transactionId: a.id,
+            amountMinor: -534,
+            categoryId: "fincat:transport.essence",
+            notes: null,
+            sortOrder: 1,
+            createdAt: "",
+          },
+        ]);
+        expect(withSplits.hasSplits).toBe(true);
+        expect(withSplits.categoryId).toBe("fincat:split");
+
+        const splits = await repository.listFinanceTransactionSplits(a.id);
+        expect(splits).toHaveLength(2);
+        expect(splits.reduce((sum, split) => sum + split.amountMinor, 0)).toBe(a.amountMinor);
+      });
+
+      it("imports transactions, dedupes a verbatim re-import, and detects a transfer across accounts", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-checking", onBudget: true }));
+        await repository.saveFinanceAccount(
+          account({ id: "account-savings", name: "Épargne", onBudget: true }),
+        );
+
+        const rows = [
+          importRow({
+            accountId: "account-checking",
+            amountMinor: -5000,
+            descriptionRaw: "VIREMENT EPARGNE",
+          }),
+          importRow({
+            accountId: "account-savings",
+            amountMinor: 5000,
+            descriptionRaw: "VIREMENT EPARGNE",
+            merchantKey: "VIREMENT EPARGNE",
+          }),
+        ];
+
+        const summary = await repository.importFinanceTransactions({
+          accountId: "account-checking",
+          profileId: null,
+          fileName: "export.csv",
+          fileHash: "hash-1",
+          rows,
+        });
+
+        expect(summary.imported).toBe(2);
+        expect(summary.duplicates).toBe(0);
+        expect(summary.transfersDetected).toBe(1);
+
+        const transactions = await repository.listFinanceTransactions({});
+        expect(transactions.every((txn) => txn.isTransfer)).toBe(true);
+        expect(transactions.every((txn) => txn.categoryId === "fincat:transfert")).toBe(true);
+
+        const reimportSummary = await repository.importFinanceTransactions({
+          accountId: "account-checking",
+          profileId: null,
+          fileName: "export.csv",
+          fileHash: "hash-1",
+          rows,
+        });
+
+        expect(reimportSummary.imported).toBe(0);
+        expect(reimportSummary.duplicates).toBe(2);
+        await expect(repository.countFinanceTransactions({})).resolves.toBe(2);
+      });
+
+      it("never relabels a pre-existing user-categorized row that contains a transfer keyword", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-checking" }));
+
+        const userRow = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-user-mortgage",
+            accountId: "account-checking",
+            amountMinor: -150000,
+            descriptionRaw: "VIREMENT HYPOTHEQUE",
+            merchantKey: "VIREMENT HYPOTHEQUE",
+            categoryId: "fincat:logement.loyer-hypotheque",
+            categorySource: "user",
+          }),
+        );
+
+        await repository.importFinanceTransactions({
+          accountId: "account-checking",
+          profileId: null,
+          fileName: "unrelated.csv",
+          fileHash: "hash-unrelated",
+          rows: [
+            importRow({
+              accountId: "account-checking",
+              amountMinor: -999,
+              descriptionRaw: "EPICERIE METRO",
+              merchantKey: "EPICERIE METRO",
+            }),
+          ],
+        });
+
+        await expect(repository.getFinanceTransaction(userRow.id)).resolves.toMatchObject({
+          categoryId: "fincat:logement.loyer-hypotheque",
+          categorySource: "user",
+          isTransfer: false,
+        });
+      });
+
+      it("never pairs a pre-existing user-categorized row as the mirror-amount leg of an imported transfer", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-checking" }));
+        await repository.saveFinanceAccount(account({ id: "account-savings", name: "Épargne" }));
+
+        const userRow = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-user-savings",
+            accountId: "account-savings",
+            amountMinor: 5000,
+            descriptionRaw: "COTISATION EPARGNE",
+            merchantKey: "COTISATION EPARGNE",
+            categoryId: "fincat:revenu.autre",
+            categorySource: "user",
+          }),
+        );
+
+        await repository.importFinanceTransactions({
+          accountId: "account-checking",
+          profileId: null,
+          fileName: "export.csv",
+          fileHash: "hash-mirror",
+          rows: [
+            importRow({
+              accountId: "account-checking",
+              amountMinor: -5000,
+              descriptionRaw: "COTISATION EPARGNE",
+              merchantKey: "COTISATION EPARGNE",
+            }),
+          ],
+        });
+
+        // The user row can never be the mirror-amount leg of this transfer: it is excluded
+        // from the candidate set entirely, so the imported leg is left unpaired rather than
+        // matched to it.
+        await expect(repository.getFinanceTransaction(userRow.id)).resolves.toMatchObject({
+          categoryId: "fincat:revenu.autre",
+          categorySource: "user",
+          isTransfer: false,
+          transferGroupId: null,
+        });
+        const [imported] = await repository.listFinanceTransactions({
+          accountIds: ["account-checking"],
+        });
+        expect(imported.isTransfer).toBe(false);
+        expect(imported.transferGroupId).toBeNull();
+      });
+
+      it("includes a manually entered row (null importBatchId) in near-duplicate review", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-checking" }));
+
+        await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-manual",
+            accountId: "account-checking",
+            postedDate: "2026-04-01",
+            amountMinor: -4321,
+            descriptionRaw: "RESTAURANT LE BISTRO",
+            merchantKey: "RESTAURANT LE BISTRO",
+            importBatchId: null,
+          }),
+        );
+
+        const summary = await repository.importFinanceTransactions({
+          accountId: "account-checking",
+          profileId: null,
+          fileName: "near-dup.csv",
+          fileHash: "hash-near-dup",
+          rows: [
+            importRow({
+              accountId: "account-checking",
+              postedDate: "2026-04-02",
+              amountMinor: -4321,
+              descriptionRaw: "RESTAURANT LE BISTRO MONTREAL",
+              merchantKey: "RESTAURANT LE BISTRO MONTREAL",
+            }),
+          ],
+        });
+
+        expect(summary.nearDuplicates).toEqual([
+          expect.objectContaining({ existingTransactionId: "txn-manual" }),
+        ]);
+      });
+
+      it("undoFinanceImportBatch removes only the batch's non-user-categorized rows and reports the rest", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+
+        const summary = await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "export.csv",
+          fileHash: "hash-undo",
+          rows: [
+            importRow({ accountId: "account-1", descriptionRaw: "IGA", merchantKey: "IGA" }),
+            importRow({
+              accountId: "account-1",
+              descriptionRaw: "ESSO",
+              merchantKey: "ESSO",
+              amountMinor: -4200,
+            }),
+          ],
+        });
+
+        const [first] = await repository.listFinanceTransactions({});
+        await repository.setFinanceTransactionCategory({
+          transactionId: first.id,
+          categoryId: "fincat:alimentation.epicerie",
+          scope: "this",
+        });
+
+        const result = await repository.undoFinanceImportBatch(summary.batchId);
+
+        expect(result.deleted).toBe(1);
+        expect(result.refusedUserCategorized).toBe(1);
+        await expect(repository.countFinanceTransactions({})).resolves.toBe(1);
+      });
+
+      const buildSplit = (
+        transactionId: string,
+        amountMinor: number,
+        overrides: Partial<FinanceTransactionSplit> = {},
+      ): FinanceTransactionSplit => ({
+        id: "",
+        transactionId,
+        amountMinor,
+        categoryId: "fincat:alimentation.epicerie",
+        notes: null,
+        sortOrder: 0,
+        createdAt: "",
+        ...overrides,
+      });
+
+      it("rejects splits that do not sum to the parent amount and keeps the old allocation", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const txn = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-split", amountMinor: -5000 }),
+        );
+        await repository.saveFinanceTransactionSplits(txn.id, [
+          buildSplit(txn.id, -2000),
+          buildSplit(txn.id, -3000),
+        ]);
+
+        await expect(
+          repository.saveFinanceTransactionSplits(txn.id, [buildSplit(txn.id, -1000)]),
+        ).rejects.toThrow();
+        const splits = await repository.listFinanceTransactionSplits(txn.id);
+        expect(splits.map((split) => split.amountMinor)).toEqual([-2000, -3000]);
+      });
+
+      it("keeps the previous splits when a replacement fails midway", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const txn = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-split", amountMinor: -1000 }),
+        );
+        await repository.saveFinanceTransactionSplits(txn.id, [
+          buildSplit(txn.id, -1000, { id: "split-dup" }),
+        ]);
+
+        await expect(
+          repository.saveFinanceTransactionSplits(txn.id, [
+            buildSplit(txn.id, -500, { id: "split-dup" }),
+            buildSplit(txn.id, -500, { id: "split-dup" }),
+          ]),
+        ).rejects.toThrow();
+        const splits = await repository.listFinanceTransactionSplits(txn.id);
+        expect(splits.map((split) => split.amountMinor)).toEqual([-1000]);
+      });
+
+      it("restores an ordinary category when the final split is removed", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const txn = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-split", amountMinor: -1000 }),
+        );
+        await repository.saveFinanceTransactionSplits(txn.id, [buildSplit(txn.id, -1000)]);
+
+        const cleared = await repository.saveFinanceTransactionSplits(txn.id, []);
+        expect(cleared.hasSplits).toBe(false);
+        expect(cleared.categoryId).toBe("fincat:non-categorise");
+        expect(cleared.categorySource).toBe("default");
+      });
+
+      it("reassigns split category references when archiving a category", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const txn = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-split", amountMinor: -1000 }),
+        );
+        await repository.saveFinanceTransactionSplits(txn.id, [
+          buildSplit(txn.id, -1000, { categoryId: "fincat:alimentation.epicerie" }),
+        ]);
+
+        await repository.archiveFinanceCategory(
+          "fincat:alimentation.epicerie",
+          "fincat:transport.essence",
+        );
+        const splits = await repository.listFinanceTransactionSplits(txn.id);
+        expect(splits[0].categoryId).toBe("fincat:transport.essence");
+      });
+
+      it("marks every all_matching correction as user-owned so later imports keep it", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const a = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-a",
+            descriptionRaw: "VIREMENT FRAIS",
+            merchantKey: "VIREMENT FRAIS",
+          }),
+        );
+        const b = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-b",
+            descriptionRaw: "VIREMENT FRAIS",
+            merchantKey: "VIREMENT FRAIS",
+          }),
+        );
+        await repository.setFinanceTransactionCategory({
+          transactionId: a.id,
+          categoryId: "fincat:transport.essence",
+          scope: "all_matching",
+        });
+        await expect(repository.getFinanceTransaction(b.id)).resolves.toMatchObject({
+          categorySource: "user",
+        });
+
+        await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "later.csv",
+          fileHash: "hash-later",
+          rows: [importRow({ descriptionRaw: "COFFEE", merchantKey: "COFFEE", amountMinor: -300 })],
+        });
+        await expect(repository.getFinanceTransaction(b.id)).resolves.toMatchObject({
+          categoryId: "fincat:transport.essence",
+        });
+      });
+
+      it("round-trips import profile amount separators", async () => {
+        const repository = await factory();
+        const saved = await repository.saveFinanceImportProfile({
+          id: "",
+          name: "FR",
+          signature: "sig-sep",
+          columnMap: { date: 0, description: 1, amount: 2 },
+          dateFormat: "YYYY-MM-DD",
+          amountMode: "single_signed",
+          signConvention: null,
+          decimalSeparator: ",",
+          thousandsSeparator: " ",
+          defaultAccountId: null,
+          createdAt: "",
+          updatedAt: "",
+          lastUsedAt: null,
+        });
+        const found = await repository.findFinanceImportProfileBySignature("sig-sep");
+        expect(found).toMatchObject({
+          id: saved.id,
+          decimalSeparator: ",",
+          thousandsSeparator: " ",
+        });
+      });
+
+      it("does not re-pair a grouped transfer leg with a later matching row", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-checking" }));
+        await repository.saveFinanceAccount(
+          account({ id: "account-invest", name: "Placements", onBudget: false }),
+        );
+        await repository.saveFinanceAccount(account({ id: "account-savings", name: "Épargne" }));
+
+        await repository.importFinanceTransactions({
+          accountId: "account-checking",
+          profileId: null,
+          fileName: "one.csv",
+          fileHash: "hash-one",
+          rows: [
+            importRow({ accountId: "account-checking", amountMinor: -5000, descriptionRaw: "A" }),
+            importRow({ accountId: "account-invest", amountMinor: 5000, descriptionRaw: "A" }),
+          ],
+        });
+        const before = await repository.listFinanceTransactions({
+          accountIds: ["account-checking"],
+        });
+        expect(before[0].isTransfer).toBe(true);
+
+        await repository.importFinanceTransactions({
+          accountId: "account-savings",
+          profileId: null,
+          fileName: "two.csv",
+          fileHash: "hash-two",
+          rows: [
+            importRow({ accountId: "account-savings", amountMinor: 5000, descriptionRaw: "B" }),
+          ],
+        });
+        const after = await repository.listFinanceTransactions({
+          accountIds: ["account-checking"],
+        });
+        expect(after[0].transferGroupId).toBe(before[0].transferGroupId);
+        expect(after[0].excludedFromBudget).toBe(before[0].excludedFromBudget);
+      });
+
+      it("refuses to undo a batch whose rows belong to an account covered by a newer batch", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-a" }));
+        await repository.saveFinanceAccount(account({ id: "account-b", name: "B" }));
+        const rowB = importRow({
+          accountId: "account-b",
+          descriptionRaw: "B ROW",
+          merchantKey: "B",
+        });
+
+        const first = await repository.importFinanceTransactions({
+          accountId: "account-a",
+          profileId: null,
+          fileName: "mixed.csv",
+          fileHash: "hash-mixed",
+          rows: [importRow({ accountId: "account-a", descriptionRaw: "A ROW" }), rowB],
+        });
+        await repository.importFinanceTransactions({
+          accountId: "account-b",
+          profileId: null,
+          fileName: "b.csv",
+          fileHash: "hash-b",
+          rows: [rowB],
+        });
+
+        await expect(repository.undoFinanceImportBatch(first.batchId)).rejects.toThrow(
+          /most recent batch/,
+        );
+        await expect(repository.countFinanceTransactions({})).resolves.toBe(2);
+      });
+
+      it("keeps a user-categorized transfer partner's category when the other leg is undone", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-checking" }));
+        await repository.saveFinanceAccount(account({ id: "account-savings", name: "Épargne" }));
+
+        await repository.importFinanceTransactions({
+          accountId: "account-checking",
+          profileId: null,
+          fileName: "c.csv",
+          fileHash: "hash-c",
+          rows: [
+            importRow({ accountId: "account-checking", amountMinor: -5000, descriptionRaw: "VIR" }),
+          ],
+        });
+        const savings = await repository.importFinanceTransactions({
+          accountId: "account-savings",
+          profileId: null,
+          fileName: "s.csv",
+          fileHash: "hash-s",
+          rows: [
+            importRow({ accountId: "account-savings", amountMinor: 5000, descriptionRaw: "VIR" }),
+          ],
+        });
+        const [checking] = await repository.listFinanceTransactions({
+          accountIds: ["account-checking"],
+        });
+        await repository.setFinanceTransactionCategory({
+          transactionId: checking.id,
+          categoryId: "fincat:transport.essence",
+          scope: "this",
+        });
+
+        await repository.undoFinanceImportBatch(savings.batchId);
+        await expect(repository.getFinanceTransaction(checking.id)).resolves.toMatchObject({
+          categoryId: "fincat:transport.essence",
+          categorySource: "user",
+          isTransfer: false,
+          transferGroupId: null,
+        });
+      });
+
+      it("keeps a concurrent finance write that lands while an import is running", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+
+        const [, saved] = await Promise.all([
+          repository.importFinanceTransactions({
+            accountId: "account-1",
+            profileId: null,
+            fileName: "big.csv",
+            fileHash: "hash-big",
+            rows: [importRow()],
+          }),
+          repository.saveFinancePerson(person({ displayName: "Concurrent" })),
+        ]);
+        await expect(repository.listFinancePeople()).resolves.toEqual([
+          expect.objectContaining({ id: saved.id, displayName: "Concurrent" }),
+        ]);
+      });
+
+      it("saves and finds an import profile by signature", async () => {
+        const repository = await factory();
+        const saved = await repository.saveFinanceImportProfile({
+          id: "",
+          name: "Mon profil",
+          signature: "sig-123",
+          columnMap: { date: 0, description: 1, amount: 2 },
+          dateFormat: "YYYY-MM-DD",
+          amountMode: "single_signed",
+          signConvention: null,
+          defaultAccountId: null,
+          createdAt: "",
+          updatedAt: "",
+          lastUsedAt: null,
+        });
+
+        await expect(repository.listFinanceImportProfiles()).resolves.toEqual([
+          expect.objectContaining({ id: saved.id }),
+        ]);
+        await expect(repository.findFinanceImportProfileBySignature("sig-123")).resolves.toEqual(
+          expect.objectContaining({ id: saved.id }),
+        );
+        await expect(repository.findFinanceImportProfileBySignature("missing")).resolves.toBeNull();
+      });
+
+      it("saves category suggestions and decideFinanceCategorySuggestion applies and records the decision", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const txn = await repository.saveFinanceTransaction(buildFinanceTransaction());
+
+        const [saved] = await repository.saveFinanceCategorySuggestions([
+          {
+            id: "",
+            transactionId: txn.id,
+            merchantKey: txn.merchantKey,
+            suggestedCategoryId: "fincat:alimentation.epicerie",
+            confidence: 0.6,
+            origin: "seed",
+            rationale: null,
+            model: null,
+            promptVersion: null,
+            status: "pending",
+            decidedAt: null,
+            createdAt: "",
+          },
+        ]);
+
+        await expect(repository.listFinanceCategorySuggestions("pending")).resolves.toEqual([
+          expect.objectContaining({ id: saved.id }),
+        ]);
+
+        const decided = await repository.decideFinanceCategorySuggestion(saved.id, {
+          status: "accepted",
+        });
+
+        expect(decided.status).toBe("accepted");
+        await expect(repository.getFinanceTransaction(txn.id)).resolves.toMatchObject({
+          categoryId: "fincat:alimentation.epicerie",
+          categorySource: "user",
+        });
+      });
+
+      it("imports 5 000 rows in one call with no reentrancy error", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-bulk" }));
+
+        const rows: FinanceImportRow[] = Array.from({ length: 5_000 }, (_, index) => {
+          const day = String((index % 27) + 1).padStart(2, "0");
+          return importRow({
+            accountId: "account-bulk",
+            postedDate: `2026-01-${day}`,
+            amountMinor: -(100 + (index % 500)),
+            descriptionRaw: `MERCHANT ${index % 50}`,
+            merchantKey: `MERCHANT ${index % 50}`,
+          });
+        });
+
+        const summary = await repository.importFinanceTransactions({
+          accountId: "account-bulk",
+          profileId: null,
+          fileName: "bulk.csv",
+          fileHash: "hash-bulk",
+          rows,
+        });
+
+        expect(summary.imported).toBe(5_000);
+        await expect(repository.countFinanceTransactions({})).resolves.toBe(5_000);
       });
     });
   });

@@ -127,6 +127,7 @@ import {
 import { buildDailyRelationshipDrawPlan } from "../relationship-draws";
 import type { AppRepository, PomodoroStartOptions, StorageInfo } from "./repository";
 import { EmailTriageMemoryStore } from "./email-triage-memory-store";
+import { FinanceMemoryStore } from "./finance-memory-store";
 
 export class MemoryRepository implements AppRepository {
   private entries = new Map<string, DailyEntry>();
@@ -175,9 +176,179 @@ export class MemoryRepository implements AppRepository {
     },
     getTaskById: (id) => this.tasks.get(id),
   });
+  private readonly finance = new FinanceMemoryStore();
 
   async initialize(): Promise<void> {
     return Promise.resolve();
+  }
+
+  // --- Finance (Phase 2) ---------------------------------------------------------------
+
+  async listFinancePeople() {
+    return Promise.resolve(this.finance.listPeople());
+  }
+
+  async saveFinancePerson(person: import("../../domain/finance").FinancePerson) {
+    return Promise.resolve(this.finance.savePerson(person));
+  }
+
+  async listFinanceAccounts(filters?: import("../../domain/finance").FinanceAccountFilters) {
+    return Promise.resolve(this.finance.listAccounts(filters));
+  }
+
+  async saveFinanceAccount(account: import("../../domain/finance").FinanceAccount) {
+    return Promise.resolve(this.finance.saveAccount(account));
+  }
+
+  async closeFinanceAccount(id: string) {
+    return Promise.resolve(this.finance.closeAccount(id));
+  }
+
+  async listFinanceCategories(includeArchived?: boolean) {
+    return Promise.resolve(this.finance.listCategories(includeArchived));
+  }
+
+  async saveFinanceCategory(category: import("../../domain/finance").FinanceCategory) {
+    return Promise.resolve(this.finance.saveCategory(category));
+  }
+
+  async archiveFinanceCategory(id: string, reassignToId: string) {
+    return Promise.resolve(this.finance.archiveCategory(id, reassignToId));
+  }
+
+  async seedFinanceDefaultCategories() {
+    return Promise.resolve(this.finance.seedDefaultCategories());
+  }
+
+  async listFinanceRules() {
+    return Promise.resolve(this.finance.listRules());
+  }
+
+  async saveFinanceRule(rule: import("../../domain/finance").FinanceRule) {
+    return Promise.resolve(this.finance.saveRule(rule));
+  }
+
+  async deleteFinanceRule(id: string) {
+    this.finance.deleteRule(id);
+    return Promise.resolve();
+  }
+
+  async listFinanceMerchantMemory(
+    filters?: import("../../domain/finance").FinanceMerchantMemoryFilters,
+  ) {
+    return Promise.resolve(this.finance.listMerchantMemory(filters));
+  }
+
+  async upsertFinanceMerchantMemory(
+    entry: import("../../domain/finance").FinanceMerchantMemoryEntry,
+  ) {
+    return Promise.resolve(this.finance.upsertMerchantMemory(entry));
+  }
+
+  async forgetFinanceMerchantMemory(merchantKey: string, accountId: string, sign: -1 | 0 | 1) {
+    this.finance.forgetMerchantMemory(merchantKey, accountId, sign);
+    return Promise.resolve();
+  }
+
+  async listFinanceTransactions(
+    filters?: import("../../domain/finance").FinanceTransactionFilters,
+  ) {
+    return Promise.resolve(this.finance.listTransactions(filters));
+  }
+
+  async countFinanceTransactions(
+    filters?: import("../../domain/finance").FinanceTransactionFilters,
+  ) {
+    return Promise.resolve(this.finance.countTransactions(filters));
+  }
+
+  async getFinanceTransaction(id: string) {
+    return Promise.resolve(this.finance.getTransaction(id));
+  }
+
+  async saveFinanceTransaction(txn: import("../../domain/finance").FinanceTransaction) {
+    return Promise.resolve(this.finance.saveTransaction(txn));
+  }
+
+  async setFinanceTransactionCategory(
+    input: import("../../domain/finance").SetFinanceTransactionCategoryInput,
+  ) {
+    return Promise.resolve(this.finance.setTransactionCategory(input));
+  }
+
+  async bulkUpdateFinanceTransactions(
+    ids: string[],
+    patch: import("../../domain/finance").BulkUpdateFinanceTransactionsPatch,
+  ) {
+    return Promise.resolve(this.finance.bulkUpdateTransactions(ids, patch));
+  }
+
+  async saveFinanceTransactionSplits(
+    transactionId: string,
+    splits: import("../../domain/finance").FinanceTransactionSplit[],
+  ) {
+    return Promise.resolve(this.finance.saveTransactionSplits(transactionId, splits));
+  }
+
+  async listFinanceTransactionSplits(transactionId: string) {
+    return Promise.resolve(this.finance.listTransactionSplits(transactionId));
+  }
+
+  async setFinanceTransfer(
+    pair: import("../../domain/finance").SetFinanceTransferPair | null,
+    groupId?: string,
+  ) {
+    this.finance.setTransfer(pair, groupId);
+    return Promise.resolve();
+  }
+
+  async clearFinanceTransfer(transactionId: string) {
+    this.finance.clearTransfer(transactionId);
+    return Promise.resolve();
+  }
+
+  async listFinanceImportProfiles() {
+    return Promise.resolve(this.finance.listImportProfiles());
+  }
+
+  async saveFinanceImportProfile(profile: import("../../domain/finance").FinanceImportProfile) {
+    return Promise.resolve(this.finance.saveImportProfile(profile));
+  }
+
+  async findFinanceImportProfileBySignature(signature: string) {
+    return Promise.resolve(this.finance.findImportProfileBySignature(signature));
+  }
+
+  async importFinanceTransactions(input: import("../../domain/finance").FinanceImportRequest) {
+    return Promise.resolve(this.finance.importTransactions(input));
+  }
+
+  async listFinanceImportBatches(limit?: number) {
+    return Promise.resolve(this.finance.listImportBatches(limit));
+  }
+
+  async undoFinanceImportBatch(batchId: string) {
+    return Promise.resolve(this.finance.undoImportBatch(batchId));
+  }
+
+  async listFinanceCategorySuggestions(
+    status?: import("../../domain/finance").FinanceCategorySuggestion["status"],
+    limit?: number,
+  ) {
+    return Promise.resolve(this.finance.listCategorySuggestions(status, limit));
+  }
+
+  async saveFinanceCategorySuggestions(
+    suggestions: import("../../domain/finance").FinanceCategorySuggestion[],
+  ) {
+    return Promise.resolve(this.finance.saveCategorySuggestions(suggestions));
+  }
+
+  async decideFinanceCategorySuggestion(
+    id: string,
+    decision: import("../../domain/finance").DecideFinanceCategorySuggestionInput,
+  ) {
+    return Promise.resolve(this.finance.decideCategorySuggestion(id, decision));
   }
 
   async getDailyEntry(date: string): Promise<DailyEntry | null> {

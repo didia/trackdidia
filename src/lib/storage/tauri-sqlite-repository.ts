@@ -145,6 +145,7 @@ import {
 import { buildDailyRelationshipDrawPlan } from "../relationship-draws";
 import { DbSerialQueue } from "./db-serial-queue";
 import { EmailTriageSqliteStore } from "./email-triage-sqlite-store";
+import { FinanceSqliteStore } from "./finance-sqlite-store";
 import type { Database as SqliteDatabase } from "./sqlite-db";
 import type {
   AppRepository,
@@ -185,6 +186,7 @@ interface SettingsRow {
 
 export class TauriSqliteRepository implements AppRepository {
   private dbPromise: Promise<SqliteDatabase> | null = null;
+  private financeStore: FinanceSqliteStore | null = null;
   private readonly writeQueue = new DbSerialQueue();
   readonly emailTriage = new EmailTriageSqliteStore(
     () => this.getDb(),
@@ -214,6 +216,13 @@ export class TauriSqliteRepository implements AppRepository {
     private readonly connectionString = "sqlite:trackdidia.db",
     private readonly openDb: (path: string) => Promise<SqliteDatabase> = Database.load,
   ) {}
+
+  private getFinanceStore(): FinanceSqliteStore {
+    if (!this.financeStore) {
+      this.financeStore = new FinanceSqliteStore(() => this.getDb());
+    }
+    return this.financeStore;
+  }
 
   private async getTaskByExternalId(externalId: string): Promise<Task | null> {
     const db = await this.getDb();
@@ -2813,5 +2822,174 @@ export class TauriSqliteRepository implements AppRepository {
         [contextId, name, timestamp, timestamp],
       );
     }
+  }
+
+  // --- Finance (Phase 2) ---------------------------------------------------------------
+
+  async listFinancePeople() {
+    return this.getFinanceStore().listPeople();
+  }
+
+  async saveFinancePerson(person: import("../../domain/finance").FinancePerson) {
+    return this.writeExclusive(() => this.getFinanceStore().savePerson(person));
+  }
+
+  async listFinanceAccounts(filters?: import("../../domain/finance").FinanceAccountFilters) {
+    return this.getFinanceStore().listAccounts(filters);
+  }
+
+  async saveFinanceAccount(account: import("../../domain/finance").FinanceAccount) {
+    return this.writeExclusive(() => this.getFinanceStore().saveAccount(account));
+  }
+
+  async closeFinanceAccount(id: string) {
+    return this.writeExclusive(() => this.getFinanceStore().closeAccount(id));
+  }
+
+  async listFinanceCategories(includeArchived?: boolean) {
+    return this.getFinanceStore().listCategories(includeArchived);
+  }
+
+  async saveFinanceCategory(category: import("../../domain/finance").FinanceCategory) {
+    return this.writeExclusive(() => this.getFinanceStore().saveCategory(category));
+  }
+
+  async archiveFinanceCategory(id: string, reassignToId: string) {
+    return this.writeExclusive(() => this.getFinanceStore().archiveCategory(id, reassignToId));
+  }
+
+  async seedFinanceDefaultCategories() {
+    return this.writeExclusive(() => this.getFinanceStore().seedDefaultCategories());
+  }
+
+  async listFinanceRules() {
+    return this.getFinanceStore().listRules();
+  }
+
+  async saveFinanceRule(rule: import("../../domain/finance").FinanceRule) {
+    return this.writeExclusive(() => this.getFinanceStore().saveRule(rule));
+  }
+
+  async deleteFinanceRule(id: string) {
+    return this.writeExclusive(() => this.getFinanceStore().deleteRule(id));
+  }
+
+  async listFinanceMerchantMemory(
+    filters?: import("../../domain/finance").FinanceMerchantMemoryFilters,
+  ) {
+    return this.getFinanceStore().listMerchantMemory(filters);
+  }
+
+  async upsertFinanceMerchantMemory(
+    entry: import("../../domain/finance").FinanceMerchantMemoryEntry,
+  ) {
+    return this.writeExclusive(() => this.getFinanceStore().upsertMerchantMemory(entry));
+  }
+
+  async forgetFinanceMerchantMemory(merchantKey: string, accountId: string, sign: -1 | 0 | 1) {
+    return this.writeExclusive(() =>
+      this.getFinanceStore().forgetMerchantMemory(merchantKey, accountId, sign),
+    );
+  }
+
+  async listFinanceTransactions(
+    filters?: import("../../domain/finance").FinanceTransactionFilters,
+  ) {
+    return this.getFinanceStore().listTransactions(filters);
+  }
+
+  async countFinanceTransactions(
+    filters?: import("../../domain/finance").FinanceTransactionFilters,
+  ) {
+    return this.getFinanceStore().countTransactions(filters);
+  }
+
+  async getFinanceTransaction(id: string) {
+    return this.getFinanceStore().getTransaction(id);
+  }
+
+  async saveFinanceTransaction(txn: import("../../domain/finance").FinanceTransaction) {
+    return this.writeExclusive(() => this.getFinanceStore().saveTransaction(txn));
+  }
+
+  async setFinanceTransactionCategory(
+    input: import("../../domain/finance").SetFinanceTransactionCategoryInput,
+  ) {
+    return this.writeExclusive(() => this.getFinanceStore().setTransactionCategory(input));
+  }
+
+  async bulkUpdateFinanceTransactions(
+    ids: string[],
+    patch: import("../../domain/finance").BulkUpdateFinanceTransactionsPatch,
+  ) {
+    return this.writeExclusive(() => this.getFinanceStore().bulkUpdateTransactions(ids, patch));
+  }
+
+  async saveFinanceTransactionSplits(
+    transactionId: string,
+    splits: import("../../domain/finance").FinanceTransactionSplit[],
+  ) {
+    return this.writeExclusive(() =>
+      this.getFinanceStore().saveTransactionSplits(transactionId, splits),
+    );
+  }
+
+  async listFinanceTransactionSplits(transactionId: string) {
+    return this.getFinanceStore().listTransactionSplits(transactionId);
+  }
+
+  async setFinanceTransfer(
+    pair: import("../../domain/finance").SetFinanceTransferPair | null,
+    groupId?: string,
+  ) {
+    return this.writeExclusive(() => this.getFinanceStore().setTransfer(pair, groupId));
+  }
+
+  async clearFinanceTransfer(transactionId: string) {
+    return this.writeExclusive(() => this.getFinanceStore().clearTransfer(transactionId));
+  }
+
+  async listFinanceImportProfiles() {
+    return this.getFinanceStore().listImportProfiles();
+  }
+
+  async saveFinanceImportProfile(profile: import("../../domain/finance").FinanceImportProfile) {
+    return this.writeExclusive(() => this.getFinanceStore().saveImportProfile(profile));
+  }
+
+  async findFinanceImportProfileBySignature(signature: string) {
+    return this.getFinanceStore().findImportProfileBySignature(signature);
+  }
+
+  async importFinanceTransactions(input: import("../../domain/finance").FinanceImportRequest) {
+    return this.writeExclusive(() => this.getFinanceStore().importTransactions(input));
+  }
+
+  async listFinanceImportBatches(limit?: number) {
+    return this.getFinanceStore().listImportBatches(limit);
+  }
+
+  async undoFinanceImportBatch(batchId: string) {
+    return this.writeExclusive(() => this.getFinanceStore().undoImportBatch(batchId));
+  }
+
+  async listFinanceCategorySuggestions(
+    status?: import("../../domain/finance").FinanceCategorySuggestion["status"],
+    limit?: number,
+  ) {
+    return this.getFinanceStore().listCategorySuggestions(status, limit);
+  }
+
+  async saveFinanceCategorySuggestions(
+    suggestions: import("../../domain/finance").FinanceCategorySuggestion[],
+  ) {
+    return this.writeExclusive(() => this.getFinanceStore().saveCategorySuggestions(suggestions));
+  }
+
+  async decideFinanceCategorySuggestion(
+    id: string,
+    decision: import("../../domain/finance").DecideFinanceCategorySuggestionInput,
+  ) {
+    return this.writeExclusive(() => this.getFinanceStore().decideCategorySuggestion(id, decision));
   }
 }

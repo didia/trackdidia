@@ -67,6 +67,16 @@ export const defaultAppSettings = (): AppSettings => ({
   relationshipDrawChildrenProcessedDate: "",
   relationshipDrawSpouseProcessedDate: "",
   previousDayReviewDoneDate: "",
+  financeEnabled: false,
+  financeBaseCurrency: "CAD",
+  financeAiCategorizationEnabled: false,
+  financeAiAutoApplyEnabled: false,
+  financeAiAutoApplyMinConfidence: 0.9,
+  financeAlertsOnToday: true,
+  financeCoachContextEnabled: false,
+  financeNotifyRunout: true,
+  financeSafetyBufferMinor: 0,
+  financeCategoriesSeededAt: "",
 });
 
 export const normalizeAppSettings = (
