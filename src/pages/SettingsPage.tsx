@@ -45,6 +45,8 @@ const financePreferenceKeys: (keyof AppSettings)[] = [
   "financeBaseCurrency",
   "financeAlertsOnToday",
   "financeNotifyRunout",
+  "financeAiCategorizationEnabled",
+  "financeAiAutoApplyEnabled",
 ];
 
 const relationshipPreferenceKeys: (keyof AppSettings)[] = [
@@ -87,6 +89,9 @@ export const SettingsPage = () => {
       currencyExponent(settings.financeBaseCurrency),
     ),
   );
+  const [financeAiAutoApplyMinConfidenceDraft, setFinanceAiAutoApplyMinConfidenceDraft] = useState(
+    () => String(settings.financeAiAutoApplyMinConfidence),
+  );
   const financeSave = useSectionSave(async () => {
     const enabling = draftSettings.financeEnabled && !settings.financeEnabled;
     const patch = settingsDraftPatch(draftSettings, baselineRef.current, financePreferenceKeys);
@@ -106,6 +111,21 @@ export const SettingsPage = () => {
     }
     if (parsedBuffer.amountMinor !== baselineRef.current.financeSafetyBufferMinor) {
       patch.financeSafetyBufferMinor = parsedBuffer.amountMinor;
+    }
+    // Accept the French decimal comma ("0,95"), matching the placeholder and the buffer field.
+    const parsedMinConfidence = Number(
+      financeAiAutoApplyMinConfidenceDraft.trim().replace(",", "."),
+    );
+    if (
+      financeAiAutoApplyMinConfidenceDraft.trim() === "" ||
+      !Number.isFinite(parsedMinConfidence) ||
+      parsedMinConfidence < 0 ||
+      parsedMinConfidence > 1
+    ) {
+      throw new Error(t("finance.aiAutoApplyMinConfidenceInvalid"));
+    }
+    if (parsedMinConfidence !== baselineRef.current.financeAiAutoApplyMinConfidence) {
+      patch.financeAiAutoApplyMinConfidence = parsedMinConfidence;
     }
 
     if (enabling && !settings.financeCategoriesSeededAt) {
@@ -128,6 +148,11 @@ export const SettingsPage = () => {
     setPulseSlotsDraft((draft) =>
       draft === formatPulseSlotHours(baseline.aiPulseSlots)
         ? formatPulseSlotHours(settings.aiPulseSlots)
+        : draft,
+    );
+    setFinanceAiAutoApplyMinConfidenceDraft((draft) =>
+      draft === String(baseline.financeAiAutoApplyMinConfidence)
+        ? String(settings.financeAiAutoApplyMinConfidence)
         : draft,
     );
     setCostRateDraft((draft) =>
@@ -666,6 +691,51 @@ export const SettingsPage = () => {
               placeholder={t("finance.safetyBufferMinorPlaceholder")}
             />
           </label>
+
+          <label className="switch-row">
+            <input
+              type="checkbox"
+              disabled={!draftSettings.aiEnabled}
+              checked={draftSettings.financeAiCategorizationEnabled}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  financeAiCategorizationEnabled: event.target.checked,
+                }))
+              }
+            />
+            <span>{t("finance.aiCategorizationEnabled")}</span>
+          </label>
+          <p className="field-card__helper">{t("finance.aiCategorizationPrivacyNote")}</p>
+
+          <label className="switch-row">
+            <input
+              type="checkbox"
+              disabled={!draftSettings.aiEnabled}
+              checked={draftSettings.financeAiAutoApplyEnabled}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  financeAiAutoApplyEnabled: event.target.checked,
+                }))
+              }
+            />
+            <span>{t("finance.aiAutoApplyEnabled")}</span>
+          </label>
+
+          <label>
+            <span>{t("finance.aiAutoApplyMinConfidence")}</span>
+            <input
+              type="text"
+              disabled={!draftSettings.aiEnabled}
+              value={financeAiAutoApplyMinConfidenceDraft}
+              onChange={(event) => setFinanceAiAutoApplyMinConfidenceDraft(event.target.value)}
+              placeholder={t("finance.aiAutoApplyMinConfidencePlaceholder")}
+            />
+          </label>
+          {!draftSettings.aiEnabled ? (
+            <p className="field-card__helper">{t("finance.aiRequiresAiEnabled")}</p>
+          ) : null}
         </div>
 
         <div className="form-actions">

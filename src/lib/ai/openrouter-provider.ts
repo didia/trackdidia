@@ -3,6 +3,7 @@ import { logDebug } from "../debug";
 import { chatCompletion } from "./openrouter-client";
 export { DEFAULT_OPENROUTER_BASE_URL, normalizeAiBaseUrl } from "./openrouter-client";
 import { buildCoachPulseSchemaPrompt } from "./proposals/coach-pulse-schema-prompt";
+import { buildFinanceCategorizationSchemaPrompt } from "./proposals/finance-categorization-schema-prompt";
 import { buildMidWeekSteeringSchemaPrompt } from "./proposals/mid-week-steering-schema-prompt";
 import { buildGoalPacingSchemaPrompt } from "./proposals/goal-pacing-schema-prompt";
 import { buildMonthlySynthesisSchemaPrompt } from "./proposals/monthly-synthesis-schema-prompt";
@@ -13,6 +14,7 @@ import type {
   AiStructuredRequest,
   AiStructuredResult,
   CoachPulseStructuredRequest,
+  FinanceCategorizationStructuredRequest,
   GoalPacingStructuredRequest,
   MidWeekSteeringStructuredRequest,
   MonthlySynthesisStructuredRequest,
@@ -99,6 +101,7 @@ interface SurfacePromptSpecs {
   goal_pacing: SurfacePromptSpec<GoalPacingStructuredRequest>;
   mid_week_steering: SurfacePromptSpec<MidWeekSteeringStructuredRequest>;
   pastor_verse: SurfacePromptSpec<PastorVerseStructuredRequest>;
+  finance_categorization: SurfacePromptSpec<FinanceCategorizationStructuredRequest>;
 }
 
 const surfacePromptSpecs: SurfacePromptSpecs = {
@@ -155,6 +158,13 @@ const surfacePromptSpecs: SurfacePromptSpecs = {
     },
     userPayload: (request) => ({ surface: request.surface, snapshot: request.snapshot }),
   },
+  finance_categorization: {
+    schemaName: "finance_categorization",
+    instruction: () =>
+      "Tu es un assistant de categorisation de transactions financieres. Reponds en francais avec un JSON strict conforme au schema finance_categorization. N'invente aucune information sur le marchand au-dela de ce qui est fourni.",
+    schema: (request) => buildFinanceCategorizationSchemaPrompt(request.snapshot.allowedCategories),
+    userPayload: (request) => ({ surface: request.surface, snapshot: request.snapshot }),
+  },
 };
 
 const composeSystemPrompt = (
@@ -198,6 +208,8 @@ export const buildSystemPrompt = (request: AiStructuredRequest, repairHint?: str
       return composeForSpec(surfacePromptSpecs.mid_week_steering, request, repairHint);
     case "pastor_verse":
       return composeForSpec(surfacePromptSpecs.pastor_verse, request, repairHint);
+    case "finance_categorization":
+      return composeForSpec(surfacePromptSpecs.finance_categorization, request, repairHint);
   }
 };
 
@@ -215,6 +227,8 @@ const buildUserPayload = (request: AiStructuredRequest): unknown => {
       return surfacePromptSpecs.mid_week_steering.userPayload(request);
     case "pastor_verse":
       return surfacePromptSpecs.pastor_verse.userPayload(request);
+    case "finance_categorization":
+      return surfacePromptSpecs.finance_categorization.userPayload(request);
   }
 };
 

@@ -1,14 +1,17 @@
 // Finance persistence (Phase 2 — Schema and repository parity). Mirrors the
 // email-triage pattern: row mapping/query code lives here, reached through
 // thin delegating methods on `TauriSqliteRepository` (see `getFinanceStore()`).
-// See specs/todo/finance.md "Repository methods" and "CSV import".
+// See specs/done/finance.md "Repository methods" and "CSV import".
 
 import type {
+  ApplyFinanceCategorizationResultsInput,
+  ApplyFinanceCategorizationResultsOutcome,
   BulkUpdateFinanceTransactionsPatch,
   DecideFinanceCategorySuggestionInput,
   FinanceAccount,
   FinanceAccountBalanceSnapshot,
   FinanceAccountFilters,
+  FinanceAccountType,
   FinanceBudgetEntry,
   FinanceBudgetMonth,
   FinanceCategory,
@@ -28,6 +31,7 @@ import type {
   FinanceTransaction,
   FinanceTransactionFilters,
   FinanceTransactionSplit,
+  FinanceUnknownMerchantGroup,
   ReclassifyFinancePendingResult,
   SetFinanceTransactionCategoryInput,
   SetFinanceTransactionCategoryResult,
@@ -90,7 +94,10 @@ import {
   type ClassificationOutcome,
 } from "../finance/classify";
 import { DEFAULT_FINANCE_CATEGORIES } from "../finance/default-categories";
-import type { DismissedSuggestionPair } from "../finance/dismissed-suggestions";
+import {
+  isSuggestionDismissed,
+  type DismissedSuggestionPair,
+} from "../finance/dismissed-suggestions";
 import {
   dedupeHash as computeDedupeHash,
   assignOccurrenceIndices,
@@ -1337,7 +1344,7 @@ export class FinanceSqliteStore {
     return limit !== undefined ? batches.slice(0, limit) : batches;
   }
 
-  // --- import (single transaction; see specs/todo/finance.md "Write-path discipline") --------
+  // --- import (single transaction; see specs/done/finance.md "Write-path discipline") --------
 
   /**
    * Inserts `input.rows` as one batch: chunked multi-row INSERTs with
@@ -1504,7 +1511,7 @@ export class FinanceSqliteStore {
       );
       // A user-categorized row is never re-categorized by any automatic stage, including
       // transfer detection — exclude it from the candidate set entirely so it can neither be
-      // paired nor relabeled (see specs/todo/finance.md "Classification order").
+      // paired nor relabeled (see specs/done/finance.md "Classification order").
       const candidates: TransferCandidateTransaction[] = allTransactions
         .filter((row) => row.category_source !== "user")
         .map((row) => ({
@@ -1586,7 +1593,7 @@ export class FinanceSqliteStore {
       }
 
       // Classification (rules -> learned memory -> seed heuristics; no AI —
-      // see specs/todo/finance.md "Classification pipeline"). Only the rows
+      // see specs/done/finance.md "Classification pipeline"). Only the rows
       // this batch inserted that transfer detection left untouched are
       // eligible; transfer detection already decided a final category for
       // the rest.
@@ -1627,7 +1634,7 @@ export class FinanceSqliteStore {
       }
 
       // Recurring-bill detection runs after every import, over the whole
-      // history, inside the same transaction — see specs/todo/finance.md
+      // history, inside the same transaction — see specs/done/finance.md
       // "Recurring bills".
       await this.detectRecurringSeriesWithDb(db, today);
 
@@ -1930,9 +1937,200 @@ export class FinanceSqliteStore {
     }
   }
 
+  // --- AI categorization (Phase 8) ---------------------------------------------------
+
+  /** Most frequent value in `values`; ties resolve to whichever value sorts first. */
+  private static modeOf<T extends string | number>(values: T[], fallback: T): T {
+    if (values.length === 0) {
+      return fallback;
+    }
+    const counts = new Map<T, number>();
+    for (const value of values) {
+      counts.set(value, (counts.get(value) ?? 0) + 1);
+    }
+    let best = fallback;
+    let bestCount = -1;
+    for (const [value, count] of [...counts.entries()].sort((a, b) =>
+      String(a[0]).localeCompare(String(b[0])),
+    )) {
+      if (count > bestCount) {
+        best = value;
+        bestCount = count;
+      }
+    }
+    return best;
+  }
+
+  /** Median of absolute values, integer-only (no float division). */
+  private static medianAbs(values: number[]): number {
+    const sorted = [...values].map((value) => Math.abs(value)).sort((a, b) => a - b);
+    if (sorted.length === 0) {
+      return 0;
+    }
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 1 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+  }
+
+  /**
+   * Merchant-level groups of currently unknown transactions — see
+   * `FinanceUnknownMerchantGroup` and specs/done/finance.md "AI stage". Plain read, no
+   * `BEGIN IMMEDIATE` — safe to call outside any exclusive block, which is what lets the
+   * caller run the AI request between this call and `applyCategorizationResults` without
+   * holding the writer slot across the network round-trip.
+   */
+  async listUnknownMerchants(limit = 40): Promise<FinanceUnknownMerchantGroup[]> {
+    const db = await this.getDb();
+    const pendingRows = await db.select<Array<{ transaction_id: string }>>(
+      "SELECT transaction_id FROM finance_category_suggestions WHERE status = 'pending'",
+    );
+    const pendingTransactionIds = new Set(pendingRows.map((row) => row.transaction_id));
+
+    const rows = await db.select<TransactionRow[]>(
+      `SELECT * FROM finance_transactions
+       WHERE category_source != 'user' AND is_transfer = 0 AND category_id = $1`,
+      [UNCATEGORIZED_CATEGORY_ID],
+    );
+    const eligible = rows.filter((row) => !pendingTransactionIds.has(row.id));
+
+    const accountRows = await db.select<Array<{ id: string; type: FinanceAccountType }>>(
+      "SELECT id, type FROM finance_accounts",
+    );
+    const accountTypeById = new Map(accountRows.map((row) => [row.id, row.type]));
+
+    const groups = new Map<string, TransactionRow[]>();
+    for (const row of eligible) {
+      const bucket = groups.get(row.merchant_key);
+      if (bucket) {
+        bucket.push(row);
+      } else {
+        groups.set(row.merchant_key, [row]);
+      }
+    }
+
+    const result: FinanceUnknownMerchantGroup[] = [...groups.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([merchantKey, txns]) => {
+        const currency = FinanceSqliteStore.modeOf(
+          txns.map((txn) => txn.currency),
+          txns[0].currency,
+        );
+        return {
+          merchantKey,
+          sign: FinanceSqliteStore.modeOf(
+            txns.map((txn): -1 | 0 | 1 =>
+              txn.amount_minor > 0 ? 1 : txn.amount_minor < 0 ? -1 : 0,
+            ),
+            0,
+          ),
+          occurrenceCount: txns.length,
+          amountMinorSample: FinanceSqliteStore.medianAbs(
+            txns.filter((txn) => txn.currency === currency).map((txn) => txn.amount_minor),
+          ),
+          currency,
+          accountType: FinanceSqliteStore.modeOf(
+            txns.map((txn): FinanceAccountType => accountTypeById.get(txn.account_id) ?? "other"),
+            "other",
+          ),
+          transactionIds: txns.map((txn) => txn.id),
+        };
+      });
+
+    return result.slice(0, limit);
+  }
+
+  /**
+   * Applies AI categorization results — see `ApplyFinanceCategorizationResultsInput` and
+   * specs/done/finance.md "AI stage". One `writeExclusive` block / one `BEGIN IMMEDIATE`, called
+   * only after the AI request itself has already completed (see `listUnknownMerchants`).
+   */
+  async applyCategorizationResults(
+    input: ApplyFinanceCategorizationResultsInput,
+  ): Promise<ApplyFinanceCategorizationResultsOutcome> {
+    const db = await this.getDb();
+    const now = nowIso();
+    const today = input.today ?? getTodayDate();
+
+    await db.execute("BEGIN IMMEDIATE");
+    try {
+      const dismissed = await this.buildDismissedPairsWithDb(db);
+
+      let suggestionsCreated = 0;
+      let autoApplied = 0;
+      let suppressedDismissed = 0;
+      const requestedIds = new Set(input.transactionIds);
+      const pendingRows = await db.select<Array<{ transaction_id: string }>>(
+        "SELECT transaction_id FROM finance_category_suggestions WHERE status = 'pending'",
+      );
+      const pendingTransactionIds = new Set(pendingRows.map((row) => row.transaction_id));
+
+      for (const result of input.results) {
+        const originalKeys = input.merchantKeyMap[result.merchantKey] ?? [result.merchantKey];
+        for (const merchantKey of originalKeys) {
+          if (isSuggestionDismissed(dismissed, merchantKey, result.categoryId, today)) {
+            suppressedDismissed += 1;
+            continue;
+          }
+
+          const targets = await db.select<TransactionRow[]>(
+            `SELECT * FROM finance_transactions
+             WHERE merchant_key = $1 AND category_source != 'user' AND is_transfer = 0
+               AND category_id = $2`,
+            [merchantKey, UNCATEGORIZED_CATEGORY_ID],
+          );
+
+          for (const txn of targets) {
+            if (!requestedIds.has(txn.id) || pendingTransactionIds.has(txn.id)) {
+              continue;
+            }
+            const autoApply = input.autoApply && result.confidence >= input.autoApplyMinConfidence;
+
+            await db.execute(
+              `INSERT INTO finance_category_suggestions (
+                id, transaction_id, merchant_key, suggested_category_id, confidence, origin,
+                rationale, model, prompt_version, status, decided_at, created_at
+              ) VALUES ($1,$2,$3,$4,$5,'ai',$6,$7,$8,$9,$10,$11)`,
+              [
+                createEntityId("finance-suggestion"),
+                txn.id,
+                merchantKey,
+                result.categoryId,
+                result.confidence,
+                result.rationale,
+                input.model,
+                input.promptVersion,
+                autoApply ? "accepted" : "pending",
+                autoApply ? now : null,
+                now,
+              ],
+            );
+            suggestionsCreated += 1;
+            pendingTransactionIds.add(txn.id);
+
+            if (autoApply) {
+              await db.execute(
+                `UPDATE finance_transactions SET
+                  category_id = $2, category_source = 'ai', category_confidence = $3,
+                  categorized_at = $4, updated_at = $4
+                WHERE id = $1`,
+                [txn.id, result.categoryId, result.confidence, now],
+              );
+              autoApplied += 1;
+            }
+          }
+        }
+      }
+
+      await db.execute("COMMIT");
+      return { suggestionsCreated, autoApplied, suppressedDismissed };
+    } catch (error) {
+      await this.rollbackQuietly(db);
+      throw error;
+    }
+  }
+
   /**
    * Restricted to the most recent batch for the batch's account (see
-   * specs/todo/finance.md "Overlapping exports"). One `writeExclusive` block at
+   * specs/done/finance.md "Overlapping exports"). One `writeExclusive` block at
    * the repository level; this method issues its own `BEGIN IMMEDIATE`/`COMMIT`.
    */
   async undoImportBatch(batchId: string): Promise<UndoFinanceImportBatchResult> {
@@ -2319,7 +2517,7 @@ export class FinanceSqliteStore {
    * **every** on-budget transaction through the end of `monthKey`,
    * regardless of `excluded_from_budget`, for `onBudgetBalance` (see
    * `balanceTransactions` on `FinanceBudgetComputationInput`); every budget
-   * entry; and every category. See specs/todo/finance.md "Computation shape".
+   * entry; and every category. See specs/done/finance.md "Computation shape".
    */
   private async buildBudgetComputationInput(
     monthKey: string,

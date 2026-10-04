@@ -11,6 +11,8 @@ import type {
   FinanceImportProfile,
   FinanceImportSummary,
 } from "../domain/finance";
+import { FinanceCategorizationService } from "../lib/ai/finance-categorization-service";
+import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
 import { parseCsv } from "../lib/finance/csv";
 import { createEntityId, nowIso } from "../lib/gtd/shared";
 import {
@@ -21,6 +23,7 @@ import {
 } from "../lib/finance/import-profile";
 import { buildImportRequest, decodeCsvBytes } from "../lib/finance/import-request";
 import { hash128 } from "../lib/finance/hash";
+import { logDebug } from "../lib/debug";
 
 const PREVIEW_ROW_COUNT = 20;
 
@@ -48,6 +51,10 @@ interface PendingFile {
 export const FinanceImportPage = () => {
   const { t } = useTranslation("finance");
   const { repository, browserPreview, settings } = useAppContext();
+  const categorizationService = useMemo(
+    () => new FinanceCategorizationService(new OpenRouterProvider()),
+    [],
+  );
   const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
   const [savedProfiles, setSavedProfiles] = useState<FinanceImportProfile[]>([]);
   const [batches, setBatches] = useState<FinanceImportBatch[]>([]);
@@ -70,6 +77,7 @@ export const FinanceImportPage = () => {
   const [newAccountNames, setNewAccountNames] = useState<Record<string, string>>({});
   const [summary, setSummary] = useState<FinanceImportSummary | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [aiWarning, setAiWarning] = useState<string | null>(null);
   const [undoError, setUndoError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [parserWarnings, setParserWarnings] = useState<string[]>([]);
@@ -221,6 +229,7 @@ export const FinanceImportPage = () => {
       return;
     }
     setImportError(null);
+    setAiWarning(null);
     setImporting(true);
     try {
       const baseCurrency = (settings.financeBaseCurrency || "CAD").toUpperCase();
@@ -324,6 +333,26 @@ export const FinanceImportPage = () => {
         setImportError(t("import.errors.rowErrors", { count: errors.length }));
       }
       await load();
+
+      // AI categorization runs after the import transaction has fully committed — never inside
+      // it — and only when the user opted in. A failure here must not surface as an import
+      // error: the import itself already succeeded.
+      if (settings.financeAiCategorizationEnabled) {
+        try {
+          const aiResult = await categorizationService.classifyPending(repository, settings);
+          if (aiResult.warning) {
+            logDebug(
+              "warn",
+              "finance.import",
+              "Avertissement de categorisation IA post-import",
+              aiResult.warning,
+            );
+            setAiWarning(t("import.aiCategorizationWarning"));
+          }
+        } catch (aiError) {
+          logDebug("warn", "finance.import", "Echec de la categorisation IA post-import", aiError);
+        }
+      }
     } catch (error) {
       setImportError(error instanceof Error ? error.message : t("import.errors.importFailed"));
     } finally {
@@ -548,6 +577,7 @@ export const FinanceImportPage = () => {
             </div>
           ) : null}
           {importError ? <p className="field-error">{importError}</p> : null}
+          {aiWarning ? <p className="field-card__helper">{aiWarning}</p> : null}
 
           <div className="form-actions">
             <button

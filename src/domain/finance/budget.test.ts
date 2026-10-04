@@ -81,7 +81,7 @@ const entry = (
  * Independently recomputes `onBudgetBalance` from the test's own raw
  * `accounts`/`balanceTransactions` (never by calling the function under
  * test) and checks it against `computeFinanceBudgetState`'s result, then
- * checks the balance invariant from specs/todo/finance.md "Budget model":
+ * checks the balance invariant from specs/done/finance.md "Budget model":
  * `onBudgetBalance(M) == Σ available(expense, M) + readyToAssign(M)
  *  + Σ assigned(m > M) + deferredIncome(M)`.
  */

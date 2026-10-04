@@ -62,6 +62,7 @@ const SURFACE_LABELS: Record<AiSurface, string> = {
   goal_pacing: t("analytics.surface.goal_pacing", { ns: "coach" }),
   mid_week_steering: t("analytics.surface.mid_week_steering", { ns: "coach" }),
   pastor_verse: t("analytics.surface.pastor_verse", { ns: "coach" }),
+  finance_categorization: t("analytics.surface.finance_categorization", { ns: "coach" }),
 };
 
 const TYPE_LABELS: Record<AiProposalType, string> = {

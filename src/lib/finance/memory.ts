@@ -1,5 +1,5 @@
 // Pure merchant-memory update math for `setFinanceTransactionCategory`, the
-// single learning entry point (specs/todo/finance.md "Learning from
+// single learning entry point (specs/done/finance.md "Learning from
 // corrections"). No I/O: the repository reads the existing entry (if any) and
 // writes back whatever this returns.
 

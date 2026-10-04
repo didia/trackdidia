@@ -3,11 +3,14 @@
 // "Repository parity") — the same business rules, over Maps instead of SQL.
 
 import type {
+  ApplyFinanceCategorizationResultsInput,
+  ApplyFinanceCategorizationResultsOutcome,
   BulkUpdateFinanceTransactionsPatch,
   DecideFinanceCategorySuggestionInput,
   FinanceAccount,
   FinanceAccountBalanceSnapshot,
   FinanceAccountFilters,
+  FinanceAccountType,
   FinanceBudgetEntry,
   FinanceBudgetMonth,
   FinanceCategory,
@@ -27,6 +30,7 @@ import type {
   FinanceTransaction,
   FinanceTransactionFilters,
   FinanceTransactionSplit,
+  FinanceUnknownMerchantGroup,
   ReclassifyFinancePendingResult,
   SetFinanceTransactionCategoryInput,
   SetFinanceTransactionCategoryResult,
@@ -88,7 +92,10 @@ import {
   type ClassificationOutcome,
 } from "../finance/classify";
 import { DEFAULT_FINANCE_CATEGORIES } from "../finance/default-categories";
-import type { DismissedSuggestionPair } from "../finance/dismissed-suggestions";
+import {
+  isSuggestionDismissed,
+  type DismissedSuggestionPair,
+} from "../finance/dismissed-suggestions";
 import {
   dedupeHash as computeDedupeHash,
   assignOccurrenceIndices,
@@ -808,7 +815,7 @@ export class FinanceMemoryStore {
 
     // A user-categorized row is never re-categorized by any automatic stage, including
     // transfer detection — exclude it from the candidate set entirely so it can neither be
-    // paired nor relabeled (see specs/todo/finance.md "Classification order").
+    // paired nor relabeled (see specs/done/finance.md "Classification order").
     const candidates: TransferCandidateTransaction[] = [...this.transactions.values()]
       .filter((txn) => txn.categorySource !== "user")
       .map((txn) => ({
@@ -870,7 +877,7 @@ export class FinanceMemoryStore {
     }
 
     // Classification (rules -> learned memory -> seed heuristics; no AI — see
-    // specs/todo/finance.md "Classification pipeline"). Only the rows this
+    // specs/done/finance.md "Classification pipeline"). Only the rows this
     // batch inserted that transfer detection left untouched are eligible;
     // transfer detection already decided a final category for the rest.
     const classificationRules = [...this.rules.values()];
@@ -900,7 +907,7 @@ export class FinanceMemoryStore {
     }
 
     // Recurring-bill detection runs after every import, over the whole
-    // history — see specs/todo/finance.md "Recurring bills".
+    // history — see specs/done/finance.md "Recurring bills".
     this.detectRecurringSeries(today);
 
     const skipped = input.rejected?.skipped ?? 0;
@@ -1293,6 +1300,187 @@ export class FinanceMemoryStore {
     }
 
     return updated;
+  }
+
+  // --- AI categorization (Phase 8) ---------------------------------------------------
+
+  /** Most frequent value in `values`; ties resolve to whichever value sorts first. */
+  private static modeOf<T extends string | number>(values: T[], fallback: T): T {
+    if (values.length === 0) {
+      return fallback;
+    }
+    const counts = new Map<T, number>();
+    for (const value of values) {
+      counts.set(value, (counts.get(value) ?? 0) + 1);
+    }
+    let best = fallback;
+    let bestCount = -1;
+    for (const [value, count] of [...counts.entries()].sort((a, b) =>
+      String(a[0]).localeCompare(String(b[0])),
+    )) {
+      if (count > bestCount) {
+        best = value;
+        bestCount = count;
+      }
+    }
+    return best;
+  }
+
+  /** Median of absolute values, integer-only (no float division). */
+  private static medianAbs(values: number[]): number {
+    const sorted = [...values].map((value) => Math.abs(value)).sort((a, b) => a - b);
+    if (sorted.length === 0) {
+      return 0;
+    }
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 1 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+  }
+
+  /**
+   * Merchant-level groups of currently unknown transactions — see
+   * `FinanceUnknownMerchantGroup` and specs/done/finance.md "AI stage". A transaction
+   * qualifies when it is not user-categorized, not a transfer, still carries the
+   * `Uncategorized` category, and has no pending suggestion yet (rules/memory/seeds all
+   * failed to decide). Pure read — no write, so safe to call outside any exclusive block.
+   */
+  listUnknownMerchants(limit = 40): FinanceUnknownMerchantGroup[] {
+    const pendingTransactionIds = new Set(
+      [...this.categorySuggestions.values()]
+        .filter((suggestion) => suggestion.status === "pending")
+        .map((suggestion) => suggestion.transactionId),
+    );
+    const eligible = [...this.transactions.values()].filter(
+      (txn) =>
+        txn.categorySource !== "user" &&
+        !txn.isTransfer &&
+        txn.categoryId === UNCATEGORIZED_CATEGORY_ID &&
+        !pendingTransactionIds.has(txn.id),
+    );
+
+    const groups = new Map<string, FinanceTransaction[]>();
+    for (const txn of eligible) {
+      const bucket = groups.get(txn.merchantKey);
+      if (bucket) {
+        bucket.push(txn);
+      } else {
+        groups.set(txn.merchantKey, [txn]);
+      }
+    }
+
+    const result: FinanceUnknownMerchantGroup[] = [...groups.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([merchantKey, txns]) => {
+        const currency = FinanceMemoryStore.modeOf(
+          txns.map((txn) => txn.currency),
+          txns[0].currency,
+        );
+        return {
+          merchantKey,
+          sign: FinanceMemoryStore.modeOf(
+            txns.map((txn): -1 | 0 | 1 => (txn.amountMinor > 0 ? 1 : txn.amountMinor < 0 ? -1 : 0)),
+            0,
+          ),
+          occurrenceCount: txns.length,
+          amountMinorSample: FinanceMemoryStore.medianAbs(
+            txns.filter((txn) => txn.currency === currency).map((txn) => txn.amountMinor),
+          ),
+          currency,
+          accountType: FinanceMemoryStore.modeOf(
+            txns.map(
+              (txn): FinanceAccountType => this.accounts.get(txn.accountId)?.type ?? "other",
+            ),
+            "other",
+          ),
+          transactionIds: txns.map((txn) => txn.id),
+        };
+      });
+
+    return result.slice(0, limit);
+  }
+
+  /**
+   * Applies AI categorization results — see `ApplyFinanceCategorizationResultsInput` and
+   * specs/done/finance.md "AI stage". For every result, every currently-eligible transaction
+   * sharing (one of) its original merchant key(s) gets a pending `"ai"`-origin suggestion,
+   * unless `(merchantKey, categoryId)` is within the 90-day dismissed window. When `autoApply`
+   * and `confidence >= autoApplyMinConfidence` both hold, the transaction's category is set
+   * directly (`category_source = "ai"`) and the just-written suggestion is marked `"accepted"`
+   * instead of being left in the review queue — there is nothing left for the user to decide.
+   * A `category_source === "user"` row is never touched, matching every other automatic stage.
+   */
+  applyCategorizationResults(
+    input: ApplyFinanceCategorizationResultsInput,
+  ): ApplyFinanceCategorizationResultsOutcome {
+    const now = nowIso();
+    const today = input.today ?? getTodayDate();
+    const dismissed = this.buildDismissedPairs();
+
+    let suggestionsCreated = 0;
+    let autoApplied = 0;
+    let suppressedDismissed = 0;
+    const requestedIds = new Set(input.transactionIds);
+    const pendingTransactionIds = new Set(
+      [...this.categorySuggestions.values()]
+        .filter((suggestion) => suggestion.status === "pending")
+        .map((suggestion) => suggestion.transactionId),
+    );
+
+    for (const result of input.results) {
+      const originalKeys = input.merchantKeyMap[result.merchantKey] ?? [result.merchantKey];
+      for (const merchantKey of originalKeys) {
+        if (isSuggestionDismissed(dismissed, merchantKey, result.categoryId, today)) {
+          suppressedDismissed += 1;
+          continue;
+        }
+
+        const targets = [...this.transactions.values()].filter(
+          (txn) =>
+            txn.merchantKey === merchantKey &&
+            txn.categorySource !== "user" &&
+            !txn.isTransfer &&
+            txn.categoryId === UNCATEGORIZED_CATEGORY_ID,
+        );
+
+        for (const txn of targets) {
+          if (!requestedIds.has(txn.id) || pendingTransactionIds.has(txn.id)) {
+            continue;
+          }
+          const autoApply = input.autoApply && result.confidence >= input.autoApplyMinConfidence;
+
+          const suggestionId = createEntityId("finance-suggestion");
+          this.categorySuggestions.set(suggestionId, {
+            id: suggestionId,
+            transactionId: txn.id,
+            merchantKey,
+            suggestedCategoryId: result.categoryId,
+            confidence: result.confidence,
+            origin: "ai",
+            rationale: result.rationale,
+            model: input.model,
+            promptVersion: input.promptVersion,
+            status: autoApply ? "accepted" : "pending",
+            decidedAt: autoApply ? now : null,
+            createdAt: now,
+          });
+          suggestionsCreated += 1;
+          pendingTransactionIds.add(txn.id);
+
+          if (autoApply) {
+            this.transactions.set(txn.id, {
+              ...txn,
+              categoryId: result.categoryId,
+              categorySource: "ai",
+              categoryConfidence: result.confidence,
+              categorizedAt: now,
+              updatedAt: now,
+            });
+            autoApplied += 1;
+          }
+        }
+      }
+    }
+
+    return { suggestionsCreated, autoApplied, suppressedDismissed };
   }
 
   // --- budget (Phase 5) -------------------------------------------------------------

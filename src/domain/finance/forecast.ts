@@ -1,4 +1,4 @@
-// Pure proactive runout forecasting. See specs/todo/finance.md "Proactive
+// Pure proactive runout forecasting. See specs/done/finance.md "Proactive
 // runout forecasting". No I/O; `today` is injected via `FinanceSnapshot` so
 // tests are deterministic. Both repository implementations load the same
 // rows (via `buildFinanceSnapshot`) and hand them to `computeFinanceForecast`
@@ -247,7 +247,7 @@ export interface FinancePace {
 }
 
 /**
- * `blendedPace` per specs/todo/finance.md: `elapsedDays < 5` uses history,
+ * `blendedPace` per specs/done/finance.md: `elapsedDays < 5` uses history,
  * `< 12` blends 50/50, otherwise pure current pace — **unless** there is
  * fewer than 3 trailing full months of data, in which case the whole ladder
  * collapses to `currentPace` (the `lowConfidence` override: it would

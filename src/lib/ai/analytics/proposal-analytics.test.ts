@@ -137,6 +137,24 @@ describe("proposal-analytics", () => {
     ]);
   });
 
+  it("labels the finance_categorization surface (cost dashboard/analytics parity)", () => {
+    const financeMessage = buildMessage({
+      id: "msg-finance",
+      surface: "finance_categorization",
+      stance: null,
+      kind: "finance",
+    });
+    const rows = joinProposalsWithMessages(
+      [buildProposal({ id: "p-finance", messageId: "msg-finance", status: "accepted" })],
+      [financeMessage],
+    );
+
+    const buckets = computeAcceptanceRatesBySurface(rows);
+    const financeBucket = buckets.find((bucket) => bucket.key === "finance_categorization");
+    expect(financeBucket?.label).toBeTruthy();
+    expect(financeBucket?.label).not.toBe("finance_categorization");
+  });
+
   it("tracks dismissal trends over the last 30 days", () => {
     const message = buildMessage({ id: "msg-trend" });
     const rows = joinProposalsWithMessages(

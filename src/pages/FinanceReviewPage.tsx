@@ -9,6 +9,9 @@ import type {
   FinanceCategorySuggestion,
   FinanceTransaction,
 } from "../domain/finance";
+import { FinanceCategorizationService } from "../lib/ai/finance-categorization-service";
+import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
+import { logDebug } from "../lib/debug";
 
 const ACCEPT_ALL_THRESHOLD = 0.8;
 
@@ -19,11 +22,17 @@ interface ReviewRow {
 
 export const FinanceReviewPage = () => {
   const { t } = useTranslation("finance");
-  const { repository } = useAppContext();
+  const { repository, settings } = useAppContext();
+  const categorizationService = useMemo(
+    () => new FinanceCategorizationService(new OpenRouterProvider()),
+    [],
+  );
   const [rows, setRows] = useState<ReviewRow[]>([]);
   const [categories, setCategories] = useState<FinanceCategory[]>([]);
   const [correctingId, setCorrectingId] = useState<string | null>(null);
   const [reclassifyMessage, setReclassifyMessage] = useState<string | null>(null);
+  const [classifyingPending, setClassifyingPending] = useState(false);
+  const [classifyPendingMessage, setClassifyPendingMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
 
@@ -131,6 +140,65 @@ export const FinanceReviewPage = () => {
       await load();
     });
 
+  const aiCategorizationAvailable =
+    settings.financeAiCategorizationEnabled &&
+    settings.aiEnabled &&
+    settings.aiApiKey.trim().length > 0 &&
+    settings.aiPayloadScope !== "metrics";
+
+  const classifyPending = () =>
+    exclusive(async () => {
+      setClassifyingPending(true);
+      try {
+        // The button is an explicit re-run, so skip the input-hash cache: a dismissed suggestion
+        // would otherwise replay the same cached answer forever.
+        const result = await categorizationService.classifyPending(repository, settings, {
+          bypassCache: true,
+        });
+        // `result.warning` means the AI call itself failed (or was unreadable) for at least one
+        // chunk. The warning text itself is raw/technical (provider error text or a validator
+        // message) and must not reach the French UI verbatim; log it for diagnostics instead.
+        // Counts from chunks that did succeed are kept so a partial apply is not read as a total
+        // failure.
+        const counts = {
+          merchants: result.merchantsSent,
+          suggestions: result.suggestionsCreated,
+          autoApplied: result.autoApplied,
+        };
+        const parts: string[] = [];
+        if (result.warning) {
+          logDebug("warn", "finance.review", "Avertissement de categorisation IA", result.warning);
+          parts.push(
+            result.suggestionsCreated > 0
+              ? t("review.classifyPendingPartialWarning", counts)
+              : t("review.classifyPendingWarning"),
+          );
+        } else {
+          parts.push(
+            result.merchantsRequested === 0
+              ? t("review.classifyPendingNothing")
+              : result.merchantsSent > 0
+                ? t("review.classifyPendingResult", counts)
+                : t("review.classifyPendingResultNoRequest", counts),
+          );
+        }
+        if (result.suppressedDismissed > 0) {
+          parts.push(
+            t("review.classifyPendingDismissedNote", { count: result.suppressedDismissed }),
+          );
+        }
+        setClassifyPendingMessage(parts.join(" "));
+        await load();
+      } catch (error) {
+        // A repository failure (e.g. listing unknown merchants) rejects outright rather than
+        // coming back as `result.warning` — raw technical text must never reach the French UI.
+        logDebug("error", "finance.review", "Echec de la categorisation IA a la demande", error);
+        setClassifyPendingMessage(t("review.classifyPendingError"));
+      } finally {
+        setClassifyingPending(false);
+      }
+    });
+
   return (
     <div className="page">
       <PageHeader eyebrow={t("review.hero.eyebrow")} title={t("review.hero.title")} />
@@ -156,8 +224,23 @@ export const FinanceReviewPage = () => {
           >
             {t("review.reapplyRules")}
           </button>
+          <button
+            type="button"
+            className="button"
+            disabled={!aiCategorizationAvailable || classifyingPending || busy}
+            title={t("review.classifyPendingCostHint")}
+            onClick={() => void classifyPending()}
+          >
+            {classifyingPending ? t("review.classifyPendingRunning") : t("review.classifyPending")}
+          </button>
         </div>
         {reclassifyMessage ? <p className="field-card__helper">{reclassifyMessage}</p> : null}
+        {!aiCategorizationAvailable ? (
+          <p className="field-card__helper">{t("review.classifyPendingUnavailable")}</p>
+        ) : null}
+        {classifyPendingMessage ? (
+          <p className="field-card__helper">{classifyPendingMessage}</p>
+        ) : null}
       </SectionCard>
 
       <SectionCard title={t("review.queueTitle", { count: rows.length })}>

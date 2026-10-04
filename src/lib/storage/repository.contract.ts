@@ -5420,6 +5420,344 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           expect(await repository.listNotifiedFinanceAlertKeys("2000-01-01")).toEqual([]);
         });
       });
+
+      describe("AI categorization (Phase 8)", () => {
+        it("lists an unknown merchant only while it has no pending suggestion and no real category", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({ id: "txn-1", merchantKey: "MARCHAND INCONNU" }),
+          );
+
+          const groups = await repository.listFinanceUnknownMerchants();
+          expect(groups).toEqual([
+            expect.objectContaining({ merchantKey: "MARCHAND INCONNU", occurrenceCount: 1 }),
+          ]);
+
+          await repository.applyFinanceCategorizationResults({
+            results: [
+              {
+                merchantKey: "MARCHAND INCONNU",
+                categoryId: "fincat:alimentation.epicerie",
+                confidence: 0.5,
+                rationale: "Test",
+              },
+            ],
+            merchantKeyMap: { "MARCHAND INCONNU": ["MARCHAND INCONNU"] },
+            transactionIds: ["txn-1"],
+            model: "test-model",
+            promptVersion: "finance_categorization.v1",
+            autoApply: false,
+            autoApplyMinConfidence: 0.9,
+          });
+
+          // Now has a pending suggestion — no longer "unknown".
+          await expect(repository.listFinanceUnknownMerchants()).resolves.toEqual([]);
+        });
+
+        it("reports the sample currency and never mixes currencies in the amount sample", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({ id: "cad-1", merchantKey: "CAFE", amountMinor: -500 }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({ id: "cad-2", merchantKey: "CAFE", amountMinor: -700 }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "jpy-1",
+              merchantKey: "CAFE",
+              amountMinor: -90_000,
+              currency: "JPY",
+            }),
+          );
+
+          const [group] = await repository.listFinanceUnknownMerchants();
+          expect(group.currency).toBe("CAD");
+          expect(group.occurrenceCount).toBe(3);
+          expect(group.amountMinorSample).toBeLessThan(1_000);
+        });
+
+        it("writes a pending ai-origin suggestion with rationale/model/promptVersion, but does not auto-apply below threshold", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({ id: "txn-1", merchantKey: "MARCHAND INCONNU" }),
+          );
+
+          const outcome = await repository.applyFinanceCategorizationResults({
+            results: [
+              {
+                merchantKey: "MARCHAND INCONNU",
+                categoryId: "fincat:alimentation.epicerie",
+                confidence: 0.6,
+                rationale: "Semble etre une epicerie.",
+              },
+            ],
+            merchantKeyMap: { "MARCHAND INCONNU": ["MARCHAND INCONNU"] },
+            transactionIds: ["txn-1"],
+            model: "test-model",
+            promptVersion: "finance_categorization.v1",
+            autoApply: true,
+            autoApplyMinConfidence: 0.9,
+          });
+
+          expect(outcome).toEqual({
+            suggestionsCreated: 1,
+            autoApplied: 0,
+            suppressedDismissed: 0,
+          });
+
+          const [suggestion] = await repository.listFinanceCategorySuggestions("pending");
+          expect(suggestion).toMatchObject({
+            origin: "ai",
+            suggestedCategoryId: "fincat:alimentation.epicerie",
+            confidence: 0.6,
+            rationale: "Semble etre une epicerie.",
+            model: "test-model",
+            promptVersion: "finance_categorization.v1",
+            status: "pending",
+          });
+
+          await expect(repository.getFinanceTransaction("txn-1")).resolves.toMatchObject({
+            categoryId: "fincat:non-categorise",
+            categorySource: "default",
+          });
+        });
+
+        for (const autoApply of [false, true]) {
+          it(`leaves siblings with a pending suggestion or outside the request untouched (autoApply=${autoApply})`, async () => {
+            const repository = await factory();
+            await repository.saveFinanceAccount(account({ id: "account-1" }));
+            for (const id of ["txn-old", "txn-new", "txn-late"]) {
+              await repository.saveFinanceTransaction(
+                buildFinanceTransaction({ id, merchantKey: "MARCHAND INCONNU" }),
+              );
+            }
+            // `txn-old` already carries a pending suggestion (e.g. from the seed or memory stage).
+            await repository.applyFinanceCategorizationResults({
+              results: [
+                {
+                  merchantKey: "MARCHAND INCONNU",
+                  categoryId: "fincat:transport.essence",
+                  confidence: 0.5,
+                  rationale: "Existing",
+                },
+              ],
+              merchantKeyMap: { "MARCHAND INCONNU": ["MARCHAND INCONNU"] },
+              transactionIds: ["txn-old"],
+              model: "old-model",
+              promptVersion: "finance_categorization.v1",
+              autoApply: false,
+              autoApplyMinConfidence: 0.9,
+            });
+
+            // `txn-late` appeared after the request was built, so it is not in `transactionIds`.
+            const outcome = await repository.applyFinanceCategorizationResults({
+              results: [
+                {
+                  merchantKey: "MARCHAND INCONNU",
+                  categoryId: "fincat:alimentation.epicerie",
+                  confidence: 0.95,
+                  rationale: "New",
+                },
+              ],
+              merchantKeyMap: { "MARCHAND INCONNU": ["MARCHAND INCONNU"] },
+              transactionIds: ["txn-old", "txn-new"],
+              model: "new-model",
+              promptVersion: "finance_categorization.v1",
+              autoApply,
+              autoApplyMinConfidence: 0.9,
+            });
+
+            expect(outcome.suggestionsCreated).toBe(1);
+            expect(outcome.autoApplied).toBe(autoApply ? 1 : 0);
+            const pending = await repository.listFinanceCategorySuggestions("pending");
+            const byTransaction = new Map(pending.map((entry) => [entry.transactionId, entry]));
+            expect(byTransaction.get("txn-old")).toMatchObject({
+              suggestedCategoryId: "fincat:transport.essence",
+              model: "old-model",
+            });
+            expect(byTransaction.has("txn-late")).toBe(false);
+            expect(byTransaction.has("txn-new")).toBe(!autoApply);
+            await expect(repository.getFinanceTransaction("txn-old")).resolves.toMatchObject({
+              categoryId: "fincat:non-categorise",
+            });
+            await expect(repository.getFinanceTransaction("txn-late")).resolves.toMatchObject({
+              categoryId: "fincat:non-categorise",
+            });
+            await expect(repository.getFinanceTransaction("txn-new")).resolves.toMatchObject({
+              categorySource: autoApply ? "ai" : "default",
+            });
+          });
+        }
+
+        it("auto-applies and accepts the suggestion when confidence meets the threshold", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({ id: "txn-1", merchantKey: "MARCHAND INCONNU" }),
+          );
+
+          const outcome = await repository.applyFinanceCategorizationResults({
+            results: [
+              {
+                merchantKey: "MARCHAND INCONNU",
+                categoryId: "fincat:alimentation.epicerie",
+                confidence: 0.95,
+                rationale: "Tres probable.",
+              },
+            ],
+            merchantKeyMap: { "MARCHAND INCONNU": ["MARCHAND INCONNU"] },
+            transactionIds: ["txn-1"],
+            model: "test-model",
+            promptVersion: "finance_categorization.v1",
+            autoApply: true,
+            autoApplyMinConfidence: 0.9,
+          });
+
+          expect(outcome).toEqual({
+            suggestionsCreated: 1,
+            autoApplied: 1,
+            suppressedDismissed: 0,
+          });
+
+          await expect(repository.getFinanceTransaction("txn-1")).resolves.toMatchObject({
+            categoryId: "fincat:alimentation.epicerie",
+            categorySource: "ai",
+            categoryConfidence: 0.95,
+          });
+
+          const [suggestion] = await repository.listFinanceCategorySuggestions();
+          expect(suggestion.status).toBe("accepted");
+        });
+
+        it("never overwrites a user-set category, even when the merchant key matches", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-1",
+              merchantKey: "MARCHAND INCONNU",
+              categoryId: "fincat:transport.essence",
+              categorySource: "user",
+            }),
+          );
+
+          const outcome = await repository.applyFinanceCategorizationResults({
+            results: [
+              {
+                merchantKey: "MARCHAND INCONNU",
+                categoryId: "fincat:alimentation.epicerie",
+                confidence: 0.99,
+                rationale: "Tres probable.",
+              },
+            ],
+            merchantKeyMap: { "MARCHAND INCONNU": ["MARCHAND INCONNU"] },
+            transactionIds: ["txn-1"],
+            model: "test-model",
+            promptVersion: "finance_categorization.v1",
+            autoApply: true,
+            autoApplyMinConfidence: 0.9,
+          });
+
+          expect(outcome).toEqual({
+            suggestionsCreated: 0,
+            autoApplied: 0,
+            suppressedDismissed: 0,
+          });
+          await expect(repository.getFinanceTransaction("txn-1")).resolves.toMatchObject({
+            categoryId: "fincat:transport.essence",
+            categorySource: "user",
+          });
+        });
+
+        it("honors the 90-day dismissed-pair suppression for AI suggestions", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({ id: "txn-1", merchantKey: "MARCHAND INCONNU" }),
+          );
+
+          const dismissed = await repository.saveFinanceCategorySuggestions([
+            {
+              id: "",
+              transactionId: "txn-1",
+              merchantKey: "MARCHAND INCONNU",
+              suggestedCategoryId: "fincat:alimentation.epicerie",
+              confidence: 0.6,
+              origin: "ai",
+              rationale: null,
+              model: null,
+              promptVersion: null,
+              status: "pending",
+              decidedAt: null,
+              createdAt: "",
+            },
+          ]);
+          await repository.decideFinanceCategorySuggestion(dismissed[0].id, {
+            status: "dismissed",
+          });
+
+          const outcome = await repository.applyFinanceCategorizationResults({
+            results: [
+              {
+                merchantKey: "MARCHAND INCONNU",
+                categoryId: "fincat:alimentation.epicerie",
+                confidence: 0.95,
+                rationale: "Tres probable.",
+              },
+            ],
+            merchantKeyMap: { "MARCHAND INCONNU": ["MARCHAND INCONNU"] },
+            transactionIds: ["txn-1"],
+            model: "test-model",
+            promptVersion: "finance_categorization.v1",
+            autoApply: true,
+            autoApplyMinConfidence: 0.9,
+          });
+
+          expect(outcome).toEqual({
+            suggestionsCreated: 0,
+            autoApplied: 0,
+            suppressedDismissed: 1,
+          });
+        });
+
+        it("applies to every pending transaction sharing the merchant key", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({ id: "txn-1", merchantKey: "MARCHAND INCONNU" }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({ id: "txn-2", merchantKey: "MARCHAND INCONNU" }),
+          );
+
+          const outcome = await repository.applyFinanceCategorizationResults({
+            results: [
+              {
+                merchantKey: "MARCHAND INCONNU",
+                categoryId: "fincat:alimentation.epicerie",
+                confidence: 0.95,
+                rationale: "Tres probable.",
+              },
+            ],
+            merchantKeyMap: { "MARCHAND INCONNU": ["MARCHAND INCONNU"] },
+            transactionIds: ["txn-1", "txn-2"],
+            model: "test-model",
+            promptVersion: "finance_categorization.v1",
+            autoApply: true,
+            autoApplyMinConfidence: 0.9,
+          });
+
+          expect(outcome).toEqual({
+            suggestionsCreated: 2,
+            autoApplied: 2,
+            suppressedDismissed: 0,
+          });
+        });
+      });
     });
   });
 };

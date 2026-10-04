@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { defaultAppSettings } from "../domain/daily-entry";
 import { MemoryRepository } from "../lib/storage/memory-repository";
@@ -164,5 +164,154 @@ describe("FinanceReviewPage", () => {
         correctionCount: 1,
       }),
     ]);
+  });
+
+  it("disables the AI classify-pending button until all three AI finance flags are on", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.seedFinanceDefaultCategories();
+    await repository.saveFinanceAccount(buildAccount());
+    await repository.saveFinanceTransaction(buildTxn());
+
+    await renderWithApp(<FinanceReviewPage />, {
+      repository,
+      contextOverrides: {
+        settings: {
+          ...defaultAppSettings(),
+          financeEnabled: true,
+          financeAiCategorizationEnabled: false,
+          aiEnabled: false,
+          aiApiKey: "",
+        },
+      },
+    });
+
+    expect(screen.getByText("Classer les en attente (IA)")).toBeDisabled();
+    expect(
+      screen.getByText(
+        "Activez l'IA et la catégorisation IA des finances dans les paramètres pour utiliser cette action.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("enables the AI classify-pending button once aiEnabled, aiApiKey, and financeAiCategorizationEnabled are all set", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.seedFinanceDefaultCategories();
+    await repository.saveFinanceAccount(buildAccount());
+    await repository.saveFinanceTransaction(buildTxn());
+
+    await renderWithApp(<FinanceReviewPage />, {
+      repository,
+      contextOverrides: {
+        settings: {
+          ...defaultAppSettings(),
+          financeEnabled: true,
+          financeAiCategorizationEnabled: true,
+          aiEnabled: true,
+          aiApiKey: "secret",
+        },
+      },
+    });
+
+    expect(screen.getByText("Classer les en attente (IA)")).not.toBeDisabled();
+  });
+
+  it("surfaces a translated error (not raw technical text) when the AI run fails outright", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.seedFinanceDefaultCategories();
+    await repository.saveFinanceAccount(buildAccount());
+    await repository.saveFinanceTransaction(buildTxn());
+    vi.spyOn(repository, "listFinanceUnknownMerchants").mockRejectedValue(
+      new Error("boom: should never reach the UI"),
+    );
+
+    const user = userEvent.setup();
+    await renderWithApp(<FinanceReviewPage />, {
+      repository,
+      contextOverrides: {
+        settings: {
+          ...defaultAppSettings(),
+          financeEnabled: true,
+          financeAiCategorizationEnabled: true,
+          aiEnabled: true,
+          aiApiKey: "secret",
+        },
+      },
+    });
+
+    await user.click(screen.getByText("Classer les en attente (IA)"));
+
+    const message = await screen.findByText("Échec de la classification IA. Réessayez plus tard.");
+    expect(message).toBeInTheDocument();
+    expect(screen.queryByText(/boom/)).not.toBeInTheDocument();
+  });
+
+  it("surfaces a translated warning (not raw provider text) when the AI provider call itself fails", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.seedFinanceDefaultCategories();
+    await repository.saveFinanceAccount(buildAccount());
+    await repository.saveFinanceTransaction(buildTxn());
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new Error("network down: should never reach the UI"));
+
+    const user = userEvent.setup();
+    await renderWithApp(<FinanceReviewPage />, {
+      repository,
+      contextOverrides: {
+        settings: {
+          ...defaultAppSettings(),
+          financeEnabled: true,
+          financeAiCategorizationEnabled: true,
+          aiEnabled: true,
+          aiApiKey: "secret",
+        },
+      },
+    });
+
+    await user.click(screen.getByText("Classer les en attente (IA)"));
+
+    const message = await screen.findByText(
+      "La classification IA a échoué pour au moins un lot de marchands ; aucune suggestion n'a été créée pour ce lot. Réessayez plus tard.",
+    );
+    expect(message).toBeInTheDocument();
+    expect(screen.queryByText(/network down/)).not.toBeInTheDocument();
+    fetchSpy.mockRestore();
+  });
+
+  it("ignores a second classify click fired before React re-renders", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.seedFinanceDefaultCategories();
+    await repository.saveFinanceAccount(buildAccount());
+    await repository.saveFinanceTransaction(buildTxn());
+    const listSpy = vi.spyOn(repository, "listFinanceUnknownMerchants");
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new Error("network down: should never reach the UI"));
+
+    await renderWithApp(<FinanceReviewPage />, {
+      repository,
+      contextOverrides: {
+        settings: {
+          ...defaultAppSettings(),
+          financeEnabled: true,
+          financeAiCategorizationEnabled: true,
+          aiEnabled: true,
+          aiApiKey: "secret",
+        },
+      },
+    });
+
+    const button = screen.getByText("Classer les en attente (IA)");
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    await screen.findByText(/La classification IA a échoué/);
+    expect(listSpy).toHaveBeenCalledTimes(1);
+    fetchSpy.mockRestore();
   });
 });

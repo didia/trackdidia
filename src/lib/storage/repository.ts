@@ -46,6 +46,8 @@ import type {
   WeeklyReviewSummary,
 } from "../../domain/types";
 import type {
+  ApplyFinanceCategorizationResultsInput,
+  ApplyFinanceCategorizationResultsOutcome,
   BulkUpdateFinanceTransactionsPatch,
   DecideFinanceCategorySuggestionInput,
   FinanceAccount,
@@ -69,6 +71,7 @@ import type {
   FinanceTransaction,
   FinanceTransactionFilters,
   FinanceTransactionSplit,
+  FinanceUnknownMerchantGroup,
   ReclassifyFinancePendingResult,
   SetFinanceTransactionCategoryInput,
   SetFinanceTransactionCategoryResult,
@@ -334,7 +337,7 @@ export interface AppRepository {
   countFinanceTransactions(filters?: FinanceTransactionFilters): Promise<number>;
   getFinanceTransaction(id: string): Promise<FinanceTransaction | null>;
   saveFinanceTransaction(txn: FinanceTransaction): Promise<FinanceTransaction>;
-  /** The single learning entry point — see specs/todo/finance.md "Learning from corrections". */
+  /** The single learning entry point — see specs/done/finance.md "Learning from corrections". */
   setFinanceTransactionCategory(
     input: SetFinanceTransactionCategoryInput,
   ): Promise<SetFinanceTransactionCategoryResult>;
@@ -355,7 +358,7 @@ export interface AppRepository {
   /**
    * One `writeExclusive` block / one `BEGIN IMMEDIATE`: chunked multi-row inserts, exact-hash
    * dedupe, near-duplicate detection, and transfer detection across the whole history. See
-   * specs/todo/finance.md "Write-path discipline".
+   * specs/done/finance.md "Write-path discipline".
    */
   importFinanceTransactions(input: FinanceImportRequest): Promise<FinanceImportSummary>;
   listFinanceImportBatches(limit?: number): Promise<FinanceImportBatch[]>;
@@ -488,4 +491,26 @@ export interface AppRepository {
   /** Alert keys already notified on `onDate` — the once-per-day-per-key rate limit ledger. */
   listNotifiedFinanceAlertKeys(onDate: string): Promise<string[]>;
   recordFinanceAlertNotifications(onDate: string, alertKeys: string[]): Promise<void>;
+
+  // --- Finance (Phase 8 — AI categorization) --------------------------------------------
+
+  /**
+   * Merchant-level groups of currently unknown transactions (see
+   * `FinanceUnknownMerchantGroup`), the candidate pool for the AI stage. Plain read, not
+   * wrapped in a write transaction — the caller builds the AI payload from this and calls the
+   * model *before* touching the database again, so the network call never happens inside a
+   * `DbSerialQueue`/`BEGIN IMMEDIATE` slot.
+   */
+  listFinanceUnknownMerchants(limit?: number): Promise<FinanceUnknownMerchantGroup[]>;
+  /**
+   * Applies AI categorization results in one short exclusive block: writes a pending
+   * `finance_category_suggestions` row (origin `"ai"`) for every eligible transaction sharing
+   * each result's merchant key, honoring the 90-day dismissed-pair suppression, and — only when
+   * `autoApply` and `confidence >= autoApplyMinConfidence` — sets the transaction's category
+   * directly (`category_source = "ai"`) and marks that suggestion `"accepted"`. Never touches a
+   * `category_source = "user"` row.
+   */
+  applyFinanceCategorizationResults(
+    input: ApplyFinanceCategorizationResultsInput,
+  ): Promise<ApplyFinanceCategorizationResultsOutcome>;
 }

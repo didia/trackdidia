@@ -1,6 +1,6 @@
 // Pure file-text -> FinanceImportRequest wiring for FinanceImportPage. No I/O:
 // callers read the File's bytes themselves (FinanceImportPage uses
-// FileReader) and pass the result in here. See specs/todo/finance.md
+// FileReader) and pass the result in here. See specs/done/finance.md
 // "CSV import" and docs/finance.md.
 
 import type {

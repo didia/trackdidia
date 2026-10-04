@@ -1,5 +1,5 @@
 // CSV import profile recognition and row -> normalized-transaction mapping.
-// Pure, no I/O. See specs/todo/finance.md "CSV import".
+// Pure, no I/O. See specs/done/finance.md "CSV import".
 
 import type {
   FinanceDateFormat,

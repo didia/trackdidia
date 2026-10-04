@@ -3030,4 +3030,16 @@ export class TauriSqliteRepository implements AppRepository {
       this.getFinanceStore().recordFinanceAlertNotifications(onDate, alertKeys),
     );
   }
+
+  // --- Finance (Phase 8 — AI categorization) --------------------------------------------
+
+  async listFinanceUnknownMerchants(limit?: number) {
+    return this.getFinanceStore().listUnknownMerchants(limit);
+  }
+
+  async applyFinanceCategorizationResults(
+    input: import("../../domain/finance").ApplyFinanceCategorizationResultsInput,
+  ) {
+    return this.writeExclusive(() => this.getFinanceStore().applyCategorizationResults(input));
+  }
 }

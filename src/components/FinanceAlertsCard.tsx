@@ -11,7 +11,7 @@ const MAX_ALERTS_ON_TODAY = 3;
 
 /**
  * Today card for proactive budget-runout forecasting — see
- * specs/todo/finance.md "Surfacing". Rendered by `TodayPage` only when
+ * specs/done/finance.md "Surfacing". Rendered by `TodayPage` only when
  * `financeEnabled && financeAlertsOnToday`; shows at most the 3
  * highest-severity alerts plus a link to the full list on `/finances`.
  */
