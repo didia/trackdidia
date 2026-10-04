@@ -114,6 +114,35 @@ export const adjustPlannedFieldsForSave = (
   return { ...requested, plannedOrder: null };
 };
 
+/** A task that passed `assertPlannedTaskActionable`: active, Planned, and assigned to a project. */
+export type ActionablePlannedTask = Task & {
+  status: "active";
+  bucket: "planned";
+  projectId: string;
+};
+
+/**
+ * Shared eligibility check for the manual Planned actions (`promotePlannedTask`,
+ * `movePlannedTask`). A missing task is reported with the same message as an ineligible one.
+ */
+export const assertPlannedTaskActionable = (
+  taskId: string,
+  task: Task | null,
+): ActionablePlannedTask => {
+  if (!task || task.status !== "active" || task.bucket !== "planned" || !task.projectId) {
+    throw new Error(`La tache ${taskId} n'est pas planifiee et active`);
+  }
+
+  return task as ActionablePlannedTask;
+};
+
+/** Promoting a Planned task additionally requires its project to exist and be active. */
+export const assertPlannedProjectActive = (project: Project | null): void => {
+  if (!project || project.status !== "active") {
+    throw new Error("Le projet associe n'est pas actif");
+  }
+};
+
 export interface ReconciliationOutcome {
   promotedTaskId: string | null;
   updatedTasks: Task[];
