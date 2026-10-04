@@ -7,6 +7,8 @@ import type {
   DecideFinanceCategorySuggestionInput,
   FinanceAccount,
   FinanceAccountFilters,
+  FinanceBudgetEntry,
+  FinanceBudgetMonth,
   FinanceCategory,
   FinanceCategoryBackfillEntry,
   FinanceCategorySuggestion,
@@ -16,6 +18,7 @@ import type {
   FinanceImportSummary,
   FinanceMerchantMemoryEntry,
   FinanceMerchantMemoryFilters,
+  FinanceOverspendPolicy,
   FinancePerson,
   FinanceRule,
   FinanceRuleActions,
@@ -28,6 +31,16 @@ import type {
   SetFinanceTransferPair,
   UndoFinanceImportBatchResult,
 } from "../../domain/finance";
+import {
+  assertFinanceCategoryAssignable,
+  hasBudgetEntryMetadata,
+  computeCoverOverspending,
+  computeFinanceBudgetState,
+  type CoverOverspendingResult,
+  type FinanceBudgetComputationInput,
+  type FinanceBudgetState,
+} from "../../domain/finance/budget";
+import { getMonthEndDate } from "../../domain/monthly-review";
 import { getTodayDate } from "../date";
 import {
   classifyTransaction,
@@ -101,6 +114,9 @@ export class FinanceMemoryStore {
   categorySuggestions = new Map<string, FinanceCategorySuggestion>();
   importProfiles = new Map<string, FinanceImportProfile>();
   importBatches = new Map<string, FinanceImportBatch>();
+  /** Keyed by `${monthKey}\u0000${categoryId}`. */
+  budgetEntries = new Map<string, FinanceBudgetEntry>();
+  budgetMonths = new Map<string, FinanceBudgetMonth>();
 
   // --- people -------------------------------------------------------------
 
@@ -1217,5 +1233,198 @@ export class FinanceMemoryStore {
     }
 
     return updated;
+  }
+
+  // --- budget (Phase 5) -------------------------------------------------------------
+
+  private budgetEntryKey = (monthKey: string, categoryId: string): string =>
+    `${monthKey}\u0000${categoryId}`;
+
+  getBudgetMonth(monthKey: string): FinanceBudgetMonth {
+    return (
+      this.budgetMonths.get(monthKey) ?? {
+        monthKey,
+        readyToAssignNote: null,
+        closedAt: null,
+        updatedAt: "",
+      }
+    );
+  }
+
+  listBudgetEntries(): FinanceBudgetEntry[] {
+    return [...this.budgetEntries.values()].sort(
+      (a, b) => a.monthKey.localeCompare(b.monthKey) || a.categoryId.localeCompare(b.categoryId),
+    );
+  }
+
+  /** Rejects `kind = "income"` categories; assigning `0` deletes the row unless it holds a non-default policy or a note. */
+  setBudgetAssignment(
+    monthKey: string,
+    categoryId: string,
+    assignedMinor: number,
+  ): FinanceBudgetEntry | null {
+    const category = this.categories.get(categoryId);
+    if (!category) {
+      throw new Error(`finance category not found: ${categoryId}`);
+    }
+    assertFinanceCategoryAssignable(category);
+
+    const key = this.budgetEntryKey(monthKey, categoryId);
+    const existing = this.budgetEntries.get(key);
+    if (assignedMinor === 0 && !hasBudgetEntryMetadata(existing)) {
+      this.budgetEntries.delete(key);
+      return null;
+    }
+
+    const now = nowIso();
+    const saved: FinanceBudgetEntry = {
+      monthKey,
+      categoryId,
+      assignedMinor,
+      overspendPolicy: existing?.overspendPolicy ?? "reduce_next_ready_to_assign",
+      note: existing?.note ?? null,
+      updatedAt: now,
+    };
+    this.budgetEntries.set(key, saved);
+    return saved;
+  }
+
+  /**
+   * Writes the policy on `(monthKey, categoryId)` — creating the entry with
+   * `assignedMinor = 0` if absent — and on every already-existing later entry
+   * for that category; never creates a future entry just to carry it forward.
+   */
+  setCategoryOverspendPolicy(
+    monthKey: string,
+    categoryId: string,
+    policy: FinanceOverspendPolicy,
+  ): void {
+    const now = nowIso();
+    const key = this.budgetEntryKey(monthKey, categoryId);
+    const existing = this.budgetEntries.get(key);
+    this.budgetEntries.set(key, {
+      monthKey,
+      categoryId,
+      assignedMinor: existing?.assignedMinor ?? 0,
+      overspendPolicy: policy,
+      note: existing?.note ?? null,
+      updatedAt: now,
+    });
+
+    for (const entry of this.budgetEntries.values()) {
+      if (entry.categoryId === categoryId && entry.monthKey > monthKey) {
+        this.budgetEntries.set(this.budgetEntryKey(entry.monthKey, categoryId), {
+          ...entry,
+          overspendPolicy: policy,
+          updatedAt: now,
+        });
+      }
+    }
+  }
+
+  setBudgetMonthClosed(monthKey: string, closed: boolean): FinanceBudgetMonth {
+    const now = nowIso();
+    const existing = this.getBudgetMonth(monthKey);
+    const saved: FinanceBudgetMonth = {
+      ...existing,
+      closedAt: closed ? now : null,
+      updatedAt: now,
+    };
+    this.budgetMonths.set(monthKey, saved);
+    return saved;
+  }
+
+  setBudgetReadyToAssignNote(monthKey: string, note: string | null): FinanceBudgetMonth {
+    const now = nowIso();
+    const existing = this.getBudgetMonth(monthKey);
+    const saved: FinanceBudgetMonth = {
+      ...existing,
+      readyToAssignNote: note,
+      updatedAt: now,
+    };
+    this.budgetMonths.set(monthKey, saved);
+    return saved;
+  }
+
+  /**
+   * Loads the same input shape `FinanceSqliteStore.computeBudgetState` loads
+   * and hands it to the same pure function — see "Computation shape".
+   */
+  private buildBudgetComputationInput(monthKey: string): FinanceBudgetComputationInput {
+    const monthEnd = getMonthEndDate(monthKey);
+    const accounts = [...this.accounts.values()].filter((account) => account.onBudget);
+    const onBudgetAccountIds = new Set(accounts.map((account) => account.id));
+
+    const onBudgetThroughMonthEnd = [...this.transactions.values()].filter(
+      (txn) => onBudgetAccountIds.has(txn.accountId) && txn.postedDate <= monthEnd,
+    );
+    const transactions = onBudgetThroughMonthEnd.filter((txn) => !txn.excludedFromBudget);
+    const splitTransactionIds = new Set(
+      transactions.filter((txn) => txn.hasSplits).map((txn) => txn.id),
+    );
+    const splits = [...this.splits.values()].filter((split) =>
+      splitTransactionIds.has(split.transactionId),
+    );
+
+    return {
+      monthKey,
+      accounts: accounts.map((account) => ({
+        id: account.id,
+        onBudget: account.onBudget,
+        openingBalanceMinor: account.openingBalanceMinor,
+      })),
+      transactions: transactions.map((txn) => ({
+        id: txn.id,
+        accountId: txn.accountId,
+        postedDate: txn.postedDate,
+        amountMinor: txn.amountMinor,
+        categoryId: txn.categoryId,
+        hasSplits: txn.hasSplits,
+      })),
+      balanceTransactions: onBudgetThroughMonthEnd.map((txn) => ({
+        accountId: txn.accountId,
+        postedDate: txn.postedDate,
+        amountMinor: txn.amountMinor,
+      })),
+      splits: splits.map((split) => ({
+        transactionId: split.transactionId,
+        amountMinor: split.amountMinor,
+        categoryId: split.categoryId,
+      })),
+      entries: this.listBudgetEntries(),
+      categories: [...this.categories.values()].map((category) => ({
+        id: category.id,
+        kind: category.kind,
+        defersToNextMonth: category.defersToNextMonth,
+      })),
+    };
+  }
+
+  computeBudgetState(monthKey: string): FinanceBudgetState {
+    return computeFinanceBudgetState(this.buildBudgetComputationInput(monthKey));
+  }
+
+  /** Moves the cover amount between both rows in one synchronous step. */
+  applyCoverOverspending(
+    monthKey: string,
+    fromCategoryId: string,
+    toCategoryId: string,
+  ): CoverOverspendingResult {
+    const result = this.computeCoverOverspending(monthKey, fromCategoryId, toCategoryId);
+    if (result.amountMinor > 0) {
+      this.setBudgetAssignment(monthKey, fromCategoryId, result.fromNewAssignedMinor);
+      this.setBudgetAssignment(monthKey, toCategoryId, result.toNewAssignedMinor);
+    }
+    return result;
+  }
+
+  /** Delegates to the pure `computeCoverOverspending` — see `AppRepository.computeFinanceCoverOverspending`. */
+  computeCoverOverspending(
+    monthKey: string,
+    fromCategoryId: string,
+    toCategoryId: string,
+  ): CoverOverspendingResult {
+    const input = this.buildBudgetComputationInput(monthKey);
+    return computeCoverOverspending(fromCategoryId, toCategoryId, monthKey, input);
   }
 }

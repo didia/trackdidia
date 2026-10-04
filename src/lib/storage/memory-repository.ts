@@ -1932,4 +1932,54 @@ export class MemoryRepository implements AppRepository {
   ) {
     return Promise.resolve(this.finance.revertCategoryBackfill(entries));
   }
+
+  // --- Finance (Phase 5 — Budget) -------------------------------------------------------
+
+  async getFinanceBudgetMonth(monthKey: string) {
+    return Promise.resolve(this.finance.getBudgetMonth(monthKey));
+  }
+
+  async setFinanceBudgetAssignment(monthKey: string, categoryId: string, assignedMinor: number) {
+    return Promise.resolve(this.finance.setBudgetAssignment(monthKey, categoryId, assignedMinor));
+  }
+
+  async setFinanceCategoryOverspendPolicy(
+    monthKey: string,
+    categoryId: string,
+    policy: import("../../domain/finance").FinanceOverspendPolicy,
+  ) {
+    return Promise.resolve(this.finance.setCategoryOverspendPolicy(monthKey, categoryId, policy));
+  }
+
+  async computeFinanceBudgetState(monthKey: string) {
+    return Promise.resolve(this.finance.computeBudgetState(monthKey));
+  }
+
+  async applyFinanceCoverOverspending(
+    monthKey: string,
+    fromCategoryId: string,
+    toCategoryId: string,
+  ) {
+    return Promise.resolve(
+      this.finance.applyCoverOverspending(monthKey, fromCategoryId, toCategoryId),
+    );
+  }
+
+  async computeFinanceCoverOverspending(
+    monthKey: string,
+    fromCategoryId: string,
+    toCategoryId: string,
+  ) {
+    return Promise.resolve(
+      this.finance.computeCoverOverspending(monthKey, fromCategoryId, toCategoryId),
+    );
+  }
+
+  async setFinanceBudgetMonthClosed(monthKey: string, closed: boolean) {
+    return Promise.resolve(this.finance.setBudgetMonthClosed(monthKey, closed));
+  }
+
+  async setFinanceBudgetReadyToAssignNote(monthKey: string, note: string | null) {
+    return Promise.resolve(this.finance.setBudgetReadyToAssignNote(monthKey, note));
+  }
 }

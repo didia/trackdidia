@@ -3,21 +3,24 @@
 See also: [changelog](logs/finance.md).
 
 TrackDidia is building a household finance domain: CSV transaction import, a
-learning categorization loop, multi-person/multi-account tracking, and (in later
-phases) YNAB-style envelope budgeting and proactive runout forecasting. This page
-documents **Phase 2 — Schema and repository parity** (the SQLite schema, the
-`FinanceSqliteStore`/`FinanceMemoryStore` persistence layer, and the
-`AppRepository` contract), **Phase 3 — Accounts, import, and transaction
-screens** (the first finance UI), and **Phase 4 — Classification: rules,
-memory, seeds, review queue** (the automatic categorization pipeline, the
-`/finances/review` suggestion queue, and the `/finances/rules` rule manager).
-There is still no budget arithmetic and no AI categorization stage — see
+learning categorization loop, multi-person/multi-account tracking, and
+YNAB-style envelope budgeting (with, in a later phase, proactive runout
+forecasting). This page documents **Phase 2 — Schema and repository parity**
+(the SQLite schema, the `FinanceSqliteStore`/`FinanceMemoryStore` persistence
+layer, and the `AppRepository` contract), **Phase 3 — Accounts, import, and
+transaction screens** (the first finance UI), **Phase 4 — Classification:
+rules, memory, seeds, review queue** (the automatic categorization pipeline,
+the `/finances/review` suggestion queue, and the `/finances/rules` rule
+manager), and **Phase 5 — Budget** (the zero-based envelope model in
+`src/domain/finance/budget.ts`, `setFinanceBudgetAssignment`/
+`computeFinanceBudgetState`, and the `/finances/budget` screen). There is
+still no proactive runout forecasting and no AI categorization stage — see
 [specs/todo/finance.md](../specs/todo/finance.md) for the full phased plan.
 
 The feature is **unshipped to end users by default**: `AppSettings.financeEnabled`
 defaults to `false`. With it off, the sidebar has no "Finances" entry and
 `/finances*` redirects to `/`. A household that turns it on in Settings gets
-the six screens documented in "Screens" below; later phases (budget, reports,
+the seven screens documented in "Screens" below; later phases (reports,
 forecasting, AI) are not built yet. This page describes what the storage layer
 and the UI can do today so later phases (and reviewers) have a canonical
 reference.
@@ -113,17 +116,22 @@ seed and archive-with-reassign), rules, merchant memory, transactions (including
 splits and transfers), import profiles/batches (including their decimal/thousands
 separators), transaction import with undo, and
 the category-suggestion queue. Phase 4 added the classification pipeline itself
-(below), `reclassifyFinancePending()`, and `revertFinanceCategoryBackfill()`. Every finance mutation goes through the repository
+(below), `reclassifyFinancePending()`, and `revertFinanceCategoryBackfill()`.
+Phase 5 added the budget methods — `getFinanceBudgetMonth`,
+`setFinanceBudgetAssignment`, `setFinanceCategoryOverspendPolicy`,
+`computeFinanceBudgetState`, `setFinanceBudgetMonthClosed`, and
+`setFinanceBudgetReadyToAssignNote` — covered below under "Budget (Phase 5)".
+Every finance mutation goes through the repository
 writer queue (`writeExclusive`), so a save can never be rolled back by a concurrent
 import. `saveFinanceTransactionSplits` validates that a non-empty allocation sums
 exactly to the parent amount before touching anything and replaces splits in one
 transaction; clearing the last split restores `fincat:non-categorise`. An
 `all_matching` category correction marks every changed row `category_source = 'user'`,
 and archiving a category also reassigns split and merchant-memory references.
-**Not** covered yet (later phases): any `compute*`
-report/forecast method, recurring-series detection/storage, budget state, balance
-snapshots, or AI suggestion generation — these remain unimplemented on both
-repositories until their respective phase.
+**Not** covered yet (later phases): any other `compute*` report/forecast
+method, recurring-series detection/storage, balance snapshots, or AI
+suggestion generation — these remain unimplemented on both repositories until
+their respective phase.
 
 ### Learning entry point
 
@@ -291,7 +299,106 @@ does not silently fall out of the budget), and **refuses to delete any row whose
 `category_source = 'user'`** — those rows are counted in `refusedUserCategorized`
 and left exactly as they were, with their `import_batch_id` intact.
 
-## Screens (Phases 3–4)
+## Budget (Phase 5)
+
+`src/domain/finance/budget.ts` is a pure, no-I/O envelope-budget engine —
+every number the budget page renders comes from this file, matching the
+`computeWeeklyReviewSummary` centralization pattern. Both
+`FinanceSqliteStore.computeBudgetState` and
+`FinanceMemoryStore.computeBudgetState` load the **same input shape**
+(via a private `buildBudgetComputationInput`, shared with
+`computeCoverOverspending` below) — **two** separate transaction arrays
+through the end of the requested month (see "the two transaction arrays"
+below), every `finance_budget_entries` row (any month, past or future), and
+every category — and hand it to the same `computeFinanceBudgetState`.
+**Rollover is never stored**: `carryIn` is recomputed from scratch on every
+call, so correcting a transaction six months back automatically fixes every
+later month with no migration and no stale cached balance.
+
+Core formulas (all minor units):
+
+```
+activity(cat, month)   = Σ amount_minor of that category's transactions (splits expanded) in month
+available(cat, month)  = carryIn(cat, month) + assigned(cat, month) + activity(cat, month)
+carryIn(cat, month)    = 0 for the first budgeted month; otherwise the previous month's
+                          available if it is >= 0, or (per that previous month's
+                          overspend_policy) either the negative available itself
+                          (carry_negative) or 0 (reduce_next_ready_to_assign, the default)
+readyToAssign(M)       = onBudgetBalance(end of M)
+                       − Σ available(cat, M) over kind = 'expense' categories (incl. Uncategorized)
+                       − Σ assigned(cat, m) for all m > M
+                       − deferredIncome(M)
+```
+
+There is **no** `+ deferredIncome(M − 1)` release term: `onBudgetBalance` is
+a stock (an account balance at a point in time), not a flow, so money held
+back from the previous month is still sitting in that same balance at the
+end of this one with no further adjustment needed — adding a release term
+back in would double-count it. `deferredIncome(M)` is the positive activity
+of `kind = 'income'` categories with `defers_to_next_month = 1`; assigning
+money to an income-kind category throws (`assertFinanceCategoryAssignable`),
+since such a row would be counted by neither side of the balance invariant
+(`budget.test.ts` asserts that invariant directly — independently
+recomputing the expected balance from the test's own raw account/transaction
+fixtures rather than by calling `computeFinanceOnBudgetBalance` itself —
+under both overspend policies, on the spec's worked example, and across
+consecutive deferred-income months).
+
+**The two transaction arrays.** `FinanceBudgetComputationInput` carries
+`transactions` (on-budget, `excluded_from_budget = 0`, splits expanded —
+drives `activity`/`available`) and a *separate* `balanceTransactions`
+(**every** on-budget transaction, regardless of `excluded_from_budget`).
+`onBudgetBalance(M) = opening_balance_minor + Σ balanceTransactions up to end
+of M`, across on-budget accounts — deliberately including excluded rows,
+since a transfer (or any other excluded transaction) still moves real money
+in and out of the account; `activity` must still exclude it. One
+`excluded_from_budget` flag cannot serve both purposes, so the two pure
+functions read two different arrays built from the same underlying
+`finance_transactions` table.
+
+**Quick-action amounts live on the category state, not in the UI.**
+`computeFinanceBudgetState` computes `lastMonthAssignedMinor`,
+`average3MonthsAssignedMinor`, and `assignAllReadyToAssignMinor` on every
+`FinanceBudgetCategoryState` it returns (each delegates to the matching pure
+helper — `computeAssignLastMonthAmount`, `computeAssignAverageLast3MonthsAmount`,
+and the in-place `assignedMinor + max(0, readyToAssignMinor)` computation),
+so `FinanceBudgetPage`'s "Mois dernier"/"Moy. 3 mois"/"Assigner tout le prêt
+à assigner" buttons just read a field off the state it already holds and
+write it straight through `setFinanceBudgetAssignment` — **no arithmetic in
+the page**. "Cover overspending from another category" is the one quick
+action that needs two categories' data at once, so it stays a dedicated
+repository method, `computeFinanceCoverOverspending(monthKey, fromCategoryId,
+toCategoryId)`, implemented identically on both stores via the same private
+`buildBudgetComputationInput` used by `computeBudgetState`, delegating to the
+pure `computeCoverOverspending`; the page calls
+`applyFinanceCoverOverspending(monthKey, fromCategoryId, toCategoryId)`, which
+writes both categories' new assignments in one writer-queue transaction.
+`selectUnbudgetedCategories` picks out the "Non budgété" band (no assignment,
+negative activity, and `availableMinor < 0` — spending already covered by
+carry-in, and refunds, are never listed) and `computeUnbudgetedAssignAmountMinor`
+is the one-click "Assigner" amount (the uncovered deficit, `max(0, -available)`);
+`computeEnvelopePace`/
+`computeEnvelopePaceFromState` give a simple spent-vs-elapsed-days fraction
+per envelope (no forecasting yet — that is `src/domain/finance/forecast.ts`,
+a later phase).
+
+Repository methods: `getFinanceBudgetMonth` reads the advisory
+`finance_budget_months` row (`ready_to_assign_note`, `closed_at`), defaulting
+to an unsaved empty row rather than throwing when the month has never been
+touched. `setFinanceBudgetAssignment(monthKey, categoryId, assignedMinor)` is
+an idempotent upsert into `finance_budget_entries`; assigning `0` deletes the
+row unless it holds a non-default overspend policy or a note (then the row is kept at
+`0`, so an untouched `0.00` field blurring cannot reset the policy).
+`setFinanceCategoryOverspendPolicy(monthKey, categoryId, policy)` writes
+the policy onto the `(monthKey, categoryId)` entry — creating it with
+`assigned_minor = 0` if it does not exist yet, purely so the policy has
+somewhere to live — and onto every **already-existing** later entry for that
+category; it never creates a future entry just to carry the policy forward.
+`computeFinanceCoverOverspending` (above). `setFinanceBudgetMonthClosed`/
+`setFinanceBudgetReadyToAssignNote` write the advisory `finance_budget_months`
+row; closing a month is a UI-level freeze and changes no arithmetic.
+
+## Screens (Phases 3–5)
 
 ### Flag gating
 
@@ -339,6 +446,7 @@ call sites that race harmlessly because the seed is `INSERT OR IGNORE`:
 |---|---|
 | `/finances` | `FinanceOverviewPage` — minimal account list with derived balances and links to the other screens; a fuller dashboard (net worth, cash flow, trends) is Phase 6 |
 | `/finances/transactions` | `FinanceTransactionsPage` |
+| `/finances/budget` | `FinanceBudgetPage` (Phase 5) |
 | `/finances/import` | `FinanceImportPage` |
 | `/finances/accounts` | `FinanceAccountsPage` |
 | `/finances/review` | `FinanceReviewPage` (Phase 4) |
@@ -480,6 +588,39 @@ text search, uncategorized-only) transaction list. Each row supports:
 A bulk-selection toolbar appears once at least one row is checked: apply a
 category, exclude the selection from budget/reports, or (with exactly two
 rows selected) mark the pair as a transfer.
+
+### FinanceBudgetPage (`/finances/budget`, Phase 5)
+
+A month selector (previous/next, via `addMonthsToMonthKey`), a "Prêt à
+assigner" header (amount plus an editable note persisted through
+`setFinanceBudgetReadyToAssignNote`), and an envelope grid grouped by
+category group (`parent_id === null`), with Assigned (inline-editable —
+rendered via `minorToInputString(assignedMinor, currencyExponent(baseCurrency))`,
+never `amountMinor / 100`, and parsed on blur via `parseAmountToMinor({
+exponent: currencyExponent(baseCurrency) })` before writing through
+`setFinanceBudgetAssignment`), Activity, and Available columns per leaf
+category. Per-row controls, **all reading an already-computed field off
+`computeFinanceBudgetState`'s result rather than recomputing anything in the
+page**: an overspend-policy select (`setFinanceCategoryOverspendPolicy`),
+"Mois dernier" (writes `category.lastMonthAssignedMinor`), "Moy. 3 mois"
+(writes `category.average3MonthsAssignedMinor`), "Assigner tout le prêt à
+assigner" (writes `category.assignAllReadyToAssignMinor`), and — only while
+a category's `availableMinor` is negative — a source-category picker plus
+"Couvrir" that calls `repository.applyFinanceCoverOverspending` (one atomic
+write of both totals). Parent categories that hold spending or an assignment get
+their own row above their leaves. Writes run through one in-page queue and
+quick actions re-read `computeFinanceBudgetState` inside the queued task, so
+overlapping clicks cannot reuse a stale Ready to Assign; a stale month load is
+discarded and write/load failures render an alert. Blurring an unchanged
+assignment is a no-op. A "Non budgété" band (from
+`selectUnbudgetedCategories`) lists categories with uncovered spending, each
+with a one-click "Assigner" that adds `computeUnbudgetedAssignAmountMinor(category)`. A plain "solde
+des cartes de crédit" line lists each on-budget credit-card account's
+derived balance (`computeDerivedBalanceMinor`) — the v1 simplification from
+the spec's "Credit-card payment categories" decision, not a payment
+envelope. "Clôturer le mois"/"Rouvrir le mois" toggle
+`finance_budget_months.closed_at` and disable every input while closed; this
+is advisory only and never changes arithmetic.
 
 ### FinanceReviewPage (`/finances/review`, Phase 4)
 

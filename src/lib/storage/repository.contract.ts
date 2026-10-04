@@ -4425,6 +4425,294 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         expect(summary.imported).toBe(5_000);
         await expect(repository.countFinanceTransactions({})).resolves.toBe(5_000);
       });
+
+      describe("budget", () => {
+        it("assigns money and reads it back", async () => {
+          const repository = await factory();
+          await repository.seedFinanceDefaultCategories();
+
+          const saved = await repository.setFinanceBudgetAssignment(
+            "2026-01",
+            "fincat:alimentation.epicerie",
+            5_000,
+          );
+          expect(saved).toMatchObject({
+            monthKey: "2026-01",
+            categoryId: "fincat:alimentation.epicerie",
+            assignedMinor: 5_000,
+            overspendPolicy: "reduce_next_ready_to_assign",
+          });
+
+          const state = await repository.computeFinanceBudgetState("2026-01");
+          expect(state.categories).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                categoryId: "fincat:alimentation.epicerie",
+                assignedMinor: 5_000,
+                availableMinor: 5_000,
+              }),
+            ]),
+          );
+        });
+
+        it("deletes the row when assigning 0", async () => {
+          const repository = await factory();
+          await repository.seedFinanceDefaultCategories();
+          await repository.setFinanceBudgetAssignment(
+            "2026-01",
+            "fincat:alimentation.epicerie",
+            5_000,
+          );
+
+          const result = await repository.setFinanceBudgetAssignment(
+            "2026-01",
+            "fincat:alimentation.epicerie",
+            0,
+          );
+
+          expect(result).toBeNull();
+          const state = await repository.computeFinanceBudgetState("2026-01");
+          const category = state.categories.find(
+            (c) => c.categoryId === "fincat:alimentation.epicerie",
+          );
+          expect(category?.assignedMinor ?? 0).toBe(0);
+        });
+
+        it("rejects assigning to an income-kind category", async () => {
+          const repository = await factory();
+          await repository.seedFinanceDefaultCategories();
+
+          await expect(
+            repository.setFinanceBudgetAssignment("2026-01", "fincat:revenu.salaire", 1_000),
+          ).rejects.toThrow();
+        });
+
+        it("propagates an overspend policy change to the entry and every later existing entry", async () => {
+          const repository = await factory();
+          await repository.seedFinanceDefaultCategories();
+          await repository.setFinanceBudgetAssignment(
+            "2026-01",
+            "fincat:alimentation.epicerie",
+            1_000,
+          );
+          await repository.setFinanceBudgetAssignment(
+            "2026-03",
+            "fincat:alimentation.epicerie",
+            1_000,
+          );
+
+          await repository.setFinanceCategoryOverspendPolicy(
+            "2026-01",
+            "fincat:alimentation.epicerie",
+            "carry_negative",
+          );
+
+          const janAssignment = await repository.setFinanceBudgetAssignment(
+            "2026-01",
+            "fincat:alimentation.epicerie",
+            1_000,
+          );
+          expect(janAssignment?.overspendPolicy).toBe("carry_negative");
+
+          const marchAssignment = await repository.setFinanceBudgetAssignment(
+            "2026-03",
+            "fincat:alimentation.epicerie",
+            1_000,
+          );
+          expect(marchAssignment?.overspendPolicy).toBe("carry_negative");
+
+          // February never had an entry, so the policy change must not create one —
+          // its default policy stays `reduce_next_ready_to_assign`, not `carry_negative`.
+          const februaryState = await repository.computeFinanceBudgetState("2026-02");
+          const february = februaryState.categories.find(
+            (c) => c.categoryId === "fincat:alimentation.epicerie",
+          );
+          expect(february?.overspendPolicy).toBe("reduce_next_ready_to_assign");
+        });
+
+        it("computeFinanceBudgetState matches the pure function given the same rows", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.seedFinanceDefaultCategories();
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-income",
+              accountId: "account-1",
+              postedDate: "2026-01-02",
+              amountMinor: 10_000,
+              categoryId: "fincat:revenu.salaire",
+            }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-spend",
+              accountId: "account-1",
+              postedDate: "2026-01-10",
+              amountMinor: -3_000,
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+          await repository.setFinanceBudgetAssignment(
+            "2026-01",
+            "fincat:alimentation.epicerie",
+            3_000,
+          );
+
+          const state = await repository.computeFinanceBudgetState("2026-01");
+          expect(state.readyToAssignMinor).toBe(7_000);
+          expect(state.onBudgetBalanceMinor).toBe(7_000);
+          expect(state.categories).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                categoryId: "fincat:alimentation.epicerie",
+                assignedMinor: 3_000,
+                activityMinor: -3_000,
+                availableMinor: 0,
+              }),
+            ]),
+          );
+        });
+
+        it("closes and reopens a month without changing arithmetic", async () => {
+          const repository = await factory();
+          await repository.seedFinanceDefaultCategories();
+
+          const closed = await repository.setFinanceBudgetMonthClosed("2026-01", true);
+          expect(closed.closedAt).not.toBeNull();
+
+          const reopened = await repository.setFinanceBudgetMonthClosed("2026-01", false);
+          expect(reopened.closedAt).toBeNull();
+        });
+
+        it("persists the ready-to-assign note", async () => {
+          const repository = await factory();
+          const saved = await repository.setFinanceBudgetReadyToAssignNote(
+            "2026-01",
+            "Réservé pour les vacances",
+          );
+          expect(saved.readyToAssignNote).toBe("Réservé pour les vacances");
+
+          const reloaded = await repository.getFinanceBudgetMonth("2026-01");
+          expect(reloaded.readyToAssignNote).toBe("Réservé pour les vacances");
+        });
+
+        it("onBudgetBalance includes an excluded_from_budget transaction that activity ignores", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.seedFinanceDefaultCategories();
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-income",
+              accountId: "account-1",
+              postedDate: "2026-01-02",
+              amountMinor: 10_000,
+              categoryId: "fincat:revenu.salaire",
+            }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-excluded",
+              accountId: "account-1",
+              postedDate: "2026-01-15",
+              amountMinor: -4_000,
+              categoryId: "fincat:non-categorise",
+              excludedFromBudget: true,
+            }),
+          );
+
+          const state = await repository.computeFinanceBudgetState("2026-01");
+          expect(state.onBudgetBalanceMinor).toBe(6_000);
+          expect(state.readyToAssignMinor).toBe(6_000);
+          const uncategorized = state.categories.find(
+            (c) => c.categoryId === "fincat:non-categorise",
+          );
+          expect(uncategorized?.activityMinor ?? 0).toBe(0);
+        });
+
+        it("keeps a zero row that carries a non-default overspend policy", async () => {
+          const repository = await factory();
+          await repository.seedFinanceDefaultCategories();
+          await repository.setFinanceCategoryOverspendPolicy(
+            "2026-01",
+            "fincat:alimentation.epicerie",
+            "carry_negative",
+          );
+
+          await repository.setFinanceBudgetAssignment("2026-01", "fincat:alimentation.epicerie", 0);
+
+          const state = await repository.computeFinanceBudgetState("2026-01");
+          expect(
+            state.categories.find((c) => c.categoryId === "fincat:alimentation.epicerie")
+              ?.overspendPolicy,
+          ).toBe("carry_negative");
+        });
+
+        it("applyFinanceCoverOverspending moves both rows together", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.seedFinanceDefaultCategories();
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-spend",
+              accountId: "account-1",
+              postedDate: "2026-01-10",
+              amountMinor: -1_200,
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+          await repository.setFinanceBudgetAssignment(
+            "2026-01",
+            "fincat:alimentation.epicerie",
+            1_000,
+          );
+          await repository.setFinanceBudgetAssignment("2026-01", "fincat:loisirs.sorties", 100);
+
+          const result = await repository.applyFinanceCoverOverspending(
+            "2026-01",
+            "fincat:loisirs.sorties",
+            "fincat:alimentation.epicerie",
+          );
+
+          expect(result.amountMinor).toBe(100);
+          const state = await repository.computeFinanceBudgetState("2026-01");
+          const assigned = (id: string) =>
+            state.categories.find((c) => c.categoryId === id)?.assignedMinor;
+          expect(assigned("fincat:alimentation.epicerie")).toBe(1_100);
+          expect(assigned("fincat:loisirs.sorties")).toBe(0);
+        });
+
+        it("computeFinanceCoverOverspending delegates to the pure helper", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.seedFinanceDefaultCategories();
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-spend",
+              accountId: "account-1",
+              postedDate: "2026-01-10",
+              amountMinor: -1_200,
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+          await repository.setFinanceBudgetAssignment(
+            "2026-01",
+            "fincat:alimentation.epicerie",
+            1_000,
+          );
+          await repository.setFinanceBudgetAssignment("2026-01", "fincat:loisirs.sorties", 100);
+
+          const result = await repository.computeFinanceCoverOverspending(
+            "2026-01",
+            "fincat:loisirs.sorties",
+            "fincat:alimentation.epicerie",
+          );
+          expect(result).toEqual({
+            amountMinor: 100,
+            fromNewAssignedMinor: 0,
+            toNewAssignedMinor: 1_100,
+          });
+        });
+      });
     });
   });
 };

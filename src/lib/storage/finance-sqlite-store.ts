@@ -8,6 +8,8 @@ import type {
   DecideFinanceCategorySuggestionInput,
   FinanceAccount,
   FinanceAccountFilters,
+  FinanceBudgetEntry,
+  FinanceBudgetMonth,
   FinanceCategory,
   FinanceCategoryBackfillEntry,
   FinanceCategorySuggestion,
@@ -17,6 +19,7 @@ import type {
   FinanceImportSummary,
   FinanceMerchantMemoryEntry,
   FinanceMerchantMemoryFilters,
+  FinanceOverspendPolicy,
   FinancePerson,
   FinanceRule,
   FinanceRuleActions,
@@ -29,6 +32,16 @@ import type {
   SetFinanceTransferPair,
   UndoFinanceImportBatchResult,
 } from "../../domain/finance";
+import {
+  assertFinanceCategoryAssignable,
+  hasBudgetEntryMetadata,
+  computeCoverOverspending,
+  computeFinanceBudgetState,
+  type CoverOverspendingResult,
+  type FinanceBudgetComputationInput,
+  type FinanceBudgetState,
+} from "../../domain/finance/budget";
+import { getMonthEndDate } from "../../domain/monthly-review";
 import type { Database } from "./sqlite-db";
 import { getTodayDate } from "../date";
 import {
@@ -364,6 +377,38 @@ const mapImportBatch = (row: ImportBatchRow): FinanceImportBatch => ({
   errorSummary: row.error_summary,
   startedAt: row.started_at,
   finishedAt: row.finished_at,
+});
+
+interface BudgetEntryRow {
+  month_key: string;
+  category_id: string;
+  assigned_minor: number;
+  overspend_policy: FinanceOverspendPolicy;
+  note: string | null;
+  updated_at: string;
+}
+
+const mapBudgetEntry = (row: BudgetEntryRow): FinanceBudgetEntry => ({
+  monthKey: row.month_key,
+  categoryId: row.category_id,
+  assignedMinor: row.assigned_minor,
+  overspendPolicy: row.overspend_policy,
+  note: row.note,
+  updatedAt: row.updated_at,
+});
+
+interface BudgetMonthRow {
+  month_key: string;
+  ready_to_assign_note: string | null;
+  closed_at: string | null;
+  updated_at: string;
+}
+
+const mapBudgetMonth = (row: BudgetMonthRow): FinanceBudgetMonth => ({
+  monthKey: row.month_key,
+  readyToAssignNote: row.ready_to_assign_note,
+  closedAt: row.closed_at,
+  updatedAt: row.updated_at,
 });
 
 /** Chunk size for multi-row INSERTs, staying well under SQLite's parameter limit. */
@@ -2013,6 +2058,274 @@ export class FinanceSqliteStore {
       await this.rollbackQuietly(db);
       throw error;
     }
+  }
+
+  // --- budget (Phase 5) -------------------------------------------------------------
+
+  async getBudgetMonth(monthKey: string): Promise<FinanceBudgetMonth> {
+    const db = await this.getDb();
+    const rows = await db.select<BudgetMonthRow[]>(
+      "SELECT * FROM finance_budget_months WHERE month_key = $1",
+      [monthKey],
+    );
+    if (rows[0]) {
+      return mapBudgetMonth(rows[0]);
+    }
+    return { monthKey, readyToAssignNote: null, closedAt: null, updatedAt: "" };
+  }
+
+  async listBudgetEntries(): Promise<FinanceBudgetEntry[]> {
+    const db = await this.getDb();
+    const rows = await db.select<BudgetEntryRow[]>(
+      "SELECT * FROM finance_budget_entries ORDER BY month_key, category_id",
+    );
+    return rows.map(mapBudgetEntry);
+  }
+
+  /** Rejects `kind = "income"` categories; assigning `0` deletes the row. */
+  async setBudgetAssignment(
+    monthKey: string,
+    categoryId: string,
+    assignedMinor: number,
+  ): Promise<FinanceBudgetEntry | null> {
+    const db = await this.getDb();
+    const categoryRows = await db.select<CategoryRow[]>(
+      "SELECT * FROM finance_categories WHERE id = $1",
+      [categoryId],
+    );
+    const category = categoryRows[0];
+    if (!category) {
+      throw new Error(`finance category not found: ${categoryId}`);
+    }
+    assertFinanceCategoryAssignable(mapCategory(category));
+
+    const existingRows = await db.select<BudgetEntryRow[]>(
+      "SELECT * FROM finance_budget_entries WHERE month_key = $1 AND category_id = $2",
+      [monthKey, categoryId],
+    );
+    if (
+      assignedMinor === 0 &&
+      !hasBudgetEntryMetadata(existingRows[0] ? mapBudgetEntry(existingRows[0]) : undefined)
+    ) {
+      await db.execute(
+        "DELETE FROM finance_budget_entries WHERE month_key = $1 AND category_id = $2",
+        [monthKey, categoryId],
+      );
+      return null;
+    }
+
+    const now = nowIso();
+    const policy = existingRows[0]?.overspend_policy ?? "reduce_next_ready_to_assign";
+    const note = existingRows[0]?.note ?? null;
+
+    await db.execute(
+      `INSERT INTO finance_budget_entries (
+        month_key, category_id, assigned_minor, overspend_policy, note, updated_at
+      ) VALUES ($1,$2,$3,$4,$5,$6)
+      ON CONFLICT(month_key, category_id) DO UPDATE SET
+        assigned_minor = excluded.assigned_minor,
+        updated_at = excluded.updated_at`,
+      [monthKey, categoryId, assignedMinor, policy, note, now],
+    );
+
+    const rows = await db.select<BudgetEntryRow[]>(
+      "SELECT * FROM finance_budget_entries WHERE month_key = $1 AND category_id = $2",
+      [monthKey, categoryId],
+    );
+    return mapBudgetEntry(rows[0]);
+  }
+
+  /**
+   * Writes the policy on the `(monthKey, categoryId)` entry — creating it with
+   * `assigned_minor = 0` if it does not exist yet, so the policy has somewhere
+   * to live — and on every *already-existing* later entry for that category;
+   * it never creates a future entry just to carry the policy forward (`carryIn`
+   * reads whatever policy the previous month's entry has, defaulting when absent).
+   */
+  async setCategoryOverspendPolicy(
+    monthKey: string,
+    categoryId: string,
+    policy: FinanceOverspendPolicy,
+  ): Promise<void> {
+    const db = await this.getDb();
+    const now = nowIso();
+
+    const existingRows = await db.select<BudgetEntryRow[]>(
+      "SELECT * FROM finance_budget_entries WHERE month_key = $1 AND category_id = $2",
+      [monthKey, categoryId],
+    );
+    if (existingRows[0]) {
+      await db.execute(
+        "UPDATE finance_budget_entries SET overspend_policy = $3, updated_at = $4 WHERE month_key = $1 AND category_id = $2",
+        [monthKey, categoryId, policy, now],
+      );
+    } else {
+      await db.execute(
+        `INSERT INTO finance_budget_entries (
+          month_key, category_id, assigned_minor, overspend_policy, note, updated_at
+        ) VALUES ($1,$2,0,$3,NULL,$4)`,
+        [monthKey, categoryId, policy, now],
+      );
+    }
+
+    await db.execute(
+      "UPDATE finance_budget_entries SET overspend_policy = $3, updated_at = $4 WHERE category_id = $1 AND month_key > $2",
+      [categoryId, monthKey, policy, now],
+    );
+  }
+
+  async setBudgetMonthClosed(monthKey: string, closed: boolean): Promise<FinanceBudgetMonth> {
+    const db = await this.getDb();
+    const now = nowIso();
+    const existing = await this.getBudgetMonth(monthKey);
+    await db.execute(
+      `INSERT INTO finance_budget_months (month_key, ready_to_assign_note, closed_at, updated_at)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT(month_key) DO UPDATE SET
+         closed_at = excluded.closed_at,
+         updated_at = excluded.updated_at`,
+      [monthKey, existing.readyToAssignNote, closed ? now : null, now],
+    );
+    return this.getBudgetMonth(monthKey);
+  }
+
+  async setBudgetReadyToAssignNote(
+    monthKey: string,
+    note: string | null,
+  ): Promise<FinanceBudgetMonth> {
+    const db = await this.getDb();
+    const now = nowIso();
+    const existing = await this.getBudgetMonth(monthKey);
+    await db.execute(
+      `INSERT INTO finance_budget_months (month_key, ready_to_assign_note, closed_at, updated_at)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT(month_key) DO UPDATE SET
+         ready_to_assign_note = excluded.ready_to_assign_note,
+         updated_at = excluded.updated_at`,
+      [monthKey, note, existing.closedAt, now],
+    );
+    return this.getBudgetMonth(monthKey);
+  }
+
+  /**
+   * Loads the input shape `computeFinanceBudgetState` (and the other budget
+   * pure functions) need: on-budget, non-excluded transactions (splits
+   * expanded) through the end of `monthKey` for per-category `activity`;
+   * **every** on-budget transaction through the end of `monthKey`,
+   * regardless of `excluded_from_budget`, for `onBudgetBalance` (see
+   * `balanceTransactions` on `FinanceBudgetComputationInput`); every budget
+   * entry; and every category. See specs/todo/finance.md "Computation shape".
+   */
+  private async buildBudgetComputationInput(
+    monthKey: string,
+  ): Promise<FinanceBudgetComputationInput> {
+    const db = await this.getDb();
+    const monthEnd = getMonthEndDate(monthKey);
+
+    const accounts = (await this.listAccounts({ includeClosed: true })).filter(
+      (account) => account.onBudget,
+    );
+    const onBudgetAccountIds = accounts.map((account) => account.id);
+    const accountPlaceholders = onBudgetAccountIds.map((_, i) => `$${i + 2}`).join(",");
+
+    const transactionRows =
+      onBudgetAccountIds.length > 0
+        ? await db.select<TransactionRow[]>(
+            `SELECT * FROM finance_transactions
+             WHERE excluded_from_budget = 0 AND posted_date <= $1
+               AND account_id IN (${accountPlaceholders})`,
+            [monthEnd, ...onBudgetAccountIds],
+          )
+        : [];
+
+    const balanceTransactionRows =
+      onBudgetAccountIds.length > 0
+        ? await db.select<TransactionRow[]>(
+            `SELECT * FROM finance_transactions
+             WHERE posted_date <= $1 AND account_id IN (${accountPlaceholders})`,
+            [monthEnd, ...onBudgetAccountIds],
+          )
+        : [];
+
+    const splitTransactionIds = transactionRows
+      .filter((row) => row.has_splits)
+      .map((row) => row.id);
+    const splitRows =
+      splitTransactionIds.length > 0
+        ? await db.select<SplitRow[]>(
+            `SELECT * FROM finance_transaction_splits
+             WHERE transaction_id IN (${splitTransactionIds.map((_, i) => `$${i + 1}`).join(",")})`,
+            splitTransactionIds,
+          )
+        : [];
+
+    const categories = await this.listCategories(true);
+    const entries = await this.listBudgetEntries();
+
+    return {
+      monthKey,
+      accounts: accounts.map((account) => ({
+        id: account.id,
+        onBudget: account.onBudget,
+        openingBalanceMinor: account.openingBalanceMinor,
+      })),
+      transactions: transactionRows.map((row) => ({
+        id: row.id,
+        accountId: row.account_id,
+        postedDate: row.posted_date,
+        amountMinor: row.amount_minor,
+        categoryId: row.category_id,
+        hasSplits: Boolean(row.has_splits),
+      })),
+      balanceTransactions: balanceTransactionRows.map((row) => ({
+        accountId: row.account_id,
+        postedDate: row.posted_date,
+        amountMinor: row.amount_minor,
+      })),
+      splits: splitRows.map((row) => ({
+        transactionId: row.transaction_id,
+        amountMinor: row.amount_minor,
+        categoryId: row.category_id,
+      })),
+      entries,
+      categories: categories.map((category) => ({
+        id: category.id,
+        kind: category.kind,
+        defersToNextMonth: category.defersToNextMonth,
+      })),
+    };
+  }
+
+  async computeBudgetState(monthKey: string): Promise<FinanceBudgetState> {
+    const input = await this.buildBudgetComputationInput(monthKey);
+    return computeFinanceBudgetState(input);
+  }
+
+  /** Moves the cover amount between both rows in one transaction; callers hold the writer. */
+  async applyCoverOverspending(
+    monthKey: string,
+    fromCategoryId: string,
+    toCategoryId: string,
+  ): Promise<CoverOverspendingResult> {
+    const db = await this.getDb();
+    return this.inTransaction(db, async () => {
+      const result = await this.computeCoverOverspending(monthKey, fromCategoryId, toCategoryId);
+      if (result.amountMinor > 0) {
+        await this.setBudgetAssignment(monthKey, fromCategoryId, result.fromNewAssignedMinor);
+        await this.setBudgetAssignment(monthKey, toCategoryId, result.toNewAssignedMinor);
+      }
+      return result;
+    });
+  }
+
+  /** Delegates to the pure `computeCoverOverspending` — see `AppRepository.computeFinanceCoverOverspending`. */
+  async computeCoverOverspending(
+    monthKey: string,
+    fromCategoryId: string,
+    toCategoryId: string,
+  ): Promise<CoverOverspendingResult> {
+    const input = await this.buildBudgetComputationInput(monthKey);
+    return computeCoverOverspending(fromCategoryId, toCategoryId, monthKey, input);
   }
 
   private async rollbackQuietly(db: Database): Promise<void> {
