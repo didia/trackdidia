@@ -204,9 +204,22 @@ hold, completed, or cancelled projects as new choices.
   Pomodoro stay mounted overnight, a local-day boundary (next midnight, window
   focus, becoming visible) reconciles again and reloads those views. Reads such as
   `listTasks` never promote; a task scheduled for today through the GTD workspace
-  moves on that mutation's reload.
+  moves on that mutation's reload. When calendar sync is enabled and connected, this
+  promotion step also captures the task's scheduled instant into a calendar-sync link
+  before clearing `scheduledFor`, so today's dated work is still mirrored even though
+  promotion destroys the row's own record of it; see
+  [Promotion capture](calendar-sync.md#promotion-capture).
 
 Previews are not task rows and cannot be completed from this screen.
+
+### Calendar sync (disabled by default)
+
+A Scheduled task, or a Planned task attached to a project, with an active status
+and a non-null `scheduledFor` is mirrored one-way into a dedicated "TrackDidia"
+Google Calendar when the optional calendar sync feature is enabled and connected.
+Deadlines, Next Actions, Inbox, Waiting For, Someday, and References are never
+mirrored, and calendar edits never flow back into TrackDidia. See
+[Calendar sync](calendar-sync.md).
 
 ### Waiting For, Someday / Maybe, References
 
@@ -404,3 +417,4 @@ without changing that event-date derivation. See
 - [Daily routines](daily-routines.md)
 - [Recurrences and Pomodoro](recurrences-and-pomodoro.md)
 - [Storage and backups](storage-and-backups.md)
+- [Calendar sync](calendar-sync.md)

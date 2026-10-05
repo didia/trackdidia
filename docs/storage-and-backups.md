@@ -205,7 +205,7 @@ its existing idempotent `dimancheNotesRelocatedAt` marker.
 | 37 | `add_finance_foundation` | Creates the fourteen `finance_*` tables (people, accounts, categories, transactions, transaction splits, rules, merchant memory, category suggestions, budget entries/months, recurring series, account balance snapshots, import profiles, import batches) and their indexes; inserts the three system categories (`fincat:non-categorise`, `fincat:transfert`, `fincat:split`) |
 | 38 | `add_finance_import_profile_separators` | Adds nullable `decimal_separator` / `thousands_separator` columns to `finance_import_profiles` via guarded, idempotent `ALTER TABLE` |
 | 39 | `create_finance_alert_notifications` | Creates `finance_alert_notifications` with primary key `(alert_key, notified_on_date)`, the once-per-day-per-key ledger for Phase 7 finance alert notifications |
-| 40 | `create_calendar_sync` | Creates `calendar_sync_settings` (singleton `id = 'global'`) and `calendar_sync_links` (composite primary key `(task_id, occurrence_key)`, nullable `event_id`, unique index on `(calendar_id, event_id)`, index on `state`) for the one-way TrackDidia -> Google Calendar sync model and planner (Phase 0; no network calls yet) |
+| 40 | `create_calendar_sync` | Creates `calendar_sync_settings` (singleton `id = 'global'`) and `calendar_sync_links` (composite primary key `(task_id, occurrence_key)`, nullable `event_id`, unique index on `(calendar_id, event_id)`, index on `state`) for the one-way TrackDidia -> Google Calendar sync model, planner, and reconciler |
 
 ## Table reference
 
@@ -344,12 +344,13 @@ daily/review data.
 
 ### Calendar sync tables
 
-Migration 40 adds sidecar tables for the one-way
-TrackDidia -> Google Calendar sync; see
-[`specs/todo/calendar-sync.md`](../specs/todo/calendar-sync.md). No `gtd_tasks` column
-changes. The schema, pure planner (`src/lib/calendar/planner.ts`), promotion-capture step,
-and desktop OAuth connection/API client are implemented, with event reconciliation mounted
-only after desktop startup settles. See [Google Calendar connection](ai-settings-and-privacy.md#google-calendar-connection)
+Migration 40 (`create_calendar_sync`) adds sidecar tables for the one-way,
+disabled-by-default TrackDidia -> Google Calendar sync; see
+[Calendar sync](calendar-sync.md). No `gtd_tasks` column changes. The schema, pure
+planner (`src/lib/calendar/planner.ts`), promotion-capture step, desktop OAuth
+connection, and reconciler are implemented. The reconciler mounts only after desktop
+startup settles (not in browser preview or the startup fallback). See
+[Google Calendar connection](ai-settings-and-privacy.md#google-calendar-connection)
 for credentials, failure recovery, cooldowns, and serialized preference/reconciler writes.
 
 - `calendar_sync_settings`: singleton `id = 'global'` for enable flag, OAuth client id,
@@ -367,8 +368,10 @@ for credentials, failure recovery, cooldowns, and serialized preference/reconcil
   doubles as the stored snapshot for `pending` links. `detach_reason` records why a
   terminal link stopped syncing (`promoted` | `completed` | `cancelled` |
   `unscheduled` | `task_deleted` | `missing_remote`). Included in backups; a restored
-  stale link is handled by `missing_remote`, calendar recreation, and the planner's
-  empty-task-set safety valve (not yet wired to a background reconciler).
+  stale link is handled by `missing_remote` detachment, calendar recreation on a 404 of
+  the calendar itself, and the reconciler's empty-task-set safety valve. The OAuth
+  refresh token lives in the OS vault, not in these tables or a backup; see
+  [Calendar sync](calendar-sync.md).
 
 Write discipline: the public calendar-sync mutators on `TauriSqliteRepository` go through
 the single SQLite writer (settings via `writeTransaction`, so an identity change updates
@@ -550,4 +553,5 @@ code task.
 - [GTD](gtd.md)
 - [AI, settings, and privacy](ai-settings-and-privacy.md)
 - [Email triage](email-triage.md)
+- [Calendar sync](calendar-sync.md)
 - [Desktop builds](desktop-builds.md)

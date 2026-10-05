@@ -1,6 +1,6 @@
 /**
  * Calendar-sync eligibility, identity and payload helpers. Pure functions only; see
- * "Eligibility", "Identity" and "Event payload" in `specs/todo/calendar-sync.md`.
+ * "Eligibility", "Identity" and "Event payload" in `specs/done/calendar-sync.md`.
  */
 import type { CalendarSyncEventPayload, CalendarSyncSettings } from "../../domain/calendar-sync";
 import { clampCalendarSyncDurationMinutes } from "../../domain/calendar-sync";

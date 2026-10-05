@@ -25,6 +25,7 @@ Chronological documentation activity is recorded in domain logs under
 | [recurrences-and-pomodoro.md](recurrences-and-pomodoro.md) | Recurrence templates/generation/previews and Pomodoro sessions/segments/notifications |
 | [ai-settings-and-privacy.md](ai-settings-and-privacy.md) | Local/AI coaching, OpenRouter request data, relationship draws, debug and settings |
 | [email-triage.md](email-triage.md) | Disabled-by-default local email triage (Gmail, Graph, Yahoo; gated mutation; tray) |
+| [calendar-sync.md](calendar-sync.md) | Disabled-by-default one-way TrackDidia → Google Calendar sync (promotion capture, reconciler, Settings card) |
 | [finance.md](finance.md) | Household finance domain: schema, import/dedupe/transfer detection, the classification pipeline (rules/memory/seeds/AI), the zero-based envelope budget model, net worth/cash flow/reports/recurring-bill detection/daily balance snapshots, proactive runout/cash-flow forecasting and alerts with a rate-limited desktop notification, optional AI merchant categorization (`finance_categorization`), repository contract, and the accounts/import/transactions/budget/reports/review/rules screens behind `financeEnabled` (all 8 phases shipped) |
 
 ## Source map

@@ -32,7 +32,7 @@ export const promoteDueScheduledTasks = (tasks: Task[], today: string, now: stri
     }));
 
 /**
- * Promotion capture (see "Promotion capture" in `specs/todo/calendar-sync.md`): the
+ * Promotion capture (see "Promotion capture" in `specs/done/calendar-sync.md`): the
  * instant before `scheduledFor` is cleared is the only place that instant still exists.
  * `task` is the task as it is about to be promoted (its original `scheduledFor`, before
  * promotion mutates it). Returns the upsert both repositories must persist in the same

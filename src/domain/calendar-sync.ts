@@ -2,9 +2,8 @@
  * One-way TrackDidia -> Google Calendar sync: domain types shared by the pure planner
  * (`src/lib/calendar/planner.ts`), the eligibility/payload helpers
  * (`src/lib/calendar/eligibility.ts`) and both storage implementations
- * (`src/lib/storage/calendar-sync-{sqlite,memory}-store.ts`). See
- * `specs/todo/calendar-sync.md` for the full design; Phase 0 covers the model and the
- * planner only, no network calls.
+ * (`src/lib/storage/calendar-sync-{sqlite,memory}-store.ts`).
+ * See `specs/done/calendar-sync.md` and `docs/calendar-sync.md` for the full design.
  */
 
 export type CalendarSyncProvider = "google";
@@ -180,7 +179,7 @@ export interface CalendarSyncDetachAction {
  * Links whose `generation` no longer matches the current settings generation. These
  * belong to a connection that no longer exists; they are dropped from storage without
  * any remote call (the old calendar is abandoned, not reachable through the current
- * connection). See "generation" in `specs/todo/calendar-sync.md`.
+ * connection). See "generation" in `specs/done/calendar-sync.md`.
  */
 export interface CalendarSyncPurgeAction {
   taskId: string;

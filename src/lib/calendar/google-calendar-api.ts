@@ -1,6 +1,6 @@
 /**
  * Google Calendar API v3 client. See "Event identity: adopt-or-insert" and "Event payload"
- * in `specs/todo/calendar-sync.md`. Base URL is already in the Rust `ALLOWED_HOSTS` list
+ * in `specs/done/calendar-sync.md`. Base URL is already in the Rust `ALLOWED_HOSTS` list
  * (`www.googleapis.com`), so no capability or CSP change is needed.
  *
  * The OAuth scope decided in the spec (`calendar.app.created`) cannot read the primary

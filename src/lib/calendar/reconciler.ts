@@ -2,7 +2,7 @@
  * Reconciler: the single entry point that plans (via `planCalendarSync`) and executes a
  * one-way TrackDidia -> Google Calendar sync run, persisting each link immediately after
  * its own call. See "Reconciler and triggers", "Safety valves" and "Event identity:
- * adopt-or-insert" in `specs/todo/calendar-sync.md`.
+ * adopt-or-insert" in `specs/done/calendar-sync.md`.
  *
  * Logs (via callers) must carry counts, occurrence keys and event ids only, never titles
  * or tokens; this module never logs by itself.
@@ -167,7 +167,7 @@ async function runReconcile(
     return { ok: false, reason: "disabled" };
   }
 
-  // Gate table: see "Gate and resumption" in specs/todo/calendar-sync.md.
+  // Gate table: see "Gate and resumption" in specs/done/calendar-sync.md.
   if (trigger === "automatic" && settings.state !== "active") {
     return { ok: false, reason: "gated" };
   }

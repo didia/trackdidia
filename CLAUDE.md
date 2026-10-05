@@ -27,6 +27,7 @@ Quick reference:
 | Recurring tasks and Pomodoro behavior | [docs/recurrences-and-pomodoro.md](docs/recurrences-and-pomodoro.md) |
 | AI coach, settings, relationship draws, debug mode | [docs/ai-settings-and-privacy.md](docs/ai-settings-and-privacy.md) |
 | Email triage (disabled by default) | [docs/email-triage.md](docs/email-triage.md) |
+| Calendar sync (disabled by default) | [docs/calendar-sync.md](docs/calendar-sync.md) |
 | Household finance (off by default; accounts/import/transactions/budget/reports/review/rules screens behind `financeEnabled`, with optional AI merchant categorization) | [docs/finance.md](docs/finance.md) |
 | Code conventions and test workflow | [docs/conventions.md](docs/conventions.md) |
 | Desktop development, builds, and release data safety | [docs/desktop-builds.md](docs/desktop-builds.md) |
@@ -192,7 +193,6 @@ Do not assume these exist:
 - User accounts or authentication
 - Excel history import
 - Restore-from-backup UI
-- Google Calendar synchronization
 - Background scheduling while the desktop app is fully closed
 - Encrypted secret storage for the OpenRouter key
 - Mobile application distribution

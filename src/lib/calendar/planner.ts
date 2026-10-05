@@ -2,7 +2,7 @@
  * Pure desired-state reconciliation planner for one-way TrackDidia -> Google Calendar
  * sync. Diffs current tasks against current `calendar_sync_links` rows; it never touches
  * storage or the network. See "Transition matrix", "Promotion capture", "Reclaimable
- * links" and "Safety valves" in `specs/todo/calendar-sync.md`.
+ * links" and "Safety valves" in `specs/done/calendar-sync.md`.
  */
 import {
   CALENDAR_SYNC_PENDING_STALENESS_DAYS,

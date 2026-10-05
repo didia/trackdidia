@@ -7,7 +7,7 @@
  * TypeScript-side mutex: whichever flow starts first holds the lease until it releases it
  * (success, failure or timeout), and the other is rejected up front with a clear reason
  * rather than silently losing its callback. See "Loopback collision" in
- * `specs/todo/calendar-sync.md`.
+ * `specs/done/calendar-sync.md`.
  */
 
 export type OAuthLoopbackOwner = "email_triage" | "calendar_sync";

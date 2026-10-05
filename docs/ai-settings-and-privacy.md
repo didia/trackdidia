@@ -999,10 +999,23 @@ Access tokens stay in memory only. Browser preview disables vault writes, OAuth,
 HTTP, tray, autostart, and live provider mutation. Automatic mutation requires a passed
 evaluation corpus matching the current model and thresholds. See [Email triage](email-triage.md).
 
+## Calendar sync account (optional)
+
+Calendar sync is a separate, disabled-by-default feature that is not an OpenRouter
+request and carries no task content to Google beyond the mirrored event's title.
+Its Google refresh token lives in the OS vault under its own fixed
+`calendar_credentials` kind (not the per-account `provider_credentials` entries
+email triage uses); the access token stays in memory only. Email triage's Gmail/
+Microsoft Graph OAuth and calendar sync's Google OAuth share one native loopback
+listener, so a shared in-memory guard lets only one of the two flows run at a time
+and rejects the other with a clear error instead of silently losing its callback.
+See [Calendar sync](calendar-sync.md).
+
 ## Related documentation
 
 - [Architecture](architecture.md)
 - [Storage and backups](storage-and-backups.md)
 - [Daily routines](daily-routines.md)
 - [GTD](gtd.md)
+- [Calendar sync](calendar-sync.md)
 - [Finance](finance.md#ai-categorization-phase-8)
