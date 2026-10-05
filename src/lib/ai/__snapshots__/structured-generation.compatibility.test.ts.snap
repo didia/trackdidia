@@ -1,0 +1,870 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`coach persists the original invalid message and proposals 1`] = `
+[
+  {
+    "message": {
+      "bodyJson": "{"stance":"open","headline":"Ouvre simplement","read":"Pas assez de signal pour une lecture fine. Commence par une intention courte et un premier bloc protégé.","move":{"what":"Écris une intention en une phrase","why":"Donner un cap clair avant d'entrer dans le flux","horizon":"now"}}",
+      "bodyText": "Ouvre simplement
+
+Pas assez de signal pour une lecture fine. Commence par une intention courte et un premier bloc protégé.
+
+Écris une intention en une phrase — Donner un cap clair avant d'entrer dans le flux",
+      "deltaClass": null,
+      "inputHash": "1d88a618",
+      "kind": "open",
+      "latencyMs": 300,
+      "model": "fixture-model-2",
+      "notified": false,
+      "promptVersion": "coach_pulse.v2",
+      "scopeKey": "2026-08-29",
+      "stance": "open",
+      "status": "fallback",
+      "surface": "coach_pulse",
+      "tokensCompletion": 60,
+      "tokensPrompt": 30,
+    },
+    "proposals": [],
+  },
+]
+`;
+
+exports[`coach persists the original local message and proposals 1`] = `
+[
+  {
+    "message": {
+      "bodyJson": "{"stance":"open","headline":"Ouvre simplement","read":"Pas assez de signal pour une lecture fine. Commence par une intention courte et un premier bloc protégé.","move":{"what":"Écris une intention en une phrase","why":"Donner un cap clair avant d'entrer dans le flux","horizon":"now"}}",
+      "bodyText": "Ouvre simplement
+
+Pas assez de signal pour une lecture fine. Commence par une intention courte et un premier bloc protégé.
+
+Écris une intention en une phrase — Donner un cap clair avant d'entrer dans le flux",
+      "deltaClass": null,
+      "inputHash": "1d88a618",
+      "kind": "open",
+      "latencyMs": null,
+      "model": "local",
+      "notified": false,
+      "promptVersion": "coach_pulse.v2",
+      "scopeKey": "2026-08-29",
+      "stance": "open",
+      "status": "skipped",
+      "surface": "coach_pulse",
+      "tokensCompletion": null,
+      "tokensPrompt": null,
+    },
+    "proposals": [],
+  },
+]
+`;
+
+exports[`coach persists the original ok message and proposals 1`] = `
+[
+  {
+    "message": {
+      "bodyJson": "{"stance":"open","headline":"IA","read":"Signal","move":null,"intentionDraft":"Intention"}",
+      "bodyText": "IA
+
+Signal",
+      "deltaClass": null,
+      "inputHash": "1d88a618",
+      "kind": "open",
+      "latencyMs": 100,
+      "model": "fixture-model-1",
+      "notified": false,
+      "promptVersion": "coach_pulse.v2",
+      "scopeKey": "2026-08-29",
+      "stance": "open",
+      "status": "ok",
+      "surface": "coach_pulse",
+      "tokensCompletion": 20,
+      "tokensPrompt": 10,
+    },
+    "proposals": [
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"text":"Intention"}",
+        "status": "pending",
+        "type": "intention_draft",
+      },
+    ],
+  },
+]
+`;
+
+exports[`coach persists the original repair message and proposals 1`] = `
+[
+  {
+    "message": {
+      "bodyJson": "{"stance":"open","headline":"IA","read":"Signal","move":null,"intentionDraft":"Intention"}",
+      "bodyText": "IA
+
+Signal",
+      "deltaClass": null,
+      "inputHash": "1d88a618",
+      "kind": "open",
+      "latencyMs": 300,
+      "model": "fixture-model-2",
+      "notified": false,
+      "promptVersion": "coach_pulse.v2",
+      "scopeKey": "2026-08-29",
+      "stance": "open",
+      "status": "ok",
+      "surface": "coach_pulse",
+      "tokensCompletion": 60,
+      "tokensPrompt": 30,
+    },
+    "proposals": [
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"text":"Intention"}",
+        "status": "pending",
+        "type": "intention_draft",
+      },
+    ],
+  },
+]
+`;
+
+exports[`coach persists the original throw message and proposals 1`] = `
+[
+  {
+    "message": {
+      "bodyJson": "{"stance":"open","headline":"Ouvre simplement","read":"Pas assez de signal pour une lecture fine. Commence par une intention courte et un premier bloc protégé.","move":{"what":"Écris une intention en une phrase","why":"Donner un cap clair avant d'entrer dans le flux","horizon":"now"}}",
+      "bodyText": "Ouvre simplement
+
+Pas assez de signal pour une lecture fine. Commence par une intention courte et un premier bloc protégé.
+
+Écris une intention en une phrase — Donner un cap clair avant d'entrer dans le flux",
+      "deltaClass": null,
+      "inputHash": "1d88a618",
+      "kind": "open",
+      "latencyMs": null,
+      "model": "moonshotai/kimi-k2.6",
+      "notified": false,
+      "promptVersion": "coach_pulse.v2",
+      "scopeKey": "2026-08-29",
+      "stance": "open",
+      "status": "fallback",
+      "surface": "coach_pulse",
+      "tokensCompletion": null,
+      "tokensPrompt": null,
+    },
+    "proposals": [],
+  },
+]
+`;
+
+exports[`goal persists the original invalid message and proposals 1`] = `
+[
+  {
+    "message": {
+      "bodyJson": "{"goals":[{"goalId":"goal-1","onPace":true,"gap":"En retard d'environ 5 points vs le rythme annuel attendu.","requiredWeeklyBehaviour":"Maintenir le rythme actuel : une revue hebdo courte suffit pour garder la trajectoire.","riskLevel":"low","recommendation":"Conserver la cadence actuelle et noter ce qui fonctionne pour le répéter."}]}",
+      "bodyText": "Sur la bonne voie — En retard d'environ 5 points vs le rythme annuel attendu.",
+      "deltaClass": null,
+      "inputHash": "a5e1cfe0",
+      "kind": "annual",
+      "latencyMs": 300,
+      "model": "fixture-model-2",
+      "notified": false,
+      "promptVersion": "goal_pacing.v2",
+      "scopeKey": "2026",
+      "stance": null,
+      "status": "fallback",
+      "surface": "goal_pacing",
+      "tokensCompletion": 60,
+      "tokensPrompt": 30,
+    },
+    "proposals": [],
+  },
+]
+`;
+
+exports[`goal persists the original local message and proposals 1`] = `
+[
+  {
+    "message": {
+      "bodyJson": "{"goals":[{"goalId":"goal-1","onPace":true,"gap":"En retard d'environ 5 points vs le rythme annuel attendu.","requiredWeeklyBehaviour":"Maintenir le rythme actuel : une revue hebdo courte suffit pour garder la trajectoire.","riskLevel":"low","recommendation":"Conserver la cadence actuelle et noter ce qui fonctionne pour le répéter."}]}",
+      "bodyText": "Sur la bonne voie — En retard d'environ 5 points vs le rythme annuel attendu.",
+      "deltaClass": null,
+      "inputHash": "a5e1cfe0",
+      "kind": "annual",
+      "latencyMs": null,
+      "model": "local",
+      "notified": false,
+      "promptVersion": "goal_pacing.v2",
+      "scopeKey": "2026",
+      "stance": null,
+      "status": "skipped",
+      "surface": "goal_pacing",
+      "tokensCompletion": null,
+      "tokensPrompt": null,
+    },
+    "proposals": [],
+  },
+]
+`;
+
+exports[`goal persists the original ok message and proposals 1`] = `
+[
+  {
+    "message": {
+      "bodyJson": "{"goals":[{"goalId":"goal-1","onPace":true,"gap":"Proche","requiredWeeklyBehaviour":"Focus","riskLevel":"low","recommendation":"Continuer"}]}",
+      "bodyText": "Sur la bonne voie — Proche",
+      "deltaClass": null,
+      "inputHash": "a5e1cfe0",
+      "kind": "annual",
+      "latencyMs": 100,
+      "model": "fixture-model-1",
+      "notified": false,
+      "promptVersion": "goal_pacing.v2",
+      "scopeKey": "2026",
+      "stance": null,
+      "status": "ok",
+      "surface": "goal_pacing",
+      "tokensCompletion": 20,
+      "tokensPrompt": 10,
+    },
+    "proposals": [],
+  },
+]
+`;
+
+exports[`goal persists the original repair message and proposals 1`] = `
+[
+  {
+    "message": {
+      "bodyJson": "{"goals":[{"goalId":"goal-1","onPace":true,"gap":"Proche","requiredWeeklyBehaviour":"Focus","riskLevel":"low","recommendation":"Continuer"}]}",
+      "bodyText": "Sur la bonne voie — Proche",
+      "deltaClass": null,
+      "inputHash": "a5e1cfe0",
+      "kind": "annual",
+      "latencyMs": 300,
+      "model": "fixture-model-2",
+      "notified": false,
+      "promptVersion": "goal_pacing.v2",
+      "scopeKey": "2026",
+      "stance": null,
+      "status": "ok",
+      "surface": "goal_pacing",
+      "tokensCompletion": 60,
+      "tokensPrompt": 30,
+    },
+    "proposals": [],
+  },
+]
+`;
+
+exports[`goal persists the original throw message and proposals 1`] = `
+[
+  {
+    "message": {
+      "bodyJson": "{"goals":[{"goalId":"goal-1","onPace":true,"gap":"En retard d'environ 5 points vs le rythme annuel attendu.","requiredWeeklyBehaviour":"Maintenir le rythme actuel : une revue hebdo courte suffit pour garder la trajectoire.","riskLevel":"low","recommendation":"Conserver la cadence actuelle et noter ce qui fonctionne pour le répéter."}]}",
+      "bodyText": "Sur la bonne voie — En retard d'environ 5 points vs le rythme annuel attendu.",
+      "deltaClass": null,
+      "inputHash": "a5e1cfe0",
+      "kind": "annual",
+      "latencyMs": null,
+      "model": "moonshotai/kimi-k2.6",
+      "notified": false,
+      "promptVersion": "goal_pacing.v2",
+      "scopeKey": "2026",
+      "stance": null,
+      "status": "fallback",
+      "surface": "goal_pacing",
+      "tokensCompletion": null,
+      "tokensPrompt": null,
+    },
+    "proposals": [],
+  },
+]
+`;
+
+exports[`monthly persists the original invalid message and proposals 1`] = `
+[
+  {
+    "message": {
+      "bodyJson": "{"headline":"Mois solide à refermer","weekPattern":"Score hebdo moyen 70% — rythme stable sur le mois.","sectionDrafts":{"bilan":"Mois avec 10 jours tracés et score hebdo moyen 72%.","progressionObjectifs":"1 objectif annuel relié — relire ce qui avance et ce qui stagne.","journaux":"2/4 revues hebdo clôturées — reconnecter les notes avant de fermer le mois."},"goalEvaluationDrafts":[{"goalId":"goal-1","score":70,"trend":"up","notes":"Valeur du mois : 75 %.","blockers":""}]}",
+      "bodyText": "Mois solide à refermer
+
+Score hebdo moyen 70% — rythme stable sur le mois.",
+      "deltaClass": null,
+      "inputHash": "0a1bf866",
+      "kind": "monthly",
+      "latencyMs": 300,
+      "model": "fixture-model-2",
+      "notified": false,
+      "promptVersion": "monthly_synthesis.v1",
+      "scopeKey": "2026-04",
+      "stance": null,
+      "status": "fallback",
+      "surface": "monthly_synthesis",
+      "tokensCompletion": 60,
+      "tokensPrompt": 30,
+    },
+    "proposals": [
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"sectionKey":"bilan","text":"Mois avec 10 jours tracés et score hebdo moyen 72%."}",
+        "status": "pending",
+        "type": "review_section_draft",
+      },
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"sectionKey":"progressionObjectifs","text":"1 objectif annuel relié — relire ce qui avance et ce qui stagne."}",
+        "status": "pending",
+        "type": "review_section_draft",
+      },
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"sectionKey":"journaux","text":"2/4 revues hebdo clôturées — reconnecter les notes avant de fermer le mois."}",
+        "status": "pending",
+        "type": "review_section_draft",
+      },
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"monthKey":"2026-04","goalId":"goal-1","score":70,"trend":"up","notes":"Valeur du mois : 75 %.","blockers":""}",
+        "status": "pending",
+        "type": "goal_evaluation",
+      },
+    ],
+  },
+]
+`;
+
+exports[`monthly persists the original local message and proposals 1`] = `
+[
+  {
+    "message": {
+      "bodyJson": "{"headline":"Mois solide à refermer","weekPattern":"Score hebdo moyen 70% — rythme stable sur le mois.","sectionDrafts":{"bilan":"Mois avec 10 jours tracés et score hebdo moyen 72%.","progressionObjectifs":"1 objectif annuel relié — relire ce qui avance et ce qui stagne.","journaux":"2/4 revues hebdo clôturées — reconnecter les notes avant de fermer le mois."},"goalEvaluationDrafts":[{"goalId":"goal-1","score":70,"trend":"up","notes":"Valeur du mois : 75 %.","blockers":""}]}",
+      "bodyText": "Mois solide à refermer
+
+Score hebdo moyen 70% — rythme stable sur le mois.",
+      "deltaClass": null,
+      "inputHash": "0a1bf866",
+      "kind": "monthly",
+      "latencyMs": null,
+      "model": "local",
+      "notified": false,
+      "promptVersion": "monthly_synthesis.v1",
+      "scopeKey": "2026-04",
+      "stance": null,
+      "status": "skipped",
+      "surface": "monthly_synthesis",
+      "tokensCompletion": null,
+      "tokensPrompt": null,
+    },
+    "proposals": [
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"sectionKey":"bilan","text":"Mois avec 10 jours tracés et score hebdo moyen 72%."}",
+        "status": "pending",
+        "type": "review_section_draft",
+      },
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"sectionKey":"progressionObjectifs","text":"1 objectif annuel relié — relire ce qui avance et ce qui stagne."}",
+        "status": "pending",
+        "type": "review_section_draft",
+      },
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"sectionKey":"journaux","text":"2/4 revues hebdo clôturées — reconnecter les notes avant de fermer le mois."}",
+        "status": "pending",
+        "type": "review_section_draft",
+      },
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"monthKey":"2026-04","goalId":"goal-1","score":70,"trend":"up","notes":"Valeur du mois : 75 %.","blockers":""}",
+        "status": "pending",
+        "type": "goal_evaluation",
+      },
+    ],
+  },
+]
+`;
+
+exports[`monthly persists the original ok message and proposals 1`] = `
+[
+  {
+    "message": {
+      "bodyJson": "{"headline":"IA","weekPattern":"Stable","sectionDrafts":{"bilan":"Bilan"},"goalEvaluationDrafts":[{"goalId":"goal-1","score":80,"trend":"up","notes":"Bien","blockers":""}]}",
+      "bodyText": "IA
+
+Stable",
+      "deltaClass": null,
+      "inputHash": "0a1bf866",
+      "kind": "monthly",
+      "latencyMs": 100,
+      "model": "fixture-model-1",
+      "notified": false,
+      "promptVersion": "monthly_synthesis.v1",
+      "scopeKey": "2026-04",
+      "stance": null,
+      "status": "ok",
+      "surface": "monthly_synthesis",
+      "tokensCompletion": 20,
+      "tokensPrompt": 10,
+    },
+    "proposals": [
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"sectionKey":"bilan","text":"Bilan"}",
+        "status": "pending",
+        "type": "review_section_draft",
+      },
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"monthKey":"2026-04","goalId":"goal-1","score":80,"trend":"up","notes":"Bien","blockers":""}",
+        "status": "pending",
+        "type": "goal_evaluation",
+      },
+    ],
+  },
+]
+`;
+
+exports[`monthly persists the original repair message and proposals 1`] = `
+[
+  {
+    "message": {
+      "bodyJson": "{"headline":"IA","weekPattern":"Stable","sectionDrafts":{"bilan":"Bilan"},"goalEvaluationDrafts":[{"goalId":"goal-1","score":80,"trend":"up","notes":"Bien","blockers":""}]}",
+      "bodyText": "IA
+
+Stable",
+      "deltaClass": null,
+      "inputHash": "0a1bf866",
+      "kind": "monthly",
+      "latencyMs": 300,
+      "model": "fixture-model-2",
+      "notified": false,
+      "promptVersion": "monthly_synthesis.v1",
+      "scopeKey": "2026-04",
+      "stance": null,
+      "status": "ok",
+      "surface": "monthly_synthesis",
+      "tokensCompletion": 60,
+      "tokensPrompt": 30,
+    },
+    "proposals": [
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"sectionKey":"bilan","text":"Bilan"}",
+        "status": "pending",
+        "type": "review_section_draft",
+      },
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"monthKey":"2026-04","goalId":"goal-1","score":80,"trend":"up","notes":"Bien","blockers":""}",
+        "status": "pending",
+        "type": "goal_evaluation",
+      },
+    ],
+  },
+]
+`;
+
+exports[`monthly persists the original throw message and proposals 1`] = `
+[
+  {
+    "message": {
+      "bodyJson": "{"headline":"Mois solide à refermer","weekPattern":"Score hebdo moyen 70% — rythme stable sur le mois.","sectionDrafts":{"bilan":"Mois avec 10 jours tracés et score hebdo moyen 72%.","progressionObjectifs":"1 objectif annuel relié — relire ce qui avance et ce qui stagne.","journaux":"2/4 revues hebdo clôturées — reconnecter les notes avant de fermer le mois."},"goalEvaluationDrafts":[{"goalId":"goal-1","score":70,"trend":"up","notes":"Valeur du mois : 75 %.","blockers":""}]}",
+      "bodyText": "Mois solide à refermer
+
+Score hebdo moyen 70% — rythme stable sur le mois.",
+      "deltaClass": null,
+      "inputHash": "0a1bf866",
+      "kind": "monthly",
+      "latencyMs": null,
+      "model": "moonshotai/kimi-k2.6",
+      "notified": false,
+      "promptVersion": "monthly_synthesis.v1",
+      "scopeKey": "2026-04",
+      "stance": null,
+      "status": "fallback",
+      "surface": "monthly_synthesis",
+      "tokensCompletion": null,
+      "tokensPrompt": null,
+    },
+    "proposals": [
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"sectionKey":"bilan","text":"Mois avec 10 jours tracés et score hebdo moyen 72%."}",
+        "status": "pending",
+        "type": "review_section_draft",
+      },
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"sectionKey":"progressionObjectifs","text":"1 objectif annuel relié — relire ce qui avance et ce qui stagne."}",
+        "status": "pending",
+        "type": "review_section_draft",
+      },
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"sectionKey":"journaux","text":"2/4 revues hebdo clôturées — reconnecter les notes avant de fermer le mois."}",
+        "status": "pending",
+        "type": "review_section_draft",
+      },
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"monthKey":"2026-04","goalId":"goal-1","score":70,"trend":"up","notes":"Valeur du mois : 75 %.","blockers":""}",
+        "status": "pending",
+        "type": "goal_evaluation",
+      },
+    ],
+  },
+]
+`;
+
+exports[`pastor persists the original invalid message and proposals 1`] = `
+[
+  {
+    "message": {
+      "bodyJson": "{"pick":"list","verseId":"jas-1-19","reference":{"book":"JAS","chapter":1,"verseStart":19,"verseEnd":19},"principleKey":"attentionAMonEpouse","intent":"reinforcement","title":"Jacques 1, 19","explanation":"Un ordre est donné aux trois réflexes d'un échange : écouter vient en premier, parler ensuite, et la réaction vive en dernier.","practice":null}",
+      "bodyText": "Jacques 1, 19 — Jacques 1, 19",
+      "deltaClass": null,
+      "inputHash": "9e5c52e4",
+      "kind": "daily",
+      "latencyMs": 300,
+      "model": "fixture-model-2",
+      "notified": false,
+      "promptVersion": "pastor_verse.v1",
+      "scopeKey": "pastor:2026-08-29",
+      "stance": null,
+      "status": "fallback",
+      "surface": "pastor_verse",
+      "tokensCompletion": 60,
+      "tokensPrompt": 30,
+    },
+    "proposals": [],
+  },
+]
+`;
+
+exports[`pastor persists the original local message and proposals 1`] = `
+[
+  {
+    "message": {
+      "bodyJson": "{"pick":"list","verseId":"jas-1-19","reference":{"book":"JAS","chapter":1,"verseStart":19,"verseEnd":19},"principleKey":"attentionAMonEpouse","intent":"reinforcement","title":"Jacques 1, 19","explanation":"Un ordre est donné aux trois réflexes d'un échange : écouter vient en premier, parler ensuite, et la réaction vive en dernier.","practice":null}",
+      "bodyText": "Jacques 1, 19 — Jacques 1, 19",
+      "deltaClass": null,
+      "inputHash": "9e5c52e4",
+      "kind": "daily",
+      "latencyMs": null,
+      "model": "local",
+      "notified": false,
+      "promptVersion": "pastor_verse.v1",
+      "scopeKey": "pastor:2026-08-29",
+      "stance": null,
+      "status": "local",
+      "surface": "pastor_verse",
+      "tokensCompletion": null,
+      "tokensPrompt": null,
+    },
+    "proposals": [],
+  },
+]
+`;
+
+exports[`pastor persists the original ok message and proposals 1`] = `
+[
+  {
+    "message": {
+      "bodyJson": "{"pick":"list","verseId":"mrk-1-35","reference":{"book":"MRK","chapter":1,"verseStart":35,"verseEnd":35},"principleKey":null,"intent":"reinforcement","title":"Titre","explanation":"Ancrage. Enseignement.","practice":null}",
+      "bodyText": "Marc 1, 35 — Titre",
+      "deltaClass": null,
+      "inputHash": "9e5c52e4",
+      "kind": "daily",
+      "latencyMs": 100,
+      "model": "fixture-model-1",
+      "notified": false,
+      "promptVersion": "pastor_verse.v1",
+      "scopeKey": "pastor:2026-08-29",
+      "stance": null,
+      "status": "ok",
+      "surface": "pastor_verse",
+      "tokensCompletion": 20,
+      "tokensPrompt": 10,
+    },
+    "proposals": [],
+  },
+]
+`;
+
+exports[`pastor persists the original repair message and proposals 1`] = `
+[
+  {
+    "message": {
+      "bodyJson": "{"pick":"list","verseId":"mrk-1-35","reference":{"book":"MRK","chapter":1,"verseStart":35,"verseEnd":35},"principleKey":null,"intent":"reinforcement","title":"Titre","explanation":"Ancrage. Enseignement.","practice":null}",
+      "bodyText": "Marc 1, 35 — Titre",
+      "deltaClass": null,
+      "inputHash": "9e5c52e4",
+      "kind": "daily",
+      "latencyMs": 300,
+      "model": "fixture-model-2",
+      "notified": false,
+      "promptVersion": "pastor_verse.v1",
+      "scopeKey": "pastor:2026-08-29",
+      "stance": null,
+      "status": "ok",
+      "surface": "pastor_verse",
+      "tokensCompletion": 60,
+      "tokensPrompt": 30,
+    },
+    "proposals": [],
+  },
+]
+`;
+
+exports[`pastor persists the original throw message and proposals 1`] = `
+[
+  {
+    "message": {
+      "bodyJson": "{"pick":"list","verseId":"jas-1-19","reference":{"book":"JAS","chapter":1,"verseStart":19,"verseEnd":19},"principleKey":"attentionAMonEpouse","intent":"reinforcement","title":"Jacques 1, 19","explanation":"Un ordre est donné aux trois réflexes d'un échange : écouter vient en premier, parler ensuite, et la réaction vive en dernier.","practice":null}",
+      "bodyText": "Jacques 1, 19 — Jacques 1, 19",
+      "deltaClass": null,
+      "inputHash": "9e5c52e4",
+      "kind": "daily",
+      "latencyMs": null,
+      "model": "moonshotai/kimi-k2.6",
+      "notified": false,
+      "promptVersion": "pastor_verse.v1",
+      "scopeKey": "pastor:2026-08-29",
+      "stance": null,
+      "status": "fallback",
+      "surface": "pastor_verse",
+      "tokensCompletion": null,
+      "tokensPrompt": null,
+    },
+    "proposals": [],
+  },
+]
+`;
+
+exports[`weekly persists the original invalid message and proposals 1`] = `
+[
+  {
+    "message": {
+      "bodyJson": "{"headline":"Semaine à refermer","scoreExplanation":"Score hebdo 78%. Les signaux restent partiels — note ce qui a tenu malgré tout.","strongestAxis":"Temps d'ecran","weakestAxes":["Respect TRC","Pomodoris"],"sectionDrafts":{"tempsEtPlan":"Axes à surveiller : Respect TRC et Pomodoris.","dimanche":"Clôturer la semaine passée et poser le ton pour celle qui arrive."},"nextWeekObjectives":[],"gtdActions":[]}",
+      "bodyText": "Semaine à refermer
+
+Score hebdo 78%. Les signaux restent partiels — note ce qui a tenu malgré tout.",
+      "deltaClass": null,
+      "inputHash": "f7d8e34a",
+      "kind": "weekly",
+      "latencyMs": 300,
+      "model": "fixture-model-2",
+      "notified": false,
+      "promptVersion": "weekly_synthesis.v1",
+      "scopeKey": "2026-08-02",
+      "stance": null,
+      "status": "fallback",
+      "surface": "weekly_synthesis",
+      "tokensCompletion": 60,
+      "tokensPrompt": 30,
+    },
+    "proposals": [
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"sectionKey":"tempsEtPlan","text":"Axes à surveiller : Respect TRC et Pomodoris."}",
+        "status": "pending",
+        "type": "review_section_draft",
+      },
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"sectionKey":"dimanche","text":"Clôturer la semaine passée et poser le ton pour celle qui arrive."}",
+        "status": "pending",
+        "type": "review_section_draft",
+      },
+    ],
+  },
+]
+`;
+
+exports[`weekly persists the original local message and proposals 1`] = `
+[
+  {
+    "message": {
+      "bodyJson": "{"headline":"Semaine à refermer","scoreExplanation":"Score hebdo 78%. Les signaux restent partiels — note ce qui a tenu malgré tout.","strongestAxis":"Temps d'ecran","weakestAxes":["Respect TRC","Pomodoris"],"sectionDrafts":{"tempsEtPlan":"Axes à surveiller : Respect TRC et Pomodoris.","dimanche":"Clôturer la semaine passée et poser le ton pour celle qui arrive."},"nextWeekObjectives":[],"gtdActions":[]}",
+      "bodyText": "Semaine à refermer
+
+Score hebdo 78%. Les signaux restent partiels — note ce qui a tenu malgré tout.",
+      "deltaClass": null,
+      "inputHash": "f7d8e34a",
+      "kind": "weekly",
+      "latencyMs": null,
+      "model": "local",
+      "notified": false,
+      "promptVersion": "weekly_synthesis.v1",
+      "scopeKey": "2026-08-02",
+      "stance": null,
+      "status": "skipped",
+      "surface": "weekly_synthesis",
+      "tokensCompletion": null,
+      "tokensPrompt": null,
+    },
+    "proposals": [
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"sectionKey":"tempsEtPlan","text":"Axes à surveiller : Respect TRC et Pomodoris."}",
+        "status": "pending",
+        "type": "review_section_draft",
+      },
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"sectionKey":"dimanche","text":"Clôturer la semaine passée et poser le ton pour celle qui arrive."}",
+        "status": "pending",
+        "type": "review_section_draft",
+      },
+    ],
+  },
+]
+`;
+
+exports[`weekly persists the original ok message and proposals 1`] = `
+[
+  {
+    "message": {
+      "bodyJson": "{"headline":"IA","scoreExplanation":"Score","strongestAxis":"Discipline","weakestAxes":["Sommeil","Pomodoris"],"sectionDrafts":{"bilan":"Bilan"},"nextWeekObjectives":[{"title":"Focus","kind":"manual"}],"gtdActions":[]}",
+      "bodyText": "IA
+
+Score",
+      "deltaClass": null,
+      "inputHash": "f7d8e34a",
+      "kind": "weekly",
+      "latencyMs": 100,
+      "model": "fixture-model-1",
+      "notified": false,
+      "promptVersion": "weekly_synthesis.v1",
+      "scopeKey": "2026-08-02",
+      "stance": null,
+      "status": "ok",
+      "surface": "weekly_synthesis",
+      "tokensCompletion": 20,
+      "tokensPrompt": 10,
+    },
+    "proposals": [
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"sectionKey":"bilan","text":"Bilan"}",
+        "status": "pending",
+        "type": "review_section_draft",
+      },
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"title":"Focus","kind":"manual","targetHours":null,"rescuetimeKind":null,"rescuetimeThing":null}",
+        "status": "pending",
+        "type": "weekly_objective",
+      },
+    ],
+  },
+]
+`;
+
+exports[`weekly persists the original repair message and proposals 1`] = `
+[
+  {
+    "message": {
+      "bodyJson": "{"headline":"IA","scoreExplanation":"Score","strongestAxis":"Discipline","weakestAxes":["Sommeil","Pomodoris"],"sectionDrafts":{"bilan":"Bilan"},"nextWeekObjectives":[{"title":"Focus","kind":"manual"}],"gtdActions":[]}",
+      "bodyText": "IA
+
+Score",
+      "deltaClass": null,
+      "inputHash": "f7d8e34a",
+      "kind": "weekly",
+      "latencyMs": 300,
+      "model": "fixture-model-2",
+      "notified": false,
+      "promptVersion": "weekly_synthesis.v1",
+      "scopeKey": "2026-08-02",
+      "stance": null,
+      "status": "ok",
+      "surface": "weekly_synthesis",
+      "tokensCompletion": 60,
+      "tokensPrompt": 30,
+    },
+    "proposals": [
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"sectionKey":"bilan","text":"Bilan"}",
+        "status": "pending",
+        "type": "review_section_draft",
+      },
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"title":"Focus","kind":"manual","targetHours":null,"rescuetimeKind":null,"rescuetimeThing":null}",
+        "status": "pending",
+        "type": "weekly_objective",
+      },
+    ],
+  },
+]
+`;
+
+exports[`weekly persists the original throw message and proposals 1`] = `
+[
+  {
+    "message": {
+      "bodyJson": "{"headline":"Semaine à refermer","scoreExplanation":"Score hebdo 78%. Les signaux restent partiels — note ce qui a tenu malgré tout.","strongestAxis":"Temps d'ecran","weakestAxes":["Respect TRC","Pomodoris"],"sectionDrafts":{"tempsEtPlan":"Axes à surveiller : Respect TRC et Pomodoris.","dimanche":"Clôturer la semaine passée et poser le ton pour celle qui arrive."},"nextWeekObjectives":[],"gtdActions":[]}",
+      "bodyText": "Semaine à refermer
+
+Score hebdo 78%. Les signaux restent partiels — note ce qui a tenu malgré tout.",
+      "deltaClass": null,
+      "inputHash": "f7d8e34a",
+      "kind": "weekly",
+      "latencyMs": null,
+      "model": "moonshotai/kimi-k2.6",
+      "notified": false,
+      "promptVersion": "weekly_synthesis.v1",
+      "scopeKey": "2026-08-02",
+      "stance": null,
+      "status": "fallback",
+      "surface": "weekly_synthesis",
+      "tokensCompletion": null,
+      "tokensPrompt": null,
+    },
+    "proposals": [
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"sectionKey":"tempsEtPlan","text":"Axes à surveiller : Respect TRC et Pomodoris."}",
+        "status": "pending",
+        "type": "review_section_draft",
+      },
+      {
+        "appliedEntityId": null,
+        "decidedAt": null,
+        "payloadJson": "{"sectionKey":"dimanche","text":"Clôturer la semaine passée et poser le ton pour celle qui arrive."}",
+        "status": "pending",
+        "type": "review_section_draft",
+      },
+    ],
+  },
+]
+`;

@@ -18,9 +18,9 @@ current-product behavior remains documented in [`docs/`](../docs/).
 - [`todo/weekly-review-caching.md`](todo/weekly-review-caching.md) — §1 shipped (RescueTime
   snapshot cache); §2 compact weekly RescueTime goal lines and §3 last-good weekly coach
   synthesis fallback not implemented.
-- [`todo/finance.md`](todo/finance.md) — draft, unshipped household finances: CSV import,
+- [`done/finance.md`](done/finance.md) — implemented household finances: CSV import,
   heuristic + learned + AI categorization, Mint-style tracking, YNAB-style envelope budgets,
-  and proactive runout forecasting.
+  and proactive runout forecasting. All 8 phases shipped.
 - [`done/mid-week-review.md`](done/mid-week-review.md) — implemented dedicated `/mi-semaine`
   page: pro-rated pace per signal, RescueTime snapshot cache, saved decisions with a
   before/after card on `/semaine`, and AI steering. The optional journal feed (PR C) was not

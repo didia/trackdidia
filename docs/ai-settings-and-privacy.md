@@ -14,6 +14,19 @@ added properties receive defaults on older installations. A stored `aiMaxTokens`
 `aiMaxTokensUpgradeDoneAt` is empty; after that marker is set, `700` round-trips
 like any other value.
 
+Defaults, normalization and the one-time legacy token-budget upgrade live in
+`src/domain/settings.ts`; the previous exports remain compatibility aliases.
+
+Application writers use `updateSettings(current => next)`. Desktop reads, applies
+and writes inside one serialized transaction; memory preview does the same work
+synchronously against an isolated snapshot. An error leaves stored settings intact.
+The context publishes the persisted result after success. Pulse first-open times,
+backup metadata, review completion, relationship draw dates and startup markers
+merge only their changed fields. The Settings screen submits only edited fields
+in the saved section and retains unsaved edits when background settings refresh.
+`saveSettings` remains a compatibility full-row replacement API for explicit
+initialization, rather than the application's normal update path.
+
 Default highlights:
 
 | Setting | Default |
@@ -40,6 +53,44 @@ Default highlights:
 
 The settings object also holds internal timestamps for GTD bootstrap normalizations,
 the last backup, and per-category relationship processing.
+
+## Google Calendar connection
+
+The desktop Settings card can connect, reconnect, or disconnect one Google account and
+create its dedicated TrackDidia calendar. Browser preview shows an unavailable notice.
+The event API client and pure planner exist, but no background reconciler is mounted yet;
+connecting alone does not send task events. See [calendar sidecar storage](storage-and-backups.md#calendar-sync-tables)
+for settings, links, and identity generations.
+
+OAuth uses PKCE and a loopback callback, requesting `calendar.app.created` and the
+non-sensitive `email` scope to identify the account through Google's userinfo endpoint.
+The refresh token lives only in the OS vault's `calendar_credentials` entry; access tokens
+are cached in memory. The shared OAuth lease remains held through profile lookup, calendar
+creation, and the vault/settings commit, preventing a second calendar or email OAuth flow
+from interleaving it.
+
+Calendar preference saves, connects, and disconnects share an ordered mutation queue that
+survives Settings remounts. A preference save reads the latest row inside that queue and
+changes only `enabled` and `oauthClientId` (plus `updatedAt`), preserving connection identity
+and links. The card waits for its initial load, offers retry on a load failure, and disables
+all calendar controls while a local action is running. Rapid clicks share a synchronous
+guard. Consent denial displays a French cancellation message; unknown callback errors use
+a generic translated error.
+
+A connection attempt reads the previous vault secret before creating a calendar. If the
+vault/settings commit fails, it clears the access-token cache, restores the previous secret
+(or removes the new one on first connect), and attempts to delete only a calendar created
+by that attempt. Both compensations are attempted even if one fails; cleanup failures are
+reported as a failed connection. Same-account reconnect reuses the stored calendar id.
+Disconnect commits `disconnected` and disables sync before deleting credentials, keeping
+identity and links for reconnect. A failed settings write leaves credentials intact; a
+failed credential deletion leaves sync safely disabled. The card reloads stored status
+after failed actions as well as successful ones.
+
+Calendar API requests retry one HTTP 401 after forcing a token refresh. Only a missing
+credential or revoked refresh grant requires reconnect; a repeated 401 or transient refresh
+failure remains retryable. Event lookup exhausts pagination before adopting or inserting,
+and preserves rate limits as `rate_limited` rather than a generic lookup failure.
 
 ## Coach modes (`coach_pulse`)
 
@@ -144,6 +195,32 @@ Evening closure (`/fermeture-soir`) auto-loads the `close` stance on page open:
 There is **no** gate requiring the user to write journal text first, and no
 **Demander au coach** button on Today or evening close while auto-load is active.
 
+### Shared structured generation
+
+`src/lib/ai/structured-generation.ts` owns cache lookup, message construction,
+one repair attempt, usage addition, proposal episode persistence and fallback
+handling for coach pulse, weekly synthesis, monthly synthesis, goal pacing and
+Pastor verse. Each service still builds its own snapshot, input hash, validator,
+local response and proposal payloads. Generic failure copy lives in the French
+`common` locale.
+
+The services pass their existing policies explicitly:
+
+- Weekly, monthly and goal pacing reuse successful AI cache entries, or skipped
+  local entries when AI is unconfigured. Monthly and goal pacing reuse the existing
+  message ID for the same input hash.
+- Coach pulse reuses successful episodes, retains its delta gate and resolves
+  due close commitments on cached and persisted outcomes. Automatic local paint
+  without a delta remains ephemeral.
+- Pastor's loader owns date-sticky caching. Offline picks persist as `local`;
+  temporary local paint and failed explicit regeneration do not enter history.
+  Accepted Pastor bodies store validated JSON; other services retain raw provider JSON.
+
+A second invalid response records both calls' usage. A thrown provider, repair or
+persistence error follows the existing fallback policy: the configured model and
+null usage are recorded. Cache hashes, prompt versions and surface-specific parsing
+remain unchanged.
+
 ### Structured output and accept-step
 
 The model returns JSON validated against the S1 `coach_pulse` schema (stance-aware).
@@ -153,18 +230,44 @@ Phase 3 proposal types:
 
 | Type | Accept applies |
 |---|---|
-| `intention_draft` | Saves `morningIntention` immediately, then marks the proposal accepted |
-| `tomorrow_focus_draft` | Saves `tomorrowFocus` immediately, then marks the proposal accepted |
+| `intention_draft` | Saves `morningIntention` and the proposal decision atomically |
+| `tomorrow_focus_draft` | Saves `tomorrowFocus` and the proposal decision atomically |
 | `commitment` | Creates an `ai_memories` row (`kind=commitment`, expires next local day) |
 | `memory` | Creates an `ai_memories` row from a distillation candidate |
 
 Accepting `memory` or `commitment` persists the memory row and proposal decision
-atomically via `acceptAiMemoryProposal`, using a stable memory id derived from the
-proposal id so retries reconcile instead of duplicating.
+atomically via `acceptAiProposal(proposalId, effect)`, using a stable memory id
+derived from the proposal id so retries reconcile instead of duplicating. This
+primitive also handles daily notes, goal evaluations, weekly objectives, weekly/monthly ritual notes, and GTD
+actions; each effect and its decision share one write boundary. Repeat accepts
+return the stored applied ID with `effectApplied: false`, without applying the effect
+again; a fresh committed effect returns `effectApplied: true`. GTD actions read
+the current task in that boundary, reuse a pure mutation helper, and leave missing
+or inactive tasks pending. Dropping a recurring task also resets the template
+backlog in the same boundary.
 
 Proposals are stored in `ai_proposals` with `pending | accepted | dismissed | expired`
-status. Draft accepts (`intention_draft`, `tomorrow_focus_draft`) save the journal
-field first, then record the proposal decision separately.
+status. `decodeProposal` validates all persisted payloads into a typed union; malformed
+payloads produce an invalid result and cannot be applied. `applyCoachProposal` is
+the shared application entry point, including the memory compatibility wrapper.
+Screens use its returned proposal and UI effects rather than dispatching by type.
+Daily and review draft acceptance joins the corresponding autosave queue. Later
+manual edits remain editable and persist after the atomic accept; a later edit of
+the same field wins. Repeat accepts return the stored decision without draft UI
+effects, so they cannot replace a manual note or mark an unwritten snapshot saved.
+Today, Evening, Weekly, and Monthly screens share `useProposalDecisions`
+(`src/app/use-proposal-decisions.ts`) and render suggestions through `ProposalList`
+(`src/components/ProposalList.tsx`, per-surface label map plus `proposalPreviewText`).
+The hook exposes `accept`, `dismiss`, and `isApplying(id)`: a ref-backed in-flight set
+rejects repeat clicks synchronously (before the next render) and keeps both buttons
+disabled for the whole accept or dismiss; it also ignores proposals not in the current
+result. Each screen supplies only its `onAccept` side effects; the hook swaps in the
+decided row (or marks the proposal dismissed) and logs failures with `logDebug`.
+A failed accept releases the guard, leaves the proposal pending, and rolls back the
+entity and decision together.
+Goal evaluation effects read the current goal inside the writer, preserving other
+months and goal fields. Missing or inactive tasks stay pending; the monthly screen
+still dismisses a missing goal and displays its existing notice.
 
 ### Weekly synthesis (`weekly_synthesis`)
 
@@ -444,43 +547,19 @@ list). Principle and intent chips remain below the reflection.
 **Ajouter à ma liste** button. Clicking it builds a catalog-shaped entry — reference,
 `principleKeys: [principleKey]`, and a `note` reused from the AI's own explanation —
 and merges it into `settings.aiPastorCustomVerses` via the atomic repository method
-`AppRepository.addPastorCustomVerse` (`addCustomVerse` in
+`AppRepository.updateSettings` (`addCustomVerse` in
 `src/lib/pastor/custom-verse.ts` for the merge itself; a reference already covered by
 the checked-in catalog or a prior custom verse is a no-op, not a duplicate row). This
-method reads the settings row and writes the merged result as a single serialized
-operation (inside SQLite's existing write queue on desktop), rather than building a
-full `AppSettings` snapshot in the UI and replacing the whole row — see "Settings save
-concurrency" below for why that distinction matters. The UI marks the button as
+method uses the same current-value updater as other application writers; see
+[settings storage](#settings-storage). The UI marks the button as
 "Ajoutée" only once this call resolves; a failure surfaces a visible, retryable
 warning on the card instead of optimistically reporting success.
 `aiPastorCustomVerses` is merged with the checked-in `verses.json` at every read
 (`buildCatalogWithCustomVerses`), so a future pick can select a custom verse exactly
 like a checked-in one, and `resultFromMessage` resolves stored picks against the same
 merged catalog. No SQLite migration is involved — like `aiPastorEnabled`, it's a plain
-field on the `AppSettings` JSON blob; `addPastorCustomVerse` is a new repository
-method, not a new table.
-
-**Settings save concurrency.** `AppRepository.saveSettings` is a full replace-all
-write: a caller reads `settings`, builds `{ ...settings, someField: x }`, and awaits
-the save. Two such calls in flight at once (e.g. the pastor card's own "Ajouter à ma
-liste" alongside the startup pulse persisting `aiPulseFirstOpenAt`, or an automatic
-backup persisting `lastBackupAt`) can each hold a snapshot that predates the other's
-write; whichever save lands second silently overwrites the first caller's change,
-because SQLite's write queue orders the two `saveSettings` calls but does not merge
-their snapshots. `addPastorCustomVerse` closes this gap **for its one field only**: it
-re-reads the settings row immediately before writing, inside one serialized operation,
-so `addPastorCustomVerse` itself never overwrites a concurrent `saveSettings` write:
-whichever one runs first in the write queue, the other still sees it. What it does
-**not** protect against: a `saveSettings` call elsewhere that captured its full
-snapshot *before* `addPastorCustomVerse` ran, and then executes *after* it — that call
-still blindly replaces the whole row with its stale snapshot and would clobber the
-just-added custom verse, because plain `saveSettings` never re-reads current state
-before writing. Closing that direction too — for `aiPastorCustomVerses` and every
-other settings field — needs every writer (pulse, backup, evening close, etc.) to
-route through the same kind of read-immediately-before-write operation, e.g. a generic
-serialized read-modify-write updater for all of `AppSettings`. That remains a known
-gap and a candidate follow-up; this fix closes it for the pastor card's own writes
-only, per the review's suggested narrower scope.
+field on the `AppSettings` JSON blob. The repository also retains
+`addPastorCustomVerse` as a convenience wrapper over the shared updater.
 
 **Verse-text policy.** No agent may write Bible verse text from memory in any
 translation, including public-domain Louis Segond 1910 — see
@@ -543,6 +622,70 @@ Before any model call, `CoachPulseService` builds a typed daily snapshot via
 `buildMonthlySnapshot`, and `GoalPacingService` builds an annual snapshot via
 `buildGoalPacingSnapshot`. All apply `aiPayloadScope` redaction centrally. Settings
 can preview the exact payload per scope when debug mode is enabled (see below).
+
+**Finance is not part of the coach (`coach_pulse`) payload.** `AppSettings.financeCoachContextEnabled`
+exists (default `false`) but nothing reads it: no snapshot builder joins
+finance data into the daily pulse or any other coach/synthesis surface. The
+finance spec (see [docs/finance.md](finance.md#forecasting-and-proactive-alerts-phase-7))
+allows a compact "category statuses and names only, no amounts" snapshot to
+be added later, behind this flag, following the pattern above — deliberately
+deferred rather than rushed. Finance's own AI categorization surface is
+separate and is covered below.
+
+### Finance categorization (`finance_categorization`)
+
+Unlike every surface above, `finance_categorization` is not a coach/synthesis
+read-and-display surface: it is a batch classification stage for unknown
+transaction merchants, run on demand (never on a timer, never at startup) —
+see [docs/finance.md](finance.md#ai-categorization-phase-8) for the full
+data flow, the gating flags, and the run triggers. This page documents only
+the privacy contract, since that is what makes the surface safe to ship.
+
+**Sent**, per merchant, at most 40 merchants / 16 KiB per request (an
+over-cap batch is split into more requests, never truncated):
+
+- the **cleaned transaction descriptor** — `finance_transactions.merchant_key`
+  (the normalized, uppercased, accent-stripped `descriptionRaw`), with email
+  addresses, card/account-looking fragments, digit runs of 4+ characters, and
+  phone-number-shaped digit groups stripped, clamped to 60 characters. **This
+  is not a general redactor**: it removes structured identifiers only. A
+  counterparty name, a partial address, or any other plain word present in
+  the original description (e.g. an e-transfer line like "INTERAC E-TRANSFER
+  JEAN DUPONT") is sent as-is — see
+  `src/lib/ai/context/finance-categorization-snapshot.ts`'s module comment
+  for exactly what the sanitizer does and does not catch.
+- the transaction sign (`-1` | `0` | `1`)
+- an occurrence count
+- an amount **bucket** (`<10`, `10-50`, `50-200`, `200-1000`, `>1000`, in
+  `financeBaseCurrency`) — never an exact amount
+- the account **type** (`checking`, `credit_card`, …) — never the account
+  name or institution
+- the allowed category id/name list (user-created and default categories
+  only — the three system categories, Uncategorized/Transfer/Split, are
+  excluded)
+
+**Never sent** — structured fields that never exist on the payload shape at
+all, as opposed to free text the sanitizer might miss: account names,
+institutions, account numbers, balances, net worth, `personId`, exact
+amounts, dates, notes, or labels.
+`src/lib/ai/context/finance-categorization-snapshot.test.ts` serializes the
+built payload and asserts by substring that none of these structured fields
+appear; it does not and cannot assert that no free-text name or address ever
+leaks, because the descriptor is sent as cleaned free text, not as a fully
+redacted one.
+
+**Gating** — all three must be on, checked by both the service and the
+`/finances/review` button:
+
+| Setting | Default | Effect when off |
+|---|---|---|
+| `financeAiCategorizationEnabled` | `false` | The stage does not run at all — no read, no call, no write |
+| `aiEnabled` | `false` | The stage runs but every batch is persisted `status: "skipped"` and applies nothing |
+| `aiApiKey` (non-empty) | `""` | Same as `aiEnabled` off |
+
+`aiPayloadScope === "metrics"` additionally disables the stage entirely, the
+same way it would starve any other surface of structure — a merchant string
+is structure, not a metric.
 
 ### Persistence (`ai_messages`, `ai_proposals`, `ai_memories`)
 
@@ -617,6 +760,7 @@ stored on each `ai_messages.prompt_version` row:
 | `goal_pacing` | `goal_pacing.v1` |
 | `mid_week_steering` | `mid_week_steering.v1` |
 | `pastor_verse` | `pastor_verse.v1` |
+| `finance_categorization` | `finance_categorization.v1` |
 
 The analytics section lists active versions and surfaces low-acceptance areas as
 prompt-revision candidates.
@@ -638,6 +782,12 @@ Structured `coach_pulse` requests include:
 - `response_format: { type: "json_object" }`;
 - a French system prompt with stance context and optional memory block;
 - the redacted daily snapshot plus deterministic commitment resolution when applicable.
+
+Both coach requests and email triage classification use the shared `openrouter-client.ts`
+request builder and response parser. Coach surfaces use webview `fetch` to preserve their
+existing retry behavior; email triage uses the native, host-allowlisted
+`provider_http_request` command and makes one attempt. Both send the same bearer,
+referer, and title headers. The shared timeout helper is also used by RescueTime.
 
 Transport hardening:
 
@@ -668,7 +818,7 @@ SQLite settings (`Paramètres → RescueTime`); it never reads a repo-root `.env
 
 RescueTime HTTP uses dual transport via `fetchRescueTimeJson`:
 
-- **Tauri desktop:** native `rescuetime_http_get` (Rust host) to avoid webview CORS limits.
+- **Tauri desktop:** the shared native `provider_http_request` command, restricted to HTTPS and an allowlist that includes `www.rescuetime.com`, to avoid webview CORS limits. Authenticated requests do not follow redirects. RescueTime responses have an 8 MB size cap.
 - **Browser preview / non-Tauri:** browser `fetch()` with `Authorization: Bearer` (same pattern as OpenRouter).
 
 Both paths call the same RescueTime endpoints:
@@ -689,7 +839,7 @@ Authorization: Bearer {rescuetimeApiKey}
 The weekly review also fetches a **productivity pulse** with
 `restrict_kind=productivity`, `restrict_source_type=computers`, and no
 `restrict_schedule_id` (full-week computer time only, Sunday–Saturday). Browser and
-native RescueTime requests use a 20-second abortable timeout.
+native RescueTime requests use a 20-second timeout.
 
 The key is stored locally in the singleton `app_settings` row, merged with defaults
 on read, and included in SQLite backups. It is never logged by the app. You can
@@ -741,13 +891,19 @@ per local day. Each category has an editable list of candidate activities.
 
 Generation behavior:
 
-1. Skip a category already marked processed for the date.
+1. Skip a category already marked processed for this date or a later date.
 2. If an active generated task for that category exists, do not create another and
    mark the date processed.
 3. Randomly select a non-empty configured activity.
 4. Create a manual Next Action in the Personal context.
 5. Use a deterministic category/date source external ID.
-6. Save the processed date in settings.
+6. Advance the processed date in settings without moving it backwards.
+
+The settings read, active-task check, task creation, and processed-date update form
+one protected write operation. SQLite commits tasks, lifecycle events, and markers
+in one transaction; memory applies them synchronously and restores affected maps
+if task creation fails. Overlapping startup/page loads therefore keep one active
+draw per category, preserve other settings, and retain the newest processed date.
 
 This design avoids accumulating a new relationship task while yesterday's task is
 still active. Completing or cancelling that task allows a future day's generation.
@@ -837,3 +993,4 @@ evaluation corpus matching the current model and thresholds. See [Email triage](
 - [Storage and backups](storage-and-backups.md)
 - [Daily routines](daily-routines.md)
 - [GTD](gtd.md)
+- [Finance](finance.md#ai-categorization-phase-8)

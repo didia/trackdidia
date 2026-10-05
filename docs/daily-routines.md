@@ -49,8 +49,8 @@ The Today screen is the daily control center. It:
 - shows the GTD-derived start/added/completed/remaining counts;
 - warns when the app is using temporary browser storage.
 
-The daily entry shown here is decorated at load time with GTD and Pomodoro
-suggestions.
+The daily entry shown here is decorated once by the repository read with GTD and
+Pomodoro suggestions (see [architecture](architecture.md#daily-entry-decoration)).
 
 ## Morning routine (`/routine-matin`)
 
@@ -187,7 +187,7 @@ There are fourteen equally weighted principles:
 4. Écriture
 5. Apprentissage
 6. Managed solitude
-7. Respect de vie comme Jésus
+7. Aucune violation de mes principes
 8. Rétro journalier
 9. Temps de qualité avec enfants
 10. Prière du soir
@@ -252,8 +252,9 @@ The Journal screen (`/journal`) is a read-only timeline of authored notes across
 daily, weekly, and monthly records. Each card is one period (a calendar day, a
 Sunday-Saturday week, or a calendar month) and shows only non-empty note fields.
 Metrics, principles, and ritual checklists stay on their own screens. Daily rows
-are loaded without GTD/Pomodoro decoration, so opening the timeline does not
-recompute stats or write recurrence/carryover side effects.
+come from `listDailyEntriesInRange`, which decorates like every other daily read
+(pure; no recurrence, promotion, carryover, or Pomodoro writes), though the
+timeline only displays the note fields.
 
 Filters:
 
@@ -295,9 +296,9 @@ is left unchanged. Non-today dates never receive this carry-forward.
 When loading today's entry, the hook also:
 
 - asks the repository to generate relationship tasks;
-- computes task statistics;
-- computes completed focus sessions;
-- decorates the entry with those suggestions.
+- reads the already-decorated entry from the repository (an empty entry for a day
+  with no row is decorated with the same suggestions in the hook);
+- reads task statistics and completed focus sessions for display (pure reads).
 
 Today's coach snapshot builders receive the hook's effective in-memory entry (including
 a carried intention), so auto-load and Régénérer reason from the same text shown on

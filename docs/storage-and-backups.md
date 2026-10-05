@@ -57,6 +57,16 @@ The desktop host owns a single-connection sqlx pool (`src-tauri/src/db.rs`) and
 exposes it as `db_connect` / `db_execute` / `db_select`. TypeScript still owns
 queries and migrations; it does not use `tauri-plugin-sql`.
 
+The native wrapper, email store, transaction helper, and test adapter implement
+`src/lib/storage/sqlite-db.ts`. Table mappings in `src/lib/storage/sqlite/rows/`
+own their row shape, selected/inserted columns, decoding, and bound values.
+Normal task saves and Google Tasks import share the complete task insert; import
+uses `ON CONFLICT(id) DO NOTHING`, while saves update the existing row. Legacy
+JSON handling and null defaults remain in the corresponding mapper.
+Mapper tests cover bound-value round trips and inserts into migrated tables read
+through repository queries, so an omitted selected column is checked separately
+from the insert mapping.
+
 The pool uses `max_connections(1)`, `min_connections(1)`, `idle_timeout(None)`,
 and `max_lifetime(None)`. JS issues `BEGIN IMMEDIATE` / `COMMIT` as separate
 commands, so one physical connection must stay open for the process lifetime.
@@ -64,9 +74,20 @@ Capping `max_connections` alone is not enough: sqlx can still close that
 connection between statements via its idle-timeout or max-lifetime reapers.
 
 Startup also sets `PRAGMA journal_mode=WAL` and `PRAGMA busy_timeout = 5000`.
-WAL lets readers proceed during a write. Multi-statement transactions go through
-`runExclusive` so concurrent JS callers do not interleave statements on the
-shared connection.
+WAL lets readers proceed during a write. `TauriSqliteRepository.writeTransaction`
+acquires the writer queue, runs `BEGIN IMMEDIATE`, and commits when its callback
+resolves, including an early return. A callback or commit failure triggers a
+best-effort rollback that preserves the primary error. `writeExclusive` names
+queue-only operations, so those callers do not interleave with transactions.
+
+Transactional internal writers receive a branded `TxContext`, checked at runtime
+for an active callback lifetime. They reuse it rather than entering the writer
+queue again. Direct nesting on the same connection is rejected; re-entering the
+writer queue remains prohibited and covered by its watchdog. Public weekly/monthly
+review, weekly objective, and AI memory saves acquire a transaction before invoking
+their internal writer. The migration runner uses the same transaction lifecycle.
+Email mutations use this queue and transaction context too; see the
+[email atomicity contract](email-triage.md) for composed review and task writes.
 
 Changing the Tauri identifier changes the app-data location from the operating
 system's perspective. Do not change it without a deliberate user-data migration.
@@ -88,31 +109,58 @@ It groups:
 
 Repository helpers include `listDailyEntriesOnOrBefore(endDate, limit)` for bounded
 history ending at a calendar date, `listDailyEntriesInRange(startDate, endDate)`
-(persisted daily rows without GTD/Pomodoro decoration, unlike the capped list
-helpers), `listWeeklyReviewsOverlapping(startDate, endDate)`, and
+(decorated like the other daily reads), `listWeeklyReviewsOverlapping(startDate, endDate)`, and
 `listMonthlyReviewsOverlapping(startDate, endDate)` for the Journal timeline, and
-atomic accept methods for synthesis proposals (`acceptAiWeeklyObjectiveProposal`,
-`acceptAiReviewSectionDraftProposal`, `acceptAiMonthlyReviewSectionDraftProposal`,
-`acceptAiGtdActionProposal`).
+the [atomic AI proposal acceptance operation](#atomic-ai-proposal-acceptance)
+(`acceptAiProposal`).
 
 The SQLite and memory implementations must remain behaviorally aligned, except for
 native-only storage information and backup creation.
 
+## Atomic AI proposal acceptance
+
+`AppRepository.acceptAiProposal(proposalId, effect)` handles memory, weekly
+objective, daily entry, goal evaluation, weekly/monthly review, and GTD effects through one decision path. It
+loads the proposal by ID, returns the recorded applied ID when already accepted,
+applies a new effect, and marks the proposal accepted together. A null effect or a
+missing/inactive task or missing goal leaves the proposal pending. Dismissed and
+expired proposals cannot apply new effects. Task changes use the current
+stored task; a recurring drop resets its template backlog alongside lifecycle
+and project reconciliation changes.
+
+SQLite uses the writer transaction. The memory implementation applies its
+internal writers synchronously and restores affected maps on failure, so no async
+caller can interleave with the effect and decision. Memory remains non-persistent.
+
 ## Migration system
 
 The `migrations` array in
-`src/lib/storage/tauri-sqlite-repository.ts` is the schema source of truth.
+[`src/lib/storage/migrations/index.ts`](../src/lib/storage/migrations/index.ts)
+is the schema source of truth. Its `runMigrations(db)` runner is called by repository
+initialization.
 
 Startup:
 
 1. Open the database.
 2. Create `schema_migrations`.
 3. Read applied IDs.
-4. Execute unapplied migrations in ascending array order.
-5. Insert each applied migration ID/name/timestamp.
+4. Execute each unapplied migration in ascending array order, with its ledger
+   ID/name/timestamp insert in the same `BEGIN IMMEDIATE` transaction.
+5. Commit on success; roll back both schema changes and the ledger on failure.
 6. Seed the singleton settings row when absent.
 
-Never renumber or rewrite a released migration. Add the next ID.
+Never renumber or rewrite a released migration. Add the next ID. Tests retain the
+IDs, names, and SHA-256 hashes of the first 36 shipped SQL strings.
+
+Column guards live beside migrations 26, 33, and 34 as
+`guards.skipIfColumnExists`. The generic resolver checks table columns and skips
+only the named `ALTER TABLE` statement when it already exists; repeatable indexes
+and normalization statements still run. This lets an older partially applied
+database record the migration safely.
+
+`relocateDimancheNotesOnce` remains a settings-marker data normalization after
+schema initialization. It changes review content rather than the schema and keeps
+its existing idempotent `dimancheNotesRelocatedAt` marker.
 
 ### Current migration catalog
 
@@ -154,7 +202,10 @@ Never renumber or rewrite a released migration. Add the next ID.
 | 34 | `add_weekly_objective_ends_on_week_start_date` | Adds nullable `ends_on_week_start_date` to `weekly_objectives` (last week a manual objective still counts; marking it achieved sets this to the previous Sunday) |
 | 35 | `create_rescuetime_snapshot_cache` | Creates `rescuetime_snapshot_cache` (`week_start_date`, `kind`, `credential_fingerprint`, `payload_json`, `fetched_at`; primary key on the first three) |
 | 36 | `create_mid_week_decisions` | Creates `mid_week_decisions` (one row per week: decisions text, `decided_on_date`, nullable `lagging_snapshot_json`, `updated_at`) |
-| 37 | `create_calendar_sync` | Creates `calendar_sync_settings` (singleton `id = 'global'`) and `calendar_sync_links` (composite primary key `(task_id, occurrence_key)`, nullable `event_id`, unique index on `(calendar_id, event_id)`, index on `state`) for the one-way TrackDidia -> Google Calendar sync model and planner (Phase 0; no network calls yet) |
+| 37 | `add_finance_foundation` | Creates the fourteen `finance_*` tables (people, accounts, categories, transactions, transaction splits, rules, merchant memory, category suggestions, budget entries/months, recurring series, account balance snapshots, import profiles, import batches) and their indexes; inserts the three system categories (`fincat:non-categorise`, `fincat:transfert`, `fincat:split`) |
+| 38 | `add_finance_import_profile_separators` | Adds nullable `decimal_separator` / `thousands_separator` columns to `finance_import_profiles` via guarded, idempotent `ALTER TABLE` |
+| 39 | `create_finance_alert_notifications` | Creates `finance_alert_notifications` with primary key `(alert_key, notified_on_date)`, the once-per-day-per-key ledger for Phase 7 finance alert notifications |
+| 40 | `create_calendar_sync` | Creates `calendar_sync_settings` (singleton `id = 'global'`) and `calendar_sync_links` (composite primary key `(task_id, occurrence_key)`, nullable `event_id`, unique index on `(calendar_id, event_id)`, index on `state`) for the one-way TrackDidia -> Google Calendar sync model and planner (Phase 0; no network calls yet) |
 
 ## Table reference
 
@@ -191,8 +242,11 @@ Singleton row constrained to `id = 1`.
 | `id` | Always `1` |
 | `value` | Serialized `AppSettings`, including the optional OpenRouter key |
 
-Settings are merged with current defaults on read, which lets newly introduced
-settings appear on existing installations without an immediate JSON backfill.
+Settings are normalized by `src/domain/settings.ts` on read, which lets newly
+introduced settings appear without an immediate JSON backfill. Application writes
+use `updateSettings` to read, apply a synchronous updater and persist in one writer
+transaction. See [settings storage](ai-settings-and-privacy.md#settings-storage)
+for field ownership and form behavior.
 
 ### `gtd_contexts`
 
@@ -290,11 +344,13 @@ daily/review data.
 
 ### Calendar sync tables
 
-Migration 37 adds sidecar tables for the (unshipped beyond Phase 0) one-way
+Migration 40 adds sidecar tables for the one-way
 TrackDidia -> Google Calendar sync; see
 [`specs/todo/calendar-sync.md`](../specs/todo/calendar-sync.md). No `gtd_tasks` column
-changes. Phase 0 ships the schema, the pure planner (`src/lib/calendar/planner.ts`) and
-the promotion-capture step only; no network or OAuth code exists yet.
+changes. The schema, pure planner (`src/lib/calendar/planner.ts`), promotion-capture step,
+and desktop OAuth connection/API client are implemented. Event reconciliation is not
+mounted yet. See [Google Calendar connection](ai-settings-and-privacy.md#google-calendar-connection)
+for credentials, failure recovery, and serialized preference writes.
 
 - `calendar_sync_settings`: singleton `id = 'global'` for enable flag, OAuth client id,
   connected account/calendar ids, calendar summary, the four dormant columns
@@ -312,7 +368,14 @@ the promotion-capture step only; no network or OAuth code exists yet.
   terminal link stopped syncing (`promoted` | `completed` | `cancelled` |
   `unscheduled` | `task_deleted` | `missing_remote`). Included in backups; a restored
   stale link is handled by `missing_remote`, calendar recreation, and the planner's
-  empty-task-set safety valve (not yet wired to the network in Phase 0).
+  empty-task-set safety valve (not yet wired to a background reconciler).
+
+Write discipline: the public calendar-sync mutators on `TauriSqliteRepository` go through
+the single SQLite writer (settings via `writeTransaction`, so an identity change updates
+the row and clears links atomically). Promotion capture runs inside the promotion
+transaction and uses the store directly. A synced link whose payload is unchanged is
+detached as `promoted` at capture, terminal detachments are never reopened, and a captured
+edit on an event that already exists becomes a planner update (not a create).
 
 ### Email triage tables
 
@@ -346,6 +409,50 @@ message bodies are never stored; classifier input is transient.
 OS vault commands (`vault_*` in `src-tauri/src/vault.rs`) can store a dedicated
 classifier key and provider credentials outside SQLite. This slice exposes the
 commands but does not write secrets from the UI.
+
+### Finance tables
+
+Migration 37 is purely additive (no `ALTER TABLE` on any existing table) and creates
+every `finance_*` table in one migration, matching the email triage precedent. See
+[finance.md](finance.md) for the full data model and repository contract; this is the
+storage-layer summary.
+
+- `finance_people`, `finance_accounts`, `finance_categories`: household, account, and
+  category taxonomy. `finance_accounts.external_key` is a nullable unique column
+  binding an imported file's account label to an account.
+- `finance_transactions`: one row per transaction, `UNIQUE(account_id, dedupe_hash)` so
+  re-importing the same file inserts nothing. `category_source = 'user'` is never
+  touched by any automatic stage.
+- `finance_transaction_splits`: a transaction's amount, split across categories; the
+  parent keeps the full amount and reports expand splits when present.
+- `finance_rules`, `finance_merchant_memory`, `finance_category_suggestions`: the
+  classification/learning loop's inputs and pending-review queue. A partial unique
+  index keeps at most one pending suggestion per transaction.
+- `finance_budget_entries`, `finance_budget_months`: YNAB-style envelope assignments
+  and advisory month-close state (Phase 5; schema ships now, no arithmetic yet).
+- `finance_recurring_series`, `finance_account_balance_snapshots`: recurring-bill
+  detection (Phase 6) and daily balance history, also read by the Phase 7
+  forecast engine (active series and `onBudgetBalance` respectively).
+- `finance_import_profiles`, `finance_import_batches`: saved column-mapping profiles
+  (unique by header signature) and one row per import run, used by
+  `undoFinanceImportBatch`.
+
+The three system categories (`fincat:non-categorise`, `fincat:transfert`,
+`fincat:split`) are inserted by migration 37 itself, because engine code
+hard-references those ids. The deterministic default French taxonomy
+(`fincat:alimentation`, …) is **not** in the migration: `src/lib/finance/default-categories.ts`
+holds the fixed-id list, seeded idempotently (`INSERT OR IGNORE`) through
+`seedFinanceDefaultCategories()` on both repositories, gated on
+`AppSettings.financeCategoriesSeededAt`.
+
+Migration 39 (`create_finance_alert_notifications`, additive, next free id
+after 38) adds a single small table, `finance_alert_notifications
+(alert_key, notified_on_date, notified_at)` with primary key
+`(alert_key, notified_on_date)`. It exists only to rate-limit the Phase 7
+desktop notification to once per day per alert key (see
+[finance.md](finance.md#forecasting-and-proactive-alerts-phase-7)); it is
+never read when rendering the alerts list itself. Like every other finance
+table, it is included in `VACUUM INTO` backups automatically.
 
 ## Backup behavior
 
@@ -387,6 +494,12 @@ settings JSON (OpenRouter and RescueTime keys). Distilled personal statements in
 in the same table — no migration was needed to add that surface, since `surface` is
 `TEXT NOT NULL` without a `CHECK` constraint. The checked-in `verses.json` catalog
 itself lives in the repository, not in SQLite, so it is not part of a backup.
+
+Finance data (`finance_*` tables) lives only in the local SQLite file and is
+therefore included in every `VACUUM INTO` backup like any other table. There is no
+separate finance export or redaction step. Because an import is the largest single
+write the app has ever performed and there is no restore-from-backup UI, take a
+manual backup from Settings before the first real import.
 
 Automatic backups:
 

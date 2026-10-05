@@ -3,14 +3,14 @@
  * ever one account (unlike email triage's per-account map), so the in-memory access-token
  * cache (`src/lib/email-triage/token-cache.ts`) is keyed by one fixed id.
  */
-import { createTauriHttpClient, isInvalidGrantError } from "../email-triage/provider-http";
+import { createTauriHttpClient } from "../email-triage/provider-http";
 import {
   clearCachedAccessToken,
   getCachedAccessToken,
   setCachedAccessToken,
 } from "../email-triage/token-cache";
 import type { CalendarSyncSettings } from "../../domain/calendar-sync";
-import { GoogleCalendarApiClient } from "./google-calendar-api";
+import { GoogleCalendarApiClient, isCalendarSyncInvalidGrantError } from "./google-calendar-api";
 import {
   parseCalendarSyncCredentials,
   refreshCalendarSyncAccessToken,
@@ -30,8 +30,11 @@ export const clearCalendarSyncAccessTokenCache = (): void =>
  * stored or the refresh token has been revoked (`invalid_grant`), matching the email-triage
  * convention consumed by the reconciler (Phase 2).
  */
-export const createCalendarSyncAccessTokenGetter = (clientId: string): (() => Promise<string>) => {
-  return async () => {
+export const createCalendarSyncAccessTokenGetter = (
+  clientId: string,
+): ((forceRefresh?: boolean) => Promise<string>) => {
+  return async (forceRefresh = false) => {
+    if (forceRefresh) clearCalendarSyncAccessTokenCache();
     const cached = getCachedAccessToken(CALENDAR_SYNC_TOKEN_CACHE_KEY);
     if (cached) {
       return cached;
@@ -54,7 +57,7 @@ export const createCalendarSyncAccessTokenGetter = (clientId: string): (() => Pr
       return refreshed.accessToken;
     } catch (error) {
       if (
-        isInvalidGrantError(error) ||
+        isCalendarSyncInvalidGrantError(error) ||
         (error instanceof Error && error.message.includes("invalid_grant"))
       ) {
         throw new Error("reconnect_required");

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearCachedAccessToken } from "../email-triage/token-cache";
-import { CALENDAR_SYNC_TOKEN_CACHE_KEY } from "./session";
+import { clearCachedAccessToken, setCachedAccessToken } from "../email-triage/token-cache";
+import { CALENDAR_SYNC_TOKEN_CACHE_KEY, createCalendarSyncApiClient } from "./session";
 
 const loadCalendarVaultSecretMock = vi.fn();
 const httpRequestMock = vi.fn();
@@ -66,5 +66,83 @@ describe("createCalendarSyncAccessTokenGetter", () => {
     const { createCalendarSyncAccessTokenGetter } = await import("./session");
     const getAccessToken = createCalendarSyncAccessTokenGetter("client-id");
     await expect(getAccessToken()).rejects.toThrow("reconnect_required");
+  });
+  it("refreshes once after Google's normal 401 and retries the same lookup with the new token", async () => {
+    setCachedAccessToken(CALENDAR_SYNC_TOKEN_CACHE_KEY, "rejected-access", 3600);
+    loadCalendarVaultSecretMock.mockResolvedValue(
+      JSON.stringify({ refreshToken: "valid-refresh" }),
+    );
+    httpRequestMock
+      .mockResolvedValueOnce({
+        status: 401,
+        body: JSON.stringify({
+          error: { code: 401, status: "UNAUTHENTICATED", message: "Invalid Credentials" },
+        }),
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: JSON.stringify({ access_token: "refreshed-access", expires_in: 3600 }),
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: JSON.stringify({ items: [{ id: "existing-event" }] }),
+      });
+    const client = createCalendarSyncApiClient({ oauthClientId: "client" })!;
+    expect(await client.lookupEventsByOccurrence("calendar", "task", "2026-10-04")).toEqual({
+      ok: true,
+      hits: [{ id: "existing-event" }],
+    });
+    expect(httpRequestMock).toHaveBeenCalledTimes(3);
+    const [initial, refresh, retry] = httpRequestMock.mock.calls.map(([request]) => request);
+    expect(initial.headers.Authorization).toBe("Bearer rejected-access");
+    expect(refresh.url).toContain("/token");
+    expect(retry.url).toBe(initial.url);
+    expect(retry.headers.Authorization).toBe("Bearer refreshed-access");
+  });
+
+  it("reports reconnect_required when the 401 retry's refresh grant is revoked", async () => {
+    setCachedAccessToken(CALENDAR_SYNC_TOKEN_CACHE_KEY, "rejected-access", 3600);
+    loadCalendarVaultSecretMock.mockResolvedValue(JSON.stringify({ refreshToken: "revoked" }));
+    httpRequestMock
+      .mockResolvedValueOnce({ status: 401, body: "Invalid Credentials" })
+      .mockResolvedValueOnce({ status: 400, body: JSON.stringify({ error: "invalid_grant" }) });
+    const client = createCalendarSyncApiClient({ oauthClientId: "client" })!;
+    expect(await client.lookupEventsByOccurrence("calendar", "task", "2026-10-04")).toEqual({
+      ok: false,
+      reason: "reconnect_required",
+    });
+    expect(httpRequestMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops after one refresh when the replacement access token is also rejected", async () => {
+    setCachedAccessToken(CALENDAR_SYNC_TOKEN_CACHE_KEY, "rejected-access", 3600);
+    loadCalendarVaultSecretMock.mockResolvedValue(
+      JSON.stringify({ refreshToken: "valid-refresh" }),
+    );
+    httpRequestMock
+      .mockResolvedValueOnce({ status: 401, body: "Invalid Credentials" })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: JSON.stringify({ access_token: "refreshed-access", expires_in: 3600 }),
+      })
+      .mockResolvedValueOnce({ status: 401, body: "Invalid Credentials" });
+    const client = createCalendarSyncApiClient({ oauthClientId: "client" })!;
+    expect(await client.lookupEventsByOccurrence("calendar", "task", "2026-10-04")).toEqual({
+      ok: false,
+      reason: "request_failed",
+    });
+    expect(httpRequestMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps refresh server errors retryable", async () => {
+    loadCalendarVaultSecretMock.mockResolvedValue(
+      JSON.stringify({ refreshToken: "valid-refresh" }),
+    );
+    httpRequestMock.mockResolvedValue({ status: 503, body: "unavailable" });
+    const client = createCalendarSyncApiClient({ oauthClientId: "client" })!;
+    expect(await client.lookupEventsByOccurrence("calendar", "task", "2026-10-04")).toEqual({
+      ok: false,
+      reason: "request_failed",
+    });
   });
 });

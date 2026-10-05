@@ -1,4 +1,4 @@
-import { addDays } from "../../lib/gtd/shared";
+import { addDays } from "../../lib/date";
 import { createEmptyDailyEntry, updatePrinciple } from "../daily-entry";
 import type { DailyEntry, PrincipleKey } from "../types";
 import { computeStreakFindings } from "./streaks";

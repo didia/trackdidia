@@ -6,7 +6,7 @@ import { buildMidWeekReviewSummary } from "../../../domain/mid-week-review";
 import { getTodayDate } from "../../date";
 import { loadDecoratedWeekEntries } from "../../storage/week-entries";
 import { WeeklyObjectivesService } from "../../rescuetime/weekly-objectives-service";
-import { addDays, getWeekStartSunday } from "../../gtd/shared";
+import { addDays, getWeekStartSunday } from "../../date";
 import type { RescueTimeGoalItemSnapshot } from "../../../domain/rescuetime-goals";
 import { PASTOR_VERSE_PROMPT_VERSION } from "../pastor-verse-service";
 import { RescueTimeGoalsService } from "../../rescuetime/rescuetime-goals-service";

@@ -62,9 +62,9 @@ describe("SettingsPage AI payload preview", () => {
 describe("SettingsPage AI max tokens", () => {
   it("shows the max-tokens field and saves a custom value", async () => {
     const user = userEvent.setup();
-    const saveSettings = vi.fn().mockResolvedValue(undefined);
+    const updateSettings = vi.fn().mockResolvedValue(undefined);
 
-    await renderWithApp(<SettingsPage />, { contextOverrides: { saveSettings } });
+    await renderWithApp(<SettingsPage />, { contextOverrides: { updateSettings } });
 
     const input = screen.getByLabelText("Jetons max de réponse IA");
     expect(input).toHaveValue(4096);
@@ -73,7 +73,9 @@ describe("SettingsPage AI max tokens", () => {
     await user.click(screen.getByRole("button", { name: "Enregistrer les paramètres" }));
 
     await waitFor(() => {
-      expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ aiMaxTokens: 700 }));
+      expect(updateSettings.mock.calls[0][0](defaultAppSettings())).toMatchObject({
+        aiMaxTokens: 700,
+      });
     });
   });
 });
@@ -81,9 +83,9 @@ describe("SettingsPage AI max tokens", () => {
 describe("SettingsPage AI pastor toggle", () => {
   it("persists the aiPastorEnabled toggle", async () => {
     const user = userEvent.setup();
-    const saveSettings = vi.fn().mockResolvedValue(undefined);
+    const updateSettings = vi.fn().mockResolvedValue(undefined);
 
-    await renderWithApp(<SettingsPage />, { contextOverrides: { saveSettings } });
+    await renderWithApp(<SettingsPage />, { contextOverrides: { updateSettings } });
 
     const checkbox = screen.getByRole("checkbox", {
       name: "Activer le pasteur IA (verset du jour)",
@@ -94,7 +96,9 @@ describe("SettingsPage AI pastor toggle", () => {
     await user.click(screen.getByRole("button", { name: "Enregistrer les paramètres" }));
 
     await waitFor(() => {
-      expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ aiPastorEnabled: true }));
+      expect(updateSettings.mock.calls[0][0](defaultAppSettings())).toMatchObject({
+        aiPastorEnabled: true,
+      });
     });
   });
 });
@@ -261,23 +265,45 @@ describe("SettingsPage backup destination", () => {
 
   it("saves a picked Google Drive folder from the native dialog", async () => {
     const user = userEvent.setup();
-    const saveSettings = vi.fn().mockResolvedValue(undefined);
+    const updateSettings = vi.fn().mockResolvedValue(undefined);
     vi.mocked(open).mockResolvedValue("/Users/didia/Drive/TrackDidia");
 
     await renderWithApp(<SettingsPage />, {
       contextOverrides: {
         browserPreview: false,
-        saveSettings,
+        updateSettings,
       },
     });
 
     await user.click(screen.getByRole("button", { name: "Choisir le dossier Google Drive" }));
 
     await waitFor(() => {
-      expect(saveSettings).toHaveBeenCalledWith(
-        expect.objectContaining({ backupDestinationDir: "/Users/didia/Drive/TrackDidia" }),
-      );
+      expect(updateSettings.mock.calls[0][0](defaultAppSettings())).toMatchObject({
+        backupDestinationDir: "/Users/didia/Drive/TrackDidia",
+      });
     });
     expect(screen.getByText("Dossier de backup enregistré.")).toBeInTheDocument();
+  });
+});
+
+it("saves an AI edit from a stale form without resetting newer settings fields", async () => {
+  const user = userEvent.setup();
+  const repository = new MemoryRepository();
+  await renderWithApp(<SettingsPage />, { repository });
+  await repository.updateSettings((current) => ({
+    ...current,
+    rescuetimeApiKey: "test-only-key",
+    lastBackupAt: "newer-backup",
+    gtdImportDoneAt: "imported",
+    aiMaxTokensUpgradeDoneAt: "upgraded",
+  }));
+  fireEvent.change(screen.getByLabelText("Jetons max de réponse IA"), { target: { value: "800" } });
+  await user.click(screen.getByRole("button", { name: "Enregistrer les paramètres" }));
+  expect(await repository.getSettings()).toMatchObject({
+    aiMaxTokens: 800,
+    rescuetimeApiKey: "test-only-key",
+    lastBackupAt: "newer-backup",
+    gtdImportDoneAt: "imported",
+    aiMaxTokensUpgradeDoneAt: "upgraded",
   });
 });

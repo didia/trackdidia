@@ -1,13 +1,23 @@
+import type { AcceptEffect } from "../ai/proposals/accept-effect";
+import { applyCoachProposal, type ProposalApplyContext } from "../ai/proposals/apply-proposal";
+import { gtdAcceptEffectFromProposal } from "../ai/proposals/accept-effect";
 import { afterEach, vi } from "vitest";
 import { defaultCalendarSyncSettings } from "../../domain/calendar-sync";
 import { createEmptyDailyEntry, defaultAppSettings } from "../../domain/daily-entry";
 import { buildCalendarSyncSignatureForTask } from "../calendar/eligibility";
+import type {
+  FinanceAccount,
+  FinanceImportRow,
+  FinancePerson,
+  FinanceTransaction,
+  FinanceTransactionSplit,
+} from "../../domain/finance";
 import { createEmptyMonthlyReview } from "../../domain/monthly-review";
 import type { MidWeekLaggingSnapshot } from "../../domain/mid-week-review";
 import type { CatalogVerse, RescueTimeSnapshotCacheEntry } from "../../domain/types";
 import { createEmptyWeeklyReview } from "../../domain/weekly-review";
 import { getTodayDate } from "../date";
-import { addDays } from "../gtd/shared";
+import { addDays } from "../date";
 import { loadVerseCatalog } from "../pastor/verse-catalog";
 import type { AppRepository } from "./repository";
 
@@ -212,6 +222,54 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         expect(
           tasks.filter((task) => task.sourceExternalId?.startsWith("relationship-draw:spouse:")),
         ).toHaveLength(2);
+      });
+
+      it.each([
+        ["2026-10-03", "2026-10-04"],
+        ["2026-10-04", "2026-10-03"],
+        ["2026-10-04", "2026-10-04"],
+      ])("serializes overlapping relationship draws for %s and %s", async (firstDate, secondDate) => {
+        const repository = await factory();
+        await repository.updateSettings((current) => ({
+          ...current,
+          relationshipDrawsEnabled: true,
+          relationshipDrawChildrenActivities: ["Lire ensemble"],
+          relationshipDrawSpouseActivities: ["Boire un thé"],
+        }));
+        const [firstCount, secondCount] = await Promise.all([
+          repository.generateDailyRelationshipTasks(firstDate),
+          repository.generateDailyRelationshipTasks(secondDate),
+          repository.updateSettings((current) => ({ ...current, lastBackupAt: "backup" })),
+        ]);
+        expect(firstCount + secondCount).toBe(2);
+        const tasks = await repository.listTasks({ includeCompleted: true });
+        for (const category of ["children", "spouse"]) {
+          expect(
+            tasks.filter((task) =>
+              task.sourceExternalId?.startsWith(`relationship-draw:${category}:`),
+            ),
+          ).toHaveLength(1);
+        }
+        expect(await repository.getSettings()).toMatchObject({
+          relationshipDrawChildrenProcessedDate: "2026-10-04",
+          relationshipDrawSpouseProcessedDate: "2026-10-04",
+          lastBackupAt: "backup",
+        });
+      });
+
+      it("does not move relationship markers backwards or regenerate an older completed day", async () => {
+        const repository = await factory();
+        await repository.generateDailyRelationshipTasks("2026-10-04");
+        const tasks = await repository.listTasks({ includeCompleted: true });
+        for (const task of tasks) {
+          await repository.completeTask(task.id, "2026-10-04T21:00:00.000Z");
+        }
+        expect(await repository.generateDailyRelationshipTasks("2026-10-03")).toBe(0);
+        expect(await repository.getSettings()).toMatchObject({
+          relationshipDrawChildrenProcessedDate: "2026-10-04",
+          relationshipDrawSpouseProcessedDate: "2026-10-04",
+        });
+        expect(await repository.listTasks({ includeCompleted: true })).toHaveLength(tasks.length);
       });
 
       it("moves reading tasks into the References bucket", async () => {
@@ -430,6 +488,16 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           scheduledFor: `${today}T09:00:00`,
           createdAt: `${addDays(today, -2)}T08:00:00`,
         });
+
+        // Stats are pure reads: before reconciliation the task is still Scheduled and not "added".
+        await expect(repository.computeDailyTaskStats(today)).resolves.toMatchObject({
+          tasksAdded: 0,
+        });
+        expect(await repository.listTaskEvents({ types: ["task_moved_to_next_action"] })).toEqual(
+          [],
+        );
+
+        await repository.reconcileDay(today);
 
         await expect(repository.computeDailyTaskStats(today)).resolves.toMatchObject({
           tasksAdded: 1,
@@ -709,7 +777,12 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           updatedAt: "2026-09-07T00:00:00.000Z",
         });
 
+        // Reads never generate: a summary that spans future days leaves the watermark untouched.
         await repository.computeWeeklyReviewSummary("2026-09-27");
+        expect((await repository.listRecurringTaskTemplates())[0]?.lastGeneratedForDate).toBeNull();
+        expect(await repository.listTasks({ includeCompleted: true })).toHaveLength(0);
+
+        await repository.reconcileDay("2026-09-07");
 
         const templates = await repository.listRecurringTaskTemplates();
         expect(templates[0]?.lastGeneratedForDate).toBe("2026-09-07");
@@ -1539,7 +1612,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         ).resolves.toEqual(expect.objectContaining({ id: "ai-message:z" }));
       });
 
-      it("acceptAiWeeklyObjectiveProposal is idempotent", async () => {
+      it("acceptAiProposal for weekly objectives is idempotent", async () => {
         const repository = await factory();
         const proposal = {
           id: "ai-proposal:objective",
@@ -1572,14 +1645,93 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           updatedAt: "2026-08-29T08:00:00.000Z",
         };
 
-        const first = await repository.acceptAiWeeklyObjectiveProposal(proposal, objective);
-        const second = await repository.acceptAiWeeklyObjectiveProposal(proposal, objective);
+        const first = await repository.acceptAiProposal(proposal.id, {
+          kind: "weeklyObjective",
+          objective: objective,
+        });
+        const second = await repository.acceptAiProposal(proposal.id, {
+          kind: "weeklyObjective",
+          objective: objective,
+        });
 
-        expect(first.objective.id).toBe(second.objective.id);
+        expect(first.effectApplied).toBe(true);
+        expect(second.effectApplied).toBe(false);
+        expect(first.appliedEntityId).toBe(second.appliedEntityId);
         expect(await repository.listWeeklyObjectives()).toHaveLength(1);
       });
 
-      it("acceptAiMonthlyReviewSectionDraftProposal is idempotent", async () => {
+      it.each([
+        "dailyEntry",
+        "weeklyReview",
+        "monthlyReview",
+      ] as const)("distinguishes repeat %s acceptance from a write and preserves manual edits", async (kind) => {
+        const repository = await factory();
+        const daily = createEmptyDailyEntry("2026-10-03");
+        daily.morningIntention = "Coach draft";
+        const weekly = createEmptyWeeklyReview("2026-09-27");
+        weekly.notes.bilan = "Coach draft";
+        const monthly = createEmptyMonthlyReview("2026-10");
+        monthly.notes.bilan = "Coach draft";
+        const effect: AcceptEffect =
+          kind === "dailyEntry"
+            ? { kind, entry: daily }
+            : kind === "weeklyReview"
+              ? { kind, review: weekly }
+              : { kind, review: monthly };
+        const proposal = {
+          id: "ai-proposal:repeat-draft",
+          messageId: "ai-message:repeat-draft",
+          type:
+            kind === "dailyEntry"
+              ? ("intention_draft" as const)
+              : ("review_section_draft" as const),
+          payloadJson: JSON.stringify({ text: "Coach draft", sectionKey: "bilan" }),
+          status: "pending" as const,
+          appliedEntityId: null,
+          decidedAt: null,
+          createdAt: "2026-10-03T12:00:00.000Z",
+        };
+        await repository.saveAiProposal(proposal);
+        const first = await repository.acceptAiProposal(proposal.id, effect);
+        expect(first.effectApplied).toBe(true);
+        let context: ProposalApplyContext;
+        let readNote: () => Promise<string | undefined>;
+        if (kind === "dailyEntry") {
+          const manual = { ...daily, morningIntention: "Manual edit" };
+          await repository.saveDailyEntry(manual);
+          context = { acceptedDate: daily.date, dailyEntry: manual };
+          readNote = async () => (await repository.getDailyEntry(daily.date))?.morningIntention;
+        } else if (kind === "weeklyReview") {
+          const manual = { ...weekly, notes: { ...weekly.notes, bilan: "Manual edit" } };
+          await repository.saveWeeklyReview(manual);
+          context = {
+            acceptedDate: weekly.weekStartDate,
+            weekly: { withReview: (_, work) => work(manual) },
+          };
+          readNote = async () =>
+            (await repository.getWeeklyReview(weekly.weekStartDate))?.notes.bilan;
+        } else {
+          const manual = { ...monthly, notes: { ...monthly.notes, bilan: "Manual edit" } };
+          await repository.saveMonthlyReview(manual);
+          context = {
+            acceptedDate: monthly.monthKey,
+            monthly: { monthKey: monthly.monthKey, withReview: (_, work) => work(manual) },
+          };
+          readNote = async () => (await repository.getMonthlyReview(monthly.monthKey))?.notes.bilan;
+        }
+        const repeat = await repository.acceptAiProposal(proposal.id, effect);
+        expect(repeat.effectApplied).toBe(false);
+        expect(repeat.appliedEntityId).toBe(first.appliedEntityId);
+        const outcome = await applyCoachProposal(repository, proposal, context);
+        expect(outcome).toMatchObject({ accepted: true, proposal: first.proposal });
+        expect(outcome.dailyNote).toBeUndefined();
+        expect(outcome.weeklyReview).toBeUndefined();
+        expect(outcome.monthlyReview).toBeUndefined();
+        expect(outcome.text).toBeUndefined();
+        expect(await readNote()).toBe("Manual edit");
+      });
+
+      it("acceptAiProposal for monthly reviews is idempotent", async () => {
         const repository = await factory();
         const proposal = {
           id: "ai-proposal:monthly-section",
@@ -1624,10 +1776,18 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           updatedAt: "2026-08-29T08:00:00.000Z",
         };
 
-        const first = await repository.acceptAiMonthlyReviewSectionDraftProposal(proposal, review);
-        const second = await repository.acceptAiMonthlyReviewSectionDraftProposal(proposal, review);
+        const first = await repository.acceptAiProposal(proposal.id, {
+          kind: "monthlyReview",
+          review: review,
+        });
+        const second = await repository.acceptAiProposal(proposal.id, {
+          kind: "monthlyReview",
+          review: review,
+        });
 
-        expect(first.review.monthKey).toBe(second.review.monthKey);
+        expect(first.effectApplied).toBe(true);
+        expect(second.effectApplied).toBe(false);
+        expect(first.appliedEntityId).toBe(second.appliedEntityId);
         expect(first.proposal.status).toBe("accepted");
         expect(second.proposal.status).toBe("accepted");
         await expect(repository.getMonthlyReview("2026-04")).resolves.toMatchObject({
@@ -1635,7 +1795,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         });
       });
 
-      it("acceptAiGtdActionProposal skips completed tasks", async () => {
+      it("acceptAiProposal skips completed tasks", async () => {
         const repository = await factory();
         const timestamp = "2026-08-29T12:00:00.000Z";
         await repository.saveTask({
@@ -1675,8 +1835,11 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         };
         await repository.saveAiProposal(proposal);
 
-        const result = await repository.acceptAiGtdActionProposal(proposal, "2026-08-29");
-        expect(result.taskId).toBeNull();
+        const result = await repository.acceptAiProposal(
+          proposal.id,
+          gtdAcceptEffectFromProposal(proposal, "2026-08-29"),
+        );
+        expect(result.appliedEntityId).toBeNull();
         expect(result.proposal.status).toBe("pending");
       });
 
@@ -1702,20 +1865,197 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         expect(entries.map((entry) => entry.date)).toEqual(["2026-04-30", "2026-04-01"]);
       });
 
-      it("listDailyEntriesInRange does not recompute daily task or pomodoro stats", async () => {
+      it("decorates every daily entry read the same way", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2026-04-08T12:00:00.000Z"));
         const repository = await factory();
+        const today = "2026-04-08";
 
-        for (const date of ["2026-04-01", "2026-04-02"]) {
-          await repository.saveDailyEntry(createEmptyDailyEntry(date));
-        }
+        await repository.createTask({
+          id: "task-start",
+          title: "Deja la hier",
+          bucket: "next_action",
+          createdAt: `${addDays(today, -1)}T08:00:00`,
+        });
+        await repository.saveDailyEntry(createEmptyDailyEntry(today));
 
-        const taskSpy = vi.spyOn(repository, "computeDailyTaskStats");
-        const pomodoroSpy = vi.spyOn(repository, "computeDailyPomodoroStats");
+        const fromGet = (await repository.getDailyEntry(today))?.suggestedMetrics;
+        const [fromList] = await repository.listDailyEntries(10);
+        const [fromOnOrBefore] = await repository.listDailyEntriesOnOrBefore(today, 10);
+        const [fromRange] = await repository.listDailyEntriesInRange(today, today);
 
-        await repository.listDailyEntriesInRange("2026-04-01", "2026-04-02");
+        expect(fromGet).toMatchObject({ tachesDebut: 1, pomodoris: 0 });
+        expect(fromList?.suggestedMetrics).toEqual(fromGet);
+        expect(fromOnOrBefore?.suggestedMetrics).toEqual(fromGet);
+        expect(fromRange?.suggestedMetrics).toEqual(fromGet);
+      });
 
-        expect(taskSpy).not.toHaveBeenCalled();
-        expect(pomodoroSpy).not.toHaveBeenCalled();
+      it("keeps entry, task and pomodoro reads side-effect free until reconcileDay runs", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2026-04-12T12:00:00.000Z"));
+        const repository = await factory();
+        const sunday = "2026-04-12";
+
+        await repository.createTask({
+          id: "task-next",
+          title: "Avant dimanche",
+          bucket: "next_action",
+          createdAt: "2026-04-10T08:00:00",
+        });
+        await repository.createTask({
+          id: "task-due",
+          title: "Due aujourd'hui",
+          bucket: "scheduled",
+          scheduledFor: `${sunday}T09:00:00`,
+          createdAt: "2026-04-09T08:00:00",
+        });
+        await repository.saveRecurringTaskTemplate({
+          id: "recurring-template:daily",
+          title: "Quotidienne",
+          notes: "",
+          targetBucket: "next_action",
+          contextIds: [],
+          projectId: null,
+          ruleType: "daily",
+          dailyInterval: 1,
+          weeklyInterval: 1,
+          weeklyDays: [0],
+          monthlyMode: "day_of_month",
+          dayOfMonth: 1,
+          nthWeek: 1,
+          weekday: 0,
+          scheduledTime: null,
+          startDate: sunday,
+          status: "active",
+          lastGeneratedForDate: null,
+          pendingMissedOccurrences: 0,
+          statusChangedAt: "2026-04-09T00:00:00.000Z",
+          createdAt: "2026-04-09T00:00:00.000Z",
+          updatedAt: "2026-04-09T00:00:00.000Z",
+        });
+        await repository.saveDailyEntry(createEmptyDailyEntry(sunday));
+        const started = await repository.startPomodoro();
+        expect(started.activeSession).not.toBeNull();
+        vi.setSystemTime(new Date("2026-04-12T13:00:00.000Z"));
+
+        const snapshot = async () => ({
+          tasks: await repository.listTasks({ includeCompleted: true }),
+          events: await repository.listTaskEvents(),
+          templates: await repository.listRecurringTaskTemplates(),
+          sessions: await repository.listPomodoroSessions(sunday),
+        });
+        const before = await snapshot();
+        expect(before.sessions.map((session) => session.status)).toEqual(["running"]);
+
+        await repository.listTasks();
+        await repository.computeDailyTaskStats(sunday);
+        await repository.getDailyTaskBreakdown(sunday);
+        await repository.computeDailyPomodoroStats(sunday);
+        await repository.getDailyEntry(sunday);
+        await repository.listDailyEntries(10);
+        await repository.listDailyEntriesOnOrBefore(sunday, 10);
+        await repository.listDailyEntriesInRange(sunday, sunday);
+        await repository.computeWeeklyReviewSummary("2026-04-12");
+        await repository.computeMonthlyReviewSummary("2026-04");
+
+        expect(await snapshot()).toEqual(before);
+        await expect(repository.computeDailyPomodoroStats(sunday)).resolves.toMatchObject({
+          completedFocusSessions: 0,
+        });
+
+        const result = await repository.reconcileDay(sunday);
+
+        expect(result.generatedRecurrences).toBe(1);
+        expect(result.promotedScheduled).toBe(1);
+        expect(result.carryoverEvents).toBeGreaterThan(0);
+        expect(result.pomodoroState.activeSession).toBeNull();
+        expect(
+          (await repository.listPomodoroSessions(sunday)).map((session) => session.status),
+        ).toEqual(["completed"]);
+        await expect(repository.computeDailyPomodoroStats(sunday)).resolves.toMatchObject({
+          completedFocusSessions: 1,
+        });
+        const carryoverKeys = (await repository.listTaskEvents())
+          .filter((event) => event.type === "weekly_carryover")
+          .map((event) => event.dedupeKey);
+        expect(carryoverKeys).toContain(`weekly_carryover:${sunday}:task-next`);
+        expect(new Set(carryoverKeys).size).toBe(carryoverKeys.length);
+      });
+
+      it("reconcileDay is idempotent and never carries over for a future Sunday", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2026-04-12T12:00:00.000Z"));
+        const repository = await factory();
+        const sunday = "2026-04-12";
+
+        await repository.createTask({
+          id: "task-next",
+          title: "Avant dimanche",
+          bucket: "next_action",
+          createdAt: "2026-04-10T08:00:00",
+        });
+
+        const first = await repository.reconcileDay(sunday);
+        const eventsAfterFirst = await repository.listTaskEvents();
+        const stats = await repository.computeDailyTaskStats(sunday);
+        const second = await repository.reconcileDay(sunday);
+
+        expect(first.carryoverEvents).toBe(1);
+        expect(second).toMatchObject({
+          generatedRecurrences: 0,
+          promotedScheduled: 0,
+          carryoverEvents: 0,
+        });
+        expect(await repository.listTaskEvents()).toEqual(eventsAfterFirst);
+        await expect(repository.computeDailyTaskStats(sunday)).resolves.toEqual(stats);
+
+        // Clock moves back before the Sunday; 2026-04-19 was never reconciled, so only the
+        // `date <= today` clamp (not the dedupe key) keeps its carryover from being written.
+        vi.setSystemTime(new Date("2026-04-08T12:00:00.000Z"));
+        const future = await repository.reconcileDay("2026-04-19");
+        expect(future.carryoverEvents).toBe(0);
+        const futureEvents = await repository.listTaskEvents();
+        expect(
+          futureEvents.filter((event) =>
+            event.dedupeKey?.startsWith("weekly_carryover:2026-04-19:"),
+          ),
+        ).toEqual([]);
+        expect(futureEvents.filter((event) => event.type === "weekly_carryover")).toHaveLength(1);
+
+        const weekday = await repository.reconcileDay("2026-04-08");
+        expect(weekday.carryoverEvents).toBe(0);
+      });
+
+      it("reconcileDay back-fills carryover for the most recent Sunday the app never reconciled", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2026-04-15T12:00:00.000Z"));
+        const repository = await factory();
+        const sunday = "2026-04-12";
+
+        await repository.createTask({
+          id: "task-before-sunday",
+          title: "Avant dimanche",
+          bucket: "next_action",
+          createdAt: "2026-04-10T08:00:00",
+        });
+        await expect(repository.computeDailyTaskStats(sunday)).resolves.toMatchObject({
+          tasksAdded: 0,
+        });
+
+        const result = await repository.reconcileDay("2026-04-15");
+
+        expect(result.carryoverEvents).toBe(1);
+        const carryoverKeys = (await repository.listTaskEvents())
+          .filter((event) => event.type === "weekly_carryover")
+          .map((event) => event.dedupeKey);
+        expect(carryoverKeys).toEqual([`weekly_carryover:${sunday}:task-before-sunday`]);
+        await expect(repository.computeDailyTaskStats(sunday)).resolves.toMatchObject({
+          tasksAdded: 1,
+        });
+
+        await expect(repository.reconcileDay("2026-04-15")).resolves.toMatchObject({
+          carryoverEvents: 0,
+        });
       });
 
       it("listWeeklyReviewsOverlapping includes a week that started the previous month", async () => {
@@ -2128,7 +2468,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         expect(cleared.scheduledFor).toBeNull();
       });
 
-      it("acceptAiGtdActionProposal remains idempotent and reconciles the project atomically", async () => {
+      it("acceptAiProposal for GTD remains idempotent and reconciles the project atomically", async () => {
         const repository = await factory();
         await makeProject(repository, "project:ai");
         const active = await repository.createTask({
@@ -2156,8 +2496,11 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         };
         await repository.saveAiProposal(proposal);
 
-        const first = await repository.acceptAiGtdActionProposal(proposal, "2026-06-01");
-        expect(first.taskId).toBe(active.id);
+        const first = await repository.acceptAiProposal(
+          proposal.id,
+          gtdAcceptEffectFromProposal(proposal, "2026-06-01"),
+        );
+        expect(first.appliedEntityId).toBe(active.id);
         expect(first.proposal.status).toBe("accepted");
 
         const afterDrop = await repository.listTasks({
@@ -2166,9 +2509,12 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         });
         expect(afterDrop.find((task) => task.id === "task:ai-planned")?.bucket).toBe("next_action");
 
-        const second = await repository.acceptAiGtdActionProposal(proposal, "2026-06-01");
+        const second = await repository.acceptAiProposal(
+          proposal.id,
+          gtdAcceptEffectFromProposal(proposal, "2026-06-01"),
+        );
         expect(second.proposal.status).toBe("accepted");
-        expect(second.taskId).toBe(active.id);
+        expect(second.appliedEntityId).toBe(active.id);
 
         // A repeat call must not promote yet another planned task.
         const afterSecond = await repository.listTasks({
@@ -2439,7 +2785,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
       });
 
       describe("promotion capture", () => {
-        it("captures a recurring occurrence promoted in the same listTasks() call", async () => {
+        it("captures a recurring occurrence promoted by the reconciler", async () => {
           vi.useFakeTimers();
           vi.setSystemTime(new Date("2026-01-12T06:00:00.000Z"));
 
@@ -2470,6 +2816,9 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
             updatedAt: "2026-01-12T00:00:00.000Z",
           });
 
+          await repository.generateDueRecurringTasks("2026-01-12");
+          await repository.promoteDueScheduledTasks("2026-01-12");
+
           const tasks = await repository.listTasks();
           expect(tasks).toHaveLength(1);
           expect(tasks[0]).toMatchObject({ bucket: "next_action", scheduledFor: null });
@@ -2487,7 +2836,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           expect(payload.start.dateTime).toBe("2026-01-12T14:00:00.000Z");
         });
 
-        it("captures a task dated later today, promoted by listTasks() before the reconciler runs", async () => {
+        it("captures a task dated later today, promoted by the reconciler", async () => {
           vi.useFakeTimers();
           vi.setSystemTime(new Date("2026-01-12T06:00:00.000Z"));
 
@@ -2499,7 +2848,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
             scheduledFor: "2026-01-12T20:00:00",
           });
 
-          await repository.listTasks();
+          await repository.promoteDueScheduledTasks("2026-01-12");
 
           const link = await repository.getCalendarSyncLink(task.id, "2026-01-12");
           expect(link).toMatchObject({ state: "pending", eventId: null });
@@ -2517,7 +2866,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
             scheduledFor: "2026-01-12T09:00:00",
           });
 
-          await repository.listTasks();
+          await repository.promoteDueScheduledTasks("2026-01-12");
 
           await expect(repository.getCalendarSyncLink(task.id, "2026-01-12")).resolves.toBeNull();
         });
@@ -2538,7 +2887,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
             scheduledFor: "2026-01-12T09:00:00",
           });
 
-          await repository.listTasks();
+          await repository.promoteDueScheduledTasks("2026-01-12");
 
           await expect(repository.getCalendarSyncLink(task.id, "2026-01-12")).resolves.toBeNull();
         });
@@ -2558,7 +2907,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
             scheduledFor: "2026-01-12T09:00:00",
           });
 
-          await repository.listTasks();
+          await repository.promoteDueScheduledTasks("2026-01-12");
 
           await expect(
             repository.getCalendarSyncLink(task.id, "2026-01-12"),
@@ -2578,7 +2927,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
             bucket: "scheduled",
             scheduledFor: "2026-01-12T09:00:00",
           });
-          await repository.listTasks();
+          await repository.promoteDueScheduledTasks("2026-01-12");
           const captured = await repository.getCalendarSyncLink(task.id, "2026-01-12");
           const synced = await repository.saveCalendarSyncLink({
             ...captured!,
@@ -2587,7 +2936,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           });
 
           vi.setSystemTime(new Date("2026-01-12T07:00:00.000Z"));
-          await repository.listTasks();
+          await repository.promoteDueScheduledTasks("2026-01-12");
 
           await expect(repository.getCalendarSyncLink(task.id, "2026-01-12")).resolves.toEqual(
             synced,
@@ -2625,12 +2974,96 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
 
           await repository.saveTask({ ...task, title: "Edited title" });
 
-          // Now due: listTasks() promotes it, and the capture notices the edit.
+          // Now due: the reconciler promotes it, and the capture notices the edit.
           vi.setSystemTime(new Date("2026-01-12T06:00:00.000Z"));
-          await repository.listTasks();
+          await repository.promoteDueScheduledTasks("2026-01-12");
 
           const afterPromotion = await repository.getCalendarSyncLink(task.id, "2026-01-12");
           expect(afterPromotion).toMatchObject({ state: "pending", eventId: "event:1" });
+        });
+
+        it("detaches an unchanged synced link as promoted when its Scheduled task is promoted", async () => {
+          vi.useFakeTimers();
+          vi.setSystemTime(new Date("2026-01-11T12:00:00.000Z"));
+
+          const repository = await factory();
+          const settings = await repository.saveCalendarSyncSettings(connectedSettings());
+          const task = await repository.createTask({
+            title: "Unchanged",
+            bucket: "scheduled",
+            scheduledFor: "2026-01-12T09:00:00",
+          });
+          const { signature } = buildCalendarSyncSignatureForTask(task, settings);
+          await repository.saveCalendarSyncLink({
+            taskId: task.id,
+            occurrenceKey: "2026-01-12",
+            calendarId: settings.calendarId ?? "",
+            eventId: "event:1",
+            generation: settings.generation,
+            state: "synced",
+            payloadSignature: signature,
+            eventStartAt: task.scheduledFor as string,
+            detachReason: null,
+            failureCount: 0,
+            lastError: null,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          });
+
+          vi.setSystemTime(new Date("2026-01-12T06:00:00.000Z"));
+          await repository.promoteDueScheduledTasks("2026-01-12");
+
+          await expect(
+            repository.getCalendarSyncLink(task.id, "2026-01-12"),
+          ).resolves.toMatchObject({
+            state: "detached",
+            detachReason: "promoted",
+            eventId: "event:1",
+          });
+        });
+
+        it("preserves terminal detachments when their Scheduled task is promoted", async () => {
+          for (const detachReason of [
+            "missing_remote",
+            "completed",
+            "cancelled",
+            "unscheduled",
+            "task_deleted",
+          ] as const) {
+            vi.useFakeTimers();
+            vi.setSystemTime(new Date("2026-01-11T12:00:00.000Z"));
+
+            const repository = await factory();
+            const settings = await repository.saveCalendarSyncSettings(connectedSettings());
+            const task = await repository.createTask({
+              title: `Terminal ${detachReason}`,
+              bucket: "scheduled",
+              scheduledFor: "2026-01-12T09:00:00",
+            });
+            const { signature } = buildCalendarSyncSignatureForTask(task, settings);
+            const terminal = await repository.saveCalendarSyncLink({
+              taskId: task.id,
+              occurrenceKey: "2026-01-12",
+              calendarId: settings.calendarId ?? "",
+              eventId: null,
+              generation: settings.generation,
+              state: "detached",
+              payloadSignature: signature,
+              eventStartAt: task.scheduledFor as string,
+              detachReason,
+              failureCount: 0,
+              lastError: null,
+              createdAt: "2026-01-01T00:00:00.000Z",
+              updatedAt: "2026-01-01T00:00:00.000Z",
+            });
+
+            vi.setSystemTime(new Date("2026-01-12T06:00:00.000Z"));
+            await repository.promoteDueScheduledTasks("2026-01-12");
+
+            await expect(repository.getCalendarSyncLink(task.id, "2026-01-12")).resolves.toEqual(
+              terminal,
+            );
+          }
         });
 
         it("writes nothing when sync is off and there is no existing link", async () => {
@@ -2644,7 +3077,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
             scheduledFor: "2026-01-12T09:00:00",
           });
 
-          await repository.listTasks();
+          await repository.promoteDueScheduledTasks("2026-01-12");
 
           await expect(repository.listCalendarSyncLinks()).resolves.toEqual([]);
         });
@@ -2959,6 +3392,2783 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           decidedOnDate: "2026-08-07",
           laggingSnapshot: snapshot(),
           updatedAt: "2026-08-07T10:00:00.000Z",
+        });
+      });
+    });
+
+    describe("finance", () => {
+      const person = (overrides: Partial<FinancePerson> = {}): FinancePerson => ({
+        id: "",
+        displayName: "Alex",
+        color: null,
+        archived: false,
+        createdAt: "",
+        updatedAt: "",
+        ...overrides,
+      });
+
+      const account = (overrides: Partial<FinanceAccount> = {}): FinanceAccount => ({
+        id: "",
+        name: "Compte chèques",
+        institution: null,
+        type: "checking",
+        currency: "CAD",
+        ownerPersonId: null,
+        ownership: "individual",
+        onBudget: true,
+        closed: false,
+        openingBalanceMinor: 0,
+        currentBalanceMinor: null,
+        balanceAsOf: null,
+        externalKey: null,
+        notes: null,
+        sortOrder: 0,
+        createdAt: "",
+        updatedAt: "",
+        ...overrides,
+      });
+
+      const buildFinanceTransaction = (
+        overrides: Partial<FinanceTransaction> = {},
+      ): FinanceTransaction => ({
+        id: "",
+        accountId: "account-1",
+        postedDate: "2026-04-01",
+        amountMinor: -1234,
+        currency: "CAD",
+        descriptionRaw: "IGA MONTREAL",
+        descriptionOriginal: null,
+        merchantKey: "IGA MONTREAL",
+        merchantDisplay: null,
+        categoryId: "fincat:non-categorise",
+        categorySource: "default",
+        categoryConfidence: null,
+        categorizedAt: null,
+        personId: null,
+        notes: null,
+        labelsJson: null,
+        pending: false,
+        isTransfer: false,
+        transferGroupId: null,
+        excludedFromBudget: false,
+        excludedFromReports: false,
+        hasSplits: false,
+        importBatchId: null,
+        dedupeHash: `dedupe-${overrides.id ?? Math.random()}`,
+        sourceRowJson: null,
+        createdAt: "",
+        updatedAt: "",
+        ...overrides,
+      });
+
+      const importRow = (overrides: Partial<FinanceImportRow> = {}): FinanceImportRow => ({
+        accountId: "account-1",
+        postedDate: "2026-04-01",
+        amountMinor: -1234,
+        currency: "CAD",
+        descriptionRaw: "IGA MONTREAL",
+        descriptionOriginal: null,
+        merchantKey: "IGA MONTREAL",
+        categoryHint: null,
+        personId: null,
+        notes: null,
+        labelsJson: null,
+        sourceRowJson: null,
+        ...overrides,
+      });
+
+      it("creates a person and an account", async () => {
+        const repository = await factory();
+        const savedPerson = await repository.saveFinancePerson(person());
+        const savedAccount = await repository.saveFinanceAccount(
+          account({ ownerPersonId: savedPerson.id }),
+        );
+
+        await expect(repository.listFinancePeople()).resolves.toEqual([
+          expect.objectContaining({ id: savedPerson.id, displayName: "Alex" }),
+        ]);
+        await expect(repository.listFinanceAccounts()).resolves.toEqual([
+          expect.objectContaining({ id: savedAccount.id, ownerPersonId: savedPerson.id }),
+        ]);
+      });
+
+      it("excludes closed accounts by default and includes them when asked", async () => {
+        const repository = await factory();
+        const saved = await repository.saveFinanceAccount(account());
+        await repository.closeFinanceAccount(saved.id);
+
+        await expect(repository.listFinanceAccounts()).resolves.toEqual([]);
+        await expect(repository.listFinanceAccounts({ includeClosed: true })).resolves.toEqual([
+          expect.objectContaining({ id: saved.id, closed: true }),
+        ]);
+      });
+
+      it("lists the three system categories without seeding", async () => {
+        const repository = await factory();
+        const categories = await repository.listFinanceCategories();
+        expect(categories.map((category) => category.id)).toEqual(
+          expect.arrayContaining(["fincat:non-categorise", "fincat:transfert", "fincat:split"]),
+        );
+      });
+
+      it("seeds the default category taxonomy idempotently", async () => {
+        const repository = await factory();
+        const firstPass = await repository.seedFinanceDefaultCategories();
+        const secondPass = await repository.seedFinanceDefaultCategories();
+
+        expect(firstPass).toBeGreaterThan(0);
+        expect(secondPass).toBe(0);
+        await expect(repository.listFinanceCategories()).resolves.toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ id: "fincat:alimentation" }),
+            expect.objectContaining({ id: "fincat:alimentation.epicerie" }),
+          ]),
+        );
+      });
+
+      it("archives a category and reassigns its transactions", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        await repository.seedFinanceDefaultCategories();
+        const txn = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ categoryId: "fincat:alimentation.epicerie" }),
+        );
+
+        const reassigned = await repository.archiveFinanceCategory(
+          "fincat:alimentation.epicerie",
+          "fincat:non-categorise",
+        );
+
+        expect(reassigned).toBe(1);
+        await expect(repository.getFinanceTransaction(txn.id)).resolves.toMatchObject({
+          categoryId: "fincat:non-categorise",
+        });
+        const categories = await repository.listFinanceCategories(true);
+        expect(
+          categories.find((category) => category.id === "fincat:alimentation.epicerie")?.archived,
+        ).toBe(true);
+      });
+
+      it("saves and deletes a rule", async () => {
+        const repository = await factory();
+        const saved = await repository.saveFinanceRule({
+          id: "",
+          name: "Loyer",
+          priority: 0,
+          enabled: true,
+          matcher: { descriptionContains: "LOYER" },
+          actions: { categoryId: "fincat:logement.loyer-hypotheque" },
+          createdAt: "",
+          updatedAt: "",
+          lastAppliedAt: null,
+          appliedCount: 0,
+        });
+
+        await expect(repository.listFinanceRules()).resolves.toEqual([
+          expect.objectContaining({ id: saved.id, name: "Loyer" }),
+        ]);
+
+        await repository.deleteFinanceRule(saved.id);
+        await expect(repository.listFinanceRules()).resolves.toEqual([]);
+      });
+
+      it("round-trips merchant memory and forgets an entry", async () => {
+        const repository = await factory();
+        const entry = {
+          merchantKey: "IGA MONTREAL",
+          accountId: "account-1",
+          sign: -1 as const,
+          categoryId: "fincat:alimentation.epicerie",
+          hitCount: 1,
+          correctionCount: 0,
+          confidence: 0.6,
+          source: "user_correction" as const,
+          lastAppliedAt: null,
+          createdAt: "2026-04-01T00:00:00.000Z",
+          updatedAt: "2026-04-01T00:00:00.000Z",
+        };
+        await repository.upsertFinanceMerchantMemory(entry);
+
+        await expect(
+          repository.listFinanceMerchantMemory({ merchantKey: "IGA MONTREAL" }),
+        ).resolves.toEqual([entry]);
+
+        await repository.forgetFinanceMerchantMemory("IGA MONTREAL", "account-1", -1);
+        await expect(
+          repository.listFinanceMerchantMemory({ merchantKey: "IGA MONTREAL" }),
+        ).resolves.toEqual([]);
+      });
+
+      it("saves a transaction, lists/counts it by filter, and fetches it by id", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const txn = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ postedDate: "2026-04-05" }),
+        );
+
+        await expect(repository.getFinanceTransaction(txn.id)).resolves.toMatchObject({
+          id: txn.id,
+        });
+        await expect(
+          repository.listFinanceTransactions({ dateFrom: "2026-04-01", dateTo: "2026-04-30" }),
+        ).resolves.toEqual([expect.objectContaining({ id: txn.id })]);
+        await expect(
+          repository.countFinanceTransactions({ dateFrom: "2026-04-01", dateTo: "2026-04-30" }),
+        ).resolves.toBe(1);
+        await expect(
+          repository.listFinanceTransactions({ dateFrom: "2026-05-01" }),
+        ).resolves.toEqual([]);
+      });
+
+      it("setFinanceTransactionCategory sets category_source to user and learns merchant memory", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const txn = await repository.saveFinanceTransaction(buildFinanceTransaction());
+
+        const result = await repository.setFinanceTransactionCategory({
+          transactionId: txn.id,
+          categoryId: "fincat:alimentation.epicerie",
+          scope: "this",
+        });
+
+        expect(result.updated).toBe(1);
+        expect(result.memory).toMatchObject({
+          merchantKey: txn.merchantKey,
+          accountId: "account-1",
+          categoryId: "fincat:alimentation.epicerie",
+          hitCount: 1,
+        });
+        await expect(repository.getFinanceTransaction(txn.id)).resolves.toMatchObject({
+          categoryId: "fincat:alimentation.epicerie",
+          categorySource: "user",
+        });
+      });
+
+      it("setFinanceTransactionCategory rejects an empty categoryId", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const txn = await repository.saveFinanceTransaction(buildFinanceTransaction());
+
+        await expect(
+          repository.setFinanceTransactionCategory({
+            transactionId: txn.id,
+            categoryId: "",
+            scope: "this",
+          }),
+        ).rejects.toThrow();
+      });
+
+      it("setFinanceTransactionCategory with all_matching recategorizes other non-user rows for the same merchant, never a user-set one", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const first = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-1", merchantKey: "NETFLIX" }),
+        );
+        const second = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-2", merchantKey: "NETFLIX" }),
+        );
+        const userSet = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-3",
+            merchantKey: "NETFLIX",
+            categoryId: "fincat:logement.entretien",
+            categorySource: "user",
+          }),
+        );
+
+        const result = await repository.setFinanceTransactionCategory({
+          transactionId: first.id,
+          categoryId: "fincat:loisirs.abonnements",
+          scope: "all_matching",
+        });
+
+        expect(result.updated).toBe(2);
+        expect(result.backfill).toEqual([
+          expect.objectContaining({
+            transactionId: second.id,
+            categoryId: "fincat:non-categorise",
+            categorySource: "default",
+          }),
+        ]);
+        await expect(repository.getFinanceTransaction(second.id)).resolves.toMatchObject({
+          categoryId: "fincat:loisirs.abonnements",
+        });
+        await expect(repository.getFinanceTransaction(userSet.id)).resolves.toMatchObject({
+          categoryId: "fincat:logement.entretien",
+          categorySource: "user",
+        });
+
+        const reverted = await repository.revertFinanceCategoryBackfill(result.backfill);
+        expect(reverted).toBe(1);
+        await expect(repository.getFinanceTransaction(second.id)).resolves.toMatchObject({
+          categoryId: "fincat:non-categorise",
+          categorySource: "default",
+        });
+      });
+
+      it("revertFinanceCategoryBackfill skips a row the user has since re-categorized or that moved on again", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const first = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-1", merchantKey: "NETFLIX" }),
+        );
+        const second = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-2", merchantKey: "NETFLIX" }),
+        );
+        const third = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-3", merchantKey: "NETFLIX" }),
+        );
+
+        const result = await repository.setFinanceTransactionCategory({
+          transactionId: first.id,
+          categoryId: "fincat:loisirs.abonnements",
+          scope: "all_matching",
+        });
+        expect(result.updated).toBe(3);
+        expect(result.backfill).toHaveLength(2);
+
+        // The user manually re-categorizes `second` after the bulk edit —
+        // the undo must not clobber that intentional edit.
+        await repository.setFinanceTransactionCategory({
+          transactionId: second.id,
+          categoryId: "fincat:alimentation.restaurants",
+          scope: "this",
+        });
+        // A later, unrelated automatic reclassification (e.g. a new rule
+        // match) moves `third` off the bulk-applied category without ever
+        // marking it `user` — the undo must not clobber that either.
+        const thirdBeforeUndo = await repository.getFinanceTransaction(third.id);
+        await repository.saveFinanceTransaction({
+          ...thirdBeforeUndo!,
+          categoryId: "fincat:transport.essence",
+          categorySource: "rule",
+        });
+
+        const reverted = await repository.revertFinanceCategoryBackfill(result.backfill);
+        expect(reverted).toBe(0);
+        await expect(repository.getFinanceTransaction(second.id)).resolves.toMatchObject({
+          categoryId: "fincat:alimentation.restaurants",
+          categorySource: "user",
+        });
+        await expect(repository.getFinanceTransaction(third.id)).resolves.toMatchObject({
+          categoryId: "fincat:transport.essence",
+        });
+      });
+
+      it("bulk-updates transactions and splits one with a sum invariant", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const a = await repository.saveFinanceTransaction(buildFinanceTransaction({ id: "txn-a" }));
+        const b = await repository.saveFinanceTransaction(buildFinanceTransaction({ id: "txn-b" }));
+
+        const updated = await repository.bulkUpdateFinanceTransactions([a.id, b.id], {
+          excludedFromReports: true,
+        });
+        expect(updated).toBe(2);
+        await expect(repository.getFinanceTransaction(a.id)).resolves.toMatchObject({
+          excludedFromReports: true,
+        });
+
+        const withSplits = await repository.saveFinanceTransactionSplits(a.id, [
+          {
+            id: "",
+            transactionId: a.id,
+            amountMinor: -700,
+            categoryId: "fincat:alimentation.epicerie",
+            notes: null,
+            sortOrder: 0,
+            createdAt: "",
+          },
+          {
+            id: "",
+            transactionId: a.id,
+            amountMinor: -534,
+            categoryId: "fincat:transport.essence",
+            notes: null,
+            sortOrder: 1,
+            createdAt: "",
+          },
+        ]);
+        expect(withSplits.hasSplits).toBe(true);
+        expect(withSplits.categoryId).toBe("fincat:split");
+
+        const splits = await repository.listFinanceTransactionSplits(a.id);
+        expect(splits).toHaveLength(2);
+        expect(splits.reduce((sum, split) => sum + split.amountMinor, 0)).toBe(a.amountMinor);
+      });
+
+      it("imports transactions, dedupes a verbatim re-import, and detects a transfer across accounts", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-checking", onBudget: true }));
+        await repository.saveFinanceAccount(
+          account({ id: "account-savings", name: "Épargne", onBudget: true }),
+        );
+
+        const rows = [
+          importRow({
+            accountId: "account-checking",
+            amountMinor: -5000,
+            descriptionRaw: "VIREMENT EPARGNE",
+          }),
+          importRow({
+            accountId: "account-savings",
+            amountMinor: 5000,
+            descriptionRaw: "VIREMENT EPARGNE",
+            merchantKey: "VIREMENT EPARGNE",
+          }),
+        ];
+
+        const summary = await repository.importFinanceTransactions({
+          accountId: "account-checking",
+          profileId: null,
+          fileName: "export.csv",
+          fileHash: "hash-1",
+          rows,
+        });
+
+        expect(summary.imported).toBe(2);
+        expect(summary.duplicates).toBe(0);
+        expect(summary.transfersDetected).toBe(1);
+
+        const transactions = await repository.listFinanceTransactions({});
+        expect(transactions.every((txn) => txn.isTransfer)).toBe(true);
+        expect(transactions.every((txn) => txn.categoryId === "fincat:transfert")).toBe(true);
+
+        const reimportSummary = await repository.importFinanceTransactions({
+          accountId: "account-checking",
+          profileId: null,
+          fileName: "export.csv",
+          fileHash: "hash-1",
+          rows,
+        });
+
+        expect(reimportSummary.imported).toBe(0);
+        expect(reimportSummary.duplicates).toBe(2);
+        await expect(repository.countFinanceTransactions({})).resolves.toBe(2);
+      });
+
+      it("never relabels a pre-existing user-categorized row that contains a transfer keyword", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-checking" }));
+
+        const userRow = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-user-mortgage",
+            accountId: "account-checking",
+            amountMinor: -150000,
+            descriptionRaw: "VIREMENT HYPOTHEQUE",
+            merchantKey: "VIREMENT HYPOTHEQUE",
+            categoryId: "fincat:logement.loyer-hypotheque",
+            categorySource: "user",
+          }),
+        );
+
+        await repository.importFinanceTransactions({
+          accountId: "account-checking",
+          profileId: null,
+          fileName: "unrelated.csv",
+          fileHash: "hash-unrelated",
+          rows: [
+            importRow({
+              accountId: "account-checking",
+              amountMinor: -999,
+              descriptionRaw: "EPICERIE METRO",
+              merchantKey: "EPICERIE METRO",
+            }),
+          ],
+        });
+
+        await expect(repository.getFinanceTransaction(userRow.id)).resolves.toMatchObject({
+          categoryId: "fincat:logement.loyer-hypotheque",
+          categorySource: "user",
+          isTransfer: false,
+        });
+      });
+
+      it("never pairs a pre-existing user-categorized row as the mirror-amount leg of an imported transfer", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-checking" }));
+        await repository.saveFinanceAccount(account({ id: "account-savings", name: "Épargne" }));
+
+        const userRow = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-user-savings",
+            accountId: "account-savings",
+            amountMinor: 5000,
+            descriptionRaw: "COTISATION EPARGNE",
+            merchantKey: "COTISATION EPARGNE",
+            categoryId: "fincat:revenu.autre",
+            categorySource: "user",
+          }),
+        );
+
+        await repository.importFinanceTransactions({
+          accountId: "account-checking",
+          profileId: null,
+          fileName: "export.csv",
+          fileHash: "hash-mirror",
+          rows: [
+            importRow({
+              accountId: "account-checking",
+              amountMinor: -5000,
+              descriptionRaw: "COTISATION EPARGNE",
+              merchantKey: "COTISATION EPARGNE",
+            }),
+          ],
+        });
+
+        // The user row can never be the mirror-amount leg of this transfer: it is excluded
+        // from the candidate set entirely, so the imported leg is left unpaired rather than
+        // matched to it.
+        await expect(repository.getFinanceTransaction(userRow.id)).resolves.toMatchObject({
+          categoryId: "fincat:revenu.autre",
+          categorySource: "user",
+          isTransfer: false,
+          transferGroupId: null,
+        });
+        const [imported] = await repository.listFinanceTransactions({
+          accountIds: ["account-checking"],
+        });
+        expect(imported.isTransfer).toBe(false);
+        expect(imported.transferGroupId).toBeNull();
+      });
+
+      it("includes a manually entered row (null importBatchId) in near-duplicate review", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-checking" }));
+
+        await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-manual",
+            accountId: "account-checking",
+            postedDate: "2026-04-01",
+            amountMinor: -4321,
+            descriptionRaw: "RESTAURANT LE BISTRO",
+            merchantKey: "RESTAURANT LE BISTRO",
+            importBatchId: null,
+          }),
+        );
+
+        const summary = await repository.importFinanceTransactions({
+          accountId: "account-checking",
+          profileId: null,
+          fileName: "near-dup.csv",
+          fileHash: "hash-near-dup",
+          rows: [
+            importRow({
+              accountId: "account-checking",
+              postedDate: "2026-04-02",
+              amountMinor: -4321,
+              descriptionRaw: "RESTAURANT LE BISTRO MONTREAL",
+              merchantKey: "RESTAURANT LE BISTRO MONTREAL",
+            }),
+          ],
+        });
+
+        expect(summary.nearDuplicates).toEqual([
+          expect.objectContaining({ existingTransactionId: "txn-manual" }),
+        ]);
+      });
+
+      it("undoFinanceImportBatch removes only the batch's non-user-categorized rows and reports the rest", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+
+        const summary = await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "export.csv",
+          fileHash: "hash-undo",
+          rows: [
+            importRow({ accountId: "account-1", descriptionRaw: "IGA", merchantKey: "IGA" }),
+            importRow({
+              accountId: "account-1",
+              descriptionRaw: "ESSO",
+              merchantKey: "ESSO",
+              amountMinor: -4200,
+            }),
+          ],
+        });
+
+        const [first] = await repository.listFinanceTransactions({});
+        await repository.setFinanceTransactionCategory({
+          transactionId: first.id,
+          categoryId: "fincat:alimentation.epicerie",
+          scope: "this",
+        });
+
+        const result = await repository.undoFinanceImportBatch(summary.batchId);
+
+        expect(result.deleted).toBe(1);
+        expect(result.refusedUserCategorized).toBe(1);
+        await expect(repository.countFinanceTransactions({})).resolves.toBe(1);
+      });
+
+      const buildSplit = (
+        transactionId: string,
+        amountMinor: number,
+        overrides: Partial<FinanceTransactionSplit> = {},
+      ): FinanceTransactionSplit => ({
+        id: "",
+        transactionId,
+        amountMinor,
+        categoryId: "fincat:alimentation.epicerie",
+        notes: null,
+        sortOrder: 0,
+        createdAt: "",
+        ...overrides,
+      });
+
+      it("rejects splits that do not sum to the parent amount and keeps the old allocation", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const txn = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-split", amountMinor: -5000 }),
+        );
+        await repository.saveFinanceTransactionSplits(txn.id, [
+          buildSplit(txn.id, -2000),
+          buildSplit(txn.id, -3000),
+        ]);
+
+        await expect(
+          repository.saveFinanceTransactionSplits(txn.id, [buildSplit(txn.id, -1000)]),
+        ).rejects.toThrow();
+        const splits = await repository.listFinanceTransactionSplits(txn.id);
+        expect(splits.map((split) => split.amountMinor)).toEqual([-2000, -3000]);
+      });
+
+      it("keeps the previous splits when a replacement fails midway", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const txn = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-split", amountMinor: -1000 }),
+        );
+        await repository.saveFinanceTransactionSplits(txn.id, [
+          buildSplit(txn.id, -1000, { id: "split-dup" }),
+        ]);
+
+        await expect(
+          repository.saveFinanceTransactionSplits(txn.id, [
+            buildSplit(txn.id, -500, { id: "split-dup" }),
+            buildSplit(txn.id, -500, { id: "split-dup" }),
+          ]),
+        ).rejects.toThrow();
+        const splits = await repository.listFinanceTransactionSplits(txn.id);
+        expect(splits.map((split) => split.amountMinor)).toEqual([-1000]);
+      });
+
+      it("restores an ordinary category when the final split is removed", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const txn = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-split", amountMinor: -1000 }),
+        );
+        await repository.saveFinanceTransactionSplits(txn.id, [buildSplit(txn.id, -1000)]);
+
+        const cleared = await repository.saveFinanceTransactionSplits(txn.id, []);
+        expect(cleared.hasSplits).toBe(false);
+        expect(cleared.categoryId).toBe("fincat:non-categorise");
+        expect(cleared.categorySource).toBe("default");
+      });
+
+      it("reassigns split category references when archiving a category", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const txn = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-split", amountMinor: -1000 }),
+        );
+        await repository.saveFinanceTransactionSplits(txn.id, [
+          buildSplit(txn.id, -1000, { categoryId: "fincat:alimentation.epicerie" }),
+        ]);
+
+        await repository.archiveFinanceCategory(
+          "fincat:alimentation.epicerie",
+          "fincat:transport.essence",
+        );
+        const splits = await repository.listFinanceTransactionSplits(txn.id);
+        expect(splits[0].categoryId).toBe("fincat:transport.essence");
+      });
+
+      it("marks every all_matching correction as user-owned so later imports keep it", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const a = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-a",
+            descriptionRaw: "VIREMENT FRAIS",
+            merchantKey: "VIREMENT FRAIS",
+          }),
+        );
+        const b = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-b",
+            descriptionRaw: "VIREMENT FRAIS",
+            merchantKey: "VIREMENT FRAIS",
+          }),
+        );
+        await repository.setFinanceTransactionCategory({
+          transactionId: a.id,
+          categoryId: "fincat:transport.essence",
+          scope: "all_matching",
+        });
+        await expect(repository.getFinanceTransaction(b.id)).resolves.toMatchObject({
+          categorySource: "user",
+        });
+
+        await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "later.csv",
+          fileHash: "hash-later",
+          rows: [importRow({ descriptionRaw: "COFFEE", merchantKey: "COFFEE", amountMinor: -300 })],
+        });
+        await expect(repository.getFinanceTransaction(b.id)).resolves.toMatchObject({
+          categoryId: "fincat:transport.essence",
+        });
+      });
+
+      it("round-trips import profile amount separators", async () => {
+        const repository = await factory();
+        const saved = await repository.saveFinanceImportProfile({
+          id: "",
+          name: "FR",
+          signature: "sig-sep",
+          columnMap: { date: 0, description: 1, amount: 2 },
+          dateFormat: "YYYY-MM-DD",
+          amountMode: "single_signed",
+          signConvention: null,
+          decimalSeparator: ",",
+          thousandsSeparator: " ",
+          defaultAccountId: null,
+          createdAt: "",
+          updatedAt: "",
+          lastUsedAt: null,
+        });
+        const found = await repository.findFinanceImportProfileBySignature("sig-sep");
+        expect(found).toMatchObject({
+          id: saved.id,
+          decimalSeparator: ",",
+          thousandsSeparator: " ",
+        });
+      });
+
+      it("does not re-pair a grouped transfer leg with a later matching row", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-checking" }));
+        await repository.saveFinanceAccount(
+          account({ id: "account-invest", name: "Placements", onBudget: false }),
+        );
+        await repository.saveFinanceAccount(account({ id: "account-savings", name: "Épargne" }));
+
+        await repository.importFinanceTransactions({
+          accountId: "account-checking",
+          profileId: null,
+          fileName: "one.csv",
+          fileHash: "hash-one",
+          rows: [
+            importRow({ accountId: "account-checking", amountMinor: -5000, descriptionRaw: "A" }),
+            importRow({ accountId: "account-invest", amountMinor: 5000, descriptionRaw: "A" }),
+          ],
+        });
+        const before = await repository.listFinanceTransactions({
+          accountIds: ["account-checking"],
+        });
+        expect(before[0].isTransfer).toBe(true);
+
+        await repository.importFinanceTransactions({
+          accountId: "account-savings",
+          profileId: null,
+          fileName: "two.csv",
+          fileHash: "hash-two",
+          rows: [
+            importRow({ accountId: "account-savings", amountMinor: 5000, descriptionRaw: "B" }),
+          ],
+        });
+        const after = await repository.listFinanceTransactions({
+          accountIds: ["account-checking"],
+        });
+        expect(after[0].transferGroupId).toBe(before[0].transferGroupId);
+        expect(after[0].excludedFromBudget).toBe(before[0].excludedFromBudget);
+      });
+
+      it("refuses to undo a batch whose rows belong to an account covered by a newer batch", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-a" }));
+        await repository.saveFinanceAccount(account({ id: "account-b", name: "B" }));
+        const rowB = importRow({
+          accountId: "account-b",
+          descriptionRaw: "B ROW",
+          merchantKey: "B",
+        });
+
+        const first = await repository.importFinanceTransactions({
+          accountId: "account-a",
+          profileId: null,
+          fileName: "mixed.csv",
+          fileHash: "hash-mixed",
+          rows: [importRow({ accountId: "account-a", descriptionRaw: "A ROW" }), rowB],
+        });
+        await repository.importFinanceTransactions({
+          accountId: "account-b",
+          profileId: null,
+          fileName: "b.csv",
+          fileHash: "hash-b",
+          rows: [rowB],
+        });
+
+        await expect(repository.undoFinanceImportBatch(first.batchId)).rejects.toThrow(
+          /most recent batch/,
+        );
+        await expect(repository.countFinanceTransactions({})).resolves.toBe(2);
+      });
+
+      it("keeps a user-categorized transfer partner's category when the other leg is undone", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-checking" }));
+        await repository.saveFinanceAccount(account({ id: "account-savings", name: "Épargne" }));
+
+        await repository.importFinanceTransactions({
+          accountId: "account-checking",
+          profileId: null,
+          fileName: "c.csv",
+          fileHash: "hash-c",
+          rows: [
+            importRow({ accountId: "account-checking", amountMinor: -5000, descriptionRaw: "VIR" }),
+          ],
+        });
+        const savings = await repository.importFinanceTransactions({
+          accountId: "account-savings",
+          profileId: null,
+          fileName: "s.csv",
+          fileHash: "hash-s",
+          rows: [
+            importRow({ accountId: "account-savings", amountMinor: 5000, descriptionRaw: "VIR" }),
+          ],
+        });
+        const [checking] = await repository.listFinanceTransactions({
+          accountIds: ["account-checking"],
+        });
+        await repository.setFinanceTransactionCategory({
+          transactionId: checking.id,
+          categoryId: "fincat:transport.essence",
+          scope: "this",
+        });
+
+        await repository.undoFinanceImportBatch(savings.batchId);
+        await expect(repository.getFinanceTransaction(checking.id)).resolves.toMatchObject({
+          categoryId: "fincat:transport.essence",
+          categorySource: "user",
+          isTransfer: false,
+          transferGroupId: null,
+        });
+      });
+
+      it("keeps a concurrent finance write that lands while an import is running", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+
+        const [, saved] = await Promise.all([
+          repository.importFinanceTransactions({
+            accountId: "account-1",
+            profileId: null,
+            fileName: "big.csv",
+            fileHash: "hash-big",
+            rows: [importRow()],
+          }),
+          repository.saveFinancePerson(person({ displayName: "Concurrent" })),
+        ]);
+        await expect(repository.listFinancePeople()).resolves.toEqual([
+          expect.objectContaining({ id: saved.id, displayName: "Concurrent" }),
+        ]);
+      });
+
+      it("saves and finds an import profile by signature", async () => {
+        const repository = await factory();
+        const saved = await repository.saveFinanceImportProfile({
+          id: "",
+          name: "Mon profil",
+          signature: "sig-123",
+          columnMap: { date: 0, description: 1, amount: 2 },
+          dateFormat: "YYYY-MM-DD",
+          amountMode: "single_signed",
+          signConvention: null,
+          defaultAccountId: null,
+          createdAt: "",
+          updatedAt: "",
+          lastUsedAt: null,
+        });
+
+        await expect(repository.listFinanceImportProfiles()).resolves.toEqual([
+          expect.objectContaining({ id: saved.id }),
+        ]);
+        await expect(repository.findFinanceImportProfileBySignature("sig-123")).resolves.toEqual(
+          expect.objectContaining({ id: saved.id }),
+        );
+        await expect(repository.findFinanceImportProfileBySignature("missing")).resolves.toBeNull();
+      });
+
+      it("rejects saving a different-id profile with a signature already in use", async () => {
+        const repository = await factory();
+        await repository.saveFinanceImportProfile({
+          id: "profile-a",
+          name: "Profil A",
+          signature: "sig-shared",
+          columnMap: { date: 0, description: 1, amount: 2 },
+          dateFormat: "YYYY-MM-DD",
+          amountMode: "single_signed",
+          signConvention: null,
+          defaultAccountId: null,
+          createdAt: "",
+          updatedAt: "",
+          lastUsedAt: null,
+        });
+
+        await expect(
+          repository.saveFinanceImportProfile({
+            id: "profile-b",
+            name: "Profil B",
+            signature: "sig-shared",
+            columnMap: { date: 0, description: 1, amount: 2 },
+            dateFormat: "YYYY-MM-DD",
+            amountMode: "single_signed",
+            signConvention: null,
+            defaultAccountId: null,
+            createdAt: "",
+            updatedAt: "",
+            lastUsedAt: null,
+          }),
+        ).rejects.toThrow();
+
+        // Re-saving under the *same* id as the existing signature holder is an
+        // upsert, not a conflict — this is exactly how a repeat CSV import
+        // reuses its matched profile id (see FinanceImportPage).
+        await expect(
+          repository.saveFinanceImportProfile({
+            id: "profile-a",
+            name: "Profil A renommé",
+            signature: "sig-shared",
+            columnMap: { date: 0, description: 1, amount: 2 },
+            dateFormat: "YYYY-MM-DD",
+            amountMode: "single_signed",
+            signConvention: null,
+            defaultAccountId: null,
+            createdAt: "",
+            updatedAt: "",
+            lastUsedAt: null,
+          }),
+        ).resolves.toMatchObject({ id: "profile-a", name: "Profil A renommé" });
+      });
+
+      it("saves category suggestions and decideFinanceCategorySuggestion applies and records the decision", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const txn = await repository.saveFinanceTransaction(buildFinanceTransaction());
+
+        const [saved] = await repository.saveFinanceCategorySuggestions([
+          {
+            id: "",
+            transactionId: txn.id,
+            merchantKey: txn.merchantKey,
+            suggestedCategoryId: "fincat:alimentation.epicerie",
+            confidence: 0.6,
+            origin: "seed",
+            rationale: null,
+            model: null,
+            promptVersion: null,
+            status: "pending",
+            decidedAt: null,
+            createdAt: "",
+          },
+        ]);
+
+        await expect(repository.listFinanceCategorySuggestions("pending")).resolves.toEqual([
+          expect.objectContaining({ id: saved.id }),
+        ]);
+
+        const decided = await repository.decideFinanceCategorySuggestion(saved.id, {
+          status: "accepted",
+        });
+
+        expect(decided.status).toBe("accepted");
+        await expect(repository.getFinanceTransaction(txn.id)).resolves.toMatchObject({
+          categoryId: "fincat:alimentation.epicerie",
+          categorySource: "user",
+        });
+      });
+
+      it("import auto-applies a matching rule's category and bumps its applied_count", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const rule = await repository.saveFinanceRule({
+          id: "",
+          name: "Épicerie IGA",
+          priority: 0,
+          enabled: true,
+          matcher: { descriptionContains: "IGA" },
+          actions: { categoryId: "fincat:alimentation.epicerie" },
+          createdAt: "",
+          updatedAt: "",
+          lastAppliedAt: null,
+          appliedCount: 0,
+        });
+
+        await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "export.csv",
+          fileHash: "hash-rule",
+          rows: [importRow({ accountId: "account-1", descriptionRaw: "IGA MONTREAL" })],
+        });
+
+        const [txn] = await repository.listFinanceTransactions({});
+        expect(txn).toMatchObject({
+          categoryId: "fincat:alimentation.epicerie",
+          categorySource: "rule",
+        });
+        await expect(repository.listFinanceRules()).resolves.toEqual([
+          expect.objectContaining({ id: rule.id, appliedCount: 1 }),
+        ]);
+      });
+
+      it("import auto-applies learned merchant memory at/above the confidence and hit-count thresholds", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        await repository.upsertFinanceMerchantMemory({
+          merchantKey: "IGA MONTREAL",
+          accountId: "",
+          sign: -1,
+          categoryId: "fincat:alimentation.epicerie",
+          hitCount: 5,
+          correctionCount: 0,
+          confidence: 0.9,
+          source: "user_correction",
+          lastAppliedAt: null,
+          createdAt: "",
+          updatedAt: "",
+        });
+
+        await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "export.csv",
+          fileHash: "hash-memory",
+          rows: [importRow({ accountId: "account-1", descriptionRaw: "IGA MONTREAL" })],
+        });
+
+        const [txn] = await repository.listFinanceTransactions({});
+        expect(txn).toMatchObject({
+          categoryId: "fincat:alimentation.epicerie",
+          categorySource: "memory",
+        });
+      });
+
+      it("import below-threshold memory creates a pending suggestion instead of auto-applying", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        await repository.upsertFinanceMerchantMemory({
+          merchantKey: "IGA MONTREAL",
+          accountId: "",
+          sign: -1,
+          categoryId: "fincat:alimentation.epicerie",
+          hitCount: 1,
+          correctionCount: 0,
+          confidence: 0.6,
+          source: "user_correction",
+          lastAppliedAt: null,
+          createdAt: "",
+          updatedAt: "",
+        });
+
+        const summary = await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "export.csv",
+          fileHash: "hash-memory-low",
+          rows: [importRow({ accountId: "account-1", descriptionRaw: "IGA MONTREAL" })],
+        });
+
+        expect(summary.pendingSuggestions).toBe(1);
+        const [txn] = await repository.listFinanceTransactions({});
+        expect(txn.categoryId).toBe("fincat:non-categorise");
+        await expect(repository.listFinanceCategorySuggestions("pending")).resolves.toEqual([
+          expect.objectContaining({
+            transactionId: txn.id,
+            suggestedCategoryId: "fincat:alimentation.epicerie",
+            origin: "memory",
+          }),
+        ]);
+      });
+
+      it("import falls back to a seed heuristic suggestion when no rule or memory matches", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+
+        const summary = await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "export.csv",
+          fileHash: "hash-seed",
+          rows: [
+            importRow({
+              accountId: "account-1",
+              descriptionRaw: "METRO PLUS",
+              merchantKey: "METRO PLUS",
+            }),
+          ],
+        });
+
+        expect(summary.pendingSuggestions).toBe(1);
+        await expect(repository.listFinanceCategorySuggestions("pending")).resolves.toEqual([
+          expect.objectContaining({
+            suggestedCategoryId: "fincat:alimentation.epicerie",
+            origin: "seed",
+          }),
+        ]);
+      });
+
+      it("a dismissed suggestion suppresses the same (merchant, category) pair on the next import", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        await repository.upsertFinanceMerchantMemory({
+          merchantKey: "IGA MONTREAL",
+          accountId: "",
+          sign: -1,
+          categoryId: "fincat:alimentation.epicerie",
+          hitCount: 1,
+          correctionCount: 0,
+          confidence: 0.6,
+          source: "user_correction",
+          lastAppliedAt: null,
+          createdAt: "",
+          updatedAt: "",
+        });
+
+        await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "export.csv",
+          fileHash: "hash-dismiss-1",
+          rows: [importRow({ accountId: "account-1", descriptionRaw: "IGA MONTREAL" })],
+        });
+        const [pending] = await repository.listFinanceCategorySuggestions("pending");
+        await repository.decideFinanceCategorySuggestion(pending.id, { status: "dismissed" });
+
+        // A different date/amount than the first import's row, so this is a
+        // genuinely new transaction (not an exact-hash dedupe) and actually
+        // runs through classification rather than being skipped as a
+        // duplicate — the prior version of this test imported the identical
+        // row twice, which made the assertion vacuously true.
+        const summary = await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "export2.csv",
+          fileHash: "hash-dismiss-2",
+          rows: [
+            importRow({
+              accountId: "account-1",
+              postedDate: "2026-04-15",
+              amountMinor: -999,
+              descriptionRaw: "IGA MONTREAL",
+            }),
+          ],
+        });
+
+        expect(summary.imported).toBe(1);
+        expect(summary.pendingSuggestions).toBe(0);
+      });
+
+      it("accepting a suggestion reinforces memory like a manual correction", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const txn = await repository.saveFinanceTransaction(buildFinanceTransaction());
+        const [saved] = await repository.saveFinanceCategorySuggestions([
+          {
+            id: "",
+            transactionId: txn.id,
+            merchantKey: txn.merchantKey,
+            suggestedCategoryId: "fincat:alimentation.epicerie",
+            confidence: 0.6,
+            origin: "seed",
+            rationale: null,
+            model: null,
+            promptVersion: null,
+            status: "pending",
+            decidedAt: null,
+            createdAt: "",
+          },
+        ]);
+
+        await repository.decideFinanceCategorySuggestion(saved.id, { status: "accepted" });
+
+        await expect(
+          repository.listFinanceMerchantMemory({ merchantKey: txn.merchantKey }),
+        ).resolves.toEqual([
+          expect.objectContaining({
+            categoryId: "fincat:alimentation.epicerie",
+            hitCount: 1,
+          }),
+        ]);
+      });
+
+      it("correcting a suggestion flips memory to the chosen category with confidence reset to 0.6", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const txn = await repository.saveFinanceTransaction(buildFinanceTransaction());
+        await repository.upsertFinanceMerchantMemory({
+          merchantKey: txn.merchantKey,
+          accountId: txn.accountId,
+          sign: -1,
+          categoryId: "fincat:alimentation.epicerie",
+          hitCount: 5,
+          correctionCount: 0,
+          confidence: 0.9,
+          source: "user_correction",
+          lastAppliedAt: null,
+          createdAt: "",
+          updatedAt: "",
+        });
+        const [saved] = await repository.saveFinanceCategorySuggestions([
+          {
+            id: "",
+            transactionId: txn.id,
+            merchantKey: txn.merchantKey,
+            suggestedCategoryId: "fincat:alimentation.epicerie",
+            confidence: 0.6,
+            origin: "seed",
+            rationale: null,
+            model: null,
+            promptVersion: null,
+            status: "pending",
+            decidedAt: null,
+            createdAt: "",
+          },
+        ]);
+
+        await repository.decideFinanceCategorySuggestion(saved.id, {
+          status: "corrected",
+          categoryId: "fincat:alimentation.restaurants",
+        });
+
+        await expect(
+          repository.listFinanceMerchantMemory({ merchantKey: txn.merchantKey }),
+        ).resolves.toEqual([
+          expect.objectContaining({
+            categoryId: "fincat:alimentation.restaurants",
+            confidence: 0.6,
+            correctionCount: 1,
+          }),
+        ]);
+      });
+
+      it("reclassifyFinancePending applies a newly created rule to existing non-user rows, never a user-set one", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const pending = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-pending",
+            descriptionRaw: "IGA MONTREAL",
+            merchantKey: "IGA MONTREAL",
+          }),
+        );
+        const userSet = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-user",
+            descriptionRaw: "IGA MONTREAL",
+            merchantKey: "IGA MONTREAL",
+            categoryId: "fincat:logement.entretien",
+            categorySource: "user",
+          }),
+        );
+
+        await repository.saveFinanceRule({
+          id: "",
+          name: "Épicerie IGA",
+          priority: 0,
+          enabled: true,
+          matcher: { descriptionContains: "IGA" },
+          actions: { categoryId: "fincat:alimentation.epicerie" },
+          createdAt: "",
+          updatedAt: "",
+          lastAppliedAt: null,
+          appliedCount: 0,
+        });
+
+        const result = await repository.reclassifyFinancePending();
+        expect(result.reclassified).toBe(1);
+
+        await expect(repository.getFinanceTransaction(pending.id)).resolves.toMatchObject({
+          categoryId: "fincat:alimentation.epicerie",
+          categorySource: "rule",
+        });
+        await expect(repository.getFinanceTransaction(userSet.id)).resolves.toMatchObject({
+          categoryId: "fincat:logement.entretien",
+          categorySource: "user",
+        });
+      });
+
+      it("retires a pending suggestion when a rule supersedes it, and a repeated decision is a no-op", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "stale.csv",
+          fileHash: "hash-stale-1",
+          rows: [importRow({ accountId: "account-1", descriptionRaw: "IGA MONTREAL" })],
+        });
+        expect(await repository.listFinanceCategorySuggestions("pending")).toHaveLength(1);
+
+        await repository.saveFinanceRule({
+          id: "",
+          name: "Resto",
+          priority: 0,
+          enabled: true,
+          matcher: { descriptionContains: "IGA" },
+          actions: { categoryId: "fincat:alimentation.restaurants" },
+          createdAt: "",
+          updatedAt: "",
+          lastAppliedAt: null,
+          appliedCount: 0,
+        });
+        await repository.reclassifyFinancePending();
+        expect(await repository.listFinanceCategorySuggestions("pending")).toHaveLength(0);
+      });
+
+      it("retires pending suggestions on a manual category change and never learns twice from one suggestion", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "twice.csv",
+          fileHash: "hash-twice-1",
+          rows: [importRow({ accountId: "account-1", descriptionRaw: "IGA MONTREAL" })],
+        });
+        const [pending] = await repository.listFinanceCategorySuggestions("pending");
+        await repository.decideFinanceCategorySuggestion(pending.id, { status: "accepted" });
+        const first = await repository.listFinanceMerchantMemory();
+        await repository.decideFinanceCategorySuggestion(pending.id, { status: "accepted" });
+        expect(await repository.listFinanceMerchantMemory()).toEqual(first);
+
+        await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "manual.csv",
+          fileHash: "hash-manual-1",
+          rows: [
+            importRow({
+              accountId: "account-1",
+              postedDate: "2026-05-01",
+              amountMinor: -1234,
+              descriptionRaw: "VIDEOTRON LTEE",
+            }),
+          ],
+        });
+        const [telecom] = await repository.listFinanceCategorySuggestions("pending");
+        await repository.setFinanceTransactionCategory({
+          transactionId: telecom.transactionId,
+          categoryId: "fincat:alimentation.restaurants",
+          scope: "this",
+        });
+        expect(await repository.listFinanceCategorySuggestions("pending")).toHaveLength(0);
+      });
+
+      it("reclassifyFinancePending leaves an all_matching-backfilled category in place when the new pass only suggests", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const first = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-1",
+            merchantKey: "GENERIC MERCHANT",
+            descriptionRaw: "GENERIC MERCHANT",
+          }),
+        );
+        const second = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-2",
+            merchantKey: "GENERIC MERCHANT",
+            descriptionRaw: "GENERIC MERCHANT",
+          }),
+        );
+
+        // "GENERIC MERCHANT" matches no rule, no memory, and no seed, so a
+        // fresh classification pass on `second` alone would only ever
+        // produce the Uncategorized default — exactly the "default" outcome
+        // this test exercises against the row's already-backfilled category.
+        await repository.setFinanceTransactionCategory({
+          transactionId: first.id,
+          categoryId: "fincat:loisirs.abonnements",
+          scope: "all_matching",
+        });
+        await expect(repository.getFinanceTransaction(second.id)).resolves.toMatchObject({
+          categoryId: "fincat:loisirs.abonnements",
+        });
+
+        const result = await repository.reclassifyFinancePending();
+        expect(result.reclassified).toBe(0);
+
+        await expect(repository.getFinanceTransaction(second.id)).resolves.toMatchObject({
+          categoryId: "fincat:loisirs.abonnements",
+        });
+      });
+
+      it("imports 5 000 rows in one call with no reentrancy error", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-bulk" }));
+
+        const rows: FinanceImportRow[] = Array.from({ length: 5_000 }, (_, index) => {
+          const day = String((index % 27) + 1).padStart(2, "0");
+          return importRow({
+            accountId: "account-bulk",
+            postedDate: `2026-01-${day}`,
+            amountMinor: -(100 + (index % 500)),
+            descriptionRaw: `MERCHANT ${index % 50}`,
+            merchantKey: `MERCHANT ${index % 50}`,
+          });
+        });
+
+        const summary = await repository.importFinanceTransactions({
+          accountId: "account-bulk",
+          profileId: null,
+          fileName: "bulk.csv",
+          fileHash: "hash-bulk",
+          rows,
+        });
+
+        expect(summary.imported).toBe(5_000);
+        await expect(repository.countFinanceTransactions({})).resolves.toBe(5_000);
+      });
+
+      describe("budget", () => {
+        it("assigns money and reads it back", async () => {
+          const repository = await factory();
+          await repository.seedFinanceDefaultCategories();
+
+          const saved = await repository.setFinanceBudgetAssignment(
+            "2026-01",
+            "fincat:alimentation.epicerie",
+            5_000,
+          );
+          expect(saved).toMatchObject({
+            monthKey: "2026-01",
+            categoryId: "fincat:alimentation.epicerie",
+            assignedMinor: 5_000,
+            overspendPolicy: "reduce_next_ready_to_assign",
+          });
+
+          const state = await repository.computeFinanceBudgetState("2026-01", "CAD");
+          expect(state.categories).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                categoryId: "fincat:alimentation.epicerie",
+                assignedMinor: 5_000,
+                availableMinor: 5_000,
+              }),
+            ]),
+          );
+        });
+
+        it("deletes the row when assigning 0", async () => {
+          const repository = await factory();
+          await repository.seedFinanceDefaultCategories();
+          await repository.setFinanceBudgetAssignment(
+            "2026-01",
+            "fincat:alimentation.epicerie",
+            5_000,
+          );
+
+          const result = await repository.setFinanceBudgetAssignment(
+            "2026-01",
+            "fincat:alimentation.epicerie",
+            0,
+          );
+
+          expect(result).toBeNull();
+          const state = await repository.computeFinanceBudgetState("2026-01", "CAD");
+          const category = state.categories.find(
+            (c) => c.categoryId === "fincat:alimentation.epicerie",
+          );
+          expect(category?.assignedMinor ?? 0).toBe(0);
+        });
+
+        it("rejects assigning to an income-kind category", async () => {
+          const repository = await factory();
+          await repository.seedFinanceDefaultCategories();
+
+          await expect(
+            repository.setFinanceBudgetAssignment("2026-01", "fincat:revenu.salaire", 1_000),
+          ).rejects.toThrow();
+        });
+
+        it("propagates an overspend policy change to the entry and every later existing entry", async () => {
+          const repository = await factory();
+          await repository.seedFinanceDefaultCategories();
+          await repository.setFinanceBudgetAssignment(
+            "2026-01",
+            "fincat:alimentation.epicerie",
+            1_000,
+          );
+          await repository.setFinanceBudgetAssignment(
+            "2026-03",
+            "fincat:alimentation.epicerie",
+            1_000,
+          );
+
+          await repository.setFinanceCategoryOverspendPolicy(
+            "2026-01",
+            "fincat:alimentation.epicerie",
+            "carry_negative",
+          );
+
+          const janAssignment = await repository.setFinanceBudgetAssignment(
+            "2026-01",
+            "fincat:alimentation.epicerie",
+            1_000,
+          );
+          expect(janAssignment?.overspendPolicy).toBe("carry_negative");
+
+          const marchAssignment = await repository.setFinanceBudgetAssignment(
+            "2026-03",
+            "fincat:alimentation.epicerie",
+            1_000,
+          );
+          expect(marchAssignment?.overspendPolicy).toBe("carry_negative");
+
+          // February never had an entry, so the policy change must not create one —
+          // its default policy stays `reduce_next_ready_to_assign`, not `carry_negative`.
+          const februaryState = await repository.computeFinanceBudgetState("2026-02", "CAD");
+          const february = februaryState.categories.find(
+            (c) => c.categoryId === "fincat:alimentation.epicerie",
+          );
+          expect(february?.overspendPolicy).toBe("reduce_next_ready_to_assign");
+        });
+
+        it("computeFinanceBudgetState matches the pure function given the same rows", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.seedFinanceDefaultCategories();
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-income",
+              accountId: "account-1",
+              postedDate: "2026-01-02",
+              amountMinor: 10_000,
+              categoryId: "fincat:revenu.salaire",
+            }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-spend",
+              accountId: "account-1",
+              postedDate: "2026-01-10",
+              amountMinor: -3_000,
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+          await repository.setFinanceBudgetAssignment(
+            "2026-01",
+            "fincat:alimentation.epicerie",
+            3_000,
+          );
+
+          const state = await repository.computeFinanceBudgetState("2026-01", "CAD");
+          expect(state.readyToAssignMinor).toBe(7_000);
+          expect(state.onBudgetBalanceMinor).toBe(7_000);
+          expect(state.categories).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                categoryId: "fincat:alimentation.epicerie",
+                assignedMinor: 3_000,
+                activityMinor: -3_000,
+                availableMinor: 0,
+              }),
+            ]),
+          );
+        });
+
+        it("scopes budget arithmetic to the requested base currency", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(
+            account({ id: "cad", currency: "CAD", openingBalanceMinor: 10_000 }),
+          );
+          await repository.saveFinanceAccount(
+            account({ id: "jpy", currency: "JPY", openingBalanceMinor: 500_000 }),
+          );
+          await repository.seedFinanceDefaultCategories();
+          const categories = await repository.listFinanceCategories();
+          const salary = categories.find((category) => category.id === "fincat:revenu.salaire");
+          expect(salary).toBeDefined();
+          await repository.saveFinanceCategory({ ...salary!, defersToNextMonth: true });
+
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "cad-spend",
+              accountId: "cad",
+              amountMinor: -2_000,
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+          const splitParent = await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "cad-split",
+              accountId: "cad",
+              amountMinor: -3_000,
+              categoryId: "fincat:split",
+              hasSplits: true,
+            }),
+          );
+          await repository.saveFinanceTransactionSplits(splitParent.id, [
+            {
+              id: "",
+              transactionId: splitParent.id,
+              amountMinor: -1_000,
+              categoryId: "fincat:alimentation.epicerie",
+              notes: null,
+              sortOrder: 0,
+              createdAt: "",
+            },
+            {
+              id: "",
+              transactionId: splitParent.id,
+              amountMinor: -2_000,
+              categoryId: "fincat:loisirs.sorties",
+              notes: null,
+              sortOrder: 1,
+              createdAt: "",
+            },
+          ]);
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "cad-excluded",
+              accountId: "cad",
+              amountMinor: -700,
+              excludedFromBudget: true,
+            }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "cad-deferred",
+              accountId: "cad",
+              amountMinor: 4_000,
+              categoryId: "fincat:revenu.salaire",
+            }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "jpy-income",
+              accountId: "jpy",
+              amountMinor: 100_000,
+              currency: "JPY",
+              categoryId: "fincat:revenu.salaire",
+            }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "jpy-spend",
+              accountId: "jpy",
+              amountMinor: -50_000,
+              currency: "JPY",
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+
+          const cad = await repository.computeFinanceBudgetState("2026-04", "CAD");
+          expect(cad.onBudgetBalanceMinor).toBe(8_300);
+          expect(cad.readyToAssignMinor).toBe(9_300);
+          expect(cad.categories).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                categoryId: "fincat:alimentation.epicerie",
+                activityMinor: -3_000,
+              }),
+              expect.objectContaining({
+                categoryId: "fincat:loisirs.sorties",
+                activityMinor: -2_000,
+              }),
+            ]),
+          );
+
+          const jpy = await repository.computeFinanceBudgetState("2026-04", "JPY");
+          expect(jpy.onBudgetBalanceMinor).toBe(550_000);
+          expect(jpy.categories).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                categoryId: "fincat:alimentation.epicerie",
+                activityMinor: -50_000,
+              }),
+            ]),
+          );
+        });
+
+        it("closes and reopens a month without changing arithmetic", async () => {
+          const repository = await factory();
+          await repository.seedFinanceDefaultCategories();
+
+          const closed = await repository.setFinanceBudgetMonthClosed("2026-01", true);
+          expect(closed.closedAt).not.toBeNull();
+
+          const reopened = await repository.setFinanceBudgetMonthClosed("2026-01", false);
+          expect(reopened.closedAt).toBeNull();
+        });
+
+        it("persists the ready-to-assign note", async () => {
+          const repository = await factory();
+          const saved = await repository.setFinanceBudgetReadyToAssignNote(
+            "2026-01",
+            "Réservé pour les vacances",
+          );
+          expect(saved.readyToAssignNote).toBe("Réservé pour les vacances");
+
+          const reloaded = await repository.getFinanceBudgetMonth("2026-01");
+          expect(reloaded.readyToAssignNote).toBe("Réservé pour les vacances");
+        });
+
+        it("onBudgetBalance includes an excluded_from_budget transaction that activity ignores", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.seedFinanceDefaultCategories();
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-income",
+              accountId: "account-1",
+              postedDate: "2026-01-02",
+              amountMinor: 10_000,
+              categoryId: "fincat:revenu.salaire",
+            }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-excluded",
+              accountId: "account-1",
+              postedDate: "2026-01-15",
+              amountMinor: -4_000,
+              categoryId: "fincat:non-categorise",
+              excludedFromBudget: true,
+            }),
+          );
+
+          const state = await repository.computeFinanceBudgetState("2026-01", "CAD");
+          expect(state.onBudgetBalanceMinor).toBe(6_000);
+          expect(state.readyToAssignMinor).toBe(6_000);
+          const uncategorized = state.categories.find(
+            (c) => c.categoryId === "fincat:non-categorise",
+          );
+          expect(uncategorized?.activityMinor ?? 0).toBe(0);
+        });
+
+        it("keeps a zero row that carries a non-default overspend policy", async () => {
+          const repository = await factory();
+          await repository.seedFinanceDefaultCategories();
+          await repository.setFinanceCategoryOverspendPolicy(
+            "2026-01",
+            "fincat:alimentation.epicerie",
+            "carry_negative",
+          );
+
+          await repository.setFinanceBudgetAssignment("2026-01", "fincat:alimentation.epicerie", 0);
+
+          const state = await repository.computeFinanceBudgetState("2026-01", "CAD");
+          expect(
+            state.categories.find((c) => c.categoryId === "fincat:alimentation.epicerie")
+              ?.overspendPolicy,
+          ).toBe("carry_negative");
+        });
+
+        it("applyFinanceCoverOverspending moves both rows together", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.seedFinanceDefaultCategories();
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-spend",
+              accountId: "account-1",
+              postedDate: "2026-01-10",
+              amountMinor: -1_200,
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+          await repository.setFinanceBudgetAssignment(
+            "2026-01",
+            "fincat:alimentation.epicerie",
+            1_000,
+          );
+          await repository.setFinanceBudgetAssignment("2026-01", "fincat:loisirs.sorties", 100);
+
+          const result = await repository.applyFinanceCoverOverspending(
+            "2026-01",
+            "CAD",
+            "fincat:loisirs.sorties",
+            "fincat:alimentation.epicerie",
+          );
+
+          expect(result.amountMinor).toBe(100);
+          const state = await repository.computeFinanceBudgetState("2026-01", "CAD");
+          const assigned = (id: string) =>
+            state.categories.find((c) => c.categoryId === id)?.assignedMinor;
+          expect(assigned("fincat:alimentation.epicerie")).toBe(1_100);
+          expect(assigned("fincat:loisirs.sorties")).toBe(0);
+        });
+
+        it("computeFinanceCoverOverspending delegates to the pure helper", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.seedFinanceDefaultCategories();
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-spend",
+              accountId: "account-1",
+              postedDate: "2026-01-10",
+              amountMinor: -1_200,
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+          await repository.setFinanceBudgetAssignment(
+            "2026-01",
+            "fincat:alimentation.epicerie",
+            1_000,
+          );
+          await repository.setFinanceBudgetAssignment("2026-01", "fincat:loisirs.sorties", 100);
+
+          const result = await repository.computeFinanceCoverOverspending(
+            "2026-01",
+            "CAD",
+            "fincat:loisirs.sorties",
+            "fincat:alimentation.epicerie",
+          );
+          expect(result).toEqual({
+            amountMinor: 100,
+            fromNewAssignedMinor: 0,
+            toNewAssignedMinor: 1_100,
+          });
+        });
+      });
+
+      describe("tracking (Phase 6)", () => {
+        it("computeFinanceNetWorth matches a hand-computed assets-minus-liabilities fixture", async () => {
+          const repository = await factory();
+          const checking = await repository.saveFinanceAccount(
+            account({ id: "account-checking", type: "checking", openingBalanceMinor: 100_00 }),
+          );
+          const creditCard = await repository.saveFinanceAccount(
+            account({ id: "account-credit", type: "credit_card", openingBalanceMinor: 0 }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-checking",
+              accountId: checking.id,
+              postedDate: "2026-01-05",
+              amountMinor: 200_00,
+            }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-credit",
+              accountId: creditCard.id,
+              postedDate: "2026-01-10",
+              amountMinor: -300_00,
+            }),
+          );
+
+          const snapshot = await repository.computeFinanceNetWorth("2026-01-31");
+          expect(snapshot.assetsMinor).toBe(100_00 + 200_00);
+          expect(snapshot.liabilitiesMinor).toBe(300_00);
+          expect(snapshot.netWorthMinor).toBe(snapshot.assetsMinor - snapshot.liabilitiesMinor);
+        });
+
+        it("computeFinanceCashFlow excludes transfers and sums income/expense", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-income",
+              accountId: "account-1",
+              postedDate: "2026-02-03",
+              amountMinor: 3_000_00,
+            }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-expense",
+              accountId: "account-1",
+              postedDate: "2026-02-10",
+              amountMinor: -500_00,
+            }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-transfer",
+              accountId: "account-1",
+              postedDate: "2026-02-12",
+              amountMinor: -100_00,
+              isTransfer: true,
+            }),
+          );
+
+          const cashFlow = await repository.computeFinanceCashFlow("2026-02");
+          expect(cashFlow).toEqual({
+            monthKey: "2026-02",
+            incomeMinor: 3_000_00,
+            expenseMinor: 500_00,
+            netMinor: 2_500_00,
+          });
+        });
+
+        it("category spend drill-down lists exactly the transactions that sum to the figure", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.seedFinanceDefaultCategories();
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-1",
+              accountId: "account-1",
+              postedDate: "2026-03-05",
+              amountMinor: -80_00,
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-2",
+              accountId: "account-1",
+              postedDate: "2026-03-20",
+              amountMinor: -20_00,
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+
+          const range = { from: "2026-03-01", to: "2026-03-31" };
+          const rows = await repository.computeFinanceCategorySpend(range, "category");
+          const groceries = rows.find((row) => row.key === "fincat:alimentation.epicerie");
+          expect(groceries?.totalMinor).toBe(100_00);
+
+          const drilldown = await repository.listFinanceCategorySpendDrilldown(
+            range,
+            "category",
+            "fincat:alimentation.epicerie",
+          );
+          const sum = drilldown.reduce((total, line) => total + -line.amountMinor, 0);
+          expect(sum).toBe(groceries?.totalMinor);
+          expect(drilldown.map((line) => line.transactionId).sort()).toEqual(["txn-1", "txn-2"]);
+        });
+
+        it("computeFinanceMerchantSpend and computeFinancePersonSpend group spend", async () => {
+          const repository = await factory();
+          const alex = await repository.saveFinancePerson(person());
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-1",
+              accountId: "account-1",
+              postedDate: "2026-03-05",
+              amountMinor: -50_00,
+              merchantKey: "IGA",
+              personId: alex.id,
+            }),
+          );
+
+          const range = { from: "2026-03-01", to: "2026-03-31" };
+          const merchants = await repository.computeFinanceMerchantSpend(range, 5);
+          expect(merchants[0]).toMatchObject({ merchantKey: "IGA", totalMinor: 50_00 });
+
+          const persons = await repository.computeFinancePersonSpend(range);
+          expect(persons[0]).toMatchObject({ personId: alex.id, totalMinor: 50_00 });
+        });
+
+        it("computeFinanceTrend buckets income/expense by month", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-income",
+              accountId: "account-1",
+              postedDate: "2026-04-01",
+              amountMinor: 1_000_00,
+            }),
+          );
+
+          const points = await repository.computeFinanceTrend(
+            { from: "2026-04-01", to: "2026-04-30" },
+            "month",
+          );
+          expect(points).toEqual([
+            { periodKey: "2026-04", incomeMinor: 1_000_00, expenseMinor: 0, netMinor: 1_000_00 },
+          ]);
+        });
+
+        it("computeFinanceMonthOverMonth compares two ranges per category", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.seedFinanceDefaultCategories();
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-current",
+              accountId: "account-1",
+              postedDate: "2026-04-05",
+              amountMinor: -100_00,
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-previous",
+              accountId: "account-1",
+              postedDate: "2026-03-05",
+              amountMinor: -30_00,
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+
+          const rows = await repository.computeFinanceMonthOverMonth(
+            { from: "2026-04-01", to: "2026-04-30" },
+            { from: "2026-03-01", to: "2026-03-31" },
+            "category",
+          );
+          const groceries = rows.find((row) => row.key === "fincat:alimentation.epicerie");
+          expect(groceries).toMatchObject({
+            currentMinor: 100_00,
+            previousMinor: 30_00,
+            deltaMinor: 70_00,
+          });
+        });
+
+        it("detectFinanceRecurringSeries finds a monthly subscription and preserves confirmation on re-detection", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          for (const postedDate of ["2026-01-15", "2026-02-15", "2026-03-15", "2026-04-15"]) {
+            await repository.saveFinanceTransaction(
+              buildFinanceTransaction({
+                id: `txn-${postedDate}`,
+                accountId: "account-1",
+                postedDate,
+                amountMinor: -15_99,
+                merchantKey: "NETFLIX",
+              }),
+            );
+          }
+
+          await repository.detectFinanceRecurringSeries();
+          const series = await repository.listFinanceRecurringSeries();
+          const netflix = series.find((s) => s.merchantKey === "NETFLIX");
+          expect(netflix?.cadence).toBe("monthly");
+          expect(netflix?.nextExpectedDate).toBe("2026-05-15");
+
+          const confirmed = await repository.saveFinanceRecurringSeries({
+            ...netflix!,
+            confirmedByUser: true,
+          });
+
+          await repository.detectFinanceRecurringSeries();
+          const afterRedetection = await repository.listFinanceRecurringSeries();
+          const stillThere = afterRedetection.find((s) => s.id === confirmed.id);
+          expect(stillThere).toBeDefined();
+          expect(stillThere?.confirmedByUser).toBe(true);
+        });
+
+        it("detectFinanceRecurringSeries skips transfers", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          for (const postedDate of ["2026-01-01", "2026-02-01", "2026-03-01"]) {
+            await repository.saveFinanceTransaction(
+              buildFinanceTransaction({
+                id: `transfer-${postedDate}`,
+                accountId: "account-1",
+                postedDate,
+                amountMinor: -50_000_00,
+                merchantKey: "PAIEMENT",
+                isTransfer: true,
+              }),
+            );
+            await repository.saveFinanceTransaction(
+              buildFinanceTransaction({
+                id: `gym-${postedDate}`,
+                accountId: "account-1",
+                postedDate,
+                amountMinor: -30_00,
+                merchantKey: "GYM",
+              }),
+            );
+          }
+
+          await repository.detectFinanceRecurringSeries();
+          const series = await repository.listFinanceRecurringSeries();
+          expect(series.map((item) => item.merchantKey)).toEqual(["GYM"]);
+        });
+
+        it("undoing the import behind an unconfirmed series removes the series", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          const summary = await repository.importFinanceTransactions({
+            accountId: "account-1",
+            profileId: null,
+            fileName: "netflix.csv",
+            fileHash: "hash-recurring-undo",
+            rows: ["2026-01-01", "2026-02-01", "2026-03-01"].map((postedDate) =>
+              importRow({
+                accountId: "account-1",
+                postedDate,
+                descriptionRaw: "NETFLIX",
+                merchantKey: "NETFLIX",
+                amountMinor: -15_99,
+              }),
+            ),
+          });
+          expect(await repository.listFinanceRecurringSeries()).toHaveLength(1);
+
+          await repository.undoFinanceImportBatch(summary.batchId);
+
+          expect(await repository.listFinanceRecurringSeries()).toEqual([]);
+        });
+
+        it("detectFinanceRecurringSeries persists an integer expected_amount_minor for an even occurrence count", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          // Sorted amounts [-1002, -1001, -1000, -1000]; the raw median is the
+          // fractional -1000.5 — must round to an integer before it reaches
+          // the INTEGER `expected_amount_minor` column.
+          const amountsByDate: Record<string, number> = {
+            "2026-01-15": -1002,
+            "2026-02-15": -1001,
+            "2026-03-15": -1000,
+            "2026-04-15": -1000,
+          };
+          for (const [postedDate, amountMinor] of Object.entries(amountsByDate)) {
+            await repository.saveFinanceTransaction(
+              buildFinanceTransaction({
+                id: `txn-${postedDate}`,
+                accountId: "account-1",
+                postedDate,
+                amountMinor,
+                merchantKey: "GYM",
+              }),
+            );
+          }
+
+          await repository.detectFinanceRecurringSeries();
+          const series = await repository.listFinanceRecurringSeries();
+          const gym = series.find((s) => s.merchantKey === "GYM");
+          expect(gym?.expectedAmountMinor).toBe(-1001);
+          expect(Number.isInteger(gym?.expectedAmountMinor)).toBe(true);
+          expect(typeof gym?.expectedAmountMinor).toBe("number");
+        });
+
+        it("snapshotFinanceAccountBalances is idempotent per day and feeds the net-worth history", async () => {
+          const repository = await factory();
+          const checking = await repository.saveFinanceAccount(
+            account({ id: "account-checking", openingBalanceMinor: 100_00 }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-1",
+              accountId: checking.id,
+              postedDate: "2026-01-05",
+              amountMinor: 50_00,
+            }),
+          );
+
+          const firstCount = await repository.snapshotFinanceAccountBalances("2026-01-10");
+          const secondCount = await repository.snapshotFinanceAccountBalances("2026-01-10");
+          expect(firstCount).toBe(secondCount);
+
+          const snapshots = await repository.listFinanceAccountBalanceSnapshots(checking.id);
+          expect(snapshots).toHaveLength(1);
+          expect(snapshots[0]).toMatchObject({
+            accountId: checking.id,
+            asOfDate: "2026-01-10",
+            balanceMinor: 150_00,
+            source: "derived",
+          });
+
+          const history = await repository.listFinanceNetWorthHistory();
+          expect(history).toEqual([{ asOfDate: "2026-01-10", netWorthMinor: 150_00 }]);
+        });
+
+        it("importFinanceTransactions runs recurring detection inside the import transaction", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+
+          const rows = ["2026-01-10", "2026-02-10", "2026-03-10"].map((postedDate) =>
+            importRow({
+              accountId: "account-1",
+              postedDate,
+              merchantKey: "GYM",
+              amountMinor: -50_00,
+            }),
+          );
+          await repository.importFinanceTransactions({
+            accountId: "account-1",
+            profileId: null,
+            fileName: "gym.csv",
+            fileHash: "hash-gym",
+            rows,
+          });
+
+          const series = await repository.listFinanceRecurringSeries();
+          expect(series.some((s) => s.merchantKey === "GYM")).toBe(true);
+        });
+      });
+
+      describe("forecasting and alerts (Phase 7)", () => {
+        it("buildFinanceSnapshot carries today's budget state and on-budget accounts", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.seedFinanceDefaultCategories();
+          const today = getTodayDate();
+          const monthKey = today.slice(0, 7);
+          await repository.setFinanceBudgetAssignment(
+            monthKey,
+            "fincat:alimentation.epicerie",
+            10_000,
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-1",
+              accountId: "account-1",
+              postedDate: today,
+              amountMinor: -2_000,
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+
+          const snapshot = await repository.buildFinanceSnapshot(today);
+          expect(snapshot.today).toBe(today);
+          expect(snapshot.monthKey).toBe(monthKey);
+          expect(snapshot.accounts.some((a) => a.id === "account-1")).toBe(true);
+          const category = snapshot.budgetState.categories.find(
+            (c) => c.categoryId === "fincat:alimentation.epicerie",
+          );
+          expect(category?.assignedMinor).toBe(10_000);
+          expect(category?.activityMinor).toBe(-2_000);
+        });
+
+        it("computeFinanceForecast produces an envelope entry and an alert once an envelope is exhausted", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.seedFinanceDefaultCategories();
+          const today = getTodayDate();
+          const monthKey = today.slice(0, 7);
+          await repository.setFinanceBudgetAssignment(
+            monthKey,
+            "fincat:alimentation.epicerie",
+            5_000,
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-1",
+              accountId: "account-1",
+              postedDate: today,
+              amountMinor: -5_000,
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+
+          const { forecast, alerts } = await repository.computeFinanceForecast(today);
+          const envelope = forecast.envelopes.find(
+            (e) => e.categoryId === "fincat:alimentation.epicerie",
+          );
+          expect(envelope?.spentMinor).toBe(5_000);
+          expect(envelope?.status).toBe("exhausted");
+          expect(
+            alerts.some(
+              (a) =>
+                a.kind === "envelope_exhausted" && a.categoryId === "fincat:alimentation.epicerie",
+            ),
+          ).toBe(true);
+        });
+
+        it("does not count future-dated transactions as spending already done", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.seedFinanceDefaultCategories();
+          await repository.setFinanceBudgetAssignment(
+            "2026-03",
+            "fincat:alimentation.epicerie",
+            25_000,
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-future",
+              accountId: "account-1",
+              postedDate: "2026-03-20",
+              amountMinor: -10_000,
+              categoryId: "fincat:alimentation.epicerie",
+            }),
+          );
+
+          const { forecast } = await repository.computeFinanceForecast("2026-03-10");
+          const envelope = forecast.envelopes.find(
+            (e) => e.categoryId === "fincat:alimentation.epicerie",
+          );
+          expect(envelope?.spentMinor).toBe(0);
+          expect(envelope?.currentPaceMinor).toBe(0);
+          expect(envelope?.status).toBe("on_track");
+          expect(envelope?.runoutDate).toBeNull();
+        });
+
+        it("scopes snapshot and forecast values to the configured base currency", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(
+            account({ id: "cad", currency: "CAD", openingBalanceMinor: 10_000 }),
+          );
+          await repository.saveFinanceAccount(
+            account({ id: "jpy", currency: "JPY", openingBalanceMinor: 900_000 }),
+          );
+          await repository.seedFinanceDefaultCategories();
+          await repository.setFinanceBudgetAssignment(
+            "2026-03",
+            "fincat:alimentation.epicerie",
+            10_000,
+          );
+          const recurring = (id: string, accountId: string, amountMinor: number) =>
+            repository.saveFinanceRecurringSeries({
+              id,
+              merchantKey: id,
+              accountId,
+              categoryId: "fincat:alimentation.epicerie",
+              cadence: "monthly",
+              expectedAmountMinor: amountMinor,
+              amountToleranceMinor: 100,
+              dayOfMonth: 12,
+              lastSeenDate: "2026-02-12",
+              nextExpectedDate: "2026-03-12",
+              occurrenceCount: 3,
+              status: "active",
+              confirmedByUser: true,
+              createdAt: "2026-03-01T00:00:00.000Z",
+              updatedAt: "2026-03-01T00:00:00.000Z",
+            });
+          await recurring("cad-bill", "cad", -1_000);
+          await recurring("jpy-bill", "jpy", -500_000);
+
+          const cadSnapshot = await repository.buildFinanceSnapshot("2026-03-10");
+          const { forecast: cadForecast } = await repository.computeFinanceForecast("2026-03-10");
+          expect(cadSnapshot.accounts.map((entry) => entry.id)).toEqual(["cad"]);
+          expect(cadSnapshot.recurringSeries.map((entry) => entry.accountId)).toEqual(["cad"]);
+          expect(cadSnapshot.budgetState.onBudgetBalanceMinor).toBe(10_000);
+          expect(cadForecast.cashRunoutDate).toBeNull();
+          expect(
+            cadForecast.envelopes.find(
+              (entry) => entry.categoryId === "fincat:alimentation.epicerie",
+            )?.knownUpcomingMinor,
+          ).toBe(1_000);
+
+          const settings = await repository.getSettings();
+          await repository.saveSettings({ ...settings, financeBaseCurrency: "JPY" });
+          const jpySnapshot = await repository.buildFinanceSnapshot("2026-03-10");
+          const { forecast: jpyForecast } = await repository.computeFinanceForecast("2026-03-10");
+          expect(jpySnapshot.accounts.map((entry) => entry.id)).toEqual(["jpy"]);
+          expect(jpySnapshot.recurringSeries.map((entry) => entry.accountId)).toEqual(["jpy"]);
+          expect(jpySnapshot.budgetState.onBudgetBalanceMinor).toBe(900_000);
+          expect(jpyForecast.cashRunoutDate).toBe("2026-04-12");
+          expect(
+            jpyForecast.envelopes.find(
+              (entry) => entry.categoryId === "fincat:alimentation.epicerie",
+            )?.knownUpcomingMinor,
+          ).toBe(500_000);
+        });
+
+        it("ignores recurring series on off-budget accounts", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(
+            account({ id: "account-1", openingBalanceMinor: 100_000 }),
+          );
+          await repository.saveFinanceAccount(
+            account({ id: "account-off", name: "Hors budget", onBudget: false }),
+          );
+          await repository.seedFinanceDefaultCategories();
+          await repository.setFinanceBudgetAssignment(
+            "2026-03",
+            "fincat:alimentation.epicerie",
+            50_000,
+          );
+          await repository.saveFinanceRecurringSeries({
+            id: "series-off",
+            merchantKey: "LOAN",
+            accountId: "account-off",
+            categoryId: "fincat:alimentation.epicerie",
+            cadence: "monthly",
+            expectedAmountMinor: -200_000,
+            amountToleranceMinor: 100,
+            dayOfMonth: 12,
+            lastSeenDate: "2026-02-12",
+            nextExpectedDate: "2026-03-12",
+            occurrenceCount: 3,
+            status: "active",
+            confirmedByUser: true,
+            createdAt: "2026-03-01T00:00:00.000Z",
+            updatedAt: "2026-03-01T00:00:00.000Z",
+          });
+
+          const snapshot = await repository.buildFinanceSnapshot("2026-03-10");
+          const { forecast, alerts } = await repository.computeFinanceForecast("2026-03-10");
+          expect(snapshot.recurringSeries).toEqual([]);
+          expect(forecast.cashRunoutDate).toBeNull();
+          const envelope = forecast.envelopes.find(
+            (e) => e.categoryId === "fincat:alimentation.epicerie",
+          );
+          expect(envelope?.knownUpcomingMinor).toBe(0);
+          expect(alerts).toEqual([]);
+        });
+
+        it("rate-limits the alert notification ledger once per day per key", async () => {
+          const repository = await factory();
+          const today = getTodayDate();
+
+          expect(await repository.listNotifiedFinanceAlertKeys(today)).toEqual([]);
+          await repository.recordFinanceAlertNotifications(today, [
+            "envelope_exhausted:cat:2026-03",
+          ]);
+          expect(await repository.listNotifiedFinanceAlertKeys(today)).toEqual([
+            "envelope_exhausted:cat:2026-03",
+          ]);
+
+          // Recording the same key again on the same day stays idempotent (no duplicates).
+          await repository.recordFinanceAlertNotifications(today, [
+            "envelope_exhausted:cat:2026-03",
+          ]);
+          expect(await repository.listNotifiedFinanceAlertKeys(today)).toEqual([
+            "envelope_exhausted:cat:2026-03",
+          ]);
+
+          // A different day's ledger is independent.
+          expect(await repository.listNotifiedFinanceAlertKeys("2000-01-01")).toEqual([]);
+        });
+      });
+
+      describe("AI categorization (Phase 8)", () => {
+        it("lists an unknown merchant only while it has no pending suggestion and no real category", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({ id: "txn-1", merchantKey: "MARCHAND INCONNU" }),
+          );
+
+          const groups = await repository.listFinanceUnknownMerchants();
+          expect(groups).toEqual([
+            expect.objectContaining({ merchantKey: "MARCHAND INCONNU", occurrenceCount: 1 }),
+          ]);
+
+          await repository.applyFinanceCategorizationResults({
+            results: [
+              {
+                merchantKey: "MARCHAND INCONNU",
+                categoryId: "fincat:alimentation.epicerie",
+                confidence: 0.5,
+                rationale: "Test",
+              },
+            ],
+            merchantKeyMap: { "MARCHAND INCONNU": ["MARCHAND INCONNU"] },
+            transactionIds: ["txn-1"],
+            model: "test-model",
+            promptVersion: "finance_categorization.v1",
+            autoApply: false,
+            autoApplyMinConfidence: 0.9,
+          });
+
+          // Now has a pending suggestion — no longer "unknown".
+          await expect(repository.listFinanceUnknownMerchants()).resolves.toEqual([]);
+        });
+
+        it("reports the sample currency and never mixes currencies in the amount sample", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({ id: "cad-1", merchantKey: "CAFE", amountMinor: -500 }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({ id: "cad-2", merchantKey: "CAFE", amountMinor: -700 }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "jpy-1",
+              merchantKey: "CAFE",
+              amountMinor: -90_000,
+              currency: "JPY",
+            }),
+          );
+
+          const [group] = await repository.listFinanceUnknownMerchants();
+          expect(group.currency).toBe("CAD");
+          expect(group.occurrenceCount).toBe(3);
+          expect(group.amountMinorSample).toBeLessThan(1_000);
+        });
+
+        it("writes a pending ai-origin suggestion with rationale/model/promptVersion, but does not auto-apply below threshold", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({ id: "txn-1", merchantKey: "MARCHAND INCONNU" }),
+          );
+
+          const outcome = await repository.applyFinanceCategorizationResults({
+            results: [
+              {
+                merchantKey: "MARCHAND INCONNU",
+                categoryId: "fincat:alimentation.epicerie",
+                confidence: 0.6,
+                rationale: "Semble etre une epicerie.",
+              },
+            ],
+            merchantKeyMap: { "MARCHAND INCONNU": ["MARCHAND INCONNU"] },
+            transactionIds: ["txn-1"],
+            model: "test-model",
+            promptVersion: "finance_categorization.v1",
+            autoApply: true,
+            autoApplyMinConfidence: 0.9,
+          });
+
+          expect(outcome).toEqual({
+            suggestionsCreated: 1,
+            autoApplied: 0,
+            suppressedDismissed: 0,
+          });
+
+          const [suggestion] = await repository.listFinanceCategorySuggestions("pending");
+          expect(suggestion).toMatchObject({
+            origin: "ai",
+            suggestedCategoryId: "fincat:alimentation.epicerie",
+            confidence: 0.6,
+            rationale: "Semble etre une epicerie.",
+            model: "test-model",
+            promptVersion: "finance_categorization.v1",
+            status: "pending",
+          });
+
+          await expect(repository.getFinanceTransaction("txn-1")).resolves.toMatchObject({
+            categoryId: "fincat:non-categorise",
+            categorySource: "default",
+          });
+        });
+
+        for (const autoApply of [false, true]) {
+          it(`leaves siblings with a pending suggestion or outside the request untouched (autoApply=${autoApply})`, async () => {
+            const repository = await factory();
+            await repository.saveFinanceAccount(account({ id: "account-1" }));
+            for (const id of ["txn-old", "txn-new", "txn-late"]) {
+              await repository.saveFinanceTransaction(
+                buildFinanceTransaction({ id, merchantKey: "MARCHAND INCONNU" }),
+              );
+            }
+            // `txn-old` already carries a pending suggestion (e.g. from the seed or memory stage).
+            await repository.applyFinanceCategorizationResults({
+              results: [
+                {
+                  merchantKey: "MARCHAND INCONNU",
+                  categoryId: "fincat:transport.essence",
+                  confidence: 0.5,
+                  rationale: "Existing",
+                },
+              ],
+              merchantKeyMap: { "MARCHAND INCONNU": ["MARCHAND INCONNU"] },
+              transactionIds: ["txn-old"],
+              model: "old-model",
+              promptVersion: "finance_categorization.v1",
+              autoApply: false,
+              autoApplyMinConfidence: 0.9,
+            });
+
+            // `txn-late` appeared after the request was built, so it is not in `transactionIds`.
+            const outcome = await repository.applyFinanceCategorizationResults({
+              results: [
+                {
+                  merchantKey: "MARCHAND INCONNU",
+                  categoryId: "fincat:alimentation.epicerie",
+                  confidence: 0.95,
+                  rationale: "New",
+                },
+              ],
+              merchantKeyMap: { "MARCHAND INCONNU": ["MARCHAND INCONNU"] },
+              transactionIds: ["txn-old", "txn-new"],
+              model: "new-model",
+              promptVersion: "finance_categorization.v1",
+              autoApply,
+              autoApplyMinConfidence: 0.9,
+            });
+
+            expect(outcome.suggestionsCreated).toBe(1);
+            expect(outcome.autoApplied).toBe(autoApply ? 1 : 0);
+            const pending = await repository.listFinanceCategorySuggestions("pending");
+            const byTransaction = new Map(pending.map((entry) => [entry.transactionId, entry]));
+            expect(byTransaction.get("txn-old")).toMatchObject({
+              suggestedCategoryId: "fincat:transport.essence",
+              model: "old-model",
+            });
+            expect(byTransaction.has("txn-late")).toBe(false);
+            expect(byTransaction.has("txn-new")).toBe(!autoApply);
+            await expect(repository.getFinanceTransaction("txn-old")).resolves.toMatchObject({
+              categoryId: "fincat:non-categorise",
+            });
+            await expect(repository.getFinanceTransaction("txn-late")).resolves.toMatchObject({
+              categoryId: "fincat:non-categorise",
+            });
+            await expect(repository.getFinanceTransaction("txn-new")).resolves.toMatchObject({
+              categorySource: autoApply ? "ai" : "default",
+            });
+          });
+        }
+
+        it("auto-applies and accepts the suggestion when confidence meets the threshold", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({ id: "txn-1", merchantKey: "MARCHAND INCONNU" }),
+          );
+
+          const outcome = await repository.applyFinanceCategorizationResults({
+            results: [
+              {
+                merchantKey: "MARCHAND INCONNU",
+                categoryId: "fincat:alimentation.epicerie",
+                confidence: 0.95,
+                rationale: "Tres probable.",
+              },
+            ],
+            merchantKeyMap: { "MARCHAND INCONNU": ["MARCHAND INCONNU"] },
+            transactionIds: ["txn-1"],
+            model: "test-model",
+            promptVersion: "finance_categorization.v1",
+            autoApply: true,
+            autoApplyMinConfidence: 0.9,
+          });
+
+          expect(outcome).toEqual({
+            suggestionsCreated: 1,
+            autoApplied: 1,
+            suppressedDismissed: 0,
+          });
+
+          await expect(repository.getFinanceTransaction("txn-1")).resolves.toMatchObject({
+            categoryId: "fincat:alimentation.epicerie",
+            categorySource: "ai",
+            categoryConfidence: 0.95,
+          });
+
+          const [suggestion] = await repository.listFinanceCategorySuggestions();
+          expect(suggestion.status).toBe("accepted");
+        });
+
+        it("never overwrites a user-set category, even when the merchant key matches", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id: "txn-1",
+              merchantKey: "MARCHAND INCONNU",
+              categoryId: "fincat:transport.essence",
+              categorySource: "user",
+            }),
+          );
+
+          const outcome = await repository.applyFinanceCategorizationResults({
+            results: [
+              {
+                merchantKey: "MARCHAND INCONNU",
+                categoryId: "fincat:alimentation.epicerie",
+                confidence: 0.99,
+                rationale: "Tres probable.",
+              },
+            ],
+            merchantKeyMap: { "MARCHAND INCONNU": ["MARCHAND INCONNU"] },
+            transactionIds: ["txn-1"],
+            model: "test-model",
+            promptVersion: "finance_categorization.v1",
+            autoApply: true,
+            autoApplyMinConfidence: 0.9,
+          });
+
+          expect(outcome).toEqual({
+            suggestionsCreated: 0,
+            autoApplied: 0,
+            suppressedDismissed: 0,
+          });
+          await expect(repository.getFinanceTransaction("txn-1")).resolves.toMatchObject({
+            categoryId: "fincat:transport.essence",
+            categorySource: "user",
+          });
+        });
+
+        it("honors the 90-day dismissed-pair suppression for AI suggestions", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({ id: "txn-1", merchantKey: "MARCHAND INCONNU" }),
+          );
+
+          const dismissed = await repository.saveFinanceCategorySuggestions([
+            {
+              id: "",
+              transactionId: "txn-1",
+              merchantKey: "MARCHAND INCONNU",
+              suggestedCategoryId: "fincat:alimentation.epicerie",
+              confidence: 0.6,
+              origin: "ai",
+              rationale: null,
+              model: null,
+              promptVersion: null,
+              status: "pending",
+              decidedAt: null,
+              createdAt: "",
+            },
+          ]);
+          await repository.decideFinanceCategorySuggestion(dismissed[0].id, {
+            status: "dismissed",
+          });
+
+          const outcome = await repository.applyFinanceCategorizationResults({
+            results: [
+              {
+                merchantKey: "MARCHAND INCONNU",
+                categoryId: "fincat:alimentation.epicerie",
+                confidence: 0.95,
+                rationale: "Tres probable.",
+              },
+            ],
+            merchantKeyMap: { "MARCHAND INCONNU": ["MARCHAND INCONNU"] },
+            transactionIds: ["txn-1"],
+            model: "test-model",
+            promptVersion: "finance_categorization.v1",
+            autoApply: true,
+            autoApplyMinConfidence: 0.9,
+          });
+
+          expect(outcome).toEqual({
+            suggestionsCreated: 0,
+            autoApplied: 0,
+            suppressedDismissed: 1,
+          });
+        });
+
+        it("applies to every pending transaction sharing the merchant key", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({ id: "txn-1", merchantKey: "MARCHAND INCONNU" }),
+          );
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({ id: "txn-2", merchantKey: "MARCHAND INCONNU" }),
+          );
+
+          const outcome = await repository.applyFinanceCategorizationResults({
+            results: [
+              {
+                merchantKey: "MARCHAND INCONNU",
+                categoryId: "fincat:alimentation.epicerie",
+                confidence: 0.95,
+                rationale: "Tres probable.",
+              },
+            ],
+            merchantKeyMap: { "MARCHAND INCONNU": ["MARCHAND INCONNU"] },
+            transactionIds: ["txn-1", "txn-2"],
+            model: "test-model",
+            promptVersion: "finance_categorization.v1",
+            autoApply: true,
+            autoApplyMinConfidence: 0.9,
+          });
+
+          expect(outcome).toEqual({
+            suggestionsCreated: 2,
+            autoApplied: 2,
+            suppressedDismissed: 0,
+          });
         });
       });
     });

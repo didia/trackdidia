@@ -22,6 +22,7 @@ const navigation = [
   { to: "/pomodoro", labelKey: "pomodoro" },
   { to: "/recurrences", labelKey: "recurrences" },
   { to: "/email-triage", labelKey: "emailTriage" },
+  { to: "/finances", labelKey: "finances", flag: "financeEnabled" },
   { to: "/references", labelKey: "references" },
   { to: "/scheduled", labelKey: "scheduled" },
   { to: "/waiting-for", labelKey: "waitingFor" },
@@ -32,7 +33,7 @@ const navigation = [
 export const AppShell = () => {
   const { t } = useTranslation("nav");
   const { t: tCommon } = useTranslation("common");
-  const { pomodoro } = useAppContext();
+  const { pomodoro, settings } = useAppContext();
   const { pathname } = useLocation();
   const hasActivePomodoroSession = Boolean(pomodoro.state.activeSession);
   const [idleNowMs, setIdleNowMs] = useState<number>(() => Date.now());
@@ -66,16 +67,18 @@ export const AppShell = () => {
         </div>
 
         <nav className="nav">
-          {navigation.map((item) => (
-            <NavLink
-              key={item.to}
-              end={"end" in item ? item.end : undefined}
-              to={item.to}
-              className={({ isActive }) => `nav__link${isActive ? " nav__link--active" : ""}`}
-            >
-              {t(item.labelKey)}
-            </NavLink>
-          ))}
+          {navigation
+            .filter((item) => !("flag" in item) || settings[item.flag])
+            .map((item) => (
+              <NavLink
+                key={item.to}
+                end={"end" in item ? item.end : undefined}
+                to={item.to}
+                className={({ isActive }) => `nav__link${isActive ? " nav__link--active" : ""}`}
+              >
+                {t(item.labelKey)}
+              </NavLink>
+            ))}
         </nav>
       </aside>
 

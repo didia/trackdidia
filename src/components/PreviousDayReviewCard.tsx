@@ -30,7 +30,7 @@ interface PreviousDayReviewCardProps {
 export const PreviousDayReviewCard = ({ date }: PreviousDayReviewCardProps) => {
   const { t } = useTranslation("today");
   const { entry, loading, save } = useDailyEntry(date);
-  const { settings, saveSettings } = useAppContext();
+  const { settings, updateSettings } = useAppContext();
   const [draft, setDraft] = useState<DailyEntry | null>(null);
   const [missing, setMissing] = useState<MissingFields | null>(null);
 
@@ -74,7 +74,7 @@ export const PreviousDayReviewCard = ({ date }: PreviousDayReviewCardProps) => {
       await save(draft);
     }
 
-    await saveSettings({ ...settings, previousDayReviewDoneDate: date });
+    await updateSettings((current) => ({ ...current, previousDayReviewDoneDate: date }));
   };
 
   return (

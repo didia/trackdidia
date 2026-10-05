@@ -1,5 +1,6 @@
 import { principleDefinitions } from "../../domain/definitions";
 import type { PrincipleChecks, PrincipleKey } from "../../domain/types";
+import { atLocalNoon } from "../date";
 
 export interface PastorSignalDayInput {
   date: string;
@@ -22,8 +23,8 @@ export interface PrincipleSignals {
 }
 
 const daysBetween = (laterDate: string, earlierDate: string): number => {
-  const later = new Date(`${laterDate}T12:00:00`).getTime();
-  const earlier = new Date(`${earlierDate}T12:00:00`).getTime();
+  const later = atLocalNoon(laterDate).getTime();
+  const earlier = atLocalNoon(earlierDate).getTime();
   return Math.round((later - earlier) / 86_400_000);
 };
 

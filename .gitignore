@@ -10,3 +10,4 @@ src-tauri/gen
 npm-debug.log*
 Tasks.json
 
+.worktrees/

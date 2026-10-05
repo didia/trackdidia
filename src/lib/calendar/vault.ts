@@ -41,6 +41,7 @@ export const storeCalendarVaultSecret = async (
 
 export const loadCalendarVaultSecret = async (
   kind: CalendarVaultEntryKind,
+  options: { throwOnError?: boolean } = {},
 ): Promise<string | null> => {
   if (!isTauriRuntime()) {
     return null;
@@ -50,7 +51,8 @@ export const loadCalendarVaultSecret = async (
       kind,
       accountId: null,
     });
-  } catch {
+  } catch (error) {
+    if (options.throwOnError) throw error;
     return null;
   }
 };

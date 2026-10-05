@@ -172,10 +172,46 @@ describe("buildCalendarSyncCaptureLink", () => {
     });
   });
 
-  it("does nothing when a synced link already matches the captured payload", () => {
+  it("detaches a matching synced link as promoted without any remote work", () => {
     const task = baseTask({ scheduledFor: "2026-01-12T09:00:00" });
     const existing = baseLink(task, settings, { state: "synced" });
+    expect(buildCalendarSyncCaptureLink(task, existing, settings, now)).toMatchObject({
+      state: "detached",
+      detachReason: "promoted",
+      eventId: "event:1",
+      payloadSignature: existing.payloadSignature,
+    });
+  });
+
+  it("does nothing for an already promoted link with the same payload", () => {
+    const task = baseTask({ scheduledFor: "2026-01-12T09:00:00" });
+    const existing = baseLink(task, settings, { state: "detached", detachReason: "promoted" });
     expect(buildCalendarSyncCaptureLink(task, existing, settings, now)).toBeNull();
+  });
+
+  it("keeps terminal detachments untouched", () => {
+    const task = baseTask({ scheduledFor: "2026-01-12T09:00:00" });
+    for (const detachReason of [
+      "missing_remote",
+      "completed",
+      "cancelled",
+      "unscheduled",
+      "task_deleted",
+    ] as const) {
+      const existing = baseLink(task, settings, { state: "detached", detachReason });
+      expect(buildCalendarSyncCaptureLink(task, existing, settings, now)).toBeNull();
+    }
+  });
+
+  it("reopens a promoted link as pending when the payload changed", () => {
+    const original = baseTask({ scheduledFor: "2026-01-12T09:00:00", title: "Original" });
+    const existing = baseLink(original, settings, { state: "detached", detachReason: "promoted" });
+    const edited = baseTask({ scheduledFor: "2026-01-12T09:00:00", title: "Edited" });
+    expect(buildCalendarSyncCaptureLink(edited, existing, settings, now)).toMatchObject({
+      state: "pending",
+      detachReason: null,
+      eventId: "event:1",
+    });
   });
 
   it("becomes pending and keeps the event_id when a synced link's payload differs", () => {
@@ -212,16 +248,5 @@ describe("buildCalendarSyncCaptureLink", () => {
       eventId: "event:1",
     });
     expect(buildCalendarSyncCaptureLink(task, existing, settings, now)).toBeNull();
-  });
-
-  it("still reclaims a detached `promoted` link back to pending", () => {
-    const task = baseTask({ scheduledFor: "2026-01-12T09:00:00" });
-    const existing = baseLink(task, settings, {
-      state: "detached",
-      detachReason: "promoted",
-      eventId: "event:1",
-    });
-    const link = buildCalendarSyncCaptureLink(task, existing, settings, now);
-    expect(link).toMatchObject({ state: "pending", eventId: "event:1" });
   });
 });
