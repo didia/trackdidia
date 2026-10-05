@@ -27,6 +27,7 @@ fn resolve_key(kind: &str, account_id: Option<&str>) -> Result<String, String> {
             }
             Ok(format!("email-triage-provider:{account}"))
         }
+        "calendar_credentials" => Ok("calendar-sync-google-credentials".to_string()),
         _ => Err("unsupported vault key kind".to_string()),
     }
 }
@@ -86,5 +87,50 @@ pub fn vault_delete_secret(kind: String, account_id: Option<String>) -> Result<(
     match entry.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(error) => Err(format!("Vault delete failed: {error}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_key_maps_the_triage_api_key_kind_to_a_fixed_key() {
+        assert_eq!(
+            resolve_key("triage_api_key", None).unwrap(),
+            "email-triage-openrouter-key"
+        );
+    }
+
+    #[test]
+    fn resolve_key_maps_calendar_credentials_to_a_fixed_key_without_an_account_id() {
+        assert_eq!(
+            resolve_key("calendar_credentials", None).unwrap(),
+            "calendar-sync-google-credentials"
+        );
+        assert_eq!(
+            resolve_key("calendar_credentials", Some("ignored")).unwrap(),
+            "calendar-sync-google-credentials"
+        );
+    }
+
+    #[test]
+    fn resolve_key_requires_an_account_id_for_provider_credentials() {
+        assert!(resolve_key("provider_credentials", None).is_err());
+        assert_eq!(
+            resolve_key("provider_credentials", Some("acct-1")).unwrap(),
+            "email-triage-provider:acct-1"
+        );
+    }
+
+    #[test]
+    fn resolve_key_rejects_an_invalid_provider_credentials_account_id() {
+        assert!(resolve_key("provider_credentials", Some("has spaces")).is_err());
+        assert!(resolve_key("provider_credentials", Some("")).is_err());
+    }
+
+    #[test]
+    fn resolve_key_rejects_an_unsupported_kind() {
+        assert!(resolve_key("unknown_kind", None).is_err());
     }
 }

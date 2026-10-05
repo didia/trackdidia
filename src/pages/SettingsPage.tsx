@@ -1,6 +1,7 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useLatestRequest } from "../app/use-latest-request";
 import { useAppContext } from "../app/app-context";
 import { AiCoachAnalyticsSection } from "../components/AiCoachAnalyticsSection";
 import { AiCostDashboardSection } from "../components/AiCostDashboardSection";
@@ -10,13 +11,25 @@ import { SectionCard } from "../components/SectionCard";
 import { AiPayloadPreviewSection } from "../components/settings/AiPayloadPreviewSection";
 import { StorageOverviewSection } from "../components/settings/StorageOverviewSection";
 import { useSectionSave } from "../components/settings/useSectionSave";
-import { normalizeCurrencyCode } from "../lib/finance/money";
+import { defaultCalendarSyncSettings, type CalendarSyncSettings } from "../domain/calendar-sync";
 import { defaultAppSettings, rebaseSettingsDraft, settingsDraftPatch } from "../domain/settings";
 import type { AiPayloadScope, AppSettings } from "../domain/types";
 import { formatPulseSlotHours, parsePulseSlotHours } from "../lib/ai/pulse/slot-hours";
 import { BACKUP_RETENTION_COUNT, isBackupDestinationConfigured } from "../lib/backup";
+import {
+  connectCalendarSyncAccount,
+  disconnectCalendarSyncAccount,
+  reconnectCalendarSyncAccount,
+} from "../lib/calendar/connect";
+import { resolveCalendarSyncOAuthClientId } from "../lib/calendar/google-calendar-oauth";
 import { formatDateTimeShort } from "../lib/date";
-import { currencyExponent, minorToInputString, parseAmountToMinor } from "../lib/finance/money";
+import { saveCalendarSyncPreferences } from "../lib/calendar/mutations";
+import {
+  currencyExponent,
+  minorToInputString,
+  normalizeCurrencyCode,
+  parseAmountToMinor,
+} from "../lib/finance/money";
 import { RescueTimeGoalsService } from "../lib/rescuetime/rescuetime-goals-service";
 import type { StorageInfo } from "../lib/storage/repository";
 
@@ -141,6 +154,19 @@ export const SettingsPage = () => {
 
     await updateSettings((current) => ({ ...current, ...patch }));
   });
+  const [calendarSettings, setCalendarSettings] = useState<CalendarSyncSettings>(() =>
+    defaultCalendarSyncSettings(new Date().toISOString()),
+  );
+  const [calendarLoaded, setCalendarLoaded] = useState(false);
+  const [calendarLoadError, setCalendarLoadError] = useState(false);
+  const calendarActionRef = useRef(false);
+  const calendarLoad = useLatestRequest();
+  const [calendarEnabledDraft, setCalendarEnabledDraft] = useState(false);
+  const [calendarClientIdDraft, setCalendarClientIdDraft] = useState("");
+  const [calendarSavingSettings, setCalendarSavingSettings] = useState(false);
+  const [calendarSettingsMessage, setCalendarSettingsMessage] = useState("");
+  const [calendarConnecting, setCalendarConnecting] = useState(false);
+  const [calendarActionError, setCalendarActionError] = useState<string | null>(null);
 
   useEffect(() => {
     const baseline = baselineRef.current;
@@ -200,6 +226,95 @@ export const SettingsPage = () => {
       cancelled = true;
     };
   }, [repository]);
+
+  const loadCalendarSyncSettings = useCallback(
+    () =>
+      calendarLoad.run(async (signal) => {
+        try {
+          const next = await repository.getCalendarSyncSettings();
+          if (!signal.isLatest()) return;
+          setCalendarSettings(next);
+          setCalendarEnabledDraft(next.enabled);
+          setCalendarClientIdDraft(next.oauthClientId);
+          setCalendarLoaded(true);
+          setCalendarLoadError(false);
+        } catch {
+          if (signal.isLatest()) setCalendarLoadError(true);
+        }
+      }),
+    [repository, calendarLoad],
+  );
+
+  useEffect(() => {
+    setCalendarLoaded(false);
+    if (!browserPreview) void loadCalendarSyncSettings();
+    return calendarLoad.invalidate;
+  }, [browserPreview, loadCalendarSyncSettings, calendarLoad]);
+
+  const resolvedCalendarClientId = useMemo(
+    () => resolveCalendarSyncOAuthClientId(calendarClientIdDraft),
+    [calendarClientIdDraft],
+  );
+  const canConnectCalendar =
+    !browserPreview && calendarEnabledDraft && Boolean(resolvedCalendarClientId);
+
+  const handleSaveCalendarSyncSettings = async () => {
+    if (!calendarLoaded || calendarActionRef.current) return;
+    calendarActionRef.current = true;
+    setCalendarSavingSettings(true);
+    setCalendarSettingsMessage("");
+    try {
+      const saved = await saveCalendarSyncPreferences(repository, {
+        enabled: calendarEnabledDraft,
+        oauthClientId: calendarClientIdDraft.trim(),
+      });
+      setCalendarSettings(saved);
+      setCalendarEnabledDraft(saved.enabled);
+      setCalendarClientIdDraft(saved.oauthClientId);
+      setCalendarSettingsMessage(t("calendar.saved"));
+    } catch (error) {
+      setCalendarSettingsMessage(error instanceof Error ? error.message : t("calendar.saveError"));
+    } finally {
+      calendarActionRef.current = false;
+      setCalendarSavingSettings(false);
+    }
+  };
+
+  const handleConnectCalendar = async (reconnect: boolean) => {
+    if (!calendarLoaded || calendarActionRef.current) return;
+    calendarActionRef.current = true;
+    setCalendarConnecting(true);
+    setCalendarActionError(null);
+    try {
+      const connectFn = reconnect ? reconnectCalendarSyncAccount : connectCalendarSyncAccount;
+      const result = await connectFn(repository, { clientId: calendarClientIdDraft });
+      setCalendarActionError(result.ok ? null : (result.error ?? "connect_failed"));
+    } catch {
+      setCalendarActionError("connect_failed");
+    } finally {
+      await loadCalendarSyncSettings();
+      calendarActionRef.current = false;
+      setCalendarConnecting(false);
+    }
+  };
+
+  const handleDisconnectCalendar = async () => {
+    if (!calendarLoaded || calendarActionRef.current) return;
+    calendarActionRef.current = true;
+    setCalendarConnecting(true);
+    setCalendarActionError(null);
+    try {
+      await disconnectCalendarSyncAccount(repository);
+    } catch {
+      setCalendarActionError("disconnect_failed");
+    } finally {
+      await loadCalendarSyncSettings();
+      calendarActionRef.current = false;
+      setCalendarConnecting(false);
+    }
+  };
+
+  const calendarBusy = calendarSavingSettings || calendarConnecting;
 
   return (
     <div className="page">
@@ -748,6 +863,135 @@ export const SettingsPage = () => {
             {financeSave.saving ? t("finance.seeding") : t("finance.save")}
           </button>
         </div>
+      </SectionCard>
+
+      <SectionCard title={t("calendar.title")} subtitle={t("calendar.subtitle")}>
+        {browserPreview ? (
+          <div className="banner">{t("calendar.browserPreviewNotice")}</div>
+        ) : !calendarLoaded ? (
+          <div className="banner">
+            {t(calendarLoadError ? "calendar.loadError" : "calendar.loading")}
+            {calendarLoadError ? (
+              <button
+                type="button"
+                className="button"
+                onClick={() => void loadCalendarSyncSettings()}
+              >
+                {t("calendar.retry")}
+              </button>
+            ) : null}
+          </div>
+        ) : (
+          <>
+            <ul>
+              <li>{t("calendar.copy.dedicatedCalendar")}</li>
+              <li>{t("calendar.copy.titlesLeaveMachine")}</li>
+              <li>{t("calendar.copy.keptOnCompletion")}</li>
+              <li>{t("calendar.copy.notBackfilled")}</li>
+            </ul>
+
+            <div className="settings-form">
+              <label className="switch-row">
+                <input
+                  type="checkbox"
+                  checked={calendarEnabledDraft}
+                  disabled={calendarBusy}
+                  onChange={(event) => setCalendarEnabledDraft(event.target.checked)}
+                />
+                <span>{t("calendar.enable")}</span>
+              </label>
+
+              <label>
+                <span>{t("calendar.oauthClientId")}</span>
+                <input
+                  type="text"
+                  value={calendarClientIdDraft}
+                  disabled={calendarBusy}
+                  onChange={(event) => setCalendarClientIdDraft(event.target.value)}
+                  placeholder={t("calendar.oauthClientIdPlaceholder")}
+                />
+              </label>
+            </div>
+
+            <div className="form-actions">
+              <button
+                className="button button--primary"
+                type="button"
+                disabled={calendarBusy}
+                onClick={() => void handleSaveCalendarSyncSettings()}
+              >
+                {calendarSavingSettings ? t("ai.saving") : t("calendar.save")}
+              </button>
+              {!calendarSettings.connectedAccountId ? (
+                <button
+                  className="button"
+                  type="button"
+                  disabled={!canConnectCalendar || calendarBusy}
+                  onClick={() => void handleConnectCalendar(false)}
+                >
+                  {calendarConnecting ? t("calendar.connecting") : t("calendar.connect")}
+                </button>
+              ) : (
+                <>
+                  <button
+                    className="button"
+                    type="button"
+                    disabled={!canConnectCalendar || calendarBusy}
+                    onClick={() => void handleConnectCalendar(true)}
+                  >
+                    {calendarConnecting ? t("calendar.connecting") : t("calendar.reconnect")}
+                  </button>
+                  <button
+                    className="button"
+                    type="button"
+                    disabled={calendarBusy}
+                    onClick={() => void handleDisconnectCalendar()}
+                  >
+                    {t("calendar.disconnect")}
+                  </button>
+                </>
+              )}
+            </div>
+            {calendarSettingsMessage ? <p>{calendarSettingsMessage}</p> : null}
+            {calendarActionError ? (
+              <p>
+                {t(`calendar.connectErrors.${calendarActionError}`, {
+                  defaultValue: t("calendar.connectErrors.connect_failed"),
+                })}
+              </p>
+            ) : null}
+
+            <div className="status-grid">
+              <article className="status-card">
+                <span>{t("calendar.connectedAccount")}</span>
+                <strong>{calendarSettings.connectedAccountId ?? t("calendar.notConnected")}</strong>
+              </article>
+              <article className="status-card">
+                <span>{t("calendar.calendarName")}</span>
+                <strong>
+                  {calendarSettings.calendarId ? calendarSettings.calendarSummary : "—"}
+                </strong>
+              </article>
+              <article className="status-card">
+                <span>{t("calendar.connectionState")}</span>
+                <strong>{t(`calendar.state.${calendarSettings.state}`)}</strong>
+              </article>
+              <article className="status-card">
+                <span>{t("calendar.lastSync")}</span>
+                <strong>
+                  {calendarSettings.lastSyncAt
+                    ? formatDateTimeShort(calendarSettings.lastSyncAt)
+                    : t("calendar.never")}
+                </strong>
+              </article>
+            </div>
+            {calendarSettings.lastError ? (
+              <div className="banner">
+                {t("calendar.lastErrorLabel")}: {calendarSettings.lastError}
+              </div>
+            ) : null}
+          </>
+        )}
       </SectionCard>
 
       <SectionCard

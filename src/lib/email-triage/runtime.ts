@@ -4,6 +4,7 @@ import type { EmailTriageAccount } from "../../domain/email-triage";
 import type { AppRepository } from "../storage/repository";
 import { isTauriRuntime } from "../storage/factory";
 import { createEntityId, nowIso } from "../gtd/shared";
+import { acquireOAuthLoopbackLease } from "../oauth-loopback-guard";
 import { createTauriYahooImapClient } from "./providers/yahoo-api";
 import { clearCachedYahooAppPassword, serializeYahooCredentials } from "./oauth/yahoo-credentials";
 import { createTauriHttpClient } from "./provider-http";
@@ -85,53 +86,64 @@ export const connectOAuthAccount = async (
     if (!target) return { ok: false, error: "account_not_found" };
     reconnectSnapshot = snapshotReconnectTarget(target);
   }
-  const oauthState = generateOAuthState();
-  const verifier = generatePkceVerifier();
-  const challenge = await createPkceChallenge(verifier);
-  const loopback = await invoke<{ port: number; redirectUri: string }>("oauth_loopback_start", {
-    expectedState: oauthState,
-  });
-  await openUrl(
-    descriptor.authUrl({
-      clientId,
-      redirectUri: loopback.redirectUri,
-      state: oauthState,
-      codeChallenge: challenge,
-    }),
-  );
-  const callback = await invoke<{
-    code?: string;
-    state?: string;
-    error?: string;
-    errorDescription?: string;
-  }>("oauth_loopback_wait", { timeoutMs: 180_000 });
-  if (callback.error)
-    return {
-      ok: false,
-      error: descriptor.mapCallbackError(callback.error, callback.errorDescription),
-    };
-  if (!validateOAuthState(oauthState, callback.state) || !callback.code)
-    return { ok: false, error: "oauth_state_mismatch" };
 
-  const http = createTauriHttpClient();
+  const loopbackLease = acquireOAuthLoopbackLease("email_triage");
+  if (!loopbackLease.ok) {
+    return { ok: false, error: "oauth_loopback_busy" };
+  }
   let tokens: OAuthTokens;
+  const http = createTauriHttpClient();
   try {
-    tokens = await exchangeAuthorizationCode(
-      http,
-      descriptor.tokenUrl,
-      {
+    const oauthState = generateOAuthState();
+    const verifier = generatePkceVerifier();
+    const challenge = await createPkceChallenge(verifier);
+    const loopback = await invoke<{ port: number; redirectUri: string }>("oauth_loopback_start", {
+      expectedState: oauthState,
+    });
+    await openUrl(
+      descriptor.authUrl({
         clientId,
-        code: callback.code,
         redirectUri: loopback.redirectUri,
-        codeVerifier: verifier,
-      },
-      descriptor.exchangePolicy,
-      descriptor.tokenScope,
+        state: oauthState,
+        codeChallenge: challenge,
+      }),
     );
-  } catch (error) {
-    if (descriptor.mapConnectError)
-      return { ok: false, error: descriptor.mapConnectError(error, "exchange") };
-    throw error;
+    const callback = await invoke<{
+      code?: string;
+      state?: string;
+      error?: string;
+      errorDescription?: string;
+    }>("oauth_loopback_wait", { timeoutMs: 180_000 });
+    if (callback.error) {
+      return {
+        ok: false,
+        error: descriptor.mapCallbackError(callback.error, callback.errorDescription),
+      };
+    }
+    if (!validateOAuthState(oauthState, callback.state) || !callback.code) {
+      return { ok: false, error: "oauth_state_mismatch" };
+    }
+    try {
+      tokens = await exchangeAuthorizationCode(
+        http,
+        descriptor.tokenUrl,
+        {
+          clientId,
+          code: callback.code,
+          redirectUri: loopback.redirectUri,
+          codeVerifier: verifier,
+        },
+        descriptor.exchangePolicy,
+        descriptor.tokenScope,
+      );
+    } catch (error) {
+      if (descriptor.mapConnectError) {
+        return { ok: false, error: descriptor.mapConnectError(error, "exchange") };
+      }
+      throw error;
+    }
+  } finally {
+    loopbackLease.lease.release();
   }
   if (!tokens.refreshToken) return { ok: false, error: "missing_refresh_token" };
   const refreshToken = tokens.refreshToken;

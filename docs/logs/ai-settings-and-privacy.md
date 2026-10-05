@@ -1,3 +1,4 @@
+- 2026-10-04: Documented the Calendar connection, OAuth scopes/vault privacy, serialized writes across remounts, failed-commit compensation, one-refresh 401 retry and translated cancellation; event reconciliation remains unmounted.
 - 2026-10-03: Repeated proposal accepts now return the stored decision without draft UI effects; synchronous click guards and disabled buttons protect daily, weekly, and monthly acceptance. Regression tests preserve manual notes through repeated acceptance and later autosaves.
 - 2026-10-03: Consolidated the five AI structured-generation pipelines while retaining per-surface cache, usage, fallback and history policies; added original-output compatibility snapshots.
 
