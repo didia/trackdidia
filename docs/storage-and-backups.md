@@ -348,9 +348,9 @@ Migration 40 adds sidecar tables for the one-way
 TrackDidia -> Google Calendar sync; see
 [`specs/todo/calendar-sync.md`](../specs/todo/calendar-sync.md). No `gtd_tasks` column
 changes. The schema, pure planner (`src/lib/calendar/planner.ts`), promotion-capture step,
-and desktop OAuth connection/API client are implemented. Event reconciliation is not
-mounted yet. See [Google Calendar connection](ai-settings-and-privacy.md#google-calendar-connection)
-for credentials, failure recovery, and serialized preference writes.
+and desktop OAuth connection/API client are implemented, with event reconciliation mounted
+only after desktop startup settles. See [Google Calendar connection](ai-settings-and-privacy.md#google-calendar-connection)
+for credentials, failure recovery, cooldowns, and serialized preference/reconciler writes.
 
 - `calendar_sync_settings`: singleton `id = 'global'` for enable flag, OAuth client id,
   connected account/calendar ids, calendar summary, the four dormant columns

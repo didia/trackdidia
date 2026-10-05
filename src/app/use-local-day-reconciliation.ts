@@ -5,6 +5,7 @@ import { evaluateFinanceAlertNotifications } from "../lib/finance/alert-notifica
 import { notifyPomodoroCompletion } from "../lib/pomodoro/sound";
 import type { AppRepository } from "../lib/storage/repository";
 import { t } from "../i18n";
+import { requestCalendarSync } from "./use-calendar-sync";
 
 /**
  * Tracks the current local calendar day and, when it changes, runs
@@ -127,6 +128,9 @@ export const useLocalDayReconciliation = (
         try {
           await candidate.reconcileDay(today);
           promotedForRef.current = { day: today, repository: candidate };
+          // Promotion capture may have written pending links; nudge the reconciler once
+          // per day (focus coverage comes from `useCalendarSync`, not this site).
+          requestCalendarSync();
         } catch (error) {
           logDebug("error", "app.localDay", "Echec de la reconciliation du jour local", error);
           // Still attempt the finance snapshot below; the calendar day is not republished.

@@ -5,6 +5,11 @@ import { MemoryRepository } from "../lib/storage/memory-repository";
 import { renderWithApp } from "../test/test-utils";
 import { useGtdWorkspace } from "./use-gtd";
 
+const requestCalendarSyncMock = vi.fn();
+vi.mock("./use-calendar-sync", () => ({
+  requestCalendarSync: () => requestCalendarSyncMock(),
+}));
+
 const Probe = () => {
   const { tasks, taskEvents, loading } = useGtdWorkspace();
   if (loading && tasks.length === 0) {
@@ -53,5 +58,15 @@ describe("useGtdWorkspace", () => {
       expect(screen.getByTestId("buckets").textContent).toContain(`${task.id}:scheduled`),
     );
     expect(reconcile).not.toHaveBeenCalled();
+  });
+
+  it("nudges the calendar-sync reconciler at the end of load()", async () => {
+    requestCalendarSyncMock.mockClear();
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    await renderWithApp(<Probe />, { repository });
+
+    await waitFor(() => expect(requestCalendarSyncMock).toHaveBeenCalled());
   });
 });

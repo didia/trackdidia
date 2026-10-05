@@ -12,6 +12,7 @@ import {
 import { loadVaultSecret } from "../lib/email-triage/vault";
 import type { EmailTriageClassifierProvider } from "../lib/email-triage/classifier";
 import type { AppSettings } from "../domain/types";
+import { requestCalendarSync } from "./use-calendar-sync";
 
 const mockClassifierProvider: EmailTriageClassifierProvider = {
   async completeStructured() {
@@ -27,7 +28,7 @@ const mockClassifierProvider: EmailTriageClassifierProvider = {
   },
 };
 
-const buildEmailTriageRepositoryPort = (repository: AppRepository) => ({
+export const buildEmailTriageRepositoryPort = (repository: AppRepository) => ({
   getGlobalSettings: async () => repository.emailTriage.getGlobalSettings(),
   getAccount: async (accountId: string) => repository.emailTriage.getAccount(accountId),
   updateAccountSyncState: async (
@@ -62,7 +63,13 @@ const buildEmailTriageRepositoryPort = (repository: AppRepository) => ({
     repository.emailTriage.getTaskByExternalId(externalId),
   applyEmailTriageGtdUpdate: async (
     input: import("../lib/email-triage/sync-engine").ApplyGtdUpdateInput,
-  ) => repository.emailTriage.applyGtdUpdate(input),
+  ) => {
+    const result = await repository.emailTriage.applyGtdUpdate(input);
+    // `email-triage-sqlite-store.ts` `resolveReview` applies a GTD update inside the store
+    // and does not nudge; this adapter is the backstop for that path.
+    requestCalendarSync();
+    return result;
+  },
   createReview: async (input: import("../lib/email-triage/sync-engine").CreateReviewInput) => {
     await repository.emailTriage.createReview(input);
   },

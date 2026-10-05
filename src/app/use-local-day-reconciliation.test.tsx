@@ -11,7 +11,14 @@ import { AppContext, type AppContextValue } from "./app-context";
 import { useGtdWorkspace } from "./use-gtd";
 import { useLocalDayReconciliation } from "./use-local-day-reconciliation";
 
-const { notifyCompletion } = vi.hoisted(() => ({ notifyCompletion: vi.fn(async () => true) }));
+const { notifyCompletion, requestCalendarSyncMock } = vi.hoisted(() => ({
+  notifyCompletion: vi.fn(async () => true),
+  requestCalendarSyncMock: vi.fn(),
+}));
+
+vi.mock("./use-calendar-sync", () => ({
+  requestCalendarSync: () => requestCalendarSyncMock(),
+}));
 
 vi.mock("../lib/pomodoro/sound", () => ({
   unlockPomodoroSound: vi.fn(async () => undefined),
@@ -385,5 +392,25 @@ describe("useLocalDayReconciliation", () => {
       await flushEffects();
       expect(notifyCompletion).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it("nudges the calendar-sync reconciler once per day after promotion", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 8, 7, 23, 59, 0, 0));
+
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await seedDueTomorrow(repository, "Appelee a minuit");
+
+    render(<MountedGtdView repository={repository} />);
+    await flushEffects();
+    requestCalendarSyncMock.mockClear();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2 * 60 * 1000);
+    });
+    await flushEffects();
+
+    expect(requestCalendarSyncMock).toHaveBeenCalled();
   });
 });

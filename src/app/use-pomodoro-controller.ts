@@ -21,6 +21,7 @@ import {
   unlockPomodoroSound,
 } from "../lib/pomodoro/sound";
 import type { AppRepository, PomodoroStartOptions } from "../lib/storage/repository";
+import { requestCalendarSync } from "./use-calendar-sync";
 
 export interface PomodoroControllerValue {
   state: PomodoroState;
@@ -509,6 +510,7 @@ export const usePomodoroController = (
           session.status === "running" && session.kind === "focus" && !!session.activeTaskId,
         perform: async (candidate, session) => {
           await candidate.completeTask(session.activeTaskId!);
+          requestCalendarSync();
           return candidate.switchPomodoroTask(session.id, null, null);
         },
         refresh: "everything",

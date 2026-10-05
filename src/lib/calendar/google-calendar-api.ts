@@ -27,11 +27,22 @@ export type CalendarEventLookupResult =
   | { ok: true; hits: CalendarEventLookupHit[] }
   | {
       ok: false;
-      reason: "request_failed" | "page_cap_reached" | "reconnect_required" | "rate_limited";
+      reason:
+        | "request_failed"
+        | "page_cap_reached"
+        | "reconnect_required"
+        | "calendar_not_found"
+        | "rate_limited";
     };
 
 export interface CreateOrAdoptEventResult {
-  status: "inserted" | "adopted" | "lookup_failed" | "reconnect_required" | "rate_limited";
+  status:
+    | "inserted"
+    | "adopted"
+    | "lookup_failed"
+    | "reconnect_required"
+    | "calendar_not_found"
+    | "rate_limited";
   eventId?: string;
   /** Present only when `status === "adopted"`; every other hit was deleted in the same run. */
   duplicateEventIdsDeleted?: string[];
@@ -125,7 +136,10 @@ export class GoogleCalendarApiClient {
    * access-token getter throwing `reconnect_required`, or the refresh endpoint returning
    * `invalid_grant`) is reported as its own `reconnect_required` reason, never flattened
    * into `request_failed`: Phase 2's reconciler needs to tell "retry later" apart from "the
-   * grant is dead, stop and ask the user to reconnect".
+   * grant is dead, stop and ask the user to reconnect". A 404/410 (the calendar itself no
+   * longer exists; this endpoint has no event id to be 404 about) is reported as its own
+   * `calendar_not_found` reason, never flattened into `request_failed`, so the reconciler
+   * can trigger calendar recreation instead of a retryable backoff.
    */
   async lookupEventsByOccurrence(
     calendarId: string,
@@ -154,12 +168,18 @@ export class GoogleCalendarApiClient {
         if (isReconnectRequiredError(error)) {
           return { ok: false, reason: "reconnect_required" };
         }
+        if (isCalendarSyncNotFoundError(error)) {
+          return { ok: false, reason: "calendar_not_found" };
+        }
         if (isCalendarSyncRateLimitError(error)) {
           return { ok: false, reason: "rate_limited" };
         }
         return { ok: false, reason: "request_failed" };
       }
       if (response.status < 200 || response.status >= 300) {
+        if (response.status === 404 || response.status === 410) {
+          return { ok: false, reason: "calendar_not_found" };
+        }
         if (
           isCalendarSyncRateLimitError(
             new ProviderHttpError("calendar_sync_lookup_failed", response.status, response.body),
@@ -248,12 +268,14 @@ export class GoogleCalendarApiClient {
       options.occurrenceKey,
     );
     if (!lookup.ok) {
-      return {
-        status:
-          lookup.reason === "reconnect_required" || lookup.reason === "rate_limited"
-            ? lookup.reason
-            : "lookup_failed",
-      };
+      if (
+        lookup.reason === "reconnect_required" ||
+        lookup.reason === "calendar_not_found" ||
+        lookup.reason === "rate_limited"
+      ) {
+        return { status: lookup.reason };
+      }
+      return { status: "lookup_failed" };
     }
     if (lookup.hits.length === 0) {
       const eventId = await this.insertEvent(options.calendarId, options.payload);

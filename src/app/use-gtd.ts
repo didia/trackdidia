@@ -11,6 +11,7 @@ import type {
 import { getTodayDate } from "../lib/date";
 import { planBulkBucketMove } from "../lib/gtd/bulk-move";
 import { useAppContext } from "./app-context";
+import { requestCalendarSync } from "./use-calendar-sync";
 
 export const useGtdWorkspace = () => {
   const { repository, calendarDay } = useAppContext();
@@ -47,6 +48,9 @@ export const useGtdWorkspace = () => {
       setContexts(nextContexts);
       setTaskEvents(nextEvents);
       setLoading(false);
+      // `load()` does not cover every mutation path; nudge the reconciler here as a
+      // backstop (debounced, no-op when no reconciler hook is mounted).
+      requestCalendarSync();
     },
     [repository],
   );

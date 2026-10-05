@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Project, RecurringTaskTemplate, TaskContext } from "../domain/types";
 import { useAppContext } from "../app/app-context";
+import { requestCalendarSync } from "../app/use-calendar-sync";
 import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
 import { formatDateShort, getTodayDate } from "../lib/date";
@@ -525,6 +526,7 @@ export const RecurrencesPage = () => {
               await repository.saveRecurringTaskTemplate(draft);
               // Reads no longer generate occurrences; a template starting today needs it now.
               await repository.reconcileDay(getTodayDate());
+              requestCalendarSync();
               setDraft(createDraftTemplate());
               await load();
             }}
@@ -630,19 +632,23 @@ export const RecurrencesPage = () => {
                 onSave={async (nextTemplate) => {
                   await repository.saveRecurringTaskTemplate(nextTemplate);
                   await repository.reconcileDay(getTodayDate());
+                  requestCalendarSync();
                   await load();
                 }}
                 onPause={async (id) => {
                   await repository.pauseRecurringTaskTemplate(id);
+                  requestCalendarSync();
                   await load();
                 }}
                 onResume={async (id) => {
                   await repository.resumeRecurringTaskTemplate(id);
                   await repository.reconcileDay(getTodayDate());
+                  requestCalendarSync();
                   await load();
                 }}
                 onCancel={async (id) => {
                   await repository.cancelRecurringTaskTemplate(id);
+                  requestCalendarSync();
                   await load();
                 }}
               />

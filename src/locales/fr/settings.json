@@ -245,6 +245,14 @@
     "never": "Jamais",
     "lastErrorLabel": "Dernière erreur",
     "browserPreviewNotice": "Synchronisation du calendrier indisponible en prévisualisation navigateur (fonctionnalité de bureau uniquement).",
+    "syncNow": "Synchroniser maintenant",
+    "syncing": "Synchronisation...",
+    "reconnectPrompt": "La connexion a expiré ou a été révoquée. Reconnectez le compte Google pour reprendre la synchronisation.",
+    "needsConfirmation": {
+      "body": "La synchronisation veut supprimer {{n}} entrées du calendrier en une seule fois. Confirmez pour continuer, ou modifiez vos tâches pour réduire ce nombre.",
+      "bodyUnknown": "La synchronisation attend une confirmation avant de supprimer un grand nombre d'entrées du calendrier.",
+      "confirm": "Confirmer la suppression"
+    },
     "state": {
       "disconnected": "Déconnecté",
       "active": "Actif",
@@ -259,7 +267,23 @@
       "missing_refresh_token": "Google n'a pas renvoyé de jeton d'actualisation.",
       "oauth_loopback_busy": "Une autre connexion OAuth (courriel) est déjà en cours. Terminez-la ou annulez-la avant de réessayer.",
       "connect_failed": "La connexion au calendrier Google a échoué.",
-      "disconnect_failed": "La déconnexion du calendrier Google a échoué."
+      "disconnect_failed": "La déconnexion du calendrier Google a échoué.",
+      "sync_failed": "La synchronisation du calendrier a échoué."
+    },
+    "syncErrors": {
+      "disabled": "La synchronisation est désactivée. Activez-la puis enregistrez les paramètres.",
+      "gated": "La synchronisation est suspendue. Vérifiez la connexion et les confirmations en attente.",
+      "missing_client_id": "Identifiant client OAuth manquant.",
+      "reconnect_required": "La connexion a expiré ou a été révoquée. Reconnectez le compte Google pour reprendre la synchronisation.",
+      "needs_confirmation": "La synchronisation attend une confirmation avant de supprimer un grand nombre d'entrées du calendrier.",
+      "empty_task_set": "Aucune tâche disponible. La synchronisation a été suspendue pour préserver les entrées du calendrier.",
+      "calendar_sync_empty_task_set": "Aucune tâche disponible. La synchronisation a été suspendue pour préserver les entrées du calendrier.",
+      "calendar_sync_rate_limited": "Google limite les appels au calendrier. La synchronisation automatique reprendra dans 15 minutes.",
+      "rate_limited_cooldown": "Google limite les appels au calendrier. La synchronisation automatique reprendra dans 15 minutes.",
+      "calendar_sync_calendar_recreated": "Le calendrier TrackDidia a été recréé.",
+      "calendar_sync_calendar_not_found": "Le calendrier Google est introuvable. Réessayez la synchronisation.",
+      "calendar_sync_lookup_failed": "Impossible de rechercher les entrées du calendrier Google. Réessayez.",
+      "sync_failed": "La synchronisation du calendrier a échoué."
     }
   },
   "debug": {

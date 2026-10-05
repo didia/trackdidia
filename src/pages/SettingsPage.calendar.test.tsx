@@ -8,6 +8,8 @@ import { SettingsPage } from "./SettingsPage";
 const connectCalendarSyncAccountMock = vi.fn();
 const reconnectCalendarSyncAccountMock = vi.fn();
 const disconnectCalendarSyncAccountMock = vi.fn();
+const syncNowMock = vi.fn();
+const confirmMassDeleteMock = vi.fn();
 
 vi.mock("../lib/calendar/connect", () => ({
   connectCalendarSyncAccount: (...args: unknown[]) => connectCalendarSyncAccountMock(...args),
@@ -15,10 +17,23 @@ vi.mock("../lib/calendar/connect", () => ({
   disconnectCalendarSyncAccount: (...args: unknown[]) => disconnectCalendarSyncAccountMock(...args),
 }));
 
+vi.mock("../lib/calendar/reconciler", async () => {
+  const actual = await vi.importActual<typeof import("../lib/calendar/reconciler")>(
+    "../lib/calendar/reconciler",
+  );
+  return {
+    ...actual,
+    syncNow: (...args: unknown[]) => syncNowMock(...args),
+    confirmMassDelete: (...args: unknown[]) => confirmMassDeleteMock(...args),
+  };
+});
+
 beforeEach(() => {
   connectCalendarSyncAccountMock.mockReset().mockResolvedValue({ ok: true });
   reconnectCalendarSyncAccountMock.mockReset().mockResolvedValue({ ok: true });
   disconnectCalendarSyncAccountMock.mockReset().mockResolvedValue(undefined);
+  syncNowMock.mockReset().mockResolvedValue({ ok: true });
+  confirmMassDeleteMock.mockReset().mockResolvedValue({ ok: true });
 });
 
 describe("SettingsPage calendar sync card", () => {
@@ -242,5 +257,178 @@ describe("SettingsPage calendar sync card", () => {
       ),
     ).toBeInTheDocument();
     expect(within(section).queryByText(error)).not.toBeInTheDocument();
+  });
+
+  it("calls syncNow from the manual sync button once connected", async () => {
+    const user = userEvent.setup();
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveCalendarSyncSettings({
+      ...(await repository.getCalendarSyncSettings()),
+      enabled: true,
+      oauthClientId: "client-id",
+      connectedAccountId: "person@example.com",
+      calendarId: "calendar-1",
+      state: "active",
+    });
+
+    await renderWithApp(<SettingsPage />, {
+      repository,
+      contextOverrides: { browserPreview: false },
+    });
+
+    const syncButton = await screen.findByRole("button", { name: "Synchroniser maintenant" });
+    await user.click(syncButton);
+
+    await waitFor(() => {
+      expect(syncNowMock).toHaveBeenCalledWith(repository);
+    });
+  });
+
+  it("disables manual sync for a connected account with syncing switched off", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveCalendarSyncSettings({
+      ...(await repository.getCalendarSyncSettings()),
+      enabled: false,
+      connectedAccountId: "person@example.com",
+      calendarId: "calendar-1",
+      state: "active",
+    });
+    await renderWithApp(<SettingsPage />, {
+      repository,
+      contextOverrides: { browserPreview: false },
+    });
+    const button = await screen.findByRole("button", { name: "Synchroniser maintenant" });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(syncNowMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["disabled", "La synchronisation est désactivée. Activez-la puis enregistrez les paramètres."],
+    ["missing_client_id", "Identifiant client OAuth manquant."],
+    [
+      "gated",
+      "La synchronisation est suspendue. Vérifiez la connexion et les confirmations en attente.",
+    ],
+    [
+      "calendar_sync_rate_limited",
+      "Google limite les appels au calendrier. La synchronisation automatique reprendra dans 15 minutes.",
+    ],
+    ["unexpected_failure", "La synchronisation du calendrier a échoué."],
+  ])("shows French feedback when manual sync returns %s", async (reason, message) => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveCalendarSyncSettings({
+      ...(await repository.getCalendarSyncSettings()),
+      enabled: true,
+      connectedAccountId: "person@example.com",
+      calendarId: "calendar-1",
+      state: "active",
+    });
+    syncNowMock.mockResolvedValue({ ok: false, reason });
+    await renderWithApp(<SettingsPage />, {
+      repository,
+      contextOverrides: { browserPreview: false },
+    });
+    await userEvent
+      .setup()
+      .click(await screen.findByRole("button", { name: "Synchroniser maintenant" }));
+    const section = screen.getByRole("region", { name: "Calendrier Google" });
+    expect(await within(section).findByText(message)).toBeInTheDocument();
+    expect(within(section).queryByText(reason)).not.toBeInTheDocument();
+  });
+
+  it("shows translated stored failures without exposing raw codes", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveCalendarSyncSettings({
+      ...(await repository.getCalendarSyncSettings()),
+      lastError: "calendar_sync_rate_limited",
+    });
+    await renderWithApp(<SettingsPage />, {
+      repository,
+      contextOverrides: { browserPreview: false },
+    });
+    const section = screen.getByRole("region", { name: "Calendrier Google" });
+    expect(
+      await within(section).findByText(/Dernière erreur: Google limite les appels au calendrier/),
+    ).toBeInTheDocument();
+    expect(within(section).queryByText(/calendar_sync_rate_limited/)).not.toBeInTheDocument();
+  });
+
+  it("shows French feedback when mass-delete confirmation cannot run", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveCalendarSyncSettings({
+      ...(await repository.getCalendarSyncSettings()),
+      enabled: true,
+      connectedAccountId: "person@example.com",
+      calendarId: "calendar-1",
+      state: "needs_confirmation",
+      lastError: "calendar_sync_mass_delete:12",
+    });
+    confirmMassDeleteMock.mockResolvedValue({ ok: false, reason: "gated" });
+    await renderWithApp(<SettingsPage />, {
+      repository,
+      contextOverrides: { browserPreview: false },
+    });
+    await userEvent
+      .setup()
+      .click(await screen.findByRole("button", { name: "Confirmer la suppression" }));
+    expect(
+      await screen.findByText(
+        "La synchronisation est suspendue. Vérifiez la connexion et les confirmations en attente.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the needs_confirmation banner and reruns via confirmMassDelete", async () => {
+    const user = userEvent.setup();
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveCalendarSyncSettings({
+      ...(await repository.getCalendarSyncSettings()),
+      enabled: true,
+      oauthClientId: "client-id",
+      connectedAccountId: "person@example.com",
+      calendarId: "calendar-1",
+      state: "needs_confirmation",
+      lastError: "calendar_sync_mass_delete:12",
+    });
+
+    await renderWithApp(<SettingsPage />, {
+      repository,
+      contextOverrides: { browserPreview: false },
+    });
+
+    expect(await screen.findByText(/veut supprimer 12 entrées du calendrier/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Confirmer la suppression" }));
+
+    await waitFor(() => {
+      expect(confirmMassDeleteMock).toHaveBeenCalledWith(repository, 12);
+    });
+  });
+
+  it("shows the reconnect_required prompt", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveCalendarSyncSettings({
+      ...(await repository.getCalendarSyncSettings()),
+      enabled: true,
+      oauthClientId: "client-id",
+      connectedAccountId: "person@example.com",
+      calendarId: "calendar-1",
+      state: "reconnect_required",
+    });
+
+    await renderWithApp(<SettingsPage />, {
+      repository,
+      contextOverrides: { browserPreview: false },
+    });
+
+    expect(await screen.findByText(/La connexion a expiré ou a été révoquée/)).toBeInTheDocument();
   });
 });

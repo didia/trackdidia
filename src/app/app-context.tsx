@@ -28,6 +28,7 @@ import { isTauriRuntime } from "../lib/storage/factory";
 import type { AppRepository } from "../lib/storage/repository";
 import { useAutoBackupScheduler } from "./use-auto-backup-scheduler";
 import { useBootstrap } from "./use-bootstrap";
+import { useCalendarSync } from "./use-calendar-sync";
 import { useEmailTriageCoordinator } from "./use-email-triage-coordinator";
 import { useLocalDayReconciliation } from "./use-local-day-reconciliation";
 import { usePomodoroController, type PomodoroControllerValue } from "./use-pomodoro-controller";
@@ -82,6 +83,11 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     browserPreview,
     allowStart: !loading && !startupError,
     settings,
+  });
+  // Never mounted under the startup fallback or browser preview: zero API/vault access.
+  useCalendarSync(repository, {
+    browserPreview,
+    allowStart: !loading && !startupError,
   });
 
   const getSettings = useCallback(() => settingsRef.current, []);

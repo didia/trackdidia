@@ -1,3 +1,4 @@
+- 2026-10-04: Corrected PR #207 desktop reconciler status and linked its serialized writes, disconnect protection, calendar recovery, and rate-limit cooldown documentation.
 - 2026-10-04: Updated Calendar sidecar status for the desktop connection/API client and linked its credential recovery and preference-write guarantees; background event reconciliation remains unmounted.
 - 2026-10-03: Centralized settings defaults and historical normalization; application writers now merge current values atomically, and settings forms preserve runtime state and unsaved edits.
 # Storage and backups log
