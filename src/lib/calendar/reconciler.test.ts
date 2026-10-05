@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ProviderHttpError } from "../email-triage/provider-http";
 import { MemoryRepository } from "../storage/memory-repository";
+import { baseLink, baseTask } from "./calendar-sync-test-helpers";
+import { disconnectCalendarSyncAccount } from "./connect";
+import { saveCalendarSyncPreferences } from "./mutations";
+import type { CreateOrAdoptEventResult } from "./google-calendar-api";
 import type { CalendarSyncApiClient, CalendarSyncReconcileDeps } from "./reconciler";
 import {
   calendarSyncBackoffDelayMs,
@@ -11,6 +15,21 @@ import {
   resetCalendarSyncRateLimitCooldownForTests,
   syncNow,
 } from "./reconciler";
+
+vi.mock("./vault", async () => ({
+  ...(await vi.importActual<typeof import("./vault")>("./vault")),
+  deleteCalendarVaultSecret: vi.fn(async () => undefined),
+}));
+
+const deferred = <T>() => {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  return { promise, resolve, reject };
+};
 
 const connectedSettings = async (
   repository: MemoryRepository,
@@ -335,7 +354,181 @@ describe("reconcile — create, update, delete", () => {
   });
 });
 
+describe("reconcile — concurrent connection changes", () => {
+  it.each([
+    "inserted",
+    "reconnect_required",
+    "calendar_not_found",
+    "invalid_grant",
+  ] as const)("preserves a disconnect while create completes with %s", async (status) => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const original = await connectedSettings(repository);
+    await futureTask(repository, { id: "first" });
+    await futureTask(repository, { id: "second" });
+    const started = deferred<void>();
+    const response = deferred<CreateOrAdoptEventResult>();
+    const api = makeFakeApi({
+      createOrAdoptEvent: vi.fn(() => {
+        started.resolve();
+        return response.promise;
+      }),
+    });
+    const running = syncNow(repository, depsFor(api));
+    await started.promise;
+    await disconnectCalendarSyncAccount(repository);
+    const disconnected = await repository.getCalendarSyncSettings();
+    if (status === "invalid_grant") {
+      response.reject(new ProviderHttpError("invalid_grant", 400, '{"error":"invalid_grant"}'));
+    } else {
+      response.resolve(status === "inserted" ? { status, eventId: "event" } : { status });
+    }
+    expect(await running).toEqual({ ok: false, reason: "disabled" });
+    expect(await repository.getCalendarSyncSettings()).toEqual(disconnected);
+    expect(disconnected).toMatchObject({
+      enabled: false,
+      state: "disconnected",
+      generation: original.generation,
+    });
+    expect(await repository.listCalendarSyncLinks()).toEqual([]);
+    expect(api.ensureCalendar).not.toHaveBeenCalled();
+    expect(api.createOrAdoptEvent).toHaveBeenCalledOnce();
+  });
+
+  it("preserves identity and links when disconnected during calendar recovery", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const settings = await connectedSettings(repository);
+    const originalLink = baseLink(baseTask(), settings);
+    await repository.saveCalendarSyncLink(originalLink);
+    await futureTask(repository);
+    const started = deferred<void>();
+    const response = deferred<string>();
+    const api = makeFakeApi({
+      createOrAdoptEvent: vi.fn(async () => ({ status: "calendar_not_found" as const })),
+      ensureCalendar: vi.fn(() => {
+        started.resolve();
+        return response.promise;
+      }),
+    });
+    const running = syncNow(repository, depsFor(api));
+    await started.promise;
+    await disconnectCalendarSyncAccount(repository);
+    const disconnected = await repository.getCalendarSyncSettings();
+    response.resolve("calendar-fresh");
+    expect(await running).toEqual({ ok: false, reason: "disabled" });
+    expect(await repository.getCalendarSyncSettings()).toEqual(disconnected);
+    expect(disconnected).toMatchObject({ calendarId: "calendar-1", generation: 1 });
+    expect(await repository.listCalendarSyncLinks()).toEqual([originalLink]);
+    expect(api.createOrAdoptEvent).toHaveBeenCalledOnce();
+  });
+
+  it("preserves disabling preferences during a remote call", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await connectedSettings(repository);
+    await futureTask(repository);
+    const api = makeFakeApi({
+      createOrAdoptEvent: vi.fn(async () => {
+        await saveCalendarSyncPreferences(repository, {
+          enabled: false,
+          oauthClientId: "new-client",
+        });
+        return { status: "inserted" as const, eventId: "event" };
+      }),
+    });
+    expect(await syncNow(repository, depsFor(api))).toEqual({ ok: false, reason: "disabled" });
+    expect(await repository.getCalendarSyncSettings()).toMatchObject({
+      enabled: false,
+      oauthClientId: "new-client",
+      lastSyncAt: null,
+    });
+    expect(await repository.listCalendarSyncLinks()).toEqual([]);
+  });
+
+  it("does not persist an old link or status over a replacement connection", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await connectedSettings(repository);
+    await futureTask(repository);
+    const api = makeFakeApi({
+      createOrAdoptEvent: vi.fn(async () => {
+        await connectedSettings(repository, {
+          calendarId: "replacement",
+          connectedAccountId: "other@example.com",
+        });
+        return { status: "inserted" as const, eventId: "event" };
+      }),
+    });
+    expect(await syncNow(repository, depsFor(api))).toEqual({ ok: false, reason: "gated" });
+    expect(await repository.getCalendarSyncSettings()).toMatchObject({
+      calendarId: "replacement",
+      connectedAccountId: "other@example.com",
+      generation: 2,
+      lastSyncAt: null,
+    });
+    expect(await repository.listCalendarSyncLinks()).toEqual([]);
+  });
+
+  it("does not overwrite a disconnect when the empty-task safety valve trips", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const settings = await connectedSettings(repository);
+    const originalLink = baseLink(baseTask(), settings);
+    await repository.saveCalendarSyncLink(originalLink);
+    const originalList = repository.listTasks.bind(repository);
+    vi.spyOn(repository, "listTasks").mockImplementation(async (options) => {
+      await disconnectCalendarSyncAccount(repository);
+      return originalList(options);
+    });
+    expect(await syncNow(repository, depsFor(makeFakeApi()))).toEqual({
+      ok: false,
+      reason: "disabled",
+    });
+    expect(await repository.listCalendarSyncLinks()).toEqual([originalLink]);
+    expect(await repository.getCalendarSyncSettings()).toMatchObject({
+      enabled: false,
+      state: "disconnected",
+      lastSyncAt: null,
+      lastError: null,
+    });
+  });
+});
+
 describe("reconcile — rate-limit cooldown", () => {
+  it("a returned lookup rate limit stops the pass and starts cooldown without link failures", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await connectedSettings(repository);
+    await futureTask(repository, { id: "first" });
+    await futureTask(repository, { id: "second" });
+    const api = makeFakeApi({
+      createOrAdoptEvent: vi.fn(async () => ({ status: "rate_limited" as const })),
+    });
+    expect(await reconcile(repository, "automatic", {}, depsFor(api))).toEqual({
+      ok: false,
+      reason: "calendar_sync_rate_limited",
+    });
+    expect(api.createOrAdoptEvent).toHaveBeenCalledOnce();
+    expect(await repository.listCalendarSyncLinks()).toEqual([]);
+    expect(await repository.getCalendarSyncSettings()).toMatchObject({
+      lastError: "calendar_sync_rate_limited",
+    });
+    expect(await reconcile(repository, "automatic", {}, depsFor(api))).toEqual({
+      ok: false,
+      reason: "rate_limited_cooldown",
+    });
+    expect(api.createOrAdoptEvent).toHaveBeenCalledOnce();
+    const manualApi = makeFakeApi({
+      createOrAdoptEvent: vi.fn(async ({ taskId }) => ({
+        status: "inserted" as const,
+        eventId: `event-${taskId}`,
+      })),
+    });
+    expect((await syncNow(repository, depsFor(manualApi))).ok).toBe(true);
+    expect(manualApi.createOrAdoptEvent).toHaveBeenCalledTimes(2);
+  });
+
   it("global cooldown: an automatic trigger makes zero API calls until it elapses", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();

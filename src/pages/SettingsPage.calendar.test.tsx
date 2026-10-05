@@ -285,6 +285,105 @@ describe("SettingsPage calendar sync card", () => {
     });
   });
 
+  it("disables manual sync for a connected account with syncing switched off", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveCalendarSyncSettings({
+      ...(await repository.getCalendarSyncSettings()),
+      enabled: false,
+      connectedAccountId: "person@example.com",
+      calendarId: "calendar-1",
+      state: "active",
+    });
+    await renderWithApp(<SettingsPage />, {
+      repository,
+      contextOverrides: { browserPreview: false },
+    });
+    const button = await screen.findByRole("button", { name: "Synchroniser maintenant" });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(syncNowMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["disabled", "La synchronisation est désactivée. Activez-la puis enregistrez les paramètres."],
+    ["missing_client_id", "Identifiant client OAuth manquant."],
+    [
+      "gated",
+      "La synchronisation est suspendue. Vérifiez la connexion et les confirmations en attente.",
+    ],
+    [
+      "calendar_sync_rate_limited",
+      "Google limite les appels au calendrier. La synchronisation automatique reprendra dans 15 minutes.",
+    ],
+    ["unexpected_failure", "La synchronisation du calendrier a échoué."],
+  ])("shows French feedback when manual sync returns %s", async (reason, message) => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveCalendarSyncSettings({
+      ...(await repository.getCalendarSyncSettings()),
+      enabled: true,
+      connectedAccountId: "person@example.com",
+      calendarId: "calendar-1",
+      state: "active",
+    });
+    syncNowMock.mockResolvedValue({ ok: false, reason });
+    await renderWithApp(<SettingsPage />, {
+      repository,
+      contextOverrides: { browserPreview: false },
+    });
+    await userEvent
+      .setup()
+      .click(await screen.findByRole("button", { name: "Synchroniser maintenant" }));
+    const section = screen.getByRole("region", { name: "Calendrier Google" });
+    expect(await within(section).findByText(message)).toBeInTheDocument();
+    expect(within(section).queryByText(reason)).not.toBeInTheDocument();
+  });
+
+  it("shows translated stored failures without exposing raw codes", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveCalendarSyncSettings({
+      ...(await repository.getCalendarSyncSettings()),
+      lastError: "calendar_sync_rate_limited",
+    });
+    await renderWithApp(<SettingsPage />, {
+      repository,
+      contextOverrides: { browserPreview: false },
+    });
+    const section = screen.getByRole("region", { name: "Calendrier Google" });
+    expect(
+      await within(section).findByText(/Dernière erreur: Google limite les appels au calendrier/),
+    ).toBeInTheDocument();
+    expect(within(section).queryByText(/calendar_sync_rate_limited/)).not.toBeInTheDocument();
+  });
+
+  it("shows French feedback when mass-delete confirmation cannot run", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveCalendarSyncSettings({
+      ...(await repository.getCalendarSyncSettings()),
+      enabled: true,
+      connectedAccountId: "person@example.com",
+      calendarId: "calendar-1",
+      state: "needs_confirmation",
+      lastError: "calendar_sync_mass_delete:12",
+    });
+    confirmMassDeleteMock.mockResolvedValue({ ok: false, reason: "gated" });
+    await renderWithApp(<SettingsPage />, {
+      repository,
+      contextOverrides: { browserPreview: false },
+    });
+    await userEvent
+      .setup()
+      .click(await screen.findByRole("button", { name: "Confirmer la suppression" }));
+    expect(
+      await screen.findByText(
+        "La synchronisation est suspendue. Vérifiez la connexion et les confirmations en attente.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("shows the needs_confirmation banner and reruns via confirmMassDelete", async () => {
     const user = userEvent.setup();
     const repository = new MemoryRepository();

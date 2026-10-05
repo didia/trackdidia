@@ -58,8 +58,9 @@ the last backup, and per-category relationship processing.
 
 The desktop Settings card can connect, reconnect, or disconnect one Google account and
 create its dedicated TrackDidia calendar. Browser preview shows an unavailable notice.
-The event API client and pure planner exist, but no background reconciler is mounted yet;
-connecting alone does not send task events. See [calendar sidecar storage](storage-and-backups.md#calendar-sync-tables)
+When enabled, the desktop reconciler sends eligible dated tasks to that calendar on
+startup, focus, mutation nudges, and a 15-minute backstop. Browser preview and startup
+fallback never start it. See [calendar sidecar storage](storage-and-backups.md#calendar-sync-tables)
 for settings, links, and identity generations.
 
 OAuth uses PKCE and a loopback callback, requesting `calendar.app.created` and the
@@ -69,9 +70,14 @@ are cached in memory. The shared OAuth lease remains held through profile lookup
 creation, and the vault/settings commit, preventing a second calendar or email OAuth flow
 from interleaving it.
 
-Calendar preference saves, connects, and disconnects share an ordered mutation queue that
-survives Settings remounts. A preference save reads the latest row inside that queue and
-changes only `enabled` and `oauthClientId` (plus `updatedAt`), preserving connection identity
+Calendar preference saves, connects, disconnects, and reconciler commits share an ordered
+mutation queue that survives Settings remounts. Reconciler commits read the current row
+inside the queue and stop if sync was disabled, disconnected, or the connection changed.
+Remote requests wait outside the queue so a disconnect can complete during a request.
+Calendar recovery checks the connection before creating a replacement and before
+committing its id; old links are cleared only by that committed identity change.
+
+A preference save reads the latest row inside that queue and changes only `enabled` and `oauthClientId` (plus `updatedAt`), preserving connection identity
 and links. The card waits for its initial load, offers retry on a load failure, and disables
 all calendar controls while a local action is running. Rapid clicks share a synchronous
 guard. Consent denial displays a French cancellation message; unknown callback errors use
@@ -91,6 +97,12 @@ Calendar API requests retry one HTTP 401 after forcing a token refresh. Only a m
 credential or revoked refresh grant requires reconnect; a repeated 401 or transient refresh
 failure remains retryable. Event lookup exhausts pagination before adopting or inserting,
 and preserves rate limits as `rate_limited` rather than a generic lookup failure.
+Both returned lookup rate limits and thrown HTTP rate limits stop the current pass and
+pause automatic triggers for 15 minutes without increasing per-link failure counts.
+Manual retries bypass that cooldown. The manual sync and mass-delete confirmation
+buttons are disabled when syncing is off, and unsuccessful outcomes display French
+feedback, including non-throwing no-ops. Stored error codes use translated messages
+with a generic fallback; confirmation and reconnect states have their own banners.
 
 ## Coach modes (`coach_pulse`)
 

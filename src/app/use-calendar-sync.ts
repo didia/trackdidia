@@ -3,7 +3,7 @@ import { logDebug } from "../lib/debug";
 import { reconcile } from "../lib/calendar/reconciler";
 import type { AppRepository } from "../lib/storage/repository";
 
-/** `listTasks` is not a pure read, so a missed nudge costs latency, never correctness. */
+/** A missed mutation nudge is picked up by the next focus or backstop pass. */
 const CALENDAR_SYNC_BACKSTOP_INTERVAL_MS = 15 * 60_000;
 const CALENDAR_SYNC_DEBOUNCE_MS = 2_000;
 

@@ -294,9 +294,11 @@ export const SettingsPage = () => {
     try {
       const connectFn = reconnect ? reconnectCalendarSyncAccount : connectCalendarSyncAccount;
       const result = await connectFn(repository, { clientId: calendarClientIdDraft });
-      setCalendarActionError(result.ok ? null : (result.error ?? "connect_failed"));
+      setCalendarActionError(
+        result.ok ? null : `connectErrors.${result.error ?? "connect_failed"}`,
+      );
     } catch {
-      setCalendarActionError("connect_failed");
+      setCalendarActionError("connectErrors.connect_failed");
     } finally {
       await loadCalendarSyncSettings();
       calendarActionRef.current = false;
@@ -312,7 +314,7 @@ export const SettingsPage = () => {
     try {
       await disconnectCalendarSyncAccount(repository);
     } catch {
-      setCalendarActionError("disconnect_failed");
+      setCalendarActionError("connectErrors.disconnect_failed");
     } finally {
       await loadCalendarSyncSettings();
       calendarActionRef.current = false;
@@ -327,9 +329,10 @@ export const SettingsPage = () => {
     setCalendarSyncRunning(true);
     setCalendarActionError(null);
     try {
-      await syncCalendarSyncNow(repository);
+      const result = await syncCalendarSyncNow(repository);
+      setCalendarActionError(result.ok ? null : `syncErrors.${result.reason ?? "sync_failed"}`);
     } catch {
-      setCalendarActionError("sync_failed");
+      setCalendarActionError("syncErrors.sync_failed");
     } finally {
       await loadCalendarSyncSettings();
       setCalendarSyncRunning(false);
@@ -343,9 +346,10 @@ export const SettingsPage = () => {
     setCalendarSyncRunning(true);
     setCalendarActionError(null);
     try {
-      await confirmCalendarSyncMassDelete(repository, calendarMassDeleteCount);
+      const result = await confirmCalendarSyncMassDelete(repository, calendarMassDeleteCount);
+      setCalendarActionError(result.ok ? null : `syncErrors.${result.reason ?? "sync_failed"}`);
     } catch {
-      setCalendarActionError("sync_failed");
+      setCalendarActionError("syncErrors.sync_failed");
     } finally {
       await loadCalendarSyncSettings();
       setCalendarSyncRunning(false);
@@ -988,7 +992,7 @@ export const SettingsPage = () => {
                   <button
                     className="button"
                     type="button"
-                    disabled={calendarSyncRunning}
+                    disabled={calendarSyncRunning || calendarBusy || !calendarSettings.enabled}
                     onClick={() => void handleSyncCalendarNow()}
                   >
                     {calendarSyncRunning ? t("calendar.syncing") : t("calendar.syncNow")}
@@ -999,8 +1003,12 @@ export const SettingsPage = () => {
             {calendarSettingsMessage ? <p>{calendarSettingsMessage}</p> : null}
             {calendarActionError ? (
               <p>
-                {t(`calendar.connectErrors.${calendarActionError}`, {
-                  defaultValue: t("calendar.connectErrors.connect_failed"),
+                {t(`calendar.${calendarActionError}`, {
+                  defaultValue: t(
+                    calendarActionError.startsWith("syncErrors.")
+                      ? "calendar.connectErrors.sync_failed"
+                      : "calendar.connectErrors.connect_failed",
+                  ),
                 })}
               </p>
             ) : null}
@@ -1015,7 +1023,12 @@ export const SettingsPage = () => {
                 <button
                   className="button button--primary"
                   type="button"
-                  disabled={calendarSyncRunning || calendarMassDeleteCount === null}
+                  disabled={
+                    calendarSyncRunning ||
+                    calendarBusy ||
+                    !calendarSettings.enabled ||
+                    calendarMassDeleteCount === null
+                  }
                   onClick={() => void handleConfirmCalendarMassDelete()}
                 >
                   {t("calendar.needsConfirmation.confirm")}
@@ -1051,9 +1064,14 @@ export const SettingsPage = () => {
                 </strong>
               </article>
             </div>
-            {calendarSettings.lastError ? (
+            {calendarSettings.lastError &&
+            calendarSettings.state !== "needs_confirmation" &&
+            calendarSettings.state !== "reconnect_required" ? (
               <div className="banner">
-                {t("calendar.lastErrorLabel")}: {calendarSettings.lastError}
+                {t("calendar.lastErrorLabel")}:{" "}
+                {t(`calendar.syncErrors.${calendarSettings.lastError}`, {
+                  defaultValue: t("calendar.connectErrors.sync_failed"),
+                })}
               </div>
             ) : null}
           </>
