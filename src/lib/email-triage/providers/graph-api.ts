@@ -1,5 +1,5 @@
 import type { EmailTriageTransientMessage } from "../../../domain/email-triage";
-import type { GmailHttpClient } from "../provider-http";
+import type { ProviderHttpClient } from "../provider-http";
 import { assertHttpSuccess, parseJsonBody, ProviderHttpError } from "../provider-http";
 
 const GRAPH_API_BASE = "https://graph.microsoft.com/v1.0";
@@ -98,7 +98,7 @@ export const graphMessageToTransient = (message: GraphMessage): EmailTriageTrans
 
 export class GraphApiClient {
   constructor(
-    private readonly http: GmailHttpClient,
+    private readonly http: ProviderHttpClient,
     private readonly getAccessToken: () => Promise<string>,
   ) {}
 

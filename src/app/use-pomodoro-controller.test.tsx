@@ -291,7 +291,7 @@ describe("usePomodoroController", () => {
     const { result } = renderHook(() => usePomodoroController(repository));
     await flushControllerQueue();
 
-    vi.spyOn(repository, "generateDueRecurringTasks").mockRejectedValueOnce(
+    vi.spyOn(repository, "completeExpiredPomodoroSessions").mockRejectedValueOnce(
       new Error("sqlite busy"),
     );
 

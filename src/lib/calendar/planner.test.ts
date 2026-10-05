@@ -308,6 +308,79 @@ describe("planCalendarSync — promotion capture", () => {
   });
 });
 
+describe("planCalendarSync — captured edits on an owned event", () => {
+  const edited = baseTask({ scheduledFor: "2026-01-12T09:00:00", title: "Edited" });
+  const pendingLink = (overrides: Partial<CalendarSyncLink> = {}): CalendarSyncLink =>
+    baseLink(edited, settings, { state: "pending", eventId: "event:1", ...overrides });
+  const promotedTask = (overrides: Partial<Task> = {}): Task =>
+    baseTask({ bucket: "next_action", scheduledFor: null, title: "Edited", ...overrides });
+
+  it("updates from the snapshot (not create) when the pending link owns an event", () => {
+    const result = plan([promotedTask()], [pendingLink()]);
+    expect(result.creates).toHaveLength(0);
+    expect(result.updates).toEqual([
+      expect.objectContaining({
+        eventId: "event:1",
+        occurrenceKey: "2026-01-12",
+        payloadSignature: pendingLink().payloadSignature,
+        fromPendingSnapshot: true,
+      }),
+    ]);
+  });
+
+  it("detaches a stale pending link that owns an event as promoted instead of purging", () => {
+    const stale = pendingLink({ occurrenceKey: "2026-01-01" });
+    const result = plan([promotedTask()], [stale]);
+    expect(result.purges).toHaveLength(0);
+    expect(result.updates).toHaveLength(0);
+    expect(result.detaches).toEqual([
+      { taskId: "task:1", occurrenceKey: "2026-01-01", reason: "promoted" },
+    ]);
+  });
+
+  it("deletes the owned event when a pending link's task is re-dated to another day", () => {
+    const redated = baseTask({ scheduledFor: "2026-01-16T09:00:00", title: "Edited" });
+    const result = plan([redated], [pendingLink()]);
+    expect(result.purges).toHaveLength(0);
+    expect(result.deletes).toEqual([
+      expect.objectContaining({
+        occurrenceKey: "2026-01-12",
+        eventId: "event:1",
+        reason: "reschedule",
+      }),
+    ]);
+    expect(result.creates).toEqual([expect.objectContaining({ occurrenceKey: "2026-01-16" })]);
+  });
+
+  it("still PATCHes a same-key pending link whose snapshot equals the live signature", () => {
+    const result = plan([edited], [pendingLink()]);
+    expect(result.updates).toEqual([
+      expect.objectContaining({ eventId: "event:1", fromPendingSnapshot: false }),
+    ]);
+  });
+
+  it("keeps retrying a captured snapshot that failed (left pending with failure metadata)", () => {
+    const retry = pendingLink({ eventId: null, failureCount: 3, lastError: "boom" });
+    const result = plan([promotedTask()], [retry]);
+    expect(result.detaches).toHaveLength(0);
+    expect(result.creates).toEqual([
+      expect.objectContaining({ occurrenceKey: "2026-01-12", fromPendingSnapshot: true }),
+    ]);
+  });
+
+  it("re-dating after an unchanged-synced capture deletes the promoted placeholder", () => {
+    const promotedLink = baseLink(edited, settings, {
+      state: "detached",
+      detachReason: "promoted",
+    });
+    const redated = baseTask({ scheduledFor: "2026-01-16T09:00:00", title: "Edited" });
+    const result = plan([redated], [promotedLink]);
+    expect(result.deletes).toEqual([
+      expect.objectContaining({ eventId: "event:1", reason: "rescheduled_after_promotion" }),
+    ]);
+  });
+});
+
 describe("planCalendarSync — terminal links", () => {
   it("never deletes a completed-detached link via the reschedule exception", () => {
     const task = baseTask({ scheduledFor: "2026-01-20T09:00:00" });
@@ -366,6 +439,39 @@ describe("planCalendarSync — recurring templates", () => {
     expect(result.deletes).toHaveLength(0);
     expect(result.creates).toEqual([expect.objectContaining({ occurrenceKey: "2026-01-10" })]);
     expect(result.updates).toHaveLength(0);
+  });
+});
+
+describe("planCalendarSync — recurring occurrence advancement", () => {
+  it("keeps the previous synced occurrence's event when generation reuses the task id", () => {
+    const yesterday = baseTask({
+      id: "r1",
+      isRecurringInstance: true,
+      scheduledFor: "2026-01-11T09:00:00",
+    });
+    const nextOccurrence = baseTask({
+      id: "r1",
+      isRecurringInstance: true,
+      scheduledFor: "2026-01-12T09:00:00",
+    });
+    const link = baseLink(yesterday, settings, { occurrenceKey: "2026-01-11" });
+    const result = plan([nextOccurrence], [link]);
+    expect(result.deletes).toHaveLength(0);
+    expect(result.detaches).toEqual([
+      { taskId: "r1", occurrenceKey: "2026-01-11", reason: "promoted" },
+    ]);
+    expect(result.creates).toEqual([expect.objectContaining({ occurrenceKey: "2026-01-12" })]);
+  });
+
+  it("still deletes a recurring occurrence manually moved out of a future day", () => {
+    const moved = baseTask({
+      id: "r1",
+      isRecurringInstance: true,
+      scheduledFor: "2026-01-16T09:00:00",
+    });
+    const link = baseLink(moved, settings, { occurrenceKey: "2026-01-14" });
+    const result = plan([moved], [link]);
+    expect(result.deletes).toEqual([expect.objectContaining({ reason: "reschedule" })]);
   });
 });
 
@@ -431,6 +537,23 @@ describe("planCalendarSync — safety valves", () => {
     expect(result.abort?.deleteCount).toBe(20);
     expect(result.deletes).toHaveLength(0);
     expect(result.creates).toHaveLength(0);
+  });
+
+  it("compares against the unrounded 25% threshold (41 links: 10 deletes pass, 11 confirm)", () => {
+    const kept = baseTask({ id: "kept", scheduledFor: "2026-01-12T15:00:00" });
+    const build = (deleteCount: number) => {
+      const keptLinks = Array.from({ length: 41 - deleteCount }, (_, index) =>
+        baseLink(baseTask({ id: `k${index}` }), settings),
+      );
+      const gone = Array.from({ length: deleteCount }, (_, index) =>
+        baseLink(baseTask({ id: `g${index}` }), settings, { occurrenceKey: "2026-01-13" }),
+      );
+      const tasks = [kept, ...keptLinks.map((link) => baseTask({ id: link.taskId }))];
+      return plan(tasks, [...keptLinks, ...gone]);
+    };
+    expect(build(10).abort).toBeUndefined();
+    expect(build(10).deletes).toHaveLength(10);
+    expect(build(11).abort?.reason).toBe("needs_confirmation");
   });
 
   it("confirmMassDelete executes when the recomputed delete count is <= n", () => {

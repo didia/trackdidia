@@ -1,5 +1,5 @@
 import { t } from "../../i18n";
-import { toLocalDateString } from "../../lib/gtd/shared";
+import { toLocalDateString } from "../../lib/date";
 import type { PomodoroTaskSummary } from "../types";
 import { POMODORO_DAILY_TARGET_SESSIONS } from "./constants";
 import { buildEvidenceWindow } from "./shared";

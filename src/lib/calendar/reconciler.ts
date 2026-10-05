@@ -21,6 +21,7 @@ import {
   isCalendarSyncNotFoundError,
   isCalendarSyncRateLimitError,
 } from "./google-calendar-api";
+import { runCalendarSyncMutation } from "./mutations";
 import { planCalendarSync } from "./planner";
 import { createCalendarSyncApiClient } from "./session";
 
@@ -95,6 +96,12 @@ const resolveApiClient = (
   deps: CalendarSyncReconcileDeps,
 ): CalendarSyncApiClient | null => (deps.createApiClient ?? createCalendarSyncApiClient)(settings);
 
+class CalendarSyncRunStopped extends Error {
+  constructor(readonly reason: "disabled" | "gated") {
+    super(reason);
+  }
+}
+
 let inFlight: Promise<CalendarSyncReconcileOutcome> | null = null;
 let rateLimitCooldownUntil = 0;
 
@@ -116,9 +123,16 @@ export const reconcile = (
   if (inFlight) {
     return inFlight;
   }
-  const run = runReconcile(repository, trigger, options, deps).finally(() => {
-    inFlight = null;
-  });
+  const run = runReconcile(repository, trigger, options, deps)
+    .catch((error: unknown) => {
+      if (error instanceof CalendarSyncRunStopped) {
+        return { ok: false, reason: error.reason };
+      }
+      throw error;
+    })
+    .finally(() => {
+      inFlight = null;
+    });
   inFlight = run;
   return run;
 };
@@ -172,6 +186,27 @@ async function runReconcile(
     return { ok: false, reason: "missing_client_id" };
   }
 
+  // Never commit a run-start snapshot over a disconnect, preference save, or new
+  // connection. Keep network waits outside this queue so disconnect can finish promptly.
+  const withCurrentConnection = <T>(work: (current: CalendarSyncSettings) => Promise<T>) =>
+    runCalendarSyncMutation(async () => {
+      const current = await repository.getCalendarSyncSettings();
+      if (!current.enabled || current.state === "disconnected") {
+        throw new CalendarSyncRunStopped("disabled");
+      }
+      if (
+        current.generation !== settings.generation ||
+        current.connectedAccountId !== settings.connectedAccountId ||
+        current.calendarId !== settings.calendarId ||
+        current.oauthClientId !== settings.oauthClientId ||
+        current.state !== settings.state
+      ) {
+        throw new CalendarSyncRunStopped("gated");
+      }
+      return work(current);
+    });
+  const checkConnection = () => withCurrentConnection(async () => undefined);
+
   const links = await repository.listCalendarSyncLinks();
   const tasks = await repository.listTasks({ includeCompleted: true });
   const today = getTodayDate();
@@ -187,13 +222,16 @@ async function runReconcile(
   });
 
   if (plan.abort) {
-    await repository.saveCalendarSyncSettings({
-      ...settings,
-      state: plan.abort.reason === "needs_confirmation" ? "needs_confirmation" : settings.state,
-      lastError: plan.abort.lastError,
-      lastSyncAt: now,
-      updatedAt: now,
-    });
+    const abort = plan.abort;
+    await withCurrentConnection((current) =>
+      repository.saveCalendarSyncSettings({
+        ...current,
+        state: abort.reason === "needs_confirmation" ? "needs_confirmation" : current.state,
+        lastError: abort.lastError,
+        lastSyncAt: now,
+        updatedAt: now,
+      }),
+    );
     return { ok: false, reason: plan.abort.reason };
   }
 
@@ -215,17 +253,21 @@ async function runReconcile(
   const budgetExhausted = () => actionsUsed >= CALENDAR_SYNC_MAX_ACTIONS_PER_RUN;
 
   const recoverCalendar = async (): Promise<void> => {
-    await repository.clearCalendarSyncLinks();
+    await checkConnection();
     const newCalendarId = await api.ensureCalendar({
       existingCalendarId: null,
       summary: settings.calendarSummary || "TrackDidia",
     });
-    await repository.saveCalendarSyncSettings({
-      ...settings,
-      calendarId: newCalendarId,
-      lastError: "calendar_sync_calendar_recreated",
-      updatedAt: nowIso(),
-    });
+    // The settings store clears old links atomically with the identity change. Do
+    // not clear them before the remote call or commit its result after a disconnect.
+    await withCurrentConnection((current) =>
+      repository.saveCalendarSyncSettings({
+        ...current,
+        calendarId: newCalendarId,
+        lastError: "calendar_sync_calendar_recreated",
+        updatedAt: nowIso(),
+      }),
+    );
   };
 
   const recordFailure = async (input: {
@@ -254,9 +296,10 @@ async function runReconcile(
       updatedAt: now,
     };
     try {
-      await repository.saveCalendarSyncLink(failed);
+      await withCurrentConnection(() => repository.saveCalendarSyncLink(failed));
       linksByKey.set(linkKey(input.taskId, input.occurrenceKey), failed);
-    } catch {
+    } catch (error) {
+      if (error instanceof CalendarSyncRunStopped) throw error;
       // Persisting the failure record itself failed (e.g. a process crash between the
       // remote call and the link write). The next run's planner sees no link for this key
       // and simply retries from scratch; no duplicate event is created because the real
@@ -266,6 +309,7 @@ async function runReconcile(
   };
 
   for (const create of plan.creates) {
+    await checkConnection();
     if (budgetExhausted()) {
       break;
     }
@@ -303,6 +347,11 @@ async function runReconcile(
         }
         await recoverCalendar();
         calendarRecovered = await runReconcile(repository, trigger, options, deps, true);
+        break;
+      }
+      if (result.status === "rate_limited") {
+        rateLimited = true;
+        lastError = "calendar_sync_rate_limited";
         break;
       }
       if (result.status === "lookup_failed" || !result.eventId) {
@@ -352,10 +401,11 @@ async function runReconcile(
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
       };
-      await repository.saveCalendarSyncLink(saved);
+      await withCurrentConnection(() => repository.saveCalendarSyncLink(saved));
       linksByKey.set(linkKey(create.taskId, create.occurrenceKey), saved);
       linksByEvent.set(eventKey(create.calendarId, eventId), saved);
     } catch (error) {
+      if (error instanceof CalendarSyncRunStopped) throw error;
       if (isReconnectRequiredError(error)) {
         reconnectRequired = true;
         break;
@@ -400,6 +450,7 @@ async function runReconcile(
 
   if (!reconnectRequired && !rateLimited) {
     for (const update of plan.updates) {
+      await checkConnection();
       if (budgetExhausted()) {
         break;
       }
@@ -425,9 +476,10 @@ async function runReconcile(
           createdAt: existing?.createdAt ?? now,
           updatedAt: now,
         };
-        await repository.saveCalendarSyncLink(saved);
+        await withCurrentConnection(() => repository.saveCalendarSyncLink(saved));
         linksByKey.set(linkKey(update.taskId, update.occurrenceKey), saved);
       } catch (error) {
+        if (error instanceof CalendarSyncRunStopped) throw error;
         if (isReconnectRequiredError(error)) {
           reconnectRequired = true;
           break;
@@ -440,10 +492,12 @@ async function runReconcile(
         if (isCalendarSyncNotFoundError(error)) {
           // The event itself is gone; do not recreate it (it may have been intentionally
           // removed on the calendar side, even though this sync is one-way).
-          await repository.detachCalendarSyncLink(
-            update.taskId,
-            update.occurrenceKey,
-            "missing_remote",
+          await withCurrentConnection(() =>
+            repository.detachCalendarSyncLink(
+              update.taskId,
+              update.occurrenceKey,
+              "missing_remote",
+            ),
           );
           continue;
         }
@@ -462,13 +516,16 @@ async function runReconcile(
 
   if (!reconnectRequired && !rateLimited) {
     for (const del of plan.deletes) {
+      await checkConnection();
       if (budgetExhausted()) {
         break;
       }
       const existing = linksByKey.get(linkKey(del.taskId, del.occurrenceKey)) ?? null;
       if (del.eventId === null) {
         // The link never had an event; drop it locally without any remote call.
-        await repository.deleteCalendarSyncLink(del.taskId, del.occurrenceKey);
+        await withCurrentConnection(() =>
+          repository.deleteCalendarSyncLink(del.taskId, del.occurrenceKey),
+        );
         linksByKey.delete(linkKey(del.taskId, del.occurrenceKey));
         continue;
       }
@@ -479,9 +536,12 @@ async function runReconcile(
       try {
         // A 404/410 is treated as success inside `deleteEvent`.
         await api.deleteEvent(del.calendarId, del.eventId);
-        await repository.deleteCalendarSyncLink(del.taskId, del.occurrenceKey);
+        await withCurrentConnection(() =>
+          repository.deleteCalendarSyncLink(del.taskId, del.occurrenceKey),
+        );
         linksByKey.delete(linkKey(del.taskId, del.occurrenceKey));
       } catch (error) {
+        if (error instanceof CalendarSyncRunStopped) throw error;
         if (isReconnectRequiredError(error)) {
           reconnectRequired = true;
           break;
@@ -506,21 +566,27 @@ async function runReconcile(
 
   if (!reconnectRequired && !rateLimited) {
     for (const detach of plan.detaches) {
-      await repository.detachCalendarSyncLink(detach.taskId, detach.occurrenceKey, detach.reason);
+      await withCurrentConnection(() =>
+        repository.detachCalendarSyncLink(detach.taskId, detach.occurrenceKey, detach.reason),
+      );
     }
     for (const purge of plan.purges) {
-      await repository.deleteCalendarSyncLink(purge.taskId, purge.occurrenceKey);
+      await withCurrentConnection(() =>
+        repository.deleteCalendarSyncLink(purge.taskId, purge.occurrenceKey),
+      );
     }
   }
 
   if (reconnectRequired) {
-    await repository.saveCalendarSyncSettings({
-      ...settings,
-      state: "reconnect_required",
-      lastError: "reconnect_required",
-      lastSyncAt: now,
-      updatedAt: now,
-    });
+    await withCurrentConnection((current) =>
+      repository.saveCalendarSyncSettings({
+        ...current,
+        state: "reconnect_required",
+        lastError: "reconnect_required",
+        lastSyncAt: now,
+        updatedAt: now,
+      }),
+    );
     return { ok: false, reason: "reconnect_required" };
   }
 
@@ -530,17 +596,15 @@ async function runReconcile(
     rateLimitCooldownUntil = Date.now() + CALENDAR_SYNC_RATE_LIMIT_COOLDOWN_MS;
   }
 
-  // Reload: a calendar-recovery writes `calendarId`/`generation` mid-run through the
-  // settings store directly; preserve it instead of clobbering it with the stale `settings`
-  // captured at the top of this run.
-  const latestSettings = await repository.getCalendarSyncSettings();
-  await repository.saveCalendarSyncSettings({
-    ...latestSettings,
-    state: "active",
-    lastError,
-    lastSyncAt: now,
-    updatedAt: now,
-  });
+  await withCurrentConnection((current) =>
+    repository.saveCalendarSyncSettings({
+      ...current,
+      state: "active",
+      lastError,
+      lastSyncAt: now,
+      updatedAt: now,
+    }),
+  );
 
   return { ok: lastError === null, reason: lastError ?? undefined };
 }

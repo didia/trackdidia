@@ -1,38 +1,25 @@
+import type { ProposalDecisions } from "../app/use-proposal-decisions";
+import { ProposalList } from "./ProposalList";
 import { useTranslation } from "react-i18next";
-import type { AiProposal, AppSettings, WeeklySynthesisResult } from "../domain/types";
+import type { AppSettings, WeeklySynthesisResult } from "../domain/types";
 import { t as translate } from "../i18n";
-
-const proposalTypeKeys = {
-  intention_draft: "proposal.intentionDraft",
-  tomorrow_focus_draft: "proposal.tomorrowFocus",
-  commitment: "proposal.commitment",
-  memory: "proposal.memory",
-  review_section_draft: "proposal.reviewSection",
-  weekly_objective: "proposal.weeklyObjective",
-  gtd_action: "proposal.gtdAction",
-  goal_evaluation: "proposal.goalEvaluation",
-} as const satisfies Record<AiProposal["type"], string>;
 
 interface WeeklySynthesisPanelProps {
   result: WeeklySynthesisResult | null;
   loading: boolean;
   settings: AppSettings;
-  applyingProposalIds?: string[];
   onRequestCoach: () => void;
   onRegenerate: () => void;
-  onAcceptProposal: (proposal: AiProposal) => void;
-  onDismissProposal: (proposal: AiProposal) => void;
+  decisions: ProposalDecisions;
 }
 
 export const WeeklySynthesisPanel = ({
   result,
   loading,
   settings,
-  applyingProposalIds = [],
   onRequestCoach,
   onRegenerate,
-  onAcceptProposal,
-  onDismissProposal,
+  decisions,
 }: WeeklySynthesisPanelProps) => {
   const { t } = useTranslation("coach");
   const { t: tCommon } = useTranslation("common");
@@ -48,8 +35,6 @@ export const WeeklySynthesisPanel = ({
   }
 
   const synthesis = result?.synthesis;
-  const pendingProposals =
-    result?.proposals.filter((proposal) => proposal.status === "pending") ?? [];
 
   return (
     <section className="coach-card coach-pulse">
@@ -83,54 +68,7 @@ export const WeeklySynthesisPanel = ({
         </small>
       ) : null}
 
-      {pendingProposals.length > 0 ? (
-        <div className="coach-pulse__proposals">
-          <strong>{t("proposals")}</strong>
-          {pendingProposals.map((proposal) => {
-            const isApplying = applyingProposalIds.includes(proposal.id);
-            const payload = JSON.parse(proposal.payloadJson) as {
-              text?: string;
-              title?: string;
-              sectionKey?: string;
-              taskTitle?: string;
-              action?: string;
-              reason?: string;
-            };
-            const preview =
-              proposal.type === "review_section_draft"
-                ? `[${payload.sectionKey ?? t("proposal.sectionFallback")}] ${payload.text ?? ""}`
-                : proposal.type === "weekly_objective"
-                  ? (payload.title ?? t("proposal.objectiveFallback"))
-                  : proposal.type === "gtd_action"
-                    ? `${payload.taskTitle ?? t("proposal.taskFallback")} ${tCommon("emDash")} ${payload.action ?? t("proposal.actionFallback")} ${tCommon("emDash")} ${payload.reason ?? ""}`
-                    : (payload.text ?? "");
-            return (
-              <article key={proposal.id} className="coach-pulse__proposal">
-                <span>{t(proposalTypeKeys[proposal.type])}</span>
-                <p>{preview}</p>
-                <div className="section-actions">
-                  <button
-                    className="button button--primary"
-                    type="button"
-                    disabled={isApplying}
-                    onClick={() => onAcceptProposal(proposal)}
-                  >
-                    {isApplying ? tCommon("status.applying") : t("accept")}
-                  </button>
-                  <button
-                    className="button button--ghost"
-                    type="button"
-                    disabled={isApplying}
-                    onClick={() => onDismissProposal(proposal)}
-                  >
-                    {t("dismiss")}
-                  </button>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      ) : null}
+      <ProposalList surface="weekly" proposals={result?.proposals ?? []} decisions={decisions} />
 
       <div className="section-actions coach-pulse__actions">
         <button

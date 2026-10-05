@@ -18,6 +18,7 @@ is only the catalog and write rules — day-to-day work should not edit it.
 | [logs/desktop-builds.md](logs/desktop-builds.md) | [desktop-builds.md](desktop-builds.md) |
 | [logs/email-triage.md](logs/email-triage.md) | [email-triage.md](email-triage.md) |
 | [logs/calendar-sync.md](logs/calendar-sync.md) | [calendar-sync.md](calendar-sync.md) |
+| [logs/finance.md](logs/finance.md) | [finance.md](finance.md) |
 
 Path rule: `docs/<page>.md` → `docs/logs/<page>.md`. Documentation-process
 changes (`AGENTS.md`, this index, conventions workflow) land in

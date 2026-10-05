@@ -1,4 +1,11 @@
 import {
+  planReviewCreation,
+  planReviewResolution,
+  planReviewDismissal,
+  planGtdTaskWrite,
+  type ResolveReviewInput,
+} from "../email-triage/review-plans";
+import {
   buildEmailTriageTaskExternalId,
   defaultEmailTriageGlobalSettings,
   type EmailTriageAccount,
@@ -21,7 +28,6 @@ import {
   EMAIL_TRIAGE_DEFAULT_IGNORE_THRESHOLD,
   EMAIL_TRIAGE_DEFAULT_RELEVANT_THRESHOLD,
 } from "../email-triage/constants";
-import { planGtdOwnershipUpdate } from "../email-triage/gtd-ownership";
 import {
   findLatestMatchingEvaluation,
   prepareEmailTriageGlobalSettingsSave,
@@ -32,8 +38,9 @@ import type {
   PersistMessageBatchInput,
   PersistMessageBatchResult,
 } from "../email-triage/sync-engine";
+import type { EmailTriageStore } from "./email-triage-store";
 
-export class EmailTriageMemoryStore {
+export class EmailTriageMemoryStore implements EmailTriageStore {
   globalSettings: EmailTriageGlobalSettings = defaultEmailTriageGlobalSettings();
   accounts = new Map<string, EmailTriageAccount>();
   conversations = new Map<string, EmailTriageConversation>();
@@ -50,16 +57,49 @@ export class EmailTriageMemoryStore {
       getTaskByExternalId(externalId: string): Task | undefined;
       createTask(input: Parameters<typeof createTaskFromInput>[0]): Task;
       saveTask(task: Task): Task;
+      atomic?<T>(work: () => T): T;
+      handlesLifecycleEvents?: boolean;
       persistEvents(events: ReturnType<typeof buildLifecycleEvents>): void;
       getTaskById(id: string): Task | undefined;
     },
   ) {}
+
+  private mutationDepth = 0;
+
+  private atomic<T>(work: () => T): T {
+    const snapshot = {
+      globalSettings: this.globalSettings,
+      accounts: new Map(this.accounts),
+      conversations: new Map(this.conversations),
+      messages: new Map(this.messages),
+      attempts: new Map(this.attempts),
+      reviews: new Map(this.reviews),
+      evaluations: new Map(this.evaluations),
+      effects: new Map(this.effects),
+      auditEvents: new Map(this.auditEvents),
+      aliases: new Map(this.aliases),
+    };
+    this.mutationDepth += 1;
+    try {
+      return this.taskAccess.atomic ? this.taskAccess.atomic(work) : work();
+    } catch (error) {
+      Object.assign(this, snapshot);
+      throw error;
+    } finally {
+      this.mutationDepth -= 1;
+    }
+  }
 
   getGlobalSettings(): EmailTriageGlobalSettings {
     return { ...this.globalSettings };
   }
 
   saveGlobalSettings(settings: EmailTriageGlobalSettings): void {
+    if (!this.mutationDepth) {
+      this.atomic(() => this.saveGlobalSettings(settings));
+      return;
+    }
+
     const previous = this.getGlobalSettings();
     const latestMatching = this.getLatestMatchingEvaluation(settings);
     const { settings: prepared } = prepareEmailTriageGlobalSettingsSave(
@@ -94,11 +134,18 @@ export class EmailTriageMemoryStore {
   }
 
   saveAccount(account: EmailTriageAccount): EmailTriageAccount {
+    if (!this.mutationDepth) return this.atomic(() => this.saveAccount(account));
+
     this.accounts.set(account.id, { ...account, syncState: { ...account.syncState } });
     return this.getAccount(account.id)!;
   }
 
   deleteAccount(accountId: string): void {
+    if (!this.mutationDepth) {
+      this.atomic(() => this.deleteAccount(accountId));
+      return;
+    }
+
     this.accounts.delete(accountId);
     for (const conversation of [...this.conversations.values()]) {
       if (conversation.accountId === accountId) {
@@ -132,6 +179,9 @@ export class EmailTriageMemoryStore {
     conversationKey: string,
     patch: Partial<EmailTriageConversation>,
   ): EmailTriageConversation {
+    if (!this.mutationDepth)
+      return this.atomic(() => this.upsertConversation(accountId, conversationKey, patch));
+
     const existing = [...this.conversations.values()].find(
       (conversation) =>
         conversation.accountId === accountId && conversation.conversationKey === conversationKey,
@@ -182,6 +232,9 @@ export class EmailTriageMemoryStore {
     syncState: Record<string, unknown>,
     patch: Partial<EmailTriageAccount> = {},
   ): EmailTriageAccount {
+    if (!this.mutationDepth)
+      return this.atomic(() => this.updateAccountSyncState(accountId, syncState, patch));
+
     const account = this.accounts.get(accountId);
     if (!account) {
       throw new Error(`Account not found: ${accountId}`);
@@ -197,6 +250,8 @@ export class EmailTriageMemoryStore {
   }
 
   persistMessageBatch(input: PersistMessageBatchInput): PersistMessageBatchResult {
+    if (!this.mutationDepth) return this.atomic(() => this.persistMessageBatch(input));
+
     const conversations: EmailTriageConversation[] = [];
     for (const item of input.messages) {
       const conversation = this.getConversationByKey(
@@ -267,6 +322,11 @@ export class EmailTriageMemoryStore {
   }
 
   dismissPendingReviews(conversationId: string): void {
+    if (!this.mutationDepth) {
+      this.atomic(() => this.dismissPendingReviews(conversationId));
+      return;
+    }
+
     for (const review of this.reviews.values()) {
       if (review.conversationId === conversationId && review.status === "pending") {
         this.reviews.set(review.id, { ...review, status: "dismissed" });
@@ -291,6 +351,8 @@ export class EmailTriageMemoryStore {
   }
 
   saveDesiredEffect(effect: EmailTriageDesiredEffect): EmailTriageDesiredEffect {
+    if (!this.mutationDepth) return this.atomic(() => this.saveDesiredEffect(effect));
+
     const existing = [...this.effects.values()].find((item) => item.dedupeKey === effect.dedupeKey);
     const stored = { ...effect, id: existing?.id ?? effect.id };
     this.effects.set(stored.id, stored);
@@ -306,49 +368,18 @@ export class EmailTriageMemoryStore {
   }
 
   applyGtdUpdate(input: ApplyGtdUpdateInput): Task | null {
-    const existing = this.taskAccess.getTaskByExternalId(input.externalId);
-    if (input.plan.createNew) {
-      const created = this.taskAccess.createTask({
-        title: input.plan.title,
-        notes: input.plan.notes,
-        bucket: "inbox",
-        source: "email_triage",
-        sourceExternalId: input.externalId,
-        sourceUrl: input.plan.sourceUrl,
-      });
-      this.upsertConversation(input.conversation.accountId, input.conversation.conversationKey, {
-        taskId: created.id,
-      });
-      return cloneTask(created);
+    if (!this.mutationDepth) return this.atomic(() => this.applyGtdUpdate(input));
+
+    const existing = this.getTaskByExternalId(input.externalId);
+    const write = planGtdTaskWrite(input, existing, nowIso());
+    if (write.kind === "none") return null;
+    const saved =
+      write.kind === "create"
+        ? this.taskAccess.createTask(write.input)
+        : this.taskAccess.saveTask(write.task);
+    if (write.kind === "save" && !this.taskAccess.handlesLifecycleEvents) {
+      this.taskAccess.persistEvents(buildLifecycleEvents(write.previous, saved));
     }
-    if (!existing) {
-      return null;
-    }
-    const previous = cloneTask(existing);
-    let next: Task = {
-      ...existing,
-      title: input.plan.title,
-      notes: input.plan.notes,
-      sourceUrl: input.plan.sourceUrl,
-      updatedAt: nowIso(),
-    };
-    if (input.plan.reopen) {
-      next = {
-        ...next,
-        status: "active",
-        bucket: "inbox",
-        completedAt: null,
-      };
-    }
-    if (input.plan.cancelExisting) {
-      next = {
-        ...next,
-        status: "cancelled",
-        updatedAt: nowIso(),
-      };
-    }
-    const saved = this.taskAccess.saveTask(next);
-    this.taskAccess.persistEvents(buildLifecycleEvents(previous, saved));
     this.upsertConversation(input.conversation.accountId, input.conversation.conversationKey, {
       taskId: saved.id,
     });
@@ -356,33 +387,16 @@ export class EmailTriageMemoryStore {
   }
 
   createReview(input: CreateReviewInput): EmailTriageReview {
-    const matching = [...this.reviews.values()].filter(
-      (review) =>
-        review.conversationId === input.conversationId && review.messageId === input.messageId,
+    if (!this.mutationDepth) return this.atomic(() => this.createReview(input));
+
+    const planned = planReviewCreation(
+      [...this.reviews.values()],
+      input,
+      createEntityId("email-review"),
+      nowIso(),
     );
-    const pending = matching.find((review) => review.status === "pending");
-    if (pending) {
-      return pending;
-    }
-    const resolved = matching.find((review) => review.status === "resolved");
-    if (resolved) {
-      return resolved;
-    }
-    const review: EmailTriageReview = {
-      id: createEntityId("email-review"),
-      accountId: input.accountId,
-      conversationId: input.conversationId,
-      messageId: input.messageId,
-      expectedDecisionVersion: input.expectedDecisionVersion,
-      status: "pending",
-      reason: input.reason,
-      sanitizedPreview: input.preview,
-      resolution: null,
-      resolvedAt: null,
-      createdAt: nowIso(),
-    };
-    this.reviews.set(review.id, review);
-    return review;
+    if (planned.created) this.reviews.set(planned.review.id, planned.review);
+    return planned.review;
   }
 
   listReviews(status?: EmailTriageReview["status"]): EmailTriageReview[] {
@@ -391,132 +405,54 @@ export class EmailTriageMemoryStore {
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
-  resolveReview(input: {
-    reviewId: string;
-    expectedDecisionVersion: number;
-    resolution: EmailTriageReview["resolution"];
-    ignoreReason?: string | null;
-  }): EmailTriageReview {
-    const review = this.reviews.get(input.reviewId);
-    if (!review) {
-      throw new Error("Review not found");
-    }
-    if (review.status !== "pending") {
-      throw new Error("Review not pending");
-    }
-    if (review.expectedDecisionVersion !== input.expectedDecisionVersion) {
-      throw new Error("Review version mismatch");
-    }
-    const conversation = this.getConversation(review.conversationId);
-    if (!conversation || conversation.decisionVersion !== input.expectedDecisionVersion) {
-      throw new Error("Conversation version mismatch");
-    }
-    if (input.resolution === "ignore" && !input.ignoreReason?.trim()) {
-      throw new Error("Ignore reason required");
-    }
-    const updated: EmailTriageReview = {
-      ...review,
-      status: "resolved",
-      resolution: input.resolution,
-      reason:
-        input.resolution === "ignore" && input.ignoreReason
-          ? `${review.reason}|ignoreReason:${input.ignoreReason}`
-          : review.reason,
-      resolvedAt: nowIso(),
-    };
-    this.reviews.set(review.id, updated);
-    if (input.resolution === "ignore" && input.ignoreReason) {
-      const audit: EmailTriageAuditEvent = {
-        id: createEntityId("email-audit"),
-        accountId: review.accountId,
-        conversationId: review.conversationId,
-        eventType: "review_resolved_ignore",
-        details: { ignoreReason: input.ignoreReason, reviewId: review.id },
-        createdAt: nowIso(),
-      };
-      this.auditEvents.set(audit.id, audit);
-    }
-    const nextDecision = input.resolution === "ignore" ? "ignore" : "relevant";
-    const nextRoutingState = input.resolution === "ignore" ? "ignored" : "relevant";
-    this.dismissPendingReviews(conversation.id);
-    const nextConversation = this.upsertConversation(
-      conversation.accountId,
-      conversation.conversationKey,
-      {
-        decisionVersion: conversation.decisionVersion + 1,
-        routingState: nextRoutingState,
-      },
-    );
-    const message = this.getMessageByProviderId(review.accountId, review.messageId);
-    if (message) {
-      this.messages.set(message.id, { ...message, routingDecision: nextDecision });
-    }
-    if (nextDecision === "relevant") {
-      const externalId = buildEmailTriageTaskExternalId(
-        conversation.accountId,
-        conversation.conversationKey,
-      );
-      const existingTask = this.getTaskByExternalId(externalId);
-      const plan = planGtdOwnershipUpdate({
-        conversation: nextConversation,
-        existingTask,
-        routedDecision: "relevant",
-        suggestedTitle: nextConversation.lastGeneratedTitle ?? message?.subject ?? "Email",
-        summary: message?.summary ?? "",
-        rationale: "",
-        sourceUrl: nextConversation.sourceUrl,
-      });
-      if (!plan.reviewRequired) {
-        this.applyGtdUpdate({
-          externalId,
-          plan,
-          conversation: nextConversation,
-          accountId: conversation.accountId,
-        });
-      }
-    }
-    return updated;
+  resolveReview(input: ResolveReviewInput): EmailTriageReview {
+    if (!this.mutationDepth) return this.atomic(() => this.resolveReview(input));
+
+    const review = this.reviews.get(input.reviewId) ?? null;
+    const conversation = review ? this.getConversation(review.conversationId) : null;
+    const message = review ? this.getMessageByProviderId(review.accountId, review.messageId) : null;
+    const externalId = conversation
+      ? buildEmailTriageTaskExternalId(conversation.accountId, conversation.conversationKey)
+      : "";
+    const existingTask = conversation ? this.getTaskByExternalId(externalId) : null;
+    const plan = planReviewResolution({
+      review,
+      conversation,
+      message,
+      existingTask,
+      input,
+      now: nowIso(),
+      auditId: createEntityId("email-audit"),
+    });
+    this.reviews.set(plan.review.id, plan.review);
+    if (plan.audit) this.auditEvents.set(plan.audit.id, plan.audit);
+    this.dismissPendingReviews(plan.conversation.id);
+    this.upsertConversation(plan.conversation.accountId, plan.conversation.conversationKey, {
+      decisionVersion: plan.conversation.decisionVersion,
+      routingState: plan.conversation.routingState,
+    });
+    if (message)
+      this.messages.set(message.id, { ...message, routingDecision: plan.routingDecision });
+    if (plan.gtdUpdate) this.applyGtdUpdate(plan.gtdUpdate);
+    return plan.review;
   }
 
   dismissReview(reviewId: string): EmailTriageReview {
-    const review = this.reviews.get(reviewId);
-    if (!review) {
-      throw new Error("Review not found");
+    if (!this.mutationDepth) return this.atomic(() => this.dismissReview(reviewId));
+
+    const review = this.reviews.get(reviewId) ?? null;
+    const conversation = review ? this.getConversation(review.conversationId) : null;
+    const plan = planReviewDismissal(review, conversation, [...this.reviews.values()], nowIso());
+    for (const updated of plan.reviews) {
+      this.reviews.set(updated.id, updated);
+      const message = this.getMessageByProviderId(updated.accountId, updated.messageId);
+      if (message) this.messages.set(message.id, { ...message, routingDecision: "ignore" });
     }
-    if (review.status !== "pending") {
-      throw new Error("Review not pending");
-    }
-    const conversation = this.getConversation(review.conversationId);
-    if (!conversation) {
-      throw new Error("Conversation not found");
-    }
-    if (conversation.decisionVersion !== review.expectedDecisionVersion) {
-      throw new Error("Conversation version mismatch");
-    }
-    const resolvedAt = nowIso();
-    let dismissedReview = review;
-    for (const item of this.reviews.values()) {
-      if (item.conversationId === conversation.id && item.status === "pending") {
-        const updated: EmailTriageReview = {
-          ...item,
-          status: "dismissed",
-          resolvedAt,
-        };
-        this.reviews.set(item.id, updated);
-        if (item.id === review.id) {
-          dismissedReview = updated;
-        }
-        const message = this.getMessageByProviderId(item.accountId, item.messageId);
-        if (message) {
-          this.messages.set(message.id, { ...message, routingDecision: "ignore" });
-        }
-      }
-    }
-    this.upsertConversation(conversation.accountId, conversation.conversationKey, {
-      decisionVersion: conversation.decisionVersion + 1,
-      routingState: "dismissed",
+    this.upsertConversation(plan.conversation.accountId, plan.conversation.conversationKey, {
+      decisionVersion: plan.conversation.decisionVersion,
+      routingState: plan.conversation.routingState,
     });
-    return dismissedReview;
+    return plan.review;
   }
 
   listEvaluations(limit = 20): EmailTriageEvaluation[] {
@@ -526,6 +462,8 @@ export class EmailTriageMemoryStore {
   }
 
   saveEvaluation(evaluation: EmailTriageEvaluation): EmailTriageEvaluation {
+    if (!this.mutationDepth) return this.atomic(() => this.saveEvaluation(evaluation));
+
     this.evaluations.set(evaluation.id, {
       ...evaluation,
       results: { ...evaluation.results, failures: [...evaluation.results.failures] },
@@ -548,6 +486,8 @@ export class EmailTriageMemoryStore {
   }
 
   recoverStaleEffects(): number {
+    if (!this.mutationDepth) return this.atomic(() => this.recoverStaleEffects());
+
     let count = 0;
     for (const effect of this.effects.values()) {
       if (effect.status === "in_progress") {
@@ -583,6 +523,11 @@ export class EmailTriageMemoryStore {
   }
 
   saveAlias(accountId: string, conversationKey: string, messageIdHeader: string): void {
+    if (!this.mutationDepth) {
+      this.atomic(() => this.saveAlias(accountId, conversationKey, messageIdHeader));
+      return;
+    }
+
     let conversation = this.getConversationByKey(accountId, conversationKey);
     if (!conversation) {
       conversation = this.upsertConversation(accountId, conversationKey, {

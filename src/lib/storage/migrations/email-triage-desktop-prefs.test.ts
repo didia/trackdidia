@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { migrations } from "../tauri-sqlite-repository";
+import { migrations } from "./index";
 
 describe("migration 32 add_email_triage_desktop_prefs", () => {
   it("adds run_in_tray and launch_at_login columns", () => {

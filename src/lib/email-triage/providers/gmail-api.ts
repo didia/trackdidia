@@ -1,5 +1,5 @@
 import type { EmailTriageTransientMessage } from "../../../domain/email-triage";
-import type { GmailHttpClient } from "../provider-http";
+import type { ProviderHttpClient } from "../provider-http";
 import { assertHttpSuccess, isResponseTooLargeError, parseJsonBody } from "../provider-http";
 
 const GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1";
@@ -153,7 +153,7 @@ export const isTrackDidiaLabel = (label: string): boolean =>
 
 export class GmailApiClient {
   constructor(
-    private readonly http: GmailHttpClient,
+    private readonly http: ProviderHttpClient,
     private readonly getAccessToken: () => Promise<string>,
   ) {}
 

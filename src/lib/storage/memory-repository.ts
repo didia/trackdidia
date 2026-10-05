@@ -1,6 +1,17 @@
 import {
+  defaultAppSettings,
+  normalizeAppSettings,
+  type SettingsUpdater,
+} from "../../domain/settings";
+import {
+  taskForAcceptEffect,
+  type AcceptEffect,
+  type AiProposalAcceptResult,
+} from "../ai/proposals/accept-effect";
+import {
   buildAnnualGoalSnapshots,
   cloneAnnualGoal,
+  updateAnnualGoalEvaluation,
   createEmptyAnnualGoal,
 } from "../../domain/annual-goals";
 import type {
@@ -8,13 +19,7 @@ import type {
   CalendarSyncLink,
   CalendarSyncSettings,
 } from "../../domain/calendar-sync";
-import {
-  applyDailyPomodoroStats,
-  applyDailyTaskStats,
-  cloneEntry,
-  createEmptyDailyEntry,
-  defaultAppSettings,
-} from "../../domain/daily-entry";
+import { cloneEntry, createEmptyDailyEntry } from "../../domain/daily-entry";
 import { mergeObjectiveSecondsPayload } from "../../domain/rescuetime-goals";
 import { journalPeriodOverlaps } from "../../domain/journal-feed";
 import {
@@ -73,6 +78,8 @@ import {
 } from "../../domain/weekly-review";
 import { monthKeyToLocalRange } from "../ai/analytics/month-range";
 import { getTodayDate } from "../date";
+import { reconcileGtdDay, type ReconcileDayResult } from "../gtd/reconcile";
+import { decorateDailyEntries } from "./decorate-entries";
 import { addCustomVerse } from "../pastor/custom-verse";
 import {
   buildCarryoverEvents,
@@ -84,9 +91,17 @@ import {
   filterProjects,
   filterTasks,
 } from "../gtd/engine";
+import {
+  hasContext,
+  hasScheduledDate,
+  selectTasksForBucketNormalization,
+} from "../gtd/bucket-normalization";
+import { planGoogleRecurringCollapse } from "../gtd/google-recurring-collapse";
 import { buildGoogleTasksImport } from "../gtd/google-tasks-import";
 import {
   adjustPlannedFieldsForSave,
+  assertPlannedProjectActive,
+  assertPlannedTaskActionable,
   reconcileProjectPlannedTasks,
   swapPlannedOrder,
 } from "../gtd/planned";
@@ -96,51 +111,42 @@ import {
   isCalendarSyncCaptureActive,
   promoteDueScheduledTasks as selectDueScheduledPromotions,
 } from "../gtd/scheduled";
-import {
-  addDays,
-  buildContextId,
-  cloneProject,
-  cloneTask,
-  createEntityId,
-  nowIso,
-  toLocalDateString,
-} from "../gtd/shared";
+import { applyScheduleChange } from "../gtd/schedule";
+import { buildContextId, cloneProject, cloneTask, createEntityId, nowIso } from "../gtd/shared";
+import { addDays, toLocalDateString } from "../date";
 import {
   buildPomodoroSessionDetails,
   buildPomodoroState,
   buildPomodoroTaskSummaries,
   computeDailyPomodoroStats,
-  createPomodoroSegment,
-  createPomodoroSession,
   getPomodoroRunningBreakSessionIdsToAutoCompleteWhenReset,
+  pauseSession,
+  requirePomodoroSession,
+  resumeSession,
+  startSession,
+  stopSession,
+  switchSessionTask,
 } from "../pomodoro/engine";
 import {
   applySeriesChangesToTemplate,
   buildRecurringPreviewOccurrences,
-  buildTaskFromRecurringTemplate,
+  cancelActiveTaskForTemplate,
   cloneRecurringTemplate,
   createRecurringTemplate,
   filterRecurringTemplates,
-  listDueDatesBetween,
-  prepareRecurringGeneration,
+  mergeOccurrenceEdit,
+  planDueRecurrenceGeneration,
+  planRecurrencePreparation,
+  planTemplateUpdateOnTaskClose,
   recurrenceGenerationHorizon,
-  recurringInstanceWasRewound,
+  syncActiveTaskWithTemplate,
   syncTemplateStatusChange,
 } from "../recurring/engine";
-import {
-  buildRelationshipDrawTaskTitle,
-  findActiveRelationshipDrawTask,
-  getRelationshipDrawActivities,
-  getRelationshipDrawProcessedDate,
-  getRelationshipDrawSourceExternalId,
-  mergeAppSettingsWithDefaults,
-  pickRelationshipDrawActivity,
-  relationshipDrawDefinitions,
-  relationshipPersonalContextId,
-} from "../relationship-draws";
+import { buildDailyRelationshipDrawPlan } from "../relationship-draws";
 import type { AppRepository, PomodoroStartOptions, StorageInfo } from "./repository";
 import { CalendarSyncMemoryStore } from "./calendar-sync-memory-store";
 import { EmailTriageMemoryStore } from "./email-triage-memory-store";
+import { FinanceMemoryStore } from "./finance-memory-store";
 
 export class MemoryRepository implements AppRepository {
   private entries = new Map<string, DailyEntry>();
@@ -162,20 +168,25 @@ export class MemoryRepository implements AppRepository {
   private aiMessages = new Map<string, AiMessage>();
   private aiProposals = new Map<string, AiProposal>();
   private aiMemories = new Map<string, AiMemory>();
-  private readonly emailTriage = new EmailTriageMemoryStore({
+  readonly emailTriage = new EmailTriageMemoryStore({
     getTaskByExternalId: (externalId) =>
       [...this.tasks.values()].find((task) => task.sourceExternalId === externalId),
-    createTask: (input) => {
-      const task = createTaskFromInput(input);
-      this.tasks.set(task.id, task);
-      for (const event of buildLifecycleEvents(null, task)) {
-        this.events.set(event.id, event);
+    createTask: (input) => this.saveTaskInternal(createTaskFromInput(input)),
+    saveTask: (task) => this.saveTaskInternal(task),
+    handlesLifecycleEvents: true,
+    atomic: (work) => {
+      const snapshot = {
+        tasks: new Map(this.tasks),
+        events: new Map(this.events),
+        contexts: new Map(this.contexts),
+        projects: new Map(this.projects),
+      };
+      try {
+        return work();
+      } catch (error) {
+        Object.assign(this, snapshot);
+        throw error;
       }
-      return task;
-    },
-    saveTask: (task) => {
-      this.tasks.set(task.id, task);
-      return task;
     },
     persistEvents: (events) => {
       for (const event of events) {
@@ -185,18 +196,192 @@ export class MemoryRepository implements AppRepository {
     getTaskById: (id) => this.tasks.get(id),
   });
   private readonly calendarSync = new CalendarSyncMemoryStore();
+  private readonly finance = new FinanceMemoryStore();
 
   async initialize(): Promise<void> {
     return Promise.resolve();
   }
 
+  // --- Finance (Phase 2) ---------------------------------------------------------------
+
+  async listFinancePeople() {
+    return Promise.resolve(this.finance.listPeople());
+  }
+
+  async saveFinancePerson(person: import("../../domain/finance").FinancePerson) {
+    return Promise.resolve(this.finance.savePerson(person));
+  }
+
+  async listFinanceAccounts(filters?: import("../../domain/finance").FinanceAccountFilters) {
+    return Promise.resolve(this.finance.listAccounts(filters));
+  }
+
+  async saveFinanceAccount(account: import("../../domain/finance").FinanceAccount) {
+    return Promise.resolve(this.finance.saveAccount(account));
+  }
+
+  async closeFinanceAccount(id: string) {
+    return Promise.resolve(this.finance.closeAccount(id));
+  }
+
+  async listFinanceCategories(includeArchived?: boolean) {
+    return Promise.resolve(this.finance.listCategories(includeArchived));
+  }
+
+  async saveFinanceCategory(category: import("../../domain/finance").FinanceCategory) {
+    return Promise.resolve(this.finance.saveCategory(category));
+  }
+
+  async archiveFinanceCategory(id: string, reassignToId: string) {
+    return Promise.resolve(this.finance.archiveCategory(id, reassignToId));
+  }
+
+  async seedFinanceDefaultCategories() {
+    return Promise.resolve(this.finance.seedDefaultCategories());
+  }
+
+  async listFinanceRules() {
+    return Promise.resolve(this.finance.listRules());
+  }
+
+  async saveFinanceRule(rule: import("../../domain/finance").FinanceRule) {
+    return Promise.resolve(this.finance.saveRule(rule));
+  }
+
+  async deleteFinanceRule(id: string) {
+    this.finance.deleteRule(id);
+    return Promise.resolve();
+  }
+
+  async listFinanceMerchantMemory(
+    filters?: import("../../domain/finance").FinanceMerchantMemoryFilters,
+  ) {
+    return Promise.resolve(this.finance.listMerchantMemory(filters));
+  }
+
+  async upsertFinanceMerchantMemory(
+    entry: import("../../domain/finance").FinanceMerchantMemoryEntry,
+  ) {
+    return Promise.resolve(this.finance.upsertMerchantMemory(entry));
+  }
+
+  async forgetFinanceMerchantMemory(merchantKey: string, accountId: string, sign: -1 | 0 | 1) {
+    this.finance.forgetMerchantMemory(merchantKey, accountId, sign);
+    return Promise.resolve();
+  }
+
+  async listFinanceTransactions(
+    filters?: import("../../domain/finance").FinanceTransactionFilters,
+  ) {
+    return Promise.resolve(this.finance.listTransactions(filters));
+  }
+
+  async countFinanceTransactions(
+    filters?: import("../../domain/finance").FinanceTransactionFilters,
+  ) {
+    return Promise.resolve(this.finance.countTransactions(filters));
+  }
+
+  async getFinanceTransaction(id: string) {
+    return Promise.resolve(this.finance.getTransaction(id));
+  }
+
+  async saveFinanceTransaction(txn: import("../../domain/finance").FinanceTransaction) {
+    return Promise.resolve(this.finance.saveTransaction(txn));
+  }
+
+  async setFinanceTransactionCategory(
+    input: import("../../domain/finance").SetFinanceTransactionCategoryInput,
+  ) {
+    return Promise.resolve(this.finance.setTransactionCategory(input));
+  }
+
+  async bulkUpdateFinanceTransactions(
+    ids: string[],
+    patch: import("../../domain/finance").BulkUpdateFinanceTransactionsPatch,
+  ) {
+    return Promise.resolve(this.finance.bulkUpdateTransactions(ids, patch));
+  }
+
+  async saveFinanceTransactionSplits(
+    transactionId: string,
+    splits: import("../../domain/finance").FinanceTransactionSplit[],
+  ) {
+    return Promise.resolve(this.finance.saveTransactionSplits(transactionId, splits));
+  }
+
+  async listFinanceTransactionSplits(transactionId: string) {
+    return Promise.resolve(this.finance.listTransactionSplits(transactionId));
+  }
+
+  async setFinanceTransfer(
+    pair: import("../../domain/finance").SetFinanceTransferPair | null,
+    groupId?: string,
+  ) {
+    this.finance.setTransfer(pair, groupId);
+    return Promise.resolve();
+  }
+
+  async clearFinanceTransfer(transactionId: string) {
+    this.finance.clearTransfer(transactionId);
+    return Promise.resolve();
+  }
+
+  async listFinanceImportProfiles() {
+    return Promise.resolve(this.finance.listImportProfiles());
+  }
+
+  async saveFinanceImportProfile(profile: import("../../domain/finance").FinanceImportProfile) {
+    return Promise.resolve(this.finance.saveImportProfile(profile));
+  }
+
+  async findFinanceImportProfileBySignature(signature: string) {
+    return Promise.resolve(this.finance.findImportProfileBySignature(signature));
+  }
+
+  async importFinanceTransactions(input: import("../../domain/finance").FinanceImportRequest) {
+    return Promise.resolve(this.finance.importTransactions(input));
+  }
+
+  async listFinanceImportBatches(limit?: number) {
+    return Promise.resolve(this.finance.listImportBatches(limit));
+  }
+
+  async undoFinanceImportBatch(batchId: string) {
+    return Promise.resolve(this.finance.undoImportBatch(batchId));
+  }
+
+  async listFinanceCategorySuggestions(
+    status?: import("../../domain/finance").FinanceCategorySuggestion["status"],
+    limit?: number,
+  ) {
+    return Promise.resolve(this.finance.listCategorySuggestions(status, limit));
+  }
+
+  async saveFinanceCategorySuggestions(
+    suggestions: import("../../domain/finance").FinanceCategorySuggestion[],
+  ) {
+    return Promise.resolve(this.finance.saveCategorySuggestions(suggestions));
+  }
+
+  async decideFinanceCategorySuggestion(
+    id: string,
+    decision: import("../../domain/finance").DecideFinanceCategorySuggestionInput,
+  ) {
+    return Promise.resolve(this.finance.decideCategorySuggestion(id, decision));
+  }
+
   async getDailyEntry(date: string): Promise<DailyEntry | null> {
     const existing = this.entries.get(date);
-    return existing ? this.decorateEntry(existing) : null;
+    return existing ? (this.decorateEntries([existing])[0] ?? null) : null;
   }
 
   async saveDailyEntry(entry: DailyEntry): Promise<void> {
-    this.entries.set(entry.date, await this.decorateEntry(entry));
+    this.saveDailyEntryInternal(entry);
+  }
+
+  private saveDailyEntryInternal(entry: DailyEntry): void {
+    this.entries.set(entry.date, cloneEntry(entry));
   }
 
   async listDailyEntries(limit = 30): Promise<DailyEntry[]> {
@@ -204,7 +389,7 @@ export class MemoryRepository implements AppRepository {
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, limit);
 
-    return Promise.all(sorted.map((entry) => this.decorateEntry(entry)));
+    return this.decorateEntries(sorted);
   }
 
   async listDailyEntriesOnOrBefore(endDate: string, limit = 180): Promise<DailyEntry[]> {
@@ -213,7 +398,7 @@ export class MemoryRepository implements AppRepository {
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, limit);
 
-    return Promise.all(sorted.map((entry) => this.decorateEntry(entry)));
+    return this.decorateEntries(sorted);
   }
 
   async listDailyEntriesInRange(startDate: string, endDate: string): Promise<DailyEntry[]> {
@@ -221,9 +406,7 @@ export class MemoryRepository implements AppRepository {
       .filter((entry) => entry.date >= startDate && entry.date <= endDate)
       .sort((a, b) => b.date.localeCompare(a.date));
 
-    // Journal only reads note text. Skip decorateEntry so a wide range cannot
-    // fan out into per-day GTD/Pomodoro writes and full-table scans.
-    return sorted.map((entry) => cloneEntry(entry));
+    return this.decorateEntries(sorted);
   }
 
   async getWeeklyReview(weekStartDate: string): Promise<WeeklyReview | null> {
@@ -233,6 +416,10 @@ export class MemoryRepository implements AppRepository {
   }
 
   async saveWeeklyReview(review: WeeklyReview): Promise<void> {
+    return this.saveWeeklyReviewInternal(review);
+  }
+
+  private saveWeeklyReviewInternal(review: WeeklyReview): void {
     const normalized = buildWeekDates(review.weekStartDate);
     const nextReview = {
       ...cloneWeeklyReview(review),
@@ -260,11 +447,10 @@ export class MemoryRepository implements AppRepository {
 
   async computeWeeklyReviewSummary(weekStartDate: string) {
     const normalized = buildWeekDates(weekStartDate);
-    const entries = await Promise.all(
-      listWeekDates(normalized).map(async (date) => {
-        const existing = this.entries.get(date);
-        return this.decorateEntry(existing ?? createEmptyDailyEntry(date));
-      }),
+    const entries = this.decorateEntries(
+      listWeekDates(normalized).map(
+        (date) => this.entries.get(date) ?? createEmptyDailyEntry(date),
+      ),
     );
 
     return buildWeeklyReviewSummary(normalized, entries);
@@ -279,6 +465,10 @@ export class MemoryRepository implements AppRepository {
   }
 
   async saveWeeklyObjective(objective: WeeklyObjective): Promise<WeeklyObjective> {
+    return this.saveWeeklyObjectiveInternal(objective);
+  }
+
+  private saveWeeklyObjectiveInternal(objective: WeeklyObjective): WeeklyObjective {
     const timestamp = nowIso();
     const nextObjective = createEmptyWeeklyObjective({
       ...cloneWeeklyObjective(objective),
@@ -424,6 +614,10 @@ export class MemoryRepository implements AppRepository {
   }
 
   async saveMonthlyReview(review: MonthlyReview): Promise<void> {
+    return this.saveMonthlyReviewInternal(review);
+  }
+
+  private saveMonthlyReviewInternal(review: MonthlyReview): void {
     const normalized = getMonthKey(`${review.monthKey}-01`);
     this.monthlyReviews.set(normalized, {
       ...cloneMonthlyReview(review),
@@ -452,12 +646,8 @@ export class MemoryRepository implements AppRepository {
 
   async computeMonthlyReviewSummary(monthKey: string) {
     const normalized = getMonthKey(`${monthKey}-01`);
-    const entries = (
-      await Promise.all(
-        [...this.entries.values()]
-          .filter((entry) => getMonthKey(entry.date) === normalized)
-          .map((entry) => this.decorateEntry(entry)),
-      )
+    const entries = this.decorateEntries(
+      [...this.entries.values()].filter((entry) => getMonthKey(entry.date) === normalized),
     ).sort((left, right) => left.date.localeCompare(right.date));
     const weekStarts = listWeekStartsForMonth(normalized);
     const weeklySummaries = await Promise.all(
@@ -478,6 +668,10 @@ export class MemoryRepository implements AppRepository {
   }
 
   async saveAnnualGoal(goal: AnnualGoal): Promise<AnnualGoal> {
+    return this.saveAnnualGoalInternal(goal);
+  }
+
+  private saveAnnualGoalInternal(goal: AnnualGoal): AnnualGoal {
     const timestamp = nowIso();
     const nextGoal = createEmptyAnnualGoal({
       ...cloneAnnualGoal(goal),
@@ -498,10 +692,8 @@ export class MemoryRepository implements AppRepository {
   }
 
   async computeAnnualGoalSnapshots(year: number, asOfDate: string = getTodayDate()) {
-    const entries = await Promise.all(
-      [...this.entries.values()]
-        .filter((entry) => entry.date.startsWith(`${year}-`))
-        .map((entry) => this.decorateEntry(entry)),
+    const entries = this.decorateEntries(
+      [...this.entries.values()].filter((entry) => entry.date.startsWith(`${year}-`)),
     );
     const weekStarts = [...new Set(entries.map((entry) => buildWeekDates(entry.date)))].sort();
     const weeklySummaries = await Promise.all(
@@ -517,28 +709,32 @@ export class MemoryRepository implements AppRepository {
   }
 
   async getSettings(): Promise<AppSettings> {
-    return mergeAppSettingsWithDefaults(this.settings, defaultAppSettings());
+    return structuredClone(normalizeAppSettings(this.settings));
   }
 
   async saveSettings(settings: AppSettings): Promise<void> {
-    this.settings = mergeAppSettingsWithDefaults(settings, defaultAppSettings());
+    this.settings = structuredClone(normalizeAppSettings(settings));
+  }
+
+  async updateSettings(updater: SettingsUpdater): Promise<AppSettings> {
+    // No await: read/apply/write form one synchronous operation. Clone before exposing
+    // the snapshot so an updater that mutates and throws cannot damage stored settings.
+    const current = structuredClone(normalizeAppSettings(this.settings));
+    const next = normalizeAppSettings(updater(current));
+    this.settings = structuredClone(next);
+    return structuredClone(next);
   }
 
   async addPastorCustomVerse(
     candidate: CatalogVerse,
   ): Promise<{ added: boolean; settings: AppSettings }> {
-    // No `await` between reading `this.settings` and writing it back — nothing else can run in
-    // between, so this is race-free the same way the SQLite implementation's single serialized
-    // read-then-write transaction is.
-    const current = mergeAppSettingsWithDefaults(this.settings, defaultAppSettings());
-    const { added, customVerses } = addCustomVerse(current.aiPastorCustomVerses, candidate);
-    if (!added) {
-      return { added: false, settings: current };
-    }
-
-    const next = { ...current, aiPastorCustomVerses: customVerses };
-    this.settings = next;
-    return { added: true, settings: next };
+    let added = false;
+    const settings = await this.updateSettings((current) => {
+      const result = addCustomVerse(current.aiPastorCustomVerses, candidate);
+      added = result.added;
+      return { ...current, aiPastorCustomVerses: result.customVerses };
+    });
+    return { added, settings };
   }
 
   async getAiMessage(
@@ -723,204 +919,122 @@ export class MemoryRepository implements AppRepository {
     return { ...updated };
   }
 
-  async acceptAiMemoryProposal(
-    proposal: AiProposal,
-    memory: AiMemory,
-  ): Promise<{ memory: AiMemory; proposal: AiProposal }> {
-    const existingProposal = this.aiProposals.get(proposal.id);
-    if (!existingProposal) {
-      throw new Error(`AI proposal not found: ${proposal.id}`);
-    }
-
-    if (existingProposal.status === "accepted") {
-      const memoryId = existingProposal.appliedEntityId ?? memory.id;
-      const existingMemory = this.aiMemories.get(memoryId);
-      if (!existingMemory) {
-        throw new Error(`AI memory not found: ${memoryId}`);
+  async acceptAiProposal(
+    proposalId: string,
+    effect: AcceptEffect | null,
+  ): Promise<AiProposalAcceptResult> {
+    const proposal = this.aiProposals.get(proposalId);
+    if (!proposal) throw new Error(`AI proposal not found: ${proposalId}`);
+    if (proposal.status === "accepted") {
+      if (
+        effect?.kind === "memory" &&
+        !this.aiMemories.has(proposal.appliedEntityId ?? effect.memory.id)
+      ) {
+        throw new Error(`AI memory not found: ${proposal.appliedEntityId ?? effect.memory.id}`);
       }
-
-      return {
-        memory: { ...existingMemory },
-        proposal: { ...existingProposal },
-      };
-    }
-
-    const existingMemory = this.aiMemories.get(memory.id);
-    const savedMemory = existingMemory ? { ...existingMemory } : await this.saveAiMemory(memory);
-    const decidedAt = nowIso();
-    const updatedProposal: AiProposal = {
-      ...existingProposal,
-      status: "accepted",
-      appliedEntityId: savedMemory.id,
-      decidedAt,
-    };
-    this.aiProposals.set(proposal.id, updatedProposal);
-
-    return {
-      memory: savedMemory,
-      proposal: { ...updatedProposal },
-    };
-  }
-
-  async acceptAiWeeklyObjectiveProposal(
-    proposal: AiProposal,
-    objective: WeeklyObjective,
-  ): Promise<{ objective: WeeklyObjective; proposal: AiProposal }> {
-    const existingProposal = this.aiProposals.get(proposal.id);
-    if (!existingProposal) {
-      throw new Error(`AI proposal not found: ${proposal.id}`);
-    }
-
-    if (existingProposal.status === "accepted") {
-      const objectiveId = existingProposal.appliedEntityId ?? objective.id;
-      const existingObjective = [...this.weeklyObjectives.values()].find(
-        (item) => item.id === objectiveId,
-      );
-      if (!existingObjective) {
-        throw new Error(`Weekly objective not found: ${objectiveId}`);
+      if (
+        effect?.kind === "weeklyObjective" &&
+        !this.weeklyObjectives.has(proposal.appliedEntityId ?? effect.objective.id)
+      ) {
+        throw new Error(
+          `Weekly objective not found: ${proposal.appliedEntityId ?? effect.objective.id}`,
+        );
       }
+      const appliedEntityId =
+        proposal.appliedEntityId ??
+        (effect?.kind === "memory"
+          ? effect.memory.id
+          : effect?.kind === "weeklyObjective"
+            ? effect.objective.id
+            : null);
+      return { proposal: { ...proposal }, appliedEntityId, effectApplied: false };
+    }
+    if (!effect || proposal.status !== "pending")
+      return { proposal: { ...proposal }, appliedEntityId: null, effectApplied: false };
 
-      return {
-        objective: cloneWeeklyObjective(existingObjective),
-        proposal: { ...existingProposal },
+    // All internal effect writers below are synchronous. No other caller can interleave
+    // between their mutations and the decision; rollback restores all affected maps.
+    const snapshot = {
+      aiProposals: new Map(this.aiProposals),
+      ...(effect.kind === "memory" ? { aiMemories: new Map(this.aiMemories) } : {}),
+      ...(effect.kind === "weeklyObjective"
+        ? { weeklyObjectives: new Map(this.weeklyObjectives) }
+        : {}),
+      ...(effect.kind === "weeklyReview" ? { weeklyReviews: new Map(this.weeklyReviews) } : {}),
+      ...(effect.kind === "monthlyReview" ? { monthlyReviews: new Map(this.monthlyReviews) } : {}),
+      ...(effect.kind === "dailyEntry" ? { entries: new Map(this.entries) } : {}),
+      ...(effect.kind === "goalEvaluation" ? { annualGoals: new Map(this.annualGoals) } : {}),
+      ...(effect.kind === "gtdTask"
+        ? {
+            tasks: new Map(this.tasks),
+            contexts: new Map(this.contexts),
+            events: new Map(this.events),
+            recurringTemplates: new Map(this.recurringTemplates),
+          }
+        : {}),
+    };
+    try {
+      let appliedEntityId: string;
+      switch (effect.kind) {
+        case "memory":
+          appliedEntityId = (
+            this.aiMemories.get(effect.memory.id) ?? this.saveAiMemoryInternal(effect.memory)
+          ).id;
+          break;
+        case "weeklyObjective":
+          appliedEntityId = this.saveWeeklyObjectiveInternal(effect.objective).id;
+          break;
+        case "weeklyReview":
+          this.saveWeeklyReviewInternal(effect.review);
+          appliedEntityId = effect.review.weekStartDate;
+          break;
+        case "monthlyReview":
+          this.saveMonthlyReviewInternal(effect.review);
+          appliedEntityId = effect.review.monthKey;
+          break;
+        case "dailyEntry":
+          this.saveDailyEntryInternal(effect.entry);
+          appliedEntityId = effect.entry.date;
+          break;
+        case "goalEvaluation": {
+          const goal = this.annualGoals.get(effect.goalId);
+          if (!goal)
+            return { proposal: { ...proposal }, appliedEntityId: null, effectApplied: false };
+          appliedEntityId = this.saveAnnualGoalInternal(
+            updateAnnualGoalEvaluation(goal, effect.monthKey, effect.evaluation),
+          ).id;
+          break;
+        }
+        case "gtdTask": {
+          const task = this.tasks.get(effect.taskId);
+          const next = task ? taskForAcceptEffect(task, effect) : null;
+          if (!task || !next)
+            return { proposal: { ...proposal }, appliedEntityId: null, effectApplied: false };
+          this.saveTaskInternal(next);
+          if (effect.action === "drop" && task.recurringTemplateId) {
+            const template = this.getExistingRecurringTemplate(task.recurringTemplateId);
+            this.recurringTemplates.set(template.id, {
+              ...cloneRecurringTemplate(template),
+              pendingMissedOccurrences: 0,
+              updatedAt: nowIso(),
+            });
+          }
+          appliedEntityId = task.id;
+          break;
+        }
+      }
+      const accepted: AiProposal = {
+        ...proposal,
+        status: "accepted",
+        appliedEntityId,
+        decidedAt: nowIso(),
       };
+      this.aiProposals.set(proposalId, accepted);
+      return { proposal: { ...accepted }, appliedEntityId, effectApplied: true };
+    } catch (error) {
+      Object.assign(this, snapshot);
+      throw error;
     }
-
-    const savedObjective = await this.saveWeeklyObjective(objective);
-    const decidedAt = nowIso();
-    const updatedProposal: AiProposal = {
-      ...existingProposal,
-      status: "accepted",
-      appliedEntityId: savedObjective.id,
-      decidedAt,
-    };
-    this.aiProposals.set(proposal.id, updatedProposal);
-
-    return {
-      objective: savedObjective,
-      proposal: { ...updatedProposal },
-    };
-  }
-
-  async acceptAiReviewSectionDraftProposal(
-    proposal: AiProposal,
-    review: WeeklyReview,
-  ): Promise<{ review: WeeklyReview; proposal: AiProposal }> {
-    const existingProposal = this.aiProposals.get(proposal.id);
-    if (!existingProposal) {
-      throw new Error(`AI proposal not found: ${proposal.id}`);
-    }
-
-    if (existingProposal.status === "accepted") {
-      const savedReview = await this.getWeeklyReview(review.weekStartDate);
-      return {
-        review: savedReview ?? review,
-        proposal: { ...existingProposal },
-      };
-    }
-
-    await this.saveWeeklyReview(review);
-    const decidedAt = nowIso();
-    const updatedProposal: AiProposal = {
-      ...existingProposal,
-      status: "accepted",
-      appliedEntityId: review.weekStartDate,
-      decidedAt,
-    };
-    this.aiProposals.set(proposal.id, updatedProposal);
-
-    return {
-      review,
-      proposal: { ...updatedProposal },
-    };
-  }
-
-  async acceptAiMonthlyReviewSectionDraftProposal(
-    proposal: AiProposal,
-    review: MonthlyReview,
-  ): Promise<{ review: MonthlyReview; proposal: AiProposal }> {
-    const existingProposal = this.aiProposals.get(proposal.id);
-    if (!existingProposal) {
-      throw new Error(`AI proposal not found: ${proposal.id}`);
-    }
-
-    if (existingProposal.status === "accepted") {
-      const savedReview = await this.getMonthlyReview(review.monthKey);
-      return {
-        review: savedReview ?? review,
-        proposal: { ...existingProposal },
-      };
-    }
-
-    await this.saveMonthlyReview(review);
-    const decidedAt = nowIso();
-    const updatedProposal: AiProposal = {
-      ...existingProposal,
-      status: "accepted",
-      appliedEntityId: review.monthKey,
-      decidedAt,
-    };
-    this.aiProposals.set(proposal.id, updatedProposal);
-
-    return {
-      review,
-      proposal: { ...updatedProposal },
-    };
-  }
-
-  async acceptAiGtdActionProposal(
-    proposal: AiProposal,
-    scheduledDate: string,
-  ): Promise<{ taskId: string | null; proposal: AiProposal }> {
-    const existingProposal = this.aiProposals.get(proposal.id);
-    if (!existingProposal) {
-      throw new Error(`AI proposal not found: ${proposal.id}`);
-    }
-
-    if (existingProposal.status === "accepted") {
-      return {
-        taskId: existingProposal.appliedEntityId,
-        proposal: { ...existingProposal },
-      };
-    }
-
-    const payload = JSON.parse(proposal.payloadJson) as {
-      taskId?: string;
-      action?: "schedule" | "defer" | "delegate" | "drop";
-    };
-
-    if (!payload.taskId || !payload.action) {
-      return { taskId: null, proposal: { ...existingProposal } };
-    }
-
-    const task = [...this.tasks.values()].find((item) => item.id === payload.taskId);
-    if (!task || task.status !== "active") {
-      return { taskId: null, proposal: { ...existingProposal } };
-    }
-
-    if (payload.action === "schedule") {
-      await this.scheduleTask(payload.taskId, scheduledDate);
-    } else if (payload.action === "defer") {
-      await this.moveTask(payload.taskId, "someday_maybe", task.contextIds, task.projectId);
-    } else if (payload.action === "delegate") {
-      await this.moveTask(payload.taskId, "waiting_for", task.contextIds, task.projectId);
-    } else if (payload.action === "drop") {
-      await this.cancelTask(payload.taskId);
-    }
-
-    const decidedAt = nowIso();
-    const updatedProposal: AiProposal = {
-      ...existingProposal,
-      status: "accepted",
-      appliedEntityId: payload.taskId,
-      decidedAt,
-    };
-    this.aiProposals.set(proposal.id, updatedProposal);
-
-    return {
-      taskId: payload.taskId,
-      proposal: { ...updatedProposal },
-    };
   }
 
   async listAiMemories(filters: AiMemoryFilters = {}): Promise<AiMemory[]> {
@@ -952,6 +1066,10 @@ export class MemoryRepository implements AppRepository {
   }
 
   async saveAiMemory(memory: AiMemory): Promise<AiMemory> {
+    return this.saveAiMemoryInternal(memory);
+  }
+
+  private saveAiMemoryInternal(memory: AiMemory): AiMemory {
     const persisted = { ...memory };
     this.aiMemories.set(persisted.id, persisted);
     return { ...persisted };
@@ -1018,87 +1136,57 @@ export class MemoryRepository implements AppRepository {
   }
 
   async moveTasksWithContextToBucket(contextId: string, bucket: Task["bucket"]): Promise<number> {
-    let movedCount = 0;
+    const updates = selectTasksForBucketNormalization(
+      this.tasks.values(),
+      hasContext(contextId),
+      bucket,
+      nowIso(),
+    );
 
-    for (const [taskId, task] of this.tasks.entries()) {
-      if (
-        task.status !== "active" ||
-        !task.contextIds.includes(contextId) ||
-        task.bucket === bucket
-      ) {
-        continue;
-      }
-
-      this.tasks.set(taskId, {
-        ...cloneTask(task),
-        bucket,
-        updatedAt: nowIso(),
-      });
-      movedCount += 1;
+    for (const updated of updates) {
+      this.tasks.set(updated.id, updated);
     }
 
-    return movedCount;
+    return updates.length;
   }
 
   async moveTasksWithScheduledDatesToBucket(bucket: Task["bucket"]): Promise<number> {
-    let movedCount = 0;
+    const updates = selectTasksForBucketNormalization(
+      this.tasks.values(),
+      hasScheduledDate,
+      bucket,
+      nowIso(),
+    );
 
-    for (const [taskId, task] of this.tasks.entries()) {
-      if (task.status !== "active" || !task.scheduledFor || task.bucket === bucket) {
-        continue;
-      }
-
-      this.tasks.set(taskId, {
-        ...cloneTask(task),
-        bucket,
-        updatedAt: nowIso(),
-      });
-      movedCount += 1;
+    for (const updated of updates) {
+      this.tasks.set(updated.id, updated);
     }
 
-    return movedCount;
+    return updates.length;
   }
 
   async collapseGoogleRecurringTasks(rawJson: unknown): Promise<number> {
     const payload = buildGoogleTasksImport(rawJson);
-    let changedCount = 0;
 
     for (const context of payload.contexts) {
       this.contexts.set(context.id, { ...context });
     }
 
-    for (const desiredTask of payload.tasks.filter((task) => task.recurrenceGroupId)) {
-      const sourceIds = new Set(payload.recurringSourceTaskIds[desiredTask.id] ?? []);
-      const existingMatches = [...this.tasks.values()].filter(
-        (task) =>
-          task.source === "google_import" &&
-          (task.id === desiredTask.id ||
-            task.recurrenceGroupId === desiredTask.recurrenceGroupId ||
-            (task.sourceExternalId ? sourceIds.has(task.sourceExternalId) : false)),
-      );
+    const { upserts, deleteIds } = planGoogleRecurringCollapse(
+      payload,
+      [...this.tasks.values()],
+      nowIso(),
+    );
 
-      const previousPrimary =
-        existingMatches.find((task) => task.id === desiredTask.id) ?? existingMatches[0] ?? null;
-      const nextTask: Task = {
-        ...cloneTask(desiredTask),
-        notes: previousPrimary?.notes?.trim() ? previousPrimary.notes : desiredTask.notes,
-        projectId: previousPrimary?.projectId ?? desiredTask.projectId,
-        updatedAt: nowIso(),
-      };
-
-      this.tasks.set(nextTask.id, cloneTask(nextTask));
-      changedCount += 1;
-
-      for (const duplicate of existingMatches) {
-        if (duplicate.id === nextTask.id) {
-          continue;
-        }
-
-        this.tasks.delete(duplicate.id);
-      }
+    for (const task of upserts) {
+      this.tasks.set(task.id, cloneTask(task));
     }
 
-    return changedCount;
+    for (const taskId of deleteIds) {
+      this.tasks.delete(taskId);
+    }
+
+    return upserts.length;
   }
 
   async listContexts(): Promise<TaskContext[]> {
@@ -1164,8 +1252,6 @@ export class MemoryRepository implements AppRepository {
   }
 
   async listTasks(filters: TaskFilters = {}): Promise<Task[]> {
-    await this.generateDueRecurringTasks(getTodayDate());
-    await this.promoteDueScheduledTasks(getTodayDate());
     return filterTasks([...this.tasks.values()], filters);
   }
 
@@ -1208,7 +1294,7 @@ export class MemoryRepository implements AppRepository {
 
     const activeTask = this.findActiveRecurringTask(nextTemplate.id);
     if (activeTask) {
-      const syncedTask = this.syncActiveTaskWithTemplate(activeTask, nextTemplate);
+      const syncedTask = syncActiveTaskWithTemplate(activeTask, nextTemplate);
       this.tasks.set(syncedTask.id, cloneTask(syncedTask));
     }
 
@@ -1216,30 +1302,29 @@ export class MemoryRepository implements AppRepository {
   }
 
   async pauseRecurringTaskTemplate(id: string) {
-    const template = this.getExistingRecurringTemplate(id);
-    const nextTemplate = syncTemplateStatusChange(template, "paused");
-    this.recurringTemplates.set(id, cloneRecurringTemplate(nextTemplate));
-    return cloneRecurringTemplate(nextTemplate);
+    return this.setTemplateStatus(id, "paused");
   }
 
   async resumeRecurringTaskTemplate(id: string) {
-    const template = this.getExistingRecurringTemplate(id);
-    const nextTemplate = syncTemplateStatusChange(template, "active");
-    this.recurringTemplates.set(id, cloneRecurringTemplate(nextTemplate));
-    return cloneRecurringTemplate(nextTemplate);
+    return this.setTemplateStatus(id, "active");
   }
 
   async cancelRecurringTaskTemplate(id: string) {
+    return this.setTemplateStatus(id, "cancelled");
+  }
+
+  private setTemplateStatus(
+    id: string,
+    status: RecurringTaskTemplate["status"],
+  ): RecurringTaskTemplate {
     const template = this.getExistingRecurringTemplate(id);
-    const nextTemplate = syncTemplateStatusChange(template, "cancelled");
+    const nextTemplate = syncTemplateStatusChange(template, status);
     this.recurringTemplates.set(id, cloneRecurringTemplate(nextTemplate));
-    const activeTask = this.findActiveRecurringTask(id);
-    if (activeTask) {
-      this.tasks.set(activeTask.id, {
-        ...cloneTask(activeTask),
-        status: "cancelled",
-        updatedAt: nowIso(),
-      });
+    if (status === "cancelled") {
+      const activeTask = this.findActiveRecurringTask(id);
+      if (activeTask) {
+        this.tasks.set(activeTask.id, cancelActiveTaskForTemplate(activeTask, nowIso()));
+      }
     }
     return cloneRecurringTemplate(nextTemplate);
   }
@@ -1255,80 +1340,36 @@ export class MemoryRepository implements AppRepository {
       }
 
       const instance = this.findRecurringInstance(original.id);
-      const prepared = prepareRecurringGeneration(original, instance, today);
-      let template = prepared.template;
-      let activeTask = prepared.instance?.status === "active" ? prepared.instance : null;
-
-      if (prepared.changed) {
-        const timestamp = nowIso();
-        template = {
-          ...cloneRecurringTemplate(template),
-          updatedAt: timestamp,
-        };
-        this.recurringTemplates.set(template.id, cloneRecurringTemplate(template));
-        if (prepared.instance && recurringInstanceWasRewound(instance, prepared.instance)) {
-          const previousInstance = instance ? cloneTask(instance) : null;
-          const nextInstance = {
-            ...cloneTask(prepared.instance),
-            updatedAt: timestamp,
-          };
-          this.tasks.set(nextInstance.id, cloneTask(nextInstance));
-          if (previousInstance) {
-            this.persistEvents(buildLifecycleEvents(previousInstance, nextInstance));
-          }
-          if (nextInstance.status === "active") {
-            activeTask = nextInstance;
-          }
-        }
+      const prepared = planRecurrencePreparation(original, instance, today, nowIso());
+      if (prepared.templateChanged) {
+        this.recurringTemplates.set(
+          prepared.template.id,
+          cloneRecurringTemplate(prepared.template),
+        );
+      }
+      if (prepared.instanceUpdate) {
+        const { previousTask, nextTask } = prepared.instanceUpdate;
+        this.tasks.set(nextTask.id, cloneTask(nextTask));
+        this.persistEvents(buildLifecycleEvents(previousTask, nextTask));
       }
 
-      const startDate = this.findProcessingStartDate(template, activeTask);
-      const dueDates = listDueDatesBetween(template, startDate, horizon);
-
-      if (dueDates.length === 0) {
+      const plan = planDueRecurrenceGeneration(
+        prepared.template,
+        prepared.activeTask,
+        horizon,
+        nowIso(),
+      );
+      if (!plan) {
         continue;
       }
 
-      const latestDueDate = dueDates[dueDates.length - 1];
-      const nextPending =
-        (activeTask?.pendingPastRecurrences ?? 0) + dueDates.length - 1 + (activeTask ? 1 : 0);
-      const previousPending = activeTask?.pendingPastRecurrences ?? 0;
-      const pendingPastRecurrences = Math.max(previousPending, nextPending);
-      const timestamp = nowIso();
+      this.ensureContextsByIds(prepared.template.contextIds);
+      this.tasks.set(plan.nextTask.id, cloneTask(plan.nextTask));
+      this.persistEvents(buildLifecycleEvents(plan.previousTask, plan.nextTask));
 
-      const nextTask = activeTask
-        ? {
-            ...cloneTask(activeTask),
-            bucket: template.targetBucket,
-            // Reapply the template's contextIds/projectId on every generation (matching
-            // TauriSqliteRepository): a new occurrence is driven by the template's current
-            // structural fields even if a previous occurrence-scope edit changed them, while
-            // title/notes are deliberately left as the active task's (occurrence customization
-            // survives regeneration).
-            contextIds: [...template.contextIds],
-            projectId: template.projectId,
-            title: activeTask.title,
-            notes: activeTask.notes,
-            scheduledFor:
-              template.targetBucket === "scheduled"
-                ? buildTaskFromRecurringTemplate(template, latestDueDate, pendingPastRecurrences)
-                    .scheduledFor
-                : null,
-            recurrenceDueDate: latestDueDate,
-            pendingPastRecurrences,
-            updatedAt: timestamp,
-          }
-        : buildTaskFromRecurringTemplate(template, latestDueDate, Math.max(0, dueDates.length - 1));
-
-      this.ensureContextsByIds(template.contextIds);
-      this.tasks.set(nextTask.id, cloneTask(nextTask));
-      this.persistEvents(buildLifecycleEvents(activeTask ? cloneTask(activeTask) : null, nextTask));
-
-      this.recurringTemplates.set(template.id, {
-        ...cloneRecurringTemplate(template),
-        lastGeneratedForDate: latestDueDate,
-        pendingMissedOccurrences: nextTask.pendingPastRecurrences,
-        updatedAt: timestamp,
+      this.recurringTemplates.set(prepared.template.id, {
+        ...cloneRecurringTemplate(prepared.template),
+        ...plan.templatePatch,
       });
 
       changedCount += 1;
@@ -1403,26 +1444,21 @@ export class MemoryRepository implements AppRepository {
     }
 
     if (scope === "occurrence") {
-      return this.saveTask({
-        ...task,
-        title: changes.title ?? task.title,
-        notes: changes.notes ?? task.notes,
-        bucket: changes.bucket ?? task.bucket,
-        contextIds: changes.contextIds ?? task.contextIds,
-        projectId: changes.projectId === undefined ? task.projectId : changes.projectId,
-        scheduledFor: changes.scheduledFor === undefined ? task.scheduledFor : changes.scheduledFor,
-        deadline: changes.deadline === undefined ? task.deadline : changes.deadline,
-      });
+      return this.saveTask(mergeOccurrenceEdit(task, changes));
     }
 
     const template = this.getExistingRecurringTemplate(task.recurringTemplateId);
     const nextTemplate = applySeriesChangesToTemplate(template, changes);
     await this.saveRecurringTaskTemplate(nextTemplate);
-    const nextTask = this.syncActiveTaskWithTemplate(this.getExistingTask(taskId), nextTemplate);
+    const nextTask = syncActiveTaskWithTemplate(this.getExistingTask(taskId), nextTemplate);
     return this.saveTask(nextTask);
   }
 
   async createTask(input: CreateTaskInput): Promise<Task> {
+    return this.createTaskInternal(input);
+  }
+
+  private createTaskInternal(input: CreateTaskInput): Task {
     const draft = createTaskFromInput(input);
     const nextTask = this.applyPlannedAdjustments(null, draft);
     this.assertPlannedProjectExists(nextTask);
@@ -1434,6 +1470,10 @@ export class MemoryRepository implements AppRepository {
   }
 
   async saveTask(task: Task): Promise<Task> {
+    return this.saveTaskInternal(task);
+  }
+
+  private saveTaskInternal(task: Task): Task {
     const previous = this.tasks.get(task.id) ?? null;
     const adjusted = this.applyPlannedAdjustments(previous, task);
     const nextTask: Task = {
@@ -1469,42 +1509,18 @@ export class MemoryRepository implements AppRepository {
   async scheduleTask(taskId: string, scheduledFor: string | null): Promise<Task> {
     const current = this.getExistingTask(taskId);
 
-    // Reusing `scheduledFor` on an active Planned task is a planned-date display update: it
-    // must never coerce the task to Scheduled.
-    if (current.status === "active" && current.bucket === "planned") {
-      return this.saveTask({ ...current, scheduledFor });
-    }
-
-    return this.saveTask({
-      ...current,
-      bucket: scheduledFor
-        ? "scheduled"
-        : current.bucket === "scheduled"
-          ? "next_action"
-          : current.bucket,
-      scheduledFor,
-    });
+    return this.saveTask(applyScheduleChange(current, scheduledFor));
   }
 
   async promotePlannedTask(taskId: string): Promise<Task> {
-    const task = this.getExistingTask(taskId);
-    if (task.status !== "active" || task.bucket !== "planned" || !task.projectId) {
-      throw new Error(`La tache ${taskId} n'est pas planifiee et active`);
-    }
-
-    const project = this.projects.get(task.projectId) ?? null;
-    if (!project || project.status !== "active") {
-      throw new Error("Le projet associe n'est pas actif");
-    }
+    const task = assertPlannedTaskActionable(taskId, this.getExistingTask(taskId));
+    assertPlannedProjectActive(this.projects.get(task.projectId) ?? null);
 
     return this.saveTask({ ...task, bucket: "next_action" });
   }
 
   async movePlannedTask(taskId: string, direction: "up" | "down"): Promise<Task[]> {
-    const task = this.getExistingTask(taskId);
-    if (task.status !== "active" || task.bucket !== "planned" || !task.projectId) {
-      throw new Error(`La tache ${taskId} n'est pas planifiee et active`);
-    }
+    const task = assertPlannedTaskActionable(taskId, this.getExistingTask(taskId));
 
     const updates = swapPlannedOrder([...this.tasks.values()], taskId, direction, nowIso());
     if (!updates) {
@@ -1531,18 +1547,10 @@ export class MemoryRepository implements AppRepository {
     });
     if (current.recurringTemplateId) {
       const template = this.getExistingRecurringTemplate(current.recurringTemplateId);
-      const nextLastGeneratedForDate =
-        current.recurrenceDueDate &&
-        (!template.lastGeneratedForDate ||
-          current.recurrenceDueDate > template.lastGeneratedForDate)
-          ? current.recurrenceDueDate
-          : template.lastGeneratedForDate;
-      this.recurringTemplates.set(current.recurringTemplateId, {
-        ...cloneRecurringTemplate(template),
-        lastGeneratedForDate: nextLastGeneratedForDate,
-        pendingMissedOccurrences: 0,
-        updatedAt: nowIso(),
-      });
+      this.recurringTemplates.set(
+        current.recurringTemplateId,
+        planTemplateUpdateOnTaskClose(template, current, "completed", nowIso()),
+      );
     }
     return nextTask;
   }
@@ -1556,11 +1564,10 @@ export class MemoryRepository implements AppRepository {
     });
     if (current.recurringTemplateId) {
       const template = this.getExistingRecurringTemplate(current.recurringTemplateId);
-      this.recurringTemplates.set(current.recurringTemplateId, {
-        ...cloneRecurringTemplate(template),
-        pendingMissedOccurrences: 0,
-        updatedAt: nowIso(),
-      });
+      this.recurringTemplates.set(
+        current.recurringTemplateId,
+        planTemplateUpdateOnTaskClose(template, current, "cancelled", nowIso()),
+      );
     }
     return nextTask;
   }
@@ -1574,76 +1581,37 @@ export class MemoryRepository implements AppRepository {
   }
 
   async generateDailyRelationshipTasks(date: string): Promise<number> {
-    const settings = await this.getSettings();
-
-    if (!settings.relationshipDrawsEnabled) {
-      return 0;
-    }
-
-    let nextSettings = settings;
     let createdCount = 0;
-    const taskSnapshot = [...this.tasks.values()];
-
-    for (const definition of relationshipDrawDefinitions) {
-      if (getRelationshipDrawProcessedDate(nextSettings, definition) === date) {
-        continue;
-      }
-
-      if (findActiveRelationshipDrawTask(taskSnapshot, definition.category)) {
-        nextSettings = {
-          ...nextSettings,
-          [definition.processedDateKey]: date,
-        };
-        continue;
-      }
-
-      const activity = pickRelationshipDrawActivity(
-        getRelationshipDrawActivities(nextSettings, definition),
-      );
-      if (!activity) {
-        continue;
-      }
-
-      const createdTask = await this.createTask({
-        title: buildRelationshipDrawTaskTitle(definition, activity),
-        notes: definition.notes,
-        bucket: "next_action",
-        contextIds: [relationshipPersonalContextId],
-        source: "manual",
-        sourceExternalId: getRelationshipDrawSourceExternalId(definition.category, date),
-        createdAt: `${date}T00:00:00.000Z`,
-        updatedAt: `${date}T00:00:00.000Z`,
-      });
-
-      taskSnapshot.push(createdTask);
-      nextSettings = {
-        ...nextSettings,
-        [definition.processedDateKey]: date,
+    await this.updateSettings((current) => {
+      const plan = buildDailyRelationshipDrawPlan(date, current, [...this.tasks.values()]);
+      const snapshot = {
+        tasks: new Map(this.tasks),
+        contexts: new Map(this.contexts),
+        events: new Map(this.events),
+        projects: new Map(this.projects),
       };
-      createdCount += 1;
-    }
-
-    await this.saveSettings(nextSettings);
+      try {
+        // No await: the active-task check, inserts, and settings update cannot interleave.
+        for (const input of plan.taskInputs) this.createTaskInternal(input);
+        createdCount = plan.taskInputs.length;
+        return plan.settings;
+      } catch (error) {
+        Object.assign(this, snapshot);
+        throw error;
+      }
+    });
     return createdCount;
   }
 
-  async computeDailyTaskStats(date: string): Promise<DailyTaskStats> {
-    await this.generateDueRecurringTasks(date);
-    await this.promoteDueScheduledTasks(getTodayDate());
-    if (date <= getTodayDate() && new Date(`${date}T12:00:00`).getDay() === 0) {
-      await this.applyWeeklyCarryover(date);
-    }
+  async reconcileDay(date: string, now?: string): Promise<ReconcileDayResult> {
+    return reconcileGtdDay(this, date, now);
+  }
 
+  async computeDailyTaskStats(date: string): Promise<DailyTaskStats> {
     return buildDailyTaskStats([...this.tasks.values()], [...this.events.values()], date);
   }
 
   async getDailyTaskBreakdown(date: string) {
-    await this.generateDueRecurringTasks(date);
-    await this.promoteDueScheduledTasks(getTodayDate());
-    if (date <= getTodayDate() && new Date(`${date}T12:00:00`).getDay() === 0) {
-      await this.applyWeeklyCarryover(date);
-    }
-
     return buildDailyTaskBreakdown([...this.tasks.values()], [...this.events.values()], date);
   }
 
@@ -1673,22 +1641,9 @@ export class MemoryRepository implements AppRepository {
     }
 
     const startedAt = nowIso();
-    const kind = options.kind ?? state.nextSessionKind;
-    const cycleIndex =
-      kind === "focus"
-        ? state.nextFocusCycleIndex
-        : Math.max(1, state.completedFocusCountInCycle || 1);
-    const session = createPomodoroSession(kind, startedAt, cycleIndex);
+    const { session, segmentsToUpsert } = startSession(state, options, startedAt);
     this.pomodoroSessions.set(session.id, session);
-
-    if (kind === "focus") {
-      const normalizedTitle = options.taskId ? null : (options.title ?? "").trim() || null;
-      const segment = createPomodoroSegment(
-        session.id,
-        startedAt,
-        options.taskId ?? null,
-        normalizedTitle,
-      );
+    for (const segment of segmentsToUpsert) {
       this.pomodoroSegments.set(segment.id, segment);
     }
 
@@ -1700,116 +1655,61 @@ export class MemoryRepository implements AppRepository {
     status: "completed" | "cancelled",
     at = nowIso(),
   ): Promise<PomodoroState> {
-    const session = this.pomodoroSessions.get(sessionId);
-
-    if (!session) {
-      throw new Error(`Session Pomodoro ${sessionId} introuvable`);
-    }
+    const session = requirePomodoroSession(this.pomodoroSessions.get(sessionId), sessionId);
 
     if (session.status !== "running" && session.status !== "paused") {
       return this.getPomodoroState();
     }
 
-    const closedAt =
-      status === "completed" &&
-      session.status === "running" &&
-      new Date(at).getTime() >= new Date(session.endsAt).getTime()
-        ? session.endsAt
-        : at;
-
-    this.pomodoroSessions.set(sessionId, {
-      ...session,
-      status,
-      pausedRemainingMs: null,
-      completedAt: status === "completed" ? closedAt : null,
-      cancelledAt: status === "cancelled" ? closedAt : null,
-    });
-
-    for (const [segmentId, segment] of this.pomodoroSegments.entries()) {
-      if (segment.sessionId !== sessionId || segment.endedAt !== null) {
-        continue;
-      }
-
-      this.pomodoroSegments.set(segmentId, {
-        ...segment,
-        endedAt: closedAt,
-      });
+    const openSegments = [...this.pomodoroSegments.values()].filter(
+      (segment) => segment.sessionId === sessionId && segment.endedAt === null,
+    );
+    const transition = stopSession(session, openSegments, status, at);
+    this.pomodoroSessions.set(sessionId, transition.session);
+    for (const segment of transition.segmentsToUpsert) {
+      this.pomodoroSegments.set(segment.id, segment);
     }
 
     return this.getPomodoroState();
   }
 
   async pausePomodoroSession(sessionId: string, at = nowIso()): Promise<PomodoroState> {
-    const session = this.pomodoroSessions.get(sessionId);
-
-    if (!session) {
-      throw new Error(`Session Pomodoro ${sessionId} introuvable`);
-    }
+    const session = requirePomodoroSession(this.pomodoroSessions.get(sessionId), sessionId);
 
     if (session.status !== "running") {
       return this.getPomodoroState();
     }
 
-    const remainingMs = Math.max(0, new Date(session.endsAt).getTime() - new Date(at).getTime());
-
-    this.pomodoroSessions.set(sessionId, {
-      ...session,
-      status: "paused",
-      pausedRemainingMs: remainingMs,
-    });
-
-    for (const [segmentId, segment] of this.pomodoroSegments.entries()) {
-      if (segment.sessionId !== sessionId || segment.endedAt !== null) {
-        continue;
-      }
-
-      this.pomodoroSegments.set(segmentId, {
-        ...segment,
-        endedAt: at,
-      });
+    const openSegments = [...this.pomodoroSegments.values()].filter(
+      (segment) => segment.sessionId === sessionId && segment.endedAt === null,
+    );
+    const transition = pauseSession(session, openSegments, at);
+    this.pomodoroSessions.set(sessionId, transition.session);
+    for (const segment of transition.segmentsToUpsert) {
+      this.pomodoroSegments.set(segment.id, segment);
     }
 
     return this.getPomodoroState();
   }
 
   async resumePomodoroSession(sessionId: string, at = nowIso()): Promise<PomodoroState> {
-    const session = this.pomodoroSessions.get(sessionId);
-
-    if (!session) {
-      throw new Error(`Session Pomodoro ${sessionId} introuvable`);
-    }
+    const session = requirePomodoroSession(this.pomodoroSessions.get(sessionId), sessionId);
 
     if (session.status !== "paused") {
       return this.getPomodoroState();
     }
 
-    const remainingMs =
-      session.pausedRemainingMs ??
-      Math.max(0, new Date(session.endsAt).getTime() - new Date(at).getTime());
-    const nextEndsAt = new Date(new Date(at).getTime() + remainingMs).toISOString();
-
-    this.pomodoroSessions.set(sessionId, {
-      ...session,
-      status: "running",
-      endsAt: nextEndsAt,
-      pausedRemainingMs: null,
-    });
-
-    if (session.kind === "focus") {
-      const latestSegment = [...this.pomodoroSegments.values()]
-        .filter((segment) => segment.sessionId === sessionId)
-        .sort((left, right) => left.startedAt.localeCompare(right.startedAt))
-        .at(-1);
-
-      if (latestSegment) {
-        const nextSegment = createPomodoroSegment(
-          sessionId,
-          at,
-          latestSegment.taskId,
-          latestSegment.title,
-        );
-        this.pomodoroSegments.set(nextSegment.id, nextSegment);
-      }
+    const latestSegment =
+      session.kind === "focus"
+        ? [...this.pomodoroSegments.values()]
+            .filter((segment) => segment.sessionId === sessionId)
+            .sort((left, right) => left.startedAt.localeCompare(right.startedAt))
+            .at(-1)
+        : null;
+    const transition = resumeSession(session, latestSegment, at);
+    this.pomodoroSessions.set(sessionId, transition.session);
+    for (const segment of transition.segmentsToUpsert) {
+      this.pomodoroSegments.set(segment.id, segment);
     }
 
     return this.getPomodoroState();
@@ -1843,11 +1743,7 @@ export class MemoryRepository implements AppRepository {
     title: string | null = null,
     changedAt = nowIso(),
   ): Promise<PomodoroState> {
-    const session = this.pomodoroSessions.get(sessionId);
-
-    if (!session) {
-      throw new Error(`Session Pomodoro ${sessionId} introuvable`);
-    }
+    const session = requirePomodoroSession(this.pomodoroSessions.get(sessionId), sessionId);
 
     if (session.status !== "running" || session.kind !== "focus") {
       return this.getPomodoroState();
@@ -1857,21 +1753,13 @@ export class MemoryRepository implements AppRepository {
       (segment) => segment.sessionId === sessionId && segment.endedAt === null,
     );
 
-    const normalizedTitle = taskId ? null : (title ?? "").trim() || null;
-
-    if (openSegment?.taskId === taskId && (openSegment.title ?? null) === normalizedTitle) {
+    const transition = switchSessionTask(session, openSegment, taskId, title, changedAt);
+    if (!transition) {
       return this.getPomodoroState();
     }
-
-    if (openSegment) {
-      this.pomodoroSegments.set(openSegment.id, {
-        ...openSegment,
-        endedAt: changedAt,
-      });
+    for (const segment of transition.segmentsToUpsert) {
+      this.pomodoroSegments.set(segment.id, segment);
     }
-
-    const nextSegment = createPomodoroSegment(sessionId, changedAt, taskId, normalizedTitle);
-    this.pomodoroSegments.set(nextSegment.id, nextSegment);
     return this.getPomodoroState();
   }
 
@@ -1893,7 +1781,6 @@ export class MemoryRepository implements AppRepository {
   }
 
   async computeDailyPomodoroStats(date: string) {
-    await this.completeExpiredPomodoroSessions();
     return computeDailyPomodoroStats([...this.pomodoroSessions.values()], date);
   }
 
@@ -1926,47 +1813,6 @@ export class MemoryRepository implements AppRepository {
     return task ? cloneTask(task) : null;
   }
 
-  private findProcessingStartDate(
-    template: RecurringTaskTemplate,
-    activeTask: Task | null,
-  ): string {
-    const candidates = [template.startDate];
-
-    if (template.lastGeneratedForDate) {
-      const next = new Date(`${template.lastGeneratedForDate}T12:00:00`);
-      next.setDate(next.getDate() + 1);
-      candidates.push(next.toISOString().slice(0, 10));
-    }
-
-    if (activeTask?.recurrenceDueDate) {
-      const next = new Date(`${activeTask.recurrenceDueDate}T12:00:00`);
-      next.setDate(next.getDate() + 1);
-      candidates.push(next.toISOString().slice(0, 10));
-    }
-
-    return candidates.sort().at(-1) ?? template.startDate;
-  }
-
-  private syncActiveTaskWithTemplate(task: Task, template: RecurringTaskTemplate): Task {
-    return {
-      ...cloneTask(task),
-      title: template.title,
-      notes: template.notes,
-      bucket: template.targetBucket,
-      contextIds: [...template.contextIds],
-      projectId: template.projectId,
-      scheduledFor:
-        template.targetBucket === "scheduled" && task.recurrenceDueDate
-          ? buildTaskFromRecurringTemplate(
-              template,
-              task.recurrenceDueDate,
-              task.pendingPastRecurrences,
-            ).scheduledFor
-          : null,
-      updatedAt: nowIso(),
-    };
-  }
-
   seed(entries: DailyEntry[]): void {
     for (const entry of entries) {
       this.entries.set(entry.date, entry);
@@ -1979,15 +1825,13 @@ export class MemoryRepository implements AppRepository {
     return current;
   }
 
-  private async decorateEntry(entry: DailyEntry): Promise<DailyEntry> {
-    const [taskStats, pomodoroStats] = await Promise.all([
-      this.computeDailyTaskStats(entry.date),
-      this.computeDailyPomodoroStats(entry.date),
-    ]);
-    return applyDailyPomodoroStats(
-      applyDailyTaskStats(cloneEntry(entry), taskStats),
-      pomodoroStats,
-    );
+  /** Pure decoration over the current in-memory snapshot; never reconciles or writes. */
+  private decorateEntries(entries: DailyEntry[]): DailyEntry[] {
+    return decorateDailyEntries(entries, {
+      tasks: [...this.tasks.values()],
+      events: [...this.events.values()],
+      sessions: [...this.pomodoroSessions.values()],
+    });
   }
 
   private getExistingTask(taskId: string): Task {
@@ -2110,162 +1954,217 @@ export class MemoryRepository implements AppRepository {
     return context;
   }
 
-  async getEmailTriageGlobalSettings() {
-    return Promise.resolve(this.emailTriage.getGlobalSettings());
+  // --- Finance (Phase 4) ----------------------------------------------------------------
+
+  async reclassifyFinancePending() {
+    return Promise.resolve(this.finance.reclassifyPending());
   }
 
-  async saveEmailTriageGlobalSettings(
-    settings: import("../../domain/email-triage").EmailTriageGlobalSettings,
+  // --- Finance (Phase 8 — AI categorization) --------------------------------------------
+
+  async listFinanceUnknownMerchants(limit?: number) {
+    return Promise.resolve(this.finance.listUnknownMerchants(limit));
+  }
+
+  async applyFinanceCategorizationResults(
+    input: import("../../domain/finance").ApplyFinanceCategorizationResultsInput,
   ) {
-    this.emailTriage.saveGlobalSettings(settings);
-    return Promise.resolve();
+    return Promise.resolve(this.finance.applyCategorizationResults(input));
   }
 
-  async listEmailTriageAccounts() {
-    return Promise.resolve(this.emailTriage.listAccounts());
-  }
-
-  async getEmailTriageAccount(accountId: string) {
-    return Promise.resolve(this.emailTriage.getAccount(accountId));
-  }
-
-  async saveEmailTriageAccount(account: import("../../domain/email-triage").EmailTriageAccount) {
-    return Promise.resolve(this.emailTriage.saveAccount(account));
-  }
-
-  async deleteEmailTriageAccount(accountId: string) {
-    this.emailTriage.deleteAccount(accountId);
-    return Promise.resolve();
-  }
-
-  async listEmailTriageReviews(
-    status?: import("../../domain/email-triage").EmailTriageReview["status"],
+  async revertFinanceCategoryBackfill(
+    entries: import("../../domain/finance").FinanceCategoryBackfillEntry[],
   ) {
-    return Promise.resolve(this.emailTriage.listReviews(status));
+    return Promise.resolve(this.finance.revertCategoryBackfill(entries));
   }
 
-  async resolveEmailTriageReview(input: {
-    reviewId: string;
-    expectedDecisionVersion: number;
-    resolution: import("../../domain/email-triage").EmailTriageReview["resolution"];
-    ignoreReason?: string | null;
-  }) {
-    return Promise.resolve(this.emailTriage.resolveReview(input));
+  // --- Finance (Phase 5 — Budget) -------------------------------------------------------
+
+  async getFinanceBudgetMonth(monthKey: string) {
+    return Promise.resolve(this.finance.getBudgetMonth(monthKey));
   }
 
-  async listEmailTriageEvaluations(limit?: number) {
-    return Promise.resolve(this.emailTriage.listEvaluations(limit));
+  async setFinanceBudgetAssignment(monthKey: string, categoryId: string, assignedMinor: number) {
+    return Promise.resolve(this.finance.setBudgetAssignment(monthKey, categoryId, assignedMinor));
   }
 
-  async saveEmailTriageEvaluation(
-    evaluation: import("../../domain/email-triage").EmailTriageEvaluation,
+  async setFinanceCategoryOverspendPolicy(
+    monthKey: string,
+    categoryId: string,
+    policy: import("../../domain/finance").FinanceOverspendPolicy,
   ) {
-    return Promise.resolve(this.emailTriage.saveEvaluation(evaluation));
+    return Promise.resolve(this.finance.setCategoryOverspendPolicy(monthKey, categoryId, policy));
   }
 
-  async getLatestMatchingEmailTriageEvaluation(
-    settings: import("../../domain/email-triage").EmailTriageGlobalSettings,
+  async computeFinanceBudgetState(monthKey: string, baseCurrency: string) {
+    return Promise.resolve(this.finance.computeBudgetState(monthKey, baseCurrency));
+  }
+
+  async applyFinanceCoverOverspending(
+    monthKey: string,
+    baseCurrency: string,
+    fromCategoryId: string,
+    toCategoryId: string,
   ) {
-    return Promise.resolve(this.emailTriage.getLatestMatchingEvaluation(settings));
-  }
-
-  async dismissEmailTriageReview(reviewId: string) {
-    return Promise.resolve(this.emailTriage.dismissReview(reviewId));
-  }
-
-  async listEmailTriageAuditEvents(accountId?: string, limit?: number) {
-    return Promise.resolve(this.emailTriage.listAuditEvents(accountId, limit));
-  }
-
-  async recoverEmailTriageStaleEffects() {
-    return Promise.resolve(this.emailTriage.recoverStaleEffects());
-  }
-
-  async emailTriageUpsertConversation(
-    accountId: string,
-    conversationKey: string,
-    patch: Partial<import("../../domain/email-triage").EmailTriageConversation>,
-  ) {
-    return Promise.resolve(this.emailTriage.upsertConversation(accountId, conversationKey, patch));
-  }
-
-  async emailTriageGetConversationByKey(accountId: string, conversationKey: string) {
-    return Promise.resolve(this.emailTriage.getConversationByKey(accountId, conversationKey));
-  }
-
-  async emailTriageUpdateAccountSyncState(
-    accountId: string,
-    syncState: Record<string, unknown>,
-    patch?: Partial<import("../../domain/email-triage").EmailTriageAccount>,
-  ) {
-    return Promise.resolve(this.emailTriage.updateAccountSyncState(accountId, syncState, patch));
-  }
-
-  async emailTriagePersistMessageBatch(
-    input: import("../email-triage/sync-engine").PersistMessageBatchInput,
-  ) {
-    return Promise.resolve(this.emailTriage.persistMessageBatch(input));
-  }
-
-  async emailTriageGetMessageByProviderId(accountId: string, providerMessageId: string) {
-    return Promise.resolve(this.emailTriage.getMessageByProviderId(accountId, providerMessageId));
-  }
-
-  async emailTriageGetConversation(conversationId: string) {
-    return Promise.resolve(this.emailTriage.getConversation(conversationId));
-  }
-
-  async emailTriageDismissPendingReviews(conversationId: string) {
-    this.emailTriage.dismissPendingReviews(conversationId);
-    return Promise.resolve();
-  }
-
-  async emailTriageListPendingEffects(conversationId: string) {
-    return Promise.resolve(this.emailTriage.listPendingEffects(conversationId));
-  }
-
-  async emailTriageListPendingEffectsForAccount(accountId: string) {
-    return Promise.resolve(this.emailTriage.listPendingEffectsForAccount(accountId));
-  }
-
-  async emailTriageSaveDesiredEffect(
-    effect: import("../../domain/email-triage").EmailTriageDesiredEffect,
-  ) {
-    return Promise.resolve(this.emailTriage.saveDesiredEffect(effect));
-  }
-
-  async emailTriageGetTaskByExternalId(externalId: string) {
-    return Promise.resolve(this.emailTriage.getTaskByExternalId(externalId));
-  }
-
-  async emailTriageApplyGtdUpdate(
-    input: import("../email-triage/sync-engine").ApplyGtdUpdateInput,
-  ) {
-    return Promise.resolve(this.emailTriage.applyGtdUpdate(input));
-  }
-
-  async emailTriageCreateReview(input: import("../email-triage/sync-engine").CreateReviewInput) {
-    return Promise.resolve(this.emailTriage.createReview(input));
-  }
-
-  async listEmailTriageMessages(accountId: string, limit?: number) {
-    return Promise.resolve(this.emailTriage.listMessages(accountId, limit));
-  }
-
-  async listEmailTriageClassificationAttempts(messageId: string) {
-    return Promise.resolve(this.emailTriage.listClassificationAttempts(messageId));
-  }
-
-  async emailTriageFindConversationKeyByMessageId(accountId: string, messageIdHeader: string) {
     return Promise.resolve(
-      this.emailTriage.findConversationKeyByMessageId(accountId, messageIdHeader),
+      this.finance.applyCoverOverspending(monthKey, baseCurrency, fromCategoryId, toCategoryId),
     );
   }
 
-  async emailTriageSaveAlias(accountId: string, conversationKey: string, messageIdHeader: string) {
-    this.emailTriage.saveAlias(accountId, conversationKey, messageIdHeader);
+  async computeFinanceCoverOverspending(
+    monthKey: string,
+    baseCurrency: string,
+    fromCategoryId: string,
+    toCategoryId: string,
+  ) {
+    return Promise.resolve(
+      this.finance.computeCoverOverspending(monthKey, baseCurrency, fromCategoryId, toCategoryId),
+    );
+  }
+
+  async setFinanceBudgetMonthClosed(monthKey: string, closed: boolean) {
+    return Promise.resolve(this.finance.setBudgetMonthClosed(monthKey, closed));
+  }
+
+  async setFinanceBudgetReadyToAssignNote(monthKey: string, note: string | null) {
+    return Promise.resolve(this.finance.setBudgetReadyToAssignNote(monthKey, note));
+  }
+
+  // --- Finance (Phase 6 — Tracking, reports, recurring, net worth) ---------------------
+
+  async computeFinanceNetWorth(asOfDate: string) {
+    const settings = await this.getSettings();
+    return Promise.resolve(this.finance.computeNetWorth(asOfDate, settings.financeBaseCurrency));
+  }
+
+  async listFinanceNetWorthHistory() {
+    const settings = await this.getSettings();
+    return Promise.resolve(this.finance.listNetWorthHistory(settings.financeBaseCurrency));
+  }
+
+  async computeFinanceCashFlow(monthKey: string) {
+    const settings = await this.getSettings();
+    return Promise.resolve(this.finance.computeCashFlow(monthKey, settings.financeBaseCurrency));
+  }
+
+  async computeFinanceCategorySpend(
+    range: import("../../domain/finance/reports").FinanceDateRange,
+    groupBy: import("../../domain/finance/reports").FinanceReportGroupBy,
+  ) {
+    const settings = await this.getSettings();
+    return Promise.resolve(
+      this.finance.computeCategorySpend(range, groupBy, settings.financeBaseCurrency),
+    );
+  }
+
+  async listFinanceCategorySpendDrilldown(
+    range: import("../../domain/finance/reports").FinanceDateRange,
+    groupBy: import("../../domain/finance/reports").FinanceReportGroupBy,
+    key: string,
+  ) {
+    const settings = await this.getSettings();
+    return Promise.resolve(
+      this.finance.listCategorySpendDrilldown(range, groupBy, key, settings.financeBaseCurrency),
+    );
+  }
+
+  async computeFinanceMerchantSpend(
+    range: import("../../domain/finance/reports").FinanceDateRange,
+    limit: number,
+  ) {
+    const settings = await this.getSettings();
+    return Promise.resolve(
+      this.finance.computeMerchantSpend(range, limit, settings.financeBaseCurrency),
+    );
+  }
+
+  async computeFinancePersonSpend(range: import("../../domain/finance/reports").FinanceDateRange) {
+    const settings = await this.getSettings();
+    return Promise.resolve(this.finance.computePersonSpend(range, settings.financeBaseCurrency));
+  }
+
+  async computeFinanceTrend(
+    range: import("../../domain/finance/reports").FinanceDateRange,
+    granularity: import("../../domain/finance/reports").FinanceTrendGranularity,
+  ) {
+    const settings = await this.getSettings();
+    return Promise.resolve(
+      this.finance.computeTrend(range, granularity, settings.financeBaseCurrency),
+    );
+  }
+
+  async computeFinanceMonthOverMonth(
+    currentRange: import("../../domain/finance/reports").FinanceDateRange,
+    previousRange: import("../../domain/finance/reports").FinanceDateRange,
+    groupBy: import("../../domain/finance/reports").FinanceReportGroupBy,
+  ) {
+    const settings = await this.getSettings();
+    return Promise.resolve(
+      this.finance.computeMonthOverMonth(
+        currentRange,
+        previousRange,
+        groupBy,
+        settings.financeBaseCurrency,
+      ),
+    );
+  }
+
+  async listFinanceRecurringSeries(
+    status?: import("../../domain/finance").FinanceRecurringSeries["status"],
+  ) {
+    return Promise.resolve(this.finance.listRecurringSeries(status));
+  }
+
+  async saveFinanceRecurringSeries(series: import("../../domain/finance").FinanceRecurringSeries) {
+    return Promise.resolve(this.finance.saveRecurringSeries(series));
+  }
+
+  async detectFinanceRecurringSeries() {
+    return Promise.resolve(this.finance.detectRecurringSeries(getTodayDate()));
+  }
+
+  async snapshotFinanceAccountBalances(asOfDate: string) {
+    return Promise.resolve(this.finance.snapshotAccountBalances(asOfDate));
+  }
+
+  async listFinanceAccountBalanceSnapshots(accountId: string) {
+    return Promise.resolve(this.finance.listAccountBalanceSnapshots(accountId));
+  }
+
+  // --- Finance (Phase 7 — Forecasting and proactive alerts) -----------------------------
+
+  async buildFinanceSnapshot(asOfDate: string) {
+    const settings = await this.getSettings();
+    return Promise.resolve(
+      this.finance.buildSnapshot(
+        asOfDate,
+        settings.financeSafetyBufferMinor,
+        settings.financeBaseCurrency,
+      ),
+    );
+  }
+
+  async computeFinanceForecast(asOfDate: string) {
+    const settings = await this.getSettings();
+    return Promise.resolve(
+      this.finance.computeForecast(
+        asOfDate,
+        settings.financeSafetyBufferMinor,
+        settings.financeBaseCurrency,
+      ),
+    );
+  }
+
+  async listNotifiedFinanceAlertKeys(onDate: string) {
+    return Promise.resolve(this.finance.listNotifiedFinanceAlertKeys(onDate));
+  }
+
+  async recordFinanceAlertNotifications(onDate: string, alertKeys: string[]) {
+    this.finance.recordFinanceAlertNotifications(onDate, alertKeys);
     return Promise.resolve();
   }
+
+  // --- Calendar sync (Phase 0) -----------------------------------------------------------
 
   async getCalendarSyncSettings(): Promise<CalendarSyncSettings> {
     return Promise.resolve(this.calendarSync.getSettings());

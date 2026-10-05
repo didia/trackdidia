@@ -37,7 +37,7 @@ describe("useEmailTriageCoordinator", () => {
   it("does not clear a replacement coordinator when an obsolete start finishes", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
-    await repository.saveEmailTriageGlobalSettings({
+    await repository.emailTriage.saveGlobalSettings({
       ...defaultEmailTriageGlobalSettings(),
       enabled: true,
     });
@@ -83,7 +83,7 @@ describe("useEmailTriageCoordinator", () => {
   it("nudges the calendar-sync reconciler from the GTD-update adapter (backstop only)", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
-    vi.spyOn(repository, "emailTriageApplyGtdUpdate").mockResolvedValue(null);
+    vi.spyOn(repository.emailTriage, "applyGtdUpdate").mockResolvedValue(null);
 
     const port = buildEmailTriageRepositoryPort(repository);
     requestCalendarSyncMock.mockClear();

@@ -4,6 +4,7 @@ import { initReactI18next } from "react-i18next";
 import coach from "../locales/fr/coach.json";
 import common from "../locales/fr/common.json";
 import evening from "../locales/fr/evening.json";
+import finance from "../locales/fr/finance.json";
 import goals from "../locales/fr/goals.json";
 import gtd from "../locales/fr/gtd.json";
 import history from "../locales/fr/history.json";
@@ -48,6 +49,7 @@ export const resources = {
     relativeTime,
     insights,
     relationship,
+    finance,
   },
 } as const;
 

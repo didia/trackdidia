@@ -3,6 +3,7 @@ import { buildMidWeekInputs } from "./test-support/mid-week-fixtures";
 import { DEFAULT_AI_MAX_TOKENS, defaultAppSettings } from "../../domain/daily-entry";
 import * as debug from "../debug";
 import type { DailySnapshot } from "./context/daily-snapshot";
+import type { FinanceCategorizationSnapshot } from "./context/finance-categorization-snapshot";
 import type { GoalPacingSnapshot } from "./context/goal-pacing-snapshot";
 import type { MonthlySnapshot } from "./context/monthly-snapshot";
 import type { PastorSnapshot } from "./context/pastor-snapshot";
@@ -1336,5 +1337,31 @@ describe("buildSystemPrompt snapshots", () => {
       Exemple minimal (pick="list"):
       {"pick":"list","verseId":"php-4-6-7","principleKey":null,"intent":"reinforcement","title":"Référence courte","explanation":"Ancrage bref lié au journal. Enseignement bref et concret.","practice":null}"
     `);
+  });
+
+  it("finance_categorization lists the allowed category ids and forbids extra fields", () => {
+    const snapshot: FinanceCategorizationSnapshot = {
+      surface: "finance_categorization",
+      scope: "full",
+      merchants: [
+        {
+          merchantKey: "MARCHAND TEST",
+          sign: -1,
+          occurrenceCount: 3,
+          amountBucket: "10-50",
+          accountType: "checking",
+        },
+      ],
+      allowedCategories: [{ id: "fincat:test", name: "Test" }],
+    };
+    const prompt = buildSystemPrompt({
+      surface: "finance_categorization",
+      settings,
+      snapshot,
+    });
+    expect(prompt).toContain("Schema finance_categorization");
+    expect(prompt).toContain("fincat:test (Test)");
+    expect(prompt).toContain("merchantKey");
+    expect(prompt).toContain("n'ajoute aucun champ supplementaire");
   });
 });

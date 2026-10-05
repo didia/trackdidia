@@ -80,4 +80,77 @@ describe("calendar sync persistence — atomicity with the real SQLite repositor
     );
     expect(linkRows).toHaveLength(0);
   });
+
+  it("serializes public calendar writes behind an in-flight promotion transaction", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-12T06:00:00.000Z"));
+
+    const realDatabase = await createNodeSqliteDatabase();
+    const repository = new TauriSqliteRepository("sqlite::memory:", async () => realDatabase);
+    await repository.initialize();
+    await repository.saveCalendarSyncSettings(connectedSettings());
+    await repository.createTask({
+      title: "Due today",
+      bucket: "scheduled",
+      scheduledFor: "2026-01-12T09:00:00",
+    });
+
+    // Hold the promotion at COMMIT, then fail it, while an unrelated calendar write is issued.
+    let reachedCommit: () => void = () => {};
+    const atCommit = new Promise<void>((resolve) => {
+      reachedCommit = resolve;
+    });
+    let releaseCommit: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      releaseCommit = resolve;
+    });
+    const pausedDb: Database = {
+      async execute(query, bindValues) {
+        if (query.trim().toUpperCase() === "COMMIT") {
+          reachedCommit();
+          await gate;
+          throw new Error("simulated promotion failure");
+        }
+        return realDatabase.execute(query, bindValues);
+      },
+      select: (query, bindValues) => realDatabase.select(query, bindValues),
+    };
+    // @ts-expect-error — reaching into the private memoized db promise to inject the pause.
+    repository.dbPromise = Promise.resolve(pausedDb);
+
+    const promotion = repository.promoteDueScheduledTasks("2026-01-12");
+    const promotionOutcome = promotion.then(
+      () => "resolved",
+      (error: Error) => error.message,
+    );
+    await atCommit;
+
+    const otherLink = {
+      taskId: "task:other",
+      occurrenceKey: "2026-01-14",
+      calendarId: "calendar:trackdidia",
+      eventId: "event:other",
+      generation: 1,
+      state: "synced" as const,
+      payloadSignature: "{}",
+      eventStartAt: "2026-01-14T09:00:00",
+      detachReason: null,
+      failureCount: 0,
+      lastError: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const save = repository.saveCalendarSyncLink(otherLink);
+    // Let an unserialized write reach the open transaction before the promotion fails.
+    await vi.advanceTimersByTimeAsync(50);
+    releaseCommit();
+
+    await expect(promotionOutcome).resolves.toBe("simulated promotion failure");
+    await save;
+
+    const rows = await realDatabase.select<unknown[]>(
+      "SELECT * FROM calendar_sync_links WHERE task_id = 'task:other'",
+    );
+    expect(rows).toHaveLength(1);
+  });
 });

@@ -46,7 +46,16 @@ Bulk controls complete, cancel, or move selected tasks. A bulk move to Scheduled
 skipped for tasks without `scheduledFor`. Bulk controls never offer Planned as a
 destination unless a single valid target project is known; none of today's bulk
 surfaces (Inbox, Next Actions, Scheduled, Waiting For, Someday/Maybe, References)
-resolve one, so Planned is effectively project-card-only for now.
+resolve one, so Planned is effectively project-card-only for now. The skip and
+`scheduledFor` rules live in `planBulkBucketMove` (`src/lib/gtd/bulk-move.ts`).
+
+### Scheduling rule
+
+Both repositories' `scheduleTask` and the AI GTD "schedule" accept path use
+`applyScheduleChange` (`src/lib/gtd/schedule.ts`): an active Planned task keeps its
+bucket and only updates its reused `scheduledFor`; otherwise a date moves the task to
+Scheduled, and clearing the date moves a Scheduled task to Next Actions (other buckets
+are unchanged).
 
 ## Planned bucket (project-only queue)
 
@@ -86,6 +95,10 @@ the project has none, without asking the user to maintain two lists.
   an adjacent active Planned sibling in the same project (disabled at the first/last
   position; cross-project moves are rejected). Manual promotion is allowed even when
   the project already has another active Next Action.
+  Eligibility (an existing, active, Planned task with a project; for promotion also an
+  active project) is checked by `assertPlannedTaskActionable` and
+  `assertPlannedProjectActive` in `src/lib/gtd/planned.ts`, shared by both repositories
+  with unchanged French error messages.
 - The project task-creation control on `/projects` offers Planned only while a
   project is selected, with an optional planned date/time, and appends the new task
   to that project's queue.
@@ -174,24 +187,27 @@ hold, completed, or cancelled projects as new choices.
 - deduplication when a task appears in both groups;
 - local recurrence previews, requested from the selected date through 30 days later;
 - editing/completing/cancelling actual tasks from the calendar;
-- **Auto-promotion**: after due recurrences are generated (bootstrap, GTD workspace
-  load, `listTasks`, Pomodoro refresh, daily stats, and local-day rollover while the
-  app stays open), every **active** task with `bucket === "scheduled"` whose local
+- **Auto-promotion**: `reconcileDay` (see
+  [daily reconciliation](#daily-reconciliation)) runs after due recurrences are
+  generated (bootstrap, local-day rollover while the app stays open, and explicit
+  refreshes after a user write such as a GTD mutation), and every **active** task with `bucket === "scheduled"` whose local
   `scheduledFor` calendar date is today or earlier is moved to Next Actions.
   Overdue items and recurring Scheduled instances are included. `scheduledFor` is
   cleared. Planned tasks that reuse `scheduledFor` as a display date are ignored.
   Deadlines never trigger a move. Comparison uses the local calendar date, not the
   clock time and not the UTC prefix of the stored ISO string. The Scheduled page
-  groups the same way (`isTaskScheduledForDate`). Daily stats generate recurrences
-  through the earlier of the **stats** date and local **today**, then promote as of
-  **today**. Viewing a future day does not materialize later occurrences, promote
-  early, or write weekly carryover for a future Sunday. The pass is idempotent. If Next Actions, Scheduled, or
+  groups the same way (`isTaskScheduledForDate`). Reconciliation generates
+  recurrences through the earlier of the reconciled date and local **today**, then
+  promotes as of that day (never later than **today**). Reconciling a future day
+  does not materialize later occurrences, promote early, or write weekly carryover
+  for a future Sunday. The pass is idempotent. If Next Actions, Scheduled, or
   Pomodoro stay mounted overnight, a local-day boundary (next midnight, window
-  focus, becoming visible) repeats generation and promotion and reloads those
-  views. When calendar sync is enabled and connected, this promotion step also
-  captures the task's scheduled instant into a calendar-sync link before clearing
-  `scheduledFor`, so today's dated work is still mirrored even though promotion
-  destroys the row's own record of it; see
+  focus, becoming visible) reconciles again and reloads those views. Reads such as
+  `listTasks` never promote; a task scheduled for today through the GTD workspace
+  moves on that mutation's reload. When calendar sync is enabled and connected, this
+  promotion step also captures the task's scheduled instant into a calendar-sync link
+  before clearing `scheduledFor`, so today's dated work is still mirrored even though
+  promotion destroys the row's own record of it; see
   [Promotion capture](calendar-sync.md#promotion-capture).
 
 Previews are not task rows and cannot be completed from this screen.
@@ -238,14 +254,40 @@ weekly_carryover:<weekStartDate>:<taskId>
 
 as a unique dedupe key, making repeated calculations for that week idempotent.
 
+## Daily reconciliation
+
+`repository.reconcileDay(date, now?)` is the only entry point for time-driven GTD and
+Pomodoro writes. It delegates to `reconcileGtdDay` (`src/lib/gtd/reconcile.ts`),
+shared by both repositories, and runs in order:
+
+1. generates due recurring tasks through `date`, and never past local today;
+2. promotes due Scheduled tasks as of `date` (never later than today);
+3. applies weekly carryover (`applyWeeklyCarryover`) for the most recent Sunday on
+   or before `date` (`getWeekStartSunday`, with `date` clamped to today), so a Sunday
+   the app was not opened on is back-filled and a future Sunday is never written;
+4. completes expired Pomodoro sessions at `now`.
+
+It returns `{ generatedRecurrences, promotedScheduled, carryoverEvents,
+pomodoroState }`. Every step is idempotent; carryover is keyed by
+`weekly_carryover:<sunday>:<taskId>`, so repeated runs write nothing new. Callers:
+bootstrap, `useLocalDayReconciliation`, `useGtdWorkspace` mutation reloads,
+recurrence template save/resume, and accepted AI task proposals. The initial GTD
+workspace load, Pomodoro refresh, History, Weekly, and AI snapshot reads do not
+reconcile.
+
+Carryover is written when the Sunday is reconciled (first app open on that Sunday,
+or the midnight/focus rollover into it), and any later reconcile in the same week
+back-fills it if that Sunday was missed, so History and weekly summaries keep a
+Sunday's `tasksAdded` even when the app was closed that day. Only the most recent
+Sunday is back-filled; reading or opening an older Sunday never writes carryover.
+The pass is idempotent via the dedupe key, and previously reconciled Sundays keep
+their stored events and numbers.
+
 ## Daily task statistics
 
-Before computing a day, the repository:
-
-1. generates due recurring tasks through the stats date, and never past local today;
-2. promotes due Scheduled tasks as of today's local date;
-3. applies weekly carryover when the date is a Sunday on or before today;
-4. loads all tasks and events.
+`computeDailyTaskStats` and `getDailyTaskBreakdown` are pure reads: they load all
+tasks and events and derive the day from the ledger without reconciling first.
+Run `reconcileDay` beforehand when fresh promotions or carryover must be included.
 
 `tasksAdded` is the unique task count from:
 
@@ -327,6 +369,12 @@ Google recurring instances sharing `task_recurrence_id` collapse to the newest
 scheduled/updated/created item. The active row records the group and a count of
 older pending instances.
 
+The collapse of already-stored rows (`collapseGoogleRecurringTasks`) is planned by the
+pure `planGoogleRecurringCollapse` in `src/lib/gtd/google-recurring-collapse.ts`, shared by
+both repositories: for each recurring group it upserts the desired task, keeps a non-blank
+existing note and the existing `projectId`, and deletes the other `google_import` rows that
+match by id, `recurrenceGroupId`, or a listed source id.
+
 ## Startup normalizations
 
 Settings timestamps guard three one-time compatibility passes:
@@ -334,6 +382,12 @@ Settings timestamps guard three one-time compatibility passes:
 - move tasks with the Reading context to References;
 - move all tasks with scheduled dates to Scheduled;
 - collapse Google recurrence groups using the current bundled export.
+
+The two bucket passes use `selectTasksForBucketNormalization`
+(`src/lib/gtd/bucket-normalization.ts`): active tasks matching the predicate and not already
+in the target bucket get the new `bucket` and `updatedAt`; `scheduledFor` and `plannedOrder`
+are untouched. They deliberately bypass `buildLifecycleEvents`, so they emit no task events
+and cannot retroactively change daily metrics.
 
 The bootstrap also reimports when the import timestamp is absent, or when both task
 and project counts are zero. The Settings screen can manually rerun import.
@@ -343,9 +397,19 @@ and project counts are zero. The Settings screen can manually rerun import.
 Daily relationship draws create up to two manual Next Actions in the Personal
 context: one children activity and one spouse activity.
 
+The decision is made by the pure `buildDailyRelationshipDrawPlan`
+(`src/lib/relationship-draws.ts`), which both repositories call inside their protected
+write operation; the repositories only persist the planned tasks and settings.
+
 Generation is idempotent per category/date through settings markers and deterministic
 source external IDs. If an active task from that category already exists, no new one
-is created and the category is marked processed for the day. See
+is created and the category is marked processed for the day. A category with no
+configured activities is neither drawn nor marked. Generated tasks carry
+`createdAt`/`updatedAt` of `<date>T00:00:00.000Z` (UTC midnight of the draw date, not
+local midnight). This is intentional current behavior: lifecycle events take the date
+from `createdAt.slice(0, 10)`, so the creation and Next Action events land on the draw's
+local calendar day in every time zone. Do not switch it to a local-midnight timestamp
+without changing that event-date derivation. See
 [AI, settings, and privacy](ai-settings-and-privacy.md) for configuration.
 
 ## Related documentation

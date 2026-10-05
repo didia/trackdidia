@@ -1,5 +1,5 @@
 import { t } from "../../i18n";
-import { getWeekStartSunday } from "../../lib/gtd/shared";
+import { getWeekStartSunday } from "../../lib/date";
 import { computeAnsweredDisciplineScore, resolveMetricValue } from "../daily-entry";
 import { metricDefinitions } from "../definitions";
 import type { DailyEntry, MetricKey } from "../types";

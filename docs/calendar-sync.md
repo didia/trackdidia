@@ -53,11 +53,12 @@ Actions, Inbox, Waiting For, Someday, and References are excluded
 
 ## Promotion capture
 
-`listTasks()` runs `generateDueRecurringTasks(today)` and then
-`promoteDueScheduledTasks(today)` before it reads. Promotion moves every active
+`reconcileDay` (bootstrap, a local-day boundary while the app stays open, and an
+explicit refresh after a user write) generates due recurrences and then promotes
+due Scheduled tasks. `listTasks()` does not promote. Promotion moves every active
 Scheduled task whose local `scheduledFor` date is today or earlier to Next Actions
 and **clears `scheduledFor`**. A recurrence occurrence generated for today is
-therefore promoted in the same call and is never visible as Scheduled, and a task
+therefore promoted in the same pass and is never visible as Scheduled, and a task
 created or edited to a time later today is usually promoted before the reconciler's
 2-second debounce fires. A pure diff of current task rows would never see today's
 dated work — exactly the work a calendar is most useful for.
@@ -69,7 +70,8 @@ operation (the same SQLite transaction; the same synchronous block in
 `MemoryRepository`) upserts a link row for `(task_id, occurrence_key)` with
 `state = 'pending'`, `event_id = NULL`, and `payload_signature` built from the task
 as it is at that moment. If a `synced` link with the same signature already exists,
-capture does nothing. If it exists with a different signature, the link becomes
+capture detaches it as `promoted` and does no remote work (the event stays as the
+record of the day). If it exists with a different signature, the link becomes
 `pending` with its `event_id` kept, so the planner updates from the snapshot before
 detaching.
 
@@ -146,9 +148,9 @@ fires. Every other exit (today-or-past completion, cancellation, unscheduling, o
 promotion) detaches the link and leaves the event in place, so the calendar keeps a
 record of what happened on a given day rather than erasing history retroactively.
 
-## Data model — migration 37
+## Data model — migration 40
 
-Migration 37 (`create_calendar_sync`) adds two sidecar tables; no `ALTER TABLE` on
+Migration 40 (`create_calendar_sync`) adds two sidecar tables; no `ALTER TABLE` on
 `gtd_tasks`. See [Storage and backups](storage-and-backups.md#calendar-sync-tables)
 for the full column reference.
 
@@ -256,17 +258,16 @@ no-op when nothing is mounted. `use-gtd`'s `load()` does not cover every mutatio
 so `requestCalendarSync()` is also called from:
 
 - `src/app/use-gtd.ts` — end of `load()`;
-- `src/app/use-local-day-reconciliation.ts` — after `promoteDueScheduledTasks`
-  succeeds (guarded once per day);
+- `src/app/use-local-day-reconciliation.ts` — after `reconcileDay` succeeds
+  (guarded once per day);
 - `src/app/use-pomodoro-controller.ts` — after `repository.completeTask(...)`;
 - `src/pages/RecurrencesPage.tsx` — after template save/pause/resume/cancel;
 - `src/app/use-email-triage-coordinator.ts` — the GTD-update adapter (email triage's
   own `resolveReview` applies a GTD update without nudging; this is backstop-only).
 
-`listTasks()` is not a pure read (it runs recurrence generation and Scheduled
-promotion), so any caller, including a reconciler-only wake-up, can promote tasks —
-this is why promotion capture lives inside the promotion step rather than in the
-reconciler.
+`listTasks()` does not promote. Promotion runs inside `reconcileDay`, and promotion
+capture lives in that step rather than in the reconciler, so a reconcile pass cannot
+miss today's dated work by racing a page load.
 
 ## OAuth, vault, and scopes
 

@@ -3,5 +3,10 @@
   "pomodoroTestBody": "Focus terminée.",
   "pomodoroCompletedTitle": "Session Pomodoro terminée",
   "pomodoroCompletedBody": "{{kind}} terminée.",
-  "coachDayPaused": "Coach — journée en pause"
+  "coachDayPaused": "Coach — journée en pause",
+  "financeEnvelopeExhaustedTitle": "Enveloppe épuisée",
+  "financeEnvelopeWillRunOutTitle": "Risque de dépassement",
+  "financeEnvelopeBody": "{{category}}",
+  "financeCashRunoutTitle": "Risque de manque de liquidités",
+  "financeCashRunoutBody": "Solde insuffisant prévu dans {{days}} jours."
 }

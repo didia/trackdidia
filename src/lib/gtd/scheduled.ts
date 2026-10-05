@@ -41,8 +41,9 @@ export const promoteDueScheduledTasks = (tasks: Task[], today: string, now: stri
  * - No existing link, or an existing link whose stored/last-synced payload differs ->
  *   upsert a `pending` link with the freshly captured snapshot. An existing `event_id` is
  *   kept so the planner issues an update from the snapshot before detaching.
- * - A `synced` link whose `payloadSignature` already matches the captured payload -> no
- *   write (the event already represents the day and stays as the record of it).
+ * - A `synced` link whose `payloadSignature` already matches the captured payload ->
+ *   detached as `promoted` with no remote work (the event stays as the record of the day).
+ * - A `detached` link whose reason is not `promoted` is terminal -> `null`.
  */
 export const buildCalendarSyncCaptureLink = (
   task: Task,
@@ -57,15 +58,26 @@ export const buildCalendarSyncCaptureLink = (
 
   const { signature } = buildCalendarSyncSignatureForTask(task, settings);
 
-  if (existingLink?.state === "synced" && existingLink.payloadSignature === signature) {
+  if (existingLink?.state === "detached" && existingLink.detachReason !== "promoted") {
+    // Terminal (completed, cancelled, unscheduled, task_deleted, missing_remote): promotion
+    // must not reopen it for a remote write.
     return null;
   }
 
-  // Terminal detach reasons (everything except `promoted`, which is a placeholder) must
-  // never be reset back to `pending`: a `completed`/`cancelled` link is a record of the
-  // day, not a draft to resurrect. See "Reclaimable links" in specs/done/calendar-sync.md.
-  if (existingLink?.state === "detached" && existingLink.detachReason !== "promoted") {
+  if (
+    existingLink?.state === "detached" &&
+    existingLink.eventId !== null &&
+    existingLink.payloadSignature === signature
+  ) {
+    // Already a promoted placeholder for exactly this payload.
     return null;
+  }
+
+  if (existingLink?.state === "synced" && existingLink.payloadSignature === signature) {
+    // The event already represents the day: no remote work, but record that the occurrence
+    // was promoted so a later re-date can delete the placeholder and a same-day re-date can
+    // reclaim it (the planner would otherwise detach it as `unscheduled`).
+    return { ...existingLink, state: "detached", detachReason: "promoted", updatedAt: now };
   }
 
   return {

@@ -7,7 +7,7 @@ import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
 import { formatDateShort, getTodayDate } from "../lib/date";
 import { createEntityId } from "../lib/gtd/shared";
-import { addDays } from "../lib/gtd/shared";
+import { addDays } from "../lib/date";
 import { projectsForAssignment, projectAssignmentLabel } from "../lib/gtd/engine";
 import { createRecurringTemplate, findNextRecurringDate } from "../lib/recurring/engine";
 
@@ -524,6 +524,8 @@ export const RecurrencesPage = () => {
             disabled={!draft.title.trim()}
             onClick={async () => {
               await repository.saveRecurringTaskTemplate(draft);
+              // Reads no longer generate occurrences; a template starting today needs it now.
+              await repository.reconcileDay(getTodayDate());
               requestCalendarSync();
               setDraft(createDraftTemplate());
               await load();
@@ -629,6 +631,7 @@ export const RecurrencesPage = () => {
                 nextOccurrence={previews[template.id] ?? null}
                 onSave={async (nextTemplate) => {
                   await repository.saveRecurringTaskTemplate(nextTemplate);
+                  await repository.reconcileDay(getTodayDate());
                   requestCalendarSync();
                   await load();
                 }}
@@ -639,6 +642,7 @@ export const RecurrencesPage = () => {
                 }}
                 onResume={async (id) => {
                   await repository.resumeRecurringTaskTemplate(id);
+                  await repository.reconcileDay(getTodayDate());
                   requestCalendarSync();
                   await load();
                 }}
