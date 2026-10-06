@@ -24,6 +24,13 @@ still enforce the expected conversation version and compare-and-set errors.
 
 ## Shipped in this slice
 
+### Screen layout
+
+The triage screen shows notices as banners, then a settings panel grouped into Activation,
+Application de bureau (desktop only), Classification, and Connexions et clés, followed by the
+account cards (state badge plus provider/address/recovery metadata) and the review queue.
+Styles are scoped under `.triage-page` in `src/styles.css`.
+
 ### Tray and launch-at-login (slice 5)
 
 - Optional **run in tray**: when enabled, closing the main window hides it instead of
