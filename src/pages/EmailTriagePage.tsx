@@ -43,6 +43,29 @@ import {
 } from "../lib/email-triage/vault";
 import { createEntityId, nowIso } from "../lib/gtd/shared";
 
+interface ToggleRowProps {
+  label: string;
+  checked: boolean;
+  disabled?: boolean;
+  hint?: string | null;
+  onChange: (checked: boolean) => void;
+}
+
+const ToggleRow = ({ label, checked, disabled, hint, onChange }: ToggleRowProps) => (
+  <div className="triage-toggle">
+    <label className="triage-toggle__row">
+      <span>{label}</span>
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+    </label>
+    {hint ? <p className="triage-toggle__hint">{hint}</p> : null}
+  </div>
+);
+
 export const EmailTriagePage = () => {
   const { t } = useTranslation("emailTriage");
   const {
@@ -477,218 +500,223 @@ export const EmailTriagePage = () => {
   };
 
   return (
-    <div className="stack">
+    <div className="stack triage-page">
       <header className="page-header">
         <p className="eyebrow">{t("title")}</p>
         <h2>{t("title")}</h2>
       </header>
 
       {browserPreview ? (
-        <SectionCard title={t("browserPreviewNotice")}>
-          <p>{t("browserPreviewNotice")}</p>
-        </SectionCard>
+        <p className="banner" role="status">
+          {t("browserPreviewNotice")}
+        </p>
       ) : null}
 
       {!vaultAvailable ? (
-        <SectionCard title={t("vaultUnavailable")}>
-          <p>{t("vaultUnavailable")}</p>
-        </SectionCard>
+        <p className="banner" role="status">
+          {t("vaultUnavailable")}
+        </p>
       ) : null}
 
       {!settings.enabled ? (
-        <SectionCard title={t("disabledNotice")}>
-          <p>{t("disabledNotice")}</p>
-        </SectionCard>
+        <p className="banner" role="status">
+          {t("disabledNotice")}
+        </p>
       ) : null}
 
       <SectionCard title={t("settingsTitle")}>
-        <div className="form-grid">
-          <label>
-            <span>{t("globalEnabled")}</span>
-            <input
-              type="checkbox"
+        <div className="triage-settings">
+          <fieldset className="triage-group">
+            <legend>{t("groupActivation")}</legend>
+            <ToggleRow
+              label={t("globalEnabled")}
               checked={settings.enabled}
-              onChange={(event) => setSettings({ ...settings, enabled: event.target.checked })}
+              onChange={(checked) => setSettings({ ...settings, enabled: checked })}
             />
-          </label>
-          <label>
-            <span>{t("automationEnabled")}</span>
-            <input
-              type="checkbox"
+            <ToggleRow
+              label={t("automationEnabled")}
               checked={settings.automationEnabled}
               disabled={
                 browserPreview || (!settings.automationEnabled && !automationCheckboxEnabled)
               }
-              onChange={(event) =>
-                setSettings({ ...settings, automationEnabled: event.target.checked })
+              hint={
+                !automationCheckboxEnabled && !settings.automationEnabled
+                  ? t("automationDisabledHint")
+                  : null
               }
+              onChange={(checked) => setSettings({ ...settings, automationEnabled: checked })}
             />
-          </label>
-          {!automationCheckboxEnabled && !settings.automationEnabled ? (
-            <p>{t("automationDisabledHint")}</p>
-          ) : null}
-          <label>
-            <span>{t("globalMutation")}</span>
-            <input
-              type="checkbox"
+            <ToggleRow
+              label={t("globalMutation")}
               checked={settings.mutationEnabled}
               disabled={browserPreview || !mutationCheckboxEnabled}
-              onChange={(event) =>
-                setSettings({ ...settings, mutationEnabled: event.target.checked })
-              }
+              hint={!mutationCheckboxEnabled ? t("globalMutationDisabledHint") : null}
+              onChange={(checked) => setSettings({ ...settings, mutationEnabled: checked })}
             />
-          </label>
-          {!mutationCheckboxEnabled ? <p>{t("globalMutationDisabledHint")}</p> : null}
+          </fieldset>
+
           {!browserPreview ? (
-            <>
-              <label>
-                <span>{t("runInTray")}</span>
-                <input
-                  type="checkbox"
-                  checked={settings.runInTray}
-                  onChange={(event) =>
-                    setSettings({ ...settings, runInTray: event.target.checked })
-                  }
-                />
-              </label>
-              <label>
-                <span>{t("launchAtLogin")}</span>
-                <input
-                  type="checkbox"
-                  checked={settings.launchAtLogin}
-                  onChange={(event) =>
-                    setSettings({ ...settings, launchAtLogin: event.target.checked })
-                  }
-                />
-              </label>
-            </>
+            <fieldset className="triage-group">
+              <legend>{t("groupDesktop")}</legend>
+              <ToggleRow
+                label={t("runInTray")}
+                checked={settings.runInTray}
+                onChange={(checked) => setSettings({ ...settings, runInTray: checked })}
+              />
+              <ToggleRow
+                label={t("launchAtLogin")}
+                checked={settings.launchAtLogin}
+                onChange={(checked) => setSettings({ ...settings, launchAtLogin: checked })}
+              />
+            </fieldset>
           ) : null}
-          <label>
-            <span>{t("pollInterval")}</span>
-            <input
-              type="number"
-              min={5}
-              max={60}
-              value={settings.pollIntervalMinutes}
-              onChange={(event) =>
-                setSettings({ ...settings, pollIntervalMinutes: Number(event.target.value) })
-              }
-            />
-          </label>
-          <label>
-            <span>{t("relevantThreshold")}</span>
-            <input
-              type="number"
-              step="0.01"
-              min={0}
-              max={1}
-              value={settings.relevantThreshold}
-              onChange={(event) =>
-                setSettings({ ...settings, relevantThreshold: Number(event.target.value) })
-              }
-            />
-          </label>
-          <label>
-            <span>{t("ignoreThreshold")}</span>
-            <input
-              type="number"
-              step="0.01"
-              min={0}
-              max={1}
-              value={settings.ignoreThreshold}
-              onChange={(event) =>
-                setSettings({ ...settings, ignoreThreshold: Number(event.target.value) })
-              }
-            />
-          </label>
-          <label>
-            <span>{t("classifierModel")}</span>
-            <input
-              type="text"
-              value={settings.classifierModel}
-              onChange={(event) =>
-                setSettings({ ...settings, classifierModel: event.target.value })
-              }
-            />
-          </label>
-          <label>
-            <span>{t("gmailOAuthClientId")}</span>
-            <input
-              type="text"
-              value={settings.gmailOAuthClientId}
-              onChange={(event) =>
-                setSettings({ ...settings, gmailOAuthClientId: event.target.value })
-              }
-              placeholder={t("gmailOAuthClientIdPlaceholder")}
-            />
-          </label>
-          <label>
-            <span>{t("microsoftOAuthClientId")}</span>
-            <input
-              type="text"
-              value={settings.microsoftOAuthClientId}
-              onChange={(event) =>
-                setSettings({ ...settings, microsoftOAuthClientId: event.target.value })
-              }
-              placeholder={t("microsoftOAuthClientIdPlaceholder")}
-            />
-          </label>
-          {!browserPreview ? (
-            <label>
-              <span>{t("triageApiKey")}</span>
+
+          <fieldset className="triage-group">
+            <legend>{t("groupClassification")}</legend>
+            <div className="triage-fields triage-fields--three">
+              <label className="triage-field">
+                <span>{t("pollInterval")}</span>
+                <input
+                  type="number"
+                  min={5}
+                  max={60}
+                  value={settings.pollIntervalMinutes}
+                  onChange={(event) =>
+                    setSettings({ ...settings, pollIntervalMinutes: Number(event.target.value) })
+                  }
+                />
+              </label>
+              <label className="triage-field">
+                <span>{t("relevantThreshold")}</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  max={1}
+                  value={settings.relevantThreshold}
+                  onChange={(event) =>
+                    setSettings({ ...settings, relevantThreshold: Number(event.target.value) })
+                  }
+                />
+              </label>
+              <label className="triage-field">
+                <span>{t("ignoreThreshold")}</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  max={1}
+                  value={settings.ignoreThreshold}
+                  onChange={(event) =>
+                    setSettings({ ...settings, ignoreThreshold: Number(event.target.value) })
+                  }
+                />
+              </label>
+            </div>
+            <label className="triage-field">
+              <span>{t("classifierModel")}</span>
               <input
-                type="password"
-                value={triageKeyDraft}
-                onChange={(event) => setTriageKeyDraft(event.target.value)}
-                placeholder={triageKeySaved ? t("triageApiKeySaved") : t("triageApiKeyPlaceholder")}
+                type="text"
+                value={settings.classifierModel}
+                onChange={(event) =>
+                  setSettings({ ...settings, classifierModel: event.target.value })
+                }
               />
             </label>
-          ) : null}
+          </fieldset>
+
+          <fieldset className="triage-group">
+            <legend>{t("groupCredentials")}</legend>
+            <div className="triage-fields triage-fields--two">
+              <label className="triage-field">
+                <span>{t("gmailOAuthClientId")}</span>
+                <input
+                  type="text"
+                  value={settings.gmailOAuthClientId}
+                  onChange={(event) =>
+                    setSettings({ ...settings, gmailOAuthClientId: event.target.value })
+                  }
+                  placeholder={t("gmailOAuthClientIdPlaceholder")}
+                />
+              </label>
+              <label className="triage-field">
+                <span>{t("microsoftOAuthClientId")}</span>
+                <input
+                  type="text"
+                  value={settings.microsoftOAuthClientId}
+                  onChange={(event) =>
+                    setSettings({ ...settings, microsoftOAuthClientId: event.target.value })
+                  }
+                  placeholder={t("microsoftOAuthClientIdPlaceholder")}
+                />
+              </label>
+            </div>
+            {!browserPreview ? (
+              <div className="triage-key-row">
+                <label className="triage-field">
+                  <span>{t("triageApiKey")}</span>
+                  <input
+                    type="password"
+                    value={triageKeyDraft}
+                    onChange={(event) => setTriageKeyDraft(event.target.value)}
+                    placeholder={
+                      triageKeySaved ? t("triageApiKeySaved") : t("triageApiKeyPlaceholder")
+                    }
+                  />
+                </label>
+                <div className="triage-key-row__actions">
+                  <button
+                    type="button"
+                    className="button"
+                    disabled={!triageKeyDraft.trim()}
+                    onClick={() => void saveTriageApiKey()}
+                  >
+                    {t("saveTriageApiKey")}
+                  </button>
+                  <button
+                    type="button"
+                    className="button button--ghost"
+                    disabled={!appSettings.aiApiKey.trim()}
+                    onClick={() => void copyCoachKeyToVault()}
+                  >
+                    {t("copyCoachKey")}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </fieldset>
+
+          <footer className="triage-footer">
+            <div className="triage-messages" role="status">
+              {settingsError ? <p className="triage-message--error">{settingsError}</p> : null}
+              {autostartError ? <p className="triage-message--error">{autostartError}</p> : null}
+              {trayError ? <p className="triage-message--error">{trayError}</p> : null}
+              {evaluationSettingsDirty ? <p>{t("evaluationDirtyDraft")}</p> : null}
+              {evaluationMessage ? <p>{evaluationMessage}</p> : null}
+              {triageKeySaved ? <p>{t("triageApiKeySaved")}</p> : null}
+            </div>
+            <div className="triage-footer__actions">
+              {!browserPreview ? (
+                <button
+                  type="button"
+                  className="button"
+                  disabled={evaluationRunning || evaluationSettingsDirty}
+                  onClick={() => void runEvaluation()}
+                >
+                  {evaluationRunning ? t("evaluationRunning") : t("runEvaluation")}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="button button--primary"
+                disabled={saving}
+                onClick={() => void saveSettings()}
+              >
+                {t("saveSettings")}
+              </button>
+            </div>
+          </footer>
         </div>
-        <div className="actions-row">
-          <button
-            type="button"
-            className="button button--primary"
-            disabled={saving}
-            onClick={() => void saveSettings()}
-          >
-            {t("saveSettings")}
-          </button>
-          {!browserPreview ? (
-            <>
-              <button
-                type="button"
-                className="button"
-                disabled={!triageKeyDraft.trim()}
-                onClick={() => void saveTriageApiKey()}
-              >
-                {t("saveTriageApiKey")}
-              </button>
-              <button
-                type="button"
-                className="button"
-                disabled={!appSettings.aiApiKey.trim()}
-                onClick={() => void copyCoachKeyToVault()}
-              >
-                {t("copyCoachKey")}
-              </button>
-              <button
-                type="button"
-                className="button"
-                disabled={evaluationRunning || evaluationSettingsDirty}
-                onClick={() => void runEvaluation()}
-              >
-                {evaluationRunning ? t("evaluationRunning") : t("runEvaluation")}
-              </button>
-            </>
-          ) : null}
-        </div>
-        {settingsError ? <p>{settingsError}</p> : null}
-        {autostartError ? <p>{autostartError}</p> : null}
-        {trayError ? <p>{trayError}</p> : null}
-        {evaluationSettingsDirty ? <p>{t("evaluationDirtyDraft")}</p> : null}
-        {evaluationMessage ? <p>{evaluationMessage}</p> : null}
-        {triageKeySaved ? <p>{t("triageApiKeySaved")}</p> : null}
       </SectionCard>
 
       <SectionCard title={t("accountsTitle")}>
@@ -732,7 +760,7 @@ export const EmailTriagePage = () => {
             />
           </label>
         </div>
-        <p>{t("yahooAppPasswordHelp")}</p>
+        <p className="muted-copy">{t("yahooAppPasswordHelp")}</p>
         <div className="actions-row">
           <button
             type="button"
@@ -756,38 +784,50 @@ export const EmailTriagePage = () => {
         {!resolvedMicrosoftClientId && !browserPreview ? (
           <p>{t("missingMicrosoftClientId")}</p>
         ) : null}
-        {accounts.length === 0 ? <p>{t("noAccounts")}</p> : null}
+        {accounts.length === 0 ? <p className="muted-copy">{t("noAccounts")}</p> : null}
         <div className="stack">
           {accounts.map((account) => (
-            <article key={account.id} className="list-card">
-              <h3>{account.label}</h3>
-              <p>
-                {t("provider")}: {account.provider} · {t("address")}: {account.maskedAddress}
-              </p>
-              <p>
-                {t("state")}: {t(`states.${account.state}`)} · {t("recoveryState")}:{" "}
-                {t(`recovery.${account.recoveryState}`)}
-              </p>
-              {account.lastSuccessAt ? (
-                <p>
-                  {t("lastSuccess")}: {formatDateTimeShort(account.lastSuccessAt)}
-                </p>
-              ) : null}
+            <article key={account.id} className="list-card triage-account">
+              <header className="triage-account__head">
+                <h3>{account.label}</h3>
+                <span className={`triage-badge triage-badge--${account.state}`}>
+                  {t(`states.${account.state}`)}
+                </span>
+              </header>
+              <dl className="triage-meta">
+                <div>
+                  <dt>{t("provider")}</dt>
+                  <dd>{account.provider}</dd>
+                </div>
+                <div>
+                  <dt>{t("address")}</dt>
+                  <dd>{account.maskedAddress}</dd>
+                </div>
+                <div>
+                  <dt>{t("recoveryState")}</dt>
+                  <dd>{t(`recovery.${account.recoveryState}`)}</dd>
+                </div>
+                {account.lastSuccessAt ? (
+                  <div>
+                    <dt>{t("lastSuccess")}</dt>
+                    <dd>{formatDateTimeShort(account.lastSuccessAt)}</dd>
+                  </div>
+                ) : null}
+              </dl>
               {account.lastError ? (
-                <p>
+                <p className="triage-message--error">
                   {t("error")}: {account.lastError}
                 </p>
               ) : null}
-              {accountActionError[account.id] ? <p>{accountActionError[account.id]}</p> : null}
-              <label>
-                <span>{t("accountMutation")}</span>
-                <input
-                  type="checkbox"
-                  checked={account.mutationEnabled}
-                  disabled={browserPreview}
-                  onChange={() => void toggleAccountMutation(account)}
-                />
-              </label>
+              {accountActionError[account.id] ? (
+                <p className="triage-message--error">{accountActionError[account.id]}</p>
+              ) : null}
+              <ToggleRow
+                label={t("accountMutation")}
+                checked={account.mutationEnabled}
+                disabled={browserPreview}
+                onChange={() => void toggleAccountMutation(account)}
+              />
               <div className="actions-row">
                 <button
                   type="button"
@@ -855,11 +895,12 @@ export const EmailTriagePage = () => {
       </SectionCard>
 
       <SectionCard title={t("reviewsTitle")}>
-        {reviews.length === 0 ? <p>{t("noReviews")}</p> : null}
+        {reviews.length === 0 ? <p className="muted-copy">{t("noReviews")}</p> : null}
         {reviews.map((review) => (
-          <article key={review.id} className="list-card">
-            <p>
-              {t("reviewReason")}: {review.reason}
+          <article key={review.id} className="list-card triage-review">
+            <p className="triage-review__reason">
+              <span>{t("reviewReason")}</span>
+              {review.reason}
             </p>
             <div className="actions-row">
               <button

@@ -1,6 +1,11 @@
 - 2026-10-03: Unified Gmail/Microsoft OAuth connection and token refresh, centralized guarded token decoding and provider-neutral session names, and verified reconnect/rotation behavior with mocked native flows.
 # Email triage log
 
+- 2026-10-05: Redesigned the triage screen layout: settings grouped into Activation, Application de
+  bureau, Classification, and Connexions et clés sections with switch rows, aligned field grids, and
+  an inline triage-key row; notices became banners; account cards show a state badge and metadata
+  grid. No behavior change.
+
 - 2026-10-03: Shared review and GTD planners now drive both stores. Email writes
   join the repository transaction queue; review decisions and message batches
   roll back together on failure, including GTD task and lifecycle writes.

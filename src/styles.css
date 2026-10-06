@@ -1788,3 +1788,328 @@ button.tag-chip:active:not(:disabled) {
 .table-scroll {
   overflow-x: auto;
 }
+
+/* Email triage page */
+.triage-page {
+  display: grid;
+  gap: 22px;
+}
+
+.triage-page .page-header h2 {
+  margin: 0;
+}
+
+.triage-settings {
+  display: grid;
+  gap: 16px;
+}
+
+.triage-group {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  margin: 0;
+  padding: 18px 20px 20px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.triage-group legend {
+  padding: 0 8px;
+  margin-left: -8px;
+  color: var(--accent-deep);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.triage-toggle {
+  display: grid;
+  gap: 4px;
+}
+
+.triage-toggle + .triage-toggle {
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.triage-toggle__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.triage-toggle__hint {
+  max-width: 62ch;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.triage-toggle input[type="checkbox"] {
+  appearance: none;
+  position: relative;
+  width: 42px;
+  height: 24px;
+  border-radius: 999px;
+  background: rgba(55, 42, 28, 0.22);
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+
+.triage-toggle input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 3px rgba(31, 26, 20, 0.3);
+  transition: transform 140ms ease;
+}
+
+.triage-toggle input[type="checkbox"]:checked {
+  background: var(--accent);
+}
+
+.triage-toggle input[type="checkbox"]:checked::after {
+  transform: translateX(18px);
+}
+
+.triage-toggle input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--accent-deep);
+  outline-offset: 2px;
+}
+
+.triage-toggle input[type="checkbox"]:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.triage-fields {
+  display: grid;
+  gap: 14px;
+}
+
+.triage-fields--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.triage-fields--two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.triage-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  align-content: start;
+}
+
+.triage-field > span {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.triage-key-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.triage-key-row__actions,
+.triage-footer__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.triage-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px 20px;
+  padding-top: 4px;
+}
+
+.triage-footer__actions {
+  margin-left: auto;
+}
+
+.triage-messages {
+  display: grid;
+  flex: 1 1 280px;
+  gap: 4px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.triage-messages p,
+.triage-page .muted-copy {
+  margin: 0;
+}
+
+.triage-message--error {
+  margin: 0;
+  color: #b42318;
+  font-size: 0.9rem;
+}
+
+/* Accounts and review queue */
+.triage-page .actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.triage-page .form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 16px 0 12px;
+}
+
+.triage-page .form-grid label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.triage-page .form-grid label > span {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.triage-page .panel .actions-row + .form-grid {
+  margin-top: 18px;
+}
+
+.triage-page .list-card {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.triage-page .list-card > * {
+  margin: 0;
+}
+
+.triage-account__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.triage-account__head h3 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.triage-badge {
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.triage-badge--active {
+  background: rgba(45, 106, 79, 0.14);
+  color: var(--success);
+}
+
+.triage-badge--error,
+.triage-badge--reconnect_required,
+.triage-badge--gap_review_required {
+  background: rgba(180, 35, 24, 0.12);
+  color: #b42318;
+}
+
+.triage-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px 20px;
+  margin: 0;
+}
+
+.triage-meta dt {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.triage-meta dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.triage-review__reason {
+  display: grid;
+  gap: 2px;
+}
+
+.triage-review__reason span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.triage-review .actions-row label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.triage-review .actions-row select {
+  width: auto;
+  min-width: 190px;
+  padding: 10px 14px;
+}
+
+@media (max-width: 720px) {
+  .triage-fields--three,
+  .triage-fields--two,
+  .triage-page .form-grid,
+  .triage-key-row {
+    grid-template-columns: 1fr;
+  }
+
+  .triage-footer__actions {
+    width: 100%;
+    margin-left: 0;
+  }
+}
+
+.triage-page .panel > .muted-copy {
+  margin: 0 0 14px;
+}
+
+.triage-page .panel > .button {
+  margin-top: 14px;
+}
