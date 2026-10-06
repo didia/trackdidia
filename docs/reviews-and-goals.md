@@ -11,6 +11,14 @@ TrackDidia turns daily evidence into three higher-level loops:
 Review records store ritual notes/checklists and open/closed state. Numeric summaries
 are computed on demand and are not persisted.
 
+## Ritual notes: required and optional
+
+`RitualSectionList` takes `requiredKeys` (weekly and monthly pass `["bilan"]`). The required
+section shows a "Requis" badge, a highlighted card, and an always-open 10-row note. Every other
+section's note stays folded behind "Ajouter une note (optionnel)" until it has content or the
+user opens it; the note field stays mounted so coach drafts can still be applied. Nothing
+blocks closing a review on an empty Bilan: the requirement is visual guidance only.
+
 ## Weekly review (`/semaine`)
 
 ### Calendar model

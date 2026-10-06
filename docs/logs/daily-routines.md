@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-10-06 | Today, morning and evening notes stack full width in larger auto-growing fields (evening reflection and tomorrow's focus no longer share a row) | `docs/conventions.md` | `TodayPage.tsx`, `MorningRoutinePage.tsx`, `EveningClosurePage.tsx` |
 | 2026-10-03 | Daily entry reads (`getDailyEntry`, `listDailyEntries*`, now including `listDailyEntriesInRange`) are decorated once and purely by the repository; `useDailyEntry`/History no longer re-apply stats to repository entries ([#110](https://github.com/didia/trackdidia/issues/110)) | `docs/daily-routines.md`, `docs/architecture.md` | `src/lib/storage/decorate-entries.ts`, `use-daily-entry.ts`, `HistoryPage.tsx` |
 | 2026-10-03 | Renamed principle label `respectDeVieCommeJesus` from « Respect de vie comme Jésus » to « Aucune violation de mes principes » | `docs/daily-routines.md` | `src/locales/fr/principles.json` |
 | 2026-09-30 | Wednesday Today prompt now links to `/mi-semaine` instead of `/semaine?date=` | `docs/daily-routines.md`, `docs/reviews-and-goals.md` | `TodayPage`, `TodayPage.test.tsx` |

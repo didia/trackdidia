@@ -7,6 +7,7 @@ import { AiCoachAnalyticsSection } from "../components/AiCoachAnalyticsSection";
 import { AiCostDashboardSection } from "../components/AiCostDashboardSection";
 import { AiMemoryProfileSection } from "../components/AiMemoryProfileSection";
 import { PageHeader } from "../components/PageHeader";
+import { RichTextarea } from "../components/RichTextarea";
 import { SectionCard } from "../components/SectionCard";
 import { AiPayloadPreviewSection } from "../components/settings/AiPayloadPreviewSection";
 import { StorageOverviewSection } from "../components/settings/StorageOverviewSection";
@@ -73,12 +74,42 @@ const relationshipPreferenceKeys: (keyof AppSettings)[] = [
   "relationshipDrawSpouseActivities",
 ];
 
+const parseActivityLines = (text: string) =>
+  text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
 export const SettingsPage = () => {
   const { t } = useTranslation("settings");
   const { repository, settings, updateSettings, debugEnabled, setDebugEnabled, browserPreview } =
     useAppContext();
   const goalsService = useMemo(() => new RescueTimeGoalsService(repository), [repository]);
   const [draftSettings, setDraftSettings] = useState<AppSettings>(settings);
+  // Raw text of the activity lists: parsing on every keystroke would swallow Enter and spaces.
+  const [childrenActivitiesText, setChildrenActivitiesText] = useState(() =>
+    settings.relationshipDrawChildrenActivities.join("\n"),
+  );
+  const [spouseActivitiesText, setSpouseActivitiesText] = useState(() =>
+    settings.relationshipDrawSpouseActivities.join("\n"),
+  );
+  const childrenActivities = draftSettings.relationshipDrawChildrenActivities;
+  const spouseActivities = draftSettings.relationshipDrawSpouseActivities;
+  // Re-sync only when the draft was rebased from outside the field (typing keeps both equal).
+  useEffect(() => {
+    setChildrenActivitiesText((text) =>
+      parseActivityLines(text).join("\n") === childrenActivities.join("\n")
+        ? text
+        : childrenActivities.join("\n"),
+    );
+  }, [childrenActivities]);
+  useEffect(() => {
+    setSpouseActivitiesText((text) =>
+      parseActivityLines(text).join("\n") === spouseActivities.join("\n")
+        ? text
+        : spouseActivities.join("\n"),
+    );
+  }, [spouseActivities]);
   const [pulseSlotsDraft, setPulseSlotsDraft] = useState(() =>
     formatPulseSlotHours(settings.aiPulseSlots),
   );
@@ -729,35 +760,31 @@ export const SettingsPage = () => {
 
           <label className="stacked-field">
             <span>{t("relationship.children")}</span>
-            <textarea
+            <RichTextarea
               rows={10}
-              value={draftSettings.relationshipDrawChildrenActivities.join("\n")}
-              onChange={(event) =>
+              value={childrenActivitiesText}
+              onChange={(event) => {
+                setChildrenActivitiesText(event.target.value);
                 setDraftSettings((current) => ({
                   ...current,
-                  relationshipDrawChildrenActivities: event.target.value
-                    .split("\n")
-                    .map((line) => line.trim())
-                    .filter(Boolean),
-                }))
-              }
+                  relationshipDrawChildrenActivities: parseActivityLines(event.target.value),
+                }));
+              }}
             />
           </label>
 
           <label className="stacked-field">
             <span>{t("relationship.spouse")}</span>
-            <textarea
+            <RichTextarea
               rows={10}
-              value={draftSettings.relationshipDrawSpouseActivities.join("\n")}
-              onChange={(event) =>
+              value={spouseActivitiesText}
+              onChange={(event) => {
+                setSpouseActivitiesText(event.target.value);
                 setDraftSettings((current) => ({
                   ...current,
-                  relationshipDrawSpouseActivities: event.target.value
-                    .split("\n")
-                    .map((line) => line.trim())
-                    .filter(Boolean),
-                }))
-              }
+                  relationshipDrawSpouseActivities: parseActivityLines(event.target.value),
+                }));
+              }}
             />
           </label>
         </div>

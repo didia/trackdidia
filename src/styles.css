@@ -2113,3 +2113,263 @@ button.tag-chip:active:not(:disabled) {
 .triage-page .panel > .button {
   margin-top: 14px;
 }
+
+/* Multi-line note fields */
+.rich-textarea {
+  --rich-textarea-pad-y: 14px;
+  --rich-textarea-pad-x: 16px;
+  --rich-textarea-max-height: 72vh;
+  display: grid;
+  position: relative;
+  min-width: 0;
+}
+
+.rich-textarea::after,
+.rich-textarea > textarea {
+  grid-area: 1 / 1 / 2 / 2;
+  min-width: 0;
+  padding: var(--rich-textarea-pad-y) var(--rich-textarea-pad-x);
+  border: 1px solid rgba(55, 42, 28, 0.18);
+  border-radius: 16px;
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1.65;
+  tab-size: 2;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Invisible mirror of the text: its height drives the row, so the field grows with its content. */
+.rich-textarea::after {
+  content: attr(data-replicated-value) " ";
+  visibility: hidden;
+  pointer-events: none;
+  max-height: var(--rich-textarea-max-height);
+  overflow: hidden;
+  padding-bottom: calc(var(--rich-textarea-pad-y) + 1px);
+}
+
+.rich-textarea > textarea {
+  width: 100%;
+  max-height: var(--rich-textarea-max-height);
+  overflow-y: auto;
+  resize: none;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--ink);
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.rich-textarea > textarea::placeholder {
+  color: rgba(107, 98, 88, 0.7);
+}
+
+.rich-textarea > textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(164, 79, 45, 0.16);
+}
+
+.note-stack {
+  display: grid;
+  gap: 22px;
+}
+
+.note-field {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.note-field__label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  font-weight: 700;
+}
+
+.note-field__hint {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 400;
+}
+
+/* Review rituals: required note vs. optional, folded notes */
+.weekly-ritual-card--required {
+  border-color: rgba(164, 79, 45, 0.4);
+  background: linear-gradient(180deg, rgba(255, 244, 230, 0.9), rgba(255, 255, 255, 0.7));
+  box-shadow: 0 0 0 3px rgba(164, 79, 45, 0.08);
+}
+
+.ritual-badge {
+  margin-left: 10px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: white;
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.ritual-note {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+
+.ritual-note__toggle {
+  padding: 8px 14px;
+  font-size: 0.9rem;
+}
+
+.ritual-note__body {
+  width: 100%;
+}
+
+.ritual-note__body[hidden] {
+  display: none;
+}
+
+/* Grouped form sections (task/recurrence cards, settings) */
+.form-section {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  margin: 0;
+  padding: 16px 18px 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.form-section legend {
+  padding: 0 8px;
+  margin-left: -8px;
+  color: var(--accent-deep);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.stacked-field > span {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.form-section__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+}
+
+.form-section__wide {
+  grid-column: 1 / -1;
+}
+
+.panel > .note-stack + .form-actions,
+.panel > .form-section + .form-actions {
+  margin-top: 18px;
+}
+
+/* Settings forms: two-column fields, switch rows, muted labels */
+.settings-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 18px;
+  align-items: start;
+}
+
+.settings-form > * {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.settings-form > label:not(.switch-row):not(.stacked-field),
+.settings-form > .stacked-field:not(:has(textarea)) {
+  grid-column: auto;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+
+.settings-form > label:not(.switch-row) > span:first-child {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.settings-form .switch-row {
+  justify-content: space-between;
+  flex-direction: row-reverse;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.5);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.settings-form .switch-row input[type="checkbox"],
+.switch-row--toggle input[type="checkbox"] {
+  appearance: none;
+  position: relative;
+  flex-shrink: 0;
+  width: 42px;
+  height: 24px;
+  border-radius: 999px;
+  background: rgba(55, 42, 28, 0.22);
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+
+.settings-form .switch-row input[type="checkbox"]::after,
+.switch-row--toggle input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 3px rgba(31, 26, 20, 0.3);
+  transition: transform 140ms ease;
+}
+
+.settings-form .switch-row input[type="checkbox"]:checked,
+.switch-row--toggle input[type="checkbox"]:checked {
+  background: var(--accent);
+}
+
+.settings-form .switch-row input[type="checkbox"]:checked::after,
+.switch-row--toggle input[type="checkbox"]:checked::after {
+  transform: translateX(18px);
+}
+
+.settings-form .switch-row input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--accent-deep);
+  outline-offset: 2px;
+}
+
+.settings-form .switch-row input[type="checkbox"]:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.settings-form .field-card__helper {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+@media (max-width: 720px) {
+  .settings-form {
+    grid-template-columns: 1fr;
+  }
+}

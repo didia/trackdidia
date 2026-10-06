@@ -39,6 +39,7 @@ import {
 } from "../lib/rescuetime/rescuetime-goals-service";
 import { WeeklyObjectivesService } from "../lib/rescuetime/weekly-objectives-service";
 import { loadDecoratedWeekEntries } from "../lib/storage/week-entries";
+import { RichTextarea } from "../components/RichTextarea";
 
 /** RescueTime data younger than this is reused instead of pulled again. `/semaine` stays live. */
 export const MID_WEEK_RESCUETIME_MAX_AGE_MS = 15 * 60 * 1000;
@@ -734,7 +735,7 @@ export const MidWeekReviewPage = () => {
 
       <SectionCard title={t("midWeek.decisions.title")} subtitle={t("midWeek.decisions.subtitle")}>
         {decisions.loading ? (
-          <textarea
+          <RichTextarea
             className="textarea"
             aria-label={t("midWeek.decisions.label")}
             aria-busy="true"

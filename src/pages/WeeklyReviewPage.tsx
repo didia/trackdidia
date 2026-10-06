@@ -1005,6 +1005,7 @@ export const WeeklyReviewPage = () => {
 
       <SectionCard title={t("weekly.ritual.title")} subtitle={t("weekly.ritual.subtitle")}>
         <RitualSectionList
+          requiredKeys={["bilan"]}
           className="weekly-ritual-stack"
           sections={ritualSections}
           scopeKey={review.weekStartDate}
@@ -1015,6 +1016,9 @@ export const WeeklyReviewPage = () => {
             done: t("weekly.ritual.done"),
             doneAria: (section) => t("weekly.ritual.doneAria", { section }),
             notesLabel: (section) => t("weekly.ritual.notesLabel", { section }),
+            required: t("weekly.ritual.required"),
+            addNote: t("weekly.ritual.addNote"),
+            hideNote: t("weekly.ritual.hideNote"),
           }}
           notesPlaceholder={(section) =>
             t("weekly.ritual.notesPlaceholder", { section: section.title.toLowerCase() })
