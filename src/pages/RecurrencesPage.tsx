@@ -10,6 +10,7 @@ import { createEntityId } from "../lib/gtd/shared";
 import { addDays } from "../lib/date";
 import { projectsForAssignment, projectAssignmentLabel } from "../lib/gtd/engine";
 import { createRecurringTemplate, findNextRecurringDate } from "../lib/recurring/engine";
+import { RichTextarea } from "../components/RichTextarea";
 
 const weekdayValues = [0, 1, 2, 3, 4, 5, 6] as const;
 const nthWeekValues = [1, 2, 3, 4, 5] as const;
@@ -119,254 +120,263 @@ const RecurringTemplateCard = ({
 
       {expanded ? (
         <>
-          <div className="task-card__grid">
-            <label className="stacked-field">
-              <span>{t("form.title")}</span>
-              <input
-                value={draft.title}
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, title: event.target.value }))
-                }
-              />
-            </label>
-            <label className="stacked-field">
-              <span>{t("form.targetBucket")}</span>
-              <select
-                value={draft.targetBucket}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    targetBucket: event.target.value as "next_action" | "scheduled",
-                    scheduledTime:
-                      event.target.value === "scheduled" ? current.scheduledTime : null,
-                  }))
-                }
-              >
-                <option value="next_action">{t("buckets.next_action")}</option>
-                <option value="scheduled">{t("buckets.scheduled")}</option>
-              </select>
-            </label>
-            <label className="stacked-field">
-              <span>{t("form.startDate")}</span>
-              <input
-                type="date"
-                value={draft.startDate}
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, startDate: event.target.value }))
-                }
-              />
-            </label>
-          </div>
-
-          <label className="stacked-field">
-            <span>{t("form.notes")}</span>
-            <textarea
-              rows={3}
-              value={draft.notes}
-              onChange={(event) =>
-                setDraft((current) => ({ ...current, notes: event.target.value }))
-              }
-            />
-          </label>
-
-          <div className="task-card__grid">
-            <label className="stacked-field">
-              <span>{t("form.ruleType")}</span>
-              <select
-                value={draft.ruleType}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    ruleType: event.target.value as RecurringTaskTemplate["ruleType"],
-                  }))
-                }
-              >
-                <option value="daily">{t("form.daily")}</option>
-                <option value="weekly">{t("form.weekly")}</option>
-                <option value="monthly">{t("form.monthly")}</option>
-              </select>
-            </label>
-
-            {draft.ruleType === "daily" ? (
+          <fieldset className="form-section">
+            <legend>{t("form.sectionDetails")}</legend>
+            <div className="task-card__grid">
               <label className="stacked-field">
-                <span>{t("form.interval")}</span>
+                <span>{t("form.title")}</span>
                 <input
-                  type="number"
-                  min={1}
-                  value={draft.dailyInterval}
+                  value={draft.title}
                   onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      dailyInterval: Math.max(1, Number(event.target.value || 1)),
-                    }))
+                    setDraft((current) => ({ ...current, title: event.target.value }))
                   }
                 />
               </label>
-            ) : null}
-
-            {draft.ruleType === "weekly" ? (
               <label className="stacked-field">
-                <span>{t("form.weeklyInterval")}</span>
-                <input
-                  type="number"
-                  min={1}
-                  value={draft.weeklyInterval}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      weeklyInterval: Math.max(1, Number(event.target.value || 1)),
-                    }))
-                  }
-                />
-              </label>
-            ) : null}
-
-            {draft.ruleType === "monthly" ? (
-              <label className="stacked-field">
-                <span>{t("form.monthlyMode")}</span>
+                <span>{t("form.targetBucket")}</span>
                 <select
-                  value={draft.monthlyMode}
+                  value={draft.targetBucket}
                   onChange={(event) =>
                     setDraft((current) => ({
                       ...current,
-                      monthlyMode: event.target.value as RecurringTaskTemplate["monthlyMode"],
+                      targetBucket: event.target.value as "next_action" | "scheduled",
+                      scheduledTime:
+                        event.target.value === "scheduled" ? current.scheduledTime : null,
                     }))
                   }
                 >
-                  <option value="day_of_month">{t("form.dayOfMonth")}</option>
-                  <option value="nth_weekday">{t("form.nthWeekday")}</option>
+                  <option value="next_action">{t("buckets.next_action")}</option>
+                  <option value="scheduled">{t("buckets.scheduled")}</option>
                 </select>
               </label>
-            ) : null}
-
-            {draft.targetBucket === "scheduled" ? (
               <label className="stacked-field">
-                <span>{t("form.scheduledTime")}</span>
+                <span>{t("form.startDate")}</span>
                 <input
-                  type="time"
-                  value={draft.scheduledTime ?? ""}
+                  type="date"
+                  value={draft.startDate}
+                  onChange={(event) =>
+                    setDraft((current) => ({ ...current, startDate: event.target.value }))
+                  }
+                />
+              </label>
+            </div>
+
+            <label className="stacked-field">
+              <span>{t("form.notes")}</span>
+              <RichTextarea
+                rows={5}
+                value={draft.notes}
+                onChange={(event) =>
+                  setDraft((current) => ({ ...current, notes: event.target.value }))
+                }
+              />
+            </label>
+          </fieldset>
+
+          <fieldset className="form-section">
+            <legend>{t("form.sectionRepeat")}</legend>
+            <div className="task-card__grid">
+              <label className="stacked-field">
+                <span>{t("form.ruleType")}</span>
+                <select
+                  value={draft.ruleType}
                   onChange={(event) =>
                     setDraft((current) => ({
                       ...current,
-                      scheduledTime: event.target.value || null,
+                      ruleType: event.target.value as RecurringTaskTemplate["ruleType"],
+                    }))
+                  }
+                >
+                  <option value="daily">{t("form.daily")}</option>
+                  <option value="weekly">{t("form.weekly")}</option>
+                  <option value="monthly">{t("form.monthly")}</option>
+                </select>
+              </label>
+
+              {draft.ruleType === "daily" ? (
+                <label className="stacked-field">
+                  <span>{t("form.interval")}</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={draft.dailyInterval}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        dailyInterval: Math.max(1, Number(event.target.value || 1)),
+                      }))
+                    }
+                  />
+                </label>
+              ) : null}
+
+              {draft.ruleType === "weekly" ? (
+                <label className="stacked-field">
+                  <span>{t("form.weeklyInterval")}</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={draft.weeklyInterval}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        weeklyInterval: Math.max(1, Number(event.target.value || 1)),
+                      }))
+                    }
+                  />
+                </label>
+              ) : null}
+
+              {draft.ruleType === "monthly" ? (
+                <label className="stacked-field">
+                  <span>{t("form.monthlyMode")}</span>
+                  <select
+                    value={draft.monthlyMode}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        monthlyMode: event.target.value as RecurringTaskTemplate["monthlyMode"],
+                      }))
+                    }
+                  >
+                    <option value="day_of_month">{t("form.dayOfMonth")}</option>
+                    <option value="nth_weekday">{t("form.nthWeekday")}</option>
+                  </select>
+                </label>
+              ) : null}
+
+              {draft.targetBucket === "scheduled" ? (
+                <label className="stacked-field">
+                  <span>{t("form.scheduledTime")}</span>
+                  <input
+                    type="time"
+                    value={draft.scheduledTime ?? ""}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        scheduledTime: event.target.value || null,
+                      }))
+                    }
+                  />
+                </label>
+              ) : null}
+            </div>
+
+            {draft.ruleType === "weekly" ? (
+              <div className="tag-row">
+                {weekdayValues.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={`tag-chip${draft.weeklyDays.includes(value) ? " tag-chip--active" : ""}`}
+                    onClick={() =>
+                      setDraft((current) => ({
+                        ...current,
+                        weeklyDays: current.weeklyDays.includes(value)
+                          ? current.weeklyDays.filter((day) => day !== value)
+                          : [...current.weeklyDays, value].sort((left, right) => left - right),
+                      }))
+                    }
+                  >
+                    {weekdayLabel(value)}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
+            {draft.ruleType === "monthly" && draft.monthlyMode === "day_of_month" ? (
+              <label className="stacked-field">
+                <span>{t("form.dayOfMonthField")}</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={31}
+                  value={draft.dayOfMonth ?? 1}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      dayOfMonth: Math.min(31, Math.max(1, Number(event.target.value || 1))),
                     }))
                   }
                 />
               </label>
             ) : null}
-          </div>
 
-          {draft.ruleType === "weekly" ? (
-            <div className="tag-row">
-              {weekdayValues.map((value) => (
+            {draft.ruleType === "monthly" && draft.monthlyMode === "nth_weekday" ? (
+              <div className="task-card__grid">
+                <label className="stacked-field">
+                  <span>{t("form.nthWeek")}</span>
+                  <select
+                    value={draft.nthWeek ?? 1}
+                    onChange={(event) =>
+                      setDraft((current) => ({ ...current, nthWeek: Number(event.target.value) }))
+                    }
+                  >
+                    {nthWeekValues.map((value) => (
+                      <option key={value} value={value}>
+                        {nthWeekLabel(value)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="stacked-field">
+                  <span>{t("form.weekday")}</span>
+                  <select
+                    value={draft.weekday ?? 6}
+                    onChange={(event) =>
+                      setDraft((current) => ({ ...current, weekday: Number(event.target.value) }))
+                    }
+                  >
+                    {weekdayValues.map((value) => (
+                      <option key={value} value={value}>
+                        {weekdayLabel(value)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            ) : null}
+          </fieldset>
+
+          <fieldset className="form-section">
+            <legend>{t("form.sectionOrganise")}</legend>
+            <label className="stacked-field">
+              <span>{t("form.project")}</span>
+              <select
+                value={draft.projectId ?? ""}
+                onChange={(event) =>
+                  setDraft((current) => ({ ...current, projectId: event.target.value || null }))
+                }
+              >
+                <option value="">{t("form.noProject")}</option>
+                {projectsForAssignment(projects, draft.projectId).map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {projectAssignmentLabel(project)}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="task-card__contexts">
+              {contexts.map((context) => (
                 <button
-                  key={value}
+                  key={context.id}
                   type="button"
-                  className={`tag-chip${draft.weeklyDays.includes(value) ? " tag-chip--active" : ""}`}
+                  className={`tag-chip${draft.contextIds.includes(context.id) ? " tag-chip--active" : ""}`}
                   onClick={() =>
                     setDraft((current) => ({
                       ...current,
-                      weeklyDays: current.weeklyDays.includes(value)
-                        ? current.weeklyDays.filter((day) => day !== value)
-                        : [...current.weeklyDays, value].sort((left, right) => left - right),
+                      contextIds: current.contextIds.includes(context.id)
+                        ? current.contextIds.filter((contextId) => contextId !== context.id)
+                        : [...current.contextIds, context.id],
                     }))
                   }
                 >
-                  {weekdayLabel(value)}
+                  {context.name}
                 </button>
               ))}
             </div>
-          ) : null}
-
-          {draft.ruleType === "monthly" && draft.monthlyMode === "day_of_month" ? (
-            <label className="stacked-field">
-              <span>{t("form.dayOfMonthField")}</span>
-              <input
-                type="number"
-                min={1}
-                max={31}
-                value={draft.dayOfMonth ?? 1}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    dayOfMonth: Math.min(31, Math.max(1, Number(event.target.value || 1))),
-                  }))
-                }
-              />
-            </label>
-          ) : null}
-
-          {draft.ruleType === "monthly" && draft.monthlyMode === "nth_weekday" ? (
-            <div className="task-card__grid">
-              <label className="stacked-field">
-                <span>{t("form.nthWeek")}</span>
-                <select
-                  value={draft.nthWeek ?? 1}
-                  onChange={(event) =>
-                    setDraft((current) => ({ ...current, nthWeek: Number(event.target.value) }))
-                  }
-                >
-                  {nthWeekValues.map((value) => (
-                    <option key={value} value={value}>
-                      {nthWeekLabel(value)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="stacked-field">
-                <span>{t("form.weekday")}</span>
-                <select
-                  value={draft.weekday ?? 6}
-                  onChange={(event) =>
-                    setDraft((current) => ({ ...current, weekday: Number(event.target.value) }))
-                  }
-                >
-                  {weekdayValues.map((value) => (
-                    <option key={value} value={value}>
-                      {weekdayLabel(value)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          ) : null}
-
-          <label className="stacked-field">
-            <span>{t("form.project")}</span>
-            <select
-              value={draft.projectId ?? ""}
-              onChange={(event) =>
-                setDraft((current) => ({ ...current, projectId: event.target.value || null }))
-              }
-            >
-              <option value="">{t("form.noProject")}</option>
-              {projectsForAssignment(projects, draft.projectId).map((project) => (
-                <option key={project.id} value={project.id}>
-                  {projectAssignmentLabel(project)}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <div className="task-card__contexts">
-            {contexts.map((context) => (
-              <button
-                key={context.id}
-                type="button"
-                className={`tag-chip${draft.contextIds.includes(context.id) ? " tag-chip--active" : ""}`}
-                onClick={() =>
-                  setDraft((current) => ({
-                    ...current,
-                    contextIds: current.contextIds.includes(context.id)
-                      ? current.contextIds.filter((contextId) => contextId !== context.id)
-                      : [...current.contextIds, context.id],
-                  }))
-                }
-              >
-                {context.name}
-              </button>
-            ))}
-          </div>
+          </fieldset>
 
           <div className="task-card__actions">
             <button

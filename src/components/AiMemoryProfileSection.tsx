@@ -5,6 +5,7 @@ import { t as translate } from "../i18n";
 import { createEntityId, nowIso } from "../lib/gtd/shared";
 import type { AppRepository } from "../lib/storage/repository";
 import { SectionCard } from "./SectionCard";
+import { RichTextarea } from "./RichTextarea";
 
 interface AiMemoryProfileSectionProps {
   repository: AppRepository;
@@ -156,7 +157,7 @@ export const AiMemoryProfileSection = ({
 
         <label>
           <span>{t("memoryProfile.detail")}</span>
-          <textarea
+          <RichTextarea
             rows={3}
             value={draft.detail}
             onChange={(event) =>

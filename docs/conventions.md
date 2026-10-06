@@ -85,6 +85,19 @@ generate or scrape it. See
   request-sequence refs or `cancelled` flags: call `run(async (signal) => ...)`
   and check `signal.isLatest()` after each await; `invalidate()` marks in-flight
   runs stale.
+- Multi-line note fields render through `RichTextarea` (`src/components/RichTextarea.tsx`),
+  either directly (controlled `value`/`onChange`) or via `PersistedTextarea`. The field
+  grows with its content up to 72vh (an invisible mirror drives the height, so there is no
+  inner scrolling for normal notes) and keeps whitespace and blank lines exactly as typed.
+  Enter keeps the line's indentation and continues `-`/`*`/`•`/`1.` lists (Enter on an empty
+  item ends the list); Tab/Shift+Tab indent inside lists, on indented lines and over
+  multi-line selections, and otherwise move focus (Escape first releases Tab on an indented
+  line). Edits go through `document.execCommand` so native undo/redo keeps working; the
+  pure rules live in `src/lib/text-editing.ts`. Do not trim or re-parse text on every
+  keystroke in a controlled note field (keep the raw text in state and parse on save, as
+  the relationship activity lists in Settings do).
+- Grouped form layouts use `form-section` fieldsets (legend + `form-section__grid`),
+  `note-stack`/`note-field` for note areas, and `settings-form` (two columns, switch rows).
 - `PersistedTextarea` debounces persistence by 450 ms unless `debounceMs={0}` is
   supplied. It also flushes the pending draft on unmount. Daily entries, weekly
   reviews, and monthly reviews serialize those saves so an earlier in-flight

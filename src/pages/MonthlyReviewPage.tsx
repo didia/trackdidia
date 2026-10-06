@@ -533,6 +533,7 @@ export const MonthlyReviewPage = () => {
 
       <SectionCard title={t("monthly.ritual.title")} subtitle={t("monthly.ritual.subtitle")}>
         <RitualSectionList
+          requiredKeys={["bilan"]}
           className="monthly-ritual-stack"
           sections={monthlySections}
           scopeKey={review.monthKey}
@@ -543,6 +544,9 @@ export const MonthlyReviewPage = () => {
             done: t("monthly.ritual.done"),
             doneAria: (section) => t("monthly.ritual.doneAria", { section }),
             notesLabel: (section) => t("monthly.ritual.notesLabel", { section }),
+            required: t("monthly.ritual.required"),
+            addNote: t("monthly.ritual.addNote"),
+            hideNote: t("monthly.ritual.hideNote"),
           }}
           onToggle={(sectionKey, checked) => {
             const currentReview = latestReviewRef.current;

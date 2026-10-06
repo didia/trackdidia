@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-10-06 | Weekly/monthly ritual notes: Bilan marked required with a larger note, other notes folded behind an optional toggle; annual goal form split into Objectif/Mesure sections with larger description and evaluation notes | `docs/reviews-and-goals.md` | `RitualSectionList.tsx`, `AnnualGoalsPage.tsx`, `RitualSectionList.test.tsx` |
 | 2026-09-30 | `/mi-semaine` steering review fixes: fresh `ai_messages` id per attempt (append-only), explicit requests use the acknowledged decisions text, no auto-run after a failed decisions read, stale hydration cancelled on cycle change, visible steering failure alert, validator caps actions at 3 | `docs/reviews-and-goals.md` | `mid-week-steering-service.ts`, `MidWeekReviewPage.tsx`, `mid-week-steering-validator.ts` |
 | 2026-09-30 | `/semaine` card recovers a failed, unmounted decisions save for its week and retries it; `PersistedTextarea` clears a stale error when the queued value equals the confirmed one | `docs/reviews-and-goals.md` | `WeeklyReviewPage.tsx`, `PersistedTextarea.tsx` |
 | 2026-09-30 | `/mi-semaine` gains the AI steering panel (Sunday: no AI); spec `mid-week-review.md` moved to `specs/done/` (PR C intentionally not shipped) | `docs/reviews-and-goals.md`, `docs/ai-settings-and-privacy.md` | `MidWeekReviewPage.tsx`, `specs/done/mid-week-review.md` |

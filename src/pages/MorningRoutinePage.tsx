@@ -50,11 +50,11 @@ export const MorningRoutinePage = () => {
       <PreviousDayReviewCard date={addDays(getTodayDate(), -1)} />
 
       <SectionCard title={t("intention.title")} subtitle={t("intention.subtitle")}>
-        <label className="stacked-field">
-          <span>{t("intention.label")}</span>
+        <label className="note-field">
+          <span className="note-field__label">{t("intention.label")}</span>
           <PersistedTextarea
             ref={intentionRef}
-            rows={4}
+            rows={9}
             savedValue={entry.morningIntention}
             onPersist={(nextValue) => {
               void save((current) => updateNote(current, "morningIntention", nextValue));

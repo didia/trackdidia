@@ -24,6 +24,7 @@ import {
 } from "../lib/gtd/engine";
 import { allTaskBuckets, bucketLabelKeys } from "../lib/gtd/labels";
 import { TaskContextEditor } from "./gtd/TaskContextEditor";
+import { RichTextarea } from "./RichTextarea";
 
 interface GtdTaskCardProps {
   task: Task;
@@ -265,7 +266,7 @@ export const GtdTaskCard = ({
 
           <div className="stacked-field">
             <span>{t("task.notes")}</span>
-            <textarea
+            <RichTextarea
               rows={3}
               value={draft.notes}
               onChange={(event) =>

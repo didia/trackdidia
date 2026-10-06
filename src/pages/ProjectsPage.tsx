@@ -11,6 +11,7 @@ import { buildIsoFromLocalDateAndTime, formatDurationSince } from "../lib/date";
 import { formatAssociationCopy } from "../lib/gtd/engine";
 import { sortedActivePlannedTasks } from "../lib/gtd/planned";
 import { createEntityId, nowIso } from "../lib/gtd/shared";
+import { RichTextarea } from "../components/RichTextarea";
 
 const projectStatusKey = {
   active: "active",
@@ -412,7 +413,7 @@ const GtdProjectCard = ({
 
           <div className="stacked-field">
             <span>{t("projects.card.notesLabel")}</span>
-            <textarea
+            <RichTextarea
               rows={4}
               value={draft.notes}
               onChange={(event) =>

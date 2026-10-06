@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppContext } from "../app/app-context";
 import { useLatestRequest } from "../app/use-latest-request";
@@ -53,9 +53,12 @@ const formatPercent = (value: number | null, noneLabel: string): string =>
 const AnnualGoalFields = ({
   goal,
   onChange,
+  descriptionField,
 }: {
   goal: AnnualGoal;
   onChange: (updater: (current: AnnualGoal) => AnnualGoal) => void;
+  /** Rendered under the identity fields so the description sits next to the title. */
+  descriptionField: ReactNode;
 }) => {
   const { t } = useTranslation("goals");
   const set = <K extends keyof AnnualGoal>(key: K, value: AnnualGoal[K]) =>
@@ -65,137 +68,21 @@ const AnnualGoalFields = ({
     goal.measurementType === "numeric" || goal.measurementType === "cumulative";
 
   return (
-    <div className="task-card__grid">
-      <label className="stacked-field">
-        <span>{t("card.fields.title")}</span>
-        <input value={goal.title} onChange={(event) => set("title", event.target.value)} />
-      </label>
-      <label className="stacked-field">
-        <span>{t("card.fields.dimension")}</span>
-        <select
-          value={goal.dimension}
-          onChange={(event) => set("dimension", event.target.value as AnnualGoal["dimension"])}
-        >
-          {annualGoalDimensions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="stacked-field">
-        <span>{t("card.fields.measurementType")}</span>
-        <select
-          value={goal.measurementType}
-          onChange={(event) => {
-            const nextType = event.target.value as AnnualGoalMeasurementType;
-            onChange((current) => resetAnnualGoalMeasurementFields(current, nextType));
-          }}
-        >
-          {annualGoalMeasurementTypeOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="stacked-field">
-        <span>{t("card.fields.status")}</span>
-        <select
-          value={goal.status}
-          onChange={(event) => set("status", event.target.value as AnnualGoalStatus)}
-        >
-          {annualGoalStatusOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="stacked-field">
-        <span>{t("card.fields.deadline")}</span>
-        <input
-          type="date"
-          value={goal.deadline ?? ""}
-          onChange={(event) => set("deadline", event.target.value || null)}
-        />
-      </label>
-
-      {showSourceFields ? (
-        <label className="stacked-field">
-          <span>{t("card.fields.source")}</span>
-          <select
-            value={goal.sourceId ?? ""}
-            onChange={(event) =>
-              set(
-                "sourceId",
-                event.target.value ? (event.target.value as AnnualGoal["sourceId"]) : null,
-              )
-            }
-          >
-            <option value="">{t("card.sourceManualOption")}</option>
-            {annualGoalSourceOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
-
-      {goal.measurementType === "numeric" ? (
-        <label className="stacked-field">
-          <span>{t("card.fields.startingValue")}</span>
-          <input
-            type="number"
-            value={goal.startingValue ?? ""}
-            onChange={(event) =>
-              set(
-                "startingValue",
-                event.target.value.trim() === "" ? null : Number(event.target.value),
-              )
-            }
-          />
-        </label>
-      ) : null}
-
-      {showSourceFields ? (
-        <>
-          <label className="stacked-field">
-            <span>{t("card.fields.target")}</span>
-            <input
-              type="number"
-              value={goal.targetValue ?? ""}
-              onChange={(event) =>
-                set(
-                  "targetValue",
-                  event.target.value.trim() === "" ? null : Number(event.target.value),
-                )
-              }
-            />
+    <>
+      <fieldset className="form-section">
+        <legend>{t("card.sectionGoal")}</legend>
+        <div className="form-section__grid">
+          <label className="stacked-field form-section__wide">
+            <span>{t("card.fields.title")}</span>
+            <input value={goal.title} onChange={(event) => set("title", event.target.value)} />
           </label>
           <label className="stacked-field">
-            <span>{t("card.fields.unit")}</span>
-            <input value={goal.unit} onChange={(event) => set("unit", event.target.value)} />
-          </label>
-        </>
-      ) : null}
-
-      {goal.measurementType === "numeric" ? (
-        <>
-          <label className="stacked-field">
-            <span>{t("card.fields.direction")}</span>
+            <span>{t("card.fields.dimension")}</span>
             <select
-              value={goal.direction ?? ""}
-              onChange={(event) =>
-                set(
-                  "direction",
-                  event.target.value ? (event.target.value as AnnualGoalDirection) : null,
-                )
-              }
+              value={goal.dimension}
+              onChange={(event) => set("dimension", event.target.value as AnnualGoal["dimension"])}
             >
-              <option value="">{t("card.fields.directionAuto")}</option>
-              {annualGoalDirectionOptions.map((option) => (
+              {annualGoalDimensions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
@@ -203,73 +90,201 @@ const AnnualGoalFields = ({
             </select>
           </label>
           <label className="stacked-field">
-            <span>{t("card.fields.manualCurrent")}</span>
+            <span>{t("card.fields.status")}</span>
+            <select
+              value={goal.status}
+              onChange={(event) => set("status", event.target.value as AnnualGoalStatus)}
+            >
+              {annualGoalStatusOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="stacked-field">
+            <span>{t("card.fields.deadline")}</span>
             <input
-              type="number"
-              value={goal.manualCurrentValue ?? ""}
-              onChange={(event) =>
-                set(
-                  "manualCurrentValue",
-                  event.target.value.trim() === "" ? null : Number(event.target.value),
-                )
-              }
+              type="date"
+              value={goal.deadline ?? ""}
+              onChange={(event) => set("deadline", event.target.value || null)}
             />
           </label>
-        </>
-      ) : null}
+        </div>
+        {descriptionField}
+      </fieldset>
 
-      {goal.measurementType === "recurring" ? (
-        <>
+      <fieldset className="form-section">
+        <legend>{t("card.sectionMeasure")}</legend>
+        <div className="form-section__grid">
           <label className="stacked-field">
-            <span>{t("card.fields.cadenceTarget")}</span>
-            <input
-              type="number"
-              value={goal.cadenceTarget ?? ""}
-              onChange={(event) =>
-                set(
-                  "cadenceTarget",
-                  event.target.value.trim() === "" ? null : Number(event.target.value),
-                )
-              }
-            />
-          </label>
-          <label className="stacked-field">
-            <span>{t("card.fields.cadencePeriod")}</span>
+            <span>{t("card.fields.measurementType")}</span>
             <select
-              value={goal.cadencePeriod}
-              onChange={(event) =>
-                set("cadencePeriod", event.target.value as AnnualGoalCadencePeriod)
-              }
+              value={goal.measurementType}
+              onChange={(event) => {
+                const nextType = event.target.value as AnnualGoalMeasurementType;
+                onChange((current) => resetAnnualGoalMeasurementFields(current, nextType));
+              }}
             >
-              {annualGoalCadencePeriodOptions.map((option) => (
+              {annualGoalMeasurementTypeOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
               ))}
             </select>
           </label>
-          <label className="stacked-field">
-            <span>{t("card.fields.principle")}</span>
-            <select
-              value={goal.principleKey ?? ""}
-              onChange={(event) =>
-                set(
-                  "principleKey",
-                  event.target.value ? (event.target.value as PrincipleKey) : null,
-                )
-              }
-            >
-              <option value="">{t("card.principleNoneOption")}</option>
-              {annualGoalPrincipleOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </>
-      ) : null}
-    </div>
+
+          {showSourceFields ? (
+            <label className="stacked-field">
+              <span>{t("card.fields.source")}</span>
+              <select
+                value={goal.sourceId ?? ""}
+                onChange={(event) =>
+                  set(
+                    "sourceId",
+                    event.target.value ? (event.target.value as AnnualGoal["sourceId"]) : null,
+                  )
+                }
+              >
+                <option value="">{t("card.sourceManualOption")}</option>
+                {annualGoalSourceOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+
+          {goal.measurementType === "numeric" ? (
+            <label className="stacked-field">
+              <span>{t("card.fields.startingValue")}</span>
+              <input
+                type="number"
+                value={goal.startingValue ?? ""}
+                onChange={(event) =>
+                  set(
+                    "startingValue",
+                    event.target.value.trim() === "" ? null : Number(event.target.value),
+                  )
+                }
+              />
+            </label>
+          ) : null}
+
+          {showSourceFields ? (
+            <>
+              <label className="stacked-field">
+                <span>{t("card.fields.target")}</span>
+                <input
+                  type="number"
+                  value={goal.targetValue ?? ""}
+                  onChange={(event) =>
+                    set(
+                      "targetValue",
+                      event.target.value.trim() === "" ? null : Number(event.target.value),
+                    )
+                  }
+                />
+              </label>
+              <label className="stacked-field">
+                <span>{t("card.fields.unit")}</span>
+                <input value={goal.unit} onChange={(event) => set("unit", event.target.value)} />
+              </label>
+            </>
+          ) : null}
+
+          {goal.measurementType === "numeric" ? (
+            <>
+              <label className="stacked-field">
+                <span>{t("card.fields.direction")}</span>
+                <select
+                  value={goal.direction ?? ""}
+                  onChange={(event) =>
+                    set(
+                      "direction",
+                      event.target.value ? (event.target.value as AnnualGoalDirection) : null,
+                    )
+                  }
+                >
+                  <option value="">{t("card.fields.directionAuto")}</option>
+                  {annualGoalDirectionOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="stacked-field">
+                <span>{t("card.fields.manualCurrent")}</span>
+                <input
+                  type="number"
+                  value={goal.manualCurrentValue ?? ""}
+                  onChange={(event) =>
+                    set(
+                      "manualCurrentValue",
+                      event.target.value.trim() === "" ? null : Number(event.target.value),
+                    )
+                  }
+                />
+              </label>
+            </>
+          ) : null}
+
+          {goal.measurementType === "recurring" ? (
+            <>
+              <label className="stacked-field">
+                <span>{t("card.fields.cadenceTarget")}</span>
+                <input
+                  type="number"
+                  value={goal.cadenceTarget ?? ""}
+                  onChange={(event) =>
+                    set(
+                      "cadenceTarget",
+                      event.target.value.trim() === "" ? null : Number(event.target.value),
+                    )
+                  }
+                />
+              </label>
+              <label className="stacked-field">
+                <span>{t("card.fields.cadencePeriod")}</span>
+                <select
+                  value={goal.cadencePeriod}
+                  onChange={(event) =>
+                    set("cadencePeriod", event.target.value as AnnualGoalCadencePeriod)
+                  }
+                >
+                  {annualGoalCadencePeriodOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="stacked-field">
+                <span>{t("card.fields.principle")}</span>
+                <select
+                  value={goal.principleKey ?? ""}
+                  onChange={(event) =>
+                    set(
+                      "principleKey",
+                      event.target.value ? (event.target.value as PrincipleKey) : null,
+                    )
+                  }
+                >
+                  <option value="">{t("card.principleNoneOption")}</option>
+                  {annualGoalPrincipleOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          ) : null}
+        </div>
+      </fieldset>
+    </>
   );
 };
 
@@ -618,18 +633,22 @@ const AnnualGoalCard = ({
         </div>
       </div>
 
-      <AnnualGoalFields goal={draft} onChange={setDraft} />
-
-      <label className="stacked-field">
-        <span>{t("card.fields.description")}</span>
-        <PersistedTextarea
-          key={`${goal.id}-description`}
-          rows={3}
-          debounceMs={0}
-          savedValue={draft.description}
-          onPersist={(value) => setDraft((current) => ({ ...current, description: value }))}
-        />
-      </label>
+      <AnnualGoalFields
+        goal={draft}
+        onChange={setDraft}
+        descriptionField={
+          <label className="note-field">
+            <span className="note-field__label">{t("card.fields.description")}</span>
+            <PersistedTextarea
+              key={`${goal.id}-description`}
+              rows={5}
+              debounceMs={0}
+              savedValue={draft.description}
+              onPersist={(value) => setDraft((current) => ({ ...current, description: value }))}
+            />
+          </label>
+        }
+      />
 
       <AnnualGoalMeasurementReadout goal={goal} snapshot={snapshot} />
 
@@ -738,20 +757,20 @@ const AnnualGoalCard = ({
           </label>
         </div>
 
-        <label className="stacked-field">
-          <span>{t("card.notes")}</span>
+        <label className="note-field">
+          <span className="note-field__label">{t("card.notes")}</span>
           <PersistedTextarea
             key={`${goal.id}-${evaluationMonthKey}-notes`}
-            rows={3}
+            rows={5}
             savedValue={evaluation.notes}
             onPersist={(value) => void onSaveEvaluation(goal, evaluationMonthKey, { notes: value })}
           />
         </label>
-        <label className="stacked-field">
-          <span>{t("card.blockers")}</span>
+        <label className="note-field">
+          <span className="note-field__label">{t("card.blockers")}</span>
           <PersistedTextarea
             key={`${goal.id}-${evaluationMonthKey}-blockers`}
-            rows={3}
+            rows={5}
             savedValue={evaluation.blockers}
             onPersist={(value) =>
               void onSaveEvaluation(goal, evaluationMonthKey, { blockers: value })
@@ -960,17 +979,26 @@ export const AnnualGoalsPage = () => {
       </SectionCard>
 
       <SectionCard title={t("create.title")} subtitle={t("create.subtitle")}>
-        <AnnualGoalFields goal={draftGoal} onChange={setDraftGoal} />
-        <label className="stacked-field">
-          <span>{t("card.fields.description")}</span>
-          <PersistedTextarea
-            key="new-goal-description"
-            rows={3}
-            debounceMs={0}
-            savedValue={draftGoal.description}
-            onPersist={(value) => setDraftGoal((current) => ({ ...current, description: value }))}
+        <div className="note-stack">
+          <AnnualGoalFields
+            goal={draftGoal}
+            onChange={setDraftGoal}
+            descriptionField={
+              <label className="note-field">
+                <span className="note-field__label">{t("card.fields.description")}</span>
+                <PersistedTextarea
+                  key="new-goal-description"
+                  rows={5}
+                  debounceMs={0}
+                  savedValue={draftGoal.description}
+                  onPersist={(value) =>
+                    setDraftGoal((current) => ({ ...current, description: value }))
+                  }
+                />
+              </label>
+            }
           />
-        </label>
+        </div>
         <div className="form-actions">
           <button
             className="button button--primary"

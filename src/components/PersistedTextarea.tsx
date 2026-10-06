@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { RichTextarea } from "./RichTextarea";
 
 const isThenable = (value: unknown): value is PromiseLike<unknown> =>
   typeof value === "object" &&
@@ -180,7 +181,7 @@ export const PersistedTextarea = forwardRef<PersistedTextareaHandle, PersistedTe
     }));
 
     return (
-      <textarea
+      <RichTextarea
         {...textareaProps}
         value={draft}
         onChange={(event) => {

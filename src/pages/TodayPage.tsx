@@ -194,12 +194,12 @@ export const TodayPage = () => {
       />
 
       <SectionCard title={t("state.title")} subtitle={t("state.subtitle")}>
-        <div className="journal-grid">
-          <label className="stacked-field">
-            <span>{t("state.morningIntention")}</span>
+        <div className="note-stack">
+          <label className="note-field">
+            <span className="note-field__label">{t("state.morningIntention")}</span>
             <PersistedTextarea
               ref={morningIntentionRef}
-              rows={4}
+              rows={7}
               savedValue={entry.morningIntention}
               onPersist={(nextValue) => {
                 void save((current) => updateNote(current, "morningIntention", nextValue));
@@ -207,10 +207,10 @@ export const TodayPage = () => {
               placeholder={t("state.morningPlaceholder")}
             />
           </label>
-          <label className="stacked-field">
-            <span>{t("state.nightReflection")}</span>
+          <label className="note-field">
+            <span className="note-field__label">{t("state.nightReflection")}</span>
             <PersistedTextarea
-              rows={4}
+              rows={7}
               savedValue={entry.nightReflection}
               onPersist={(nextValue) => {
                 void save((current) => updateNote(current, "nightReflection", nextValue));

@@ -98,12 +98,12 @@ export const EveningClosurePage = () => {
       </SectionCard>
 
       <SectionCard title={t("closure.title")} subtitle={t("closure.subtitle")}>
-        <div className="journal-grid">
-          <label className="stacked-field">
-            <span>{t("closure.nightReflection")}</span>
+        <div className="note-stack">
+          <label className="note-field">
+            <span className="note-field__label">{t("closure.nightReflection")}</span>
             <PersistedTextarea
               ref={nightReflectionRef}
-              rows={5}
+              rows={9}
               savedValue={entry.nightReflection}
               onPersist={(nextValue) => {
                 void save((current) => updateNote(current, "nightReflection", nextValue));
@@ -111,11 +111,11 @@ export const EveningClosurePage = () => {
               placeholder={t("closure.nightPlaceholder")}
             />
           </label>
-          <label className="stacked-field">
-            <span>{t("closure.tomorrowFocus")}</span>
+          <label className="note-field">
+            <span className="note-field__label">{t("closure.tomorrowFocus")}</span>
             <PersistedTextarea
               ref={tomorrowFocusRef}
-              rows={5}
+              rows={9}
               savedValue={entry.tomorrowFocus}
               onPersist={(nextValue) => {
                 void save((current) => updateNote(current, "tomorrowFocus", nextValue));
