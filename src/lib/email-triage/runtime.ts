@@ -53,6 +53,8 @@ export interface ProviderConnectResult {
   accountId?: string;
   error?: string;
   reconnectMismatch?: boolean;
+  /** A fresh connect matched an account that was already linked; it was refreshed in place. */
+  alreadyConnected?: boolean;
 }
 
 export type GmailConnectResult = ProviderConnectResult;
@@ -81,10 +83,13 @@ export const connectOAuthAccount = async (
   if (!clientId) return { ok: false, error: "missing_client_id" };
 
   let reconnectSnapshot: ReconnectTargetSnapshot | null = null;
+  let loginHint: string | undefined;
   if (options.reconnectAccountId) {
     const target = await repository.emailTriage.getAccount(options.reconnectAccountId);
     if (!target) return { ok: false, error: "account_not_found" };
     reconnectSnapshot = snapshotReconnectTarget(target);
+    // Several accounts of one provider can be connected: steer reconnect to the right one.
+    loginHint = target.label;
   }
 
   const loopbackLease = acquireOAuthLoopbackLease("email_triage");
@@ -106,6 +111,7 @@ export const connectOAuthAccount = async (
         redirectUri: loopback.redirectUri,
         state: oauthState,
         codeChallenge: challenge,
+        loginHint,
       }),
     );
     const callback = await invoke<{
@@ -242,7 +248,7 @@ export const connectOAuthAccount = async (
   await persist(account);
   coordinator?.scheduleAccount(account, settings);
   void coordinator?.runAccountSync(accountId);
-  return { ok: true, accountId };
+  return { ok: true, accountId, alreadyConnected: Boolean(existing) };
 };
 
 export const connectGmailAccount = (
@@ -383,7 +389,7 @@ export const connectYahooAccount = async (
   });
   coordinator?.scheduleAccount(account, settings);
   void coordinator?.runAccountSync(accountId);
-  return { ok: true, accountId };
+  return { ok: true, accountId, alreadyConnected: Boolean(existing) };
 };
 
 export const disconnectEmailTriageAccount = async (

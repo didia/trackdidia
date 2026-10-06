@@ -219,6 +219,7 @@ for (const test of cases) {
       expect(await test.connect(repository, { clientId: "client-id" })).toEqual({
         ok: true,
         accountId: before.id,
+        alreadyConnected: true,
       });
       const after = await repository.emailTriage.getAccount(before.id);
       expect(after).toMatchObject({
@@ -230,6 +231,44 @@ for (const test of cases) {
       expect(after?.mutationEnabled).toBe(test.name === "microsoft");
       expect(after?.paused).toBe(test.name === "microsoft");
       expect(after?.pollIntervalMinutes).toBe(test.name === "microsoft" ? 7 : 5);
+    });
+
+    it("adds a second account of the same provider next to the existing one", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      const other = {
+        ...accountFor(test),
+        id: "other-account",
+        providerAccountId: "someone-else",
+        label: "someone-else@example.com",
+      };
+      await repository.emailTriage.saveAccount(other);
+      const result = await test.connect(repository, { clientId: "client-id" });
+      expect(result).toMatchObject({ ok: true, alreadyConnected: false });
+      expect(result.accountId).not.toBe(other.id);
+      const accounts = await repository.emailTriage.listAccounts();
+      expect(accounts.map((account) => account.providerAccountId).sort()).toEqual(
+        [test.providerAccountId, "someone-else"].sort(),
+      );
+      expect(await repository.emailTriage.getAccount(other.id)).toMatchObject({
+        generation: 3,
+        state: "reconnect_required",
+      });
+      expect(storeVaultSecret).toHaveBeenCalledWith(
+        "provider_credentials",
+        expect.any(String),
+        result.accountId,
+      );
+    });
+
+    it("hints the reconnect target's address to the provider consent screen", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      const before = { ...accountFor(test), label: "target@example.com" };
+      await repository.emailTriage.saveAccount(before);
+      await test.connect(repository, { clientId: "client-id", reconnectAccountId: before.id });
+      const auth = new URL(vi.mocked(openUrl).mock.calls[0][0]);
+      expect(auth.searchParams.get("login_hint")).toBe("target@example.com");
     });
 
     it("preserves provider-specific authorization callback error mapping", async () => {

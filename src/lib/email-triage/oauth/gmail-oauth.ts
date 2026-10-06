@@ -58,6 +58,7 @@ export const buildGmailAuthorizationUrl = (options: {
   redirectUri: string;
   state: string;
   codeChallenge: string;
+  loginHint?: string;
 }): string => {
   const params = new URLSearchParams({
     client_id: options.clientId,
@@ -68,8 +69,11 @@ export const buildGmailAuthorizationUrl = (options: {
     code_challenge: options.codeChallenge,
     code_challenge_method: "S256",
     access_type: "offline",
-    prompt: "consent",
+    // select_account forces the chooser so a second Gmail can be added while the
+    // browser is already signed in to another Google account.
+    prompt: "select_account consent",
   });
+  if (options.loginHint) params.set("login_hint", options.loginHint);
   return `${GMAIL_AUTH_URL}?${params.toString()}`;
 };
 

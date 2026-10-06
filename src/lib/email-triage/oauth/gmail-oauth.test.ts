@@ -25,7 +25,8 @@ describe("gmail oauth helpers", () => {
     expect(url.searchParams.get("scope")).toBe(GMAIL_OAUTH_SCOPE);
     expect(url.searchParams.get("code_challenge_method")).toBe("S256");
     expect(url.searchParams.get("access_type")).toBe("offline");
-    expect(url.searchParams.get("prompt")).toBe("consent");
+    expect(url.searchParams.get("prompt")).toBe("select_account consent");
+    expect(url.searchParams.get("login_hint")).toBeNull();
   });
 
   it("round-trips provider credentials without secrets in helper output", () => {
@@ -36,6 +37,20 @@ describe("gmail oauth helpers", () => {
     });
     expect(raw).toContain("refresh-token");
     expect(parseProviderCredentials(raw)?.refreshToken).toBe("refresh-token");
+  });
+
+  it("adds login_hint when reconnecting a specific Gmail account", () => {
+    const url = new URL(
+      buildGmailAuthorizationUrl({
+        clientId: "client-id.apps.googleusercontent.com",
+        redirectUri: "http://127.0.0.1:8765/oauth/callback",
+        state: "state-123",
+        codeChallenge: "challenge",
+        loginHint: "work@example.com",
+      }),
+    );
+    expect(url.searchParams.get("login_hint")).toBe("work@example.com");
+    expect(url.searchParams.get("prompt")).toBe("select_account consent");
   });
 
   it("masks email addresses safely", () => {

@@ -32,6 +32,20 @@ describe("microsoft oauth helpers", () => {
     expect(url.searchParams.get("scope")).toContain("offline_access");
   });
 
+  it("adds login_hint when reconnecting a specific Microsoft account", () => {
+    const url = new URL(
+      buildMicrosoftAuthorizationUrl({
+        clientId: "00000000-0000-0000-0000-000000000000",
+        redirectUri: "http://127.0.0.1:8765/oauth/callback",
+        state: "state-123",
+        codeChallenge: "challenge",
+        loginHint: "me@contoso.com",
+      }),
+    );
+    expect(url.searchParams.get("login_hint")).toBe("me@contoso.com");
+    expect(url.searchParams.get("prompt")).toBe("select_account");
+  });
+
   it("classifies admin consent from authorization callback error_description", () => {
     expect(
       classifyMicrosoftAuthorizationCallbackError("access_denied", "AADSTS65001: consent required"),

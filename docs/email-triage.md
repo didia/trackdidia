@@ -83,6 +83,20 @@ and Microsoft rotation preserves the stored scope. Provider-specific reconnect
 and consent behavior is retained. These modules do not log credentials, codes,
 verifiers or token responses.
 
+### Multiple accounts per provider
+
+Any number of accounts can be connected for each provider (for example several Gmail and
+several Microsoft mailboxes). Accounts are identified by `(provider, providerAccountId)`; each has
+its own vault credentials, sync cursor, generation, pause/mutation gates, and schedule. The
+**Ajouter un compte …** buttons always start a new authorization:
+
+- Gmail sends `prompt=select_account consent` and Microsoft `prompt=select_account`, so the provider
+  shows its account chooser even when the browser is already signed in to another account
+- Reconnecting an existing account passes its address as `login_hint` so the right account is
+  preselected; a different account still fails with `reconnect_account_mismatch`
+- Authorizing an address that is already connected refreshes that account in place (no duplicate) and
+  the UI shows an `alreadyConnected` notice asking the user to pick another account
+
 ### Gmail (slice 2)
 
 - Installed-app Google OAuth with `gmail.modify`, PKCE S256, system browser, and loopback

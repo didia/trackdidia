@@ -33,6 +33,7 @@ export interface OAuthProviderDescriptor {
     redirectUri: string;
     state: string;
     codeChallenge: string;
+    loginHint?: string;
   }): string;
   tokenUrl: string;
   tokenScope?: string;
