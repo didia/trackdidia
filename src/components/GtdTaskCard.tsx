@@ -47,6 +47,9 @@ interface GtdTaskCardProps {
   onMovePlannedTask?: (taskId: string, direction: "up" | "down") => Promise<void>;
   plannedPosition?: { isFirst: boolean; isLast: boolean };
   nextActionAgeDays?: number;
+  /** When set, shows a Pomodoro quick action that starts or switches focus onto this task. */
+  onFocusPomodoro?: (taskId: string) => Promise<void>;
+  pomodoroActive?: boolean;
 }
 
 export const GtdTaskCard = ({
@@ -66,6 +69,8 @@ export const GtdTaskCard = ({
   onMovePlannedTask,
   plannedPosition,
   nextActionAgeDays,
+  onFocusPomodoro,
+  pomodoroActive = false,
 }: GtdTaskCardProps) => {
   const { t } = useTranslation("gtd");
   const { t: tCommon } = useTranslation("common");
@@ -238,6 +243,25 @@ export const GtdTaskCard = ({
                 {t("task.moveDown")}
               </button>
             </>
+          ) : null}
+          {onFocusPomodoro ? (
+            <button
+              className="button"
+              type="button"
+              aria-pressed={pomodoroActive}
+              aria-label={
+                pomodoroActive
+                  ? t("task.pomodoroActiveAria", { title: task.title })
+                  : t("task.pomodoroAria", { title: task.title })
+              }
+              onClick={() => {
+                if (!pomodoroActive) {
+                  void onFocusPomodoro(task.id);
+                }
+              }}
+            >
+              {pomodoroActive ? t("task.pomodoroActive") : t("task.pomodoro")}
+            </button>
           ) : null}
           <button className="button" type="button" onClick={() => void onComplete(task.id)}>
             {t("task.complete")}

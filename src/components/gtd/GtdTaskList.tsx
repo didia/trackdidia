@@ -37,6 +37,8 @@ interface GtdTaskListProps {
   /** Show promote/move controls (planned tasks in a project). Requires `workspace` handlers. */
   showPlannedControls?: boolean;
   nextActionAgeDays?: ReadonlyMap<string, number>;
+  onFocusPomodoro?: (taskId: string) => Promise<void>;
+  activePomodoroTaskId?: string | null;
 }
 
 export const GtdTaskList = ({
@@ -47,6 +49,8 @@ export const GtdTaskList = ({
   plannedActions,
   showPlannedControls = false,
   nextActionAgeDays,
+  onFocusPomodoro,
+  activePomodoroTaskId = null,
 }: GtdTaskListProps) => {
   const promote = plannedActions?.onPromote ?? workspace.promotePlannedTask;
   const move = plannedActions?.onMove ?? workspace.movePlannedTask;
@@ -63,6 +67,8 @@ export const GtdTaskList = ({
           onToggleSelected={selection?.toggleTask}
           hideProjectTitle={hideProjectTitle}
           nextActionAgeDays={nextActionAgeDays?.get(task.id)}
+          onFocusPomodoro={onFocusPomodoro}
+          pomodoroActive={activePomodoroTaskId === task.id}
           onSave={async (nextTask) => {
             await workspace.saveTask(nextTask);
           }}

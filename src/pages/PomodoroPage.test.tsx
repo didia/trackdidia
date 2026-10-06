@@ -20,6 +20,7 @@ const buildPomodoro = (
   reloadError: null,
   reload: async () => undefined,
   startPomodoro: async () => undefined,
+  focusOnTask: async () => undefined,
   pauseCurrent: async () => undefined,
   resumeCurrent: async () => undefined,
   skipBreak: async () => undefined,

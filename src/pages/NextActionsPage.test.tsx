@@ -1,5 +1,8 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import type { PomodoroControllerValue } from "../app/use-pomodoro-controller";
 import type { Task } from "../domain/types";
+import { buildPomodoroSessionDetails, buildPomodoroState } from "../lib/pomodoro/engine";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { renderWithApp } from "../test/test-utils";
 import { NextActionsPage, sortNextActionTasks } from "./NextActionsPage";
@@ -150,5 +153,121 @@ describe("NextActionsPage default order", () => {
     await waitFor(() => {
       expect(screen.getByText("Depuis 2 jours")).toBeInTheDocument();
     });
+  });
+
+  const idlePomodoroStub = (
+    overrides: Partial<PomodoroControllerValue> = {},
+  ): PomodoroControllerValue => ({
+    state: buildPomodoroState([], []),
+    sessions: buildPomodoroSessionDetails([], []),
+    taskSummaries: [],
+    taskOptions: [],
+    currentTask: null,
+    currentActivityLabel: null,
+    preferredTask: null,
+    preferredActivityLabel: null,
+    loading: false,
+    reloadError: null,
+    reload: async () => undefined,
+    startPomodoro: async () => undefined,
+    focusOnTask: async () => undefined,
+    pauseCurrent: async () => undefined,
+    resumeCurrent: async () => undefined,
+    skipBreak: async () => undefined,
+    completeCurrentTask: async () => undefined,
+    completeNow: async () => undefined,
+    cancelCurrent: async () => undefined,
+    switchTask: async () => undefined,
+    ...overrides,
+  });
+
+  it("calls focusOnTask when the Pomodoro button on a next action is clicked", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const settings = await repository.getSettings();
+    await repository.saveSettings({ ...settings, relationshipDrawsEnabled: false });
+    const task = await repository.createTask({
+      title: "Action focus",
+      bucket: "next_action",
+    });
+
+    const focusOnTask = vi.fn(async () => undefined);
+    const user = userEvent.setup();
+    await renderWithApp(<NextActionsPage />, {
+      repository,
+      contextOverrides: { pomodoro: idlePomodoroStub({ focusOnTask }) },
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /Démarrer un Pomodoro sur Action focus/i }),
+      ).toBeInTheDocument();
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: /Démarrer un Pomodoro sur Action focus/i }),
+    );
+    expect(focusOnTask).toHaveBeenCalledWith(task.id);
+  });
+
+  it("shows En cours for the task already linked to the active focus", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const settings = await repository.getSettings();
+    await repository.saveSettings({ ...settings, relationshipDrawsEnabled: false });
+    const task = await repository.createTask({
+      title: "Action focus",
+      bucket: "next_action",
+    });
+
+    const focusOnTask = vi.fn(async () => undefined);
+    const focusStartedAt = "2026-04-01T09:00:00.000Z";
+    const activeSession = {
+      id: "pomodoro-session:active",
+      kind: "focus" as const,
+      status: "running" as const,
+      startedAt: focusStartedAt,
+      endsAt: "2026-04-01T09:25:00.000Z",
+      pausedRemainingMs: null,
+      completedAt: null,
+      cancelledAt: null,
+      cycleIndex: 1,
+      date: "2026-04-01",
+      segments: [
+        {
+          id: "pomodoro-segment:1",
+          sessionId: "pomodoro-session:active",
+          taskId: task.id,
+          title: null,
+          startedAt: focusStartedAt,
+          endedAt: null,
+        },
+      ],
+      activeTaskId: task.id,
+      activeLabel: null,
+      taskIds: [task.id],
+    };
+
+    const user = userEvent.setup();
+    await renderWithApp(<NextActionsPage />, {
+      repository,
+      contextOverrides: {
+        pomodoro: idlePomodoroStub({
+          focusOnTask,
+          state: { ...buildPomodoroState([], []), activeSession },
+          sessions: [activeSession],
+          currentTask: task,
+        }),
+      },
+    });
+
+    const activeButton = await screen.findByRole("button", {
+      name: /Pomodoro en cours sur Action focus/i,
+    });
+    expect(activeButton).toHaveAttribute("aria-pressed", "true");
+    expect(activeButton).toHaveTextContent("En cours");
+
+    await user.click(activeButton);
+    expect(focusOnTask).not.toHaveBeenCalled();
   });
 });

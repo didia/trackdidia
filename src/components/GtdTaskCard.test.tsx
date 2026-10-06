@@ -333,6 +333,50 @@ describe("GtdTaskCard planned bucket", () => {
   });
 });
 
+describe("GtdTaskCard pomodoro quick action", () => {
+  it("calls onFocusPomodoro and shows En cours when the focus is already on this task", async () => {
+    const onFocusPomodoro = vi.fn(async () => undefined);
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <GtdTaskCard
+        task={buildTask({ bucket: "next_action", title: "Focusable" })}
+        projects={[]}
+        contexts={[]}
+        onSave={noopAsync}
+        onSaveContext={async (context) => context}
+        onComplete={noopAsync}
+        onCancel={noopAsync}
+        onClearPastRecurrences={noopAsync}
+        onFocusPomodoro={onFocusPomodoro}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /Démarrer un Pomodoro sur Focusable/i }));
+    expect(onFocusPomodoro).toHaveBeenCalledWith("task:default");
+
+    rerender(
+      <GtdTaskCard
+        task={buildTask({ bucket: "next_action", title: "Focusable" })}
+        projects={[]}
+        contexts={[]}
+        onSave={noopAsync}
+        onSaveContext={async (context) => context}
+        onComplete={noopAsync}
+        onCancel={noopAsync}
+        onClearPastRecurrences={noopAsync}
+        onFocusPomodoro={onFocusPomodoro}
+        pomodoroActive
+      />,
+    );
+
+    onFocusPomodoro.mockClear();
+    const activeButton = screen.getByRole("button", { name: /Pomodoro en cours sur Focusable/i });
+    expect(activeButton).toHaveTextContent("En cours");
+    await user.click(activeButton);
+    expect(onFocusPomodoro).not.toHaveBeenCalled();
+  });
+});
+
 describe("GtdTaskCard next-action age", () => {
   const renderWithAge = (nextActionAgeDays: number | undefined) =>
     render(

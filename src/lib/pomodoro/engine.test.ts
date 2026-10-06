@@ -8,8 +8,10 @@ import {
   createPomodoroSession,
   getPomodoroRunningBreakSessionIdsToAutoCompleteWhenReset,
   getPomodoroTiming,
+  isPomodoroPlaceholderSegment,
   isPomodoroTaskEligible,
   pauseSession,
+  resolveFocusOnTaskAction,
   resumeSession,
   shouldShowFloatingPomodoro,
   startSession,
@@ -54,11 +56,146 @@ describe("pomodoro session transitions", () => {
   it("keeps a same-task switch as a no-op and closes the segment on pause", () => {
     const session = createPomodoroSession("focus", startedAt, 1);
     const segment = createPomodoroSegment(session.id, startedAt, "task-1");
-    expect(switchSessionTask(session, segment, "task-1", "ignored", startedAt)).toBeNull();
+    expect(switchSessionTask(session, [segment], "task-1", "ignored", startedAt)).toBeNull();
 
     const transition = pauseSession(session, [segment], "2026-04-01T09:10:00.000Z");
     expect(transition.session.pausedRemainingMs).toBe(15 * 60 * 1000);
     expect(transition.segmentsToUpsert[0].endedAt).toBe("2026-04-01T09:10:00.000Z");
+  });
+
+  it("retargets a paused focus with a zero-duration placeholder and reopens it on resume", () => {
+    const session = createPomodoroSession("focus", startedAt, 1);
+    const firstSegment = {
+      ...createPomodoroSegment(session.id, startedAt, "task-1"),
+      endedAt: "2026-04-01T09:10:00.000Z",
+    };
+    const pausedSession = {
+      ...session,
+      status: "paused" as const,
+      pausedRemainingMs: 15 * 60 * 1000,
+    };
+    const switchAt = "2026-04-01T09:12:00.000Z";
+    const switchTransition = switchSessionTask(
+      pausedSession,
+      [firstSegment],
+      "task-2",
+      null,
+      switchAt,
+    );
+
+    expect(switchTransition).toMatchObject({
+      segmentsToUpsert: [
+        {
+          taskId: "task-2",
+          title: null,
+          startedAt: switchAt,
+          endedAt: switchAt,
+        },
+      ],
+    });
+    const placeholder = switchTransition!.segmentsToUpsert[0];
+    expect(isPomodoroPlaceholderSegment(placeholder)).toBe(true);
+
+    const resumeAt = "2026-04-01T09:20:00.000Z";
+    const resumeTransition = resumeSession(pausedSession, placeholder, resumeAt);
+    expect(resumeTransition.segmentsToUpsert).toMatchObject([
+      {
+        id: placeholder.id,
+        taskId: "task-2",
+        startedAt: resumeAt,
+        endedAt: null,
+      },
+    ]);
+    expect(resumeTransition.session.endsAt).toBe(
+      new Date(new Date(resumeAt).getTime() + 15 * 60 * 1000).toISOString(),
+    );
+  });
+
+  it("updates or deletes a paused placeholder when switching again", () => {
+    const session = {
+      ...createPomodoroSession("focus", startedAt, 1),
+      status: "paused" as const,
+      pausedRemainingMs: 15 * 60 * 1000,
+    };
+    const firstSegment = {
+      ...createPomodoroSegment(session.id, startedAt, "task-1"),
+      endedAt: "2026-04-01T09:10:00.000Z",
+    };
+    const placeholder = {
+      ...createPomodoroSegment(session.id, "2026-04-01T09:12:00.000Z", "task-2"),
+      endedAt: "2026-04-01T09:12:00.000Z",
+    };
+
+    const update = switchSessionTask(
+      session,
+      [firstSegment, placeholder],
+      "task-3",
+      null,
+      "2026-04-01T09:13:00.000Z",
+    );
+    expect(update).toMatchObject({
+      segmentsToUpsert: [{ id: placeholder.id, taskId: "task-3" }],
+    });
+    expect(update?.segmentIdsToDelete).toBeUndefined();
+
+    const revert = switchSessionTask(
+      session,
+      [firstSegment, { ...placeholder, taskId: "task-3" }],
+      "task-1",
+      null,
+      "2026-04-01T09:14:00.000Z",
+    );
+    expect(revert).toEqual({
+      session,
+      segmentsToUpsert: [],
+      segmentIdsToDelete: [placeholder.id],
+    });
+  });
+
+  it("keeps summary seconds on the pre-pause task when a paused placeholder is present", () => {
+    const session = createPomodoroSession("focus", startedAt, 1);
+    session.status = "paused";
+    const realSegment = {
+      ...createPomodoroSegment(session.id, startedAt, "task-1"),
+      endedAt: "2026-04-01T09:10:00.000Z",
+    };
+    const placeholder = {
+      ...createPomodoroSegment(session.id, "2026-04-01T09:12:00.000Z", "task-2"),
+      endedAt: "2026-04-01T09:12:00.000Z",
+    };
+    const summaries = buildPomodoroTaskSummaries(
+      [session],
+      [realSegment, placeholder],
+      [taskFixture({ id: "task-1" }), taskFixture({ id: "task-2", title: "Autre" })],
+      session.date,
+      "2026-04-01T09:20:00.000Z",
+    );
+
+    expect(summaries).toEqual([
+      expect.objectContaining({ taskId: "task-1", totalSeconds: 10 * 60 }),
+    ]);
+  });
+
+  it("resolves focus-on-task actions from the active session", () => {
+    expect(resolveFocusOnTaskAction(null, "task-1")).toEqual({ type: "start" });
+    expect(
+      resolveFocusOnTaskAction(
+        { kind: "focus", status: "running", activeTaskId: "task-1" },
+        "task-1",
+      ),
+    ).toEqual({ type: "noop" });
+    expect(
+      resolveFocusOnTaskAction(
+        { kind: "focus", status: "paused", activeTaskId: "task-2" },
+        "task-1",
+      ),
+    ).toEqual({ type: "switch" });
+    expect(
+      resolveFocusOnTaskAction(
+        { kind: "short_break", status: "running", activeTaskId: null },
+        "task-1",
+      ),
+    ).toEqual({ type: "complete_break_then_start" });
   });
 });
 

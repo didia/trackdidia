@@ -319,4 +319,35 @@ describe("usePomodoroController", () => {
 
     expect(requestCalendarSyncMock).toHaveBeenCalled();
   });
+
+  it("completes a running break without announcing, then starts a focus on the chosen task", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-01T09:00:00.000Z"));
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const task = await repository.createTask({ title: "Focus task", bucket: "next_action" });
+    await repository.startPomodoro({ kind: "focus", taskId: task.id });
+    await repository.stopPomodoroSession(
+      (await repository.getPomodoroState()).activeSession!.id,
+      "completed",
+      "2026-04-01T09:25:00.000Z",
+    );
+    await repository.startPomodoro({ kind: "short_break" });
+
+    const { result } = renderHook(() => usePomodoroController(repository));
+    await flushControllerQueue();
+    expect(result.current.state.activeSession?.kind).toBe("short_break");
+    announceCompletion.mockClear();
+
+    await act(async () => {
+      await result.current.focusOnTask(task.id);
+    });
+
+    expect(announceCompletion).not.toHaveBeenCalled();
+    expect(result.current.state.activeSession).toMatchObject({
+      kind: "focus",
+      status: "running",
+      activeTaskId: task.id,
+    });
+  });
 });

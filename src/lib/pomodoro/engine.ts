@@ -105,7 +105,38 @@ export const createPomodoroSegment = (
 export interface PomodoroTransition {
   session: PomodoroSession;
   segmentsToUpsert: PomodoroSegment[];
+  segmentIdsToDelete?: string[];
 }
+
+/** Zero-duration marker written while a focus is paused so Resume can retarget without rewriting elapsed time. */
+export const isPomodoroPlaceholderSegment = (segment: PomodoroSegment): boolean =>
+  segment.endedAt !== null && segment.startedAt === segment.endedAt;
+
+export type FocusOnTaskAction =
+  | { type: "noop" }
+  | { type: "start" }
+  | { type: "switch" }
+  | { type: "complete_break_then_start" };
+
+/**
+ * Chooses what Next Actions (or any focusOnTask caller) should do for a task given the
+ * current active session. Same-task focus is a no-op whether running or paused.
+ */
+export const resolveFocusOnTaskAction = (
+  activeSession: Pick<PomodoroSessionDetails, "kind" | "status" | "activeTaskId"> | null,
+  taskId: string,
+): FocusOnTaskAction => {
+  if (!activeSession) {
+    return { type: "start" };
+  }
+  if (activeSession.kind === "focus") {
+    if (activeSession.activeTaskId === taskId) {
+      return { type: "noop" };
+    }
+    return { type: "switch" };
+  }
+  return { type: "complete_break_then_start" };
+};
 
 export const requirePomodoroSession = (
   session: PomodoroSession | null | undefined,
@@ -179,6 +210,12 @@ export const pauseSession = (
   segmentsToUpsert: openSegments.map((segment) => ({ ...segment, endedAt: at })),
 });
 
+const sortSessions = (sessions: PomodoroSession[]): PomodoroSession[] =>
+  [...sessions].sort((left, right) => left.startedAt.localeCompare(right.startedAt));
+
+const sortSegments = (segments: PomodoroSegment[]): PomodoroSegment[] =>
+  [...segments].sort((left, right) => left.startedAt.localeCompare(right.startedAt));
+
 export const resumeSession = (
   session: PomodoroSession,
   latestSegment: PomodoroSegment | null | undefined,
@@ -187,6 +224,12 @@ export const resumeSession = (
   const remainingMs =
     session.pausedRemainingMs ??
     Math.max(0, new Date(session.endsAt).getTime() - new Date(at).getTime());
+  let segmentsToUpsert: PomodoroSegment[] = [];
+  if (session.kind === "focus" && latestSegment) {
+    segmentsToUpsert = isPomodoroPlaceholderSegment(latestSegment)
+      ? [{ ...latestSegment, startedAt: at, endedAt: null }]
+      : [createPomodoroSegment(session.id, at, latestSegment.taskId, latestSegment.title)];
+  }
   return {
     session: {
       ...session,
@@ -194,38 +237,68 @@ export const resumeSession = (
       endsAt: new Date(new Date(at).getTime() + remainingMs).toISOString(),
       pausedRemainingMs: null,
     },
-    segmentsToUpsert:
-      session.kind === "focus" && latestSegment
-        ? [createPomodoroSegment(session.id, at, latestSegment.taskId, latestSegment.title)]
-        : [],
+    segmentsToUpsert,
   };
 };
 
 export const switchSessionTask = (
   session: PomodoroSession,
-  openSegment: PomodoroSegment | null | undefined,
+  segments: PomodoroSegment[],
   taskId: string | null,
   title: string | null,
   at: string,
 ): PomodoroTransition | null => {
-  const normalizedTitle = taskId ? null : (title ?? "").trim() || null;
-  if (openSegment?.taskId === taskId && (openSegment.title ?? null) === normalizedTitle) {
+  if (session.kind !== "focus") {
     return null;
   }
-  return {
-    session,
-    segmentsToUpsert: [
-      ...(openSegment ? [{ ...openSegment, endedAt: at }] : []),
-      createPomodoroSegment(session.id, at, taskId, normalizedTitle),
-    ],
-  };
+
+  const normalizedTitle = taskId ? null : (title ?? "").trim() || null;
+  const sorted = sortSegments(segments);
+
+  if (session.status === "running") {
+    const openSegment = [...sorted].reverse().find((segment) => segment.endedAt === null) ?? null;
+    if (openSegment?.taskId === taskId && (openSegment.title ?? null) === normalizedTitle) {
+      return null;
+    }
+    return {
+      session,
+      segmentsToUpsert: [
+        ...(openSegment ? [{ ...openSegment, endedAt: at }] : []),
+        createPomodoroSegment(session.id, at, taskId, normalizedTitle),
+      ],
+    };
+  }
+
+  if (session.status === "paused") {
+    const latest = sorted.at(-1) ?? null;
+    if (latest?.taskId === taskId && (latest.title ?? null) === normalizedTitle) {
+      return null;
+    }
+
+    if (latest && isPomodoroPlaceholderSegment(latest)) {
+      const previous = sorted.at(-2) ?? null;
+      if (previous && previous.taskId === taskId && (previous.title ?? null) === normalizedTitle) {
+        return {
+          session,
+          segmentsToUpsert: [],
+          segmentIdsToDelete: [latest.id],
+        };
+      }
+      return {
+        session,
+        segmentsToUpsert: [{ ...latest, taskId, title: normalizedTitle }],
+      };
+    }
+
+    const placeholder = createPomodoroSegment(session.id, at, taskId, normalizedTitle);
+    return {
+      session,
+      segmentsToUpsert: [{ ...placeholder, endedAt: at }],
+    };
+  }
+
+  return null;
 };
-
-const sortSessions = (sessions: PomodoroSession[]): PomodoroSession[] =>
-  [...sessions].sort((left, right) => left.startedAt.localeCompare(right.startedAt));
-
-const sortSegments = (segments: PomodoroSegment[]): PomodoroSegment[] =>
-  [...segments].sort((left, right) => left.startedAt.localeCompare(right.startedAt));
 
 export const buildPomodoroSessionDetails = (
   sessions: PomodoroSession[],

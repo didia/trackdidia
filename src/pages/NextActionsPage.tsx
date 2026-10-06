@@ -32,7 +32,7 @@ export const sortNextActionTasks = (tasks: Task[], sortMode: NextActionSortMode)
 
 export const NextActionsPage = () => {
   const { t } = useTranslation("gtd");
-  const { calendarDay } = useAppContext();
+  const { calendarDay, pomodoro } = useAppContext();
   const workspace = useGtdWorkspace();
   const {
     tasks,
@@ -201,6 +201,14 @@ export const NextActionsPage = () => {
             workspace={workspace}
             selection={selection}
             nextActionAgeDays={ageByTaskId}
+            onFocusPomodoro={async (taskId) => {
+              await pomodoro.focusOnTask(taskId);
+            }}
+            activePomodoroTaskId={
+              pomodoro.state.activeSession?.kind === "focus"
+                ? (pomodoro.state.activeSession.activeTaskId ?? null)
+                : null
+            }
           />
         )}
       </SectionCard>

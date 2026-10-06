@@ -1745,17 +1745,23 @@ export class MemoryRepository implements AppRepository {
   ): Promise<PomodoroState> {
     const session = requirePomodoroSession(this.pomodoroSessions.get(sessionId), sessionId);
 
-    if (session.status !== "running" || session.kind !== "focus") {
+    if (
+      session.kind !== "focus" ||
+      (session.status !== "running" && session.status !== "paused")
+    ) {
       return this.getPomodoroState();
     }
 
-    const openSegment = [...this.pomodoroSegments.values()].find(
-      (segment) => segment.sessionId === sessionId && segment.endedAt === null,
+    const sessionSegments = [...this.pomodoroSegments.values()].filter(
+      (segment) => segment.sessionId === sessionId,
     );
 
-    const transition = switchSessionTask(session, openSegment, taskId, title, changedAt);
+    const transition = switchSessionTask(session, sessionSegments, taskId, title, changedAt);
     if (!transition) {
       return this.getPomodoroState();
+    }
+    for (const segmentId of transition.segmentIdsToDelete ?? []) {
+      this.pomodoroSegments.delete(segmentId);
     }
     for (const segment of transition.segmentsToUpsert) {
       this.pomodoroSegments.set(segment.id, segment);

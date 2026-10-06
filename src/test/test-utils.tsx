@@ -59,6 +59,7 @@ export const renderWithApp = async (ui: ReactElement, options: RenderOptions = {
       reloadError: null,
       reload: async () => undefined,
       startPomodoro: async () => undefined,
+      focusOnTask: async () => undefined,
       pauseCurrent: async () => undefined,
       resumeCurrent: async () => undefined,
       skipBreak: async () => undefined,
