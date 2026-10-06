@@ -84,6 +84,7 @@ export const EmailTriagePage = () => {
   const [triageKeyDraft, setTriageKeyDraft] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [alreadyConnectedNotice, setAlreadyConnectedNotice] = useState(false);
   const [yahooEmail, setYahooEmail] = useState("");
   const [yahooAppPassword, setYahooAppPassword] = useState("");
   const [accountActionError, setAccountActionError] = useState<Record<string, string>>({});
@@ -336,6 +337,7 @@ export const EmailTriagePage = () => {
   const handleConnectGmail = async (reconnectAccountId?: string) => {
     setConnecting(true);
     setConnectError(null);
+    setAlreadyConnectedNotice(false);
     try {
       const result = await connectGmailAccount(repository, {
         reconnectAccountId,
@@ -343,6 +345,8 @@ export const EmailTriagePage = () => {
       });
       if (!result.ok) {
         setConnectError(result.error ?? "connect_failed");
+      } else if (result.alreadyConnected && !reconnectAccountId) {
+        setAlreadyConnectedNotice(true);
       }
       await load();
     } catch {
@@ -355,6 +359,7 @@ export const EmailTriagePage = () => {
   const handleConnectMicrosoft = async (reconnectAccountId?: string) => {
     setConnecting(true);
     setConnectError(null);
+    setAlreadyConnectedNotice(false);
     try {
       const result = await connectMicrosoftAccount(repository, {
         reconnectAccountId,
@@ -362,6 +367,8 @@ export const EmailTriagePage = () => {
       });
       if (!result.ok) {
         setConnectError(result.error ?? "connect_failed");
+      } else if (result.alreadyConnected && !reconnectAccountId) {
+        setAlreadyConnectedNotice(true);
       }
       await load();
     } catch {
@@ -374,6 +381,7 @@ export const EmailTriagePage = () => {
   const handleConnectYahoo = async (reconnectAccountId?: string) => {
     setConnecting(true);
     setConnectError(null);
+    setAlreadyConnectedNotice(false);
     try {
       const result = await connectYahooAccount(repository, {
         email: yahooEmail,
@@ -384,6 +392,9 @@ export const EmailTriagePage = () => {
         setConnectError(result.error ?? "connect_failed");
       } else {
         setYahooAppPassword("");
+        if (result.alreadyConnected && !reconnectAccountId) {
+          setAlreadyConnectedNotice(true);
+        }
       }
       await load();
     } catch {
@@ -780,6 +791,12 @@ export const EmailTriagePage = () => {
         {connectError ? (
           <p>{t(`connectErrors.${connectError}`, { defaultValue: connectError })}</p>
         ) : null}
+        {alreadyConnectedNotice ? (
+          <p className="muted-copy" role="status">
+            {t("alreadyConnected")}
+          </p>
+        ) : null}
+        <p className="muted-copy">{t("multiAccountHelp")}</p>
         {!resolvedGmailClientId && !browserPreview ? <p>{t("missingGmailClientId")}</p> : null}
         {!resolvedMicrosoftClientId && !browserPreview ? (
           <p>{t("missingMicrosoftClientId")}</p>

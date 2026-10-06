@@ -1,6 +1,11 @@
 - 2026-10-03: Unified Gmail/Microsoft OAuth connection and token refresh, centralized guarded token decoding and provider-neutral session names, and verified reconnect/rotation behavior with mocked native flows.
 # Email triage log
 
+- 2026-10-06: Made multi-account per provider explicit: Gmail OAuth now forces the account chooser
+  (`select_account consent`), reconnect passes `login_hint`, connect buttons read "Ajouter un compte …",
+  and re-authorizing an already-connected address shows a notice instead of silently looking like a
+  no-op. Added tests for a second same-provider account and the reconnect hint.
+
 - 2026-10-05: Redesigned the triage screen layout: settings grouped into Activation, Application de
   bureau, Classification, and Connexions et clés sections with switch rows, aligned field grids, and
   an inline triage-key row; notices became banners; account cards show a state badge and metadata

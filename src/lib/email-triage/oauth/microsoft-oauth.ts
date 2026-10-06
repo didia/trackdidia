@@ -29,6 +29,7 @@ export const buildMicrosoftAuthorizationUrl = (options: {
   redirectUri: string;
   state: string;
   codeChallenge: string;
+  loginHint?: string;
 }): string => {
   const params = new URLSearchParams({
     client_id: options.clientId,
@@ -41,6 +42,7 @@ export const buildMicrosoftAuthorizationUrl = (options: {
     code_challenge_method: "S256",
     prompt: "select_account",
   });
+  if (options.loginHint) params.set("login_hint", options.loginHint);
   return `${MICROSOFT_OAUTH_AUTH_URL}?${params.toString()}`;
 };
 

@@ -27,7 +27,7 @@ describe("EmailTriagePage", () => {
       updatedAt: nowIso(),
     });
     await renderWithApp(<EmailTriagePage />, { repository });
-    expect(await screen.findByRole("button", { name: /Connecter Gmail/i })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: /Ajouter un compte Gmail/i })).toBeDisabled();
   });
 
   it("disables Connect Microsoft in browser preview", async () => {
@@ -40,7 +40,9 @@ describe("EmailTriagePage", () => {
       updatedAt: nowIso(),
     });
     await renderWithApp(<EmailTriagePage />, { repository });
-    expect(await screen.findByRole("button", { name: /Connecter Microsoft/i })).toBeDisabled();
+    expect(
+      await screen.findByRole("button", { name: /Ajouter un compte Microsoft/i }),
+    ).toBeDisabled();
   });
 
   it("disables Connect Yahoo in browser preview", async () => {
@@ -52,7 +54,7 @@ describe("EmailTriagePage", () => {
       updatedAt: nowIso(),
     });
     await renderWithApp(<EmailTriagePage />, { repository });
-    expect(await screen.findByRole("button", { name: /Connecter Yahoo/i })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: /Ajouter un compte Yahoo/i })).toBeDisabled();
   });
 
   it("shows sync and disconnect controls for gmail accounts outside preview", async () => {
