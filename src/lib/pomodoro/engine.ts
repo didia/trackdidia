@@ -291,17 +291,21 @@ const normalizePomodoroSessionsForState = (
   });
 };
 
-const findLastSessionActivityAt = (sessions: PomodoroSession[]): string | null => {
-  const terminalSessions = sessions.filter((session) => session.status !== "running");
-  if (terminalSessions.length === 0) {
+const terminalSessionEndIso = (session: PomodoroSession): string | null => {
+  if (session.status === "running" || session.status === "paused") {
     return null;
   }
+  return session.completedAt ?? session.cancelledAt ?? session.endsAt ?? session.startedAt;
+};
 
+const findLastSessionActivityAt = (sessions: PomodoroSession[]): string | null => {
   let maxMs = -Infinity;
   let maxIso: string | null = null;
-  for (const session of terminalSessions) {
-    const endIso =
-      session.completedAt ?? session.cancelledAt ?? session.endsAt ?? session.startedAt;
+  for (const session of sessions) {
+    const endIso = terminalSessionEndIso(session);
+    if (!endIso) {
+      continue;
+    }
     const endMs = new Date(endIso).getTime();
     if (Number.isFinite(endMs) && endMs >= maxMs) {
       maxMs = endMs;
@@ -312,8 +316,61 @@ const findLastSessionActivityAt = (sessions: PomodoroSession[]): string | null =
 };
 
 /**
- * True when the focus cycle should restart at 1/4: no live focus, and either no completed history
- * or more than 25 minutes since the last ended session if we ignore any still-running break.
+ * Sessions still tied to the open cycle. More than 25 minutes between one session's end and the
+ * next session's start closes the earlier cycle, and the same gap after the last ended session
+ * closes the open cycle entirely. A cancelled session keeps the clock recent, but it does not
+ * carry progress from the cycle before that gap.
+ */
+const sessionsAfterLastIdleGap = (
+  sessions: PomodoroSession[],
+  nowIso: string,
+): PomodoroSession[] => {
+  const sorted = sortSessions(sessions);
+  let startIndex = 0;
+
+  for (let index = 1; index < sorted.length; index += 1) {
+    const previousEnd = terminalSessionEndIso(sorted[index - 1]);
+    if (!previousEnd) {
+      continue;
+    }
+    const previousEndMs = new Date(previousEnd).getTime();
+    const nextStartMs = new Date(sorted[index].startedAt).getTime();
+    if (
+      Number.isFinite(previousEndMs) &&
+      Number.isFinite(nextStartMs) &&
+      nextStartMs - previousEndMs > POMODORO_CYCLE_RESET_IDLE_MS
+    ) {
+      startIndex = index;
+    }
+  }
+
+  const openCycle = sorted.slice(startIndex);
+  const last = openCycle.at(-1);
+  if (!last) {
+    return [];
+  }
+
+  const lastEnd = terminalSessionEndIso(last);
+  if (!lastEnd) {
+    return openCycle;
+  }
+  const lastEndMs = new Date(lastEnd).getTime();
+  const nowMs = new Date(nowIso).getTime();
+  if (
+    Number.isFinite(lastEndMs) &&
+    Number.isFinite(nowMs) &&
+    nowMs - lastEndMs > POMODORO_CYCLE_RESET_IDLE_MS
+  ) {
+    return [];
+  }
+  return openCycle;
+};
+
+/**
+ * True when the focus cycle should restart at 1/4: no live focus, and the open cycle has no
+ * completed session. A cancel after an idle gap starts that open cycle over; it does not revive
+ * the completed session from before the gap. A still-running break is ignored, matching the
+ * auto-complete path.
  */
 const shouldResetPomodoroCycleAfterIdle = (
   sessions: PomodoroSession[],
@@ -348,7 +405,7 @@ const shouldResetPomodoroCycleAfterIdle = (
     return false;
   }
 
-  const withoutLiveBreaks = normalized.filter(
+  const withoutLiveBreaks = sessionsAfterLastIdleGap(normalized, nowIso).filter(
     (session) =>
       !(
         session.status === "running" &&
@@ -433,7 +490,9 @@ export const buildPomodoroState = (
     };
   }
 
-  const latestCompleted = findLatestCompletedSession(normalizedSessions);
+  const latestCompleted = findLatestCompletedSession(
+    sessionsAfterLastIdleGap(normalizedSessions, now),
+  );
 
   if (!latestCompleted) {
     return {

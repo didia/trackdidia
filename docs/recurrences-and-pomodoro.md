@@ -201,8 +201,15 @@ focus 4 -> long break -> reset to focus 1
 ```
 
 After more than 25 minutes of inactivity following the last ended session, the
-cycle resets to focus 1. A paused session prevents idle reset. A still-running break
-is auto-completed when reset logic applies.
+cycle resets to focus 1. The same gap between one session's end and the next
+session's start also closes the earlier cycle. A paused session prevents idle reset.
+A still-running break is auto-completed when reset logic applies.
+
+A cancelled session never counts as a completed focus. Cancelling the session that
+started a new cycle after that gap leaves the timer at focus 1; it does not restore
+the cycle from before the gap. Cancelling a session inside the open cycle leaves the
+last completed step in place. The floating timer stays up only while that open cycle
+is live or still inside the idle window.
 
 ### Sessions and segments
 

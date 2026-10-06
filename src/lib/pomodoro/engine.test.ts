@@ -260,6 +260,65 @@ describe("pomodoro engine", () => {
     expect(state.completedFocusCountInCycle).toBe(0);
   });
 
+  it("does not restore an earlier cycle when a focus started after the idle gap is cancelled", () => {
+    const earlierBreak = {
+      ...createPomodoroSession("short_break", "2026-04-01T09:00:00.000Z", 2),
+      status: "completed" as const,
+      completedAt: "2026-04-01T09:05:00.000Z",
+      endsAt: "2026-04-01T09:05:00.000Z",
+    };
+    const cancelledFocus = {
+      ...createPomodoroSession("focus", "2026-04-02T12:00:00.000Z", 1),
+      status: "cancelled" as const,
+      cancelledAt: "2026-04-02T12:20:00.000Z",
+    };
+    const now = "2026-04-02T12:20:00.000Z";
+    const sessions = [earlierBreak, cancelledFocus];
+
+    const state = buildPomodoroState(sessions, [], now);
+
+    expect(state.activeSession).toBeNull();
+    expect(state.nextSessionKind).toBe("focus");
+    expect(state.currentCycleIndex).toBe(1);
+    expect(state.nextFocusCycleIndex).toBe(1);
+    expect(state.completedFocusCountInCycle).toBe(0);
+    expect(
+      computeDailyPomodoroStats([cancelledFocus], cancelledFocus.date).completedFocusSessions,
+    ).toBe(0);
+    expect(shouldShowFloatingPomodoro(state, sessions, now)).toBe(false);
+  });
+
+  it("keeps completed focuses when a later focus in the same cycle is cancelled", () => {
+    const focus = {
+      ...createPomodoroSession("focus", "2026-04-01T09:00:00.000Z", 1),
+      status: "completed" as const,
+      completedAt: "2026-04-01T09:25:00.000Z",
+      endsAt: "2026-04-01T09:25:00.000Z",
+    };
+    const shortBreak = {
+      ...createPomodoroSession("short_break", "2026-04-01T09:25:00.000Z", 1),
+      status: "completed" as const,
+      completedAt: "2026-04-01T09:30:00.000Z",
+      endsAt: "2026-04-01T09:30:00.000Z",
+    };
+    const cancelledFocus = {
+      ...createPomodoroSession("focus", "2026-04-01T09:50:00.000Z", 2),
+      status: "cancelled" as const,
+      cancelledAt: "2026-04-01T10:05:00.000Z",
+    };
+    const now = "2026-04-01T10:05:00.000Z";
+    const sessions = [focus, shortBreak, cancelledFocus];
+
+    const state = buildPomodoroState(sessions, [], now);
+
+    expect(state.activeSession).toBeNull();
+    expect(state.nextSessionKind).toBe("focus");
+    expect(state.currentCycleIndex).toBe(2);
+    expect(state.nextFocusCycleIndex).toBe(2);
+    expect(state.completedFocusCountInCycle).toBe(1);
+    expect(shouldShowFloatingPomodoro(state, sessions, now)).toBe(true);
+  });
+
   it("treats an expired running session as finished for cycle reset (stale DB row)", () => {
     const staleRunning = createPomodoroSession("focus", "2026-04-01T09:00:00.000Z", 2);
     expect(staleRunning.status).toBe("running");

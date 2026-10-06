@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-10-06 | Cancelling a focus that started after the 25-minute idle gap no longer restores the previous cycle's completed count | `docs/recurrences-and-pomodoro.md` | `sessionsAfterLastIdleGap`, `buildPomodoroState` |
 | 2026-10-03 | Recurrence generation moved from reads (`listTasks`, stats, Pomodoro refresh) to explicit `reconcileDay`; `computeDailyPomodoroStats` no longer completes expired sessions ([#110](https://github.com/didia/trackdidia/issues/110)) | `docs/recurrences-and-pomodoro.md`, `docs/gtd.md` | `src/lib/gtd/reconcile.ts`, `use-pomodoro-controller.ts` |
 | 2026-10-03 | Extracted recurrence generation, close-time template updates, occurrence merges, and active-task template sync from both repositories into pure planners in the recurrence engine; pause/resume/cancel share one `setTemplateStatus` per repository; documented the single drifted-field sync behavior (generation keeps title/notes, template save/series edit resyncs them); removed the unused `findProcessingRangeStart` | `docs/recurrences-and-pomodoro.md` | Issue #107, `src/lib/recurring/engine.ts`, `engine.test.ts`, both repositories |
 | 2026-10-02 | Moved Pomodoro session and segment transition rules from both repositories into the pure engine, keeping persisted timing and no-op behavior | `docs/recurrences-and-pomodoro.md` | `engine.ts`, both repositories, `engine.test.ts` |
