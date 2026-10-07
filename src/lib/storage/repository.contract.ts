@@ -641,6 +641,54 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         );
       });
 
+      it("retargets a paused pomodoro to another task without changing remaining time", async () => {
+        const repository = await factory();
+
+        await repository.createTask({
+          id: "task-focus",
+          title: "Rediger le plan",
+          bucket: "next_action",
+        });
+        await repository.createTask({
+          id: "task-other",
+          title: "Autre focus",
+          bucket: "next_action",
+        });
+
+        const startedState = await repository.startPomodoro({
+          taskId: "task-focus",
+        });
+        const activeSession = startedState.activeSession;
+        if (!activeSession) {
+          throw new Error("Session Pomodoro manquante");
+        }
+
+        const pauseAt = new Date(
+          new Date(activeSession.startedAt).getTime() + 5 * 60 * 1000,
+        ).toISOString();
+        await repository.pausePomodoroSession(activeSession.id, pauseAt);
+
+        const switchAt = new Date(new Date(pauseAt).getTime() + 60 * 1000).toISOString();
+        const retargeted = await repository.switchPomodoroTask(
+          activeSession.id,
+          "task-other",
+          null,
+          switchAt,
+        );
+        expect(retargeted.activeSession?.status).toBe("paused");
+        expect(retargeted.activeSession?.pausedRemainingMs).toBe(20 * 60 * 1000);
+        expect(retargeted.activeSession?.activeTaskId).toBe("task-other");
+
+        const resumeAt = new Date(new Date(switchAt).getTime() + 5 * 60 * 1000).toISOString();
+        const resumed = await repository.resumePomodoroSession(activeSession.id, resumeAt);
+        expect(resumed.activeSession?.status).toBe("running");
+        expect(resumed.activeSession?.activeTaskId).toBe("task-other");
+        expect(resumed.activeSession?.pausedRemainingMs).toBeNull();
+        expect(resumed.activeSession?.endsAt).toBe(
+          new Date(new Date(resumeAt).getTime() + 20 * 60 * 1000).toISOString(),
+        );
+      });
+
       it("generates recurring tasks once per due day and exposes previews", async () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date("2026-04-01T12:00:00.000Z"));

@@ -219,15 +219,38 @@ segments:
 - each segment points to a GTD task, or carries a free-form title;
 - switching activity closes the current segment and opens another;
 - pausing closes open segments;
-- resuming opens a new segment with the latest task/title;
+- resuming opens a new segment with the latest task/title, or reopens a zero-duration
+  paused-retarget placeholder instead of creating a second segment;
 - completing/cancelling closes every open segment.
 
+While a focus is paused, switching the linked task writes a zero-duration placeholder
+segment (`startedAt === endedAt`) so Resume continues on the new task without rewriting
+time already recorded on the closed segment. Switching again while still paused updates
+that placeholder in place, or deletes it when retargeting back to the previous real
+segment. Task summaries ignore zero-duration segments.
+
 The pure Pomodoro engine decides start, pause, resume, stop, and activity-switch
-transitions. Both repositories persist the returned session and segment changes;
-the SQLite repository keeps these writes inside its writer queue.
+transitions. Both repositories persist the returned session and segment changes
+(including optional segment deletes for paused retargets); the SQLite repository keeps
+these writes inside its writer queue.
 
 Eligible GTD tasks are active Next Actions. Scheduled tasks stay off the picker
 until they are promoted to Next Actions.
+
+### Next Actions quick start
+
+Each Next Action task card has a Pomodoro button that calls
+`usePomodoroController.focusOnTask`:
+
+- with no active session, it starts a focus on that task (including when the cycle's
+  next step is an unstarted break, matching the floating timer's "Démarrer un focus");
+- during a running or paused focus on another task, it switches or retargets onto this
+  task;
+- when the focus is already on this task, the button shows **En cours** and does nothing;
+- during a short or long break (running or paused), it completes the break without a
+  chime or notification, then starts a focus on this task.
+
+The page stays on Next Actions; the floating timer reflects the session.
 
 ### Timer orchestration
 

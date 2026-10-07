@@ -2380,15 +2380,22 @@ export class TauriSqliteRepository implements AppRepository {
         sessionId,
       );
 
-      if (session.status !== "running" || session.kind !== "focus") {
+      if (
+        session.kind !== "focus" ||
+        (session.status !== "running" && session.status !== "paused")
+      ) {
         return this.getPomodoroState();
       }
 
-      const openSegments = await this.getOpenPomodoroSegments(sessionId);
-      const openSegment = openSegments[0] ?? null;
-      const transition = switchSessionTask(session, openSegment, taskId, title, changedAt);
+      const sessionSegments = (await this.getAllPomodoroSegments()).filter(
+        (segment) => segment.sessionId === sessionId,
+      );
+      const transition = switchSessionTask(session, sessionSegments, taskId, title, changedAt);
       if (!transition) {
         return this.getPomodoroState();
+      }
+      for (const segmentId of transition.segmentIdsToDelete ?? []) {
+        await this.deletePomodoroSegment(segmentId);
       }
       for (const segment of transition.segmentsToUpsert) {
         await this.persistPomodoroSegment(segment);
@@ -2649,6 +2656,11 @@ export class TauriSqliteRepository implements AppRepository {
         ended_at = excluded.ended_at`,
       pomodoroSegmentsRows.toParams(segment),
     );
+  }
+
+  private async deletePomodoroSegment(segmentId: string): Promise<void> {
+    const db = await this.getDb();
+    await db.execute("DELETE FROM pomodoro_segments WHERE id = $1", [segmentId]);
   }
 
   private async deleteTasksByIds(taskIds: string[]): Promise<void> {
