@@ -350,4 +350,93 @@ describe("usePomodoroController", () => {
       activeTaskId: task.id,
     });
   });
+
+  it("resolves currentTask when focusing a Next Action created after the controller loaded", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const { result } = renderHook(() => usePomodoroController(repository));
+    await flushControllerQueue();
+
+    const task = await repository.createTask({
+      title: "Created after mount",
+      bucket: "next_action",
+    });
+
+    await act(async () => {
+      await result.current.focusOnTask(task.id);
+    });
+
+    expect(result.current.state.activeSession).toMatchObject({
+      kind: "focus",
+      status: "running",
+      activeTaskId: task.id,
+    });
+    expect(result.current.currentTask).toMatchObject({
+      id: task.id,
+      title: "Created after mount",
+    });
+  });
+
+  it("starts the requested focus after reconciling a missed focus deadline without timer delivery", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-01T09:00:00.000Z"));
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const first = await repository.createTask({ title: "First", bucket: "next_action" });
+    const second = await repository.createTask({ title: "Second", bucket: "next_action" });
+    await repository.startPomodoro({ kind: "focus", taskId: first.id });
+
+    const { result } = renderHook(() => usePomodoroController(repository));
+    await flushControllerQueue();
+    expect(result.current.state.activeSession?.activeTaskId).toBe(first.id);
+    announceCompletion.mockClear();
+
+    // Deadline elapsed, but do not advance fake timers so the scheduler callback never runs.
+    vi.setSystemTime(new Date("2026-04-01T09:25:01.000Z"));
+
+    await act(async () => {
+      await result.current.focusOnTask(second.id);
+    });
+
+    expect(announceCompletion).toHaveBeenCalledTimes(1);
+    expect(result.current.state.activeSession).toMatchObject({
+      kind: "focus",
+      status: "running",
+      activeTaskId: second.id,
+    });
+    expect(result.current.currentTask?.id).toBe(second.id);
+  });
+
+  it("starts the requested focus after reconciling a missed break deadline", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-01T09:00:00.000Z"));
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const task = await repository.createTask({ title: "After break", bucket: "next_action" });
+    await repository.startPomodoro({ kind: "focus", taskId: task.id });
+    await repository.stopPomodoroSession(
+      (await repository.getPomodoroState()).activeSession!.id,
+      "completed",
+      "2026-04-01T09:25:00.000Z",
+    );
+    await repository.startPomodoro({ kind: "short_break" });
+
+    const { result } = renderHook(() => usePomodoroController(repository));
+    await flushControllerQueue();
+    expect(result.current.state.activeSession?.kind).toBe("short_break");
+    announceCompletion.mockClear();
+
+    vi.setSystemTime(new Date("2026-04-01T09:30:01.000Z"));
+
+    await act(async () => {
+      await result.current.focusOnTask(task.id);
+    });
+
+    expect(announceCompletion).toHaveBeenCalledTimes(1);
+    expect(result.current.state.activeSession).toMatchObject({
+      kind: "focus",
+      status: "running",
+      activeTaskId: task.id,
+    });
+  });
 });

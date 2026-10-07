@@ -479,10 +479,13 @@ export const usePomodoroController = (
       }
       await unlockPomodoroSound();
       await runQueued("focus Pomodoro sur tache", async () => {
-        if (await reconcileExpiredActiveSession(repository)) {
+        const reconciled = await reconcileExpiredActiveSession(repository);
+        if (!isCurrentRepository(repository)) {
           return;
         }
-        if (!isCurrentRepository(repository)) {
+        // Successful expiry leaves no running session; unverified persistence keeps the old
+        // runner and must not start a competing focus.
+        if (reconciled && stateRef.current.activeSession?.status === "running") {
           return;
         }
 
@@ -495,8 +498,9 @@ export const usePomodoroController = (
           if (stateRef.current.activeSession) {
             return;
           }
-          const nextState = await repository.startPomodoro({ kind: "focus", taskId });
-          await refreshPomodoro(repository, nextState);
+          await repository.startPomodoro({ kind: "focus", taskId });
+          // Full refresh so a Next Action created after mount appears as currentTask.
+          await refreshEverything(repository, false);
           return;
         }
 
@@ -507,7 +511,7 @@ export const usePomodoroController = (
           }
           const nextState = await repository.switchPomodoroTask(activeSession.id, taskId, null);
           applyState(repository, nextState);
-          await refreshPomodoro(repository, nextState);
+          await refreshEverything(repository, false);
           return;
         }
 
@@ -515,20 +519,21 @@ export const usePomodoroController = (
         if (!breakSession || !isBreak(breakSession.kind)) {
           return;
         }
+        // Live break: complete silently (no chime), then start the requested focus.
         const afterBreak = await repository.stopPomodoroSession(breakSession.id, "completed");
         applyState(repository, afterBreak);
         if (!isCurrentRepository(repository) || stateRef.current.activeSession) {
           return;
         }
-        const startedState = await repository.startPomodoro({ kind: "focus", taskId });
-        await refreshPomodoro(repository, startedState);
+        await repository.startPomodoro({ kind: "focus", taskId });
+        await refreshEverything(repository, false);
       });
     },
     [
       applyState,
       isCurrentRepository,
       reconcileExpiredActiveSession,
-      refreshPomodoro,
+      refreshEverything,
       repository,
       runQueued,
     ],
