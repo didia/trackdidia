@@ -1745,10 +1745,7 @@ export class MemoryRepository implements AppRepository {
   ): Promise<PomodoroState> {
     const session = requirePomodoroSession(this.pomodoroSessions.get(sessionId), sessionId);
 
-    if (
-      session.kind !== "focus" ||
-      (session.status !== "running" && session.status !== "paused")
-    ) {
+    if (session.kind !== "focus" || (session.status !== "running" && session.status !== "paused")) {
       return this.getPomodoroState();
     }
 

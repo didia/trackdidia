@@ -502,7 +502,7 @@ export const usePomodoroController = (
 
         if (action.type === "switch") {
           const activeSession = stateRef.current.activeSession;
-          if (!activeSession || activeSession.kind !== "focus") {
+          if (activeSession?.kind !== "focus") {
             return;
           }
           const nextState = await repository.switchPomodoroTask(activeSession.id, taskId, null);
