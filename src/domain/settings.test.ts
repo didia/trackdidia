@@ -68,3 +68,17 @@ it("rebases background metadata while retaining unsaved edits", () => {
     aiModel: "unsaved model",
   });
 });
+
+it("keeps the LLM bridge off by default and repairs an invalid stored port", () => {
+  const defaults = defaultAppSettings();
+  expect(defaults.llmBridgeEnabled).toBe(false);
+  expect(defaults.llmBridgeToken).toBe("");
+
+  expect(normalizeAppSettings({ llmBridgePort: 80 }).llmBridgePort).toBe(defaults.llmBridgePort);
+  expect(normalizeAppSettings({ llmBridgePort: 70_000 }).llmBridgePort).toBe(
+    defaults.llmBridgePort,
+  );
+  expect(normalizeAppSettings({ llmBridgePort: 50_000 }).llmBridgePort).toBe(50_000);
+  // Rows saved before the feature existed simply lack the fields.
+  expect(normalizeAppSettings({}).llmBridgeEnabled).toBe(false);
+});

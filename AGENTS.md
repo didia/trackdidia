@@ -28,6 +28,7 @@ Quick reference:
 | AI coach, settings, relationship draws, debug mode | [docs/ai-settings-and-privacy.md](docs/ai-settings-and-privacy.md) |
 | Email triage (disabled by default) | [docs/email-triage.md](docs/email-triage.md) |
 | Calendar sync (disabled by default) | [docs/calendar-sync.md](docs/calendar-sync.md) |
+| LLM bridge: local MCP endpoint so an LLM client can add tasks/projects (off by default) | [docs/llm-bridge.md](docs/llm-bridge.md) |
 | Household finance (off by default; accounts/import/transactions/budget/reports/review/rules screens behind `financeEnabled`, with optional AI merchant categorization) | [docs/finance.md](docs/finance.md) |
 | Code conventions and test workflow | [docs/conventions.md](docs/conventions.md) |
 | Desktop development, builds, and release data safety | [docs/desktop-builds.md](docs/desktop-builds.md) |

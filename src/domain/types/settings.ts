@@ -61,4 +61,9 @@ export interface AppSettings {
   financeSafetyBufferMinor: number;
   /** ISO timestamp set after the one-shot default category taxonomy seed. */
   financeCategoriesSeededAt: string;
+  /** Local MCP endpoint that lets an LLM client add tasks. Off by default; desktop only. */
+  llmBridgeEnabled: boolean;
+  llmBridgePort: number;
+  /** Bearer token for the local MCP endpoint. Stored in the settings row; never log it. */
+  llmBridgeToken: string;
 }

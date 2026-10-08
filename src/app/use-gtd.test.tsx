@@ -1,8 +1,9 @@
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { getTodayDate } from "../lib/date";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { renderWithApp } from "../test/test-utils";
+import { notifyGtdExternalChange } from "./gtd-external-change";
 import { useGtdWorkspace } from "./use-gtd";
 
 const requestCalendarSyncMock = vi.fn();
@@ -68,5 +69,20 @@ describe("useGtdWorkspace", () => {
     await renderWithApp(<Probe />, { repository });
 
     await waitFor(() => expect(requestCalendarSyncMock).toHaveBeenCalled());
+  });
+  it("reloads when a writer outside the workspace announces an external change", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await renderWithApp(<Probe />, { repository });
+    // Wait for the first load (it also seeds the daily relationship tasks).
+    await screen.findByTestId("buckets");
+
+    const task = await repository.createTask({ title: "Ajoutée par un LLM", bucket: "inbox" });
+    expect(screen.getByTestId("buckets").textContent).not.toContain(task.id);
+    act(() => notifyGtdExternalChange());
+
+    await waitFor(() =>
+      expect(screen.getByTestId("buckets").textContent).toContain(`${task.id}:inbox`),
+    );
   });
 });
