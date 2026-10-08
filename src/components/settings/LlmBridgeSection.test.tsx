@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { defaultAppSettings } from "../../domain/settings";
 import { renderWithApp } from "../../test/test-utils";
 import { LlmBridgeSection } from "./LlmBridgeSection";
@@ -69,5 +69,24 @@ describe("LlmBridgeSection", () => {
     expect(token.type).toBe("password");
     fireEvent.click(screen.getByRole("button", { name: "Afficher" }));
     expect(token.type).toBe("text");
+  });
+
+  it("offers a retry when the endpoint failed to start, and saving also retries", async () => {
+    const retry = vi.fn();
+    await renderWithApp(<LlmBridgeSection />, {
+      contextOverrides: {
+        browserPreview: false,
+        settings: { ...defaultAppSettings(), llmBridgeEnabled: true, llmBridgeToken: "tok" },
+        llmBridgeStatus: { state: "error", message: "port pris" },
+        retryLlmBridge: retry,
+      },
+    });
+    expect(screen.getByText("Erreur : port pris")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Réessayer" }));
+    expect(retry).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Enregistrer la connexion LLM" }));
+    await waitFor(() => expect(retry).toHaveBeenCalledTimes(2));
   });
 });

@@ -2,6 +2,7 @@ import { useProposalDecisions } from "../app/use-proposal-decisions";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
+import { useGtdExternalChangeRevision } from "../app/gtd-external-change";
 import { useAppContext } from "../app/app-context";
 import { useCoachPulse } from "../app/use-coach-pulse";
 import { useLatestRequest } from "../app/use-latest-request";
@@ -42,6 +43,7 @@ export const TodayPage = () => {
   const entryRef = useRef(entry);
   const morningIntentionRef = useRef<PersistedTextareaHandle>(null);
   const breakdownRequest = useLatestRequest();
+  const externalGtdRevision = useGtdExternalChangeRevision();
   entryRef.current = entry;
 
   useEffect(() => {
@@ -57,7 +59,7 @@ export const TodayPage = () => {
     });
 
     return breakdownRequest.invalidate;
-  }, [breakdownRequest, entry, repository]);
+  }, [breakdownRequest, entry, repository, externalGtdRevision]);
 
   const decisions = useProposalDecisions(coachResult, setCoachResult, {
     onAccept: async (proposal) => {

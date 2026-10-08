@@ -30,6 +30,10 @@ Consequences:
 
 - the app (and its webview) must be running; otherwise the client gets a connection
   error. Nothing is queued while the app is closed;
+- stopping, disabling, or changing the token or port aborts the accept loop **and every
+  connection it accepted** (they live in its `JoinSet`), and the webview drops any
+  request still queued behind it. A socket opened before a token rotation therefore
+  cannot finish its request with the revoked token;
 - the listener starts only after bootstrap succeeded and the webview registered its
   event handler, so a request can never arrive before something can answer it. It
   never starts in browser preview or in the in-memory startup fallback;
@@ -39,7 +43,8 @@ Consequences:
 ## Enabling and connecting
 
 Settings → "Connexion LLM (MCP)" (`LlmBridgeSection`): toggle, port (default
-`47821`, 1024–65535), status, endpoint, masked token with show/copy/regenerate, and a
+`47821`, 1024–65535), status (with a "Réessayer" button after a failed start, e.g. the
+port was taken; saving the card also retries), endpoint, masked token with show/copy/regenerate, and a
 copy button for the Claude Code registration command. Enabling for the first time
 generates a 256-bit random token (`generateLlmBridgeToken`). Regenerating restarts the
 listener and locks out clients holding the old token.
@@ -103,8 +108,12 @@ defaults to `09:00`), `clientId`. Rules:
   contexts remain per-task errors, and nothing is auto-created;
 - tasks are created through `repository.createTask`, so they emit the same lifecycle
   events as manual capture; after at least one creation the bridge runs
-  `reconcileDay(today)` (same as a user mutation) and notifies mounted GTD screens
-  through `gtd-external-change.ts` so they reload;
+  `reconcileDay(today)` (same as a user mutation). If that reconciliation fails, the
+  committed per-task outcomes are still returned with a top-level `warning`, and the
+  mutation is still announced, so a client does not retry saved work;
+- after any write, `gtd-external-change.ts` notifies mounted screens: GTD workspaces,
+  `useDailyEntry` (Today, routines; reloaded in place, keeping unsaved notes and explicit
+  metric values) and Today's task breakdown all refresh;
 - provenance: tasks and projects have `source: "manual"` and `sourceExternalId`
   `llm:<clientId>` (or `llm:<generated id>` without a client id). Re-sending the same
   `clientId` returns `duplicate` with the existing task instead of creating another,
@@ -128,4 +137,6 @@ defaults to `09:00`), `clientId`. Rules:
 - Only the main window answers requests; a closed-to-tray window must still keep its
   webview alive.
 - Pomodoro task pickers are not refreshed by an external write until they reload.
+- Writes while no GTD screen is mounted do not nudge calendar sync immediately; it
+  picks them up on window focus or its 15-minute backstop.
 - No per-client tokens, scopes, or audit trail.

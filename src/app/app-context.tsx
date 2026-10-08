@@ -52,6 +52,8 @@ export interface AppContextValue {
   reconfigureEmailTriage: () => Promise<void>;
   /** State of the local MCP endpoint for LLM clients (Settings shows it). */
   llmBridgeStatus: LlmBridgeStatus;
+  /** Re-attempts starting the endpoint after a failure, without changing any setting. */
+  retryLlmBridge: () => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -93,7 +95,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     allowStart: !loading && !startupError,
   });
 
-  const llmBridgeStatus = useLlmBridge(repository, {
+  const { status: llmBridgeStatus, retry: retryLlmBridge } = useLlmBridge(repository, {
     browserPreview,
     allowStart: !loading && !startupError,
     enabled: settings.llmBridgeEnabled,
@@ -181,6 +183,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
             calendarDay,
             reconfigureEmailTriage,
             llmBridgeStatus,
+            retryLlmBridge,
           }
         : null,
     [
@@ -196,6 +199,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       calendarDay,
       reconfigureEmailTriage,
       llmBridgeStatus,
+      retryLlmBridge,
     ],
   );
 

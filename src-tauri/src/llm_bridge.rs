@@ -377,13 +377,20 @@ async fn handle_connection(mut stream: TcpStream, config: Arc<ServerConfig>) {
     let _ = stream.shutdown().await;
 }
 
+/// Connection tasks live in a `JoinSet` owned by this loop, so aborting the loop (stop, disable,
+/// token or port change) also aborts every connection it accepted. Without that, a socket opened
+/// before a token rotation could finish its request afterwards and still authenticate with the
+/// revoked token.
 async fn accept_loop(listener: TcpListener, config: Arc<ServerConfig>) {
     let permits = Arc::new(Semaphore::new(MAX_CONNECTIONS));
+    let mut connections = tokio::task::JoinSet::new();
     loop {
         let Ok((stream, peer)) = listener.accept().await else {
             tokio::time::sleep(Duration::from_millis(100)).await;
             continue;
         };
+        // Reap finished connections so the set does not grow for the life of the server.
+        while connections.try_join_next().is_some() {}
         if !peer.ip().is_loopback() {
             continue;
         }
@@ -391,7 +398,7 @@ async fn accept_loop(listener: TcpListener, config: Arc<ServerConfig>) {
             continue;
         };
         let config = config.clone();
-        tokio::spawn(async move {
+        connections.spawn(async move {
             let _permit = permit;
             handle_connection(stream, config).await;
         });
@@ -725,6 +732,38 @@ mod tests {
             "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {TOKEN}\r\n\r\n"
         );
         assert_eq!(send(port, no_length).await.0, 411);
+    }
+
+    #[tokio::test]
+    async fn stopping_the_server_cuts_connections_opened_before_rotation() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let config = Arc::new(ServerConfig {
+            port,
+            token: TOKEN.to_string(),
+            forward: echo_forwarder(),
+        });
+        let server = tokio::spawn(accept_loop(listener, config));
+
+        // A client opens a connection and stalls mid-headers, as a revoked-token holder could.
+        let mut stalled = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        stalled.write_all(b"POST /mcp HTTP/1.1\r\n").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Token rotation / disable aborts the accept loop and waits for it, like the command does.
+        server.abort();
+        let _ = server.await;
+
+        // The old token is now revoked: finishing the request must not get an answer.
+        let body = r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#;
+        let rest = format!(
+            "Host: 127.0.0.1:{port}\r\nAuthorization: Bearer {TOKEN}\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        );
+        let _ = stalled.write_all(rest.as_bytes()).await;
+        let mut raw = Vec::new();
+        let _ = tokio::time::timeout(Duration::from_secs(2), stalled.read_to_end(&mut raw)).await;
+        assert!(raw.is_empty(), "revoked connection was still answered");
     }
 
     #[tokio::test]

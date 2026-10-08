@@ -209,6 +209,22 @@ describe("LLM bridge tools", () => {
     expect(await repository.listTasks({ includeCompleted: true })).toHaveLength(1);
   });
 
+  it("keeps committed outcomes and still reports a mutation when reconciliation fails", async () => {
+    vi.spyOn(repository, "reconcileDay").mockRejectedValue(new Error("db locked"));
+
+    const outcome = await callBridgeTool(repository, "add_tasks", {
+      tasks: [{ title: "Sauvegardée" }],
+    });
+
+    expect(outcome.mutated).toBe(true);
+    expect(isError(outcome)).toBe(false);
+    const body = parse(outcome);
+    expect(body.created).toBe(1);
+    expect(body.outcomes[0]).toMatchObject({ status: "created" });
+    expect(body.warning).toContain("reconciliation failed");
+    expect(await repository.listTasks({ includeCompleted: true })).toHaveLength(1);
+  });
+
   it("rejects empty and oversized batches as invalid params", async () => {
     await expect(callBridgeTool(repository, "add_tasks", { tasks: [] })).rejects.toBeInstanceOf(
       BridgeRpcError,

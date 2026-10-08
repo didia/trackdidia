@@ -119,6 +119,7 @@
     "copyToken": "Copier le jeton",
     "copyCommand": "Copier la commande Claude Code",
     "copied": "Copié.",
+    "retry": "Réessayer",
     "regenerate": "Régénérer le jeton",
     "regenerateHint": "Les clients configurés avec l'ancien jeton seront refusés.",
     "tokenLocalNotice": "Le jeton est stocké en clair dans la base locale, comme la clé OpenRouter. N'expose pas ce port hors de ta machine.",

@@ -22,6 +22,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 const TOKEN = "t".repeat(40);
 let latestStatus: LlmBridgeStatus = { state: "off" };
+let latestRetry: () => void = () => undefined;
 
 const Mount = (props: {
   repository: MemoryRepository | null;
@@ -31,13 +32,15 @@ const Mount = (props: {
   token?: string;
   port?: number;
 }) => {
-  latestStatus = useLlmBridge(props.repository, {
+  const bridge = useLlmBridge(props.repository, {
     browserPreview: props.browserPreview ?? false,
     allowStart: props.allowStart ?? true,
     enabled: props.enabled ?? true,
     port: props.port ?? 47_821,
     token: props.token ?? TOKEN,
   });
+  latestStatus = bridge.status;
+  latestRetry = bridge.retry;
   return null;
 };
 
@@ -158,5 +161,42 @@ describe("useLlmBridge", () => {
       result: null,
       error: { code: -32601 },
     });
+  });
+
+  it("retries a failed start with unchanged settings", async () => {
+    invokeMock.mockRejectedValueOnce("Impossible d'ouvrir 127.0.0.1:47821");
+    render(<Mount repository={repository} />);
+    await flush();
+    expect(latestStatus.state).toBe("error");
+
+    act(() => latestRetry());
+    await flush();
+
+    expect(latestStatus).toEqual({ state: "running", port: 47_821 });
+    const starts = configureCalls().filter(([, args]) => (args as { enabled: boolean }).enabled);
+    expect(starts).toHaveLength(2);
+  });
+
+  it("does not run requests that arrive after the bridge was stopped", async () => {
+    const view = render(<Mount repository={repository} />);
+    await flush();
+    const staleListener = requestListener;
+    view.unmount();
+    await flush();
+    invokeMock.mockClear();
+
+    await act(async () => {
+      staleListener?.({
+        payload: {
+          id: "llm-9",
+          method: "tools/call",
+          params: { name: "add_tasks", arguments: { tasks: [{ title: "Après rotation" }] } },
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(await repository.listTasks({ includeCompleted: true })).toHaveLength(0);
+    expect(invokeMock.mock.calls.some(([command]) => command === "llm_bridge_respond")).toBe(false);
   });
 });

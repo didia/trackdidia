@@ -12,7 +12,8 @@ import { useSectionSave } from "./useSectionSave";
 
 export const LlmBridgeSection = () => {
   const { t } = useTranslation("settings");
-  const { settings, updateSettings, browserPreview, llmBridgeStatus } = useAppContext();
+  const { settings, updateSettings, browserPreview, llmBridgeStatus, retryLlmBridge } =
+    useAppContext();
   const [enabledDraft, setEnabledDraft] = useState(settings.llmBridgeEnabled);
   const [portDraft, setPortDraft] = useState(String(settings.llmBridgePort));
   const [tokenVisible, setTokenVisible] = useState(false);
@@ -30,6 +31,10 @@ export const LlmBridgeSection = () => {
       llmBridgeToken:
         enabledDraft && !current.llmBridgeToken ? generateLlmBridgeToken() : current.llmBridgeToken,
     }));
+    // Saving unchanged settings must still re-attempt a failed start (e.g. the port was freed).
+    if (llmBridgeStatus.state === "error") {
+      retryLlmBridge();
+    }
   });
 
   const regenerate = useSectionSave(async () => {
@@ -89,6 +94,13 @@ export const LlmBridgeSection = () => {
         </label>
 
         <p role="status">{statusLabel}</p>
+        {llmBridgeStatus.state === "error" ? (
+          <div className="form-actions">
+            <button className="button" type="button" onClick={retryLlmBridge}>
+              {t("llmBridge.retry")}
+            </button>
+          </div>
+        ) : null}
 
         {configured && !browserPreview ? (
           <>

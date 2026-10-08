@@ -458,9 +458,18 @@ const addTasks = async (repository: AppRepository, args: Args) => {
     }
   }
 
+  let reconcileWarning: string | undefined;
   if (created > 0) {
     // Same follow-up as a user mutation: a task dated today may already be due for promotion.
-    await repository.reconcileDay(getTodayDate());
+    // The tasks above are already committed, so a failure here must not turn the call into an
+    // error: the client would retry (duplicating tasks that lack a clientId) and open screens
+    // would miss the notification for work that did persist.
+    try {
+      await repository.reconcileDay(getTodayDate());
+    } catch {
+      reconcileWarning =
+        "Tasks were saved, but the daily reconciliation failed; it will run again on the next app refresh.";
+    }
   }
   const failed = outcomes.filter((outcome) => outcome.status === "error").length;
   return {
@@ -470,6 +479,7 @@ const addTasks = async (repository: AppRepository, args: Args) => {
         created,
         duplicates: outcomes.filter((o) => o.status === "duplicate").length,
         failed,
+        ...(reconcileWarning ? { warning: reconcileWarning } : {}),
         outcomes,
       },
       failed > 0 && created === 0,

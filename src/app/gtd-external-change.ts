@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 type Listener = () => void;
 
 const listeners = new Set<Listener>();
@@ -17,4 +19,11 @@ export const notifyGtdExternalChange = (): void => {
   for (const listener of [...listeners]) {
     listener();
   }
+};
+
+/** Counter that increments on every external change, for effects that must refetch derived data. */
+export const useGtdExternalChangeRevision = (): number => {
+  const [revision, setRevision] = useState(0);
+  useEffect(() => subscribeGtdExternalChange(() => setRevision((current) => current + 1)), []);
+  return revision;
 };

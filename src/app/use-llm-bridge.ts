@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { logDebug } from "../lib/debug";
 import { handleBridgeRequest } from "../lib/llm-bridge/handler";
 import { BridgeRpcError } from "../lib/llm-bridge/tools";
@@ -46,9 +46,12 @@ export const useLlmBridge = (
     port: number;
     token: string;
   },
-): LlmBridgeStatus => {
+): { status: LlmBridgeStatus; retry: () => void } => {
   const { browserPreview, allowStart, enabled, port, token } = options;
   const [status, setStatus] = useState<LlmBridgeStatus>({ state: "off" });
+  // Bumping this reruns the effect with unchanged settings, e.g. after a port was freed.
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => setAttempt((current) => current + 1), []);
 
   useEffect(() => {
     if (!repository || browserPreview || !allowStart || !enabled || !token) {
@@ -62,6 +65,11 @@ export const useLlmBridge = (
 
     const onRequest = (payload: BridgeRequestEvent) =>
       requestQueue.run(async () => {
+        // A request queued before the bridge was stopped or its token rotated must not run: the
+        // client that sent it was authenticated against a configuration that no longer exists.
+        if (cancelled) {
+          return;
+        }
         try {
           const result = await handleBridgeRequest(repository, payload, notifyGtdExternalChange);
           await respond(payload.id, result, null);
@@ -111,7 +119,7 @@ export const useLlmBridge = (
         .run(() => invoke("llm_bridge_configure", { enabled: false, port, token: "" }))
         .catch(() => undefined);
     };
-  }, [repository, browserPreview, allowStart, enabled, port, token]);
+  }, [repository, browserPreview, allowStart, enabled, port, token, attempt]);
 
-  return status;
+  return { status, retry };
 };
