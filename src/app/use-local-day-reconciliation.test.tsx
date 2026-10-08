@@ -100,6 +100,8 @@ const MountedGtdView = ({
       pulseRevision: 0,
       calendarDay,
       reconfigureEmailTriage: async () => undefined,
+      llmBridgeStatus: { state: "off" },
+      retryLlmBridge: () => undefined,
     }),
     [calendarDay, repository],
   );

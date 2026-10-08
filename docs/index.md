@@ -26,6 +26,7 @@ Chronological documentation activity is recorded in domain logs under
 | [ai-settings-and-privacy.md](ai-settings-and-privacy.md) | Local/AI coaching, OpenRouter request data, relationship draws, debug and settings |
 | [email-triage.md](email-triage.md) | Disabled-by-default local email triage (Gmail, Graph, Yahoo; gated mutation; tray) |
 | [calendar-sync.md](calendar-sync.md) | Disabled-by-default one-way TrackDidia → Google Calendar sync (promotion capture, reconciler, Settings card) |
+| [llm-bridge.md](llm-bridge.md) | Disabled-by-default local MCP endpoint (`127.0.0.1`, bearer token) that lets an LLM client list projects/contexts and add tasks to the Inbox or a project; Rust transport, TypeScript tools, Settings card, stdio adapter |
 | [finance.md](finance.md) | Household finance domain: schema, import/dedupe/transfer detection, the classification pipeline (rules/memory/seeds/AI), the zero-based envelope budget model, net worth/cash flow/reports/recurring-bill detection/daily balance snapshots, proactive runout/cash-flow forecasting and alerts with a rate-limited desktop notification, optional AI merchant categorization (`finance_categorization`), repository contract, and the accounts/import/transactions/budget/reports/review/rules screens behind `financeEnabled` (all 8 phases shipped) |
 
 ## Source map
@@ -44,6 +45,7 @@ Chronological documentation activity is recorded in domain logs under
 | Browser preview storage | `src/lib/storage/memory-repository.ts` |
 | Native data paths | `src-tauri/src/main.rs` |
 | Desktop configuration | `src-tauri/tauri.conf.json` |
+| LLM bridge (MCP endpoint, tools, Settings card) | `src-tauri/src/llm_bridge.rs`, `src/lib/llm-bridge/`, `src/app/use-llm-bridge.ts`, `src/components/settings/LlmBridgeSection.tsx` |
 | Finance domain types | `src/domain/finance.ts` |
 | Finance SQLite/memory stores | `src/lib/storage/finance-sqlite-store.ts`, `src/lib/storage/finance-memory-store.ts` |
 | Finance pure engines (money, CSV, dedupe, transfers, import mapping, classification, seed heuristics) | `src/lib/finance/` |

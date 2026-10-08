@@ -10,8 +10,10 @@ daily operating system. Its major loops are:
 3. Review the week and month.
 4. Connect daily/weekly evidence to annual goals.
 
-There is no server, authentication layer, or cloud database in the current product.
-The only optional network call is the OpenRouter coach.
+There is no cloud server, user account system, or cloud database in the current product.
+The optional outbound network calls are the OpenRouter coach and the other opt-in
+integrations. The one listening socket is the opt-in, loopback-only [LLM bridge](llm-bridge.md)
+(off by default).
 
 ## Technology stack
 
@@ -333,7 +335,10 @@ The Rust host is intentionally small:
 - initialize the notification and dialog plugins;
 - resolve/create the application data directory;
 - choose development versus production database filenames;
-- expose `resolve_storage_paths`, `ensure_backup_dir`, and `prune_backups`.
+- expose `resolve_storage_paths`, `ensure_backup_dir`, and `prune_backups`;
+- when the user enables it, run the loopback MCP transport in `llm_bridge.rs`
+  (`llm_bridge_configure`, `llm_bridge_respond`) and forward tool calls to the webview.
+  See [LLM bridge](llm-bridge.md).
 
 SQLite queries and migrations remain in TypeScript, sent to a single-connection sqlx
 pool through the app's own `db_connect`/`db_execute`/`db_select` commands (`src/db.rs`)
@@ -360,3 +365,4 @@ default core access, notifications, and dialogs.
 - [AI, settings, and privacy](ai-settings-and-privacy.md)
 - [Email triage](email-triage.md)
 - [Calendar sync](calendar-sync.md)
+- [LLM bridge](llm-bridge.md)

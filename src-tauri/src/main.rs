@@ -3,6 +3,7 @@
 mod backup;
 mod db;
 mod email_triage_desktop;
+mod llm_bridge;
 mod oauth_loopback;
 mod provider_http;
 mod storage_paths;
@@ -46,6 +47,7 @@ fn main() {
         .manage(db::DbState::default())
         .manage(oauth_loopback::OAuthLoopbackState::default())
         .manage(email_triage_desktop::EmailTriageDesktopState::default())
+        .manage(llm_bridge::LlmBridgeState::default())
         .setup(|app| {
             email_triage_desktop::register_close_handler(app.handle());
             Ok(())
@@ -72,7 +74,9 @@ fn main() {
             yahoo_imap::yahoo_imap_copy_uid,
             yahoo_imap::yahoo_imap_uid_expunge,
             yahoo_imap::yahoo_imap_fetch_uid_message_id,
-            email_triage_desktop::email_triage_set_desktop_prefs
+            email_triage_desktop::email_triage_set_desktop_prefs,
+            llm_bridge::llm_bridge_configure,
+            llm_bridge::llm_bridge_respond
         ])
         .run(tauri::generate_context!())
         .expect("error while running Trackdidia");

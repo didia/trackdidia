@@ -11,6 +11,7 @@ import type { AiProposal, DailyEntry, DailyPomodoroStats, DailyTaskStats } from 
 import { getTodayDate } from "../lib/date";
 import { addDays } from "../lib/date";
 import { useAppContext } from "./app-context";
+import { subscribeGtdExternalChange } from "./gtd-external-change";
 import { useLatestValueSaver } from "./use-latest-value-saver";
 import { useLatestRequest } from "./use-latest-request";
 
@@ -62,9 +63,9 @@ export const useDailyEntry = (date: string) => {
 
   const dailyRequest = useLatestRequest();
   const load = useCallback(
-    () =>
+    (options?: { preserveVisibleState?: boolean }) =>
       dailyRequest.run(async (signal) => {
-        setLoading(true);
+        if (!options?.preserveVisibleState) setLoading(true);
         try {
           await saver.settled(date).catch((error: unknown) => {
             // A rejected write leaves a dirty snapshot that the load must keep editable.
@@ -113,6 +114,14 @@ export const useDailyEntry = (date: string) => {
     void load();
     return dailyRequest.invalidate;
   }, [load, dailyRequest]);
+
+  // Tasks added outside this screen (the LLM bridge) change the derived daily counts. Reload in
+  // place: `load` already keeps an unsaved local edit, and stored explicit metrics win over the
+  // refreshed suggestions.
+  useEffect(
+    () => subscribeGtdExternalChange(() => void load({ preserveVisibleState: true })),
+    [load],
+  );
 
   const save = useCallback(
     async (input: DailyEntrySaveInput) => {

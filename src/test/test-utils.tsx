@@ -70,6 +70,8 @@ export const renderWithApp = async (ui: ReactElement, options: RenderOptions = {
     },
     calendarDay: getTodayDate(),
     reconfigureEmailTriage: async () => undefined,
+    llmBridgeStatus: { state: "off" },
+    retryLlmBridge: () => undefined,
     ...options.contextOverrides,
   };
 

@@ -126,6 +126,8 @@ Important distinctions:
   context always wins and is not overwritten.
 - `projectId` is optional.
 - `source` distinguishes manual, Google-imported, and email-triage records.
+- Tasks added through the [LLM bridge](llm-bridge.md) are `source: "manual"` with a
+  `sourceExternalId` of `llm:<id>`; they default to the Inbox.
 - Email-triage tasks use `sourceExternalId` `email-triage:<accountId>:<conversationKey>` and optional `sourceUrl`.
 - imported recurrence fields and local recurrence-template fields coexist but
   represent different mechanisms.

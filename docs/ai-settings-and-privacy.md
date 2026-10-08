@@ -896,6 +896,15 @@ Current secret handling:
 Never add the key or request payloads to debug logs, tests, screenshots, docs, or
 committed fixtures.
 
+## LLM bridge (optional)
+
+Separate from the OpenRouter coach: when `llmBridgeEnabled` is on, a local MCP endpoint
+lets a client the user configured read project/context/task lists and add tasks. The
+bridge itself sends nothing over the network, but whatever the client reads is
+available to that client's model provider. The bearer token (`llmBridgeToken`) is
+stored in plaintext in the settings JSON and therefore appears in backups. See
+[LLM bridge](llm-bridge.md).
+
 ## Relationship activity draws
 
 When enabled, TrackDidia can generate one children activity and one spouse activity
@@ -1018,4 +1027,5 @@ See [Calendar sync](calendar-sync.md).
 - [Daily routines](daily-routines.md)
 - [GTD](gtd.md)
 - [Calendar sync](calendar-sync.md)
+- [LLM bridge](llm-bridge.md)
 - [Finance](finance.md#ai-categorization-phase-8)

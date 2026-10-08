@@ -11,6 +11,7 @@ import type {
 import { getTodayDate } from "../lib/date";
 import { planBulkBucketMove } from "../lib/gtd/bulk-move";
 import { useAppContext } from "./app-context";
+import { subscribeGtdExternalChange } from "./gtd-external-change";
 import { requestCalendarSync } from "./use-calendar-sync";
 
 export const useGtdWorkspace = () => {
@@ -58,6 +59,14 @@ export const useGtdWorkspace = () => {
   useEffect(() => {
     void load({ preserveVisibleState: true });
   }, [calendarDay, load]);
+
+  useEffect(
+    () =>
+      subscribeGtdExternalChange(() => {
+        void load({ preserveVisibleState: true, reconcile: true });
+      }),
+    [load],
+  );
 
   const api = useMemo(() => {
     const withReload =

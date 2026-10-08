@@ -30,6 +30,7 @@ import { useAutoBackupScheduler } from "./use-auto-backup-scheduler";
 import { useBootstrap } from "./use-bootstrap";
 import { useCalendarSync } from "./use-calendar-sync";
 import { useEmailTriageCoordinator } from "./use-email-triage-coordinator";
+import { useLlmBridge, type LlmBridgeStatus } from "./use-llm-bridge";
 import { useLocalDayReconciliation } from "./use-local-day-reconciliation";
 import { usePomodoroController, type PomodoroControllerValue } from "./use-pomodoro-controller";
 import { usePulseScheduler } from "./use-pulse-scheduler";
@@ -49,6 +50,10 @@ export interface AppContextValue {
   calendarDay: string;
   /** Restarts email-triage polling after enable/pause/interval changes. */
   reconfigureEmailTriage: () => Promise<void>;
+  /** State of the local MCP endpoint for LLM clients (Settings shows it). */
+  llmBridgeStatus: LlmBridgeStatus;
+  /** Re-attempts starting the endpoint after a failure, without changing any setting. */
+  retryLlmBridge: () => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -88,6 +93,14 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   useCalendarSync(repository, {
     browserPreview,
     allowStart: !loading && !startupError,
+  });
+
+  const { status: llmBridgeStatus, retry: retryLlmBridge } = useLlmBridge(repository, {
+    browserPreview,
+    allowStart: !loading && !startupError,
+    enabled: settings.llmBridgeEnabled,
+    port: settings.llmBridgePort,
+    token: settings.llmBridgeToken,
   });
 
   const getSettings = useCallback(() => settingsRef.current, []);
@@ -169,6 +182,8 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
             pulseRevision,
             calendarDay,
             reconfigureEmailTriage,
+            llmBridgeStatus,
+            retryLlmBridge,
           }
         : null,
     [
@@ -183,6 +198,8 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       pulseRevision,
       calendarDay,
       reconfigureEmailTriage,
+      llmBridgeStatus,
+      retryLlmBridge,
     ],
   );
 

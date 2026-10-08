@@ -28,6 +28,11 @@ export const applyLegacyAiMaxTokensUpgrade = (
   };
 };
 
+export const DEFAULT_LLM_BRIDGE_PORT = 47_821;
+
+export const isValidLlmBridgePort = (value: unknown): value is number =>
+  typeof value === "number" && Number.isInteger(value) && value >= 1_024 && value <= 65_535;
+
 export const defaultAppSettings = (): AppSettings => ({
   language: "fr",
   storageMode: "sqlite",
@@ -77,6 +82,9 @@ export const defaultAppSettings = (): AppSettings => ({
   financeNotifyRunout: true,
   financeSafetyBufferMinor: 0,
   financeCategoriesSeededAt: "",
+  llmBridgeEnabled: false,
+  llmBridgePort: DEFAULT_LLM_BRIDGE_PORT,
+  llmBridgeToken: "",
 });
 
 export const normalizeAppSettings = (
@@ -127,6 +135,9 @@ export const normalizeAppSettings = (
     typeof settings.aiCostPerMillionTokens === "number" && settings.aiCostPerMillionTokens >= 0
       ? settings.aiCostPerMillionTokens
       : defaults.aiCostPerMillionTokens,
+  llmBridgePort: isValidLlmBridgePort(settings.llmBridgePort)
+    ? settings.llmBridgePort
+    : defaults.llmBridgePort,
 });
 
 /** Only fields edited relative to the form's baseline are submitted. */

@@ -8,6 +8,7 @@ import { addDays } from "../lib/date";
 import { buildPomodoroSessionDetails, buildPomodoroState } from "../lib/pomodoro/engine";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { AppContext, type AppContextValue } from "./app-context";
+import { notifyGtdExternalChange } from "./gtd-external-change";
 import { useDailyEntry } from "./use-daily-entry";
 
 class FakeProvider implements AiProvider {
@@ -54,6 +55,8 @@ const wrapRepository = (repository: MemoryRepository) => {
     pulseRevision: 0,
     calendarDay: getTodayDate(),
     reconfigureEmailTriage: async () => undefined,
+    llmBridgeStatus: { state: "off" },
+    retryLlmBridge: () => undefined,
   };
 
   return ({ children }: PropsWithChildren) => (
@@ -98,6 +101,33 @@ describe("useDailyEntry", () => {
     expect(saved?.nightReflection).toBe("Ma reflexion");
     expect(result.current.entry?.morningIntention).toBe("Mon intention");
     expect(result.current.entry?.nightReflection).toBe("Ma reflexion");
+  });
+
+  it("refreshes derived task counts in place when tasks are added outside the screen", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const today = getTodayDate();
+    const { result } = renderHook(() => useDailyEntry(today), {
+      wrapper: wrapRepository(repository),
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await act(async () => {
+      await result.current.save((current) => updateNote(current, "morningIntention", "Mon plan"));
+    });
+    const before = result.current.taskStats?.tasksAdded ?? 0;
+
+    const seenLoading: boolean[] = [];
+    await repository.createTask({ title: "Ajoutée par un LLM", bucket: "next_action" });
+    await act(async () => {
+      notifyGtdExternalChange();
+      seenLoading.push(result.current.loading);
+    });
+
+    await waitFor(() => expect(result.current.taskStats?.tasksAdded).toBe(before + 1));
+    // Reloaded in place: no loading flash, and what the user wrote is kept.
+    expect(seenLoading).not.toContain(true);
+    expect(result.current.loading).toBe(false);
+    expect(result.current.entry?.morningIntention).toBe("Mon plan");
   });
 
   it("keeps queued saves attached to their date when navigating to another entry", async () => {

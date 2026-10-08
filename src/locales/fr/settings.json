@@ -95,6 +95,36 @@
     "saveError": "Échec de l'enregistrement des activités relationnelles.",
     "save": "Enregistrer les activités relationnelles"
   },
+  "llmBridge": {
+    "title": "Connexion LLM (MCP)",
+    "subtitle": "Expose un point d'accès local pour qu'un assistant (Claude Code, Claude Desktop…) puisse lister tes projets et ajouter des tâches, par défaut dans l'Inbox. Désactivé par défaut ; écoute uniquement sur 127.0.0.1 et exige le jeton ci-dessous.",
+    "browserPreview": "Disponible uniquement dans l'application de bureau.",
+    "enable": "Activer la connexion LLM",
+    "port": "Port local",
+    "portInvalid": "Le port doit être un entier entre 1024 et 65535.",
+    "save": "Enregistrer la connexion LLM",
+    "saving": "Enregistrement…",
+    "saved": "Connexion LLM enregistrée.",
+    "saveError": "Échec de l'enregistrement de la connexion LLM.",
+    "status": {
+      "off": "Arrêtée",
+      "starting": "Démarrage…",
+      "running": "Active sur 127.0.0.1:{{port}}",
+      "error": "Erreur : {{message}}"
+    },
+    "endpoint": "Adresse",
+    "token": "Jeton",
+    "show": "Afficher",
+    "hide": "Masquer",
+    "copyToken": "Copier le jeton",
+    "copyCommand": "Copier la commande Claude Code",
+    "copied": "Copié.",
+    "retry": "Réessayer",
+    "regenerate": "Régénérer le jeton",
+    "regenerateHint": "Les clients configurés avec l'ancien jeton seront refusés.",
+    "tokenLocalNotice": "Le jeton est stocké en clair dans la base locale, comme la clé OpenRouter. N'expose pas ce port hors de ta machine.",
+    "appMustRun": "L'application doit rester ouverte pour répondre aux requêtes."
+  },
   "backup": {
     "title": "Sauvegarde",
     "subtitle": "Écrit les snapshots SQLite dans un dossier Google Drive (Drive pour ordinateur). Seuls les {{n}} plus récents sont conservés. Les copies déjà présentes dans Application Support ne sont ni déplacées ni supprimées.",

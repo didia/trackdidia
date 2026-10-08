@@ -18,7 +18,7 @@ tauri-plugin-notification = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-autostart = "2"
-tokio = { version = "1", features = ["time", "rt-multi-thread"] }
+tokio = { version = "1", features = ["time", "rt-multi-thread", "net", "io-util", "sync"] }
 urlencoding = "2"
 imap = { version = "2.4", default-features = false, features = ["native-tls"] }
 imap-proto = "0.10.2"
