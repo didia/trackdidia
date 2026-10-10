@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppContext } from "../app/app-context";
+import { FinanceStatementImport } from "../components/finance/FinanceStatementImport";
 import { FinanceTabs } from "../components/finance/FinanceTabs";
 import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
@@ -402,6 +403,13 @@ export const FinanceImportPage = () => {
           </button>
         ) : null}
       </SectionCard>
+
+      <FinanceStatementImport
+        repository={repository}
+        settings={settings}
+        accounts={accounts}
+        onApplied={load}
+      />
 
       <SectionCard title={t("import.selectFileTitle")}>
         <input

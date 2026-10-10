@@ -43,7 +43,7 @@ describe("FinanceImportPage", () => {
     });
 
     const file = new File([MINT_FIXTURE], "mint-export.csv", { type: "text/csv" });
-    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const input = document.querySelector('input[accept=".csv,text/csv"]') as HTMLInputElement;
     await user.upload(input, file);
 
     expect(await screen.findByText("Mappage des colonnes")).toBeInTheDocument();
@@ -88,7 +88,7 @@ describe("FinanceImportPage", () => {
       contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
     });
 
-    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const input = document.querySelector('input[accept=".csv,text/csv"]') as HTMLInputElement;
 
     const uploadAndImport = async () => {
       const file = new File([MINT_FIXTURE], "mint-export.csv", { type: "text/csv" });
@@ -158,7 +158,7 @@ describe("FinanceImportPage", () => {
       contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
     });
 
-    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const input = document.querySelector('input[accept=".csv,text/csv"]') as HTMLInputElement;
 
     await user.upload(input, new File([firstFixture], "first.csv", { type: "text/csv" }));
     await screen.findByText("Mappage des colonnes");
@@ -218,7 +218,7 @@ describe("FinanceImportPage", () => {
     });
 
     const file = new File([MINT_FIXTURE], "mint-export.csv", { type: "text/csv" });
-    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const input = document.querySelector('input[accept=".csv,text/csv"]') as HTMLInputElement;
     await user.upload(input, file);
     await screen.findByText("Mappage des colonnes");
 
@@ -263,7 +263,7 @@ describe("FinanceImportPage", () => {
     });
 
     const file = new File([MINT_FIXTURE], "mint-export.csv", { type: "text/csv" });
-    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const input = document.querySelector('input[accept=".csv,text/csv"]') as HTMLInputElement;
     await user.upload(input, file);
     await screen.findByText("Mappage des colonnes");
     const bindingSelect = screen
@@ -294,7 +294,7 @@ describe("FinanceImportPage", () => {
       '"1/15/2026","Metro","METRO","54.32","debit","Groceries","Checking 1234567890","",""',
       '"1/16/2026","Broken","X","1.00","debit","Groceries","Checking 1234567890","","","EXTRA"',
     ].join("\n");
-    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const input = document.querySelector('input[accept=".csv,text/csv"]') as HTMLInputElement;
     await user.upload(input, new File([csv], "mint.csv", { type: "text/csv" }));
     await screen.findByText("Mappage des colonnes");
     expect(screen.getByText(/row skipped/)).toBeInTheDocument();

@@ -2130,6 +2130,12 @@ export class MemoryRepository implements AppRepository {
     return Promise.resolve(this.finance.snapshotAccountBalances(asOfDate));
   }
 
+  async applyFinanceStatementBalance(
+    input: import("../../domain/finance").ApplyFinanceStatementBalanceInput,
+  ) {
+    return Promise.resolve(this.finance.applyStatementBalance(input));
+  }
+
   async listFinanceAccountBalanceSnapshots(accountId: string) {
     return Promise.resolve(this.finance.listAccountBalanceSnapshots(accountId));
   }
