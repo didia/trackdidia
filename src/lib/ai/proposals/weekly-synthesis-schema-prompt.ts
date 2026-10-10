@@ -19,6 +19,11 @@ export const buildWeeklySynthesisSchemaPrompt = (): string => {
   - "tempsEtPlan" doit tenir compte non seulement des Pomodoros mais aussi, quand \`rescueTimeGoals\`
     est present dans le snapshot, de l'atteinte de chaque objectif RescueTime (\`achievement\`,
     \`actualHours\` vs \`weeklyTargetHours\`) — mentionner explicitement les objectifs mal atteints.
+  - Metriques de taches du snapshot (\`metrics\`): \`tachesAjoutes\` = taches nouvellement entrees ou
+    re-entrees dans Next Actions ce jour-la (le dimanche inclut le report de la semaine precedente);
+    \`tachesDebut\` / \`tachesFin\` = taille de la pile en debut / fin de journee (\`aggregation: "level"\`,
+    pas de \`weekTotal\`). Ne jamais additionner ces niveaux ni les presenter comme des « taches commencees »;
+    utiliser \`meaning\` quand il est fourni.
 - nextWeekObjectives: Array<{ title: string; kind: "time" | "manual"; targetHours: number | null; rescuetimeKind: "overview" | "category" | "activity" | "productivity" | null; rescuetimeThing: string | null }> (max 5)
   - kind "time": targetHours > 0 requis; rescuetimeKind + rescuetimeThing non vides requis
   - kind "manual": targetHours, rescuetimeKind et rescuetimeThing doivent etre null

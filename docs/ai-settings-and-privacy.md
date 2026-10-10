@@ -288,6 +288,12 @@ opens (event trigger) and on explicit **« Demander au coach »** / **« Régén
 The service builds a typed weekly snapshot via `buildWeeklySnapshot`, retrieves
 memories with weekly-specific kind priority, validates JSON, and persists proposals.
 
+Snapshot `metrics` carry `aggregation`: daily flows (`tachesAjoutes` = tasks newly entered or re-entered
+in Next Actions that day, Sunday including the previous week's carryover; `tachesRealises`) are summed into
+`weekTotal`, while pile-size levels (`tachesDebut`, `tachesFin`) have `aggregation: "level"` and a null
+`weekTotal` so the coach cannot present seven summed start-of-day piles as "tasks started". Task metrics also
+carry a plain-language `meaning`. Prompt version: `weekly_synthesis.v2`.
+
 | Type | Accept applies |
 |---|---|
 | `review_section_draft` | Persists the ritual note on the weekly review (a Dimanche draft accepted while reviewing a past week is written on the following week; opening that stored week shows the note even if it is also past), then marks the proposal accepted |

@@ -181,6 +181,31 @@ const buildWeeklyInputs = (overrides: Partial<WeeklySnapshotInputs>): WeeklySnap
 };
 
 describe("buildWeeklySnapshot", () => {
+  it("never sums start/end-of-day pile sizes into a weekly total", () => {
+    const weekEntries = ["2026-08-02", "2026-08-03", "2026-08-04"].map((date, index) => {
+      const entry = createEmptyDailyEntry(date);
+      entry.metrics.tachesDebut = 38;
+      entry.metrics.tachesFin = 35;
+      entry.metrics.tachesAjoutes = index === 0 ? 40 : 2;
+      entry.metrics.tachesRealises = 3;
+      return entry;
+    });
+
+    const snapshot = buildWeeklySnapshot(buildWeeklyInputs({ weekEntries }), "metrics");
+    const metric = (key: string) => snapshot.metrics.find((item) => item.key === key);
+
+    expect(metric("tachesDebut")).toMatchObject({
+      aggregation: "level",
+      weekTotal: null,
+      weekAverage: 38,
+    });
+    expect(metric("tachesFin")).toMatchObject({ aggregation: "level", weekTotal: null });
+    expect(metric("tachesAjoutes")).toMatchObject({ aggregation: "sum", weekTotal: 44 });
+    expect(metric("tachesRealises")).toMatchObject({ aggregation: "sum", weekTotal: 9 });
+    expect(metric("tachesDebut")?.meaning).toContain("jamais des taches commencees");
+    expect(metric("pomodoris")?.meaning).toBeUndefined();
+  });
+
   it("names the stale next action in gtd.staleNextActionsSample at full scope", () => {
     const staleTask = buildTask({
       id: "task-stale",
