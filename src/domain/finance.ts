@@ -235,6 +235,23 @@ export interface FinanceAccountBalanceSnapshot {
   createdAt: string;
 }
 
+export interface ApplyFinanceStatementBalanceInput {
+  accountId: string;
+  /** Closing date of the statement (`YYYY-MM-DD`). */
+  statementDate: string;
+  /** The account's signed balance on `statementDate` (liabilities are negative). */
+  balanceMinor: number;
+}
+
+export interface ApplyFinanceStatementBalanceResult {
+  account: FinanceAccount;
+  previousOpeningBalanceMinor: number;
+  /** Derived balance (opening + every transaction) before the statement was applied. */
+  previousDerivedBalanceMinor: number;
+  /** Derived balance (opening + every transaction) after; later transactions flow on top. */
+  derivedBalanceMinor: number;
+}
+
 export interface FinanceImportColumnMap {
   date?: number;
   description?: number;

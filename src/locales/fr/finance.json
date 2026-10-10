@@ -374,5 +374,48 @@
     "unassignedPerson": "Non assigné",
     "trendTitle": "Revenus et dépenses",
     "monthOverMonthTitle": "Comparaison d'un mois à l'autre"
+  },
+  "statement": {
+    "title": "Relevé de compte (PDF)",
+    "subtitle": "Utilisez le dernier relevé comme solde de départ d'un compte (chèques, épargne ou carte de crédit). Seul le relevé le plus récent compte : les transactions déjà importées jusqu'à sa date sont conservées, et le solde du compte correspondra exactement au relevé à cette date.",
+    "selectFile": "Choisir un relevé PDF",
+    "reading": "Lecture du relevé…",
+    "found": "Relevé « {{file}} » lu sur cet ordinateur.",
+    "confidence": {
+      "high": "Les valeurs semblent fiables — vérifiez-les tout de même.",
+      "medium": "Certaines valeurs sont incertaines — vérifiez-les attentivement.",
+      "low": "Peu de valeurs trouvées — complétez-les à la main ou essayez l'IA."
+    },
+    "candidates": "Plusieurs soldes trouvés — choisir le bon",
+    "candidatesPlaceholder": "Soldes détectés…",
+    "fields": {
+      "account": "Compte",
+      "accountPlaceholder": "Choisir un compte",
+      "date": "Date du relevé (fin de période)",
+      "balance": "Solde de fin de période (tel qu'imprimé)"
+    },
+    "dateAmbiguous": "La date du relevé peut se lire jour/mois ou mois/jour — vérifiez-la.",
+    "liabilityHint": "Pour une carte de crédit, une marge ou un prêt, entrez le montant dû tel qu'imprimé : il sera enregistré comme solde négatif.",
+    "currencyMismatch": "Le relevé semble en {{statement}} alors que le compte est en {{account}}.",
+    "olderThanApplied": "Un relevé plus récent a déjà été appliqué à ce compte. Appliquer celui-ci écrasera ce point de départ.",
+    "apply": "Utiliser comme solde de départ",
+    "applied": "Solde de « {{account}} » fixé à {{balance}} au {{date}} (avant : {{previous}} · maintenant : {{current}}).",
+    "errors": {
+      "unreadable": "Ce PDF n'a pas pu être lu.",
+      "encrypted": "Ce PDF est protégé par un mot de passe. Retirez la protection puis réessayez.",
+      "no_text": "Ce PDF ne contient pas de texte sélectionnable (document numérisé ?). Entrez le solde à la main.",
+      "invalidBalance": "Solde invalide.",
+      "applyFailed": "Impossible d'appliquer le relevé."
+    },
+    "ai": {
+      "summary": "Essayer l'IA pour relire le relevé",
+      "disclosure": "Cet extrait (en-tête et lignes de solde/période, numéros de compte masqués, sans les lignes de transactions) sera envoyé à votre fournisseur IA. Les noms et adresses de l'en-tête ne sont pas masqués.",
+      "run": "Analyser avec l'IA",
+      "running": "Analyse…",
+      "badge": "(lecture IA)",
+      "applied": "Valeurs mises à jour par l'IA — vérifiez-les avant d'appliquer.",
+      "nothingFound": "L'IA n'a rien trouvé de plus fiable.",
+      "failed": "L'analyse IA a échoué."
+    }
   }
 }

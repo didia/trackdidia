@@ -62,6 +62,8 @@ import type {
   FinanceCategory,
   FinanceCategoryBackfillEntry,
   FinanceCategorySuggestion,
+  ApplyFinanceStatementBalanceInput,
+  ApplyFinanceStatementBalanceResult,
   FinanceAccountBalanceSnapshot,
   FinanceImportBatch,
   FinanceImportProfile,
@@ -484,6 +486,15 @@ export interface AppRepository {
   /** Idempotent per day: derives and upserts one balance snapshot per account for `asOfDate`. */
   snapshotFinanceAccountBalances(asOfDate: string): Promise<number>;
   listFinanceAccountBalanceSnapshots(accountId: string): Promise<FinanceAccountBalanceSnapshot[]>;
+  /**
+   * Uses a statement's closing balance as the account's starting point: re-bases
+   * `openingBalanceMinor` so the derived balance as of `statementDate` equals `balanceMinor`
+   * (transactions posted after that date keep flowing on top) and records a `statement`-source
+   * balance snapshot for that date. One transaction; `finance_transactions` is never modified.
+   */
+  applyFinanceStatementBalance(
+    input: ApplyFinanceStatementBalanceInput,
+  ): Promise<ApplyFinanceStatementBalanceResult>;
 
   // --- Finance (Phase 7 — Forecasting and proactive alerts) -----------------------------
 

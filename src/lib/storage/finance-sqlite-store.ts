@@ -9,6 +9,8 @@ import type {
   BulkUpdateFinanceTransactionsPatch,
   DecideFinanceCategorySuggestionInput,
   FinanceAccount,
+  ApplyFinanceStatementBalanceInput,
+  ApplyFinanceStatementBalanceResult,
   FinanceAccountBalanceSnapshot,
   FinanceAccountFilters,
   FinanceAccountType,
@@ -396,6 +398,17 @@ const mapRecurringSeries = (row: RecurringSeriesRow): FinanceRecurringSeries => 
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
+
+const STATEMENT_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+const assertValidStatementInput = (input: ApplyFinanceStatementBalanceInput): void => {
+  if (!STATEMENT_DATE_PATTERN.test(input.statementDate)) {
+    throw new Error(`invalid statement date: ${input.statementDate}`);
+  }
+  if (!Number.isSafeInteger(input.balanceMinor)) {
+    throw new Error("statement balance must be an integer number of minor units");
+  }
+};
 
 interface BalanceSnapshotRow {
   account_id: string;
@@ -3086,6 +3099,55 @@ export class FinanceSqliteStore {
       }
     });
     return accountRows.length;
+  }
+
+  async applyStatementBalance(
+    input: ApplyFinanceStatementBalanceInput,
+  ): Promise<ApplyFinanceStatementBalanceResult> {
+    assertValidStatementInput(input);
+    const db = await this.getDb();
+    return this.inTransaction(db, async () => {
+      const accountRows = await db.select<AccountRow[]>(
+        "SELECT * FROM finance_accounts WHERE id = $1",
+        [input.accountId],
+      );
+      if (accountRows.length === 0) {
+        throw new Error(`finance account not found: ${input.accountId}`);
+      }
+      const [totals] = await db.select<{ all_minor: number; through_minor: number }[]>(
+        `SELECT
+           COALESCE(SUM(amount_minor), 0) AS all_minor,
+           COALESCE(SUM(CASE WHEN posted_date <= $2 THEN amount_minor ELSE 0 END), 0) AS through_minor
+         FROM finance_transactions WHERE account_id = $1`,
+        [input.accountId, input.statementDate],
+      );
+      const previousOpeningBalanceMinor = accountRows[0].opening_balance_minor;
+      const openingBalanceMinor = input.balanceMinor - totals.through_minor;
+      const now = nowIso();
+      await db.execute(
+        "UPDATE finance_accounts SET opening_balance_minor = $2, updated_at = $3 WHERE id = $1",
+        [input.accountId, openingBalanceMinor, now],
+      );
+      await db.execute(
+        `INSERT INTO finance_account_balance_snapshots (
+           account_id, as_of_date, balance_minor, source, created_at
+         ) VALUES ($1,$2,$3,'statement',$4)
+         ON CONFLICT(account_id, as_of_date) DO UPDATE SET
+           balance_minor = excluded.balance_minor,
+           source = 'statement'`,
+        [input.accountId, input.statementDate, input.balanceMinor, now],
+      );
+      const updated = await db.select<AccountRow[]>(
+        "SELECT * FROM finance_accounts WHERE id = $1",
+        [input.accountId],
+      );
+      return {
+        account: mapAccount(updated[0]),
+        previousOpeningBalanceMinor,
+        previousDerivedBalanceMinor: previousOpeningBalanceMinor + totals.all_minor,
+        derivedBalanceMinor: openingBalanceMinor + totals.all_minor,
+      };
+    });
   }
 
   async listAccountBalanceSnapshots(accountId: string): Promise<FinanceAccountBalanceSnapshot[]> {

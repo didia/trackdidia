@@ -435,7 +435,12 @@ storage-layer summary.
   and advisory month-close state (Phase 5; schema ships now, no arithmetic yet).
 - `finance_recurring_series`, `finance_account_balance_snapshots`: recurring-bill
   detection (Phase 6) and daily balance history, also read by the Phase 7
-  forecast engine (active series and `onBudgetBalance` respectively).
+  forecast engine (active series and `onBudgetBalance` respectively). Snapshot
+  `source` is `derived` (daily job) or `statement` (written by
+  `applyFinanceStatementBalance`, which also re-bases
+  `finance_accounts.opening_balance_minor`; see
+  [finance.md](finance.md#statement-import-financesimport-relevé-de-compte-pdf)).
+  No schema change: both values already fit the existing columns.
 - `finance_import_profiles`, `finance_import_batches`: saved column-mapping profiles
   (unique by header signature) and one row per import run, used by
   `undoFinanceImportBatch`.

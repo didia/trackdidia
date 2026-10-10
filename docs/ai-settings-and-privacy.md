@@ -650,6 +650,34 @@ be added later, behind this flag, following the pattern above — deliberately
 deferred rather than rushed. Finance's own AI categorization surface is
 separate and is covered below.
 
+### Finance statement extraction
+
+Reading a statement PDF is **local by default**: pdf.js extracts the text on this
+machine and a deterministic parser reads the balance and date (see
+[finance.md](finance.md#statement-import-financesimport-relevé-de-compte-pdf)). The
+AI step is an optional, click-to-run fallback — it is not an `AiSurface`, is not
+persisted, and never runs at startup or after an import.
+
+It is available only when `aiEnabled` is on, an API key is set, and
+`aiPayloadScope` is not `metrics` (this surface sends statement text, so
+`metrics` disables it, like merchant strings). Before the user confirms, the
+screen shows the exact excerpt that will be sent.
+
+**Sent** (one request, capped at 8 000 characters): the first 40 lines of the
+statement text plus every line that mentions a balance, statement, period, closing
+or opening figure, or a date (with one neighbouring line each side). Individual
+transaction rows are not selected. Digit runs of 6+ characters (account / card
+numbers, shown as `…` + last four), email addresses and phone-shaped groups are
+masked first. **Not a general redactor**: a name, postal address or other plain
+text in the statement header is sent as-is.
+
+**Never sent**: the app's own account names, institutions, ids or balances;
+transactions from the database; the OpenRouter key beyond the request's
+authorization header.
+
+The reply is validated and only pre-fills the review form; nothing is written until
+the user clicks "Utiliser comme solde de départ".
+
 ### Finance categorization (`finance_categorization`)
 
 Unlike every surface above, `finance_categorization` is not a coach/synthesis

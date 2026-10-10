@@ -3054,6 +3054,12 @@ export class TauriSqliteRepository implements AppRepository {
     return this.writeExclusive(() => this.getFinanceStore().snapshotAccountBalances(asOfDate));
   }
 
+  async applyFinanceStatementBalance(
+    input: import("../../domain/finance").ApplyFinanceStatementBalanceInput,
+  ) {
+    return this.writeExclusive(() => this.getFinanceStore().applyStatementBalance(input));
+  }
+
   async listFinanceAccountBalanceSnapshots(accountId: string) {
     return this.getFinanceStore().listAccountBalanceSnapshots(accountId);
   }

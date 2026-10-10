@@ -163,7 +163,8 @@ Phase 7 added `buildFinanceSnapshot`, `computeFinanceForecast`,
 covered below under "Forecasting and proactive alerts (Phase 7)". Phase 8
 added `listFinanceUnknownMerchants` and
 `applyFinanceCategorizationResults` — covered below under "AI categorization
-(Phase 8)".
+(Phase 8)". Statement import added `applyFinanceStatementBalance` — covered
+below under "Statement import".
 
 ### Learning entry point
 
@@ -586,6 +587,78 @@ shows a discrepancy banner whenever they disagree.
    the repository's own restriction; a refused-rows count from a partially
    refused undo (rows with `category_source = 'user'`) is surfaced as a
    banner.
+
+### Statement import (`/finances/import`, "Relevé de compte (PDF)")
+
+A card above the CSV importer reads the **latest statement** (PDF) of a chequing,
+savings or credit-card account and uses its closing balance as the account's
+starting point. Only the most recent statement matters: applying one replaces
+the previous starting point, it does not accumulate.
+
+1. **Extraction is local first.** `extractPdfText` (`src/lib/finance/statement-pdf.ts`)
+   reads the text layer with pdf.js (`pdfjs-dist`, legacy build, lazy-loaded chunk,
+   worker bundled with the app — no network). It reads at most the first 12
+   pages, groups fragments into visual lines, and separates columns with a wide
+   gap so `label    amount` rows stay on one line. A password-protected PDF or one
+   with no selectable text (a scan) raises `StatementPdfError`
+   (`encrypted` / `no_text` / `unreadable`); the UI shows a specific message and
+   the user can still type the balance.
+2. **Deterministic parser.** `parseStatementText`
+   (`src/lib/finance/statement-parser.ts`, pure, French + English labels) finds
+   the closing balance (`Nouveau solde`, `New balance`, `Closing balance`,
+   `Solde au …`, …), the opening balance, the statement date / period, the last
+   four digits of the account or card number, and a currency code. Lines about
+   an available balance, credit limit, minimum payment, payment or interest are
+   never read as the balance. Every plausible closing-balance line is kept in
+   `balanceCandidates` so a multi-account statement is resolved with one pick.
+   A numeric `a/b/yyyy` date that reads both ways is read day-first and flagged
+   `dateAmbiguous`. `confidence` is `high` only when a balance and an unambiguous
+   date were both found with no competing balances.
+3. **Optional AI fallback** (`src/lib/ai/finance-statement-extraction.ts`). Offered
+   only when `aiEnabled`, an API key is set and `aiPayloadScope` is not `metrics`,
+   and only when confidence is not `high`. It never runs automatically: the user
+   expands "Essayer l'IA…", sees the exact masked excerpt that would be sent, and
+   clicks "Analyser avec l'IA". It is a direct `chatCompletion` call (not a
+   persisted `AiSurface`; no `ai_messages` row) using the
+   `finance_categorization` model override or `aiModel`. Its output is validated
+   (decimal balance string, real ISO dates, 4-digit last-four, 3-letter currency)
+   and only pre-fills the review form. Privacy contract:
+   [ai-settings-and-privacy.md](ai-settings-and-privacy.md#finance-statement-extraction).
+4. **The user always reviews.** The form shows the account (auto-selected when the
+   statement's masked number matches exactly one account's `external_key`), the
+   statement date, and the balance exactly as printed. Warnings: ambiguous date,
+   currency different from the account's, and "a more recent statement was already
+   applied to this account".
+5. **Applying** calls `repository.applyFinanceStatementBalance({ accountId,
+   statementDate, balanceMinor })`. `balanceMinor` is the account's signed balance:
+   `statementAmountToAccountBalanceMinor` (`src/domain/finance/statement-balance.ts`)
+   stores an amount owed on a `credit_card` / `line_of_credit` / `loan` /
+   `mortgage` as a **negative** balance (a printed credit becomes positive) and
+   leaves asset accounts as printed.
+
+**What "use as the starting balance" means.** Balances stay derived
+(`opening + Σ transactions`). Applying a statement re-bases
+`opening_balance_minor` to `statementBalance − Σ(transactions on the account
+posted on or before statementDate)`, in one transaction. Consequences:
+
+- the derived balance **as of the statement date equals the statement exactly**;
+  transactions imported earlier are kept and absorbed, transactions after that date
+  keep flowing on top, and every consumer (accounts page, budget, net worth, daily
+  snapshots, forecast) stays correct with no change;
+- `finance_transactions` is never modified, and re-applying the same statement is
+  idempotent;
+- a `finance_account_balance_snapshots` row with `source = 'statement'` is written
+  for the statement date (the daily `derived` snapshot job later refreshes only its
+  balance, never its source). Earlier derived snapshots are not rewritten, so the
+  net-worth history can show a step at the point a statement re-bases an account;
+- `current_balance_minor` / `balance_as_of` (the manual reconciliation check) are
+  left as they were.
+
+`applyFinanceStatementBalance` is implemented identically in `FinanceSqliteStore`
+(one `BEGIN IMMEDIATE` block inside `writeExclusive`) and `FinanceMemoryStore`, and is
+covered by `repository.contract.ts`'s "applyFinanceStatementBalance" tests. Take a
+manual backup first, as for CSV imports: the previous opening balance is returned in
+the result (`previousOpeningBalanceMinor`) but there is no undo button.
 
 ### FinanceTransactionsPage (`/finances/transactions`)
 
@@ -1161,6 +1234,7 @@ with `finance.aiAutoApplyMinConfidenceInvalid`, like the safety buffer) — all 
 - [Storage and backups](storage-and-backups.md#finance-tables)
 - [Conventions](conventions.md) (minor-units rule)
 - [AI settings and privacy](ai-settings-and-privacy.md#finance-categorization-finance_categorization)
+- [Statement extraction privacy](ai-settings-and-privacy.md#finance-statement-extraction)
 - [specs/done/finance.md](../specs/done/finance.md) — the full phased spec, now shipped
 
 ## Suggestion lifecycle (Phase 4 review fixes)

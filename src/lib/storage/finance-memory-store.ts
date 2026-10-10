@@ -8,6 +8,8 @@ import type {
   BulkUpdateFinanceTransactionsPatch,
   DecideFinanceCategorySuggestionInput,
   FinanceAccount,
+  ApplyFinanceStatementBalanceInput,
+  ApplyFinanceStatementBalanceResult,
   FinanceAccountBalanceSnapshot,
   FinanceAccountFilters,
   FinanceAccountType,
@@ -1982,12 +1984,56 @@ export class FinanceMemoryStore {
         accountId: account.id,
         asOfDate,
         balanceMinor: balance,
-        source: "derived",
+        source: this.balanceSnapshots.get(key)?.source ?? "derived",
         createdAt: this.balanceSnapshots.get(key)?.createdAt ?? now,
       });
       count += 1;
     }
     return count;
+  }
+
+  applyStatementBalance(
+    input: ApplyFinanceStatementBalanceInput,
+  ): ApplyFinanceStatementBalanceResult {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.statementDate)) {
+      throw new Error(`invalid statement date: ${input.statementDate}`);
+    }
+    if (!Number.isSafeInteger(input.balanceMinor)) {
+      throw new Error("statement balance must be an integer number of minor units");
+    }
+    const account = this.accounts.get(input.accountId);
+    if (!account) {
+      throw new Error(`finance account not found: ${input.accountId}`);
+    }
+    let allMinor = 0;
+    let throughMinor = 0;
+    for (const txn of this.transactions.values()) {
+      if (txn.accountId !== account.id) {
+        continue;
+      }
+      allMinor += txn.amountMinor;
+      if (txn.postedDate <= input.statementDate) {
+        throughMinor += txn.amountMinor;
+      }
+    }
+    const now = nowIso();
+    const openingBalanceMinor = input.balanceMinor - throughMinor;
+    const updated: FinanceAccount = { ...account, openingBalanceMinor, updatedAt: now };
+    this.accounts.set(account.id, updated);
+    const key = `${account.id}\u0000${input.statementDate}`;
+    this.balanceSnapshots.set(key, {
+      accountId: account.id,
+      asOfDate: input.statementDate,
+      balanceMinor: input.balanceMinor,
+      source: "statement",
+      createdAt: this.balanceSnapshots.get(key)?.createdAt ?? now,
+    });
+    return {
+      account: updated,
+      previousOpeningBalanceMinor: account.openingBalanceMinor,
+      previousDerivedBalanceMinor: account.openingBalanceMinor + allMinor,
+      derivedBalanceMinor: openingBalanceMinor + allMinor,
+    };
   }
 
   listAccountBalanceSnapshots(accountId: string): FinanceAccountBalanceSnapshot[] {

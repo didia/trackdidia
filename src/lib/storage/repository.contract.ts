@@ -5630,6 +5630,84 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           expect(history).toEqual([{ asOfDate: "2026-01-10", netWorthMinor: 150_00 }]);
         });
 
+        it("applyFinanceStatementBalance re-bases the opening balance and records a statement snapshot", async () => {
+          const repository = await factory();
+          const checking = await repository.saveFinanceAccount(
+            account({ id: "account-checking", openingBalanceMinor: 10_00 }),
+          );
+          for (const [id, postedDate, amountMinor] of [
+            ["txn-before", "2026-03-10", -40_00],
+            ["txn-on", "2026-03-31", 100_00],
+            ["txn-after", "2026-04-02", -25_00],
+          ] as const) {
+            await repository.saveFinanceTransaction(
+              buildFinanceTransaction({ id, accountId: checking.id, postedDate, amountMinor }),
+            );
+          }
+
+          const result = await repository.applyFinanceStatementBalance({
+            accountId: checking.id,
+            statementDate: "2026-03-31",
+            balanceMinor: 1_000_00,
+          });
+
+          // 1 000.00 at the statement date = opening + (-40 + 100) -> opening 940.00
+          expect(result.account.openingBalanceMinor).toBe(940_00);
+          expect(result.previousOpeningBalanceMinor).toBe(10_00);
+          expect(result.previousDerivedBalanceMinor).toBe(10_00 + 35_00);
+          // The later transaction keeps flowing on top of the statement.
+          expect(result.derivedBalanceMinor).toBe(1_000_00 - 25_00);
+
+          const snapshots = await repository.listFinanceAccountBalanceSnapshots(checking.id);
+          expect(snapshots).toEqual([
+            expect.objectContaining({
+              asOfDate: "2026-03-31",
+              balanceMinor: 1_000_00,
+              source: "statement",
+            }),
+          ]);
+
+          // The daily derived snapshot never downgrades or distorts that day's statement point.
+          await repository.snapshotFinanceAccountBalances("2026-03-31");
+          const after = await repository.listFinanceAccountBalanceSnapshots(checking.id);
+          expect(after).toHaveLength(1);
+          expect(after[0]).toMatchObject({ balanceMinor: 1_000_00, source: "statement" });
+
+          // Transactions are untouched and a re-apply is idempotent.
+          const again = await repository.applyFinanceStatementBalance({
+            accountId: checking.id,
+            statementDate: "2026-03-31",
+            balanceMinor: 1_000_00,
+          });
+          expect(again.account.openingBalanceMinor).toBe(940_00);
+        });
+
+        it("applyFinanceStatementBalance validates its input", async () => {
+          const repository = await factory();
+          const checking = await repository.saveFinanceAccount(account({ id: "account-checking" }));
+          await expect(
+            repository.applyFinanceStatementBalance({
+              accountId: "missing",
+              statementDate: "2026-03-31",
+              balanceMinor: 1,
+            }),
+          ).rejects.toThrow(/not found/);
+          await expect(
+            repository.applyFinanceStatementBalance({
+              accountId: checking.id,
+              statementDate: "03/31/2026",
+              balanceMinor: 1,
+            }),
+          ).rejects.toThrow(/invalid statement date/);
+          await expect(
+            repository.applyFinanceStatementBalance({
+              accountId: checking.id,
+              statementDate: "2026-03-31",
+              balanceMinor: 1.5,
+            }),
+          ).rejects.toThrow(/integer/);
+        });
+
         it("importFinanceTransactions runs recurring detection inside the import transaction", async () => {
           const repository = await factory();
           await repository.saveFinanceAccount(account({ id: "account-1" }));
