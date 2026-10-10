@@ -8,9 +8,14 @@
 
 import { parseAmountToMinor } from "./money";
 
+/** A trailing credit / debit marker printed next to an amount. */
+export type StatementAmountMarker = "CR" | "DR";
+
 export interface StatementBalanceCandidate {
   /** The amount exactly as printed (liabilities print what is owed as a positive number). */
   amountMinor: number;
+  /** CR / DR printed after the amount, when present; it fixes the sign without negation. */
+  marker: StatementAmountMarker | null;
   /** The statement line the amount was read from, trimmed. */
   line: string;
 }
@@ -18,6 +23,8 @@ export interface StatementBalanceCandidate {
 export interface StatementExtraction {
   /** Closing / new balance as printed. */
   closingBalanceMinor: number | null;
+  /** CR / DR printed after the closing balance, when present. */
+  closingBalanceMarker: StatementAmountMarker | null;
   /** Opening / previous balance as printed. */
   openingBalanceMinor: number | null;
   /** Closing date of the statement (`YYYY-MM-DD`). */
@@ -33,6 +40,22 @@ export interface StatementExtraction {
   confidence: "high" | "medium" | "low";
   source: "pdf-text" | "ai";
 }
+
+/** A form with nothing filled in: the review form still opens so the user can type the figures. */
+export const emptyStatementExtraction = (): StatementExtraction => ({
+  closingBalanceMinor: null,
+  closingBalanceMarker: null,
+  openingBalanceMinor: null,
+  statementDate: null,
+  periodStart: null,
+  periodEnd: null,
+  accountLast4: null,
+  currency: null,
+  balanceCandidates: [],
+  dateAmbiguous: false,
+  confidence: "low",
+  source: "pdf-text",
+});
 
 export type StatementDateOrder = "DMY" | "MDY";
 
@@ -210,6 +233,7 @@ const AMOUNT_PATTERN =
 
 interface FoundAmount {
   amountMinor: number;
+  marker: StatementAmountMarker | null;
   index: number;
   length: number;
 }
@@ -235,7 +259,12 @@ export const findAmounts = (line: string): FoundAmount[] => {
     const signed = `${match[1] ? "-" : ""}${wrappedInParens ? "(" : ""}${body}${wrappedInParens ? ")" : ""}${match[3] ? ` ${match[3]}` : ""}`;
     const parsed = parseAmountToMinor(signed);
     if (parsed.ok) {
-      found.push({ amountMinor: parsed.amountMinor, index: start, length: match[0].length });
+      found.push({
+        amountMinor: parsed.amountMinor,
+        marker: match[3] ? (match[3].toUpperCase() as StatementAmountMarker) : null,
+        index: start,
+        length: match[0].length,
+      });
     }
   }
   return found;
@@ -292,8 +321,8 @@ const closingPriority = (line: string): number => {
   return index === -1 ? Number.POSITIVE_INFINITY : index;
 };
 
-const PERIOD_LABELS =
-  /(p[eé]riode|period|relev[eé]\s+du|statement\s+(?:period|from)|du\s+\d|from\s+)/i;
+/** A real period label — a bare "du 1er … au …" / "from … to …" can be a promo or rate window. */
+const PERIOD_LABELS = /(p[eé]riode|period|relev[eé]\s+du|statement\s+(?:period|from))/i;
 const STATEMENT_DATE_LABELS =
   /(statement\s+(?:closing\s+)?date|closing\s+date|date\s+(?:du\s+relev[eé]|de\s+relev[eé]|de\s+cl[oô]ture|d['’]\s?[eé]mission|de\s+facturation)|period\s+ending|billing\s+date|date\s+de\s+fin|[eé]tat\s+de\s+compte\s+au)/i;
 const RANGE_JOINER = /(?:\bau\b|\bto\b|\bthrough\b|\bjusqu['’]au\b|[-–—])/i;
@@ -319,17 +348,17 @@ const extractCurrency = (text: string): string | null => {
 };
 
 /** Reads the first amount on the line, falling back to the amount on the next line. */
-const amountForLabelLine = (lines: string[], index: number): number | null => {
+const amountForLabelLine = (lines: string[], index: number): FoundAmount | null => {
   const amounts = findAmounts(lines[index]);
   if (amounts.length > 0) {
     // Statement rows put the figure at the right-hand edge: take the last amount on the line.
-    return amounts[amounts.length - 1].amountMinor;
+    return amounts[amounts.length - 1];
   }
   const next = lines[index + 1];
   if (next !== undefined && !matchesAny(next, [...CLOSING_LABELS, ...OPENING_LABELS])) {
     const nextAmounts = findAmounts(next);
     if (nextAmounts.length === 1) {
-      return nextAmounts[0].amountMinor;
+      return nextAmounts[0];
     }
   }
   return null;
@@ -353,7 +382,7 @@ export const parseStatementText = (
   lines.forEach((line, index) => {
     if (matchesAny(line, OPENING_LABELS)) {
       if (openingBalanceMinor === null) {
-        openingBalanceMinor = amountForLabelLine(lines, index);
+        openingBalanceMinor = amountForLabelLine(lines, index)?.amountMinor ?? null;
       }
       return;
     }
@@ -361,11 +390,17 @@ export const parseStatementText = (
     if (!Number.isFinite(priority) || matchesAny(line, IGNORED_LABELS)) {
       return;
     }
-    const amountMinor = amountForLabelLine(lines, index);
-    if (amountMinor === null) {
+    const amount = amountForLabelLine(lines, index);
+    if (amount === null) {
       return;
     }
-    balanceCandidates.push({ amountMinor, line, priority, order: index });
+    balanceCandidates.push({
+      amountMinor: amount.amountMinor,
+      marker: amount.marker,
+      line,
+      priority,
+      order: index,
+    });
   });
 
   balanceCandidates.sort((a, b) => a.priority - b.priority || a.order - b.order);
@@ -378,66 +413,95 @@ export const parseStatementText = (
     }
   }
 
-  let periodStart: string | null = null;
-  let periodEnd: string | null = null;
-  let statementDate: string | null = null;
-  let dateAmbiguous = false;
-
-  for (const [index, line] of lines.entries()) {
-    const candidateLine = PERIOD_LABELS.test(line) || RANGE_JOINER.test(line) ? line : null;
-    if (!candidateLine || periodEnd) {
-      continue;
-    }
-    const dates = findDates(candidateLine, dateOrder);
+  type DateRange = { start: string; end: string; ambiguous: boolean };
+  const readRange = (line: string, next: string | undefined): DateRange | null => {
+    const dates = findDates(line, dateOrder);
     if (
       dates.length >= 2 &&
-      (PERIOD_LABELS.test(line) ||
-        RANGE_JOINER.test(line.slice(dates[0].index + dates[0].length, dates[1].index)))
+      RANGE_JOINER.test(line.slice(dates[0].index + dates[0].length, dates[1].index))
     ) {
-      periodStart = dates[0].iso;
-      periodEnd = dates[1].iso;
-      dateAmbiguous = dates[0].ambiguous || dates[1].ambiguous;
-      break;
+      return {
+        start: dates[0].iso,
+        end: dates[1].iso,
+        ambiguous: dates[0].ambiguous || dates[1].ambiguous,
+      };
     }
     // "Période du 1er mars" on one line and "au 31 mars 2026" on the next.
-    if (PERIOD_LABELS.test(line) && dates.length === 1) {
-      const next = lines[index + 1];
-      const nextDates = next !== undefined ? findDates(next, dateOrder) : [];
-      if (nextDates.length === 1 && RANGE_JOINER.test(next ?? "")) {
-        periodStart = dates[0].iso;
-        periodEnd = nextDates[0].iso;
-        dateAmbiguous = dates[0].ambiguous || nextDates[0].ambiguous;
+    if (dates.length === 1 && next !== undefined && RANGE_JOINER.test(next)) {
+      const nextDates = findDates(next, dateOrder);
+      if (nextDates.length === 1) {
+        return {
+          start: dates[0].iso,
+          end: nextDates[0].iso,
+          ambiguous: dates[0].ambiguous || nextDates[0].ambiguous,
+        };
+      }
+    }
+    return null;
+  };
+
+  // 1. A line that explicitly names the statement date wins over any range of dates.
+  let explicitDate: FoundDate | null = null;
+  for (const [index, line] of lines.entries()) {
+    if (!STATEMENT_DATE_LABELS.test(line)) {
+      continue;
+    }
+    const dates = findDates(line, dateOrder);
+    const nextDates = dates.length === 0 ? findDates(lines[index + 1] ?? "", dateOrder) : [];
+    const picked = dates[dates.length - 1] ?? nextDates[0];
+    if (picked) {
+      explicitDate = picked;
+      break;
+    }
+  }
+
+  // 2. Ranges under a real period label; two different ranges make the answer uncertain.
+  const labelledRanges: DateRange[] = [];
+  for (const [index, line] of lines.entries()) {
+    if (PERIOD_LABELS.test(line)) {
+      const range = readRange(line, lines[index + 1]);
+      if (range) {
+        labelledRanges.push(range);
+      }
+    }
+  }
+  const period = labelledRanges[0] ?? null;
+  const rangeConflict = new Set(labelledRanges.map((range) => range.end)).size > 1;
+
+  // 3. Last resort: any unlabelled range (cannot be trusted as "high").
+  let looseRange: DateRange | null = null;
+  if (!explicitDate && !period) {
+    for (const line of lines) {
+      looseRange = readRange(line, undefined);
+      if (looseRange) {
         break;
       }
     }
   }
 
-  if (!periodEnd) {
-    for (const [index, line] of lines.entries()) {
-      if (!STATEMENT_DATE_LABELS.test(line)) {
-        continue;
-      }
-      const dates = findDates(line, dateOrder);
-      const nextDates = dates.length === 0 ? findDates(lines[index + 1] ?? "", dateOrder) : [];
-      const picked = dates[dates.length - 1] ?? nextDates[0];
-      if (picked) {
-        statementDate = picked.iso;
-        dateAmbiguous = picked.ambiguous;
-        break;
-      }
-    }
-  }
-
-  if (periodEnd) {
-    statementDate = periodEnd;
-  } else if (!statementDate && closingDateFromBalanceLine) {
+  const periodStart = (period ?? looseRange)?.start ?? null;
+  const periodEnd = (period ?? looseRange)?.end ?? null;
+  let statementDate: string | null = null;
+  let dateAmbiguous = false;
+  if (explicitDate) {
+    statementDate = explicitDate.iso;
+    dateAmbiguous = explicitDate.ambiguous;
+  } else if (period) {
+    statementDate = period.end;
+    dateAmbiguous = period.ambiguous;
+  } else if (closingDateFromBalanceLine) {
     statementDate = closingDateFromBalanceLine.iso;
     dateAmbiguous = closingDateFromBalanceLine.ambiguous;
+  } else if (looseRange) {
+    statementDate = looseRange.end;
+    dateAmbiguous = looseRange.ambiguous;
   }
+  const dateUncertain =
+    dateAmbiguous || rangeConflict || (!explicitDate && !period && !closingDateFromBalanceLine);
 
   const closingBalanceMinor = best?.amountMinor ?? null;
   const confidence: StatementExtraction["confidence"] =
-    closingBalanceMinor !== null && statementDate && !dateAmbiguous
+    closingBalanceMinor !== null && statementDate && !dateUncertain
       ? balanceCandidates.length > 1 &&
         new Set(balanceCandidates.map((c) => c.amountMinor)).size > 1
         ? "medium"
@@ -448,6 +512,7 @@ export const parseStatementText = (
 
   return {
     closingBalanceMinor,
+    closingBalanceMarker: best?.marker ?? null,
     openingBalanceMinor,
     statementDate,
     periodStart,
@@ -456,9 +521,9 @@ export const parseStatementText = (
     currency: extractCurrency(text),
     balanceCandidates: balanceCandidates
       .slice(0, 6)
-      .map(({ amountMinor, line }) => ({ amountMinor, line })),
+      .map(({ amountMinor, marker, line }) => ({ amountMinor, marker, line })),
     dateAmbiguous,
-    confidence: confidence === "high" && dateAmbiguous ? "medium" : confidence,
+    confidence,
     source: "pdf-text",
   };
 };

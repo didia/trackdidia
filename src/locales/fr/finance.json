@@ -395,7 +395,7 @@
       "balance": "Solde de fin de période (tel qu'imprimé)"
     },
     "dateAmbiguous": "La date du relevé peut se lire jour/mois ou mois/jour — vérifiez-la.",
-    "liabilityHint": "Pour une carte de crédit, une marge ou un prêt, entrez le montant dû tel qu'imprimé : il sera enregistré comme solde négatif.",
+    "liabilityHint": "Pour une carte de crédit, une marge ou un prêt, entrez le montant dû tel qu'imprimé : il sera enregistré comme solde négatif. Un montant suivi de CR (crédit en votre faveur) est enregistré positif, suivi de DR (dû) négatif.",
     "currencyMismatch": "Le relevé semble en {{statement}} alors que le compte est en {{account}}.",
     "olderThanApplied": "Un relevé plus récent a déjà été appliqué à ce compte. Appliquer celui-ci écrasera ce point de départ.",
     "apply": "Utiliser comme solde de départ",
@@ -409,7 +409,7 @@
     },
     "ai": {
       "summary": "Essayer l'IA pour relire le relevé",
-      "disclosure": "Cet extrait (en-tête et lignes de solde/période, numéros de compte masqués, sans les lignes de transactions) sera envoyé à votre fournisseur IA. Les noms et adresses de l'en-tête ne sont pas masqués.",
+      "disclosure": "Cet extrait (en-tête et lignes de solde/période/date, numéros de compte et de carte masqués) sera envoyé à votre fournisseur IA. Les lignes qui ressemblent à des transactions sont écartées, mais le filtre est heuristique : relisez l'extrait. Les noms et adresses de l'en-tête ne sont pas masqués.",
       "run": "Analyser avec l'IA",
       "running": "Analyse…",
       "badge": "(lecture IA)",

@@ -140,6 +140,129 @@ describe("FinanceStatementImport", () => {
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     await user.upload(input, new File(["%PDF"], "scan.pdf", { type: "application/pdf" }));
     expect(await screen.findByText(/ne contient pas de texte sélectionnable/)).toBeInTheDocument();
+    // The review form is still available so the figures can be typed in by hand.
+    expect(screen.getByLabelText("Compte")).toBeInTheDocument();
+    expect(screen.getByLabelText("Date du relevé (fin de période)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Solde de fin de période (tel qu'imprimé)")).toBeInTheDocument();
+  });
+
+  it("lets a scanned statement be applied with hand-typed figures", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const checking = await repository.saveFinanceAccount(
+      baseAccount({ id: "checking", name: "Chèques" }),
+    );
+    const user = userEvent.setup();
+    await renderWithApp(
+      <FinanceStatementImport
+        repository={repository}
+        settings={defaultAppSettings()}
+        accounts={[checking]}
+        extractText={vi.fn().mockRejectedValue(new StatementPdfError("no_text", "no text"))}
+      />,
+      { repository },
+    );
+    await user.upload(
+      document.querySelector('input[type="file"]') as HTMLInputElement,
+      new File(["%PDF"], "scan.pdf", { type: "application/pdf" }),
+    );
+    await screen.findByText(/ne contient pas de texte sélectionnable/);
+    await user.selectOptions(screen.getByLabelText("Compte"), "checking");
+    await user.type(screen.getByLabelText("Date du relevé (fin de période)"), "2026-03-31");
+    await user.type(screen.getByLabelText("Solde de fin de période (tel qu'imprimé)"), "250.00");
+    await user.click(screen.getByRole("button", { name: "Utiliser comme solde de départ" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Solde de « Chèques »");
+    const [saved] = await repository.listFinanceAccounts({ includeClosed: true });
+    expect(saved.openingBalanceMinor).toBe(250_00);
+  });
+
+  it("keeps a CR marker as a credit on a credit card instead of flipping it to owed", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const card = await repository.saveFinanceAccount(
+      baseAccount({ id: "card", name: "Visa", type: "credit_card" }),
+    );
+    const user = userEvent.setup();
+    await renderWithApp(
+      <FinanceStatementImport
+        repository={repository}
+        settings={defaultAppSettings()}
+        accounts={[card]}
+        extractText={vi
+          .fn()
+          .mockResolvedValue("Statement date: March 31, 2026\nNew balance 45.10 CR")}
+      />,
+      { repository },
+    );
+    await user.upload(
+      document.querySelector('input[type="file"]') as HTMLInputElement,
+      new File(["%PDF"], "visa.pdf", { type: "application/pdf" }),
+    );
+    expect(await screen.findByDisplayValue("45.10 CR")).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Compte"), "card");
+    await user.click(screen.getByRole("button", { name: "Utiliser comme solde de départ" }));
+    await screen.findByRole("status");
+    const [saved] = await repository.listFinanceAccounts({ includeClosed: true });
+    expect(saved.openingBalanceMinor).toBe(4_510);
+  });
+
+  it("ignores a read that finishes after a newer file was chosen", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const user = userEvent.setup();
+    let releaseFirst: (text: string) => void = () => {};
+    const extractText = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<string>((resolve) => {
+            releaseFirst = resolve;
+          }),
+      )
+      .mockResolvedValueOnce("Statement date: 2026-04-30\nNew balance 222.00");
+    await renderWithApp(
+      <FinanceStatementImport
+        repository={repository}
+        settings={defaultAppSettings()}
+        accounts={[]}
+        extractText={extractText}
+      />,
+      { repository },
+    );
+    const input = () => document.querySelector('input[type="file"]') as HTMLInputElement;
+    await user.upload(input(), new File(["a"], "a.pdf", { type: "application/pdf" }));
+    await user.upload(input(), new File(["b"], "b.pdf", { type: "application/pdf" }));
+    expect(await screen.findByDisplayValue("222.00")).toBeInTheDocument();
+
+    releaseFirst("Statement date: 2026-03-31\nNew balance 111.00");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(screen.getByDisplayValue("222.00")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("111.00")).not.toBeInTheDocument();
+  });
+
+  it("allows choosing the same file again after a failed read", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const user = userEvent.setup();
+    const extractText = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("boom"))
+      .mockResolvedValueOnce("Statement date: 2026-03-31\nNew balance 10.00");
+    await renderWithApp(
+      <FinanceStatementImport
+        repository={repository}
+        settings={defaultAppSettings()}
+        accounts={[]}
+        extractText={extractText}
+      />,
+      { repository },
+    );
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(["x"], "same.pdf", { type: "application/pdf" });
+    await user.upload(input, file);
+    await screen.findByText("Ce PDF n'a pas pu être lu.");
+    await user.upload(input, file);
+    expect(await screen.findByDisplayValue("10.00")).toBeInTheDocument();
   });
 
   it("falls back to a generic message for any other read failure", async () => {

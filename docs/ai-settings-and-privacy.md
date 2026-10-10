@@ -665,11 +665,14 @@ screen shows the exact excerpt that will be sent.
 
 **Sent** (one request, capped at 8 000 characters): the first 40 lines of the
 statement text plus every line that mentions a balance, statement, period, closing
-or opening figure, or a date (with one neighbouring line each side). Individual
-transaction rows are not selected. Digit runs of 6+ characters (account / card
-numbers, shown as `…` + last four), email addresses and phone-shaped groups are
-masked first. **Not a general redactor**: a name, postal address or other plain
-text in the statement header is sent as-is.
+or opening figure, or a statement/billing date (with one neighbouring line each
+side). Lines that look like transactions (they start with a date and carry an
+amount, and are not balance/period lines) are filtered out first — a heuristic, so
+the user reviews the shown excerpt. Digit runs of 6+ characters, grouped card
+numbers (`4532 1234 5678 4242`, `4532-1234-…`, Amex grouping), and hyphen-grouped
+account numbers of 9+ digits (never ISO dates) are masked to `…` + last four, as
+are email addresses and phone-shaped groups. **Not a general redactor**: a name,
+postal address or other plain text in the statement header is sent as-is.
 
 **Never sent**: the app's own account names, institutions, ids or balances;
 transactions from the database; the OpenRouter key beyond the request's

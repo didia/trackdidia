@@ -137,4 +137,56 @@ describe("parseStatementText", () => {
   it("detects currency codes", () => {
     expect(parseStatementText("Statement CAD\nClosing balance 1.00").currency).toBe("CAD");
   });
+
+  it("prefers an explicit statement date over an earlier unrelated date range", () => {
+    const fr = parseStatementText(
+      [
+        "Taux promotionnel du 1er janvier 2026 au 31 décembre 2026",
+        "Date du relevé : 31 mars 2026",
+        "Nouveau solde 1 000,00 $",
+      ].join("\n"),
+    );
+    expect(fr).toMatchObject({ statementDate: "2026-03-31", closingBalanceMinor: 100_000 });
+    expect(fr.confidence).toBe("high");
+
+    const en = parseStatementText(
+      [
+        "Rate effective from January 1, 2026 to December 31, 2026",
+        "Statement date: March 31, 2026",
+        "New balance $1,000.00",
+      ].join("\n"),
+    );
+    expect(en.statementDate).toBe("2026-03-31");
+  });
+
+  it("does not treat an unlabelled range as a trustworthy statement period", () => {
+    const result = parseStatementText(
+      "Offre du 1er janvier 2026 au 31 décembre 2026\nNouveau solde 10,00 $",
+    );
+    expect(result.statementDate).toBe("2026-12-31");
+    expect(result.confidence).toBe("medium");
+  });
+
+  it("lowers confidence when two labelled periods disagree", () => {
+    const result = parseStatementText(
+      [
+        "Période du 1er mars 2026 au 31 mars 2026",
+        "Période précédente du 1er février 2026 au 28 février 2026",
+        "Nouveau solde 10,00 $",
+      ].join("\n"),
+    );
+    expect(result.confidence).toBe("medium");
+  });
+
+  it("reports CR / DR markers on the closing balance", () => {
+    expect(parseStatementText("New balance 45.10 CR\nStatement date 2026-03-31")).toMatchObject({
+      closingBalanceMinor: 4_510,
+      closingBalanceMarker: "CR",
+    });
+    expect(parseStatementText("New balance 45.10 DR\nStatement date 2026-03-31")).toMatchObject({
+      closingBalanceMinor: -4_510,
+      closingBalanceMarker: "DR",
+    });
+    expect(parseStatementText("New balance 45.10").closingBalanceMarker).toBeNull();
+  });
 });

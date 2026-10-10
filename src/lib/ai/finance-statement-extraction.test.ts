@@ -34,7 +34,40 @@ describe("maskStatementText", () => {
   });
 });
 
+describe("maskStatementText grouped numbers", () => {
+  it("masks grouped card numbers and hyphenated account numbers but not dates", () => {
+    const masked = maskStatementText(
+      "Card 4532 1234 5678 4242 and 4532-1234-5678-4242, compte 1234-5678901, Amex 3782 822463 10005, du 2026-03-01 au 2026-03-31",
+    );
+    expect(masked).not.toMatch(/4532/);
+    expect(masked).not.toMatch(/5678901/);
+    expect(masked).not.toMatch(/822463/);
+    expect(masked).toContain("…4242");
+    expect(masked).toContain("2026-03-01 au 2026-03-31");
+  });
+});
+
 describe("buildStatementAiExcerpt", () => {
+  it("never includes transaction-shaped rows, even inside the first 40 lines", () => {
+    const text = [
+      "Releve de compte",
+      ...Array.from(
+        { length: 20 },
+        (_, i) => `2026-03-${String(i + 1).padStart(2, "0")} EPICERIE ${i} 12.00`,
+      ),
+      "Nouveau solde 100.00",
+    ].join("\n");
+    const excerpt = buildStatementAiExcerpt(text);
+    expect(excerpt).not.toContain("EPICERIE");
+    expect(excerpt).toContain("Nouveau solde 100.00");
+  });
+
+  it("keeps a balance line that starts with a date", () => {
+    expect(buildStatementAiExcerpt("2026-03-31 Solde de clôture 100.00")).toContain(
+      "Solde de clôture",
+    );
+  });
+
   it("omits transaction rows far from balance lines and the header", () => {
     const transactions = Array.from(
       { length: 80 },

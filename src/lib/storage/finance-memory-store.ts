@@ -221,6 +221,11 @@ export class FinanceMemoryStore {
   saveAccount(account: FinanceAccount): FinanceAccount {
     const now = nowIso();
     const id = account.id || createEntityId("finance-account");
+    const existing = this.accounts.get(id);
+    if (existing && existing.openingBalanceMinor !== account.openingBalanceMinor) {
+      // A hand-edited opening balance supersedes the statement anchor (mirrors SQLite).
+      this.dropStatementAnchors(id);
+    }
     const saved: FinanceAccount = {
       ...account,
       id,
@@ -430,6 +435,12 @@ export class FinanceMemoryStore {
   }
 
   saveTransaction(txn: FinanceTransaction): FinanceTransaction {
+    const saved = this.saveTransactionUnanchored(txn);
+    this.reanchorStatementAccounts();
+    return saved;
+  }
+
+  private saveTransactionUnanchored(txn: FinanceTransaction): FinanceTransaction {
     const now = nowIso();
     const id = txn.id || createEntityId("finance-txn");
     const saved: FinanceTransaction = {
@@ -720,6 +731,12 @@ export class FinanceMemoryStore {
   // --- import -------------------------------------------------------------
 
   importTransactions(input: FinanceImportRequest): FinanceImportSummary {
+    const summary = this.importTransactionsUnanchored(input);
+    this.reanchorStatementAccounts();
+    return summary;
+  }
+
+  private importTransactionsUnanchored(input: FinanceImportRequest): FinanceImportSummary {
     const now = nowIso();
     const batchId = createEntityId("finance-import-batch");
 
@@ -1154,6 +1171,12 @@ export class FinanceMemoryStore {
   }
 
   undoImportBatch(batchId: string): UndoFinanceImportBatchResult {
+    const result = this.undoImportBatchUnanchored(batchId);
+    this.reanchorStatementAccounts();
+    return result;
+  }
+
+  private undoImportBatchUnanchored(batchId: string): UndoFinanceImportBatchResult {
     const batch = this.importBatches.get(batchId);
     if (!batch) {
       throw new Error(`finance import batch not found: ${batchId}`);
@@ -1980,16 +2003,55 @@ export class FinanceMemoryStore {
         }
       }
       const key = `${account.id}\u0000${asOfDate}`;
-      this.balanceSnapshots.set(key, {
-        accountId: account.id,
-        asOfDate,
-        balanceMinor: balance,
-        source: this.balanceSnapshots.get(key)?.source ?? "derived",
-        createdAt: this.balanceSnapshots.get(key)?.createdAt ?? now,
-      });
+      const existing = this.balanceSnapshots.get(key);
+      // A statement snapshot is the standing anchor: the daily job never overwrites its figure.
+      if (existing?.source !== "statement") {
+        this.balanceSnapshots.set(key, {
+          accountId: account.id,
+          asOfDate,
+          balanceMinor: balance,
+          source: "derived",
+          createdAt: existing?.createdAt ?? now,
+        });
+      }
       count += 1;
     }
     return count;
+  }
+
+  private dropStatementAnchors(accountId: string): void {
+    for (const [key, snapshot] of this.balanceSnapshots) {
+      if (snapshot.accountId === accountId && snapshot.source === "statement") {
+        this.balanceSnapshots.delete(key);
+      }
+    }
+  }
+
+  /**
+   * The latest statement is a standing anchor (mirrors `FinanceSqliteStore`): after any
+   * transaction write, import or undo, `opening = snapshot.balance − Σ(transactions posted on or
+   * before snapshot.asOfDate)` is recomputed for every account that has one.
+   */
+  private reanchorStatementAccounts(): void {
+    for (const snapshot of this.balanceSnapshots.values()) {
+      if (snapshot.source !== "statement") {
+        continue;
+      }
+      const account = this.accounts.get(snapshot.accountId);
+      if (!account) {
+        continue;
+      }
+      let throughMinor = 0;
+      for (const txn of this.transactions.values()) {
+        if (txn.accountId === account.id && txn.postedDate <= snapshot.asOfDate) {
+          throughMinor += txn.amountMinor;
+        }
+      }
+      const openingBalanceMinor = snapshot.balanceMinor - throughMinor;
+      if (openingBalanceMinor !== account.openingBalanceMinor) {
+        this.accounts.set(account.id, { ...account, openingBalanceMinor });
+      }
+    }
   }
 
   applyStatementBalance(
@@ -2020,13 +2082,14 @@ export class FinanceMemoryStore {
     const openingBalanceMinor = input.balanceMinor - throughMinor;
     const updated: FinanceAccount = { ...account, openingBalanceMinor, updatedAt: now };
     this.accounts.set(account.id, updated);
-    const key = `${account.id}\u0000${input.statementDate}`;
-    this.balanceSnapshots.set(key, {
+    // One standing anchor per account: the statement just applied replaces any earlier one.
+    this.dropStatementAnchors(account.id);
+    this.balanceSnapshots.set(`${account.id}\u0000${input.statementDate}`, {
       accountId: account.id,
       asOfDate: input.statementDate,
       balanceMinor: input.balanceMinor,
       source: "statement",
-      createdAt: this.balanceSnapshots.get(key)?.createdAt ?? now,
+      createdAt: now,
     });
     return {
       account: updated,

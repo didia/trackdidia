@@ -602,7 +602,9 @@ the previous starting point, it does not accumulate.
    gap so `label    amount` rows stay on one line. A password-protected PDF or one
    with no selectable text (a scan) raises `StatementPdfError`
    (`encrypted` / `no_text` / `unreadable`); the UI shows a specific message and
-   the user can still type the balance.
+   the review form still opens (blank) so the user can type the figures; the
+   file input is cleared so the same file can be chosen again to retry. A read or
+   AI reply that finishes after a newer file was chosen is discarded.
 2. **Deterministic parser.** `parseStatementText`
    (`src/lib/finance/statement-parser.ts`, pure, French + English labels) finds
    the closing balance (`Nouveau solde`, `New balance`, `Closing balance`,
@@ -611,9 +613,15 @@ the previous starting point, it does not accumulate.
    an available balance, credit limit, minimum payment, payment or interest are
    never read as the balance. Every plausible closing-balance line is kept in
    `balanceCandidates` so a multi-account statement is resolved with one pick.
-   A numeric `a/b/yyyy` date that reads both ways is read day-first and flagged
-   `dateAmbiguous`. `confidence` is `high` only when a balance and an unambiguous
-   date were both found with no competing balances.
+   The statement date is, in order: a line naming it explicitly (`Date du relevé`,
+   `Statement date`, …); the end of a range under a real period label (`Période`,
+   `Statement period`); a date printed on the balance line; and only as a last
+   resort any unlabelled "du … au …" range (a promo or rate window must never win
+   over an explicit date). A numeric `a/b/yyyy` date that reads both ways is read
+   day-first and flagged `dateAmbiguous`. A trailing `CR` / `DR` on the balance is
+   kept (`closingBalanceMarker`) and shown in the field. `confidence` is `high`
+   only when a balance and an unambiguous, non-conflicting date were found with no
+   competing balances.
 3. **Optional AI fallback** (`src/lib/ai/finance-statement-extraction.ts`). Offered
    only when `aiEnabled`, an API key is set and `aiPayloadScope` is not `metrics`,
    and only when confidence is not `high`. It never runs automatically: the user
@@ -634,12 +642,19 @@ the previous starting point, it does not accumulate.
    `statementAmountToAccountBalanceMinor` (`src/domain/finance/statement-balance.ts`)
    stores an amount owed on a `credit_card` / `line_of_credit` / `loan` /
    `mortgage` as a **negative** balance (a printed credit becomes positive) and
-   leaves asset accounts as printed.
+   leaves asset accounts as printed. A `CR` / `DR` marker states the direction
+   explicitly (`CR` in your favour = positive, `DR` owed = negative) and is used as
+   typed, without negating again (`statementInputToAccountBalanceMinor`).
 
 **What "use as the starting balance" means.** Balances stay derived
-(`opening + Σ transactions`). Applying a statement re-bases
-`opening_balance_minor` to `statementBalance − Σ(transactions on the account
-posted on or before statementDate)`, in one transaction. Consequences:
+(`opening + Σ transactions`). The applied statement is a **standing anchor**: its
+`statement` balance snapshot (one per account — applying a statement replaces the
+previous one) defines `opening_balance_minor = snapshot.balance − Σ(transactions on
+the account posted on or before snapshot.as_of_date)`. That formula runs when the
+statement is applied **and again after every transaction save, import and import
+undo** (`reanchorStatementAccounts` in both stores, inside the same transaction
+as the write), so a late in-period transaction or an undone batch never moves the
+balance on the statement date off the statement. Consequences:
 
 - the derived balance **as of the statement date equals the statement exactly**;
   transactions imported earlier are kept and absorbed, transactions after that date
@@ -648,15 +663,19 @@ posted on or before statementDate)`, in one transaction. Consequences:
 - `finance_transactions` is never modified, and re-applying the same statement is
   idempotent;
 - a `finance_account_balance_snapshots` row with `source = 'statement'` is written
-  for the statement date (the daily `derived` snapshot job later refreshes only its
-  balance, never its source). Earlier derived snapshots are not rewritten, so the
-  net-worth history can show a step at the point a statement re-bases an account;
+  for the statement date; the daily `derived` snapshot job never overwrites that
+  row. Derived snapshots already stored for other dates are not rewritten, so the
+  net-worth history can show a step where a statement re-bases an account;
+- hand-editing the account's opening balance on the accounts screen supersedes the
+  anchor (the statement snapshot is dropped), so the edit is never silently
+  reverted by the next transaction write;
 - `current_balance_minor` / `balance_as_of` (the manual reconciliation check) are
   left as they were.
 
 `applyFinanceStatementBalance` is implemented identically in `FinanceSqliteStore`
 (one `BEGIN IMMEDIATE` block inside `writeExclusive`) and `FinanceMemoryStore`, and is
-covered by `repository.contract.ts`'s "applyFinanceStatementBalance" tests. Take a
+covered by `repository.contract.ts`'s statement tests (late save, import and undo
+keep the anchor; same-day derived snapshot; replacement; manual-edit override). Take a
 manual backup first, as for CSV imports: the previous opening balance is returned in
 the result (`previousOpeningBalanceMinor`) but there is no undo button.
 

@@ -14,26 +14,46 @@
 
 import type { AppSettings } from "../../domain/types";
 import { parseAmountToMinor } from "../finance/money";
-import { findDates, type StatementExtraction } from "../finance/statement-parser";
+import { findAmounts, findDates, type StatementExtraction } from "../finance/statement-parser";
 import { chatCompletion } from "./openrouter-client";
 
 const HEADER_LINES = 40;
 const MAX_CHARS = 8_000;
 const KEYWORD_PATTERN =
-  /(solde|balance|relev[eé]|statement|p[eé]riode|period|closing|ending|opening|cl[oô]ture|nouveau|pr[eé]c[eé]dent|previous|date)/i;
+  /(solde|balance|relev[eé]|statement|p[eé]riode|period|closing|ending|opening|cl[oô]ture|nouveau|pr[eé]c[eé]dent|previous|date\s+(?:du|de|d['’]|of)|billing)/i;
 
+const maskedRun = (run: string): string => `…${run.replace(/\D/g, "").slice(-4)}`;
+
+/** Account / card numbers, however they are grouped, plus emails and phone-shaped groups. */
 export const maskStatementText = (text: string): string =>
   text
     .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, "[email]")
-    .replace(/\b\d{6,}\b(?![.,]\d{2}\b)/g, (run) => `…${run.slice(-4)}`)
+    // Grouped card numbers: 4532 1234 5678 4242, 4532-1234-5678-4242, Amex 3782 822463 10005.
+    .replace(/\b\d{4}(?:[ -]\d{4}){2,4}\b/g, maskedRun)
+    .replace(/\b\d{4}[ -]\d{6}[ -]\d{5}\b/g, maskedRun)
+    // Hyphen-grouped account / transit numbers (1234-5678901) — but never ISO dates (8 digits).
+    .replace(/\b\d{3,}(?:-\d{2,})+\b/g, (run) =>
+      run.replace(/\D/g, "").length >= 9 ? maskedRun(run) : run,
+    )
+    // Contiguous long digit runs, unless they are the whole part of an amount.
+    .replace(/\b\d{6,}\b(?![.,]\d{2}\b)/g, maskedRun)
     .replace(/\(?\b\d{3}\)?[-. ]\d{3}[-. ]\d{4}\b/g, "[tel]");
+
+/** A row that starts with a date and carries an amount without being a balance / period line. */
+export const looksLikeTransactionLine = (line: string): boolean => {
+  if (KEYWORD_PATTERN.test(line)) {
+    return false;
+  }
+  const [firstDate] = findDates(line);
+  return firstDate !== undefined && firstDate.index <= 2 && findAmounts(line).length > 0;
+};
 
 /** The bounded, masked excerpt of the statement that would be sent. Exposed for the UI preview. */
 export const buildStatementAiExcerpt = (text: string): string => {
   const lines = text
     .split("\n")
     .map((line) => line.replace(/\s+/g, " ").trim())
-    .filter((line) => line.length > 0);
+    .filter((line) => line.length > 0 && !looksLikeTransactionLine(line));
   const keep = new Set<number>();
   for (let index = 0; index < Math.min(HEADER_LINES, lines.length); index += 1) {
     keep.add(index);
@@ -120,6 +140,7 @@ export const parseStatementAiResponse = (text: string): StatementExtraction | nu
   }
   return {
     closingBalanceMinor,
+    closingBalanceMarker: null,
     openingBalanceMinor: asMinor(record.openingBalance),
     statementDate,
     periodStart: asIsoDate(record.periodStart),

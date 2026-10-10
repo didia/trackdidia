@@ -584,6 +584,18 @@ export class FinanceSqliteStore {
     const db = await this.getDb();
     const now = nowIso();
     const id = account.id || createEntityId("finance-account");
+    const [existing] = await db.select<{ opening_balance_minor: number }[]>(
+      "SELECT opening_balance_minor FROM finance_accounts WHERE id = $1",
+      [id],
+    );
+    if (existing && existing.opening_balance_minor !== account.openingBalanceMinor) {
+      // A hand-edited opening balance supersedes the statement anchor; keeping the anchor would
+      // silently revert the edit on the next transaction write.
+      await db.execute(
+        "DELETE FROM finance_account_balance_snapshots WHERE account_id = $1 AND source = 'statement'",
+        [id],
+      );
+    }
     await db.execute(
       `INSERT INTO finance_accounts (
         id, name, institution, type, currency, owner_person_id, ownership, on_budget, closed,
@@ -1000,6 +1012,7 @@ export class FinanceSqliteStore {
         now,
       ],
     );
+    await this.reanchorStatementAccounts(db);
     const rows = await db.select<TransactionRow[]>(
       "SELECT * FROM finance_transactions WHERE id = $1",
       [id],
@@ -1676,6 +1689,7 @@ export class FinanceSqliteStore {
         ],
       );
 
+      await this.reanchorStatementAccounts(db);
       await db.execute("COMMIT");
 
       return {
@@ -2255,6 +2269,7 @@ export class FinanceSqliteStore {
 
       // Drop unconfirmed recurring series whose transactions this undo removed.
       await this.detectRecurringSeriesWithDb(db, getTodayDate());
+      await this.reanchorStatementAccounts(db);
 
       await db.execute("COMMIT");
       return { deleted, refusedUserCategorized };
@@ -3093,12 +3108,37 @@ export class FinanceSqliteStore {
             account_id, as_of_date, balance_minor, source, created_at
           ) VALUES ($1,$2,$3,'derived',$4)
           ON CONFLICT(account_id, as_of_date) DO UPDATE SET
-            balance_minor = excluded.balance_minor`,
+            balance_minor = excluded.balance_minor
+          WHERE finance_account_balance_snapshots.source <> 'statement'`,
           [account.id, asOfDate, balanceByAccountId.get(account.id) ?? 0, now],
         );
       }
     });
     return accountRows.length;
+  }
+
+  /**
+   * The latest statement is a standing anchor: whenever a transaction is written, imported or
+   * undone, every account that has a `source = 'statement'` snapshot gets
+   * `opening = snapshot.balance − Σ(transactions posted on or before snapshot.as_of_date)` again,
+   * so the balance on the statement date keeps matching the statement. Callers hold the writer.
+   */
+  private async reanchorStatementAccounts(db: Database): Promise<void> {
+    const anchors = await db.select<BalanceSnapshotRow[]>(
+      "SELECT * FROM finance_account_balance_snapshots WHERE source = 'statement'",
+    );
+    for (const anchor of anchors) {
+      const [totals] = await db.select<{ through_minor: number }[]>(
+        `SELECT COALESCE(SUM(amount_minor), 0) AS through_minor
+         FROM finance_transactions WHERE account_id = $1 AND posted_date <= $2`,
+        [anchor.account_id, anchor.as_of_date],
+      );
+      await db.execute(
+        `UPDATE finance_accounts SET opening_balance_minor = $2
+         WHERE id = $1 AND opening_balance_minor <> $2`,
+        [anchor.account_id, anchor.balance_minor - totals.through_minor],
+      );
+    }
   }
 
   async applyStatementBalance(
@@ -3124,9 +3164,10 @@ export class FinanceSqliteStore {
       const previousOpeningBalanceMinor = accountRows[0].opening_balance_minor;
       const openingBalanceMinor = input.balanceMinor - totals.through_minor;
       const now = nowIso();
+      // One standing anchor per account: the statement just applied replaces any earlier one.
       await db.execute(
-        "UPDATE finance_accounts SET opening_balance_minor = $2, updated_at = $3 WHERE id = $1",
-        [input.accountId, openingBalanceMinor, now],
+        "DELETE FROM finance_account_balance_snapshots WHERE account_id = $1 AND source = 'statement'",
+        [input.accountId],
       );
       await db.execute(
         `INSERT INTO finance_account_balance_snapshots (
@@ -3136,6 +3177,10 @@ export class FinanceSqliteStore {
            balance_minor = excluded.balance_minor,
            source = 'statement'`,
         [input.accountId, input.statementDate, input.balanceMinor, now],
+      );
+      await db.execute(
+        "UPDATE finance_accounts SET opening_balance_minor = $2, updated_at = $3 WHERE id = $1",
+        [input.accountId, openingBalanceMinor, now],
       );
       const updated = await db.select<AccountRow[]>(
         "SELECT * FROM finance_accounts WHERE id = $1",

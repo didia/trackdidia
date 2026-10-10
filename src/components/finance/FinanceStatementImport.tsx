@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   ApplyFinanceStatementBalanceResult,
@@ -7,7 +7,7 @@ import type {
 } from "../../domain/finance";
 import {
   isLiabilityAccountType,
-  statementAmountToAccountBalanceMinor,
+  statementInputToAccountBalanceMinor,
 } from "../../domain/finance/statement-balance";
 import type { AppSettings } from "../../domain/types";
 import {
@@ -22,7 +22,12 @@ import {
   parseAmountToMinor,
 } from "../../lib/finance/money";
 import { extractPdfText, StatementPdfError } from "../../lib/finance/statement-pdf";
-import { parseStatementText, type StatementExtraction } from "../../lib/finance/statement-parser";
+import {
+  emptyStatementExtraction,
+  parseStatementText,
+  type StatementAmountMarker,
+  type StatementExtraction,
+} from "../../lib/finance/statement-parser";
 import type { AppRepository } from "../../lib/storage/repository";
 import { SectionCard } from "../SectionCard";
 
@@ -33,6 +38,16 @@ const readFileAsArrayBuffer = (file: File): Promise<ArrayBuffer> =>
     reader.onerror = () => reject(reader.error ?? new Error("file read failed"));
     reader.readAsArrayBuffer(file);
   });
+
+/** The balance as it is shown in the field: a CR / DR marker stays visible so the sign is not lost. */
+const formatBalanceInput = (
+  amountMinor: number,
+  marker: StatementAmountMarker | null,
+  exponent: number,
+): string =>
+  marker
+    ? `${minorToInputString(Math.abs(amountMinor), exponent)} ${marker}`
+    : minorToInputString(amountMinor, exponent);
 
 /** Binds a statement's masked account number to an account whose `external_key` ends the same way. */
 export const suggestAccountForStatement = (
@@ -83,6 +98,8 @@ export const FinanceStatementImport = ({
   const [result, setResult] = useState<ApplyFinanceStatementBalanceResult | null>(null);
   const [appliedBalanceMinor, setAppliedBalanceMinor] = useState(0);
   const [snapshots, setSnapshots] = useState<FinanceAccountBalanceSnapshot[]>([]);
+  // Bumped on every file selection: a read or AI reply that finishes for an older file is dropped.
+  const generationRef = useRef(0);
 
   const account = useMemo(
     () => accounts.find((candidate) => candidate.id === accountId) ?? null,
@@ -112,18 +129,20 @@ export const FinanceStatementImport = ({
     setBalanceInput(
       next.closingBalanceMinor === null
         ? ""
-        : minorToInputString(next.closingBalanceMinor, exponent),
+        : formatBalanceInput(next.closingBalanceMinor, next.closingBalanceMarker, exponent),
     );
     if (!keepAccount) {
       setAccountId(suggestAccountForStatement(accounts, next));
     }
   };
 
-  const handleFile = async (fileList: FileList | null) => {
-    const file = fileList?.[0];
+  const handleFile = async (file: File | undefined) => {
     if (!file) {
       return;
     }
+    generationRef.current += 1;
+    const generation = generationRef.current;
+    setAiRunning(false);
     setReadError(null);
     setAiNote(null);
     setApplyError(null);
@@ -134,16 +153,26 @@ export const FinanceStatementImport = ({
     setReading(true);
     try {
       const text = await extractText(await readFileAsArrayBuffer(file));
+      if (generation !== generationRef.current) {
+        return;
+      }
       setStatementText(text);
       fillFromExtraction(parseStatementText(text), false);
     } catch (error) {
+      if (generation !== generationRef.current) {
+        return;
+      }
       setReadError(
         error instanceof StatementPdfError
           ? t(`statement.errors.${error.code}`)
           : t("statement.errors.unreadable"),
       );
+      // Keep the review form open (blank) so the figures can still be typed by hand.
+      fillFromExtraction(emptyStatementExtraction(), false);
     } finally {
-      setReading(false);
+      if (generation === generationRef.current) {
+        setReading(false);
+      }
     }
   };
 
@@ -151,10 +180,14 @@ export const FinanceStatementImport = ({
     if (!statementText) {
       return;
     }
+    const generation = generationRef.current;
     setAiRunning(true);
     setAiNote(null);
     try {
       const aiResult = await extractStatementWithAi(statementText, settings);
+      if (generation !== generationRef.current) {
+        return;
+      }
       if (aiResult) {
         fillFromExtraction(aiResult, true);
         setAiNote(t("statement.ai.applied"));
@@ -162,9 +195,13 @@ export const FinanceStatementImport = ({
         setAiNote(t("statement.ai.nothingFound"));
       }
     } catch {
-      setAiNote(t("statement.ai.failed"));
+      if (generation === generationRef.current) {
+        setAiNote(t("statement.ai.failed"));
+      }
     } finally {
-      setAiRunning(false);
+      if (generation === generationRef.current) {
+        setAiRunning(false);
+      }
     }
   };
 
@@ -184,8 +221,9 @@ export const FinanceStatementImport = ({
     setApplying(true);
     setApplyError(null);
     try {
-      const balanceMinor = statementAmountToAccountBalanceMinor(
+      const balanceMinor = statementInputToAccountBalanceMinor(
         account.type,
+        balanceInput,
         parsedBalance.amountMinor,
       );
       const applied = await repository.applyFinanceStatementBalance({
@@ -213,7 +251,12 @@ export const FinanceStatementImport = ({
         <input
           type="file"
           accept=".pdf,application/pdf"
-          onChange={(event) => void handleFile(event.target.files)}
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            // Clear the input so choosing the same file again (e.g. to retry) fires onChange.
+            event.target.value = "";
+            void handleFile(file);
+          }}
         />
       </label>
       {reading ? <p className="field-card__helper">{t("statement.reading")}</p> : null}
@@ -236,7 +279,11 @@ export const FinanceStatementImport = ({
                   const picked = extraction.balanceCandidates[Number(event.target.value)];
                   if (picked) {
                     setBalanceInput(
-                      minorToInputString(picked.amountMinor, currencyExponent(currency)),
+                      formatBalanceInput(
+                        picked.amountMinor,
+                        picked.marker,
+                        currencyExponent(currency),
+                      ),
                     );
                   }
                 }}

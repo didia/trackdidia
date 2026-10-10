@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { parseStatementText } from "../../lib/finance/statement-parser";
 import {
-  computeOpeningBalanceForStatement,
   isLiabilityAccountType,
   statementAmountToAccountBalanceMinor,
+  statementInputToAccountBalanceMinor,
 } from "./statement-balance";
 
 describe("statementAmountToAccountBalanceMinor", () => {
@@ -26,22 +27,43 @@ describe("statementAmountToAccountBalanceMinor", () => {
   });
 });
 
-describe("computeOpeningBalanceForStatement", () => {
-  it("re-bases the opening balance so the balance at the statement date matches", () => {
-    const transactions = [
-      { postedDate: "2026-02-10", amountMinor: -40_00 },
-      { postedDate: "2026-03-31", amountMinor: 100_00 },
-      { postedDate: "2026-04-02", amountMinor: -25_00 },
-    ];
-    const opening = computeOpeningBalanceForStatement(1_000_00, "2026-03-31", transactions);
-    expect(opening).toBe(1_000_00 - 60_00);
-    // balance at statement date equals the statement; the later txn flows on top
-    const atStatement = opening + 60_00;
-    expect(atStatement).toBe(1_000_00);
-    expect(opening + transactions.reduce((sum, txn) => sum + txn.amountMinor, 0)).toBe(975_00);
+describe("statementInputToAccountBalanceMinor", () => {
+  it("keeps the printed convention when there is no marker", () => {
+    expect(statementInputToAccountBalanceMinor("credit_card", "1046.17", 104_617)).toBe(-104_617);
+    expect(statementInputToAccountBalanceMinor("credit_card", "-45.10", -4_510)).toBe(4_510);
+    expect(statementInputToAccountBalanceMinor("checking", "10.00", 1_000)).toBe(1_000);
   });
 
-  it("equals the statement balance when the account has no transactions", () => {
-    expect(computeOpeningBalanceForStatement(-300_00, "2026-03-31", [])).toBe(-300_00);
+  it("uses CR as a credit and DR as owed on a card, without negating again", () => {
+    expect(statementInputToAccountBalanceMinor("credit_card", "45.10 CR", 4_510)).toBe(4_510);
+    expect(statementInputToAccountBalanceMinor("credit_card", "1046.17 DR", -104_617)).toBe(
+      -104_617,
+    );
+  });
+
+  it("uses markers the same way on an asset account", () => {
+    expect(statementInputToAccountBalanceMinor("checking", "20.00 DR", -2_000)).toBe(-2_000);
+    expect(statementInputToAccountBalanceMinor("checking", "20.00 cr", 2_000)).toBe(2_000);
+  });
+
+  it("parses the marker from a real statement line end to end", () => {
+    const owed = parseStatementText("New balance 1,046.17 DR\nStatement date 2026-03-31");
+    const credit = parseStatementText("New balance 45.10 CR\nStatement date 2026-03-31");
+    expect(owed.closingBalanceMarker).toBe("DR");
+    expect(credit.closingBalanceMarker).toBe("CR");
+    expect(
+      statementInputToAccountBalanceMinor(
+        "credit_card",
+        "1046.17 DR",
+        owed.closingBalanceMinor ?? 0,
+      ),
+    ).toBe(-104_617);
+    expect(
+      statementInputToAccountBalanceMinor(
+        "credit_card",
+        "45.10 CR",
+        credit.closingBalanceMinor ?? 0,
+      ),
+    ).toBe(4_510);
   });
 });
