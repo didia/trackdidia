@@ -39,6 +39,23 @@ const metricWeeklyTargets: Partial<Record<MetricKey, number>> = {
   depenseCalorique: calorieTargetDaily * 7,
 };
 
+/**
+ * Daily task metrics read by the weekly coach. `tachesDebut` / `tachesFin` are the size of the
+ * pile at the start / end of a day (a level): adding seven of them yields a meaningless
+ * "tasks started" figure, so they expose no `weekTotal`. `tachesAjoutes` and `tachesRealises`
+ * are daily flows and can be summed.
+ */
+const levelMetricKeys: ReadonlySet<MetricKey> = new Set<MetricKey>(["tachesDebut", "tachesFin"]);
+
+const metricMeanings: Partial<Record<MetricKey, string>> = {
+  tachesDebut:
+    "Taille de la pile de taches actionnables au debut de chaque journee (niveau, jamais des taches commencees; ne pas additionner les jours)",
+  tachesFin: "Taches restantes en fin de chaque journee (niveau; ne pas additionner les jours)",
+  tachesAjoutes:
+    "Taches nouvellement entrees ou re-entrees dans Next Actions ce jour-la (le dimanche inclut le report de la semaine precedente)",
+  tachesRealises: "Taches completees ce jour-la",
+};
+
 export interface WeeklySnapshotAxis {
   key: string;
   label: string;
@@ -50,6 +67,11 @@ export interface WeeklySnapshotMetric {
   label: string;
   unit: string | null;
   target: number | null;
+  /** How `weekTotal` reads: "sum" for daily flows, "level" for start/end-of-day pile sizes. */
+  aggregation: "sum" | "level";
+  /** Plain-language definition for task metrics whose label alone is ambiguous. */
+  meaning?: string;
+  /** Null for "level" metrics: summing daily pile sizes is not a meaningful weekly figure. */
   weekTotal: number | null;
   weekAverage: number | null;
 }
@@ -217,14 +239,19 @@ export const buildWeeklySnapshot = (
       .map((entry) => resolveMetricValue(entry, definition.key))
       .filter((value): value is number => value !== null);
 
-    const weekTotal = values.length > 0 ? values.reduce((sum, value) => sum + value, 0) : null;
-    const weekAverage = values.length > 0 ? weekTotal! / values.length : null;
+    const isLevel = levelMetricKeys.has(definition.key);
+    const sum = values.length > 0 ? values.reduce((total, value) => total + value, 0) : null;
+    const weekTotal = isLevel ? null : sum;
+    const weekAverage = sum !== null ? sum / values.length : null;
+    const meaning = metricMeanings[definition.key];
 
     return {
       key: definition.key,
       label: definition.label,
       unit: definition.unit ?? null,
       target: metricWeeklyTargets[definition.key] ?? null,
+      aggregation: isLevel ? "level" : "sum",
+      ...(meaning ? { meaning } : {}),
       weekTotal,
       weekAverage,
     };

@@ -20,7 +20,7 @@ import { buildLocalWeeklySynthesis } from "./proposals/weekly-synthesis-fallback
 import { parseWeeklySynthesisJson } from "./proposals/weekly-synthesis-validator";
 import type { AiProvider } from "./provider";
 
-export const WEEKLY_SYNTHESIS_PROMPT_VERSION = "weekly_synthesis.v1";
+export const WEEKLY_SYNTHESIS_PROMPT_VERSION = "weekly_synthesis.v2";
 
 export interface WeeklySynthesisRequest {
   weekStartDate: string;
