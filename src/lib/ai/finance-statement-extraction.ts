@@ -147,6 +147,8 @@ export const parseStatementAiResponse = (text: string): StatementExtraction | nu
     periodEnd,
     accountLast4: last4,
     currency,
+    suggestedAccountName: null,
+    suggestedAccountType: null,
     balanceCandidates: [],
     dateAmbiguous: false,
     // An AI reading is never "high": the user must confirm it against the statement.

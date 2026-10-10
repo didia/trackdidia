@@ -377,7 +377,7 @@
   },
   "statement": {
     "title": "Relevé de compte (PDF)",
-    "subtitle": "Utilisez le dernier relevé comme solde de départ d'un compte (chèques, épargne ou carte de crédit). Seul le relevé le plus récent compte : les transactions déjà importées jusqu'à sa date sont conservées, et le solde du compte correspondra exactement au relevé à cette date.",
+    "subtitle": "Utilisez le dernier relevé comme solde de départ d'un compte (chèques, épargne ou carte de crédit) — vous pouvez créer le compte directement à partir du relevé. Seul le relevé le plus récent compte : les transactions déjà importées jusqu'à sa date sont conservées, et le solde du compte correspondra exactement au relevé à cette date.",
     "selectFile": "Choisir un relevé PDF",
     "reading": "Lecture du relevé…",
     "found": "Relevé « {{file}} » lu sur cet ordinateur.",
@@ -392,7 +392,8 @@
       "account": "Compte",
       "accountPlaceholder": "Choisir un compte",
       "date": "Date du relevé (fin de période)",
-      "balance": "Solde de fin de période (tel qu'imprimé)"
+      "balance": "Solde de fin de période (tel qu'imprimé)",
+      "accountNew": "+ Créer un nouveau compte à partir du relevé"
     },
     "dateAmbiguous": "La date du relevé peut se lire jour/mois ou mois/jour — vérifiez-la.",
     "liabilityHint": "Pour une carte de crédit, une marge ou un prêt, entrez le montant dû tel qu'imprimé : il sera enregistré comme solde négatif. Un montant suivi de CR (crédit en votre faveur) est enregistré positif, suivi de DR (dû) négatif.",
@@ -416,6 +417,13 @@
       "applied": "Valeurs mises à jour par l'IA — vérifiez-les avant d'appliquer.",
       "nothingFound": "L'IA n'a rien trouvé de plus fiable.",
       "failed": "L'analyse IA a échoué."
+    },
+    "new": {
+      "name": "Nom du compte",
+      "type": "Type de compte",
+      "currency": "Devise",
+      "institution": "Institution (facultatif)",
+      "invalidCurrency": "Devise invalide (code à 3 lettres, ex. CAD)."
     }
   }
 }

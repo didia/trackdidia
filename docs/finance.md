@@ -608,11 +608,20 @@ the previous starting point, it does not accumulate.
 2. **Deterministic parser.** `parseStatementText`
    (`src/lib/finance/statement-parser.ts`, pure, French + English labels) finds
    the closing balance (`Nouveau solde`, `New balance`, `Closing balance`,
-   `Solde au …`, …), the opening balance, the statement date / period, the last
+   `Total new balance`, `Account balance`, `Solde au …`, …), the opening balance, the
+   statement date / period, the product name and account type, the last
    four digits of the account or card number, and a currency code. Lines about
    an available balance, credit limit, minimum payment, payment or interest are
    never read as the balance. Every plausible closing-balance line is kept in
-   `balanceCandidates` so a multi-account statement is resolved with one pick.
+   `balanceCandidates` (the same figure printed twice, e.g. summary and payment
+   stub, counts once) so a multi-account statement is resolved with one pick.
+   Statements lay several columns on one visual line, so a label only owns the
+   amount printed **directly** after it (no words in between); a word attached to
+   the label (`Available`, `Rewards`, `Cash limit`, …) disqualifies it, interest
+   rates (`21.99 %`) are not money, and a bare `Balance` label only borrows the next
+   line's amount when the line is just that word. A currency code is trusted only
+   when a single code appears outside foreign-exchange notes
+   (`14.60 USD @ 1.4253 incl. 2.5% conversion fee` on a CAD card).
    The statement date is, in order: a line naming it explicitly (`Date du relevé`,
    `Statement date`, …); the end of a range under a real period label (`Période`,
    `Statement period`); a date printed on the balance line; and only as a last
@@ -632,9 +641,19 @@ the previous starting point, it does not accumulate.
    (decimal balance string, real ISO dates, 4-digit last-four, 3-letter currency)
    and only pre-fills the review form. Privacy contract:
    [ai-settings-and-privacy.md](ai-settings-and-privacy.md#finance-statement-extraction).
-4. **The user always reviews.** The form shows the account (auto-selected when the
-   statement's masked number matches exactly one account's `external_key`), the
-   statement date, and the balance exactly as printed. Warnings: ambiguous date,
+4. **The user always reviews.** The form shows the account, the statement date,
+   and the balance exactly as printed. The account is auto-selected when the
+   statement's masked number matches exactly one account's `external_key`;
+   otherwise "+ Créer un nouveau compte à partir du relevé" is pre-selected, with
+   name (the product name printed on the statement plus the last four digits, e.g.
+   "Walmart Rewards Mastercard (2035)"), type (credit card / chequing / savings /
+   line of credit inferred from the wording), and currency (the statement's code, else
+   `financeBaseCurrency`) pre-filled and editable. Applying then creates an
+   individual, on-budget account (`external_key` = `****<last4>` unless another
+   account already uses it, opening balance 0) and applies the statement to it in the
+   same click — a later statement for that card binds to it automatically. The new
+   account is selected before the balance is applied, so a failure part-way retries
+   against it instead of creating a duplicate. Warnings: ambiguous date,
    currency different from the account's, and "a more recent statement was already
    applied to this account".
 5. **Applying** calls `repository.applyFinanceStatementBalance({ accountId,

@@ -6,6 +6,7 @@
 // it before anything is written. `balanceCandidates` exposes every plausible closing-balance line
 // so a multi-account statement can be resolved with one click.
 
+import type { FinanceAccountType } from "../../domain/finance";
 import { parseAmountToMinor } from "./money";
 
 /** A trailing credit / debit marker printed next to an amount. */
@@ -34,6 +35,10 @@ export interface StatementExtraction {
   /** Last four digits of the account / card number when the statement masks it. */
   accountLast4: string | null;
   currency: string | null;
+  /** The product name printed on the statement (e.g. "Walmart Rewards Mastercard"), if found. */
+  suggestedAccountName: string | null;
+  /** Account type implied by the statement's wording, if any. */
+  suggestedAccountType: FinanceAccountType | null;
   balanceCandidates: StatementBalanceCandidate[];
   /** True when the only date readings were `dd/mm` vs `mm/dd` ambiguous. */
   dateAmbiguous: boolean;
@@ -51,6 +56,8 @@ export const emptyStatementExtraction = (): StatementExtraction => ({
   periodEnd: null,
   accountLast4: null,
   currency: null,
+  suggestedAccountName: null,
+  suggestedAccountType: null,
   balanceCandidates: [],
   dateAmbiguous: false,
   confidence: "low",
@@ -248,6 +255,9 @@ export const findAmounts = (line: string): FoundAmount[] => {
     const bodyStart = start + match[0].indexOf(body);
     const before = text[bodyStart - 1];
     const after = text[bodyStart + body.length];
+    if (/^\s?%/.test(text.slice(bodyStart + body.length))) {
+      continue; // an interest rate such as "21.99 %", not money
+    }
     // Skip fragments of dates (31.03.2026), longer digit runs, and reference numbers.
     if (
       (before !== undefined && /[\d/]/.test(before)) ||
@@ -271,7 +281,8 @@ export const findAmounts = (line: string): FoundAmount[] => {
 };
 
 const CLOSING_LABELS = [
-  /nouveau\s+solde/i,
+  /total\s+new\s+balance/i,
+  /nouveau\s+solde(?:\s+total)?/i,
   /new\s+balance/i,
   /closing\s+balance/i,
   /ending\s+balance/i,
@@ -282,9 +293,11 @@ const CLOSING_LABELS = [
   /solde\s+(?:actuel|courant)/i,
   /(?:current|ledger)\s+balance/i,
   /(?:balance|solde)\s+(?:as\s+of|at|on|au)\b/i,
-  /solde\s+(?:du\s+)?compte/i,
-  /(?:^|\s)solde\s*:?\s*$/i,
-  /(?:^|\s)balance\s*:?\s*$/i,
+  /(?:solde|balance)\s+(?:du\s+)?(?:compte|account)|account\s+balance/i,
+  // A bare "Balance" / "Solde" label only counts when the line is essentially just that word;
+  // a sentence that happens to end with "balance" must not borrow the next line's amount.
+  /^[\p{L} ]{0,20}\bsolde\s*:?\s*$/iu,
+  /^[\p{L} ]{0,20}\bbalance\s*:?\s*$/iu,
 ];
 
 const OPENING_LABELS = [
@@ -300,6 +313,10 @@ const OPENING_LABELS = [
 
 /** Lines carrying an amount that is *not* the balance the user is after. */
 const IGNORED_LABELS = [
+  /rewards?\b/i,
+  /r[eé]compenses?/i,
+  /\bpoints?\b/i,
+  /cash\s+limit/i,
   /available/i,
   /disponible/i,
   /credit\s+limit/i,
@@ -315,11 +332,6 @@ const IGNORED_LABELS = [
 
 const matchesAny = (line: string, patterns: RegExp[]): boolean =>
   patterns.some((pattern) => pattern.test(line));
-
-const closingPriority = (line: string): number => {
-  const index = CLOSING_LABELS.findIndex((pattern) => pattern.test(line));
-  return index === -1 ? Number.POSITIVE_INFINITY : index;
-};
 
 /** A real period label — a bare "du 1er … au …" / "from … to …" can be a promo or rate window. */
 const PERIOD_LABELS = /(p[eé]riode|period|relev[eé]\s+du|statement\s+(?:period|from))/i;
@@ -342,20 +354,130 @@ const extractAccountLast4 = (text: string): string | null => {
   return null;
 };
 
+/**
+ * A currency code is only trusted when exactly one code appears outside foreign-exchange notes
+ * ("14.60 USD @ 1.4253 incl. 2.5% conversion fee" on a CAD card is a purchase detail).
+ */
 const extractCurrency = (text: string): string | null => {
-  const match = text.match(/\b(CAD|USD|EUR|GBP|CHF)\b/);
-  return match ? match[1] : null;
+  const codes = new Set<string>();
+  for (const line of text.split("\n")) {
+    if (/@|conversion|taux\s+de\s+change|exchange\s+rate/i.test(line)) {
+      continue;
+    }
+    for (const match of line.matchAll(/\b(CAD|USD|EUR|GBP|CHF)\b/g)) {
+      codes.add(match[1]);
+    }
+  }
+  return codes.size === 1 ? [...codes][0] : null;
 };
 
-/** Reads the first amount on the line, falling back to the amount on the next line. */
-const amountForLabelLine = (lines: string[], index: number): FoundAmount | null => {
-  const amounts = findAmounts(lines[index]);
-  if (amounts.length > 0) {
-    // Statement rows put the figure at the right-hand edge: take the last amount on the line.
-    return amounts[amounts.length - 1];
+const PRODUCT_NAME_PATTERN =
+  /\b(mastercard|visa|american express|amex|carte|card|chequing|checking|savings|ch[eè]ques?|[eé]pargne|marge|line of credit)\b/i;
+
+/** A short, label-like line naming the product ("Walmart Rewards Mastercard"), not a sentence. */
+const extractAccountName = (lines: string[]): string | null => {
+  for (const line of lines) {
+    if (
+      line.length >= 6 &&
+      line.length <= 45 &&
+      line.split(" ").length <= 6 &&
+      !/[.,:;$\d*]/.test(line) &&
+      PRODUCT_NAME_PATTERN.test(line)
+    ) {
+      return line;
+    }
+  }
+  return null;
+};
+
+const inferAccountType = (text: string): FinanceAccountType | null => {
+  if (
+    /credit\s+limit|limite\s+de\s+cr[eé]dit|minimum\s+payment|paiement\s+minimum|mastercard|\bvisa\b|american express|\bamex\b/i.test(
+      text,
+    )
+  ) {
+    return "credit_card";
+  }
+  if (/line\s+of\s+credit|marge\s+de\s+cr[eé]dit/i.test(text)) {
+    return "line_of_credit";
+  }
+  if (/savings|[eé]pargne/i.test(text)) {
+    return "savings";
+  }
+  if (/chequing|checking|ch[eè]ques?/i.test(text)) {
+    return "checking";
+  }
+  return null;
+};
+
+interface LabelHit {
+  priority: number;
+  /** The amount printed directly after the label on the same line, if any. */
+  amount: FoundAmount | null;
+  /** The label ends the line, so its amount may sit on the next line. */
+  tail: boolean;
+}
+
+/**
+ * Finds the best label match on one visual line. Statements lay out several columns on one
+ * line ("Total new balance $6,460.31 Previous Rewards balance $9.17"), so a label only owns the
+ * amount that follows it *directly* — no words in between — and an ignored word right before or
+ * inside that label/amount span ("Available balance", "Rewards balance") disqualifies the hit.
+ */
+const findLabelHit = (line: string, patterns: RegExp[]): LabelHit | null => {
+  let best: LabelHit | null = null;
+  patterns.forEach((pattern, priority) => {
+    const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+    for (const match of line.matchAll(new RegExp(pattern.source, flags))) {
+      const start = match.index ?? 0;
+      const end = start + match[0].length;
+      let amountStart = end;
+      // "Solde au 31 mars 2026   5 678,90 $": a date may sit between the label and its amount.
+      const [leadingDate] = findDates(line.slice(end));
+      if (leadingDate && /^[\s:]*$/.test(line.slice(end, end + leadingDate.index))) {
+        amountStart = end + leadingDate.index + leadingDate.length;
+      }
+      const rest = line.slice(amountStart);
+      const first = findAmounts(rest)[0];
+      const amount =
+        first && !/[\p{L}\d]/u.test(rest.slice(0, first.index))
+          ? { ...first, index: first.index + amountStart }
+          : null;
+      const tail = !amount && rest.replace(/[\s.:·…_\-–$]/g, "") === "";
+      if (!amount && !tail) {
+        continue;
+      }
+      const previousWord = line.slice(0, start).trim().split(/\s+/).pop() ?? "";
+      // Only a directly adjacent modifier counts ("Rewards balance"); a word that ends a
+      // previous sentence ("…with your payment.") does not.
+      const wordBefore = /[\p{L}\d]$/u.test(previousWord) ? previousWord : "";
+      const span = `${wordBefore} ${line.slice(start, amount ? amount.index + amount.length : end)}`;
+      if (matchesAny(span, IGNORED_LABELS)) {
+        continue;
+      }
+      if (
+        !best ||
+        priority < best.priority ||
+        (priority === best.priority && !best.amount && amount)
+      ) {
+        best = { priority, amount, tail };
+      }
+    }
+  });
+  return best;
+};
+
+/** The labelled amount for a hit, falling back to a lone amount on the next line for a bare label. */
+const amountForHit = (lines: string[], index: number, hit: LabelHit): FoundAmount | null => {
+  if (hit.amount) {
+    return hit.amount;
   }
   const next = lines[index + 1];
-  if (next !== undefined && !matchesAny(next, [...CLOSING_LABELS, ...OPENING_LABELS])) {
+  if (
+    next !== undefined &&
+    lines[index].length <= 40 &&
+    !matchesAny(next, [...CLOSING_LABELS, ...OPENING_LABELS])
+  ) {
     const nextAmounts = findAmounts(next);
     if (nextAmounts.length === 1) {
       return nextAmounts[0];
@@ -380,17 +502,18 @@ export const parseStatementText = (
   let closingDateFromBalanceLine: { iso: string; ambiguous: boolean } | null = null;
 
   lines.forEach((line, index) => {
-    if (matchesAny(line, OPENING_LABELS)) {
+    const openingHit = findLabelHit(line, OPENING_LABELS);
+    if (openingHit) {
       if (openingBalanceMinor === null) {
-        openingBalanceMinor = amountForLabelLine(lines, index)?.amountMinor ?? null;
+        openingBalanceMinor = amountForHit(lines, index, openingHit)?.amountMinor ?? null;
       }
+      return; // an opening / previous balance line is never a closing candidate
+    }
+    const hit = findLabelHit(line, CLOSING_LABELS);
+    if (!hit) {
       return;
     }
-    const priority = closingPriority(line);
-    if (!Number.isFinite(priority) || matchesAny(line, IGNORED_LABELS)) {
-      return;
-    }
-    const amount = amountForLabelLine(lines, index);
+    const amount = amountForHit(lines, index, hit);
     if (amount === null) {
       return;
     }
@@ -398,7 +521,7 @@ export const parseStatementText = (
       amountMinor: amount.amountMinor,
       marker: amount.marker,
       line,
-      priority,
+      priority: hit.priority,
       order: index,
     });
   });
@@ -519,7 +642,17 @@ export const parseStatementText = (
     periodEnd,
     accountLast4: extractAccountLast4(text),
     currency: extractCurrency(text),
+    suggestedAccountName: extractAccountName(lines),
+    suggestedAccountType: inferAccountType(text),
+    // The same figure printed twice (summary + payment stub) is one candidate, not a conflict.
     balanceCandidates: balanceCandidates
+      .filter(
+        (candidate, index, all) =>
+          all.findIndex(
+            (other) =>
+              other.amountMinor === candidate.amountMinor && other.marker === candidate.marker,
+          ) === index,
+      )
       .slice(0, 6)
       .map(({ amountMinor, marker, line }) => ({ amountMinor, marker, line })),
     dateAmbiguous,

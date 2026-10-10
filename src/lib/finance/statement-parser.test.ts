@@ -189,4 +189,63 @@ describe("parseStatementText", () => {
     });
     expect(parseStatementText("New balance 45.10").closingBalanceMarker).toBeNull();
   });
+
+  it("reads a two-column credit-card summary where several figures share one visual line", () => {
+    // Mirrors a real bank layout (synthetic figures): left and right columns interleave, a rewards
+    // balance sits beside the real balance, rates print as "21.99 %", and a foreign purchase
+    // mentions USD with a conversion fee.
+    const result = parseStatementText(
+      [
+        "Summary of your account   PAGE 1 of 3",
+        "STATEMENT PERIOD AUG 24, 2026 – SEP 23, 2026",
+        "PAYMENT INFORMATION   CALCULATING YOUR BALANCE",
+        "Minimum Payment   $120.00 Previous balance   $1,000.00",
+        "Credit limit   $5,000.00 Payment & credits   -$900.00",
+        "Available credit   $3,500.00 New purchases & debits   $1,400.00",
+        "$9,250.00   $1,400.00",
+        "Available cash limit   Total New Charges   YOUR REWARDS",
+        "(included in credit limit)   Total new balance   $1,500.00 Previous Rewards balance   $9.17",
+        "Annual Interest Rates   In stores   $0.00",
+        "Account Balance   21.99 % Cash Advances   21.99 % Other retailers   $64.57",
+        "Based on the rate shown above, we estimate it will take 10 year(s) to repay the Balance",
+        "including promotional payment plans not yet due shown above.   New Rewards balance   $73.74",
+        "Example Rewards Mastercard",
+        "JANE DOE — **** **** **** 2035",
+        "15   Sep 03   Sep 04   SNBRU AIR BRUSSELS   $20.81",
+        "14.60 USD @ 1.425342465 incl. 2.5% conversion fee",
+        "Account number   **** **** **** 2035",
+        "Please return this stub with your payment.   Account balance   $1,500.00",
+      ].join("\n"),
+    );
+    expect(result).toMatchObject({
+      closingBalanceMinor: 150_000,
+      openingBalanceMinor: 100_000,
+      statementDate: "2026-09-23",
+      periodStart: "2026-08-24",
+      accountLast4: "2035",
+      currency: null,
+      suggestedAccountName: "Example Rewards Mastercard",
+      suggestedAccountType: "credit_card",
+      confidence: "high",
+    });
+    // The summary and the payment stub print the same figure: one candidate, not a conflict.
+    expect(result.balanceCandidates).toHaveLength(1);
+  });
+
+  it("does not read a rewards or available balance as the closing balance", () => {
+    const result = parseStatementText(
+      "Available balance $900.00\nNew Rewards balance $73.74\nStatement date 2026-03-31",
+    );
+    expect(result.closingBalanceMinor).toBeNull();
+  });
+
+  it("suggests an account type from the wording", () => {
+    expect(
+      parseStatementText("Chequing account statement\nClosing balance 1.00").suggestedAccountType,
+    ).toBe("checking");
+    expect(
+      parseStatementText("Relevé compte épargne\nSolde de clôture 1,00").suggestedAccountType,
+    ).toBe("savings");
+    expect(parseStatementText("Closing balance 1.00").suggestedAccountType).toBeNull();
+  });
 });

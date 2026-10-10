@@ -4,6 +4,7 @@ import type {
   ApplyFinanceStatementBalanceResult,
   FinanceAccount,
   FinanceAccountBalanceSnapshot,
+  FinanceAccountType,
 } from "../../domain/finance";
 import {
   isLiabilityAccountType,
@@ -19,6 +20,7 @@ import {
   currencyExponent,
   formatMoney,
   minorToInputString,
+  normalizeCurrencyCode,
   parseAmountToMinor,
 } from "../../lib/finance/money";
 import { extractPdfText, StatementPdfError } from "../../lib/finance/statement-pdf";
@@ -28,6 +30,7 @@ import {
   type StatementAmountMarker,
   type StatementExtraction,
 } from "../../lib/finance/statement-parser";
+import { logDebug } from "../../lib/debug";
 import type { AppRepository } from "../../lib/storage/repository";
 import { SectionCard } from "../SectionCard";
 
@@ -38,6 +41,18 @@ const readFileAsArrayBuffer = (file: File): Promise<ArrayBuffer> =>
     reader.onerror = () => reject(reader.error ?? new Error("file read failed"));
     reader.readAsArrayBuffer(file);
   });
+
+/** Select value meaning "create the account from this statement". */
+const NEW_ACCOUNT = "__new__";
+
+const NEW_ACCOUNT_TYPES: FinanceAccountType[] = [
+  "checking",
+  "savings",
+  "credit_card",
+  "line_of_credit",
+  "loan",
+  "mortgage",
+];
 
 /** The balance as it is shown in the field: a CR / DR marker stays visible so the sign is not lost. */
 const formatBalanceInput = (
@@ -87,6 +102,10 @@ export const FinanceStatementImport = ({
   const [statementText, setStatementText] = useState<string | null>(null);
   const [extraction, setExtraction] = useState<StatementExtraction | null>(null);
   const [accountId, setAccountId] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newInstitution, setNewInstitution] = useState("");
+  const [newType, setNewType] = useState<FinanceAccountType>("checking");
+  const [newCurrency, setNewCurrency] = useState(settings.financeBaseCurrency);
   const [statementDate, setStatementDate] = useState("");
   const [balanceInput, setBalanceInput] = useState("");
   const [reading, setReading] = useState(false);
@@ -101,13 +120,16 @@ export const FinanceStatementImport = ({
   // Bumped on every file selection: a read or AI reply that finishes for an older file is dropped.
   const generationRef = useRef(0);
 
+  const creating = accountId === NEW_ACCOUNT;
   const account = useMemo(
     () => accounts.find((candidate) => candidate.id === accountId) ?? null,
     [accounts, accountId],
   );
+  const accountType = creating ? newType : (account?.type ?? null);
+  const newCurrencyCode = normalizeCurrencyCode(newCurrency);
 
   useEffect(() => {
-    if (!accountId) {
+    if (!accountId || accountId === NEW_ACCOUNT) {
       setSnapshots([]);
       return;
     }
@@ -132,7 +154,18 @@ export const FinanceStatementImport = ({
         : formatBalanceInput(next.closingBalanceMinor, next.closingBalanceMarker, exponent),
     );
     if (!keepAccount) {
-      setAccountId(suggestAccountForStatement(accounts, next));
+      const matched = suggestAccountForStatement(accounts, next);
+      const hasReading =
+        next.closingBalanceMinor !== null ||
+        next.accountLast4 !== null ||
+        next.suggestedAccountName !== null;
+      setAccountId(matched || (hasReading ? NEW_ACCOUNT : ""));
+      // Pre-fill the "create account" fields from what the statement says about itself.
+      const baseName = next.suggestedAccountName ?? "";
+      setNewName(baseName && next.accountLast4 ? `${baseName} (${next.accountLast4})` : baseName);
+      setNewInstitution("");
+      setNewType(next.suggestedAccountType ?? "checking");
+      setNewCurrency(next.currency ?? settings.financeBaseCurrency);
     }
   };
 
@@ -162,6 +195,12 @@ export const FinanceStatementImport = ({
       if (generation !== generationRef.current) {
         return;
       }
+      // Name and message only: pdf.js errors carry no statement content, and this is the only
+      // trace of why a file could not be read inside the desktop webview.
+      logDebug("warn", "finance.statement", "Lecture du releve PDF impossible", {
+        name: error instanceof Error ? error.name : "unknown",
+        message: error instanceof Error ? error.message : String(error),
+      });
       setReadError(
         error instanceof StatementPdfError
           ? t(`statement.errors.${error.code}`)
@@ -205,29 +244,66 @@ export const FinanceStatementImport = ({
     }
   };
 
-  const currency = account?.currency ?? settings.financeBaseCurrency;
+  const currency = creating
+    ? (newCurrencyCode ?? settings.financeBaseCurrency)
+    : (account?.currency ?? settings.financeBaseCurrency);
   const parsedBalance = parseAmountToMinor(balanceInput, { exponent: currencyExponent(currency) });
   const dateValid = /^\d{4}-\d{2}-\d{2}$/.test(statementDate);
   const newerStatement =
     dateValid && snapshots.some((s) => s.source === "statement" && s.asOfDate > statementDate);
   const currencyMismatch =
     account !== null && extraction?.currency && extraction.currency !== account.currency;
-  const canApply = account !== null && dateValid && parsedBalance.ok && !applying;
+  const accountReady = creating
+    ? newName.trim().length > 0 && newCurrencyCode !== null
+    : account !== null;
+  const canApply = accountReady && dateValid && parsedBalance.ok && !applying;
 
   const apply = async () => {
-    if (!account || !parsedBalance.ok || !dateValid) {
+    if (!accountReady || !accountType || !parsedBalance.ok || !dateValid) {
       return;
     }
     setApplying(true);
     setApplyError(null);
     try {
+      let target = account;
+      if (creating && newCurrencyCode) {
+        // Create the account straight from the statement. It is selected right away so a failure
+        // later in this call retries against it instead of creating a duplicate.
+        const key = extraction?.accountLast4 ? `****${extraction.accountLast4}` : null;
+        const keyTaken =
+          key !== null && accounts.some((candidate) => candidate.externalKey === key);
+        target = await repository.saveFinanceAccount({
+          id: "",
+          name: newName.trim(),
+          institution: newInstitution.trim() || null,
+          type: newType,
+          currency: newCurrencyCode,
+          ownerPersonId: null,
+          ownership: "individual",
+          onBudget: true,
+          closed: false,
+          openingBalanceMinor: 0,
+          currentBalanceMinor: null,
+          balanceAsOf: null,
+          externalKey: keyTaken ? null : key,
+          notes: null,
+          sortOrder: accounts.length,
+          createdAt: "",
+          updatedAt: "",
+        });
+        setAccountId(target.id);
+        await onApplied?.();
+      }
+      if (!target) {
+        return;
+      }
       const balanceMinor = statementInputToAccountBalanceMinor(
-        account.type,
+        target.type,
         balanceInput,
         parsedBalance.amountMinor,
       );
       const applied = await repository.applyFinanceStatementBalance({
-        accountId: account.id,
+        accountId: target.id,
         statementDate,
         balanceMinor,
       });
@@ -303,6 +379,7 @@ export const FinanceStatementImport = ({
               <span>{t("statement.fields.account")}</span>
               <select value={accountId} onChange={(event) => setAccountId(event.target.value)}>
                 <option value="">{t("statement.fields.accountPlaceholder")}</option>
+                <option value={NEW_ACCOUNT}>{t("statement.fields.accountNew")}</option>
                 {accounts.map((candidate) => (
                   <option key={candidate.id} value={candidate.id}>
                     {candidate.name}
@@ -329,10 +406,50 @@ export const FinanceStatementImport = ({
             </label>
           </div>
 
+          {creating ? (
+            <div className="form-grid">
+              <label>
+                <span>{t("statement.new.name")}</span>
+                <input value={newName} onChange={(event) => setNewName(event.target.value)} />
+              </label>
+              <label>
+                <span>{t("statement.new.type")}</span>
+                <select
+                  value={newType}
+                  onChange={(event) => setNewType(event.target.value as FinanceAccountType)}
+                >
+                  {NEW_ACCOUNT_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                      {t(`accounts.types.${type}`)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>{t("statement.new.currency")}</span>
+                <input
+                  value={newCurrency}
+                  maxLength={3}
+                  onChange={(event) => setNewCurrency(event.target.value.toUpperCase())}
+                />
+              </label>
+              <label>
+                <span>{t("statement.new.institution")}</span>
+                <input
+                  value={newInstitution}
+                  onChange={(event) => setNewInstitution(event.target.value)}
+                />
+              </label>
+            </div>
+          ) : null}
+          {creating && newCurrencyCode === null ? (
+            <p className="field-error">{t("statement.new.invalidCurrency")}</p>
+          ) : null}
+
           {extraction.dateAmbiguous ? (
             <p className="banner">{t("statement.dateAmbiguous")}</p>
           ) : null}
-          {account && isLiabilityAccountType(account.type) ? (
+          {accountType && isLiabilityAccountType(accountType) ? (
             <p className="field-card__helper">{t("statement.liabilityHint")}</p>
           ) : null}
           {currencyMismatch ? (
