@@ -200,7 +200,7 @@ export const FinanceReviewPage = () => {
     });
 
   return (
-    <div className="page">
+    <div className="page finance-page">
       <PageHeader eyebrow={t("review.hero.eyebrow")} title={t("review.hero.title")} />
       <FinanceTabs />
 

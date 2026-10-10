@@ -29,7 +29,8 @@ integrations. The one listening socket is the opt-in, loopback-only [LLM bridge]
 | Copy | i18next + react-i18next, French-only, one JSON namespace per file under `src/locales/fr/` |
 | Optional AI | OpenRouter chat-completions-compatible endpoint |
 
-Styling is a single custom stylesheet in `src/styles.css`; there is no component
+Styling is custom CSS in `src/styles.css` plus the finance module's scoped
+`src/styles-finance.css`; there is no component
 framework or external state-management library.
 
 ## Repository layout

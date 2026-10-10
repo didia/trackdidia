@@ -147,7 +147,7 @@ export const FinanceReportsPage = () => {
   }, [selectedCategoryKey]);
 
   return (
-    <div className="page">
+    <div className="page finance-page">
       <PageHeader eyebrow={t("reports.hero.eyebrow")} title={t("reports.hero.title")} />
       <FinanceTabs />
 

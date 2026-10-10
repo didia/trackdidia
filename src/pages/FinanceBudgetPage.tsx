@@ -343,9 +343,13 @@ export const FinanceBudgetPage = () => {
     const envelopeForecast =
       forecast?.envelopes.find((entry) => entry.categoryId === category.id) ?? null;
     return (
-      <div key={category.id} className="inline-form" data-testid={`budget-row-${category.id}`}>
-        <span>{category.name}</span>
-        <label>
+      <div
+        key={category.id}
+        className={`finance-envelope${row.availableMinor < 0 ? " finance-envelope--over" : ""}`}
+        data-testid={`budget-row-${category.id}`}
+      >
+        <span className="finance-envelope__name">{category.name}</span>
+        <label className="finance-envelope__assigned">
           <span>{t("budget.fields.assigned")}</span>
           <input
             type="text"
@@ -363,97 +367,112 @@ export const FinanceBudgetPage = () => {
             onBlur={(event) => void commitAssignment(category.id, event.target.value)}
           />
         </label>
-        <span>
+        <span className="finance-envelope__figure">
           {t("budget.fields.activity")}:{" "}
           {formatMoney({ amountMinor: row.activityMinor, currency: baseCurrency })}
         </span>
-        <span data-testid={`available-${category.id}`}>
+        <span
+          className="finance-envelope__figure finance-envelope__figure--available"
+          data-testid={`available-${category.id}`}
+        >
           {t("budget.fields.available")}:{" "}
           {formatMoney({ amountMinor: row.availableMinor, currency: baseCurrency })}
         </span>
-        <select
-          value={row.overspendPolicy}
-          disabled={mutationsDisabled}
-          onChange={(event) =>
-            void changePolicy(category.id, event.target.value as FinanceOverspendPolicy)
-          }
-        >
-          {OVERSPEND_POLICIES.map((policy) => (
-            <option key={policy} value={policy}>
-              {t(`budget.overspendPolicies.${policy}`)}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          className="button"
-          disabled={mutationsDisabled}
-          onClick={() => void assignLastMonth(category.id)}
-        >
-          {t("budget.quickActions.lastMonth")}
-        </button>
-        <button
-          type="button"
-          className="button"
-          disabled={mutationsDisabled}
-          onClick={() => void assignAverageLast3Months(category.id)}
-        >
-          {t("budget.quickActions.average3Months")}
-        </button>
-        <button
-          type="button"
-          className="button"
-          disabled={mutationsDisabled}
-          onClick={() => void assignAllReadyToAssign(category.id)}
-        >
-          {t("budget.quickActions.assignAllReadyToAssign")}
-        </button>
-        {row.availableMinor < 0 ? (
-          <>
-            <select
-              value={coverFromByCategory[category.id] ?? ""}
-              disabled={mutationsDisabled}
-              onChange={(event) =>
-                setCoverFromByCategory((current) => ({
-                  ...current,
-                  [category.id]: event.target.value,
-                }))
-              }
-            >
-              <option value="" disabled>
-                {t("budget.quickActions.pickSourceCategory")}
-              </option>
-              {categories
-                .filter((candidate) => candidate.kind === "expense" && candidate.id !== category.id)
-                .map((candidate) => (
-                  <option key={candidate.id} value={candidate.id}>
-                    {candidate.name}
-                  </option>
-                ))}
-            </select>
-            <button
-              type="button"
-              className="button"
-              disabled={mutationsDisabled}
-              onClick={() => void coverOverspending(category.id)}
-            >
-              {t("budget.quickActions.coverOverspending")}
-            </button>
-          </>
-        ) : null}
-        <span data-testid={`pace-${category.id}`}>
-          {t("budget.pace", { percent: Math.round(pace.fractionSpent * 100) })}
-        </span>
-        {envelopeForecast ? (
-          <span data-testid={`forecast-${category.id}`}>
-            {envelopeForecast.lowConfidence ? `${t("budget.lowConfidence")} ` : ""}
-            {envelopeForecast.runoutDate
-              ? t("budget.runoutDate", {
-                  date: formatDateShort(envelopeForecast.runoutDate),
-                })
-              : t(`budget.forecastStatus.${envelopeForecast.status}`)}
+        <div className="finance-envelope__pace">
+          <div className="finance-meter__track" aria-hidden="true">
+            <div
+              className={`finance-meter__fill${pace.fractionSpent > 1 ? " finance-meter__fill--over" : ""}`}
+              style={{ width: `${Math.min(100, Math.max(0, pace.fractionSpent * 100))}%` }}
+            />
+          </div>
+          <span data-testid={`pace-${category.id}`}>
+            {t("budget.pace", { percent: Math.round(pace.fractionSpent * 100) })}
           </span>
-        ) : null}
+          {envelopeForecast ? (
+            <span data-testid={`forecast-${category.id}`}>
+              {envelopeForecast.lowConfidence ? `${t("budget.lowConfidence")} ` : ""}
+              {envelopeForecast.runoutDate
+                ? t("budget.runoutDate", {
+                    date: formatDateShort(envelopeForecast.runoutDate),
+                  })
+                : t(`budget.forecastStatus.${envelopeForecast.status}`)}
+            </span>
+          ) : null}
+        </div>
+        <div className="finance-envelope__actions">
+          <select
+            value={row.overspendPolicy}
+            disabled={mutationsDisabled}
+            onChange={(event) =>
+              void changePolicy(category.id, event.target.value as FinanceOverspendPolicy)
+            }
+          >
+            {OVERSPEND_POLICIES.map((policy) => (
+              <option key={policy} value={policy}>
+                {t(`budget.overspendPolicies.${policy}`)}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="button"
+            disabled={mutationsDisabled}
+            onClick={() => void assignLastMonth(category.id)}
+          >
+            {t("budget.quickActions.lastMonth")}
+          </button>
+          <button
+            type="button"
+            className="button"
+            disabled={mutationsDisabled}
+            onClick={() => void assignAverageLast3Months(category.id)}
+          >
+            {t("budget.quickActions.average3Months")}
+          </button>
+          <button
+            type="button"
+            className="button"
+            disabled={mutationsDisabled}
+            onClick={() => void assignAllReadyToAssign(category.id)}
+          >
+            {t("budget.quickActions.assignAllReadyToAssign")}
+          </button>
+          {row.availableMinor < 0 ? (
+            <>
+              <select
+                value={coverFromByCategory[category.id] ?? ""}
+                disabled={mutationsDisabled}
+                onChange={(event) =>
+                  setCoverFromByCategory((current) => ({
+                    ...current,
+                    [category.id]: event.target.value,
+                  }))
+                }
+              >
+                <option value="" disabled>
+                  {t("budget.quickActions.pickSourceCategory")}
+                </option>
+                {categories
+                  .filter(
+                    (candidate) => candidate.kind === "expense" && candidate.id !== category.id,
+                  )
+                  .map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {candidate.name}
+                    </option>
+                  ))}
+              </select>
+              <button
+                type="button"
+                className="button"
+                disabled={mutationsDisabled}
+                onClick={() => void coverOverspending(category.id)}
+              >
+                {t("budget.quickActions.coverOverspending")}
+              </button>
+            </>
+          ) : null}
+        </div>
       </div>
     );
   };
@@ -461,7 +480,7 @@ export const FinanceBudgetPage = () => {
   const unbudgeted = state ? selectUnbudgetedCategories(state) : [];
 
   return (
-    <div className="page">
+    <div className="page finance-page">
       <PageHeader eyebrow={t("budget.hero.eyebrow")} title={t("budget.hero.title")} />
       <FinanceTabs />
 
@@ -481,7 +500,7 @@ export const FinanceBudgetPage = () => {
           <button type="button" className="button" onClick={() => changeMonth(-1)}>
             {t("budget.previousMonth")}
           </button>
-          <span>{monthKey}</span>
+          <span className="finance-month-label">{monthKey}</span>
           <button type="button" className="button" onClick={() => changeMonth(1)}>
             {t("budget.nextMonth")}
           </button>
@@ -497,7 +516,7 @@ export const FinanceBudgetPage = () => {
       </SectionCard>
 
       <SectionCard title={t("budget.readyToAssignTitle")}>
-        <p className="hero__copy" data-testid="ready-to-assign">
+        <p className="finance-bigfigure" data-testid="ready-to-assign">
           {formatMoney({ amountMinor: state?.readyToAssignMinor ?? 0, currency: baseCurrency })}
         </p>
         <label>
@@ -520,7 +539,7 @@ export const FinanceBudgetPage = () => {
         <SectionCard title={t("budget.cardBalancesTitle")}>
           <div className="stack">
             {Object.entries(cardBalances).map(([accountId, card]) => (
-              <p key={accountId}>
+              <p key={accountId} className="finance-line">
                 {card.name}: {formatMoney({ amountMinor: card.minor, currency: card.currency })}
               </p>
             ))}

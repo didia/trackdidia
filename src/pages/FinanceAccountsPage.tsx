@@ -243,7 +243,7 @@ export const FinanceAccountsPage = () => {
   const isAssetLike = accountDraft.type === "asset" || accountDraft.type === "investment";
 
   return (
-    <div className="page">
+    <div className="page finance-page">
       <PageHeader eyebrow={t("accounts.hero.eyebrow")} title={t("accounts.hero.title")} />
       <FinanceTabs />
 

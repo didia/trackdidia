@@ -386,7 +386,7 @@ export const FinanceImportPage = () => {
   };
 
   return (
-    <div className="page">
+    <div className="page finance-page">
       <PageHeader eyebrow={t("import.hero.eyebrow")} title={t("import.hero.title")} />
       <FinanceTabs />
 

@@ -812,6 +812,22 @@ and it still runs when `reconcileDay` throws.
 
 ### FinanceOverviewPage (`/finances`, Phase 6)
 
+**Layout.** A dashboard: a dark terracotta net-worth hero card (total, an
+assets/liabilities proportion bar, and the two sub-totals) next to the
+cash-flow card (income/expense/net tiles and a "% des revenus dépensés" meter);
+the alerts list below, flat and ordered critical → warning → info with
+severity-tinted rows (an empty list shows a green "all clear" row); then two
+two-column bands — spending trend + top categories (ranked rows with relative
+bars), and recurring bills + accounts (avatar rows, negative balances in red).
+The six trend columns show the localized short month name with the current
+month highlighted. Styling for the whole module lives in
+`src/styles-finance.css` (imported after `styles.css`), scoped under
+`.finance-page` — set on every `/finances/*` page — except
+`.finance-alerts-list`, which the Today alerts card shares. The scope also
+supplies the generic classes the finance pages use (`tabs`, `stack`,
+`list-card`, `actions-row`, `form-grid`, tables, bare buttons) and the
+budget's envelope rows (`finance-envelope`).
+
 Net worth (total plus assets/liabilities, with the non-base-currency banner
 described above), this month's cash flow (income/expense/net), a 6-month
 spending-trend bar chart (one column per month, zero-filled, each printing its
