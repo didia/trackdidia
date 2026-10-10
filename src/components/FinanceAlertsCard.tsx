@@ -78,7 +78,11 @@ export const FinanceAlertsCard = () => {
       {topAlerts.length > 0 ? (
         <ul className="finance-alerts-list">
           {topAlerts.map((alert) => (
-            <li key={alert.key} data-testid={`finance-alert-${alert.key}`}>
+            <li
+              key={alert.key}
+              data-testid={`finance-alert-${alert.key}`}
+              data-severity={alert.severity}
+            >
               <span className="tag-chip">{t(`alerts.severity.${alert.severity}`)}</span>
               <span>{describeAlert(alert)}</span>
               {alert.lowConfidence ? <small> ({t("alerts.lowConfidence")})</small> : null}

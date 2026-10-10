@@ -4,6 +4,7 @@ import { App } from "./App";
 import "./i18n";
 import { installDebugInstrumentation, logDebug } from "./lib/debug";
 import "./styles.css";
+import "./styles-finance.css";
 
 installDebugInstrumentation();
 logDebug("info", "app.main", "Initialisation du rendu principal");

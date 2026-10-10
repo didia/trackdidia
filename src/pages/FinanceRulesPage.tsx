@@ -105,7 +105,7 @@ export const FinanceRulesPage = () => {
   };
 
   return (
-    <div className="page">
+    <div className="page finance-page">
       <PageHeader eyebrow={t("rules.hero.eyebrow")} title={t("rules.hero.title")} />
       <FinanceTabs />
 

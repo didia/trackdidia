@@ -20,8 +20,10 @@ const TOP_CATEGORY_COUNT = 5;
 const TREND_MONTHS = 6;
 const UPCOMING_RECURRING_COUNT = 5;
 
+const accountInitial = (name: string): string => Array.from(name.trim())[0] ?? "?";
+
 export const FinanceOverviewPage = () => {
-  const { t } = useTranslation("finance");
+  const { t, i18n } = useTranslation("finance");
   const { repository, settings } = useAppContext();
   const baseCurrency = settings.financeBaseCurrency;
   const today = getTodayDate();
@@ -121,18 +123,22 @@ export const FinanceOverviewPage = () => {
     [accounts],
   );
 
-  const alertsBySeverity = useMemo(() => {
-    const grouped = new Map<FinanceAlertSeverity, FinanceAlert[]>();
-    for (const alert of alerts) {
-      const bucket = grouped.get(alert.severity);
-      if (bucket) {
-        bucket.push(alert);
-      } else {
-        grouped.set(alert.severity, [alert]);
-      }
-    }
-    return grouped;
-  }, [alerts]);
+  const sortedAlerts = useMemo(
+    () =>
+      [...alerts].sort(
+        (left, right) =>
+          ALERT_SEVERITY_ORDER.indexOf(left.severity) -
+          ALERT_SEVERITY_ORDER.indexOf(right.severity),
+      ),
+    [alerts],
+  );
+
+  const formatMonthShort = (periodKey: string): string => {
+    const [year, month] = periodKey.split("-").map(Number);
+    return new Intl.DateTimeFormat(i18n.language, { month: "short" })
+      .format(new Date(year, month - 1, 1))
+      .replace(".", "");
+  };
 
   const describeAlert = (alert: FinanceAlert): string => {
     const categoryName = alert.categoryId ? (categoryNameById.get(alert.categoryId) ?? "") : "";
@@ -174,168 +180,327 @@ export const FinanceOverviewPage = () => {
     await load();
   };
 
+  const netWorthMagnitude = netWorth
+    ? netWorth.assetsMinor + Math.abs(netWorth.liabilitiesMinor)
+    : 0;
+  const assetsShare =
+    netWorth && netWorthMagnitude > 0 ? (netWorth.assetsMinor / netWorthMagnitude) * 100 : 0;
+  const liabilitiesShare = netWorth && netWorthMagnitude > 0 ? 100 - assetsShare : 0;
+  const spentPercent =
+    cashFlow && cashFlow.incomeMinor > 0
+      ? Math.round((cashFlow.expenseMinor / cashFlow.incomeMinor) * 100)
+      : null;
+  const maxCategoryMinor = Math.max(1, ...topCategories.map((row) => row.totalMinor));
+
   return (
-    <div className="page">
+    <div className="page finance-page">
       <PageHeader eyebrow={t("overview.hero.eyebrow")} title={t("overview.hero.title")} />
       <FinanceTabs />
 
-      <SectionCard title={t("overview.netWorthTitle")}>
-        {netWorth ? (
-          <>
-            <p className="hero__copy">
-              {formatMoney({ amountMinor: netWorth.netWorthMinor, currency: baseCurrency })}
-            </p>
-            <dl className="definition-list">
-              <div>
-                <dt>{t("overview.assetsLabel")}</dt>
-                <dd>
-                  {formatMoney({ amountMinor: netWorth.assetsMinor, currency: baseCurrency })}
-                </dd>
+      <div className="finance-summary">
+        <section className="finance-networth" aria-labelledby="finance-networth-title">
+          <h2 id="finance-networth-title" className="finance-networth__label">
+            {t("overview.netWorthTitle")}
+          </h2>
+          <p
+            className={`finance-networth__value${
+              netWorth && netWorth.netWorthMinor < 0 ? " finance-networth__value--negative" : ""
+            }`}
+          >
+            {netWorth
+              ? formatMoney({ amountMinor: netWorth.netWorthMinor, currency: baseCurrency })
+              : "—"}
+          </p>
+          {netWorth ? (
+            <>
+              <div
+                className="finance-networth__bar"
+                role="img"
+                aria-label={t("overview.assetsLiabilitiesBar")}
+              >
+                {netWorthMagnitude > 0 ? (
+                  <>
+                    <span
+                      className="finance-networth__bar-assets"
+                      style={{ flexBasis: `${assetsShare}%` }}
+                    />
+                    {liabilitiesShare > 0 ? (
+                      <span
+                        className="finance-networth__bar-liabilities"
+                        style={{ flexBasis: `${liabilitiesShare}%` }}
+                      />
+                    ) : null}
+                  </>
+                ) : null}
               </div>
-              <div>
-                <dt>{t("overview.liabilitiesLabel")}</dt>
-                <dd>
-                  {formatMoney({ amountMinor: netWorth.liabilitiesMinor, currency: baseCurrency })}
-                </dd>
+              <dl className="finance-networth__split">
+                <div>
+                  <dt>{t("overview.assetsLabel")}</dt>
+                  <dd>
+                    {formatMoney({ amountMinor: netWorth.assetsMinor, currency: baseCurrency })}
+                  </dd>
+                </div>
+                <div>
+                  <dt>{t("overview.liabilitiesLabel")}</dt>
+                  <dd>
+                    {formatMoney({
+                      amountMinor: netWorth.liabilitiesMinor,
+                      currency: baseCurrency,
+                    })}
+                  </dd>
+                </div>
+              </dl>
+              {netWorth.excludedCurrencies.length > 0 ? (
+                <p className="banner">
+                  {t("overview.otherCurrenciesWarning", {
+                    currencies: netWorth.excludedCurrencies.join(", "),
+                  })}
+                </p>
+              ) : null}
+            </>
+          ) : null}
+        </section>
+
+        <SectionCard title={t("overview.cashFlowTitle")} subtitle={t("overview.cashFlowSubtitle")}>
+          {cashFlow ? (
+            <>
+              <div className="finance-stats">
+                <div className="finance-stat finance-stat--income">
+                  <span className="finance-stat__label">
+                    <span className="finance-stat__icon" aria-hidden="true">
+                      ↓
+                    </span>
+                    {t("overview.incomeLabel")}
+                  </span>
+                  <span className="finance-stat__value">
+                    {formatMoney({ amountMinor: cashFlow.incomeMinor, currency: baseCurrency })}
+                  </span>
+                </div>
+                <div className="finance-stat finance-stat--expense">
+                  <span className="finance-stat__label">
+                    <span className="finance-stat__icon" aria-hidden="true">
+                      ↑
+                    </span>
+                    {t("overview.expenseLabel")}
+                  </span>
+                  <span className="finance-stat__value">
+                    {formatMoney({ amountMinor: cashFlow.expenseMinor, currency: baseCurrency })}
+                  </span>
+                </div>
+                <div
+                  className={`finance-stat finance-stat--net${
+                    cashFlow.netMinor > 0
+                      ? " finance-stat--positive"
+                      : cashFlow.netMinor < 0
+                        ? " finance-stat--negative"
+                        : ""
+                  }`}
+                >
+                  <span className="finance-stat__label">
+                    <span className="finance-stat__icon" aria-hidden="true">
+                      =
+                    </span>
+                    {t("overview.netLabel")}
+                  </span>
+                  <span className="finance-stat__value">
+                    {formatMoney({ amountMinor: cashFlow.netMinor, currency: baseCurrency })}
+                  </span>
+                </div>
               </div>
-            </dl>
-            {netWorth.excludedCurrencies.length > 0 ? (
-              <p className="banner">
-                {t("overview.otherCurrenciesWarning", {
-                  currencies: netWorth.excludedCurrencies.join(", "),
-                })}
-              </p>
-            ) : null}
-          </>
-        ) : null}
-      </SectionCard>
+              <div className="finance-meter">
+                <div className="finance-meter__caption">
+                  <span>
+                    {spentPercent === null
+                      ? t("overview.noIncomeYet")
+                      : t("overview.spentShare", { percent: spentPercent })}
+                  </span>
+                </div>
+                <div className="finance-meter__track">
+                  <div
+                    className={`finance-meter__fill${
+                      spentPercent !== null && spentPercent > 100
+                        ? " finance-meter__fill--over"
+                        : ""
+                    }`}
+                    style={{ width: `${Math.min(100, spentPercent ?? 0)}%` }}
+                  />
+                </div>
+              </div>
+            </>
+          ) : null}
+        </SectionCard>
+      </div>
 
       <SectionCard title={t("alerts.title")} subtitle={t("alerts.subtitle")}>
-        {alerts.length === 0 ? <p className="empty-copy">{t("alerts.none")}</p> : null}
-        {ALERT_SEVERITY_ORDER.map((severity) => {
-          const group = alertsBySeverity.get(severity);
-          if (!group || group.length === 0) {
-            return null;
-          }
-          return (
-            <div key={severity} className="finance-alerts-group">
-              <h3>{t(`alerts.severity.${severity}`)}</h3>
-              <ul className="finance-alerts-list">
-                {group.map((alert) => (
-                  <li key={alert.key} data-testid={`finance-alert-${alert.key}`}>
-                    <span>{describeAlert(alert)}</span>
-                    {alert.lowConfidence ? <small> ({t("alerts.lowConfidence")})</small> : null}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          );
-        })}
+        {alerts.length === 0 ? (
+          <p className="finance-empty">
+            <span className="finance-empty__icon" aria-hidden="true">
+              ✓
+            </span>
+            <span className="empty-copy">{t("alerts.none")}</span>
+          </p>
+        ) : (
+          <ul className="finance-alerts-list">
+            {sortedAlerts.map((alert) => (
+              <li
+                key={alert.key}
+                data-testid={`finance-alert-${alert.key}`}
+                data-severity={alert.severity}
+              >
+                <span className="tag-chip">{t(`alerts.severity.${alert.severity}`)}</span>
+                <span>{describeAlert(alert)}</span>
+                {alert.lowConfidence ? <small>({t("alerts.lowConfidence")})</small> : null}
+              </li>
+            ))}
+          </ul>
+        )}
       </SectionCard>
 
-      <SectionCard title={t("overview.cashFlowTitle")}>
-        {cashFlow ? (
-          <dl className="definition-list">
-            <div>
-              <dt>{t("overview.incomeLabel")}</dt>
-              <dd>{formatMoney({ amountMinor: cashFlow.incomeMinor, currency: baseCurrency })}</dd>
-            </div>
-            <div>
-              <dt>{t("overview.expenseLabel")}</dt>
-              <dd>{formatMoney({ amountMinor: cashFlow.expenseMinor, currency: baseCurrency })}</dd>
-            </div>
-            <div>
-              <dt>{t("overview.netLabel")}</dt>
-              <dd>{formatMoney({ amountMinor: cashFlow.netMinor, currency: baseCurrency })}</dd>
-            </div>
-          </dl>
-        ) : null}
-      </SectionCard>
+      <div className="finance-columns">
+        <SectionCard title={t("overview.trendTitle")}>
+          <div className="finance-trend">
+            {trendColumns.map((column, index) => (
+              <div
+                key={column.periodKey}
+                className={`finance-trend__column${
+                  index === trendColumns.length - 1 ? " finance-trend__column--current" : ""
+                }`}
+              >
+                <span className="finance-trend__amount">
+                  {formatMoney({ amountMinor: column.expenseMinor, currency: baseCurrency })}
+                </span>
+                <div className="finance-trend__track">
+                  <div
+                    className="finance-trend__bar"
+                    style={{ height: `${(column.expenseMinor / maxTrendExpenseMinor) * 100}%` }}
+                  />
+                </div>
+                <span className="finance-trend__label" title={column.periodKey}>
+                  {formatMonthShort(column.periodKey)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
 
-      <SectionCard title={t("overview.trendTitle")}>
-        <div className="finance-trend">
-          {trendColumns.map((column) => (
-            <div key={column.periodKey} className="finance-trend__column">
-              <span className="finance-trend__amount">
-                {formatMoney({ amountMinor: column.expenseMinor, currency: baseCurrency })}
+        <SectionCard title={t("overview.topCategoriesTitle")}>
+          {!loading && topCategories.length === 0 ? (
+            <p className="finance-empty finance-empty--neutral">
+              <span className="finance-empty__icon" aria-hidden="true">
+                –
               </span>
-              <div className="finance-trend__track">
-                <div
-                  className="finance-trend__bar"
-                  style={{ height: `${(column.expenseMinor / maxTrendExpenseMinor) * 100}%` }}
-                />
-              </div>
-              <span className="finance-trend__label">{column.periodKey}</span>
-            </div>
-          ))}
-        </div>
-      </SectionCard>
+              <span>{t("overview.noTopCategories")}</span>
+            </p>
+          ) : null}
+          <ol className="finance-rank">
+            {topCategories.map((row, index) => (
+              <li key={row.key}>
+                <span className="finance-rank__index">{index + 1}</span>
+                <span className="finance-rank__name">
+                  {categoryNameById.get(row.key) ?? row.key}
+                </span>
+                <span className="finance-rank__amount">
+                  {formatMoney({ amountMinor: row.totalMinor, currency: baseCurrency })}
+                </span>
+                <span className="finance-rank__bar" aria-hidden="true">
+                  <span style={{ width: `${(row.totalMinor / maxCategoryMinor) * 100}%` }} />
+                </span>
+              </li>
+            ))}
+          </ol>
+        </SectionCard>
+      </div>
 
-      <SectionCard title={t("overview.topCategoriesTitle")}>
-        {!loading && topCategories.length === 0 ? <p>{t("overview.noTopCategories")}</p> : null}
-        <ol className="stack">
-          {topCategories.map((row) => (
-            <li key={row.key}>
-              {categoryNameById.get(row.key) ?? row.key} —{" "}
-              {formatMoney({ amountMinor: row.totalMinor, currency: baseCurrency })}
-            </li>
-          ))}
-        </ol>
-      </SectionCard>
-
-      <SectionCard title={t("overview.recurringTitle")}>
-        {!loading && upcomingRecurring.length === 0 ? <p>{t("overview.noRecurring")}</p> : null}
-        <div className="stack">
-          {upcomingRecurring.map((series) => (
-            <article key={series.id} className="list-card">
-              <h3>{series.merchantKey}</h3>
-              <p>
-                {t("overview.recurringNextDate", { date: series.nextExpectedDate })} —{" "}
-                {formatMoney({
-                  amountMinor: series.expectedAmountMinor,
-                  currency: accountById.get(series.accountId)?.currency ?? baseCurrency,
-                })}
-              </p>
-              <div className="button-row">
-                {!series.confirmedByUser ? (
-                  <button type="button" onClick={() => void confirmRecurring(series)}>
-                    {t("overview.recurringConfirm")}
+      <div className="finance-columns">
+        <SectionCard title={t("overview.recurringTitle")}>
+          {!loading && upcomingRecurring.length === 0 ? (
+            <p className="finance-empty finance-empty--neutral">
+              <span className="finance-empty__icon" aria-hidden="true">
+                –
+              </span>
+              <span>{t("overview.noRecurring")}</span>
+            </p>
+          ) : null}
+          <div className="finance-rows">
+            {upcomingRecurring.map((series) => (
+              <article key={series.id} className="finance-row">
+                <span className="finance-row__avatar" aria-hidden="true">
+                  {accountInitial(series.merchantKey)}
+                </span>
+                <div className="finance-row__main">
+                  <h3 className="finance-row__title">{series.merchantKey}</h3>
+                  <span className="finance-row__meta">
+                    {t("overview.recurringNextDate", { date: series.nextExpectedDate })}
+                  </span>
+                </div>
+                <span className="finance-row__amount">
+                  {formatMoney({
+                    amountMinor: series.expectedAmountMinor,
+                    currency: accountById.get(series.accountId)?.currency ?? baseCurrency,
+                  })}
+                </span>
+                <div className="finance-row__actions">
+                  {!series.confirmedByUser ? (
+                    <button type="button" onClick={() => void confirmRecurring(series)}>
+                      {t("overview.recurringConfirm")}
+                    </button>
+                  ) : null}
+                  <button type="button" onClick={() => void pauseRecurring(series)}>
+                    {t("overview.recurringPause")}
                   </button>
-                ) : null}
-                <button type="button" onClick={() => void pauseRecurring(series)}>
-                  {t("overview.recurringPause")}
-                </button>
-                <button type="button" onClick={() => void endRecurring(series)}>
-                  {t("overview.recurringEnd")}
-                </button>
-              </div>
-            </article>
-          ))}
-        </div>
-      </SectionCard>
-
-      <SectionCard title={t("overview.accountsTitle")}>
-        {loading ? <p>{t("overview.loading")}</p> : null}
-        {loadError ? <p className="banner">{t("overview.loadError")}</p> : null}
-        {!loading && !loadError && accounts.length === 0 ? <p>{t("overview.noAccounts")}</p> : null}
-        <div className="stack">
-          {(netWorth?.accounts ?? []).map((line) => {
-            const account = accountById.get(line.accountId);
-            if (!account) {
-              return null;
-            }
-            return (
-              <article key={account.id} className="list-card">
-                <h3>
-                  {account.name}
-                  {account.closed ? ` ${t("overview.closedAccount")}` : ""}
-                </h3>
-                <p>{formatMoney({ amountMinor: line.balanceMinor, currency: line.currency })}</p>
+                  <button type="button" onClick={() => void endRecurring(series)}>
+                    {t("overview.recurringEnd")}
+                  </button>
+                </div>
               </article>
-            );
-          })}
-        </div>
-      </SectionCard>
+            ))}
+          </div>
+        </SectionCard>
+
+        <SectionCard title={t("overview.accountsTitle")}>
+          {loading ? <p>{t("overview.loading")}</p> : null}
+          {loadError ? <p className="banner">{t("overview.loadError")}</p> : null}
+          {!loading && !loadError && accounts.length === 0 ? (
+            <p className="finance-empty finance-empty--neutral">
+              <span className="finance-empty__icon" aria-hidden="true">
+                –
+              </span>
+              <span>{t("overview.noAccounts")}</span>
+            </p>
+          ) : null}
+          <div className="finance-rows">
+            {(netWorth?.accounts ?? []).map((line) => {
+              const account = accountById.get(line.accountId);
+              if (!account) {
+                return null;
+              }
+              return (
+                <article
+                  key={account.id}
+                  className={`finance-row${account.closed ? " finance-row--closed" : ""}`}
+                >
+                  <span className="finance-row__avatar" aria-hidden="true">
+                    {accountInitial(account.name)}
+                  </span>
+                  <div className="finance-row__main">
+                    <h3 className="finance-row__title">
+                      {account.name}
+                      {account.closed ? ` ${t("overview.closedAccount")}` : ""}
+                    </h3>
+                  </div>
+                  <span
+                    className={`finance-row__amount${
+                      line.balanceMinor < 0 ? " finance-row__amount--negative" : ""
+                    }`}
+                  >
+                    {formatMoney({ amountMinor: line.balanceMinor, currency: line.currency })}
+                  </span>
+                </article>
+              );
+            })}
+          </div>
+        </SectionCard>
+      </div>
     </div>
   );
 };
