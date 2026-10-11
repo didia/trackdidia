@@ -25,6 +25,10 @@ import {
 } from "../../lib/finance/money";
 import { extractPdfText, StatementPdfError } from "../../lib/finance/statement-pdf";
 import {
+  type StatementDisagreement,
+  reconcileStatementExtractions,
+} from "../../lib/finance/statement-reconcile";
+import {
   emptyStatementExtraction,
   parseStatementText,
   type StatementAmountMarker,
@@ -53,6 +57,15 @@ const NEW_ACCOUNT_TYPES: FinanceAccountType[] = [
   "loan",
   "mortgage",
 ];
+
+const formatDisagreementValue = (
+  item: StatementDisagreement,
+  side: "parserValue" | "aiValue",
+  currency: string,
+): string =>
+  item.field === "closingBalance"
+    ? formatMoney({ amountMinor: Number(item[side]), currency })
+    : String(item[side]);
 
 /** The balance as it is shown in the field: a CR / DR marker stays visible so the sign is not lost. */
 const formatBalanceInput = (
@@ -117,9 +130,19 @@ export const FinanceStatementImport = ({
   const [result, setResult] = useState<ApplyFinanceStatementBalanceResult | null>(null);
   const [appliedBalanceMinor, setAppliedBalanceMinor] = useState(0);
   const [snapshots, setSnapshots] = useState<FinanceAccountBalanceSnapshot[]>([]);
+  const [parsed, setParsed] = useState<StatementExtraction | null>(null);
+  const [disagreements, setDisagreements] = useState<StatementDisagreement[]>([]);
+  const [aiFailed, setAiFailed] = useState(false);
+  // True once the user edits any field: a late AI reading then never overwrites their input.
+  const dirtyRef = useRef(false);
+  const touch = () => {
+    dirtyRef.current = true;
+  };
   // Bumped on every file selection: a read or AI reply that finishes for an older file is dropped.
   const generationRef = useRef(0);
 
+  // Opt-in (Settings → Finances): the AI reads every statement right after the local parser.
+  const autoAi = settings.financeAiStatementEnabled && isStatementAiAvailable(settings);
   const creating = accountId === NEW_ACCOUNT;
   const account = useMemo(
     () => accounts.find((candidate) => candidate.id === accountId) ?? null,
@@ -181,6 +204,10 @@ export const FinanceStatementImport = ({
     setApplyError(null);
     setResult(null);
     setExtraction(null);
+    setParsed(null);
+    setDisagreements([]);
+    setAiFailed(false);
+    dirtyRef.current = false;
     setStatementText(null);
     setFileName(file.name);
     setReading(true);
@@ -190,7 +217,13 @@ export const FinanceStatementImport = ({
         return;
       }
       setStatementText(text);
-      fillFromExtraction(parseStatementText(text), false);
+      const parsedReading = parseStatementText(text);
+      setParsed(parsedReading);
+      fillFromExtraction(parsedReading, false);
+      if (autoAi) {
+        // Opted in (Settings → Finances): read the statement with the AI too, then reconcile.
+        void runAi(text, parsedReading, generation);
+      }
     } catch (error) {
       if (generation !== generationRef.current) {
         return;
@@ -215,33 +248,62 @@ export const FinanceStatementImport = ({
     }
   };
 
-  const runAi = async () => {
-    if (!statementText) {
-      return;
-    }
-    const generation = generationRef.current;
+  /** Reads the statement with the AI and reconciles it with the local parser's reading. */
+  const runAi = async (text: string, parserReading: StatementExtraction, generation: number) => {
     setAiRunning(true);
     setAiNote(null);
+    setAiFailed(false);
     try {
-      const aiResult = await extractStatementWithAi(statementText, settings);
+      const aiReading = await extractStatementWithAi(text, settings);
       if (generation !== generationRef.current) {
         return;
       }
-      if (aiResult) {
-        fillFromExtraction(aiResult, true);
-        setAiNote(t("statement.ai.applied"));
-      } else {
+      if (!aiReading) {
         setAiNote(t("statement.ai.nothingFound"));
+        return;
+      }
+      const reconciled = reconcileStatementExtractions(parserReading, aiReading);
+      setDisagreements(reconciled.disagreements);
+      if (dirtyRef.current) {
+        // The user already edited the form: keep their values, only keep the reading for the
+        // "use the AI's value" buttons.
+        setExtraction((current) => (current ? { ...current, source: "pdf-text+ai" } : current));
+        setAiNote(t("statement.ai.notApplied"));
+      } else {
+        fillFromExtraction(reconciled.extraction, false);
+        setAiNote(
+          reconciled.disagreements.length > 0
+            ? t("statement.ai.disagree")
+            : reconciled.extraction.confidence === "high"
+              ? t("statement.ai.agrees")
+              : t("statement.ai.applied"),
+        );
       }
     } catch {
       if (generation === generationRef.current) {
         setAiNote(t("statement.ai.failed"));
+        setAiFailed(true);
       }
     } finally {
       if (generation === generationRef.current) {
         setAiRunning(false);
       }
     }
+  };
+
+  /** Takes the AI's value for a field where it disagreed with the local reading. */
+  const takeAiValue = (item: StatementDisagreement) => {
+    touch();
+    if (item.field === "closingBalance") {
+      setBalanceInput(minorToInputString(Number(item.aiValue), currencyExponent(currency)));
+    } else if (item.field === "statementDate") {
+      setStatementDate(String(item.aiValue));
+    } else {
+      setExtraction((current) =>
+        current ? { ...current, accountLast4: String(item.aiValue) } : current,
+      );
+    }
+    setDisagreements((current) => current.filter((entry) => entry.field !== item.field));
   };
 
   const currency = creating
@@ -319,6 +381,11 @@ export const FinanceStatementImport = ({
 
   const aiAvailable = isStatementAiAvailable(settings);
   const confidence = extraction?.confidence ?? null;
+  const showManualAi =
+    statementText !== null &&
+    parsed !== null &&
+    aiAvailable &&
+    (autoAi ? aiFailed : confidence !== "high");
 
   return (
     <SectionCard title={t("statement.title")} subtitle={t("statement.subtitle")}>
@@ -344,6 +411,7 @@ export const FinanceStatementImport = ({
             {t("statement.found", { file: fileName })}{" "}
             {t(`statement.confidence.${extraction.confidence}`)}
             {extraction.source === "ai" ? ` ${t("statement.ai.badge")}` : ""}
+            {extraction.source === "pdf-text+ai" ? ` ${t("statement.ai.badgeBoth")}` : ""}
           </p>
 
           {extraction.balanceCandidates.length > 1 ? (
@@ -354,6 +422,7 @@ export const FinanceStatementImport = ({
                 onChange={(event) => {
                   const picked = extraction.balanceCandidates[Number(event.target.value)];
                   if (picked) {
+                    touch();
                     setBalanceInput(
                       formatBalanceInput(
                         picked.amountMinor,
@@ -377,7 +446,13 @@ export const FinanceStatementImport = ({
           <div className="form-grid">
             <label>
               <span>{t("statement.fields.account")}</span>
-              <select value={accountId} onChange={(event) => setAccountId(event.target.value)}>
+              <select
+                value={accountId}
+                onChange={(event) => {
+                  touch();
+                  setAccountId(event.target.value);
+                }}
+              >
                 <option value="">{t("statement.fields.accountPlaceholder")}</option>
                 <option value={NEW_ACCOUNT}>{t("statement.fields.accountNew")}</option>
                 {accounts.map((candidate) => (
@@ -393,7 +468,10 @@ export const FinanceStatementImport = ({
               <input
                 type="date"
                 value={statementDate}
-                onChange={(event) => setStatementDate(event.target.value)}
+                onChange={(event) => {
+                  touch();
+                  setStatementDate(event.target.value);
+                }}
               />
             </label>
             <label>
@@ -401,7 +479,10 @@ export const FinanceStatementImport = ({
               <input
                 inputMode="decimal"
                 value={balanceInput}
-                onChange={(event) => setBalanceInput(event.target.value)}
+                onChange={(event) => {
+                  touch();
+                  setBalanceInput(event.target.value);
+                }}
               />
             </label>
           </div>
@@ -410,13 +491,22 @@ export const FinanceStatementImport = ({
             <div className="form-grid">
               <label>
                 <span>{t("statement.new.name")}</span>
-                <input value={newName} onChange={(event) => setNewName(event.target.value)} />
+                <input
+                  value={newName}
+                  onChange={(event) => {
+                    touch();
+                    setNewName(event.target.value);
+                  }}
+                />
               </label>
               <label>
                 <span>{t("statement.new.type")}</span>
                 <select
                   value={newType}
-                  onChange={(event) => setNewType(event.target.value as FinanceAccountType)}
+                  onChange={(event) => {
+                    touch();
+                    setNewType(event.target.value as FinanceAccountType);
+                  }}
                 >
                   {NEW_ACCOUNT_TYPES.map((type) => (
                     <option key={type} value={type}>
@@ -430,14 +520,20 @@ export const FinanceStatementImport = ({
                 <input
                   value={newCurrency}
                   maxLength={3}
-                  onChange={(event) => setNewCurrency(event.target.value.toUpperCase())}
+                  onChange={(event) => {
+                    touch();
+                    setNewCurrency(event.target.value.toUpperCase());
+                  }}
                 />
               </label>
               <label>
                 <span>{t("statement.new.institution")}</span>
                 <input
                   value={newInstitution}
-                  onChange={(event) => setNewInstitution(event.target.value)}
+                  onChange={(event) => {
+                    touch();
+                    setNewInstitution(event.target.value);
+                  }}
                 />
               </label>
             </div>
@@ -465,7 +561,7 @@ export const FinanceStatementImport = ({
             <p className="field-error">{t("statement.errors.invalidBalance")}</p>
           ) : null}
 
-          {statementText && aiAvailable && confidence !== "high" ? (
+          {showManualAi && statementText && parsed ? (
             <details>
               <summary>{t("statement.ai.summary")}</summary>
               <p className="field-card__helper">{t("statement.ai.disclosure")}</p>
@@ -474,13 +570,29 @@ export const FinanceStatementImport = ({
                 type="button"
                 className="button"
                 disabled={aiRunning}
-                onClick={() => void runAi()}
+                onClick={() => void runAi(statementText, parsed, generationRef.current)}
               >
                 {aiRunning ? t("statement.ai.running") : t("statement.ai.run")}
               </button>
             </details>
           ) : null}
+          {aiRunning && autoAi ? (
+            <p className="field-card__helper">{t("statement.ai.autoRunning")}</p>
+          ) : null}
           {aiNote ? <p className="field-card__helper">{aiNote}</p> : null}
+          {disagreements.map((item) => (
+            <div key={item.field} className="banner" role="alert">
+              <span>
+                {t(`statement.disagreement.${item.field}`, {
+                  parser: formatDisagreementValue(item, "parserValue", currency),
+                  ai: formatDisagreementValue(item, "aiValue", currency),
+                })}
+              </span>{" "}
+              <button type="button" className="button" onClick={() => takeAiValue(item)}>
+                {t("statement.disagreement.useAi")}
+              </button>
+            </div>
+          ))}
 
           {applyError ? <p className="field-error">{applyError}</p> : null}
           <div className="form-actions">

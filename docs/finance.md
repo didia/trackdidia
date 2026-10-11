@@ -115,6 +115,7 @@ automatically — no migration needed):
 | `financeEnabled` | `false` | Master feature flag; later phases gate the nav entry and bootstrap work on this |
 | `financeBaseCurrency` | `"CAD"` | Single base currency for cross-account rollups |
 | `financeAiCategorizationEnabled` | `false` | Gates the AI classification stage (Phase 8, implemented) |
+| `financeAiStatementEnabled` | `false` | Opt-in: read every statement PDF with the AI right after the local parser, then reconcile the two (see "Statement import"); needs `aiEnabled` |
 | `financeAiAutoApplyEnabled` | `false` | Whether an AI suggestion can auto-apply |
 | `financeAiAutoApplyMinConfidence` | `0.9` | Confidence floor for AI auto-apply |
 | `financeAlertsOnToday` | `true` | Shows `FinanceAlertsCard` on Today (Phase 7, implemented) |
@@ -652,16 +653,29 @@ the previous starting point, it does not accumulate.
    kept (`closingBalanceMarker`) and shown in the field. `confidence` is `high`
    only when a balance and an unambiguous, non-conflicting date were found with no
    competing balances.
-3. **Optional AI fallback** (`src/lib/ai/finance-statement-extraction.ts`). Offered
-   only when `aiEnabled`, an API key is set and `aiPayloadScope` is not `metrics`,
-   and only when confidence is not `high`. It never runs automatically: the user
-   expands "Essayer l'IA…", sees the exact masked excerpt that would be sent, and
-   clicks "Analyser avec l'IA". It is a direct `chatCompletion` call (not a
-   persisted `AiSurface`; no `ai_messages` row) using the
-   `finance_categorization` model override or `aiModel`. Its output is validated
-   (decimal balance string, real ISO dates, 4-digit last-four, 3-letter currency)
-   and only pre-fills the review form. Privacy contract:
-   [ai-settings-and-privacy.md](ai-settings-and-privacy.md#finance-statement-extraction).
+3. **AI reading, reconciled with the parser** (`src/lib/ai/finance-statement-extraction.ts`,
+   `src/lib/finance/statement-reconcile.ts`). Available only when `aiEnabled`, an API
+   key is set and `aiPayloadScope` is not `metrics`. Two ways to run it:
+   - **Opt-in automatic** (`financeAiStatementEnabled`, Settings → Finances, off by
+     default): choosing a PDF runs the local parser first (the form fills immediately),
+     then the AI reads a masked, bounded excerpt and the two readings are reconciled.
+   - **Manual** (setting off): when the parser's confidence is not `high`, the user
+     expands "Essayer l'IA…", sees the exact excerpt that would be sent, and clicks
+     "Analyser avec l'IA". The same reconcile step runs on the result. If the automatic
+     read fails, the manual retry is offered.
+
+   It is a direct `chatCompletion` call (not a persisted `AiSurface`; no `ai_messages`
+   row) using the `finance_categorization` model override or `aiModel`. The reply is
+   validated (decimal balance string, real ISO dates, 4-digit last-four, 3-letter
+   currency, account type from a fixed list). **Reconcile rules**: the parser's value
+   stays the default wherever it found one; the AI fills only what the parser could not
+   find; where both have a value and they differ (balance compared by magnitude, so a
+   printed `CR` is not a disagreement; date; last four), the parser's value stays and a
+   banner shows both with a "Utiliser la valeur de l'IA" button — the AI is never applied
+   silently. Both agreeing on balance and an unambiguous date makes the reading `high`
+   confidence; an AI-only value is never better than `medium`; any disagreement is
+   `medium`. A late AI reply never overwrites a field the user already edited. Privacy
+   contract: [ai-settings-and-privacy.md](ai-settings-and-privacy.md#finance-statement-extraction).
 4. **The user always reviews.** The form shows the account, the statement date,
    and the balance exactly as printed. The account is auto-selected when the
    statement's masked number matches exactly one account's `external_key`;

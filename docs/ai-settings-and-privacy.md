@@ -655,13 +655,17 @@ separate and is covered below.
 Reading a statement PDF is **local by default**: pdf.js extracts the text on this
 machine and a deterministic parser reads the balance and date (see
 [finance.md](finance.md#statement-import-financesimport-relevé-de-compte-pdf)). The
-AI step is an optional, click-to-run fallback — it is not an `AiSurface`, is not
-persisted, and never runs at startup or after an import.
+AI step is optional — it is not an `AiSurface`, is not persisted, and never runs at
+startup or after an import. It reads the same bounded excerpt either way:
 
-It is available only when `aiEnabled` is on, an API key is set, and
+| Setting | Default | Effect |
+|---|---|---|
+| `financeAiStatementEnabled` | `false` | **Off:** the AI runs only when the user expands "Essayer l'IA…" (shown when the local confidence is not high), sees the exact excerpt, and clicks. **On:** choosing a statement PDF sends the excerpt automatically, right after the local parser has filled the form. Disabled in Settings while `aiEnabled` is off. |
+
+Either way it is available only when `aiEnabled` is on, an API key is set, and
 `aiPayloadScope` is not `metrics` (this surface sends statement text, so
-`metrics` disables it, like merchant strings). Before the user confirms, the
-screen shows the exact excerpt that will be sent.
+`metrics` disables it, like merchant strings). The Settings note next to the
+toggle states what is sent.
 
 **Sent** (one request, capped at 8 000 characters): the first 40 lines of the
 statement text plus every line that mentions a balance, statement, period, closing
@@ -678,8 +682,10 @@ postal address or other plain text in the statement header is sent as-is.
 transactions from the database; the OpenRouter key beyond the request's
 authorization header.
 
-The reply is validated and only pre-fills the review form; nothing is written until
-the user clicks "Utiliser comme solde de départ".
+The reply is validated and reconciled with the local parser's reading (the parser's
+value stays unless the parser found nothing; a disagreement is shown, never applied
+silently). It only pre-fills or challenges the review form; nothing is written until the
+user clicks "Utiliser comme solde de départ".
 
 ### Finance categorization (`finance_categorization`)
 

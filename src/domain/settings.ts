@@ -75,6 +75,7 @@ export const defaultAppSettings = (): AppSettings => ({
   financeEnabled: false,
   financeBaseCurrency: "CAD",
   financeAiCategorizationEnabled: false,
+  financeAiStatementEnabled: false,
   financeAiAutoApplyEnabled: false,
   financeAiAutoApplyMinConfidence: 0.9,
   financeAlertsOnToday: true,

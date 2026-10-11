@@ -66,6 +66,7 @@ const financePreferenceKeys: (keyof AppSettings)[] = [
   "financeAlertsOnToday",
   "financeNotifyRunout",
   "financeAiCategorizationEnabled",
+  "financeAiStatementEnabled",
   "financeAiAutoApplyEnabled",
 ];
 
@@ -892,6 +893,22 @@ export const SettingsPage = () => {
             <span>{t("finance.aiCategorizationEnabled")}</span>
           </label>
           <p className="field-card__helper">{t("finance.aiCategorizationPrivacyNote")}</p>
+
+          <label className="switch-row">
+            <input
+              type="checkbox"
+              disabled={!draftSettings.aiEnabled}
+              checked={draftSettings.financeAiStatementEnabled}
+              onChange={(event) =>
+                setDraftSettings((current) => ({
+                  ...current,
+                  financeAiStatementEnabled: event.target.checked,
+                }))
+              }
+            />
+            <span>{t("finance.aiStatementEnabled")}</span>
+          </label>
+          <p className="field-card__helper">{t("finance.aiStatementPrivacyNote")}</p>
 
           <label className="switch-row">
             <input

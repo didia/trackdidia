@@ -45,7 +45,8 @@ export interface StatementExtraction {
   /** True when the only date readings were `dd/mm` vs `mm/dd` ambiguous. */
   dateAmbiguous: boolean;
   confidence: "high" | "medium" | "low";
-  source: "pdf-text" | "ai";
+  /** `pdf-text+ai`: the local parser and the AI were reconciled (`statement-reconcile.ts`). */
+  source: "pdf-text" | "ai" | "pdf-text+ai";
 }
 
 /** A form with nothing filled in: the review form still opens so the user can type the figures. */

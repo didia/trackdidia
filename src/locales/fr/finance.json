@@ -416,7 +416,12 @@
       "badge": "(lecture IA)",
       "applied": "Valeurs mises à jour par l'IA — vérifiez-les avant d'appliquer.",
       "nothingFound": "L'IA n'a rien trouvé de plus fiable.",
-      "failed": "L'analyse IA a échoué."
+      "failed": "L'analyse IA a échoué.",
+      "autoRunning": "Relecture par l'IA en cours…",
+      "badgeBoth": "(lecture locale + IA)",
+      "agrees": "L'IA confirme la lecture locale.",
+      "disagree": "L'IA lit au moins une valeur différemment : la lecture locale est conservée, choisissez ci-dessous.",
+      "notApplied": "Lecture IA terminée, mais vous aviez déjà modifié le formulaire : vos valeurs sont conservées."
     },
     "new": {
       "name": "Nom du compte",
@@ -424,6 +429,12 @@
       "currency": "Devise",
       "institution": "Institution (facultatif)",
       "invalidCurrency": "Devise invalide (code à 3 lettres, ex. CAD)."
+    },
+    "disagreement": {
+      "closingBalance": "Solde : lecture locale {{parser}}, IA {{ai}}.",
+      "statementDate": "Date du relevé : lecture locale {{parser}}, IA {{ai}}.",
+      "accountLast4": "Derniers chiffres du compte : lecture locale {{parser}}, IA {{ai}}.",
+      "useAi": "Utiliser la valeur de l'IA"
     }
   }
 }

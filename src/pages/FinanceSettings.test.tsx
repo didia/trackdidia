@@ -199,6 +199,51 @@ describe("SettingsPage finance section", () => {
     expect(savedArg.financeAiAutoApplyMinConfidence).toBe(0.95);
   });
 
+  it("saves the opt-in to read statements with the AI, disabled while AI is off", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const updateSettings = vi.fn().mockResolvedValue(undefined);
+    const base = {
+      ...defaultAppSettings(),
+      financeEnabled: true,
+      financeCategoriesSeededAt: "2024-01-01T00:00:00.000Z",
+      aiApiKey: "secret",
+      financeAiStatementEnabled: false,
+    };
+
+    // AI off: the toggle is visible but disabled.
+    const { unmount } = await renderWithApp(<SettingsPage />, {
+      repository,
+      contextOverrides: { settings: { ...base, aiEnabled: false }, updateSettings },
+    });
+    const disabledToggle = screen
+      .getByText("Relire aussi les relevés PDF avec l'IA")
+      .closest("label")
+      ?.querySelector("input");
+    expect(disabledToggle).toBeDisabled();
+    unmount();
+
+    const settings = { ...base, aiEnabled: true };
+    await renderWithApp(<SettingsPage />, {
+      repository,
+      contextOverrides: { settings, updateSettings },
+    });
+    const user = userEvent.setup();
+    const toggle = screen
+      .getByText("Relire aussi les relevés PDF avec l'IA")
+      .closest("label")
+      ?.querySelector("input");
+    expect(toggle).not.toBeDisabled();
+    expect(toggle).not.toBeChecked();
+    if (toggle) {
+      await user.click(toggle);
+    }
+    await user.click(screen.getByText("Enregistrer"));
+
+    expect(updateSettings).toHaveBeenCalledTimes(1);
+    expect(updateSettings.mock.calls[0][0](settings).financeAiStatementEnabled).toBe(true);
+  });
+
   it("rejects an invalid safety buffer without saving anything or showing success", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
