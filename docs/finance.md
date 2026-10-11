@@ -115,6 +115,7 @@ automatically — no migration needed):
 | `financeEnabled` | `false` | Master feature flag; later phases gate the nav entry and bootstrap work on this |
 | `financeBaseCurrency` | `"CAD"` | Single base currency for cross-account rollups |
 | `financeAiCategorizationEnabled` | `false` | Gates the AI classification stage (Phase 8, implemented) |
+| `financeAiStatementEnabled` | `false` | Opt-in: read every statement PDF with the AI right after the local parser, then reconcile the two (see "Statement import"); needs `aiEnabled` |
 | `financeAiAutoApplyEnabled` | `false` | Whether an AI suggestion can auto-apply |
 | `financeAiAutoApplyMinConfidence` | `0.9` | Confidence floor for AI auto-apply |
 | `financeAlertsOnToday` | `true` | Shows `FinanceAlertsCard` on Today (Phase 7, implemented) |
@@ -608,11 +609,41 @@ the previous starting point, it does not accumulate.
 2. **Deterministic parser.** `parseStatementText`
    (`src/lib/finance/statement-parser.ts`, pure, French + English labels) finds
    the closing balance (`Nouveau solde`, `New balance`, `Closing balance`,
-   `Solde au …`, …), the opening balance, the statement date / period, the last
+   `Total new balance`, `Account balance`, `Solde au …`, …), the opening balance, the
+   statement date / period, the product name, bank (Banque Nationale, Desjardins, RBC, TD, BMO, Scotia, CIBC,
+   Tangerine) and account type, the last
    four digits of the account or card number, and a currency code. Lines about
    an available balance, credit limit, minimum payment, payment or interest are
    never read as the balance. Every plausible closing-balance line is kept in
-   `balanceCandidates` so a multi-account statement is resolved with one pick.
+   `balanceCandidates` (the same figure printed twice, e.g. summary and payment
+   stub, counts once) so a multi-account statement is resolved with one pick.
+   Statements lay several columns on one visual line, so a label only owns the
+   amount printed **directly** after it (no words in between); a word attached to
+   the label (`Available`, `Rewards`, `Cash limit`, …) disqualifies it, interest
+   rates (`21.99 %`) are not money, and a bare `Balance` label only borrows the next
+   line's amount when the line is just that word. Two "captions above values"
+   layouts are understood: a caption row that starts with the balance label
+   (`NOUVEAU SOLDE | PAIEMENT MIN. | DATE D'ÉCHÉANCE`) takes the first amount on the
+   first value row below, and a summary table whose caption row also names the
+   previous balance and ends with the new balance takes the last figure of its
+   `TOTAL` row. The statement date is the first date after a statement-date caption
+   (not the due date beside it), and a period caption may have its dates up to three
+   lines below. A statement whose captions read `A.-Y. MO. J.-D.` prints year-first
+   dates (`26 09 17`, `26/08/18 AU 26/09/17`) and is read as year-month-day;
+   `2026/10/08` and `2026 10 08` are always understood. A period whose start has no year (`du 10 SEPT au 09 OCT 2026`) takes
+   the end's year, or the year before when the start month is later (a period crossing New Year);
+   French abbreviations (`SEPT`, `OCT`, `JANV`, …) and the misspelling `Revelé du` are accepted. `Total balance` / `Solde total` is preferred over `Balance due` / `Montant exigible` (installments not yet due are still owed;
+   both stay selectable candidates), and a `Previous`/`Opening` word before a label makes it an
+   opening figure, never the closing one. The account type comes from the statement's own wording, not from card brands: a
+   header naming a line of credit wins, then strong card signals (credit limit, minimum payment,
+   available credit) unless the activity has withdrawal and deposit columns, then chequing /
+   savings wording in the first 30 lines (`forfait bancaire`, `compte courant`, `épargne`) —
+   because "Visa Débit" and another issuer's card name appear in chequing activity. A
+   balance line may carry a connector before its date (`solde de clôture le 15 septembre 2026
+   = 1 022,79 $`). Column gaps survive as a double space, so a footnote digit before an amount
+   (`Montant exigible 1   893,68 $`) is never glued onto it as a thousands group. A currency code is trusted only
+   when a single code appears outside foreign-exchange notes
+   (`14.60 USD @ 1.4253 incl. 2.5% conversion fee` on a CAD card).
    The statement date is, in order: a line naming it explicitly (`Date du relevé`,
    `Statement date`, …); the end of a range under a real period label (`Période`,
    `Statement period`); a date printed on the balance line; and only as a last
@@ -622,19 +653,42 @@ the previous starting point, it does not accumulate.
    kept (`closingBalanceMarker`) and shown in the field. `confidence` is `high`
    only when a balance and an unambiguous, non-conflicting date were found with no
    competing balances.
-3. **Optional AI fallback** (`src/lib/ai/finance-statement-extraction.ts`). Offered
-   only when `aiEnabled`, an API key is set and `aiPayloadScope` is not `metrics`,
-   and only when confidence is not `high`. It never runs automatically: the user
-   expands "Essayer l'IA…", sees the exact masked excerpt that would be sent, and
-   clicks "Analyser avec l'IA". It is a direct `chatCompletion` call (not a
-   persisted `AiSurface`; no `ai_messages` row) using the
-   `finance_categorization` model override or `aiModel`. Its output is validated
-   (decimal balance string, real ISO dates, 4-digit last-four, 3-letter currency)
-   and only pre-fills the review form. Privacy contract:
-   [ai-settings-and-privacy.md](ai-settings-and-privacy.md#finance-statement-extraction).
-4. **The user always reviews.** The form shows the account (auto-selected when the
-   statement's masked number matches exactly one account's `external_key`), the
-   statement date, and the balance exactly as printed. Warnings: ambiguous date,
+3. **AI reading, reconciled with the parser** (`src/lib/ai/finance-statement-extraction.ts`,
+   `src/lib/finance/statement-reconcile.ts`). Available only when `aiEnabled`, an API
+   key is set and `aiPayloadScope` is not `metrics`. Two ways to run it:
+   - **Opt-in automatic** (`financeAiStatementEnabled`, Settings → Finances, off by
+     default): choosing a PDF runs the local parser first (the form fills immediately),
+     then the AI reads a masked, bounded excerpt and the two readings are reconciled.
+   - **Manual** (setting off): when the parser's confidence is not `high`, the user
+     expands "Essayer l'IA…", sees the exact excerpt that would be sent, and clicks
+     "Analyser avec l'IA". The same reconcile step runs on the result. If the automatic
+     read fails, the manual retry is offered.
+
+   It is a direct `chatCompletion` call (not a persisted `AiSurface`; no `ai_messages`
+   row) using the `finance_categorization` model override or `aiModel`. The reply is
+   validated (decimal balance string, real ISO dates, 4-digit last-four, 3-letter
+   currency, account type from a fixed list). **Reconcile rules**: the parser's value
+   stays the default wherever it found one; the AI fills only what the parser could not
+   find; where both have a value and they differ (balance compared by magnitude, so a
+   printed `CR` is not a disagreement; date; last four), the parser's value stays and a
+   banner shows both with a "Utiliser la valeur de l'IA" button — the AI is never applied
+   silently. Both agreeing on balance and an unambiguous date makes the reading `high`
+   confidence; an AI-only value is never better than `medium`; any disagreement is
+   `medium`. A late AI reply never overwrites a field the user already edited. Privacy
+   contract: [ai-settings-and-privacy.md](ai-settings-and-privacy.md#finance-statement-extraction).
+4. **The user always reviews.** The form shows the account, the statement date,
+   and the balance exactly as printed. The account is auto-selected when the
+   statement's masked number matches exactly one account's `external_key`;
+   otherwise "+ Créer un nouveau compte à partir du relevé" is pre-selected, with
+   name (the product name printed on the statement plus the last four digits, e.g.
+   "Walmart Rewards Mastercard (2035)"), type (credit card / chequing / savings /
+   line of credit inferred from the wording), and currency (the statement's code, else
+   `financeBaseCurrency`) pre-filled and editable. Applying then creates an
+   individual, on-budget account (`external_key` = `****<last4>` unless another
+   account already uses it, opening balance 0) and applies the statement to it in the
+   same click — a later statement for that card binds to it automatically. The new
+   account is selected before the balance is applied, so a failure part-way retries
+   against it instead of creating a duplicate. Warnings: ambiguous date,
    currency different from the account's, and "a more recent statement was already
    applied to this account".
 5. **Applying** calls `repository.applyFinanceStatementBalance({ accountId,

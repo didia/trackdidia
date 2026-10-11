@@ -282,4 +282,91 @@ describe("FinanceStatementImport", () => {
     await user.upload(input, new File(["%PDF"], "vide.pdf", { type: "application/pdf" }));
     expect(await screen.findByText("Ce PDF n'a pas pu être lu.")).toBeInTheDocument();
   });
+
+  it("creates the account from the statement and sets its balance in one step", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const onApplied = vi.fn();
+    const user = userEvent.setup();
+    const statement = [
+      "Summary of your account   PAGE 1 of 3",
+      "STATEMENT PERIOD AUG 24, 2026 – SEP 23, 2026",
+      "Minimum Payment   $120.00 Previous balance   $1,000.00",
+      "(included in credit limit)   Total new balance   $1,500.00 Previous Rewards balance   $9.17",
+      "Example Rewards Mastercard",
+      "Account number   **** **** **** 2035",
+    ].join("\n");
+    await renderWithApp(
+      <FinanceStatementImport
+        repository={repository}
+        settings={{ ...defaultAppSettings(), financeEnabled: true }}
+        accounts={[]}
+        extractText={vi.fn().mockResolvedValue(statement)}
+        onApplied={onApplied}
+      />,
+      { repository },
+    );
+    await user.upload(
+      document.querySelector('input[type="file"]') as HTMLInputElement,
+      new File(["%PDF"], "statement.pdf", { type: "application/pdf" }),
+    );
+
+    // Creation is pre-selected and pre-filled from the statement.
+    expect(
+      await screen.findByDisplayValue("Example Rewards Mastercard (2035)"),
+    ).toBeInTheDocument();
+    expect((screen.getByLabelText("Type de compte") as HTMLSelectElement).value).toBe(
+      "credit_card",
+    );
+    expect(screen.getByDisplayValue("1500.00")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("2026-09-23")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Utiliser comme solde de départ" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Example Rewards Mastercard (2035)",
+    );
+
+    const [created] = await repository.listFinanceAccounts({ includeClosed: true });
+    expect(created).toMatchObject({
+      name: "Example Rewards Mastercard (2035)",
+      type: "credit_card",
+      currency: "CAD",
+      externalKey: "****2035",
+      onBudget: true,
+      openingBalanceMinor: -150_000,
+    });
+    const snapshots = await repository.listFinanceAccountBalanceSnapshots(created.id);
+    expect(snapshots[0]).toMatchObject({
+      asOfDate: "2026-09-23",
+      balanceMinor: -150_000,
+      source: "statement",
+    });
+    expect(onApplied).toHaveBeenCalled();
+
+    // A second statement for the same card now binds to the account it created.
+    expect(await repository.listFinanceAccounts({ includeClosed: true })).toHaveLength(1);
+  });
+
+  it("requires a name before creating an account", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const user = userEvent.setup();
+    await renderWithApp(
+      <FinanceStatementImport
+        repository={repository}
+        settings={defaultAppSettings()}
+        accounts={[]}
+        extractText={vi.fn().mockResolvedValue("Statement date: 2026-03-31\nClosing balance 10.00")}
+      />,
+      { repository },
+    );
+    await user.upload(
+      document.querySelector('input[type="file"]') as HTMLInputElement,
+      new File(["%PDF"], "x.pdf", { type: "application/pdf" }),
+    );
+    await screen.findByLabelText("Nom du compte");
+    expect(screen.getByRole("button", { name: "Utiliser comme solde de départ" })).toBeDisabled();
+    await user.type(screen.getByLabelText("Nom du compte"), "Chèques");
+    expect(screen.getByRole("button", { name: "Utiliser comme solde de départ" })).toBeEnabled();
+  });
 });

@@ -1,17 +1,19 @@
-// Optional AI fallback for reading a statement when the deterministic parser
-// (`../finance/statement-parser.ts`) is not confident. Never runs automatically: the import
-// screen calls it only after the user clicks, having been told what is sent.
+// AI reading of a statement, used alongside the deterministic parser
+// (`../finance/statement-parser.ts`); `../finance/statement-reconcile.ts` compares the two.
+// It runs automatically only when the user opted in (`financeAiStatementEnabled`); otherwise
+// only after a click, having been shown what is sent.
 //
 // Privacy contract (docs/ai-settings-and-privacy.md "Finance statement extraction"):
 // - Only a *summary window* of the statement text is sent — the first lines of the document plus
 //   lines (±1) that mention a balance, a period, or a statement date — capped at 8 000
-//   characters. Individual transaction rows are not sent.
+//   characters. Lines that look like transaction rows are filtered out first (a heuristic).
 // - Long digit runs (account / card numbers), email addresses and phone-looking groups are masked
 //   first. Names and addresses in the header are NOT redacted: do not describe this as removing
 //   personal information.
 // - Disabled entirely when AI is off, no key is set, or `aiPayloadScope` is `metrics`.
-// - The result is never applied automatically; it only pre-fills the review form.
+// - The result is never applied on its own; it only pre-fills or challenges the review form.
 
+import type { FinanceAccountType } from "../../domain/finance";
 import type { AppSettings } from "../../domain/types";
 import { parseAmountToMinor } from "../finance/money";
 import { findAmounts, findDates, type StatementExtraction } from "../finance/statement-parser";
@@ -78,10 +80,25 @@ export const isStatementAiAvailable = (settings: AppSettings): boolean =>
   settings.aiApiKey.trim().length > 0 &&
   settings.aiPayloadScope !== "metrics";
 
-const SYSTEM_PROMPT = `Tu extrais les chiffres cles d'un releve de compte bancaire ou de carte de credit a partir d'extraits de texte.
+const SYSTEM_PROMPT = `Tu extrais les chiffres cles d'un releve de compte bancaire ou de carte de credit a partir d'extraits de texte (francais ou anglais).
 Reponds uniquement avec un objet JSON de la forme:
-{"closingBalance": string|null, "openingBalance": string|null, "statementDate": "YYYY-MM-DD"|null, "periodStart": "YYYY-MM-DD"|null, "periodEnd": "YYYY-MM-DD"|null, "accountLast4": string|null, "currency": string|null}
-Regles: closingBalance est le solde de fin de periode (nouveau solde) tel qu'imprime, en notation decimale avec un point (ex "1234.56"), negatif si le releve indique un credit ou un montant negatif. N'utilise ni le solde disponible, ni la limite de credit, ni le paiement minimum. statementDate est la date de cloture du releve. N'invente rien: mets null si l'information est absente.`;
+{"closingBalance": string|null, "openingBalance": string|null, "statementDate": "YYYY-MM-DD"|null, "periodStart": "YYYY-MM-DD"|null, "periodEnd": "YYYY-MM-DD"|null, "accountLast4": string|null, "currency": string|null, "accountName": string|null, "accountType": "checking"|"savings"|"credit_card"|"line_of_credit"|"loan"|"mortgage"|"other"|null, "institution": string|null}
+Regles:
+- closingBalance: le solde total du compte a la fin de la periode, tel qu'imprime, en notation decimale avec un point (ex "1234.56"), negatif seulement si le releve indique un credit ou un montant negatif. Pour une carte de credit, c'est le solde total / nouveau solde (y compris les versements echelonnes pas encore echus), PAS le montant exigible ce mois-ci, ni le paiement minimum, ni le credit disponible, ni la limite de credit, ni un solde de points ou de remises.
+- statementDate: la date de cloture / d'emission du releve (pas la date d'echeance). Les dates peuvent etre ecrites annee-mois-jour (ex "26 09 17" = 2026-09-17).
+- accountLast4: les 4 derniers chiffres du numero de carte ou de compte, si visibles.
+- accountType: deduis-le de l'en-tete du releve, pas des noms de cartes qui apparaissent dans les transactions.
+- N'invente rien: mets null si l'information est absente.`;
+
+const AI_ACCOUNT_TYPES: FinanceAccountType[] = [
+  "checking",
+  "savings",
+  "credit_card",
+  "line_of_credit",
+  "loan",
+  "mortgage",
+  "other",
+];
 
 const stripJsonFences = (text: string): string =>
   text
@@ -138,6 +155,11 @@ export const parseStatementAiResponse = (text: string): StatementExtraction | nu
   if (closingBalanceMinor === null && statementDate === null) {
     return null;
   }
+  const shortText = (value: unknown, max: number): string | null =>
+    typeof value === "string" && value.trim().length > 0 && value.trim().length <= max
+      ? value.trim()
+      : null;
+  const accountType = AI_ACCOUNT_TYPES.find((type) => type === record.accountType) ?? null;
   return {
     closingBalanceMinor,
     closingBalanceMarker: null,
@@ -147,6 +169,9 @@ export const parseStatementAiResponse = (text: string): StatementExtraction | nu
     periodEnd,
     accountLast4: last4,
     currency,
+    suggestedAccountName: shortText(record.accountName, 60),
+    suggestedInstitution: shortText(record.institution, 40),
+    suggestedAccountType: accountType,
     balanceCandidates: [],
     dateAmbiguous: false,
     // An AI reading is never "high": the user must confirm it against the statement.

@@ -53,6 +53,8 @@ export interface AppSettings {
   financeEnabled: boolean;
   financeBaseCurrency: string;
   financeAiCategorizationEnabled: boolean;
+  /** Read statement PDFs with the AI as well as the local parser (opt-in; sends a masked excerpt). */
+  financeAiStatementEnabled: boolean;
   financeAiAutoApplyEnabled: boolean;
   financeAiAutoApplyMinConfidence: number;
   financeAlertsOnToday: boolean;
