@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findAmounts, findDates, parseStatementText } from "./statement-parser";
+import { findAmounts, findDates, findYearlessRange, parseStatementText } from "./statement-parser";
 
 describe("findAmounts", () => {
   it("reads French and English formatted amounts", () => {
@@ -361,5 +361,44 @@ describe("parseStatementText", () => {
       "Previous total balance $6,999.97\nStatement date 2026-09-20",
     );
     expect(result.closingBalanceMinor).toBeNull();
+  });
+
+  it("reads a French-Canadian statement whose period start has no year", () => {
+    // Synthetic figures in the layout of a Canadian bank card statement: abbreviated months, a
+    // misspelt "Revelé du", comma decimals and a "$" after the amount.
+    const result = parseStatementText(
+      [
+        "Remise en argent Mastercard Exemple",
+        "JEAN EXEMPLE 5415 90** **** 5585",
+        "Revelé du 10 SEPT au 09 OCT 2026",
+        "SOLDE DE COMPTE PRÉCÉDENT   783,34 $",
+        "Paiements et crédits   (823,00 $)",
+        "Solde de compte total   309,41 $",
+        "SOLDE COURANT   309,41 $",
+        "Limite de crédit   5 500,00 $",
+        "Crédit non utilisé   5 190,59 $",
+      ].join("\n"),
+    );
+    expect(result).toMatchObject({
+      closingBalanceMinor: 30_941,
+      statementDate: "2026-10-09",
+      periodStart: "2026-09-10",
+      periodEnd: "2026-10-09",
+      accountLast4: "5585",
+      suggestedAccountName: "Remise en argent Mastercard Exemple",
+      confidence: "high",
+    });
+  });
+
+  it("gives a yearless range start the previous year only when it crosses New Year", () => {
+    expect(findYearlessRange("du 10 SEPT au 09 OCT 2026")).toEqual({
+      start: "2026-09-10",
+      end: "2026-10-09",
+    });
+    expect(findYearlessRange("du 20 DÉC au 19 JANV 2027")).toEqual({
+      start: "2026-12-20",
+      end: "2027-01-19",
+    });
+    expect(findYearlessRange("du 31 FÉVR au 09 MARS 2026")).toBeNull();
   });
 });

@@ -151,6 +151,41 @@ interface FoundDate {
 
 const MONTH_WORD = "[A-Za-zÀ-ÿ]{3,9}\\.?";
 
+/**
+ * "du 10 SEPT au 09 OCT 2026": a range whose start has no year. The start takes the end's year,
+ * or the year before when its month is later (September → October stays in 2026, December →
+ * January crosses the new year).
+ */
+export const findYearlessRange = (line: string): { start: string; end: string } | null => {
+  const text = normalizeText(line);
+  const match = text.match(
+    new RegExp(
+      `\\b(\\d{1,2})(?:er)?\\s+(${MONTH_WORD})\\s*(?:au|to|through|[-–—])\\s*(\\d{1,2})(?:er)?\\s+(${MONTH_WORD})\\s*,?\\s*(\\d{4})\\b`,
+      "i",
+    ),
+  );
+  if (!match) {
+    return null;
+  }
+  const startMonth = MONTHS[stripAccents(match[2].replace(/\.$/, "")).toLowerCase()];
+  const endMonth = MONTHS[stripAccents(match[4].replace(/\.$/, "")).toLowerCase()];
+  const endYear = Number(match[5]);
+  if (!startMonth || !endMonth) {
+    return null;
+  }
+  const startYear = startMonth > endMonth ? endYear - 1 : endYear;
+  if (
+    !isRealDate(startYear, startMonth, Number(match[1])) ||
+    !isRealDate(endYear, endMonth, Number(match[3]))
+  ) {
+    return null;
+  }
+  return {
+    start: toIso(startYear, startMonth, Number(match[1])),
+    end: toIso(endYear, endMonth, Number(match[3])),
+  };
+};
+
 /** Every date mentioned in `line`, in reading order. */
 export const findDates = (line: string, dateOrder: StatementDateOrder = "DMY"): FoundDate[] => {
   const found: FoundDate[] = [];
@@ -368,7 +403,8 @@ const matchesAny = (line: string, patterns: RegExp[]): boolean =>
   patterns.some((pattern) => pattern.test(line));
 
 /** A real period label — a bare "du 1er … au …" / "from … to …" can be a promo or rate window. */
-const PERIOD_LABELS = /(p[eé]riode|period|relev[eé]\s+du|statement\s+(?:period|from))/i;
+// "Revelé du" (sic) appears on real statements, so both spellings of "relevé" are accepted.
+const PERIOD_LABELS = /(p[eé]riode|period|re(?:lev|vel)[eé]\s+du|statement\s+(?:period|from))/i;
 const STATEMENT_DATE_LABELS =
   /(statement\s+(?:closing\s+)?date|closing\s+date|date\s+(?:du\s+relev[eé]|de\s+relev[eé]|de\s+cl[oô]ture|d['’]\s?[eé]mission|de\s+facturation)|period\s+ending|billing\s+date|date\s+de\s+fin|[eé]tat\s+de\s+compte\s+au)/i;
 const RANGE_JOINER = /(?:\bau\b|\bto\b|\bthrough\b|\bjusqu['’]au\b|[-–—])/i;
@@ -665,6 +701,10 @@ export const parseStatementText = (
 
   type DateRange = { start: string; end: string; ambiguous: boolean };
   const readRange = (line: string, next: string | undefined): DateRange | null => {
+    const yearless = findYearlessRange(line);
+    if (yearless) {
+      return { start: yearless.start, end: yearless.end, ambiguous: false };
+    }
     const dates = findDates(line, dateOrder);
     if (
       dates.length >= 2 &&
