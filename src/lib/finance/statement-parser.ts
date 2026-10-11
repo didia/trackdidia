@@ -657,9 +657,9 @@ export const parseStatementText = (
     // ("Montant exigible 1   893,68 $") is not glued onto it as a thousands group.
     .map((line) =>
       line
-        .replace(/[^\S\n]{3,}/g, "\u0001")
+        .replace(/[^\S\n]{3,}/g, "\uE000")
         .replace(/\s+/g, " ")
-        .replace(/\u0001/g, "  ")
+        .replace(/\uE000/g, "  ")
         .trim(),
     )
     .filter((line) => line.length > 0);
