@@ -317,4 +317,49 @@ describe("parseStatementText", () => {
       "Desjardins",
     );
   });
+
+  it("reads a card statement with installment plans: total balance by default, balance due as an alternative", () => {
+    // Synthetic figures in the layout of a Canadian bank statement: the previous balance and its
+    // date precede the "Statement date" label on the same visual line.
+    const result = parseStatementText(
+      [
+        "Example Preferred Rate",
+        "Mastercard",
+        "Summary of your account",
+        "Card number   XXXX XXXX XXXX 4113",
+        "Previous total balance, Aug. 20, 2026   $6,999.97   Statement date   Sep. 20, 2026",
+        "Payments and credits   -477.00   Statement period   Aug. 21, 2026 - Sep. 20, 2026",
+        "Total interest charges   +14.77",
+        "Total balance   $6,566.74",
+        "Minimum payment due   $465.59",
+        "Payment due date: Oct. 15, 2026",
+        "Total installments not yet due   +1,499.29",
+        "Balance due   $5,067.45",
+        "Your credit limit   $7,500.00",
+        "Your available credit   $933.26",
+        "Card number   XXXX XXXX XXXX 4113",
+        "Balance due   $5,067.45",
+      ].join("\n"),
+    );
+    expect(result).toMatchObject({
+      closingBalanceMinor: 656_674,
+      statementDate: "2026-09-20",
+      periodStart: "2026-08-21",
+      periodEnd: "2026-09-20",
+      accountLast4: "4113",
+      suggestedAccountName: "Example Preferred Rate Mastercard",
+      suggestedAccountType: "credit_card",
+      confidence: "medium",
+    });
+    expect(result.balanceCandidates.map((candidate) => candidate.amountMinor)).toEqual([
+      656_674, 506_745,
+    ]);
+  });
+
+  it("never reads a previous / opening total as the closing balance", () => {
+    const result = parseStatementText(
+      "Previous total balance $6,999.97\nStatement date 2026-09-20",
+    );
+    expect(result.closingBalanceMinor).toBeNull();
+  });
 });

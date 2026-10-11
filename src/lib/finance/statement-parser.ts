@@ -321,9 +321,13 @@ const CLOSING_LABELS = [
   /solde\s+(?:final|de\s+fin|en\s+fin|de\s+fermeture)/i,
   /solde\s+du\s+relev[eé]/i,
   /solde\s+(?:actuel|courant)/i,
+  /total\s+balance/i,
   /(?:current|ledger)\s+balance/i,
   /(?:balance|solde)\s+(?:as\s+of|at|on|au)\b/i,
   /(?:solde|balance)\s+(?:du\s+)?(?:compte|account)|account\s+balance/i,
+  // What is due this month (excludes installments not yet due): a candidate, never the default
+  // when a "Total balance" exists.
+  /balance\s+due|solde\s+d[uû]/i,
   // A bare "Balance" / "Solde" label only counts when the line is essentially just that word;
   // a sentence that happens to end with "balance" must not borrow the next line's amount.
   /^[\p{L} ]{0,20}\bsolde\s*:?\s*$/iu,
@@ -331,7 +335,7 @@ const CLOSING_LABELS = [
 ];
 
 const OPENING_LABELS = [
-  /previous\s+balance/i,
+  /previous\s+(?:total\s+)?balance/i,
   /opening\s+balance/i,
   /beginning\s+balance/i,
   /balance\s+forward/i,
@@ -420,18 +424,22 @@ const titleCaseIfShouting = (value: string): string =>
  * sitting beside the product name does not leak into it.
  */
 const extractAccountName = (rawLines: string[]): string | null => {
+  let previous: string | null = null;
   for (const rawLine of rawLines) {
     for (const cell of rawLine.split(/\s{3,}/)) {
       const line = cell.replace(/\s+/g, " ").trim();
-      if (
-        line.length >= 6 &&
+      const labelLike =
+        line.length >= 3 &&
         line.length <= 45 &&
         line.split(" ").length <= 6 &&
-        !/[.,:;$\d*/]/.test(line) &&
-        PRODUCT_NAME_PATTERN.test(line)
-      ) {
-        return titleCaseIfShouting(line);
+        !/[.,:;$\d*/]/.test(line);
+      if (labelLike && line.length >= 6 && PRODUCT_NAME_PATTERN.test(line)) {
+        // "BMO Preferred Rate" above a lone "Mastercard": the product is both lines together.
+        const brandOnly = line.split(" ").length === 1;
+        const name = brandOnly && previous ? `${previous} ${line}` : line;
+        return titleCaseIfShouting(name);
       }
+      previous = labelLike && line.split(" ").length <= 4 ? line : null;
     }
   }
   return null;
@@ -471,6 +479,10 @@ const inferAccountType = (text: string): FinanceAccountType | null => {
   return null;
 };
 
+/** A word that makes the following "balance" an opening figure, not the closing one. */
+const OPENING_WORD_BEFORE =
+  /\b(?:previous|prior|opening|beginning|last|pr[eé]c[eé]dent|ancien|initial)\s*$/i;
+
 interface LabelHit {
   priority: number;
   /** The amount printed directly after the label on the same line, if any. */
@@ -491,13 +503,17 @@ const COLUMN_CAPTION_WORDS =
  * amount that follows it *directly* — no words in between — and an ignored word right before or
  * inside that label/amount span ("Available balance", "Rewards balance") disqualifies the hit.
  */
-const findLabelHit = (line: string, patterns: RegExp[]): LabelHit | null => {
+const findLabelHit = (line: string, patterns: RegExp[], rejectAfter?: RegExp): LabelHit | null => {
   let best: LabelHit | null = null;
   patterns.forEach((pattern, priority) => {
     const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
     for (const match of line.matchAll(new RegExp(pattern.source, flags))) {
       const start = match.index ?? 0;
       const end = start + match[0].length;
+      // "Previous total balance" must not be read as the (closing) "total balance".
+      if (rejectAfter?.test(line.slice(0, start))) {
+        continue;
+      }
       let amountStart = end;
       // "Solde au 31 mars 2026   5 678,90 $": a date may sit between the label and its amount.
       const [leadingDate] = findDates(line.slice(end));
@@ -620,7 +636,7 @@ export const parseStatementText = (
         return;
       }
     }
-    const hit = findLabelHit(line, CLOSING_LABELS);
+    const hit = findLabelHit(line, CLOSING_LABELS, OPENING_WORD_BEFORE);
     if (!hit) {
       return;
     }
@@ -680,10 +696,15 @@ export const parseStatementText = (
     if (!STATEMENT_DATE_LABELS.test(line)) {
       continue;
     }
+    const labelEnd =
+      (STATEMENT_DATE_LABELS.exec(line)?.index ?? 0) +
+      (STATEMENT_DATE_LABELS.exec(line)?.[0].length ?? 0);
     const dates = findDates(line, dateOrder);
-    const nextDates = dates.length === 0 ? findDates(lines[index + 1] ?? "", dateOrder) : [];
-    // The first date after the label: "STATEMENT DATE 26 09 17 … DUE DATE 2026 10 08".
-    const picked = dates[0] ?? nextDates[0];
+    // The first date *after* the label: "Previous balance, Aug. 20, 2026 … Statement date Sep. 20,
+    // 2026" and "STATEMENT DATE 26 09 17 … DUE DATE 2026 10 08" both name the second/first one.
+    const after = dates.filter((date) => date.index >= labelEnd);
+    const nextDates = after.length === 0 ? findDates(lines[index + 1] ?? "", dateOrder) : [];
+    const picked = after[0] ?? nextDates[0];
     if (picked) {
       explicitDate = picked;
       break;
