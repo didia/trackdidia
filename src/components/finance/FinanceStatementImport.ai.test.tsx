@@ -11,8 +11,6 @@ import { MemoryRepository } from "../../lib/storage/memory-repository";
 import { renderWithApp } from "../../test/test-utils";
 import { FinanceStatementImport } from "./FinanceStatementImport";
 
-vi.mock("pdfjs-dist/legacy/build/pdf.worker.min.mjs?url", () => ({ default: "worker.js" }));
-
 // A plain function (not vi.fn) so a rejected reply is handled by the component, not tracked by the spy.
 let aiCalls = 0;
 let aiBehavior: () => Promise<StatementExtraction | null> = async () => null;

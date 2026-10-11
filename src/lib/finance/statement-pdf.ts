@@ -1,18 +1,43 @@
 // Extracts plain text from a statement PDF, entirely on this machine, using pdf.js. Only text
 // layers are read: a scanned (image-only) PDF yields no text and is reported as such so the UI can
-// say so instead of silently finding nothing. No network access — the worker ships with the app.
-
-import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
+// say so instead of silently finding nothing. No network access.
+//
+// pdf.js runs on the main thread: the worker code is imported through the bundler (so it lives in
+// the same lazy chunk as pdf.js, loaded like every other chunk) and handed to pdf.js as
+// `globalThis.pdfjsWorker`. A separate Worker script served from the desktop webview's custom
+// scheme was the one fragile part of the desktop build; a few statement pages parse in well under
+// a second, so a worker buys nothing here.
 
 export class StatementPdfError extends Error {
   constructor(
     readonly code: "unreadable" | "encrypted" | "no_text",
     message: string,
+    /** Technical reason (error name and message only — never statement content), for the UI/log. */
+    readonly detail?: string,
   ) {
     super(message);
     this.name = "StatementPdfError";
   }
 }
+
+const describeError = (error: unknown): string => {
+  const name = error instanceof Error ? error.name : "Error";
+  const message = error instanceof Error ? error.message : String(error);
+  return `${name}: ${message}`.slice(0, 200);
+};
+
+const loadPdfjs = async () => {
+  try {
+    const [pdfjs, worker] = await Promise.all([
+      import("pdfjs-dist/legacy/build/pdf.mjs"),
+      import("pdfjs-dist/legacy/build/pdf.worker.min.mjs"),
+    ]);
+    (globalThis as { pdfjsWorker?: unknown }).pdfjsWorker = worker;
+    return pdfjs;
+  } catch (error) {
+    throw new StatementPdfError("unreadable", "pdf.js could not be loaded", describeError(error));
+  }
+};
 
 interface PdfTextItem {
   str: string;
@@ -64,8 +89,7 @@ export const buildPageLines = (items: PdfTextItem[]): string[] => {
 
 /** Text of the first pages of the PDF (statements put the summary up front), one line per row. */
 export const extractPdfText = async (bytes: ArrayBuffer): Promise<string> => {
-  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+  const pdfjs = await loadPdfjs();
 
   const task = pdfjs.getDocument({ data: new Uint8Array(bytes.slice(0)) });
   try {
@@ -77,6 +101,7 @@ export const extractPdfText = async (bytes: ArrayBuffer): Promise<string> => {
       throw new StatementPdfError(
         encrypted ? "encrypted" : "unreadable",
         encrypted ? "PDF is password-protected" : "PDF could not be read",
+        describeError(error),
       );
     }
 

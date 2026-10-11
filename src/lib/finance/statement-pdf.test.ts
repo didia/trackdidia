@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-vi.mock("pdfjs-dist/legacy/build/pdf.worker.min.mjs?url", () => ({ default: "worker.js" }));
-
 import { buildPageLines } from "./statement-pdf";
 
 const item = (str: string, x: number, y: number, width = str.length * 5) => ({

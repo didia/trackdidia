@@ -597,12 +597,17 @@ starting point. Only the most recent statement matters: applying one replaces
 the previous starting point, it does not accumulate.
 
 1. **Extraction is local first.** `extractPdfText` (`src/lib/finance/statement-pdf.ts`)
-   reads the text layer with pdf.js (`pdfjs-dist`, legacy build, lazy-loaded chunk,
-   worker bundled with the app — no network). It reads at most the first 12
+   reads the text layer with pdf.js (`pdfjs-dist`, legacy build, lazy-loaded chunk, no
+   network). pdf.js runs **on the main thread**: its worker code is imported through
+   the bundler and handed over as `globalThis.pdfjsWorker`, so there is no separate
+   Worker script to be served from the desktop webview's custom scheme (the one
+   fragile part of the first version). It reads at most the first 12
    pages, groups fragments into visual lines, and separates columns with a wide
    gap so `label    amount` rows stay on one line. A password-protected PDF or one
    with no selectable text (a scan) raises `StatementPdfError`
-   (`encrypted` / `no_text` / `unreadable`); the UI shows a specific message and
+   (`encrypted` / `no_text` / `unreadable`); the UI shows a specific message (for a
+   generic failure it appends the technical reason — error name and message, never
+   statement content — and writes the same to the debug log) and
    the review form still opens (blank) so the user can type the figures; the
    file input is cleared so the same file can be chosen again to retry. A read or
    AI reply that finishes after a newer file was chosen is discarded.
