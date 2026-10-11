@@ -148,6 +148,7 @@ export const parseStatementAiResponse = (text: string): StatementExtraction | nu
     accountLast4: last4,
     currency,
     suggestedAccountName: null,
+    suggestedInstitution: null,
     suggestedAccountType: null,
     balanceCandidates: [],
     dateAmbiguous: false,

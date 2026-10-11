@@ -248,4 +248,73 @@ describe("parseStatementText", () => {
     ).toBe("savings");
     expect(parseStatementText("Closing balance 1.00").suggestedAccountType).toBeNull();
   });
+
+  it("reads a bilingual year-first statement whose captions sit above their values", () => {
+    // Synthetic figures in the layout of a Quebec bank card statement: captions on one row, the
+    // values on a later row; dates print as "AA MM JJ"; a summary table ends with the new balance.
+    const result = parseStatementText(
+      [
+        "BANQUE EXEMPLE",
+        "MASTERCARD EXEMPLE   PAIEMENT",
+        "600 RUE EXEMPLE   PAYMENT",
+        "NOUVEAU SOLDE   PAIEMENT MIN. DÛ   DATE D’ÉCHÉANCE",
+        "NEW BALANCE   MIN. PAYMENT DUE   DUE DATE",
+        "DATE DU RELEVÉ",
+        "STATEMENT DATE 26 09 17   $170.80   $10.00   2026 10 08",
+        "A.- Y .   MO.   J.- D.   A.- Y.   MO.   J.- D.",
+        "**** ****** **6651",
+        "09 17   I260115550   09 17 FRAIS INTERET   0.13",
+        "08 24   0612425659   08 24 PAIEMENT RECU MERCI!   10.00-",
+        "NOUVEAU SOLDE DE POINTS   :   19,335",
+        "TAUX D’INTÉRÊT / ACHATS   PÉRIODE DU RELEVÉ   DATE DU RELEVÉ",
+        "INTEREST RATE / PURCHASES   STATEMENT PERIOD   STATEMENT DATE",
+        "20.99 %   22.49 %   26/08/18 AU 26/09/17   26/09/17",
+        "SOLDE PRÉCÉDENT   TRANSACTIONS DU MOIS   INTÉRÊTS   FRAIS   PAIEMENTS / CRÉDITS   NOUVEAU SOLDE",
+        "PREVIOUS BALANCE   MONTHLY TRANSACTIONS   INTEREST   FEES   PAYMENTS / CREDITS   NEW BALANCE",
+        "15.86   170.67   0.00   0.00   15.86   170.67",
+        "AVANCES DE FONDS   0.00   212.52   0.13   212.52   0.13",
+        "TOTAL   15.86   383.19   0.13   0.00   228.38   170.80",
+        "LIMITE DE CRÉDIT   CRÉDIT DISPONIBLE",
+        "28,250   28,079",
+        "MONTANT ORIGINAL EN DEVISE CAD   50.59",
+      ].join("\n"),
+    );
+    expect(result).toMatchObject({
+      closingBalanceMinor: 17_080,
+      statementDate: "2026-09-17",
+      periodStart: "2026-08-18",
+      periodEnd: "2026-09-17",
+      accountLast4: "6651",
+      currency: "CAD",
+      suggestedAccountName: "Mastercard Exemple",
+      suggestedInstitution: null,
+      suggestedAccountType: "credit_card",
+      confidence: "high",
+    });
+    expect(result.balanceCandidates).toHaveLength(1);
+  });
+
+  it("reads year-first dates only when the statement declares year-month-day", () => {
+    expect(findDates("26 09 17", "YMD")[0]?.iso).toBe("2026-09-17");
+    expect(findDates("26/08/18", "YMD")[0]?.iso).toBe("2026-08-18");
+    expect(findDates("2026/10/08")[0]?.iso).toBe("2026-10-08");
+    expect(findDates("2026 10 08")[0]?.iso).toBe("2026-10-08");
+    expect(findDates("26 09 17")).toEqual([]);
+  });
+
+  it("takes the first date after a statement-date label, not the due date", () => {
+    const result = parseStatementText(
+      "Statement date 2026-03-31   Due date 2026-04-20\nNew balance $10.00",
+    );
+    expect(result.statementDate).toBe("2026-03-31");
+  });
+
+  it("recognises well-known banks", () => {
+    expect(
+      parseStatementText("National Bank of Canada\nNew balance 1.00").suggestedInstitution,
+    ).toBe("Banque Nationale");
+    expect(parseStatementText("Relevé Desjardins\nNouveau solde 1,00").suggestedInstitution).toBe(
+      "Desjardins",
+    );
+  });
 });

@@ -609,7 +609,8 @@ the previous starting point, it does not accumulate.
    (`src/lib/finance/statement-parser.ts`, pure, French + English labels) finds
    the closing balance (`Nouveau solde`, `New balance`, `Closing balance`,
    `Total new balance`, `Account balance`, `Solde au …`, …), the opening balance, the
-   statement date / period, the product name and account type, the last
+   statement date / period, the product name, bank (Banque Nationale, Desjardins, RBC, TD, BMO, Scotia, CIBC,
+   Tangerine) and account type, the last
    four digits of the account or card number, and a currency code. Lines about
    an available balance, credit limit, minimum payment, payment or interest are
    never read as the balance. Every plausible closing-balance line is kept in
@@ -619,7 +620,16 @@ the previous starting point, it does not accumulate.
    amount printed **directly** after it (no words in between); a word attached to
    the label (`Available`, `Rewards`, `Cash limit`, …) disqualifies it, interest
    rates (`21.99 %`) are not money, and a bare `Balance` label only borrows the next
-   line's amount when the line is just that word. A currency code is trusted only
+   line's amount when the line is just that word. Two "captions above values"
+   layouts are understood: a caption row that starts with the balance label
+   (`NOUVEAU SOLDE | PAIEMENT MIN. | DATE D'ÉCHÉANCE`) takes the first amount on the
+   first value row below, and a summary table whose caption row also names the
+   previous balance and ends with the new balance takes the last figure of its
+   `TOTAL` row. The statement date is the first date after a statement-date caption
+   (not the due date beside it), and a period caption may have its dates up to three
+   lines below. A statement whose captions read `A.-Y. MO. J.-D.` prints year-first
+   dates (`26 09 17`, `26/08/18 AU 26/09/17`) and is read as year-month-day;
+   `2026/10/08` and `2026 10 08` are always understood. A currency code is trusted only
    when a single code appears outside foreign-exchange notes
    (`14.60 USD @ 1.4253 incl. 2.5% conversion fee` on a CAD card).
    The statement date is, in order: a line naming it explicitly (`Date du relevé`,

@@ -163,7 +163,7 @@ export const FinanceStatementImport = ({
       // Pre-fill the "create account" fields from what the statement says about itself.
       const baseName = next.suggestedAccountName ?? "";
       setNewName(baseName && next.accountLast4 ? `${baseName} (${next.accountLast4})` : baseName);
-      setNewInstitution("");
+      setNewInstitution(next.suggestedInstitution ?? "");
       setNewType(next.suggestedAccountType ?? "checking");
       setNewCurrency(next.currency ?? settings.financeBaseCurrency);
     }

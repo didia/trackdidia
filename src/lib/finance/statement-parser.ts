@@ -37,6 +37,8 @@ export interface StatementExtraction {
   currency: string | null;
   /** The product name printed on the statement (e.g. "Walmart Rewards Mastercard"), if found. */
   suggestedAccountName: string | null;
+  /** The bank, when it is one we recognise (e.g. "Banque Nationale"). */
+  suggestedInstitution: string | null;
   /** Account type implied by the statement's wording, if any. */
   suggestedAccountType: FinanceAccountType | null;
   balanceCandidates: StatementBalanceCandidate[];
@@ -57,6 +59,7 @@ export const emptyStatementExtraction = (): StatementExtraction => ({
   accountLast4: null,
   currency: null,
   suggestedAccountName: null,
+  suggestedInstitution: null,
   suggestedAccountType: null,
   balanceCandidates: [],
   dateAmbiguous: false,
@@ -64,7 +67,8 @@ export const emptyStatementExtraction = (): StatementExtraction => ({
   source: "pdf-text",
 });
 
-export type StatementDateOrder = "DMY" | "MDY";
+/** `YMD` is the year-first layout (`26 09 17`, `26/08/18`) some Canadian banks print. */
+export type StatementDateOrder = "DMY" | "MDY" | "YMD";
 
 export interface ParseStatementOptions {
   /** How to read an all-numeric `a/b/yyyy` date when both parts are ≤ 12. Defaults to `DMY`. */
@@ -204,6 +208,32 @@ export const findDates = (line: string, dateOrder: StatementDateOrder = "DMY"): 
     }
   }
 
+  // "2026/10/08", "2026 10 08": a four-digit year first is unambiguous.
+  for (const match of text.matchAll(/\b(20\d{2})[/. ](\d{2})[/. ](\d{2})\b/g)) {
+    if (isRealDate(Number(match[1]), Number(match[2]), Number(match[3]))) {
+      push({
+        iso: toIso(Number(match[1]), Number(match[2]), Number(match[3])),
+        index: match.index ?? 0,
+        length: match[0].length,
+        ambiguous: false,
+      });
+    }
+  }
+
+  // "26 09 17", "26/08/18": two-digit year first, only on statements that declare year-month-day.
+  if (dateOrder === "YMD") {
+    for (const match of text.matchAll(/\b(\d{2})[/. ](\d{2})[/. ](\d{2})\b/g)) {
+      if (isRealDate(2000 + Number(match[1]), Number(match[2]), Number(match[3]))) {
+        push({
+          iso: toIso(2000 + Number(match[1]), Number(match[2]), Number(match[3])),
+          index: match.index ?? 0,
+          length: match[0].length,
+          ambiguous: false,
+        });
+      }
+    }
+  }
+
   // "31/03/2026", "03-31-2026", "31.03.2026"
   for (const match of text.matchAll(/\b(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})\b/g)) {
     const first = Number(match[1]);
@@ -220,7 +250,7 @@ export const findDates = (line: string, dateOrder: StatementDateOrder = "DMY"): 
       day = second;
     } else {
       ambiguous = first !== second;
-      [day, month] = dateOrder === "DMY" ? [first, second] : [second, first];
+      [day, month] = dateOrder === "MDY" ? [second, first] : [first, second];
     }
     if (isRealDate(year, month, day)) {
       push({
@@ -374,21 +404,52 @@ const extractCurrency = (text: string): string | null => {
 const PRODUCT_NAME_PATTERN =
   /\b(mastercard|visa|american express|amex|carte|card|chequing|checking|savings|ch[eè]ques?|[eé]pargne|marge|line of credit)\b/i;
 
-/** A short, label-like line naming the product ("Walmart Rewards Mastercard"), not a sentence. */
-const extractAccountName = (lines: string[]): string | null => {
-  for (const line of lines) {
-    if (
-      line.length >= 6 &&
-      line.length <= 45 &&
-      line.split(" ").length <= 6 &&
-      !/[.,:;$\d*]/.test(line) &&
-      PRODUCT_NAME_PATTERN.test(line)
-    ) {
-      return line;
+const titleCaseIfShouting = (value: string): string =>
+  value === value.toUpperCase()
+    ? value
+        .toLowerCase()
+        .replace(
+          /(^|[\s-])(\p{L})/gu,
+          (_, boundary: string, letter: string) => `${boundary}${letter.toUpperCase()}`,
+        )
+    : value;
+
+/**
+ * A short, label-like cell naming the product ("Walmart Rewards Mastercard"), not a sentence.
+ * Cells are the pieces of a visual line separated by a wide gap, so an address-block column
+ * sitting beside the product name does not leak into it.
+ */
+const extractAccountName = (rawLines: string[]): string | null => {
+  for (const rawLine of rawLines) {
+    for (const cell of rawLine.split(/\s{3,}/)) {
+      const line = cell.replace(/\s+/g, " ").trim();
+      if (
+        line.length >= 6 &&
+        line.length <= 45 &&
+        line.split(" ").length <= 6 &&
+        !/[.,:;$\d*/]/.test(line) &&
+        PRODUCT_NAME_PATTERN.test(line)
+      ) {
+        return titleCaseIfShouting(line);
+      }
     }
   }
   return null;
 };
+
+const KNOWN_INSTITUTIONS: [RegExp, string][] = [
+  [/banque\s+nationale|national\s+bank/i, "Banque Nationale"],
+  [/desjardins/i, "Desjardins"],
+  [/royal\s+bank|banque\s+royale|\bRBC\b/, "RBC"],
+  [/toronto[- ]dominion|canada\s+trust|\bTD\b/, "TD"],
+  [/banque\s+de\s+montr[eé]al|bank\s+of\s+montreal|\bBMO\b/i, "BMO"],
+  [/scotia/i, "Banque Scotia"],
+  [/\bCIBC\b/, "CIBC"],
+  [/tangerine/i, "Tangerine"],
+];
+
+const extractInstitution = (text: string): string | null =>
+  KNOWN_INSTITUTIONS.find(([pattern]) => pattern.test(text))?.[1] ?? null;
 
 const inferAccountType = (text: string): FinanceAccountType | null => {
   if (
@@ -416,7 +477,13 @@ interface LabelHit {
   amount: FoundAmount | null;
   /** The label ends the line, so its amount may sit on the next line. */
   tail: boolean;
+  /** The label opens a row of column captions ("NOUVEAU SOLDE  PAIEMENT MIN.  DATE D'ÉCHÉANCE"). */
+  headerStart: boolean;
 }
+
+/** Words that mark the rest of a line as other column captions rather than prose. */
+const COLUMN_CAPTION_WORDS =
+  /(paiement|payment|due|[eé]ch[eé]ance|date|relev[eé]|statement|limite|limit|cr[eé]dit)/i;
 
 /**
  * Finds the best label match on one visual line. Statements lay out several columns on one
@@ -444,7 +511,16 @@ const findLabelHit = (line: string, patterns: RegExp[]): LabelHit | null => {
           ? { ...first, index: first.index + amountStart }
           : null;
       const tail = !amount && rest.replace(/[\s.:·…_\-–$]/g, "") === "";
-      if (!amount && !tail) {
+      // A caption row: the label comes first, nothing but captions follow, and its value sits on
+      // one of the next lines under the same column.
+      const headerStart =
+        !amount &&
+        !tail &&
+        line.slice(0, start).replace(/[^\p{L}\d]/gu, "") === "" &&
+        line.length <= 80 &&
+        !/\d/.test(rest) &&
+        COLUMN_CAPTION_WORDS.test(rest);
+      if (!amount && !tail && !headerStart) {
         continue;
       }
       const previousWord = line.slice(0, start).trim().split(/\s+/).pop() ?? "";
@@ -460,17 +536,45 @@ const findLabelHit = (line: string, patterns: RegExp[]): LabelHit | null => {
         priority < best.priority ||
         (priority === best.priority && !best.amount && amount)
       ) {
-        best = { priority, amount, tail };
+        best = { priority, amount, tail, headerStart };
       }
     }
   });
   return best;
 };
 
+/** The lines under a caption row that can hold its values, stopping at the next caption row. */
+const valueLinesBelow = (lines: string[], index: number, count: number): string[] =>
+  lines
+    .slice(index + 1, index + 1 + count)
+    .filter((candidate) => !matchesAny(candidate, [...CLOSING_LABELS, ...OPENING_LABELS]));
+
 /** The labelled amount for a hit, falling back to a lone amount on the next line for a bare label. */
 const amountForHit = (lines: string[], index: number, hit: LabelHit): FoundAmount | null => {
   if (hit.amount) {
     return hit.amount;
+  }
+  if (hit.headerStart) {
+    // Caption row ("NOUVEAU SOLDE | PAIEMENT MIN. | DATE D'ÉCHÉANCE") with the figures below:
+    // the label is the first column, so its value is the first amount on the first value row.
+    for (const candidate of valueLinesBelow(lines, index, 4)) {
+      const first = findAmounts(candidate)[0];
+      if (first) {
+        return first;
+      }
+    }
+    return null;
+  }
+  if (hit.tail && lines[index].length > 40 && findLabelHit(lines[index], OPENING_LABELS)) {
+    // Summary table whose last column is the new balance ("PREVIOUS BALANCE … NEW BALANCE"):
+    // the grand total row holds one figure per column, so its last amount is that column.
+    for (const candidate of lines.slice(index + 1, index + 9)) {
+      if (/^total\b/i.test(candidate)) {
+        const amounts = findAmounts(candidate);
+        return amounts.length >= 2 ? amounts[amounts.length - 1] : null;
+      }
+    }
+    return null;
   }
   const next = lines[index + 1];
   if (
@@ -490,8 +594,11 @@ export const parseStatementText = (
   rawText: string,
   options: ParseStatementOptions = {},
 ): StatementExtraction => {
-  const dateOrder = options.dateOrder ?? "DMY";
   const text = normalizeText(rawText);
+  // "A.-Y. MO. J.-D." column captions mean the statement prints year-month-day.
+  const dateOrder: StatementDateOrder =
+    options.dateOrder ?? (/\bA\.?\s*-\s*Y\.?|\bMO\.?\s+J\.?\s*-\s*D\./i.test(text) ? "YMD" : "DMY");
+  const rawLines = text.split("\n");
   const lines = text
     .split("\n")
     .map((line) => line.replace(/\s+/g, " ").trim())
@@ -507,7 +614,11 @@ export const parseStatementText = (
       if (openingBalanceMinor === null) {
         openingBalanceMinor = amountForHit(lines, index, openingHit)?.amountMinor ?? null;
       }
-      return; // an opening / previous balance line is never a closing candidate
+      // A short opening / previous balance line is never a closing candidate; a long one may be a
+      // table caption row that also names the new balance.
+      if (line.length <= 40) {
+        return;
+      }
     }
     const hit = findLabelHit(line, CLOSING_LABELS);
     if (!hit) {
@@ -571,7 +682,8 @@ export const parseStatementText = (
     }
     const dates = findDates(line, dateOrder);
     const nextDates = dates.length === 0 ? findDates(lines[index + 1] ?? "", dateOrder) : [];
-    const picked = dates[dates.length - 1] ?? nextDates[0];
+    // The first date after the label: "STATEMENT DATE 26 09 17 … DUE DATE 2026 10 08".
+    const picked = dates[0] ?? nextDates[0];
     if (picked) {
       explicitDate = picked;
       break;
@@ -582,7 +694,16 @@ export const parseStatementText = (
   const labelledRanges: DateRange[] = [];
   for (const [index, line] of lines.entries()) {
     if (PERIOD_LABELS.test(line)) {
-      const range = readRange(line, lines[index + 1]);
+      let range = readRange(line, lines[index + 1]);
+      if (!range && findDates(line, dateOrder).length === 0) {
+        // Caption row with the dates on one of the next lines ("PÉRIODE DU RELEVÉ" above "26/08/18 AU 26/09/17").
+        for (const below of lines.slice(index + 1, index + 4)) {
+          range = readRange(below, undefined);
+          if (range) {
+            break;
+          }
+        }
+      }
       if (range) {
         labelledRanges.push(range);
       }
@@ -642,7 +763,8 @@ export const parseStatementText = (
     periodEnd,
     accountLast4: extractAccountLast4(text),
     currency: extractCurrency(text),
-    suggestedAccountName: extractAccountName(lines),
+    suggestedAccountName: extractAccountName(rawLines),
+    suggestedInstitution: extractInstitution(text),
     suggestedAccountType: inferAccountType(text),
     // The same figure printed twice (summary + payment stub) is one candidate, not a conflict.
     balanceCandidates: balanceCandidates
