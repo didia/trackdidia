@@ -401,4 +401,37 @@ describe("parseStatementText", () => {
     });
     expect(findYearlessRange("du 31 FÉVR au 09 MARS 2026")).toBeNull();
   });
+
+  it('reads a French card statement that prints the total as "Solde total = 893,68 $"', () => {
+    // Synthetic figures in the layout of a Canadian bank card statement: an "=" between label
+    // and amount, a footnote digit after "Montant exigible", and a month-name period without
+    // a start year.
+    const result = parseStatementText(
+      [
+        "CIBC Exemple World Mastercard   Numéro de compte",
+        "5268 XXXX XXXX 6956",
+        "Date du relevé",
+        "20 septembre 2026",
+        "Aperçu de votre compte   Période du relevé de septembre",
+        "21 août au 20 septembre 2026",
+        "Solde antérieur   1 199,48 $",
+        "Paiements   1 060,00 $",
+        "Limite   5 500,00 $",
+        "Solde total   =   893,68 $",
+        "Montant exigible 1   893,68 $",
+        "Paiement minimum   44,68 $",
+        "Numéro de compte   5268 XXXX XXXX 6956   Montant exigible   893,68 $",
+      ].join("\n"),
+    );
+    expect(result).toMatchObject({
+      closingBalanceMinor: 89_368,
+      openingBalanceMinor: 119_948,
+      statementDate: "2026-09-20",
+      periodStart: "2026-08-21",
+      accountLast4: "6956",
+      suggestedAccountName: "CIBC Exemple World Mastercard",
+      suggestedInstitution: "CIBC",
+      confidence: "high",
+    });
+  });
 });

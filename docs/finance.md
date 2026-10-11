@@ -631,9 +631,10 @@ the previous starting point, it does not accumulate.
    dates (`26 09 17`, `26/08/18 AU 26/09/17`) and is read as year-month-day;
    `2026/10/08` and `2026 10 08` are always understood. A period whose start has no year (`du 10 SEPT au 09 OCT 2026`) takes
    the end's year, or the year before when the start month is later (a period crossing New Year);
-   French abbreviations (`SEPT`, `OCT`, `JANV`, …) and the misspelling `Revelé du` are accepted. `Total balance` is preferred over `Balance due` (installments not yet due are still owed;
+   French abbreviations (`SEPT`, `OCT`, `JANV`, …) and the misspelling `Revelé du` are accepted. `Total balance` / `Solde total` is preferred over `Balance due` / `Montant exigible` (installments not yet due are still owed;
    both stay selectable candidates), and a `Previous`/`Opening` word before a label makes it an
-   opening figure, never the closing one. A currency code is trusted only
+   opening figure, never the closing one. Column gaps survive as a double space, so a footnote digit before an amount
+   (`Montant exigible 1   893,68 $`) is never glued onto it as a thousands group. A currency code is trusted only
    when a single code appears outside foreign-exchange notes
    (`14.60 USD @ 1.4253 incl. 2.5% conversion fee` on a CAD card).
    The statement date is, in order: a line naming it explicitly (`Date du relevé`,

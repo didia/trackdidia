@@ -356,13 +356,13 @@ const CLOSING_LABELS = [
   /solde\s+(?:final|de\s+fin|en\s+fin|de\s+fermeture)/i,
   /solde\s+du\s+relev[eé]/i,
   /solde\s+(?:actuel|courant)/i,
-  /total\s+balance/i,
+  /(?:total\s+balance|solde\s+total)/i,
   /(?:current|ledger)\s+balance/i,
   /(?:balance|solde)\s+(?:as\s+of|at|on|au)\b/i,
   /(?:solde|balance)\s+(?:du\s+)?(?:compte|account)|account\s+balance/i,
   // What is due this month (excludes installments not yet due): a candidate, never the default
   // when a "Total balance" exists.
-  /balance\s+due|solde\s+d[uû]/i,
+  /balance\s+due|amount\s+due|solde\s+d[uû]|montant\s+exigible/i,
   // A bare "Balance" / "Solde" label only counts when the line is essentially just that word;
   // a sentence that happens to end with "balance" must not borrow the next line's amount.
   /^[\p{L} ]{0,20}\bsolde\s*:?\s*$/iu,
@@ -653,7 +653,15 @@ export const parseStatementText = (
   const rawLines = text.split("\n");
   const lines = text
     .split("\n")
-    .map((line) => line.replace(/\s+/g, " ").trim())
+    // A wide gap between columns stays a double space so a footnote digit before an amount
+    // ("Montant exigible 1   893,68 $") is not glued onto it as a thousands group.
+    .map((line) =>
+      line
+        .replace(/[^\S\n]{3,}/g, "\u0001")
+        .replace(/\s+/g, " ")
+        .replace(/\u0001/g, "  ")
+        .trim(),
+    )
     .filter((line) => line.length > 0);
 
   const balanceCandidates: (StatementBalanceCandidate & { priority: number; order: number })[] = [];
