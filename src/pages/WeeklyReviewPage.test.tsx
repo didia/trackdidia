@@ -1511,30 +1511,15 @@ describe("WeeklyReviewPage coach cache", () => {
     vi.restoreAllMocks();
   });
 
-  it("shows a stored ok synthesis immediately then hash-checks after RescueTime settles", async () => {
+  it("shows a stored ok synthesis on auto-load without calling the model again", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
     for (let index = 0; index < 7; index += 1) {
       await repository.saveDailyEntry(createEmptyDailyEntry(addDays(weekStartDate, index)));
     }
 
-    const stored = storedOk();
-    vi.mocked(loadLatestWeeklySynthesis).mockResolvedValue(stored);
-    const fresh = {
-      ...stored,
-      synthesis: { ...stored.synthesis, headline: "Frais" },
-      source: "ai" as const,
-    };
-    let release!: () => void;
-    const blocked = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const buildSpy = vi
-      .spyOn(WeeklySynthesisService.prototype, "buildSynthesis")
-      .mockImplementation(async () => {
-        await blocked;
-        return fresh;
-      });
+    vi.mocked(loadLatestWeeklySynthesis).mockResolvedValue(storedOk());
+    const buildSpy = vi.spyOn(WeeklySynthesisService.prototype, "buildSynthesis");
 
     const user = userEvent.setup();
     await renderWithApp(<WeeklyReviewPage />, {
@@ -1549,18 +1534,8 @@ describe("WeeklyReviewPage coach cache", () => {
     await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
 
     expect(await screen.findByText("Coach cache")).toBeInTheDocument();
-    expect(screen.queryByText("Frais")).not.toBeInTheDocument();
-    await waitFor(() => {
-      expect(buildSpy).toHaveBeenCalled();
-    });
-    expect(buildSpy).toHaveBeenCalledWith(
-      repository,
-      expect.objectContaining({
-        trigger: "auto",
-      }),
-    );
-    release();
-    expect(await screen.findByText("Frais")).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(buildSpy).not.toHaveBeenCalled();
   });
 
   it("does not treat a fallback row as sticky auto-load cache", async () => {
@@ -1687,9 +1662,6 @@ describe("WeeklyReviewPage coach cache", () => {
     await user.type(dateInput, weekStartDate);
     await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
     expect(await screen.findByText("Coach cache")).toBeInTheDocument();
-    await waitFor(() => {
-      expect(buildSpy).toHaveBeenCalled();
-    });
     expect(await screen.findByRole("button", { name: /régénérer/i })).toBeEnabled();
     buildSpy.mockClear();
 

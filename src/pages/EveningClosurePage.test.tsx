@@ -160,7 +160,7 @@ describe("EveningClosurePage coach proposals", () => {
     expect(screen.getByText("Active l'IA dans les paramètres")).toBeInTheDocument();
   });
 
-  it("still hash-checks an ok close pulse when AI is configured", async () => {
+  it("shows a stored ok close pulse when AI is configured without calling the model again", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
     const proposal = tomorrowProposal();
@@ -180,17 +180,8 @@ describe("EveningClosurePage coach proposals", () => {
     });
 
     expect(await screen.findByText("Cloture")).toBeInTheDocument();
-    await waitFor(() => {
-      expect(coachService.buildPulse).toHaveBeenCalledOnce();
-    });
-    expect(coachService.buildPulse).toHaveBeenCalledWith(
-      repository,
-      expect.objectContaining({
-        stance: "close",
-        trigger: "auto",
-        snapshotInputs: expect.objectContaining({ productivityPulseWeekToDate: null }),
-      }),
-    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(coachService.buildPulse).not.toHaveBeenCalled();
   });
 
   it("retries after a persisted fallback close pulse", async () => {
@@ -240,9 +231,6 @@ describe("EveningClosurePage coach proposals", () => {
     });
 
     expect(await screen.findByText("Cloture")).toBeInTheDocument();
-    await waitFor(() => {
-      expect(coachService.buildPulse).toHaveBeenCalledOnce();
-    });
     expect(await screen.findByRole("button", { name: /régénérer/i })).toBeEnabled();
     vi.mocked(coachService.buildPulse).mockClear();
     saveDailyEntry.mockClear();
@@ -280,9 +268,6 @@ describe("EveningClosurePage coach proposals", () => {
     });
 
     expect(await screen.findByText("Cloture")).toBeInTheDocument();
-    await waitFor(() => {
-      expect(coachService.buildPulse).toHaveBeenCalledOnce();
-    });
     expect(await screen.findByRole("button", { name: /régénérer/i })).toBeEnabled();
     vi.mocked(coachService.buildPulse).mockClear();
 

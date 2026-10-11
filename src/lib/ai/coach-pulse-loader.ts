@@ -85,9 +85,8 @@ const aiConfigured = (settings: AppSettings) =>
  * - open: a stored pulse wins and stops; otherwise a local brief is published and, unless
  *   the pulse engine owns persistence (`aiPulseEnabled`) or AI is not configured, the AI
  *   pulse replaces it.
- * - close: resolves due commitments, publishes any stored close pulse, then (AI configured)
- *   hash-checks/refreshes through the AI, or (not configured) builds a local brief when
- *   nothing is stored.
+ * - close: resolves due commitments, publishes a stored close pulse and stops; when nothing
+ *   is stored it builds through the AI (configured) or a local brief (not configured).
  * Errors propagate to the caller.
  */
 export const loadPassiveCoachPulse = async (
@@ -102,7 +101,9 @@ export const loadPassiveCoachPulse = async (
       return;
     }
     if (stored) {
+      // A stored close pulse stays as-is until the user regenerates; no hash re-check.
       publish(stored);
+      return;
     }
 
     const snapshotInputs = await resolveDailySnapshotInputs(repository, entry.date, {
@@ -113,18 +114,16 @@ export const loadPassiveCoachPulse = async (
     }
 
     if (!aiConfigured(settings)) {
-      if (!stored) {
-        const localResult = await coachService.buildPulse(repository, {
-          stance: "close",
-          entry,
-          settings,
-          snapshotInputs,
-          trigger: "auto",
-          localOnly: true,
-        });
-        if (isCurrent()) {
-          publish(localResult);
-        }
+      const localResult = await coachService.buildPulse(repository, {
+        stance: "close",
+        entry,
+        settings,
+        snapshotInputs,
+        trigger: "auto",
+        localOnly: true,
+      });
+      if (isCurrent()) {
+        publish(localResult);
       }
       return;
     }

@@ -192,7 +192,7 @@ describe("AnnualGoalsPage", () => {
     });
   });
 
-  it("shows stored ok pacing on auto-load then hash-checks", async () => {
+  it("shows stored ok pacing on auto-load without calling the model again", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
     await repository.saveAnnualGoal(
@@ -238,39 +238,7 @@ describe("AnnualGoalsPage", () => {
     };
     await repository.saveAiMessage(message);
 
-    const stored = {
-      message,
-      pacing: {
-        goals: [
-          {
-            goalId: "goal-1",
-            onPace: true,
-            gap: "Ecart cache",
-            requiredWeeklyBehaviour: "Focus",
-            riskLevel: "low" as const,
-            recommendation: "Continuer",
-          },
-        ],
-      },
-      source: "cache" as const,
-    };
-    const fresh = {
-      ...stored,
-      pacing: {
-        goals: [{ ...stored.pacing.goals[0], gap: "Frais" }],
-      },
-      source: "ai" as const,
-    };
-    let release!: () => void;
-    const blocked = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const buildSpy = vi
-      .spyOn(GoalPacingService.prototype, "buildPacing")
-      .mockImplementation(async () => {
-        await blocked;
-        return fresh;
-      });
+    const buildSpy = vi.spyOn(GoalPacingService.prototype, "buildPacing");
 
     await renderWithApp(<AnnualGoalsPage />, {
       repository,
@@ -281,18 +249,8 @@ describe("AnnualGoalsPage", () => {
     });
 
     expect(await screen.findByText("Ecart cache")).toBeInTheDocument();
-    expect(screen.queryByText("Frais")).not.toBeInTheDocument();
-    await waitFor(() => {
-      expect(buildSpy).toHaveBeenCalledWith(
-        repository,
-        expect.objectContaining({
-          year,
-          trigger: "auto",
-        }),
-      );
-    });
-    release();
-    expect(await screen.findByText("Frais")).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(buildSpy).not.toHaveBeenCalled();
     buildSpy.mockRestore();
   });
 

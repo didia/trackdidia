@@ -504,7 +504,7 @@ describe("MonthlyReviewPage", () => {
     });
   });
 
-  it("shows a stored ok monthly synthesis on auto-load then hash-checks", async () => {
+  it("shows a stored ok monthly synthesis on auto-load without calling the model again", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
     for (const date of ["2026-04-01", "2026-04-02"]) {
@@ -537,32 +537,7 @@ describe("MonthlyReviewPage", () => {
     };
     await repository.saveAiMessage(message);
 
-    const stored = {
-      message,
-      synthesis: {
-        headline: "Coach cache mois",
-        weekPattern: "Stable",
-        sectionDrafts: {},
-        goalEvaluationDrafts: [],
-      },
-      proposals: [],
-      source: "cache" as const,
-    };
-    const fresh = {
-      ...stored,
-      synthesis: { ...stored.synthesis, headline: "Frais" },
-      source: "ai" as const,
-    };
-    let release!: () => void;
-    const blocked = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const buildSpy = vi
-      .spyOn(MonthlySynthesisService.prototype, "buildSynthesis")
-      .mockImplementation(async () => {
-        await blocked;
-        return fresh;
-      });
+    const buildSpy = vi.spyOn(MonthlySynthesisService.prototype, "buildSynthesis");
 
     const user = userEvent.setup();
     await renderWithApp(<MonthlyReviewPage />, {
@@ -579,18 +554,11 @@ describe("MonthlyReviewPage", () => {
     await user.click(screen.getByRole("button", { name: /charger le mois/i }));
 
     expect(await screen.findByText("Coach cache mois")).toBeInTheDocument();
-    expect(screen.queryByText("Frais")).not.toBeInTheDocument();
-    await waitFor(() => {
-      expect(buildSpy).toHaveBeenCalledWith(
-        repository,
-        expect.objectContaining({
-          monthKey: "2026-04",
-          trigger: "auto",
-        }),
-      );
-    });
-    release();
-    expect(await screen.findByText("Frais")).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(buildSpy).not.toHaveBeenCalledWith(
+      repository,
+      expect.objectContaining({ monthKey: "2026-04" }),
+    );
   });
 
   it("does not reload monthly synthesis when ritual notes are saved", async () => {

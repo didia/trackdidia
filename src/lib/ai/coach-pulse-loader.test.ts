@@ -211,13 +211,13 @@ describe("loadPassiveCoachPulse / refreshCoachPulse", () => {
     expect(published).toEqual([]);
   });
 
-  it("close: publishes stored close pulse then refreshes through AI", async () => {
+  it("close: publishes a stored close pulse and stops without calling the model", async () => {
     const { coachService, published, run } = await setup(aiOn, [
       message("c", "close", "2026-08-29T20:00:00.000Z", "stored-close"),
     ]);
     await run("close");
-    expect(published).toEqual(["stored-close", "ai"]);
-    expect(coachService.buildPulse).toHaveBeenCalledTimes(1);
+    expect(published).toEqual(["stored-close"]);
+    expect(coachService.buildPulse).not.toHaveBeenCalled();
   });
 
   it("close: builds a local brief only when AI is off and nothing is stored", async () => {
