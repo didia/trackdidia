@@ -434,4 +434,53 @@ describe("parseStatementText", () => {
       confidence: "high",
     });
   });
+
+  it("reads a chequing statement and does not mistake card names in its activity for a card", () => {
+    // Synthetic figures in the layout of a Canadian bank chequing statement.
+    const result = parseStatementText(
+      [
+        "Banque Exemple du Canada",
+        "Relevé de votre compte",
+        "forfait bancaire personnel Exemple",
+        "Du 14 août 2026 au 15 septembre 2026",
+        "Votre numéro de compte :   00335-5167713",
+        "Sommaire de votre compte pour cette période",
+        "Votre solde d'ouverture le 14 août 2026   367,85 $",
+        "Total des dépôts dans votre compte   + 5 179,99",
+        "Total des retraits de votre compte   - 4 525,05",
+        "Votre solde de clôture le 15 septembre 2026   = 1 022,79 $",
+        "Date   Description   Retraits ($)   Dépôts ($)   Solde ($)",
+        "Solde d'ouverture   367,85",
+        "17 août   Achat Visa Débit - 7023 Taptap Send Can   132,00   235,85",
+        "24 août   Versement par Banque en direct - 0786",
+        "AUTRE MASTERCARD   60,00",
+        "15 sept   Rabais sur les frais mensuels   4,00   1 022,79",
+        "Solde de clôture   1 022,79",
+      ].join("\n"),
+    );
+    expect(result).toMatchObject({
+      closingBalanceMinor: 102_279,
+      openingBalanceMinor: 36_785,
+      statementDate: "2026-09-15",
+      periodStart: "2026-08-14",
+      accountLast4: "7713",
+      suggestedAccountType: "checking",
+      suggestedAccountName: "Forfait bancaire personnel Exemple",
+      confidence: "high",
+    });
+  });
+
+  it("types an account from its header, not from card brands in the activity", () => {
+    expect(
+      parseStatementText("Relevé d'épargne\nSolde de clôture 10,00 $").suggestedAccountType,
+    ).toBe("savings");
+    expect(
+      parseStatementText("Visa Desjardins\nLimite de crédit 5 000,00 $\nNouveau solde 10,00 $")
+        .suggestedAccountType,
+    ).toBe("credit_card");
+    expect(
+      parseStatementText("Marge de crédit Exemple\nLimite de crédit 5 000,00 $\nSolde 10,00 $")
+        .suggestedAccountType,
+    ).toBe("line_of_credit");
+  });
 });

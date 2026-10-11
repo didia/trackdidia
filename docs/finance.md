@@ -633,7 +633,13 @@ the previous starting point, it does not accumulate.
    the end's year, or the year before when the start month is later (a period crossing New Year);
    French abbreviations (`SEPT`, `OCT`, `JANV`, …) and the misspelling `Revelé du` are accepted. `Total balance` / `Solde total` is preferred over `Balance due` / `Montant exigible` (installments not yet due are still owed;
    both stay selectable candidates), and a `Previous`/`Opening` word before a label makes it an
-   opening figure, never the closing one. Column gaps survive as a double space, so a footnote digit before an amount
+   opening figure, never the closing one. The account type comes from the statement's own wording, not from card brands: a
+   header naming a line of credit wins, then strong card signals (credit limit, minimum payment,
+   available credit) unless the activity has withdrawal and deposit columns, then chequing /
+   savings wording in the first 30 lines (`forfait bancaire`, `compte courant`, `épargne`) —
+   because "Visa Débit" and another issuer's card name appear in chequing activity. A
+   balance line may carry a connector before its date (`solde de clôture le 15 septembre 2026
+   = 1 022,79 $`). Column gaps survive as a double space, so a footnote digit before an amount
    (`Montant exigible 1   893,68 $`) is never glued onto it as a thousands group. A currency code is trusted only
    when a single code appears outside foreign-exchange notes
    (`14.60 USD @ 1.4253 incl. 2.5% conversion fee` on a CAD card).

@@ -442,7 +442,9 @@ const extractCurrency = (text: string): string | null => {
 };
 
 const PRODUCT_NAME_PATTERN =
-  /\b(mastercard|visa|american express|amex|carte|card|chequing|checking|savings|ch[eè]ques?|[eé]pargne|marge|line of credit)\b/i;
+  /\b(mastercard|visa|american express|amex|carte|card|chequing|checking|savings|ch[eè]ques?|[eé]pargne|marge|line of credit|forfait\s+bancaire|compte\s+courant)\b/i;
+
+const capitalizeFirst = (value: string): string => value.charAt(0).toUpperCase() + value.slice(1);
 
 const titleCaseIfShouting = (value: string): string =>
   value === value.toUpperCase()
@@ -473,7 +475,7 @@ const extractAccountName = (rawLines: string[]): string | null => {
         // "BMO Preferred Rate" above a lone "Mastercard": the product is both lines together.
         const brandOnly = line.split(" ").length === 1;
         const name = brandOnly && previous ? `${previous} ${line}` : line;
-        return titleCaseIfShouting(name);
+        return capitalizeFirst(titleCaseIfShouting(name));
       }
       previous = labelLike && line.split(" ").length <= 4 ? line : null;
     }
@@ -495,22 +497,53 @@ const KNOWN_INSTITUTIONS: [RegExp, string][] = [
 const extractInstitution = (text: string): string | null =>
   KNOWN_INSTITUTIONS.find(([pattern]) => pattern.test(text))?.[1] ?? null;
 
+/** Strong card signals; a bare brand word is not one — "Visa Débit" and "CIBC MASTERCARD" appear in chequing activity. */
+const CREDIT_CARD_SIGNALS =
+  /credit\s+limit|limite\s+de\s+cr[eé]dit|minimum\s+payment|paiement\s+minimal?|paiement\s+min\.|cr[eé]dit\s+disponible|available\s+credit|cr[eé]dit\s+non\s+utilis[eé]/i;
+/** A transaction table with withdrawal and deposit columns is a deposit account, never a card. */
+const DEPOSIT_COLUMNS = /(?:retraits?[^\n]{0,40}d[eé]p[oô]ts?|withdrawals?[^\n]{0,40}deposits?)/i;
+const CARD_BRANDS = /mastercard|\bvisa\b|american express|\bamex\b/i;
+const HEAD_LINES = 30;
+
+/**
+ * Account type from the statement's own wording. The header decides first (the product is named
+ * there); card brands alone never do, because transaction lines mention other issuers' cards.
+ */
 const inferAccountType = (text: string): FinanceAccountType | null => {
-  if (
-    /credit\s+limit|limite\s+de\s+cr[eé]dit|minimum\s+payment|paiement\s+minimum|mastercard|\bvisa\b|american express|\bamex\b/i.test(
-      text,
-    )
-  ) {
-    return "credit_card";
-  }
-  if (/line\s+of\s+credit|marge\s+de\s+cr[eé]dit/i.test(text)) {
+  const head = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .slice(0, HEAD_LINES)
+    .join("\n");
+  if (/line\s+of\s+credit|marge\s+de\s+cr[eé]dit/i.test(head)) {
     return "line_of_credit";
   }
-  if (/savings|[eé]pargne/i.test(text)) {
-    return "savings";
+  if (CREDIT_CARD_SIGNALS.test(text) && !DEPOSIT_COLUMNS.test(text)) {
+    return "credit_card";
   }
-  if (/chequing|checking|ch[eè]ques?/i.test(text)) {
-    return "checking";
+  const deposit = (source: string): FinanceAccountType | null => {
+    if (/savings|[eé]pargne/i.test(source)) {
+      return "savings";
+    }
+    if (
+      /chequing|checking|ch[eè]ques?|compte\s+courant|forfait\s+bancaire|forfait\s+courant/i.test(
+        source,
+      )
+    ) {
+      return "checking";
+    }
+    return null;
+  };
+  const fromHead = deposit(head);
+  if (fromHead) {
+    return fromHead;
+  }
+  if (CARD_BRANDS.test(head)) {
+    return "credit_card";
+  }
+  if (DEPOSIT_COLUMNS.test(text)) {
+    return deposit(text) ?? "checking";
   }
   return null;
 };
@@ -553,7 +586,11 @@ const findLabelHit = (line: string, patterns: RegExp[], rejectAfter?: RegExp): L
       let amountStart = end;
       // "Solde au 31 mars 2026   5 678,90 $": a date may sit between the label and its amount.
       const [leadingDate] = findDates(line.slice(end));
-      if (leadingDate && /^[\s:]*$/.test(line.slice(end, end + leadingDate.index))) {
+      // "Solde au 31 mars 2026 …", "Votre solde de clôture le 15 septembre 2026 = …"
+      if (
+        leadingDate &&
+        /^[\s:]*(?:(?:le|au|du|on|at|as of)\s+)?$/i.test(line.slice(end, end + leadingDate.index))
+      ) {
         amountStart = end + leadingDate.index + leadingDate.length;
       }
       const rest = line.slice(amountStart);
