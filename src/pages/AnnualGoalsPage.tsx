@@ -875,7 +875,9 @@ export const AnnualGoalsPage = () => {
     void (async () => {
       const stored = await loadLatestGoalPacing(repository, pacingService, selectedYear);
       if (stored && stored.message.scopeKey === String(selectedYear)) {
+        // A stored result stays as-is until the user regenerates; no hash re-check.
         setPacingResult(stored);
+        return;
       }
       await runPacing({ year: selectedYear, trigger: "auto" });
     })();

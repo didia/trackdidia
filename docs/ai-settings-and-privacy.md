@@ -200,7 +200,7 @@ Evening closure (`/fermeture-soir`) auto-loads the `close` stance on page open:
 
 1. due commitments for today are finalized idempotently, even when AI is off;
 2. if a `status = ok` close pulse for today is already persisted (`scopeKey` `YYYY-MM-DD#close`), that thread is shown immediately;
-3. then `buildPulse` runs cache-first with `skipRescueTimeFetch`, so a live RescueTime blip cannot bust the input hash. `fallback`/`skipped` rows are not reused; the next open retries. If journal fields, metrics, or memories already changed since that pulse, the hash misses and a new model call runs. Edits made while the page is open do not retrigger auto-load.
+3. a stored `ok` close pulse stops there: no hash check and no model call, so reopening the page or accepting suggestions keeps the same assessment. Only when none is stored does `buildPulse` run (with `skipRescueTimeFetch`, so a live RescueTime blip cannot bust the input hash), or build a local brief when AI is not configured. `fallback`/`skipped` rows are not reused; the next open retries. Edits made while the page is open do not retrigger auto-load.
 
 **Régénérer** fetches RescueTime and bypasses the `ai_messages` input-hash cache deliberately.
 
@@ -402,11 +402,11 @@ The snapshot reuses annual goal domain calculations (`progressRatio`,
 
 The OpenRouter system prompt includes the full S4 schema (`buildGoalPacingSchemaPrompt`).
 
-Pacing auto-load hydrates the latest `ok` episode for the selected year, then
-cache-first `buildPacing`. While the year is in progress, the next local day can miss.
-**Régénérer** bypasses the hash cache. Goal and evaluation edits while the page is
-open do not retrigger auto-load; changing the selected year or evaluation month
-does, because those are a new scope.
+Pacing auto-load hydrates the latest `ok` episode for the selected year and stops
+there, with no hash check or model call; only a year with no stored `ok` episode builds
+one on open. **Régénérer** bypasses the stored result explicitly. Goal and evaluation
+edits while the page is open do not retrigger auto-load; changing the selected year or
+evaluation month does, because those are a new scope.
 
 Pacing auto-runs only when the year is between 2000 and 2100 and the evaluation month
 matches `YYYY-MM`. Changing the year clears the on-screen pacing panel until the new
