@@ -104,7 +104,10 @@ export const MonthlyReviewPage = () => {
           return;
         }
         if (stored) {
+          // A stored result stays as-is until the user asks again; the input hash is not
+          // re-checked, so edits and accepted suggestions never trigger a new model call.
           setResult(stored);
+          return;
         }
       }
 

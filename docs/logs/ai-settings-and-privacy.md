@@ -6,6 +6,7 @@
 - 2026-10-03: Centralized settings defaults and historical normalization; application writers now merge current values atomically, and settings forms preserve runtime state and unsaved edits.
 # AI, settings, and privacy log
 
+- 2026-10-11: Weekly and monthly review auto-load now only hydrates a stored `ok` synthesis and never re-hashes or calls the model again; returning to the page (or accepting suggestions) keeps the existing assessment until the user explicitly regenerates.
 - 2026-10-10: Weekly snapshot no longer sums start/end-of-day task piles (`tachesDebut`/`tachesFin`) into a weekly total; metrics gain `aggregation` and task `meaning`, the prompt defines `tachesAjoutes`, and `weekly_synthesis` moves to `v2`.
 - 2026-10-03: Typed proposal decoding and one application path now cover every screen; daily drafts and goal evaluations commit atomically with decisions, and draft accepts share autosave queues.
 

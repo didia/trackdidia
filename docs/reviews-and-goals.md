@@ -344,7 +344,9 @@ note even if it is also past. Accepting an objective creates a row in `weekly_ob
 starts the Sunday after the reviewed week, via an idempotent atomic accept. GTD
 accepts are atomic and skip terminal tasks.
 
-Successful AI results (`status = ok`) cache on `(surface, weekStartDate, input_hash)`.
+Once a week has a stored `ok` result, opening `/semaine` only shows it; a new assessment
+needs an explicit **Régénérer** / **« Demander au coach »**. Successful AI results
+(`status = ok`) cache on `(surface, weekStartDate, input_hash)`.
 `skipped` rows cache while AI is off. `fallback` and `error` rows are retryable and
 are not treated as sticky cache hits when AI is configured. Regenerating always appends
 a new message episode.
@@ -366,7 +368,9 @@ the proposal message `scopeKey` does not match the displayed month.
 Accepting a section draft **persists the note** on the monthly review immediately (the
 textarea is also prefilled). Accepting a `goal_evaluation`
 for a goal that no longer exists dismisses the proposal with a short notice. Results are
-cached in `ai_messages` keyed by `(surface, monthKey, input_hash)`.
+cached in `ai_messages` keyed by `(surface, monthKey, input_hash)`. Once a month has a
+stored `ok` result, reopening `/mois` only shows it; a new assessment needs an explicit
+**Régénérer** / **« Demander au coach »**.
 
 ### Annual goal pacing
 
