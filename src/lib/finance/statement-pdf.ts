@@ -26,6 +26,34 @@ const describeError = (error: unknown): string => {
   return `${name}: ${message}`.slice(0, 200);
 };
 
+interface PdfTextStream {
+  getReader(): { read(): Promise<{ done: boolean; value?: { items: unknown[] } }> };
+}
+
+/**
+ * Text items of one page, read from `streamTextContent()` with an explicit reader loop.
+ * `page.getTextContent()` iterates that stream with `for await`, and `ReadableStream` async
+ * iteration is missing from the WebKit shipped with current macOS ("undefined is not a function
+ * (near '...value of readableStream...')"), which is exactly what the desktop app runs on.
+ */
+const readPageItems = async (page: {
+  streamTextContent(): PdfTextStream;
+}): Promise<PdfTextItem[]> => {
+  const reader = page.streamTextContent().getReader();
+  const items: PdfTextItem[] = [];
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done || !value) {
+      return items;
+    }
+    for (const item of value.items) {
+      if (typeof item === "object" && item !== null && "str" in item) {
+        items.push(item as PdfTextItem);
+      }
+    }
+  }
+};
+
 const loadPdfjs = async () => {
   try {
     const [pdfjs, worker] = await Promise.all([
@@ -109,14 +137,7 @@ export const extractPdfText = async (bytes: ArrayBuffer): Promise<string> => {
     const lines: string[] = [];
     for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
       const page = await document.getPage(pageNumber);
-      const content = await page.getTextContent();
-      const textItems: PdfTextItem[] = [];
-      for (const item of content.items) {
-        if ("str" in item) {
-          textItems.push(item);
-        }
-      }
-      lines.push(...buildPageLines(textItems));
+      lines.push(...buildPageLines(await readPageItems(page)));
     }
     const text = lines.join("\n");
     if (text.replace(/\s/g, "").length < 20) {

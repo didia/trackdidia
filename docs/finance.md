@@ -601,7 +601,13 @@ the previous starting point, it does not accumulate.
    network). pdf.js runs **on the main thread**: its worker code is imported through
    the bundler and handed over as `globalThis.pdfjsWorker`, so there is no separate
    Worker script to be served from the desktop webview's custom scheme (the one
-   fragile part of the first version). It reads at most the first 12
+   fragile part of the first version). Page text is read from
+   `page.streamTextContent()` with an explicit `reader.read()` loop, not
+   `page.getTextContent()`: the latter iterates the stream with `for await`, and
+   `ReadableStream` async iteration is missing from the WebKit shipped with current macOS
+   (the desktop app's engine), where it fails with `undefined is not a function (near
+   '...value of readableStream...')`; a test removes that feature to keep the guarantee.
+   It reads at most the first 12
    pages, groups fragments into visual lines, and separates columns with a wide
    gap so `label    amount` rows stay on one line. A password-protected PDF or one
    with no selectable text (a scan) raises `StatementPdfError`
