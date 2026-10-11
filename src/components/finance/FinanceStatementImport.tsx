@@ -230,14 +230,19 @@ export const FinanceStatementImport = ({
       }
       // Name and message only: pdf.js errors carry no statement content, and this is the only
       // trace of why a file could not be read inside the desktop webview.
-      logDebug("warn", "finance.statement", "Lecture du releve PDF impossible", {
-        name: error instanceof Error ? error.name : "unknown",
-        message: error instanceof Error ? error.message : String(error),
-      });
+      const reason =
+        error instanceof StatementPdfError && error.detail
+          ? error.detail
+          : `${error instanceof Error ? error.name : "Error"}: ${
+              error instanceof Error ? error.message : String(error)
+            }`.slice(0, 200);
+      logDebug("warn", "finance.statement", "Lecture du releve PDF impossible", { reason });
+      const readableCode = error instanceof StatementPdfError ? error.code : "unreadable";
+      // The technical reason is shown for generic failures so a problem is diagnosable on sight.
       setReadError(
-        error instanceof StatementPdfError
-          ? t(`statement.errors.${error.code}`)
-          : t("statement.errors.unreadable"),
+        readableCode === "unreadable"
+          ? `${t("statement.errors.unreadable")} (${reason})`
+          : t(`statement.errors.${readableCode}`),
       );
       // Keep the review form open (blank) so the figures can still be typed by hand.
       fillFromExtraction(emptyStatementExtraction(), false);

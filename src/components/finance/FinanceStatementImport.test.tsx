@@ -8,8 +8,6 @@ import { renderWithApp } from "../../test/test-utils";
 import { StatementPdfError } from "../../lib/finance/statement-pdf";
 import { FinanceStatementImport, suggestAccountForStatement } from "./FinanceStatementImport";
 
-vi.mock("pdfjs-dist/legacy/build/pdf.worker.min.mjs?url", () => ({ default: "worker.js" }));
-
 const STATEMENT = [
   "Relevé de compte",
   "Carte **** 4242",
@@ -260,7 +258,7 @@ describe("FinanceStatementImport", () => {
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File(["x"], "same.pdf", { type: "application/pdf" });
     await user.upload(input, file);
-    await screen.findByText("Ce PDF n'a pas pu être lu.");
+    await screen.findByText(/Ce PDF n'a pas pu être lu\./);
     await user.upload(input, file);
     expect(await screen.findByDisplayValue("10.00")).toBeInTheDocument();
   });
@@ -280,7 +278,8 @@ describe("FinanceStatementImport", () => {
     );
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     await user.upload(input, new File(["%PDF"], "vide.pdf", { type: "application/pdf" }));
-    expect(await screen.findByText("Ce PDF n'a pas pu être lu.")).toBeInTheDocument();
+    // The technical reason (error name and message only) is shown so a failure is diagnosable.
+    expect(await screen.findByText("Ce PDF n'a pas pu être lu. (Error: boom)")).toBeInTheDocument();
   });
 
   it("creates the account from the statement and sets its balance in one step", async () => {
