@@ -58,4 +58,26 @@ describe("extractPdfText (real pdf.js, no mocks)", () => {
     expect((error as StatementPdfError).code).toBe("unreadable");
     expect((error as StatementPdfError).detail).toMatch(/\w+:/);
   });
+
+  it("still reads a PDF when ReadableStream has no async iteration (the WebKit shipped with macOS)", async () => {
+    const proto = ReadableStream.prototype as unknown as Record<symbol, unknown>;
+    const original = Object.getOwnPropertyDescriptor(proto, Symbol.asyncIterator);
+    delete proto[Symbol.asyncIterator];
+    try {
+      // The simulation must be real: no async iterator on the stream pdf.js hands out.
+      expect(Symbol.asyncIterator in ReadableStream.prototype).toBe(false);
+      const text = await extractPdfText(
+        buildPdf([
+          [72, 700, "Statement date   Sep. 20, 2026"],
+          [72, 680, "Total balance"],
+          [420, 680, "$1,500.00"],
+        ]),
+      );
+      expect(parseStatementText(text).closingBalanceMinor).toBe(150_000);
+    } finally {
+      if (original) {
+        Object.defineProperty(proto, Symbol.asyncIterator, original);
+      }
+    }
+  });
 });
