@@ -8,7 +8,7 @@ import { TauriSqliteRepository } from "../tauri-sqlite-repository";
 import { migrations } from "./index";
 
 describe("migration 40 create_calendar_sync", () => {
-  it("is the highest migration id, appended without rewriting earlier migrations", () => {
+  it("is appended without rewriting earlier migrations", () => {
     const migration = migrations.find((item) => item.id === 40);
     expect(migration).toBeDefined();
     expect(migration?.name).toBe("create_calendar_sync");
@@ -18,7 +18,7 @@ describe("migration 40 create_calendar_sync", () => {
     expect(migration?.sql).toContain(
       "CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_sync_links_event",
     );
-    expect(Math.max(...migrations.map((item) => item.id))).toBe(40);
+    expect(Math.max(...migrations.map((item) => item.id))).toBeGreaterThanOrEqual(40);
     expect(migrations.map((item) => item.id)).toEqual(
       [...migrations.map((item) => item.id)].sort((left, right) => left - right),
     );

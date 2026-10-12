@@ -2140,6 +2140,10 @@ export class MemoryRepository implements AppRepository {
     return Promise.resolve(this.finance.listAccountBalanceSnapshots(accountId));
   }
 
+  async listFinanceLatestTransactionDates() {
+    return Promise.resolve(this.finance.listLatestTransactionDates());
+  }
+
   // --- Finance (Phase 7 — Forecasting and proactive alerts) -----------------------------
 
   async buildFinanceSnapshot(asOfDate: string) {

@@ -3540,6 +3540,62 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         ]);
       });
 
+      it("persists a per-account update cadence and clears it back to the default", async () => {
+        const repository = await factory();
+        const saved = await repository.saveFinanceAccount(account({ updateCadenceDays: 14 }));
+        expect(saved.updateCadenceDays).toBe(14);
+        await expect(repository.listFinanceAccounts()).resolves.toEqual([
+          expect.objectContaining({ id: saved.id, updateCadenceDays: 14 }),
+        ]);
+
+        await repository.saveFinanceAccount({ ...saved, updateCadenceDays: null });
+        await expect(repository.listFinanceAccounts()).resolves.toEqual([
+          expect.objectContaining({ id: saved.id, updateCadenceDays: null }),
+        ]);
+
+        const plain = await repository.saveFinanceAccount(account({ id: "account-plain" }));
+        expect(plain.updateCadenceDays ?? null).toBeNull();
+      });
+
+      it("keeps the stored update cadence when a save omits it", async () => {
+        const repository = await factory();
+        const saved = await repository.saveFinanceAccount(account({ updateCadenceDays: 21 }));
+        const { updateCadenceDays: _omitted, ...withoutCadence } = saved;
+        await repository.saveFinanceAccount({ ...withoutCadence, name: "Renommé" });
+        await expect(repository.listFinanceAccounts()).resolves.toEqual([
+          expect.objectContaining({ id: saved.id, name: "Renommé", updateCadenceDays: 21 }),
+        ]);
+      });
+
+      it("returns the newest transaction date per account in one read", async () => {
+        const repository = await factory();
+        const first = await repository.saveFinanceAccount(account({ id: "account-a" }));
+        const second = await repository.saveFinanceAccount(account({ id: "account-b" }));
+        await repository.saveFinanceAccount(account({ id: "account-empty" }));
+        await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-a-old",
+            accountId: first.id,
+            postedDate: "2026-09-01",
+          }),
+        );
+        await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-a-new",
+            accountId: first.id,
+            postedDate: "2026-10-05",
+          }),
+        );
+        await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-b", accountId: second.id, postedDate: "2026-08-15" }),
+        );
+
+        await expect(repository.listFinanceLatestTransactionDates()).resolves.toEqual({
+          "account-a": "2026-10-05",
+          "account-b": "2026-08-15",
+        });
+      });
+
       it("excludes closed accounts by default and includes them when asked", async () => {
         const repository = await factory();
         const saved = await repository.saveFinanceAccount(account());
@@ -3930,6 +3986,45 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           categoryId: "fincat:logement.loyer-hypotheque",
           categorySource: "user",
           isTransfer: false,
+        });
+      });
+
+      it("applies the imported category hint when it names an existing category", async () => {
+        const repository = await factory();
+        await repository.seedFinanceDefaultCategories();
+        await repository.saveFinanceAccount(account({ id: "account-checking" }));
+
+        await repository.importFinanceTransactions({
+          accountId: "account-checking",
+          profileId: null,
+          fileName: "hints.csv",
+          fileHash: "hash-hints",
+          rows: [
+            importRow({
+              accountId: "account-checking",
+              amountMinor: -4500,
+              descriptionRaw: "ACHAT QUELCONQUE",
+              merchantKey: "ACHAT QUELCONQUE",
+              categoryHint: "epicerie",
+            }),
+            importRow({
+              accountId: "account-checking",
+              amountMinor: -900,
+              descriptionRaw: "AUTRE ACHAT",
+              merchantKey: "AUTRE ACHAT",
+              categoryHint: "Categorie inconnue",
+            }),
+          ],
+        });
+
+        const transactions = await repository.listFinanceTransactions({});
+        expect(transactions.find((t) => t.descriptionRaw === "ACHAT QUELCONQUE")).toMatchObject({
+          categoryId: "fincat:alimentation.epicerie",
+          categorySource: "rule",
+        });
+        expect(transactions.find((t) => t.descriptionRaw === "AUTRE ACHAT")).toMatchObject({
+          categoryId: "fincat:non-categorise",
+          categorySource: "default",
         });
       });
 
@@ -6131,6 +6226,63 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           expect(group.currency).toBe("CAD");
           expect(group.occurrenceCount).toBe(3);
           expect(group.amountMinorSample).toBeLessThan(1_000);
+        });
+
+        it("remembers an auto-applied AI category so the next import resolves it without the model", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({ id: "txn-1", merchantKey: "MARCHAND INCONNU" }),
+          );
+
+          await repository.applyFinanceCategorizationResults({
+            results: [
+              {
+                merchantKey: "MARCHAND INCONNU",
+                categoryId: "fincat:alimentation.epicerie",
+                confidence: 0.92,
+                rationale: "Semble etre une epicerie.",
+              },
+            ],
+            merchantKeyMap: { "MARCHAND INCONNU": ["MARCHAND INCONNU"] },
+            transactionIds: ["txn-1"],
+            model: "test-model",
+            promptVersion: "finance_categorization.v1",
+            autoApply: true,
+            autoApplyMinConfidence: 0.9,
+          });
+
+          await expect(repository.listFinanceMerchantMemory()).resolves.toEqual([
+            expect.objectContaining({
+              merchantKey: "MARCHAND INCONNU",
+              accountId: "",
+              categoryId: "fincat:alimentation.epicerie",
+              source: "auto_confirm",
+            }),
+          ]);
+
+          await repository.importFinanceTransactions({
+            accountId: "account-1",
+            profileId: null,
+            fileName: "next.csv",
+            fileHash: "hash-next",
+            rows: [
+              importRow({
+                accountId: "account-1",
+                amountMinor: -1500,
+                postedDate: "2026-05-02",
+                descriptionRaw: "MARCHAND INCONNU",
+                merchantKey: "MARCHAND INCONNU",
+              }),
+            ],
+          });
+          const imported = (await repository.listFinanceTransactions({})).find(
+            (t) => t.importBatchId !== null,
+          );
+          expect(imported).toMatchObject({
+            categoryId: "fincat:alimentation.epicerie",
+            categorySource: "memory",
+          });
         });
 
         it("writes a pending ai-origin suggestion with rationale/model/promptVersion, but does not auto-apply below threshold", async () => {

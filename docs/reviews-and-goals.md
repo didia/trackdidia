@@ -55,7 +55,9 @@ averages and rates intentionally include zero-valued empty days in several axes.
 The eight ritual sections are:
 
 1. Bilan
-2. Budget
+2. Budget — when `financeEnabled` is on, the section also embeds the finance
+   [account update tracking](finance.md#account-update-tracking-weekly-review-and-finances)
+   list (which accounts need fresh transactions or a statement)
 3. Temps et plan
 4. Collecte
 5. Calendrier

@@ -1937,4 +1937,49 @@ describe("WeeklyReviewPage mid-week decisions card", () => {
     expect(within(card).getAllByText("Rattrapé")).toHaveLength(1);
     expect(within(card).getByText("Sans verdict")).toBeInTheDocument();
   });
+
+  it("lists the finance accounts to update under the budget ritual only when finance is on", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const timestamp = new Date().toISOString();
+    await repository.saveFinanceAccount({
+      id: "",
+      name: "Chèques",
+      institution: null,
+      type: "checking",
+      currency: "CAD",
+      ownerPersonId: null,
+      ownership: "individual",
+      onBudget: true,
+      closed: false,
+      openingBalanceMinor: 0,
+      currentBalanceMinor: null,
+      balanceAsOf: null,
+      externalKey: null,
+      notes: null,
+      sortOrder: 0,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+
+    await renderWithApp(<WeeklyReviewPage />, {
+      repository,
+      route: "/semaine",
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+
+    const freshness = await screen.findByTestId("finance-freshness-embedded");
+    expect(await within(freshness).findByText("Chèques")).toBeInTheDocument();
+    expect(within(freshness).getByText("Jamais importé")).toBeInTheDocument();
+  });
+
+  it("hides the account update list from the weekly review when finance is off", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    await renderWithApp(<WeeklyReviewPage />, { repository, route: "/semaine" });
+
+    await screen.findByText("Score hebdo");
+    expect(screen.queryByTestId("finance-freshness-embedded")).not.toBeInTheDocument();
+  });
 });

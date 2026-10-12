@@ -15,6 +15,8 @@ export interface ApplyMerchantMemoryCorrectionInput {
   now: string;
 }
 
+import { DEFAULT_CLASSIFICATION_THRESHOLDS } from "./classify";
+
 const MAX_CONFIDENCE = 0.99;
 const AGREEMENT_CONFIDENCE_STEP = 0.05;
 const CORRECTION_RESET_CONFIDENCE = 0.6;
@@ -67,3 +69,33 @@ export const applyMerchantMemoryCorrection = (
     updatedAt: now,
   };
 };
+
+export interface BuildAiMemoryEntryInput {
+  merchantKey: string;
+  sign: -1 | 0 | 1;
+  categoryId: string;
+  /** The AI's own confidence for this merchant. */
+  confidence: number;
+  now: string;
+}
+
+/**
+ * Memory entry written when an AI categorization is applied automatically, so the next
+ * import resolves the merchant locally instead of asking the model again. It is scoped to
+ * every account (`accountId: ""`) and counts as already confirmed (`hitCount` at the
+ * auto-apply floor); it still only auto-applies when the AI's confidence clears the
+ * memory confidence threshold, otherwise it resurfaces as a suggestion.
+ */
+export const buildAiMemoryEntry = (input: BuildAiMemoryEntryInput): FinanceMerchantMemoryEntry => ({
+  merchantKey: input.merchantKey,
+  accountId: "",
+  sign: input.sign,
+  categoryId: input.categoryId,
+  hitCount: DEFAULT_CLASSIFICATION_THRESHOLDS.memoryAutoApplyHitCount,
+  correctionCount: 0,
+  confidence: Math.min(MAX_CONFIDENCE, Math.max(0, input.confidence)),
+  source: "auto_confirm",
+  lastAppliedAt: input.now,
+  createdAt: input.now,
+  updatedAt: input.now,
+});

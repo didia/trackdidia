@@ -90,6 +90,7 @@ import {
 import { getTodayDate } from "../date";
 import {
   classifyTransaction,
+  resolveCategoryHint,
   UNCATEGORIZED_CATEGORY_ID,
   type ClassificationOutcome,
 } from "../finance/classify";
@@ -102,7 +103,7 @@ import {
   dedupeHash as computeDedupeHash,
   assignOccurrenceIndices,
 } from "../finance/import-profile";
-import { applyMerchantMemoryCorrection } from "../finance/memory";
+import { applyMerchantMemoryCorrection, buildAiMemoryEntry } from "../finance/memory";
 import { findNearDuplicates } from "../finance/near-duplicates";
 import {
   detectFinanceRecurringSeries,
@@ -229,6 +230,11 @@ export class FinanceMemoryStore {
     const saved: FinanceAccount = {
       ...account,
       id,
+      // Omitted (undefined) keeps the stored cadence; only an explicit null clears it.
+      updateCadenceDays:
+        account.updateCadenceDays === undefined
+          ? (existing?.updateCadenceDays ?? null)
+          : account.updateCadenceDays,
       createdAt: account.createdAt || now,
       updatedAt: now,
     };
@@ -760,6 +766,7 @@ export class FinanceMemoryStore {
     let imported = 0;
     let duplicates = 0;
     const insertedIds: string[] = [];
+    const categoryHintById = new Map<string, string | null>();
 
     for (const item of prepared) {
       const key = `${item.row.accountId}\u0000${item.dedupeHash}`;
@@ -800,6 +807,7 @@ export class FinanceMemoryStore {
       };
       this.transactions.set(id, txn);
       insertedIds.push(id);
+      categoryHintById.set(id, item.row.categoryHint);
       imported += 1;
     }
 
@@ -901,6 +909,7 @@ export class FinanceMemoryStore {
     // transfer detection already decided a final category for the rest.
     const classificationRules = [...this.rules.values()];
     const classificationMemory = [...this.merchantMemory.values()];
+    const classificationCategories = this.listCategories();
     const dismissed = this.buildDismissedPairs();
     const today = getTodayDate();
     for (const id of insertedIds) {
@@ -917,7 +926,13 @@ export class FinanceMemoryStore {
           merchantKey: txn.merchantKey,
           personId: txn.personId,
         },
-        { rules: classificationRules, memory: classificationMemory, dismissed, today },
+        {
+          rules: classificationRules,
+          memory: classificationMemory,
+          categoryHintId: resolveCategoryHint(categoryHintById.get(id), classificationCategories),
+          dismissed,
+          today,
+        },
       );
       const { suggestionCreated } = this.applyClassificationOutcome(txn.id, outcome, now);
       if (suggestionCreated) {
@@ -1500,6 +1515,21 @@ export class FinanceMemoryStore {
               updatedAt: now,
             });
             autoApplied += 1;
+
+            // Remember the AI's answer so the next import does not need the model for this
+            // merchant. Never replaces something already learned.
+            const sign: -1 | 0 | 1 = txn.amountMinor > 0 ? 1 : txn.amountMinor < 0 ? -1 : 0;
+            if (!this.getMerchantMemory(merchantKey, "", sign)) {
+              this.upsertMerchantMemory(
+                buildAiMemoryEntry({
+                  merchantKey,
+                  sign,
+                  categoryId: result.categoryId,
+                  confidence: result.confidence,
+                  now,
+                }),
+              );
+            }
           }
         }
       }
@@ -2103,6 +2133,17 @@ export class FinanceMemoryStore {
     return [...this.balanceSnapshots.values()]
       .filter((snapshot) => snapshot.accountId === accountId)
       .sort((a, b) => a.asOfDate.localeCompare(b.asOfDate));
+  }
+
+  listLatestTransactionDates(): Record<string, string> {
+    const latest: Record<string, string> = {};
+    for (const transaction of this.transactions.values()) {
+      const current = latest[transaction.accountId];
+      if (current === undefined || transaction.postedDate > current) {
+        latest[transaction.accountId] = transaction.postedDate;
+      }
+    }
+    return latest;
   }
 
   // --- Forecasting and alerts (Phase 7) ---------------------------------------------------

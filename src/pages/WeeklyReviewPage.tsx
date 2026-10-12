@@ -15,6 +15,7 @@ import { useRescueTimeWeek } from "../app/reviews/use-rescuetime-week";
 import { useWeeklyMemoryProposals } from "../app/reviews/use-weekly-memory-proposals";
 import { useWeeklyReviewNotes } from "../app/reviews/use-weekly-review-notes";
 import { useAsyncResource, useLatestRequest } from "../app/use-latest-request";
+import { FinanceAccountFreshnessCard } from "../components/finance/FinanceAccountFreshnessCard";
 import { PageHeader } from "../components/PageHeader";
 import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
 import { RitualSectionList } from "../components/RitualSectionList";
@@ -1039,7 +1040,9 @@ export const WeeklyReviewPage = () => {
             return saveReview(updateWeeklyReviewNote(currentReview, sectionKey, value));
           }}
           renderAfterNotes={(section) =>
-            section.key === "dimanche" && notesOnNextWeek ? (
+            section.key === "budget" ? (
+              <FinanceAccountFreshnessCard embedded />
+            ) : section.key === "dimanche" && notesOnNextWeek ? (
               <label className="stacked-field">
                 <span>{t("weekly.ritual.nextWeekNotesLabel")}</span>
                 <PersistedTextarea

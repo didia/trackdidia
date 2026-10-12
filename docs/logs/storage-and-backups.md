@@ -25,6 +25,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-10-12 | Migration 41 adds nullable `finance_accounts.update_cadence_days` (guarded additive `ALTER TABLE`; null = default cadence) for per-account finance update tracking | `docs/storage-and-backups.md`, `docs/finance.md` | Migration `add_finance_account_update_cadence`, `finance-sqlite-store.ts`, `finance-account-update-cadence.test.ts` |
 | 2026-10-04 | Pointed the calendar-sync table section at the canonical page and recorded that migration 40's reconciler, not an unwired planner, handles a restored stale link | `docs/storage-and-backups.md`, `docs/calendar-sync.md` | `docs/calendar-sync.md`, migration `create_calendar_sync` |
 | 2026-10-03 | Migration 39 adds `finance_alert_notifications` (additive, `(alert_key, notified_on_date)` primary key), the once-per-day-per-key rate-limit ledger for Phase 7 finance runout/cash-flow alert notifications; included in `VACUUM INTO` backups like every other table | `docs/storage-and-backups.md`, `docs/finance.md` | Migration `create_finance_alert_notifications`, `finance-sqlite-store.ts`, `finance-memory-store.ts` |
 | 2026-10-03 | Corrected the repository contract summary to name the unified proposal acceptance operation while preserving the current transaction/migration guidance during conflict resolution | `docs/storage-and-backups.md` | `repository.ts`, both repositories, PR #196 |
