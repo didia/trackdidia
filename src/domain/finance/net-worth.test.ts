@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildFinanceNetWorthHistory,
   classifyFinanceAccountKind,
+  classifyFinanceLiquidityBucket,
   computeFinanceNetWorth,
   type FinanceNetWorthAccountInput,
   type FinanceNetWorthTransactionInput,
@@ -59,6 +60,22 @@ describe("classifyFinanceAccountKind", () => {
   });
 });
 
+describe("classifyFinanceLiquidityBucket", () => {
+  it("treats cash-like accounts as liquid and cards/lines of credit as short-term debt", () => {
+    expect(classifyFinanceLiquidityBucket("checking")).toBe("liquid_asset");
+    expect(classifyFinanceLiquidityBucket("savings")).toBe("liquid_asset");
+    expect(classifyFinanceLiquidityBucket("cash")).toBe("liquid_asset");
+    expect(classifyFinanceLiquidityBucket("credit_card")).toBe("short_term_debt");
+    expect(classifyFinanceLiquidityBucket("line_of_credit")).toBe("short_term_debt");
+  });
+
+  it("leaves long-lived assets and long-term debt out of liquidity", () => {
+    for (const type of ["investment", "asset", "other", "loan", "mortgage"] as const) {
+      expect(classifyFinanceLiquidityBucket(type)).toBeNull();
+    }
+  });
+});
+
 describe("computeFinanceNetWorth", () => {
   it("matches a hand-computed assets-minus-liabilities fixture, as of a date", () => {
     const snapshot = computeFinanceNetWorth({
@@ -73,6 +90,34 @@ describe("computeFinanceNetWorth", () => {
     // Liabilities (CAD only): credit card owes 300; mortgage owes 200000.
     expect(snapshot.liabilitiesMinor).toBe(300_00 + 200_000_00);
     expect(snapshot.netWorthMinor).toBe(snapshot.assetsMinor - snapshot.liabilitiesMinor);
+  });
+
+  it("computes net liquidity from cash versus short-term debt, ignoring investments and the mortgage", () => {
+    const snapshot = computeFinanceNetWorth({
+      asOfDate: "2026-01-31",
+      baseCurrency: "CAD",
+      accounts,
+      transactions,
+    });
+
+    // Liquid: checking 300 only (investment, and the EUR savings account, are not counted).
+    expect(snapshot.liquidAssetsMinor).toBe(300_00);
+    // Short-term debt: credit card 300 only (the 200000 mortgage is long-term).
+    expect(snapshot.shortTermDebtMinor).toBe(300_00);
+    expect(snapshot.netLiquidityMinor).toBe(0);
+    // Net worth is unchanged by the liquidity split.
+    expect(snapshot.netWorthMinor).toBe(snapshot.assetsMinor - snapshot.liabilitiesMinor);
+  });
+
+  it("lets net liquidity go negative when card debt exceeds cash", () => {
+    const snapshot = computeFinanceNetWorth({
+      asOfDate: "2026-01-31",
+      baseCurrency: "CAD",
+      accounts: [accounts[0], accounts[1], accounts[2]],
+      transactions: [{ accountId: CREDIT_CARD, postedDate: "2026-01-10", amountMinor: -900_00 }],
+    });
+    expect(snapshot.netLiquidityMinor).toBe(100_00 - 900_00);
+    expect(snapshot.netWorthMinor).toBeGreaterThan(0);
   });
 
   it("excludes a transaction dated after asOfDate", () => {

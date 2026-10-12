@@ -5369,6 +5369,9 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           expect(snapshot.assetsMinor).toBe(100_00 + 200_00);
           expect(snapshot.liabilitiesMinor).toBe(300_00);
           expect(snapshot.netWorthMinor).toBe(snapshot.assetsMinor - snapshot.liabilitiesMinor);
+          expect(snapshot.liquidAssetsMinor).toBe(100_00 + 200_00);
+          expect(snapshot.shortTermDebtMinor).toBe(300_00);
+          expect(snapshot.netLiquidityMinor).toBe(0);
         });
 
         it("computeFinanceCashFlow excludes transfers and sums income/expense", async () => {
