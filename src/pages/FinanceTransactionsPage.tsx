@@ -36,6 +36,8 @@ interface SplitDraftRow {
   id: string;
   amountText: string;
   categoryId: string;
+  /** What the AI says this row groups; kept so the user can verify it while reviewing. */
+  description?: string;
 }
 
 export const FinanceTransactionsPage = () => {
@@ -66,6 +68,9 @@ export const FinanceTransactionsPage = () => {
   // disabled until it matches the open editor so stale drafts can never be written.
   const [splitLoadedTxnId, setSplitLoadedTxnId] = useState<string | null>(null);
   const splitRequestRef = useRef(0);
+  // Bumped on every editor open; keys the invoice assistant so an AI reply started in an earlier
+  // session can never land on rows loaded by a later one.
+  const [splitSession, setSplitSession] = useState(0);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [transferPairWarning, setTransferPairWarning] = useState<string | null>(null);
   const [lastBackfill, setLastBackfill] = useState<{
@@ -192,6 +197,7 @@ export const FinanceTransactionsPage = () => {
   const openSplitEditor = (transaction: FinanceTransaction) => {
     const requestId = splitRequestRef.current + 1;
     splitRequestRef.current = requestId;
+    setSplitSession(requestId);
     setSplitEditorTxnId(transaction.id);
     setSplitLoadedTxnId(null);
     setSplitDrafts([]);
@@ -249,6 +255,7 @@ export const FinanceTransactionsPage = () => {
         id: createEntityId("finance-split"),
         amountText: minorToInputString(row.amountMinor, exponent),
         categoryId: row.categoryId ?? "",
+        description: row.description || undefined,
       })),
     );
     setSplitError("");
@@ -593,6 +600,7 @@ export const FinanceTransactionsPage = () => {
                   <div className="stack">
                     {transaction.amountMinor !== 0 ? (
                       <InvoiceSplitAssistant
+                        key={splitSession}
                         transaction={transaction}
                         categories={categories}
                         settings={settings}
@@ -604,6 +612,9 @@ export const FinanceTransactionsPage = () => {
                     ) : null}
                     {splitDrafts.map((row) => (
                       <div key={row.id} className="inline-form">
+                        {row.description ? (
+                          <span className="field-card__helper">{row.description}</span>
+                        ) : null}
                         <input
                           value={row.amountText}
                           onChange={(event) =>

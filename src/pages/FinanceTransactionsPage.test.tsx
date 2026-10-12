@@ -420,7 +420,7 @@ describe("FinanceTransactionsPage", () => {
       invoiceBehavior = async () => ({
         rows: [
           { categoryId: "fincat:alimentation.epicerie", amountMinor: -1000, description: "Lait" },
-          { categoryId: null, amountMinor: -234, description: "Divers" },
+          { categoryId: null, amountMinor: -234, description: "Aspirine, Lait" },
         ],
         adjusted: true,
         totalMismatch: false,
@@ -432,6 +432,9 @@ describe("FinanceTransactionsPage", () => {
 
       expect(await screen.findByDisplayValue("-10.00")).toBeInTheDocument();
       expect(screen.getByDisplayValue("-2.34")).toBeInTheDocument();
+      // Descriptions stay next to the rows so the user can verify the grouping.
+      expect(screen.getByText("Lait")).toBeInTheDocument();
+      expect(screen.getByText("Aspirine, Lait")).toBeInTheDocument();
       expect(screen.getByText(/ajustés proportionnellement/)).toBeInTheDocument();
       expect(screen.getByText(/1 ligne n'a pas de catégorie/)).toBeInTheDocument();
       // The AI call carried the transaction's amount, not anything else from the row.
@@ -470,6 +473,29 @@ describe("FinanceTransactionsPage", () => {
       const user = userEvent.setup({ applyAccept: false });
       await uploadInvoice(user, new File(["x"], "facture.docx", { type: "application/msword" }));
       expect(await screen.findByText(/Format non pris en charge/)).toBeInTheDocument();
+    });
+
+    it("drops an AI reply that finishes after the editor was reopened", async () => {
+      let finishAi: (value: InvoiceSplitSuggestion) => void = () => {};
+      invoiceBehavior = () => new Promise((resolve) => (finishAi = resolve));
+      const { user } = await openEditor(aiSettings());
+      await uploadInvoice(user, new File(["img"], "recu.png", { type: "image/png" }));
+      await user.click(await screen.findByRole("button", { name: "Envoyer à l'IA" }));
+
+      // Reopening starts a new editor session while the reply is still in flight.
+      await user.click(screen.getByText("Diviser"));
+      await screen.findByDisplayValue("-12.34");
+      finishAi({
+        rows: [{ categoryId: null, amountMinor: -1234, description: "Tout" }],
+        adjusted: false,
+        totalMismatch: false,
+        unknownCategoryCount: 1,
+      });
+
+      await waitFor(() => expect(invoiceCalls).toHaveLength(1));
+      expect(screen.queryByText("Tout")).not.toBeInTheDocument();
+      expect(screen.queryByText(/Répartition proposée par l'IA/)).not.toBeInTheDocument();
+      expect(screen.getByDisplayValue("-12.34")).toBeInTheDocument();
     });
   });
 });

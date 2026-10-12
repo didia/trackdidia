@@ -96,7 +96,7 @@ export const InvoiceSplitAssistant = ({
   };
 
   const send = async () => {
-    if (!prepared) {
+    if (!prepared || disabled) {
       return;
     }
     const generation = generationRef.current + 1;
@@ -183,7 +183,7 @@ export const InvoiceSplitAssistant = ({
             <button
               type="button"
               className="button button--primary"
-              disabled={running}
+              disabled={disabled || running}
               onClick={() => void send()}
             >
               {running
