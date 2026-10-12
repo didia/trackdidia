@@ -92,6 +92,7 @@ import type { Database } from "./sqlite-db";
 import { getTodayDate } from "../date";
 import {
   classifyTransaction,
+  resolveCategoryHint,
   UNCATEGORIZED_CATEGORY_ID,
   type ClassificationOutcome,
 } from "../finance/classify";
@@ -1625,6 +1626,13 @@ export class FinanceSqliteStore {
       // the rest.
       const classificationRules = await this.listRules();
       const classificationMemory = await this.listMerchantMemory();
+      const classificationCategories = await this.listCategories();
+      const categoryHintByDedupe = new Map(
+        prepared.map((item) => [
+          `${item.row.accountId}\u0000${item.dedupeHash}`,
+          item.row.categoryHint,
+        ]),
+      );
       const dismissed = await this.buildDismissedPairsWithDb(db);
       const today = getTodayDate();
       const insertedForClassification = await db.select<TransactionRow[]>(
@@ -1644,6 +1652,10 @@ export class FinanceSqliteStore {
           {
             rules: classificationRules,
             memory: classificationMemory,
+            categoryHintId: resolveCategoryHint(
+              categoryHintByDedupe.get(`${row.account_id}\u0000${row.dedupe_hash}`),
+              classificationCategories,
+            ),
             dismissed,
             today,
           },

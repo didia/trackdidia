@@ -3933,6 +3933,45 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         });
       });
 
+      it("applies the imported category hint when it names an existing category", async () => {
+        const repository = await factory();
+        await repository.seedFinanceDefaultCategories();
+        await repository.saveFinanceAccount(account({ id: "account-checking" }));
+
+        await repository.importFinanceTransactions({
+          accountId: "account-checking",
+          profileId: null,
+          fileName: "hints.csv",
+          fileHash: "hash-hints",
+          rows: [
+            importRow({
+              accountId: "account-checking",
+              amountMinor: -4500,
+              descriptionRaw: "ACHAT QUELCONQUE",
+              merchantKey: "ACHAT QUELCONQUE",
+              categoryHint: "epicerie",
+            }),
+            importRow({
+              accountId: "account-checking",
+              amountMinor: -900,
+              descriptionRaw: "AUTRE ACHAT",
+              merchantKey: "AUTRE ACHAT",
+              categoryHint: "Categorie inconnue",
+            }),
+          ],
+        });
+
+        const transactions = await repository.listFinanceTransactions({});
+        expect(transactions.find((t) => t.descriptionRaw === "ACHAT QUELCONQUE")).toMatchObject({
+          categoryId: "fincat:alimentation.epicerie",
+          categorySource: "rule",
+        });
+        expect(transactions.find((t) => t.descriptionRaw === "AUTRE ACHAT")).toMatchObject({
+          categoryId: "fincat:non-categorise",
+          categorySource: "default",
+        });
+      });
+
       it("never pairs a pre-existing user-categorized row as the mirror-amount leg of an imported transfer", async () => {
         const repository = await factory();
         await repository.saveFinanceAccount(account({ id: "account-checking" }));

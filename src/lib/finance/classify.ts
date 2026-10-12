@@ -17,6 +17,7 @@
 // specs/done/finance.md "AI stage".
 
 import type {
+  FinanceCategory,
   FinanceCategorySource,
   FinanceMerchantMemoryEntry,
   FinanceRule,
@@ -62,6 +63,11 @@ export interface ClassificationContext {
   memory?: FinanceMerchantMemoryEntry[];
   seeds?: SeedHeuristic[];
   transferOutcome?: ClassificationTransferOutcome | null;
+  /**
+   * Category id the import's mapped "category" column resolved to (see
+   * `resolveCategoryHint`). Only set by the import step; absent on reclassification.
+   */
+  categoryHintId?: string | null;
   dismissed?: DismissedSuggestionPair[];
   thresholds?: Partial<ClassificationThresholds>;
   /** Injectable "today" (local YYYY-MM-DD) for the dismissed-pair window. */
@@ -135,6 +141,34 @@ export const matchesRuleMatcher = (
   return true;
 };
 
+/**
+ * Resolves a CSV "category" cell to an existing, active, non-system category by
+ * accent/case-insensitive name (or "Parent / Child" path). Returns `null` when nothing
+ * matches or the name is ambiguous. System categories (Uncategorized / Transfer / Split)
+ * are never targets: transfers are decided by transfer detection, not by a bank label.
+ */
+export const resolveCategoryHint = (
+  hint: string | null | undefined,
+  categories: FinanceCategory[],
+): string | null => {
+  const key = normalizeDescription(hint ?? "");
+  if (key.length === 0) {
+    return null;
+  }
+  const usable = categories.filter((category) => !category.archived && !category.isSystem);
+  const byId = new Map(usable.map((category) => [category.id, category]));
+  const matches = usable.filter((category) => {
+    if (normalizeDescription(category.name) === key) {
+      return true;
+    }
+    const parent = category.parentId ? byId.get(category.parentId) : undefined;
+    return (
+      parent !== undefined && normalizeDescription(`${parent.name} / ${category.name}`) === key
+    );
+  });
+  return matches.length === 1 ? matches[0].id : null;
+};
+
 const findMemoryEntry = (
   memory: FinanceMerchantMemoryEntry[],
   merchantKey: string,
@@ -172,6 +206,9 @@ const findMemoryEntry = (
  *    caller to apply.
  * 3. `context.transferOutcome`, when the caller already resolved this
  *    transaction via `src/lib/finance/transfers.ts`.
+ * 3b. The import file's own category column (`context.categoryHintId`), when it names
+ *    an existing category — an explicit statement from the user's data, so it
+ *    outranks learned memory and seeds. Applied as `category_source = "rule"`.
  * 4. Learned merchant memory: exact `(merchantKey, accountId, sign)` ->
  *    `(merchantKey, "", sign)` -> `(merchantKey, "", 0)`. Auto-applies at
  *    `confidence >= thresholds.memoryAutoApplyConfidence` and
@@ -253,6 +290,17 @@ export const classifyTransaction = (
             origin: "memory",
           }
         : null,
+    };
+  }
+
+  // Stage 3b: the category the import file itself carried.
+  if (context.categoryHintId) {
+    return {
+      categoryId: context.categoryHintId,
+      categorySource: "rule",
+      categoryConfidence: 1,
+      ruleActions: mergedActions,
+      suggestion: null,
     };
   }
 

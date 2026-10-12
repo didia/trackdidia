@@ -90,6 +90,7 @@ import {
 import { getTodayDate } from "../date";
 import {
   classifyTransaction,
+  resolveCategoryHint,
   UNCATEGORIZED_CATEGORY_ID,
   type ClassificationOutcome,
 } from "../finance/classify";
@@ -760,6 +761,7 @@ export class FinanceMemoryStore {
     let imported = 0;
     let duplicates = 0;
     const insertedIds: string[] = [];
+    const categoryHintById = new Map<string, string | null>();
 
     for (const item of prepared) {
       const key = `${item.row.accountId}\u0000${item.dedupeHash}`;
@@ -800,6 +802,7 @@ export class FinanceMemoryStore {
       };
       this.transactions.set(id, txn);
       insertedIds.push(id);
+      categoryHintById.set(id, item.row.categoryHint);
       imported += 1;
     }
 
@@ -901,6 +904,7 @@ export class FinanceMemoryStore {
     // transfer detection already decided a final category for the rest.
     const classificationRules = [...this.rules.values()];
     const classificationMemory = [...this.merchantMemory.values()];
+    const classificationCategories = this.listCategories();
     const dismissed = this.buildDismissedPairs();
     const today = getTodayDate();
     for (const id of insertedIds) {
@@ -917,7 +921,13 @@ export class FinanceMemoryStore {
           merchantKey: txn.merchantKey,
           personId: txn.personId,
         },
-        { rules: classificationRules, memory: classificationMemory, dismissed, today },
+        {
+          rules: classificationRules,
+          memory: classificationMemory,
+          categoryHintId: resolveCategoryHint(categoryHintById.get(id), classificationCategories),
+          dismissed,
+          today,
+        },
       );
       const { suggestionCreated } = this.applyClassificationOutcome(txn.id, outcome, now);
       if (suggestionCreated) {

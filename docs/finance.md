@@ -321,9 +321,14 @@ it never calls another queue-taking repository method, so it cannot deadlock
 New rows land as `category_id = 'fincat:non-categorise'`, `category_source =
 'default'`; transfer detection then runs, and finally the classification
 pipeline (see "Classification pipeline (Phase 4)" above) runs over whatever
-transfer detection left untouched. A `categoryHint` on the row (from, e.g., a
-Mint CSV's `Category` column) is still accepted on the request shape but
-ignored — nothing in the pipeline reads it yet.
+transfer detection left untouched. A `categoryHint` on the row (the mapped CSV
+"category" column) is resolved by `resolveCategoryHint` (`classify.ts`) against
+existing active, non-system categories by accent/case-insensitive name or
+`Parent / Child` path; an unknown or ambiguous name resolves to nothing. A match
+is applied at import as `category_source = 'rule'`, confidence 1, ranking below
+user rules and transfer detection but above learned memory and seeds. The hint
+is not stored, so a later reclassification keeps the category (a `default`
+outcome never overwrites a real category) but cannot re-derive it.
 
 ### Undo
 

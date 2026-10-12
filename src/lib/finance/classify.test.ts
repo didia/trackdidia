@@ -1,5 +1,13 @@
-import type { FinanceMerchantMemoryEntry, FinanceRule } from "../../domain/finance";
-import { classifyTransaction, type ClassifyTransactionInput } from "./classify";
+import type {
+  FinanceCategory,
+  FinanceMerchantMemoryEntry,
+  FinanceRule,
+} from "../../domain/finance";
+import {
+  classifyTransaction,
+  resolveCategoryHint,
+  type ClassifyTransactionInput,
+} from "./classify";
 
 const baseTxn = (overrides: Partial<ClassifyTransactionInput> = {}): ClassifyTransactionInput => ({
   categoryId: "fincat:non-categorise",
@@ -280,6 +288,59 @@ describe("classifyTransaction", () => {
       categoryConfidence: null,
       ruleActions: null,
       suggestion: null,
+    });
+  });
+});
+
+describe("resolveCategoryHint", () => {
+  const category = (overrides: Partial<FinanceCategory>): FinanceCategory => ({
+    id: "c",
+    name: "C",
+    parentId: null,
+    kind: "expense",
+    archived: false,
+    isSystem: false,
+    defersToNextMonth: false,
+    sortOrder: 0,
+    createdAt: "",
+    updatedAt: "",
+    ...overrides,
+  });
+  const categories = [
+    category({ id: "a", name: "Alimentation" }),
+    category({ id: "a.e", name: "Épicerie", parentId: "a" }),
+    category({ id: "x1", name: "Divers", parentId: "a" }),
+    category({ id: "x2", name: "Divers" }),
+    category({ id: "old", name: "Ancienne", archived: true }),
+    category({ id: "fincat:transfert", name: "Transfert", isSystem: true }),
+  ];
+
+  it("matches by accent/case-insensitive name or Parent / Child path", () => {
+    expect(resolveCategoryHint("EPICERIE", categories)).toBe("a.e");
+    expect(resolveCategoryHint("alimentation / épicerie", categories)).toBe("a.e");
+  });
+
+  it("ignores empty, unknown, ambiguous, archived and system targets", () => {
+    expect(resolveCategoryHint("", categories)).toBeNull();
+    expect(resolveCategoryHint(null, categories)).toBeNull();
+    expect(resolveCategoryHint("Inconnue", categories)).toBeNull();
+    expect(resolveCategoryHint("Divers", categories)).toBeNull();
+    expect(resolveCategoryHint("Ancienne", categories)).toBeNull();
+    expect(resolveCategoryHint("Transfert", categories)).toBeNull();
+  });
+
+  it("applies the resolved hint above memory but below rules", () => {
+    const input: ClassifyTransactionInput = {
+      categoryId: null,
+      categorySource: "default",
+      accountId: "a",
+      amountMinor: -100,
+      merchantKey: "X",
+      personId: null,
+    };
+    expect(classifyTransaction(input, { categoryHintId: "a.e" })).toMatchObject({
+      categoryId: "a.e",
+      categorySource: "rule",
     });
   });
 });
