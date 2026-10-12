@@ -3540,6 +3540,62 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         ]);
       });
 
+      it("persists a per-account update cadence and clears it back to the default", async () => {
+        const repository = await factory();
+        const saved = await repository.saveFinanceAccount(account({ updateCadenceDays: 14 }));
+        expect(saved.updateCadenceDays).toBe(14);
+        await expect(repository.listFinanceAccounts()).resolves.toEqual([
+          expect.objectContaining({ id: saved.id, updateCadenceDays: 14 }),
+        ]);
+
+        await repository.saveFinanceAccount({ ...saved, updateCadenceDays: null });
+        await expect(repository.listFinanceAccounts()).resolves.toEqual([
+          expect.objectContaining({ id: saved.id, updateCadenceDays: null }),
+        ]);
+
+        const plain = await repository.saveFinanceAccount(account({ id: "account-plain" }));
+        expect(plain.updateCadenceDays ?? null).toBeNull();
+      });
+
+      it("keeps the stored update cadence when a save omits it", async () => {
+        const repository = await factory();
+        const saved = await repository.saveFinanceAccount(account({ updateCadenceDays: 21 }));
+        const { updateCadenceDays: _omitted, ...withoutCadence } = saved;
+        await repository.saveFinanceAccount({ ...withoutCadence, name: "Renommé" });
+        await expect(repository.listFinanceAccounts()).resolves.toEqual([
+          expect.objectContaining({ id: saved.id, name: "Renommé", updateCadenceDays: 21 }),
+        ]);
+      });
+
+      it("returns the newest transaction date per account in one read", async () => {
+        const repository = await factory();
+        const first = await repository.saveFinanceAccount(account({ id: "account-a" }));
+        const second = await repository.saveFinanceAccount(account({ id: "account-b" }));
+        await repository.saveFinanceAccount(account({ id: "account-empty" }));
+        await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-a-old",
+            accountId: first.id,
+            postedDate: "2026-09-01",
+          }),
+        );
+        await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-a-new",
+            accountId: first.id,
+            postedDate: "2026-10-05",
+          }),
+        );
+        await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-b", accountId: second.id, postedDate: "2026-08-15" }),
+        );
+
+        await expect(repository.listFinanceLatestTransactionDates()).resolves.toEqual({
+          "account-a": "2026-10-05",
+          "account-b": "2026-08-15",
+        });
+      });
+
       it("excludes closed accounts by default and includes them when asked", async () => {
         const repository = await factory();
         const saved = await repository.saveFinanceAccount(account());

@@ -57,7 +57,8 @@ ISO strings from `nowIso()`.
 - **`finance_accounts`** — `type` (`checking`, `savings`, `cash`, `credit_card`,
   `line_of_credit`, `loan`, `mortgage`, `investment`, `asset`, `other`), `currency`,
   `on_budget`, `closed`, `opening_balance_minor`, and a nullable unique
-  `external_key` binding an imported file's account label to this account.
+  `external_key` binding an imported file's account label to this account, plus a nullable
+  `update_cadence_days` (how often its data should be refreshed; see "Account update tracking").
   Balances are always **derived** (`opening_balance_minor` + Σ transactions);
   `current_balance_minor` is a reconciliation check only.
 - **`finance_categories`** — `kind` (`expense` | `income` | `transfer` | `internal`),
@@ -754,6 +755,48 @@ covered by `repository.contract.ts`'s statement tests (late save, import and und
 keep the anchor; same-day derived snapshot; replacement; manual-edit override). Take a
 manual backup first, as for CSV imports: the previous opening balance is returned in
 the result (`previousOpeningBalanceMinor`) but there is no undo button.
+
+### Account update tracking (weekly review and `/finances`)
+
+`FinanceAccountFreshnessCard` (`src/components/finance/`) lists every **open** account with
+how old its data is, so the weekly budget review shows which accounts still need a CSV or a
+statement. It renders only while `financeEnabled` is on, in two places: embedded under the
+"Budget" ritual section of `/semaine` (`embedded` drops the card chrome) and as a card on the
+`/finances` overview, directly above the accounts list. It reloads when the app's local
+`calendarDay` rolls over (midnight, focus, visibility), so ages never stay on yesterday; while
+loading it shows a short loading line. Each row shows a status chip (`À jour` / `À mettre à jour` /
+`Jamais importé`), the account and institution, "Données jusqu'au …" (or "Relevé du …") with
+the age in days, and the account's cadence. Accounts to update come first; a button links to
+`/finances/import`.
+
+Rules (pure, `src/domain/finance/account-freshness.ts`, tested directly):
+
+- **Cadence**: each account may carry its own `updateCadenceDays` (whole days, 1–365; column
+  `finance_accounts.update_cadence_days`, migration 41, edited on `/finances/accounts` in the
+  "Fréquence de mise à jour (jours)" field — blank clears it). Without an override, on-budget
+  accounts are expected weekly (7 days) and every other account monthly (30 days).
+  `cadenceDaysForAccount` is the single place that decides and ignores a stored value that is
+  not a whole number in 1–365 (falls back to the default rather than mis-classifying the
+  account); the card labels 7 and 30 as weekly/monthly and anything else as "tous les N
+  jours". `saveFinanceAccount` keeps the stored cadence when a caller omits the field
+  (`undefined`); only an explicit `null` clears it.
+- **Data-through date** = the newer of the account's latest transaction `posted_date`
+  (transfers included) and its latest `source = 'statement'` balance snapshot date. Import
+  time is deliberately not used — importing an old file must not make an account look
+  current.
+- **Due** when the data-through date is at least one full cadence old (a Sunday review sees
+  last Sunday's data as due); **never** when the account has no transactions and no statement.
+  Future-dated postings count as age 0. Closed accounts are skipped.
+- Sort: due, then never loaded, then fresh; budget accounts before others, then most overdue.
+
+`loadFinanceAccountFreshness` (`src/lib/finance/account-freshness-loader.ts`, `today` passed
+in by the caller) gathers the two dates through `listFinanceAccounts`,
+`listFinanceLatestTransactionDates` (one grouped `MAX(posted_date) … GROUP BY account_id` read
+on SQLite, a single pass in memory — never a table scan per account) and
+`listFinanceAccountBalanceSnapshots`. Both stores behave identically, covered by
+`repository.contract.ts`. A quiet account that is
+genuinely current but had no activity for a cadence still shows as due until a statement is
+applied — give it a longer cadence if that is the usual rhythm.
 
 ### FinanceTransactionsPage (`/finances/transactions`)
 

@@ -147,6 +147,7 @@ interface AccountRow {
   current_balance_minor: number | null;
   balance_as_of: string | null;
   external_key: string | null;
+  update_cadence_days: number | null;
   notes: string | null;
   sort_order: number;
   created_at: string;
@@ -167,6 +168,7 @@ const mapAccount = (row: AccountRow): FinanceAccount => ({
   currentBalanceMinor: row.current_balance_minor,
   balanceAsOf: row.balance_as_of,
   externalKey: row.external_key,
+  updateCadenceDays: row.update_cadence_days,
   notes: row.notes,
   sortOrder: row.sort_order,
   createdAt: row.created_at,
@@ -584,10 +586,11 @@ export class FinanceSqliteStore {
     const db = await this.getDb();
     const now = nowIso();
     const id = account.id || createEntityId("finance-account");
-    const [existing] = await db.select<{ opening_balance_minor: number }[]>(
-      "SELECT opening_balance_minor FROM finance_accounts WHERE id = $1",
-      [id],
-    );
+    const [existing] = await db.select<
+      { opening_balance_minor: number; update_cadence_days: number | null }[]
+    >("SELECT opening_balance_minor, update_cadence_days FROM finance_accounts WHERE id = $1", [
+      id,
+    ]);
     if (existing && existing.opening_balance_minor !== account.openingBalanceMinor) {
       // A hand-edited opening balance supersedes the statement anchor; keeping the anchor would
       // silently revert the edit on the next transaction write.
@@ -600,8 +603,8 @@ export class FinanceSqliteStore {
       `INSERT INTO finance_accounts (
         id, name, institution, type, currency, owner_person_id, ownership, on_budget, closed,
         opening_balance_minor, current_balance_minor, balance_as_of, external_key, notes,
-        sort_order, created_at, updated_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+        sort_order, created_at, updated_at, update_cadence_days
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         institution = excluded.institution,
@@ -617,6 +620,7 @@ export class FinanceSqliteStore {
         external_key = excluded.external_key,
         notes = excluded.notes,
         sort_order = excluded.sort_order,
+        update_cadence_days = excluded.update_cadence_days,
         updated_at = excluded.updated_at`,
       [
         id,
@@ -636,6 +640,10 @@ export class FinanceSqliteStore {
         account.sortOrder,
         account.createdAt || now,
         now,
+        // Omitted (undefined) keeps the stored cadence; only an explicit null clears it.
+        account.updateCadenceDays === undefined
+          ? (existing?.update_cadence_days ?? null)
+          : account.updateCadenceDays,
       ],
     );
     const rows = await db.select<AccountRow[]>("SELECT * FROM finance_accounts WHERE id = $1", [
@@ -3202,6 +3210,14 @@ export class FinanceSqliteStore {
       [accountId],
     );
     return rows.map(mapBalanceSnapshot);
+  }
+
+  async listLatestTransactionDates(): Promise<Record<string, string>> {
+    const db = await this.getDb();
+    const rows = await db.select<{ account_id: string; latest: string }[]>(
+      "SELECT account_id, MAX(posted_date) AS latest FROM finance_transactions GROUP BY account_id",
+    );
+    return Object.fromEntries(rows.map((row) => [row.account_id, row.latest]));
   }
 
   // --- Forecasting and alerts (Phase 7) ---------------------------------------------------

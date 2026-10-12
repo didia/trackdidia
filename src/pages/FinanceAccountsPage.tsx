@@ -15,6 +15,10 @@ import type {
   FinancePerson,
   FinanceTransaction,
 } from "../domain/finance";
+import {
+  FINANCE_MAX_CADENCE_DAYS,
+  FINANCE_MIN_CADENCE_DAYS,
+} from "../domain/finance/account-freshness";
 import { createEntityId, nowIso } from "../lib/gtd/shared";
 import {
   currencyExponent,
@@ -47,6 +51,7 @@ interface AccountDraft {
   ownerPersonId: string;
   ownership: FinanceAccountOwnership;
   onBudget: boolean;
+  updateCadenceText: string;
   openingBalanceText: string;
   balanceAsOf: string;
   manualBalanceText: string;
@@ -65,6 +70,7 @@ const draftFromAccount = (account: FinanceAccount): AccountDraft => ({
   ownerPersonId: account.ownerPersonId ?? "",
   ownership: account.ownership,
   onBudget: account.onBudget,
+  updateCadenceText: account.updateCadenceDays == null ? "" : String(account.updateCadenceDays),
   openingBalanceText: minorToText(account.openingBalanceMinor, account.currency),
   balanceAsOf: account.balanceAsOf ?? "",
   manualBalanceText:
@@ -81,6 +87,7 @@ const emptyDraft = (currency: string): AccountDraft => ({
   ownerPersonId: "",
   ownership: "individual",
   onBudget: true,
+  updateCadenceText: "",
   openingBalanceText: "0",
   balanceAsOf: getTodayDate(),
   manualBalanceText: "",
@@ -172,6 +179,21 @@ export const FinanceAccountsPage = () => {
       return;
     }
 
+    const cadenceText = accountDraft.updateCadenceText.trim();
+    let updateCadenceDays: number | null = null;
+    if (cadenceText.length > 0) {
+      const parsedCadence = Number(cadenceText);
+      if (
+        !Number.isInteger(parsedCadence) ||
+        parsedCadence < FINANCE_MIN_CADENCE_DAYS ||
+        parsedCadence > FINANCE_MAX_CADENCE_DAYS
+      ) {
+        setAccountError(t("accounts.errors.invalidCadence"));
+        return;
+      }
+      updateCadenceDays = parsedCadence;
+    }
+
     let manualBalanceMinor: number | null = null;
     if (accountDraft.manualBalanceText.trim().length > 0) {
       const manualParsed = parseAmountToMinor(accountDraft.manualBalanceText, { exponent });
@@ -200,6 +222,7 @@ export const FinanceAccountsPage = () => {
       currentBalanceMinor: manualBalanceMinor,
       balanceAsOf: accountDraft.balanceAsOf || null,
       externalKey: editingAccount?.externalKey ?? null,
+      updateCadenceDays,
       notes: editingAccount?.notes ?? null,
       sortOrder: editingAccount?.sortOrder ?? accounts.length,
       createdAt: editingAccount?.createdAt ?? timestamp,
@@ -368,6 +391,27 @@ export const FinanceAccountsPage = () => {
               }
             />
             <span>{t("accounts.fields.onBudget")}</span>
+          </label>
+          <label>
+            <span>{t("accounts.fields.updateCadence")}</span>
+            <input
+              type="number"
+              min={FINANCE_MIN_CADENCE_DAYS}
+              max={FINANCE_MAX_CADENCE_DAYS}
+              step={1}
+              value={accountDraft.updateCadenceText}
+              placeholder={t(
+                accountDraft.onBudget
+                  ? "accounts.fields.updateCadencePlaceholderWeekly"
+                  : "accounts.fields.updateCadencePlaceholderMonthly",
+              )}
+              onChange={(event) =>
+                setAccountDraft((current) => ({
+                  ...current,
+                  updateCadenceText: event.target.value,
+                }))
+              }
+            />
           </label>
           <label>
             <span>{t("accounts.fields.openingBalance")}</span>

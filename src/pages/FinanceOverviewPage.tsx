@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppContext } from "../app/app-context";
+import { FinanceAccountFreshnessCard } from "../components/finance/FinanceAccountFreshnessCard";
 import { FinanceTabs } from "../components/finance/FinanceTabs";
 import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
@@ -534,6 +535,8 @@ export const FinanceOverviewPage = () => {
             ))}
           </div>
         </SectionCard>
+
+        <FinanceAccountFreshnessCard />
 
         <SectionCard title={t("overview.accountsTitle")}>
           {loading ? <p>{t("overview.loading")}</p> : null}

@@ -1063,6 +1063,22 @@ export const migrations: Migration[] = [
         ON calendar_sync_links (state);
     `,
   },
+  {
+    id: 41,
+    name: "add_finance_account_update_cadence",
+    sql: `
+      ALTER TABLE finance_accounts ADD COLUMN update_cadence_days INTEGER;
+    `,
+    guards: {
+      skipIfColumnExists: [
+        {
+          table: "finance_accounts",
+          column: "update_cadence_days",
+          statement: "ALTER TABLE finance_accounts ADD COLUMN update_cadence_days INTEGER;",
+        },
+      ],
+    },
+  },
 ];
 
 /** Retains all repeatable SQL while skipping only guarded statements already applied. */

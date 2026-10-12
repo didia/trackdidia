@@ -206,6 +206,7 @@ its existing idempotent `dimancheNotesRelocatedAt` marker.
 | 38 | `add_finance_import_profile_separators` | Adds nullable `decimal_separator` / `thousands_separator` columns to `finance_import_profiles` via guarded, idempotent `ALTER TABLE` |
 | 39 | `create_finance_alert_notifications` | Creates `finance_alert_notifications` with primary key `(alert_key, notified_on_date)`, the once-per-day-per-key ledger for Phase 7 finance alert notifications |
 | 40 | `create_calendar_sync` | Creates `calendar_sync_settings` (singleton `id = 'global'`) and `calendar_sync_links` (composite primary key `(task_id, occurrence_key)`, nullable `event_id`, unique index on `(calendar_id, event_id)`, index on `state`) for the one-way TrackDidia -> Google Calendar sync model, planner, and reconciler |
+| 41 | `add_finance_account_update_cadence` | Adds nullable `update_cadence_days` to `finance_accounts` via a guarded, idempotent `ALTER TABLE` (null = default cadence: weekly for on-budget accounts, monthly for the rest) |
 
 ## Table reference
 
