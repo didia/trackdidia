@@ -1,9 +1,36 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { beforeEach, vi } from "vitest";
 import { defaultAppSettings } from "../domain/daily-entry";
+import type { AppSettings } from "../domain/types";
+import type { InvoiceSplitSuggestion } from "../lib/ai/finance-invoice-split";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { renderWithApp } from "../test/test-utils";
 import { FinanceTransactionsPage } from "./FinanceTransactionsPage";
+
+let invoiceCalls: unknown[][] = [];
+let invoiceBehavior: () => Promise<InvoiceSplitSuggestion | null> = async () => null;
+vi.mock("../lib/ai/finance-invoice-split", async () => {
+  const actual = await vi.importActual<typeof import("../lib/ai/finance-invoice-split")>(
+    "../lib/ai/finance-invoice-split",
+  );
+  return {
+    ...actual,
+    suggestInvoiceSplits: async (...args: unknown[]) => {
+      invoiceCalls.push(args);
+      return invoiceBehavior();
+    },
+  };
+});
+
+const aiSettings = (overrides: Partial<AppSettings> = {}): AppSettings => ({
+  ...defaultAppSettings(),
+  financeEnabled: true,
+  aiEnabled: true,
+  aiApiKey: "test-key",
+  aiPayloadScope: "full",
+  ...overrides,
+});
 
 const timestamp = new Date().toISOString();
 
@@ -347,6 +374,102 @@ describe("FinanceTransactionsPage", () => {
         hasSplits: false,
         categoryId: "fincat:non-categorise",
       });
+    });
+  });
+
+  describe("invoice split assistant", () => {
+    beforeEach(() => {
+      invoiceCalls = [];
+      invoiceBehavior = async () => null;
+    });
+
+    const openEditor = async (settings: AppSettings) => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      await seedAccountAndTransactions(repository);
+      const user = userEvent.setup();
+      await renderWithApp(<FinanceTransactionsPage />, {
+        repository,
+        contextOverrides: { settings },
+      });
+      await user.click(await screen.findByText("Diviser"));
+      return { repository, user };
+    };
+
+    const uploadInvoice = (user: ReturnType<typeof userEvent.setup>, file: File) =>
+      user.upload(document.querySelector('input[type="file"]') as HTMLInputElement, file);
+
+    it("explains how to enable it instead of offering an upload while AI is off", async () => {
+      await openEditor(aiSettings({ aiEnabled: false }));
+      expect(await screen.findByText(/activez l'IA dans Paramètres/)).toBeInTheDocument();
+      expect(document.querySelector('input[type="file"]')).toBeNull();
+    });
+
+    it("shows what will be sent, and sends nothing until the user confirms", async () => {
+      const { user } = await openEditor(aiSettings());
+      await uploadInvoice(user, new File(["img"], "recu.png", { type: "image/png" }));
+      expect(await screen.findByText(/L'image « recu\.png »/)).toBeInTheDocument();
+      expect(invoiceCalls).toHaveLength(0);
+
+      await user.click(screen.getByRole("button", { name: "Ne pas envoyer" }));
+      expect(screen.queryByRole("button", { name: "Envoyer à l'IA" })).not.toBeInTheDocument();
+      expect(invoiceCalls).toHaveLength(0);
+    });
+
+    it("fills the editable split rows from the AI, then saves what the user confirms", async () => {
+      invoiceBehavior = async () => ({
+        rows: [
+          { categoryId: "fincat:alimentation.epicerie", amountMinor: -1000, description: "Lait" },
+          { categoryId: null, amountMinor: -234, description: "Divers" },
+        ],
+        adjusted: true,
+        totalMismatch: false,
+        unknownCategoryCount: 1,
+      });
+      const { repository, user } = await openEditor(aiSettings());
+      await uploadInvoice(user, new File(["img"], "recu.png", { type: "image/png" }));
+      await user.click(await screen.findByRole("button", { name: "Envoyer à l'IA" }));
+
+      expect(await screen.findByDisplayValue("-10.00")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("-2.34")).toBeInTheDocument();
+      expect(screen.getByText(/ajustés proportionnellement/)).toBeInTheDocument();
+      expect(screen.getByText(/1 ligne n'a pas de catégorie/)).toBeInTheDocument();
+      // The AI call carried the transaction's amount, not anything else from the row.
+      expect(invoiceCalls[0][1]).toEqual({ amountMinor: -1234, currency: "CAD" });
+      // Nothing is written until Save.
+      await expect(repository.getFinanceTransaction("finance-txn:1")).resolves.toMatchObject({
+        hasSplits: false,
+      });
+
+      await user.click(screen.getByRole("button", { name: "Enregistrer" }));
+      await waitFor(async () => {
+        await expect(repository.getFinanceTransaction("finance-txn:1")).resolves.toMatchObject({
+          hasSplits: true,
+          categoryId: "fincat:split",
+        });
+      });
+      const saved = await repository.listFinanceTransactionSplits("finance-txn:1");
+      expect(saved.map((split) => split.amountMinor)).toEqual([-1000, -234]);
+    });
+
+    it("reports a failed or empty analysis and keeps the existing draft", async () => {
+      invoiceBehavior = async () => {
+        throw new Error("network down");
+      };
+      const { user } = await openEditor(aiSettings());
+      await uploadInvoice(user, new File(["img"], "recu.png", { type: "image/png" }));
+      await user.click(await screen.findByRole("button", { name: "Envoyer à l'IA" }));
+      expect(await screen.findByText("L'analyse IA a échoué.")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("-12.34")).toBeInTheDocument();
+    });
+
+    it("rejects an unsupported file type", async () => {
+      await openEditor(aiSettings());
+      // The file input's `accept` would make user-event drop this file; the guard under test is
+      // the one that still runs when a webview lets any file through (drag and drop, "All files").
+      const user = userEvent.setup({ applyAccept: false });
+      await uploadInvoice(user, new File(["x"], "facture.docx", { type: "application/msword" }));
+      expect(await screen.findByText(/Format non pris en charge/)).toBeInTheDocument();
     });
   });
 });

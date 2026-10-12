@@ -681,6 +681,32 @@ value stays unless the parser found nothing; a disagreement is shown, never appl
 silently). It only pre-fills or challenges the review form; nothing is written until the
 user clicks "Utiliser comme solde de départ".
 
+### Finance invoice split
+
+The split editor on `/finances/transactions` can propose a category split of one
+transaction from an invoice or receipt the user uploads (see
+[finance.md](finance.md#financetransactionspage-financestransactions)). Like statement
+extraction it is not an `AiSurface`, is not persisted, never runs on its own, and has
+no setting beyond the global gate: `aiEnabled` on, an API key set, and `aiPayloadScope`
+not `metrics` (invoice text is free text). The file is read locally first; the user is
+shown what will be sent and must click "Envoyer à l'IA" — choosing a file sends nothing.
+
+**Sent** (one request): for a **PDF**, its extracted text layer — whitespace
+normalized, capped at 12 000 characters, with grouped card/account numbers, 6+ digit
+runs (invoice numbers included), emails and phone-shaped groups masked as in statement
+extraction; for an **image**, the image itself, re-encoded smaller when large and
+**not maskable** — the preview says so. Alongside it: the transaction's total (magnitude
+only, exact) and currency, and the allowed category ids and names (with their group
+name). **Not a general redactor**: names, postal addresses and line items on the
+invoice are sent as-is.
+
+**Never sent**: account names, institutions, ids, balances, the transaction's date,
+description or merchant string, notes, or other transactions.
+
+The reply is validated (category ids outside the allowed list are dropped, amounts are
+parsed with the transaction currency's decimals and rescaled to the exact total) and
+only pre-fills the editable split rows; nothing is saved until the user confirms.
+
 ### Finance categorization (`finance_categorization`)
 
 Unlike every surface above, `finance_categorization` is not a coach/synthesis

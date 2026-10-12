@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppContext } from "../app/app-context";
 import { FinanceTabs } from "../components/finance/FinanceTabs";
+import { InvoiceSplitAssistant } from "../components/finance/InvoiceSplitAssistant";
 import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
 import type {
@@ -13,7 +14,13 @@ import type {
   FinanceTransactionCategoryScope,
   FinanceTransactionSplit,
 } from "../domain/finance";
-import { currencyExponent, formatMoney, parseAmountToMinor } from "../lib/finance/money";
+import type { InvoiceSplitSuggestion } from "../lib/ai/finance-invoice-split";
+import {
+  currencyExponent,
+  formatMoney,
+  minorToInputString,
+  parseAmountToMinor,
+} from "../lib/finance/money";
 import { createEntityId, nowIso } from "../lib/gtd/shared";
 
 const PAGE_SIZE = 25;
@@ -33,7 +40,7 @@ interface SplitDraftRow {
 
 export const FinanceTransactionsPage = () => {
   const { t } = useTranslation("finance");
-  const { repository } = useAppContext();
+  const { repository, settings } = useAppContext();
   const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
   const [categories, setCategories] = useState<FinanceCategory[]>([]);
   const [people, setPeople] = useState<FinancePerson[]>([]);
@@ -229,6 +236,22 @@ export const FinanceTransactionsPage = () => {
 
   const removeSplitRow = (id: string) => {
     setSplitDrafts((current) => current.filter((row) => row.id !== id));
+  };
+
+  /** Replaces the draft rows with the AI's invoice allocation; nothing is saved until Save. */
+  const applyInvoiceSuggestion = (
+    transaction: FinanceTransaction,
+    suggestion: InvoiceSplitSuggestion,
+  ) => {
+    const exponent = currencyExponent(transaction.currency);
+    setSplitDrafts(
+      suggestion.rows.map((row) => ({
+        id: createEntityId("finance-split"),
+        amountText: minorToInputString(row.amountMinor, exponent),
+        categoryId: row.categoryId ?? "",
+      })),
+    );
+    setSplitError("");
   };
 
   const closeSplitEditor = () => {
@@ -568,6 +591,17 @@ export const FinanceTransactionsPage = () => {
 
                 {splitEditorTxnId === transaction.id ? (
                   <div className="stack">
+                    {transaction.amountMinor !== 0 ? (
+                      <InvoiceSplitAssistant
+                        transaction={transaction}
+                        categories={categories}
+                        settings={settings}
+                        disabled={splitLoadedTxnId !== transaction.id}
+                        onSuggestion={(suggestion) =>
+                          applyInvoiceSuggestion(transaction, suggestion)
+                        }
+                      />
+                    ) : null}
                     {splitDrafts.map((row) => (
                       <div key={row.id} className="inline-form">
                         <input

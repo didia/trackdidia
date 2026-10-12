@@ -782,6 +782,35 @@ text search, uncategorized-only) transaction list. Each row supports:
   every row saves an empty list, which clears the splits and restores the
   uncategorized parent. Save stays disabled until that transaction's existing
   splits have loaded, and a superseded load is ignored.
+- **Split from an invoice (AI).** Inside the split editor, "Répartir à partir d'une
+  facture" takes a PDF (text layer, read locally by `extractPdfText`) or a PNG/JPEG/
+  WebP image (≤ 12 MB; larger photos are re-encoded to ≤ 1800 px JPEG when a canvas
+  is available) and proposes the amount-per-category split. It is
+  `src/components/finance/InvoiceSplitAssistant.tsx` →
+  `src/lib/finance/invoice-file.ts` (file → text or data URL) →
+  `src/lib/ai/finance-invoice-split.ts` (prompt, call, validation) →
+  `src/lib/finance/invoice-splits.ts` (pure reconciliation). Flow: pick a file, the
+  user sees exactly what will be sent (the masked text, or the image's name and
+  size) and clicks "Envoyer à l'IA"; nothing is sent before that click. The reply
+  only **replaces the editor's draft rows** — nothing is written until the user
+  clicks Enregistrer, which goes through the usual `saveFinanceTransactionSplits`
+  validation. It is not an `AiSurface`, is not persisted, and has no setting of its
+  own: it is available when `aiEnabled`, an API key and a `aiPayloadScope` other than
+  `metrics` are set (otherwise the editor says how to enable it instead of showing an
+  upload). It uses `aiSurfaceModels.finance_categorization` when set, else `aiModel`;
+  an image needs a model that accepts images. No repository method or migration.
+  - The model may only choose from the allowed categories (active, non-system,
+    leaf expense/income categories); an id outside that list becomes an
+    uncategorized row the user must fill and is counted in a note.
+  - **Amounts are reconciled locally.** The model's amounts are only weights:
+    `reconcileInvoiceSplits` merges lines of the same category, ignores
+    non-positive/fractional lines, signs the result like the parent, and when the
+    lines do not already sum to the transaction rescales them with the
+    largest-remainder method (BigInt, exact) so the draft always balances. A rescale
+    is flagged ("ajustés proportionnellement"), and an invoice total more than 1 %
+    (and 2 minor units) away from the transaction amount is flagged as a probable
+    wrong invoice or partial payment. A line that rounds to zero is dropped.
+  - Privacy contract: [ai-settings-and-privacy.md](ai-settings-and-privacy.md#finance-invoice-split).
 - Accounts can be edited in place (id, external key, notes, closed state and order
   are preserved; the currency is locked once saved). Currencies are validated with
   `normalizeCurrencyCode` before persisting, in accounts and in Settings.
@@ -1330,6 +1359,7 @@ with `finance.aiAutoApplyMinConfidenceInvalid`, like the safety buffer) — all 
 - [Conventions](conventions.md) (minor-units rule)
 - [AI settings and privacy](ai-settings-and-privacy.md#finance-categorization-finance_categorization)
 - [Statement extraction privacy](ai-settings-and-privacy.md#finance-statement-extraction)
+- [Invoice split privacy](ai-settings-and-privacy.md#finance-invoice-split)
 - [specs/done/finance.md](../specs/done/finance.md) — the full phased spec, now shipped
 
 ## Suggestion lifecycle (Phase 4 review fixes)

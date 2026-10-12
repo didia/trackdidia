@@ -1129,3 +1129,16 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Masked invoice text shown before it is sent to the AI (split editor). */
+.finance-page .finance-invoice-preview {
+  max-height: 14rem;
+  overflow: auto;
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.8rem;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 8px;
+}

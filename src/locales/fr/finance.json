@@ -219,7 +219,31 @@
       "remove": "Retirer",
       "addRow": "Ajouter une ligne",
       "save": "Enregistrer",
-      "cancel": "Annuler"
+      "cancel": "Annuler",
+      "invoice": {
+        "selectFile": "Répartir à partir d'une facture (PDF ou image)",
+        "unavailable": "Pour répartir à partir d'une facture, activez l'IA dans Paramètres (clé API requise, portée des données autre que « métriques »).",
+        "reading": "Lecture du fichier…",
+        "disclosureText": "Le texte de « {{file}} » ci-dessous (numéros de compte et de carte, courriels et téléphones masqués), le montant de la transaction et la liste de vos catégories seront envoyés à votre fournisseur IA. Les noms et adresses ne sont pas masqués : relisez le texte.",
+        "disclosureImage": "L'image « {{file}} » ({{size}}), le montant de la transaction et la liste de vos catégories seront envoyés à votre fournisseur IA. Une image ne peut pas être masquée : elle est envoyée telle quelle, et le modèle choisi doit accepter les images.",
+        "send": "Envoyer à l'IA",
+        "cancel": "Ne pas envoyer",
+        "running": "Analyse…",
+        "applied": "Répartition proposée par l'IA — vérifiez-la, modifiez-la au besoin, puis enregistrez.",
+        "adjusted": "Les montants lus ont été ajustés proportionnellement pour égaler le montant de la transaction.",
+        "totalMismatch": "Le total de la facture diffère du montant de la transaction : est-ce la bonne facture, ou un paiement partiel ?",
+        "unknownCategory_one": "{{count}} ligne n'a pas de catégorie : choisissez-la.",
+        "unknownCategory_other": "{{count}} lignes n'ont pas de catégorie : choisissez-les.",
+        "nothingFound": "L'IA n'a pas pu tirer de répartition de cette facture.",
+        "failed": "L'analyse IA a échoué.",
+        "errors": {
+          "unsupported": "Format non pris en charge : utilisez un PDF, une image PNG, JPEG ou WebP.",
+          "too_large": "Ce fichier est trop volumineux.",
+          "unreadable": "Ce fichier n'a pas pu être lu.",
+          "encrypted": "Ce PDF est protégé par un mot de passe.",
+          "no_text": "Ce PDF n'a pas de texte sélectionnable (numérisation) : joignez-le plutôt comme image."
+        }
+      }
     },
     "previousPage": "Précédent",
     "nextPage": "Suivant",
