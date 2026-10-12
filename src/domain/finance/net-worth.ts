@@ -21,6 +21,32 @@ const LIABILITY_ACCOUNT_TYPES = new Set<FinanceAccountType>([
 export const classifyFinanceAccountKind = (type: FinanceAccountType): FinanceNetWorthAccountKind =>
   LIABILITY_ACCOUNT_TYPES.has(type) ? "liability" : "asset";
 
+/**
+ * Net liquidity looks only at cash on hand versus debt that is due soon:
+ * chequing/savings/cash against credit cards and lines of credit. Long-lived
+ * holdings (`investment`, `asset`, `other`) and long-term debt (`loan`,
+ * `mortgage`) are deliberately left out — they belong to net worth only.
+ */
+export type FinanceLiquidityBucket = "liquid_asset" | "short_term_debt";
+
+const LIQUID_ASSET_ACCOUNT_TYPES = new Set<FinanceAccountType>(["checking", "savings", "cash"]);
+const SHORT_TERM_DEBT_ACCOUNT_TYPES = new Set<FinanceAccountType>([
+  "credit_card",
+  "line_of_credit",
+]);
+
+export const classifyFinanceLiquidityBucket = (
+  type: FinanceAccountType,
+): FinanceLiquidityBucket | null => {
+  if (LIQUID_ASSET_ACCOUNT_TYPES.has(type)) {
+    return "liquid_asset";
+  }
+  if (SHORT_TERM_DEBT_ACCOUNT_TYPES.has(type)) {
+    return "short_term_debt";
+  }
+  return null;
+};
+
 export type FinanceNetWorthAccountInput = Pick<
   FinanceAccount,
   "id" | "type" | "currency" | "closed" | "openingBalanceMinor"
@@ -63,6 +89,12 @@ export interface FinanceNetWorthSnapshot {
   /** Positive magnitude owed across liability-kind accounts in `baseCurrency` only. */
   liabilitiesMinor: number;
   netWorthMinor: number;
+  /** Chequing + savings + cash balances in `baseCurrency` only. */
+  liquidAssetsMinor: number;
+  /** Positive magnitude owed on credit cards + lines of credit in `baseCurrency` only. */
+  shortTermDebtMinor: number;
+  /** `liquidAssetsMinor - shortTermDebtMinor`: cash left if every short-term debt were paid today. */
+  netLiquidityMinor: number;
   accounts: FinanceNetWorthAccountLine[];
   /** Distinct non-base currencies present among accounts, excluded from the totals. */
   excludedCurrencies: string[];
@@ -89,6 +121,8 @@ export const computeFinanceNetWorth = (
   const { asOfDate, baseCurrency } = input;
   let assetsMinor = 0;
   let liabilitiesMinor = 0;
+  let liquidAssetsMinor = 0;
+  let shortTermDebtMinor = 0;
   const excludedCurrencies = new Set<string>();
 
   const accounts: FinanceNetWorthAccountLine[] = input.accounts.map((account) => {
@@ -101,6 +135,12 @@ export const computeFinanceNetWorth = (
         assetsMinor += balanceMinor;
       } else {
         liabilitiesMinor += -balanceMinor;
+      }
+      const liquidityBucket = classifyFinanceLiquidityBucket(account.type);
+      if (liquidityBucket === "liquid_asset") {
+        liquidAssetsMinor += balanceMinor;
+      } else if (liquidityBucket === "short_term_debt") {
+        shortTermDebtMinor += -balanceMinor;
       }
     } else {
       excludedCurrencies.add(account.currency);
@@ -122,6 +162,9 @@ export const computeFinanceNetWorth = (
     assetsMinor,
     liabilitiesMinor,
     netWorthMinor: assetsMinor - liabilitiesMinor,
+    liquidAssetsMinor,
+    shortTermDebtMinor,
+    netLiquidityMinor: liquidAssetsMinor - shortTermDebtMinor,
     accounts,
     excludedCurrencies: [...excludedCurrencies].sort(),
   };
