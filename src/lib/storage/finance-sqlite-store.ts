@@ -147,6 +147,7 @@ interface AccountRow {
   current_balance_minor: number | null;
   balance_as_of: string | null;
   external_key: string | null;
+  update_cadence_days: number | null;
   notes: string | null;
   sort_order: number;
   created_at: string;
@@ -167,6 +168,7 @@ const mapAccount = (row: AccountRow): FinanceAccount => ({
   currentBalanceMinor: row.current_balance_minor,
   balanceAsOf: row.balance_as_of,
   externalKey: row.external_key,
+  updateCadenceDays: row.update_cadence_days,
   notes: row.notes,
   sortOrder: row.sort_order,
   createdAt: row.created_at,
@@ -600,8 +602,8 @@ export class FinanceSqliteStore {
       `INSERT INTO finance_accounts (
         id, name, institution, type, currency, owner_person_id, ownership, on_budget, closed,
         opening_balance_minor, current_balance_minor, balance_as_of, external_key, notes,
-        sort_order, created_at, updated_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+        sort_order, created_at, updated_at, update_cadence_days
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         institution = excluded.institution,
@@ -617,6 +619,7 @@ export class FinanceSqliteStore {
         external_key = excluded.external_key,
         notes = excluded.notes,
         sort_order = excluded.sort_order,
+        update_cadence_days = excluded.update_cadence_days,
         updated_at = excluded.updated_at`,
       [
         id,
@@ -636,6 +639,7 @@ export class FinanceSqliteStore {
         account.sortOrder,
         account.createdAt || now,
         now,
+        account.updateCadenceDays ?? null,
       ],
     );
     const rows = await db.select<AccountRow[]>("SELECT * FROM finance_accounts WHERE id = $1", [

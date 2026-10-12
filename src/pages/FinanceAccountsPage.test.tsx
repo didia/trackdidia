@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { defaultAppSettings } from "../domain/daily-entry";
 import { MemoryRepository } from "../lib/storage/memory-repository";
@@ -149,5 +149,62 @@ describe("FinanceAccountsPage", () => {
       externalKey: "****7890",
       openingBalanceMinor: 25_000,
     });
+  });
+
+  it("saves, rejects and clears a per-account update cadence", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const timestamp = new Date().toISOString();
+    await repository.saveFinanceAccount({
+      id: "finance-account:savings",
+      name: "Épargne",
+      institution: null,
+      type: "savings",
+      currency: "CAD",
+      ownerPersonId: null,
+      ownership: "individual",
+      onBudget: false,
+      closed: false,
+      openingBalanceMinor: 0,
+      currentBalanceMinor: null,
+      balanceAsOf: null,
+      externalKey: null,
+      notes: null,
+      sortOrder: 0,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    const user = userEvent.setup();
+    await renderWithApp(<FinanceAccountsPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+
+    await user.click(await screen.findByText("Modifier"));
+    const cadenceInput = screen.getByLabelText("Fréquence de mise à jour (jours)");
+    expect(cadenceInput).toHaveValue(null);
+    expect(cadenceInput).toHaveAttribute("placeholder", "Par défaut : 30");
+
+    await user.type(cadenceInput, "0");
+    await user.click(screen.getByText("Enregistrer le compte"));
+    expect(await screen.findByText(/Fréquence invalide/)).toBeInTheDocument();
+
+    await user.clear(cadenceInput);
+    await user.type(cadenceInput, "90");
+    await user.click(screen.getByText("Enregistrer le compte"));
+    await waitFor(async () =>
+      expect((await repository.listFinanceAccounts())[0]).toMatchObject({ updateCadenceDays: 90 }),
+    );
+
+    await user.click(await screen.findByText("Modifier"));
+    const reopened = screen.getByLabelText("Fréquence de mise à jour (jours)");
+    expect(reopened).toHaveValue(90);
+    await user.clear(reopened);
+    await user.click(screen.getByText("Enregistrer le compte"));
+    await waitFor(async () =>
+      expect((await repository.listFinanceAccounts())[0]).toMatchObject({
+        updateCadenceDays: null,
+      }),
+    );
   });
 });

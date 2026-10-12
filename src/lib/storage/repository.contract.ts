@@ -3540,6 +3540,23 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         ]);
       });
 
+      it("persists a per-account update cadence and clears it back to the default", async () => {
+        const repository = await factory();
+        const saved = await repository.saveFinanceAccount(account({ updateCadenceDays: 14 }));
+        expect(saved.updateCadenceDays).toBe(14);
+        await expect(repository.listFinanceAccounts()).resolves.toEqual([
+          expect.objectContaining({ id: saved.id, updateCadenceDays: 14 }),
+        ]);
+
+        await repository.saveFinanceAccount({ ...saved, updateCadenceDays: null });
+        await expect(repository.listFinanceAccounts()).resolves.toEqual([
+          expect.objectContaining({ id: saved.id, updateCadenceDays: null }),
+        ]);
+
+        const plain = await repository.saveFinanceAccount(account({ id: "account-plain" }));
+        expect(plain.updateCadenceDays ?? null).toBeNull();
+      });
+
       it("excludes closed accounts by default and includes them when asked", async () => {
         const repository = await factory();
         const saved = await repository.saveFinanceAccount(account());

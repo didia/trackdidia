@@ -69,7 +69,10 @@
       "openingBalance": "Solde d'ouverture",
       "balanceAsOf": "Date du solde d'ouverture",
       "manualBalance": "Solde manuel (relevé)",
-      "manualBalancePlaceholder": "Optionnel"
+      "manualBalancePlaceholder": "Optionnel",
+      "updateCadence": "Fréquence de mise à jour (jours)",
+      "updateCadencePlaceholderWeekly": "Par défaut : 7 (compte budgété)",
+      "updateCadencePlaceholderMonthly": "Par défaut : 30"
     },
     "types": {
       "checking": "Chèques",
@@ -91,7 +94,8 @@
       "nameRequired": "Le nom du compte est requis.",
       "invalidOpeningBalance": "Solde d'ouverture invalide.",
       "invalidCurrency": "Devise invalide (code à trois lettres, ex. CAD).",
-      "invalidManualBalance": "Solde manuel invalide."
+      "invalidManualBalance": "Solde manuel invalide.",
+      "invalidCadence": "Fréquence invalide (nombre entier de jours, de 1 à 365)."
     },
     "addAccount": "Ajouter le compte",
     "listTitle": "Comptes existants",
@@ -436,5 +440,30 @@
       "accountLast4": "Derniers chiffres du compte : lecture locale {{parser}}, IA {{ai}}.",
       "useAi": "Utiliser la valeur de l'IA"
     }
+  },
+  "freshness": {
+    "title": "Comptes à mettre à jour",
+    "subtitle": "Âge des données de chaque compte, selon sa cadence",
+    "allFresh": "Tous les comptes sont à jour.",
+    "dueSummary_one": "{{count}} compte à mettre à jour",
+    "dueSummary_other": "{{count}} comptes à mettre à jour",
+    "noAccounts": "Aucun compte ouvert.",
+    "loadError": "Impossible de charger l'état des comptes.",
+    "retry": "Réessayer",
+    "import": "Importer des transactions ou un relevé",
+    "neverLoaded": "Aucune donnée importée",
+    "through": "Données jusqu'au {{date}}",
+    "statementThrough": "Relevé du {{date}}",
+    "ageDays_one": "{{count}} jour",
+    "ageDays_other": "{{count}} jours",
+    "cadenceWeekly": "mise à jour hebdomadaire",
+    "cadenceMonthly": "mise à jour mensuelle",
+    "status": {
+      "fresh": "À jour",
+      "due": "À mettre à jour",
+      "never": "Jamais importé"
+    },
+    "cadenceEveryDays_one": "mise à jour tous les {{count}} jour",
+    "cadenceEveryDays_other": "mise à jour tous les {{count}} jours"
   }
 }
