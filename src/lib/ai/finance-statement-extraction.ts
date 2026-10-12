@@ -100,7 +100,7 @@ const AI_ACCOUNT_TYPES: FinanceAccountType[] = [
   "other",
 ];
 
-const stripJsonFences = (text: string): string =>
+export const stripJsonFences = (text: string): string =>
   text
     .trim()
     .replace(/^```(?:json)?\s*/i, "")
