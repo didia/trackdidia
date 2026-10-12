@@ -3573,10 +3573,18 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         const second = await repository.saveFinanceAccount(account({ id: "account-b" }));
         await repository.saveFinanceAccount(account({ id: "account-empty" }));
         await repository.saveFinanceTransaction(
-          buildFinanceTransaction({ id: "txn-a-old", accountId: first.id, postedDate: "2026-09-01" }),
+          buildFinanceTransaction({
+            id: "txn-a-old",
+            accountId: first.id,
+            postedDate: "2026-09-01",
+          }),
         );
         await repository.saveFinanceTransaction(
-          buildFinanceTransaction({ id: "txn-a-new", accountId: first.id, postedDate: "2026-10-05" }),
+          buildFinanceTransaction({
+            id: "txn-a-new",
+            accountId: first.id,
+            postedDate: "2026-10-05",
+          }),
         );
         await repository.saveFinanceTransaction(
           buildFinanceTransaction({ id: "txn-b", accountId: second.id, postedDate: "2026-08-15" }),

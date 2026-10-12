@@ -588,10 +588,9 @@ export class FinanceSqliteStore {
     const id = account.id || createEntityId("finance-account");
     const [existing] = await db.select<
       { opening_balance_minor: number; update_cadence_days: number | null }[]
-    >(
-      "SELECT opening_balance_minor, update_cadence_days FROM finance_accounts WHERE id = $1",
-      [id],
-    );
+    >("SELECT opening_balance_minor, update_cadence_days FROM finance_accounts WHERE id = $1", [
+      id,
+    ]);
     if (existing && existing.opening_balance_minor !== account.openingBalanceMinor) {
       // A hand-edited opening balance supersedes the statement anchor; keeping the anchor would
       // silently revert the edit on the next transaction write.
