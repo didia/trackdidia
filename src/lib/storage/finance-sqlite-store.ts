@@ -105,7 +105,7 @@ import {
   dedupeHash as computeDedupeHash,
   assignOccurrenceIndices,
 } from "../finance/import-profile";
-import { applyMerchantMemoryCorrection } from "../finance/memory";
+import { applyMerchantMemoryCorrection, buildAiMemoryEntry } from "../finance/memory";
 import { findNearDuplicates } from "../finance/near-duplicates";
 import {
   detectFinanceRecurringSeries,
@@ -2154,6 +2154,21 @@ export class FinanceSqliteStore {
                 [txn.id, result.categoryId, result.confidence, now],
               );
               autoApplied += 1;
+
+              // Remember the AI's answer so the next import does not need the model for
+              // this merchant. Never replaces something already learned.
+              const sign: -1 | 0 | 1 = txn.amount_minor > 0 ? 1 : txn.amount_minor < 0 ? -1 : 0;
+              if (!(await this.getMerchantMemory(merchantKey, "", sign))) {
+                await this.upsertMerchantMemory(
+                  buildAiMemoryEntry({
+                    merchantKey,
+                    sign,
+                    categoryId: result.categoryId,
+                    confidence: result.confidence,
+                    now,
+                  }),
+                );
+              }
             }
           }
         }

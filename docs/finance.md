@@ -1306,6 +1306,15 @@ each of its original merchant key(s) (via `merchantKeyMap`):
   already `"accepted"` instead of being left in the review queue — there is
   nothing left for the user to decide. Otherwise the suggestion is left
   `"pending"` for `/finances/review`.
+- An auto-applied answer is also **remembered**: when no `finance_merchant_memory`
+  entry exists yet for `(merchantKey, "" (all accounts), sign)`, one is written
+  (`buildAiMemoryEntry`, `source = 'auto_confirm'`, `hitCount` at the auto-apply
+  floor, `confidence` = the AI's). The next import then resolves that merchant
+  from memory (`category_source = 'memory'`) without calling the model again,
+  provided the AI's confidence cleared the memory auto-apply threshold (0.85);
+  below it, the entry only resurfaces as a suggestion. An existing memory entry
+  is never replaced. A suggestion the user accepts from the review queue is
+  learned through `setFinanceTransactionCategory` as before.
 
 A `category_source = "user"` row is never a candidate in the first place (it
 never appears in `listFinanceUnknownMerchants`, and

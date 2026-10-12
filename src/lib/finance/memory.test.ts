@@ -1,4 +1,4 @@
-import { applyMerchantMemoryCorrection } from "./memory";
+import { applyMerchantMemoryCorrection, buildAiMemoryEntry } from "./memory";
 
 describe("applyMerchantMemoryCorrection", () => {
   it("creates a fresh entry at the reset confidence when none exists", () => {
@@ -109,5 +109,25 @@ describe("applyMerchantMemoryCorrection", () => {
     expect(corrected.correctionCount).toBe(1);
     expect(corrected.confidence).toBe(0.6);
     expect(corrected.hitCount).toBe(entry.hitCount);
+  });
+});
+
+describe("buildAiMemoryEntry", () => {
+  it("builds an all-accounts entry that counts as confirmed and carries the AI confidence", () => {
+    expect(
+      buildAiMemoryEntry({
+        merchantKey: "IGA",
+        sign: -1,
+        categoryId: "fincat:alimentation.epicerie",
+        confidence: 0.92,
+        now: "2026-01-01T00:00:00.000Z",
+      }),
+    ).toMatchObject({
+      accountId: "",
+      sign: -1,
+      hitCount: 2,
+      confidence: 0.92,
+      source: "auto_confirm",
+    });
   });
 });
