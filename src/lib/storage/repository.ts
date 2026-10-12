@@ -487,6 +487,11 @@ export interface AppRepository {
   snapshotFinanceAccountBalances(asOfDate: string): Promise<number>;
   listFinanceAccountBalanceSnapshots(accountId: string): Promise<FinanceAccountBalanceSnapshot[]>;
   /**
+   * Newest transaction `posted_date` per account (transfers included), keyed by account id.
+   * Accounts with no transactions are absent. One grouped read, not a scan per account.
+   */
+  listFinanceLatestTransactionDates(): Promise<Record<string, string>>;
+  /**
    * Uses a statement's closing balance as the account's starting point: re-bases
    * `openingBalanceMinor` so the derived balance as of `statementDate` equals `balanceMinor`
    * (transactions posted after that date keep flowing on top) and records a `statement`-source

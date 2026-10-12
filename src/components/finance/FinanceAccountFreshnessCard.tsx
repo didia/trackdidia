@@ -8,7 +8,7 @@ import {
   FINANCE_OTHER_ACCOUNT_CADENCE_DAYS,
   type FinanceAccountFreshness,
 } from "../../domain/finance/account-freshness";
-import { formatDateLong, getTodayDate } from "../../lib/date";
+import { formatDateLong } from "../../lib/date";
 import { loadFinanceAccountFreshness } from "../../lib/finance/account-freshness-loader";
 import { SectionCard } from "../SectionCard";
 
@@ -21,13 +21,17 @@ import { SectionCard } from "../SectionCard";
  */
 export const FinanceAccountFreshnessCard = ({ embedded = false }: { embedded?: boolean }) => {
   const { t } = useTranslation("finance");
-  const { repository, settings } = useAppContext();
+  const { repository, settings, calendarDay } = useAppContext();
   const active = settings.financeEnabled;
-  const resourceKey = useMemo(() => ({ repository, active }), [repository, active]);
+  // `calendarDay` rolls over at local midnight/focus, so ages and due chips never stay on yesterday.
+  const resourceKey = useMemo(
+    () => ({ repository, active, today: calendarDay }),
+    [repository, active, calendarDay],
+  );
   const resource = useAsyncResource(
     resourceKey,
-    async ({ repository: currentRepository, active: isActive }) =>
-      isActive ? loadFinanceAccountFreshness(currentRepository, getTodayDate()) : null,
+    async ({ repository: currentRepository, active: isActive, today }) =>
+      isActive ? loadFinanceAccountFreshness(currentRepository, today) : null,
   );
   const rows = resource.data;
 
@@ -75,6 +79,9 @@ export const FinanceAccountFreshnessCard = ({ embedded = false }: { embedded?: b
             {t("freshness.retry")}
           </button>
         </div>
+      ) : null}
+      {resource.loading && rows === null ? (
+        <p className="empty-copy">{t("freshness.loading")}</p>
       ) : null}
       {rows !== null && rows.length === 0 ? (
         <p className="empty-copy">{t("freshness.noAccounts")}</p>

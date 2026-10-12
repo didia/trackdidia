@@ -1,4 +1,7 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { useState } from "react";
+import { AppContext, useAppContext } from "../../app/app-context";
 import { defaultAppSettings } from "../../domain/daily-entry";
 import { addDays, getTodayDate } from "../../lib/date";
 import { MemoryRepository } from "../../lib/storage/memory-repository";
@@ -135,5 +138,41 @@ describe("FinanceAccountFreshnessCard", () => {
     expect(row).toHaveAttribute("data-status", "fresh");
     expect(row).toHaveTextContent("mise à jour tous les 14 jours");
     expect(await screen.findByText("Tous les comptes sont à jour.")).toBeInTheDocument();
+  });
+
+  it("recomputes ages when the local calendar day rolls over under a mounted card", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const today = getTodayDate();
+    const account = await repository.saveFinanceAccount(buildAccount("Chèques"));
+    await importOn(repository, account.id, addDays(today, -6));
+
+    const Harness = () => {
+      const base = useAppContext();
+      const [day, setDay] = useState(base.calendarDay);
+      return (
+        <AppContext.Provider value={{ ...base, calendarDay: day }}>
+          <button type="button" onClick={() => setDay(addDays(day, 1))}>
+            Jour suivant
+          </button>
+          <FinanceAccountFreshnessCard />
+        </AppContext.Provider>
+      );
+    };
+    await renderWithApp(<Harness />, { repository, contextOverrides: enabled });
+
+    const row = await screen.findByTestId(`finance-freshness-${account.id}`);
+    expect(row).toHaveAttribute("data-status", "fresh");
+    expect(row).toHaveTextContent("6 jours");
+
+    await userEvent.setup().click(screen.getByText("Jour suivant"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId(`finance-freshness-${account.id}`)).toHaveAttribute(
+        "data-status",
+        "due",
+      ),
+    );
+    expect(screen.getByTestId(`finance-freshness-${account.id}`)).toHaveTextContent("7 jours");
   });
 });

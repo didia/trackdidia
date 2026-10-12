@@ -464,6 +464,7 @@
       "never": "Jamais importé"
     },
     "cadenceEveryDays_one": "mise à jour tous les {{count}} jour",
-    "cadenceEveryDays_other": "mise à jour tous les {{count}} jours"
+    "cadenceEveryDays_other": "mise à jour tous les {{count}} jours",
+    "loading": "Chargement de l'état des comptes…"
   }
 }

@@ -43,12 +43,22 @@ export interface FinanceAccountFreshness {
 export const FINANCE_MIN_CADENCE_DAYS = 1;
 export const FINANCE_MAX_CADENCE_DAYS = 365;
 
+/** A stored override is honoured only when it is a whole number inside the supported range. */
+const hasCustomCadence = (account: Pick<FinanceAccount, "updateCadenceDays">): boolean =>
+  typeof account.updateCadenceDays === "number" &&
+  Number.isInteger(account.updateCadenceDays) &&
+  account.updateCadenceDays >= FINANCE_MIN_CADENCE_DAYS &&
+  account.updateCadenceDays <= FINANCE_MAX_CADENCE_DAYS;
+
 /** The account's own cadence when it set one, otherwise weekly (on-budget) or monthly. */
 export const cadenceDaysForAccount = (
   account: Pick<FinanceAccount, "onBudget" | "updateCadenceDays">,
 ): number =>
-  account.updateCadenceDays ??
-  (account.onBudget ? FINANCE_BUDGET_ACCOUNT_CADENCE_DAYS : FINANCE_OTHER_ACCOUNT_CADENCE_DAYS);
+  hasCustomCadence(account)
+    ? (account.updateCadenceDays as number)
+    : account.onBudget
+      ? FINANCE_BUDGET_ACCOUNT_CADENCE_DAYS
+      : FINANCE_OTHER_ACCOUNT_CADENCE_DAYS;
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -68,7 +78,7 @@ export const computeFinanceAccountFreshness = (
 ): FinanceAccountFreshness => {
   const { account, latestTransactionDate, latestStatementDate } = input;
   const cadenceDays = cadenceDaysForAccount(account);
-  const cadenceIsCustom = account.updateCadenceDays != null;
+  const cadenceIsCustom = hasCustomCadence(account);
 
   let dataThroughDate: string | null = null;
   let dataThroughSource: FinanceAccountFreshness["dataThroughSource"] = null;

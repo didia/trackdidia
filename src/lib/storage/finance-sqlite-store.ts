@@ -586,8 +586,10 @@ export class FinanceSqliteStore {
     const db = await this.getDb();
     const now = nowIso();
     const id = account.id || createEntityId("finance-account");
-    const [existing] = await db.select<{ opening_balance_minor: number }[]>(
-      "SELECT opening_balance_minor FROM finance_accounts WHERE id = $1",
+    const [existing] = await db.select<
+      { opening_balance_minor: number; update_cadence_days: number | null }[]
+    >(
+      "SELECT opening_balance_minor, update_cadence_days FROM finance_accounts WHERE id = $1",
       [id],
     );
     if (existing && existing.opening_balance_minor !== account.openingBalanceMinor) {
@@ -639,7 +641,10 @@ export class FinanceSqliteStore {
         account.sortOrder,
         account.createdAt || now,
         now,
-        account.updateCadenceDays ?? null,
+        // Omitted (undefined) keeps the stored cadence; only an explicit null clears it.
+        account.updateCadenceDays === undefined
+          ? (existing?.update_cadence_days ?? null)
+          : account.updateCadenceDays,
       ],
     );
     const rows = await db.select<AccountRow[]>("SELECT * FROM finance_accounts WHERE id = $1", [
@@ -3206,6 +3211,14 @@ export class FinanceSqliteStore {
       [accountId],
     );
     return rows.map(mapBalanceSnapshot);
+  }
+
+  async listLatestTransactionDates(): Promise<Record<string, string>> {
+    const db = await this.getDb();
+    const rows = await db.select<{ account_id: string; latest: string }[]>(
+      "SELECT account_id, MAX(posted_date) AS latest FROM finance_transactions GROUP BY account_id",
+    );
+    return Object.fromEntries(rows.map((row) => [row.account_id, row.latest]));
   }
 
   // --- Forecasting and alerts (Phase 7) ---------------------------------------------------

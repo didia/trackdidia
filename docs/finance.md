@@ -750,8 +750,10 @@ the result (`previousOpeningBalanceMinor`) but there is no undo button.
 `FinanceAccountFreshnessCard` (`src/components/finance/`) lists every **open** account with
 how old its data is, so the weekly budget review shows which accounts still need a CSV or a
 statement. It renders only while `financeEnabled` is on, in two places: embedded under the
-"Budget" ritual section of `/semaine` (`embedded` drops the card chrome) and as a card at the
-top of the `/finances` overview. Each row shows a status chip (`À jour` / `À mettre à jour` /
+"Budget" ritual section of `/semaine` (`embedded` drops the card chrome) and as a card on the
+`/finances` overview, directly above the accounts list. It reloads when the app's local
+`calendarDay` rolls over (midnight, focus, visibility), so ages never stay on yesterday; while
+loading it shows a short loading line. Each row shows a status chip (`À jour` / `À mettre à jour` /
 `Jamais importé`), the account and institution, "Données jusqu'au …" (or "Relevé du …") with
 the age in days, and the account's cadence. Accounts to update come first; a button links to
 `/finances/import`.
@@ -762,8 +764,11 @@ Rules (pure, `src/domain/finance/account-freshness.ts`, tested directly):
   `finance_accounts.update_cadence_days`, migration 41, edited on `/finances/accounts` in the
   "Fréquence de mise à jour (jours)" field — blank clears it). Without an override, on-budget
   accounts are expected weekly (7 days) and every other account monthly (30 days).
-  `cadenceDaysForAccount` is the single place that decides; the card labels 7 and 30 as
-  weekly/monthly and anything else as "tous les N jours".
+  `cadenceDaysForAccount` is the single place that decides and ignores a stored value that is
+  not a whole number in 1–365 (falls back to the default rather than mis-classifying the
+  account); the card labels 7 and 30 as weekly/monthly and anything else as "tous les N
+  jours". `saveFinanceAccount` keeps the stored cadence when a caller omits the field
+  (`undefined`); only an explicit `null` clears it.
 - **Data-through date** = the newer of the account's latest transaction `posted_date`
   (transfers included) and its latest `source = 'statement'` balance snapshot date. Import
   time is deliberately not used — importing an old file must not make an account look
@@ -773,11 +778,12 @@ Rules (pure, `src/domain/finance/account-freshness.ts`, tested directly):
   Future-dated postings count as age 0. Closed accounts are skipped.
 - Sort: due, then never loaded, then fresh; budget accounts before others, then most overdue.
 
-`loadFinanceAccountFreshness` (`src/lib/finance/account-freshness-loader.ts`) gathers the two
-dates per account through existing repository methods (`listFinanceAccounts`,
-`listFinanceTransactions` with `limit: 1`, `listFinanceAccountBalanceSnapshots`), so there is
-no new repository method and both stores behave identically (the cadence field is persisted by
-`saveFinanceAccount` in both, covered by `repository.contract.ts`). A quiet account that is
+`loadFinanceAccountFreshness` (`src/lib/finance/account-freshness-loader.ts`, `today` passed
+in by the caller) gathers the two dates through `listFinanceAccounts`,
+`listFinanceLatestTransactionDates` (one grouped `MAX(posted_date) … GROUP BY account_id` read
+on SQLite, a single pass in memory — never a table scan per account) and
+`listFinanceAccountBalanceSnapshots`. Both stores behave identically, covered by
+`repository.contract.ts`. A quiet account that is
 genuinely current but had no activity for a cadence still shows as due until a statement is
 applied — give it a longer cadence if that is the usual rhythm.
 

@@ -229,6 +229,11 @@ export class FinanceMemoryStore {
     const saved: FinanceAccount = {
       ...account,
       id,
+      // Omitted (undefined) keeps the stored cadence; only an explicit null clears it.
+      updateCadenceDays:
+        account.updateCadenceDays === undefined
+          ? (existing?.updateCadenceDays ?? null)
+          : account.updateCadenceDays,
       createdAt: account.createdAt || now,
       updatedAt: now,
     };
@@ -2103,6 +2108,17 @@ export class FinanceMemoryStore {
     return [...this.balanceSnapshots.values()]
       .filter((snapshot) => snapshot.accountId === accountId)
       .sort((a, b) => a.asOfDate.localeCompare(b.asOfDate));
+  }
+
+  listLatestTransactionDates(): Record<string, string> {
+    const latest: Record<string, string> = {};
+    for (const transaction of this.transactions.values()) {
+      const current = latest[transaction.accountId];
+      if (current === undefined || transaction.postedDate > current) {
+        latest[transaction.accountId] = transaction.postedDate;
+      }
+    }
+    return latest;
   }
 
   // --- Forecasting and alerts (Phase 7) ---------------------------------------------------

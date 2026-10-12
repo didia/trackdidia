@@ -3064,6 +3064,10 @@ export class TauriSqliteRepository implements AppRepository {
     return this.getFinanceStore().listAccountBalanceSnapshots(accountId);
   }
 
+  async listFinanceLatestTransactionDates() {
+    return this.getFinanceStore().listLatestTransactionDates();
+  }
+
   // --- Finance (Phase 7 — Forecasting and proactive alerts) -----------------------------
 
   async buildFinanceSnapshot(asOfDate: string) {
