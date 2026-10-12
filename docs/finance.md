@@ -322,9 +322,14 @@ it never calls another queue-taking repository method, so it cannot deadlock
 New rows land as `category_id = 'fincat:non-categorise'`, `category_source =
 'default'`; transfer detection then runs, and finally the classification
 pipeline (see "Classification pipeline (Phase 4)" above) runs over whatever
-transfer detection left untouched. A `categoryHint` on the row (from, e.g., a
-Mint CSV's `Category` column) is still accepted on the request shape but
-ignored — nothing in the pipeline reads it yet.
+transfer detection left untouched. A `categoryHint` on the row (the mapped CSV
+"category" column) is resolved by `resolveCategoryHint` (`classify.ts`) against
+existing active, non-system categories by accent/case-insensitive name or
+`Parent / Child` path; an unknown or ambiguous name resolves to nothing. A match
+is applied at import as `category_source = 'rule'`, confidence 1, ranking below
+user rules and transfer detection but above learned memory and seeds. The hint
+is not stored, so a later reclassification keeps the category (a `default`
+outcome never overwrites a real category) but cannot re-derive it.
 
 ### Undo
 
@@ -566,6 +571,8 @@ shows a discrepancy banner whenever they disagree.
    columns, or amount + transaction-type column — account, category hint,
    notes, labels) and the date format, with a first-20-row raw preview table
    underneath.
+   In debit/credit-columns mode the non-zero side wins: banks that print `0` in the
+   unused column (instead of leaving it blank) still import credits as positive.
 5. Account binding: when the profile maps an account column, the page lists
    every distinct value seen in that column in the file and lets the user
    bind each one to an existing account or create a new one inline. A newly
@@ -1342,6 +1349,15 @@ each of its original merchant key(s) (via `merchantKeyMap`):
   already `"accepted"` instead of being left in the review queue — there is
   nothing left for the user to decide. Otherwise the suggestion is left
   `"pending"` for `/finances/review`.
+- An auto-applied answer is also **remembered**: when no `finance_merchant_memory`
+  entry exists yet for `(merchantKey, "" (all accounts), sign)`, one is written
+  (`buildAiMemoryEntry`, `source = 'auto_confirm'`, `hitCount` at the auto-apply
+  floor, `confidence` = the AI's). The next import then resolves that merchant
+  from memory (`category_source = 'memory'`) without calling the model again,
+  provided the AI's confidence cleared the memory auto-apply threshold (0.85);
+  below it, the entry only resurfaces as a suggestion. An existing memory entry
+  is never replaced. A suggestion the user accepts from the review queue is
+  learned through `setFinanceTransactionCategory` as before.
 
 A `category_source = "user"` row is never a candidate in the first place (it
 never appears in `listFinanceUnknownMerchants`, and

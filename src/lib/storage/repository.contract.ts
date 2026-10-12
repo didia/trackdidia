@@ -3989,6 +3989,45 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         });
       });
 
+      it("applies the imported category hint when it names an existing category", async () => {
+        const repository = await factory();
+        await repository.seedFinanceDefaultCategories();
+        await repository.saveFinanceAccount(account({ id: "account-checking" }));
+
+        await repository.importFinanceTransactions({
+          accountId: "account-checking",
+          profileId: null,
+          fileName: "hints.csv",
+          fileHash: "hash-hints",
+          rows: [
+            importRow({
+              accountId: "account-checking",
+              amountMinor: -4500,
+              descriptionRaw: "ACHAT QUELCONQUE",
+              merchantKey: "ACHAT QUELCONQUE",
+              categoryHint: "epicerie",
+            }),
+            importRow({
+              accountId: "account-checking",
+              amountMinor: -900,
+              descriptionRaw: "AUTRE ACHAT",
+              merchantKey: "AUTRE ACHAT",
+              categoryHint: "Categorie inconnue",
+            }),
+          ],
+        });
+
+        const transactions = await repository.listFinanceTransactions({});
+        expect(transactions.find((t) => t.descriptionRaw === "ACHAT QUELCONQUE")).toMatchObject({
+          categoryId: "fincat:alimentation.epicerie",
+          categorySource: "rule",
+        });
+        expect(transactions.find((t) => t.descriptionRaw === "AUTRE ACHAT")).toMatchObject({
+          categoryId: "fincat:non-categorise",
+          categorySource: "default",
+        });
+      });
+
       it("never pairs a pre-existing user-categorized row as the mirror-amount leg of an imported transfer", async () => {
         const repository = await factory();
         await repository.saveFinanceAccount(account({ id: "account-checking" }));
@@ -6187,6 +6226,63 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           expect(group.currency).toBe("CAD");
           expect(group.occurrenceCount).toBe(3);
           expect(group.amountMinorSample).toBeLessThan(1_000);
+        });
+
+        it("remembers an auto-applied AI category so the next import resolves it without the model", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({ id: "txn-1", merchantKey: "MARCHAND INCONNU" }),
+          );
+
+          await repository.applyFinanceCategorizationResults({
+            results: [
+              {
+                merchantKey: "MARCHAND INCONNU",
+                categoryId: "fincat:alimentation.epicerie",
+                confidence: 0.92,
+                rationale: "Semble etre une epicerie.",
+              },
+            ],
+            merchantKeyMap: { "MARCHAND INCONNU": ["MARCHAND INCONNU"] },
+            transactionIds: ["txn-1"],
+            model: "test-model",
+            promptVersion: "finance_categorization.v1",
+            autoApply: true,
+            autoApplyMinConfidence: 0.9,
+          });
+
+          await expect(repository.listFinanceMerchantMemory()).resolves.toEqual([
+            expect.objectContaining({
+              merchantKey: "MARCHAND INCONNU",
+              accountId: "",
+              categoryId: "fincat:alimentation.epicerie",
+              source: "auto_confirm",
+            }),
+          ]);
+
+          await repository.importFinanceTransactions({
+            accountId: "account-1",
+            profileId: null,
+            fileName: "next.csv",
+            fileHash: "hash-next",
+            rows: [
+              importRow({
+                accountId: "account-1",
+                amountMinor: -1500,
+                postedDate: "2026-05-02",
+                descriptionRaw: "MARCHAND INCONNU",
+                merchantKey: "MARCHAND INCONNU",
+              }),
+            ],
+          });
+          const imported = (await repository.listFinanceTransactions({})).find(
+            (t) => t.importBatchId !== null,
+          );
+          expect(imported).toMatchObject({
+            categoryId: "fincat:alimentation.epicerie",
+            categorySource: "memory",
+          });
         });
 
         it("writes a pending ai-origin suggestion with rationale/model/promptVersion, but does not auto-apply below threshold", async () => {

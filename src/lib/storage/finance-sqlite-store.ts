@@ -92,6 +92,7 @@ import type { Database } from "./sqlite-db";
 import { getTodayDate } from "../date";
 import {
   classifyTransaction,
+  resolveCategoryHint,
   UNCATEGORIZED_CATEGORY_ID,
   type ClassificationOutcome,
 } from "../finance/classify";
@@ -104,7 +105,7 @@ import {
   dedupeHash as computeDedupeHash,
   assignOccurrenceIndices,
 } from "../finance/import-profile";
-import { applyMerchantMemoryCorrection } from "../finance/memory";
+import { applyMerchantMemoryCorrection, buildAiMemoryEntry } from "../finance/memory";
 import { findNearDuplicates } from "../finance/near-duplicates";
 import {
   detectFinanceRecurringSeries,
@@ -1633,6 +1634,13 @@ export class FinanceSqliteStore {
       // the rest.
       const classificationRules = await this.listRules();
       const classificationMemory = await this.listMerchantMemory();
+      const classificationCategories = await this.listCategories();
+      const categoryHintByDedupe = new Map(
+        prepared.map((item) => [
+          `${item.row.accountId}\u0000${item.dedupeHash}`,
+          item.row.categoryHint,
+        ]),
+      );
       const dismissed = await this.buildDismissedPairsWithDb(db);
       const today = getTodayDate();
       const insertedForClassification = await db.select<TransactionRow[]>(
@@ -1652,6 +1660,10 @@ export class FinanceSqliteStore {
           {
             rules: classificationRules,
             memory: classificationMemory,
+            categoryHintId: resolveCategoryHint(
+              categoryHintByDedupe.get(`${row.account_id}\u0000${row.dedupe_hash}`),
+              classificationCategories,
+            ),
             dismissed,
             today,
           },
@@ -2150,6 +2162,21 @@ export class FinanceSqliteStore {
                 [txn.id, result.categoryId, result.confidence, now],
               );
               autoApplied += 1;
+
+              // Remember the AI's answer so the next import does not need the model for
+              // this merchant. Never replaces something already learned.
+              const sign: -1 | 0 | 1 = txn.amount_minor > 0 ? 1 : txn.amount_minor < 0 ? -1 : 0;
+              if (!(await this.getMerchantMemory(merchantKey, "", sign))) {
+                await this.upsertMerchantMemory(
+                  buildAiMemoryEntry({
+                    merchantKey,
+                    sign,
+                    categoryId: result.categoryId,
+                    confidence: result.confidence,
+                    now,
+                  }),
+                );
+              }
             }
           }
         }

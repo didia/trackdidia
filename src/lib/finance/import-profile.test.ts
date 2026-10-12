@@ -254,6 +254,24 @@ describe("mapImportRowToTransaction with generic profiles", () => {
     expect(mapped[1].ok && mapped[1].row.amountMinor).toBe(200000);
   });
 
+  it("reads the non-zero side when the bank prints 0 in the unused debit/credit column", () => {
+    const { header, rows } = parseCsv(
+      'Date;Description;Debit;Credit\n"2026-10-06";"Paie";"0";"1045.88"\n"2026-10-07";"Facture";"466.0";"0"\n"2026-09-23";"Frais";"0";"0"\n',
+      ";",
+    );
+    const profile = {
+      ...MINT_PROFILE,
+      columnMap: { date: 0, description: 1, debit: 2, credit: 3 },
+      dateFormat: "YYYY-MM-DD" as const,
+      amountMode: "debit_credit_columns" as const,
+    };
+    const amounts = rows.map((row) => {
+      const result = mapImportRowToTransaction(row, header, profile, { currency: "CAD" });
+      return result.ok ? result.row.amountMinor : null;
+    });
+    expect(amounts).toEqual([104588, -46600, 0]);
+  });
+
   it("reports a row error rather than throwing on a bad date", () => {
     const { header, rows } = parseCsv("Date,Description,Amount\nnot-a-date,Store,-5.00\n");
     const profile = {
