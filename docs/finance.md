@@ -554,6 +554,8 @@ shows a discrepancy banner whenever they disagree.
    columns, or amount + transaction-type column — account, category hint,
    notes, labels) and the date format, with a first-20-row raw preview table
    underneath.
+   In debit/credit-columns mode the non-zero side wins: banks that print `0` in the
+   unused column (instead of leaving it blank) still import credits as positive.
 5. Account binding: when the profile maps an account column, the page lists
    every distinct value seen in that column in the file and lets the user
    bind each one to an existing account or create a new one inline. A newly

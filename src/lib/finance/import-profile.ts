@@ -409,20 +409,28 @@ const resolveAmountMinor = (
     const debitText = debitIndex === undefined ? "" : (row[debitIndex] ?? "").trim();
     const creditText = creditIndex === undefined ? "" : (row[creditIndex] ?? "").trim();
 
-    if (debitText.length > 0) {
-      const parsed = parseAmountToMinor(debitText, amountOptions);
+    // Banks often print "0" / "0.00" in the unused column instead of leaving it blank, so a
+    // non-empty cell is not enough: the non-zero side wins.
+    let sawValue = false;
+    for (const [text, sign] of [
+      [debitText, -1],
+      [creditText, 1],
+    ] as const) {
+      if (text.length === 0) {
+        continue;
+      }
+      const parsed = parseAmountToMinor(text, amountOptions);
       if (!parsed.ok) {
         return { ok: false, reason: parsed.reason };
       }
-      return { ok: true, amountMinor: -Math.abs(parsed.amountMinor) };
+      sawValue = true;
+      if (parsed.amountMinor !== 0) {
+        return { ok: true, amountMinor: sign * Math.abs(parsed.amountMinor) };
+      }
     }
 
-    if (creditText.length > 0) {
-      const parsed = parseAmountToMinor(creditText, amountOptions);
-      if (!parsed.ok) {
-        return { ok: false, reason: parsed.reason };
-      }
-      return { ok: true, amountMinor: Math.abs(parsed.amountMinor) };
+    if (sawValue) {
+      return { ok: true, amountMinor: 0 };
     }
 
     return { ok: false, reason: "neither debit nor credit column has a value" };
