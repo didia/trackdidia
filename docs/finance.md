@@ -489,7 +489,7 @@ call sites that race harmlessly because the seed is `INSERT OR IGNORE`:
 
 | Route | Screen |
 |---|---|
-| `/finances` | `FinanceOverviewPage` — net worth, this month's cash flow, account list with derived balances, a 6-month spending trend, top categories, and upcoming recurring bills (Phase 6) |
+| `/finances` | `FinanceOverviewPage` — net worth, net liquidity (cash vs short-term debt), this month's cash flow, account list with derived balances, a 6-month spending trend, top categories, and upcoming recurring bills (Phase 6) |
 | `/finances/transactions` | `FinanceTransactionsPage` |
 | `/finances/budget` | `FinanceBudgetPage` (Phase 5) |
 | `/finances/reports` | `FinanceReportsPage` — category/merchant/person spend with drill-down, income-vs-expense trend, month-over-month comparison (Phase 6) |
@@ -512,6 +512,17 @@ and is called out by name in a banner (`excludedCurrencies`) rather than
 silently excluded. Net worth itself counts **every** account regardless of
 `onBudget`/`excludedFromBudget` — those are budget-only exclusions and never
 remove money from net worth (see AGENTS.md "Repository parity").
+
+**Net liquidity** (the "Liquidité nette" card under the net-worth hero) answers
+"if I paid every short-term debt today, how much cash is left?". It is computed
+by the same pure `computeFinanceNetWorth` (so both repositories return it with
+no extra method) as `liquidAssetsMinor - shortTermDebtMinor`, base currency
+only. Liquid assets are `checking`, `savings` and `cash` accounts; short-term
+debt is `credit_card` and `line_of_credit` accounts
+(`classifyFinanceLiquidityBucket`). `investment`, `asset` and `other` accounts
+and long-term debt (`loan`, `mortgage`) are left out — they only count toward
+net worth. The card also shows short-term debt as a share of liquid cash; the
+result can be negative.
 
 ### FinanceAccountsPage (`/finances/accounts`)
 

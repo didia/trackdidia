@@ -190,6 +190,11 @@ export const FinanceOverviewPage = () => {
     cashFlow && cashFlow.incomeMinor > 0
       ? Math.round((cashFlow.expenseMinor / cashFlow.incomeMinor) * 100)
       : null;
+  // Short-term debt as a share of liquid cash; null when there is no positive cash to compare against.
+  const debtCoveragePercent =
+    netWorth && netWorth.liquidAssetsMinor > 0
+      ? Math.round((netWorth.shortTermDebtMinor / netWorth.liquidAssetsMinor) * 100)
+      : null;
   const maxCategoryMinor = Math.max(1, ...topCategories.map((row) => row.totalMinor));
 
   return (
@@ -330,6 +335,79 @@ export const FinanceOverviewPage = () => {
           ) : null}
         </SectionCard>
       </div>
+
+      <SectionCard title={t("overview.liquidityTitle")} subtitle={t("overview.liquiditySubtitle")}>
+        {netWorth ? (
+          <>
+            <div className="finance-stats">
+              <div className="finance-stat finance-stat--income">
+                <span className="finance-stat__label">
+                  <span className="finance-stat__icon" aria-hidden="true">
+                    ↓
+                  </span>
+                  {t("overview.liquidCashLabel")}
+                </span>
+                <span className="finance-stat__value">
+                  {formatMoney({ amountMinor: netWorth.liquidAssetsMinor, currency: baseCurrency })}
+                </span>
+              </div>
+              <div className="finance-stat finance-stat--expense">
+                <span className="finance-stat__label">
+                  <span className="finance-stat__icon" aria-hidden="true">
+                    ↑
+                  </span>
+                  {t("overview.shortTermDebtLabel")}
+                </span>
+                <span className="finance-stat__value">
+                  {formatMoney({
+                    amountMinor: netWorth.shortTermDebtMinor,
+                    currency: baseCurrency,
+                  })}
+                </span>
+              </div>
+              <div
+                className={`finance-stat finance-stat--net${
+                  netWorth.netLiquidityMinor > 0
+                    ? " finance-stat--positive"
+                    : netWorth.netLiquidityMinor < 0
+                      ? " finance-stat--negative"
+                      : ""
+                }`}
+                data-testid="finance-net-liquidity"
+              >
+                <span className="finance-stat__label">
+                  <span className="finance-stat__icon" aria-hidden="true">
+                    =
+                  </span>
+                  {t("overview.netLiquidityLabel")}
+                </span>
+                <span className="finance-stat__value">
+                  {formatMoney({ amountMinor: netWorth.netLiquidityMinor, currency: baseCurrency })}
+                </span>
+              </div>
+            </div>
+            <div className="finance-meter">
+              <div className="finance-meter__caption">
+                <span>
+                  {debtCoveragePercent === null
+                    ? netWorth.shortTermDebtMinor > 0
+                      ? t("overview.noLiquidCash")
+                      : t("overview.noShortTermDebt")
+                    : t("overview.debtShareOfCash", { percent: debtCoveragePercent })}
+                </span>
+              </div>
+              <div className="finance-meter__track">
+                <div
+                  className={`finance-meter__fill${
+                    netWorth.netLiquidityMinor < 0 ? " finance-meter__fill--over" : ""
+                  }`}
+                  style={{ width: `${Math.min(100, debtCoveragePercent ?? 0)}%` }}
+                />
+              </div>
+            </div>
+          </>
+        ) : null}
+      </SectionCard>
 
       <SectionCard title={t("alerts.title")} subtitle={t("alerts.subtitle")}>
         {alerts.length === 0 ? (

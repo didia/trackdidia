@@ -91,11 +91,62 @@ describe("FinanceOverviewPage", () => {
     });
 
     // Only the CAD account's opening balance is summed into net worth — with no
-    // liabilities, net worth, assets, and the CAD account card all show the same
-    // formatted amount.
-    expect(await screen.findAllByText("100,00 $")).toHaveLength(3);
+    // liabilities, net worth, assets, liquid cash, net liquidity, and the CAD
+    // account card all show the same formatted amount.
+    expect(await screen.findAllByText("100,00 $")).toHaveLength(5);
     expect(
       screen.getByText(/devise différente de la devise de référence.*USD/),
+    ).toBeInTheDocument();
+  });
+
+  it("shows net liquidity as cash minus card debt, leaving the mortgage and investments out", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+
+    const baseAccount = {
+      institution: null,
+      currency: "CAD",
+      ownerPersonId: null,
+      ownership: "individual" as const,
+      onBudget: true,
+      closed: false,
+      currentBalanceMinor: null,
+      balanceAsOf: null,
+      externalKey: null,
+      notes: null,
+      sortOrder: 0,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    const openings: Array<
+      [string, "checking" | "credit_card" | "mortgage" | "investment", number]
+    > = [
+      ["checking", "checking", 1_000_00],
+      ["card", "credit_card", -400_00],
+      ["mortgage", "mortgage", -200_000_00],
+      ["investment", "investment", 50_000_00],
+    ];
+    for (const [id, type, openingBalanceMinor] of openings) {
+      await repository.saveFinanceAccount({
+        ...baseAccount,
+        id: `finance-account:${id}`,
+        name: id,
+        type,
+        openingBalanceMinor,
+      });
+    }
+
+    await renderWithApp(<FinanceOverviewPage />, {
+      repository,
+      contextOverrides: {
+        settings: { ...defaultAppSettings(), financeEnabled: true, financeBaseCurrency: "CAD" },
+      },
+    });
+
+    const netLiquidity = await screen.findByTestId("finance-net-liquidity");
+    expect(netLiquidity).toHaveTextContent("600,00 $");
+    expect(
+      screen.getByText("Les dettes à court terme représentent 40 % des liquidités"),
     ).toBeInTheDocument();
   });
 
