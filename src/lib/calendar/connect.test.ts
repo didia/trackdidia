@@ -26,9 +26,7 @@ vi.mock("./vault", () => ({
   deleteCalendarVaultSecret: (...args: unknown[]) => deleteCalendarVaultSecretMock(...args),
 }));
 vi.mock("../provider-http", async () => {
-  const actual = await vi.importActual<typeof import("../provider-http")>(
-    "../provider-http",
-  );
+  const actual = await vi.importActual<typeof import("../provider-http")>("../provider-http");
   return {
     ...actual,
     createTauriHttpClient: () => ({ request: httpRequestMock }),
