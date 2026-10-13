@@ -13,11 +13,11 @@ import { loadFinanceAccountFreshness } from "../../lib/finance/account-freshness
 import { SectionCard } from "../SectionCard";
 
 /**
- * "Which accounts need fresh data" list for the weekly budget review and the finance
- * overview: how old each open account's data is against its cadence (weekly for budget
- * accounts, monthly for the rest), most overdue first, with a link to the importer.
- * `embedded` drops the card chrome so it can sit inside another section (the weekly
- * review's budget ritual).
+ * "Which accounts need fresh data" list for the weekly budget review: only the open accounts
+ * whose data is older than their cadence (weekly for budget accounts, monthly for the rest) or
+ * never loaded, most overdue first, with a link to the importer. Accounts that are up to date
+ * are left out. `embedded` drops the card chrome so it can sit inside another section (the
+ * weekly review's budget ritual).
  */
 export const FinanceAccountFreshnessCard = ({ embedded = false }: { embedded?: boolean }) => {
   const { t } = useTranslation("finance");
@@ -39,7 +39,8 @@ export const FinanceAccountFreshnessCard = ({ embedded = false }: { embedded?: b
     return null;
   }
 
-  const dueCount = rows?.filter((row) => row.status !== "fresh").length ?? 0;
+  const dueRows = rows?.filter((row) => row.status !== "fresh") ?? [];
+  const dueCount = dueRows.length;
 
   const describeAge = (row: FinanceAccountFreshness): string => {
     if (row.dataThroughDate === null || row.ageDays === null) {
@@ -86,14 +87,14 @@ export const FinanceAccountFreshnessCard = ({ embedded = false }: { embedded?: b
       {rows !== null && rows.length === 0 ? (
         <p className="empty-copy">{t("freshness.noAccounts")}</p>
       ) : null}
-      {rows !== null && rows.length > 0 ? (
+      {dueCount > 0 ? (
         <ul className="finance-alerts-list">
-          {rows.map((row) => (
+          {dueRows.map((row) => (
             <li
               key={row.accountId}
               data-testid={`finance-freshness-${row.accountId}`}
               data-status={row.status}
-              data-severity={row.status === "fresh" ? "info" : "warning"}
+              data-severity="warning"
             >
               <span className="tag-chip">{t(`freshness.status.${row.status}`)}</span>
               <span>

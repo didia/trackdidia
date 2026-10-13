@@ -150,6 +150,49 @@ describe("FinanceOverviewPage", () => {
     ).toBeInTheDocument();
   });
 
+  it("flags only the accounts that need an update on their row, without a separate list", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const baseAccount = {
+      institution: null,
+      type: "checking" as const,
+      currency: "CAD",
+      ownerPersonId: null,
+      ownership: "individual" as const,
+      onBudget: true,
+      closed: false,
+      openingBalanceMinor: 0,
+      currentBalanceMinor: null,
+      balanceAsOf: null,
+      externalKey: null,
+      notes: null,
+      sortOrder: 0,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    const stale = await repository.saveFinanceAccount({ ...baseAccount, id: "", name: "Chèques" });
+    const current = await repository.saveFinanceAccount({ ...baseAccount, id: "", name: "Crédit" });
+    await repository.saveFinanceTransaction(
+      buildTxn({ accountId: stale.id, postedDate: addDays(getTodayDate(), -20) }),
+    );
+    await repository.saveFinanceTransaction(
+      buildTxn({ accountId: current.id, postedDate: getTodayDate() }),
+    );
+
+    await renderWithApp(<FinanceOverviewPage />, {
+      repository,
+      contextOverrides: {
+        settings: { ...defaultAppSettings(), financeEnabled: true, financeBaseCurrency: "CAD" },
+      },
+    });
+
+    expect(await screen.findByTestId(`finance-account-update-${stale.id}`)).toHaveTextContent(
+      "À mettre à jour",
+    );
+    expect(screen.queryByTestId(`finance-account-update-${current.id}`)).not.toBeInTheDocument();
+    expect(screen.queryByText("Comptes à mettre à jour")).not.toBeInTheDocument();
+  });
+
   it("shows a top category and lets the user confirm an upcoming recurring bill", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();

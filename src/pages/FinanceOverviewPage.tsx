@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppContext } from "../app/app-context";
-import { FinanceAccountFreshnessCard } from "../components/finance/FinanceAccountFreshnessCard";
 import { FinanceTabs } from "../components/finance/FinanceTabs";
 import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
@@ -13,6 +12,7 @@ import type { FinanceNetWorthSnapshot } from "../domain/finance/net-worth";
 import type { FinanceCategorySpendRow, FinanceTrendPoint } from "../domain/finance/reports";
 import { getMonthEndDate, getMonthKey, getMonthStartDate } from "../domain/monthly-review";
 import { formatDateShort, getTodayDate } from "../lib/date";
+import { loadFinanceAccountFreshness } from "../lib/finance/account-freshness-loader";
 import { formatMoney } from "../lib/finance/money";
 
 const ALERT_SEVERITY_ORDER: FinanceAlertSeverity[] = ["critical", "warning", "info"];
@@ -38,6 +38,8 @@ export const FinanceOverviewPage = () => {
   const [topCategories, setTopCategories] = useState<FinanceCategorySpendRow[]>([]);
   const [recurringSeries, setRecurringSeries] = useState<FinanceRecurringSeries[]>([]);
   const [alerts, setAlerts] = useState<FinanceAlert[]>([]);
+  // Open accounts whose data is older than their cadence (or never loaded), by account id.
+  const [accountsToUpdate, setAccountsToUpdate] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
 
@@ -81,6 +83,11 @@ export const FinanceOverviewPage = () => {
       setTopCategories(nextTopCategories.slice(0, TOP_CATEGORY_COUNT));
       setRecurringSeries(nextRecurringSeries);
       setAlerts(nextForecast.alerts);
+      // A discreet hint on the account rows; failing to compute it must not break the overview.
+      const freshness = await loadFinanceAccountFreshness(repository, today).catch(() => []);
+      setAccountsToUpdate(
+        new Set(freshness.filter((row) => row.status !== "fresh").map((row) => row.accountId)),
+      );
     } catch {
       setLoadError(true);
     } finally {
@@ -536,8 +543,6 @@ export const FinanceOverviewPage = () => {
           </div>
         </SectionCard>
 
-        <FinanceAccountFreshnessCard />
-
         <SectionCard title={t("overview.accountsTitle")}>
           {loading ? <p>{t("overview.loading")}</p> : null}
           {loadError ? <p className="banner">{t("overview.loadError")}</p> : null}
@@ -568,6 +573,14 @@ export const FinanceOverviewPage = () => {
                       {account.name}
                       {account.closed ? ` ${t("overview.closedAccount")}` : ""}
                     </h3>
+                    {accountsToUpdate.has(account.id) ? (
+                      <span
+                        className="finance-row__update"
+                        data-testid={`finance-account-update-${account.id}`}
+                      >
+                        {t("freshness.status.due")}
+                      </span>
+                    ) : null}
                   </div>
                   <span
                     className={`finance-row__amount${

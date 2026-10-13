@@ -765,16 +765,20 @@ the result (`previousOpeningBalanceMinor`) but there is no undo button.
 
 ### Account update tracking (weekly review and `/finances`)
 
-`FinanceAccountFreshnessCard` (`src/components/finance/`) lists every **open** account with
-how old its data is, so the weekly budget review shows which accounts still need a CSV or a
-statement. It renders only while `financeEnabled` is on, in two places: embedded under the
-"Budget" ritual section of `/semaine` (`embedded` drops the card chrome) and as a card on the
-`/finances` overview, directly above the accounts list. It reloads when the app's local
-`calendarDay` rolls over (midnight, focus, visibility), so ages never stay on yesterday; while
-loading it shows a short loading line. Each row shows a status chip (`À jour` / `À mettre à jour` /
-`Jamais importé`), the account and institution, "Données jusqu'au …" (or "Relevé du …") with
-the age in days, and the account's cadence. Accounts to update come first; a button links to
-`/finances/import`.
+`FinanceAccountFreshnessCard` (`src/components/finance/`) lists the **open** accounts that need
+a CSV or a statement, so the weekly budget review shows what is left to import. Accounts that
+are up to date are not listed (when none are due the section says so). It renders only while
+`financeEnabled` is on, embedded under the "Budget" ritual section of `/semaine` (`embedded`
+drops the card chrome). It reloads when the app's local `calendarDay` rolls over (midnight,
+focus, visibility), so ages never stay on yesterday; while loading it shows a short loading
+line. Each row shows a status chip (`À mettre à jour` / `Jamais importé`), the account and
+institution, "Données jusqu'au …" (or "Relevé du …") with the age in days, and the account's
+cadence, most overdue first; a button links to `/finances/import`.
+
+The `/finances` overview has no separate list: it runs the same loader and marks each account
+row in its "Comptes" section with a small green `À mettre à jour` pill (`finance-row__update`)
+when the account is due or never loaded. A failing freshness read leaves the pills out rather
+than breaking the overview.
 
 Rules (pure, `src/domain/finance/account-freshness.ts`, tested directly):
 

@@ -69,7 +69,7 @@ describe("FinanceAccountFreshnessCard", () => {
     expect(screen.queryByText("Comptes à mettre à jour")).not.toBeInTheDocument();
   });
 
-  it("lists the accounts to update first, with their data age and cadence", async () => {
+  it("lists only the accounts to update, with their data age and cadence", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
     const today = getTodayDate();
@@ -92,10 +92,8 @@ describe("FinanceAccountFreshnessCard", () => {
     expect(staleRow).toHaveAttribute("data-status", "due");
     expect(staleRow).toHaveTextContent("9 jours");
     expect(staleRow).toHaveTextContent("mise à jour hebdomadaire");
-    expect(screen.getByTestId(`finance-freshness-${fresh.id}`)).toHaveAttribute(
-      "data-status",
-      "fresh",
-    );
+    expect(screen.queryByTestId(`finance-freshness-${fresh.id}`)).not.toBeInTheDocument();
+    expect(screen.queryByText("Crédit")).not.toBeInTheDocument();
     const savingsRow = screen.getByTestId(`finance-freshness-${savings.id}`);
     expect(savingsRow).toHaveAttribute("data-status", "never");
     expect(savingsRow).toHaveTextContent("mise à jour mensuelle");
@@ -134,10 +132,8 @@ describe("FinanceAccountFreshnessCard", () => {
       contextOverrides: enabled,
     });
 
-    const row = await screen.findByTestId(`finance-freshness-${account.id}`);
-    expect(row).toHaveAttribute("data-status", "fresh");
-    expect(row).toHaveTextContent("mise à jour tous les 14 jours");
     expect(await screen.findByText("Tous les comptes sont à jour.")).toBeInTheDocument();
+    expect(screen.queryByTestId(`finance-freshness-${account.id}`)).not.toBeInTheDocument();
   });
 
   it("recomputes ages when the local calendar day rolls over under a mounted card", async () => {
@@ -161,9 +157,8 @@ describe("FinanceAccountFreshnessCard", () => {
     };
     await renderWithApp(<Harness />, { repository, contextOverrides: enabled });
 
-    const row = await screen.findByTestId(`finance-freshness-${account.id}`);
-    expect(row).toHaveAttribute("data-status", "fresh");
-    expect(row).toHaveTextContent("6 jours");
+    expect(await screen.findByText("Tous les comptes sont à jour.")).toBeInTheDocument();
+    expect(screen.queryByTestId(`finance-freshness-${account.id}`)).not.toBeInTheDocument();
 
     await userEvent.setup().click(screen.getByText("Jour suivant"));
 
