@@ -284,54 +284,57 @@ describe("WeeklyObjectivesService key change during a pull", () => {
   it.each([
     ["switched", "key-b"],
     ["cleared", ""],
-  ])("does not serve key A's cached seconds when the key is %s mid-pull", async (_label, nextKey) => {
-    const repository = new MemoryRepository();
-    await repository.initialize();
-    await repository.saveWeeklyObjective(
-      createEmptyWeeklyObjective({
-        title: "Dev",
-        kind: "time",
-        targetHours: 2,
-        rescuetimeKind: "category",
-        rescuetimeThing: "Software Development",
-      }),
-    );
-    await repository.saveSettings({
-      ...(await repository.getSettings()),
-      rescuetimeApiKey: "key-a",
-    });
-    let gate: Promise<void> | null = null;
-    let fail: () => void = () => undefined;
-    const client: RescueTimeClient = {
-      fetchAnalyticData: vi.fn(async () => {
-        if (gate) await gate;
-        return {
-          row_headers: ["Rank", "Time Spent (seconds)", "Category"],
-          rows: [[1, 3600, "Software Development"]],
-        };
-      }),
-    };
-    const service = new WeeklyObjectivesService(repository, client);
-    await service.computeWeeklyObjectivesSnapshot("2026-08-02");
-    gate = new Promise<void>((_resolve, reject) => {
-      fail = () => reject(new Error("offline"));
-    });
-    gate.catch(() => undefined);
+  ])(
+    "does not serve key A's cached seconds when the key is %s mid-pull",
+    async (_label, nextKey) => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      await repository.saveWeeklyObjective(
+        createEmptyWeeklyObjective({
+          title: "Dev",
+          kind: "time",
+          targetHours: 2,
+          rescuetimeKind: "category",
+          rescuetimeThing: "Software Development",
+        }),
+      );
+      await repository.saveSettings({
+        ...(await repository.getSettings()),
+        rescuetimeApiKey: "key-a",
+      });
+      let gate: Promise<void> | null = null;
+      let fail: () => void = () => undefined;
+      const client: RescueTimeClient = {
+        fetchAnalyticData: vi.fn(async () => {
+          if (gate) await gate;
+          return {
+            row_headers: ["Rank", "Time Spent (seconds)", "Category"],
+            rows: [[1, 3600, "Software Development"]],
+          };
+        }),
+      };
+      const service = new WeeklyObjectivesService(repository, client);
+      await service.computeWeeklyObjectivesSnapshot("2026-08-02");
+      gate = new Promise<void>((_resolve, reject) => {
+        fail = () => reject(new Error("offline"));
+      });
+      gate.catch(() => undefined);
 
-    const pending = service.computeWeeklyObjectivesSnapshot("2026-08-02");
-    await vi.waitFor(() => expect(client.fetchAnalyticData).toHaveBeenCalledTimes(2));
-    await repository.saveSettings({
-      ...(await repository.getSettings()),
-      rescuetimeApiKey: nextKey,
-    });
-    fail();
+      const pending = service.computeWeeklyObjectivesSnapshot("2026-08-02");
+      await vi.waitFor(() => expect(client.fetchAnalyticData).toHaveBeenCalledTimes(2));
+      await repository.saveSettings({
+        ...(await repository.getSettings()),
+        rescuetimeApiKey: nextKey,
+      });
+      fail();
 
-    const snapshot = await pending;
+      const snapshot = await pending;
 
-    expect(snapshot.cachedAt).toBeUndefined();
-    expect(snapshot.fetchError).toBe("offline");
-    expect(snapshot.items[0]).toMatchObject({ source: "missing", error: "offline" });
-  });
+      expect(snapshot.cachedAt).toBeUndefined();
+      expect(snapshot.fetchError).toBe("offline");
+      expect(snapshot.items[0]).toMatchObject({ source: "missing", error: "offline" });
+    },
+  );
 
   it("does not serve another fingerprint's entries within the freshness window", async () => {
     const repository = new MemoryRepository();

@@ -84,6 +84,7 @@ export const CoachPulsePanel = ({
               <strong>{t("pulse.priorities")}</strong>
               <ul>
                 {pulse.priorities.map((priority, index) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: priorities have no stable id; the list is static per render
                   <li key={`${priority.title}-${index}`}>
                     {priority.title} {tCommon("emDash")} {priority.why}
                   </li>

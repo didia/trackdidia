@@ -422,6 +422,7 @@ export const FinanceImportPage = () => {
           <div className="actions-row">
             {pendingFiles.map((file, index) => (
               <button
+                // biome-ignore lint/suspicious/noArrayIndexKey: files may share a name and the index is the selection
                 key={`${file.name}-${index}`}
                 type="button"
                 className={`button${index === fileIndex ? " button--primary" : ""}`}
