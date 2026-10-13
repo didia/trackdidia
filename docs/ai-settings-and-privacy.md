@@ -729,6 +729,8 @@ over-cap batch is split into more requests, never truncated):
   JEAN DUPONT") is sent as-is — see
   `src/lib/ai/context/finance-categorization-snapshot.ts`'s module comment
   for exactly what the sanitizer does and does not catch.
+  A descriptor with no letter left after sanitizing (e.g. a bare account
+  number) is not sent at all.
 - the transaction sign (`-1` | `0` | `1`)
 - an occurrence count
 - an amount **bucket** (`<10`, `10-50`, `50-200`, `200-1000`, `>1000`, in

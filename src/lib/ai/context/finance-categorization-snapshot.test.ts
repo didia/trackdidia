@@ -86,6 +86,36 @@ describe("amountBucketFor", () => {
 });
 
 describe("buildFinanceCategorizationSnapshots", () => {
+  it("does not send merchants whose descriptor is only digits or punctuation", () => {
+    const chunks = buildFinanceCategorizationSnapshots(
+      {
+        unknownMerchants: [
+          group({ merchantKey: "625700012471184" }),
+          group({ merchantKey: "ADVANCEO INC" }),
+        ],
+        allowedCategories,
+        baseCurrency: "CAD",
+      },
+      "full",
+    );
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].snapshot.merchants.map((merchant) => merchant.merchantKey)).toEqual([
+      "ADVANCEO INC",
+    ]);
+  });
+
+  it("returns no chunks when every merchant is unidentifiable", () => {
+    const chunks = buildFinanceCategorizationSnapshots(
+      {
+        unknownMerchants: [group({ merchantKey: "625700012471184" })],
+        allowedCategories,
+        baseCurrency: "CAD",
+      },
+      "full",
+    );
+    expect(chunks).toHaveLength(0);
+  });
+
   it("returns no chunks when scope is metrics — the AI stage is disabled entirely", () => {
     const chunks = buildFinanceCategorizationSnapshots(
       { unknownMerchants: [group()], allowedCategories, baseCurrency: "CAD" },

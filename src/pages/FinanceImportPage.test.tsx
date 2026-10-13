@@ -1,6 +1,7 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { defaultAppSettings } from "../domain/daily-entry";
+import { FinanceCategorizationService } from "../lib/ai/finance-categorization-service";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { renderWithApp } from "../test/test-utils";
 import { FinanceImportPage, shortenIfAccountNumber } from "./FinanceImportPage";
@@ -278,6 +279,182 @@ describe("FinanceImportPage", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText(/network down/)).not.toBeInTheDocument();
     fetchSpy.mockRestore();
+  });
+
+  it("hints at the AI setting after an import when AI categorization is off and merchants are uncategorized", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const user = userEvent.setup();
+
+    await renderWithApp(<FinanceImportPage />, {
+      repository,
+      contextOverrides: {
+        settings: { ...defaultAppSettings(), financeEnabled: true },
+      },
+    });
+
+    const file = new File([MINT_FIXTURE], "mint-export.csv", { type: "text/csv" });
+    const input = document.querySelector('input[accept=".csv,text/csv"]') as HTMLInputElement;
+    await user.upload(input, file);
+    await screen.findByText("Mappage des colonnes");
+    const bindingSelect = screen
+      .getAllByRole("combobox")
+      .find((select) => select.querySelector('option[value="__new__"]')) as HTMLSelectElement;
+    await user.selectOptions(bindingSelect, "__new__");
+    await user.click(screen.getByRole("button", { name: "Importer" }));
+    await screen.findByText("Résultat de l'import");
+
+    expect(await screen.findByText(/La catégorisation IA est désactivée/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Ouvrir les paramètres" })).toHaveAttribute(
+      "href",
+      "/parametres",
+    );
+  });
+
+  it("reports the AI run on the import result and links to the review queue", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const user = userEvent.setup();
+    const classifyPending = vi
+      .spyOn(FinanceCategorizationService.prototype, "classifyPending")
+      .mockResolvedValue({
+        ran: true,
+        chunksProcessed: 1,
+        merchantsRequested: 5,
+        merchantsSent: 5,
+        suggestionsCreated: 4,
+        autoApplied: 1,
+        suppressedDismissed: 0,
+      });
+
+    await renderWithApp(<FinanceImportPage />, {
+      repository,
+      contextOverrides: {
+        settings: {
+          ...defaultAppSettings(),
+          financeEnabled: true,
+          financeAiCategorizationEnabled: true,
+          aiEnabled: true,
+          aiApiKey: "secret",
+        },
+      },
+    });
+
+    const file = new File([MINT_FIXTURE], "mint-export.csv", { type: "text/csv" });
+    const input = document.querySelector('input[accept=".csv,text/csv"]') as HTMLInputElement;
+    await user.upload(input, file);
+    await screen.findByText("Mappage des colonnes");
+    const bindingSelect = screen
+      .getAllByRole("combobox")
+      .find((select) => select.querySelector('option[value="__new__"]')) as HTMLSelectElement;
+    await user.selectOptions(bindingSelect, "__new__");
+    await user.click(screen.getByRole("button", { name: "Importer" }));
+    await screen.findByText("Résultat de l'import");
+
+    expect(
+      await screen.findByText(/5 marchand\(s\) analysé\(s\), 4 suggestion\(s\)/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Ouvrir la file de révision" })).toHaveAttribute(
+      "href",
+      "/finances/review",
+    );
+    classifyPending.mockRestore();
+  });
+
+  it("explains that AI is unconfigured when categorization is enabled without an API key", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const user = userEvent.setup();
+
+    await renderWithApp(<FinanceImportPage />, {
+      repository,
+      contextOverrides: {
+        settings: {
+          ...defaultAppSettings(),
+          financeEnabled: true,
+          financeAiCategorizationEnabled: true,
+          aiEnabled: false,
+        },
+      },
+    });
+
+    const file = new File([MINT_FIXTURE], "mint-export.csv", { type: "text/csv" });
+    const input = document.querySelector('input[accept=".csv,text/csv"]') as HTMLInputElement;
+    await user.upload(input, file);
+    await screen.findByText("Mappage des colonnes");
+    const bindingSelect = screen
+      .getAllByRole("combobox")
+      .find((select) => select.querySelector('option[value="__new__"]')) as HTMLSelectElement;
+    await user.selectOptions(bindingSelect, "__new__");
+    await user.click(screen.getByRole("button", { name: "Importer" }));
+    await screen.findByText("Résultat de l'import");
+
+    expect(await screen.findByText(/l'IA n'est pas configurée/)).toBeInTheDocument();
+  });
+
+  it("offers to invert the sign of a statement whose amounts are all positive and imports purchases as negative", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const user = userEvent.setup();
+    await repository.saveFinanceAccount({
+      id: "card-1",
+      name: "Carte",
+      institution: null,
+      type: "credit_card",
+      currency: "CAD",
+      ownerPersonId: null,
+      ownership: "individual",
+      onBudget: true,
+      closed: false,
+      openingBalanceMinor: 0,
+      currentBalanceMinor: null,
+      balanceAsOf: null,
+      externalKey: null,
+      notes: null,
+      sortOrder: 0,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    await renderWithApp(<FinanceImportPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+
+    const csv = [
+      "Transaction Date,Merchant Name,Amount",
+      '2026-10-07,CONVIVIO,"$35.74"',
+      '2026-10-06,AMAZON,"$20.00"',
+      '2026-10-05,PAIEMENT,"-$500.00"',
+    ].join("\n");
+    const input = document.querySelector('input[accept=".csv,text/csv"]') as HTMLInputElement;
+    await user.upload(input, new File([csv], "card.csv", { type: "text/csv" }));
+    await screen.findByText("Mappage des colonnes");
+
+    const selectByLabel = (label: string) =>
+      screen.getByText(label).closest("label")?.querySelector("select") as HTMLSelectElement;
+    await user.selectOptions(selectByLabel("Date"), "Transaction Date");
+    await user.selectOptions(selectByLabel("Description"), "Merchant Name");
+    await user.selectOptions(selectByLabel("Montant"), "Amount");
+    await user.selectOptions(screen.getByLabelText("Compte (fichier à un seul compte)"), "card-1");
+
+    expect(
+      await screen.findByText(/Ce fichier semble imprimer les dépenses en positif/),
+    ).toBeInTheDocument();
+    await user.click(screen.getByLabelText(/Inverser le signe des montants/));
+    expect(
+      screen.queryByText(/Ce fichier semble imprimer les dépenses en positif/),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Importer" }));
+    await screen.findByText("Résultat de l'import");
+
+    const transactions = await repository.listFinanceTransactions();
+    expect(transactions.map((txn) => txn.amountMinor).sort((a, b) => a - b)).toEqual([
+      -3574, -2000, 50000,
+    ]);
+    const [profile] = await repository.listFinanceImportProfiles();
+    expect(profile.signConvention).toBe("inverted");
   });
 
   it("reports dropped CSV records and never stores a raw account number", async () => {

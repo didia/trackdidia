@@ -166,6 +166,99 @@ describe("FinanceReviewPage", () => {
     ]);
   });
 
+  const seedMerchantWithSuggestions = async (
+    repository: MemoryRepository,
+    suggestions: Array<{ txnId: string; categoryId: string; confidence: number }>,
+  ) => {
+    await repository.initialize();
+    await repository.seedFinanceDefaultCategories();
+    await repository.saveFinanceAccount(buildAccount());
+    for (const [index, entry] of suggestions.entries()) {
+      await repository.saveFinanceTransaction({
+        ...buildTxn(),
+        id: entry.txnId,
+        dedupeHash: `hash-${entry.txnId}`,
+        postedDate: `2026-04-0${index + 1}`,
+      });
+    }
+    await repository.saveFinanceCategorySuggestions(
+      suggestions.map((entry) => ({
+        id: `suggestion-${entry.txnId}`,
+        transactionId: entry.txnId,
+        merchantKey: "IGA MONTREAL",
+        suggestedCategoryId: entry.categoryId,
+        confidence: entry.confidence,
+        origin: "ai" as const,
+        rationale: null,
+        model: null,
+        promptVersion: null,
+        status: "pending" as const,
+        decidedAt: null,
+        createdAt: "",
+      })),
+    );
+  };
+
+  it("collapses identical suggestions of a merchant into one line and accepts them all at once", async () => {
+    const repository = new MemoryRepository();
+    await seedMerchantWithSuggestions(repository, [
+      { txnId: "txn-a", categoryId: "fincat:alimentation.epicerie", confidence: 0.3 },
+      { txnId: "txn-b", categoryId: "fincat:alimentation.epicerie", confidence: 0.2 },
+      { txnId: "txn-c", categoryId: "fincat:alimentation.epicerie", confidence: 0.3 },
+    ]);
+
+    const user = userEvent.setup();
+    await renderWithApp(<FinanceReviewPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+
+    expect(
+      await screen.findByText(/3 transaction\(s\) · confiance 20–30% · IA/),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Accepter")).toHaveLength(1);
+    expect(screen.getByText("Voir les 3 transaction(s)")).toBeInTheDocument();
+
+    await user.click(screen.getByText("Accepter"));
+    await screen.findByText("Aucune suggestion en attente.");
+    for (const id of ["txn-a", "txn-b", "txn-c"]) {
+      await expect(repository.getFinanceTransaction(id)).resolves.toMatchObject({
+        categoryId: "fincat:alimentation.epicerie",
+        categorySource: "user",
+      });
+    }
+  });
+
+  it("applies a correction to every pending suggestion of the merchant, whatever category each proposed", async () => {
+    const repository = new MemoryRepository();
+    await seedMerchantWithSuggestions(repository, [
+      { txnId: "txn-a", categoryId: "fincat:alimentation.epicerie", confidence: 0.3 },
+      { txnId: "txn-b", categoryId: "fincat:loisirs", confidence: 0.2 },
+    ]);
+
+    const user = userEvent.setup();
+    await renderWithApp(<FinanceReviewPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+
+    await screen.findByText("IGA MONTREAL");
+    expect(screen.getAllByText("Corriger")).toHaveLength(2);
+    await user.click(screen.getAllByText("Corriger")[0]);
+    await user.selectOptions(
+      await screen.findByRole("combobox"),
+      "fincat:alimentation.restaurants",
+    );
+
+    await screen.findByText("Aucune suggestion en attente.");
+    for (const id of ["txn-a", "txn-b"]) {
+      await expect(repository.getFinanceTransaction(id)).resolves.toMatchObject({
+        categoryId: "fincat:alimentation.restaurants",
+        categorySource: "user",
+      });
+    }
+  });
+
   it("disables the AI classify-pending button until all three AI finance flags are on", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();

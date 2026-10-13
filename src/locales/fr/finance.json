@@ -145,6 +145,8 @@
       "debit_credit_columns": "Colonnes débit / crédit",
       "amount_with_type_column": "Montant + type de transaction"
     },
+    "invertSign": "Inverser le signe des montants (carte de crédit : achats positifs)",
+    "allPositiveHint": "Ce fichier semble imprimer les dépenses en positif (typique d'une carte de crédit). Cochez « Inverser le signe des montants » pour que les achats soient des dépenses (négatifs) et les paiements des entrées (positifs).",
     "dateFormatLabel": "Format de date",
     "dateAmbiguous": "Le format de date est ambigu pour cet échantillon — vérifiez le format choisi.",
     "singleAccountLabel": "Compte (fichier à un seul compte)",
@@ -173,6 +175,20 @@
     "undo": "Annuler ce lot",
     "undoRefused": "{{count}} ligne(s) catégorisées manuellement n'ont pas été supprimées.",
     "undoFailed": "Échec de l'annulation.",
+    "aiRun": {
+      "result": "Classification IA terminée : {{merchants}} marchand(s) analysé(s), {{suggestions}} suggestion(s) à vérifier, {{autoApplied}} appliquée(s) automatiquement. Les suggestions sous le seuil de confiance automatique attendent votre validation dans la file de révision.",
+      "none": "Classification IA terminée : {{merchants}} marchand(s) analysé(s), mais aucune suggestion exploitable n'a été créée (marchands déjà refusés ou réponse vide).",
+      "openReview": "Ouvrir la file de révision"
+    },
+    "aiHint": {
+      "disabled_one": "{{count}} marchand n'a pas de catégorie. La catégorisation IA est désactivée : activez-la dans Paramètres › Finances pour obtenir des suggestions (puis « Classer les en attente (IA) » dans la file de révision).",
+      "disabled_other": "{{count}} marchands n'ont pas de catégorie. La catégorisation IA est désactivée : activez-la dans Paramètres › Finances pour obtenir des suggestions (puis « Classer les en attente (IA) » dans la file de révision).",
+      "unconfigured_one": "{{count}} marchand n'a pas de catégorie. La catégorisation IA est activée, mais l'IA n'est pas configurée : activez l'IA et saisissez une clé OpenRouter dans Paramètres.",
+      "unconfigured_other": "{{count}} marchands n'ont pas de catégorie. La catégorisation IA est activée, mais l'IA n'est pas configurée : activez l'IA et saisissez une clé OpenRouter dans Paramètres.",
+      "metrics_one": "{{count}} marchand n'a pas de catégorie. La portée des données IA est limitée aux métriques, ce qui exclut la catégorisation : élargissez-la dans Paramètres.",
+      "metrics_other": "{{count}} marchands n'ont pas de catégorie. La portée des données IA est limitée aux métriques, ce qui exclut la catégorisation : élargissez-la dans Paramètres.",
+      "openSettings": "Ouvrir les paramètres"
+    },
     "aiCategorizationWarning": "L'import a réussi, mais la classification IA a échoué : des suggestions IA peuvent manquer. Utilisez « Classer les en attente (IA) » dans la file de révision pour réessayer."
   },
   "transactions": {
@@ -277,6 +293,13 @@
     "reclassifyResult": "{{reclassified}} transaction(s) recatégorisée(s), {{suggestions}} nouvelle(s) suggestion(s).",
     "queueTitle": "File d'attente ({{count}})",
     "noPending": "Aucune suggestion en attente.",
+    "suggestedCategory": "Catégorie suggérée : {{category}} — {{count}} transaction(s) · confiance {{confidence}} · {{origin}}",
+    "showTransactions": "Voir les {{count}} transaction(s)",
+    "origin": {
+      "ai": "IA",
+      "memory": "mémoire des marchands",
+      "seed": "règle intégrée"
+    },
     "accept": "Accepter",
     "correct": "Corriger",
     "dismiss": "Rejeter",
