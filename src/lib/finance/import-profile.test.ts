@@ -1,5 +1,6 @@
 import { parseCsv } from "./csv";
 import {
+  INVERTED_SIGN_CONVENTION,
   MINT_PROFILE,
   assignOccurrenceIndices,
   buildHeaderSignature,
@@ -234,6 +235,26 @@ describe("mapImportRowToTransaction with generic profiles", () => {
     expect(mapped.every((result) => result.ok)).toBe(true);
     expect(mapped[0].ok && mapped[0].row.amountMinor).toBe(-5432);
     expect(mapped[1].ok && mapped[1].row.amountMinor).toBe(200000);
+  });
+
+  it("flips every signed amount when the profile uses the inverted sign convention", () => {
+    const { header, rows } = parseCsv(
+      'Date,Merchant,Amount\n2026-10-07,CONVIVIO,"$35.74"\n2026-10-08,PAIEMENT,"-$500.00"\n2026-10-09,ZERO,"$0.00"\n',
+    );
+    const profile = {
+      ...MINT_PROFILE,
+      columnMap: { date: 0, description: 1, amount: 2 },
+      dateFormat: "YYYY-MM-DD" as const,
+      amountMode: "single_signed" as const,
+      signConvention: INVERTED_SIGN_CONVENTION,
+    };
+
+    const mapped = rows.map((row) =>
+      mapImportRowToTransaction(row, header, profile, { currency: "CAD" }),
+    );
+    expect(mapped[0].ok && mapped[0].row.amountMinor).toBe(-3574);
+    expect(mapped[1].ok && mapped[1].row.amountMinor).toBe(50000);
+    expect(mapped[2].ok && Object.is(mapped[2].row.amountMinor, 0)).toBe(true);
   });
 
   it("maps a debit/credit-column generic fixture", () => {
