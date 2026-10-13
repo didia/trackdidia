@@ -787,8 +787,9 @@ days, and the account's cadence, most overdue first; a button links to `/finance
 
 The `/finances` overview has no separate list: it runs the same loader and marks each account
 row in its "Comptes" section with a small green `À mettre à jour` pill (`finance-row__update`)
-when the account is due. A failing freshness read leaves the pills out rather
-than breaking the overview.
+when the account is due. The read goes through `useAsyncResource`, so a slow response from
+before a local-day rollover cannot overwrite the new day's pills; a failing read leaves the
+pills out rather than breaking the overview.
 
 Rules (pure, `src/domain/finance/account-freshness.ts`, tested directly):
 

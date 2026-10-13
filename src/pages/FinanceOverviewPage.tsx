@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppContext } from "../app/app-context";
+import { useAsyncResource } from "../app/use-latest-request";
 import { FinanceTabs } from "../components/finance/FinanceTabs";
 import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
@@ -38,8 +39,6 @@ export const FinanceOverviewPage = () => {
   const [topCategories, setTopCategories] = useState<FinanceCategorySpendRow[]>([]);
   const [recurringSeries, setRecurringSeries] = useState<FinanceRecurringSeries[]>([]);
   const [alerts, setAlerts] = useState<FinanceAlert[]>([]);
-  // Open accounts whose data is older than their cadence (or never loaded), by account id.
-  const [accountsToUpdate, setAccountsToUpdate] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
 
@@ -83,11 +82,6 @@ export const FinanceOverviewPage = () => {
       setTopCategories(nextTopCategories.slice(0, TOP_CATEGORY_COUNT));
       setRecurringSeries(nextRecurringSeries);
       setAlerts(nextForecast.alerts);
-      // A discreet hint on the account rows; failing to compute it must not break the overview.
-      const freshness = await loadFinanceAccountFreshness(repository, today).catch(() => []);
-      setAccountsToUpdate(
-        new Set(freshness.filter((row) => row.status !== "fresh").map((row) => row.accountId)),
-      );
     } catch {
       setLoadError(true);
     } finally {
@@ -98,6 +92,24 @@ export const FinanceOverviewPage = () => {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // A discreet hint on the account rows. It has its own latest-response guard so a slow load from
+  // before a local-day rollover cannot erase the badges the new day computed, and a failure just
+  // leaves the badges out instead of breaking the overview.
+  const freshnessKey = useMemo(() => ({ repository, today }), [repository, today]);
+  const freshness = useAsyncResource(
+    freshnessKey,
+    ({ repository: currentRepository, today: currentToday }) =>
+      loadFinanceAccountFreshness(currentRepository, currentToday),
+    { refreshing: true },
+  );
+  const accountsToUpdate = useMemo(
+    () =>
+      new Set(
+        (freshness.data ?? []).filter((row) => row.status !== "fresh").map((row) => row.accountId),
+      ),
+    [freshness.data],
+  );
 
   const categoryNameById = useMemo(
     () => new Map(categories.map((category) => [category.id, category.name])),
