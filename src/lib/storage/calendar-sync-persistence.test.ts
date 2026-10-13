@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 // `createNodeSqliteDatabase`. Never point `TauriSqliteRepository` at a real connection string or
 // an app-data path from a test.
 import { createNodeSqliteDatabase } from "../../test/mocks/node-sqlite-database";
-import type { Database } from "./email-triage-sqlite-db";
+import type { Database } from "./sqlite-db";
 import { TauriSqliteRepository } from "./tauri-sqlite-repository";
 
 /** Wraps a real database and throws once on the first `COMMIT`, simulating a mid-transaction crash. */

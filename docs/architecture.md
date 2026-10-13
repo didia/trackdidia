@@ -127,7 +127,6 @@ false. `finances` (`/finances`) is the first such conditional entry, gated on
 | `/projects` | Projects | Multi-step outcomes and status management |
 | `/pomodoro` | Pomodoro | Focus/break timer, task switching, daily history |
 | `/recurrences` | Recurrences | Create, filter, pause/resume/cancel recurring series |
-| `/email-triage` | Email triage | Account cards, review queue, disabled-by-default settings |
 | `/finances` | Finance overview | Net worth, this month's cash flow, proactive runout/cash-flow alerts grouped by severity, account list with derived balances, 6-month spending trend, top categories, upcoming recurring bills; always registered, redirects to `/` while `financeEnabled` is false |
 | `/finances/transactions` | Finance transactions | Paged, filtered transaction list with inline category edit, splits, transfer/exclude toggles, bulk toolbar |
 | `/finances/budget` | Finance budget | Month selector, Ready to Assign, envelope grid with inline assignment, overspend policy, quick-assign actions, "Non budgété" band, close/reopen month |
@@ -198,20 +197,17 @@ screen.
       the other is a no-op.
 5. Expose the repository and settings to the UI.
 6. After a successful bootstrap (not browser preview and not the startup
-   fallback), start the email triage coordinator. It still no-ops while the
-   feature flag is off, and it probes the OS vault only after that flag is on.
-   On desktop, connected Gmail and Microsoft Graph accounts use the live adapter
-   when vault credentials exist; Yahoo uses live IMAP on desktop (mock in browser preview).
-7. After bootstrap, the calendar sync hook mounts beside the email triage
-   coordinator (repository present, not browser preview, startup settled) and runs
-   one reconcile pass; it still no-ops while the feature is disabled or
-   disconnected. See [Calendar sync](calendar-sync.md).
+   fallback), re-apply the saved tray and launch-at-login preferences to the native
+   host (`useDesktopShell`; see [LLM bridge](llm-bridge.md#keeping-the-app-running)).
+7. After bootstrap, the calendar sync hook mounts (repository present, not browser
+   preview, startup settled) and runs one reconcile pass; it still no-ops while the
+   feature is disabled or disconnected. See [Calendar sync](calendar-sync.md).
 
 The startup operation has an eight-second timeout (`BOOTSTRAP_TIMEOUT_MS`). An
 exception from any step or the timeout activates a new `MemoryRepository`, shows a
 warning banner (the timeout message names the stage in progress), and keeps the UI
-usable. Data entered in that fallback is lost when the application reloads. The email
-triage coordinator and the calendar sync hook do not start in that fallback path.
+usable. Data entered in that fallback is lost when the application reloads. The desktop
+shell hook, the calendar sync hook, and the LLM bridge do not start in that fallback path.
 
 Once a repository is available, `AppProvider` starts two schedulers. Both read
 changing values (current settings, the running Pomodoro session) through refs, so
@@ -268,9 +264,7 @@ refresh (which only settles expired sessions) read without reconciling.
 
 `AppRepository` is the persistence contract. It covers daily entries, reviews,
 annual goals, settings/backups, GTD entities, recurrence templates, task-derived
-statistics, and Pomodoro sessions. Its `emailTriage` property exposes the separate
-`EmailTriageStore` contract for the email triage foundation tables. Both repository
-implementations construct their matching email store with the same task callbacks.
+statistics, and Pomodoro sessions.
 
 The two implementations intentionally share pure functions:
 
@@ -364,6 +358,5 @@ default core access, notifications, and dialogs.
 - [GTD](gtd.md)
 - [Recurrences and Pomodoro](recurrences-and-pomodoro.md)
 - [AI, settings, and privacy](ai-settings-and-privacy.md)
-- [Email triage](email-triage.md)
 - [Calendar sync](calendar-sync.md)
 - [LLM bridge](llm-bridge.md)

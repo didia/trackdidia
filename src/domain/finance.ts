@@ -1,5 +1,5 @@
 // Finance domain types. Mirrors the SQLite schema in the finance spec
-// (specs/done/finance.md) one-for-one, like src/domain/email-triage.ts.
+// (specs/done/finance.md) one-for-one.
 // Types only — no migrations, no I/O, no settings fields live here.
 
 export type FinanceAccountType =

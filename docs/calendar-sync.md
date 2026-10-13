@@ -250,7 +250,7 @@ is treated as success.
 
 ## Triggers
 
-`src/app/use-calendar-sync.ts` mounts beside `useEmailTriageCoordinator`, only when
+`src/app/use-calendar-sync.ts` mounts only when
 a repository exists, this is not browser preview, and startup has settled. It runs
 one reconcile on mount, a 15-minute backstop timer, and a window `focus` listener,
 and registers the debounced (~2 s) `requestCalendarSync()` entry point, which is a
@@ -261,9 +261,7 @@ so `requestCalendarSync()` is also called from:
 - `src/app/use-local-day-reconciliation.ts` — after `reconcileDay` succeeds
   (guarded once per day);
 - `src/app/use-pomodoro-controller.ts` — after `repository.completeTask(...)`;
-- `src/pages/RecurrencesPage.tsx` — after template save/pause/resume/cancel;
-- `src/app/use-email-triage-coordinator.ts` — the GTD-update adapter (email triage's
-  own `resolveReview` applies a GTD update without nudging; this is backstop-only).
+- `src/pages/RecurrencesPage.tsx` — after template save/pause/resume/cancel.
 
 `listTasks()` does not promote. Promotion runs inside `reconcileDay`, and promotion
 capture lives in that step rather than in the reconciler, so a reconcile pass cannot
@@ -271,8 +269,8 @@ miss today's dated work by racing a page load.
 
 ## OAuth, vault, and scopes
 
-Calendar sync reuses the Gmail installed-app OAuth flow from
-`src/lib/email-triage/oauth/gmail-oauth.ts`: PKCE, a loopback listener, and the same
+Calendar sync uses the Google installed-app OAuth flow from
+`src/lib/oauth/google-oauth.ts` and `src/lib/oauth/pkce.ts`: PKCE, a loopback listener, and the same
 Google token endpoint, with a calendar-scoped authorization URL
 (`src/lib/calendar/google-calendar-oauth.ts`). The requested scope is
 `https://www.googleapis.com/auth/calendar.app.created` plus the non-sensitive
@@ -281,16 +279,14 @@ account's email address, so `email` is requested alongside it purely to identify
 the connected account (`GoogleCalendarApiClient.getAccountProfile`). The refresh
 token is stored in the OS vault under the fixed `calendar_credentials` kind
 (`src-tauri/src/vault.rs` `resolve_key`; there is only ever one connected account,
-so no `accountId` is needed, unlike email triage's per-account `provider_credentials`
-entries). The access token stays in memory only (`src/lib/calendar/session.ts`).
+so no `accountId` is needed). The access token stays in memory only (`src/lib/calendar/session.ts`).
 
 **Loopback collision.** `oauth_loopback.rs` holds exactly one global loopback
-session: starting a new OAuth flow silently cancels any pending one. Email triage
-(Gmail, Microsoft Graph) and calendar sync both drive that loopback, so a flow
-started by one would otherwise cancel a flow in progress for the other.
-`src/lib/oauth-loopback-guard.ts` is the TypeScript-side mutex: whichever flow
-acquires the lease first holds it until it releases (success, failure, or timeout);
-the other is rejected up front with a clear French error
+session: starting a new OAuth flow silently cancels any pending one, so a second
+connect started while one is pending would cancel the first.
+`src/lib/oauth-loopback-guard.ts` is the TypeScript-side mutex: the first flow
+acquires the lease and holds it until it releases (success, failure, or timeout);
+a second is rejected up front with a clear French error
 (`oauth_loopback_busy`) instead of silently losing its callback.
 
 ## Settings card
@@ -313,7 +309,7 @@ columns have no UI.
    and calendar scopes are sensitive. The OAuth consent screen must be set to
    *In production* (an unverified app is fine for a single user) — this is the
    likeliest cause of a "sync silently stopped working" report.
-2. **Loopback collision** between calendar sync and email triage OAuth flows; see
+2. **Loopback collision** between two calendar connect attempts; see
    [OAuth, vault, and scopes](#oauth-vault-and-scopes).
 3. **Rate limits on first sync.** Adopt-or-insert costs one `events.list` call per
    create, so a large backlog does up to N list + N insert calls, capped by the
@@ -342,4 +338,3 @@ and UI for the four dormant settings columns.
 - [GTD](gtd.md)
 - [Architecture](architecture.md)
 - [AI, settings, and privacy](ai-settings-and-privacy.md)
-- [Email triage](email-triage.md)

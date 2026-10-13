@@ -1,6 +1,6 @@
 /**
- * Google Calendar OAuth: reuses the Gmail installed-app flow (PKCE, loopback, same Google
- * token endpoint) from `src/lib/email-triage/oauth/gmail-oauth.ts`, with a calendar-scoped
+ * Google Calendar OAuth: reuses the Google installed-app flow (PKCE, loopback, same Google
+ * token endpoint) from `src/lib/oauth/google-oauth.ts`, with a calendar-scoped
  * authorization URL. See "Auth machinery" in `specs/done/calendar-sync.md`.
  */
 import {
@@ -12,7 +12,7 @@ import {
   serializeProviderCredentials,
   type GmailOAuthTokens,
   type GmailProviderCredentials,
-} from "../email-triage/oauth/gmail-oauth";
+} from "../oauth/google-oauth";
 
 export const CALENDAR_SYNC_OAUTH_SCOPE = "https://www.googleapis.com/auth/calendar.app.created";
 

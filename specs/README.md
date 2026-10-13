@@ -26,6 +26,6 @@ current-product behavior remains documented in [`docs/`](../docs/).
   before/after card on `/semaine`, and AI steering. The optional journal feed (PR C) was not
   shipped.
 - [`done/ai-integration-v2.md`](done/ai-integration-v2.md) — implemented AI integration v2.
-- [`done/email-triage.md`](done/email-triage.md) — implemented multi-account email triage.
+- [`done/email-triage.md`](done/email-triage.md) — multi-account email triage (implemented, then removed on 2026-10-12 in favor of the MCP bridge).
 - [`done/project-planned-tasks.md`](done/project-planned-tasks.md) — implemented Project
   Planned Tasks feature.

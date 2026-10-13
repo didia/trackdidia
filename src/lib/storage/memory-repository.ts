@@ -145,7 +145,6 @@ import {
 import { buildDailyRelationshipDrawPlan } from "../relationship-draws";
 import type { AppRepository, PomodoroStartOptions, StorageInfo } from "./repository";
 import { CalendarSyncMemoryStore } from "./calendar-sync-memory-store";
-import { EmailTriageMemoryStore } from "./email-triage-memory-store";
 import { FinanceMemoryStore } from "./finance-memory-store";
 
 export class MemoryRepository implements AppRepository {
@@ -168,33 +167,6 @@ export class MemoryRepository implements AppRepository {
   private aiMessages = new Map<string, AiMessage>();
   private aiProposals = new Map<string, AiProposal>();
   private aiMemories = new Map<string, AiMemory>();
-  readonly emailTriage = new EmailTriageMemoryStore({
-    getTaskByExternalId: (externalId) =>
-      [...this.tasks.values()].find((task) => task.sourceExternalId === externalId),
-    createTask: (input) => this.saveTaskInternal(createTaskFromInput(input)),
-    saveTask: (task) => this.saveTaskInternal(task),
-    handlesLifecycleEvents: true,
-    atomic: (work) => {
-      const snapshot = {
-        tasks: new Map(this.tasks),
-        events: new Map(this.events),
-        contexts: new Map(this.contexts),
-        projects: new Map(this.projects),
-      };
-      try {
-        return work();
-      } catch (error) {
-        Object.assign(this, snapshot);
-        throw error;
-      }
-    },
-    persistEvents: (events) => {
-      for (const event of events) {
-        this.events.set(event.id, event);
-      }
-    },
-    getTaskById: (id) => this.tasks.get(id),
-  });
   private readonly calendarSync = new CalendarSyncMemoryStore();
   private readonly finance = new FinanceMemoryStore();
 

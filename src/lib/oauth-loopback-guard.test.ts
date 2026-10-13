@@ -13,10 +13,10 @@ describe("acquireOAuthLoopbackLease", () => {
   });
 
   it("refuses a second flow while one is active, reporting the current owner", () => {
-    const first = acquireOAuthLoopbackLease("email_triage");
+    const first = acquireOAuthLoopbackLease("calendar_sync");
     expect(first.ok).toBe(true);
     const second = acquireOAuthLoopbackLease("calendar_sync");
-    expect(second).toEqual({ ok: false, activeOwner: "email_triage" });
+    expect(second).toEqual({ ok: false, activeOwner: "calendar_sync" });
   });
 
   it("releases the lease so a later flow can acquire it", () => {
@@ -26,7 +26,7 @@ describe("acquireOAuthLoopbackLease", () => {
       first.lease.release();
     }
     expect(__oauthLoopbackGuardForTests.current()).toBeNull();
-    const second = acquireOAuthLoopbackLease("email_triage");
+    const second = acquireOAuthLoopbackLease("calendar_sync");
     expect(second.ok).toBe(true);
   });
 
@@ -46,11 +46,11 @@ describe("acquireOAuthLoopbackLease", () => {
     if (first.ok) {
       first.lease.release();
     }
-    const second = acquireOAuthLoopbackLease("email_triage");
+    const second = acquireOAuthLoopbackLease("calendar_sync");
     expect(second.ok).toBe(true);
     if (first.ok) {
       first.lease.release();
     }
-    expect(__oauthLoopbackGuardForTests.current()).toBe("email_triage");
+    expect(__oauthLoopbackGuardForTests.current()).toBe("calendar_sync");
   });
 });

@@ -9,9 +9,9 @@
  * from `https://www.googleapis.com/oauth2/v3/userinfo` (same host, no extra capability).
  */
 import type { CalendarSyncEventPayload } from "../../domain/calendar-sync";
-import { ProviderHttpError } from "../email-triage/provider-http";
-import type { GmailHttpClient } from "../email-triage/provider-http";
-import { assertHttpSuccess, parseJsonBody } from "../email-triage/provider-http";
+import { ProviderHttpError } from "../provider-http";
+import type { ProviderHttpClient } from "../provider-http";
+import { assertHttpSuccess, parseJsonBody } from "../provider-http";
 
 const CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3";
 const USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo";
@@ -65,7 +65,7 @@ export interface CalendarAccountProfile {
 
 export class GoogleCalendarApiClient {
   constructor(
-    private readonly http: GmailHttpClient,
+    private readonly http: ProviderHttpClient,
     private readonly getAccessToken: (forceRefresh?: boolean) => Promise<string>,
   ) {}
 
@@ -157,7 +157,7 @@ export class GoogleCalendarApiClient {
       if (pageToken) {
         searchParams.append("pageToken", pageToken);
       }
-      let response: Awaited<ReturnType<GmailHttpClient["request"]>>;
+      let response: Awaited<ReturnType<ProviderHttpClient["request"]>>;
       try {
         response = await this.authorizedRequest(
           "GET",

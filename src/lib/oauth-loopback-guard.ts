@@ -1,16 +1,14 @@
 /**
  * Shared "OAuth in progress" guard. `oauth_loopback.rs` holds exactly one global loopback
  * session (`src-tauri/src/oauth_loopback.rs`): starting a new session silently cancels any
- * pending one. Email triage (`src/lib/email-triage/runtime.ts`, Gmail and Microsoft) and
- * calendar sync (`src/lib/calendar/connect.ts`) both drive that loopback, so a flow started
- * by one would otherwise cancel a pending flow from the other. This in-memory flag is the
- * TypeScript-side mutex: whichever flow starts first holds the lease until it releases it
- * (success, failure or timeout), and the other is rejected up front with a clear reason
- * rather than silently losing its callback. See "Loopback collision" in
- * `specs/done/calendar-sync.md`.
+ * pending one. Calendar sync (`src/lib/calendar/connect.ts`) drives that loopback, so a second
+ * connect started while one is pending would otherwise cancel it. This in-memory flag is the
+ * TypeScript-side mutex: the first flow holds the lease until it releases it (success,
+ * failure or timeout), and a second is rejected up front with a clear reason rather than
+ * silently losing its callback. See "Loopback collision" in `specs/done/calendar-sync.md`.
  */
 
-export type OAuthLoopbackOwner = "email_triage" | "calendar_sync";
+export type OAuthLoopbackOwner = "calendar_sync";
 
 export interface OAuthLoopbackLease {
   release: () => void;

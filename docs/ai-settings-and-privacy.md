@@ -67,7 +67,7 @@ OAuth uses PKCE and a loopback callback, requesting `calendar.app.created` and t
 non-sensitive `email` scope to identify the account through Google's userinfo endpoint.
 The refresh token lives only in the OS vault's `calendar_credentials` entry; access tokens
 are cached in memory. The shared OAuth lease remains held through profile lookup, calendar
-creation, and the vault/settings commit, preventing a second calendar or email OAuth flow
+creation, and the vault/settings commit, preventing a second calendar OAuth flow
 from interleaving it.
 
 Calendar preference saves, connects, disconnects, and reconciler commits share an ordered
@@ -858,10 +858,10 @@ Structured `coach_pulse` requests include:
 - a French system prompt with stance context and optional memory block;
 - the redacted daily snapshot plus deterministic commitment resolution when applicable.
 
-Both coach requests and email triage classification use the shared `openrouter-client.ts`
+Coach requests and the finance AI features use the shared `openrouter-client.ts`
 request builder and response parser. Coach surfaces use webview `fetch` to preserve their
-existing retry behavior; email triage uses the native, host-allowlisted
-`provider_http_request` command and makes one attempt. Both send the same bearer,
+existing retry behavior; the other callers use the native, host-allowlisted
+`provider_http_request` command and make one attempt. Both send the same bearer,
 referer, and title headers. The shared timeout helper is also used by RescueTime.
 
 Transport hardening:
@@ -1061,27 +1061,15 @@ and pastor previews skip RescueTime. If either weekly resolution fails, the pane
 shows a non-blocking warning banner and the preview still renders (with missing
 RescueTime data) rather than failing outright.
 
-## Email triage classifier key (optional)
-
-Email triage uses a **separate** OpenRouter key stored in the OS vault (`triage_api_key`),
-not the coach key in SQLite settings. The French `/email-triage` page offers an explicit
-**copy coach key** action; nothing migrates or clears the coach key automatically. Gmail
-refresh tokens live in the same vault under per-account `provider_credentials` entries.
-Access tokens stay in memory only. Browser preview disables vault writes, OAuth, provider
-HTTP, tray, autostart, and live provider mutation. Automatic mutation requires a passed
-evaluation corpus matching the current model and thresholds. See [Email triage](email-triage.md).
-
 ## Calendar sync account (optional)
 
 Calendar sync is a separate, disabled-by-default feature that is not an OpenRouter
 request and carries no task content to Google beyond the mirrored event's title.
 Its Google refresh token lives in the OS vault under its own fixed
-`calendar_credentials` kind (not the per-account `provider_credentials` entries
-email triage uses); the access token stays in memory only. Email triage's Gmail/
-Microsoft Graph OAuth and calendar sync's Google OAuth share one native loopback
-listener, so a shared in-memory guard lets only one of the two flows run at a time
-and rejects the other with a clear error instead of silently losing its callback.
-See [Calendar sync](calendar-sync.md).
+`calendar_credentials` kind, the only kind the vault resolves; the access token stays in
+memory only. The native OAuth loopback listener holds one session, so a shared in-memory
+guard lets only one connect run at a time and rejects the other with a clear error instead
+of silently losing its callback. See [Calendar sync](calendar-sync.md).
 
 ## Related documentation
 

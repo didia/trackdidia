@@ -1,5 +1,4 @@
-// Finance persistence (Phase 2 — Schema and repository parity). Mirrors the
-// email-triage pattern: row mapping/query code lives here, reached through
+// Finance persistence (Phase 2 — Schema and repository parity). Row mapping/query code lives here, reached through
 // thin delegating methods on `TauriSqliteRepository` (see `getFinanceStore()`).
 // See specs/done/finance.md "Repository methods" and "CSV import".
 

@@ -1,9 +1,14 @@
 # Multi-account email triage
 
-**Status:** Implemented
+**Status:** Implemented, then removed (2026-10-12)
 
-This specification describes the shipped email triage feature. For canonical
-runtime documentation see [`docs/email-triage.md`](../../docs/email-triage.md).
+This specification is kept as a historical record. The feature was removed: connecting
+Gmail, Microsoft 365, and Yahoo directly kept failing in practice (Yahoo asked for the app
+password again on every start, the Google OAuth redirect never produced an account, and
+Microsoft 365 tenants can require administrator consent for a third-party app). Email now
+reaches TrackDidia through an LLM client that has mail access and calls the MCP `add_tasks`
+tool; see [`docs/llm-bridge.md`](../../docs/llm-bridge.md). The `email_triage_*` SQLite tables
+remain in place, unused, because migrations are append-only.
 
 ## Goal
 

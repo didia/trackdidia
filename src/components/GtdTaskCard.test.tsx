@@ -1,8 +1,15 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { vi } from "vitest";
+import { beforeEach, vi } from "vitest";
 import type { Project, Task, TaskContext } from "../domain/types";
 import { GtdTaskCard } from "./GtdTaskCard";
+
+const openExternalUrlMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../lib/open-external", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/open-external")>()),
+  openExternalUrl: openExternalUrlMock,
+}));
 
 const now = "2026-03-01T10:00:00.000Z";
 
@@ -412,5 +419,29 @@ describe("GtdTaskCard next-action age", () => {
   it("shows a plural day count", () => {
     renderWithAge(3);
     expect(screen.getByText("Depuis 3 jours")).toBeInTheDocument();
+  });
+});
+
+describe("GtdTaskCard source link", () => {
+  beforeEach(() => {
+    openExternalUrlMock.mockReset();
+  });
+
+  it("opens an http(s) sourceUrl from the Source button", async () => {
+    renderCard(buildTask({ sourceUrl: "https://mail.google.com/mail/u/0/#inbox/abc" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Ouvrir la source de Réviser les documents" }),
+    );
+    expect(openExternalUrlMock).toHaveBeenCalledWith("https://mail.google.com/mail/u/0/#inbox/abc");
+  });
+
+  it("hides the Source button without a sourceUrl or with an unsafe scheme", () => {
+    renderCard(buildTask({ sourceUrl: null }));
+    expect(screen.queryByRole("button", { name: /Ouvrir la source/ })).toBeNull();
+  });
+
+  it("does not render a Source button for a non-web scheme", () => {
+    renderCard(buildTask({ sourceUrl: "javascript:alert(1)" }));
+    expect(screen.queryByRole("button", { name: /Ouvrir la source/ })).toBeNull();
   });
 });

@@ -25,9 +25,9 @@ vi.mock("./vault", () => ({
   storeCalendarVaultSecret: (...args: unknown[]) => storeCalendarVaultSecretMock(...args),
   deleteCalendarVaultSecret: (...args: unknown[]) => deleteCalendarVaultSecretMock(...args),
 }));
-vi.mock("../email-triage/provider-http", async () => {
-  const actual = await vi.importActual<typeof import("../email-triage/provider-http")>(
-    "../email-triage/provider-http",
+vi.mock("../provider-http", async () => {
+  const actual = await vi.importActual<typeof import("../provider-http")>(
+    "../provider-http",
   );
   return {
     ...actual,
@@ -36,7 +36,7 @@ vi.mock("../email-triage/provider-http", async () => {
 });
 
 import { saveCalendarSyncPreferences } from "./mutations";
-import { getCachedAccessToken, setCachedAccessToken } from "../email-triage/token-cache";
+import { getCachedAccessToken, setCachedAccessToken } from "../token-cache";
 import { CALENDAR_SYNC_TOKEN_CACHE_KEY, clearCalendarSyncAccessTokenCache } from "./session";
 import { connectCalendarSyncAccount, disconnectCalendarSyncAccount } from "./connect";
 
@@ -107,7 +107,7 @@ describe("connectCalendarSyncAccount", () => {
   });
 
   it("refuses to start when the shared OAuth loopback is already busy", async () => {
-    const lease = acquireOAuthLoopbackLease("email_triage");
+    const lease = acquireOAuthLoopbackLease("calendar_sync");
     expect(lease.ok).toBe(true);
     try {
       const repo = new FakeCalendarRepository();

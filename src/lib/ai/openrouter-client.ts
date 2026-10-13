@@ -1,4 +1,4 @@
-import { providerHttpRequest } from "../email-triage/provider-http";
+import { providerHttpRequest } from "../provider-http";
 import { createTimeoutController, toTimeoutError } from "../http/timeout";
 
 export const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";

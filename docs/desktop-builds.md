@@ -118,13 +118,13 @@ The Rust host registers:
 
 - `tauri-plugin-notification`;
 - `tauri-plugin-dialog`;
-- `tauri-plugin-opener` (system browser for Gmail OAuth and message links);
-- `tauri-plugin-autostart` (optional launch-at-login for email triage);
-- system tray (`tray-icon` feature) for optional hide-on-close email triage polling;
+- `tauri-plugin-opener` (system browser for the Google Calendar OAuth consent and task source links);
+- `tauri-plugin-autostart` (optional launch-at-login, Settings → Application de bureau);
+- system tray (`tray-icon` feature) for the optional hide-on-close tray, so the [LLM bridge](llm-bridge.md#keeping-the-app-running) keeps answering;
 - the custom `resolve_storage_paths` command;
 - the custom `ensure_backup_dir` and `prune_backups` commands;
 - the custom `provider_http_request`, `oauth_loopback_start`, and `oauth_loopback_wait`
-  commands (email OAuth and provider HTTP, including RescueTime, from the Rust host);
+  commands (Google Calendar OAuth and provider HTTP, including OpenRouter and RescueTime, from the Rust host);
 - the custom `db_connect`, `db_execute`, and `db_select` commands (`src-tauri/src/db.rs`),
   a hand-rolled single-connection sqlx pool that replaces `tauri-plugin-sql`.
 
@@ -136,7 +136,7 @@ The default main-window capability grants:
 - `opener:default`;
 - `autostart:default`.
 
-The tray icon is created at runtime when email triage **run in tray** is enabled;
+The tray icon is created at runtime when **Réduire dans la barre système à la fermeture** is enabled;
 closing the main window hides it until **Afficher** or **Quitter** from the tray menu.
 
 New native APIs require both plugin initialization and capability review.

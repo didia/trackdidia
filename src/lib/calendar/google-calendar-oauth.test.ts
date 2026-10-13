@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ProviderHttpError, isInvalidGrantError } from "../email-triage/provider-http";
+import { ProviderHttpError, isInvalidGrantError } from "../provider-http";
 import {
   buildCalendarSyncAuthorizationUrl,
   CALENDAR_SYNC_OAUTH_REQUESTED_SCOPES,

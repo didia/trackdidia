@@ -1,6 +1,5 @@
 import type { AcceptEffect, AiProposalAcceptResult } from "../ai/proposals/accept-effect";
 import type { ReconcileDayResult } from "../gtd/reconcile";
-import type { EmailTriageStore } from "./email-triage-store";
 import type {
   CalendarSyncDetachReason,
   CalendarSyncLink,
@@ -312,7 +311,6 @@ export interface AppRepository {
     scope: RecurringEditScope,
     changes: RecurringTaskChanges,
   ): Promise<Task>;
-  readonly emailTriage: EmailTriageStore;
 
   // --- Finance (Phase 2 — Schema and repository parity) ---------------------------------
 

@@ -54,7 +54,6 @@ const wrapRepository = (repository: MemoryRepository) => {
     },
     pulseRevision: 0,
     calendarDay: getTodayDate(),
-    reconfigureEmailTriage: async () => undefined,
     llmBridgeStatus: { state: "off" },
     retryLlmBridge: () => undefined,
   };

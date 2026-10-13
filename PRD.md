@@ -3,7 +3,9 @@
 - [Project Planned Tasks](specs/done/project-planned-tasks.md) — file d’actions planifiées
   par projet, avec promotion contrôlée vers la prochaine action. Implémenté.
 - [Triage d’emails multi-comptes](specs/done/email-triage.md) — collecte locale, tri IA et
-  création contrôlée de tâches GTD pour Gmail, Microsoft 365 et Yahoo. Implémenté.
+  création contrôlée de tâches GTD pour Gmail, Microsoft 365 et Yahoo. Implémenté puis retiré
+  (2026-10-12) au profit du pont MCP: un client LLM lit les courriels et ajoute les tâches dans
+  l’Inbox via `add_tasks`.
 
 Voici le plan que je te recommande pour la suite, dans un ordre qui garde l’app utilisable très vite tout en collant à ton process réel.
 

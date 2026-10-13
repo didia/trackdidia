@@ -163,7 +163,6 @@ import {
 import { buildDailyRelationshipDrawPlan } from "../relationship-draws";
 import { CalendarSyncSqliteStore } from "./calendar-sync-sqlite-store";
 import { DbSerialQueue } from "./db-serial-queue";
-import { EmailTriageSqliteStore } from "./email-triage-sqlite-store";
 import { FinanceSqliteStore } from "./finance-sqlite-store";
 import type { Database as SqliteDatabase } from "./sqlite-db";
 import type {
@@ -208,24 +207,6 @@ export class TauriSqliteRepository implements AppRepository {
   private financeStore: FinanceSqliteStore | null = null;
   private readonly writeQueue = new DbSerialQueue();
   private calendarSyncStore: CalendarSyncSqliteStore | null = null;
-  readonly emailTriage = new EmailTriageSqliteStore(
-    () => this.getDb(),
-    {
-      getTaskByExternalId: (externalId) => this.getTaskByExternalId(externalId),
-      createTask: (input) => this.createTask(input),
-      saveTask: (task) => this.saveTask(task),
-      persistEvents: (events) => this.persistEvents(events),
-      handlesLifecycleEvents: true,
-    },
-    (work) => this.writeTransaction(work),
-    (tx) => ({
-      getTaskByExternalId: (externalId) => this.getTaskByExternalId(externalId),
-      createTask: (input) => this.createTaskInternal(tx, input),
-      saveTask: (task) => this.saveTaskInternal(tx, task),
-      persistEvents: (events) => this.persistEvents(events),
-      handlesLifecycleEvents: true,
-    }),
-  );
 
   /**
    * `openDb` defaults to the real Tauri-backed `Database.load`; tests inject an in-memory
@@ -249,15 +230,6 @@ export class TauriSqliteRepository implements AppRepository {
       this.financeStore = new FinanceSqliteStore(() => this.getDb());
     }
     return this.financeStore;
-  }
-
-  private async getTaskByExternalId(externalId: string): Promise<Task | null> {
-    const db = await this.getDb();
-    const rows = await db.select<tasksRows.TaskRow[]>(
-      `SELECT ${tasksRows.COLUMNS} FROM gtd_tasks WHERE source_external_id = $1`,
-      [externalId],
-    );
-    return rows[0] ? tasksRows.fromRow(rows[0]) : null;
   }
 
   private writeExclusive<T>(operation: () => Promise<T>): Promise<T> {

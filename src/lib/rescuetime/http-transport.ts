@@ -3,7 +3,7 @@ import {
   parseJsonBody,
   providerHttpRequest,
   ProviderHttpError,
-} from "../email-triage/provider-http";
+} from "../provider-http";
 import { isTauriRuntime } from "../storage/factory";
 import { createTimeoutController, toTimeoutError as normalizeTimeoutError } from "../http/timeout";
 
