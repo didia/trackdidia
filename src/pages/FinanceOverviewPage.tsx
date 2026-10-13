@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppContext } from "../app/app-context";
-import { FinanceAccountFreshnessCard } from "../components/finance/FinanceAccountFreshnessCard";
+import { useAsyncResource } from "../app/use-latest-request";
 import { FinanceTabs } from "../components/finance/FinanceTabs";
 import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
@@ -13,6 +13,7 @@ import type { FinanceNetWorthSnapshot } from "../domain/finance/net-worth";
 import type { FinanceCategorySpendRow, FinanceTrendPoint } from "../domain/finance/reports";
 import { getMonthEndDate, getMonthKey, getMonthStartDate } from "../domain/monthly-review";
 import { formatDateShort, getTodayDate } from "../lib/date";
+import { loadFinanceAccountFreshness } from "../lib/finance/account-freshness-loader";
 import { formatMoney } from "../lib/finance/money";
 
 const ALERT_SEVERITY_ORDER: FinanceAlertSeverity[] = ["critical", "warning", "info"];
@@ -91,6 +92,24 @@ export const FinanceOverviewPage = () => {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // A discreet hint on the account rows. It has its own latest-response guard so a slow load from
+  // before a local-day rollover cannot erase the badges the new day computed, and a failure just
+  // leaves the badges out instead of breaking the overview.
+  const freshnessKey = useMemo(() => ({ repository, today }), [repository, today]);
+  const freshness = useAsyncResource(
+    freshnessKey,
+    ({ repository: currentRepository, today: currentToday }) =>
+      loadFinanceAccountFreshness(currentRepository, currentToday),
+    { refreshing: true },
+  );
+  const accountsToUpdate = useMemo(
+    () =>
+      new Set(
+        (freshness.data ?? []).filter((row) => row.status !== "fresh").map((row) => row.accountId),
+      ),
+    [freshness.data],
+  );
 
   const categoryNameById = useMemo(
     () => new Map(categories.map((category) => [category.id, category.name])),
@@ -536,8 +555,6 @@ export const FinanceOverviewPage = () => {
           </div>
         </SectionCard>
 
-        <FinanceAccountFreshnessCard />
-
         <SectionCard title={t("overview.accountsTitle")}>
           {loading ? <p>{t("overview.loading")}</p> : null}
           {loadError ? <p className="banner">{t("overview.loadError")}</p> : null}
@@ -568,6 +585,14 @@ export const FinanceOverviewPage = () => {
                       {account.name}
                       {account.closed ? ` ${t("overview.closedAccount")}` : ""}
                     </h3>
+                    {accountsToUpdate.has(account.id) ? (
+                      <span
+                        className="finance-row__update"
+                        data-testid={`finance-account-update-${account.id}`}
+                      >
+                        {t("freshness.status.due")}
+                      </span>
+                    ) : null}
                   </div>
                   <span
                     className={`finance-row__amount${

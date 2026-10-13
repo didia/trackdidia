@@ -38,6 +38,8 @@ describe("finance money", () => {
     expect(parseAmountToMinor("$-12.00")).toEqual({ ok: true, amountMinor: -1200 });
     expect(parseAmountToMinor("−12.00")).toEqual({ ok: true, amountMinor: -1200 });
     expect(parseAmountToMinor("CA$5.00")).toEqual({ ok: true, amountMinor: 500 });
+    expect(parseAmountToMinor("-$12.00")).toEqual({ ok: true, amountMinor: -1200 });
+    expect(parseAmountToMinor("−$12.00")).toEqual({ ok: true, amountMinor: -1200 });
   });
 
   it("parses a trailing CR/DR marker", () => {

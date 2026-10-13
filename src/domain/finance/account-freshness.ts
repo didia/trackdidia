@@ -2,19 +2,26 @@
 // "Account update tracking". Balances are derived from imported transactions or an
 // applied statement, so an account is only as current as the newest of those.
 
-import { atLocalNoon } from "../../lib/date";
+import { atLocalNoon, toLocalDateString } from "../../lib/date";
 import type { FinanceAccount } from "../finance";
 
 /** On-budget accounts drive the weekly budget review; every other account is checked monthly. */
 export const FINANCE_BUDGET_ACCOUNT_CADENCE_DAYS = 7;
 export const FINANCE_OTHER_ACCOUNT_CADENCE_DAYS = 30;
 
-export type FinanceAccountFreshnessStatus = "fresh" | "due" | "never";
+export type FinanceAccountFreshnessStatus = "fresh" | "due";
 
 export interface FinanceAccountFreshnessInput {
   account: Pick<
     FinanceAccount,
-    "id" | "name" | "institution" | "type" | "onBudget" | "closed" | "updateCadenceDays"
+    | "id"
+    | "name"
+    | "institution"
+    | "type"
+    | "onBudget"
+    | "closed"
+    | "updateCadenceDays"
+    | "createdAt"
   >;
   /** Newest `posted_date` of any transaction on the account, or null when it has none. */
   latestTransactionDate: string | null;
@@ -30,13 +37,16 @@ export interface FinanceAccountFreshness {
   cadenceDays: number;
   /** True when the account carries its own cadence instead of the weekly/monthly default. */
   cadenceIsCustom: boolean;
-  /** Newest date the account's data is known to cover; null when nothing was ever loaded. */
-  dataThroughDate: string | null;
-  dataThroughSource: "transaction" | "statement" | null;
-  /** Whole local days between `dataThroughDate` and today; null when `dataThroughDate` is. */
-  ageDays: number | null;
-  /** Days past the cadence (0 when exactly due, negative when still inside it); null when never loaded. */
-  overdueDays: number | null;
+  /**
+   * Newest date the account's data is known to cover. An account with no transaction and no
+   * statement counts from the day it was created.
+   */
+  dataThroughDate: string;
+  dataThroughSource: "transaction" | "statement" | "created";
+  /** Whole local days between `dataThroughDate` and today. */
+  ageDays: number;
+  /** Days past the cadence (0 when exactly due, negative when still inside it). */
+  overdueDays: number;
   status: FinanceAccountFreshnessStatus;
 }
 
@@ -68,9 +78,11 @@ const daysBetween = (from: string, to: string): number =>
 
 /**
  * Freshness of one account at `today`. The newer of the latest transaction date and the
- * latest statement date is the "data through" date. An account is `due` once that date is
- * at least one full cadence old (a Sunday review sees last Sunday's data as due), and
- * `never` when nothing was ever loaded.
+ * latest statement date is the "data through" date; an account that never received either
+ * counts from its creation date, so it only becomes `due` once a full cadence has passed
+ * since it was created (accounts the user never imports stay quiet until then).
+ * An account is `due` once that date is at least one full cadence old (a Sunday review sees
+ * last Sunday's data as due).
  */
 export const computeFinanceAccountFreshness = (
   input: FinanceAccountFreshnessInput,
@@ -81,7 +93,7 @@ export const computeFinanceAccountFreshness = (
   const cadenceIsCustom = hasCustomCadence(account);
 
   let dataThroughDate: string | null = null;
-  let dataThroughSource: FinanceAccountFreshness["dataThroughSource"] = null;
+  let dataThroughSource: FinanceAccountFreshness["dataThroughSource"] = "created";
   if (latestTransactionDate) {
     dataThroughDate = latestTransactionDate;
     dataThroughSource = "transaction";
@@ -90,21 +102,8 @@ export const computeFinanceAccountFreshness = (
     dataThroughDate = latestStatementDate;
     dataThroughSource = "statement";
   }
-
   if (dataThroughDate === null) {
-    return {
-      accountId: account.id,
-      name: account.name,
-      institution: account.institution,
-      onBudget: account.onBudget,
-      cadenceDays,
-      cadenceIsCustom,
-      dataThroughDate: null,
-      dataThroughSource: null,
-      ageDays: null,
-      overdueDays: null,
-      status: "never",
-    };
+    dataThroughDate = toLocalDateString(account.createdAt);
   }
 
   // A future-dated row (e.g. a pending posting) never makes an account look younger than today.
@@ -127,13 +126,12 @@ export const computeFinanceAccountFreshness = (
 
 const STATUS_RANK: Record<FinanceAccountFreshnessStatus, number> = {
   due: 0,
-  never: 1,
-  fresh: 2,
+  fresh: 1,
 };
 
 /**
  * Freshness for every open account, the ones to update first: budget accounts before the
- * others, then the most overdue, then never-loaded, then fresh accounts oldest-first.
+ * others, then the most overdue, then fresh accounts.
  */
 export const computeFinanceAccountsFreshness = (
   inputs: FinanceAccountFreshnessInput[],
@@ -149,7 +147,5 @@ export const computeFinanceAccountsFreshness = (
       if (left.onBudget !== right.onBudget) {
         return left.onBudget ? -1 : 1;
       }
-      return (
-        (right.overdueDays ?? 0) - (left.overdueDays ?? 0) || left.name.localeCompare(right.name)
-      );
+      return right.overdueDays - left.overdueDays || left.name.localeCompare(right.name);
     });

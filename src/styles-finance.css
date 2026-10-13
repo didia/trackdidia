@@ -902,6 +902,16 @@
   font-size: 0.85rem;
 }
 
+.finance-row__update {
+  justify-self: start;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(45, 106, 79, 0.12);
+  color: var(--success);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
 .finance-row__amount {
   grid-area: amount;
   font-size: 1.02rem;

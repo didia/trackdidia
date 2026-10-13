@@ -69,14 +69,22 @@ describe("FinanceAccountFreshnessCard", () => {
     expect(screen.queryByText("Comptes à mettre à jour")).not.toBeInTheDocument();
   });
 
-  it("lists the accounts to update first, with their data age and cadence", async () => {
+  it("lists only the accounts to update, with their data age and cadence", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
     const today = getTodayDate();
     const stale = await repository.saveFinanceAccount(buildAccount("Chèques"));
     const fresh = await repository.saveFinanceAccount(buildAccount("Crédit"));
     const savings = await repository.saveFinanceAccount(
-      buildAccount("Épargne", { type: "savings", onBudget: false }),
+      buildAccount("Épargne", {
+        type: "savings",
+        onBudget: false,
+        createdAt: `${addDays(today, -45)}T12:00:00`,
+      }),
+    );
+    // Never imported but only just created: not due yet, so not listed.
+    await repository.saveFinanceAccount(
+      buildAccount("Récent", { type: "savings", onBudget: false }),
     );
     await repository.saveFinanceAccount(buildAccount("Ancien", { closed: true }));
     await importOn(repository, stale.id, addDays(today, -9));
@@ -92,13 +100,14 @@ describe("FinanceAccountFreshnessCard", () => {
     expect(staleRow).toHaveAttribute("data-status", "due");
     expect(staleRow).toHaveTextContent("9 jours");
     expect(staleRow).toHaveTextContent("mise à jour hebdomadaire");
-    expect(screen.getByTestId(`finance-freshness-${fresh.id}`)).toHaveAttribute(
-      "data-status",
-      "fresh",
-    );
+    expect(screen.queryByTestId(`finance-freshness-${fresh.id}`)).not.toBeInTheDocument();
+    expect(screen.queryByText("Crédit")).not.toBeInTheDocument();
     const savingsRow = screen.getByTestId(`finance-freshness-${savings.id}`);
-    expect(savingsRow).toHaveAttribute("data-status", "never");
+    expect(savingsRow).toHaveAttribute("data-status", "due");
+    expect(savingsRow).toHaveTextContent("compte créé le");
+    expect(savingsRow).toHaveTextContent("45 jours");
     expect(savingsRow).toHaveTextContent("mise à jour mensuelle");
+    expect(screen.queryByText("Récent")).not.toBeInTheDocument();
     expect(screen.queryByText("Ancien")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Importer/ })).toHaveAttribute(
       "href",
@@ -134,10 +143,8 @@ describe("FinanceAccountFreshnessCard", () => {
       contextOverrides: enabled,
     });
 
-    const row = await screen.findByTestId(`finance-freshness-${account.id}`);
-    expect(row).toHaveAttribute("data-status", "fresh");
-    expect(row).toHaveTextContent("mise à jour tous les 14 jours");
     expect(await screen.findByText("Tous les comptes sont à jour.")).toBeInTheDocument();
+    expect(screen.queryByTestId(`finance-freshness-${account.id}`)).not.toBeInTheDocument();
   });
 
   it("recomputes ages when the local calendar day rolls over under a mounted card", async () => {
@@ -161,9 +168,8 @@ describe("FinanceAccountFreshnessCard", () => {
     };
     await renderWithApp(<Harness />, { repository, contextOverrides: enabled });
 
-    const row = await screen.findByTestId(`finance-freshness-${account.id}`);
-    expect(row).toHaveAttribute("data-status", "fresh");
-    expect(row).toHaveTextContent("6 jours");
+    expect(await screen.findByText("Tous les comptes sont à jour.")).toBeInTheDocument();
+    expect(screen.queryByTestId(`finance-freshness-${account.id}`)).not.toBeInTheDocument();
 
     await userEvent.setup().click(screen.getByText("Jour suivant"));
 

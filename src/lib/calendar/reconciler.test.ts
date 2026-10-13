@@ -355,45 +355,43 @@ describe("reconcile — create, update, delete", () => {
 });
 
 describe("reconcile — concurrent connection changes", () => {
-  it.each([
-    "inserted",
-    "reconnect_required",
-    "calendar_not_found",
-    "invalid_grant",
-  ] as const)("preserves a disconnect while create completes with %s", async (status) => {
-    const repository = new MemoryRepository();
-    await repository.initialize();
-    const original = await connectedSettings(repository);
-    await futureTask(repository, { id: "first" });
-    await futureTask(repository, { id: "second" });
-    const started = deferred<void>();
-    const response = deferred<CreateOrAdoptEventResult>();
-    const api = makeFakeApi({
-      createOrAdoptEvent: vi.fn(() => {
-        started.resolve();
-        return response.promise;
-      }),
-    });
-    const running = syncNow(repository, depsFor(api));
-    await started.promise;
-    await disconnectCalendarSyncAccount(repository);
-    const disconnected = await repository.getCalendarSyncSettings();
-    if (status === "invalid_grant") {
-      response.reject(new ProviderHttpError("invalid_grant", 400, '{"error":"invalid_grant"}'));
-    } else {
-      response.resolve(status === "inserted" ? { status, eventId: "event" } : { status });
-    }
-    expect(await running).toEqual({ ok: false, reason: "disabled" });
-    expect(await repository.getCalendarSyncSettings()).toEqual(disconnected);
-    expect(disconnected).toMatchObject({
-      enabled: false,
-      state: "disconnected",
-      generation: original.generation,
-    });
-    expect(await repository.listCalendarSyncLinks()).toEqual([]);
-    expect(api.ensureCalendar).not.toHaveBeenCalled();
-    expect(api.createOrAdoptEvent).toHaveBeenCalledOnce();
-  });
+  it.each(["inserted", "reconnect_required", "calendar_not_found", "invalid_grant"] as const)(
+    "preserves a disconnect while create completes with %s",
+    async (status) => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      const original = await connectedSettings(repository);
+      await futureTask(repository, { id: "first" });
+      await futureTask(repository, { id: "second" });
+      const started = deferred<void>();
+      const response = deferred<CreateOrAdoptEventResult>();
+      const api = makeFakeApi({
+        createOrAdoptEvent: vi.fn(() => {
+          started.resolve();
+          return response.promise;
+        }),
+      });
+      const running = syncNow(repository, depsFor(api));
+      await started.promise;
+      await disconnectCalendarSyncAccount(repository);
+      const disconnected = await repository.getCalendarSyncSettings();
+      if (status === "invalid_grant") {
+        response.reject(new ProviderHttpError("invalid_grant", 400, '{"error":"invalid_grant"}'));
+      } else {
+        response.resolve(status === "inserted" ? { status, eventId: "event" } : { status });
+      }
+      expect(await running).toEqual({ ok: false, reason: "disabled" });
+      expect(await repository.getCalendarSyncSettings()).toEqual(disconnected);
+      expect(disconnected).toMatchObject({
+        enabled: false,
+        state: "disconnected",
+        generation: original.generation,
+      });
+      expect(await repository.listCalendarSyncLinks()).toEqual([]);
+      expect(api.ensureCalendar).not.toHaveBeenCalled();
+      expect(api.createOrAdoptEvent).toHaveBeenCalledOnce();
+    },
+  );
 
   it("preserves identity and links when disconnected during calendar recovery", async () => {
     const repository = new MemoryRepository();
