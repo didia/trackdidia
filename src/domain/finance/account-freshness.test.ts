@@ -123,17 +123,20 @@ describe("per-account cadence override", () => {
     ).toMatchObject({ cadenceDays: 90, cadenceIsCustom: true, ageDays: 72, status: "fresh" });
   });
 
-  it.each([0, -3, 1.5, 366, Number.NaN])(
-    "ignores an out-of-range stored override (%s) instead of mis-classifying the account",
-    (updateCadenceDays) => {
-      expect(
-        computeFinanceAccountFreshness(
-          build("a", { updateCadenceDays }, { txn: "2026-10-11" }),
-          "2026-10-12",
-        ),
-      ).toMatchObject({ cadenceDays: 7, cadenceIsCustom: false, status: "fresh" });
-    },
-  );
+  it.each([
+    0,
+    -3,
+    1.5,
+    366,
+    Number.NaN,
+  ])("ignores an out-of-range stored override (%s) instead of mis-classifying the account", (updateCadenceDays) => {
+    expect(
+      computeFinanceAccountFreshness(
+        build("a", { updateCadenceDays }, { txn: "2026-10-11" }),
+        "2026-10-12",
+      ),
+    ).toMatchObject({ cadenceDays: 7, cadenceIsCustom: false, status: "fresh" });
+  });
 
   it("falls back to the default when the override is null or absent", () => {
     expect(
