@@ -2,8 +2,8 @@ import type { Project, ProjectStatus, Task, TaskEvent, TaskEventType } from "../
 import { toLocalDateString } from "../date";
 import {
   buildDailyTaskBreakdown,
-  buildLifecycleEvents,
   buildDailyTaskStats,
+  buildLifecycleEvents,
   createTaskFromInput,
   effectiveTaskContextIds,
   formatAssociationCopy,

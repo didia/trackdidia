@@ -440,6 +440,7 @@ export const FinanceStatementImport = ({
               >
                 <option value="">{t("statement.candidatesPlaceholder")}</option>
                 {extraction.balanceCandidates.map((candidate, index) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: candidates have no id and the option value is the index
                   <option key={`${candidate.line}-${index}`} value={index}>
                     {candidate.line}
                   </option>

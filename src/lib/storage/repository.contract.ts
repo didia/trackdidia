@@ -228,34 +228,37 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         ["2026-10-03", "2026-10-04"],
         ["2026-10-04", "2026-10-03"],
         ["2026-10-04", "2026-10-04"],
-      ])("serializes overlapping relationship draws for %s and %s", async (firstDate, secondDate) => {
-        const repository = await factory();
-        await repository.updateSettings((current) => ({
-          ...current,
-          relationshipDrawsEnabled: true,
-          relationshipDrawChildrenActivities: ["Lire ensemble"],
-          relationshipDrawSpouseActivities: ["Boire un thé"],
-        }));
-        const [firstCount, secondCount] = await Promise.all([
-          repository.generateDailyRelationshipTasks(firstDate),
-          repository.generateDailyRelationshipTasks(secondDate),
-          repository.updateSettings((current) => ({ ...current, lastBackupAt: "backup" })),
-        ]);
-        expect(firstCount + secondCount).toBe(2);
-        const tasks = await repository.listTasks({ includeCompleted: true });
-        for (const category of ["children", "spouse"]) {
-          expect(
-            tasks.filter((task) =>
-              task.sourceExternalId?.startsWith(`relationship-draw:${category}:`),
-            ),
-          ).toHaveLength(1);
-        }
-        expect(await repository.getSettings()).toMatchObject({
-          relationshipDrawChildrenProcessedDate: "2026-10-04",
-          relationshipDrawSpouseProcessedDate: "2026-10-04",
-          lastBackupAt: "backup",
-        });
-      });
+      ])(
+        "serializes overlapping relationship draws for %s and %s",
+        async (firstDate, secondDate) => {
+          const repository = await factory();
+          await repository.updateSettings((current) => ({
+            ...current,
+            relationshipDrawsEnabled: true,
+            relationshipDrawChildrenActivities: ["Lire ensemble"],
+            relationshipDrawSpouseActivities: ["Boire un thé"],
+          }));
+          const [firstCount, secondCount] = await Promise.all([
+            repository.generateDailyRelationshipTasks(firstDate),
+            repository.generateDailyRelationshipTasks(secondDate),
+            repository.updateSettings((current) => ({ ...current, lastBackupAt: "backup" })),
+          ]);
+          expect(firstCount + secondCount).toBe(2);
+          const tasks = await repository.listTasks({ includeCompleted: true });
+          for (const category of ["children", "spouse"]) {
+            expect(
+              tasks.filter((task) =>
+                task.sourceExternalId?.startsWith(`relationship-draw:${category}:`),
+              ),
+            ).toHaveLength(1);
+          }
+          expect(await repository.getSettings()).toMatchObject({
+            relationshipDrawChildrenProcessedDate: "2026-10-04",
+            relationshipDrawSpouseProcessedDate: "2026-10-04",
+            lastBackupAt: "backup",
+          });
+        },
+      );
 
       it("does not move relationship markers backwards or regenerate an older completed day", async () => {
         const repository = await factory();
@@ -1708,76 +1711,76 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         expect(await repository.listWeeklyObjectives()).toHaveLength(1);
       });
 
-      it.each([
-        "dailyEntry",
-        "weeklyReview",
-        "monthlyReview",
-      ] as const)("distinguishes repeat %s acceptance from a write and preserves manual edits", async (kind) => {
-        const repository = await factory();
-        const daily = createEmptyDailyEntry("2026-10-03");
-        daily.morningIntention = "Coach draft";
-        const weekly = createEmptyWeeklyReview("2026-09-27");
-        weekly.notes.bilan = "Coach draft";
-        const monthly = createEmptyMonthlyReview("2026-10");
-        monthly.notes.bilan = "Coach draft";
-        const effect: AcceptEffect =
-          kind === "dailyEntry"
-            ? { kind, entry: daily }
-            : kind === "weeklyReview"
-              ? { kind, review: weekly }
-              : { kind, review: monthly };
-        const proposal = {
-          id: "ai-proposal:repeat-draft",
-          messageId: "ai-message:repeat-draft",
-          type:
+      it.each(["dailyEntry", "weeklyReview", "monthlyReview"] as const)(
+        "distinguishes repeat %s acceptance from a write and preserves manual edits",
+        async (kind) => {
+          const repository = await factory();
+          const daily = createEmptyDailyEntry("2026-10-03");
+          daily.morningIntention = "Coach draft";
+          const weekly = createEmptyWeeklyReview("2026-09-27");
+          weekly.notes.bilan = "Coach draft";
+          const monthly = createEmptyMonthlyReview("2026-10");
+          monthly.notes.bilan = "Coach draft";
+          const effect: AcceptEffect =
             kind === "dailyEntry"
-              ? ("intention_draft" as const)
-              : ("review_section_draft" as const),
-          payloadJson: JSON.stringify({ text: "Coach draft", sectionKey: "bilan" }),
-          status: "pending" as const,
-          appliedEntityId: null,
-          decidedAt: null,
-          createdAt: "2026-10-03T12:00:00.000Z",
-        };
-        await repository.saveAiProposal(proposal);
-        const first = await repository.acceptAiProposal(proposal.id, effect);
-        expect(first.effectApplied).toBe(true);
-        let context: ProposalApplyContext;
-        let readNote: () => Promise<string | undefined>;
-        if (kind === "dailyEntry") {
-          const manual = { ...daily, morningIntention: "Manual edit" };
-          await repository.saveDailyEntry(manual);
-          context = { acceptedDate: daily.date, dailyEntry: manual };
-          readNote = async () => (await repository.getDailyEntry(daily.date))?.morningIntention;
-        } else if (kind === "weeklyReview") {
-          const manual = { ...weekly, notes: { ...weekly.notes, bilan: "Manual edit" } };
-          await repository.saveWeeklyReview(manual);
-          context = {
-            acceptedDate: weekly.weekStartDate,
-            weekly: { withReview: (_, work) => work(manual) },
+              ? { kind, entry: daily }
+              : kind === "weeklyReview"
+                ? { kind, review: weekly }
+                : { kind, review: monthly };
+          const proposal = {
+            id: "ai-proposal:repeat-draft",
+            messageId: "ai-message:repeat-draft",
+            type:
+              kind === "dailyEntry"
+                ? ("intention_draft" as const)
+                : ("review_section_draft" as const),
+            payloadJson: JSON.stringify({ text: "Coach draft", sectionKey: "bilan" }),
+            status: "pending" as const,
+            appliedEntityId: null,
+            decidedAt: null,
+            createdAt: "2026-10-03T12:00:00.000Z",
           };
-          readNote = async () =>
-            (await repository.getWeeklyReview(weekly.weekStartDate))?.notes.bilan;
-        } else {
-          const manual = { ...monthly, notes: { ...monthly.notes, bilan: "Manual edit" } };
-          await repository.saveMonthlyReview(manual);
-          context = {
-            acceptedDate: monthly.monthKey,
-            monthly: { monthKey: monthly.monthKey, withReview: (_, work) => work(manual) },
-          };
-          readNote = async () => (await repository.getMonthlyReview(monthly.monthKey))?.notes.bilan;
-        }
-        const repeat = await repository.acceptAiProposal(proposal.id, effect);
-        expect(repeat.effectApplied).toBe(false);
-        expect(repeat.appliedEntityId).toBe(first.appliedEntityId);
-        const outcome = await applyCoachProposal(repository, proposal, context);
-        expect(outcome).toMatchObject({ accepted: true, proposal: first.proposal });
-        expect(outcome.dailyNote).toBeUndefined();
-        expect(outcome.weeklyReview).toBeUndefined();
-        expect(outcome.monthlyReview).toBeUndefined();
-        expect(outcome.text).toBeUndefined();
-        expect(await readNote()).toBe("Manual edit");
-      });
+          await repository.saveAiProposal(proposal);
+          const first = await repository.acceptAiProposal(proposal.id, effect);
+          expect(first.effectApplied).toBe(true);
+          let context: ProposalApplyContext;
+          let readNote: () => Promise<string | undefined>;
+          if (kind === "dailyEntry") {
+            const manual = { ...daily, morningIntention: "Manual edit" };
+            await repository.saveDailyEntry(manual);
+            context = { acceptedDate: daily.date, dailyEntry: manual };
+            readNote = async () => (await repository.getDailyEntry(daily.date))?.morningIntention;
+          } else if (kind === "weeklyReview") {
+            const manual = { ...weekly, notes: { ...weekly.notes, bilan: "Manual edit" } };
+            await repository.saveWeeklyReview(manual);
+            context = {
+              acceptedDate: weekly.weekStartDate,
+              weekly: { withReview: (_, work) => work(manual) },
+            };
+            readNote = async () =>
+              (await repository.getWeeklyReview(weekly.weekStartDate))?.notes.bilan;
+          } else {
+            const manual = { ...monthly, notes: { ...monthly.notes, bilan: "Manual edit" } };
+            await repository.saveMonthlyReview(manual);
+            context = {
+              acceptedDate: monthly.monthKey,
+              monthly: { monthKey: monthly.monthKey, withReview: (_, work) => work(manual) },
+            };
+            readNote = async () =>
+              (await repository.getMonthlyReview(monthly.monthKey))?.notes.bilan;
+          }
+          const repeat = await repository.acceptAiProposal(proposal.id, effect);
+          expect(repeat.effectApplied).toBe(false);
+          expect(repeat.appliedEntityId).toBe(first.appliedEntityId);
+          const outcome = await applyCoachProposal(repository, proposal, context);
+          expect(outcome).toMatchObject({ accepted: true, proposal: first.proposal });
+          expect(outcome.dailyNote).toBeUndefined();
+          expect(outcome.weeklyReview).toBeUndefined();
+          expect(outcome.monthlyReview).toBeUndefined();
+          expect(outcome.text).toBeUndefined();
+          expect(await readNote()).toBe("Manual edit");
+        },
+      );
 
       it("acceptAiProposal for monthly reviews is idempotent", async () => {
         const repository = await factory();

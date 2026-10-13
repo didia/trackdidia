@@ -182,27 +182,27 @@ describe("worked example — income 100, assign 50 to A, spend 80 on A", () => {
     };
   };
 
-  it.each([
-    "reduce_next_ready_to_assign",
-    "carry_negative",
-  ] as const)("holds the balance invariant in month 1 and month 2 under %s", (overspendPolicy) => {
-    const input = buildInput(overspendPolicy);
-    expect(computeFinanceCategoryActivity(CATEGORY_A, "2026-01", input)).toBe(-8_000);
-    expect(computeFinanceCategoryAvailable(CATEGORY_A, "2026-01", input)).toBe(-3_000);
-    expect(computeFinanceReadyToAssign("2026-01", input)).toBe(5_000);
-    expectBalanceInvariant("2026-01", input);
+  it.each(["reduce_next_ready_to_assign", "carry_negative"] as const)(
+    "holds the balance invariant in month 1 and month 2 under %s",
+    (overspendPolicy) => {
+      const input = buildInput(overspendPolicy);
+      expect(computeFinanceCategoryActivity(CATEGORY_A, "2026-01", input)).toBe(-8_000);
+      expect(computeFinanceCategoryAvailable(CATEGORY_A, "2026-01", input)).toBe(-3_000);
+      expect(computeFinanceReadyToAssign("2026-01", input)).toBe(5_000);
+      expectBalanceInvariant("2026-01", input);
 
-    const month2Input = { ...input, monthKey: "2026-02" };
-    expectBalanceInvariant("2026-02", month2Input);
+      const month2Input = { ...input, monthKey: "2026-02" };
+      expectBalanceInvariant("2026-02", month2Input);
 
-    if (overspendPolicy === "reduce_next_ready_to_assign") {
-      expect(computeFinanceCategoryCarryIn(CATEGORY_A, "2026-02", month2Input)).toBe(0);
-      expect(computeFinanceReadyToAssign("2026-02", month2Input)).toBe(2_000);
-    } else {
-      expect(computeFinanceCategoryCarryIn(CATEGORY_A, "2026-02", month2Input)).toBe(-3_000);
-      expect(computeFinanceReadyToAssign("2026-02", month2Input)).toBe(5_000);
-    }
-  });
+      if (overspendPolicy === "reduce_next_ready_to_assign") {
+        expect(computeFinanceCategoryCarryIn(CATEGORY_A, "2026-02", month2Input)).toBe(0);
+        expect(computeFinanceReadyToAssign("2026-02", month2Input)).toBe(2_000);
+      } else {
+        expect(computeFinanceCategoryCarryIn(CATEGORY_A, "2026-02", month2Input)).toBe(-3_000);
+        expect(computeFinanceReadyToAssign("2026-02", month2Input)).toBe(5_000);
+      }
+    },
+  );
 });
 
 describe("positive rollover", () => {

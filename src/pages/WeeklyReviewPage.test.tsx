@@ -143,66 +143,71 @@ describe("WeeklyReviewPage", () => {
     ["bilan", "while loading"],
     ["dimanche", "before returning"],
     ["dimanche", "while loading"],
-  ] as const)("restores failed %s notes when the save rejects %s and allows retry", async (section, failureTiming) => {
-    const repository = new MemoryRepository();
-    await repository.initialize();
-    const week = "2026-03-29";
-    const notesWeek = section === "dimanche" ? "2026-04-05" : week;
-    const label = section === "dimanche" ? /notes pour la semaine suivante/i : /notes bilan/i;
-    await repository.saveWeeklyReview(
-      updateWeeklyReviewNote(createEmptyWeeklyReview(notesWeek), section, "Stored notes"),
-    );
-    const originalSave = repository.saveWeeklyReview.bind(repository);
-    let releaseSave!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      releaseSave = resolve;
-    });
-    let failWrites = true;
-    let failedWrites = 0;
-    const saveSpy = vi.spyOn(repository, "saveWeeklyReview").mockImplementation(async (review) => {
-      if (failWrites) {
-        await gate;
-        failedWrites += 1;
-        throw new Error("disk full");
-      }
-      return originalSave(review);
-    });
-    await renderWithApp(<WeeklyReviewPage />, {
-      repository,
-      route: `/semaine?date=${week}`,
-      contextOverrides: { calendarDay: "2026-04-08" },
-    });
-    const notes = await screen.findByLabelText(label);
-    fireEvent.change(notes, { target: { value: "Unsaved notes" } });
-    await waitFor(() => expect(saveSpy).toHaveBeenCalled());
-    if (failureTiming === "before returning") {
-      await act(async () => releaseSave());
-      await waitFor(() => expect(failedWrites).toBeGreaterThan(0));
-    }
-    fireEvent.change(screen.getByLabelText(/début de semaine/i), {
-      target: { value: "2026-03-15" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /charger la semaine/i }));
-    await waitFor(() => expect(screen.getByLabelText(label)).toHaveValue(""));
-    fireEvent.change(screen.getByLabelText(/début de semaine/i), { target: { value: week } });
-    fireEvent.click(screen.getByRole("button", { name: /charger la semaine/i }));
-    if (failureTiming === "while loading") {
-      expect(screen.getByText("Chargement de la revue hebdomadaire...")).toBeInTheDocument();
-      await act(async () => releaseSave());
-    }
-    await waitFor(() => expect(screen.getByLabelText(label)).toHaveValue("Unsaved notes"));
-    expect(screen.getByLabelText(/début de semaine/i)).toHaveValue(week);
-    expect((await repository.getWeeklyReview(notesWeek))?.notes[section]).toBe("Stored notes");
-    failWrites = false;
-    fireEvent.change(screen.getByLabelText(label), { target: { value: "Unsaved notes retry" } });
-    await waitFor(async () => {
-      expect((await repository.getWeeklyReview(notesWeek))?.notes[section]).toBe(
-        "Unsaved notes retry",
+  ] as const)(
+    "restores failed %s notes when the save rejects %s and allows retry",
+    async (section, failureTiming) => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      const week = "2026-03-29";
+      const notesWeek = section === "dimanche" ? "2026-04-05" : week;
+      const label = section === "dimanche" ? /notes pour la semaine suivante/i : /notes bilan/i;
+      await repository.saveWeeklyReview(
+        updateWeeklyReviewNote(createEmptyWeeklyReview(notesWeek), section, "Stored notes"),
       );
-    });
-    fireEvent.click(screen.getByRole("button", { name: /charger la semaine/i }));
-    await waitFor(() => expect(screen.getByLabelText(label)).toHaveValue("Unsaved notes retry"));
-  });
+      const originalSave = repository.saveWeeklyReview.bind(repository);
+      let releaseSave!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        releaseSave = resolve;
+      });
+      let failWrites = true;
+      let failedWrites = 0;
+      const saveSpy = vi
+        .spyOn(repository, "saveWeeklyReview")
+        .mockImplementation(async (review) => {
+          if (failWrites) {
+            await gate;
+            failedWrites += 1;
+            throw new Error("disk full");
+          }
+          return originalSave(review);
+        });
+      await renderWithApp(<WeeklyReviewPage />, {
+        repository,
+        route: `/semaine?date=${week}`,
+        contextOverrides: { calendarDay: "2026-04-08" },
+      });
+      const notes = await screen.findByLabelText(label);
+      fireEvent.change(notes, { target: { value: "Unsaved notes" } });
+      await waitFor(() => expect(saveSpy).toHaveBeenCalled());
+      if (failureTiming === "before returning") {
+        await act(async () => releaseSave());
+        await waitFor(() => expect(failedWrites).toBeGreaterThan(0));
+      }
+      fireEvent.change(screen.getByLabelText(/début de semaine/i), {
+        target: { value: "2026-03-15" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /charger la semaine/i }));
+      await waitFor(() => expect(screen.getByLabelText(label)).toHaveValue(""));
+      fireEvent.change(screen.getByLabelText(/début de semaine/i), { target: { value: week } });
+      fireEvent.click(screen.getByRole("button", { name: /charger la semaine/i }));
+      if (failureTiming === "while loading") {
+        expect(screen.getByText("Chargement de la revue hebdomadaire...")).toBeInTheDocument();
+        await act(async () => releaseSave());
+      }
+      await waitFor(() => expect(screen.getByLabelText(label)).toHaveValue("Unsaved notes"));
+      expect(screen.getByLabelText(/début de semaine/i)).toHaveValue(week);
+      expect((await repository.getWeeklyReview(notesWeek))?.notes[section]).toBe("Stored notes");
+      failWrites = false;
+      fireEvent.change(screen.getByLabelText(label), { target: { value: "Unsaved notes retry" } });
+      await waitFor(async () => {
+        expect((await repository.getWeeklyReview(notesWeek))?.notes[section]).toBe(
+          "Unsaved notes retry",
+        );
+      });
+      fireEvent.click(screen.getByRole("button", { name: /charger la semaine/i }));
+      await waitFor(() => expect(screen.getByLabelText(label)).toHaveValue("Unsaved notes retry"));
+    },
+  );
 
   it("defaults to the previous week on Sunday so the ritual closes the week that just ended", async () => {
     vi.spyOn(dateModule, "getTodayDate").mockReturnValue("2026-09-20");
@@ -1942,6 +1947,8 @@ describe("WeeklyReviewPage mid-week decisions card", () => {
     const repository = new MemoryRepository();
     await repository.initialize();
     const timestamp = new Date().toISOString();
+    // Created a month ago and never imported: past its weekly cadence, so it is listed.
+    const createdAt = `${addDays(dateModule.getTodayDate(), -30)}T12:00:00`;
     await repository.saveFinanceAccount({
       id: "",
       name: "Chèques",
@@ -1958,7 +1965,7 @@ describe("WeeklyReviewPage mid-week decisions card", () => {
       externalKey: null,
       notes: null,
       sortOrder: 0,
-      createdAt: timestamp,
+      createdAt,
       updatedAt: timestamp,
     });
 
@@ -1970,7 +1977,9 @@ describe("WeeklyReviewPage mid-week decisions card", () => {
 
     const freshness = await screen.findByTestId("finance-freshness-embedded");
     expect(await within(freshness).findByText("Chèques")).toBeInTheDocument();
-    expect(within(freshness).getByText("Jamais importé")).toBeInTheDocument();
+    expect(
+      within(freshness).getByText(/Aucune donnée importée, compte créé le/),
+    ).toBeInTheDocument();
   });
 
   it("hides the account update list from the weekly review when finance is off", async () => {
