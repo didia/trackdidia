@@ -125,6 +125,19 @@
     "tokenLocalNotice": "Le jeton est stocké en clair dans la base locale, comme la clé OpenRouter. N'expose pas ce port hors de ta machine.",
     "appMustRun": "L'application doit rester ouverte pour répondre aux requêtes."
   },
+  "desktopShell": {
+    "title": "Application de bureau",
+    "subtitle": "Garde TrackDidia disponible en arrière-plan pour que la connexion LLM (MCP) puisse ajouter des tâches même quand la fenêtre est fermée.",
+    "browserPreview": "Disponible uniquement dans l'application de bureau.",
+    "runInTray": "Réduire dans la barre système à la fermeture",
+    "launchAtLogin": "Lancer TrackDidia à l'ouverture de session",
+    "save": "Enregistrer l'application de bureau",
+    "saving": "Enregistrement…",
+    "saved": "Préférences de l'application de bureau enregistrées.",
+    "saveError": "Échec de l'enregistrement des préférences de l'application de bureau.",
+    "autostartError": "Impossible de configurer le lancement à l'ouverture de session.",
+    "trayError": "Impossible d'appliquer les préférences de la barre système."
+  },
   "backup": {
     "title": "Sauvegarde",
     "subtitle": "Écrit les snapshots SQLite dans un dossier Google Drive (Drive pour ordinateur). Seuls les {{n}} plus récents sont conservés. Les copies déjà présentes dans Application Support ne sont ni déplacées ni supprimées.",

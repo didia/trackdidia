@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ProviderHttpError } from "../email-triage/provider-http";
+import { ProviderHttpError } from "../provider-http";
 import { MemoryRepository } from "../storage/memory-repository";
 import { baseLink, baseTask } from "./calendar-sync-test-helpers";
 import { disconnectCalendarSyncAccount } from "./connect";

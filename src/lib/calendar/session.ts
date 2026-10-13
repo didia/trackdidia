@@ -1,14 +1,10 @@
 /**
  * Access-token handling for the single connected Google Calendar account. There is only
- * ever one account (unlike email triage's per-account map), so the in-memory access-token
- * cache (`src/lib/email-triage/token-cache.ts`) is keyed by one fixed id.
+ * ever one account, so the in-memory access-token cache (`src/lib/token-cache.ts`) is keyed
+ * by one fixed id.
  */
-import { createTauriHttpClient } from "../email-triage/provider-http";
-import {
-  clearCachedAccessToken,
-  getCachedAccessToken,
-  setCachedAccessToken,
-} from "../email-triage/token-cache";
+import { createTauriHttpClient } from "../provider-http";
+import { clearCachedAccessToken, getCachedAccessToken, setCachedAccessToken } from "../token-cache";
 import type { CalendarSyncSettings } from "../../domain/calendar-sync";
 import { GoogleCalendarApiClient, isCalendarSyncInvalidGrantError } from "./google-calendar-api";
 import {
@@ -27,8 +23,8 @@ export const clearCalendarSyncAccessTokenCache = (): void =>
 /**
  * Builds an access-token getter that serves the in-memory cache first, then refreshes from
  * the vault-stored refresh token. Throws `reconnect_required` when no credentials are
- * stored or the refresh token has been revoked (`invalid_grant`), matching the email-triage
- * convention consumed by the reconciler (Phase 2).
+ * stored or the refresh token has been revoked (`invalid_grant`), the convention
+ * consumed by the reconciler (Phase 2).
  */
 export const createCalendarSyncAccessTokenGetter = (
   clientId: string,

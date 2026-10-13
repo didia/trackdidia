@@ -1,7 +1,6 @@
 /**
- * Connect / reconnect / disconnect the single Google Calendar connection. Mirrors the shape
- * of `src/lib/email-triage/runtime.ts`'s Gmail connect flow: PKCE, loopback listener,
- * refresh token in the OS vault, access token in memory. See "Loopback collision" and the
+ * Connect / reconnect / disconnect the single Google Calendar connection: PKCE, loopback
+ * listener, refresh token in the OS vault, access token in memory. See "Loopback collision" and the
  * Settings card section in `specs/done/calendar-sync.md`.
  */
 import { invoke } from "@tauri-apps/api/core";
@@ -9,13 +8,13 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type { AppRepository } from "../storage/repository";
 import { isTauriRuntime } from "../storage/factory";
 import { nowIso } from "../gtd/shared";
-import { createTauriHttpClient } from "../email-triage/provider-http";
+import { createTauriHttpClient } from "../provider-http";
 import {
   createPkceChallenge,
   generateOAuthState,
   generatePkceVerifier,
   validateOAuthState,
-} from "../email-triage/oauth/pkce";
+} from "../oauth/pkce";
 import { acquireOAuthLoopbackLease } from "../oauth-loopback-guard";
 import { GoogleCalendarApiClient } from "./google-calendar-api";
 import {
@@ -32,7 +31,7 @@ import {
   storeCalendarVaultSecret,
 } from "./vault";
 import { runCalendarSyncMutation } from "./mutations";
-import { setCachedAccessToken } from "../email-triage/token-cache";
+import { setCachedAccessToken } from "../token-cache";
 
 export interface CalendarSyncConnectResult {
   ok: boolean;

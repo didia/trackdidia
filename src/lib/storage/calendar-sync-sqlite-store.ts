@@ -5,7 +5,7 @@ import {
   type CalendarSyncSettings,
   defaultCalendarSyncSettings,
 } from "../../domain/calendar-sync";
-import type { Database } from "./email-triage-sqlite-db";
+import type { Database } from "./sqlite-db";
 
 interface SettingsRow {
   enabled: number;
@@ -78,8 +78,7 @@ const mapLink = (row: LinkRow): CalendarSyncLink => ({
 });
 
 /**
- * SQLite-backed store for calendar sync settings and links. Follows the
- * `EmailTriageSqliteStore` precedent: constructed with `() => this.getDb()`, its methods
+ * SQLite-backed store for calendar sync settings and links. Constructed with `() => this.getDb()`, its methods
  * are plain delegating calls that never enter the writer queue themselves — the
  * promotion-capture step in `TauriSqliteRepository` reaches it directly
  * (`this.getCalendarSyncStore()`) from inside its own `writeTransaction`, and

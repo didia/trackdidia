@@ -209,6 +209,35 @@ describe("LLM bridge tools", () => {
     expect(await repository.listTasks({ includeCompleted: true })).toHaveLength(1);
   });
 
+  it("stores an http(s) sourceUrl, exposes it in list_tasks, and rejects other schemes", async () => {
+    const outcome = await callBridgeTool(repository, "add_tasks", {
+      tasks: [
+        {
+          title: "Répondre à la facture",
+          sourceUrl: " https://mail.google.com/mail/u/0/#inbox/abc123 ",
+          clientId: "gmail:abc123",
+        },
+        { title: "Lien piégé", sourceUrl: "javascript:alert(1)" },
+        { title: "Lien local", sourceUrl: "message://%3Cid@example.com%3E" },
+      ],
+    });
+
+    const body = parse(outcome);
+    expect(body.created).toBe(1);
+    expect(body.outcomes[1]).toMatchObject({
+      status: "error",
+      error: "sourceUrl must be an http(s) URL",
+    });
+    expect(body.outcomes[2].status).toBe("error");
+
+    const [task] = await repository.listTasks({ includeCompleted: true });
+    expect(task.sourceUrl).toBe("https://mail.google.com/mail/u/0/#inbox/abc123");
+    expect(task.sourceExternalId).toBe("llm:gmail:abc123");
+
+    const listed = parse(await callBridgeTool(repository, "list_tasks", {}));
+    expect(listed.tasks[0].sourceUrl).toBe("https://mail.google.com/mail/u/0/#inbox/abc123");
+  });
+
   it("keeps committed outcomes and still reports a mutation when reconciliation fails", async () => {
     vi.spyOn(repository, "reconcileDay").mockRejectedValue(new Error("db locked"));
 

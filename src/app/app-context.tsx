@@ -29,7 +29,7 @@ import type { AppRepository } from "../lib/storage/repository";
 import { useAutoBackupScheduler } from "./use-auto-backup-scheduler";
 import { useBootstrap } from "./use-bootstrap";
 import { useCalendarSync } from "./use-calendar-sync";
-import { useEmailTriageCoordinator } from "./use-email-triage-coordinator";
+import { useDesktopShell } from "./use-desktop-shell";
 import { useLlmBridge, type LlmBridgeStatus } from "./use-llm-bridge";
 import { useLocalDayReconciliation } from "./use-local-day-reconciliation";
 import { usePomodoroController, type PomodoroControllerValue } from "./use-pomodoro-controller";
@@ -48,8 +48,6 @@ export interface AppContextValue {
   pulseRevision: number;
   /** Current local `YYYY-MM-DD`. Changes when the local-day boundary reconciles. */
   calendarDay: string;
-  /** Restarts email-triage polling after enable/pause/interval changes. */
-  reconfigureEmailTriage: () => Promise<void>;
   /** State of the local MCP endpoint for LLM clients (Settings shows it). */
   llmBridgeStatus: LlmBridgeStatus;
   /** Re-attempts starting the endpoint after a failure, without changing any setting. */
@@ -84,11 +82,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   const pomodoroRef = useRef(pomodoro);
   pomodoroRef.current = pomodoro;
   const browserPreview = !isTauriRuntime();
-  const { reconfigure: reconfigureEmailTriage } = useEmailTriageCoordinator(repository, {
-    browserPreview,
-    allowStart: !loading && !startupError,
-    settings,
-  });
+  useDesktopShell({ browserPreview, allowStart: !loading && !startupError, settings });
   // Never mounted under the startup fallback or browser preview: zero API/vault access.
   useCalendarSync(repository, {
     browserPreview,
@@ -181,7 +175,6 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
             pomodoro,
             pulseRevision,
             calendarDay,
-            reconfigureEmailTriage,
             llmBridgeStatus,
             retryLlmBridge,
           }
@@ -197,7 +190,6 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       pomodoro,
       pulseRevision,
       calendarDay,
-      reconfigureEmailTriage,
       llmBridgeStatus,
       retryLlmBridge,
     ],

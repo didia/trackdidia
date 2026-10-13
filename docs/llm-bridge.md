@@ -12,6 +12,13 @@ user clarifies it.
 This is a local transport, not a cloud feature: nothing leaves the machine except
 what the user's own LLM client sends to its model provider.
 
+It is also how email reaches TrackDidia. The former in-app email triage (direct Gmail,
+Microsoft Graph, and Yahoo connections) was removed: it needed per-provider OAuth clients
+and app passwords, and Microsoft 365 tenants can block third-party app consent. Instead, an
+LLM client that already has mail access (for example a Gmail or Outlook connector in Claude)
+reads the mail, decides what is actionable, and calls `add_tasks`; see
+[Triaging email through the bridge](#triaging-email-through-the-bridge).
+
 ## How it works
 
 ```text
@@ -96,7 +103,12 @@ malformed arguments are JSON-RPC errors (`-32602`).
 `add_tasks` fields: `title` (required, ≤ 300), `notes`, `bucket` (default `inbox`),
 `project` (id or exact title of an **active** project), `contexts` (existing names or
 ids), `deadline` (`YYYY-MM-DD`), `scheduledDate` + `scheduledTime` (local; time
-defaults to `09:00`), `clientId`. Rules:
+defaults to `09:00`), `sourceUrl`, `clientId`. Rules:
+
+- `sourceUrl` (≤ 2000 characters) must be an `http(s)` URL, otherwise that task fails with
+  `sourceUrl must be an http(s) URL`. It is stored in `gtd_tasks.source_url`, returned by
+  `list_tasks`, and shown as a **Source** button on the task card that opens it in the
+  system browser;
 
 - `scheduled` requires `scheduledDate`; `planned` requires a project; a
   `scheduledDate` with any other bucket is rejected;
@@ -119,12 +131,47 @@ defaults to `09:00`), `clientId`. Rules:
   `clientId` returns `duplicate` with the existing task instead of creating another,
   so retries are safe.
 
+## Triaging email through the bridge
+
+Register the bridge in a client that also has a mail connector, then ask it to go through
+the inbox, for example "scan my unread mail and add the actionable items to TrackDidia".
+Two fields make this safe to repeat:
+
+- `sourceUrl`: the web link of the email (Gmail or Outlook on the web), so the task keeps a
+  one-click path back to the original message;
+- `clientId`: a stable id for the message or thread (for example `gmail:<threadId>`).
+  Re-sending it returns `duplicate` instead of creating a second task, so re-triaging the
+  same mailbox never doubles the Inbox.
+
+Tasks land in the Inbox by default and carry `source: "manual"`; clarifying them stays a
+user step. Mail content reaches TrackDidia only as the title and notes the client chose to
+write. Nothing is read from or written to the mailbox by TrackDidia.
+
+## Keeping the app running
+
+The bridge only answers while the desktop app and its webview are alive. Settings →
+"Application de bureau" (`DesktopShellSection`) holds two preferences stored in the settings
+JSON (`runInTray`, `launchAtLogin`; both default `false`):
+
+- **Run in tray**: closing the window hides it to the system tray instead of quitting
+  (**Afficher** / **Quitter** in the tray menu). The Rust side is `src-tauri/src/desktop_shell.rs`
+  (`desktop_set_run_in_tray` plus the close handler);
+- **Launch at login**: enables or disables `tauri-plugin-autostart` (macOS LaunchAgent).
+
+After startup settles, `useDesktopShell` re-applies the saved values once (the native host
+starts with the tray off); changes made in Settings apply on save and report tray or
+autostart failures independently. Browser preview applies nothing. These preferences used to
+live in the email triage settings table; they are not migrated, so re-enable them once in
+Settings after upgrading.
+
 ## Source map
 
 | Concern | File |
 |---|---|
 | HTTP/MCP transport, auth, `llm_bridge_configure`/`llm_bridge_respond` | `src-tauri/src/llm_bridge.rs` |
 | Tool definitions and implementations | `src/lib/llm-bridge/tools.ts`, `handler.ts` |
+| Tray / launch-at-login (native, hook, Settings) | `src-tauri/src/desktop_shell.rs`, `src/lib/desktop-shell.ts`, `src/app/use-desktop-shell.ts`, `src/components/settings/DesktopShellSection.tsx` |
+| Source link button | `src/components/GtdTaskCard.tsx`, `src/lib/open-external.ts` |
 | Webview listener, status, start/stop sequencing | `src/app/use-llm-bridge.ts` |
 | Reload signal for mounted GTD views | `src/app/gtd-external-change.ts`, `src/app/use-gtd.ts` |
 | Token/endpoint/command helpers | `src/lib/llm-bridge/connection.ts` |

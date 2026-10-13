@@ -1,6 +1,7 @@
 import type { CreateTaskInput, Project, ProjectStatus, Task, TaskBucket } from "../../domain/types";
 import { buildIsoFromLocalDateAndTime, getTodayDate } from "../date";
 import { buildContextId, createEntityId, nowIso } from "../gtd/shared";
+import { isWebUrl } from "../open-external";
 import type { AppRepository } from "../storage/repository";
 
 /** JSON-RPC error carrying the code the Rust transport forwards to the MCP client. */
@@ -20,6 +21,7 @@ const METHOD_NOT_FOUND = -32601;
 export const MAX_TASKS_PER_CALL = 50;
 const MAX_TITLE_LENGTH = 300;
 const MAX_NOTES_LENGTH = 10_000;
+const MAX_SOURCE_URL_LENGTH = 2_000;
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 200;
 const NOTES_PREVIEW_LENGTH = 500;
@@ -74,11 +76,19 @@ const taskInputSchema = {
       description: "Local date YYYY-MM-DD. Required when bucket is 'scheduled'.",
     },
     scheduledTime: { type: "string", description: "Local time HH:mm. Defaults to 09:00." },
+    sourceUrl: {
+      type: "string",
+      description:
+        "Optional http(s) link back to where the task came from, for example the web link of " +
+        "the email it was extracted from. Shown as a Source button on the task.",
+    },
     clientId: {
       type: "string",
       description:
         "Optional idempotency key. Re-sending the same clientId returns the existing task " +
-        "instead of creating a duplicate. Use it when a call might be retried.",
+        "instead of creating a duplicate. Use it when a call might be retried. For tasks " +
+        "extracted from an email, use the message or thread id so re-triaging a mailbox " +
+        "never creates the same task twice.",
     },
   },
   required: ["title"],
@@ -254,6 +264,7 @@ const taskSummary = (task: Task, notesLimit = NOTES_PREVIEW_LENGTH) => ({
   contextIds: task.contextIds,
   deadline: task.deadline,
   scheduledFor: task.scheduledFor,
+  sourceUrl: task.sourceUrl,
   notes: task.notes.length > notesLimit ? `${task.notes.slice(0, notesLimit)}…` : task.notes,
 });
 
@@ -364,6 +375,11 @@ const buildTaskInput = (
     throw new Error("deadline must be a valid YYYY-MM-DD date");
   }
 
+  const sourceUrl = optionalString(args, "sourceUrl", MAX_SOURCE_URL_LENGTH)?.trim() || null;
+  if (sourceUrl !== null && !isWebUrl(sourceUrl)) {
+    throw new Error("sourceUrl must be an http(s) URL");
+  }
+
   const scheduledDate = optionalString(args, "scheduledDate", 10);
   const scheduledTime = optionalString(args, "scheduledTime", 5);
   if (scheduledDate !== undefined && !isValidLocalDate(scheduledDate)) {
@@ -392,6 +408,7 @@ const buildTaskInput = (
         ? buildIsoFromLocalDateAndTime(scheduledDate, scheduledTime ?? "09:00")
         : null,
       source: "manual",
+      sourceUrl,
     },
   };
 };

@@ -86,6 +86,8 @@ export const defaultAppSettings = (): AppSettings => ({
   llmBridgeEnabled: false,
   llmBridgePort: DEFAULT_LLM_BRIDGE_PORT,
   llmBridgeToken: "",
+  runInTray: false,
+  launchAtLogin: false,
 });
 
 export const normalizeAppSettings = (
@@ -139,6 +141,8 @@ export const normalizeAppSettings = (
   llmBridgePort: isValidLlmBridgePort(settings.llmBridgePort)
     ? settings.llmBridgePort
     : defaults.llmBridgePort,
+  runInTray: settings.runInTray === true,
+  launchAtLogin: settings.launchAtLogin === true,
 });
 
 /** Only fields edited relative to the form's baseline are submitted. */

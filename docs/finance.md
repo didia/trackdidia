@@ -130,8 +130,8 @@ automatically — no migration needed):
 `FinanceSqliteStore` (`src/lib/storage/finance-sqlite-store.ts`) and
 `FinanceMemoryStore` (`src/lib/storage/finance-memory-store.ts`) back
 `TauriSqliteRepository` and `MemoryRepository` respectively, reached through thin
-delegating methods (`getFinanceStore()`), mirroring the email triage pattern
-(`getEmailTriageStore()`). Both stores implement the same methods and the same
+delegating methods (`getFinanceStore()`), mirroring the calendar sync store
+(`getCalendarSyncStore()`). Both stores implement the same methods and the same
 business rules; `repository.contract.ts`'s `finance` block runs identical
 assertions against both.
 

@@ -68,4 +68,8 @@ export interface AppSettings {
   llmBridgePort: number;
   /** Bearer token for the local MCP endpoint. Stored in the settings row; never log it. */
   llmBridgeToken: string;
+  /** Desktop only: closing the window hides it to the system tray instead of quitting. */
+  runInTray: boolean;
+  /** Desktop only: launch TrackDidia when the user logs in (macOS LaunchAgent). */
+  launchAtLogin: boolean;
 }

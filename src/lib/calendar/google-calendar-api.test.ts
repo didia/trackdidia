@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ProviderHttpError } from "../email-triage/provider-http";
+import { ProviderHttpError } from "../provider-http";
 import type { CalendarSyncEventPayload } from "../../domain/calendar-sync";
 import {
   CALENDAR_SYNC_LOOKUP_MAX_PAGES,

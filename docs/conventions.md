@@ -52,7 +52,7 @@ Page chrome uses shared primitives in `src/components/`: `PageHeader` (the
 `hero` block with eyebrow, title, optional copy and actions), `ContextFilterChips`
 (All + one chip per context), and `SegmentedToggle` (single-select `tag-chip`
 row). They reuse the existing `hero` / `tag-row` / `tag-chip` classes, so
-`styles.css` is unchanged. `EmailTriagePage` keeps its own `page-header` markup.
+`styles.css` is unchanged.
 
 Prefer pure functions for calculations and state transitions. Pages should compose
 those functions and repository calls rather than becoming alternate business-rule

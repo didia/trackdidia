@@ -21,7 +21,6 @@ const navigation = [
   { to: "/projects", labelKey: "projects" },
   { to: "/pomodoro", labelKey: "pomodoro" },
   { to: "/recurrences", labelKey: "recurrences" },
-  { to: "/email-triage", labelKey: "emailTriage" },
   { to: "/finances", labelKey: "finances", flag: "financeEnabled" },
   { to: "/references", labelKey: "references" },
   { to: "/scheduled", labelKey: "scheduled" },

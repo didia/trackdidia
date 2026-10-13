@@ -1,5 +1,5 @@
 import { runSqliteTransaction, transactionDb } from "../transaction";
-import type { Database } from "../email-triage-sqlite-db";
+import type { Database } from "../sqlite-db";
 
 export interface Migration {
   id: number;

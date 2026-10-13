@@ -19,7 +19,7 @@ export const requestCalendarSync = (): void => {
 };
 
 /**
- * Mounts beside `useEmailTriageCoordinator`, only when a repository exists, this is not
+ * Mounts only when a repository exists, this is not
  * the browser preview, and startup has settled (`allowStart`). Never mounted under the
  * startup fallback: zero API calls and zero vault access in that state. Runs one reconcile
  * on mount, a 15-minute backstop timer, a window `focus` listener, and registers the
