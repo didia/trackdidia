@@ -12,6 +12,7 @@ import type {
 import { FinanceCategorizationService } from "../lib/ai/finance-categorization-service";
 import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
 import { logDebug } from "../lib/debug";
+import { formatMoney } from "../lib/finance/money";
 
 const ACCEPT_ALL_THRESHOLD = 0.8;
 
@@ -19,6 +20,46 @@ interface ReviewRow {
   suggestion: FinanceCategorySuggestion;
   transaction: FinanceTransaction | null;
 }
+
+/** Suggestions of one merchant that propose the same category from the same source. */
+interface SuggestionLine {
+  key: string;
+  categoryId: string;
+  origin: FinanceCategorySuggestion["origin"];
+  rows: ReviewRow[];
+  minConfidence: number;
+  maxConfidence: number;
+}
+
+const groupIntoLines = (merchantRows: ReviewRow[]): SuggestionLine[] => {
+  const lines = new Map<string, SuggestionLine>();
+  for (const row of merchantRows) {
+    const { suggestedCategoryId: categoryId, origin, confidence } = row.suggestion;
+    const key = `${categoryId}|${origin}`;
+    const line = lines.get(key);
+    if (line) {
+      line.rows.push(row);
+      line.minConfidence = Math.min(line.minConfidence, confidence);
+      line.maxConfidence = Math.max(line.maxConfidence, confidence);
+    } else {
+      lines.set(key, {
+        key,
+        categoryId,
+        origin,
+        rows: [row],
+        minConfidence: confidence,
+        maxConfidence: confidence,
+      });
+    }
+  }
+  return [...lines.values()].sort((a, b) => b.maxConfidence - a.maxConfidence);
+};
+
+const confidenceLabel = (line: SuggestionLine): string => {
+  const min = Math.round(line.minConfidence * 100);
+  const max = Math.round(line.maxConfidence * 100);
+  return min === max ? `${max}%` : `${min}–${max}%`;
+};
 
 export const FinanceReviewPage = () => {
   const { t } = useTranslation("finance");
@@ -90,29 +131,39 @@ export const FinanceReviewPage = () => {
     return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [rows]);
 
-  const accept = (suggestion: FinanceCategorySuggestion) =>
+  // A line stands for every transaction of the merchant sharing the proposed category, so each
+  // decision is applied to all of its suggestions (one by one, like the bulk accept below).
+  const accept = (line: SuggestionLine) =>
     exclusive(async () => {
-      await repository.decideFinanceCategorySuggestion(suggestion.id, { status: "accepted" });
+      for (const { suggestion } of line.rows) {
+        await repository.decideFinanceCategorySuggestion(suggestion.id, { status: "accepted" });
+      }
       setCorrectingId(null);
       await load();
     });
 
-  const dismiss = (suggestion: FinanceCategorySuggestion) =>
+  const dismiss = (line: SuggestionLine) =>
     exclusive(async () => {
-      await repository.decideFinanceCategorySuggestion(suggestion.id, { status: "dismissed" });
+      for (const { suggestion } of line.rows) {
+        await repository.decideFinanceCategorySuggestion(suggestion.id, { status: "dismissed" });
+      }
       setCorrectingId(null);
       await load();
     });
 
-  const correct = (suggestion: FinanceCategorySuggestion, categoryId: string) =>
+  // A correction is the user's verdict on the merchant, so it covers every pending suggestion of
+  // that merchant — including lines proposing a different category — not just the clicked line.
+  const correct = (merchantRows: ReviewRow[], categoryId: string) =>
     exclusive(async () => {
       if (!categoryId) {
         return;
       }
-      await repository.decideFinanceCategorySuggestion(suggestion.id, {
-        status: "corrected",
-        categoryId,
-      });
+      for (const { suggestion } of merchantRows) {
+        await repository.decideFinanceCategorySuggestion(suggestion.id, {
+          status: "corrected",
+          categoryId,
+        });
+      }
       setCorrectingId(null);
       await load();
     });
@@ -250,58 +301,75 @@ export const FinanceReviewPage = () => {
             <article key={merchantKey} className="list-card">
               <h3>{merchantKey}</h3>
               <div className="stack">
-                {merchantRows.map(({ suggestion, transaction }) => (
-                  <div key={suggestion.id} className="inline-form">
-                    <span>
-                      {transaction?.descriptionRaw ?? suggestion.transactionId} —{" "}
-                      {categoryNameById.get(suggestion.suggestedCategoryId) ??
-                        suggestion.suggestedCategoryId}{" "}
-                      ({Math.round(suggestion.confidence * 100)}% · {suggestion.origin})
-                    </span>
-                    <button
-                      type="button"
-                      className="button"
-                      disabled={busy}
-                      onClick={() => void accept(suggestion)}
-                    >
-                      {t("review.accept")}
-                    </button>
-                    <button
-                      type="button"
-                      className="button"
-                      disabled={busy}
-                      onClick={() =>
-                        setCorrectingId((current) =>
-                          current === suggestion.id ? null : suggestion.id,
-                        )
-                      }
-                    >
-                      {t("review.correct")}
-                    </button>
-                    <button
-                      type="button"
-                      className="button"
-                      disabled={busy}
-                      onClick={() => void dismiss(suggestion)}
-                    >
-                      {t("review.dismiss")}
-                    </button>
-                    {correctingId === suggestion.id ? (
-                      <select
-                        defaultValue=""
+                {groupIntoLines(merchantRows).map((line) => (
+                  <div key={line.key} className="stack">
+                    <div className="inline-form">
+                      <span>
+                        {t("review.suggestedCategory", {
+                          category: categoryNameById.get(line.categoryId) ?? line.categoryId,
+                          count: line.rows.length,
+                          confidence: confidenceLabel(line),
+                          origin: t(`review.origin.${line.origin}`),
+                        })}
+                      </span>
+                      <button
+                        type="button"
+                        className="button"
                         disabled={busy}
-                        onChange={(event) => void correct(suggestion, event.target.value)}
+                        onClick={() => void accept(line)}
                       >
-                        <option value="" disabled>
-                          {t("review.pickCategory")}
-                        </option>
-                        {categories.map((category) => (
-                          <option key={category.id} value={category.id}>
-                            {category.name}
+                        {t("review.accept")}
+                      </button>
+                      <button
+                        type="button"
+                        className="button"
+                        disabled={busy}
+                        onClick={() =>
+                          setCorrectingId((current) => (current === line.key ? null : line.key))
+                        }
+                      >
+                        {t("review.correct")}
+                      </button>
+                      <button
+                        type="button"
+                        className="button"
+                        disabled={busy}
+                        onClick={() => void dismiss(line)}
+                      >
+                        {t("review.dismiss")}
+                      </button>
+                      {correctingId === line.key ? (
+                        <select
+                          defaultValue=""
+                          disabled={busy}
+                          onChange={(event) => void correct(merchantRows, event.target.value)}
+                        >
+                          <option value="" disabled>
+                            {t("review.pickCategory")}
                           </option>
+                          {categories.map((category) => (
+                            <option key={category.id} value={category.id}>
+                              {category.name}
+                            </option>
+                          ))}
+                        </select>
+                      ) : null}
+                    </div>
+                    <details>
+                      <summary>{t("review.showTransactions", { count: line.rows.length })}</summary>
+                      <ul>
+                        {line.rows.map(({ suggestion, transaction }) => (
+                          <li key={suggestion.id}>
+                            {transaction
+                              ? `${transaction.postedDate} · ${formatMoney({
+                                  amountMinor: transaction.amountMinor,
+                                  currency: transaction.currency,
+                                })} · ${transaction.descriptionRaw}`
+                              : suggestion.transactionId}
+                          </li>
                         ))}
-                      </select>
-                    ) : null}
+                      </ul>
+                    </details>
                   </div>
                 ))}
               </div>

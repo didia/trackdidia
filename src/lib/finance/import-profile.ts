@@ -377,6 +377,14 @@ export const mapImportRowToTransaction = (
   };
 };
 
+/**
+ * `FinanceImportProfile.signConvention` value for exports that print money *out* as a positive
+ * number (typically credit-card statements, where a purchase is positive and a payment is
+ * negative). Only `single_signed` mode honours it; the other modes derive the sign from
+ * columns. `null` keeps the file's own signs.
+ */
+export const INVERTED_SIGN_CONVENTION = "inverted";
+
 type AmountResult = { ok: true; amountMinor: number } | { ok: false; reason: string };
 
 const resolveAmountMinor = (
@@ -400,7 +408,11 @@ const resolveAmountMinor = (
     if (!parsed.ok) {
       return { ok: false, reason: parsed.reason };
     }
-    return { ok: true, amountMinor: parsed.amountMinor };
+    const inverted = profile.signConvention === INVERTED_SIGN_CONVENTION;
+    return {
+      ok: true,
+      amountMinor: inverted && parsed.amountMinor !== 0 ? -parsed.amountMinor : parsed.amountMinor,
+    };
   }
 
   if (mode === "debit_credit_columns") {

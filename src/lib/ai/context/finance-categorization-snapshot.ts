@@ -87,6 +87,17 @@ const LONG_DIGIT_RUN_PATTERN = /\d{4,}/g;
  */
 const PHONE_FRAGMENT_PATTERN = /\b\d{2,4}(?:[-.\s]\d{2,4}){1,3}\b/g;
 
+const stripStructuredIdentifiers = (raw: string): string =>
+  raw
+    .replace(EMAIL_PATTERN, " ")
+    .replace(CARD_OR_ACCOUNT_FRAGMENT_PATTERN, " ")
+    .replace(PHONE_FRAGMENT_PATTERN, " ")
+    .replace(LONG_DIGIT_RUN_PATTERN, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, MAX_MERCHANT_LENGTH)
+    .trim();
+
 /**
  * Strips **structured identifiers** from a raw merchant descriptor — email addresses,
  * card/account fragments, digit runs of 4 or more (store numbers, partial account numbers), and
@@ -100,18 +111,16 @@ const PHONE_FRAGMENT_PATTERN = /\b\d{2,4}(?:[-.\s]\d{2,4}){1,3}\b/g;
  * digit-run strip alone (same end result, but keeps the phone pattern meaningful on its own for
  * shorter, non-4-digit-terminated numbers).
  */
-export const sanitizeMerchantDescriptor = (raw: string): string => {
-  const sanitized = raw
-    .replace(EMAIL_PATTERN, " ")
-    .replace(CARD_OR_ACCOUNT_FRAGMENT_PATTERN, " ")
-    .replace(PHONE_FRAGMENT_PATTERN, " ")
-    .replace(LONG_DIGIT_RUN_PATTERN, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, MAX_MERCHANT_LENGTH)
-    .trim();
-  return sanitized || "MARCHAND";
-};
+export const sanitizeMerchantDescriptor = (raw: string): string =>
+  stripStructuredIdentifiers(raw) || "MARCHAND";
+
+/**
+ * True when nothing but punctuation/digits survives sanitization (e.g. a bare account number
+ * such as `625700012471184`): the model would only see the `MARCHAND` placeholder, so sending
+ * it costs tokens and yields a guess. Such merchants are left for manual categorization.
+ */
+export const hasIdentifiableDescriptor = (raw: string): boolean =>
+  /\p{L}/u.test(stripStructuredIdentifiers(raw));
 
 /**
  * Buckets an absolute amount in minor units against the stated base-currency thresholds, using
@@ -143,7 +152,7 @@ const payloadByteLength = (value: unknown): number =>
   new TextEncoder().encode(JSON.stringify(value)).length;
 
 /**
- * Sanitizes and chunks `inputs.unknownMerchants` into one or more request-sized snapshots: at
+ * Sanitizes and chunks `inputs.unknownMerchants` (minus those with no identifiable letters) into one or more request-sized snapshots: at
  * most 40 merchants and 16 KiB of serialized JSON each (over-cap input is split, never
  * truncated). Returns an empty array when `scope === "metrics"` (the AI stage is disabled
  * entirely at that scope) or when there is nothing to classify.
@@ -152,7 +161,13 @@ export const buildFinanceCategorizationSnapshots = (
   inputs: FinanceCategorizationSnapshotInputs,
   scope: AiPayloadScope,
 ): FinanceCategorizationSnapshotChunk[] => {
-  if (scope === "metrics" || inputs.unknownMerchants.length === 0) {
+  if (scope === "metrics") {
+    return [];
+  }
+  const unknownMerchants = inputs.unknownMerchants.filter((group) =>
+    hasIdentifiableDescriptor(group.merchantKey),
+  );
+  if (unknownMerchants.length === 0) {
     return [];
   }
 
@@ -161,12 +176,10 @@ export const buildFinanceCategorizationSnapshots = (
   // record every original key the disambiguated entry represents in its chunk's key map. The
   // suffix is allocated against every key already in use (including natural keys such as
   // `FOO#2`), so a disambiguated key can never collide with a different merchant's key.
-  const bases = inputs.unknownMerchants.map((group) =>
-    sanitizeMerchantDescriptor(group.merchantKey),
-  );
+  const bases = unknownMerchants.map((group) => sanitizeMerchantDescriptor(group.merchantKey));
   const usedKeys = new Set(bases);
   const seenBases = new Set<string>();
-  const items = inputs.unknownMerchants.map((group, index) => {
+  const items = unknownMerchants.map((group, index) => {
     const base = bases[index];
     let key = base;
     if (seenBases.has(base)) {

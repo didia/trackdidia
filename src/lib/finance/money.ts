@@ -94,6 +94,9 @@ export const parseAmountToMinor = (
     working = working.slice(1).trim();
   }
 
+  // The symbol may also follow the sign ("-$12.00").
+  working = working.replace(/^[A-Za-z]{0,3}\$\s*/, "").trim();
+
   if (working.length === 0) {
     return { ok: false, reason: "empty" };
   }

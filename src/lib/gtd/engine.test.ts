@@ -25,25 +25,32 @@ const buildProject = (id: string, title: string, status: ProjectStatus): Project
 });
 
 describe("buildLifecycleEvents", () => {
-  it("dates creation and completion events on the local calendar day, not the UTC day", () => {
-    // Just before UTC midnight is still the same evening in the Americas, and just after it is
-    // already the next UTC day; the event date must follow the local calendar either way.
-    for (const instant of ["2026-03-01T23:30:00.000Z", "2026-03-02T01:30:00.000Z"]) {
-      const created = buildTask({
-        bucket: "next_action",
-        status: "active",
-        createdAt: instant,
-        updatedAt: instant,
-      });
-      const [createdEvent] = buildLifecycleEvents(null, created);
-      expect(createdEvent.eventDate).toBe(toLocalDateString(instant));
+  it("dates task events by the local calendar day, not the UTC day", () => {
+    // 01:30 UTC is still the previous evening in the Americas: a UTC slice would date the event
+    // a day ahead of the local day the daily stats compare against.
+    const createdAt = "2026-10-13T01:30:00.000Z";
+    const task = {
+      ...createTaskFromInput({ title: "Tard le soir", bucket: "next_action" }),
+      createdAt,
+      updatedAt: createdAt,
+    };
 
-      const completed = { ...created, status: "completed" as const, completedAt: instant };
-      const completedEvent = buildLifecycleEvents(created, completed).find(
-        (event) => event.type === "task_completed",
-      );
-      expect(completedEvent?.eventDate).toBe(toLocalDateString(instant));
+    const events = buildLifecycleEvents(null, task);
+
+    expect(events.length).toBeGreaterThan(0);
+    for (const event of events) {
+      expect(event.eventDate).toBe(toLocalDateString(createdAt));
     }
+
+    const completed = buildLifecycleEvents(task, {
+      ...task,
+      status: "completed",
+      completedAt: createdAt,
+      updatedAt: createdAt,
+    });
+    expect(completed.find((event) => event.type === "task_completed")?.eventDate).toBe(
+      toLocalDateString(createdAt),
+    );
   });
 });
 

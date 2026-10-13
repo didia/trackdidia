@@ -573,6 +573,16 @@ shows a discrepancy banner whenever they disagree.
    underneath.
    In debit/credit-columns mode the non-zero side wins: banks that print `0` in the
    unused column (instead of leaving it blank) still import credits as positive.
+   In single-signed mode an "Inverser le signe des montants" checkbox flips every
+   amount, for credit-card exports that print purchases as positive numbers. It is
+   persisted on the profile as `signConvention = "inverted"` (the existing
+   `sign_convention` column, no migration; `null` keeps the file's signs), so a
+   repeat import of the same header reuses it. Purchases positive, payments negative:
+   inversion makes purchases expenses and payments money in. When the amount column
+   is mapped and no amount is negative — or the file is bound to a credit-card
+   account and positives outnumber negatives — the page shows a banner suggesting
+   the inversion. Amount parsing accepts a currency symbol on either side of the sign
+   (`-$12.00` and `$-12.00`).
 5. Account binding: when the profile maps an account column, the page lists
    every distinct value seen in that column in the file and lets the user
    bind each one to an existing account or create a new one inline. A newly
@@ -937,22 +947,28 @@ is advisory only and never changes arithmetic.
 ### FinanceReviewPage (`/finances/review`, Phase 4, extended by Phase 8)
 
 The pending-suggestion queue (`listFinanceCategorySuggestions("pending")`),
-grouped by `merchant_key`. Each suggestion shows the transaction's description,
-the suggested category name, its confidence, and its `origin` (`memory` |
-`seed` | `ai`). Three per-row actions, all routed through
-`decideFinanceCategorySuggestion`:
+grouped by `merchant_key`. A suggestion always proposes a **category** for a
+transaction, never a merchant name. Within a merchant, suggestions proposing the
+same category from the same `origin` (`memory` | `seed` | `ai`) collapse into
+one line — "Catégorie suggérée : X — N transaction(s) · confiance min–max % ·
+origine" — with a "Voir les N transaction(s)" disclosure listing each
+transaction's date, amount and description. Actions are routed through
+`decideFinanceCategorySuggestion`, once per suggestion behind the line:
 
-- **Accepter** — `status: "accepted"`, which applies the suggested category via
+- **Accepter** — `status: "accepted"` on every suggestion of the line, which
+  applies the suggested category via
   `setFinanceTransactionCategory({ scope: "this" })` and reinforces
   `finance_merchant_memory` exactly like a manual edit.
 - **Corriger** — opens a category picker; choosing one sends
-  `status: "corrected"` with that `categoryId`, which flips memory to the
-  chosen category and resets its confidence to `0.6` (see
+  `status: "corrected"` with that `categoryId` for **every pending suggestion of
+  the merchant** (including lines that proposed a different category), which
+  flips memory to the chosen category and resets its confidence to `0.6` (see
   `applyMerchantMemoryCorrection`).
-- **Rejeter** — `status: "dismissed"`. The transaction's category is left
-  untouched; the dismissed suggestion row itself becomes the negative signal
-  `classifyTransaction` reads for the 90-day `(merchantKey, categoryId)`
-  suppression window on the next import or reclassify.
+- **Rejeter** — `status: "dismissed"` on every suggestion of the line. The
+  transactions' categories are left untouched; each dismissed suggestion row
+  becomes the negative signal `classifyTransaction` reads for the 90-day
+  `(merchantKey, categoryId)` suppression window on the next import or
+  reclassify.
 
 "Accepter tout au-dessus de {{threshold}}%" bulk-accepts every pending
 suggestion at or above an 80% confidence floor (a page constant, not a
@@ -978,6 +994,20 @@ fails, the counts from the chunks that succeeded are kept next to the warning.
 After an import, a non-throwing AI failure (`result.warning`) is logged and
 shown as a non-blocking line on the import page; the import itself still
 succeeds.
+
+When the AI stage runs after an import and examined at least one merchant, the
+import result card reports how many merchants were analysed, how many
+suggestions were created and how many were auto-applied, with a link to
+`/finances/review` — suggestions below the auto-apply threshold are only
+`pending` there, so without this line a successful run looked like nothing had
+happened.
+
+When the AI stage does not run after an import — `financeAiCategorizationEnabled`
+off, AI not enabled or no API key, or `aiPayloadScope === "metrics"` — and
+`listFinanceUnknownMerchants` still reports merchants without a category, the
+import result card shows a banner saying how many merchants lack a category, why
+AI did not suggest anything, and a link to Settings (`/parametres`). Nothing is
+sent to the provider and no setting is changed by this hint.
 
 ### FinanceRulesPage (`/finances/rules`, Phase 4)
 
@@ -1321,7 +1351,7 @@ the representative amount into `<10`/`10-50`/`50-200`/`200-1000`/`>1000`
 (base currency, integer-minor-unit comparisons only, never a float
 division). A group's `amountMinorSample` is a median over its most common
 currency only (`FinanceUnknownMerchantGroup.currency`); when that currency is
-not the base currency there is no FX conversion, so the bucket is `unknown`. It then chunks the sanitized list into one or more requests of
+not the base currency there is no FX conversion, so the bucket is `unknown`. Merchants whose descriptor has no letter left after sanitizing (e.g. a bare account number) are never sent — they stay `Uncategorized` for manual handling. It then chunks the sanitized list into one or more requests of
 **at most 40 merchants and 16 KiB of serialized JSON each** — an over-cap
 batch is split into more requests, never truncated — each paired with a
 `merchantKeyMap` (sanitized request key -> original `merchant_key`
