@@ -375,8 +375,10 @@ export const buildDailyTaskBreakdown = (
 };
 
 export const buildLifecycleEvents = (previous: Task | null, next: Task): TaskEvent[] => {
-  const updateEventDate = next.updatedAt.slice(0, 10);
-  const creationEventDate = next.createdAt.slice(0, 10);
+  // Event dates are local calendar days (daily stats compare them with local dates); slicing the
+  // UTC timestamp would date an evening change to the next day.
+  const updateEventDate = toLocalDateString(next.updatedAt);
+  const creationEventDate = toLocalDateString(next.createdAt);
   const events: TaskEvent[] = [];
 
   if (!previous) {
@@ -405,7 +407,7 @@ export const buildLifecycleEvents = (previous: Task | null, next: Task): TaskEve
 
   if (previous.status !== "completed" && next.status === "completed") {
     events.push(
-      eventFor(next.id, "task_completed", (next.completedAt ?? next.updatedAt).slice(0, 10), {
+      eventFor(next.id, "task_completed", toLocalDateString(next.completedAt ?? next.updatedAt), {
         bucket: next.bucket,
       }),
     );

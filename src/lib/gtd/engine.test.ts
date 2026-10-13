@@ -1,7 +1,9 @@
 import type { Project, ProjectStatus, Task, TaskEvent, TaskEventType } from "../../domain/types";
+import { toLocalDateString } from "../date";
 import {
   buildDailyTaskBreakdown,
   buildDailyTaskStats,
+  buildLifecycleEvents,
   createTaskFromInput,
   effectiveTaskContextIds,
   formatAssociationCopy,
@@ -20,6 +22,29 @@ const buildProject = (id: string, title: string, status: ProjectStatus): Project
   sourceExternalId: null,
   createdAt: "2026-03-01T10:00:00.000Z",
   updatedAt: "2026-03-01T10:00:00.000Z",
+});
+
+describe("buildLifecycleEvents", () => {
+  it("dates creation and completion events on the local calendar day, not the UTC day", () => {
+    // Just before UTC midnight is still the same evening in the Americas, and just after it is
+    // already the next UTC day; the event date must follow the local calendar either way.
+    for (const instant of ["2026-03-01T23:30:00.000Z", "2026-03-02T01:30:00.000Z"]) {
+      const created = buildTask({
+        bucket: "next_action",
+        status: "active",
+        createdAt: instant,
+        updatedAt: instant,
+      });
+      const [createdEvent] = buildLifecycleEvents(null, created);
+      expect(createdEvent.eventDate).toBe(toLocalDateString(instant));
+
+      const completed = { ...created, status: "completed" as const, completedAt: instant };
+      const completedEvent = buildLifecycleEvents(created, completed).find(
+        (event) => event.type === "task_completed",
+      );
+      expect(completedEvent?.eventDate).toBe(toLocalDateString(instant));
+    }
+  });
 });
 
 describe("createTaskFromInput", () => {
