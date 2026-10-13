@@ -16,6 +16,7 @@ const build = (
     type: "checking",
     onBudget: true,
     closed: false,
+    createdAt: "2026-01-01T12:00:00",
     ...overrides,
   },
   latestTransactionDate: dates.txn ?? null,
@@ -70,13 +71,25 @@ describe("computeFinanceAccountFreshness", () => {
     ).toMatchObject({ dataThroughDate: "2026-10-10", dataThroughSource: "transaction" });
   });
 
-  it("reports an account with no data as never loaded", () => {
-    expect(computeFinanceAccountFreshness(build("a"), "2026-10-12")).toMatchObject({
-      dataThroughDate: null,
-      ageDays: null,
-      overdueDays: null,
-      status: "never",
+  it("counts an account with no data from the day it was created", () => {
+    const created = (createdAt: string) =>
+      computeFinanceAccountFreshness(build("a", { createdAt }), "2026-10-12");
+    expect(created("2026-10-10T09:30:00")).toMatchObject({
+      dataThroughDate: "2026-10-10",
+      dataThroughSource: "created",
+      ageDays: 2,
+      status: "fresh",
     });
+    expect(created("2026-10-05T09:30:00")).toMatchObject({ ageDays: 7, status: "due" });
+  });
+
+  it("prefers imported data over the creation date", () => {
+    expect(
+      computeFinanceAccountFreshness(
+        build("a", { createdAt: "2026-01-01T12:00:00" }, { txn: "2026-10-11" }),
+        "2026-10-12",
+      ),
+    ).toMatchObject({ dataThroughSource: "transaction", status: "fresh" });
   });
 
   it("never reports a negative age for a future-dated posting", () => {
@@ -110,20 +123,17 @@ describe("per-account cadence override", () => {
     ).toMatchObject({ cadenceDays: 90, cadenceIsCustom: true, ageDays: 72, status: "fresh" });
   });
 
-  it.each([
-    0,
-    -3,
-    1.5,
-    366,
-    Number.NaN,
-  ])("ignores an out-of-range stored override (%s) instead of mis-classifying the account", (updateCadenceDays) => {
-    expect(
-      computeFinanceAccountFreshness(
-        build("a", { updateCadenceDays }, { txn: "2026-10-11" }),
-        "2026-10-12",
-      ),
-    ).toMatchObject({ cadenceDays: 7, cadenceIsCustom: false, status: "fresh" });
-  });
+  it.each([0, -3, 1.5, 366, Number.NaN])(
+    "ignores an out-of-range stored override (%s) instead of mis-classifying the account",
+    (updateCadenceDays) => {
+      expect(
+        computeFinanceAccountFreshness(
+          build("a", { updateCadenceDays }, { txn: "2026-10-11" }),
+          "2026-10-12",
+        ),
+      ).toMatchObject({ cadenceDays: 7, cadenceIsCustom: false, status: "fresh" });
+    },
+  );
 
   it("falls back to the default when the override is null or absent", () => {
     expect(
@@ -141,7 +151,7 @@ describe("computeFinanceAccountsFreshness", () => {
     const rows = computeFinanceAccountsFreshness(
       [
         build("fresh-budget", {}, { txn: "2026-10-11" }),
-        build("never", {}, {}),
+        build("never-imported", {}, {}),
         build("due-other", { onBudget: false }, { txn: "2026-08-01" }),
         build("due-budget-slight", {}, { txn: "2026-10-04" }),
         build("due-budget-very", {}, { txn: "2026-09-20" }),
@@ -150,10 +160,10 @@ describe("computeFinanceAccountsFreshness", () => {
       "2026-10-12",
     );
     expect(rows.map((row) => row.accountId)).toEqual([
+      "never-imported",
       "due-budget-very",
       "due-budget-slight",
       "due-other",
-      "never",
       "fresh-budget",
     ]);
   });

@@ -76,7 +76,15 @@ describe("FinanceAccountFreshnessCard", () => {
     const stale = await repository.saveFinanceAccount(buildAccount("Chèques"));
     const fresh = await repository.saveFinanceAccount(buildAccount("Crédit"));
     const savings = await repository.saveFinanceAccount(
-      buildAccount("Épargne", { type: "savings", onBudget: false }),
+      buildAccount("Épargne", {
+        type: "savings",
+        onBudget: false,
+        createdAt: `${addDays(today, -45)}T12:00:00`,
+      }),
+    );
+    // Never imported but only just created: not due yet, so not listed.
+    await repository.saveFinanceAccount(
+      buildAccount("Récent", { type: "savings", onBudget: false }),
     );
     await repository.saveFinanceAccount(buildAccount("Ancien", { closed: true }));
     await importOn(repository, stale.id, addDays(today, -9));
@@ -95,8 +103,11 @@ describe("FinanceAccountFreshnessCard", () => {
     expect(screen.queryByTestId(`finance-freshness-${fresh.id}`)).not.toBeInTheDocument();
     expect(screen.queryByText("Crédit")).not.toBeInTheDocument();
     const savingsRow = screen.getByTestId(`finance-freshness-${savings.id}`);
-    expect(savingsRow).toHaveAttribute("data-status", "never");
+    expect(savingsRow).toHaveAttribute("data-status", "due");
+    expect(savingsRow).toHaveTextContent("compte créé le");
+    expect(savingsRow).toHaveTextContent("45 jours");
     expect(savingsRow).toHaveTextContent("mise à jour mensuelle");
+    expect(screen.queryByText("Récent")).not.toBeInTheDocument();
     expect(screen.queryByText("Ancien")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Importer/ })).toHaveAttribute(
       "href",

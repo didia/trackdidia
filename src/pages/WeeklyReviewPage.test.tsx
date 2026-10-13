@@ -1942,6 +1942,8 @@ describe("WeeklyReviewPage mid-week decisions card", () => {
     const repository = new MemoryRepository();
     await repository.initialize();
     const timestamp = new Date().toISOString();
+    // Created a month ago and never imported: past its weekly cadence, so it is listed.
+    const createdAt = `${addDays(dateModule.getTodayDate(), -30)}T12:00:00`;
     await repository.saveFinanceAccount({
       id: "",
       name: "Chèques",
@@ -1958,7 +1960,7 @@ describe("WeeklyReviewPage mid-week decisions card", () => {
       externalKey: null,
       notes: null,
       sortOrder: 0,
-      createdAt: timestamp,
+      createdAt,
       updatedAt: timestamp,
     });
 
@@ -1970,7 +1972,9 @@ describe("WeeklyReviewPage mid-week decisions card", () => {
 
     const freshness = await screen.findByTestId("finance-freshness-embedded");
     expect(await within(freshness).findByText("Chèques")).toBeInTheDocument();
-    expect(within(freshness).getByText("Jamais importé")).toBeInTheDocument();
+    expect(
+      within(freshness).getByText(/Aucune donnée importée, compte créé le/),
+    ).toBeInTheDocument();
   });
 
   it("hides the account update list from the weekly review when finance is off", async () => {

@@ -771,13 +771,13 @@ are up to date are not listed (when none are due the section says so). It render
 `financeEnabled` is on, embedded under the "Budget" ritual section of `/semaine` (`embedded`
 drops the card chrome). It reloads when the app's local `calendarDay` rolls over (midnight,
 focus, visibility), so ages never stay on yesterday; while loading it shows a short loading
-line. Each row shows a status chip (`À mettre à jour` / `Jamais importé`), the account and
-institution, "Données jusqu'au …" (or "Relevé du …") with the age in days, and the account's
-cadence, most overdue first; a button links to `/finances/import`.
+line. Each row shows a `À mettre à jour` chip, the account and institution, "Données
+jusqu'au …" (or "Relevé du …", or "Aucune donnée importée, compte créé le …") with the age in
+days, and the account's cadence, most overdue first; a button links to `/finances/import`.
 
 The `/finances` overview has no separate list: it runs the same loader and marks each account
 row in its "Comptes" section with a small green `À mettre à jour` pill (`finance-row__update`)
-when the account is due or never loaded. A failing freshness read leaves the pills out rather
+when the account is due. A failing freshness read leaves the pills out rather
 than breaking the overview.
 
 Rules (pure, `src/domain/finance/account-freshness.ts`, tested directly):
@@ -796,9 +796,12 @@ Rules (pure, `src/domain/finance/account-freshness.ts`, tested directly):
   time is deliberately not used — importing an old file must not make an account look
   current.
 - **Due** when the data-through date is at least one full cadence old (a Sunday review sees
-  last Sunday's data as due); **never** when the account has no transactions and no statement.
-  Future-dated postings count as age 0. Closed accounts are skipped.
-- Sort: due, then never loaded, then fresh; budget accounts before others, then most overdue.
+  last Sunday's data as due). An account with no transactions and no statement has no
+  "never imported" state: it counts from its creation date (local day of `created_at`), so an
+  account the user never imports only turns due once a full cadence has passed since it was
+  created, and importing resets the clock to the data dates. Future-dated postings count as
+  age 0. Closed accounts are skipped.
+- Sort: due before fresh; budget accounts before others, then most overdue.
 
 `loadFinanceAccountFreshness` (`src/lib/finance/account-freshness-loader.ts`, `today` passed
 in by the caller) gathers the two dates through `listFinanceAccounts`,

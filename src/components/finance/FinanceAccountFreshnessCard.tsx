@@ -43,13 +43,9 @@ export const FinanceAccountFreshnessCard = ({ embedded = false }: { embedded?: b
   const dueCount = dueRows.length;
 
   const describeAge = (row: FinanceAccountFreshness): string => {
-    if (row.dataThroughDate === null || row.ageDays === null) {
-      return t("freshness.neverLoaded");
-    }
-    const through = t(
-      row.dataThroughSource === "statement" ? "freshness.statementThrough" : "freshness.through",
-      { date: formatDateLong(row.dataThroughDate) },
-    );
+    const through = t(`freshness.${row.dataThroughSource}Through`, {
+      date: formatDateLong(row.dataThroughDate),
+    });
     return `${through} · ${t("freshness.ageDays", { count: row.ageDays })}`;
   };
 

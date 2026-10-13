@@ -483,17 +483,16 @@
     "loadError": "Impossible de charger l'état des comptes.",
     "retry": "Réessayer",
     "import": "Importer des transactions ou un relevé",
-    "neverLoaded": "Aucune donnée importée",
-    "through": "Données jusqu'au {{date}}",
+    "transactionThrough": "Données jusqu'au {{date}}",
     "statementThrough": "Relevé du {{date}}",
+    "createdThrough": "Aucune donnée importée, compte créé le {{date}}",
     "ageDays_one": "{{count}} jour",
     "ageDays_other": "{{count}} jours",
     "cadenceWeekly": "mise à jour hebdomadaire",
     "cadenceMonthly": "mise à jour mensuelle",
     "status": {
       "fresh": "À jour",
-      "due": "À mettre à jour",
-      "never": "Jamais importé"
+      "due": "À mettre à jour"
     },
     "cadenceEveryDays_one": "mise à jour tous les {{count}} jour",
     "cadenceEveryDays_other": "mise à jour tous les {{count}} jours",
