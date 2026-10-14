@@ -125,6 +125,9 @@
     "selectFileTitle": "Choisir un ou plusieurs fichiers CSV",
     "reencodedWarning": "Le fichier n'était pas de l'UTF-8 valide ; il a été relu en windows-1252.",
     "mappingTitle": "Mappage des colonnes",
+    "noHeader": "Ce fichier n'a pas de ligne d'en-tête (la première ligne est déjà une transaction)",
+    "noHeaderHint": "Chaque ligne du fichier est lue comme une transaction ; les colonnes sont nommées Colonne 1, Colonne 2… Associez-les ci-dessous (date, description, montant…).",
+    "columnLabel": "Colonne",
     "fields": {
       "date": "Date",
       "description": "Description",

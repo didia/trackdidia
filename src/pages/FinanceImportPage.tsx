@@ -15,7 +15,7 @@ import type {
 } from "../domain/finance";
 import { FinanceCategorizationService } from "../lib/ai/finance-categorization-service";
 import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
-import { parseCsv } from "../lib/finance/csv";
+import { looksLikeDataRow, parseCsv } from "../lib/finance/csv";
 import { parseAmountToMinor } from "../lib/finance/money";
 import { createEntityId, nowIso } from "../lib/gtd/shared";
 import {
@@ -67,6 +67,9 @@ export const FinanceImportPage = () => {
   const [decodeWarning, setDecodeWarning] = useState<string | null>(null);
   const [header, setHeader] = useState<string[]>([]);
   const [rows, setRows] = useState<string[][]>([]);
+  // False when the file has no header line: every line is a transaction and the columns are
+  // named "Colonne 1…N". Pre-checked when the first line looks like a transaction.
+  const [hasHeader, setHasHeader] = useState(true);
   const [columnMap, setColumnMap] = useState<FinanceImportColumnMap>({});
   const [dateFormat, setDateFormat] = useState<FinanceImportProfile["dateFormat"]>("YYYY-MM-DD");
   const [amountMode, setAmountMode] = useState<FinanceImportProfile["amountMode"]>("single_signed");
@@ -117,13 +120,13 @@ export const FinanceImportPage = () => {
   const currentFile = pendingFiles[fileIndex] ?? null;
 
   const resetMappingState = useCallback(
-    (nextHeader: string[], nextRows: string[][]) => {
+    (nextHeader: string[], nextRows: string[][], nextHasHeader: boolean) => {
       setHeader(nextHeader);
       setRows(nextRows);
       setSummary(null);
       setImportError(null);
 
-      const signature = buildHeaderSignature(nextHeader);
+      const signature = buildHeaderSignature(nextHeader, nextHasHeader);
       const matchedProfile =
         savedProfiles.find((profile) => profile.signature === signature) ??
         (signature === MINT_PROFILE.signature ? MINT_PROFILE : null);
@@ -142,8 +145,11 @@ export const FinanceImportPage = () => {
       setColumnMap({});
       setAmountMode("single_signed");
       setInvertSign(false);
-      const dateColumnIndex = nextHeader.findIndex((name) => /date/i.test(name));
-      if (dateColumnIndex >= 0) {
+      // Without a header line there are no column names to look for: sample the first column.
+      const dateColumnIndex = nextHasHeader
+        ? nextHeader.findIndex((name) => /date/i.test(name))
+        : 0;
+      if (dateColumnIndex >= 0 && nextHeader.length > 0) {
         const samples = nextRows.slice(0, 20).map((row) => row[dateColumnIndex] ?? "");
         const inference = inferDateFormat(samples);
         setDateFormat(inference.format ?? "YYYY-MM-DD");
@@ -155,6 +161,20 @@ export const FinanceImportPage = () => {
     },
     [savedProfiles],
   );
+
+  // Parses a file's text and resets the mapping. A first line that looks like a transaction
+  // (it holds a date) means the file has no header, unless the caller forces the choice.
+  const loadFileText = (text: string, forcedHasHeader?: boolean) => {
+    const nextHasHeader =
+      forcedHasHeader ?? !looksLikeDataRow(parseCsv(text, undefined, { hasHeader: true }).header);
+    const parsed = parseCsv(text, undefined, {
+      hasHeader: nextHasHeader,
+      columnLabel: t("import.columnLabel"),
+    });
+    setHasHeader(nextHasHeader);
+    setParserWarnings(parsed.warnings);
+    resetMappingState(parsed.header, parsed.rows, nextHasHeader);
+  };
 
   const handleFilesSelected = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) {
@@ -174,9 +194,7 @@ export const FinanceImportPage = () => {
     setNewAccountNames({});
     setDecodeWarning(decoded[0]?.reencodedAsWindows1252 ? t("import.reencodedWarning") : null);
 
-    const parsed = parseCsv(decoded[0].text);
-    setParserWarnings(parsed.warnings);
-    resetMappingState(parsed.header, parsed.rows);
+    loadFileText(decoded[0].text);
   };
 
   const goToFile = (index: number) => {
@@ -186,9 +204,16 @@ export const FinanceImportPage = () => {
     }
     setFileIndex(index);
     setDecodeWarning(file.reencodedAsWindows1252 ? t("import.reencodedWarning") : null);
-    const parsed = parseCsv(file.text);
-    setParserWarnings(parsed.warnings);
-    resetMappingState(parsed.header, parsed.rows);
+    loadFileText(file.text);
+    setAccountBindings({});
+    setNewAccountNames({});
+  };
+
+  const toggleHasHeader = (nextHasHeader: boolean) => {
+    if (!currentFile) {
+      return;
+    }
+    loadFileText(currentFile.text, nextHasHeader);
     setAccountBindings({});
     setNewAccountNames({});
   };
@@ -330,7 +355,7 @@ export const FinanceImportPage = () => {
       const profile: FinanceImportProfile = {
         id: matchedProfileId ?? createEntityId("finance-import-profile"),
         name: currentFile.name,
-        signature: buildHeaderSignature(header),
+        signature: buildHeaderSignature(header, hasHeader),
         columnMap,
         dateFormat,
         amountMode,
@@ -362,6 +387,7 @@ export const FinanceImportPage = () => {
         fileHash: hash128(currentFile.text),
         header,
         rows,
+        firstLineNumber: hasHeader ? 2 : 1,
         parserWarnings,
         profile: { ...profile, columnMap },
         currency: currencyOf(primaryAccountId),
@@ -519,6 +545,15 @@ export const FinanceImportPage = () => {
 
       {currentFile ? (
         <SectionCard title={t("import.mappingTitle")}>
+          <label className="switch-row">
+            <input
+              type="checkbox"
+              checked={!hasHeader}
+              onChange={(event) => toggleHasHeader(!event.target.checked)}
+            />
+            <span>{t("import.noHeader")}</span>
+          </label>
+          {!hasHeader ? <p className="banner">{t("import.noHeaderHint")}</p> : null}
           <div className="form-grid">
             {(
               [

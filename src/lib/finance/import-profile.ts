@@ -15,9 +15,15 @@ export type { FinanceDateFormat } from "../../domain/finance";
 /**
  * Builds a stable signature for a CSV header row: lowercase, trim, strip
  * accents/punctuation, join with "|", then hash with the 128-bit hash. Used to
- * auto-recognize a repeat export and store on the saved import profile.
+ * auto-recognize a repeat export and store on the saved import profile. A file
+ * without a header line has no titles to hash, so its signature is the column
+ * count (kept apart from any real header's signature).
  */
-export const buildHeaderSignature = (header: string[]): string => {
+export const buildHeaderSignature = (header: string[], hasHeader = true): string => {
+  if (!hasHeader) {
+    return hash128(`noheader:${header.length}`);
+  }
+
   const normalized = header
     .map(
       (column) =>

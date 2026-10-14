@@ -457,6 +457,70 @@ describe("FinanceImportPage", () => {
     expect(profile.signConvention).toBe("inverted");
   });
 
+  it("imports a CSV without a header line, mapping the numbered columns", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const user = userEvent.setup();
+    await repository.saveFinanceAccount({
+      id: "card-1",
+      name: "Carte CIBC",
+      institution: null,
+      type: "credit_card",
+      currency: "CAD",
+      ownerPersonId: null,
+      ownership: "individual",
+      onBudget: true,
+      closed: false,
+      openingBalanceMinor: 0,
+      currentBalanceMinor: null,
+      balanceAsOf: null,
+      externalKey: null,
+      notes: null,
+      sortOrder: 0,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    await renderWithApp(<FinanceImportPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+
+    const csv = [
+      '2026-10-08,"CAFETERIA HSS QUEBEC, QC",5.30,,5268********6956',
+      "2026-09-25,PAYMENT THANK YOU/PAIEMEN T MERCI,,45.00,5268********6956",
+    ].join("\n");
+    const input = document.querySelector('input[accept=".csv,text/csv"]') as HTMLInputElement;
+    await user.upload(input, new File([csv], "cibc.csv", { type: "text/csv" }));
+    await screen.findByText("Mappage des colonnes");
+
+    // The first line holds a date, so the file is read as headerless without being asked.
+    const noHeader = screen.getByLabelText(/Ce fichier n'a pas de ligne d'en-tête/);
+    expect(noHeader).toBeChecked();
+    expect(screen.getByText("CAFETERIA HSS QUEBEC, QC")).toBeInTheDocument();
+
+    const selectByLabel = (label: string) =>
+      screen.getByText(label).closest("label")?.querySelector("select") as HTMLSelectElement;
+    await user.selectOptions(selectByLabel("Date"), "Colonne 1");
+    await user.selectOptions(selectByLabel("Description"), "Colonne 2");
+    await user.selectOptions(screen.getByLabelText("Mode de montant"), "debit_credit_columns");
+    await user.selectOptions(selectByLabel("Débit"), "Colonne 3");
+    await user.selectOptions(selectByLabel("Crédit"), "Colonne 4");
+    await user.selectOptions(screen.getByLabelText("Compte (fichier à un seul compte)"), "card-1");
+
+    await user.click(screen.getByRole("button", { name: "Importer" }));
+    await screen.findByText("Résultat de l'import");
+
+    const transactions = await repository.listFinanceTransactions();
+    expect(transactions.map((txn) => txn.amountMinor).sort((a, b) => a - b)).toEqual([-530, 4500]);
+
+    // Unticking the box reads the first line as a header again.
+    await user.click(noHeader);
+    expect(noHeader).not.toBeChecked();
+    expect(screen.queryByText("Colonne 1")).not.toBeInTheDocument();
+    expect(screen.getAllByText("CAFETERIA HSS QUEBEC, QC").length).toBeGreaterThan(0);
+  });
+
   it("reports dropped CSV records and never stores a raw account number", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();

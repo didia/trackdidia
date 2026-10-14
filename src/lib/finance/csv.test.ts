@@ -1,4 +1,4 @@
-import { parseCsv, sniffDelimiter } from "./csv";
+import { looksLikeDataRow, parseCsv, sniffDelimiter } from "./csv";
 
 describe("finance csv parser", () => {
   it("parses quoted fields with embedded commas", () => {
@@ -78,6 +78,56 @@ describe("finance csv parser", () => {
 
   it("never throws on malformed input", () => {
     expect(() => parseCsv('"unterminated quote\nDate,Amount\n1/2/2026,-5.00')).not.toThrow();
+  });
+});
+
+describe("headerless files", () => {
+  const CIBC = [
+    '2026-10-08,"CAFETERIA HSS QUEBEC, QC",5.30,,5268********6956',
+    "2026-09-25,PAYMENT THANK YOU/PAIEMEN T MERCI,,45.00,5268********6956",
+  ].join("\n");
+
+  it("treats every line as a row and names the columns", () => {
+    const { header, rows, warnings } = parseCsv(CIBC, undefined, { hasHeader: false });
+    expect(header).toEqual(["Column 1", "Column 2", "Column 3", "Column 4", "Column 5"]);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toEqual([
+      "2026-10-08",
+      "CAFETERIA HSS QUEBEC, QC",
+      "5.30",
+      "",
+      "5268********6956",
+    ]);
+    expect(warnings).toEqual([]);
+  });
+
+  it("uses the given column label and numbers warnings from line 1", () => {
+    const { header, warnings } = parseCsv(`${CIBC}\n2026-01-01,short`, undefined, {
+      hasHeader: false,
+      columnLabel: "Colonne",
+    });
+    expect(header[0]).toBe("Colonne 1");
+    expect(warnings).toEqual(["line 3: expected 5 fields, got 2; row skipped"]);
+  });
+
+  it("keeps the first line as the header by default", () => {
+    expect(parseCsv(CIBC).rows).toHaveLength(1);
+  });
+
+  it("returns empty for an empty headerless file", () => {
+    expect(parseCsv("", undefined, { hasHeader: false })).toEqual({
+      header: [],
+      rows: [],
+      warnings: [],
+    });
+  });
+});
+
+describe("looksLikeDataRow", () => {
+  it("flags a line holding a date and not a column-title line", () => {
+    expect(looksLikeDataRow(["2026-10-08", "SHOP", "5.30"])).toBe(true);
+    expect(looksLikeDataRow(["10/08/2026", "SHOP"])).toBe(true);
+    expect(looksLikeDataRow(["Date", "Description", "Amount"])).toBe(false);
   });
 });
 
