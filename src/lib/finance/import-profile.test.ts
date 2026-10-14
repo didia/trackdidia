@@ -54,6 +54,16 @@ describe("buildHeaderSignature", () => {
   });
 });
 
+describe("buildHeaderSignature without a header line", () => {
+  it("depends only on the column count and never matches a real header", () => {
+    const a = buildHeaderSignature(["Colonne 1", "Colonne 2"], false);
+    const b = buildHeaderSignature(["Column 1", "Column 2"], false);
+    expect(a).toBe(b);
+    expect(a).not.toBe(buildHeaderSignature(["Column 1", "Column 2", "Column 3"], false));
+    expect(a).not.toBe(buildHeaderSignature(["Column 1", "Column 2"]));
+  });
+});
+
 describe("inferDateFormat", () => {
   it("reports ambiguity when every sampled day is <= 12 in both positions", () => {
     const result = inferDateFormat(["1/2/2026", "3/4/2026", "5/6/2026"]);

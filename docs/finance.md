@@ -560,6 +560,16 @@ shows a discrepancy banner whenever they disagree.
    same bytes as windows-1252 (lossless for any byte sequence) and the page
    shows a banner telling the user the file was re-read. `parseCsv` (Phase 1)
    then turns the decoded text into a header and rows.
+   A file with **no header line** (typical of a bank's raw export) is supported: when
+   the first line holds a date (`looksLikeDataRow`) the page pre-checks "Ce fichier n'a
+   pas de ligne d'en-tête", and the user can tick or untick it for any file (which
+   re-parses and resets the mapping). `parseCsv(text, undefined, { hasHeader: false })`
+   then reads every line as a transaction and names the columns "Colonne 1…N"; the
+   mapping selects, date-format inference (first column) and preview work on those names,
+   and row-error/warning line numbers start at 1. The saved profile's signature is
+   `buildHeaderSignature(header, false)` — a hash of the column count only, kept apart
+   from any real header's signature — so a repeat headerless import with the same number
+   of columns reuses its mapping. The flag itself is not stored (no migration).
 3. Profile auto-detection: `buildHeaderSignature(header)` is compared against
    every saved `FinanceImportProfile` and against the bundled `MINT_PROFILE`;
    a match pre-fills the column map, date format, and amount mode. No match
