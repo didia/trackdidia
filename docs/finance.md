@@ -797,7 +797,9 @@ days, and the account's cadence, most overdue first; a button links to `/finance
 
 The `/finances` overview has no separate list: it runs the same loader and marks each account
 row in its "Comptes" section with a small green `À mettre à jour` pill (`finance-row__update`)
-when the account is due. The read goes through `useAsyncResource`, so a slow response from
+when the account is due. Every open account row also always shows a muted data-date line
+(`finance-row__meta`, "Données jusqu'au …", "Relevé du …" or "Aucune donnée importée, compte
+créé le …", short date with year) so the balance's age is visible without opening anything. The read goes through `useAsyncResource`, so a slow response from
 before a local-day rollover cannot overwrite the new day's pills; a failing read leaves the
 pills out rather than breaking the overview.
 
