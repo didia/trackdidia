@@ -194,6 +194,14 @@ describe("FinanceOverviewPage", () => {
     );
     expect(screen.queryByTestId(`finance-account-update-${current.id}`)).not.toBeInTheDocument();
     expect(screen.queryByText("Comptes à mettre à jour")).not.toBeInTheDocument();
+
+    // Every account row states how recent its data is, due or not.
+    expect(screen.getByTestId(`finance-account-data-date-${stale.id}`)).toHaveTextContent(
+      `Données jusqu'au ${dateModule.formatDateMedium(addDays(getTodayDate(), -20))}`,
+    );
+    expect(screen.getByTestId(`finance-account-data-date-${current.id}`)).toHaveTextContent(
+      `Données jusqu'au ${dateModule.formatDateMedium(getTodayDate())}`,
+    );
   });
 
   it("keeps the new day's update badges when an older freshness response arrives late", async () => {

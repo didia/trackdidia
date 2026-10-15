@@ -12,7 +12,7 @@ import type { FinanceAlert, FinanceAlertSeverity } from "../domain/finance/forec
 import type { FinanceNetWorthSnapshot } from "../domain/finance/net-worth";
 import type { FinanceCategorySpendRow, FinanceTrendPoint } from "../domain/finance/reports";
 import { getMonthEndDate, getMonthKey, getMonthStartDate } from "../domain/monthly-review";
-import { formatDateShort, getTodayDate } from "../lib/date";
+import { formatDateMedium, formatDateShort, getTodayDate } from "../lib/date";
 import { loadFinanceAccountFreshness } from "../lib/finance/account-freshness-loader";
 import { formatMoney } from "../lib/finance/money";
 
@@ -103,11 +103,8 @@ export const FinanceOverviewPage = () => {
       loadFinanceAccountFreshness(currentRepository, currentToday),
     { refreshing: true },
   );
-  const accountsToUpdate = useMemo(
-    () =>
-      new Set(
-        (freshness.data ?? []).filter((row) => row.status !== "fresh").map((row) => row.accountId),
-      ),
+  const accountFreshnessById = useMemo(
+    () => new Map((freshness.data ?? []).map((row) => [row.accountId, row])),
     [freshness.data],
   );
 
@@ -572,6 +569,7 @@ export const FinanceOverviewPage = () => {
               if (!account) {
                 return null;
               }
+              const accountFreshness = accountFreshnessById.get(account.id);
               return (
                 <article
                   key={account.id}
@@ -585,13 +583,25 @@ export const FinanceOverviewPage = () => {
                       {account.name}
                       {account.closed ? ` ${t("overview.closedAccount")}` : ""}
                     </h3>
-                    {accountsToUpdate.has(account.id) ? (
-                      <span
-                        className="finance-row__update"
-                        data-testid={`finance-account-update-${account.id}`}
-                      >
-                        {t("freshness.status.due")}
-                      </span>
+                    {accountFreshness ? (
+                      <div className="finance-row__status">
+                        {accountFreshness.status !== "fresh" ? (
+                          <span
+                            className="finance-row__update"
+                            data-testid={`finance-account-update-${account.id}`}
+                          >
+                            {t("freshness.status.due")}
+                          </span>
+                        ) : null}
+                        <span
+                          className="finance-row__meta"
+                          data-testid={`finance-account-data-date-${account.id}`}
+                        >
+                          {t(`freshness.${accountFreshness.dataThroughSource}Through`, {
+                            date: formatDateMedium(accountFreshness.dataThroughDate),
+                          })}
+                        </span>
+                      </div>
                     ) : null}
                   </div>
                   <span

@@ -902,6 +902,13 @@
   font-size: 0.85rem;
 }
 
+.finance-row__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+}
+
 .finance-row__update {
   justify-self: start;
   padding: 1px 8px;

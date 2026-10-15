@@ -67,6 +67,13 @@ export const formatDateLong = (date: string): string =>
     day: "numeric",
   }).format(atLocalNoon(date));
 
+export const formatDateMedium = (date: string): string =>
+  new Intl.DateTimeFormat("fr-CA", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  }).format(atLocalNoon(date));
+
 export const formatDateShort = (date: string): string =>
   new Intl.DateTimeFormat("fr-CA", {
     month: "short",
