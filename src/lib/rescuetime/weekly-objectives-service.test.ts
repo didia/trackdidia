@@ -265,6 +265,17 @@ describe("WeeklyObjectivesService snapshot cache", () => {
       expect(snapshot.cachedAt).toBeUndefined();
     });
 
+    it("does not serve cached seconds recorded for a different mapping", async () => {
+      const { service, client, repository, activity } = await setup();
+      await service.computeWeeklyObjectivesSnapshot(WEEK);
+      vi.mocked(client.fetchAnalyticData).mockClear();
+
+      await repository.saveWeeklyObjective({ ...activity, rescuetimeThing: "Something else" });
+      await service.computeWeeklyObjectivesSnapshot(WEEK, { maxAgeMs: 60_000 });
+
+      expect(client.fetchAnalyticData).toHaveBeenCalled();
+    });
+
     it("never reads the cache for an unconfigured key", async () => {
       const { service, client, repository } = await setup();
       await service.computeWeeklyObjectivesSnapshot(WEEK);
