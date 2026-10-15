@@ -17,7 +17,10 @@ import type { AppRepository } from "../storage/repository";
 import { buildWeeklySnapshot, type WeeklySnapshotInputs } from "./context/weekly-snapshot";
 import { buildAiInputHash } from "./input-hash";
 import { retrieveMemoriesForWeekly } from "./memory/retrieval";
-import { resolveObjectiveAgainstVocabulary } from "./proposals/weekly-objective-resolution";
+import {
+  isCoveredByRescueTimeGoal,
+  resolveObjectiveAgainstVocabulary,
+} from "./proposals/weekly-objective-resolution";
 import { buildLocalWeeklySynthesis } from "./proposals/weekly-synthesis-fallback";
 import { parseWeeklySynthesisJson } from "./proposals/weekly-synthesis-validator";
 import type { AiProvider } from "./provider";
@@ -64,6 +67,7 @@ const buildProposals = (
   createdAt: string,
   eligibleGtdTaskTitles: Map<string, string>,
   rescueTimeVocabulary: RescueTimeVocabulary | null | undefined,
+  rescueTimeGoalTitles: readonly string[],
 ): AiProposal[] => {
   const proposals: AiProposal[] = [];
 
@@ -85,7 +89,7 @@ const buildProposals = (
   }
 
   for (const objective of synthesis.nextWeekObjectives ?? []) {
-    if (!objective.title?.trim()) {
+    if (!objective.title?.trim() || isCoveredByRescueTimeGoal(objective, rescueTimeGoalTitles)) {
       continue;
     }
 
@@ -221,6 +225,7 @@ export class WeeklySynthesisService {
           at,
           eligibleGtdTaskTitles,
           snapshotInputs.rescueTimeVocabulary,
+          snapshotInputs.rescueTimeGoalItems.map((goal) => goal.title),
         ),
       cachedResult: async (message) => {
         const cached = await cachedResult(repository, message);
