@@ -804,7 +804,7 @@ export class TauriSqliteRepository implements AppRepository {
   async mergeRescueTimeObjectiveSecondsCache(input: {
     weekStartDate: string;
     credentialFingerprint: string;
-    values: Record<string, { seconds: number; fetchedAt: string }>;
+    values: Record<string, { seconds: number; fetchedAt: string; mapping?: string }>;
     fetchedAt: string;
   }): Promise<void> {
     return this.writeExclusive(async () => {

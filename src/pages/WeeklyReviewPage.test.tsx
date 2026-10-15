@@ -514,6 +514,64 @@ describe("WeeklyReviewPage", () => {
     expect(screen.getAllByText("Panne partielle").length).toBeGreaterThan(0);
   });
 
+  it("remaps a time objective to a real RescueTime activity", async () => {
+    vi.spyOn(RescueTimeGoalsService.prototype, "computeGoalsSnapshot").mockResolvedValue({
+      weekStartDate: "2026-08-02",
+      weekEndDate: "2026-08-08",
+      score: null,
+      totalAchievement: 0,
+      items: [],
+      rescuetimeConfigured: true,
+    });
+    vi.spyOn(RescueTimeGoalsService.prototype, "computeProductivityPulse").mockResolvedValue({
+      weekStartDate: "2026-08-02",
+      weekEndDate: "2026-08-08",
+      pulse: null,
+      rescuetimeConfigured: true,
+    });
+    vi.spyOn(WeeklyObjectivesService.prototype, "listTaxonomyForWeek").mockResolvedValue([
+      { name: "texshop", seconds: 7200, hours: 2 },
+    ]);
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const saved = await repository.saveWeeklyObjective(
+      createEmptyWeeklyObjective({
+        title: "Relancer MagSelf",
+        kind: "time",
+        targetHours: 2,
+        rescuetimeKind: "activity",
+        rescuetimeThing: "MagSelf",
+      }),
+    );
+    const settings = { ...(await repository.getSettings()), rescuetimeApiKey: "rt-test-key" };
+    await repository.saveSettings(settings);
+
+    const user = userEvent.setup();
+    await renderWithApp(<WeeklyReviewPage />, {
+      repository,
+      route: "/semaine",
+      contextOverrides: { settings },
+    });
+    const dateInput = await screen.findByLabelText(/début de semaine/i);
+    await user.clear(dateInput);
+    await user.type(dateInput, "2026-08-02");
+    await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
+
+    await user.click(await screen.findByRole("button", { name: "Modifier le suivi RescueTime" }));
+    await screen.findByRole("option", { name: /texshop/ });
+    await user.selectOptions(screen.getByLabelText("Nom suivi par RescueTime"), "texshop");
+    await user.click(screen.getByRole("button", { name: "Enregistrer" }));
+
+    await waitFor(async () => {
+      const [objective] = await repository.listWeeklyObjectives();
+      expect(objective).toMatchObject({
+        id: saved.id,
+        rescuetimeKind: "activity",
+        rescuetimeThing: "texshop",
+      });
+    });
+  });
+
   it("overlays RescueTime axes into the weekly score when snapshots match the week", async () => {
     const weekStart = "2026-08-02";
     const goalsSnapshot = {
