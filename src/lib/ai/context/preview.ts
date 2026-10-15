@@ -1,6 +1,6 @@
 import { createEmptyDailyEntry } from "../../../domain/daily-entry";
 import { getMonthKey } from "../../../domain/monthly-review";
-import type { AiPayloadScope, DailyEntry } from "../../../domain/types";
+import type { AiPayloadScope, DailyEntry, RescueTimeVocabulary } from "../../../domain/types";
 import { buildWeekDates } from "../../../domain/weekly-review";
 import { buildMidWeekReviewSummary } from "../../../domain/mid-week-review";
 import { getTodayDate } from "../../date";
@@ -58,6 +58,7 @@ export interface ResolvedWeeklyRescueTime {
   productivityPulse: number | null;
   rescueTimeGoalsScore: number | null;
   rescueTimeGoalItems: RescueTimeGoalItemSnapshot[];
+  rescueTimeVocabulary?: RescueTimeVocabulary | null;
   pulseFetchError?: string;
   goalsFetchError?: string;
 }
@@ -78,13 +79,15 @@ export const resolveWeeklyRescueTimeInputs = async (
       productivityPulse: null,
       rescueTimeGoalsScore: null,
       rescueTimeGoalItems: [],
+      rescueTimeVocabulary: null,
     };
   }
 
   const goalsService = new RescueTimeGoalsService(repository);
-  const [pulseSnapshot, goalsSnapshot] = await Promise.all([
+  const [pulseSnapshot, goalsSnapshot, rescueTimeVocabulary] = await Promise.all([
     goalsService.computeProductivityPulse(weekStartDate),
     goalsService.computeGoalsSnapshot(weekStartDate),
+    new WeeklyObjectivesService(repository).loadVocabulary(weekStartDate),
   ]);
 
   return {
@@ -92,6 +95,7 @@ export const resolveWeeklyRescueTimeInputs = async (
     productivityPulse: pulseSnapshot.pulse,
     rescueTimeGoalsScore: goalsSnapshot.score,
     rescueTimeGoalItems: goalsSnapshot.items,
+    rescueTimeVocabulary,
     pulseFetchError: pulseSnapshot.fetchError,
     goalsFetchError: goalsSnapshot.fetchError,
   };
@@ -220,6 +224,7 @@ export const previewPayload = async (
       productivityPulse: rescueTime.productivityPulse,
       rescueTimeGoalsScore: rescueTime.rescueTimeGoalsScore,
       rescueTimeGoalItems: rescueTime.rescueTimeGoalItems,
+      rescueTimeVocabulary: rescueTime.rescueTimeVocabulary,
       rescuetimeConfigured: rescueTime.configured,
     });
     return buildWeeklySnapshot(inputs, scope);

@@ -43,6 +43,7 @@ import {
   updateWeeklyReviewChecklist,
   updateWeeklyReviewNote,
 } from "../domain/weekly-review";
+import { WeeklyObjectivesService } from "../lib/rescuetime/weekly-objectives-service";
 import { resolveWeeklySnapshotInputs } from "../lib/ai/context/weekly-snapshot";
 import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
 import { applyCoachProposal, proposalPreviewText } from "../lib/ai/proposals/apply-proposal";
@@ -162,6 +163,9 @@ export const WeeklyReviewPage = () => {
         rescueTimeGoalsScore: goals?.score ?? null,
         rescueTimeGoalItems: goals?.items ?? [],
         rescuetimeConfigured: Boolean(settings.rescuetimeApiKey.trim()),
+        rescueTimeVocabulary: settings.rescuetimeApiKey.trim()
+          ? await new WeeklyObjectivesService(repository).loadVocabulary(options.weekStartDate)
+          : null,
       });
 
       if (!signal.isLatest()) {

@@ -201,3 +201,9 @@ export interface RescueTimeTaxonomyEntry {
   seconds: number;
   hours: number;
 }
+
+/** Real RescueTime names the coach may reference when it proposes a time objective. */
+export interface RescueTimeVocabulary {
+  category: string[];
+  activity: string[];
+}

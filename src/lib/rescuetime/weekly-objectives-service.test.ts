@@ -373,4 +373,65 @@ describe("WeeklyObjectivesService key change during a pull", () => {
     expect(client.fetchAnalyticData).toHaveBeenCalled();
     expect(snapshot.cachedAt).toBeUndefined();
   });
+
+  describe("loadVocabulary", () => {
+    it("returns category and activity names, most-used first, over the four weeks to week end", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      await repository.saveSettings({
+        ...(await repository.getSettings()),
+        rescuetimeApiKey: "rt-test-key",
+      });
+      const mockClient: RescueTimeClient = {
+        fetchAnalyticData: vi.fn(async (_key, { kind }) =>
+          kind === "activity"
+            ? {
+                row_headers: [
+                  "Rank",
+                  "Time Spent (seconds)",
+                  "Number of People",
+                  "Activity",
+                  "Category",
+                ],
+                rows: [
+                  [1, 100, 1, "texshop", "Writing"],
+                  [2, 900, 1, "Claude", "General Reference & Learning"],
+                ],
+              }
+            : {
+                row_headers: ["Rank", "Time Spent (seconds)", "Number of People", "Category"],
+                rows: [[1, 1000, 1, "Writing"]],
+              },
+        ),
+      };
+
+      const vocabulary = await new WeeklyObjectivesService(repository, mockClient).loadVocabulary(
+        "2026-08-02",
+      );
+
+      expect(vocabulary).toEqual({ category: ["Writing"], activity: ["Claude", "texshop"] });
+      expect(mockClient.fetchAnalyticData).toHaveBeenCalledWith(
+        "rt-test-key",
+        expect.objectContaining({ kind: "activity", begin: "2026-07-12", end: "2026-08-08" }),
+      );
+    });
+
+    it("returns null when RescueTime is not configured or the pull fails", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      const failing: RescueTimeClient = {
+        fetchAnalyticData: vi.fn(async () => {
+          throw new Error("down");
+        }),
+      };
+      const service = new WeeklyObjectivesService(repository, failing);
+      expect(await service.loadVocabulary("2026-08-02")).toBeNull();
+
+      await repository.saveSettings({
+        ...(await repository.getSettings()),
+        rescuetimeApiKey: "rt-test-key",
+      });
+      expect(await service.loadVocabulary("2026-08-02")).toBeNull();
+    });
+  });
 });
