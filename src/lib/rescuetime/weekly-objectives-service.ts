@@ -1,6 +1,7 @@
 import type {
   RescueTimeTaxonomy,
   RescueTimeTaxonomyEntry,
+  RescueTimeVocabulary,
   WeeklyObjectivesSnapshot,
 } from "../../domain/types";
 import {
@@ -25,6 +26,9 @@ import {
 } from "./credential-fingerprint";
 import { parseRankRows, resolveObjectiveSeconds } from "./parse-analytic-data";
 import { isRescueTimeCacheFresh, type RescueTimeComputeOptions } from "./rescuetime-goals-service";
+
+const VOCABULARY_MAX_CATEGORIES = 30;
+const VOCABULARY_MAX_ACTIVITIES = 60;
 
 const oldestFetchedAt = (values: string[]): string | undefined =>
   values.length === 0
@@ -186,6 +190,29 @@ export class WeeklyObjectivesService {
 
     const payload = await this.client.fetchAnalyticData(apiKey, { kind, begin, end });
     return parseRankRows(payload).map(({ name, seconds, hours }) => ({ name, seconds, hours }));
+  }
+
+  /**
+   * Names RescueTime reported over the four weeks ending `weekStartDate`'s week (most-used first),
+   * so the coach can propose objectives that map onto something RescueTime actually tracks.
+   * Returns `null` when RescueTime is not configured or the pull fails.
+   */
+  async loadVocabulary(weekStartDate: string): Promise<RescueTimeVocabulary | null> {
+    try {
+      const normalized = buildWeekDates(weekStartDate);
+      const begin = addDays(normalized, -21);
+      const end = addDays(normalized, 6);
+      const [category, activity] = await Promise.all([
+        this.listRescueTimeTaxonomy("category", begin, end),
+        this.listRescueTimeTaxonomy("activity", begin, end),
+      ]);
+      return {
+        category: category.slice(0, VOCABULARY_MAX_CATEGORIES).map((entry) => entry.name),
+        activity: activity.slice(0, VOCABULARY_MAX_ACTIVITIES).map((entry) => entry.name),
+      };
+    } catch {
+      return null;
+    }
   }
 
   async testConnection(): Promise<RescueTimeTaxonomyEntry[]> {

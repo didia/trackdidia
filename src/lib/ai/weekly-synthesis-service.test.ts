@@ -63,6 +63,19 @@ const buildWeeklyInputs = (weekStartDate = "2026-08-02"): WeeklySnapshotInputs =
 };
 
 describe("buildWeeklySnapshot redaction", () => {
+  it("sends the RescueTime vocabulary only with structure scope", () => {
+    const inputs = {
+      ...buildWeeklyInputs(),
+      rescueTimeVocabulary: { category: ["Writing"], activity: ["texshop"] },
+    };
+
+    expect(buildWeeklySnapshot(inputs, "metrics").rescueTimeVocabulary).toBeUndefined();
+    expect(buildWeeklySnapshot(inputs, "metrics_and_structure").rescueTimeVocabulary).toEqual({
+      category: ["Writing"],
+      activity: ["texshop"],
+    });
+  });
+
   it("omits review notes below full scope", () => {
     const inputs = buildWeeklyInputs();
     inputs.review = {
@@ -520,6 +533,66 @@ describe("WeeklySynthesisService", () => {
     const payload = JSON.parse(gtdProposal?.payloadJson ?? "{}");
     expect(payload.taskId).toBe(staleTask.id);
     expect(payload.taskTitle).toBe(staleTask.title);
+  });
+
+  it("snaps real RescueTime names and turns invented ones into manual objectives", async () => {
+    const provider: AiProvider = {
+      generateStructured: vi.fn(async () => ({
+        text: JSON.stringify({
+          headline: "IA",
+          scoreExplanation: "Score",
+          strongestAxis: "Discipline",
+          weakestAxes: ["Sommeil", "Pomodoris"],
+          sectionDrafts: {},
+          nextWeekObjectives: [
+            {
+              title: "Ecrire",
+              kind: "time",
+              targetHours: 4,
+              rescuetimeKind: "activity",
+              rescuetimeThing: "TeXShop",
+            },
+            {
+              title: "Optimisation Combinatoire - IFT-7020",
+              kind: "time",
+              targetHours: 5,
+              rescuetimeKind: "activity",
+              rescuetimeThing: "Optimisation Combinatoire - IFT-7020",
+            },
+          ],
+          gtdActions: [],
+        }),
+        model: "test-model",
+        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 },
+      })),
+    };
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const service = new WeeklySynthesisService(provider);
+    const settings = defaultAppSettings();
+    settings.aiEnabled = true;
+    settings.aiApiKey = "secret";
+
+    const result = await service.buildSynthesis(repository, {
+      weekStartDate: "2026-08-02",
+      settings,
+      snapshotInputs: {
+        ...buildWeeklyInputs(),
+        rescueTimeVocabulary: { category: ["Writing"], activity: ["texshop"] },
+      },
+      trigger: "explicit",
+    });
+
+    const objectives = result.proposals
+      .filter((proposal) => proposal.type === "weekly_objective")
+      .map((proposal) => JSON.parse(proposal.payloadJson));
+    expect(objectives[0]).toMatchObject({ kind: "time", rescuetimeThing: "texshop" });
+    expect(objectives[1]).toMatchObject({
+      kind: "manual",
+      targetHours: null,
+      rescuetimeKind: null,
+      rescuetimeThing: null,
+    });
   });
 
   it("drops a gtdAction whose taskId is not an eligible stale next action", async () => {

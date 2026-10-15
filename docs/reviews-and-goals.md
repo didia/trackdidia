@@ -343,7 +343,15 @@ Accepting a section draft **persists the note** on the weekly review immediately
 textarea is also prefilled). A Dimanche draft accepted while reviewing a past
 week is written on the following week, and reopening that stored week shows the
 note even if it is also past. Accepting an objective creates a row in `weekly_objectives` that
-starts the Sunday after the reviewed week, via an idempotent atomic accept. GTD
+starts the Sunday after the reviewed week, via an idempotent atomic accept.
+Because the model only sees titles, a synthesis run with RescueTime configured also sends
+`rescueTimeVocabulary` (the 30 most-used categories and 60 most-used activities over the four
+weeks ending with the reviewed week; `metrics_and_structure` scope and above) and the prompt
+requires `rescuetimeThing` to be copied from it. When proposals are created, a `category` /
+`activity` time objective whose name matches (case/whitespace-insensitive) is snapped to the
+canonical spelling; one that does not match is stored as a `manual` objective, since an invented
+name would read 0 h forever. If the vocabulary could not be loaded, proposals are kept unchecked.
+Stored syntheses are not rewritten, and existing objectives are never edited. GTD
 accepts are atomic and skip terminal tasks.
 
 Once a week has a stored `ok` result, opening `/semaine` only shows it; a new assessment
