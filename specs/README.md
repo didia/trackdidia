@@ -22,6 +22,8 @@ current-product behavior remains documented in [`docs/`](../docs/).
 - [`todo/work-coach.md`](todo/work-coach.md) — draft, awaiting review: GTD + Pomodoro work
   coach with a deterministic GTD health engine, read-only LLM bridge tools and shipped MCP
   prompts for the user's own Claude client (no OpenRouter).
+- [`todo/duplication.md`](todo/duplication.md) — draft, awaiting review: duplicate a single task
+  or an entire project; project copies are fresh entities whose tasks all land in Planned.
 - [`todo/weekly-review-caching.md`](todo/weekly-review-caching.md) — §1 shipped (RescueTime
   snapshot cache); §2 compact weekly RescueTime goal lines and §3 last-good weekly coach
   synthesis fallback not implemented.
