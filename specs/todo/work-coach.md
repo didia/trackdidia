@@ -101,7 +101,7 @@ report path. All are computed over **active** tasks unless stated, with local ca
 | `deadline_cluster` **new** | Any `DEADLINE_CLUSTER_SPAN_DAYS` (3) consecutive local days within the next `DEADLINE_LOOKAHEAD_DAYS` (14) holding ≥ `DEADLINE_CLUSTER_MIN` (4) active deadlines. Reports the densest window: `from`, `to`, count, items | `watch` | the three constants |
 | `scheduled_overload` **new** | Any local day in the next 7 with ≥ `SCHEDULED_DAY_MAX` (6) active `scheduled` tasks dated that day (`isTaskScheduledForDate`). Planned tasks that reuse `scheduledFor` are excluded, as on the Scheduled screen. Reports each overloaded day | `watch` | `SCHEDULED_DAY_MAX` |
 | `scheduled_vs_completed_ratio` (existing) | Unchanged | `info` | — |
-| `focus_fragmentation` **new** (needs `sessions`) | Over completed focus sessions in the window: mean **switches per focus** = (number of segments with positive duration − 1), floored at 0. Zero-duration paused-retarget placeholders are ignored, as in task summaries. `watch` when the mean is ≥ `FOCUS_SWITCHES_WATCH` (1.0) over ≥ `MIN_FOCUS_SAMPLE` (8) sessions | `watch` / `info` | `FOCUS_SWITCHES_WATCH`, `MIN_FOCUS_SAMPLE` |
+| `focus_fragmentation` **new** (needs `sessions`) | Over completed focus sessions in the window: mean **activity switches per focus**. Per session, take its positive-duration segments ordered by `startedAt` (zero-duration paused-retarget placeholders are dropped, as in task summaries), map each to an **activity identity** (`task:<taskId>`, else `manual:<trimmed, lower-cased title>`), and count adjacent pairs whose identities differ. Segment boundaries alone are not switches: pause then resume on the same task opens a new segment (`pauseSession`/`resumeSession` in `src/lib/pomodoro/engine.ts`) and counts 0. `watch` when the mean is ≥ `FOCUS_SWITCHES_WATCH` (1.0) over ≥ `MIN_FOCUS_SAMPLE` (8) sessions | `watch` / `info` | `FOCUS_SWITCHES_WATCH`, `MIN_FOCUS_SAMPLE` |
 | `focus_cancel_ratio` **new** (needs `sessions`) | cancelled ÷ (completed + cancelled) **focus** sessions in the window. `watch` when ≥ `FOCUS_CANCEL_WATCH` (0.3) with ≥ `MIN_FOCUS_SAMPLE` sessions | `watch` / `info` | `FOCUS_CANCEL_WATCH` |
 | `focus_off_list` **new** (needs `sessions`) | Share of focus minutes on manual (free-form) segments rather than GTD tasks. `info` only: a signal that work is happening outside the list, never a judgement | `info` | — |
 
@@ -258,6 +258,9 @@ Output:
 - `focusMinutes` sums positive-duration segment wall-clock time of **completed and cancelled** focus
   sessions, capped at `now` for open segments, like `listPomodoroTaskSummaries`. `completedFocus`
   counts only completed sessions, matching `completedFocusSessions`.
+- `switches` (per day) and `switchesPerFocus` use the `focus_fragmentation` definition: changes of
+  activity identity between consecutive positive-duration segments, so a same-task pause/resume is
+  not a switch.
 - Rows for a task under an excluded context are merged into one `{ "title": "(masqué)" }` row, so
   totals stay honest without revealing titles. Manual segment titles are returned as typed, because
   they carry no context (see [Privacy](#privacy)).
@@ -325,6 +328,14 @@ Backward-compatible additions to the existing tool:
 | Input | Effect |
 |---|---|
 | `context` | Context name or id; matches the task's stored contexts **or** contexts inherited from its project when the task has none (same rule as the Next Actions context filter). Unknown context is a tool error pointing to `list_contexts`. |
+| `order` | `newest` (default, today's behaviour: `createdAt` descending) or `oldest` (`createdAt` ascending). Ties break on `id`. The order is applied to the **whole filtered set before** `offset`/`limit`, so `order: "oldest"` always starts at the true oldest task, however large the bucket. |
+| `offset` | Integer ≥ 0, default 0. Skips that many tasks of the ordered set. |
+
+The response gains `offset` and `nextOffset` (`offset + returned`, or `null` when nothing is left),
+beside the existing `total` and `returned`, so a client can walk a backlog larger than 200. Offsets
+are positional, not cursors. With `order: "oldest"` a traversal is stable against new captures,
+which sort to the end, but a task clarified out of the bucket mid-walk shifts later pages by one.
+The tool description says so, and `clarify_inbox` works one page at a time.
 
 Each returned task gains `ageDays`: for Next Actions `nextActionAgeDays`, for Inbox days since
 `createdAt`, otherwise days since `updatedAt`. It also gains `project` (title) and `contexts`
@@ -388,7 +399,7 @@ Claude which tools to call, so the data flow stays visible as tool calls the use
 | `daily_plan` | `focusBlocks` (optional int, 1–16), `constraints` (optional string ≤ 500, e.g. "meetings 10–12") | Call `get_gtd_health`, `list_tasks` (Next Actions, Scheduled for today), `get_pomodoro_stats` for the last 7 days. Propose an ordered plan of at most `focusBlocks` Pomodoros drawn **only from existing tasks**, flag deadlines today/tomorrow, and name one inbox or stalled-project fix. Do not add tasks unless the user says yes. |
 | `weekly_gtd_review` | none | Walk the GTD weekly review in order: inbox to zero (clarify suggestions), Next Actions staleness, Waiting For follow-ups, projects without next actions, Someday/Maybe skim, the coming two weeks of deadlines and Scheduled. Use `get_task_activity` and `get_pomodoro_stats` for the past week. One question at a time; summarise decisions at the end. |
 | `unstick_projects` | `limit` (optional int, 1–10, default 3) | From `projects_without_next_action` and stale Next Actions, propose one concrete, verb-first next action per project and, on the user's approval, capture each with `add_tasks` (bucket `inbox`, `project` set, `clientId` `coach:project:<projectId>:<YYYY-MM-DD>`). |
-| `clarify_inbox` | `limit` (optional int, 1–40, default 15) | `list_tasks` bucket `inbox`, oldest first. For each item suggest the GTD decision (trash / reference / someday / next action with context / project / waiting for / schedule) as a table. **Tell the user to apply decisions in TrackDidia**: the bridge cannot move or edit tasks. |
+| `clarify_inbox` | `limit` (optional int, 1–40, default 15) | `list_tasks` with `bucket: "inbox"`, `order: "oldest"`, `limit` (the oldest captures, not a re-sorted newest page). It offers the next page with `nextOffset` when the user wants to continue. For each item suggest the GTD decision (trash / reference / someday / next action with context / project / waiting for / schedule) as a table. **Tell the user to apply decisions in TrackDidia**: the bridge cannot move or edit tasks. |
 
 Shared rules every prompt text includes (the `COACH_RULES` constant):
 
@@ -453,8 +464,22 @@ repaired by `normalizeAppSettings`, no migration). The control lives in Settings
   the model knows the view is partial without learning its contents.
 - Pomodoro rows on hidden tasks are aggregated as `"(masqué)"`. Manual free-form segment titles
   cannot be classified and are returned as typed. The Settings help text says so.
-- Writes are unaffected: `add_tasks` with an excluded context name fails as "Unknown context",
-  because `list_contexts` does not offer it. That is consistent, and it leaks nothing.
+- **Write responses are filtered too.** The rule is that no response field read from a stored row
+  may describe a hidden task or project. Fields that only echo the model's own input are exempt. This
+  changes existing write tools only while the exclusion set is non-empty:
+  - `add_tasks` **duplicate replay**: idempotency still uses the full, unfiltered lookup, so no
+    second task is ever created. When the matched task is hidden (it may have been retagged or
+    renamed in the app since capture), the outcome is `{ "status": "duplicate", "hidden": true }`
+    with no `taskId`, `title` or `bucket`. Today the duplicate branch runs before context
+    validation and returns the stored title, so this is an explicit new check, not a side effect of
+    filtering `list_contexts`;
+  - `add_tasks` `project`: a hidden project does not resolve. The task is created without a project
+    and carries the existing "no active project" warning, so its existence is not confirmed;
+  - `add_tasks` with an excluded context name fails as "Unknown context", because the write lookup
+    uses the filtered context list;
+  - `create_project` whose title matches a hidden active project returns
+    `{ "created": false, "hidden": true }` with no `id`. It does not create a second project.
+  The filter is one helper (`isHiddenFromBridge(row, exclusion)`) used by read and write paths alike.
 - Default empty matches the user's "no split" choice. On a `work` profile, Settings shows a one-time
   hint suggesting `Personal` (open question 2), but does not pre-fill it.
 - In the sync spec's settings registry this key is **`device`**: an exclusion chosen for the work
@@ -496,8 +521,9 @@ Each phase is independently shippable and changes no existing OpenRouter payload
    `/gtd-health` page, Next Actions strip, nav entry, i18n. Golden test proving
    `computeGtdHealthFindings` output is unchanged.
 2. **Bridge read tools.** `get_gtd_health`, `get_pomodoro_stats`, `list_pomodoro_sessions`,
-   `get_task_activity`, `list_tasks` additions, `llmBridgeExcludedContextIds` setting + Settings UI +
-   filtering, read allowlist test, updated `SERVER_INSTRUCTIONS`.
+   `get_task_activity`, `list_tasks` additions (`context`, `order`, `offset`, enriched fields),
+   `llmBridgeExcludedContextIds` setting + Settings UI + filtering of read **and** write responses
+   (`add_tasks` duplicates and hidden projects, `create_project`), read allowlist test, updated `SERVER_INSTRUCTIONS`.
 3. **MCP prompts.** Rust `capabilities.prompts` and forwarding, `prompts.ts`, handler cases, Claude
    Project fallback paragraph in the docs.
 4. *(Optional, after use)* GTD-domain suggestion queue with in-app accept (open question 1), and
@@ -513,7 +539,9 @@ Pure engine tests (`*.test.ts` next to each module):
   otherwise. Planned exclusion only on the report path. **Golden test**: a fixed fixture through
   `computeGtdHealthFindings(tasks, projects, now)` deep-equals a stored snapshot of today's output.
 - `focus-quality.test.ts` and `summarizePomodoroRange` tests: zero-duration placeholders ignored;
-  switches floored at 0; cancelled sessions count toward minutes but not `completedFocus`; open
+  a focus paused and resumed on the same task (two positive segments, same `taskId`) counts **0**
+  switches, and eight such focuses produce no `watch`; task A → B → A counts 2; manual titles
+  `"Email"` and `" email"` are one activity; a paused retarget A → B then resume counts 1; cancelled sessions count toward minutes but not `completedFocus`; open
   segments capped at `now`; manual titles grouped case-insensitively like task summaries; masking
   merges hidden-task rows into one; below `MIN_FOCUS_SAMPLE` the finding is not `meaningful`.
 - `deadline_cluster` / `scheduled_overload`: Sunday-to-Saturday week crossing, DST-change day
@@ -539,11 +567,19 @@ Bridge handler tests (`tools.test.ts` style, `MemoryRepository`):
   project, and a project tagged `Personal` never appear in any tool's output. `hiddenTaskCount` is
   right. Pomodoro rows show `"(masqué)"`. `list_contexts` omits it. `add_tasks` with it fails as
   unknown.
+- **Replay after exclusion**: capture a task with `clientId: "c1"`, then tag it `Personal`, rename it
+  to a sentinel and exclude `Personal`. Replaying `c1` creates nothing and returns
+  `{ status: "duplicate", hidden: true }`, and the sentinel title and the task id appear nowhere in
+  the response. The same holds for `create_project` with a hidden project's title, and for
+  `add_tasks` naming a hidden project (task created unattached, warning only). With an empty
+  exclusion set, both tools return exactly today's output.
 - **Allowlist**: a `Proxy` repository that throws on non-allowlisted methods passes every read tool;
   seeding daily entries, reviews, goals, AI memories and finance rows in `MemoryRepository` and
   scanning all read-tool outputs for their sentinel strings finds none.
 - `list_tasks` additions: `context` matches inherited contexts; `ageDays` agrees with the Next
-  Actions card helper.
+  Actions card helper. **Backlog larger than the cap**: with 201 Inbox tasks, `order: "oldest"`,
+  `limit: 200` includes the oldest task and returns `nextOffset: 200`; `offset: 200` returns the last
+  one with `nextOffset: null`; omitting `order` keeps today's newest-first output byte for byte.
 - Prompts: `prompts/list` shape; `prompts/get` for each prompt with and without arguments; argument
   bounds; the rendered text contains no repository data (the handler test passes a repository that
   throws on any call).
@@ -563,7 +599,8 @@ verify:all`, since Rust changes in Phase 3 also need `cargo check` and `cargo cl
 ## Documentation (required by `AGENTS.md`)
 
 - [`docs/llm-bridge.md`](../../docs/llm-bridge.md): new tools table rows and contracts (Phase 2),
-  `list_tasks` additions, exclusion setting, read allowlist, prompts section and the Claude Project
+  `list_tasks` additions (ordering and pagination), exclusion setting and its effect on
+  `add_tasks`/`create_project` responses, read allowlist, prompts section and the Claude Project
   fallback (Phase 3). Update **Limitations** (prompts no longer missing) and the **Security model**
   bullet "Anything the client reads… is visible to its model provider" with the work-laptop
   statement. Add `prompts.ts` and the health modules to the source map. Log rows in
