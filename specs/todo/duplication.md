@@ -43,7 +43,7 @@ defaults awaiting review.
 | 1 | Which source tasks a project copy contains | **(user)** Active **and completed** tasks, each recreated as a fresh Planned task. **Cancelled** tasks are skipped. `options.includeCompleted` defaults to `true`; the confirm panel has a checked "Inclure les tâches terminées" box and a line "N tâches (dont M terminées)". |
 | 2 | Order of the new Planned queue | **(user: oldest-completed-first)** Completed tasks first, by `completedAt` ascending then `id`; then active tasks by bucket order `next_action`, `planned` (by `compareByPlannedOrder`), `scheduled` (by `scheduledFor` ascending), `waiting_for`, `inbox`, `someday_maybe`, `reference`; ties by `createdAt` then `id`. Consequence, stated plainly: the auto-promoted Next Action (Decision 5) is a copy of the **oldest completed** task. With the box unchecked, it is a copy of the source's first active Next Action, else its first Planned task, and so on down the bucket order. The user accepted the immediate promotion. |
 | 3 | Standalone task duplicate | **(user)** Active Inbox task, no project, same title, notes, contexts and `sourceUrl`. |
-| 4 | Task duplicate inside a project | Project `active` or `on_hold`: the copy is `planned` in the same project, appended with `nextPlannedOrder` (on hold it is not promoted until the project resumes). Project `completed` or `cancelled`: the copy falls back to the Inbox with `projectId = null`, because a Planned copy there would never be promoted and the default "open" project filter hides those projects. **Open question 1 asks the user to confirm this split.** |
+| 4 | Task duplicate inside a project | **(user)** Project `active` or `on_hold`: the copy is `planned` in the same project, appended with `nextPlannedOrder` (on hold it is not promoted until the project resumes). Project `completed` or `cancelled`: the copy falls back to the Inbox with `projectId = null`, because a Planned copy there would never be promoted and the default "open" project filter hides those projects. |
 | 5 | Auto-promotion | **(user)** Accepted. The existing "project with no Next Action gets one" rule runs once at the end; the head of the queue becomes a Next Action and emits `task_moved_to_next_action` (+1 to today's `tasksAdded`). No change to reconciliation. |
 | 6 | Dates | **(user)** `scheduledFor` and `deadline` are cleared on every copy. A stale date would read as overdue, be calendar-eligible, drive Scheduled promotion and pollute `overdue_deadlines` health findings. |
 | 7 | Recurrence | **(user)** Recurring templates attached to a project are **not** copied. A copied recurring instance becomes a plain one-off task. The project-duplication notice says so. |
@@ -262,8 +262,5 @@ may carry a one-line "duplication is not exposed" note.
 
 ## Open questions
 
-1. **Single task inside a finished project.** Decision 4 sends the copy to the Inbox (project link
-   dropped) when the project is `completed` or `cancelled`, and keeps it Planned when the project is
-   `active` or `on_hold`. Is that the right split? Alternative: always keep the copy Planned in the
-   same project, even a finished one (it would sit there unpromoted and invisible under the default
-   "open" filter).
+None. All questions raised during drafting were answered by the user on 2026-10-16 (see the
+**(user)** decisions above).
