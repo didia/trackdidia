@@ -595,6 +595,71 @@ describe("WeeklySynthesisService", () => {
     });
   });
 
+  it("drops a time objective that duplicates a RescueTime goal", async () => {
+    const provider: AiProvider = {
+      generateStructured: vi.fn(async () => ({
+        text: JSON.stringify({
+          headline: "IA",
+          scoreExplanation: "Score",
+          strongestAxis: "Discipline",
+          weakestAxes: ["Sommeil", "Pomodoris"],
+          sectionDrafts: {},
+          nextWeekObjectives: [
+            {
+              title: "Relancer MagSelf sur les jours ouvres",
+              kind: "time",
+              targetHours: 2,
+              rescuetimeKind: "activity",
+              rescuetimeThing: "MagSelf",
+            },
+            {
+              title: "Ecrire",
+              kind: "time",
+              targetHours: 4,
+              rescuetimeKind: "activity",
+              rescuetimeThing: "texshop",
+            },
+          ],
+          gtdActions: [],
+        }),
+        model: "test-model",
+        usage: { tokensPrompt: 10, tokensCompletion: 20, latencyMs: 100 },
+      })),
+    };
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const service = new WeeklySynthesisService(provider);
+    const settings = defaultAppSettings();
+    settings.aiEnabled = true;
+    settings.aiApiKey = "secret";
+
+    const result = await service.buildSynthesis(repository, {
+      weekStartDate: "2026-08-02",
+      settings,
+      snapshotInputs: {
+        ...buildWeeklyInputs(),
+        rescueTimeGoalItems: [
+          {
+            goalId: 2000470,
+            title: "more than 25m on MagSelf (Weekdays)",
+            isMore: true,
+            actualHours: 2.9,
+            weeklyTargetHours: 2.1,
+            achievement: 1,
+            scheduleLabel: "Weekdays",
+          },
+        ],
+        rescueTimeVocabulary: { category: [], activity: ["texshop"] },
+      },
+      trigger: "explicit",
+    });
+
+    const titles = result.proposals
+      .filter((proposal) => proposal.type === "weekly_objective")
+      .map((proposal) => JSON.parse(proposal.payloadJson).title);
+    expect(titles).toEqual(["Ecrire"]);
+  });
+
   it("drops a gtdAction whose taskId is not an eligible stale next action", async () => {
     const provider: AiProvider = {
       generateStructured: vi.fn(async () => ({

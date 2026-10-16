@@ -1,12 +1,19 @@
-import { resolveObjectiveAgainstVocabulary } from "./weekly-objective-resolution";
+import {
+  isCoveredByRescueTimeGoal,
+  resolveObjectiveAgainstVocabulary,
+} from "./weekly-objective-resolution";
 
 const vocabulary = {
   category: ["Writing", "General Reference & Learning"],
   activity: ["texshop", "minizincide"],
 };
 
-const timeObjective = (rescuetimeKind: "activity" | "category", rescuetimeThing: string) => ({
-  title: "Optimisation Combinatoire - IFT-7020",
+const timeObjective = (
+  rescuetimeKind: "activity" | "category",
+  rescuetimeThing: string,
+  title = "Optimisation Combinatoire - IFT-7020",
+) => ({
+  title,
   kind: "time" as const,
   targetHours: 5,
   rescuetimeKind,
@@ -52,5 +59,49 @@ describe("resolveObjectiveAgainstVocabulary", () => {
     expect(resolveObjectiveAgainstVocabulary(manual, vocabulary)).toBe(manual);
     const overview = { ...timeObjective("activity", "x"), rescuetimeKind: "overview" as const };
     expect(resolveObjectiveAgainstVocabulary(overview, vocabulary)).toBe(overview);
+  });
+});
+
+describe("isCoveredByRescueTimeGoal", () => {
+  const goalTitles = [
+    "more than 25m on MagSelf (Weekdays)",
+    "more than 1h 40m on Optimisation Combinatoire - IFT-7020 (24x7)",
+    "less than 1h on Personal & Distracting (24x7)",
+  ];
+
+  it("flags a time objective whose title names a goal's subject", () => {
+    expect(
+      isCoveredByRescueTimeGoal(
+        timeObjective("activity", "x", "Relancer MagSelf sur les jours ouvrés (2 h 05 visées)"),
+        goalTitles,
+      ),
+    ).toBe(true);
+    expect(
+      isCoveredByRescueTimeGoal(
+        timeObjective("activity", "x", "Optimisation Combinatoire - IFT-7020 : rattraper le temps"),
+        goalTitles,
+      ),
+    ).toBe(true);
+  });
+
+  it("flags a time objective whose RescueTime name appears in a goal title", () => {
+    expect(
+      isCoveredByRescueTimeGoal(timeObjective("category", "MagSelf", "Avancer"), goalTitles),
+    ).toBe(true);
+  });
+
+  it("leaves unrelated and manual objectives alone", () => {
+    expect(
+      isCoveredByRescueTimeGoal(timeObjective("activity", "texshop", "Ecrire"), goalTitles),
+    ).toBe(false);
+    expect(
+      isCoveredByRescueTimeGoal(
+        { ...timeObjective("activity", "x", "Relancer MagSelf"), kind: "manual" as const },
+        goalTitles,
+      ),
+    ).toBe(false);
+    expect(isCoveredByRescueTimeGoal(timeObjective("activity", "texshop", "Ecrire"), [])).toBe(
+      false,
+    );
   });
 });

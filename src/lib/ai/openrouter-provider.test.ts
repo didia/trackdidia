@@ -1236,6 +1236,8 @@ describe("buildSystemPrompt snapshots", () => {
           (\`activity\` pour rescuetimeKind "activity", \`category\` pour "category") — ne jamais l'inventer
           a partir du titre (code de cours, nom de projet). Sans correspondance exacte dans cette liste
           (ou si \`rescueTimeVocabulary\` est absent), utiliser kind "manual".
+        - Ne propose pas d'objectif kind "time" pour un sujet deja suivi par un objectif de
+          \`rescueTimeGoals\` (les goals RescueTime sont deja scores et listes dans la revue): ce serait un doublon.
         - kind "manual": targetHours, rescuetimeKind et rescuetimeThing doivent etre null
       - gtdActions: Array<{ taskId: string; taskTitle: string; action: "schedule" | "defer" | "delegate" | "drop"; reason: string }>
         - taskTitle doit reprendre exactement le titre de la tache concernee, tel que fourni dans le

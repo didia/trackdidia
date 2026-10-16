@@ -351,6 +351,9 @@ requires `rescuetimeThing` to be copied from it. When proposals are created, a `
 `activity` time objective whose name matches (case/whitespace-insensitive) is snapped to the
 canonical spelling; one that does not match is stored as a `manual` objective, since an invented
 name would read 0 h forever. If the vocabulary could not be loaded, proposals are kept unchecked.
+RescueTime **goals** are already scored and listed in the review, so a `time` objective proposal
+about the same subject (its RescueTime name appears in a goal title, or a goal's subject appears
+in its title) is dropped as a duplicate; the prompt tells the coach the same.
 Stored syntheses are not rewritten, and existing objectives are never edited. GTD
 accepts are atomic and skip terminal tasks.
 
