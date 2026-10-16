@@ -233,16 +233,76 @@ entire list:
 
 | Class | Tables | Merge rule |
 |---|---|---|
-| Field-clock | `gtd_tasks`, `gtd_projects`, `gtd_contexts`, `recurring_task_templates`, `daily_entries`, `weekly_reviews`, `monthly_reviews`, `mid_week_decisions`, `annual_goals`, `weekly_objectives`, `weekly_objective_results` | Each column is a field with its own clock. JSON-map columns (`metrics_json`, `principles_json`, review `notes`, annual-goal `evaluations`, `progress_log_json`, `milestones_json`) merge **per key** (`metrics.<key>`, `milestones.<id>`). Context/id lists are OR-sets. Tasks follow the mobile spec's table. |
-| Row-clock | `finance_people`, `finance_accounts`, `finance_categories`, `finance_transactions`, `finance_rules`, `finance_merchant_memory`, `finance_budget_entries`, `finance_budget_months`, `finance_recurring_series`, `finance_import_profiles`, `finance_import_batches`, `ai_memories` | Whole row last-writer-wins by row HLC. Per-field clocks would multiply storage on a table that can hold ~10^5 rows for no real gain. Exception: a transaction with `category_source = 'user'` beats one with an automatic source regardless of clock. |
+| Field-clock | `gtd_tasks` (recurring instance rows: see [Recurring occurrences](#recurring-occurrences)), `gtd_projects`, `gtd_contexts`, `recurring_task_templates`, `daily_entries`, `weekly_reviews`, `monthly_reviews`, `mid_week_decisions`, `annual_goals`, `weekly_objectives`, `weekly_objective_results` | Each column is a field with its own clock. JSON-map columns (`metrics_json`, `principles_json`, review `notes`, annual-goal `evaluations`, `progress_log_json`, `milestones_json`) merge **per key** (`metrics.<key>`, `milestones.<id>`). Context/id lists are OR-sets. Tasks follow the mobile spec's table. |
+| Row-clock | `finance_people`, `finance_accounts`, `finance_categories`, `finance_transactions`, `finance_rules`, `finance_merchant_memory`, `finance_budget_entries`, `finance_budget_months`, `finance_recurring_series`, `finance_import_profiles`, `finance_import_batches`, `ai_memories` | Whole row last-writer-wins by row HLC. Per-field clocks would multiply storage on a table that can hold ~10^5 rows for no real gain. Exception: a transaction's categorization fields and splits form one unit with causal metadata; see [Finance categorization unit](#finance-categorization-unit). |
 | Grow-only union | `gtd_task_events`, `ai_messages` | Union by `id` / `dedupe_key`. Cannot conflict. |
 | Monotonic status | `ai_proposals`, `finance_category_suggestions` | Terminal state (`accepted` / `dismissed` / `expired` / resolved) beats `pending`. |
-| Child set | `finance_transaction_splits` | Replaced as a unit with whichever parent transaction wins. |
+| Child set | `finance_transaction_splits` | Part of the parent transaction's categorization unit; replaced as a set with whichever categorization wins. |
 | Pomodoro | `pomodoro_sessions`, `pomodoro_segments` | Only **terminal** sessions (`completed`/`cancelled`) and their segments are published. A running or paused timer is owned by the laptop it runs on and never leaves it. Completed focus on either laptop counts toward the day. Segment `endedAt`: non-null beats null. |
-| Device-local | `schema_migrations`, `rescuetime_snapshot_cache`, `finance_alert_notifications`, `finance_account_balance_snapshots` with `source = 'derived'` (rebuilt by the daily job), `calendar_sync_settings`, `calendar_sync_links`, the legacy `email_triage_*` tables, every `sync_*` table | Never leave the machine. |
+| Device-local | `schema_migrations`, `rescuetime_snapshot_cache`, `finance_alert_notifications`, `finance_account_balance_snapshots` with `source = 'derived'` (rebuilt by the daily job), `calendar_sync_settings`, `calendar_sync_links`, the legacy `email_triage_*` tables, `sync_identity`, `sync_peers` | Never leave the machine. (The other `sync_*` sidecars travel with the entities they describe; see [Data model](#data-model-migration-sketch).) |
 
 `finance_account_balance_snapshots` with `source = 'statement'` are user data (written by statement
 import, which also re-bases the account's opening balance) and sync as row-clock.
+
+### Natural keys and canonical identity
+
+Several synced tables have a unique key besides the primary key, so two peers can mint *different*
+ids for the *same* thing. Example: two personal laptops import the same CSV while offline; each
+generates its own `finance-txn` id, but both rows carry the same `(account_id, dedupe_hash)`.
+Applying the peer row by id hits `uniq_finance_txn_dedupe` and rolls back the whole finance
+bundle. The local import's `ON CONFLICT … DO NOTHING` does not help, and ignoring the remote row
+would strand its splits and suggestions and lose its edits.
+
+The registry therefore declares every unique key of every synced table, and a test compares that
+list with the `UNIQUE` columns and unique indexes in the migrated schema (`sqlite_master`), so a new
+unique index cannot be forgotten. Before applying a bundle, in the same transaction, the engine:
+
+1. Looks up each incoming row by each declared natural key. A local row with a different id means
+   the two ids denote one entity.
+2. Chooses the **canonical id** as the lexicographically smaller of the two. This is a total order,
+   so every peer picks the same id whatever the merge order.
+3. Records `alias_id → canonical_id` in `sync_id_aliases` (grow-only, published in the entity's
+   domain) and rewrites every reference the registry declares to the alias. For transactions:
+   splits, suggestions, transfer grouping and import-batch membership. For tasks: task events and
+   Pomodoro segments. References inside JSON (an AI proposal payload's `taskId`) are resolved
+   through the alias table when read.
+4. Merges the two rows' contents with the table's normal rule (field/row clocks, lifecycle rules,
+   categorization unit), as if they had always been one row. Nothing is dropped; an edit made to
+   either copy survives on its clock.
+5. Rewrites alias ids on decode for every later bundle that still carries them.
+
+| Table | Natural key | Typical cause |
+|---|---|---|
+| `finance_transactions` | `(account_id, dedupe_hash)` | Same statement imported on two personal laptops |
+| `finance_accounts` | `external_key` | Same import label bound to an account on both |
+| `finance_import_profiles` | header signature | Same CSV layout saved on both |
+| `finance_category_suggestions` | one `pending` per transaction (partial index) | Both laptops suggest for the same, now canonical, transaction: the later clock stays pending, and the engine resolves the other with a log entry |
+| `ai_proposals` | pending-per-message/type partial indexes | Same rule as suggestions (`personal` domain) |
+| `gtd_tasks` | `source_external_id` | Relationship draws on two personal laptops (see generators) |
+| `gtd_projects` | `source_external_id` | Legacy imported projects |
+| `gtd_contexts` | `name` | Ids are already deterministic (`context:<slug>`); a rename onto an existing name stays the mobile spec's prompt |
+| `gtd_task_events` | `dedupe_key` | Weekly carryover on both; the union already keys on it |
+
+A unique violation on a key the registry does not declare aborts that bundle with an error naming
+the table and index. It is never skipped silently.
+
+### Finance categorization unit
+
+On `finance_transactions`, `{category_id, category_source, has_splits}` and the child splits form
+one **categorization unit** with its own clock and a `base_hlc`: the unit clock this device had seen
+when it wrote. Other columns stay row-clock. The unit clocks live in that row's
+`sync_entity_meta.field_clocks_json`.
+
+- **Causally later wins.** If one write's `base_hlc` is at or after the other write's clock, it
+  saw that write and wins. Example: B categorizes with splits (`user`). A receives it, then removes
+  the final split, and `saveTransactionSplits` deliberately resets the parent to uncategorized,
+  `has_splits = false`, `category_source = 'default'`. A's reset wins, and B's old split children are
+  not restored.
+- **A peer republishing an unchanged row** carries its old unit clock and loses to any later write.
+- **Concurrent writes** (neither saw the other): a `user` source beats an automatic one (`rule`,
+  `memory`, `seed`, `ai`, `default`), so a stale automatic stage on one laptop cannot overwrite a
+  manual choice made on the other. Two concurrent `user` writes: the later HLC wins and the loser
+  is logged.
 
 ### Settings registry
 
@@ -280,8 +340,17 @@ This is the behaviour the feature exists for. It extends the bootstrap contract 
 **Startup, in order** (when `multiDeviceSyncEnabled` and the destination is mounted):
 
 1. Initialize SQLite and run migrations (unchanged). Ensure device identity.
-2. **Safety backup**: if this is the first merge ever, or the peer's `schemaVersion` differs from
-   ours, force `createBackup("auto")` first and record its path in the sync log.
+2. **Safety backup.** Before the first merge into a database that holds user rows, or when a peer's
+   `schemaVersion` differs from ours, force `createBackup("auto")` to this device's own backup
+   destination and record its path in the sync log. If such a backup is required and cannot be
+   made, the merge does not run.
+   - A **verified empty joiner** skips it, because there is nothing to lose; the skip is recorded.
+     Empty means no rows other than migration and seed rows (default contexts, finance system and
+     default categories, the settings row at defaults), as enumerated by the registry.
+   - When a backup *is* required, onboarding asks for a destination before the merge. On a `work`
+     device that is a local or work folder; the personal folder is refused by its role marker.
+     The default fresh work join (empty database, no backup destination configured) therefore
+     reaches its first import without an extra step.
 3. **Pull**: list peers, verify and merge changed bundles (budget: 4 s). This precedes recurrence
    generation, Scheduled promotion and relationship draws so they see the other laptop's work:
    a task already completed on the other laptop is not regenerated, and today's draw already
@@ -323,13 +392,53 @@ data model, not from a leader:
 | Generator | Why concurrent runs converge |
 |---|---|
 | Scheduled promotion | Pure and idempotent over `(tasks, today, now)`. Both sides compute the same result. |
-| Recurrence generation | One task row per template with deterministic id `recurring-task:<templateId>`, advanced in place. `recurrenceDueDate`, `lastGeneratedForDate` and `pendingPastRecurrences` are **monotonic** fields: merge by max of the due date, never backwards. The lifecycle tuple still merges as one unit. |
-| Relationship draws (personal devices only) | Random choice, but a deterministic `source_external_id` per category and date. If two personal laptops draw on the same day, the two rows collide on the unique key: keep the earlier `createdAt`, drop the other, and record an informational entry in the conflict log. This is the one place a row is dropped by rule, because it is a generator duplicate rather than user data. |
+| Recurrence generation | One row per template (`recurring-task:<templateId>`) advanced in place, so the row id is not an occurrence. Sync merges per **occurrence**, never by independent max/LWW on the row's fields; see [Recurring occurrences](#recurring-occurrences). |
+| Relationship draws (personal devices only) | New draws are deterministic. The task id is derived from the `source_external_id` (category + date), and the activity is chosen with a seed of `(category, date)` over the synced activity list. Two personal laptops therefore normally create the identical row, and merging it is a no-op. If the lists differed at draw time, or for draws made before this change, the rows collide on `source_external_id` and go through [canonical identity](#natural-keys-and-canonical-identity): one id by total order, events and segments remapped, lifecycle and edits merged, so a completion on either copy survives. `createdAt` is never the tiebreaker, because the planner stamps every draw `${date}T00:00:00.000Z` and concurrent draws always tie on it. No row carrying user state is dropped. |
 
 Reads are already pure (`listTasks` no longer runs the generators; `generateDueRecurringTasks` and
 `promoteDueScheduledTasks` are explicit calls), so merely viewing a list never stamps clocks or
 dirties a bundle. That property must be kept: a generator call that finds nothing to do must write
 nothing. The mobile spec's `runDailyGenerators` aggregate is optional here.
+
+### Recurring occurrences
+
+Independent field rules on the advanced-in-place row produce wrong states:
+
+- **Wrong completion.** Both peers know the Oct 15 instance. Offline, A completes it after
+  midnight while B generates Oct 16 into the same row. Max-date picks Oct 16, terminal-wins picks
+  A's `completed` tuple: an Oct 16 task marked completed although only Oct 15 was done. B's
+  `lastGeneratedForDate` is already Oct 16, so no later generator pass repairs it.
+- **Backlog that will not clear.** `pendingPastRecurrences` is not monotonic: `clearPastRecurrences`
+  deliberately saves 0. Max-merge would restore B's stale count every time B republishes, however
+  often the user clears it on A.
+
+Sync therefore models a recurring row as a sequence of occurrences, in two `gtd`-domain sidecar
+tables: `sync_recurrence_occurrences(template_id, due_date, outcome, outcome_hlc, device_id)` and
+`sync_recurrence_clears(template_id, cleared_through_date)`.
+
+- `outcome` is `active`, `completed`, `cancelled` or `missed`. Generation records `missed` for the
+  overrun occurrence and `active` for the new one. For the same occurrence, a user outcome
+  (`completed`/`cancelled`) beats `missed`/`active` regardless of clock; complete-vs-cancel stays the
+  mobile spec's prompt.
+- The row's lifecycle tuple and its clocks are **scoped to an occurrence** (the epoch is
+  `recurrenceDueDate`). A lifecycle write for an older epoch updates that occurrence's outcome, never
+  the current row's lifecycle. Non-lifecycle edits (title, notes, contexts) merge per field across
+  epochs as usual.
+- After a merge the row is recomputed, not merged:
+  - `recurrenceDueDate` and the template's `lastGeneratedForDate` = the latest occurrence;
+  - lifecycle = that occurrence's merged state;
+  - `pendingPastRecurrences` = the number of `missed` occurrences after `cleared_through_date`.
+- `clearPastRecurrences` sets `cleared_through_date` to the latest due date it acknowledged. That
+  date really is monotonic (max merge). A peer's stale count is irrelevant, because the count is
+  derived and never merged.
+
+Worked example: A completes Oct 15; B, offline, generates Oct 16 and records Oct 15 as missed.
+After merging, Oct 15 = completed (a user outcome beats missed), Oct 16 = active, and the backlog is
+0. A's `task_completed` event arrives through the `gtd_task_events` union, so daily statistics count
+the completion.
+
+This replaces the mobile spec's "primary-authoritative" rule for these fields, which relied on a
+single generating device.
 
 `createEntityId` falls back to `Math.random()` when `crypto.randomUUID` is absent
 ([`src/lib/gtd/shared.ts`](../../src/lib/gtd/shared.ts)). Two independent writers make that a real
@@ -386,8 +495,11 @@ Two cases, both explicit in the UI, neither automatic.
    the peer, the app imports that peer's bundles for the profile's domains. All rows arrive with the peer's clocks. Because the
    joiner's seeded rows (contexts `context:<slug>`, finance default categories `fincat:*`, system
    categories) are deterministic ids, they merge instead of duplicating.
-2. **Joiner that already has data** (the work laptop was used before sync existed). Show counts of
-   what each side has, force a backup of the local database, then merge. Collisions on natural
+2. **Joiner that already has data.** As `personal`: show counts of what each side has, require a
+   backup destination, back up, then merge. As `work`: allowed only if the existing data is GTD and
+   Pomodoro alone (zero rows in every `personal` and `finance` table, personal settings at
+   defaults); then the same backup-then-merge. Any personal or finance rows make the work join
+   refused (see [Work profile](#work-profile)). Collisions on natural
    keys (a `daily_entries` row for the same date, a `weekly_reviews` row for the same week) resolve
    by field clocks; the older side's differing values are kept in the conflict log.
 
@@ -409,13 +521,19 @@ table name or `setting`:
   `row_hlc`. For row-clock tables `field_clocks_json` is `{}` and `row_hlc` is authoritative.
 - `sync_identity(id=1, device_id, device_name, physical_ms, counter, change_counter, last_publish_counter)`.
 - `sync_peers(peer_id, peer_name, last_manifest_json, last_synced_at, last_applied_sha_by_domain)`.
+- `sync_id_aliases(entity_type, alias_id, canonical_id, recorded_hlc)`: grow-only, published in the
+  entity's domain ([canonical identity](#natural-keys-and-canonical-identity)).
+- `sync_recurrence_occurrences(template_id, due_date, outcome, outcome_hlc, device_id)` and
+  `sync_recurrence_clears(template_id, cleared_through_date)`: `gtd` domain
+  ([recurring occurrences](#recurring-occurrences)).
 - `sync_conflicts(id, entity_type, entity_id, kind, local_json, remote_json, detected_at, resolved_at, resolution)`.
   Besides the mobile spec's prompt cases it also records **overwritten edits** (a row-clock LWW or
   field LWW that discarded a concurrent edit) and generator-duplicate drops, so nothing is lost
   silently.
 
-`sync_identity` and `sync_peers` never leave the machine; `sync_conflicts` and `sync_entity_meta`
-are published inside the bundles that own their entities.
+`sync_identity` and `sync_peers` never leave the machine. `sync_conflicts`, `sync_entity_meta`,
+`sync_id_aliases` and the recurrence sidecars are published inside the bundles that own their
+entities. The registry's "every table is classified" test treats these sidecars like any other table.
 
 `MemoryRepository` parity: sync is meaningless for a non-persistent store, so the new
 `AppRepository` methods exist on both classes and the memory implementation reports
@@ -457,7 +575,8 @@ The first is the real boundary; the other three are backstops in case it fails:
 
 1. **What the machine can open.** The work laptop is only ever given the shared GTD folder. The
    personal folder (bundles for `personal` and `finance`, plus full-database backups) is not
-   reachable from it. 2. **What gets published where.** `personal` and `finance` bundles are only written to the personal
+   reachable from it.
+2. **What gets published where.** `personal` and `finance` bundles are only written to the personal
    folder; the shared GTD folder only ever receives `gtd` bundles, whichever device writes them.
    The registry is the single source of each table's domain and is tested.
 3. **What gets applied.** A `work` device applies only `gtd` bundles; any other domain found
@@ -483,9 +602,15 @@ Other work-profile rules:
   imports the other domains. `personal` → `work` on a database that holds personal or finance rows is
   refused. The user starts the work laptop from a fresh database instead, so personal rows are never
   left in a work database that merely hides them.
-- If the work laptop was used *before* sync with local daily entries or reviews, joining as `work`
-  shows those counts and offers two choices: keep them local (never published, hidden by the profile)
-  or start fresh after a backup.
+- **A work device starts from a database with no personal or finance rows.** If the laptop was used
+  before sync with daily entries, reviews, goals, AI rows or finance, joining as `work` is refused.
+  The app shows counts per domain and explains the manual path: quit, move the database file and any
+  backups it made off the machine (for example to a personal laptop, which can join as `personal` and
+  merge them), then restart for a fresh database. There is no "keep them local" option, because
+  hidden rows and the backups containing them would still be readable on the work laptop. The app
+  never deletes or archives that file itself (the `AGENTS.md` data-safety rule).
+- A `work` device re-checks this at every startup. If personal or finance rows ever appear (a bug, or
+  a database copied in by hand), sync pauses with an error rather than continuing.
 - Secrets (OpenRouter key, RescueTime key, LLM bridge token) are never published on any profile,
   even though they already sit inside plaintext backups on personal laptops.
 
@@ -510,7 +635,7 @@ open question 2.
 | Pomodoro running on laptop A, user opens laptop B | B shows no running timer (A's is not published). Documented behaviour. |
 | The backup/personal folder is picked as the shared GTD folder, or one is nested in the other | Refused at configuration time. Rust writes a `.trackdidia-folder-role` marker (`personal` or `gtd`) into each configured folder, and a folder carrying the other role's marker, or containing `backups/`, cannot be chosen as the GTD folder. |
 | A non-`gtd` bundle or manifest domain appears in the shared GTD folder | Never applied, by any device. Shown as an error naming the writer, because it means a bug or a misconfigured peer. |
-| Work device finds personal data in its own database | Not published, not shown; reported once on `/sync` with the profile-change rule above. |
+| Work device finds personal data in its own database | Sync pauses with an error on `/sync`; nothing is published, applied or shown; the fresh-database rule above explains the fix. |
 | Two personal laptops back up into the same `backups/` | Today they would prune each other (30-file shared cap, no device in the file name). When sync is enabled, backup file names gain the device id and retention counts per device. This is a small change to `backup.rs` and `docs/storage-and-backups.md`, done in Phase 2. |
 
 ## Phases
@@ -526,13 +651,20 @@ Each phase is independently shippable and leaves single-laptop behaviour unchang
 2. **Folder transport and profiles.** `sync_folder.rs` with folder roles and markers, `bundle.ts`,
    manifest and verification, device profile with domain filtering on publish and apply, per-device
    backup names, manual "Sync now" in a minimal `/sync` page, behind `multiDeviceSyncEnabled`.
-   Profiles are here rather than later because the work laptop is the first real use.
+   Profile plumbing lands here, but only `personal` is selectable.
 3. **Lifecycle integration.** Startup pull-before-generators, focus/hourly pull, debounced and
    on-quit publish, view reload, status chip, generator duplicate rules, profile-gated startup jobs,
    backup/sync coordination.
 4. **Work shell, join, gates, conflicts.** Work-profile route set and reduced Settings, join flow
    (empty and non-empty, per profile), profile-change rules, schema/stale-peer gates, conflict and
    overwritten-edit UI, calendar-sync warning.
+
+**The `work` profile becomes selectable only in Phase 4**, once every protection it depends on has
+shipped together: folder roles and markers, domain filtering on publish and apply, the
+fresh-database requirement and startup re-check, the work shell and route set, profile-gated
+startup jobs, the backup-destination rule for non-empty joiners, and a passing three-device
+isolation test. No earlier phase offers work activation, even behind a flag in a release build.
+
 5. *(Optional)* Envelope encryption of bundles; incremental bundles if full-state size becomes a
    problem; shared Pomodoro timer.
 
@@ -560,6 +692,26 @@ existing contract tests already use this adapter.
   back), and the index route is Next Actions.
 - `merge.test.ts`: one case per row of each merge table (including category-source precedence,
   monotonic dates, terminal-beats-pending, generator-duplicate drop).
+- `recurrence-occurrences.test.ts`: complete-old (A, Oct 15) vs generate-new (B, Oct 16) in both
+  merge orders gives Oct 15 completed, Oct 16 active, backlog 0, and no extra occurrence generated;
+  `clearPastRecurrences` on A, then B publishes an unrelated edit carrying its old backlog, keeps the
+  backlog cleared; complete vs missed for one occurrence; complete vs cancel prompts.
+- `natural-keys.test.ts`: the registry's unique keys equal the schema's unique columns and indexes;
+  the same CSV imported independently on two personal peers, each copy carrying different splits,
+  suggestions and an edit, converges in both orders to one canonical transaction with references
+  remapped and no bundle rollback; the same for account `external_key`, import profile signature and
+  pending suggestions; an undeclared unique violation aborts the bundle with a named error.
+- Finance categorization: B's `user` split categorization, then A removes the final split, then B
+  publishes an unrelated edit: A's reset holds and no split is restored; concurrent automatic vs
+  `user` keeps `user`.
+- Relationship draws: two same-date draws with identical `createdAt` converge in both merge orders,
+  including when one copy was completed or had events before the merge; new deterministic draws on
+  two peers produce identical rows.
+- Join and backup: default fresh `work` join with an empty `backupDestinationDir` imports without a
+  backup (verified-empty skip); non-empty `personal` join requires a destination and backs up first;
+  `work` join on a database holding any personal or finance row is refused; the personal folder
+  cannot be chosen as a work backup destination; personal rows appearing on a `work` device pause
+  sync.
 - `merge.property.test.ts`: **convergence** (any application order of the same bundles yields
   identical state) and **idempotence** (re-applying changes nothing, and does not re-dirty).
 - `sync-engine.test.ts` scenarios: edit on B while A is closed; concurrent edits to one task's
