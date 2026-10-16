@@ -19,6 +19,9 @@ current-product behavior remains documented in [`docs/`](../docs/).
   `mobile-and-sync.md`.
 - [`todo/calendar-sync.md`](todo/calendar-sync.md) — approved, unshipped one-way Google
   Calendar sync of Scheduled and Planned tasks with a date.
+- [`todo/work-coach.md`](todo/work-coach.md) — draft, awaiting review: GTD + Pomodoro work
+  coach with a deterministic GTD health engine, read-only LLM bridge tools and shipped MCP
+  prompts for the user's own Claude client (no OpenRouter).
 - [`todo/weekly-review-caching.md`](todo/weekly-review-caching.md) — §1 shipped (RescueTime
   snapshot cache); §2 compact weekly RescueTime goal lines and §3 last-good weekly coach
   synthesis fallback not implemented.
