@@ -182,9 +182,20 @@ All domain logic is pure and shared; the two repositories only call it.
 
 **`AppRepository` additions** (both implementations):
 
-- `scheduleProject(projectId, scheduledFor | null): Promise<Project>` — require the project,
-  `applyProjectScheduleChange`, then `saveProject`.
+- `scheduleProject(projectId, scheduledFor | null): Promise<Project>` — runs in **one
+  `writeTransaction`**: re-read the project from the open connection, validate the
+  transition with `applyProjectScheduleChange`, persist through a transaction-scoped
+  `saveProjectInternal(tx, project)` (extracted from `saveProject`, never the public
+  method, which would re-enter the writer), then `reconcileProjectsInternal(tx, [id])`.
+  Eligibility must be evaluated against current stored state, not a snapshot read before the
+  writer slot was acquired: a queued Terminer/Retirer may commit first, and a stale
+  `scheduled` save would otherwise overwrite the closed project and reactivate it later
+  (the existing `promotePlannedTask` already re-reads inside the writer for this reason).
 - `activateDueScheduledProjects(date): Promise<number>` — returns the count activated.
+- `saveProject` re-reads the stored project inside its transaction (it already does, for
+  `statusChangedAt`) and **enforces rule 2 against that stored state**: entering `scheduled`
+  from `completed` or `cancelled` throws, even when `saveProject` is called directly. The
+  caller-side check in `applyProjectScheduleChange` is a convenience, not the guard.
 - `saveProject` runs `normalizeProjectSchedule(next, getTodayDate(), now)` before the
   upsert. The existing `reconcileProjectsInternal(tx, [id])` afterwards performs the demotion
   on entering `scheduled` and the single promotion on leaving it.
@@ -281,15 +292,37 @@ off, nothing changes and scheduled projects still show in-app).
   `projectItems: projects.map(projectToCalendarItem)`. It never concatenates into `tasks`.
 - Behavior with sync on: a scheduled project is a **timed** event at its `scheduledFor`
   (default 09:00, the configured default duration). Reschedule to another day → old event
-  deleted, new one created. Natural activation on the date → link detached as
-  `unscheduled`, event kept as a record of the day. Early activation, pause, or clearing the
+  deleted, new one created. Natural activation on the date → activation capture (below):
+  the link ends detached as `promoted` and the event stays as a record of the day, after
+  any outstanding edit has been applied to it. Early activation, pause, or clearing the
   date while still future-dated → event deleted. Completed/cancelled while still
   future-dated → event deleted. Tasks that are Planned with their own date keep their own
   events.
-- **No promotion capture for projects.** The planner's pending-capture path only matters for
-  items whose link was never created before their day arrived (sync off or offline), and
-  scheduling for today or earlier activates immediately. Documented as a known limitation,
-  consistent with the existing "Not back-filled" note.
+- **Activation capture.** Activation clears `scheduledFor`, which makes the project item
+  ineligible, so without capture the planner would detach an existing link as `unscheduled`
+  *without updating the event*. Example: a project event synced for Monday 09:00 is edited to
+  14:00 while offline, then Monday's activation runs before reconnecting; Google would keep
+  09:00 forever, and unsynced title edits would be lost the same way. Therefore
+  `activateDueScheduledProjects` performs the same capture as Scheduled-task promotion
+  ([`docs/calendar-sync.md`](../../docs/calendar-sync.md#promotion-capture)):
+  - Inside the activation `writeTransaction` (the same synchronous block in
+    `MemoryRepository`), *before* the project's `scheduledFor` is cleared, and only when
+    `isCalendarSyncCaptureActive(settings)`: build
+    `projectToCalendarItem(previousProject)`, look up its link, and call
+    `buildCalendarSyncCaptureLink(item, existingLink, settings, now)`; save the result through
+    the calendar-sync store directly, never through public repository methods (they would
+    re-enter the non-reentrant `runExclusive`).
+  - Outcomes mirror tasks: a `synced` link with the same signature is detached as `promoted`
+    with no remote work; a link with a different signature becomes `pending` with its
+    `event_id` kept, so the planner PATCHes from the snapshot and then detaches as
+    `promoted`; a project with no link becomes a `pending` link without an event, so the
+    planner creates the day's event from the snapshot (subject to the existing 7-day
+    staleness drop).
+  - Only natural activation captures. Early activation, pause, retire, complete and
+    clearing the date while still future-dated are user intent to remove the entry, so they
+    keep the plain delete path.
+  - Remaining limitation: activation while sync is disabled or not authorized records no
+    capture, consistent with the existing "Not back-filled" note.
 
 ## UI
 
@@ -322,7 +355,16 @@ French copy lives in `src/locales/fr/gtd.json` (the only locale) and **uses acce
     Move up/down stay enabled. The per-card Planned creation control keeps working and is
     the v1 way to pre-load tasks.
 - `GtdTaskCard.tsx`: when the draft's project is `scheduled` and the task is not a recurring
-  instance, hide the Next Actions and Scheduled bucket options and show a hint.
+  instance, hide the Next Actions and Scheduled bucket options and show a hint. **The same
+  rule applies to every handler that derives a bucket from a date.** The date and time
+  inputs currently set `bucket: "scheduled"` whenever a date is entered on a non-Planned
+  task, so on a retained Waiting For/Inbox task of a scheduled project the controlled
+  `<select>` would have no matching option (it would display Inbox) while Save submitted
+  Scheduled and repository containment converted it to Planned: the editor would preview a
+  different destination from the one persisted. In a scheduled project these handlers
+  instead switch the draft to `planned` (the date is kept as the planned date, as in the
+  Scheduled → Planned rule) and show the same hint, so the select, the draft and the saved
+  payload agree.
 - `BulkTaskToolbar` / `planBulkBucketMove`: rule 11.
 - `src/styles.css`: `.project-card__status-pill--scheduled`.
 
@@ -398,7 +440,9 @@ Pure (beside each module):
 - `engine.test.ts`: new label and assignment-label cases.
 - `eligibility.test.ts`: `projectToCalendarItem` for every status.
 - `planner.test.ts`: scheduled → create; reschedule → delete + create; future activation/
-  unschedule → delete; activation today → detach `unscheduled`; completed/cancelled reasons;
+  unschedule → delete; activation today with a captured `pending` link → PATCH then detach
+  `promoted` (an uncaptured activation still detaches as `unscheduled`); completed/cancelled
+  reasons;
   **zero tasks + at least one project item + existing task links → abort `empty_task_set`**;
   zero tasks with only project links and non-empty `projectItems` → no abort; zero
   `projectItems` with existing `project:` links → abort; no project links → behavior
@@ -430,6 +474,16 @@ Repository contract (`repository.contract.ts`, run for both `MemoryRepository` a
 - `scheduleProject` rules; `promotePlannedTask` on a scheduled project is rejected; reorder
   allowed; transaction rollback/atomicity on failure (models: `transaction.test.ts`,
   `calendar-sync-persistence.test.ts`).
+- **Queued-completion race:** start `scheduleProject(id, futureDate)` and a Terminer/Retirer
+  `saveProject` for the same project so the closing save commits first (queue them on the
+  shared writer); `scheduleProject` rejects and the project stays `completed`/`cancelled`
+  with `scheduledFor = null`. Also: calling `saveProject` directly with `status: "scheduled"`
+  over a stored `completed`/`cancelled` project throws.
+- **Activation capture** (needs a calendar-sync store with enabled, active settings): an
+  existing `synced` link with a differing signature becomes `pending` with `event_id` kept;
+  an identical signature detaches as `promoted`; no link yields a `pending` link without an
+  event; nothing is captured when sync is disabled; the capture and the activation commit or
+  roll back together.
 - Round trip of `scheduled_for` including a null column (`rows.test.ts`,
   `tauri-sqlite-repository.test.ts`); recurring generation into a scheduled project is not
   contained and does not break reconcile.
@@ -446,7 +500,9 @@ the new field; `add_tasks` into a scheduled project coerces and warns.
 UI: `ProjectsPage.test.tsx` (schedule, reschedule, "Démarrer maintenant", the count
 confirmation text, Promote disabled, filter/sort/pill); `ScheduledPage.test.tsx` (chip and
 section in day and week views; task groups still exclude `planned` tasks);
-`GtdTaskCard.test.tsx` (bucket options hidden for a scheduled project).
+`GtdTaskCard.test.tsx` (bucket options hidden for a scheduled project; **editing the date or
+time on a retained Waiting For/Inbox task of a scheduled project switches the draft to
+Planned, the select displays Planned, and the saved payload is `planned` with the date**).
 
 Fixture churn: every `Project` literal needs `scheduledFor: null` — `GtdTaskCard.test`,
 `BucketTaskListPage.test`, `gtd-health.test`, the four `ai/context` tests, `engine.test`,
@@ -466,7 +522,7 @@ are not needed: `src-tauri` is untouched.
 - [`docs/storage-and-backups.md`](../../docs/storage-and-backups.md): migration row with the
   id allocated at implementation time, `gtd_projects.scheduled_for`, status list.
 - [`docs/calendar-sync.md`](../../docs/calendar-sync.md): eligibility, the project adapter,
-  the `projectItems` input and both valves, the no-capture limitation.
+  the `projectItems` input and both valves, activation capture and its remaining limitation.
 - [`docs/llm-bridge.md`](../../docs/llm-bridge.md): tools table and `add_tasks` rules.
 - [`docs/architecture.md`](../../docs/architecture.md): the `reconcileDay` step
   descriptions.
@@ -495,6 +551,9 @@ are not needed: `src-tauri` is untouched.
 | Bucket restore | No | Original bucket not stored; conflicts with edits while scheduled. |
 | Calendar identity | Synthetic `project:<id>` task in a separate `projectItems` input | No link-table change; one project cannot disarm the empty-task-set valve. |
 | Calendar format | Timed event `Projet : <title>` | All-day is an existing non-goal. |
+| Activation capture | Same capture as Scheduled-task promotion, inside the activation transaction | Otherwise an offline edit to a synced project event is lost when activation detaches it as `unscheduled`. |
+| `scheduleProject` atomicity | One `writeTransaction`: re-read, validate, `saveProjectInternal(tx)`, reconcile; `saveProject` also enforces rule 2 on stored state | A queued Terminer/Retirer must not be overwritten by a stale `scheduled` save. |
+| Date/time shortcuts in the task editor | Switch the draft to `planned` in a scheduled project | The select, draft and saved payload must agree. |
 | Pickers | Active-only; current assignment still shown | Parity with `on_hold`. |
 | French copy | Locale "Programmé"/"Démarrer maintenant"; ASCII in `engine.ts` and errors | Repo convention; "Planifié" collides with existing labels. |
 
@@ -549,8 +608,10 @@ Each has a proposed default that this draft already follows.
   demotion and activation inside one `writeTransaction` with `tx`-scoped helpers and test
   rollback.
 - **Parity.** Guard Memory/SQLite parity through the shared `repository.contract.ts`.
-- **No promotion capture.** A project scheduled and activated while sync was offline gets no
-  calendar event. Documented limitation.
+- **Activation without capture.** Activation while sync is disabled or not authorized records
+  no capture, so such a project gets no calendar event for its day. Documented limitation,
+  consistent with the existing "Not back-filled" note. Outstanding offline edits to an
+  already-synced project event are covered by activation capture, not by this limitation.
 
 When this specification ships, update the canonical GTD, storage, calendar-sync and bridge
 documentation, prepend their domain logs, run the required test/build verification, and
