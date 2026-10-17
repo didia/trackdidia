@@ -5,6 +5,16 @@ import { isTauriRuntime } from "../storage/factory";
 
 const ALARM_FIRED_EVENT = "pomodoro-alarm-fired";
 
+// Tauri does not guarantee that two in-flight invokes reach the host in call order. A "clear"
+// from an effect cleanup overtaking the "set" of the next effect would cancel the new alarm,
+// so host calls are sent strictly one after another.
+let hostCalls: Promise<unknown> = Promise.resolve();
+const inOrder = <T>(call: () => Promise<T>): Promise<T> => {
+  const result = hostCalls.then(call, call);
+  hostCalls = result.catch(() => {});
+  return result;
+};
+
 /**
  * Arms the native deadline alarm. The Rust host then sends the completion notification (with
  * its system sound) on time even while the webview's JS timers are throttled in the background.
@@ -20,7 +30,7 @@ export const armNativePomodoroAlarm = async (alarm: {
     return false;
   }
   try {
-    await invoke("pomodoro_alarm_set", alarm);
+    await inOrder(() => invoke("pomodoro_alarm_set", alarm));
     return true;
   } catch (error) {
     logDebug("error", "pomodoro.alarm", "Alarme native indisponible", error);
@@ -34,7 +44,7 @@ export const clearNativePomodoroAlarm = async (): Promise<void> => {
     return;
   }
   try {
-    await invoke("pomodoro_alarm_clear");
+    await inOrder(() => invoke("pomodoro_alarm_clear"));
   } catch (error) {
     logDebug("error", "pomodoro.alarm", "Annulation de l'alarme native impossible", error);
   }

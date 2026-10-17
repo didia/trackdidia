@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod app_nap;
 mod backup;
 mod db;
 mod desktop_shell;

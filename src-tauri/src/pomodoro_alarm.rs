@@ -12,6 +12,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_notification::NotificationExt;
 
+use crate::app_nap::ActivityGuard;
+
 pub const ALARM_FIRED_EVENT: &str = "pomodoro-alarm-fired";
 const NOTIFICATION_SOUND: &str = "Ping";
 /// Upper bound for one sleep so a deadline is re-checked against the wall clock (tokio's
@@ -65,6 +67,29 @@ impl AlarmSlot {
 #[derive(Default)]
 pub struct PomodoroAlarmState {
     slot: Mutex<AlarmSlot>,
+    /// Held while an alarm is pending so macOS does not App-Nap (and so delay) the timer.
+    activity: Mutex<Option<ActivityGuard>>,
+}
+
+impl PomodoroAlarmState {
+    /// Holds the App Nap opt-out exactly while an alarm deadline is pending.
+    fn sync_activity(&self) {
+        let slot = self
+            .slot
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut activity = self
+            .activity
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if slot.deadline_ms.is_some() {
+            if activity.is_none() {
+                *activity = Some(ActivityGuard::begin("Pomodoro session in progress"));
+            }
+        } else {
+            *activity = None;
+        }
+    }
 }
 
 fn now_ms() -> i64 {
@@ -87,6 +112,7 @@ pub fn pomodoro_alarm_set(
         .lock()
         .map_err(|_| "Etat alarme Pomodoro verrouille".to_string())?
         .arm(ends_at_ms);
+    state.sync_activity();
 
     tauri::async_runtime::spawn(async move {
         loop {
@@ -115,6 +141,7 @@ pub fn pomodoro_alarm_set(
                 slot.take_if_due(generation, now_ms())
             };
             if due {
+                app.state::<PomodoroAlarmState>().sync_activity();
                 let _ = app
                     .notification()
                     .builder()
@@ -137,6 +164,7 @@ pub fn pomodoro_alarm_clear(state: State<PomodoroAlarmState>) -> Result<(), Stri
         .lock()
         .map_err(|_| "Etat alarme Pomodoro verrouille".to_string())?
         .cancel_if_pending(now_ms());
+    state.sync_activity();
     Ok(())
 }
 

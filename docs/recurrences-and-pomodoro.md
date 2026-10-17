@@ -374,6 +374,11 @@ plays the chime so the notification is not duplicated; when arming fails (browse
 host error), the JS path notifies as before. A session whose deadline passed while the
 process was not running is completed silently at startup (before the controller mounts), so
 it gets neither chime nor notification.
+While an alarm is pending, the host holds a macOS activity assertion (`src-tauri/src/app_nap.rs`,
+`NSActivityUserInitiatedAllowingIdleSystemSleep`) so App Nap cannot defer the native timer once the
+app has been in the background for a while; it is released when the alarm fires or is cancelled and
+does not prevent idle system sleep. The frontend sends `pomodoro_alarm_set` and
+`pomodoro_alarm_clear` strictly in call order so a stale clear cannot cancel a newer alarm.
 The chime never blocks the notification: it is not awaited, and a suspended `AudioContext`
 that does not resume within 1.5 seconds falls back to HTML audio.
 
