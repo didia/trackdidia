@@ -358,8 +358,24 @@ The notification plugin is registered in the Tauri host and the default capabili
 grants notification access. Browser environments may use browser notification APIs
 where available, but native behavior must be tested in Tauri.
 
-Notifications and sound happen while the frontend is running; there is no
-background daemon for a fully closed app.
+Notifications and sound happen while the app is running; there is no background
+daemon for a fully closed app.
+
+Automatic completion does not depend only on webview JS timers, which macOS throttles
+while the window is hidden or the app is in the background. While a session is running,
+the controller arms a native deadline alarm (`pomodoro_alarm_set` in
+`src-tauri/src/pomodoro_alarm.rs`, wrapped by `src/lib/pomodoro/native-alarm.ts`). At the
+wall-clock deadline the Rust host sends the notification itself (system sound `Ping`) and
+emits `pomodoro-alarm-fired`, which makes the controller reconcile and persist the
+completion immediately. The alarm is replaced or cancelled (`pomodoro_alarm_clear`) when
+the session pauses, stops, completes early, or changes deadline; an alarm whose deadline
+has already passed is never cancelled. When the alarm is armed, the JS expiry path only
+plays the chime so the notification is not duplicated; when arming fails (browser preview,
+host error), the JS path notifies as before. A session whose deadline passed while the
+process was not running is completed silently at startup (before the controller mounts), so
+it gets neither chime nor notification.
+The chime never blocks the notification: it is not awaited, and a suspended `AudioContext`
+that does not resume within 1.5 seconds falls back to HTML audio.
 
 ## Related documentation
 
