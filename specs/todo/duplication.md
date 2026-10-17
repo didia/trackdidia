@@ -51,10 +51,11 @@ defaults awaiting review.
 | 9 | Project naming | The UI computes the default `Copie de X` (i18n prefix). `nextCopyTitle(title, existingTitles, prefix)` strips a leading prefix and any `(n)` suffix, then picks the first unused of `Copie de X`, `Copie de X (2)`, `Copie de X (3)`… (case-insensitive). The user edits it in the confirm panel. The repository trims it, rejects an empty title, and defaults to the same helper with the French prefix when omitted. Titles are not unique in the database, so this is cosmetic. Copied tasks keep their titles unchanged. |
 | 10 | Atomicity and shape | `duplicateProject` is **one** repository method: one snapshot read, one transaction, one reconcile at the end. It must not loop over `createTask` (that calls `getAllTasks()` and reconciles per task, O(n²), and exposes intermediate states). `duplicateTask` reuses `createTaskInternal` so Planned invariants stay in one place. No dedupe key: duplicating twice makes two copies; the UI guards double-submit. |
 | 11 | Expanding the new project card | `ProjectsPage` holds `autoExpandProjectId`. After `duplicateProject` resolves it sets the id to `result.project.id` and resets the filters to defaults (status "open", empty search, context "all") so the new card cannot be hidden. `GtdProjectCard` gets an `autoExpand` prop (`project.id === autoExpandProjectId`). The existing reset effect becomes ref-guarded and runs `setExpanded(false)` only when `project.id` actually changes from its previous value (so it no longer fires on mount). A second effect declared after it, `if (autoExpand) setExpanded(true)` keyed on `[autoExpand]`, expands the card whether it mounts with `autoExpand` already true or the flag flips after mount. The page never clears the id, so the user can collapse the card later. Any `scrollIntoView` is optional and guarded (`element.scrollIntoView?.()`), since jsdom lacks it. |
-| 12 | Task-copy notice | Invariant: the notice state is never reset by `GtdTaskCard`'s `[task]` effect and is rendered **outside every card and outside the collapsible editor**. "Set it after `await`" is not enough: React 18 batches updates made after an `await`, so the continuation can run before the re-render that fires the effect. Owner: `GtdTaskList` (mounted by `NextActionsPage`, `ScheduledPage`, `ProjectsPage`, `BucketTaskListPage`), which holds the message and renders a `role="status"` element before the task list. `GtdTaskListWorkspace` gains `duplicateTask?: (taskId: string) => Promise<Task>`; the handler builds the message from the returned task. Messages (separate i18n keys): Planned → "Copie créée dans les tâches planifiées du projet « P »"; Inbox → "Copie créée dans l'Inbox"; Inbox because the project is finished → a message saying the project link was dropped. The handler rethrows on failure and the card shows the error in its existing `saveError` slot (a failure causes no reload, so the editor stays open). The notice has a dismiss button, is replaced by the next duplicate, has no timer, and disappears when the list unmounts. The source card may be unchanged and the copy usually lands elsewhere, hence the destination is named. |
+| 12 | Task-copy notice | Invariant: the notice state is never reset by `GtdTaskCard`'s `[task]` effect and is rendered **outside every card and outside the collapsible editor**. "Set it after `await`" is not enough: React 18 batches updates made after an `await`, so the continuation can run before the re-render that fires the effect. Owner: `GtdTaskList` (mounted by `NextActionsPage`, `ScheduledPage`, `ProjectsPage`, `BucketTaskListPage`), which holds the message and renders a `role="status"` element before the task list. `GtdTaskListWorkspace` gains `duplicateTask?: (taskId: string) => Promise<Task>`; the handler builds the message from the returned task. Messages (separate i18n keys), chosen from the **bucket of the returned task**, not from the bucket requested: `planned` → "Copie créée dans les tâches planifiées du projet « P »"; `next_action` → "Copie créée dans les prochaines actions du projet « P »" (a single copy is promoted at once when its project is `active` and has no active Next Action, for example a project holding only Waiting For tasks, so it never stays Planned); `inbox` → "Copie créée dans l'Inbox"; Inbox because the project is finished → a message saying the project link was dropped. If the **mutation** fails, nothing was written and no reload ran: the handler rethrows and the card shows the error in its existing `saveError` slot, with the editor still open for a retry. A failure *after* the write is a different case, handled by Decision 16. The notice has a dismiss button, is replaced by the next duplicate, has no timer, and disappears when the list unmounts. The source card may be unchanged and the copy usually lands elsewhere, hence the destination is named. |
 | 13 | Large projects | See "Performance" below. No hard cap in v1. |
 | 14 | LLM bridge | **Not exposed in v1.** The bridge tool surface is append-only (`list_*`, `add_tasks`, `create_project`). One call could create hundreds of rows and the model cannot preview the result; `add_tasks` and `create_project` already cover model-driven creation. |
 | 15 | Accessibility | Buttons carry an `aria-label` with the title (like `task.promoteAria`). The project confirm panel is an inline form with an autofocused title input, Enter submits, Escape cancels when not busy. |
+| 16 | Committed copy vs failed refresh | `useGtdWorkspace`'s `withReload` awaits the mutation, then awaits `load({ reconcile: true })`, and rejects if the refresh fails, which would discard the successful result. Because duplication has no dedupe key (Decision 10), a retry would silently create a second copy. `duplicateProject` and `duplicateTask` therefore do **not** use the plain `withReload`: they use a variant that awaits the mutation, then runs the refresh inside its own `try/catch`, and always resolves with `{ result, refreshError: Error \| null }` once the write has committed. Only a mutation failure rejects. When `refreshError` is set the UI reports the copy as created (project title and count, or the destination message) **and** that the display could not be refreshed, offers an "Actualiser" action that reruns only `load` (never the duplication), and clears the busy state. The Dupliquer control never presents a committed copy as a failure. |
 
 ## Contract: pure planner
 
@@ -84,7 +85,7 @@ Both repositories use the same planner. `compareByPlannedOrder` is exported from
 | `id` | Regenerated (`createEntityId("task")`). |
 | `title`, `notes`, `sourceUrl` | Copied unchanged (`sourceUrl` is a reference link, not an identity). |
 | `status` | Always `active`, including copies of completed tasks. |
-| `bucket` | `planned` for every task of a duplicated project, whatever its source bucket. Single task: Decisions 3 and 4. |
+| `bucket` | `planned` for every task of a duplicated project, whatever its source bucket (the head is then promoted, Decision 5). Single task: Decisions 3 and 4; a single Planned copy is also promoted to `next_action` by reconciliation when its project is `active` with no active Next Action. |
 | `contextIds` | Copied verbatim (new array). |
 | `projectId` | Project duplicate: the new project's id. Single task: Decisions 3 and 4. |
 | `parentTaskId` | Remapped to the parent's copy when the parent is also copied, else `null`. Single task: `null`. |
@@ -212,10 +213,18 @@ may carry a one-line "duplication is not exposed" note.
   - a recurring-instance source becomes a one-off and `generateDueRecurringTasks` creates nothing
     extra;
   - zero-task project; archived, completed and cancelled source gives an `active` copy;
-  - single task: standalone → Inbox; active/on-hold project → Planned at max+1;
+  - single task: standalone → Inbox; active project that already has a Next Action → Planned at
+    max+1; on-hold project → Planned at max+1 and never promoted; **active project with an empty
+    queue (no Next Action, e.g. only a Waiting For task) → the copy is returned as `next_action`**
+    with `task_created` and `task_moved_to_next_action` events and `tasksAdded` +1;
     completed/cancelled project → Inbox with `projectId = null`; dangling `projectId` and unknown
     ids reject with no writes;
   - a 600-task project: contiguous order and acceptable time (SQLite `:memory:`).
+- **Commit-success / refresh-failure test** (`use-gtd` hook test and the two UI tests below): make
+  `listTasks` (or the reconcile step) reject after a successful `duplicateTask` and a successful
+  `duplicateProject`. Assert the promise resolves with the created result and a non-null
+  `refreshError`, exactly one copy exists in the repository, the UI shows the "created, refresh
+  failed" message with an "Actualiser" action, and clicking it reloads without creating a second copy.
 - **Rollback tests** (both fixtures, in the style of `accept-ai-proposal.test.ts`): Memory spies on
   `tasks.set` so the Nth call throws (the project is set before the tasks, so a missing `projects`
   snapshot would leave an orphan); SQLite spies on `db.execute` and fails the Nth
@@ -227,6 +236,9 @@ may carry a one-line "duplication is not exposed" note.
     filter and search seeded, the new card is still visible; the status message shows the count;
     a double-click calls the repository once; the busy state disables the controls; Escape cancels;
     keyboard-only flow works.
+  - Task notice for a copy promoted to Next Actions: seed an active project holding only a Waiting
+    For task, duplicate it, and assert the notice names the prochaines actions of the project (not
+    the Planned group).
   - Task notice: expand a task card, click "Dupliquer", wait for the reload, assert the
     `role="status"` element shows the destination text, that it is **not** a descendant of any
     `article.task-card`, and that the source card is collapsed (pins the invariant of Decision 12,
