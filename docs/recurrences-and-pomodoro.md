@@ -371,7 +371,9 @@ completion immediately. The alarm is replaced or cancelled (`pomodoro_alarm_clea
 the session pauses, stops, completes early, or changes deadline; an alarm whose deadline
 has already passed is never cancelled. When the alarm is armed, the JS expiry path only
 plays the chime so the notification is not duplicated; when arming fails (browser preview,
-host error) or the app was closed past the deadline, the JS path notifies as before.
+host error), the JS path notifies as before. A session whose deadline passed while the
+process was not running is completed silently at startup (before the controller mounts), so
+it gets neither chime nor notification.
 The chime never blocks the notification: it is not awaited, and a suspended `AudioContext`
 that does not resume within 1.5 seconds falls back to HTML audio.
 
