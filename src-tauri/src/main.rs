@@ -5,6 +5,7 @@ mod db;
 mod desktop_shell;
 mod llm_bridge;
 mod oauth_loopback;
+mod pomodoro_alarm;
 mod provider_http;
 mod storage_paths;
 mod vault;
@@ -47,6 +48,7 @@ fn main() {
         .manage(oauth_loopback::OAuthLoopbackState::default())
         .manage(desktop_shell::DesktopShellState::default())
         .manage(llm_bridge::LlmBridgeState::default())
+        .manage(pomodoro_alarm::PomodoroAlarmState::default())
         .setup(|app| {
             desktop_shell::register_close_handler(app.handle());
             Ok(())
@@ -66,6 +68,8 @@ fn main() {
             oauth_loopback::oauth_loopback_wait,
             provider_http::provider_http_request,
             desktop_shell::desktop_set_run_in_tray,
+            pomodoro_alarm::pomodoro_alarm_set,
+            pomodoro_alarm::pomodoro_alarm_clear,
             llm_bridge::llm_bridge_configure,
             llm_bridge::llm_bridge_respond
         ])

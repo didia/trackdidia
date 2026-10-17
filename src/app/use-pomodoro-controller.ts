@@ -16,6 +16,11 @@ import {
   resolveFocusOnTaskAction,
 } from "../lib/pomodoro/engine";
 import {
+  armNativePomodoroAlarm,
+  clearNativePomodoroAlarm,
+  listenNativePomodoroAlarm,
+} from "../lib/pomodoro/native-alarm";
+import {
   notifyPomodoroCompletion,
   playPomodoroChime,
   resolvePomodoroChimeVariant,
@@ -58,6 +63,11 @@ const buildIdleState = (): PomodoroState => ({
 
 const isBreak = (kind: PomodoroSessionDetails["kind"]): boolean =>
   kind === "short_break" || kind === "long_break";
+
+const buildCompletionNotification = (kind: PomodoroSessionDetails["kind"]): [string, string] => [
+  t("pomodoroCompletedTitle", { ns: "notifications" }),
+  t("pomodoroCompletedBody", { ns: "notifications", kind: getPomodoroKindLabel(kind) }),
+];
 
 const POMODORO_LIST_RETRY_DELAY_MS = 1_000;
 
@@ -104,6 +114,9 @@ export const usePomodoroController = (
   const snapshotTokenRef = useRef(0);
   const announcedCompletionIdsRef = useRef(new Set<string>());
   const invalidDeadlineKeysRef = useRef(new Set<string>());
+  // `${sessionId}:${endsAt}` of the running session whose completion notification the native
+  // host owns; the JS expiry path then only plays the chime.
+  const nativeAlarmKeyRef = useRef<string | null>(null);
   const listRetryTimeoutRef = useRef<number | undefined>(undefined);
   repositoryRef.current = repository;
 
@@ -136,16 +149,19 @@ export const usePomodoroController = (
   );
 
   const announceCompletion = useCallback(
-    async (session: Pick<PomodoroSessionDetails, "kind" | "cycleIndex">) => {
-      const variant = resolvePomodoroChimeVariant(session.kind, session.cycleIndex);
-      await playPomodoroChime(variant);
-      await notifyPomodoroCompletion(
-        t("pomodoroCompletedTitle", { ns: "notifications" }),
-        t("pomodoroCompletedBody", {
-          ns: "notifications",
-          kind: getPomodoroKindLabel(session.kind),
-        }),
-      );
+    async (
+      session: Pick<PomodoroSessionDetails, "kind" | "cycleIndex">,
+      options?: { skipNotification?: boolean },
+    ) => {
+      // The chime can stay pending while the webview is in the background (suspended audio
+      // context), so it must neither delay the notification nor hold the serial queue.
+      void Promise.resolve(
+        playPomodoroChime(resolvePomodoroChimeVariant(session.kind, session.cycleIndex)),
+      ).catch((error) => logDebug("error", "pomodoro", "Chime Pomodoro impossible", error));
+      if (options?.skipNotification) {
+        return;
+      }
+      await notifyPomodoroCompletion(...buildCompletionNotification(session.kind));
     },
     [],
   );
@@ -323,7 +339,9 @@ export const usePomodoroController = (
       applyState(candidate, nextState);
       if (!announcedCompletionIdsRef.current.has(captured.id)) {
         announcedCompletionIdsRef.current.add(captured.id);
-        await announceCompletion(captured);
+        await announceCompletion(captured, {
+          skipNotification: nativeAlarmKeyRef.current === `${captured.id}:${captured.endsAt}`,
+        });
       }
       await refreshPomodoro(candidate);
       return true;
@@ -392,11 +410,30 @@ export const usePomodoroController = (
       }
     };
 
+    // JS timers are throttled while the window is in the background, so the native host also
+    // watches the deadline: it sends the notification itself and wakes `reconcile` below.
+    const alarmKey = `${activeSession.id}:${activeSession.endsAt}`;
+    let disposed = false;
+    const [title, body] = buildCompletionNotification(activeSession.kind);
+    void armNativePomodoroAlarm({
+      endsAtMs: new Date(activeSession.endsAt).getTime(),
+      title,
+      body,
+    }).then((armed) => {
+      if (armed && !disposed) {
+        nativeAlarmKeyRef.current = alarmKey;
+      }
+    });
+    const stopListeningToAlarm = listenNativePomodoroAlarm(reconcile);
+
     reconcile();
     const intervalId = window.setInterval(reconcile, 30_000);
     window.addEventListener("focus", reconcile);
     document.addEventListener("visibilitychange", reconcileWhenVisible);
     return () => {
+      disposed = true;
+      stopListeningToAlarm();
+      void clearNativePomodoroAlarm();
       window.clearTimeout(timeoutId);
       window.clearInterval(intervalId);
       window.removeEventListener("focus", reconcile);

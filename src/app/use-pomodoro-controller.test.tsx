@@ -9,12 +9,26 @@ const { announceCompletion } = vi.hoisted(() => ({
 const { requestCalendarSyncMock } = vi.hoisted(() => ({
   requestCalendarSyncMock: vi.fn(),
 }));
+const { playChime, nativeAlarm } = vi.hoisted(() => ({
+  playChime: vi.fn(async () => undefined),
+  nativeAlarm: {
+    arm: vi.fn(async (_alarm: { endsAtMs: number; title: string; body: string }) => false),
+    clear: vi.fn(async () => undefined),
+    listen: vi.fn((_handler: () => void) => () => {}),
+  },
+}));
 
 vi.mock("../lib/pomodoro/sound", () => ({
   unlockPomodoroSound: vi.fn(async () => undefined),
-  playPomodoroChime: vi.fn(async () => undefined),
+  playPomodoroChime: playChime,
   notifyPomodoroCompletion: announceCompletion,
   resolvePomodoroChimeVariant: vi.fn(() => "focus"),
+}));
+
+vi.mock("../lib/pomodoro/native-alarm", () => ({
+  armNativePomodoroAlarm: nativeAlarm.arm,
+  clearNativePomodoroAlarm: nativeAlarm.clear,
+  listenNativePomodoroAlarm: nativeAlarm.listen,
 }));
 
 vi.mock("./use-calendar-sync", () => ({
@@ -27,6 +41,10 @@ describe("usePomodoroController", () => {
   afterEach(() => {
     vi.useRealTimers();
     announceCompletion.mockClear();
+    playChime.mockClear();
+    nativeAlarm.arm.mockReset().mockResolvedValue(false);
+    nativeAlarm.clear.mockClear();
+    nativeAlarm.listen.mockReset().mockReturnValue(() => {});
   });
 
   const createRunningRepository = async () => {
@@ -61,6 +79,66 @@ describe("usePomodoroController", () => {
     expect(result.current.state.activeSession).toBeNull();
 
     expect(completeExpired).toHaveBeenCalled();
+    expect(announceCompletion).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the expiry notification to the native alarm but still plays the chime", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-01T09:00:00.000Z"));
+    nativeAlarm.arm.mockResolvedValue(true);
+    const repository = await createRunningRepository();
+    const { result } = renderHook(() => usePomodoroController(repository));
+
+    await flushControllerQueue();
+    expect(nativeAlarm.arm).toHaveBeenCalledTimes(1);
+    expect(nativeAlarm.arm.mock.calls[0]?.[0].endsAtMs).toBe(
+      Date.parse("2026-04-01T09:25:00.000Z"),
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(25 * 60 * 1000);
+    });
+    await flushControllerQueue();
+    expect(result.current.state.activeSession).toBeNull();
+    expect(playChime).toHaveBeenCalledTimes(1);
+    expect(announceCompletion).not.toHaveBeenCalled();
+  });
+
+  it("completes the session when the native alarm fires although JS timers never ran", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-01T09:00:00.000Z"));
+    nativeAlarm.arm.mockResolvedValue(true);
+    let fireNativeAlarm = () => {};
+    nativeAlarm.listen.mockImplementation((handler: () => void) => {
+      fireNativeAlarm = handler;
+      return () => {};
+    });
+    const repository = await createRunningRepository();
+    const { result } = renderHook(() => usePomodoroController(repository));
+
+    await flushControllerQueue();
+    expect(result.current.state.activeSession?.status).toBe("running");
+    vi.setSystemTime(new Date("2026-04-01T09:25:00.500Z"));
+    await act(async () => {
+      fireNativeAlarm();
+      await Promise.resolve();
+    });
+    await flushControllerQueue();
+    expect(result.current.state.activeSession).toBeNull();
+  });
+
+  it("still sends the JS notification when the native alarm cannot be armed", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-01T09:00:00.000Z"));
+    const repository = await createRunningRepository();
+    renderHook(() => usePomodoroController(repository));
+
+    await flushControllerQueue();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(25 * 60 * 1000);
+    });
+    await flushControllerQueue();
+    expect(playChime).toHaveBeenCalledTimes(1);
     expect(announceCompletion).toHaveBeenCalledTimes(1);
   });
 
