@@ -17,14 +17,18 @@ current-product behavior remains documented in [`docs/`](../docs/).
   laptops sync everything, a work laptop syncs only GTD + Pomodoro, through per-device state bundles
   in two Drive folders, with pull-before-generators at startup. Shares its merge engine with
   `mobile-and-sync.md`.
-- [`todo/calendar-sync.md`](todo/calendar-sync.md) — approved, unshipped one-way Google
-  Calendar sync of Scheduled and Planned tasks with a date.
+- [`todo/project-scheduling.md`](todo/project-scheduling.md) — draft, awaiting review: schedule a
+  project for a later day. A `scheduled` project is inactive (its tasks stay Planned, nothing
+  auto-promotes), shows on the Scheduled screen and in Google Calendar, and becomes a normal
+  active project on its day.
 - [`todo/work-coach.md`](todo/work-coach.md) — draft, awaiting review: GTD + Pomodoro work
   coach with a deterministic GTD health engine, read-only LLM bridge tools and shipped MCP
   prompts for the user's own Claude client (no OpenRouter).
 - [`todo/weekly-review-caching.md`](todo/weekly-review-caching.md) — §1 shipped (RescueTime
   snapshot cache); §2 compact weekly RescueTime goal lines and §3 last-good weekly coach
   synthesis fallback not implemented.
+- [`done/calendar-sync.md`](done/calendar-sync.md) — implemented one-way Google Calendar sync
+  of Scheduled and Planned tasks with a date (disabled by default).
 - [`done/finance.md`](done/finance.md) — implemented household finances: CSV import,
   heuristic + learned + AI categorization, Mint-style tracking, YNAB-style envelope budgets,
   and proactive runout forecasting. All 8 phases shipped.
