@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-10-17 | The native Pomodoro alarm holds a macOS activity assertion while pending (App Nap deferred it after the app sat in the background) and the frontend orders its alarm host calls so a stale clear cannot cancel a new alarm | `docs/recurrences-and-pomodoro.md` | `src-tauri/src/app_nap.rs`, `pomodoro_alarm.rs`, `native-alarm.ts`, `native-alarm.test.ts` |
 | 2026-10-17 | Pomodoro completion notification no longer depends on throttled webview timers: a native Rust deadline alarm sends the notification and wakes the controller, and the chime can no longer block the JS notification | `docs/recurrences-and-pomodoro.md` | `src-tauri/src/pomodoro_alarm.rs`, `native-alarm.ts`, `announceCompletion`, controller tests |
 | 2026-10-06 | Next Actions task cards can start or switch a Pomodoro onto a task; paused focus retargets via a zero-duration placeholder; an open break is completed without announce then a focus starts | `docs/recurrences-and-pomodoro.md` | `focusOnTask`, `resolveFocusOnTaskAction`, `switchSessionTask`, Next Actions / engine / controller tests |
 | 2026-10-06 | Cancelling a focus that started after the 25-minute idle gap no longer restores the previous cycle's completed count | `docs/recurrences-and-pomodoro.md` | `sessionsAfterLastIdleGap`, `buildPomodoroState` |
