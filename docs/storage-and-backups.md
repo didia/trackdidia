@@ -34,10 +34,16 @@ Beside the database, the native host keeps a small per-installation device id fi
 never share an identity). The `sync_device_id` command (`src-tauri/src/device_id.rs`,
 wrapped by `getDeviceId()` in `src/lib/sync/device-id.ts`) returns its content
 (`dev:<uuid v4>`), creating it on first call by writing a temp file and hard-linking it into
-place so an existing file is never overwritten. A file that is empty, malformed, or longer
-than an id is reported as an error and is not regenerated, because replacing it would orphan
-the device's identity. Nothing consumes the id yet; it is not in the SQLite schema and is not
+place so an existing file is never overwritten. After the link the parent directory is
+fsynced (Unix; skipped elsewhere) before the temp name is removed, so a power loss cannot
+lose both names and mint a second id; if that flush fails the call returns an error instead
+of pretending the id is safe, and the file it created is kept so a retry reads the same id.
+A file that is empty, malformed, or longer than an id is reported as an error and is not
+regenerated, because replacing it would orphan the device's identity. The file is not
 included in backups, so restoring a backup (see [Recovery](#recovery)) leaves it untouched.
+It is the authority for the device id kept in the `sync_identity` row (see
+[Multi-device sync sidecar tables](#multi-device-sync-sidecar-tables)); nothing calls
+`ensureSyncIdentity` at startup yet.
 
 The live database resolves beneath:
 
@@ -113,7 +119,9 @@ It groups:
 - recurrence templates and generated work;
 - Pomodoro sessions and segments;
 - AI messages, proposals, and memories;
-- standing weekly objectives and per-week manual results.
+- standing weekly objectives and per-week manual results;
+- the inert multi-device sync foundation: `getSyncStatus()` and `ensureSyncIdentity()`
+  (see [Multi-device sync sidecar tables](#multi-device-sync-sidecar-tables)).
 
 Repository helpers include `listDailyEntriesOnOrBefore(endDate, limit)` for bounded
 history ending at a calendar date, `listDailyEntriesInRange(startDate, endDate)`
@@ -123,7 +131,8 @@ the [atomic AI proposal acceptance operation](#atomic-ai-proposal-acceptance)
 (`acceptAiProposal`).
 
 The SQLite and memory implementations must remain behaviorally aligned, except for
-native-only storage information and backup creation.
+native-only storage information, backup creation, and multi-device sync (memory reports
+`{ supported: false }` from `getSyncStatus` and rejects `ensureSyncIdentity`).
 
 ## Atomic AI proposal acceptance
 
@@ -215,6 +224,7 @@ its existing idempotent `dimancheNotesRelocatedAt` marker.
 | 39 | `create_finance_alert_notifications` | Creates `finance_alert_notifications` with primary key `(alert_key, notified_on_date)`, the once-per-day-per-key ledger for Phase 7 finance alert notifications |
 | 40 | `create_calendar_sync` | Creates `calendar_sync_settings` (singleton `id = 'global'`) and `calendar_sync_links` (composite primary key `(task_id, occurrence_key)`, nullable `event_id`, unique index on `(calendar_id, event_id)`, index on `state`) for the one-way TrackDidia -> Google Calendar sync model, planner, and reconciler |
 | 41 | `add_finance_account_update_cadence` | Adds nullable `update_cadence_days` to `finance_accounts` via a guarded, idempotent `ALTER TABLE` (null = default cadence: weekly for on-budget accounts, monthly for the rest) |
+| 42 | `add_multi_device_sync_sidecars` | Creates the seven inert `sync_*` sidecar tables and an index on `sync_entity_meta.row_hlc` with `CREATE ... IF NOT EXISTS` only: no `ALTER TABLE`, no data change, no seed rows. See [Multi-device sync sidecar tables](#multi-device-sync-sidecar-tables) |
 
 ## Table reference
 
@@ -388,6 +398,53 @@ the row and clears links atomically). Promotion capture runs inside the promotio
 transaction and uses the store directly. A synced link whose payload is unchanged is
 detached as `promoted` at capture, terminal detachments are never reopened, and a captured
 edit on an event that already exists becomes a planner update (not a create).
+
+### Multi-device sync sidecar tables
+
+Migration 42 (`add_multi_device_sync_sidecars`) adds the storage foundation for the planned
+multi-laptop sync (design: [`specs/todo/multi-laptop-sync.md`](../specs/todo/multi-laptop-sync.md)).
+**Multi-device sync is not shipped.** The tables are created empty on every database and
+nothing reads or writes them except the two repository methods below; no existing table was
+altered, no setting enables the feature, and users who never use sync see no behavior change.
+
+| Table | Purpose |
+|---|---|
+| `sync_entity_meta` | `(entity_type, entity_id)` primary key, `field_clocks_json` (default `'{}'`), `row_hlc` (indexed), nullable `deleted_at` tombstone |
+| `sync_identity` | Single row (`id = 1` enforced by `CHECK`): `device_id`, `device_name`, HLC state (`physical_ms`, `counter`), `change_counter`, `last_publish_counter`, and `applying` (the transaction-scoped "merge in progress" switch for later slices) |
+| `sync_peers` | Per-peer last manifest, last sync time, and last applied content hash per domain |
+| `sync_id_aliases` | `(entity_type, alias_id)` to `canonical_id` with `recorded_hlc` |
+| `sync_recurrence_occurrences` | `(template_id, due_date)` outcome with `outcome_hlc` and the producing `device_id` |
+| `sync_recurrence_clears` | `template_id` to `cleared_through_date` |
+| `sync_conflicts` | Detected conflicts and overwritten edits (`local_json`, `remote_json`, resolution) |
+
+Classification lives in `src/lib/sync/registry.ts` (checked against the migrated schema by
+`registry.test.ts`). `sync_identity` and `sync_peers` are device-local and never leave the
+machine. `sync_recurrence_occurrences` and `sync_recurrence_clears` belong to the `gtd` domain.
+`sync_entity_meta`, `sync_id_aliases`, and `sync_conflicts` have no domain of their own: a row
+travels only inside the bundle of its `entity_type`'s domain (`sidecarPublishDomain`), so a
+personal or finance entity's metadata or conflict copy can never be placed in a `gtd` bundle.
+The plain table guards refuse these three tables outright.
+
+`src/lib/sync/clock-store.ts` issues hybrid logical clocks against `sync_identity`
+(`issueHlc`, `receiveRemoteHlc`); it must run inside an open write transaction. It rejects a
+malformed remote clock and one more than 24 hours ahead of local time before the clock state
+is touched, and throws a typed `SyncClockError` when no identity row exists.
+
+Repository surface (both implementations):
+
+- `getSyncStatus()` returns `{ supported: false }` from `MemoryRepository`. On SQLite it
+  returns the identity (or `null`), `changeCounter`, `lastPublishCounter`, `pendingChanges`,
+  and the peers, parsing the peer JSON columns defensively.
+- `ensureSyncIdentity({ deviceId, deviceName })` creates the `sync_identity` row inside the
+  normal writer transaction. The device-id file is the authority: if the row exists with a
+  different `device_id` (a backup restored from another laptop, see [Recovery](#recovery)),
+  only `device_id` is rewritten, the HLC state and counters are kept, and the result has
+  `repaired: true`. An existing device name changes only when the given one is non-empty and
+  different. An id that is not `dev:` plus a lowercase UUID v4 is rejected (the same check the
+  native host applies). `MemoryRepository` rejects: sync is unavailable in browser preview.
+
+Sidecar rows are included in backups like any other table; a restored `sync_identity` is
+exactly what the repair rule above exists for.
 
 ### Legacy email triage tables (unused)
 

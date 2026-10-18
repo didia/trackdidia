@@ -27,8 +27,20 @@ export type SyncDomain = (typeof SYNC_DOMAINS)[number];
 /** Marker for data that never leaves the machine. Not a bundle domain. */
 export const DEVICE_DOMAIN = "device" as const;
 
+/**
+ * Marker for sidecar tables whose rows each belong to the domain of the entity they describe
+ * (`sync_entity_meta`, `sync_id_aliases`, `sync_conflicts`). Such a table has no domain of its own:
+ * a row is published only inside the bundle of its `entity_type`'s domain, resolved by
+ * `sidecarPublishDomain`. Not a bundle domain, and never publishable through the plain table guards.
+ */
+export const BY_ENTITY_TYPE_DOMAIN = "by-entity-type" as const;
+
 /** Every value a table or setting can be classified into. */
-export const CLASSIFICATION_DOMAINS = [...SYNC_DOMAINS, DEVICE_DOMAIN] as const;
+export const CLASSIFICATION_DOMAINS = [
+  ...SYNC_DOMAINS,
+  DEVICE_DOMAIN,
+  BY_ENTITY_TYPE_DOMAIN,
+] as const;
 export type ClassificationDomain = (typeof CLASSIFICATION_DOMAINS)[number];
 
 /** Domains the work profile may apply and publish. Everything else is refused on a work device. */
@@ -41,6 +53,7 @@ export const MERGE_CLASSES = [
   "monotonic-status",
   "child-set",
   "pomodoro",
+  "sidecar",
   "device-local",
 ] as const;
 export type MergeClass = (typeof MERGE_CLASSES)[number];
@@ -110,6 +123,11 @@ export interface TableRegistration {
   /** Id-list columns merged as OR-sets. */
   orSetColumns?: readonly string[];
   rowFilter?: RowFilter;
+  /**
+   * Only on `by-entity-type` sidecars: the column holding the table name (or `setting`) of the
+   * entity a row describes, which decides the bundle the row travels in.
+   */
+  entityTypeColumn?: string;
   notes?: string;
 }
 
@@ -232,6 +250,26 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
       localOnly: "Segments of a running or paused session stay with that session.",
     },
     notes: "ended_at: non-null beats null.",
+  },
+
+  // Recurrence sidecars: keyed by a gtd template, so they travel with the gtd bundle.
+  {
+    table: "sync_recurrence_occurrences",
+    domain: "gtd",
+    mergeClass: "sidecar",
+    primaryKey: ["template_id", "due_date"],
+    naturalKeys: noKeys,
+    references: [{ column: "template_id", table: "recurring_task_templates", kind: "soft" }],
+    notes:
+      "Outcome of one recurring occurrence (template_id, due_date). device_id is the device that produced the outcome, not a reference.",
+  },
+  {
+    table: "sync_recurrence_clears",
+    domain: "gtd",
+    mergeClass: "sidecar",
+    primaryKey: ["template_id"],
+    naturalKeys: noKeys,
+    references: [{ column: "template_id", table: "recurring_task_templates", kind: "soft" }],
   },
 
   // ----- personal: never reaches the work laptop --------------------------------------------
@@ -558,7 +596,63 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
       "Statement snapshots are user data (written by statement import, which also re-bases the opening balance).",
   },
 
+  // ----- by-entity-type sidecars: each row travels in its entity's domain ------------------
+  // Their `entity_type` column names a registered table or `setting`; `sidecarPublishDomain`
+  // maps a row to its bundle. A row whose entity_type is personal or finance can never be placed
+  // in a gtd bundle, because the plain table guards refuse these tables outright.
+  {
+    table: "sync_entity_meta",
+    domain: BY_ENTITY_TYPE_DOMAIN,
+    mergeClass: "sidecar",
+    primaryKey: ["entity_type", "entity_id"],
+    naturalKeys: noKeys,
+    references: noRefs,
+    entityTypeColumn: "entity_type",
+    notes:
+      "Field clocks, row clock and tombstone of one entity. entity_id is an id of the table named by entity_type (a setting key for 'setting'), not a declared reference.",
+  },
+  {
+    table: "sync_id_aliases",
+    domain: BY_ENTITY_TYPE_DOMAIN,
+    mergeClass: "sidecar",
+    primaryKey: ["entity_type", "alias_id"],
+    naturalKeys: noKeys,
+    references: noRefs,
+    entityTypeColumn: "entity_type",
+    notes: "Grow-only alias -> canonical id map, published in the entity's domain.",
+  },
+  {
+    table: "sync_conflicts",
+    domain: BY_ENTITY_TYPE_DOMAIN,
+    mergeClass: "sidecar",
+    primaryKey: ["id"],
+    naturalKeys: noKeys,
+    references: noRefs,
+    entityTypeColumn: "entity_type",
+    notes:
+      "local_json / remote_json hold row contents, so a row travels only in its entity's domain bundle: a personal or finance conflict must never reach a gtd bundle.",
+  },
+
   // ----- device-local: never leaves any machine ---------------------------------------------
+  {
+    table: "sync_identity",
+    domain: "device",
+    mergeClass: "device-local",
+    primaryKey: ["id"],
+    naturalKeys: noKeys,
+    references: noRefs,
+    notes:
+      "Single row: this installation's device id and name, HLC state, change counters and the transaction-scoped applying flag.",
+  },
+  {
+    table: "sync_peers",
+    domain: "device",
+    mergeClass: "device-local",
+    primaryKey: ["peer_id"],
+    naturalKeys: noKeys,
+    references: noRefs,
+    notes: "What this machine last read from each peer. Meaningless on any other machine.",
+  },
   {
     table: "schema_migrations",
     domain: "device",
@@ -670,10 +764,19 @@ export const tablesInDomain = (domain: ClassificationDomain): string[] =>
 export const syncedTables = (): string[] =>
   TABLE_REGISTRY.filter((entry) => entry.domain !== DEVICE_DOMAIN).map((entry) => entry.table);
 
-/** True when the table may be written into a bundle of `domain`. */
+/**
+ * True when the table may be written wholesale into a bundle of `domain`. A `by-entity-type`
+ * sidecar is never publishable this way (its rows are routed by entity type); use
+ * `isSidecarPublishable`.
+ */
 export const isTablePublishable = (table: string, domain: SyncDomain): boolean => {
   const entry = TABLES_BY_NAME.get(table);
-  return entry !== undefined && entry.domain !== DEVICE_DOMAIN && entry.domain === domain;
+  return (
+    entry !== undefined &&
+    entry.domain !== DEVICE_DOMAIN &&
+    entry.domain !== BY_ENTITY_TYPE_DOMAIN &&
+    entry.domain === domain
+  );
 };
 
 /**
@@ -685,9 +788,110 @@ export const assertTablePublishable = (table: string, domain: SyncDomain): void 
   if (entry.domain === DEVICE_DOMAIN) {
     throw new Error(`Table "${table}" is device-local and is never published`);
   }
+  if (entry.domain === BY_ENTITY_TYPE_DOMAIN) {
+    throw new Error(
+      `Table "${table}" is published per entity type; use assertSidecarPublishable instead`,
+    );
+  }
   if (entry.domain !== domain) {
     throw new Error(
       `Table "${table}" belongs to the "${entry.domain}" domain and cannot be published in a "${domain}" bundle`,
+    );
+  }
+};
+
+// ---------------------------------------------------------------------------------------------
+// Sidecar routing
+// ---------------------------------------------------------------------------------------------
+
+const asSyncDomain = (table: string, domain: ClassificationDomain): SyncDomain => {
+  if (!(SYNC_DOMAINS as readonly string[]).includes(domain)) {
+    throw new Error(`Table "${table}" is classified "${domain}", which is not a bundle domain`);
+  }
+  return domain as SyncDomain;
+};
+
+/** `entity_type` value of a synced setting; its `entity_id` is the settings key. */
+export const SETTING_ENTITY_TYPE = "setting";
+
+/** True for sidecar tables whose rows are routed to a bundle by their `entity_type`. */
+export const isEntityTypedSidecar = (table: string): boolean =>
+  TABLES_BY_NAME.get(table)?.domain === BY_ENTITY_TYPE_DOMAIN;
+
+/**
+ * The bundle domain a row of an entity type travels in. `entityType` is a registered synced table
+ * name, or `setting` (then `entityId` is the settings key and decides the scope). Throws for
+ * device-local data (tables, device-scope settings, secrets), for sidecar tables used as entity
+ * types, and for anything unregistered, so a row is never routed by guesswork.
+ */
+export const publishDomainOfEntityType = (entityType: string, entityId?: string): SyncDomain => {
+  if (entityType === SETTING_ENTITY_TYPE) {
+    if (entityId === undefined) {
+      throw new Error("A setting sidecar row needs its settings key to resolve a domain");
+    }
+    const rule = settingRule(entityId);
+    if (rule.secret === true || rule.scope === "device") {
+      throw new Error(`Setting "${entityId}" is device-local and is never published`);
+    }
+    return rule.scope;
+  }
+  const entry = getTableRegistration(entityType);
+  if (entry.domain === DEVICE_DOMAIN) {
+    throw new Error(`Entity type "${entityType}" is device-local and is never published`);
+  }
+  if (entry.mergeClass === "sidecar") {
+    throw new Error(`Sidecar table "${entityType}" is not an entity type`);
+  }
+  return asSyncDomain(entityType, entry.domain);
+};
+
+/**
+ * The bundle domain a row of sidecar `table` is published in. Recurrence sidecars are `gtd`
+ * regardless of arguments. A `by-entity-type` sidecar follows its row's `entity_type`
+ * (and, for settings, its `entity_id`). Any other table throws.
+ */
+export const sidecarPublishDomain = (
+  table: string,
+  entityType?: string,
+  entityId?: string,
+): SyncDomain => {
+  const entry = getTableRegistration(table);
+  if (entry.mergeClass !== "sidecar") {
+    throw new Error(`Table "${table}" is not a sync sidecar table`);
+  }
+  if (entry.domain === BY_ENTITY_TYPE_DOMAIN) {
+    if (entityType === undefined) {
+      throw new Error(`Sidecar table "${table}" needs an entity type to resolve a domain`);
+    }
+    return publishDomainOfEntityType(entityType, entityId);
+  }
+  return asSyncDomain(table, entry.domain);
+};
+
+/** True when the sidecar row may be written into a bundle of `domain`. Never throws. */
+export const isSidecarPublishable = (
+  table: string,
+  domain: SyncDomain,
+  entityType?: string,
+  entityId?: string,
+): boolean => {
+  try {
+    return sidecarPublishDomain(table, entityType, entityId) === domain;
+  } catch {
+    return false;
+  }
+};
+
+export const assertSidecarPublishable = (
+  table: string,
+  domain: SyncDomain,
+  entityType?: string,
+  entityId?: string,
+): void => {
+  const owner = sidecarPublishDomain(table, entityType, entityId);
+  if (owner !== domain) {
+    throw new Error(
+      `Sidecar row of "${table}" (${entityType ?? "no entity type"}) belongs to the "${owner}" domain and cannot be published in a "${domain}" bundle`,
     );
   }
 };

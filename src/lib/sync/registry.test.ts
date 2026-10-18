@@ -5,15 +5,22 @@ import { createNodeSqliteDatabase } from "../../test/mocks/node-sqlite-database"
 import { runMigrations } from "../storage/migrations";
 import {
   assertSettingPublishable,
+  assertSidecarPublishable,
   assertTablePublishable,
+  BY_ENTITY_TYPE_DOMAIN,
   CLASSIFICATION_DOMAINS,
   domainOfTable,
   getTableRegistration,
+  isEntityTypedSidecar,
   isSecretSetting,
   isSettingPublishable,
+  isSidecarPublishable,
   isTablePublishable,
   MERGE_CLASSES,
+  publishDomainOfEntityType,
+  SETTING_ENTITY_TYPE,
   SETTINGS_REGISTRY,
+  sidecarPublishDomain,
   settingKeys,
   settingScope,
   settingsKeysInScope,
@@ -224,6 +231,8 @@ describe("references", () => {
     recurring_task_templates: ["id"],
     pomodoro_sessions: ["id"],
     pomodoro_segments: ["id"],
+    // device_id names the device that produced the outcome, not a table row.
+    sync_recurrence_occurrences: ["device_id"],
   };
 
   it("accounts for every id-looking column on gtd tables (catches undeclared references)", () => {
@@ -355,6 +364,8 @@ describe("domain and merge-class sanity", () => {
         "recurring_task_templates",
         "pomodoro_sessions",
         "pomodoro_segments",
+        "sync_recurrence_occurrences",
+        "sync_recurrence_clears",
       ].sort(),
     );
     expect(tablesInDomain("personal").sort()).toEqual(
@@ -471,6 +482,8 @@ describe("domain and merge-class sanity", () => {
       "finance_alert_notifications",
       "calendar_sync_settings",
       "calendar_sync_links",
+      "sync_identity",
+      "sync_peers",
     ]) {
       expect(domainOfTable(table)).toBe("device");
       expect(synced.has(table)).toBe(false);
@@ -534,9 +547,174 @@ describe("publish guards", () => {
   });
 
   it("refuses unclassified tables instead of letting them through", () => {
-    expect(() => assertTablePublishable("sync_entity_meta", "gtd")).toThrow(/not classified/);
+    expect(() => assertTablePublishable("sync_not_a_table", "gtd")).toThrow(/not classified/);
     expect(() => domainOfTable("nope")).toThrow(/not classified/);
     expect(isTablePublishable("nope", "gtd")).toBe(false);
+  });
+});
+
+describe("sidecar tables", () => {
+  const entityTyped = ["sync_conflicts", "sync_entity_meta", "sync_id_aliases"];
+  const recurrence = ["sync_recurrence_clears", "sync_recurrence_occurrences"];
+
+  it("classifies every sync_* table", () => {
+    const syncTables = [...schema.keys()].filter((table) => table.startsWith("sync_")).sort();
+    expect(syncTables).toEqual(
+      [...entityTyped, ...recurrence, "sync_identity", "sync_peers"].sort(),
+    );
+    expect(domainOfTable("sync_identity")).toBe("device");
+    expect(domainOfTable("sync_peers")).toBe("device");
+    expect(registration("sync_identity").mergeClass).toBe("device-local");
+    expect(registration("sync_peers").mergeClass).toBe("device-local");
+  });
+
+  it("gives exactly the sidecars the sidecar merge class", () => {
+    const sidecars = TABLE_REGISTRY.filter((entry) => entry.mergeClass === "sidecar")
+      .map((entry) => entry.table)
+      .sort();
+    expect(sidecars).toEqual([...entityTyped, ...recurrence].sort());
+  });
+
+  it("routes the recurrence sidecars to gtd and the entity-typed ones by entity type", () => {
+    for (const table of recurrence) expect(domainOfTable(table)).toBe("gtd");
+    for (const table of entityTyped) {
+      expect(domainOfTable(table)).toBe(BY_ENTITY_TYPE_DOMAIN);
+      expect(isEntityTypedSidecar(table)).toBe(true);
+      expect(registration(table).entityTypeColumn).toBe("entity_type");
+      expect(schema.get(table)?.columns.map((column) => column.name)).toContain("entity_type");
+    }
+    expect(isEntityTypedSidecar("gtd_tasks")).toBe(false);
+    expect(isEntityTypedSidecar("sync_recurrence_clears")).toBe(false);
+    // Only the by-entity-type sidecars declare an entity type column.
+    expect(
+      TABLE_REGISTRY.filter((entry) => entry.entityTypeColumn !== undefined)
+        .map((entry) => entry.table)
+        .sort(),
+    ).toEqual([...entityTyped].sort());
+  });
+
+  it("never lets a by-entity-type sidecar through the plain table guards, in any domain", () => {
+    for (const table of entityTyped) {
+      for (const domain of SYNC_DOMAINS) {
+        expect(isTablePublishable(table, domain)).toBe(false);
+        expect(() => assertTablePublishable(table, domain)).toThrow(/per entity type/);
+      }
+    }
+  });
+
+  it("keeps device-local sync tables out of every bundle, including the sidecar guards", () => {
+    for (const table of ["sync_identity", "sync_peers"]) {
+      for (const domain of SYNC_DOMAINS) {
+        expect(isTablePublishable(table, domain)).toBe(false);
+        expect(isSidecarPublishable(table, domain, "gtd_tasks")).toBe(false);
+      }
+      expect(() => sidecarPublishDomain(table, "gtd_tasks")).toThrow(/not a sync sidecar/);
+    }
+  });
+
+  it("maps a sidecar row to the domain of its entity type", () => {
+    for (const table of entityTyped) {
+      for (const entry of TABLE_REGISTRY) {
+        if (entry.domain === "device" || entry.mergeClass === "sidecar") continue;
+        expect(sidecarPublishDomain(table, entry.table)).toBe(entry.domain);
+      }
+    }
+    expect(sidecarPublishDomain("sync_entity_meta", "gtd_tasks")).toBe("gtd");
+    expect(sidecarPublishDomain("sync_entity_meta", "daily_entries")).toBe("personal");
+    expect(sidecarPublishDomain("sync_id_aliases", "finance_accounts")).toBe("finance");
+    expect(sidecarPublishDomain("sync_conflicts", "ai_proposals")).toBe("personal");
+    // Recurrence sidecars are gtd whatever the arguments.
+    expect(sidecarPublishDomain("sync_recurrence_occurrences")).toBe("gtd");
+    expect(sidecarPublishDomain("sync_recurrence_clears", "daily_entries")).toBe("gtd");
+  });
+
+  it("routes setting rows by the setting's scope and refuses device-scope keys and secrets", () => {
+    expect(sidecarPublishDomain("sync_entity_meta", SETTING_ENTITY_TYPE, "language")).toBe("gtd");
+    expect(sidecarPublishDomain("sync_entity_meta", SETTING_ENTITY_TYPE, "aiEnabled")).toBe(
+      "personal",
+    );
+    expect(sidecarPublishDomain("sync_entity_meta", SETTING_ENTITY_TYPE, "financeEnabled")).toBe(
+      "finance",
+    );
+    expect(() => sidecarPublishDomain("sync_entity_meta", SETTING_ENTITY_TYPE)).toThrow(
+      /settings key/,
+    );
+    expect(() => sidecarPublishDomain("sync_entity_meta", SETTING_ENTITY_TYPE, "aiApiKey")).toThrow(
+      /device-local/,
+    );
+    expect(() =>
+      sidecarPublishDomain("sync_entity_meta", SETTING_ENTITY_TYPE, "storageMode"),
+    ).toThrow(/device-local/);
+    expect(() => sidecarPublishDomain("sync_entity_meta", SETTING_ENTITY_TYPE, "nope")).toThrow(
+      /not classified/,
+    );
+    for (const key of settingKeys()) {
+      const scope = settingScope(key);
+      for (const domain of SYNC_DOMAINS) {
+        expect(isSidecarPublishable("sync_entity_meta", domain, SETTING_ENTITY_TYPE, key)).toBe(
+          scope === domain && !isSecretSetting(key),
+        );
+      }
+    }
+  });
+
+  it("refuses entity types that are device-local, sidecar, unknown or missing", () => {
+    for (const table of ["sync_entity_meta", "sync_id_aliases", "sync_conflicts"]) {
+      expect(() => sidecarPublishDomain(table, "app_settings")).toThrow(/device-local/);
+      expect(() => sidecarPublishDomain(table, "calendar_sync_links")).toThrow(/device-local/);
+      expect(() => sidecarPublishDomain(table, "sync_peers")).toThrow(/device-local/);
+      expect(() => sidecarPublishDomain(table, "sync_entity_meta")).toThrow(/not an entity type/);
+      expect(() => sidecarPublishDomain(table, "sync_recurrence_clears")).toThrow(
+        /not an entity type/,
+      );
+      expect(() => sidecarPublishDomain(table, "no_such_table")).toThrow(/not classified/);
+      expect(() => sidecarPublishDomain(table)).toThrow(/needs an entity type/);
+      expect(() => sidecarPublishDomain(table, "")).toThrow(/not classified/);
+      expect(() => publishDomainOfEntityType("toString")).toThrow(/not classified/);
+    }
+    expect(() => sidecarPublishDomain("gtd_tasks", "gtd_tasks")).toThrow(/not a sync sidecar/);
+    expect(() => sidecarPublishDomain("nope", "gtd_tasks")).toThrow(/not classified/);
+  });
+
+  it("can never place a personal or finance entity's sidecar row in a gtd bundle", () => {
+    for (const table of entityTyped) {
+      for (const entry of TABLE_REGISTRY) {
+        const owner = entry.domain;
+        if (owner !== "personal" && owner !== "finance") continue;
+        for (const workDomain of WORK_PROFILE_DOMAINS) {
+          expect(isSidecarPublishable(table, workDomain, entry.table)).toBe(false);
+          expect(() => assertSidecarPublishable(table, workDomain, entry.table)).toThrow(
+            /cannot be published/,
+          );
+        }
+        expect(() => assertSidecarPublishable(table, owner, entry.table)).not.toThrow();
+      }
+      for (const key of settingKeys()) {
+        const scope = settingScope(key);
+        if (scope === "personal" || scope === "finance") {
+          expect(isSidecarPublishable(table, "gtd", SETTING_ENTITY_TYPE, key)).toBe(false);
+        }
+      }
+    }
+    // The same holds for the gtd direction: a gtd entity's row never lands in a personal bundle.
+    expect(isSidecarPublishable("sync_entity_meta", "personal", "gtd_tasks")).toBe(false);
+  });
+
+  it("publishes a recurrence sidecar only in the gtd bundle", () => {
+    for (const table of recurrence) {
+      expect(isSidecarPublishable(table, "gtd")).toBe(true);
+      expect(isTablePublishable(table, "gtd")).toBe(true);
+      expect(isSidecarPublishable(table, "personal")).toBe(false);
+      expect(isSidecarPublishable(table, "finance")).toBe(false);
+    }
+  });
+
+  it("matches the migrated schema for the recurrence sidecars' keys", () => {
+    expect(registration("sync_recurrence_occurrences").primaryKey).toEqual([
+      "template_id",
+      "due_date",
+    ]);
+    expect(registration("sync_recurrence_clears").primaryKey).toEqual(["template_id"]);
   });
 });
 

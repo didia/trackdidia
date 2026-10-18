@@ -6,7 +6,8 @@
 //!
 //! The file is created once, atomically: the id is written and fsynced to a uniquely named
 //! temp file, which is then `hard_link`ed to the final name (a link never replaces an existing
-//! file, unlike `rename`), and the temp is removed. The final file is never overwritten. A file that
+//! file, unlike `rename`). The parent directory is fsynced so the new directory entry is durable,
+//! and only then is the temp name removed. The final file is never overwritten. A file that
 //! exists but is not a valid id is reported as an error and is NOT regenerated: replacing it
 //! would silently orphan this device's identity.
 
@@ -70,6 +71,25 @@ fn corrupt_error(path: &Path) -> String {
     )
 }
 
+/// Flushes `directory`'s entries to disk so a just-created name survives power loss.
+///
+/// Unix only: `File::open` cannot open a directory on Windows, where there is no equivalent
+/// std-level call, so the flush is skipped there (NTFS journals directory metadata).
+///
+/// Failure is returned, not swallowed. The whole point of the durable ordering is that a crash
+/// must not leave us with no name at all and a second device id minted on the next run; if we
+/// cannot make the name durable we say so instead of pretending the identity is safe. The final
+/// file is left in place (it is valid), so a retry reads that same id rather than minting another.
+#[cfg(unix)]
+fn sync_directory(directory: &Path) -> std::io::Result<()> {
+    fs::File::open(directory)?.sync_all()
+}
+
+#[cfg(not(unix))]
+fn sync_directory(_directory: &Path) -> std::io::Result<()> {
+    Ok(())
+}
+
 fn create_new(path: &Path, directory: &Path, file_name: &str) -> Result<String, String> {
     let id = format!("{DEVICE_ID_PREFIX}{}", uuid::Uuid::new_v4());
     // Unique per attempt and opened with `create_new`, so we can never touch a file that
@@ -88,11 +108,22 @@ fn create_new(path: &Path, directory: &Path, file_name: &str) -> Result<String, 
         // overwritten (unlike `rename`, which replaces silently).
         fs::hard_link(&temp_path, path)
     })();
+    // Make the new directory entry durable BEFORE the temp name is unlinked: otherwise a power
+    // loss could drop both directory updates and lose the id, minting a second one next run.
+    let flush_result = match &write_result {
+        Ok(()) => Some(sync_directory(directory)),
+        Err(_) => None,
+    };
     // Runs on success and on every error path of this attempt; the temp name is ours alone.
     let _ = fs::remove_file(&temp_path);
 
     match write_result {
-        Ok(()) => Ok(id),
+        Ok(()) => match flush_result {
+            Some(Err(error)) => Err(format!(
+                "Impossible de synchroniser le dossier de l'identifiant d'appareil: {error}"
+            )),
+            _ => Ok(id),
+        },
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => read_existing(path),
         Err(error) => Err(format!(
             "Impossible de creer l'identifiant d'appareil: {error}"
@@ -143,6 +174,32 @@ mod tests {
         assert!(is_valid_device_id(&id), "{id}");
         assert!(id.starts_with("dev:"));
         assert_eq!(dir_entries(dir.path()), vec![NAME.to_string()]);
+    }
+
+    #[test]
+    fn final_file_holds_exactly_the_returned_id_and_no_temp_remains() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let id = read_or_create_device_id(dir.path(), NAME).unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.path().join(NAME)).unwrap(),
+            format!("{id}\n")
+        );
+        assert!(
+            dir_entries(dir.path())
+                .iter()
+                .all(|name| !name.ends_with(".tmp")),
+            "{:?}",
+            dir_entries(dir.path())
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sync_directory_succeeds_on_a_directory_and_reports_a_missing_one() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        sync_directory(dir.path()).expect("flush an existing directory");
+        let missing = dir.path().join("does-not-exist");
+        assert!(sync_directory(&missing).is_err());
     }
 
     #[test]
