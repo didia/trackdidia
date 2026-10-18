@@ -1,3 +1,4 @@
+- 2026-10-18: `createEntityId` now throws instead of falling back to `Math.random()`; added the per-installation `device-id`/`device-id.dev` file and `sync_device_id` command beside the database. No schema change.
 - 2026-10-12: Email triage removed; migrations 29–32 are unchanged and its tables are documented as legacy and unused. `AppRepository.emailTriage` and its stores no longer exist. `gtd_tasks.source_url` stays live for MCP-created tasks. The vault only resolves `calendar_credentials`.
 
 - 2026-10-04: Corrected PR #207 desktop reconciler status and linked its serialized writes, disconnect protection, calendar recovery, and rate-limit cooldown documentation.

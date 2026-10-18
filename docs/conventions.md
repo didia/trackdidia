@@ -128,6 +128,10 @@ generate or scrape it. See
 
 ## Repository changes
 
+Row ids come from `createEntityId(prefix)` in `src/lib/gtd/shared.ts`, which returns
+`prefix:<uuid>` from `crypto.randomUUID()` and throws when it is unavailable. There is no
+`Math.random()` fallback: a weak id is a collision path, so do not add one.
+
 When extending `AppRepository`:
 
 1. Add the contract method and required shared types.

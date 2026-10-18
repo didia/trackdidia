@@ -4,6 +4,7 @@ mod app_nap;
 mod backup;
 mod db;
 mod desktop_shell;
+mod device_id;
 mod llm_bridge;
 mod oauth_loopback;
 mod pomodoro_alarm;
@@ -56,6 +57,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             resolve_storage_paths,
+            device_id::sync_device_id,
             backup::ensure_backup_dir,
             backup::prune_backups,
             db::db_connect,

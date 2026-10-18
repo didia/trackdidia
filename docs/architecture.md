@@ -331,6 +331,8 @@ The Rust host is intentionally small:
 - resolve/create the application data directory;
 - choose development versus production database filenames;
 - expose `resolve_storage_paths`, `ensure_backup_dir`, and `prune_backups`;
+- expose `sync_device_id`, the per-installation device id file beside the database (see
+  [Storage and backups](storage-and-backups.md#application-data-paths));
 - when the user enables it, run the loopback MCP transport in `llm_bridge.rs`
   (`llm_bridge_configure`, `llm_bridge_respond`) and forward tool calls to the webview.
   See [LLM bridge](llm-bridge.md).

@@ -32,6 +32,8 @@ urlencoding = "2"
 # commands that replace it.
 sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runtime-tokio"] }
 keyring = "3"
+# Device id generation (src-tauri/src/device_id.rs); already in the lockfile transitively.
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time"] }
