@@ -1,0 +1,673 @@
+// @vitest-environment node
+import { beforeAll, describe, expect, it } from "vitest";
+import { defaultAppSettings } from "../../domain/settings";
+import { createNodeSqliteDatabase } from "../../test/mocks/node-sqlite-database";
+import { runMigrations } from "../storage/migrations";
+import {
+  assertSettingPublishable,
+  assertTablePublishable,
+  CLASSIFICATION_DOMAINS,
+  domainOfTable,
+  getTableRegistration,
+  isSecretSetting,
+  isSettingPublishable,
+  isTablePublishable,
+  MERGE_CLASSES,
+  SETTINGS_REGISTRY,
+  settingKeys,
+  settingScope,
+  settingsKeysInScope,
+  SYNC_DOMAINS,
+  syncedTables,
+  TABLE_REGISTRY,
+  tablesInDomain,
+  WORK_PROFILE_DOMAINS,
+  type NaturalKey,
+} from "./registry";
+
+interface ColumnInfo {
+  name: string;
+  pk: number;
+}
+interface IndexListRow {
+  name: string;
+  unique: number;
+  origin: string;
+  partial: number;
+}
+interface IndexInfoRow {
+  seqno: number;
+  cid: number;
+  name: string | null;
+}
+interface ForeignKeyRow {
+  table: string;
+  from: string;
+}
+
+interface SchemaTable {
+  columns: ColumnInfo[];
+  foreignKeys: ForeignKeyRow[];
+  uniqueIndexes: { name: string; origin: string; partial: boolean; columns: (string | null)[] }[];
+  indexSql: Map<string, string>;
+}
+
+let schema: Map<string, SchemaTable>;
+
+const squash = (text: string): string => text.replace(/\s+/g, " ").trim();
+const isBareIdentifier = (column: string): boolean => /^[A-Za-z_][A-Za-z0-9_]*$/.test(column);
+
+beforeAll(async () => {
+  const db = createNodeSqliteDatabase();
+  await runMigrations(db);
+  const tables = await db.select<{ name: string }[]>(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name",
+  );
+  const indexSqlRows = await db.select<{ name: string; sql: string | null }[]>(
+    "SELECT name, sql FROM sqlite_master WHERE type = 'index'",
+  );
+  const indexSql = new Map(
+    indexSqlRows.filter((row) => row.sql !== null).map((row) => [row.name, squash(row.sql ?? "")]),
+  );
+  schema = new Map();
+  for (const { name } of tables) {
+    const columns = await db.select<ColumnInfo[]>(`PRAGMA table_info(${name})`);
+    const foreignKeys = await db.select<ForeignKeyRow[]>(`PRAGMA foreign_key_list(${name})`);
+    const indexes = await db.select<IndexListRow[]>(`PRAGMA index_list(${name})`);
+    const uniqueIndexes: SchemaTable["uniqueIndexes"] = [];
+    for (const index of indexes) {
+      if (index.unique !== 1 || index.origin === "pk") continue;
+      const info = await db.select<IndexInfoRow[]>(`PRAGMA index_info(${index.name})`);
+      uniqueIndexes.push({
+        name: index.name,
+        origin: index.origin,
+        partial: index.partial === 1,
+        columns: info.sort((a, b) => a.seqno - b.seqno).map((row) => row.name),
+      });
+    }
+    schema.set(name, { columns, foreignKeys, uniqueIndexes, indexSql });
+  }
+});
+
+const registration = (table: string) => getTableRegistration(table);
+
+describe("table registry completeness", () => {
+  it("classifies every table in the fully migrated schema", () => {
+    const unclassified = [...schema.keys()].filter(
+      (table) => !TABLE_REGISTRY.some((entry) => entry.table === table),
+    );
+    expect(unclassified).toEqual([]);
+  });
+
+  it("has no stale entry for a table that does not exist", () => {
+    const stale = TABLE_REGISTRY.map((entry) => entry.table).filter((table) => !schema.has(table));
+    expect(stale).toEqual([]);
+  });
+
+  it("lists each table once, with a known domain and merge class", () => {
+    const names = TABLE_REGISTRY.map((entry) => entry.table);
+    expect(new Set(names).size).toBe(names.length);
+    for (const entry of TABLE_REGISTRY) {
+      expect(CLASSIFICATION_DOMAINS).toContain(entry.domain);
+      expect(MERGE_CLASSES).toContain(entry.mergeClass);
+    }
+  });
+
+  it("keeps domain and merge class consistent (device-local is exactly the device domain)", () => {
+    for (const entry of TABLE_REGISTRY) {
+      expect(entry.mergeClass === "device-local").toBe(entry.domain === "device");
+    }
+  });
+
+  it("declares primary keys that match the schema", () => {
+    for (const entry of TABLE_REGISTRY) {
+      const columns = schema.get(entry.table)?.columns ?? [];
+      const actual = columns
+        .filter((column) => column.pk > 0)
+        .sort((a, b) => a.pk - b.pk)
+        .map((column) => column.name);
+      expect({ table: entry.table, primaryKey: entry.primaryKey }).toEqual({
+        table: entry.table,
+        primaryKey: actual,
+      });
+    }
+  });
+
+  it("only names columns that exist", () => {
+    for (const entry of TABLE_REGISTRY) {
+      const columns = new Set(
+        (schema.get(entry.table)?.columns ?? []).map((column) => column.name),
+      );
+      const named = [
+        ...entry.references.map((reference) => reference.column),
+        ...(entry.jsonMapColumns ?? []),
+        ...(entry.orSetColumns ?? []),
+        ...entry.naturalKeys.flatMap((key) => key.columns.filter(isBareIdentifier)),
+      ];
+      for (const column of named) {
+        expect({ table: entry.table, column, exists: columns.has(column) }).toEqual({
+          table: entry.table,
+          column,
+          exists: true,
+        });
+      }
+    }
+  });
+});
+
+describe("references", () => {
+  it("only point at registered tables", () => {
+    for (const entry of TABLE_REGISTRY) {
+      for (const reference of entry.references) {
+        expect({
+          from: entry.table,
+          to: reference.table,
+          known: schema.has(reference.table),
+        }).toEqual({
+          from: entry.table,
+          to: reference.table,
+          known: true,
+        });
+      }
+    }
+  });
+
+  it("declares every SQL foreign key of every table", () => {
+    for (const entry of TABLE_REGISTRY) {
+      for (const fk of schema.get(entry.table)?.foreignKeys ?? []) {
+        const declared = entry.references.some(
+          (reference) => reference.column === fk.from && reference.table === fk.table,
+        );
+        expect({ table: entry.table, column: fk.from, target: fk.table, declared }).toEqual({
+          table: entry.table,
+          column: fk.from,
+          target: fk.table,
+          declared: true,
+        });
+      }
+    }
+  });
+
+  it("never lets a gtd table reference a non-gtd table (declared references)", () => {
+    for (const table of tablesInDomain("gtd")) {
+      for (const reference of registration(table).references) {
+        expect({ table, target: reference.table, domain: domainOfTable(reference.table) }).toEqual({
+          table,
+          target: reference.table,
+          domain: "gtd",
+        });
+      }
+    }
+  });
+
+  it("never lets a gtd table reference a non-gtd table (PRAGMA foreign_key_list)", () => {
+    const gtdTables = new Set(tablesInDomain("gtd"));
+    expect(gtdTables.size).toBeGreaterThan(0);
+    for (const table of gtdTables) {
+      for (const fk of schema.get(table)?.foreignKeys ?? []) {
+        expect({ table, target: fk.table, targetIsGtd: gtdTables.has(fk.table) }).toEqual({
+          table,
+          target: fk.table,
+          targetIsGtd: true,
+        });
+      }
+    }
+  });
+
+  // Reviewed *_id / *_ids columns on gtd tables that are NOT references to another table.
+  const reviewedNonReferenceIdColumns: Record<string, string[]> = {
+    // Own primary keys, external source ids and the opaque recurrence group label.
+    gtd_tasks: ["id", "source_external_id", "recurrence_group_id"],
+    gtd_projects: ["id", "source_external_id"],
+    gtd_contexts: ["id"],
+    gtd_task_events: ["id"],
+    recurring_task_templates: ["id"],
+    pomodoro_sessions: ["id"],
+    pomodoro_segments: ["id"],
+  };
+
+  it("accounts for every id-looking column on gtd tables (catches undeclared references)", () => {
+    for (const table of tablesInDomain("gtd")) {
+      const declared = new Set(registration(table).references.map((reference) => reference.column));
+      const reviewed = new Set(reviewedNonReferenceIdColumns[table] ?? []);
+      const idColumns = (schema.get(table)?.columns ?? [])
+        .map((column) => column.name)
+        .filter((name) => /_ids?(_json)?$/.test(name) || name === "id");
+      const unaccounted = idColumns.filter((name) => !declared.has(name) && !reviewed.has(name));
+      expect({ table, unaccounted }).toEqual({ table, unaccounted: [] });
+      // The allowlist itself must not rot: every entry names a real column.
+      const columns = new Set((schema.get(table)?.columns ?? []).map((column) => column.name));
+      for (const name of reviewed) {
+        expect({ table, name, exists: columns.has(name) }).toEqual({ table, name, exists: true });
+      }
+    }
+  });
+
+  it("allows only the reviewed domain edges between synced tables", () => {
+    const allowed = new Set(["gtd>gtd", "personal>personal", "personal>gtd", "finance>finance"]);
+    for (const entry of TABLE_REGISTRY) {
+      if (entry.domain === "device") continue;
+      for (const reference of entry.references) {
+        const edge = `${entry.domain}>${domainOfTable(reference.table)}`;
+        expect({ from: entry.table, to: reference.table, allowed: allowed.has(edge) }).toEqual({
+          from: entry.table,
+          to: reference.table,
+          allowed: true,
+        });
+      }
+    }
+  });
+});
+
+describe("natural keys", () => {
+  // Reviewed differences between the registry and the schema's unique constraints. Empty today.
+  const reviewedSchemaOnly: string[] = [];
+  const reviewedRegistryOnly: string[] = [];
+
+  const signature = (
+    index: string | undefined,
+    columns: readonly (string | null)[],
+    partial: boolean,
+  ): string =>
+    [
+      index ?? "inline",
+      columns
+        .map((column) => (column === null || !isBareIdentifier(column) ? "<expr>" : column))
+        .join(","),
+      partial ? "partial" : "full",
+    ].join("|");
+
+  const registrySignature = (key: NaturalKey): string =>
+    signature(key.index, key.columns, key.where !== undefined);
+
+  it("equals the schema's UNIQUE constraints and unique indexes for synced tables, both ways", () => {
+    for (const table of syncedTables()) {
+      const declared = registration(table).naturalKeys.map(registrySignature).sort();
+      const actual = (schema.get(table)?.uniqueIndexes ?? [])
+        .map((index) =>
+          signature(index.origin === "c" ? index.name : undefined, index.columns, index.partial),
+        )
+        .sort();
+      const missingFromRegistry = actual.filter(
+        (item) => !declared.includes(item) && !reviewedSchemaOnly.includes(`${table}:${item}`),
+      );
+      const missingFromSchema = declared.filter(
+        (item) => !actual.includes(item) && !reviewedRegistryOnly.includes(`${table}:${item}`),
+      );
+      expect({ table, missingFromRegistry, missingFromSchema }).toEqual({
+        table,
+        missingFromRegistry: [],
+        missingFromSchema: [],
+      });
+    }
+  });
+
+  it("matches expression columns and partial predicates against the index SQL", () => {
+    for (const table of syncedTables()) {
+      for (const key of registration(table).naturalKeys) {
+        if (key.index === undefined) {
+          expect({ key: key.name, hasWhere: key.where !== undefined }).toEqual({
+            key: key.name,
+            hasWhere: false,
+          });
+          continue;
+        }
+        const sql = schema.get(table)?.indexSql.get(key.index);
+        expect(sql, `${table}.${key.index}`).toBeDefined();
+        for (const column of key.columns) {
+          expect(sql).toContain(squash(column));
+        }
+        if (key.where !== undefined) {
+          expect(sql?.endsWith(`WHERE ${squash(key.where)}`)).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("declares the natural keys named in the spec", () => {
+    const names = (table: string) => registration(table).naturalKeys.map((key) => key.name);
+    expect(registration("finance_transactions").naturalKeys[0]?.columns).toEqual([
+      "account_id",
+      "dedupe_hash",
+    ]);
+    expect(names("finance_accounts")).toEqual(["external_key"]);
+    expect(names("finance_import_profiles")).toEqual(["signature"]);
+    expect(registration("finance_category_suggestions").naturalKeys[0]).toMatchObject({
+      columns: ["transaction_id"],
+      where: "status = 'pending'",
+    });
+    expect(names("ai_proposals")).toHaveLength(2);
+    expect(names("gtd_tasks")).toEqual(["source_external_id"]);
+    expect(names("gtd_projects")).toEqual(["source_external_id"]);
+    expect(names("gtd_contexts")).toEqual(["name"]);
+    expect(names("gtd_task_events")).toEqual(["dedupe_key"]);
+  });
+});
+
+describe("domain and merge-class sanity", () => {
+  it("puts exactly the spec's tables in the gtd, personal and finance domains", () => {
+    expect(tablesInDomain("gtd").sort()).toEqual(
+      [
+        "gtd_tasks",
+        "gtd_projects",
+        "gtd_contexts",
+        "gtd_task_events",
+        "recurring_task_templates",
+        "pomodoro_sessions",
+        "pomodoro_segments",
+      ].sort(),
+    );
+    expect(tablesInDomain("personal").sort()).toEqual(
+      [
+        "daily_entries",
+        "weekly_reviews",
+        "monthly_reviews",
+        "mid_week_decisions",
+        "annual_goals",
+        "weekly_objectives",
+        "weekly_objective_results",
+        "ai_messages",
+        "ai_proposals",
+        "ai_memories",
+      ].sort(),
+    );
+    for (const table of tablesInDomain("finance")) {
+      expect(table.startsWith("finance_")).toBe(true);
+    }
+    // Every finance_* table is either finance domain or the reviewed device-local one.
+    const financeNamed = TABLE_REGISTRY.filter((entry) => entry.table.startsWith("finance_"));
+    expect(
+      financeNamed.filter((entry) => entry.domain !== "finance").map((entry) => entry.table),
+    ).toEqual(["finance_alert_notifications"]);
+  });
+
+  it("assigns the spec's merge classes", () => {
+    expect(registration("pomodoro_sessions").mergeClass).toBe("pomodoro");
+    expect(registration("pomodoro_segments").mergeClass).toBe("pomodoro");
+    expect(registration("gtd_task_events").mergeClass).toBe("grow-only-union");
+    expect(registration("ai_messages").mergeClass).toBe("grow-only-union");
+    expect(registration("ai_proposals").mergeClass).toBe("monotonic-status");
+    expect(registration("finance_category_suggestions").mergeClass).toBe("monotonic-status");
+    expect(registration("finance_transaction_splits").mergeClass).toBe("child-set");
+    expect(registration("ai_memories").mergeClass).toBe("row-clock");
+    expect(registration("finance_transactions").mergeClass).toBe("row-clock");
+    for (const table of [
+      "gtd_tasks",
+      "gtd_projects",
+      "gtd_contexts",
+      "recurring_task_templates",
+      "daily_entries",
+      "weekly_reviews",
+      "monthly_reviews",
+      "mid_week_decisions",
+      "annual_goals",
+      "weekly_objectives",
+      "weekly_objective_results",
+    ]) {
+      expect(registration(table).mergeClass).toBe("field-clock");
+    }
+  });
+
+  it("restricts the row-clock finance tables to the spec's list plus the statement snapshots", () => {
+    const rowClockFinance = TABLE_REGISTRY.filter(
+      (entry) => entry.domain === "finance" && entry.mergeClass === "row-clock",
+    )
+      .map((entry) => entry.table)
+      .sort();
+    expect(rowClockFinance).toEqual(
+      [
+        "finance_people",
+        "finance_accounts",
+        "finance_categories",
+        "finance_transactions",
+        "finance_rules",
+        "finance_merchant_memory",
+        "finance_budget_entries",
+        "finance_budget_months",
+        "finance_recurring_series",
+        "finance_import_profiles",
+        "finance_import_batches",
+        "finance_account_balance_snapshots",
+      ].sort(),
+    );
+  });
+
+  it("models partial publication as row filters", () => {
+    expect(registration("finance_account_balance_snapshots").rowFilter?.publishWhen).toBe(
+      "source = 'statement'",
+    );
+    expect(registration("pomodoro_sessions").rowFilter?.publishWhen).toContain("completed");
+    expect(registration("pomodoro_sessions").rowFilter?.publishWhen).toContain("cancelled");
+    expect(registration("pomodoro_segments").rowFilter).toBeDefined();
+    const filtered = TABLE_REGISTRY.filter((entry) => entry.rowFilter).map((entry) => entry.table);
+    expect(filtered.sort()).toEqual(
+      ["finance_account_balance_snapshots", "pomodoro_segments", "pomodoro_sessions"].sort(),
+    );
+  });
+
+  it("marks JSON-map and OR-set columns from the spec", () => {
+    expect(registration("daily_entries").jsonMapColumns).toEqual([
+      "metrics_json",
+      "principles_json",
+    ]);
+    expect(registration("weekly_reviews").jsonMapColumns).toEqual(["notes_json"]);
+    expect(registration("monthly_reviews").jsonMapColumns).toEqual(["notes_json"]);
+    expect(registration("annual_goals").jsonMapColumns).toEqual([
+      "evaluations_json",
+      "progress_log_json",
+      "milestones_json",
+    ]);
+    for (const table of ["gtd_tasks", "gtd_projects", "recurring_task_templates"]) {
+      expect(registration(table).orSetColumns).toEqual(["context_ids_json"]);
+    }
+  });
+
+  it("never lists device-local tables as synced", () => {
+    const synced = new Set(syncedTables());
+    for (const table of [
+      "schema_migrations",
+      "app_settings",
+      "rescuetime_snapshot_cache",
+      "finance_alert_notifications",
+      "calendar_sync_settings",
+      "calendar_sync_links",
+    ]) {
+      expect(domainOfTable(table)).toBe("device");
+      expect(synced.has(table)).toBe(false);
+    }
+    for (const table of schema.keys()) {
+      if (table.startsWith("email_triage_")) {
+        expect(domainOfTable(table)).toBe("device");
+        expect(synced.has(table)).toBe(false);
+      }
+    }
+    for (const domain of SYNC_DOMAINS) {
+      for (const table of tablesInDomain(domain)) expect(synced.has(table)).toBe(true);
+    }
+    expect(synced.size).toBe(TABLE_REGISTRY.filter((entry) => entry.domain !== "device").length);
+  });
+});
+
+describe("publish guards", () => {
+  it("lets a table be published only in its own domain", () => {
+    for (const domain of SYNC_DOMAINS) {
+      for (const table of tablesInDomain(domain)) {
+        expect(() => assertTablePublishable(table, domain)).not.toThrow();
+        expect(isTablePublishable(table, domain)).toBe(true);
+        for (const other of SYNC_DOMAINS.filter((candidate) => candidate !== domain)) {
+          expect(() => assertTablePublishable(table, other)).toThrow(/cannot be published/);
+          expect(isTablePublishable(table, other)).toBe(false);
+        }
+      }
+    }
+  });
+
+  it("rejects cross-domain publishing of the privacy-critical cases", () => {
+    expect(() => assertTablePublishable("daily_entries", "gtd")).toThrow();
+    expect(() => assertTablePublishable("finance_transactions", "gtd")).toThrow();
+    expect(() => assertTablePublishable("ai_proposals", "gtd")).toThrow();
+    expect(() => assertTablePublishable("gtd_tasks", "personal")).toThrow();
+  });
+
+  it("keeps personal and finance data out of every work-profile domain", () => {
+    expect(WORK_PROFILE_DOMAINS).toEqual(["gtd"]);
+    for (const workDomain of WORK_PROFILE_DOMAINS) {
+      for (const table of [...tablesInDomain("personal"), ...tablesInDomain("finance")]) {
+        expect(isTablePublishable(table, workDomain)).toBe(false);
+        expect(() => assertTablePublishable(table, workDomain)).toThrow();
+      }
+      for (const key of settingKeys()) {
+        if (settingScope(key) === "personal" || settingScope(key) === "finance") {
+          expect(isSettingPublishable(key, workDomain)).toBe(false);
+        }
+      }
+    }
+  });
+
+  it("never publishes device-local tables, in any domain", () => {
+    for (const table of tablesInDomain("device")) {
+      for (const domain of SYNC_DOMAINS) {
+        expect(() => assertTablePublishable(table, domain)).toThrow(/device-local/);
+        expect(isTablePublishable(table, domain)).toBe(false);
+      }
+    }
+  });
+
+  it("refuses unclassified tables instead of letting them through", () => {
+    expect(() => assertTablePublishable("sync_entity_meta", "gtd")).toThrow(/not classified/);
+    expect(() => domainOfTable("nope")).toThrow(/not classified/);
+    expect(isTablePublishable("nope", "gtd")).toBe(false);
+  });
+});
+
+describe("settings registry", () => {
+  it("classifies exactly the keys of AppSettings (runtime check against the default settings)", () => {
+    expect(settingKeys().sort()).toEqual(Object.keys(defaultAppSettings()).sort());
+  });
+
+  it("gives device-scope keys the device merge and synced keys a real merge rule", () => {
+    for (const key of settingKeys()) {
+      const rule = SETTINGS_REGISTRY[key];
+      expect({ key, deviceMerge: rule.merge === "device" }).toEqual({
+        key,
+        deviceMerge: rule.scope === "device",
+      });
+    }
+  });
+
+  it("keeps the audited secrets device-scoped and out of every bundle", () => {
+    const secrets = settingKeys()
+      .filter((key) => isSecretSetting(key))
+      .sort();
+    expect(secrets).toEqual(["aiApiKey", "llmBridgeToken", "rescuetimeApiKey"]);
+    for (const key of secrets) {
+      expect(settingScope(key)).toBe("device");
+      for (const domain of SYNC_DOMAINS) {
+        expect(isSettingPublishable(key, domain)).toBe(false);
+        expect(() => assertSettingPublishable(key, domain)).toThrow(/secret/);
+      }
+    }
+    // Name audit: anything that looks like a credential must be a flagged secret.
+    const credentialLooking = settingKeys().filter((key) =>
+      /(key|token|secret|password|credential)$/i.test(key),
+    );
+    expect(credentialLooking.sort()).toEqual(secrets);
+  });
+
+  it("keeps the gtd scope to the reviewed allowlist", () => {
+    expect(settingsKeysInScope("gtd").sort()).toEqual(
+      [
+        "gtdImportDoneAt",
+        "gtdRecurringCollapseDoneAt",
+        "gtdReferencesMigrationDoneAt",
+        "gtdScheduledNormalizationDoneAt",
+        "language",
+      ].sort(),
+    );
+    for (const key of [
+      "gtdImportDoneAt",
+      "gtdReferencesMigrationDoneAt",
+      "gtdScheduledNormalizationDoneAt",
+      "gtdRecurringCollapseDoneAt",
+    ] as const) {
+      expect(SETTINGS_REGISTRY[key].merge).toBe("non-empty-wins");
+    }
+  });
+
+  it("keeps the device scope to the reviewed list", () => {
+    expect(settingsKeysInScope("device").sort()).toEqual(
+      [
+        "aiApiKey",
+        "aiBaseUrl",
+        "aiPulseFirstOpenAt",
+        "autoBackupEnabled",
+        "autoBackupIntervalHours",
+        "backupDestinationDir",
+        "lastBackupAt",
+        "lastBackupPath",
+        "launchAtLogin",
+        "llmBridgeEnabled",
+        "llmBridgePort",
+        "llmBridgeToken",
+        "rescuetimeApiKey",
+        "runInTray",
+        "storageMode",
+      ].sort(),
+    );
+  });
+
+  it("puts every finance key, and only finance keys, in the finance scope", () => {
+    const financeNamed = settingKeys().filter((key) => key.startsWith("finance"));
+    expect(financeNamed.length).toBeGreaterThan(0);
+    expect(settingsKeysInScope("finance").sort()).toEqual(financeNamed.sort());
+  });
+
+  it("uses monotonic max for dates that only move forward and non-empty-wins for markers", () => {
+    expect(
+      settingKeys()
+        .filter((key) => SETTINGS_REGISTRY[key].merge === "monotonic-max")
+        .sort(),
+    ).toEqual(
+      [
+        "previousDayReviewDoneDate",
+        "relationshipDrawChildrenProcessedDate",
+        "relationshipDrawSpouseProcessedDate",
+      ].sort(),
+    );
+    expect(
+      settingKeys()
+        .filter((key) => SETTINGS_REGISTRY[key].merge === "non-empty-wins")
+        .sort(),
+    ).toEqual(
+      [
+        "aiMaxTokensUpgradeDoneAt",
+        "dimancheNotesRelocatedAt",
+        "financeCategoriesSeededAt",
+        "gtdImportDoneAt",
+        "gtdRecurringCollapseDoneAt",
+        "gtdReferencesMigrationDoneAt",
+        "gtdScheduledNormalizationDoneAt",
+      ].sort(),
+    );
+  });
+
+  it("only publishes a synced key in its own domain", () => {
+    for (const key of settingKeys()) {
+      const scope = settingScope(key);
+      for (const domain of SYNC_DOMAINS) {
+        expect(isSettingPublishable(key, domain)).toBe(scope === domain);
+      }
+    }
+    expect(() => assertSettingPublishable("aiEnabled", "gtd")).toThrow(/cannot be published/);
+    expect(() => assertSettingPublishable("language", "personal")).toThrow(/cannot be published/);
+    expect(() => assertSettingPublishable("language", "gtd")).not.toThrow();
+    expect(() => assertSettingPublishable("storageMode", "gtd")).toThrow(/device-local/);
+  });
+
+  it("rejects unknown keys instead of letting them through", () => {
+    expect(() => settingScope("notAKey")).toThrow(/not classified/);
+    expect(() => assertSettingPublishable("notAKey", "gtd")).toThrow(/not classified/);
+    expect(isSettingPublishable("notAKey", "gtd")).toBe(false);
+    expect(() => settingScope("toString")).toThrow(/not classified/);
+  });
+});
