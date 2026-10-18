@@ -6572,10 +6572,46 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
     describe("multi-device sync foundation", () => {
       const DEVICE = "dev:0b9c7c1e-6a3f-4b8e-9d2a-1f2e3d4c5b6a";
 
-      it("implements both sync methods (repository parity)", async () => {
+      it("implements every sync method (repository parity)", async () => {
         const repository = await factory();
         expect(typeof repository.getSyncStatus).toBe("function");
         expect(typeof repository.ensureSyncIdentity).toBe("function");
+        expect(typeof repository.enableSyncCapture).toBe("function");
+      });
+
+      it("enables change capture only where sync is supported, and only after an identity exists", async () => {
+        const repository = await factory();
+        const supported = (await repository.getSyncStatus()).supported;
+        if (!supported) {
+          await expect(repository.enableSyncCapture()).rejects.toThrow(
+            /unavailable in browser preview/,
+          );
+          await expect(repository.getSyncStatus()).resolves.toEqual({ supported: false });
+          return;
+        }
+        await expect(repository.enableSyncCapture()).rejects.toThrow(
+          /sync identity has not been created/,
+        );
+        await expect(repository.getSyncStatus()).resolves.toMatchObject({ captureEnabled: false });
+
+        await repository.ensureSyncIdentity({ deviceId: DEVICE, deviceName: "Laptop" });
+        await repository.createTask({ id: "task-before", title: "Avant", bucket: "inbox" });
+        const first = await repository.enableSyncCapture();
+        expect(first.installed).toBe(true);
+        expect(first.backfilled).toBeGreaterThan(0);
+        await expect(repository.enableSyncCapture()).resolves.toEqual({
+          installed: false,
+          backfilled: 0,
+        });
+
+        const enabled = await repository.getSyncStatus();
+        expect(enabled).toMatchObject({ supported: true, captureEnabled: true });
+        const pendingBefore = enabled.supported ? enabled.pendingChanges : 0;
+        await repository.createTask({ id: "task-after", title: "Apres", bucket: "inbox" });
+        const after = await repository.getSyncStatus();
+        expect(after.supported && after.pendingChanges).toBe(pendingBefore + 1);
+        // Capture never changes what the repository returns.
+        await expect(repository.listTasks({})).resolves.toHaveLength(2);
       });
 
       it("reports an unsupported store, or an empty supported one, before any identity exists", async () => {
@@ -6592,6 +6628,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           changeCounter: 0,
           lastPublishCounter: 0,
           pendingChanges: 0,
+          captureEnabled: false,
           peers: [],
         });
       });

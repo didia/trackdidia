@@ -40,6 +40,16 @@ const migrateUpTo = async (db: Database, maxId: number): Promise<void> => {
   }
 };
 
+/** Applies exactly one migration (and its ledger row), like `runMigrations` would. */
+const applyOnly = async (db: Database, item: (typeof migrations)[number]): Promise<void> => {
+  await db.execute(await resolveIdempotentMigrationSql(db, item));
+  await db.execute("INSERT INTO schema_migrations (id, name, applied_at) VALUES ($1, $2, $3)", [
+    item.id,
+    item.name,
+    "2026-10-01T00:00:00.000Z",
+  ]);
+};
+
 const userTables = async (db: Database): Promise<string[]> =>
   (
     await db.select<{ name: string }[]>(
@@ -93,10 +103,11 @@ const snapshot = async (db: Database, tables: string[]): Promise<Snapshot> => {
 };
 
 describe("migration 42 add_multi_device_sync_sidecars", () => {
-  it("is the next id after 41, appended last, and uses only CREATE ... IF NOT EXISTS", () => {
+  it("is the next id after 41, appended directly after it, and uses only CREATE ... IF NOT EXISTS", () => {
     expect(migration.name).toBe("add_multi_device_sync_sidecars");
-    expect(migrations.at(-1)?.id).toBe(42);
-    expect(migrations.at(-2)?.id).toBe(41);
+    const index = migrations.indexOf(migration);
+    expect(migrations[index - 1]?.id).toBe(41);
+    expect(migrations[index + 1]?.id).toBe(43);
     expect(migration.guards).toBeUndefined();
     const statements = migration.sql
       .split(";")
@@ -114,7 +125,7 @@ describe("migration 42 add_multi_device_sync_sidecars", () => {
     await migrateUpTo(db, 41);
     const before = await userTables(db);
     expect(before).not.toContain("sync_entity_meta");
-    await runMigrations(db);
+    await applyOnly(db, migration);
     const after = await userTables(db);
     expect(after.filter((name) => !before.includes(name))).toEqual(SIDECAR_TABLES);
     expect(before.every((name) => after.includes(name))).toBe(true);
@@ -226,14 +237,15 @@ describe("migration 42 add_multi_device_sync_sidecars", () => {
     for (const [name, sql] of Object.entries(before.objectSql)) {
       expect({ name, sql: after.objectSql[name] }).toEqual({ name, sql });
     }
-    // The ledger gained exactly migration 42.
+    // The ledger gained exactly the migrations after 41 (42 and the ones appended since).
     expect(
       (await db.select<{ id: number }[]>("SELECT id FROM schema_migrations ORDER BY id")).map(
         (row) => row.id,
       ),
     ).toEqual(migrations.slice(1).map((item) => item.id));
     expect(after.rows.schema_migrations).toHaveLength(
-      (before.rows.schema_migrations?.length ?? 0) + 1,
+      (before.rows.schema_migrations?.length ?? 0) +
+        migrations.filter((item) => item.id > 41).length,
     );
   });
 

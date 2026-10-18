@@ -26,4 +26,13 @@ describe("MemoryRepository sync (browser preview)", () => {
     ).rejects.toThrow("Multi-device sync is unavailable in browser preview");
     await expect(repository.getSyncStatus()).resolves.toStrictEqual({ supported: false });
   });
+
+  it("rejects enabling change capture with the same browser-preview error", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await expect(repository.enableSyncCapture()).rejects.toThrow(
+      "Multi-device sync is unavailable in browser preview",
+    );
+    await expect(repository.getSyncStatus()).resolves.toStrictEqual({ supported: false });
+  });
 });

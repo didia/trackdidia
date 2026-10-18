@@ -41,6 +41,11 @@ export type SyncStatus =
       lastPublishCounter: number;
       /** Changes captured since the last publish (`changeCounter - lastPublishCounter`, floored at 0). */
       pendingChanges: number;
+      /**
+       * True while change capture is installed on this database (`enableSyncCapture` ran; there is
+       * no repository method to turn it off yet). While false, local edits are not tracked at all.
+       */
+      captureEnabled: boolean;
       peers: SyncPeerSummary[];
     };
 
@@ -129,6 +134,7 @@ export interface SyncIdentityRow {
 export const buildSupportedSyncStatus = (
   identityRow: SyncIdentityRow | null,
   peerRows: SyncPeerRow[],
+  captureEnabled = false,
 ): Extract<SyncStatus, { supported: true }> => {
   const changeCounter = toCounter(identityRow?.change_counter);
   const lastPublishCounter = toCounter(identityRow?.last_publish_counter);
@@ -140,6 +146,7 @@ export const buildSupportedSyncStatus = (
     changeCounter,
     lastPublishCounter,
     pendingChanges: Math.max(0, changeCounter - lastPublishCounter),
+    captureEnabled,
     peers: peerRows.map(syncPeerFromRow),
   };
 };

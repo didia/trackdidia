@@ -109,6 +109,50 @@ export const issueHlc = async (db: Database, nowMs: number): Promise<string> => 
 };
 
 /**
+ * Issues several clocks from one read and one write of `sync_identity`, for stamping a batch of
+ * entities (a 1000-row import would otherwise cost 2000 extra queries). Every clock is distinct
+ * and strictly increasing, exactly as if `issueHlc` had been called once per entity.
+ *
+ * Nothing is read until the first `next()` and nothing is written unless a clock was issued, so a
+ * batch that stamps nothing leaves `sync_identity` untouched. The caller must call `flush()` once
+ * after the last `next()`, inside the same transaction, so the persisted state moves past every
+ * clock handed out.
+ */
+export interface HlcBatch {
+  next(): Promise<string>;
+  /** Persists the advanced state. Returns how many clocks were issued since the last flush. */
+  flush(): Promise<number>;
+}
+
+export const createHlcBatch = (db: Database, nowMs: number): HlcBatch => {
+  let loaded: LoadedClock | null = null;
+  let state: HlcState | null = null;
+  let issued = 0;
+  return {
+    async next() {
+      if (loaded === null || state === null) {
+        loaded = await loadClock(db);
+        state = loaded.state;
+      }
+      const step = tickHlc(state, nowMs, loaded.deviceId);
+      state = step.state;
+      issued += 1;
+      return step.hlc;
+    },
+    async flush() {
+      if (issued === 0 || loaded === null || state === null) {
+        return 0;
+      }
+      await saveClock(db, loaded.state, state);
+      const count = issued;
+      loaded = { deviceId: loaded.deviceId, state };
+      issued = 0;
+      return count;
+    },
+  };
+};
+
+/**
  * Folds a clock received from a peer into the persisted state and returns the new local clock
  * (causally after `remote`). A malformed clock, or one more than `HLC_REMOTE_MAX_AHEAD_MS` ahead
  * of `nowMs`, is rejected with a `SyncClockError` before touching the state, so a corrupt bundle

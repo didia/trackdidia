@@ -1151,6 +1151,35 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    id: 43,
+    name: "add_sync_capture_state",
+    // Change-capture bookkeeping for multi-laptop sync: new device-local tables only. No ALTER
+    // TABLE, no triggers (those are created by the repository only when capture is enabled), no
+    // seed rows. Safe to re-run.
+    sql: `
+      CREATE TABLE IF NOT EXISTS sync_dirty (
+        entity_type TEXT,
+        entity_id TEXT,
+        op TEXT NOT NULL,
+        PRIMARY KEY (entity_type, entity_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS sync_entity_snapshot (
+        entity_type TEXT,
+        entity_id TEXT,
+        snapshot_json TEXT,
+        content_hash TEXT,
+        PRIMARY KEY (entity_type, entity_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS sync_capture_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        installed_hash TEXT NOT NULL,
+        installed_at TEXT NOT NULL
+      );
+    `,
+  },
 ];
 
 /** Retains all repeatable SQL while skipping only guarded statements already applied. */

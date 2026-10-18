@@ -484,6 +484,9 @@ describe("domain and merge-class sanity", () => {
       "calendar_sync_links",
       "sync_identity",
       "sync_peers",
+      "sync_dirty",
+      "sync_entity_snapshot",
+      "sync_capture_state",
     ]) {
       expect(domainOfTable(table)).toBe("device");
       expect(synced.has(table)).toBe(false);
@@ -556,11 +559,24 @@ describe("publish guards", () => {
 describe("sidecar tables", () => {
   const entityTyped = ["sync_conflicts", "sync_entity_meta", "sync_id_aliases"];
   const recurrence = ["sync_recurrence_clears", "sync_recurrence_occurrences"];
+  const captureBookkeeping = ["sync_capture_state", "sync_dirty", "sync_entity_snapshot"];
+
+  it("classifies the change-capture bookkeeping as device-local, never published", () => {
+    for (const table of captureBookkeeping) {
+      expect(domainOfTable(table)).toBe("device");
+      expect(registration(table).mergeClass).toBe("device-local");
+      for (const domain of SYNC_DOMAINS) {
+        expect(isTablePublishable(table, domain)).toBe(false);
+        expect(isSidecarPublishable(table, domain, "gtd_tasks")).toBe(false);
+      }
+      expect(() => publishDomainOfEntityType(table)).toThrow(/device-local/);
+    }
+  });
 
   it("classifies every sync_* table", () => {
     const syncTables = [...schema.keys()].filter((table) => table.startsWith("sync_")).sort();
     expect(syncTables).toEqual(
-      [...entityTyped, ...recurrence, "sync_identity", "sync_peers"].sort(),
+      [...entityTyped, ...recurrence, "sync_identity", "sync_peers", ...captureBookkeeping].sort(),
     );
     expect(domainOfTable("sync_identity")).toBe("device");
     expect(domainOfTable("sync_peers")).toBe("device");

@@ -2204,4 +2204,8 @@ export class MemoryRepository implements AppRepository {
   async ensureSyncIdentity(_input: { deviceId: string; deviceName: string }): Promise<never> {
     throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
   }
+
+  async enableSyncCapture(): Promise<{ installed: boolean; backfilled: number }> {
+    throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
+  }
 }

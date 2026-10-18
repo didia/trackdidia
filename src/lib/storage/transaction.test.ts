@@ -140,3 +140,81 @@ it("serializes concurrent repository transactions and commits no-op early return
     "COMMIT",
   ]);
 });
+
+describe("beforeCommit hook", () => {
+  it("runs after the work and before COMMIT, on the same connection, inside the transaction", async () => {
+    const db = await createDatabase();
+    const order: string[] = [];
+    const originalExecute = db.execute.bind(db);
+    vi.spyOn(db, "execute").mockImplementation(async (sql, values) => {
+      if (sql === "COMMIT" || sql === "BEGIN IMMEDIATE" || sql === "ROLLBACK") order.push(sql);
+      return originalExecute(sql, values);
+    });
+    await runSqliteTransaction(
+      db,
+      async (tx) => {
+        order.push("work");
+        await transactionDb(tx).execute("INSERT INTO test_values VALUES ('a')");
+      },
+      undefined,
+      async (hookDb) => {
+        order.push("hook");
+        expect(hookDb).toBe(db);
+        await hookDb.execute("INSERT INTO test_values VALUES ('stamped')");
+      },
+    );
+    expect(order).toEqual(["BEGIN IMMEDIATE", "work", "hook", "COMMIT"]);
+    expect(await db.select("SELECT value FROM test_values ORDER BY rowid")).toEqual([
+      { value: "a" },
+      { value: "stamped" },
+    ]);
+  });
+
+  it("rolls the work back together with the hook's writes when the hook throws", async () => {
+    const db = await createDatabase();
+    const failure = new Error("stamp failed");
+    await expect(
+      runSqliteTransaction(
+        db,
+        async (tx) => {
+          await transactionDb(tx).execute("INSERT INTO test_values VALUES ('discard')");
+        },
+        undefined,
+        async (hookDb) => {
+          await hookDb.execute("INSERT INTO test_values VALUES ('also discard')");
+          throw failure;
+        },
+      ),
+    ).rejects.toBe(failure);
+    expect(await db.select("SELECT value FROM test_values")).toEqual([]);
+    // The connection is usable again.
+    await runSqliteTransaction(db, async (tx) => {
+      await transactionDb(tx).execute("INSERT INTO test_values VALUES ('retry')");
+    });
+    expect(await db.select("SELECT value FROM test_values")).toEqual([{ value: "retry" }]);
+  });
+
+  it("does not run when the work throws, and callers without a hook are unchanged", async () => {
+    const db = await createDatabase();
+    const hook = vi.fn(async () => undefined);
+    await expect(
+      runSqliteTransaction(
+        db,
+        async () => {
+          throw new Error("nope");
+        },
+        undefined,
+        hook,
+      ),
+    ).rejects.toThrow("nope");
+    expect(hook).not.toHaveBeenCalled();
+    const executed: string[] = [];
+    const originalExecute = db.execute.bind(db);
+    vi.spyOn(db, "execute").mockImplementation(async (sql, values) => {
+      executed.push(sql);
+      return originalExecute(sql, values);
+    });
+    await runSqliteTransaction(db, async () => 1);
+    expect(executed).toEqual(["BEGIN IMMEDIATE", "COMMIT"]);
+  });
+});

@@ -162,6 +162,8 @@ import {
 } from "../recurring/engine";
 import { buildDailyRelationshipDrawPlan } from "../relationship-draws";
 import { CalendarSyncSqliteStore } from "./calendar-sync-sqlite-store";
+import { ensureSyncCapture, installSyncCapture } from "../sync/capture-install";
+import { backfillSyncCapture, stampDirtyEntities } from "../sync/capture-stamp";
 import {
   assertValidDeviceId,
   buildSupportedSyncStatus,
@@ -216,6 +218,11 @@ export class TauriSqliteRepository implements AppRepository {
   private financeStore: FinanceSqliteStore | null = null;
   private readonly writeQueue = new DbSerialQueue();
   private calendarSyncStore: CalendarSyncSqliteStore | null = null;
+  /**
+   * Whether multi-device change capture is installed on this database. Loaded in `initialize()`
+   * and flipped by `enableSyncCapture`. While false, no write path runs any sync query.
+   */
+  private captureEnabled = false;
 
   /**
    * `openDb` defaults to the real Tauri-backed `Database.load`; tests inject an in-memory
@@ -241,17 +248,79 @@ export class TauriSqliteRepository implements AppRepository {
     return this.financeStore;
   }
 
+  /**
+   * The writer slot. With capture off this is exactly `writeQueue.run(operation)`.
+   *
+   * With capture on, a write that did not go through `writeTransaction` (the finance store runs its
+   * own `BEGIN IMMEDIATE`/`COMMIT`, many other writers are single autocommit statements) has left
+   * `sync_dirty` marks behind, because the triggers fire wherever the write happens. They are
+   * stamped here, still inside the writer slot, in a transaction of their own. The marks are
+   * durable, so a failure or a crash in between only delays the stamp to the next write or to the
+   * self-healing scan; it never loses a change.
+   */
   private writeExclusive<T>(operation: () => Promise<T>): Promise<T> {
-    return this.writeQueue.run(operation);
+    return this.writeQueue.run(async () => {
+      if (!this.captureEnabled) {
+        return operation();
+      }
+      let result: T;
+      try {
+        result = await operation();
+      } catch (error) {
+        await this.flushCaptureMarks();
+        throw error;
+      }
+      await this.flushCaptureMarks();
+      return result;
+    });
   }
 
+  /**
+   * Every write transaction of the repository commits here. With capture on, the stamper runs
+   * inside the transaction right before COMMIT; an error from it rolls the whole write back.
+   */
   private writeTransaction<T>(work: (tx: TxContext) => Promise<T>): Promise<T> {
-    return this.writeExclusive(async () => {
+    return this.writeQueue.run(async () => {
       const db = await this.getDb();
-      return runSqliteTransaction(db, work, (rollbackError) => {
-        logDebug("error", "storage.sqlite", "Echec ROLLBACK (ignore)", rollbackError);
-      });
+      return runSqliteTransaction(
+        db,
+        work,
+        (rollbackError) => {
+          logDebug("error", "storage.sqlite", "Echec ROLLBACK (ignore)", rollbackError);
+        },
+        this.captureEnabled ? this.stampCaptureMarks : undefined,
+      );
     });
+  }
+
+  private readonly stampCaptureMarks = async (db: SqliteDatabase): Promise<void> => {
+    await stampDirtyEntities(db, Date.now());
+  };
+
+  /**
+   * Stamps marks left by writes that bypassed `writeTransaction`. Must be called inside the writer
+   * slot. Never throws: the write it follows is already committed.
+   */
+  private async flushCaptureMarks(): Promise<void> {
+    try {
+      const db = await this.getDb();
+      const pending = await db.select<{ present: number }[]>(
+        "SELECT 1 AS present FROM sync_dirty LIMIT 1",
+      );
+      if (pending.length === 0) {
+        return;
+      }
+      await runSqliteTransaction(
+        db,
+        async () => undefined,
+        (rollbackError) => {
+          logDebug("error", "storage.sqlite", "Echec ROLLBACK (ignore)", rollbackError);
+        },
+        this.stampCaptureMarks,
+      );
+    } catch (error) {
+      logDebug("error", "storage.sqlite", "Sync capture flush failed; marks stay pending", error);
+    }
   }
 
   async initialize(): Promise<void> {
@@ -283,11 +352,36 @@ export class TauriSqliteRepository implements AppRepository {
         ]);
       }
 
+      await this.loadSyncCaptureState(db);
+
       logDebug("info", "storage.sqlite", "SQLite pret");
       await this.relocateDimancheNotesOnce();
     } catch (error) {
       logDebug("error", "storage.sqlite", "Echec initialisation SQLite", error);
       throw new Error(`SQLite init failed: ${formatUnknownError(error)}`);
+    }
+  }
+
+  /**
+   * Reads whether change capture was enabled earlier and, if so, makes sure the installed triggers
+   * still match the registry and the migrated schema (a migration that rebuilds a table drops its
+   * triggers). A database that never enabled capture costs one query here and nothing afterwards.
+   */
+  private async loadSyncCaptureState(db: SqliteDatabase): Promise<void> {
+    const state = await db.select<{ id: number }[]>(
+      "SELECT id FROM sync_capture_state WHERE id = 1",
+    );
+    this.captureEnabled = state.length > 0;
+    if (!this.captureEnabled) {
+      return;
+    }
+    try {
+      await this.writeTransaction(async (tx) => {
+        await ensureSyncCapture(transactionDb(tx));
+      });
+    } catch (error) {
+      // Keep starting: marks keep accumulating and the next enable / scan reconciles them.
+      logDebug("error", "storage.sqlite", "Sync capture trigger check failed", error);
     }
   }
 
@@ -3149,7 +3243,7 @@ export class TauriSqliteRepository implements AppRepository {
       `SELECT peer_id, peer_name, last_manifest_json, last_synced_at, last_applied_sha_by_domain
       FROM sync_peers ORDER BY peer_name, peer_id`,
     );
-    return buildSupportedSyncStatus(identity[0] ?? null, peers);
+    return buildSupportedSyncStatus(identity[0] ?? null, peers, this.captureEnabled);
   }
 
   async ensureSyncIdentity(input: {
@@ -3208,5 +3302,47 @@ export class TauriSqliteRepository implements AppRepository {
       ]);
     }
     return { deviceId: input.deviceId, deviceName: nextName, created: false, repaired };
+  }
+
+  async enableSyncCapture(): Promise<{ installed: boolean; backfilled: number }> {
+    // One writer slot for the whole operation, including the flag flip, so no queued write can
+    // run after the triggers exist but before the stamper is switched on.
+    return this.writeQueue.run(async () => {
+      const db = await this.getDb();
+      const result = await runSqliteTransaction(
+        db,
+        (tx) => this.enableSyncCaptureInternal(tx),
+        (rollbackError) => {
+          logDebug("error", "storage.sqlite", "Echec ROLLBACK (ignore)", rollbackError);
+        },
+      );
+      this.captureEnabled = true;
+      return result;
+    });
+  }
+
+  /**
+   * Must run inside a write transaction; never re-enters the writer queue. Installs (or repairs)
+   * the capture triggers, then backfills with `verify` so rows edited while capture was off are
+   * restamped too. On a first enable there are no clocks yet, so every row is simply stamped as a
+   * creation.
+   */
+  private async enableSyncCaptureInternal(
+    tx: TxContext,
+  ): Promise<{ installed: boolean; backfilled: number }> {
+    const db = transactionDb(tx);
+    const identity = await db.select<{ id: number }[]>("SELECT id FROM sync_identity WHERE id = 1");
+    if (identity.length === 0) {
+      throw new Error(
+        "Cannot enable change capture: the sync identity has not been created (call ensureSyncIdentity first)",
+      );
+    }
+    const ensured = await ensureSyncCapture(db);
+    const installed = ensured.state === "disabled" || ensured.state === "reinstalled";
+    if (ensured.state === "disabled") {
+      await installSyncCapture(db);
+    }
+    const backfilled = await backfillSyncCapture(db, Date.now(), { verify: true });
+    return { installed, backfilled };
   }
 }
