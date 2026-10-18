@@ -1079,6 +1079,78 @@ export const migrations: Migration[] = [
       ],
     },
   },
+  {
+    id: 42,
+    name: "add_multi_device_sync_sidecars",
+    // Inert foundation for multi-laptop sync: new sidecar tables only. No ALTER TABLE, no data
+    // change to any existing table, no seed rows (the identity row is created by the repository
+    // from the device-id file, and only when sync is first enabled). Safe to re-run.
+    sql: `
+      CREATE TABLE IF NOT EXISTS sync_entity_meta (
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        field_clocks_json TEXT NOT NULL DEFAULT '{}',
+        row_hlc TEXT NOT NULL,
+        deleted_at TEXT,
+        PRIMARY KEY (entity_type, entity_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_sync_entity_meta_row_hlc
+        ON sync_entity_meta (row_hlc);
+
+      CREATE TABLE IF NOT EXISTS sync_identity (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        device_id TEXT NOT NULL,
+        device_name TEXT NOT NULL,
+        physical_ms INTEGER NOT NULL DEFAULT 0,
+        counter INTEGER NOT NULL DEFAULT 0,
+        change_counter INTEGER NOT NULL DEFAULT 0,
+        last_publish_counter INTEGER NOT NULL DEFAULT 0,
+        applying INTEGER NOT NULL DEFAULT 0
+      );
+
+      CREATE TABLE IF NOT EXISTS sync_peers (
+        peer_id TEXT PRIMARY KEY,
+        peer_name TEXT NOT NULL,
+        last_manifest_json TEXT,
+        last_synced_at TEXT,
+        last_applied_sha_by_domain TEXT NOT NULL DEFAULT '{}'
+      );
+
+      CREATE TABLE IF NOT EXISTS sync_id_aliases (
+        entity_type TEXT NOT NULL,
+        alias_id TEXT NOT NULL,
+        canonical_id TEXT NOT NULL,
+        recorded_hlc TEXT NOT NULL,
+        PRIMARY KEY (entity_type, alias_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS sync_recurrence_occurrences (
+        template_id TEXT NOT NULL,
+        due_date TEXT NOT NULL,
+        outcome TEXT NOT NULL,
+        outcome_hlc TEXT NOT NULL,
+        device_id TEXT NOT NULL,
+        PRIMARY KEY (template_id, due_date)
+      );
+
+      CREATE TABLE IF NOT EXISTS sync_recurrence_clears (
+        template_id TEXT PRIMARY KEY,
+        cleared_through_date TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS sync_conflicts (
+        id TEXT PRIMARY KEY,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        local_json TEXT NOT NULL,
+        remote_json TEXT NOT NULL,
+        detected_at TEXT NOT NULL,
+        resolved_at TEXT,
+        resolution TEXT
+      );
+    `,
+  },
 ];
 
 /** Retains all repeatable SQL while skipping only guarded statements already applied. */

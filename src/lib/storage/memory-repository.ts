@@ -143,6 +143,7 @@ import {
   syncTemplateStatusChange,
 } from "../recurring/engine";
 import { buildDailyRelationshipDrawPlan } from "../relationship-draws";
+import { SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE, type SyncStatus } from "../sync/status";
 import type { AppRepository, PomodoroStartOptions, StorageInfo } from "./repository";
 import { CalendarSyncMemoryStore } from "./calendar-sync-memory-store";
 import { FinanceMemoryStore } from "./finance-memory-store";
@@ -2191,5 +2192,16 @@ export class MemoryRepository implements AppRepository {
   async clearCalendarSyncLinks(): Promise<void> {
     this.calendarSync.clearLinks();
     return Promise.resolve();
+  }
+
+  // --- Multi-device sync ------------------------------------------------------------------
+  // Browser preview is non-persistent, so there is nothing to sync and no identity to keep.
+
+  async getSyncStatus(): Promise<SyncStatus> {
+    return { supported: false };
+  }
+
+  async ensureSyncIdentity(_input: { deviceId: string; deviceName: string }): Promise<never> {
+    throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
   }
 }

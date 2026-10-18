@@ -6568,5 +6568,68 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         });
       });
     });
+
+    describe("multi-device sync foundation", () => {
+      const DEVICE = "dev:0b9c7c1e-6a3f-4b8e-9d2a-1f2e3d4c5b6a";
+
+      it("implements both sync methods (repository parity)", async () => {
+        const repository = await factory();
+        expect(typeof repository.getSyncStatus).toBe("function");
+        expect(typeof repository.ensureSyncIdentity).toBe("function");
+      });
+
+      it("reports an unsupported store, or an empty supported one, before any identity exists", async () => {
+        const repository = await factory();
+        const status = await repository.getSyncStatus();
+        if (!status.supported) {
+          // Browser preview: exactly this shape, nothing else.
+          expect(status).toEqual({ supported: false });
+          return;
+        }
+        expect(status).toEqual({
+          supported: true,
+          identity: null,
+          changeCounter: 0,
+          lastPublishCounter: 0,
+          pendingChanges: 0,
+          peers: [],
+        });
+      });
+
+      it("creates an identity only where sync is supported, and rejects in browser preview", async () => {
+        const repository = await factory();
+        const supported = (await repository.getSyncStatus()).supported;
+        if (!supported) {
+          await expect(
+            repository.ensureSyncIdentity({ deviceId: DEVICE, deviceName: "Laptop" }),
+          ).rejects.toThrow(/unavailable in browser preview/);
+          await expect(repository.getSyncStatus()).resolves.toEqual({ supported: false });
+          return;
+        }
+        await expect(
+          repository.ensureSyncIdentity({ deviceId: DEVICE, deviceName: "Laptop" }),
+        ).resolves.toEqual({
+          deviceId: DEVICE,
+          deviceName: "Laptop",
+          created: true,
+          repaired: false,
+        });
+        await expect(repository.getSyncStatus()).resolves.toMatchObject({
+          supported: true,
+          identity: { deviceId: DEVICE, deviceName: "Laptop" },
+        });
+      });
+
+      it("leaves user data untouched when asking for sync status", async () => {
+        const repository = await factory();
+        const entry = createEmptyDailyEntry("2026-03-31");
+        entry.morningIntention = "Rien ne change";
+        await repository.saveDailyEntry(entry);
+        await repository.getSyncStatus();
+        await expect(repository.getDailyEntry("2026-03-31")).resolves.toMatchObject({
+          morningIntention: "Rien ne change",
+        });
+      });
+    });
   });
 };

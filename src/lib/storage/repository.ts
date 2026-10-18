@@ -1,5 +1,6 @@
 import type { AcceptEffect, AiProposalAcceptResult } from "../ai/proposals/accept-effect";
 import type { ReconcileDayResult } from "../gtd/reconcile";
+import type { SyncIdentityResult, SyncStatus } from "../sync/status";
 import type {
   CalendarSyncDetachReason,
   CalendarSyncLink,
@@ -548,4 +549,28 @@ export interface AppRepository {
     reason: CalendarSyncDetachReason,
   ): Promise<void>;
   clearCalendarSyncLinks(): Promise<void>;
+
+  // --- Multi-device sync (foundation: identity and status only) -------------------------
+
+  /**
+   * Read-only sync state. Memory (browser preview) reports `{ supported: false }`; SQLite reports
+   * the identity row (or `null` before `ensureSyncIdentity`), change counters and known peers.
+   */
+  getSyncStatus(): Promise<SyncStatus>;
+  /**
+   * Creates the single `sync_identity` row when missing. The device-id file written by the native
+   * host is the authority: when the row exists with a different `deviceId` (a restored or cloned
+   * database), the row is rewritten to `input.deviceId`, the clock state is kept, and the result
+   * has `repaired: true`. An existing device name changes only when `input.deviceName` is non-empty
+   * and different. Rejects an invalid device id. Memory rejects: sync is unavailable in browser
+   * preview.
+   */
+  ensureSyncIdentity(input: { deviceId: string; deviceName: string }): Promise<SyncIdentityResult>;
 }
+
+export type {
+  SyncIdentity,
+  SyncIdentityResult,
+  SyncPeerSummary,
+  SyncStatus,
+} from "../sync/status";
