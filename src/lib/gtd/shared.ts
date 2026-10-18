@@ -10,12 +10,17 @@ export {
   toLocalDateString,
 } from "../date";
 
+/**
+ * Mints a row id. There is deliberately no weaker fallback: with two independent writers a
+ * `Math.random()` id is a real collision (and therefore data-loss) path, so a missing
+ * `crypto.randomUUID` is a hard error.
+ */
 export const createEntityId = (prefix: string): string => {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return `${prefix}:${crypto.randomUUID()}`;
+  if (typeof globalThis.crypto?.randomUUID !== "function") {
+    throw new Error("crypto.randomUUID is unavailable; refusing to mint a non-unique entity id.");
   }
 
-  return `${prefix}:${Math.random().toString(36).slice(2, 10)}`;
+  return `${prefix}:${globalThis.crypto.randomUUID()}`;
 };
 
 export const nowIso = (): string => new Date().toISOString();

@@ -29,6 +29,16 @@ The Tauri identifier is `com.trackdidia.desktop`.
 | Debug / `tauri dev` | `trackdidia.dev.db` | `backups-dev/` |
 | Release | `trackdidia.db` | `backups/` |
 
+Beside the database, the native host keeps a small per-installation device id file
+(`device-id` in release builds, `device-id.dev` in debug builds, so the two environments
+never share an identity). The `sync_device_id` command (`src-tauri/src/device_id.rs`,
+wrapped by `getDeviceId()` in `src/lib/sync/device-id.ts`) returns its content
+(`dev:<uuid v4>`), creating it on first call by writing a temp file and hard-linking it into
+place so an existing file is never overwritten. A file that is empty, malformed, or longer
+than an id is reported as an error and is not regenerated, because replacing it would orphan
+the device's identity. Nothing consumes the id yet; it is not in the SQLite schema and is not
+included in backups, so restoring a backup (see [Recovery](#recovery)) leaves it untouched.
+
 The live database resolves beneath:
 
 ```text
@@ -521,6 +531,9 @@ There is no restore UI. Recovery is currently an operator/manual action:
    kept there.
 4. Replace the matching environment database file with a copy of that backup.
 5. Restart the application and verify entries, tasks, and settings.
+
+Leave the `device-id`/`device-id.dev` file in place when restoring; it identifies this
+installation, not the data.
 
 Do not restore a development backup over production (or the reverse) without
 explicitly choosing that outcome. Do not perform this operation automatically in a
