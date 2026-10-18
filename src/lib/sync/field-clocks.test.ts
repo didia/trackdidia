@@ -3,10 +3,14 @@ import {
   buildFieldClockUpdates,
   canonicalJson,
   type FieldClocks,
+  FieldClockShapeError,
   fieldClockKey,
+  getOwn,
   jsonDeepEqual,
+  jsonNormalize,
   mergeFieldClocks,
   rowHlc,
+  setOwn,
   splitFieldClockKey,
 } from "./field-clocks";
 import { encodeHlc } from "./hlc";
@@ -356,5 +360,239 @@ describe("mergeFieldClocks", () => {
       );
       expect(mergeFieldClocks(a, a)).toEqual(a);
     }
+  });
+});
+
+describe("own-property safety for hostile keys", () => {
+  const protoValue = JSON.parse('{"__proto__": {}}') as Record<string, unknown>;
+
+  it("getOwn/setOwn never touch the prototype", () => {
+    const map: Record<string, number> = {};
+    expect(getOwn(map, "__proto__")).toBeUndefined();
+    expect(getOwn(map, "constructor")).toBeUndefined();
+    expect(getOwn(map, "toString")).toBeUndefined();
+    setOwn(map, "__proto__", 1);
+    expect(Object.keys(map)).toEqual(["__proto__"]);
+    expect(getOwn(map, "__proto__")).toBe(1);
+    expect(Object.getPrototypeOf(map)).toBe(Object.prototype);
+  });
+
+  it("jsonDeepEqual does not equate an own __proto__ key with other objects", () => {
+    expect(Object.keys(protoValue)).toEqual(["__proto__"]);
+    expect(jsonDeepEqual(protoValue, { notes: "x" })).toBe(false);
+    expect(jsonDeepEqual({ notes: "x" }, protoValue)).toBe(false);
+    expect(jsonDeepEqual(protoValue, { score: 1 })).toBe(false);
+    expect(jsonDeepEqual({}, protoValue)).toBe(false);
+    expect(jsonDeepEqual(protoValue, JSON.parse('{"__proto__": {}}'))).toBe(true);
+    expect(
+      jsonDeepEqual(JSON.parse('{"__proto__": {"a": 1}}'), JSON.parse('{"__proto__": {"a": 2}}')),
+    ).toBe(false);
+  });
+
+  it("canonicalJson/jsonNormalize keep the __proto__ key", () => {
+    expect(canonicalJson(protoValue)).toBe('{"__proto__":{}}');
+    const normalized = jsonNormalize(protoValue);
+    expect(Object.keys(normalized)).toEqual(["__proto__"]);
+    expect(canonicalJson(normalized)).toBe('{"__proto__":{}}');
+  });
+
+  it("stamps a scalar whose object value gains a __proto__ key", () => {
+    const clocks = { payload: at(1) };
+    const result = buildFieldClockUpdates(
+      { payload: { notes: "x" } },
+      { payload: protoValue },
+      at(2),
+      {
+        scalars: ["payload"],
+        clocks,
+      },
+    );
+    expect(result).toEqual({ payload: at(2) });
+  });
+
+  it("keeps a __proto__ key of a map field and stamps it when added or removed", () => {
+    const added = buildFieldClockUpdates(
+      { metrics: { mood: 3 } },
+      { metrics: JSON.parse('{"__proto__": {"x": 1}, "mood": 3}') },
+      at(2),
+      { maps: ["metrics"] },
+    );
+    expect(Object.keys(added)).toEqual(["metrics.__proto__"]);
+    const removed = buildFieldClockUpdates(
+      { metrics: JSON.parse('{"__proto__": {"x": 1}, "mood": 3}') },
+      { metrics: { mood: 3 } },
+      at(3),
+      { maps: ["metrics"], clocks: added },
+    );
+    expect(removed).toEqual({ "metrics.__proto__": at(3) });
+  });
+
+  it("stamps an edited __proto__ map entry (the change is not silently idle)", () => {
+    const start = { "metrics.__proto__": at(1) };
+    const result = buildFieldClockUpdates(
+      { metrics: JSON.parse('{"__proto__": 1}') },
+      { metrics: JSON.parse('{"__proto__": 2}') },
+      at(2),
+      { maps: ["metrics"], clocks: start },
+    );
+    expect(result).toEqual({ "metrics.__proto__": at(2) });
+  });
+
+  it("does not read inherited names as existing values", () => {
+    const result = buildFieldClockUpdates(
+      { metrics: { toString: 1 } },
+      { metrics: { toString: 1, constructor: 2 } },
+      at(2),
+      { maps: ["metrics"] },
+    );
+    expect(result).toEqual({ "metrics.constructor": at(2) });
+  });
+
+  it("mergeFieldClocks keeps a clock whose key is exactly __proto__", () => {
+    const a = setOwn({} as FieldClocks, "__proto__", at(5));
+    const b = setOwn({} as FieldClocks, "__proto__", at(2));
+    const merged = mergeFieldClocks(a, b);
+    expect(Object.keys(merged)).toEqual(["__proto__"]);
+    expect(getOwn(merged, "__proto__")).toBe(at(5));
+    expect(Object.keys(mergeFieldClocks(a, {}))).toEqual(["__proto__"]);
+    expect(rowHlc(merged)).toBe(at(5));
+  });
+
+  it("buildFieldClockUpdates stamps a scalar field literally named __proto__", () => {
+    const next = setOwn({} as Record<string, unknown>, "__proto__", "x");
+    const result = buildFieldClockUpdates(null, next, at(1), { scalars: ["__proto__"] });
+    expect(Object.keys(result)).toEqual(["__proto__"]);
+  });
+});
+
+describe("map fields stored as arrays of { id } items (e.g. milestones)", () => {
+  const spec = { maps: ["milestones"] };
+  const m1 = { id: "m1", title: "A", completedAt: null, sortOrder: 0 };
+  const m2 = { id: "m2", title: "B", completedAt: null, sortOrder: 1 };
+
+  it("stamps milestones.<id> for every item on creation", () => {
+    expect(buildFieldClockUpdates(null, { milestones: [m1, m2] }, at(1), spec)).toEqual({
+      "milestones.m1": at(1),
+      "milestones.m2": at(1),
+    });
+  });
+
+  it("stamps a changed item and only that item", () => {
+    const start = { "milestones.m1": at(1), "milestones.m2": at(1) };
+    const result = buildFieldClockUpdates(
+      { milestones: [m1, m2] },
+      { milestones: [{ ...m1, title: "A2" }, m2] },
+      at(2),
+      { ...spec, clocks: start },
+    );
+    expect(result).toEqual({ "milestones.m1": at(2), "milestones.m2": at(1) });
+  });
+
+  it("stamps a removed item as a tombstone and an added one", () => {
+    const start = { "milestones.m1": at(1), "milestones.m2": at(1) };
+    const removed = buildFieldClockUpdates({ milestones: [m1, m2] }, { milestones: [m2] }, at(2), {
+      ...spec,
+      clocks: start,
+    });
+    expect(removed).toEqual({ "milestones.m1": at(2), "milestones.m2": at(1) });
+    const added = buildFieldClockUpdates({ milestones: [m2] }, { milestones: [m2, m1] }, at(3), {
+      ...spec,
+      clocks: removed,
+    });
+    expect(added).toEqual({ "milestones.m1": at(3), "milestones.m2": at(1) });
+  });
+
+  it("is idle when nothing changed, including a pure array reorder", () => {
+    const start = { "milestones.m1": at(1), "milestones.m2": at(1) };
+    expect(
+      buildFieldClockUpdates(
+        { milestones: [m1, m2] },
+        { milestones: [{ ...m1 }, { ...m2 }] },
+        at(2),
+        {
+          ...spec,
+          clocks: start,
+        },
+      ),
+    ).toBe(start);
+    expect(
+      buildFieldClockUpdates({ milestones: [m1, m2] }, { milestones: [m2, m1] }, at(2), {
+        ...spec,
+        clocks: start,
+      }),
+    ).toBe(start);
+  });
+
+  it("treats a changed sortOrder as an edit of that item", () => {
+    const start = { "milestones.m1": at(1), "milestones.m2": at(1) };
+    const result = buildFieldClockUpdates(
+      { milestones: [m1, m2] },
+      { milestones: [m2, { ...m1, sortOrder: 5 }] },
+      at(2),
+      { ...spec, clocks: start },
+    );
+    expect(result).toEqual({ "milestones.m1": at(2), "milestones.m2": at(1) });
+  });
+
+  it("treats null, undefined and an empty array as an empty map", () => {
+    expect(buildFieldClockUpdates({ milestones: [] }, { milestones: null }, at(2), spec)).toEqual(
+      {},
+    );
+    expect(buildFieldClockUpdates({}, { milestones: [] }, at(2), spec)).toEqual({});
+    expect(
+      buildFieldClockUpdates({ milestones: [m1] }, { milestones: undefined }, at(2), spec),
+    ).toEqual({
+      "milestones.m1": at(2),
+    });
+  });
+
+  it("throws a typed error for duplicate ids", () => {
+    expect(() =>
+      buildFieldClockUpdates(null, { milestones: [m1, { ...m1 }] }, at(1), spec),
+    ).toThrow(FieldClockShapeError);
+    expect(() =>
+      buildFieldClockUpdates(null, { milestones: [m1, { ...m1 }] }, at(1), spec),
+    ).toThrow(/duplicate id "m1"/);
+  });
+
+  it("throws a typed error for items without a string id and for non-map values", () => {
+    const bad: unknown[] = [
+      [{ title: "no id" }],
+      [{ id: 3 }],
+      [null],
+      ["m1"],
+      [[{ id: "m1" }]],
+      "text",
+      42,
+      true,
+    ];
+    for (const value of bad) {
+      expect(() => buildFieldClockUpdates(null, { milestones: value }, at(1), spec)).toThrow(
+        FieldClockShapeError,
+      );
+      expect(() =>
+        buildFieldClockUpdates({ milestones: value }, { milestones: [] }, at(1), spec),
+      ).toThrow(FieldClockShapeError);
+    }
+    try {
+      buildFieldClockUpdates(null, { milestones: "text" }, at(1), spec);
+    } catch (error) {
+      expect((error as FieldClockShapeError).field).toBe("milestones");
+      expect((error as Error).message).toContain("field_clock_map_invalid: milestones");
+    }
+  });
+});
+
+describe("clock validation", () => {
+  it("buildFieldClockUpdates rejects a malformed stamp clock", () => {
+    expect(() =>
+      buildFieldClockUpdates(null, { title: "a" }, "zzzz", { scalars: ["title"] }),
+    ).toThrow("hlc_malformed");
+  });
+
+  it("mergeFieldClocks and rowHlc propagate hlc_malformed instead of ordering garbage", () => {
+    expect(() => mergeFieldClocks({ a: at(1) }, { a: "zzzz" })).toThrow("hlc_malformed");
+    expect(() => mergeFieldClocks({ a: "zzzz" }, {})).toThrow("hlc_malformed");
+    expect(() => rowHlc({ a: at(1), b: "9-000000-d" })).toThrow("hlc_malformed");
   });
 });

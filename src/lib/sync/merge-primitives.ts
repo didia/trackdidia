@@ -1,5 +1,5 @@
-import { canonicalJson, jsonDeepEqual, jsonNormalize } from "./field-clocks";
-import { compareHlc, maxHlc } from "./hlc";
+import { canonicalJson, getOwn, jsonDeepEqual, jsonNormalize, setOwn } from "./field-clocks";
+import { assertHlc, compareHlc, maxHlc } from "./hlc";
 
 /**
  * Pure merge building blocks. Later slices compose them into per-table merges; nothing here knows
@@ -16,14 +16,20 @@ import { compareHlc, maxHlc } from "./hlc";
 /** A nullable clock: `null`/`undefined` means "never stamped" and loses to any clock. */
 export type MaybeClock = string | null | undefined;
 
+/** Orders nullable clocks; throws `hlc_malformed` for any non-null clock that is not canonical. */
 const compareMaybeClock = (a: MaybeClock, b: MaybeClock): number => {
-  if (a === null || a === undefined) {
-    return b === null || b === undefined ? 0 : -1;
+  const hasA = a !== null && a !== undefined;
+  const hasB = b !== null && b !== undefined;
+  if (hasA) {
+    assertHlc(a);
   }
-  if (b === null || b === undefined) {
-    return 1;
+  if (hasB) {
+    assertHlc(b);
   }
-  return compareHlc(a, b);
+  if (!hasA) {
+    return hasB ? -1 : 0;
+  }
+  return hasB ? compareHlc(a, b) : 1;
 };
 
 const compareText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
@@ -114,8 +120,10 @@ export const mergeOrSet = (local: OrSetElements, remote: OrSetElements): OrSetRe
   const elements: OrSetResult["elements"] = {};
   const ids: string[] = [];
   for (const id of new Set([...Object.keys(local), ...Object.keys(remote)])) {
-    const addedAt = maxHlc(local[id]?.addedAt, remote[id]?.addedAt);
-    const removedAt = maxHlc(local[id]?.removedAt, remote[id]?.removedAt);
+    const l = getOwn(local, id);
+    const r = getOwn(remote, id);
+    const addedAt = maxHlc(l?.addedAt, r?.addedAt);
+    const removedAt = maxHlc(l?.removedAt, r?.removedAt);
     if (addedAt === null && removedAt === null) {
       continue;
     }
@@ -126,7 +134,7 @@ export const mergeOrSet = (local: OrSetElements, remote: OrSetElements): OrSetRe
     if (removedAt !== null) {
       merged.removedAt = removedAt;
     }
-    elements[id] = merged;
+    setOwn(elements, id, merged);
     if (addedAt !== null && (removedAt === null || compareHlc(addedAt, removedAt) > 0)) {
       ids.push(id);
     }
@@ -156,6 +164,9 @@ export type JsonMapMergeResult<V> = {
 };
 
 const normalizeEntry = <V>(entry: MapEntry<V>): MapEntry<V> => {
+  if (entry.clock !== null && entry.clock !== undefined) {
+    assertHlc(entry.clock);
+  }
   const normalized: MapEntry<V> = { value: entry.value, clock: entry.clock ?? null };
   if (entry.deleted === true) {
     normalized.deleted = true;
@@ -188,10 +199,10 @@ export const mergeJsonMapPerKey = <V>(
   const map: Record<string, MapEntry<V>> = {};
   const overwritten: Array<MapOverwrite<V>> = [];
   for (const key of new Set([...Object.keys(local), ...Object.keys(remote)])) {
-    const l = local[key];
-    const r = remote[key];
+    const l = getOwn(local, key);
+    const r = getOwn(remote, key);
     if (l === undefined || r === undefined) {
-      map[key] = normalizeEntry((l ?? r) as MapEntry<V>);
+      setOwn(map, key, normalizeEntry((l ?? r) as MapEntry<V>));
       continue;
     }
     const a = normalizeEntry(l);
@@ -208,7 +219,7 @@ export const mergeJsonMapPerKey = <V>(
       byClock === 0 && !Object.is(a.value, b.value) && sameEffect(a, b)
         ? { ...winning, value: jsonNormalize(winning.value) }
         : winning;
-    map[key] = kept;
+    setOwn(map, key, kept);
     if (!sameEffect(a, b)) {
       overwritten.push({ key, kept, discarded });
     }
@@ -297,31 +308,42 @@ export const mergeNonEmptyWins = (
 export type StatusMergeResult = {
   status: string;
   /**
-   * True when both sides are terminal with *different* statuses (e.g. `accepted` vs `dismissed`).
-   * No rule picks the right one, so a deterministic answer (the smaller status string) is
-   * returned and the caller decides whether to raise a conflict.
+   * True when, among everything merged so far, two *different* terminal statuses (e.g. `accepted`
+   * vs `dismissed`) met. No rule picks the right one, so a deterministic answer (the smaller
+   * status string) is returned and the caller decides whether to raise a conflict. The flag is
+   * sticky: merging a result that already carries it keeps it, in any grouping.
    */
   conflict: boolean;
 };
 
+const asStatusResult = (value: string | StatusMergeResult): StatusMergeResult =>
+  typeof value === "string" ? { status: value, conflict: false } : value;
+
 /**
  * Generic "monotonic status" merge: a terminal status beats a non-terminal (pending) one. Two
  * different terminal statuses are a `conflict`; two different non-terminal statuses resolve to the
- * smaller string. Both fallbacks pick by string order, never by argument position. Associative,
- * commutative, idempotent.
+ * smaller string. Both fallbacks pick by string order, never by argument position.
+ *
+ * Either side may be a bare status or the `{ status, conflict }` result of an earlier merge, so
+ * more than two replicas can be folded without losing the flag. As a join over `{ status,
+ * conflict }` it is associative, commutative and idempotent on the whole result: the same set of
+ * replica statuses always gives the same `status` and `conflict` whatever the grouping.
  */
 export const mergeTerminalBeatsPending = (
-  localStatus: string,
-  remoteStatus: string,
+  localStatus: string | StatusMergeResult,
+  remoteStatus: string | StatusMergeResult,
   terminalStatuses: readonly string[],
 ): StatusMergeResult => {
-  const localTerminal = terminalStatuses.includes(localStatus);
-  const remoteTerminal = terminalStatuses.includes(remoteStatus);
+  const local = asStatusResult(localStatus);
+  const remote = asStatusResult(remoteStatus);
+  const localTerminal = terminalStatuses.includes(local.status);
+  const remoteTerminal = terminalStatuses.includes(remote.status);
+  const carried = local.conflict || remote.conflict;
   if (localTerminal !== remoteTerminal) {
-    return { status: localTerminal ? localStatus : remoteStatus, conflict: false };
+    return { status: localTerminal ? local.status : remote.status, conflict: carried };
   }
   return {
-    status: localStatus <= remoteStatus ? localStatus : remoteStatus,
-    conflict: localTerminal && localStatus !== remoteStatus,
+    status: local.status <= remote.status ? local.status : remote.status,
+    conflict: carried || (localTerminal && local.status !== remote.status),
   };
 };

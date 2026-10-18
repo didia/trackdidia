@@ -86,24 +86,48 @@ export const parseHlc = (value: unknown): ParsedHlc | null => {
   return { physicalMs, counter, deviceId: value.slice(DEVICE_OFFSET) };
 };
 
-/** Total order over encoded clocks. String order equals logical order (see module doc). */
-export const compareHlc = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+/** True when `value` is a clock string in the canonical encoding (what {@link parseHlc} accepts). */
+export const isValidHlc = (value: unknown): value is string => parseHlc(value) !== null;
 
-/** Larger of two clocks; `null`/`undefined` count as "no clock" and lose to any clock. */
+/** Throws `Error("hlc_malformed")` unless `value` is a canonical clock string. */
+export const assertHlc = (value: unknown): string => {
+  if (!isValidHlc(value)) {
+    throw new Error("hlc_malformed");
+  }
+  return value;
+};
+
+/**
+ * Total order over encoded clocks. String order equals logical order (see module doc). Both
+ * arguments must be canonical clocks: a malformed string (`"zzzz"`, `"9-000000-d"`, uppercase
+ * hex) would otherwise sort above every real clock, so this throws `Error("hlc_malformed")`
+ * instead of ordering it.
+ */
+export const compareHlc = (a: string, b: string): number => {
+  assertHlc(a);
+  assertHlc(b);
+  return a < b ? -1 : a > b ? 1 : 0;
+};
+
+/**
+ * Larger of two clocks; `null`/`undefined` count as "no clock" and lose to any clock. Every
+ * non-null argument must be a canonical clock, otherwise this throws `Error("hlc_malformed")`
+ * (even when the other argument is missing).
+ */
 export const maxHlc = (
   a: string | null | undefined,
   b: string | null | undefined,
 ): string | null => {
   if (a === null || a === undefined) {
-    return b ?? null;
+    return b === null || b === undefined ? null : assertHlc(b);
   }
   if (b === null || b === undefined) {
-    return a;
+    return assertHlc(a);
   }
   return compareHlc(a, b) >= 0 ? a : b;
 };
 
-/** Largest clock of a collection, or `null` when it is empty. */
+/** Largest clock of a collection, or `null` when it is empty. Throws on a malformed clock. */
 export const maxHlcOf = (values: Iterable<string | null | undefined>): string | null => {
   let max: string | null = null;
   for (const value of values) {

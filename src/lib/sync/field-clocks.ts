@@ -1,4 +1,4 @@
-import { maxHlc, maxHlcOf } from "./hlc";
+import { assertHlc, maxHlc, maxHlcOf } from "./hlc";
 
 /**
  * Per-field clock bookkeeping for the "field-clock" merge class. Pure and generic over plain JSON
@@ -24,7 +24,10 @@ export type FieldClocks = Record<string, string>;
 export type FieldClockSpec = {
   /** Plain fields compared by deep equality and stamped as a whole. */
   scalars?: readonly string[];
-  /** JSON-object columns merged per key: `{ [key]: value }`. */
+  /**
+   * JSON columns merged per key: an object `{ [key]: value }`, or an array of objects with a
+   * string `id` (indexed by id, e.g. milestones). Any other shape throws `FieldClockShapeError`.
+   */
   maps?: readonly string[];
   /** Id-list columns treated as OR-sets: `string[]`. */
   sets?: readonly string[];
@@ -51,6 +54,21 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 /**
+ * Own-property access for keyed maps. Keys come from synced JSON, so they may be `__proto__`,
+ * `constructor`, `toString`...: reading `map[key]` for an absent key would return an inherited
+ * value, and assigning `map["__proto__"] = x` would hit the prototype setter and silently drop
+ * the key. Every read and write of a keyed map in the sync core goes through these two helpers.
+ */
+export const getOwn = <T>(map: Record<string, T>, key: string): T | undefined =>
+  Object.hasOwn(map, key) ? map[key] : undefined;
+
+/** Defines `key` as an own, enumerable data property (works for `__proto__`). Returns `map`. */
+export const setOwn = <T>(map: Record<string, T>, key: string, value: T): Record<string, T> => {
+  Object.defineProperty(map, key, { value, enumerable: true, writable: true, configurable: true });
+  return map;
+};
+
+/**
  * Deep equality with JSON semantics, kept in lockstep with {@link canonicalJson} (two values are
  * equal here iff their canonical JSON text is identical): object key order is irrelevant,
  * `undefined` object properties count as absent, a top-level or array-item `undefined` equals
@@ -68,11 +86,13 @@ export const jsonDeepEqual = (left: unknown, right: unknown): boolean => {
     );
   }
   if (isPlainObject(a) && isPlainObject(b)) {
-    const keysA = Object.keys(a).filter((key) => a[key] !== undefined);
-    const keysB = Object.keys(b).filter((key) => b[key] !== undefined);
+    const keysA = Object.keys(a).filter((key) => getOwn(a, key) !== undefined);
+    const keysB = Object.keys(b).filter((key) => getOwn(b, key) !== undefined);
     return (
       keysA.length === keysB.length &&
-      keysA.every((key) => b[key] !== undefined && jsonDeepEqual(a[key], b[key]))
+      keysA.every(
+        (key) => getOwn(b, key) !== undefined && jsonDeepEqual(getOwn(a, key), getOwn(b, key)),
+      )
     );
   }
   return false;
@@ -85,9 +105,9 @@ export const canonicalJson = (value: unknown): string => {
   }
   if (isPlainObject(value)) {
     const entries = Object.keys(value)
-      .filter((key) => value[key] !== undefined)
+      .filter((key) => getOwn(value, key) !== undefined)
       .sort()
-      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`);
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(getOwn(value, key))}`);
     return `{${entries.join(",")}}`;
   }
   return JSON.stringify(value === undefined ? null : value);
@@ -101,14 +121,52 @@ export const canonicalJson = (value: unknown): string => {
  */
 export const jsonNormalize = <T>(value: T): T => JSON.parse(canonicalJson(value)) as T;
 
-const asMap = (value: unknown): Record<string, unknown> => {
-  if (!isPlainObject(value)) {
-    return {};
+/** A map-field value that is neither null/undefined, an object, nor an array of `{ id }` items. */
+export class FieldClockShapeError extends Error {
+  readonly field: string;
+  readonly reason: string;
+  constructor(field: string, reason: string) {
+    super(`field_clock_map_invalid: ${field}: ${reason}`);
+    this.name = "FieldClockShapeError";
+    this.field = field;
+    this.reason = reason;
   }
+}
+
+/**
+ * Reads a map-class field as `{ key: value }` without ever coercing a bad shape to `{}`:
+ * - `null`/`undefined` is an empty map;
+ * - a plain object is copied (own properties, `undefined` values dropped);
+ * - an array of objects that each carry a string `id` (e.g. `milestones_json`) is indexed by that
+ *   id, the whole item being the value. Array order is deliberately not part of the result: order
+ *   travels in the items' own fields (`sortOrder`). Duplicate ids throw;
+ * - anything else throws {@link FieldClockShapeError}.
+ */
+const asMap = (value: unknown, field: string): Record<string, unknown> => {
   const result: Record<string, unknown> = {};
+  if (value === null || value === undefined) {
+    return result;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      if (!isPlainObject(item) || typeof getOwn(item, "id") !== "string") {
+        throw new FieldClockShapeError(field, "array items must be objects with a string id");
+      }
+      const id = getOwn(item, "id") as string;
+      if (Object.hasOwn(result, id)) {
+        throw new FieldClockShapeError(field, `duplicate id "${id}"`);
+      }
+      setOwn(result, id, item);
+    }
+    return result;
+  }
+  if (!isPlainObject(value)) {
+    throw new FieldClockShapeError(field, `expected an object or an array, got ${typeof value}`);
+  }
   for (const key of Object.keys(value)) {
-    if (value[key] !== undefined) {
-      result[key] = value[key];
+    const entry = getOwn(value, key);
+    if (entry !== undefined) {
+      setOwn(result, key, entry);
     }
   }
   return result;
@@ -137,33 +195,34 @@ export const buildFieldClockUpdates = (
   hlc: string,
   options: FieldClockOptions = {},
 ): FieldClocks => {
+  assertHlc(hlc);
   const existing = options.clocks ?? {};
   const stamps: string[] = [];
   const creating = previous === null;
 
   for (const field of options.scalars ?? []) {
-    const before = creating ? undefined : (previous[field] ?? null);
-    const after = next[field] ?? null;
+    const before = creating ? undefined : (getOwn(previous, field) ?? null);
+    const after = getOwn(next, field) ?? null;
     if (creating || !jsonDeepEqual(before, after)) {
       stamps.push(field);
     }
   }
 
   for (const field of options.maps ?? []) {
-    const before = creating ? {} : asMap(previous[field]);
-    const after = asMap(next[field]);
+    const before = creating ? {} : asMap(getOwn(previous, field), field);
+    const after = asMap(getOwn(next, field), field);
     for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
       const had = Object.hasOwn(before, key);
       const has = Object.hasOwn(after, key);
-      if (had !== has || (has && !jsonDeepEqual(before[key], after[key]))) {
+      if (had !== has || (has && !jsonDeepEqual(getOwn(before, key), getOwn(after, key)))) {
         stamps.push(fieldClockKey(field, key));
       }
     }
   }
 
   for (const field of options.sets ?? []) {
-    const before = creating ? new Set<string>() : asSet(previous[field]);
-    const after = asSet(next[field]);
+    const before = creating ? new Set<string>() : asSet(getOwn(previous, field));
+    const after = asSet(getOwn(next, field));
     for (const id of before) {
       if (!after.has(id)) {
         stamps.push(fieldClockKey(field, id));
@@ -176,13 +235,13 @@ export const buildFieldClockUpdates = (
     }
   }
 
-  const needed = stamps.filter((key) => existing[key] !== hlc);
+  const needed = stamps.filter((key) => getOwn(existing, key) !== hlc);
   if (needed.length === 0) {
     return existing;
   }
   const updated: FieldClocks = { ...existing };
   for (const key of needed) {
-    updated[key] = hlc;
+    setOwn(updated, key, hlc);
   }
   return updated;
 };
@@ -194,9 +253,9 @@ export const rowHlc = (clocks: FieldClocks): string | null => maxHlcOf(Object.va
 export const mergeFieldClocks = (a: FieldClocks, b: FieldClocks): FieldClocks => {
   const merged: FieldClocks = {};
   for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
-    const clock = maxHlc(a[key], b[key]);
+    const clock = maxHlc(getOwn(a, key), getOwn(b, key));
     if (clock !== null) {
-      merged[key] = clock;
+      setOwn(merged, key, clock);
     }
   }
   return merged;

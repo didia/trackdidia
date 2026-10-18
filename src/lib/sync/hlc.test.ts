@@ -7,6 +7,8 @@ import {
   type HlcState,
   hlcSkewMs,
   INITIAL_HLC_STATE,
+  assertHlc,
+  isValidHlc,
   isHlcAheadOfLocalTime,
   maxHlc,
   maxHlcOf,
@@ -128,6 +130,53 @@ describe("compareHlc / maxHlc", () => {
     expect(maxHlc(undefined, clock)).toBe(clock);
     expect(maxHlcOf([])).toBeNull();
     expect(maxHlcOf([null, clock, encodeHlc(NOW - 1, 0, B), undefined])).toBe(clock);
+  });
+});
+
+describe("malformed clocks are never ordered", () => {
+  const real = encodeHlc(HLC_MAX_PHYSICAL_MS, HLC_MAX_COUNTER, "dev:zzzzzzzz");
+  const small = encodeHlc(10, 0, "d");
+  const malformed = [
+    "zzzz",
+    "9-000000-d",
+    `${small.slice(0, 16)}00000A-d`, // uppercase hex
+    "",
+    small.slice(0, 21), // truncated
+  ];
+
+  it("isValidHlc / assertHlc accept only canonical clocks", () => {
+    expect(isValidHlc(real)).toBe(true);
+    expect(assertHlc(real)).toBe(real);
+    for (const value of malformed) {
+      expect(isValidHlc(value)).toBe(false);
+      expect(() => assertHlc(value)).toThrow("hlc_malformed");
+    }
+    expect(isValidHlc(null)).toBe(false);
+    expect(isValidHlc(42)).toBe(false);
+  });
+
+  it("compareHlc throws instead of letting a malformed string beat a real clock", () => {
+    for (const value of malformed) {
+      expect(() => compareHlc(real, value)).toThrow("hlc_malformed");
+      expect(() => compareHlc(value, real)).toThrow("hlc_malformed");
+      expect(() => compareHlc(value, value)).toThrow("hlc_malformed");
+    }
+    expect(() => compareHlc(small, "9-000000-d")).toThrow("hlc_malformed");
+  });
+
+  it("maxHlc throws for a malformed argument, even next to a missing clock", () => {
+    for (const value of malformed) {
+      expect(() => maxHlc(real, value)).toThrow("hlc_malformed");
+      expect(() => maxHlc(value, real)).toThrow("hlc_malformed");
+      expect(() => maxHlc(value, null)).toThrow("hlc_malformed");
+      expect(() => maxHlc(undefined, value)).toThrow("hlc_malformed");
+    }
+  });
+
+  it("maxHlcOf throws when any element is malformed", () => {
+    expect(() => maxHlcOf([real, "zzzz", null])).toThrow("hlc_malformed");
+    expect(() => maxHlcOf(["zzzz"])).toThrow("hlc_malformed");
+    expect(maxHlcOf([real, null, small])).toBe(real);
   });
 });
 

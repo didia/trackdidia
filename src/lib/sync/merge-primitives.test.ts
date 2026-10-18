@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { setOwn } from "./field-clocks";
 import { encodeHlc } from "./hlc";
 import {
   type MapEntry,
@@ -10,6 +11,8 @@ import {
   mergeOrSet,
   mergeTerminalBeatsPending,
   mergeTombstone,
+  type StatusMergeResult,
+  type OrSetElement,
   type OrSetElements,
 } from "./merge-primitives";
 
@@ -524,6 +527,54 @@ describe("mergeNonEmptyWins", () => {
 describe("mergeTerminalBeatsPending", () => {
   const terminal = ["accepted", "dismissed", "expired"] as const;
 
+  it("keeps the conflict flag in every grouping of three replicas (whole-result associativity)", () => {
+    const t = ["accepted", "dismissed"] as const;
+    const left = mergeTerminalBeatsPending(
+      mergeTerminalBeatsPending("pending", "accepted", t),
+      "dismissed",
+      t,
+    );
+    const right = mergeTerminalBeatsPending(
+      "pending",
+      mergeTerminalBeatsPending("accepted", "dismissed", t),
+      t,
+    );
+    const last = mergeTerminalBeatsPending(
+      mergeTerminalBeatsPending("accepted", "dismissed", t),
+      "pending",
+      t,
+    );
+    for (const result of [left, right, last]) {
+      expect(result).toEqual({ status: "accepted", conflict: true });
+    }
+  });
+
+  it("conflict is true iff two different terminal statuses were merged, for every triple", () => {
+    const pool = ["pending", "snoozed", "accepted", "dismissed", "expired"];
+    const merge = (x: string | StatusMergeResult, y: string | StatusMergeResult) =>
+      mergeTerminalBeatsPending(x, y, terminal);
+    for (const a of pool) {
+      for (const b of pool) {
+        for (const c of pool) {
+          const expectedStatus = merge(merge(a, b).status, c).status;
+          const terminals = new Set([a, b, c].filter((x) => terminal.includes(x as never)));
+          const expected = { status: expectedStatus, conflict: terminals.size > 1 };
+          expect(merge(merge(a, b), c)).toEqual(expected);
+          expect(merge(a, merge(b, c))).toEqual(expected);
+          expect(merge(merge(a, c), b)).toEqual(expected);
+          expect(merge(c, merge(b, a))).toEqual(expected);
+        }
+      }
+    }
+  });
+
+  it("is idempotent on an accumulator and keeps a carried flag", () => {
+    const carried = { status: "accepted", conflict: true };
+    expect(mergeTerminalBeatsPending(carried, carried, terminal)).toEqual(carried);
+    expect(mergeTerminalBeatsPending(carried, "accepted", terminal)).toEqual(carried);
+    expect(mergeTerminalBeatsPending("pending", carried, terminal)).toEqual(carried);
+  });
+
   it("lets a terminal status beat pending from either side", () => {
     expect(mergeTerminalBeatsPending("pending", "accepted", terminal)).toEqual({
       status: "accepted",
@@ -573,16 +624,69 @@ describe("mergeTerminalBeatsPending", () => {
       );
       expect(mergeTerminalBeatsPending(a, a, terminal)).toEqual({ status: a, conflict: false });
       const left = mergeTerminalBeatsPending(
-        mergeTerminalBeatsPending(a, b, terminal).status,
+        mergeTerminalBeatsPending(a, b, terminal),
         c,
         terminal,
-      ).status;
+      );
       const right = mergeTerminalBeatsPending(
         a,
-        mergeTerminalBeatsPending(b, c, terminal).status,
+        mergeTerminalBeatsPending(b, c, terminal),
         terminal,
-      ).status;
-      expect(left).toBe(right);
+      );
+      expect(left).toEqual(right);
     });
+  });
+});
+
+describe("own-property safety and clock validation in merges", () => {
+  const live = <V>(value: V, c: string | null): MapEntry<V> => ({ value, clock: c });
+
+  it("mergeJsonMapPerKey keeps a __proto__ key and ignores inherited names", () => {
+    const local = setOwn({} as Record<string, MapEntry<number>>, "__proto__", live(1, clock(1)));
+    const remote = setOwn({} as Record<string, MapEntry<number>>, "__proto__", live(2, clock(2)));
+    const merged = mergeJsonMapPerKey(local, remote);
+    expect(Object.keys(merged.map)).toEqual(["__proto__"]);
+    expect(Object.getOwnPropertyDescriptor(merged.map, "__proto__")?.value).toEqual(
+      live(2, clock(2)),
+    );
+    expect(merged.overwritten).toHaveLength(1);
+    // Only on one side: still kept as an own key.
+    const oneSided = mergeJsonMapPerKey(local, {});
+    expect(Object.keys(oneSided.map)).toEqual(["__proto__"]);
+    // An absent key named like an Object.prototype member is absent, not "present".
+    const named = mergeJsonMapPerKey<number>(
+      { constructor: live(1, clock(1)) },
+      { toString: live(2, clock(1)) },
+    );
+    expect(Object.keys(named.map).sort()).toEqual(["constructor", "toString"]);
+    expect(named.overwritten).toEqual([]);
+  });
+
+  it("mergeOrSet keeps a __proto__ element and ignores inherited names", () => {
+    const local = setOwn<OrSetElement>({}, "__proto__", { addedAt: clock(1) });
+    const remote: OrSetElements = { constructor: { addedAt: clock(1) } };
+    const merged = mergeOrSet(local, remote);
+    expect(merged.ids).toEqual(["__proto__", "constructor"]);
+    expect(Object.keys(merged.elements).sort()).toEqual(["__proto__", "constructor"]);
+    expect(mergeOrSet(local, {}).ids).toEqual(["__proto__"]);
+  });
+
+  const real = clock(1);
+  const bad = "zzzz";
+
+  it("every primitive propagates hlc_malformed instead of ordering a corrupt clock", () => {
+    expect(() => mergeLww("a", real, "b", bad)).toThrow("hlc_malformed");
+    expect(() => mergeLww("a", bad, "b", null)).toThrow("hlc_malformed");
+    expect(() => mergeLww("a", null, "b", "9-000000-d")).toThrow("hlc_malformed");
+    expect(() => mergeOrSet({ x: { addedAt: bad } }, {})).toThrow("hlc_malformed");
+    expect(() => mergeOrSet({ x: { addedAt: real } }, { x: { removedAt: bad } })).toThrow(
+      "hlc_malformed",
+    );
+    expect(() => mergeJsonMapPerKey({ k: live(1, real) }, { k: live(2, bad) })).toThrow(
+      "hlc_malformed",
+    );
+    expect(() => mergeJsonMapPerKey({ k: live(1, bad) }, {})).toThrow("hlc_malformed");
+    expect(() => mergeTombstone(real, null, bad, null)).toThrow("hlc_malformed");
+    expect(() => mergeTombstone(real, bad, null, null)).toThrow("hlc_malformed");
   });
 });
