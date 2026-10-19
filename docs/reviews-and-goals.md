@@ -370,8 +370,10 @@ Once a week has a stored `ok` result, opening `/semaine` only shows it; a new as
 needs an explicit **Régénérer** / **« Demander au coach »**. Successful AI results
 (`status = ok`) cache on `(surface, weekStartDate, input_hash)`.
 `skipped` rows cache while AI is off. `fallback` and `error` rows are retryable and
-are not treated as sticky cache hits when AI is configured. Regenerating always appends
-a new message episode.
+are not treated as sticky cache hits when AI is configured. When a new generation fails
+but an earlier `ok` synthesis for the week still parses, the review reuses that
+last-good coach output (see [AI settings](ai-settings-and-privacy.md#weekly-synthesis-weekly_synthesis)).
+Regenerating always appends a new message episode.
 
 When AI is off, the local deterministic brief still renders from weekly insight findings.
 

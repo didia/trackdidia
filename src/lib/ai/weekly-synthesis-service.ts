@@ -128,6 +128,29 @@ const buildProposals = (
   return proposals;
 };
 
+const lastGoodResult = async (
+  repository: AppRepository,
+  scopeKey: string,
+): Promise<WeeklySynthesisResult | null> => {
+  const latest = await repository.getLatestAiMessage("weekly_synthesis", scopeKey, "ok");
+  if (!latest) {
+    return null;
+  }
+  const result = await cachedResult(repository, latest);
+  return result ? { ...result, source: "cache" as const } : null;
+};
+
+const persistFailureRecordBestEffort = async (
+  repository: AppRepository,
+  message: AiMessage,
+): Promise<void> => {
+  try {
+    await repository.saveAiMessage(message);
+  } catch {
+    // Best effort: disk full and similar errors must not block serving last-good output.
+  }
+};
+
 const cachedResult = async (
   repository: AppRepository,
   message: AiMessage,
@@ -196,6 +219,9 @@ export class WeeklySynthesisService {
       asOfDate,
     });
 
+    const localFallback = buildLocalWeeklySynthesis(snapshot);
+    const model = settings.aiSurfaceModels.weekly_synthesis ?? settings.aiModel;
+
     const result = await runStructuredSurface({
       repository,
       provider: this.provider,
@@ -208,7 +234,8 @@ export class WeeklySynthesisService {
       createdAt,
       bypassCache,
       reuseMessageId: false,
-      localFallback: buildLocalWeeklySynthesis(snapshot),
+      persistFallback: false,
+      localFallback,
       toBodyText: synthesisToBodyText,
       parse: parseWeeklySynthesisJson,
       request: (repairHint) => ({
@@ -232,6 +259,74 @@ export class WeeklySynthesisService {
         return cached ? { response: cached.synthesis, proposals: cached.proposals } : null;
       },
     });
+
+    if (result.source === "fallback" && result.warning) {
+      const lastGood = await lastGoodResult(repository, scopeKey);
+      if (lastGood) {
+        const failureMessage: AiMessage = {
+          id: createEntityId("ai-message"),
+          surface: "weekly_synthesis",
+          scopeKey,
+          stance: null,
+          kind: "weekly",
+          inputHash,
+          promptVersion: WEEKLY_SYNTHESIS_PROMPT_VERSION,
+          model,
+          status: "fallback",
+          bodyJson: JSON.stringify(result.response),
+          bodyText: synthesisToBodyText(result.response),
+          deltaClass: null,
+          notified: false,
+          tokensPrompt: null,
+          tokensCompletion: null,
+          latencyMs: null,
+          createdAt,
+        };
+        await persistFailureRecordBestEffort(repository, failureMessage);
+        return { ...lastGood, warning: result.warning };
+      }
+
+      const fallbackMessage: AiMessage = {
+        id: createEntityId("ai-message"),
+        surface: "weekly_synthesis",
+        scopeKey,
+        stance: null,
+        kind: "weekly",
+        inputHash,
+        promptVersion: WEEKLY_SYNTHESIS_PROMPT_VERSION,
+        model,
+        status: "fallback",
+        bodyJson: JSON.stringify(result.response),
+        bodyText: synthesisToBodyText(result.response),
+        deltaClass: null,
+        notified: false,
+        tokensPrompt: null,
+        tokensCompletion: null,
+        latencyMs: null,
+        createdAt,
+      };
+      const proposals = buildProposals(
+        fallbackMessage.id,
+        result.response,
+        createdAt,
+        eligibleGtdTaskTitles,
+        snapshotInputs.rescueTimeVocabulary,
+        snapshotInputs.rescueTimeGoalItems.map((goal) => goal.title),
+      );
+      const saved = await repository.saveCoachPulseEpisode(fallbackMessage, proposals);
+      return {
+        message: saved.message,
+        synthesis: result.response,
+        proposals: saved.proposals,
+        source: "fallback",
+        warning: result.warning,
+      };
+    }
+
+    if (!result.message) {
+      throw new Error("Unexpected weekly synthesis result without message");
+    }
+
     return {
       message: result.message,
       synthesis: result.response,

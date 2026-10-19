@@ -660,6 +660,168 @@ describe("WeeklySynthesisService", () => {
     expect(titles).toEqual(["Ecrire"]);
   });
 
+  const seedOkWeeklySynthesis = async (
+    repository: MemoryRepository,
+    weekStartDate: string,
+    headline = "IA",
+  ) => {
+    await repository.saveAiMessage({
+      id: "ai-message:ok-prior",
+      surface: "weekly_synthesis",
+      scopeKey: weekStartDate,
+      stance: null,
+      kind: "weekly",
+      inputHash: "prior-ok-hash",
+      promptVersion: "weekly_synthesis.v2",
+      model: "test-model",
+      status: "ok",
+      bodyJson: JSON.stringify({
+        headline,
+        scoreExplanation: "Score",
+        strongestAxis: "Discipline",
+        weakestAxes: ["Sommeil", "Pomodoris"],
+        sectionDrafts: {},
+        nextWeekObjectives: [],
+        gtdActions: [],
+      }),
+      bodyText: headline,
+      deltaClass: null,
+      notified: false,
+      tokensPrompt: 1,
+      tokensCompletion: 2,
+      latencyMs: 3,
+      createdAt: "2026-08-08T12:00:00.000Z",
+    });
+  };
+
+  it("returns last-good synthesis when the provider throws after a prior ok result", async () => {
+    const provider: AiProvider = {
+      generateStructured: vi.fn(async () => {
+        throw new Error("Provider down");
+      }),
+    };
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await seedOkWeeklySynthesis(repository, "2026-08-02", "Prior coach");
+    const service = new WeeklySynthesisService(provider);
+    const settings = defaultAppSettings();
+    settings.aiEnabled = true;
+    settings.aiApiKey = "secret";
+
+    const beforeCount = (await repository.listAiMessages("weekly_synthesis")).length;
+    const result = await service.buildSynthesis(repository, {
+      weekStartDate: "2026-08-02",
+      settings,
+      snapshotInputs: buildWeeklyInputs(),
+      trigger: "explicit",
+    });
+
+    expect(result.source).toBe("cache");
+    expect(result.warning).toBe("Provider down");
+    expect(result.synthesis.headline).toBe("Prior coach");
+    expect(result.message.id).toBe("ai-message:ok-prior");
+
+    const messages = await repository.listAiMessages("weekly_synthesis");
+    expect(messages).toHaveLength(beforeCount + 1);
+    const newFallback = messages.find(
+      (message) => message.status === "fallback" && message.id !== "ai-message:fallback",
+    );
+    expect(newFallback).toBeDefined();
+    expect(await repository.listAiProposals(newFallback!.id)).toEqual([]);
+  });
+
+  it("returns last-good synthesis when JSON stays unparseable after repair", async () => {
+    const provider: AiProvider = {
+      generateStructured: vi.fn(async () => ({
+        text: "not json",
+        model: "test-model",
+        usage: { tokensPrompt: 1, tokensCompletion: 2, latencyMs: 3 },
+      })),
+    };
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await seedOkWeeklySynthesis(repository, "2026-08-02", "Cached headline");
+    const service = new WeeklySynthesisService(provider);
+    const settings = defaultAppSettings();
+    settings.aiEnabled = true;
+    settings.aiApiKey = "secret";
+
+    const result = await service.buildSynthesis(repository, {
+      weekStartDate: "2026-08-02",
+      settings,
+      snapshotInputs: buildWeeklyInputs(),
+      trigger: "explicit",
+    });
+
+    expect(result.source).toBe("cache");
+    expect(result.warning).toBeTruthy();
+    expect(result.synthesis.headline).toBe("Cached headline");
+    expect(provider.generateStructured).toHaveBeenCalledTimes(2);
+
+    const fallbackRows = (await repository.listAiMessages("weekly_synthesis")).filter(
+      (message) => message.status === "fallback",
+    );
+    expect(fallbackRows).toHaveLength(1);
+    expect(await repository.listAiProposals(fallbackRows[0]!.id)).toEqual([]);
+  });
+
+  it("still returns last-good synthesis when persisting the failure record is rejected", async () => {
+    const provider: AiProvider = {
+      generateStructured: vi.fn(async () => {
+        throw new Error("Provider down");
+      }),
+    };
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await seedOkWeeklySynthesis(repository, "2026-08-02");
+    const saveSpy = vi
+      .spyOn(repository, "saveAiMessage")
+      .mockRejectedValueOnce(new Error("disk full"));
+    const service = new WeeklySynthesisService(provider);
+    const settings = defaultAppSettings();
+    settings.aiEnabled = true;
+    settings.aiApiKey = "secret";
+
+    const result = await service.buildSynthesis(repository, {
+      weekStartDate: "2026-08-02",
+      settings,
+      snapshotInputs: buildWeeklyInputs(),
+      trigger: "explicit",
+    });
+
+    expect(result.source).toBe("cache");
+    expect(result.warning).toBe("Provider down");
+    expect(result.synthesis.headline).toBe("IA");
+    saveSpy.mockRestore();
+  });
+
+  it("persists local proposals when generation fails with no prior ok result", async () => {
+    const provider: AiProvider = {
+      generateStructured: vi.fn(async () => {
+        throw new Error("Provider down");
+      }),
+    };
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const service = new WeeklySynthesisService(provider);
+    const settings = defaultAppSettings();
+    settings.aiEnabled = true;
+    settings.aiApiKey = "secret";
+
+    const result = await service.buildSynthesis(repository, {
+      weekStartDate: "2026-08-02",
+      settings,
+      snapshotInputs: buildWeeklyInputs(),
+      trigger: "auto",
+    });
+
+    expect(result.source).toBe("fallback");
+    expect(result.warning).toBe("Provider down");
+    expect(result.proposals.length).toBeGreaterThan(0);
+    const persisted = await repository.listAiProposals(result.message.id);
+    expect(persisted.length).toBeGreaterThan(0);
+  });
+
   it("drops a gtdAction whose taskId is not an eligible stale next action", async () => {
     const provider: AiProvider = {
       generateStructured: vi.fn(async () => ({

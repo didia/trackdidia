@@ -358,6 +358,17 @@ stored `ok` row whose `promptVersion` predates `WEEKLY_SYNTHESIS_PROMPT_VERSION`
 same stale-prompt guard `goal_pacing` and `pastor_verse` already applied; auto-load
 then builds a new one instead of rendering a result shaped for an old S2 schema.
 
+When the provider throws or the response stays unparseable after repair, and the week
+already has a stored `ok` synthesis whose body still parses, `buildSynthesis` reuses that
+last-good assessment (`source: cache`) and shows the failure as a warning line. A
+best-effort `fallback` row (local synthesis body, no proposals) is still appended so a
+later input-hash lookup does not treat the failed run as an `ok` cache hit (auto-load on
+`/semaine` is unchanged: a current-prompt stored `ok` row is shown without calling the
+provider). If no reusable `ok` row exists, behavior is unchanged: the local brief
+is persisted as `fallback` with proposals. When AI is disabled or the API key is empty,
+`buildSynthesis` returns the local skipped synthesis and does not apply this last-good
+path. Other coach surfaces do not use this last-good fallback.
+
 ### Monthly synthesis (`monthly_synthesis`)
 
 The `/mois` screen runs the S3 `monthly_synthesis` surface when the review page

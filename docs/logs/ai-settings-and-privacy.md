@@ -1,3 +1,4 @@
+- 2026-10-19: Weekly synthesis provider failures and unparseable responses reuse the latest successful `ok` synthesis for that week (`source: cache` plus a warning), append a proposal-less `fallback` row so input-hash lookup does not treat the failure as an `ok` hit, and fall back to the local brief with proposals only when no reusable `ok` row exists; `buildSynthesis` with AI off still returns the local skipped synthesis and skips the last-good path.
 - 2026-10-12: Removed the email triage classifier key section (the separate `triage_api_key` vault entry no longer exists in code) and the cross-references to email OAuth.
 
 - 2026-10-04: PR #207 review fixes: reconciler commits preserve disconnects and changed connections, recovery keeps links until an atomic identity commit, returned rate limits start the automatic cooldown, and manual sync/confirmation report translated failures and are disabled when sync is off. Corrected the mounted desktop reconciler status.
