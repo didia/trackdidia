@@ -150,7 +150,7 @@ describe("WeeklyReviewPage", () => {
       await repository.initialize();
       const week = "2026-03-29";
       const notesWeek = section === "dimanche" ? "2026-04-05" : week;
-      const label = section === "dimanche" ? /notes pour la semaine suivante/i : /notes bilan/i;
+      const label = section === "dimanche" ? /intentions pour la semaine du/i : /notes bilan/i;
       await repository.saveWeeklyReview(
         updateWeeklyReviewNote(createEmptyWeeklyReview(notesWeek), section, "Stored notes"),
       );
@@ -994,7 +994,7 @@ describe("WeeklyReviewPage", () => {
     await user.type(dateInput, weekStartDate);
     await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
 
-    const nextWeekField = await screen.findByLabelText(/notes pour la semaine suivante/i);
+    const nextWeekField = await screen.findByLabelText(/intentions pour la semaine du/i);
     await user.type(nextWeekField, "Porter le calme");
 
     await waitFor(async () => {
@@ -1007,7 +1007,9 @@ describe("WeeklyReviewPage", () => {
     await expect(repository.getWeeklyReview(weekStartDate)).resolves.toBeNull();
 
     await user.click(screen.getByRole("button", { name: /semaine suivante/i }));
-    expect(await screen.findByLabelText(/notes dimanche/i)).toHaveValue("Porter le calme");
+    expect(await screen.findByLabelText(/intentions pour cette semaine/i)).toHaveValue(
+      "Porter le calme",
+    );
   });
 
   it("accepts a Dimanche draft onto the following week", async () => {
@@ -1089,7 +1091,7 @@ describe("WeeklyReviewPage", () => {
     await user.click(acceptButtons[0]);
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/notes pour la semaine suivante/i)).toHaveValue("Ton pose");
+      expect(screen.getByLabelText(/intentions pour la semaine du/i)).toHaveValue("Ton pose");
     });
     await waitFor(async () => {
       await expect(repository.getWeeklyReview(nextWeekStartDate)).resolves.toMatchObject({
@@ -1123,8 +1125,10 @@ describe("WeeklyReviewPage", () => {
     await user.type(dateInput, storedWeek);
     await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
 
-    expect(await screen.findByLabelText(/notes dimanche/i)).toHaveValue("Deja pose");
-    expect(screen.getByLabelText(/notes pour la semaine suivante/i)).toHaveValue("");
+    const storedField = await screen.findByLabelText(/avais posé pour cette semaine/i);
+    expect(storedField).toHaveValue("Deja pose");
+    expect(storedField).toHaveAttribute("readonly");
+    expect(screen.getByLabelText(/intentions pour la semaine du/i)).toHaveValue("");
   });
 
   it("keeps a delayed Dimanche write when the next week is edited afterward", async () => {
@@ -1161,7 +1165,7 @@ describe("WeeklyReviewPage", () => {
     await user.type(dateInput, weekStartDate);
     await user.click(screen.getByRole("button", { name: /charger la semaine/i }));
 
-    await user.type(await screen.findByLabelText(/notes pour la semaine suivante/i), "Porter");
+    await user.type(await screen.findByLabelText(/intentions pour la semaine du/i), "Porter");
     await user.click(screen.getByRole("button", { name: /semaine suivante/i }));
     releaseFirstSave();
 
@@ -1205,7 +1209,7 @@ describe("WeeklyReviewPage", () => {
     const user = userEvent.setup();
     await renderWithApp(<DayBridge />, { repository, route: "/semaine" });
 
-    const dimancheField = await screen.findByLabelText(/notes dimanche/i);
+    const dimancheField = await screen.findByLabelText(/intentions pour cette semaine/i);
     await user.type(dimancheField, "Calme");
     await waitFor(async () => {
       await expect(repository.getWeeklyReview(weekStartDate)).resolves.toMatchObject({
@@ -1215,8 +1219,8 @@ describe("WeeklyReviewPage", () => {
 
     await user.click(screen.getByRole("button", { name: /passer minuit/i }));
 
-    expect(await screen.findByLabelText(/notes dimanche/i)).toHaveValue("Calme");
-    expect(screen.getByLabelText(/notes pour la semaine suivante/i)).toHaveValue("");
+    expect(await screen.findByLabelText(/avais posé pour cette semaine/i)).toHaveValue("Calme");
+    expect(screen.getByLabelText(/intentions pour la semaine du/i)).toHaveValue("");
     await expect(repository.getWeeklyReview(weekStartDate)).resolves.toMatchObject({
       notes: expect.objectContaining({ dimanche: "Calme" }),
     });

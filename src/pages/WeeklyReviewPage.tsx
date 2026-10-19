@@ -1039,16 +1039,30 @@ export const WeeklyReviewPage = () => {
           checklist={review.ritualChecklist}
           notes={review.notes}
           noteRefs={noteRefs}
+          readOnlyKeys={notesOnNextWeek ? ["dimanche"] : []}
           labels={{
             done: t("weekly.ritual.done"),
             doneAria: (section) => t("weekly.ritual.doneAria", { section }),
-            notesLabel: (section) => t("weekly.ritual.notesLabel", { section }),
+            notesLabel: (section, key) => {
+              if (key !== "dimanche") {
+                return t("weekly.ritual.notesLabel", { section });
+              }
+              return notesOnNextWeek
+                ? t("weekly.ritual.dimancheNotesReadOnlyLabel")
+                : t("weekly.ritual.dimancheNotesLabel");
+            },
             required: t("weekly.ritual.required"),
             addNote: t("weekly.ritual.addNote"),
             hideNote: t("weekly.ritual.hideNote"),
           }}
           notesPlaceholder={(section) =>
-            t("weekly.ritual.notesPlaceholder", { section: section.title.toLowerCase() })
+            section.key === "dimanche"
+              ? t(
+                  notesOnNextWeek
+                    ? "weekly.ritual.dimancheNotesReadOnlyPlaceholder"
+                    : "weekly.ritual.dimancheNotesPlaceholder",
+                )
+              : t("weekly.ritual.notesPlaceholder", { section: section.title.toLowerCase() })
           }
           onToggle={(sectionKey, checked) => {
             const currentReview = latestReviewRef.current;
@@ -1067,7 +1081,11 @@ export const WeeklyReviewPage = () => {
               <FinanceAccountFreshnessCard embedded />
             ) : section.key === "dimanche" && notesOnNextWeek ? (
               <label className="stacked-field">
-                <span>{t("weekly.ritual.nextWeekNotesLabel")}</span>
+                <span>
+                  {t("weekly.ritual.nextWeekNotesLabel", {
+                    start: formatDateShort(notesWeekStart),
+                  })}
+                </span>
                 <PersistedTextarea
                   key={`${notesWeekStart}-dimanche-next`}
                   ref={(handle) => {

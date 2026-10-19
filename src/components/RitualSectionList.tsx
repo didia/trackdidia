@@ -6,7 +6,7 @@ import { PersistedTextarea, type PersistedTextareaHandle } from "./PersistedText
 export interface RitualSectionListLabels {
   done: string;
   doneAria: (section: string) => string;
-  notesLabel: (section: string) => string;
+  notesLabel: (section: string, key: string) => string;
   /** Badge on a section whose note must be filled in. */
   required: string;
   /** Toggle that reveals the note of an optional section. */
@@ -33,6 +33,8 @@ interface RitualSectionListProps<K extends string> {
   requiredKeys?: ReadonlyArray<K>;
   /** Extra content rendered under a section's note field (e.g. next week's Dimanche notes). */
   renderAfterNotes?: (section: RitualSection<K>) => ReactNode;
+  /** Sections whose stored note is shown as plain read-only text (no toggle, no saves). */
+  readOnlyKeys?: ReadonlyArray<K>;
 }
 
 interface OptionalNoteProps {
@@ -83,24 +85,36 @@ export const RitualSectionList = <K extends string>({
   notesPlaceholder,
   requiredKeys = [],
   renderAfterNotes,
+  readOnlyKeys = [],
 }: RitualSectionListProps<K>) => (
   <div className={className}>
     {sections.map((section) => {
       const required = requiredKeys.includes(section.key);
+      const readOnly = readOnlyKeys.includes(section.key);
       const noteField = (
         <label className="note-field">
-          <span className="note-field__label">{labels.notesLabel(section.title)}</span>
-          <PersistedTextarea
-            key={`${scopeKey}-${section.key}`}
-            ref={(handle) => {
-              noteRefs.current[section.key] = handle;
-            }}
-            rows={required ? 10 : 6}
-            debounceMs={0}
-            savedValue={notes[section.key]}
-            onPersist={(value) => onPersistNote(section.key, value)}
-            placeholder={notesPlaceholder?.(section)}
-          />
+          <span className="note-field__label">{labels.notesLabel(section.title, section.key)}</span>
+          {readOnly ? (
+            <textarea
+              key={`${scopeKey}-${section.key}`}
+              readOnly
+              rows={required ? 10 : 6}
+              value={notes[section.key]}
+              placeholder={notesPlaceholder?.(section)}
+            />
+          ) : (
+            <PersistedTextarea
+              key={`${scopeKey}-${section.key}`}
+              ref={(handle) => {
+                noteRefs.current[section.key] = handle;
+              }}
+              rows={required ? 10 : 6}
+              debounceMs={0}
+              savedValue={notes[section.key]}
+              onPersist={(value) => onPersistNote(section.key, value)}
+              placeholder={notesPlaceholder?.(section)}
+            />
+          )}
         </label>
       );
       return (
@@ -127,7 +141,7 @@ export const RitualSectionList = <K extends string>({
             </label>
           </div>
           <p className="empty-copy">{section.prompt}</p>
-          {required ? (
+          {required || readOnly ? (
             noteField
           ) : (
             <OptionalNote
