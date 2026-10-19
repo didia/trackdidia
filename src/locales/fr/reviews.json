@@ -65,12 +65,7 @@
       "refresh": "Rafraîchir RescueTime",
       "loading": "Chargement des objectifs RescueTime...",
       "empty": "Aucun goal RescueTime actif trouvé pour ce compte.",
-      "direction": {
-        "more": "Plus de temps",
-        "less": "Moins de temps"
-      },
-      "timeLine": "Temps : {{actual}} / {{target}} (cible hebdo)",
-      "schedule": "Horaire : {{label}}"
+      "compactLine": "{{actual}} / {{target}} {{direction}}"
     },
     "standing": {
       "title": "Objectifs permanents",

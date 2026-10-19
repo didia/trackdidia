@@ -279,6 +279,10 @@ from the Analytic Data API for the selected Sunday–Saturday week. These scores
 the optional RescueTime axes above. They are not part of the repository weekly summary,
 but each successful pull is cached (see [Snapshot cache](#rescuetime-snapshot-cache)).
 
+On `/semaine`, each enabled goal appears on **one compact line**: the goal name,
+actual / weekly target hours with **≥** (more time) or **≤** (less time), and the
+achievement as a percent. The schedule label is not shown on that line.
+
 Each goal is worth at most **1 point**:
 
 | Direction | Achievement |

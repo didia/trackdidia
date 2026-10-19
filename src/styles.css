@@ -911,6 +911,39 @@ textarea {
   gap: 16px;
 }
 
+.rescue-goal-lines {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.rescue-goal-lines li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  font-size: 0.92rem;
+}
+
+.rescue-goal-lines__title {
+  flex: 1 1 12rem;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.rescue-goal-lines__time {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.rescue-goal-lines__score {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .weekly-overview-grid,
 .weekly-day-grid {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -1715,6 +1748,16 @@ button.tag-chip:active:not(:disabled) {
   .pomodoro-panel,
   .floating-pomodoro__body {
     grid-template-columns: 1fr;
+  }
+
+  .rescue-goal-lines li {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .rescue-goal-lines__score {
+    margin-left: 0;
   }
 
   .toggle-group {

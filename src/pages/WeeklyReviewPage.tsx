@@ -795,30 +795,21 @@ export const WeeklyReviewPage = () => {
             <p className="empty-copy">{t("weekly.rescueGoals.empty")}</p>
           )
         ) : (
-          <div className="weekly-day-grid">
+          <ul className="rescue-goal-lines">
             {weekMatchedGoalsSnapshot.items.map((item) => (
-              <article key={item.goalId} className="schedule-day-group">
-                <div className="schedule-day-group__header">
-                  <h3>{item.title}</h3>
-                  <span>{item.achievement.toFixed(2)}/1</span>
-                </div>
-                <div className="weekly-day-card__metrics">
-                  <span>
-                    {item.isMore
-                      ? t("weekly.rescueGoals.direction.more")
-                      : t("weekly.rescueGoals.direction.less")}
-                  </span>
-                  <span>
-                    {t("weekly.rescueGoals.timeLine", {
-                      actual: formatHours(item.actualHours),
-                      target: formatHours(item.weeklyTargetHours),
-                    })}
-                  </span>
-                  <span>{t("weekly.rescueGoals.schedule", { label: item.scheduleLabel })}</span>
-                </div>
-              </article>
+              <li key={item.goalId}>
+                <span className="rescue-goal-lines__title">{item.title}</span>
+                <span className="rescue-goal-lines__time">
+                  {t("weekly.rescueGoals.compactLine", {
+                    actual: formatHours(item.actualHours),
+                    target: formatHours(item.weeklyTargetHours),
+                    direction: item.isMore ? "≥" : "≤",
+                  })}
+                </span>
+                <span className="rescue-goal-lines__score">{formatPercent(item.achievement)}</span>
+              </li>
             ))}
-          </div>
+          </ul>
         )}
       </SectionCard>
 
