@@ -1115,7 +1115,7 @@ cash-flow card (income/expense/net tiles and a "% des revenus dépensés" meter)
 the alerts list below, flat and ordered critical → warning → info with
 severity-tinted rows (an empty list shows a green "all clear" row); then two
 two-column bands — spending trend + top categories (ranked rows with relative
-bars), and recurring bills + accounts (avatar rows, negative balances in red).
+bars), and recurring series + accounts (avatar rows, negative balances in red).
 The six trend columns show the localized short month name with the current
 month highlighted. Styling for the whole module lives in
 `src/styles-finance.css` (imported after `styles.css`), scoped under
@@ -1130,9 +1130,9 @@ described above), this month's cash flow (income/expense/net), a 6-month
 spending-trend bar chart (one column per month, zero-filled, each printing its
 amount; plain CSS bars sized from `computeFinanceTrend`'s `expenseMinor`, no charting
 dependency), the current month's top five
-spending categories (`computeFinanceCategorySpend`), the account list rendered from the same `computeFinanceNetWorth` lines as the total (so closed accounts and the as-of-today cutoff agree with it; closed accounts are labelled), and up to five upcoming active
-recurring series sorted by `nextExpectedDate` and formatted in the account's own currency, each with Confirmer/Mettre en
-pause/Terminer actions that write through `saveFinanceRecurringSeries`. `load` first calls `detectFinanceRecurringSeries()` so dates and missed/ended series reflect today, and surfaces a load failure instead of a stuck "Chargement...".
+spending categories (`computeFinanceCategorySpend`), the account list rendered from the same `computeFinanceNetWorth` lines as the total (so closed accounts and the as-of-today cutoff agree with it; closed accounts are labelled), and upcoming active
+recurring series sorted by `nextExpectedDate` and formatted in the account's own currency. Outflows (`expectedAmountMinor < 0`) are **Factures récurrentes à venir**; inflows (`expectedAmountMinor > 0`) are **Revenus récurrents à venir** and are omitted from the bills card. Each list shows at most five series, with Confirmer/Mettre en
+pause/Terminer actions that write through `saveFinanceRecurringSeries`. The income card is hidden when there is no upcoming inflow. `load` first calls `detectFinanceRecurringSeries()` so dates and missed/ended series reflect today, and surfaces a load failure instead of a stuck "Chargement...".
 
 ### FinanceReportsPage (`/finances/reports`, Phase 6)
 

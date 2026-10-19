@@ -113,13 +113,17 @@ export const FinanceOverviewPage = () => {
     [categories],
   );
 
-  const upcomingRecurring = useMemo(
-    () =>
-      [...recurringSeries]
-        .sort((a, b) => a.nextExpectedDate.localeCompare(b.nextExpectedDate))
-        .slice(0, UPCOMING_RECURRING_COUNT),
-    [recurringSeries],
-  );
+  const upcomingRecurring = useMemo(() => {
+    const sorted = [...recurringSeries].sort((a, b) =>
+      a.nextExpectedDate.localeCompare(b.nextExpectedDate),
+    );
+    const take = (matches: (series: FinanceRecurringSeries) => boolean) =>
+      sorted.filter(matches).slice(0, UPCOMING_RECURRING_COUNT);
+    return {
+      bills: take((series) => series.expectedAmountMinor < 0),
+      income: take((series) => series.expectedAmountMinor > 0),
+    };
+  }, [recurringSeries]);
 
   // One column per month of the six-month span, zero when the month has no spending.
   const trendColumns = useMemo(() => {
@@ -213,6 +217,57 @@ export const FinanceOverviewPage = () => {
       ? Math.round((netWorth.shortTermDebtMinor / netWorth.liquidAssetsMinor) * 100)
       : null;
   const maxCategoryMinor = Math.max(1, ...topCategories.map((row) => row.totalMinor));
+
+  const renderRecurringCard = (
+    title: string,
+    seriesList: FinanceRecurringSeries[],
+    emptyLabel: string | null,
+  ) => (
+    <SectionCard title={title}>
+      {!loading && seriesList.length === 0 && emptyLabel ? (
+        <p className="finance-empty finance-empty--neutral">
+          <span className="finance-empty__icon" aria-hidden="true">
+            –
+          </span>
+          <span>{emptyLabel}</span>
+        </p>
+      ) : null}
+      <div className="finance-rows">
+        {seriesList.map((series) => (
+          <article key={series.id} className="finance-row">
+            <span className="finance-row__avatar" aria-hidden="true">
+              {accountInitial(series.merchantKey)}
+            </span>
+            <div className="finance-row__main">
+              <h3 className="finance-row__title">{series.merchantKey}</h3>
+              <span className="finance-row__meta">
+                {t("overview.recurringNextDate", { date: series.nextExpectedDate })}
+              </span>
+            </div>
+            <span className="finance-row__amount">
+              {formatMoney({
+                amountMinor: series.expectedAmountMinor,
+                currency: accountById.get(series.accountId)?.currency ?? baseCurrency,
+              })}
+            </span>
+            <div className="finance-row__actions">
+              {!series.confirmedByUser ? (
+                <button type="button" onClick={() => void confirmRecurring(series)}>
+                  {t("overview.recurringConfirm")}
+                </button>
+              ) : null}
+              <button type="button" onClick={() => void pauseRecurring(series)}>
+                {t("overview.recurringPause")}
+              </button>
+              <button type="button" onClick={() => void endRecurring(series)}>
+                {t("overview.recurringEnd")}
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </SectionCard>
+  );
 
   return (
     <div className="page finance-page">
@@ -507,50 +562,20 @@ export const FinanceOverviewPage = () => {
       </div>
 
       <div className="finance-columns">
-        <SectionCard title={t("overview.recurringTitle")}>
-          {!loading && upcomingRecurring.length === 0 ? (
-            <p className="finance-empty finance-empty--neutral">
-              <span className="finance-empty__icon" aria-hidden="true">
-                –
-              </span>
-              <span>{t("overview.noRecurring")}</span>
-            </p>
-          ) : null}
-          <div className="finance-rows">
-            {upcomingRecurring.map((series) => (
-              <article key={series.id} className="finance-row">
-                <span className="finance-row__avatar" aria-hidden="true">
-                  {accountInitial(series.merchantKey)}
-                </span>
-                <div className="finance-row__main">
-                  <h3 className="finance-row__title">{series.merchantKey}</h3>
-                  <span className="finance-row__meta">
-                    {t("overview.recurringNextDate", { date: series.nextExpectedDate })}
-                  </span>
-                </div>
-                <span className="finance-row__amount">
-                  {formatMoney({
-                    amountMinor: series.expectedAmountMinor,
-                    currency: accountById.get(series.accountId)?.currency ?? baseCurrency,
-                  })}
-                </span>
-                <div className="finance-row__actions">
-                  {!series.confirmedByUser ? (
-                    <button type="button" onClick={() => void confirmRecurring(series)}>
-                      {t("overview.recurringConfirm")}
-                    </button>
-                  ) : null}
-                  <button type="button" onClick={() => void pauseRecurring(series)}>
-                    {t("overview.recurringPause")}
-                  </button>
-                  <button type="button" onClick={() => void endRecurring(series)}>
-                    {t("overview.recurringEnd")}
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-        </SectionCard>
+        <div className="finance-recurring-column">
+          {renderRecurringCard(
+            t("overview.recurringTitle"),
+            upcomingRecurring.bills,
+            t("overview.noRecurring"),
+          )}
+          {upcomingRecurring.income.length > 0
+            ? renderRecurringCard(
+                t("overview.recurringIncomeTitle"),
+                upcomingRecurring.income,
+                null,
+              )
+            : null}
+        </div>
 
         <SectionCard title={t("overview.accountsTitle")}>
           {loading ? <p>{t("overview.loading")}</p> : null}
