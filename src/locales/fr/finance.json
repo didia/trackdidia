@@ -44,6 +44,7 @@
     "topCategoriesTitle": "Principales catégories",
     "noTopCategories": "Aucune dépense ce mois-ci.",
     "recurringTitle": "Factures récurrentes à venir",
+    "recurringIncomeTitle": "Revenus récurrents à venir",
     "noRecurring": "Aucune facture récurrente détectée.",
     "recurringNextDate": "Prochaine échéance : {{date}}",
     "recurringConfirm": "Confirmer",

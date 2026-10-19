@@ -394,6 +394,12 @@
   align-items: start;
 }
 
+.finance-recurring-column {
+  display: grid;
+  gap: 20px;
+  align-content: start;
+}
+
 .finance-columns > .panel,
 .finance-summary > .panel {
   height: 100%;

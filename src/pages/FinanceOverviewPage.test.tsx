@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { AppContext, useAppContext } from "../app/app-context";
@@ -334,6 +334,62 @@ describe("FinanceOverviewPage", () => {
     expect(await screen.findByRole("button", { name: "Mettre en pause" })).toBeInTheDocument();
     const series = await repository.listFinanceRecurringSeries();
     expect(series.find((s) => s.merchantKey === "NETFLIX")?.confirmedByUser).toBe(true);
+  });
+
+  it("lists a positive recurring series as revenue, not as a bill", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveFinanceAccount({
+      id: "account-1",
+      name: "Compte chèques",
+      institution: null,
+      type: "checking",
+      currency: "CAD",
+      ownerPersonId: null,
+      ownership: "individual",
+      onBudget: true,
+      closed: false,
+      openingBalanceMinor: 0,
+      currentBalanceMinor: null,
+      balanceAsOf: null,
+      externalKey: null,
+      notes: null,
+      sortOrder: 0,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    for (const daysAgo of [60, 30, 0]) {
+      await repository.saveFinanceTransaction(
+        buildTxn({
+          merchantKey: "NETFLIX",
+          descriptionRaw: "NETFLIX",
+          amountMinor: -1599,
+          postedDate: addDays(getTodayDate(), -daysAgo),
+        }),
+      );
+      await repository.saveFinanceTransaction(
+        buildTxn({
+          merchantKey: "ADVANCEO INC",
+          descriptionRaw: "ADVANCEO INC",
+          amountMinor: 85619,
+          postedDate: addDays(getTodayDate(), -daysAgo),
+        }),
+      );
+    }
+
+    await renderWithApp(<FinanceOverviewPage />, {
+      repository,
+      contextOverrides: {
+        settings: { ...defaultAppSettings(), financeEnabled: true, financeBaseCurrency: "CAD" },
+      },
+    });
+
+    const bills = await screen.findByRole("region", { name: "Factures récurrentes à venir" });
+    const income = screen.getByRole("region", { name: "Revenus récurrents à venir" });
+    expect(within(bills).getByText("NETFLIX")).toBeInTheDocument();
+    expect(within(bills).queryByText("ADVANCEO INC")).not.toBeInTheDocument();
+    expect(within(income).getByText("ADVANCEO INC")).toBeInTheDocument();
+    expect(within(income).queryByText("NETFLIX")).not.toBeInTheDocument();
   });
 
   it("renders a null-category top category as 'Non catégorisé', never the raw 'uncategorized' key", async () => {
