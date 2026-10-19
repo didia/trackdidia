@@ -228,34 +228,37 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         ["2026-10-03", "2026-10-04"],
         ["2026-10-04", "2026-10-03"],
         ["2026-10-04", "2026-10-04"],
-      ])("serializes overlapping relationship draws for %s and %s", async (firstDate, secondDate) => {
-        const repository = await factory();
-        await repository.updateSettings((current) => ({
-          ...current,
-          relationshipDrawsEnabled: true,
-          relationshipDrawChildrenActivities: ["Lire ensemble"],
-          relationshipDrawSpouseActivities: ["Boire un thé"],
-        }));
-        const [firstCount, secondCount] = await Promise.all([
-          repository.generateDailyRelationshipTasks(firstDate),
-          repository.generateDailyRelationshipTasks(secondDate),
-          repository.updateSettings((current) => ({ ...current, lastBackupAt: "backup" })),
-        ]);
-        expect(firstCount + secondCount).toBe(2);
-        const tasks = await repository.listTasks({ includeCompleted: true });
-        for (const category of ["children", "spouse"]) {
-          expect(
-            tasks.filter((task) =>
-              task.sourceExternalId?.startsWith(`relationship-draw:${category}:`),
-            ),
-          ).toHaveLength(1);
-        }
-        expect(await repository.getSettings()).toMatchObject({
-          relationshipDrawChildrenProcessedDate: "2026-10-04",
-          relationshipDrawSpouseProcessedDate: "2026-10-04",
-          lastBackupAt: "backup",
-        });
-      });
+      ])(
+        "serializes overlapping relationship draws for %s and %s",
+        async (firstDate, secondDate) => {
+          const repository = await factory();
+          await repository.updateSettings((current) => ({
+            ...current,
+            relationshipDrawsEnabled: true,
+            relationshipDrawChildrenActivities: ["Lire ensemble"],
+            relationshipDrawSpouseActivities: ["Boire un thé"],
+          }));
+          const [firstCount, secondCount] = await Promise.all([
+            repository.generateDailyRelationshipTasks(firstDate),
+            repository.generateDailyRelationshipTasks(secondDate),
+            repository.updateSettings((current) => ({ ...current, lastBackupAt: "backup" })),
+          ]);
+          expect(firstCount + secondCount).toBe(2);
+          const tasks = await repository.listTasks({ includeCompleted: true });
+          for (const category of ["children", "spouse"]) {
+            expect(
+              tasks.filter((task) =>
+                task.sourceExternalId?.startsWith(`relationship-draw:${category}:`),
+              ),
+            ).toHaveLength(1);
+          }
+          expect(await repository.getSettings()).toMatchObject({
+            relationshipDrawChildrenProcessedDate: "2026-10-04",
+            relationshipDrawSpouseProcessedDate: "2026-10-04",
+            lastBackupAt: "backup",
+          });
+        },
+      );
 
       it("does not move relationship markers backwards or regenerate an older completed day", async () => {
         const repository = await factory();
@@ -1708,76 +1711,76 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         expect(await repository.listWeeklyObjectives()).toHaveLength(1);
       });
 
-      it.each([
-        "dailyEntry",
-        "weeklyReview",
-        "monthlyReview",
-      ] as const)("distinguishes repeat %s acceptance from a write and preserves manual edits", async (kind) => {
-        const repository = await factory();
-        const daily = createEmptyDailyEntry("2026-10-03");
-        daily.morningIntention = "Coach draft";
-        const weekly = createEmptyWeeklyReview("2026-09-27");
-        weekly.notes.bilan = "Coach draft";
-        const monthly = createEmptyMonthlyReview("2026-10");
-        monthly.notes.bilan = "Coach draft";
-        const effect: AcceptEffect =
-          kind === "dailyEntry"
-            ? { kind, entry: daily }
-            : kind === "weeklyReview"
-              ? { kind, review: weekly }
-              : { kind, review: monthly };
-        const proposal = {
-          id: "ai-proposal:repeat-draft",
-          messageId: "ai-message:repeat-draft",
-          type:
+      it.each(["dailyEntry", "weeklyReview", "monthlyReview"] as const)(
+        "distinguishes repeat %s acceptance from a write and preserves manual edits",
+        async (kind) => {
+          const repository = await factory();
+          const daily = createEmptyDailyEntry("2026-10-03");
+          daily.morningIntention = "Coach draft";
+          const weekly = createEmptyWeeklyReview("2026-09-27");
+          weekly.notes.bilan = "Coach draft";
+          const monthly = createEmptyMonthlyReview("2026-10");
+          monthly.notes.bilan = "Coach draft";
+          const effect: AcceptEffect =
             kind === "dailyEntry"
-              ? ("intention_draft" as const)
-              : ("review_section_draft" as const),
-          payloadJson: JSON.stringify({ text: "Coach draft", sectionKey: "bilan" }),
-          status: "pending" as const,
-          appliedEntityId: null,
-          decidedAt: null,
-          createdAt: "2026-10-03T12:00:00.000Z",
-        };
-        await repository.saveAiProposal(proposal);
-        const first = await repository.acceptAiProposal(proposal.id, effect);
-        expect(first.effectApplied).toBe(true);
-        let context: ProposalApplyContext;
-        let readNote: () => Promise<string | undefined>;
-        if (kind === "dailyEntry") {
-          const manual = { ...daily, morningIntention: "Manual edit" };
-          await repository.saveDailyEntry(manual);
-          context = { acceptedDate: daily.date, dailyEntry: manual };
-          readNote = async () => (await repository.getDailyEntry(daily.date))?.morningIntention;
-        } else if (kind === "weeklyReview") {
-          const manual = { ...weekly, notes: { ...weekly.notes, bilan: "Manual edit" } };
-          await repository.saveWeeklyReview(manual);
-          context = {
-            acceptedDate: weekly.weekStartDate,
-            weekly: { withReview: (_, work) => work(manual) },
+              ? { kind, entry: daily }
+              : kind === "weeklyReview"
+                ? { kind, review: weekly }
+                : { kind, review: monthly };
+          const proposal = {
+            id: "ai-proposal:repeat-draft",
+            messageId: "ai-message:repeat-draft",
+            type:
+              kind === "dailyEntry"
+                ? ("intention_draft" as const)
+                : ("review_section_draft" as const),
+            payloadJson: JSON.stringify({ text: "Coach draft", sectionKey: "bilan" }),
+            status: "pending" as const,
+            appliedEntityId: null,
+            decidedAt: null,
+            createdAt: "2026-10-03T12:00:00.000Z",
           };
-          readNote = async () =>
-            (await repository.getWeeklyReview(weekly.weekStartDate))?.notes.bilan;
-        } else {
-          const manual = { ...monthly, notes: { ...monthly.notes, bilan: "Manual edit" } };
-          await repository.saveMonthlyReview(manual);
-          context = {
-            acceptedDate: monthly.monthKey,
-            monthly: { monthKey: monthly.monthKey, withReview: (_, work) => work(manual) },
-          };
-          readNote = async () => (await repository.getMonthlyReview(monthly.monthKey))?.notes.bilan;
-        }
-        const repeat = await repository.acceptAiProposal(proposal.id, effect);
-        expect(repeat.effectApplied).toBe(false);
-        expect(repeat.appliedEntityId).toBe(first.appliedEntityId);
-        const outcome = await applyCoachProposal(repository, proposal, context);
-        expect(outcome).toMatchObject({ accepted: true, proposal: first.proposal });
-        expect(outcome.dailyNote).toBeUndefined();
-        expect(outcome.weeklyReview).toBeUndefined();
-        expect(outcome.monthlyReview).toBeUndefined();
-        expect(outcome.text).toBeUndefined();
-        expect(await readNote()).toBe("Manual edit");
-      });
+          await repository.saveAiProposal(proposal);
+          const first = await repository.acceptAiProposal(proposal.id, effect);
+          expect(first.effectApplied).toBe(true);
+          let context: ProposalApplyContext;
+          let readNote: () => Promise<string | undefined>;
+          if (kind === "dailyEntry") {
+            const manual = { ...daily, morningIntention: "Manual edit" };
+            await repository.saveDailyEntry(manual);
+            context = { acceptedDate: daily.date, dailyEntry: manual };
+            readNote = async () => (await repository.getDailyEntry(daily.date))?.morningIntention;
+          } else if (kind === "weeklyReview") {
+            const manual = { ...weekly, notes: { ...weekly.notes, bilan: "Manual edit" } };
+            await repository.saveWeeklyReview(manual);
+            context = {
+              acceptedDate: weekly.weekStartDate,
+              weekly: { withReview: (_, work) => work(manual) },
+            };
+            readNote = async () =>
+              (await repository.getWeeklyReview(weekly.weekStartDate))?.notes.bilan;
+          } else {
+            const manual = { ...monthly, notes: { ...monthly.notes, bilan: "Manual edit" } };
+            await repository.saveMonthlyReview(manual);
+            context = {
+              acceptedDate: monthly.monthKey,
+              monthly: { monthKey: monthly.monthKey, withReview: (_, work) => work(manual) },
+            };
+            readNote = async () =>
+              (await repository.getMonthlyReview(monthly.monthKey))?.notes.bilan;
+          }
+          const repeat = await repository.acceptAiProposal(proposal.id, effect);
+          expect(repeat.effectApplied).toBe(false);
+          expect(repeat.appliedEntityId).toBe(first.appliedEntityId);
+          const outcome = await applyCoachProposal(repository, proposal, context);
+          expect(outcome).toMatchObject({ accepted: true, proposal: first.proposal });
+          expect(outcome.dailyNote).toBeUndefined();
+          expect(outcome.weeklyReview).toBeUndefined();
+          expect(outcome.monthlyReview).toBeUndefined();
+          expect(outcome.text).toBeUndefined();
+          expect(await readNote()).toBe("Manual edit");
+        },
+      );
 
       it("acceptAiProposal for monthly reviews is idempotent", async () => {
         const repository = await factory();
@@ -3540,6 +3543,62 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         ]);
       });
 
+      it("persists a per-account update cadence and clears it back to the default", async () => {
+        const repository = await factory();
+        const saved = await repository.saveFinanceAccount(account({ updateCadenceDays: 14 }));
+        expect(saved.updateCadenceDays).toBe(14);
+        await expect(repository.listFinanceAccounts()).resolves.toEqual([
+          expect.objectContaining({ id: saved.id, updateCadenceDays: 14 }),
+        ]);
+
+        await repository.saveFinanceAccount({ ...saved, updateCadenceDays: null });
+        await expect(repository.listFinanceAccounts()).resolves.toEqual([
+          expect.objectContaining({ id: saved.id, updateCadenceDays: null }),
+        ]);
+
+        const plain = await repository.saveFinanceAccount(account({ id: "account-plain" }));
+        expect(plain.updateCadenceDays ?? null).toBeNull();
+      });
+
+      it("keeps the stored update cadence when a save omits it", async () => {
+        const repository = await factory();
+        const saved = await repository.saveFinanceAccount(account({ updateCadenceDays: 21 }));
+        const { updateCadenceDays: _omitted, ...withoutCadence } = saved;
+        await repository.saveFinanceAccount({ ...withoutCadence, name: "Renommé" });
+        await expect(repository.listFinanceAccounts()).resolves.toEqual([
+          expect.objectContaining({ id: saved.id, name: "Renommé", updateCadenceDays: 21 }),
+        ]);
+      });
+
+      it("returns the newest transaction date per account in one read", async () => {
+        const repository = await factory();
+        const first = await repository.saveFinanceAccount(account({ id: "account-a" }));
+        const second = await repository.saveFinanceAccount(account({ id: "account-b" }));
+        await repository.saveFinanceAccount(account({ id: "account-empty" }));
+        await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-a-old",
+            accountId: first.id,
+            postedDate: "2026-09-01",
+          }),
+        );
+        await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-a-new",
+            accountId: first.id,
+            postedDate: "2026-10-05",
+          }),
+        );
+        await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-b", accountId: second.id, postedDate: "2026-08-15" }),
+        );
+
+        await expect(repository.listFinanceLatestTransactionDates()).resolves.toEqual({
+          "account-a": "2026-10-05",
+          "account-b": "2026-08-15",
+        });
+      });
+
       it("excludes closed accounts by default and includes them when asked", async () => {
         const repository = await factory();
         const saved = await repository.saveFinanceAccount(account());
@@ -3930,6 +3989,45 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           categoryId: "fincat:logement.loyer-hypotheque",
           categorySource: "user",
           isTransfer: false,
+        });
+      });
+
+      it("applies the imported category hint when it names an existing category", async () => {
+        const repository = await factory();
+        await repository.seedFinanceDefaultCategories();
+        await repository.saveFinanceAccount(account({ id: "account-checking" }));
+
+        await repository.importFinanceTransactions({
+          accountId: "account-checking",
+          profileId: null,
+          fileName: "hints.csv",
+          fileHash: "hash-hints",
+          rows: [
+            importRow({
+              accountId: "account-checking",
+              amountMinor: -4500,
+              descriptionRaw: "ACHAT QUELCONQUE",
+              merchantKey: "ACHAT QUELCONQUE",
+              categoryHint: "epicerie",
+            }),
+            importRow({
+              accountId: "account-checking",
+              amountMinor: -900,
+              descriptionRaw: "AUTRE ACHAT",
+              merchantKey: "AUTRE ACHAT",
+              categoryHint: "Categorie inconnue",
+            }),
+          ],
+        });
+
+        const transactions = await repository.listFinanceTransactions({});
+        expect(transactions.find((t) => t.descriptionRaw === "ACHAT QUELCONQUE")).toMatchObject({
+          categoryId: "fincat:alimentation.epicerie",
+          categorySource: "rule",
+        });
+        expect(transactions.find((t) => t.descriptionRaw === "AUTRE ACHAT")).toMatchObject({
+          categoryId: "fincat:non-categorise",
+          categorySource: "default",
         });
       });
 
@@ -5321,6 +5419,9 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           expect(snapshot.assetsMinor).toBe(100_00 + 200_00);
           expect(snapshot.liabilitiesMinor).toBe(300_00);
           expect(snapshot.netWorthMinor).toBe(snapshot.assetsMinor - snapshot.liabilitiesMinor);
+          expect(snapshot.liquidAssetsMinor).toBe(100_00 + 200_00);
+          expect(snapshot.shortTermDebtMinor).toBe(300_00);
+          expect(snapshot.netLiquidityMinor).toBe(0);
         });
 
         it("computeFinanceCashFlow excludes transfers and sums income/expense", async () => {
@@ -6130,6 +6231,63 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           expect(group.amountMinorSample).toBeLessThan(1_000);
         });
 
+        it("remembers an auto-applied AI category so the next import resolves it without the model", async () => {
+          const repository = await factory();
+          await repository.saveFinanceAccount(account({ id: "account-1" }));
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({ id: "txn-1", merchantKey: "MARCHAND INCONNU" }),
+          );
+
+          await repository.applyFinanceCategorizationResults({
+            results: [
+              {
+                merchantKey: "MARCHAND INCONNU",
+                categoryId: "fincat:alimentation.epicerie",
+                confidence: 0.92,
+                rationale: "Semble etre une epicerie.",
+              },
+            ],
+            merchantKeyMap: { "MARCHAND INCONNU": ["MARCHAND INCONNU"] },
+            transactionIds: ["txn-1"],
+            model: "test-model",
+            promptVersion: "finance_categorization.v1",
+            autoApply: true,
+            autoApplyMinConfidence: 0.9,
+          });
+
+          await expect(repository.listFinanceMerchantMemory()).resolves.toEqual([
+            expect.objectContaining({
+              merchantKey: "MARCHAND INCONNU",
+              accountId: "",
+              categoryId: "fincat:alimentation.epicerie",
+              source: "auto_confirm",
+            }),
+          ]);
+
+          await repository.importFinanceTransactions({
+            accountId: "account-1",
+            profileId: null,
+            fileName: "next.csv",
+            fileHash: "hash-next",
+            rows: [
+              importRow({
+                accountId: "account-1",
+                amountMinor: -1500,
+                postedDate: "2026-05-02",
+                descriptionRaw: "MARCHAND INCONNU",
+                merchantKey: "MARCHAND INCONNU",
+              }),
+            ],
+          });
+          const imported = (await repository.listFinanceTransactions({})).find(
+            (t) => t.importBatchId !== null,
+          );
+          expect(imported).toMatchObject({
+            categoryId: "fincat:alimentation.epicerie",
+            categorySource: "memory",
+          });
+        });
+
         it("writes a pending ai-origin suggestion with rationale/model/promptVersion, but does not auto-apply below threshold", async () => {
           const repository = await factory();
           await repository.saveFinanceAccount(account({ id: "account-1" }));
@@ -6407,6 +6565,69 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
             autoApplied: 2,
             suppressedDismissed: 0,
           });
+        });
+      });
+    });
+
+    describe("multi-device sync foundation", () => {
+      const DEVICE = "dev:0b9c7c1e-6a3f-4b8e-9d2a-1f2e3d4c5b6a";
+
+      it("implements both sync methods (repository parity)", async () => {
+        const repository = await factory();
+        expect(typeof repository.getSyncStatus).toBe("function");
+        expect(typeof repository.ensureSyncIdentity).toBe("function");
+      });
+
+      it("reports an unsupported store, or an empty supported one, before any identity exists", async () => {
+        const repository = await factory();
+        const status = await repository.getSyncStatus();
+        if (!status.supported) {
+          // Browser preview: exactly this shape, nothing else.
+          expect(status).toEqual({ supported: false });
+          return;
+        }
+        expect(status).toEqual({
+          supported: true,
+          identity: null,
+          changeCounter: 0,
+          lastPublishCounter: 0,
+          pendingChanges: 0,
+          peers: [],
+        });
+      });
+
+      it("creates an identity only where sync is supported, and rejects in browser preview", async () => {
+        const repository = await factory();
+        const supported = (await repository.getSyncStatus()).supported;
+        if (!supported) {
+          await expect(
+            repository.ensureSyncIdentity({ deviceId: DEVICE, deviceName: "Laptop" }),
+          ).rejects.toThrow(/unavailable in browser preview/);
+          await expect(repository.getSyncStatus()).resolves.toEqual({ supported: false });
+          return;
+        }
+        await expect(
+          repository.ensureSyncIdentity({ deviceId: DEVICE, deviceName: "Laptop" }),
+        ).resolves.toEqual({
+          deviceId: DEVICE,
+          deviceName: "Laptop",
+          created: true,
+          repaired: false,
+        });
+        await expect(repository.getSyncStatus()).resolves.toMatchObject({
+          supported: true,
+          identity: { deviceId: DEVICE, deviceName: "Laptop" },
+        });
+      });
+
+      it("leaves user data untouched when asking for sync status", async () => {
+        const repository = await factory();
+        const entry = createEmptyDailyEntry("2026-03-31");
+        entry.morningIntention = "Rien ne change";
+        await repository.saveDailyEntry(entry);
+        await repository.getSyncStatus();
+        await expect(repository.getDailyEntry("2026-03-31")).resolves.toMatchObject({
+          morningIntention: "Rien ne change",
         });
       });
     });

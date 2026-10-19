@@ -265,6 +265,17 @@ describe("WeeklyObjectivesService snapshot cache", () => {
       expect(snapshot.cachedAt).toBeUndefined();
     });
 
+    it("does not serve cached seconds recorded for a different mapping", async () => {
+      const { service, client, repository, activity } = await setup();
+      await service.computeWeeklyObjectivesSnapshot(WEEK);
+      vi.mocked(client.fetchAnalyticData).mockClear();
+
+      await repository.saveWeeklyObjective({ ...activity, rescuetimeThing: "Something else" });
+      await service.computeWeeklyObjectivesSnapshot(WEEK, { maxAgeMs: 60_000 });
+
+      expect(client.fetchAnalyticData).toHaveBeenCalled();
+    });
+
     it("never reads the cache for an unconfigured key", async () => {
       const { service, client, repository } = await setup();
       await service.computeWeeklyObjectivesSnapshot(WEEK);
@@ -284,54 +295,57 @@ describe("WeeklyObjectivesService key change during a pull", () => {
   it.each([
     ["switched", "key-b"],
     ["cleared", ""],
-  ])("does not serve key A's cached seconds when the key is %s mid-pull", async (_label, nextKey) => {
-    const repository = new MemoryRepository();
-    await repository.initialize();
-    await repository.saveWeeklyObjective(
-      createEmptyWeeklyObjective({
-        title: "Dev",
-        kind: "time",
-        targetHours: 2,
-        rescuetimeKind: "category",
-        rescuetimeThing: "Software Development",
-      }),
-    );
-    await repository.saveSettings({
-      ...(await repository.getSettings()),
-      rescuetimeApiKey: "key-a",
-    });
-    let gate: Promise<void> | null = null;
-    let fail: () => void = () => undefined;
-    const client: RescueTimeClient = {
-      fetchAnalyticData: vi.fn(async () => {
-        if (gate) await gate;
-        return {
-          row_headers: ["Rank", "Time Spent (seconds)", "Category"],
-          rows: [[1, 3600, "Software Development"]],
-        };
-      }),
-    };
-    const service = new WeeklyObjectivesService(repository, client);
-    await service.computeWeeklyObjectivesSnapshot("2026-08-02");
-    gate = new Promise<void>((_resolve, reject) => {
-      fail = () => reject(new Error("offline"));
-    });
-    gate.catch(() => undefined);
+  ])(
+    "does not serve key A's cached seconds when the key is %s mid-pull",
+    async (_label, nextKey) => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      await repository.saveWeeklyObjective(
+        createEmptyWeeklyObjective({
+          title: "Dev",
+          kind: "time",
+          targetHours: 2,
+          rescuetimeKind: "category",
+          rescuetimeThing: "Software Development",
+        }),
+      );
+      await repository.saveSettings({
+        ...(await repository.getSettings()),
+        rescuetimeApiKey: "key-a",
+      });
+      let gate: Promise<void> | null = null;
+      let fail: () => void = () => undefined;
+      const client: RescueTimeClient = {
+        fetchAnalyticData: vi.fn(async () => {
+          if (gate) await gate;
+          return {
+            row_headers: ["Rank", "Time Spent (seconds)", "Category"],
+            rows: [[1, 3600, "Software Development"]],
+          };
+        }),
+      };
+      const service = new WeeklyObjectivesService(repository, client);
+      await service.computeWeeklyObjectivesSnapshot("2026-08-02");
+      gate = new Promise<void>((_resolve, reject) => {
+        fail = () => reject(new Error("offline"));
+      });
+      gate.catch(() => undefined);
 
-    const pending = service.computeWeeklyObjectivesSnapshot("2026-08-02");
-    await vi.waitFor(() => expect(client.fetchAnalyticData).toHaveBeenCalledTimes(2));
-    await repository.saveSettings({
-      ...(await repository.getSettings()),
-      rescuetimeApiKey: nextKey,
-    });
-    fail();
+      const pending = service.computeWeeklyObjectivesSnapshot("2026-08-02");
+      await vi.waitFor(() => expect(client.fetchAnalyticData).toHaveBeenCalledTimes(2));
+      await repository.saveSettings({
+        ...(await repository.getSettings()),
+        rescuetimeApiKey: nextKey,
+      });
+      fail();
 
-    const snapshot = await pending;
+      const snapshot = await pending;
 
-    expect(snapshot.cachedAt).toBeUndefined();
-    expect(snapshot.fetchError).toBe("offline");
-    expect(snapshot.items[0]).toMatchObject({ source: "missing", error: "offline" });
-  });
+      expect(snapshot.cachedAt).toBeUndefined();
+      expect(snapshot.fetchError).toBe("offline");
+      expect(snapshot.items[0]).toMatchObject({ source: "missing", error: "offline" });
+    },
+  );
 
   it("does not serve another fingerprint's entries within the freshness window", async () => {
     const repository = new MemoryRepository();
@@ -369,5 +383,66 @@ describe("WeeklyObjectivesService key change during a pull", () => {
 
     expect(client.fetchAnalyticData).toHaveBeenCalled();
     expect(snapshot.cachedAt).toBeUndefined();
+  });
+
+  describe("loadVocabulary", () => {
+    it("returns category and activity names, most-used first, over the four weeks to week end", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      await repository.saveSettings({
+        ...(await repository.getSettings()),
+        rescuetimeApiKey: "rt-test-key",
+      });
+      const mockClient: RescueTimeClient = {
+        fetchAnalyticData: vi.fn(async (_key, { kind }) =>
+          kind === "activity"
+            ? {
+                row_headers: [
+                  "Rank",
+                  "Time Spent (seconds)",
+                  "Number of People",
+                  "Activity",
+                  "Category",
+                ],
+                rows: [
+                  [1, 100, 1, "texshop", "Writing"],
+                  [2, 900, 1, "Claude", "General Reference & Learning"],
+                ],
+              }
+            : {
+                row_headers: ["Rank", "Time Spent (seconds)", "Number of People", "Category"],
+                rows: [[1, 1000, 1, "Writing"]],
+              },
+        ),
+      };
+
+      const vocabulary = await new WeeklyObjectivesService(repository, mockClient).loadVocabulary(
+        "2026-08-02",
+      );
+
+      expect(vocabulary).toEqual({ category: ["Writing"], activity: ["Claude", "texshop"] });
+      expect(mockClient.fetchAnalyticData).toHaveBeenCalledWith(
+        "rt-test-key",
+        expect.objectContaining({ kind: "activity", begin: "2026-07-12", end: "2026-08-08" }),
+      );
+    });
+
+    it("returns null when RescueTime is not configured or the pull fails", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      const failing: RescueTimeClient = {
+        fetchAnalyticData: vi.fn(async () => {
+          throw new Error("down");
+        }),
+      };
+      const service = new WeeklyObjectivesService(repository, failing);
+      expect(await service.loadVocabulary("2026-08-02")).toBeNull();
+
+      await repository.saveSettings({
+        ...(await repository.getSettings()),
+        rescuetimeApiKey: "rt-test-key",
+      });
+      expect(await service.loadVocabulary("2026-08-02")).toBeNull();
+    });
   });
 });

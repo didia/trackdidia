@@ -4,6 +4,7 @@ import type {
   AiMessage,
   AiProposal,
   AppSettings,
+  RescueTimeVocabulary,
   WeeklyRitualSectionKey,
   WeeklySynthesisResponse,
   WeeklySynthesisResult,
@@ -16,6 +17,10 @@ import type { AppRepository } from "../storage/repository";
 import { buildWeeklySnapshot, type WeeklySnapshotInputs } from "./context/weekly-snapshot";
 import { buildAiInputHash } from "./input-hash";
 import { retrieveMemoriesForWeekly } from "./memory/retrieval";
+import {
+  isCoveredByRescueTimeGoal,
+  resolveObjectiveAgainstVocabulary,
+} from "./proposals/weekly-objective-resolution";
 import { buildLocalWeeklySynthesis } from "./proposals/weekly-synthesis-fallback";
 import { parseWeeklySynthesisJson } from "./proposals/weekly-synthesis-validator";
 import type { AiProvider } from "./provider";
@@ -61,6 +66,8 @@ const buildProposals = (
   synthesis: WeeklySynthesisResponse,
   createdAt: string,
   eligibleGtdTaskTitles: Map<string, string>,
+  rescueTimeVocabulary: RescueTimeVocabulary | null | undefined,
+  rescueTimeGoalTitles: readonly string[],
 ): AiProposal[] => {
   const proposals: AiProposal[] = [];
 
@@ -82,7 +89,7 @@ const buildProposals = (
   }
 
   for (const objective of synthesis.nextWeekObjectives ?? []) {
-    if (!objective.title?.trim()) {
+    if (!objective.title?.trim() || isCoveredByRescueTimeGoal(objective, rescueTimeGoalTitles)) {
       continue;
     }
 
@@ -90,7 +97,9 @@ const buildProposals = (
       id: createEntityId("ai-proposal"),
       messageId,
       type: "weekly_objective",
-      payloadJson: JSON.stringify(objective),
+      payloadJson: JSON.stringify(
+        resolveObjectiveAgainstVocabulary(objective, rescueTimeVocabulary),
+      ),
       status: "pending",
       appliedEntityId: null,
       decidedAt: null,
@@ -209,7 +218,15 @@ export class WeeklySynthesisService {
         memoryBlock,
         repairHint,
       }),
-      buildProposals: (id, response, at) => buildProposals(id, response, at, eligibleGtdTaskTitles),
+      buildProposals: (id, response, at) =>
+        buildProposals(
+          id,
+          response,
+          at,
+          eligibleGtdTaskTitles,
+          snapshotInputs.rescueTimeVocabulary,
+          snapshotInputs.rescueTimeGoalItems.map((goal) => goal.title),
+        ),
       cachedResult: async (message) => {
         const cached = await cachedResult(repository, message);
         return cached ? { response: cached.synthesis, proposals: cached.proposals } : null;

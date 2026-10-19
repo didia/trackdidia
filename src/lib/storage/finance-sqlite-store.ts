@@ -1,5 +1,4 @@
-// Finance persistence (Phase 2 — Schema and repository parity). Mirrors the
-// email-triage pattern: row mapping/query code lives here, reached through
+// Finance persistence (Phase 2 — Schema and repository parity). Row mapping/query code lives here, reached through
 // thin delegating methods on `TauriSqliteRepository` (see `getFinanceStore()`).
 // See specs/done/finance.md "Repository methods" and "CSV import".
 
@@ -92,6 +91,7 @@ import type { Database } from "./sqlite-db";
 import { getTodayDate } from "../date";
 import {
   classifyTransaction,
+  resolveCategoryHint,
   UNCATEGORIZED_CATEGORY_ID,
   type ClassificationOutcome,
 } from "../finance/classify";
@@ -104,7 +104,7 @@ import {
   dedupeHash as computeDedupeHash,
   assignOccurrenceIndices,
 } from "../finance/import-profile";
-import { applyMerchantMemoryCorrection } from "../finance/memory";
+import { applyMerchantMemoryCorrection, buildAiMemoryEntry } from "../finance/memory";
 import { findNearDuplicates } from "../finance/near-duplicates";
 import {
   detectFinanceRecurringSeries,
@@ -147,6 +147,7 @@ interface AccountRow {
   current_balance_minor: number | null;
   balance_as_of: string | null;
   external_key: string | null;
+  update_cadence_days: number | null;
   notes: string | null;
   sort_order: number;
   created_at: string;
@@ -167,6 +168,7 @@ const mapAccount = (row: AccountRow): FinanceAccount => ({
   currentBalanceMinor: row.current_balance_minor,
   balanceAsOf: row.balance_as_of,
   externalKey: row.external_key,
+  updateCadenceDays: row.update_cadence_days,
   notes: row.notes,
   sortOrder: row.sort_order,
   createdAt: row.created_at,
@@ -584,10 +586,11 @@ export class FinanceSqliteStore {
     const db = await this.getDb();
     const now = nowIso();
     const id = account.id || createEntityId("finance-account");
-    const [existing] = await db.select<{ opening_balance_minor: number }[]>(
-      "SELECT opening_balance_minor FROM finance_accounts WHERE id = $1",
-      [id],
-    );
+    const [existing] = await db.select<
+      { opening_balance_minor: number; update_cadence_days: number | null }[]
+    >("SELECT opening_balance_minor, update_cadence_days FROM finance_accounts WHERE id = $1", [
+      id,
+    ]);
     if (existing && existing.opening_balance_minor !== account.openingBalanceMinor) {
       // A hand-edited opening balance supersedes the statement anchor; keeping the anchor would
       // silently revert the edit on the next transaction write.
@@ -600,8 +603,8 @@ export class FinanceSqliteStore {
       `INSERT INTO finance_accounts (
         id, name, institution, type, currency, owner_person_id, ownership, on_budget, closed,
         opening_balance_minor, current_balance_minor, balance_as_of, external_key, notes,
-        sort_order, created_at, updated_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+        sort_order, created_at, updated_at, update_cadence_days
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         institution = excluded.institution,
@@ -617,6 +620,7 @@ export class FinanceSqliteStore {
         external_key = excluded.external_key,
         notes = excluded.notes,
         sort_order = excluded.sort_order,
+        update_cadence_days = excluded.update_cadence_days,
         updated_at = excluded.updated_at`,
       [
         id,
@@ -636,6 +640,10 @@ export class FinanceSqliteStore {
         account.sortOrder,
         account.createdAt || now,
         now,
+        // Omitted (undefined) keeps the stored cadence; only an explicit null clears it.
+        account.updateCadenceDays === undefined
+          ? (existing?.update_cadence_days ?? null)
+          : account.updateCadenceDays,
       ],
     );
     const rows = await db.select<AccountRow[]>("SELECT * FROM finance_accounts WHERE id = $1", [
@@ -1625,6 +1633,13 @@ export class FinanceSqliteStore {
       // the rest.
       const classificationRules = await this.listRules();
       const classificationMemory = await this.listMerchantMemory();
+      const classificationCategories = await this.listCategories();
+      const categoryHintByDedupe = new Map(
+        prepared.map((item) => [
+          `${item.row.accountId}\u0000${item.dedupeHash}`,
+          item.row.categoryHint,
+        ]),
+      );
       const dismissed = await this.buildDismissedPairsWithDb(db);
       const today = getTodayDate();
       const insertedForClassification = await db.select<TransactionRow[]>(
@@ -1644,6 +1659,10 @@ export class FinanceSqliteStore {
           {
             rules: classificationRules,
             memory: classificationMemory,
+            categoryHintId: resolveCategoryHint(
+              categoryHintByDedupe.get(`${row.account_id}\u0000${row.dedupe_hash}`),
+              classificationCategories,
+            ),
             dismissed,
             today,
           },
@@ -2142,6 +2161,21 @@ export class FinanceSqliteStore {
                 [txn.id, result.categoryId, result.confidence, now],
               );
               autoApplied += 1;
+
+              // Remember the AI's answer so the next import does not need the model for
+              // this merchant. Never replaces something already learned.
+              const sign: -1 | 0 | 1 = txn.amount_minor > 0 ? 1 : txn.amount_minor < 0 ? -1 : 0;
+              if (!(await this.getMerchantMemory(merchantKey, "", sign))) {
+                await this.upsertMerchantMemory(
+                  buildAiMemoryEntry({
+                    merchantKey,
+                    sign,
+                    categoryId: result.categoryId,
+                    confidence: result.confidence,
+                    now,
+                  }),
+                );
+              }
             }
           }
         }
@@ -3202,6 +3236,14 @@ export class FinanceSqliteStore {
       [accountId],
     );
     return rows.map(mapBalanceSnapshot);
+  }
+
+  async listLatestTransactionDates(): Promise<Record<string, string>> {
+    const db = await this.getDb();
+    const rows = await db.select<{ account_id: string; latest: string }[]>(
+      "SELECT account_id, MAX(posted_date) AS latest FROM finance_transactions GROUP BY account_id",
+    );
+    return Object.fromEntries(rows.map((row) => [row.account_id, row.latest]));
   }
 
   // --- Forecasting and alerts (Phase 7) ---------------------------------------------------

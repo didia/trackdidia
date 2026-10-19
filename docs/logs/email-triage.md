@@ -1,3 +1,5 @@
+- 2026-10-12: Feature removed. Direct provider connections kept failing (Yahoo re-prompted for the app password, the Google redirect created no account, Microsoft 365 tenants can require admin consent). Replaced by the MCP bridge: an LLM client with mail access calls `add_tasks` with `sourceUrl` and a message-based `clientId`. Deleted `src/lib/email-triage/`, `EmailTriagePage`, the coordinator hook, the `emailTriage` repository store, `yahoo_imap.rs`, and the IMAP crates. The `email_triage_*` tables stay (append-only migrations) but are unused. `docs/email-triage.md` was deleted; this log is history only.
+
 - 2026-10-03: Unified Gmail/Microsoft OAuth connection and token refresh, centralized guarded token decoding and provider-neutral session names, and verified reconnect/rotation behavior with mocked native flows.
 # Email triage log
 

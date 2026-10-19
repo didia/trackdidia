@@ -120,6 +120,11 @@ export const computeRescueTimeGoalsSnapshot = (
 export interface CachedObjectiveSecondsValue {
   seconds: number;
   fetchedAt: string;
+  /**
+   * The `kind:thing` the seconds were pulled for. A value cached for another mapping (or by an
+   * older build that recorded none) is never reused, so remapping an objective is not masked.
+   */
+  mapping?: string;
 }
 
 export type CachedObjectiveSeconds = Record<string, CachedObjectiveSecondsValue>;
@@ -146,7 +151,11 @@ export const parseObjectiveSecondsPayload = (
     const result: CachedObjectiveSeconds = {};
     for (const [id, value] of Object.entries(parsed)) {
       if (isCachedObjectiveSecondsValue(value)) {
-        result[id] = { seconds: value.seconds, fetchedAt: value.fetchedAt };
+        result[id] = {
+          seconds: value.seconds,
+          fetchedAt: value.fetchedAt,
+          ...(typeof value.mapping === "string" ? { mapping: value.mapping } : {}),
+        };
       }
     }
     return result;

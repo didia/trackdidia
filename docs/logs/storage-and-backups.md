@@ -1,3 +1,7 @@
+- 2026-10-18: Migration 42 `add_multi_device_sync_sidecars` adds seven empty, inert `sync_*` sidecar tables (no `ALTER TABLE`, no data change); `AppRepository` gains `getSyncStatus` / `ensureSyncIdentity` (memory reports unsupported) with the cloned-identity repair rule; `src/lib/sync/clock-store.ts` issues HLCs against `sync_identity`; the device-id file creation now fsyncs the parent directory before dropping its temp name. Sync itself is not shipped.
+- 2026-10-18: `createEntityId` now throws instead of falling back to `Math.random()`; added the per-installation `device-id`/`device-id.dev` file and `sync_device_id` command beside the database. No schema change.
+- 2026-10-12: Email triage removed; migrations 29–32 are unchanged and its tables are documented as legacy and unused. `AppRepository.emailTriage` and its stores no longer exist. `gtd_tasks.source_url` stays live for MCP-created tasks. The vault only resolves `calendar_credentials`.
+
 - 2026-10-04: Corrected PR #207 desktop reconciler status and linked its serialized writes, disconnect protection, calendar recovery, and rate-limit cooldown documentation.
 - 2026-10-04: Updated Calendar sidecar status for the desktop connection/API client and linked its credential recovery and preference-write guarantees; background event reconciliation remains unmounted.
 - 2026-10-03: Centralized settings defaults and historical normalization; application writers now merge current values atomically, and settings forms preserve runtime state and unsaved edits.
@@ -25,6 +29,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-10-12 | Migration 41 adds nullable `finance_accounts.update_cadence_days` (guarded additive `ALTER TABLE`; null = default cadence) for per-account finance update tracking | `docs/storage-and-backups.md`, `docs/finance.md` | Migration `add_finance_account_update_cadence`, `finance-sqlite-store.ts`, `finance-account-update-cadence.test.ts` |
 | 2026-10-04 | Pointed the calendar-sync table section at the canonical page and recorded that migration 40's reconciler, not an unwired planner, handles a restored stale link | `docs/storage-and-backups.md`, `docs/calendar-sync.md` | `docs/calendar-sync.md`, migration `create_calendar_sync` |
 | 2026-10-03 | Migration 39 adds `finance_alert_notifications` (additive, `(alert_key, notified_on_date)` primary key), the once-per-day-per-key rate-limit ledger for Phase 7 finance runout/cash-flow alert notifications; included in `VACUUM INTO` backups like every other table | `docs/storage-and-backups.md`, `docs/finance.md` | Migration `create_finance_alert_notifications`, `finance-sqlite-store.ts`, `finance-memory-store.ts` |
 | 2026-10-03 | Corrected the repository contract summary to name the unified proposal acceptance operation while preserving the current transaction/migration guidance during conflict resolution | `docs/storage-and-backups.md` | `repository.ts`, both repositories, PR #196 |

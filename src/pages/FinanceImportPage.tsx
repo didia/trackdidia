@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
 import { useAppContext } from "../app/app-context";
 import { FinanceStatementImport } from "../components/finance/FinanceStatementImport";
 import { FinanceTabs } from "../components/finance/FinanceTabs";
@@ -14,11 +15,13 @@ import type {
 } from "../domain/finance";
 import { FinanceCategorizationService } from "../lib/ai/finance-categorization-service";
 import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
-import { parseCsv } from "../lib/finance/csv";
+import { looksLikeDataRow, parseCsv } from "../lib/finance/csv";
+import { parseAmountToMinor } from "../lib/finance/money";
 import { createEntityId, nowIso } from "../lib/gtd/shared";
 import {
   buildHeaderSignature,
   inferDateFormat,
+  INVERTED_SIGN_CONVENTION,
   MINT_PROFILE,
   shortenIfAccountNumber,
 } from "../lib/finance/import-profile";
@@ -64,10 +67,15 @@ export const FinanceImportPage = () => {
   const [decodeWarning, setDecodeWarning] = useState<string | null>(null);
   const [header, setHeader] = useState<string[]>([]);
   const [rows, setRows] = useState<string[][]>([]);
+  // False when the file has no header line: every line is a transaction and the columns are
+  // named "Colonne 1…N". Pre-checked when the first line looks like a transaction.
+  const [hasHeader, setHasHeader] = useState(true);
   const [columnMap, setColumnMap] = useState<FinanceImportColumnMap>({});
   const [dateFormat, setDateFormat] = useState<FinanceImportProfile["dateFormat"]>("YYYY-MM-DD");
   const [amountMode, setAmountMode] = useState<FinanceImportProfile["amountMode"]>("single_signed");
   const [dateAmbiguous, setDateAmbiguous] = useState(false);
+  // Credit-card exports print purchases as positive amounts; this flips every amount's sign.
+  const [invertSign, setInvertSign] = useState(false);
   // Set when the file's header signature matches a saved profile (or the
   // bundled Mint profile): reused as the profile id on import so re-importing
   // the same export updates that one row instead of colliding with
@@ -79,6 +87,17 @@ export const FinanceImportPage = () => {
   const [summary, setSummary] = useState<FinanceImportSummary | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [aiWarning, setAiWarning] = useState<string | null>(null);
+  // Set after an import when the AI stage did not run and merchants are still waiting for a
+  // category, so the user learns why nothing was suggested and where to turn it on.
+  const [aiRun, setAiRun] = useState<{
+    merchantsRequested: number;
+    suggestionsCreated: number;
+    autoApplied: number;
+  } | null>(null);
+  const [aiHint, setAiHint] = useState<{
+    reason: "disabled" | "unconfigured" | "metrics";
+    merchants: number;
+  } | null>(null);
   const [undoError, setUndoError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [parserWarnings, setParserWarnings] = useState<string[]>([]);
@@ -101,13 +120,13 @@ export const FinanceImportPage = () => {
   const currentFile = pendingFiles[fileIndex] ?? null;
 
   const resetMappingState = useCallback(
-    (nextHeader: string[], nextRows: string[][]) => {
+    (nextHeader: string[], nextRows: string[][], nextHasHeader: boolean) => {
       setHeader(nextHeader);
       setRows(nextRows);
       setSummary(null);
       setImportError(null);
 
-      const signature = buildHeaderSignature(nextHeader);
+      const signature = buildHeaderSignature(nextHeader, nextHasHeader);
       const matchedProfile =
         savedProfiles.find((profile) => profile.signature === signature) ??
         (signature === MINT_PROFILE.signature ? MINT_PROFILE : null);
@@ -116,6 +135,7 @@ export const FinanceImportPage = () => {
         setColumnMap(matchedProfile.columnMap);
         setDateFormat(matchedProfile.dateFormat);
         setAmountMode(matchedProfile.amountMode);
+        setInvertSign(matchedProfile.signConvention === INVERTED_SIGN_CONVENTION);
         setDateAmbiguous(false);
         setMatchedProfileId(matchedProfile.id);
         return;
@@ -124,8 +144,12 @@ export const FinanceImportPage = () => {
       setMatchedProfileId(null);
       setColumnMap({});
       setAmountMode("single_signed");
-      const dateColumnIndex = nextHeader.findIndex((name) => /date/i.test(name));
-      if (dateColumnIndex >= 0) {
+      setInvertSign(false);
+      // Without a header line there are no column names to look for: sample the first column.
+      const dateColumnIndex = nextHasHeader
+        ? nextHeader.findIndex((name) => /date/i.test(name))
+        : 0;
+      if (dateColumnIndex >= 0 && nextHeader.length > 0) {
         const samples = nextRows.slice(0, 20).map((row) => row[dateColumnIndex] ?? "");
         const inference = inferDateFormat(samples);
         setDateFormat(inference.format ?? "YYYY-MM-DD");
@@ -137,6 +161,20 @@ export const FinanceImportPage = () => {
     },
     [savedProfiles],
   );
+
+  // Parses a file's text and resets the mapping. A first line that looks like a transaction
+  // (it holds a date) means the file has no header, unless the caller forces the choice.
+  const loadFileText = (text: string, forcedHasHeader?: boolean) => {
+    const nextHasHeader =
+      forcedHasHeader ?? !looksLikeDataRow(parseCsv(text, undefined, { hasHeader: true }).header);
+    const parsed = parseCsv(text, undefined, {
+      hasHeader: nextHasHeader,
+      columnLabel: t("import.columnLabel"),
+    });
+    setHasHeader(nextHasHeader);
+    setParserWarnings(parsed.warnings);
+    resetMappingState(parsed.header, parsed.rows, nextHasHeader);
+  };
 
   const handleFilesSelected = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) {
@@ -156,9 +194,7 @@ export const FinanceImportPage = () => {
     setNewAccountNames({});
     setDecodeWarning(decoded[0]?.reencodedAsWindows1252 ? t("import.reencodedWarning") : null);
 
-    const parsed = parseCsv(decoded[0].text);
-    setParserWarnings(parsed.warnings);
-    resetMappingState(parsed.header, parsed.rows);
+    loadFileText(decoded[0].text);
   };
 
   const goToFile = (index: number) => {
@@ -168,9 +204,16 @@ export const FinanceImportPage = () => {
     }
     setFileIndex(index);
     setDecodeWarning(file.reencodedAsWindows1252 ? t("import.reencodedWarning") : null);
-    const parsed = parseCsv(file.text);
-    setParserWarnings(parsed.warnings);
-    resetMappingState(parsed.header, parsed.rows);
+    loadFileText(file.text);
+    setAccountBindings({});
+    setNewAccountNames({});
+  };
+
+  const toggleHasHeader = (nextHasHeader: boolean) => {
+    if (!currentFile) {
+      return;
+    }
+    loadFileText(currentFile.text, nextHasHeader);
     setAccountBindings({});
     setNewAccountNames({});
   };
@@ -178,6 +221,37 @@ export const FinanceImportPage = () => {
   const previewRows = useMemo(() => rows.slice(0, PREVIEW_ROW_COUNT), [rows]);
 
   const accountColumnIndex = columnMap.account;
+
+  // Credit-card statements print purchases as positive numbers (payments come through negative),
+  // so offer the inversion when no amount is negative, or when the file is bound to a credit-card
+  // account and positives outnumber negatives.
+  const looksSignInverted = useMemo(() => {
+    const amountIndex = columnMap.amount;
+    if (amountMode !== "single_signed" || amountIndex === undefined) {
+      return false;
+    }
+    let positives = 0;
+    let negatives = 0;
+    for (const row of rows) {
+      const parsed = parseAmountToMinor(row[amountIndex] ?? "", {});
+      if (!parsed.ok || parsed.amountMinor === 0) {
+        continue;
+      }
+      if (parsed.amountMinor < 0) {
+        negatives += 1;
+      } else {
+        positives += 1;
+      }
+    }
+    if (positives === 0) {
+      return false;
+    }
+    if (negatives === 0) {
+      return true;
+    }
+    const boundAccount = accounts.find((account) => account.id === singleAccountId);
+    return boundAccount?.type === "credit_card" && positives > negatives;
+  }, [accounts, amountMode, columnMap.amount, rows, singleAccountId]);
 
   const externalAccountKeys = useMemo(() => {
     if (accountColumnIndex === undefined) {
@@ -231,6 +305,8 @@ export const FinanceImportPage = () => {
     }
     setImportError(null);
     setAiWarning(null);
+    setAiHint(null);
+    setAiRun(null);
     setImporting(true);
     try {
       const baseCurrency = (settings.financeBaseCurrency || "CAD").toUpperCase();
@@ -279,11 +355,12 @@ export const FinanceImportPage = () => {
       const profile: FinanceImportProfile = {
         id: matchedProfileId ?? createEntityId("finance-import-profile"),
         name: currentFile.name,
-        signature: buildHeaderSignature(header),
+        signature: buildHeaderSignature(header, hasHeader),
         columnMap,
         dateFormat,
         amountMode,
-        signConvention: null,
+        signConvention:
+          amountMode === "single_signed" && invertSign ? INVERTED_SIGN_CONVENTION : null,
         defaultAccountId: singleAccountId || null,
         createdAt: nowIso(),
         updatedAt: nowIso(),
@@ -310,6 +387,7 @@ export const FinanceImportPage = () => {
         fileHash: hash128(currentFile.text),
         header,
         rows,
+        firstLineNumber: hasHeader ? 2 : 1,
         parserWarnings,
         profile: { ...profile, columnMap },
         currency: currencyOf(primaryAccountId),
@@ -338,9 +416,38 @@ export const FinanceImportPage = () => {
       // AI categorization runs after the import transaction has fully committed — never inside
       // it — and only when the user opted in. A failure here must not surface as an import
       // error: the import itself already succeeded.
+      const aiReason = !settings.financeAiCategorizationEnabled
+        ? "disabled"
+        : !settings.aiEnabled || settings.aiApiKey.trim().length === 0
+          ? "unconfigured"
+          : settings.aiPayloadScope === "metrics"
+            ? "metrics"
+            : null;
+      if (aiReason) {
+        try {
+          const waiting = await repository.listFinanceUnknownMerchants(400);
+          if (waiting.length > 0) {
+            setAiHint({ reason: aiReason, merchants: waiting.length });
+          }
+        } catch (hintError) {
+          logDebug(
+            "warn",
+            "finance.import",
+            "Lecture des marchands inconnus impossible",
+            hintError,
+          );
+        }
+      }
       if (settings.financeAiCategorizationEnabled) {
         try {
           const aiResult = await categorizationService.classifyPending(repository, settings);
+          if (aiResult.ran && aiResult.merchantsRequested > 0) {
+            setAiRun({
+              merchantsRequested: aiResult.merchantsRequested,
+              suggestionsCreated: aiResult.suggestionsCreated,
+              autoApplied: aiResult.autoApplied,
+            });
+          }
           if (aiResult.warning) {
             logDebug(
               "warn",
@@ -422,6 +529,7 @@ export const FinanceImportPage = () => {
           <div className="actions-row">
             {pendingFiles.map((file, index) => (
               <button
+                // biome-ignore lint/suspicious/noArrayIndexKey: files may share a name and the index is the selection
                 key={`${file.name}-${index}`}
                 type="button"
                 className={`button${index === fileIndex ? " button--primary" : ""}`}
@@ -437,6 +545,15 @@ export const FinanceImportPage = () => {
 
       {currentFile ? (
         <SectionCard title={t("import.mappingTitle")}>
+          <label className="switch-row">
+            <input
+              type="checkbox"
+              checked={!hasHeader}
+              onChange={(event) => toggleHasHeader(!event.target.checked)}
+            />
+            <span>{t("import.noHeader")}</span>
+          </label>
+          {!hasHeader ? <p className="banner">{t("import.noHeaderHint")}</p> : null}
           <div className="form-grid">
             {(
               [
@@ -485,6 +602,16 @@ export const FinanceImportPage = () => {
                 </option>
               </select>
             </label>
+            {amountMode === "single_signed" ? (
+              <label className="switch-row">
+                <input
+                  type="checkbox"
+                  checked={invertSign}
+                  onChange={(event) => setInvertSign(event.target.checked)}
+                />
+                <span>{t("import.invertSign")}</span>
+              </label>
+            ) : null}
             <label>
               <span>{t("import.dateFormatLabel")}</span>
               <select
@@ -500,6 +627,9 @@ export const FinanceImportPage = () => {
             </label>
           </div>
           {dateAmbiguous ? <p className="banner">{t("import.dateAmbiguous")}</p> : null}
+          {looksSignInverted && !invertSign ? (
+            <p className="banner">{t("import.allPositiveHint")}</p>
+          ) : null}
 
           {accountColumnIndex === undefined ? (
             <label>
@@ -610,6 +740,33 @@ export const FinanceImportPage = () => {
             <li>{t("import.result.newAccounts", { count: summary.newAccounts })}</li>
             <li>{t("import.result.transfersDetected", { count: summary.transfersDetected })}</li>
           </ul>
+          {aiRun ? (
+            <div className="banner">
+              <p>
+                {t(
+                  aiRun.suggestionsCreated + aiRun.autoApplied > 0
+                    ? "import.aiRun.result"
+                    : "import.aiRun.none",
+                  {
+                    merchants: aiRun.merchantsRequested,
+                    suggestions: aiRun.suggestionsCreated,
+                    autoApplied: aiRun.autoApplied,
+                  },
+                )}
+              </p>
+              <Link className="button" to="/finances/review">
+                {t("import.aiRun.openReview")}
+              </Link>
+            </div>
+          ) : null}
+          {aiHint ? (
+            <div className="banner">
+              <p>{t(`import.aiHint.${aiHint.reason}`, { count: aiHint.merchants })}</p>
+              <Link className="button" to="/parametres">
+                {t("import.aiHint.openSettings")}
+              </Link>
+            </div>
+          ) : null}
           {summary.nearDuplicates.length > 0 ? (
             <div className="stack">
               <p>{t("import.result.nearDuplicatesTitle")}</p>

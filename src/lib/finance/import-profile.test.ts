@@ -1,5 +1,6 @@
 import { parseCsv } from "./csv";
 import {
+  INVERTED_SIGN_CONVENTION,
   MINT_PROFILE,
   assignOccurrenceIndices,
   buildHeaderSignature,
@@ -50,6 +51,16 @@ describe("buildHeaderSignature", () => {
     const a = buildHeaderSignature(["Date", "Amount"]);
     const b = buildHeaderSignature([" date ", "AMOUNT"]);
     expect(a).toBe(b);
+  });
+});
+
+describe("buildHeaderSignature without a header line", () => {
+  it("depends only on the column count and never matches a real header", () => {
+    const a = buildHeaderSignature(["Colonne 1", "Colonne 2"], false);
+    const b = buildHeaderSignature(["Column 1", "Column 2"], false);
+    expect(a).toBe(b);
+    expect(a).not.toBe(buildHeaderSignature(["Column 1", "Column 2", "Column 3"], false));
+    expect(a).not.toBe(buildHeaderSignature(["Column 1", "Column 2"]));
   });
 });
 
@@ -236,6 +247,26 @@ describe("mapImportRowToTransaction with generic profiles", () => {
     expect(mapped[1].ok && mapped[1].row.amountMinor).toBe(200000);
   });
 
+  it("flips every signed amount when the profile uses the inverted sign convention", () => {
+    const { header, rows } = parseCsv(
+      'Date,Merchant,Amount\n2026-10-07,CONVIVIO,"$35.74"\n2026-10-08,PAIEMENT,"-$500.00"\n2026-10-09,ZERO,"$0.00"\n',
+    );
+    const profile = {
+      ...MINT_PROFILE,
+      columnMap: { date: 0, description: 1, amount: 2 },
+      dateFormat: "YYYY-MM-DD" as const,
+      amountMode: "single_signed" as const,
+      signConvention: INVERTED_SIGN_CONVENTION,
+    };
+
+    const mapped = rows.map((row) =>
+      mapImportRowToTransaction(row, header, profile, { currency: "CAD" }),
+    );
+    expect(mapped[0].ok && mapped[0].row.amountMinor).toBe(-3574);
+    expect(mapped[1].ok && mapped[1].row.amountMinor).toBe(50000);
+    expect(mapped[2].ok && Object.is(mapped[2].row.amountMinor, 0)).toBe(true);
+  });
+
   it("maps a debit/credit-column generic fixture", () => {
     const { header, rows } = parseCsv(GENERIC_DEBIT_CREDIT_FIXTURE);
     const profile = {
@@ -252,6 +283,24 @@ describe("mapImportRowToTransaction with generic profiles", () => {
     expect(mapped[0].ok && mapped[0].row.amountMinor).toBe(-5432);
     expect(mapped[0].ok && mapped[0].row.postedDate).toBe("2026-01-15");
     expect(mapped[1].ok && mapped[1].row.amountMinor).toBe(200000);
+  });
+
+  it("reads the non-zero side when the bank prints 0 in the unused debit/credit column", () => {
+    const { header, rows } = parseCsv(
+      'Date;Description;Debit;Credit\n"2026-10-06";"Paie";"0";"1045.88"\n"2026-10-07";"Facture";"466.0";"0"\n"2026-09-23";"Frais";"0";"0"\n',
+      ";",
+    );
+    const profile = {
+      ...MINT_PROFILE,
+      columnMap: { date: 0, description: 1, debit: 2, credit: 3 },
+      dateFormat: "YYYY-MM-DD" as const,
+      amountMode: "debit_credit_columns" as const,
+    };
+    const amounts = rows.map((row) => {
+      const result = mapImportRowToTransaction(row, header, profile, { currency: "CAD" });
+      return result.ok ? result.row.amountMinor : null;
+    });
+    expect(amounts).toEqual([104588, -46600, 0]);
   });
 
   it("reports a row error rather than throwing on a bad date", () => {

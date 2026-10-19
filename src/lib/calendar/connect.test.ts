@@ -25,10 +25,8 @@ vi.mock("./vault", () => ({
   storeCalendarVaultSecret: (...args: unknown[]) => storeCalendarVaultSecretMock(...args),
   deleteCalendarVaultSecret: (...args: unknown[]) => deleteCalendarVaultSecretMock(...args),
 }));
-vi.mock("../email-triage/provider-http", async () => {
-  const actual = await vi.importActual<typeof import("../email-triage/provider-http")>(
-    "../email-triage/provider-http",
-  );
+vi.mock("../provider-http", async () => {
+  const actual = await vi.importActual<typeof import("../provider-http")>("../provider-http");
   return {
     ...actual,
     createTauriHttpClient: () => ({ request: httpRequestMock }),
@@ -36,7 +34,7 @@ vi.mock("../email-triage/provider-http", async () => {
 });
 
 import { saveCalendarSyncPreferences } from "./mutations";
-import { getCachedAccessToken, setCachedAccessToken } from "../email-triage/token-cache";
+import { getCachedAccessToken, setCachedAccessToken } from "../token-cache";
 import { CALENDAR_SYNC_TOKEN_CACHE_KEY, clearCalendarSyncAccessTokenCache } from "./session";
 import { connectCalendarSyncAccount, disconnectCalendarSyncAccount } from "./connect";
 
@@ -107,7 +105,7 @@ describe("connectCalendarSyncAccount", () => {
   });
 
   it("refuses to start when the shared OAuth loopback is already busy", async () => {
-    const lease = acquireOAuthLoopbackLease("email_triage");
+    const lease = acquireOAuthLoopbackLease("calendar_sync");
     expect(lease.ok).toBe(true);
     try {
       const repo = new FakeCalendarRepository();
@@ -347,22 +345,25 @@ describe("connectCalendarSyncAccount", () => {
     expect(__oauthLoopbackGuardForTests.current()).toBeNull();
   });
 
-  it.each([
-    "access_denied",
-    "unexpected_provider_code",
-  ])("maps callback error %s without leaking provider codes", async (error) => {
-    prepareOAuth();
-    invokeMock
-      .mockResolvedValueOnce({ port: 5555, redirectUri: "http://127.0.0.1:5555/oauth/callback" })
-      .mockResolvedValueOnce({ error });
-    expect(
-      await connectCalendarSyncAccount(asRepository(new FakeCalendarRepository()), {
-        clientId: "client",
-      }),
-    ).toEqual({ ok: false, error: error === "access_denied" ? "access_denied" : "connect_failed" });
-    expect(storeCalendarVaultSecretMock).not.toHaveBeenCalled();
-    expect(__oauthLoopbackGuardForTests.current()).toBeNull();
-  });
+  it.each(["access_denied", "unexpected_provider_code"])(
+    "maps callback error %s without leaking provider codes",
+    async (error) => {
+      prepareOAuth();
+      invokeMock
+        .mockResolvedValueOnce({ port: 5555, redirectUri: "http://127.0.0.1:5555/oauth/callback" })
+        .mockResolvedValueOnce({ error });
+      expect(
+        await connectCalendarSyncAccount(asRepository(new FakeCalendarRepository()), {
+          clientId: "client",
+        }),
+      ).toEqual({
+        ok: false,
+        error: error === "access_denied" ? "access_denied" : "connect_failed",
+      });
+      expect(storeCalendarVaultSecretMock).not.toHaveBeenCalled();
+      expect(__oauthLoopbackGuardForTests.current()).toBeNull();
+    },
+  );
 });
 
 describe("disconnectCalendarSyncAccount", () => {

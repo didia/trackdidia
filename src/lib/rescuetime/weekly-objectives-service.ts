@@ -1,6 +1,8 @@
 import type {
   RescueTimeTaxonomy,
   RescueTimeTaxonomyEntry,
+  RescueTimeVocabulary,
+  WeeklyObjective,
   WeeklyObjectivesSnapshot,
 } from "../../domain/types";
 import {
@@ -25,6 +27,12 @@ import {
 } from "./credential-fingerprint";
 import { parseRankRows, resolveObjectiveSeconds } from "./parse-analytic-data";
 import { isRescueTimeCacheFresh, type RescueTimeComputeOptions } from "./rescuetime-goals-service";
+
+const VOCABULARY_MAX_CATEGORIES = 30;
+const VOCABULARY_MAX_ACTIVITIES = 60;
+
+const objectiveMapping = (objective: WeeklyObjective): string =>
+  `${objective.rescuetimeKind ?? "category"}:${objective.rescuetimeThing ?? ""}`;
 
 const oldestFetchedAt = (values: string[]): string | undefined =>
   values.length === 0
@@ -87,7 +95,11 @@ export class WeeklyObjectivesService {
         const cached = await this.readObjectiveSecondsCache(normalized, fingerprint);
         const allFresh = timeObjectives.every((objective) => {
           const value = cached[objective.id];
-          return value !== undefined && isRescueTimeCacheFresh(value.fetchedAt, options.maxAgeMs);
+          return (
+            value !== undefined &&
+            value.mapping === objectiveMapping(objective) &&
+            isRescueTimeCacheFresh(value.fetchedAt, options.maxAgeMs)
+          );
         });
         if (allFresh) {
           servedFromFreshCache = true;
@@ -121,7 +133,7 @@ export class WeeklyObjectivesService {
           for (const objective of group) {
             const seconds = resolveObjectiveSeconds(rows, objective.rescuetimeThing);
             secondsByObjectiveId[objective.id] = seconds;
-            fresh[objective.id] = { seconds, fetchedAt };
+            fresh[objective.id] = { seconds, fetchedAt, mapping: objectiveMapping(objective) };
           }
 
           try {
@@ -147,9 +159,12 @@ export class WeeklyObjectivesService {
       const failedIds = Object.keys(errorsByObjectiveId);
       if (failedIds.length > 0) {
         const cached = await this.readObjectiveSecondsCache(normalized, fingerprint);
+        const mappingById = new Map(
+          timeObjectives.map((objective) => [objective.id, objectiveMapping(objective)]),
+        );
         for (const id of failedIds) {
           const value = cached[id];
-          if (value) {
+          if (value && value.mapping === mappingById.get(id)) {
             secondsByObjectiveId[id] = value.seconds;
             reusedFetchedAt.push(value.fetchedAt);
             delete errorsByObjectiveId[id];
@@ -172,6 +187,15 @@ export class WeeklyObjectivesService {
     return cachedAt ? { ...snapshot, cachedAt } : snapshot;
   }
 
+  /** Names RescueTime reported over the four weeks ending with `weekStartDate`'s week. */
+  async listTaxonomyForWeek(
+    kind: RescueTimeTaxonomy,
+    weekStartDate: string,
+  ): Promise<RescueTimeTaxonomyEntry[]> {
+    const normalized = buildWeekDates(weekStartDate);
+    return this.listRescueTimeTaxonomy(kind, addDays(normalized, -21), addDays(normalized, 6));
+  }
+
   async listRescueTimeTaxonomy(
     kind: RescueTimeTaxonomy,
     begin: string,
@@ -186,6 +210,26 @@ export class WeeklyObjectivesService {
 
     const payload = await this.client.fetchAnalyticData(apiKey, { kind, begin, end });
     return parseRankRows(payload).map(({ name, seconds, hours }) => ({ name, seconds, hours }));
+  }
+
+  /**
+   * Names RescueTime reported over the four weeks ending `weekStartDate`'s week (most-used first),
+   * so the coach can propose objectives that map onto something RescueTime actually tracks.
+   * Returns `null` when RescueTime is not configured or the pull fails.
+   */
+  async loadVocabulary(weekStartDate: string): Promise<RescueTimeVocabulary | null> {
+    try {
+      const [category, activity] = await Promise.all([
+        this.listTaxonomyForWeek("category", weekStartDate),
+        this.listTaxonomyForWeek("activity", weekStartDate),
+      ]);
+      return {
+        category: category.slice(0, VOCABULARY_MAX_CATEGORIES).map((entry) => entry.name),
+        activity: activity.slice(0, VOCABULARY_MAX_ACTIVITIES).map((entry) => entry.name),
+      };
+    } catch {
+      return null;
+    }
   }
 
   async testConnection(): Promise<RescueTimeTaxonomyEntry[]> {

@@ -162,8 +162,16 @@ import {
 } from "../recurring/engine";
 import { buildDailyRelationshipDrawPlan } from "../relationship-draws";
 import { CalendarSyncSqliteStore } from "./calendar-sync-sqlite-store";
+import {
+  assertValidDeviceId,
+  buildSupportedSyncStatus,
+  normalizeDeviceName,
+  type SyncIdentityResult,
+  type SyncIdentityRow,
+  type SyncPeerRow,
+  type SyncStatus,
+} from "../sync/status";
 import { DbSerialQueue } from "./db-serial-queue";
-import { EmailTriageSqliteStore } from "./email-triage-sqlite-store";
 import { FinanceSqliteStore } from "./finance-sqlite-store";
 import type { Database as SqliteDatabase } from "./sqlite-db";
 import type {
@@ -208,24 +216,6 @@ export class TauriSqliteRepository implements AppRepository {
   private financeStore: FinanceSqliteStore | null = null;
   private readonly writeQueue = new DbSerialQueue();
   private calendarSyncStore: CalendarSyncSqliteStore | null = null;
-  readonly emailTriage = new EmailTriageSqliteStore(
-    () => this.getDb(),
-    {
-      getTaskByExternalId: (externalId) => this.getTaskByExternalId(externalId),
-      createTask: (input) => this.createTask(input),
-      saveTask: (task) => this.saveTask(task),
-      persistEvents: (events) => this.persistEvents(events),
-      handlesLifecycleEvents: true,
-    },
-    (work) => this.writeTransaction(work),
-    (tx) => ({
-      getTaskByExternalId: (externalId) => this.getTaskByExternalId(externalId),
-      createTask: (input) => this.createTaskInternal(tx, input),
-      saveTask: (task) => this.saveTaskInternal(tx, task),
-      persistEvents: (events) => this.persistEvents(events),
-      handlesLifecycleEvents: true,
-    }),
-  );
 
   /**
    * `openDb` defaults to the real Tauri-backed `Database.load`; tests inject an in-memory
@@ -249,15 +239,6 @@ export class TauriSqliteRepository implements AppRepository {
       this.financeStore = new FinanceSqliteStore(() => this.getDb());
     }
     return this.financeStore;
-  }
-
-  private async getTaskByExternalId(externalId: string): Promise<Task | null> {
-    const db = await this.getDb();
-    const rows = await db.select<tasksRows.TaskRow[]>(
-      `SELECT ${tasksRows.COLUMNS} FROM gtd_tasks WHERE source_external_id = $1`,
-      [externalId],
-    );
-    return rows[0] ? tasksRows.fromRow(rows[0]) : null;
   }
 
   private writeExclusive<T>(operation: () => Promise<T>): Promise<T> {
@@ -832,7 +813,7 @@ export class TauriSqliteRepository implements AppRepository {
   async mergeRescueTimeObjectiveSecondsCache(input: {
     weekStartDate: string;
     credentialFingerprint: string;
-    values: Record<string, { seconds: number; fetchedAt: string }>;
+    values: Record<string, { seconds: number; fetchedAt: string; mapping?: string }>;
     fetchedAt: string;
   }): Promise<void> {
     return this.writeExclusive(async () => {
@@ -3064,6 +3045,10 @@ export class TauriSqliteRepository implements AppRepository {
     return this.getFinanceStore().listAccountBalanceSnapshots(accountId);
   }
 
+  async listFinanceLatestTransactionDates() {
+    return this.getFinanceStore().listLatestTransactionDates();
+  }
+
   // --- Finance (Phase 7 — Forecasting and proactive alerts) -----------------------------
 
   async buildFinanceSnapshot(asOfDate: string) {
@@ -3151,5 +3136,77 @@ export class TauriSqliteRepository implements AppRepository {
 
   async clearCalendarSyncLinks(): Promise<void> {
     await this.writeExclusive(() => this.getCalendarSyncStore().clearLinks());
+  }
+
+  // --- Multi-device sync (foundation: identity and status only) -------------------------
+
+  async getSyncStatus(): Promise<SyncStatus> {
+    const db = await this.getDb();
+    const identity = await db.select<SyncIdentityRow[]>(
+      "SELECT device_id, device_name, change_counter, last_publish_counter FROM sync_identity WHERE id = 1",
+    );
+    const peers = await db.select<SyncPeerRow[]>(
+      `SELECT peer_id, peer_name, last_manifest_json, last_synced_at, last_applied_sha_by_domain
+      FROM sync_peers ORDER BY peer_name, peer_id`,
+    );
+    return buildSupportedSyncStatus(identity[0] ?? null, peers);
+  }
+
+  async ensureSyncIdentity(input: {
+    deviceId: string;
+    deviceName: string;
+  }): Promise<SyncIdentityResult> {
+    // Validate before queueing so garbage never takes a writer slot.
+    const deviceId = assertValidDeviceId(input?.deviceId);
+    const deviceName = normalizeDeviceName(input?.deviceName);
+    return this.writeTransaction((tx) =>
+      this.ensureSyncIdentityInternal(tx, { deviceId, deviceName }),
+    );
+  }
+
+  /**
+   * Must run inside a `writeTransaction`; never re-enters the writer queue. The device-id file is
+   * the authority for `deviceId`: a stored row with another id came from a restored or cloned
+   * database, so only `device_id` (and a non-empty, different name) is rewritten. Clock state and
+   * counters are kept, so clocks issued from this database stay monotonic.
+   */
+  private async ensureSyncIdentityInternal(
+    tx: TxContext,
+    input: { deviceId: string; deviceName: string },
+  ): Promise<SyncIdentityResult> {
+    const db = transactionDb(tx);
+    const rows = await db.select<{ device_id: string; device_name: string }[]>(
+      "SELECT device_id, device_name FROM sync_identity WHERE id = 1",
+    );
+    const existing = rows[0];
+
+    if (!existing) {
+      if (input.deviceName.length === 0) {
+        throw new Error("Invalid device name: required to create the sync identity");
+      }
+      await db.execute(
+        "INSERT INTO sync_identity (id, device_id, device_name) VALUES (1, $1, $2)",
+        [input.deviceId, input.deviceName],
+      );
+      return {
+        deviceId: input.deviceId,
+        deviceName: input.deviceName,
+        created: true,
+        repaired: false,
+      };
+    }
+
+    const repaired = existing.device_id !== input.deviceId;
+    const nextName =
+      input.deviceName.length > 0 && input.deviceName !== existing.device_name
+        ? input.deviceName
+        : existing.device_name;
+    if (repaired || nextName !== existing.device_name) {
+      await db.execute("UPDATE sync_identity SET device_id = $1, device_name = $2 WHERE id = 1", [
+        input.deviceId,
+        nextName,
+      ]);
+    }
+    return { deviceId: input.deviceId, deviceName: nextName, created: false, repaired };
   }
 }

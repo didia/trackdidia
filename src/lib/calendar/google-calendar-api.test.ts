@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ProviderHttpError } from "../email-triage/provider-http";
+import { ProviderHttpError } from "../provider-http";
 import type { CalendarSyncEventPayload } from "../../domain/calendar-sync";
 import {
   CALENDAR_SYNC_LOOKUP_MAX_PAGES,
@@ -216,28 +216,29 @@ describe("GoogleCalendarApiClient.createOrAdoptEvent", () => {
     expect(deleted[0]).toContain("/events/b");
   });
 
-  it.each([
-    429, 403,
-  ])("preserves a %s rate limit and never inserts after an incomplete scan", async (status) => {
-    const request = vi.fn(async (_input: { method: string }) => ({
-      status,
-      body: JSON.stringify({ error: { errors: [{ reason: "rateLimitExceeded" }] } }),
-    }));
-    const client = makeClient(request);
-    expect(await client.lookupEventsByOccurrence("cal", "task", "date")).toEqual({
-      ok: false,
-      reason: "rate_limited",
-    });
-    expect(
-      await client.createOrAdoptEvent({
-        calendarId: "cal",
-        taskId: "task",
-        occurrenceKey: "date",
-        payload: samplePayload,
-      }),
-    ).toEqual({ status: "rate_limited" });
-    expect(request.mock.calls.every(([input]) => input.method === "GET")).toBe(true);
-  });
+  it.each([429, 403])(
+    "preserves a %s rate limit and never inserts after an incomplete scan",
+    async (status) => {
+      const request = vi.fn(async (_input: { method: string }) => ({
+        status,
+        body: JSON.stringify({ error: { errors: [{ reason: "rateLimitExceeded" }] } }),
+      }));
+      const client = makeClient(request);
+      expect(await client.lookupEventsByOccurrence("cal", "task", "date")).toEqual({
+        ok: false,
+        reason: "rate_limited",
+      });
+      expect(
+        await client.createOrAdoptEvent({
+          calendarId: "cal",
+          taskId: "task",
+          occurrenceKey: "date",
+          payload: samplePayload,
+        }),
+      ).toEqual({ status: "rate_limited" });
+      expect(request.mock.calls.every(([input]) => input.method === "GET")).toBe(true);
+    },
+  );
   it("inserts nothing when the lookup fails", async () => {
     const request = vi.fn(async ({ method }: { method: string }) => {
       if (method === "GET") {

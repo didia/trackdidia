@@ -22,6 +22,7 @@ type ChimeNote = {
   durationSeconds: number;
 };
 
+const AUDIO_RESUME_TIMEOUT_MS = 1_500;
 const CHIME_SAMPLE_RATE = 44_100;
 const CHIME_DURATION_SECONDS: Record<PomodoroChimeVariant, number> = {
   session: 3,
@@ -327,7 +328,12 @@ export const playPomodoroChime = async (
   try {
     if (context && context.state !== "closed") {
       if (context.state !== "running") {
-        await context.resume();
+        // WebKit leaves resume() pending while the page is in the background; give up so the
+        // HTML audio fallback below still gets a chance.
+        await Promise.race([
+          context.resume(),
+          new Promise<void>((resolve) => window.setTimeout(resolve, AUDIO_RESUME_TIMEOUT_MS)),
+        ]);
       }
 
       if (context.state === "running") {

@@ -41,10 +41,9 @@ it.each(["completed", "cancelled"] as const)("does not apply an effect to a %s t
   ).toBeNull();
 });
 
-it.each([
-  "{",
-  "null",
-  '{"taskId":"task","action":"unknown"}',
-])("treats invalid GTD payload %s as a no-op effect", (payloadJson) => {
-  expect(gtdAcceptEffectFromProposal({ payloadJson } as AiProposal, "2026-08-02")).toBeNull();
-});
+it.each(["{", "null", '{"taskId":"task","action":"unknown"}'])(
+  "treats invalid GTD payload %s as a no-op effect",
+  (payloadJson) => {
+    expect(gtdAcceptEffectFromProposal({ payloadJson } as AiProposal, "2026-08-02")).toBeNull();
+  },
+);

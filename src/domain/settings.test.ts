@@ -82,3 +82,15 @@ it("keeps the LLM bridge off by default and repairs an invalid stored port", () 
   // Rows saved before the feature existed simply lack the fields.
   expect(normalizeAppSettings({}).llmBridgeEnabled).toBe(false);
 });
+
+it("keeps tray and launch-at-login off by default and coerces stored values to booleans", () => {
+  const defaults = defaultAppSettings();
+  expect(defaults.runInTray).toBe(false);
+  expect(defaults.launchAtLogin).toBe(false);
+  expect(normalizeAppSettings({}).runInTray).toBe(false);
+  expect(normalizeAppSettings({ runInTray: true, launchAtLogin: true })).toMatchObject({
+    runInTray: true,
+    launchAtLogin: true,
+  });
+  expect(normalizeAppSettings({ runInTray: "yes" as unknown as boolean }).runInTray).toBe(false);
+});

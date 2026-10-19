@@ -85,6 +85,21 @@
       "achievedAria": "Marquer {{title}} comme atteint",
       "achieved": "Atteint cette semaine",
       "delete": "Supprimer",
+      "mapping": {
+        "edit": "Modifier le suivi RescueTime",
+        "kind": "Type de suivi",
+        "kindActivity": "Activité",
+        "kindCategory": "Catégorie",
+        "filter": "Filtrer",
+        "choose": "Nom suivi par RescueTime",
+        "placeholder": "Choisir…",
+        "option": "{{name}} ({{hours}} h sur 4 semaines)",
+        "loading": "Chargement des noms RescueTime...",
+        "loadFailed": "Impossible de charger les noms RescueTime.",
+        "saveFailed": "Impossible d'enregistrer le suivi.",
+        "save": "Enregistrer",
+        "cancel": "Annuler"
+      },
       "score": "Score objectifs permanents : {{score}}"
     },
     "axes": {

@@ -1,3 +1,5 @@
+- 2026-10-12: Removed the email triage classifier key section (the separate `triage_api_key` vault entry no longer exists in code) and the cross-references to email OAuth.
+
 - 2026-10-04: PR #207 review fixes: reconciler commits preserve disconnects and changed connections, recovery keeps links until an atomic identity commit, returned rate limits start the automatic cooldown, and manual sync/confirmation report translated failures and are disabled when sync is off. Corrected the mounted desktop reconciler status.
 - 2026-10-04: Documented the Calendar connection, OAuth scopes/vault privacy, serialized writes across remounts, failed-commit compensation, one-refresh 401 retry and translated cancellation; event reconciliation remains unmounted.
 - 2026-10-03: Repeated proposal accepts now return the stored decision without draft UI effects; synchronous click guards and disabled buttons protect daily, weekly, and monthly acceptance. Regression tests preserve manual notes through repeated acceptance and later autosaves.
@@ -6,6 +8,7 @@
 - 2026-10-03: Centralized settings defaults and historical normalization; application writers now merge current values atomically, and settings forms preserve runtime state and unsaved edits.
 # AI, settings, and privacy log
 
+- 2026-10-12: Documented the finance invoice split privacy contract (what a PDF text or image upload sends, the masking limits, the preview-then-confirm step, and the local amount reconciliation).
 - 2026-10-11: Goal pacing and evening-close auto-load follow the same rule: a stored `ok` result is shown without a hash check or new model call; only Régénérer produces a new one.
 - 2026-10-11: Weekly and monthly review auto-load now only hydrates a stored `ok` synthesis and never re-hashes or calls the model again; returning to the page (or accepting suggestions) keeps the existing assessment until the user explicitly regenerates.
 - 2026-10-10: Weekly snapshot no longer sums start/end-of-day task piles (`tachesDebut`/`tachesFin`) into a weekly total; metrics gain `aggregation` and task `meaning`, the prompt defines `tachesAjoutes`, and `weekly_synthesis` moves to `v2`.

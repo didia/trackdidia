@@ -29,6 +29,22 @@ The Tauri identifier is `com.trackdidia.desktop`.
 | Debug / `tauri dev` | `trackdidia.dev.db` | `backups-dev/` |
 | Release | `trackdidia.db` | `backups/` |
 
+Beside the database, the native host keeps a small per-installation device id file
+(`device-id` in release builds, `device-id.dev` in debug builds, so the two environments
+never share an identity). The `sync_device_id` command (`src-tauri/src/device_id.rs`,
+wrapped by `getDeviceId()` in `src/lib/sync/device-id.ts`) returns its content
+(`dev:<uuid v4>`), creating it on first call by writing a temp file and hard-linking it into
+place so an existing file is never overwritten. After the link the parent directory is
+fsynced (Unix; skipped elsewhere) before the temp name is removed, so a power loss cannot
+lose both names and mint a second id; if that flush fails the call returns an error instead
+of pretending the id is safe, and the file it created is kept so a retry reads the same id.
+A file that is empty, malformed, or longer than an id is reported as an error and is not
+regenerated, because replacing it would orphan the device's identity. The file is not
+included in backups, so restoring a backup (see [Recovery](#recovery)) leaves it untouched.
+It is the authority for the device id kept in the `sync_identity` row (see
+[Multi-device sync sidecar tables](#multi-device-sync-sidecar-tables)); nothing calls
+`ensureSyncIdentity` at startup yet.
+
 The live database resolves beneath:
 
 ```text
@@ -57,7 +73,7 @@ The desktop host owns a single-connection sqlx pool (`src-tauri/src/db.rs`) and
 exposes it as `db_connect` / `db_execute` / `db_select`. TypeScript still owns
 queries and migrations; it does not use `tauri-plugin-sql`.
 
-The native wrapper, email store, transaction helper, and test adapter implement
+The native wrapper, transaction helper, and test adapter implement
 `src/lib/storage/sqlite-db.ts`. Table mappings in `src/lib/storage/sqlite/rows/`
 own their row shape, selected/inserted columns, decoding, and bound values.
 Normal task saves and Google Tasks import share the complete task insert; import
@@ -86,8 +102,6 @@ queue again. Direct nesting on the same connection is rejected; re-entering the
 writer queue remains prohibited and covered by its watchdog. Public weekly/monthly
 review, weekly objective, and AI memory saves acquire a transaction before invoking
 their internal writer. The migration runner uses the same transaction lifecycle.
-Email mutations use this queue and transaction context too; see the
-[email atomicity contract](email-triage.md) for composed review and task writes.
 
 Changing the Tauri identifier changes the app-data location from the operating
 system's perspective. Do not change it without a deliberate user-data migration.
@@ -105,7 +119,9 @@ It groups:
 - recurrence templates and generated work;
 - Pomodoro sessions and segments;
 - AI messages, proposals, and memories;
-- standing weekly objectives and per-week manual results.
+- standing weekly objectives and per-week manual results;
+- the inert multi-device sync foundation: `getSyncStatus()` and `ensureSyncIdentity()`
+  (see [Multi-device sync sidecar tables](#multi-device-sync-sidecar-tables)).
 
 Repository helpers include `listDailyEntriesOnOrBefore(endDate, limit)` for bounded
 history ending at a calendar date, `listDailyEntriesInRange(startDate, endDate)`
@@ -115,7 +131,8 @@ the [atomic AI proposal acceptance operation](#atomic-ai-proposal-acceptance)
 (`acceptAiProposal`).
 
 The SQLite and memory implementations must remain behaviorally aligned, except for
-native-only storage information and backup creation.
+native-only storage information, backup creation, and multi-device sync (memory reports
+`{ supported: false }` from `getSyncStatus` and rejects `ensureSyncIdentity`).
 
 ## Atomic AI proposal acceptance
 
@@ -194,10 +211,10 @@ its existing idempotent `dimancheNotesRelocatedAt` marker.
 | 26 | `add_gtd_task_planned_order` | Adds `gtd_tasks.planned_order`, a partial index on `(project_id, planned_order)` for active Planned rows, and normalizes `planned_order = NULL` for every non-Planned row |
 | 27 | `ai_proposals_repeatable_goal_evaluation` | Pending proposal uniqueness also excludes `goal_evaluation`, since a monthly synthesis can propose one evaluation per evaluated goal on the same message; adds a second partial unique index on `(message_id, json_extract(payload_json, '$.goalId'))` so at most one pending `goal_evaluation` proposal can still exist per goal |
 | 28 | `add_annual_goal_measurement_fields` | Adds `measurement_type` (default `numeric`), `status` (default `active`), `deadline`, `starting_value`, `direction`, `cadence_target`, `cadence_period` (default `week`), `principle_key`, `progress_log_json` (default `{}`), `milestones_json` (default `[]`) to `annual_goals` |
-| 29 | `add_email_triage_foundation` | Adds `source_url` to `gtd_tasks`; creates email triage settings, accounts, conversations, messages, reviews, evaluations, desired effects, and audit tables |
+| 29 | `add_email_triage_foundation` | Adds `source_url` to `gtd_tasks`; creates the (now unused) legacy email triage tables |
 | 30 | `add_email_triage_gmail_oauth_client_id` | Adds `gmail_oauth_client_id` to `email_triage_settings` |
 | 31 | `add_email_triage_microsoft_oauth_client_id` | Adds `microsoft_oauth_client_id` to `email_triage_settings` |
-| 32 | `add_email_triage_desktop_prefs` | Adds `run_in_tray` and `launch_at_login` to `email_triage_settings` |
+| 32 | `add_email_triage_desktop_prefs` | Adds `run_in_tray` and `launch_at_login` to the legacy `email_triage_settings` table (the preferences now live in the settings JSON) |
 | 33 | `add_weekly_objective_starts_on_week_start_date` | Adds nullable `starts_on_week_start_date` to `weekly_objectives` (null means the objective applies to every week) |
 | 34 | `add_weekly_objective_ends_on_week_start_date` | Adds nullable `ends_on_week_start_date` to `weekly_objectives` (last week a manual objective still counts; marking it achieved sets this to the previous Sunday) |
 | 35 | `create_rescuetime_snapshot_cache` | Creates `rescuetime_snapshot_cache` (`week_start_date`, `kind`, `credential_fingerprint`, `payload_json`, `fetched_at`; primary key on the first three) |
@@ -206,6 +223,8 @@ its existing idempotent `dimancheNotesRelocatedAt` marker.
 | 38 | `add_finance_import_profile_separators` | Adds nullable `decimal_separator` / `thousands_separator` columns to `finance_import_profiles` via guarded, idempotent `ALTER TABLE` |
 | 39 | `create_finance_alert_notifications` | Creates `finance_alert_notifications` with primary key `(alert_key, notified_on_date)`, the once-per-day-per-key ledger for Phase 7 finance alert notifications |
 | 40 | `create_calendar_sync` | Creates `calendar_sync_settings` (singleton `id = 'global'`) and `calendar_sync_links` (composite primary key `(task_id, occurrence_key)`, nullable `event_id`, unique index on `(calendar_id, event_id)`, index on `state`) for the one-way TrackDidia -> Google Calendar sync model, planner, and reconciler |
+| 41 | `add_finance_account_update_cadence` | Adds nullable `update_cadence_days` to `finance_accounts` via a guarded, idempotent `ALTER TABLE` (null = default cadence: weekly for on-budget accounts, monthly for the rest) |
+| 42 | `add_multi_device_sync_sidecars` | Creates the seven inert `sync_*` sidecar tables and an index on `sync_entity_meta.row_hlc` with `CREATE ... IF NOT EXISTS` only: no `ALTER TABLE`, no data change, no seed rows. See [Multi-device sync sidecar tables](#multi-device-sync-sidecar-tables) |
 
 ## Table reference
 
@@ -380,43 +399,73 @@ transaction and uses the store directly. A synced link whose payload is unchange
 detached as `promoted` at capture, terminal detachments are never reopened, and a captured
 edit on an event that already exists becomes a planner update (not a create).
 
-### Email triage tables
+### Multi-device sync sidecar tables
 
-Migration 29 adds a nullable `gtd_tasks.source_url` plus nine tables. Raw MIME and
-message bodies are never stored; classifier input is transient.
+Migration 42 (`add_multi_device_sync_sidecars`) adds the storage foundation for the planned
+multi-laptop sync (design: [`specs/todo/multi-laptop-sync.md`](../specs/todo/multi-laptop-sync.md)).
+**Multi-device sync is not shipped.** The tables are created empty on every database and
+nothing reads or writes them except the two repository methods below; no existing table was
+altered, no setting enables the feature, and users who never use sync see no behavior change.
 
-- `email_triage_settings`: singleton `id = 'global'` for enable/mutation flags,
-  poll interval, classifier model/versions, confidence thresholds,
-  `run_in_tray`, `launch_at_login`, and `automation_enabled` (a failed evaluation
-  sets this to 0; a passing evaluation unlocks the automation checkbox but does not
-  turn it on).
-- `email_triage_accounts`: provider connection cards, generation, pause/state,
-  recovery, and `sync_state_json`.
-- `email_triage_conversations`: per-account thread key, `decision_version`,
-  routing state, optional linked task, managed-notes revision/hash, source URL.
-- `email_triage_aliases`: Message-ID header aliases for a conversation.
-- `email_triage_messages`: unique `(account_id, provider_message_id)`, subject,
-  sender, optional summary, routing decision. No body column.
-- `email_triage_classification_attempts`: append-only classifier metadata per
-  message.
-- `email_triage_reviews`: pending/resolved/dismissed queue; a partial unique
-  index keeps at most one pending review per `(conversation_id, message_id)`.
-  `sanitized_preview_json` stores subject, sender, received time, and source URL
-  only — never message body.
-- `email_triage_evaluations`: corpus run results used as an automation safety
-  gate.
-- `email_triage_desired_effects`: idempotent GTD/provider mutations keyed by
-  `dedupe_key`.
-- `email_triage_audit_events`: append-only account/conversation events.
+| Table | Purpose |
+|---|---|
+| `sync_entity_meta` | `(entity_type, entity_id)` primary key, `field_clocks_json` (default `'{}'`), `row_hlc` (indexed), nullable `deleted_at` tombstone |
+| `sync_identity` | Single row (`id = 1` enforced by `CHECK`): `device_id`, `device_name`, HLC state (`physical_ms`, `counter`), `change_counter`, `last_publish_counter`, and `applying` (the transaction-scoped "merge in progress" switch for later slices) |
+| `sync_peers` | Per-peer last manifest, last sync time, and last applied content hash per domain |
+| `sync_id_aliases` | `(entity_type, alias_id)` to `canonical_id` with `recorded_hlc` |
+| `sync_recurrence_occurrences` | `(template_id, due_date)` outcome with `outcome_hlc` and the producing `device_id` |
+| `sync_recurrence_clears` | `template_id` to `cleared_through_date` |
+| `sync_conflicts` | Detected conflicts and overwritten edits (`local_json`, `remote_json`, resolution) |
 
-OS vault commands (`vault_*` in `src-tauri/src/vault.rs`) can store a dedicated
-classifier key and provider credentials outside SQLite. This slice exposes the
-commands but does not write secrets from the UI.
+Classification lives in `src/lib/sync/registry.ts` (checked against the migrated schema by
+`registry.test.ts`). `sync_identity` and `sync_peers` are device-local and never leave the
+machine. `sync_recurrence_occurrences` and `sync_recurrence_clears` belong to the `gtd` domain.
+`sync_entity_meta`, `sync_id_aliases`, and `sync_conflicts` have no domain of their own: a row
+travels only inside the bundle of its `entity_type`'s domain (`sidecarPublishDomain`), so a
+personal or finance entity's metadata or conflict copy can never be placed in a `gtd` bundle.
+The plain table guards refuse these three tables outright.
+
+`src/lib/sync/clock-store.ts` issues hybrid logical clocks against `sync_identity`
+(`issueHlc`, `receiveRemoteHlc`); it must run inside an open write transaction. It rejects a
+malformed remote clock and one more than 24 hours ahead of local time before the clock state
+is touched, and throws a typed `SyncClockError` when no identity row exists.
+
+Repository surface (both implementations):
+
+- `getSyncStatus()` returns `{ supported: false }` from `MemoryRepository`. On SQLite it
+  returns the identity (or `null`), `changeCounter`, `lastPublishCounter`, `pendingChanges`,
+  and the peers, parsing the peer JSON columns defensively.
+- `ensureSyncIdentity({ deviceId, deviceName })` creates the `sync_identity` row inside the
+  normal writer transaction. The device-id file is the authority: if the row exists with a
+  different `device_id` (a backup restored from another laptop, see [Recovery](#recovery)),
+  only `device_id` is rewritten, the HLC state and counters are kept, and the result has
+  `repaired: true`. An existing device name changes only when the given one is non-empty and
+  different. An id that is not `dev:` plus a lowercase UUID v4 is rejected (the same check the
+  native host applies). `MemoryRepository` rejects: sync is unavailable in browser preview.
+
+Sidecar rows are included in backups like any other table; a restored `sync_identity` is
+exactly what the repair rule above exists for.
+
+### Legacy email triage tables (unused)
+
+The email triage feature was removed (see [LLM bridge](llm-bridge.md) for the replacement),
+but migrations are append-only, so migrations 29–32 still create these tables and the app
+never reads or writes them: `email_triage_settings`, `email_triage_accounts`,
+`email_triage_conversations`, `email_triage_aliases`, `email_triage_messages`,
+`email_triage_classification_attempts`, `email_triage_reviews`, `email_triage_evaluations`,
+`email_triage_desired_effects`, and `email_triage_audit_events`. Existing user databases keep
+whatever they contain; nothing deletes it. `gtd_tasks.source_url` (added by migration 29) is
+live: it holds the link-back URL of tasks created through the MCP `add_tasks` tool, and
+tasks created by the old triage keep `source = 'email_triage'`.
+
+Provider refresh tokens and the triage classifier key that the old feature wrote to the OS
+vault are no longer addressable (`vault.rs` only resolves `calendar_credentials`); they remain
+as orphaned entries in the macOS Keychain under the `trackdidia` service until deleted there.
 
 ### Finance tables
 
 Migration 37 is purely additive (no `ALTER TABLE` on any existing table) and creates
-every `finance_*` table in one migration, matching the email triage precedent. See
+every `finance_*` table in one migration. See
 [finance.md](finance.md) for the full data model and repository contract; this is the
 storage-layer summary.
 
@@ -540,6 +589,9 @@ There is no restore UI. Recovery is currently an operator/manual action:
 4. Replace the matching environment database file with a copy of that backup.
 5. Restart the application and verify entries, tasks, and settings.
 
+Leave the `device-id`/`device-id.dev` file in place when restoring; it identifies this
+installation, not the data.
+
 Do not restore a development backup over production (or the reverse) without
 explicitly choosing that outcome. Do not perform this operation automatically in a
 code task.
@@ -557,6 +609,5 @@ code task.
 - [Architecture](architecture.md)
 - [GTD](gtd.md)
 - [AI, settings, and privacy](ai-settings-and-privacy.md)
-- [Email triage](email-triage.md)
 - [Calendar sync](calendar-sync.md)
 - [Desktop builds](desktop-builds.md)

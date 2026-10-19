@@ -28,6 +28,14 @@
     "cashFlowSubtitle": "Revenus et dépenses du mois en cours",
     "spentShare": "{{percent}} % des revenus dépensés",
     "noIncomeYet": "Aucun revenu enregistré ce mois-ci",
+    "liquidityTitle": "Liquidité nette",
+    "liquiditySubtitle": "Comptes courants, épargne et argent comptant contre cartes de crédit et marges (sans placements, immobilier ni dettes à long terme)",
+    "liquidCashLabel": "Liquidités",
+    "shortTermDebtLabel": "Dettes à court terme",
+    "netLiquidityLabel": "Liquidité nette",
+    "debtShareOfCash": "Les dettes à court terme représentent {{percent}} % des liquidités",
+    "noLiquidCash": "Aucune liquidité pour couvrir les dettes à court terme",
+    "noShortTermDebt": "Aucune dette à court terme",
     "assetsLiabilitiesBar": "Répartition actifs et passifs",
     "incomeLabel": "Revenus",
     "expenseLabel": "Dépenses",
@@ -36,6 +44,7 @@
     "topCategoriesTitle": "Principales catégories",
     "noTopCategories": "Aucune dépense ce mois-ci.",
     "recurringTitle": "Factures récurrentes à venir",
+    "recurringIncomeTitle": "Revenus récurrents à venir",
     "noRecurring": "Aucune facture récurrente détectée.",
     "recurringNextDate": "Prochaine échéance : {{date}}",
     "recurringConfirm": "Confirmer",
@@ -69,7 +78,10 @@
       "openingBalance": "Solde d'ouverture",
       "balanceAsOf": "Date du solde d'ouverture",
       "manualBalance": "Solde manuel (relevé)",
-      "manualBalancePlaceholder": "Optionnel"
+      "manualBalancePlaceholder": "Optionnel",
+      "updateCadence": "Fréquence de mise à jour (jours)",
+      "updateCadencePlaceholderWeekly": "Par défaut : 7 (compte budgété)",
+      "updateCadencePlaceholderMonthly": "Par défaut : 30"
     },
     "types": {
       "checking": "Chèques",
@@ -91,7 +103,8 @@
       "nameRequired": "Le nom du compte est requis.",
       "invalidOpeningBalance": "Solde d'ouverture invalide.",
       "invalidCurrency": "Devise invalide (code à trois lettres, ex. CAD).",
-      "invalidManualBalance": "Solde manuel invalide."
+      "invalidManualBalance": "Solde manuel invalide.",
+      "invalidCadence": "Fréquence invalide (nombre entier de jours, de 1 à 365)."
     },
     "addAccount": "Ajouter le compte",
     "listTitle": "Comptes existants",
@@ -113,6 +126,9 @@
     "selectFileTitle": "Choisir un ou plusieurs fichiers CSV",
     "reencodedWarning": "Le fichier n'était pas de l'UTF-8 valide ; il a été relu en windows-1252.",
     "mappingTitle": "Mappage des colonnes",
+    "noHeader": "Ce fichier n'a pas de ligne d'en-tête (la première ligne est déjà une transaction)",
+    "noHeaderHint": "Chaque ligne du fichier est lue comme une transaction ; les colonnes sont nommées Colonne 1, Colonne 2… Associez-les ci-dessous (date, description, montant…).",
+    "columnLabel": "Colonne",
     "fields": {
       "date": "Date",
       "description": "Description",
@@ -133,6 +149,8 @@
       "debit_credit_columns": "Colonnes débit / crédit",
       "amount_with_type_column": "Montant + type de transaction"
     },
+    "invertSign": "Inverser le signe des montants (carte de crédit : achats positifs)",
+    "allPositiveHint": "Ce fichier semble imprimer les dépenses en positif (typique d'une carte de crédit). Cochez « Inverser le signe des montants » pour que les achats soient des dépenses (négatifs) et les paiements des entrées (positifs).",
     "dateFormatLabel": "Format de date",
     "dateAmbiguous": "Le format de date est ambigu pour cet échantillon — vérifiez le format choisi.",
     "singleAccountLabel": "Compte (fichier à un seul compte)",
@@ -161,6 +179,20 @@
     "undo": "Annuler ce lot",
     "undoRefused": "{{count}} ligne(s) catégorisées manuellement n'ont pas été supprimées.",
     "undoFailed": "Échec de l'annulation.",
+    "aiRun": {
+      "result": "Classification IA terminée : {{merchants}} marchand(s) analysé(s), {{suggestions}} suggestion(s) à vérifier, {{autoApplied}} appliquée(s) automatiquement. Les suggestions sous le seuil de confiance automatique attendent votre validation dans la file de révision.",
+      "none": "Classification IA terminée : {{merchants}} marchand(s) analysé(s), mais aucune suggestion exploitable n'a été créée (marchands déjà refusés ou réponse vide).",
+      "openReview": "Ouvrir la file de révision"
+    },
+    "aiHint": {
+      "disabled_one": "{{count}} marchand n'a pas de catégorie. La catégorisation IA est désactivée : activez-la dans Paramètres › Finances pour obtenir des suggestions (puis « Classer les en attente (IA) » dans la file de révision).",
+      "disabled_other": "{{count}} marchands n'ont pas de catégorie. La catégorisation IA est désactivée : activez-la dans Paramètres › Finances pour obtenir des suggestions (puis « Classer les en attente (IA) » dans la file de révision).",
+      "unconfigured_one": "{{count}} marchand n'a pas de catégorie. La catégorisation IA est activée, mais l'IA n'est pas configurée : activez l'IA et saisissez une clé OpenRouter dans Paramètres.",
+      "unconfigured_other": "{{count}} marchands n'ont pas de catégorie. La catégorisation IA est activée, mais l'IA n'est pas configurée : activez l'IA et saisissez une clé OpenRouter dans Paramètres.",
+      "metrics_one": "{{count}} marchand n'a pas de catégorie. La portée des données IA est limitée aux métriques, ce qui exclut la catégorisation : élargissez-la dans Paramètres.",
+      "metrics_other": "{{count}} marchands n'ont pas de catégorie. La portée des données IA est limitée aux métriques, ce qui exclut la catégorisation : élargissez-la dans Paramètres.",
+      "openSettings": "Ouvrir les paramètres"
+    },
     "aiCategorizationWarning": "L'import a réussi, mais la classification IA a échoué : des suggestions IA peuvent manquer. Utilisez « Classer les en attente (IA) » dans la file de révision pour réessayer."
   },
   "transactions": {
@@ -211,7 +243,31 @@
       "remove": "Retirer",
       "addRow": "Ajouter une ligne",
       "save": "Enregistrer",
-      "cancel": "Annuler"
+      "cancel": "Annuler",
+      "invoice": {
+        "selectFile": "Répartir à partir d'une facture (PDF ou image)",
+        "unavailable": "Pour répartir à partir d'une facture, activez l'IA dans Paramètres (clé API requise, portée des données autre que « métriques »).",
+        "reading": "Lecture du fichier…",
+        "disclosureText": "Le texte de « {{file}} » ci-dessous (numéros de compte et de carte, courriels et téléphones masqués), le montant de la transaction et la liste de vos catégories seront envoyés à votre fournisseur IA. Les noms et adresses ne sont pas masqués : relisez le texte.",
+        "disclosureImage": "L'image « {{file}} » ({{size}}), le montant de la transaction et la liste de vos catégories seront envoyés à votre fournisseur IA. Une image ne peut pas être masquée : elle est envoyée telle quelle, et le modèle choisi doit accepter les images.",
+        "send": "Envoyer à l'IA",
+        "cancel": "Ne pas envoyer",
+        "running": "Analyse…",
+        "applied": "Répartition proposée par l'IA — vérifiez-la, modifiez-la au besoin, puis enregistrez.",
+        "adjusted": "Les montants lus ont été ajustés proportionnellement pour égaler le montant de la transaction.",
+        "totalMismatch": "Le total de la facture diffère du montant de la transaction : est-ce la bonne facture, ou un paiement partiel ?",
+        "unknownCategory_one": "{{count}} ligne n'a pas de catégorie : choisissez-la.",
+        "unknownCategory_other": "{{count}} lignes n'ont pas de catégorie : choisissez-les.",
+        "nothingFound": "L'IA n'a pas pu tirer de répartition de cette facture.",
+        "failed": "L'analyse IA a échoué.",
+        "errors": {
+          "unsupported": "Format non pris en charge : utilisez un PDF, une image PNG, JPEG ou WebP.",
+          "too_large": "Ce fichier est trop volumineux.",
+          "unreadable": "Ce fichier n'a pas pu être lu.",
+          "encrypted": "Ce PDF est protégé par un mot de passe.",
+          "no_text": "Ce PDF n'a pas de texte sélectionnable (numérisation) : joignez-le plutôt comme image."
+        }
+      }
     },
     "previousPage": "Précédent",
     "nextPage": "Suivant",
@@ -241,6 +297,13 @@
     "reclassifyResult": "{{reclassified}} transaction(s) recatégorisée(s), {{suggestions}} nouvelle(s) suggestion(s).",
     "queueTitle": "File d'attente ({{count}})",
     "noPending": "Aucune suggestion en attente.",
+    "suggestedCategory": "Catégorie suggérée : {{category}} — {{count}} transaction(s) · confiance {{confidence}} · {{origin}}",
+    "showTransactions": "Voir les {{count}} transaction(s)",
+    "origin": {
+      "ai": "IA",
+      "memory": "mémoire des marchands",
+      "seed": "règle intégrée"
+    },
     "accept": "Accepter",
     "correct": "Corriger",
     "dismiss": "Rejeter",
@@ -436,5 +499,30 @@
       "accountLast4": "Derniers chiffres du compte : lecture locale {{parser}}, IA {{ai}}.",
       "useAi": "Utiliser la valeur de l'IA"
     }
+  },
+  "freshness": {
+    "title": "Comptes à mettre à jour",
+    "subtitle": "Âge des données de chaque compte, selon sa cadence",
+    "allFresh": "Tous les comptes sont à jour.",
+    "dueSummary_one": "{{count}} compte à mettre à jour",
+    "dueSummary_other": "{{count}} comptes à mettre à jour",
+    "noAccounts": "Aucun compte ouvert.",
+    "loadError": "Impossible de charger l'état des comptes.",
+    "retry": "Réessayer",
+    "import": "Importer des transactions ou un relevé",
+    "transactionThrough": "Données jusqu'au {{date}}",
+    "statementThrough": "Relevé du {{date}}",
+    "createdThrough": "Aucune donnée importée, compte créé le {{date}}",
+    "ageDays_one": "{{count}} jour",
+    "ageDays_other": "{{count}} jours",
+    "cadenceWeekly": "mise à jour hebdomadaire",
+    "cadenceMonthly": "mise à jour mensuelle",
+    "status": {
+      "fresh": "À jour",
+      "due": "À mettre à jour"
+    },
+    "cadenceEveryDays_one": "mise à jour tous les {{count}} jour",
+    "cadenceEveryDays_other": "mise à jour tous les {{count}} jours",
+    "loading": "Chargement de l'état des comptes…"
   }
 }

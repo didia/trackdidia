@@ -15,8 +15,6 @@ import * as aiProposals from "./aiProposals";
 import * as annualGoals from "./annualGoals";
 import * as contexts from "./contexts";
 import * as dailyEntries from "./dailyEntries";
-import * as emailAccounts from "./emailAccounts";
-import * as emailReviews from "./emailReviews";
 import * as midWeekDecisions from "./midWeekDecisions";
 import * as rescueTimeCache from "./rescueTimeCache";
 import * as monthlyReviews from "./monthlyReviews";
@@ -74,14 +72,6 @@ const repositoryReads = new Map<
   [aiMessages, { table: "ai_messages", read: (repo) => repo.listAiMessages() }],
   [aiProposals, { table: "ai_proposals", read: (repo) => repo.listAiProposals("message") }],
   [aiMemories, { table: "ai_memories", read: (repo) => repo.listAiMemories() }],
-  [
-    emailAccounts,
-    { table: "email_triage_accounts", read: async (repo) => repo.emailTriage.listAccounts() },
-  ],
-  [
-    emailReviews,
-    { table: "email_triage_reviews", read: async (repo) => repo.emailTriage.listReviews() },
-  ],
   [
     midWeekDecisions,
     { table: "mid_week_decisions", read: (repo) => repo.getMidWeekDecisions("2026-09-27") },
@@ -296,45 +286,6 @@ describe("AI memories", () =>
     lastConfirmedAt: now,
     expiresAt: null,
     pinned: true,
-  }));
-describe("email accounts", () =>
-  roundTrip(emailAccounts, {
-    id: "account",
-    provider: "gmail",
-    providerAccountId: "provider",
-    label: "Mail",
-    maskedAddress: "a***@example.com",
-    generation: 2,
-    enabled: true,
-    mutationEnabled: false,
-    paused: true,
-    state: "active",
-    recoveryState: "none",
-    lastSuccessAt: now,
-    lastError: null,
-    pollIntervalMinutes: 7,
-    syncState: { historyId: "123" },
-    createdAt: now,
-    updatedAt: now,
-  }));
-describe("email reviews", () =>
-  roundTrip(emailReviews, {
-    id: "review",
-    accountId: "account",
-    conversationId: "conversation",
-    messageId: "message",
-    expectedDecisionVersion: 2,
-    status: "pending",
-    reason: "uncertain",
-    resolution: null,
-    resolvedAt: null,
-    createdAt: now,
-    sanitizedPreview: {
-      subject: "Mail",
-      sender: "sender@example.com",
-      receivedAt: now,
-      sourceUrl: null,
-    },
   }));
 
 it("preserves legacy task null defaults and JSON failure behavior", () => {

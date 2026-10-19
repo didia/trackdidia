@@ -1,4 +1,4 @@
-import { providerHttpRequest } from "../email-triage/provider-http";
+import { providerHttpRequest } from "../provider-http";
 import { createTimeoutController, toTimeoutError } from "../http/timeout";
 
 export const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
@@ -10,11 +10,16 @@ export const normalizeAiBaseUrl = (rawUrl: string): string => {
   return base || DEFAULT_OPENROUTER_BASE_URL;
 };
 
+/** One part of a multimodal message (OpenAI-compatible `content` array). */
+export type ChatContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
 export interface ChatCompletionRequest {
   baseUrl: string;
   apiKey: string;
   model: string;
-  messages: { role: "system" | "user" | "assistant"; content: string }[];
+  messages: { role: "system" | "user" | "assistant"; content: string | ChatContentPart[] }[];
   temperature: number;
   maxTokens?: number;
   responseFormat?: { type: "json_object" };

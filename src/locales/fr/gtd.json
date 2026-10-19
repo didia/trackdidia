@@ -277,6 +277,8 @@
     "title": "Titre",
     "notes": "Notes",
     "notesPlaceholder": "Décision, prochain pas, contexte...",
+    "openSource": "Source",
+    "openSourceAria": "Ouvrir la source de {{title}}",
     "bucket": "Bucket GTD",
     "project": "Projet",
     "noProject": "Sans projet",

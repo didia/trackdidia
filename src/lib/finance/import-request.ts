@@ -57,6 +57,8 @@ export interface BuildImportRowsOptions {
    * reported as an error rather than silently assigned to the default account.
    */
   resolveAccountId: (externalAccountKey: string | null) => string | null;
+  /** 1-based line number of the first data row: 2 under a header line (default), 1 without one. */
+  firstLineNumber?: number;
 }
 
 export interface BuildImportRowsResult {
@@ -74,13 +76,14 @@ export interface BuildImportRowsResult {
  */
 export const buildImportRows = (options: BuildImportRowsOptions): BuildImportRowsResult => {
   const { header, rows, profile, currency, resolveAccountId, resolveCurrency } = options;
+  const firstLineNumber = options.firstLineNumber ?? 2;
 
   const mapped: Array<{ lineNumber: number; accountId: string; row: NormalizedImportRow }> = [];
   const errors: MappedImportRowError[] = [];
   const unresolvedAccountKeys = new Set<string>();
 
   rows.forEach((row, index) => {
-    const lineNumber = index + 2; // 1-based, header is line 1
+    const lineNumber = index + firstLineNumber;
     let result = mapImportRowToTransaction(row, header, profile, {
       currency,
       exponent: currencyExponent(currency),

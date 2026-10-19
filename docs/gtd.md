@@ -125,10 +125,13 @@ Important distinctions:
   and Next Actions / Waiting For / Someday context filters. An explicit task
   context always wins and is not overwritten.
 - `projectId` is optional.
-- `source` distinguishes manual, Google-imported, and email-triage records.
+- `source` distinguishes manual, Google-imported, and legacy email-triage records (the
+  email triage feature was removed; its existing tasks keep `source: "email_triage"`).
 - Tasks added through the [LLM bridge](llm-bridge.md) are `source: "manual"` with a
   `sourceExternalId` of `llm:<id>`; they default to the Inbox.
-- Email-triage tasks use `sourceExternalId` `email-triage:<accountId>:<conversationKey>` and optional `sourceUrl`.
+- `sourceUrl` is an optional link back to where a task came from. Tasks created through the
+  LLM bridge can set it (`http(s)` only); the task card shows a **Source** button that opens
+  it. Legacy email-triage tasks use `sourceExternalId` `email-triage:<accountId>:<conversationKey>`.
 - imported recurrence fields and local recurrence-template fields coexist but
   represent different mechanisms.
 

@@ -1,14 +1,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod app_nap;
 mod backup;
 mod db;
-mod email_triage_desktop;
+mod desktop_shell;
+mod device_id;
 mod llm_bridge;
 mod oauth_loopback;
+mod pomodoro_alarm;
 mod provider_http;
 mod storage_paths;
 mod vault;
-mod yahoo_imap;
 
 use serde::Serialize;
 
@@ -46,14 +48,16 @@ fn main() {
         ))
         .manage(db::DbState::default())
         .manage(oauth_loopback::OAuthLoopbackState::default())
-        .manage(email_triage_desktop::EmailTriageDesktopState::default())
+        .manage(desktop_shell::DesktopShellState::default())
         .manage(llm_bridge::LlmBridgeState::default())
+        .manage(pomodoro_alarm::PomodoroAlarmState::default())
         .setup(|app| {
-            email_triage_desktop::register_close_handler(app.handle());
+            desktop_shell::register_close_handler(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             resolve_storage_paths,
+            device_id::sync_device_id,
             backup::ensure_backup_dir,
             backup::prune_backups,
             db::db_connect,
@@ -66,15 +70,9 @@ fn main() {
             oauth_loopback::oauth_loopback_start,
             oauth_loopback::oauth_loopback_wait,
             provider_http::provider_http_request,
-            yahoo_imap::yahoo_imap_discover,
-            yahoo_imap::yahoo_imap_fetch_inbox,
-            yahoo_imap::yahoo_imap_search_message_id,
-            yahoo_imap::yahoo_imap_ensure_mailbox,
-            yahoo_imap::yahoo_imap_move_uid,
-            yahoo_imap::yahoo_imap_copy_uid,
-            yahoo_imap::yahoo_imap_uid_expunge,
-            yahoo_imap::yahoo_imap_fetch_uid_message_id,
-            email_triage_desktop::email_triage_set_desktop_prefs,
+            desktop_shell::desktop_set_run_in_tray,
+            pomodoro_alarm::pomodoro_alarm_set,
+            pomodoro_alarm::pomodoro_alarm_clear,
             llm_bridge::llm_bridge_configure,
             llm_bridge::llm_bridge_respond
         ])

@@ -11,11 +11,8 @@ const MAX_RESCUETIME_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 
 const ALLOWED_HOSTS: &[&str] = &[
     "oauth2.googleapis.com",
-    "gmail.googleapis.com",
     "www.googleapis.com",
     "accounts.google.com",
-    "login.microsoftonline.com",
-    "graph.microsoft.com",
     "openrouter.ai",
     "api.openrouter.ai",
     "www.rescuetime.com",

@@ -27,14 +27,16 @@ const findSecondsColumnIndex = (rowHeaders: unknown[]): number => {
 
 const findNameColumnIndex = (rowHeaders: unknown[]): number => {
   const normalized = rowHeaders.map((header) => String(header).toLowerCase());
-  const categoryIndex = normalized.indexOf("category");
-  if (categoryIndex >= 0) {
-    return categoryIndex;
-  }
-
+  // Activity rows also carry a Category column, so Activity must win or every activity
+  // objective would be matched against category names and resolve to 0 seconds.
   const activityIndex = normalized.findIndex((header) => header.includes("activity"));
   if (activityIndex >= 0) {
     return activityIndex;
+  }
+
+  const categoryIndex = normalized.indexOf("category");
+  if (categoryIndex >= 0) {
+    return categoryIndex;
   }
 
   return normalized.length > 1 ? normalized.length - 1 : 1;

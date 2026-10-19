@@ -1,5 +1,5 @@
 // Finance domain types. Mirrors the SQLite schema in the finance spec
-// (specs/done/finance.md) one-for-one, like src/domain/email-triage.ts.
+// (specs/done/finance.md) one-for-one.
 // Types only — no migrations, no I/O, no settings fields live here.
 
 export type FinanceAccountType =
@@ -72,6 +72,8 @@ export interface FinanceAccount {
   currentBalanceMinor: number | null;
   balanceAsOf: string | null;
   externalKey: string | null;
+  /** Days between expected data updates; null/absent falls back to weekly (on-budget) or monthly. */
+  updateCadenceDays?: number | null;
   notes: string | null;
   sortOrder: number;
   createdAt: string;

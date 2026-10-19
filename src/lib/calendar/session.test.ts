@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearCachedAccessToken, setCachedAccessToken } from "../email-triage/token-cache";
+import { clearCachedAccessToken, setCachedAccessToken } from "../token-cache";
 import { CALENDAR_SYNC_TOKEN_CACHE_KEY, createCalendarSyncApiClient } from "./session";
 
 const loadCalendarVaultSecretMock = vi.fn();
@@ -8,10 +8,8 @@ const httpRequestMock = vi.fn();
 vi.mock("./vault", () => ({
   loadCalendarVaultSecret: (...args: unknown[]) => loadCalendarVaultSecretMock(...args),
 }));
-vi.mock("../email-triage/provider-http", async () => {
-  const actual = await vi.importActual<typeof import("../email-triage/provider-http")>(
-    "../email-triage/provider-http",
-  );
+vi.mock("../provider-http", async () => {
+  const actual = await vi.importActual<typeof import("../provider-http")>("../provider-http");
   return {
     ...actual,
     createTauriHttpClient: () => ({ request: httpRequestMock }),

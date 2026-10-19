@@ -10,6 +10,7 @@ import { PageHeader } from "../components/PageHeader";
 import { RichTextarea } from "../components/RichTextarea";
 import { SectionCard } from "../components/SectionCard";
 import { AiPayloadPreviewSection } from "../components/settings/AiPayloadPreviewSection";
+import { DesktopShellSection } from "../components/settings/DesktopShellSection";
 import { LlmBridgeSection } from "../components/settings/LlmBridgeSection";
 import { StorageOverviewSection } from "../components/settings/StorageOverviewSection";
 import { useSectionSave } from "../components/settings/useSectionSave";
@@ -806,6 +807,8 @@ export const SettingsPage = () => {
       </SectionCard>
 
       <LlmBridgeSection />
+
+      <DesktopShellSection />
 
       <SectionCard title={t("finance.title")} subtitle={t("finance.subtitle")}>
         {financeSave.message ? <div className="banner">{financeSave.message}</div> : null}

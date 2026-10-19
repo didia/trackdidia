@@ -55,7 +55,9 @@ averages and rates intentionally include zero-valued empty days in several axes.
 The eight ritual sections are:
 
 1. Bilan
-2. Budget
+2. Budget — when `financeEnabled` is on, the section also embeds the finance
+   [account update tracking](finance.md#account-update-tracking-weekly-review-and-finances)
+   list (which accounts need fresh transactions or a statement)
 3. Temps et plan
 4. Collecte
 5. Calendrier
@@ -155,7 +157,7 @@ only (calories included; RescueTime excluded).
 The `/semaine` screen tracks **two distinct objective systems**:
 
 1. **RescueTime Goals** (read-only): enabled goals from the RescueTime API feed optional RescueTime score axes on the weekly overview. Manage goals in RescueTime; configure the API key under **Paramètres → RescueTime**.
-2. **Standing objectives** (`weekly_objectives`): durable TrackDidia objectives the coach can propose via `weekly_objective` accept-step. Accepting one during week N sets `startsOnWeekStartDate` to the following Sunday, so it does not score against the week being closed. Objectives with a null start date (created before that field) still apply to every week. The page lists the objectives active for the displayed week with a per-week score, lets you toggle manual achievement (`saveWeeklyObjectiveResult`), and delete objectives. Marking a manual objective achieved sets `endsOnWeekStartDate` to the previous Sunday, so it leaves the current review and does not appear in any later week. The end date is monotonic (earlier terminal end wins), so an out-of-order achievement from a later week cannot reopen excluded weeks. Earlier weeks still list it. Time objectives keep rolling until deleted. Time-based objectives score against RescueTime Analytic Data when configured, and only those active for the displayed week are fetched.
+2. **Standing objectives** (`weekly_objectives`): durable TrackDidia objectives the coach can propose via `weekly_objective` accept-step. Accepting one during week N sets `startsOnWeekStartDate` to the following Sunday, so it does not score against the week being closed. Objectives with a null start date (created before that field) still apply to every week. The page lists the objectives active for the displayed week with a per-week score, lets you toggle manual achievement (`saveWeeklyObjectiveResult`), and delete objectives. Marking a manual objective achieved sets `endsOnWeekStartDate` to the previous Sunday, so it leaves the current review and does not appear in any later week. The end date is monotonic (earlier terminal end wins), so an out-of-order achievement from a later week cannot reopen excluded weeks. Earlier weeks still list it. Time objectives keep rolling until deleted. Time-based objectives score against RescueTime Analytic Data when configured, and only those active for the displayed week are fetched. Each time objective card has **Modifier le suivi RescueTime**: it lists the activities or categories RescueTime reported over the four weeks ending with the displayed week (with a filter), and saving re-points the objective (`rescuetimeKind`/`rescuetimeThing`) at the chosen name. Cached objective seconds record the `kind:thing` they were pulled for and are never reused for another mapping (nor when no mapping was recorded), so a remap shows live hours immediately.
 
 RescueTime Goals remain the optional weekly-score axis described below. Standing objectives use `WeeklyObjectivesService.computeWeeklyObjectivesSnapshot()` and are separate from RescueTime Goals.
 
@@ -346,7 +348,18 @@ Accepting a section draft **persists the note** on the weekly review immediately
 textarea is also prefilled). A Dimanche draft accepted while reviewing a past
 week is written on the following week, and reopening that stored week shows the
 note even if it is also past. Accepting an objective creates a row in `weekly_objectives` that
-starts the Sunday after the reviewed week, via an idempotent atomic accept. GTD
+starts the Sunday after the reviewed week, via an idempotent atomic accept.
+Because the model only sees titles, a synthesis run with RescueTime configured also sends
+`rescueTimeVocabulary` (the 30 most-used categories and 60 most-used activities over the four
+weeks ending with the reviewed week; `metrics_and_structure` scope and above) and the prompt
+requires `rescuetimeThing` to be copied from it. When proposals are created, a `category` /
+`activity` time objective whose name matches (case/whitespace-insensitive) is snapped to the
+canonical spelling; one that does not match is stored as a `manual` objective, since an invented
+name would read 0 h forever. If the vocabulary could not be loaded, proposals are kept unchecked.
+RescueTime **goals** are already scored and listed in the review, so a `time` objective proposal
+about the same subject (its RescueTime name appears in a goal title, or a goal's subject appears
+in its title) is dropped as a duplicate; the prompt tells the coach the same.
+Stored syntheses are not rewritten, and existing objectives are never edited. GTD
 accepts are atomic and skip terminal tasks.
 
 Once a week has a stored `ok` result, opening `/semaine` only shows it; a new assessment

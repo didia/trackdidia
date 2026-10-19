@@ -52,7 +52,7 @@ Page chrome uses shared primitives in `src/components/`: `PageHeader` (the
 `hero` block with eyebrow, title, optional copy and actions), `ContextFilterChips`
 (All + one chip per context), and `SegmentedToggle` (single-select `tag-chip`
 row). They reuse the existing `hero` / `tag-row` / `tag-chip` classes, so
-`styles.css` is unchanged. `EmailTriagePage` keeps its own `page-header` markup.
+`styles.css` is unchanged.
 
 Prefer pure functions for calculations and state transitions. Pages should compose
 those functions and repository calls rather than becoming alternate business-rule
@@ -127,6 +127,10 @@ generate or scrape it. See
   the SQLite wrapper with its existing 15-second reentrancy watchdog.
 
 ## Repository changes
+
+Row ids come from `createEntityId(prefix)` in `src/lib/gtd/shared.ts`, which returns
+`prefix:<uuid>` from `crypto.randomUUID()` and throws when it is unavailable. There is no
+`Math.random()` fallback: a weak id is a collision path, so do not add one.
 
 When extending `AppRepository`:
 

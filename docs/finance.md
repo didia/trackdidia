@@ -57,7 +57,8 @@ ISO strings from `nowIso()`.
 - **`finance_accounts`** — `type` (`checking`, `savings`, `cash`, `credit_card`,
   `line_of_credit`, `loan`, `mortgage`, `investment`, `asset`, `other`), `currency`,
   `on_budget`, `closed`, `opening_balance_minor`, and a nullable unique
-  `external_key` binding an imported file's account label to this account.
+  `external_key` binding an imported file's account label to this account, plus a nullable
+  `update_cadence_days` (how often its data should be refreshed; see "Account update tracking").
   Balances are always **derived** (`opening_balance_minor` + Σ transactions);
   `current_balance_minor` is a reconciliation check only.
 - **`finance_categories`** — `kind` (`expense` | `income` | `transfer` | `internal`),
@@ -129,8 +130,8 @@ automatically — no migration needed):
 `FinanceSqliteStore` (`src/lib/storage/finance-sqlite-store.ts`) and
 `FinanceMemoryStore` (`src/lib/storage/finance-memory-store.ts`) back
 `TauriSqliteRepository` and `MemoryRepository` respectively, reached through thin
-delegating methods (`getFinanceStore()`), mirroring the email triage pattern
-(`getEmailTriageStore()`). Both stores implement the same methods and the same
+delegating methods (`getFinanceStore()`), mirroring the calendar sync store
+(`getCalendarSyncStore()`). Both stores implement the same methods and the same
 business rules; `repository.contract.ts`'s `finance` block runs identical
 assertions against both.
 
@@ -321,9 +322,14 @@ it never calls another queue-taking repository method, so it cannot deadlock
 New rows land as `category_id = 'fincat:non-categorise'`, `category_source =
 'default'`; transfer detection then runs, and finally the classification
 pipeline (see "Classification pipeline (Phase 4)" above) runs over whatever
-transfer detection left untouched. A `categoryHint` on the row (from, e.g., a
-Mint CSV's `Category` column) is still accepted on the request shape but
-ignored — nothing in the pipeline reads it yet.
+transfer detection left untouched. A `categoryHint` on the row (the mapped CSV
+"category" column) is resolved by `resolveCategoryHint` (`classify.ts`) against
+existing active, non-system categories by accent/case-insensitive name or
+`Parent / Child` path; an unknown or ambiguous name resolves to nothing. A match
+is applied at import as `category_source = 'rule'`, confidence 1, ranking below
+user rules and transfer detection but above learned memory and seeds. The hint
+is not stored, so a later reclassification keeps the category (a `default`
+outcome never overwrites a real category) but cannot re-derive it.
 
 ### Undo
 
@@ -489,7 +495,7 @@ call sites that race harmlessly because the seed is `INSERT OR IGNORE`:
 
 | Route | Screen |
 |---|---|
-| `/finances` | `FinanceOverviewPage` — net worth, this month's cash flow, account list with derived balances, a 6-month spending trend, top categories, and upcoming recurring bills (Phase 6) |
+| `/finances` | `FinanceOverviewPage` — net worth, net liquidity (cash vs short-term debt), this month's cash flow, account list with derived balances, a 6-month spending trend, top categories, and upcoming recurring bills (Phase 6) |
 | `/finances/transactions` | `FinanceTransactionsPage` |
 | `/finances/budget` | `FinanceBudgetPage` (Phase 5) |
 | `/finances/reports` | `FinanceReportsPage` — category/merchant/person spend with drill-down, income-vs-expense trend, month-over-month comparison (Phase 6) |
@@ -512,6 +518,17 @@ and is called out by name in a banner (`excludedCurrencies`) rather than
 silently excluded. Net worth itself counts **every** account regardless of
 `onBudget`/`excludedFromBudget` — those are budget-only exclusions and never
 remove money from net worth (see AGENTS.md "Repository parity").
+
+**Net liquidity** (the "Liquidité nette" card under the net-worth hero) answers
+"if I paid every short-term debt today, how much cash is left?". It is computed
+by the same pure `computeFinanceNetWorth` (so both repositories return it with
+no extra method) as `liquidAssetsMinor - shortTermDebtMinor`, base currency
+only. Liquid assets are `checking`, `savings` and `cash` accounts; short-term
+debt is `credit_card` and `line_of_credit` accounts
+(`classifyFinanceLiquidityBucket`). `investment`, `asset` and `other` accounts
+and long-term debt (`loan`, `mortgage`) are left out — they only count toward
+net worth. The card also shows short-term debt as a share of liquid cash; the
+result can be negative.
 
 ### FinanceAccountsPage (`/finances/accounts`)
 
@@ -543,6 +560,16 @@ shows a discrepancy banner whenever they disagree.
    same bytes as windows-1252 (lossless for any byte sequence) and the page
    shows a banner telling the user the file was re-read. `parseCsv` (Phase 1)
    then turns the decoded text into a header and rows.
+   A file with **no header line** (typical of a bank's raw export) is supported: when
+   the first line holds a date (`looksLikeDataRow`) the page pre-checks "Ce fichier n'a
+   pas de ligne d'en-tête", and the user can tick or untick it for any file (which
+   re-parses and resets the mapping). `parseCsv(text, undefined, { hasHeader: false })`
+   then reads every line as a transaction and names the columns "Colonne 1…N"; the
+   mapping selects, date-format inference (first column) and preview work on those names,
+   and row-error/warning line numbers start at 1. The saved profile's signature is
+   `buildHeaderSignature(header, false)` — a hash of the column count only, kept apart
+   from any real header's signature — so a repeat headerless import with the same number
+   of columns reuses its mapping. The flag itself is not stored (no migration).
 3. Profile auto-detection: `buildHeaderSignature(header)` is compared against
    every saved `FinanceImportProfile` and against the bundled `MINT_PROFILE`;
    a match pre-fills the column map, date format, and amount mode. No match
@@ -554,6 +581,18 @@ shows a discrepancy banner whenever they disagree.
    columns, or amount + transaction-type column — account, category hint,
    notes, labels) and the date format, with a first-20-row raw preview table
    underneath.
+   In debit/credit-columns mode the non-zero side wins: banks that print `0` in the
+   unused column (instead of leaving it blank) still import credits as positive.
+   In single-signed mode an "Inverser le signe des montants" checkbox flips every
+   amount, for credit-card exports that print purchases as positive numbers. It is
+   persisted on the profile as `signConvention = "inverted"` (the existing
+   `sign_convention` column, no migration; `null` keeps the file's signs), so a
+   repeat import of the same header reuses it. Purchases positive, payments negative:
+   inversion makes purchases expenses and payments money in. When the amount column
+   is mapped and no amount is negative — or the file is bound to a credit-card
+   account and positives outnumber negatives — the page shows a banner suggesting
+   the inversion. Amount parsing accepts a currency symbol on either side of the sign
+   (`-$12.00` and `$-12.00`).
 5. Account binding: when the profile maps an account column, the page lists
    every distinct value seen in that column in the file and lets the user
    bind each one to an existing account or create a new one inline. A newly
@@ -744,6 +783,58 @@ keep the anchor; same-day derived snapshot; replacement; manual-edit override). 
 manual backup first, as for CSV imports: the previous opening balance is returned in
 the result (`previousOpeningBalanceMinor`) but there is no undo button.
 
+### Account update tracking (weekly review and `/finances`)
+
+`FinanceAccountFreshnessCard` (`src/components/finance/`) lists the **open** accounts that need
+a CSV or a statement, so the weekly budget review shows what is left to import. Accounts that
+are up to date are not listed (when none are due the section says so). It renders only while
+`financeEnabled` is on, embedded under the "Budget" ritual section of `/semaine` (`embedded`
+drops the card chrome). It reloads when the app's local `calendarDay` rolls over (midnight,
+focus, visibility), so ages never stay on yesterday; while loading it shows a short loading
+line. Each row shows a `À mettre à jour` chip, the account and institution, "Données
+jusqu'au …" (or "Relevé du …", or "Aucune donnée importée, compte créé le …") with the age in
+days, and the account's cadence, most overdue first; a button links to `/finances/import`.
+
+The `/finances` overview has no separate list: it runs the same loader and marks each account
+row in its "Comptes" section with a small green `À mettre à jour` pill (`finance-row__update`)
+when the account is due. Every open account row also always shows a muted data-date line
+(`finance-row__meta`, "Données jusqu'au …", "Relevé du …" or "Aucune donnée importée, compte
+créé le …", short date with year) so the balance's age is visible without opening anything. The read goes through `useAsyncResource`, so a slow response from
+before a local-day rollover cannot overwrite the new day's pills; a failing read leaves the
+pills out rather than breaking the overview.
+
+Rules (pure, `src/domain/finance/account-freshness.ts`, tested directly):
+
+- **Cadence**: each account may carry its own `updateCadenceDays` (whole days, 1–365; column
+  `finance_accounts.update_cadence_days`, migration 41, edited on `/finances/accounts` in the
+  "Fréquence de mise à jour (jours)" field — blank clears it). Without an override, on-budget
+  accounts are expected weekly (7 days) and every other account monthly (30 days).
+  `cadenceDaysForAccount` is the single place that decides and ignores a stored value that is
+  not a whole number in 1–365 (falls back to the default rather than mis-classifying the
+  account); the card labels 7 and 30 as weekly/monthly and anything else as "tous les N
+  jours". `saveFinanceAccount` keeps the stored cadence when a caller omits the field
+  (`undefined`); only an explicit `null` clears it.
+- **Data-through date** = the newer of the account's latest transaction `posted_date`
+  (transfers included) and its latest `source = 'statement'` balance snapshot date. Import
+  time is deliberately not used — importing an old file must not make an account look
+  current.
+- **Due** when the data-through date is at least one full cadence old (a Sunday review sees
+  last Sunday's data as due). An account with no transactions and no statement has no
+  "never imported" state: it counts from its creation date (local day of `created_at`), so an
+  account the user never imports only turns due once a full cadence has passed since it was
+  created, and importing resets the clock to the data dates. Future-dated postings count as
+  age 0. Closed accounts are skipped.
+- Sort: due before fresh; budget accounts before others, then most overdue.
+
+`loadFinanceAccountFreshness` (`src/lib/finance/account-freshness-loader.ts`, `today` passed
+in by the caller) gathers the two dates through `listFinanceAccounts`,
+`listFinanceLatestTransactionDates` (one grouped `MAX(posted_date) … GROUP BY account_id` read
+on SQLite, a single pass in memory — never a table scan per account) and
+`listFinanceAccountBalanceSnapshots`. Both stores behave identically, covered by
+`repository.contract.ts`. A quiet account that is
+genuinely current but had no activity for a cadence still shows as due until a statement is
+applied — give it a longer cadence if that is the usual rhythm.
+
 ### FinanceTransactionsPage (`/finances/transactions`)
 
 A paged (25 per page), filtered (date range, account, category, person, free
@@ -771,6 +862,35 @@ text search, uncategorized-only) transaction list. Each row supports:
   every row saves an empty list, which clears the splits and restores the
   uncategorized parent. Save stays disabled until that transaction's existing
   splits have loaded, and a superseded load is ignored.
+- **Split from an invoice (AI).** Inside the split editor, "Répartir à partir d'une
+  facture" takes a PDF (text layer, read locally by `extractPdfText`) or a PNG/JPEG/
+  WebP image (≤ 12 MB; larger photos are re-encoded to ≤ 1800 px JPEG when a canvas
+  is available) and proposes the amount-per-category split. It is
+  `src/components/finance/InvoiceSplitAssistant.tsx` →
+  `src/lib/finance/invoice-file.ts` (file → text or data URL) →
+  `src/lib/ai/finance-invoice-split.ts` (prompt, call, validation) →
+  `src/lib/finance/invoice-splits.ts` (pure reconciliation). Flow: pick a file, the
+  user sees exactly what will be sent (the masked text, or the image's name and
+  size) and clicks "Envoyer à l'IA"; nothing is sent before that click. The reply
+  only **replaces the editor's draft rows** — nothing is written until the user
+  clicks Enregistrer, which goes through the usual `saveFinanceTransactionSplits`
+  validation. It is not an `AiSurface`, is not persisted, and has no setting of its
+  own: it is available when `aiEnabled`, an API key and a `aiPayloadScope` other than
+  `metrics` are set (otherwise the editor says how to enable it instead of showing an
+  upload). It uses `aiSurfaceModels.finance_categorization` when set, else `aiModel`;
+  an image needs a model that accepts images. No repository method or migration.
+  - The model may only choose from the allowed categories (active, non-system,
+    leaf expense/income categories); an id outside that list becomes an
+    uncategorized row the user must fill and is counted in a note.
+  - **Amounts are reconciled locally.** The model's amounts are only weights:
+    `reconcileInvoiceSplits` merges lines of the same category, ignores
+    non-positive/fractional lines, signs the result like the parent, and when the
+    lines do not already sum to the transaction rescales them with the
+    largest-remainder method (BigInt, exact) so the draft always balances. A rescale
+    is flagged ("ajustés proportionnellement"), and an invoice total more than 1 %
+    (and 2 minor units) away from the transaction amount is flagged as a probable
+    wrong invoice or partial payment. A line that rounds to zero is dropped.
+  - Privacy contract: [ai-settings-and-privacy.md](ai-settings-and-privacy.md#finance-invoice-split).
 - Accounts can be edited in place (id, external key, notes, closed state and order
   are preserved; the currency is locked once saved). Currencies are validated with
   `normalizeCurrencyCode` before persisting, in accounts and in Settings.
@@ -840,22 +960,28 @@ is advisory only and never changes arithmetic.
 ### FinanceReviewPage (`/finances/review`, Phase 4, extended by Phase 8)
 
 The pending-suggestion queue (`listFinanceCategorySuggestions("pending")`),
-grouped by `merchant_key`. Each suggestion shows the transaction's description,
-the suggested category name, its confidence, and its `origin` (`memory` |
-`seed` | `ai`). Three per-row actions, all routed through
-`decideFinanceCategorySuggestion`:
+grouped by `merchant_key`. A suggestion always proposes a **category** for a
+transaction, never a merchant name. Within a merchant, suggestions proposing the
+same category from the same `origin` (`memory` | `seed` | `ai`) collapse into
+one line — "Catégorie suggérée : X — N transaction(s) · confiance min–max % ·
+origine" — with a "Voir les N transaction(s)" disclosure listing each
+transaction's date, amount and description. Actions are routed through
+`decideFinanceCategorySuggestion`, once per suggestion behind the line:
 
-- **Accepter** — `status: "accepted"`, which applies the suggested category via
+- **Accepter** — `status: "accepted"` on every suggestion of the line, which
+  applies the suggested category via
   `setFinanceTransactionCategory({ scope: "this" })` and reinforces
   `finance_merchant_memory` exactly like a manual edit.
 - **Corriger** — opens a category picker; choosing one sends
-  `status: "corrected"` with that `categoryId`, which flips memory to the
-  chosen category and resets its confidence to `0.6` (see
+  `status: "corrected"` with that `categoryId` for **every pending suggestion of
+  the merchant** (including lines that proposed a different category), which
+  flips memory to the chosen category and resets its confidence to `0.6` (see
   `applyMerchantMemoryCorrection`).
-- **Rejeter** — `status: "dismissed"`. The transaction's category is left
-  untouched; the dismissed suggestion row itself becomes the negative signal
-  `classifyTransaction` reads for the 90-day `(merchantKey, categoryId)`
-  suppression window on the next import or reclassify.
+- **Rejeter** — `status: "dismissed"` on every suggestion of the line. The
+  transactions' categories are left untouched; each dismissed suggestion row
+  becomes the negative signal `classifyTransaction` reads for the 90-day
+  `(merchantKey, categoryId)` suppression window on the next import or
+  reclassify.
 
 "Accepter tout au-dessus de {{threshold}}%" bulk-accepts every pending
 suggestion at or above an 80% confidence floor (a page constant, not a
@@ -881,6 +1007,20 @@ fails, the counts from the chunks that succeeded are kept next to the warning.
 After an import, a non-throwing AI failure (`result.warning`) is logged and
 shown as a non-blocking line on the import page; the import itself still
 succeeds.
+
+When the AI stage runs after an import and examined at least one merchant, the
+import result card reports how many merchants were analysed, how many
+suggestions were created and how many were auto-applied, with a link to
+`/finances/review` — suggestions below the auto-apply threshold are only
+`pending` there, so without this line a successful run looked like nothing had
+happened.
+
+When the AI stage does not run after an import — `financeAiCategorizationEnabled`
+off, AI not enabled or no API key, or `aiPayloadScope === "metrics"` — and
+`listFinanceUnknownMerchants` still reports merchants without a category, the
+import result card shows a banner saying how many merchants lack a category, why
+AI did not suggest anything, and a link to Settings (`/parametres`). Nothing is
+sent to the provider and no setting is changed by this hint.
 
 ### FinanceRulesPage (`/finances/rules`, Phase 4)
 
@@ -975,7 +1115,7 @@ cash-flow card (income/expense/net tiles and a "% des revenus dépensés" meter)
 the alerts list below, flat and ordered critical → warning → info with
 severity-tinted rows (an empty list shows a green "all clear" row); then two
 two-column bands — spending trend + top categories (ranked rows with relative
-bars), and recurring bills + accounts (avatar rows, negative balances in red).
+bars), and recurring series + accounts (avatar rows, negative balances in red).
 The six trend columns show the localized short month name with the current
 month highlighted. Styling for the whole module lives in
 `src/styles-finance.css` (imported after `styles.css`), scoped under
@@ -990,9 +1130,9 @@ described above), this month's cash flow (income/expense/net), a 6-month
 spending-trend bar chart (one column per month, zero-filled, each printing its
 amount; plain CSS bars sized from `computeFinanceTrend`'s `expenseMinor`, no charting
 dependency), the current month's top five
-spending categories (`computeFinanceCategorySpend`), the account list rendered from the same `computeFinanceNetWorth` lines as the total (so closed accounts and the as-of-today cutoff agree with it; closed accounts are labelled), and up to five upcoming active
-recurring series sorted by `nextExpectedDate` and formatted in the account's own currency, each with Confirmer/Mettre en
-pause/Terminer actions that write through `saveFinanceRecurringSeries`. `load` first calls `detectFinanceRecurringSeries()` so dates and missed/ended series reflect today, and surfaces a load failure instead of a stuck "Chargement...".
+spending categories (`computeFinanceCategorySpend`), the account list rendered from the same `computeFinanceNetWorth` lines as the total (so closed accounts and the as-of-today cutoff agree with it; closed accounts are labelled), and upcoming active
+recurring series sorted by `nextExpectedDate` and formatted in the account's own currency. Outflows (`expectedAmountMinor < 0`) are **Factures récurrentes à venir**; inflows (`expectedAmountMinor > 0`) are **Revenus récurrents à venir** and are omitted from the bills card. Each list shows at most five series, with Confirmer/Mettre en
+pause/Terminer actions that write through `saveFinanceRecurringSeries`. The income card is hidden when there is no upcoming inflow. `load` first calls `detectFinanceRecurringSeries()` so dates and missed/ended series reflect today, and surfaces a load failure instead of a stuck "Chargement...".
 
 ### FinanceReportsPage (`/finances/reports`, Phase 6)
 
@@ -1224,7 +1364,7 @@ the representative amount into `<10`/`10-50`/`50-200`/`200-1000`/`>1000`
 (base currency, integer-minor-unit comparisons only, never a float
 division). A group's `amountMinorSample` is a median over its most common
 currency only (`FinanceUnknownMerchantGroup.currency`); when that currency is
-not the base currency there is no FX conversion, so the bucket is `unknown`. It then chunks the sanitized list into one or more requests of
+not the base currency there is no FX conversion, so the bucket is `unknown`. Merchants whose descriptor has no letter left after sanitizing (e.g. a bare account number) are never sent — they stay `Uncategorized` for manual handling. It then chunks the sanitized list into one or more requests of
 **at most 40 merchants and 16 KiB of serialized JSON each** — an over-cap
 batch is split into more requests, never truncated — each paired with a
 `merchantKeyMap` (sanitized request key -> original `merchant_key`
@@ -1288,6 +1428,15 @@ each of its original merchant key(s) (via `merchantKeyMap`):
   already `"accepted"` instead of being left in the review queue — there is
   nothing left for the user to decide. Otherwise the suggestion is left
   `"pending"` for `/finances/review`.
+- An auto-applied answer is also **remembered**: when no `finance_merchant_memory`
+  entry exists yet for `(merchantKey, "" (all accounts), sign)`, one is written
+  (`buildAiMemoryEntry`, `source = 'auto_confirm'`, `hitCount` at the auto-apply
+  floor, `confidence` = the AI's). The next import then resolves that merchant
+  from memory (`category_source = 'memory'`) without calling the model again,
+  provided the AI's confidence cleared the memory auto-apply threshold (0.85);
+  below it, the entry only resurfaces as a suggestion. An existing memory entry
+  is never replaced. A suggestion the user accepts from the review queue is
+  learned through `setFinanceTransactionCategory` as before.
 
 A `category_source = "user"` row is never a candidate in the first place (it
 never appears in `listFinanceUnknownMerchants`, and
@@ -1319,6 +1468,7 @@ with `finance.aiAutoApplyMinConfidenceInvalid`, like the safety buffer) — all 
 - [Conventions](conventions.md) (minor-units rule)
 - [AI settings and privacy](ai-settings-and-privacy.md#finance-categorization-finance_categorization)
 - [Statement extraction privacy](ai-settings-and-privacy.md#finance-statement-extraction)
+- [Invoice split privacy](ai-settings-and-privacy.md#finance-invoice-split)
 - [specs/done/finance.md](../specs/done/finance.md) — the full phased spec, now shipped
 
 ## Suggestion lifecycle (Phase 4 review fixes)

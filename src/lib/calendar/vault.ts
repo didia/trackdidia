@@ -1,7 +1,7 @@
 /**
- * OS-vault access for the Google Calendar refresh token. Mirrors
- * `src/lib/email-triage/vault.ts`, with a single fixed `calendar_credentials` kind: there is
- * only ever one connected calendar account, so no `accountId` is needed. See
+ * OS-vault access for the Google Calendar refresh token, with a single fixed
+ * `calendar_credentials` kind: there is only ever one connected calendar account, so no
+ * `accountId` is needed. See
  * `src-tauri/src/vault.rs` `resolve_key` for the native side.
  */
 import { invoke } from "@tauri-apps/api/core";

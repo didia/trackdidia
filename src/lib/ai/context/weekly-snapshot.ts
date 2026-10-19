@@ -9,6 +9,7 @@ import type { RescueTimeGoalItemSnapshot } from "../../../domain/rescuetime-goal
 import type {
   AiPayloadScope,
   DailyEntry,
+  RescueTimeVocabulary,
   MetricKey,
   PomodoroTaskSummary,
   PrincipleKey,
@@ -134,6 +135,8 @@ export interface WeeklySnapshot {
   gtd: WeeklySnapshotGtd;
   focus: WeeklySnapshotFocus;
   rescueTimeGoals: WeeklySnapshotRescueTimeGoal[];
+  /** Exact RescueTime names `nextWeekObjectives[].rescuetimeThing` must be copied from. */
+  rescueTimeVocabulary?: RescueTimeVocabulary;
   notes?: Partial<Record<WeeklyRitualSectionKey, string>>;
   findings: Finding[];
 }
@@ -152,6 +155,8 @@ export interface WeeklySnapshotInputs {
   rescueTimeGoalsScore: number | null;
   rescueTimeGoalItems: RescueTimeGoalItemSnapshot[];
   rescuetimeConfigured: boolean;
+  /** Real RescueTime names for time objectives; absent when RescueTime was not queried. */
+  rescueTimeVocabulary?: RescueTimeVocabulary | null;
   now: string;
 }
 
@@ -378,6 +383,9 @@ export const buildWeeklySnapshot = (
     gtd,
     focus,
     rescueTimeGoals,
+    ...(includeStructure && inputs.rescueTimeVocabulary
+      ? { rescueTimeVocabulary: inputs.rescueTimeVocabulary }
+      : {}),
     ...(includeFreeText && inputs.review
       ? {
           notes: { ...inputs.review.notes },
@@ -406,6 +414,7 @@ export const resolveWeeklySnapshotInputs = async (
     rescueTimeGoalsScore?: number | null;
     rescueTimeGoalItems?: RescueTimeGoalItemSnapshot[];
     rescuetimeConfigured?: boolean;
+    rescueTimeVocabulary?: RescueTimeVocabulary | null;
   } = {},
 ): Promise<WeeklySnapshotInputs> => {
   const normalized = buildWeekDates(weekStartDate);
@@ -455,6 +464,7 @@ export const resolveWeeklySnapshotInputs = async (
     rescueTimeGoalsScore: options.rescueTimeGoalsScore ?? null,
     rescueTimeGoalItems: options.rescueTimeGoalItems ?? [],
     rescuetimeConfigured: options.rescuetimeConfigured ?? false,
+    rescueTimeVocabulary: options.rescueTimeVocabulary ?? null,
     now,
   };
 };

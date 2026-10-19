@@ -143,9 +143,9 @@ import {
   syncTemplateStatusChange,
 } from "../recurring/engine";
 import { buildDailyRelationshipDrawPlan } from "../relationship-draws";
+import { SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE, type SyncStatus } from "../sync/status";
 import type { AppRepository, PomodoroStartOptions, StorageInfo } from "./repository";
 import { CalendarSyncMemoryStore } from "./calendar-sync-memory-store";
-import { EmailTriageMemoryStore } from "./email-triage-memory-store";
 import { FinanceMemoryStore } from "./finance-memory-store";
 
 export class MemoryRepository implements AppRepository {
@@ -168,33 +168,6 @@ export class MemoryRepository implements AppRepository {
   private aiMessages = new Map<string, AiMessage>();
   private aiProposals = new Map<string, AiProposal>();
   private aiMemories = new Map<string, AiMemory>();
-  readonly emailTriage = new EmailTriageMemoryStore({
-    getTaskByExternalId: (externalId) =>
-      [...this.tasks.values()].find((task) => task.sourceExternalId === externalId),
-    createTask: (input) => this.saveTaskInternal(createTaskFromInput(input)),
-    saveTask: (task) => this.saveTaskInternal(task),
-    handlesLifecycleEvents: true,
-    atomic: (work) => {
-      const snapshot = {
-        tasks: new Map(this.tasks),
-        events: new Map(this.events),
-        contexts: new Map(this.contexts),
-        projects: new Map(this.projects),
-      };
-      try {
-        return work();
-      } catch (error) {
-        Object.assign(this, snapshot);
-        throw error;
-      }
-    },
-    persistEvents: (events) => {
-      for (const event of events) {
-        this.events.set(event.id, event);
-      }
-    },
-    getTaskById: (id) => this.tasks.get(id),
-  });
   private readonly calendarSync = new CalendarSyncMemoryStore();
   private readonly finance = new FinanceMemoryStore();
 
@@ -560,7 +533,7 @@ export class MemoryRepository implements AppRepository {
   async mergeRescueTimeObjectiveSecondsCache(input: {
     weekStartDate: string;
     credentialFingerprint: string;
-    values: Record<string, { seconds: number; fetchedAt: string }>;
+    values: Record<string, { seconds: number; fetchedAt: string; mapping?: string }>;
     fetchedAt: string;
   }): Promise<void> {
     const weekStartDate = buildWeekDates(input.weekStartDate);
@@ -2140,6 +2113,10 @@ export class MemoryRepository implements AppRepository {
     return Promise.resolve(this.finance.listAccountBalanceSnapshots(accountId));
   }
 
+  async listFinanceLatestTransactionDates() {
+    return Promise.resolve(this.finance.listLatestTransactionDates());
+  }
+
   // --- Finance (Phase 7 — Forecasting and proactive alerts) -----------------------------
 
   async buildFinanceSnapshot(asOfDate: string) {
@@ -2215,5 +2192,16 @@ export class MemoryRepository implements AppRepository {
   async clearCalendarSyncLinks(): Promise<void> {
     this.calendarSync.clearLinks();
     return Promise.resolve();
+  }
+
+  // --- Multi-device sync ------------------------------------------------------------------
+  // Browser preview is non-persistent, so there is nothing to sync and no identity to keep.
+
+  async getSyncStatus(): Promise<SyncStatus> {
+    return { supported: false };
+  }
+
+  async ensureSyncIdentity(_input: { deviceId: string; deviceName: string }): Promise<never> {
+    throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
   }
 }

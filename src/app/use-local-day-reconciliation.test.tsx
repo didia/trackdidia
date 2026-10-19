@@ -99,7 +99,6 @@ const MountedGtdView = ({
       pomodoro: idlePomodoro,
       pulseRevision: 0,
       calendarDay,
-      reconfigureEmailTriage: async () => undefined,
       llmBridgeStatus: { state: "off" },
       retryLlmBridge: () => undefined,
     }),

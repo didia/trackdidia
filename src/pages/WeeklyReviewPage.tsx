@@ -15,6 +15,7 @@ import { useRescueTimeWeek } from "../app/reviews/use-rescuetime-week";
 import { useWeeklyMemoryProposals } from "../app/reviews/use-weekly-memory-proposals";
 import { useWeeklyReviewNotes } from "../app/reviews/use-weekly-review-notes";
 import { useAsyncResource, useLatestRequest } from "../app/use-latest-request";
+import { FinanceAccountFreshnessCard } from "../components/finance/FinanceAccountFreshnessCard";
 import { PageHeader } from "../components/PageHeader";
 import { PersistedTextarea, type PersistedTextareaHandle } from "../components/PersistedTextarea";
 import { RitualSectionList } from "../components/RitualSectionList";
@@ -42,6 +43,8 @@ import {
   updateWeeklyReviewChecklist,
   updateWeeklyReviewNote,
 } from "../domain/weekly-review";
+import { ObjectiveRescueTimeEditor } from "../components/ObjectiveRescueTimeEditor";
+import { WeeklyObjectivesService } from "../lib/rescuetime/weekly-objectives-service";
 import { resolveWeeklySnapshotInputs } from "../lib/ai/context/weekly-snapshot";
 import { OpenRouterProvider } from "../lib/ai/openrouter-provider";
 import { applyCoachProposal, proposalPreviewText } from "../lib/ai/proposals/apply-proposal";
@@ -84,6 +87,7 @@ export const WeeklyReviewPage = () => {
   const { t } = useTranslation("reviews");
   const { t: tCommon } = useTranslation("common");
   const { repository, settings, calendarDay } = useAppContext();
+  const objectivesService = useMemo(() => new WeeklyObjectivesService(repository), [repository]);
   const synthesisService = useMemo(() => new WeeklySynthesisService(new OpenRouterProvider()), []);
   const [searchParams] = useSearchParams();
   const dateFromQuery = searchParams.get("date");
@@ -161,6 +165,9 @@ export const WeeklyReviewPage = () => {
         rescueTimeGoalsScore: goals?.score ?? null,
         rescueTimeGoalItems: goals?.items ?? [],
         rescuetimeConfigured: Boolean(settings.rescuetimeApiKey.trim()),
+        rescueTimeVocabulary: settings.rescuetimeApiKey.trim()
+          ? await objectivesService.loadVocabulary(options.weekStartDate)
+          : null,
       });
 
       if (!signal.isLatest()) {
@@ -181,7 +188,7 @@ export const WeeklyReviewPage = () => {
 
       setResult(result);
     },
-    [getRescueTimeSnapshots, repository, settings, synthesisService],
+    [getRescueTimeSnapshots, objectivesService, repository, settings, synthesisService],
   );
   const {
     visibleResult: synthesisResult,
@@ -879,6 +886,23 @@ export const WeeklyReviewPage = () => {
                   )}
                   {item.error ? <span>{item.error}</span> : null}
                 </div>
+                {item.objective.kind === "time" ? (
+                  <ObjectiveRescueTimeEditor
+                    objective={item.objective}
+                    loadEntries={(kind) =>
+                      objectivesService.listTaxonomyForWeek(
+                        kind,
+                        weekMatchedStandingObjectivesSnapshot.weekStartDate,
+                      )
+                    }
+                    onSave={async (mapping) => {
+                      await repository.saveWeeklyObjective({ ...item.objective, ...mapping });
+                      await loadStandingObjectives(
+                        weekMatchedStandingObjectivesSnapshot.weekStartDate,
+                      );
+                    }}
+                  />
+                ) : null}
                 <div className="section-actions">
                   <button
                     className="button button--ghost"
@@ -1053,7 +1077,9 @@ export const WeeklyReviewPage = () => {
             return saveReview(updateWeeklyReviewNote(currentReview, sectionKey, value));
           }}
           renderAfterNotes={(section) =>
-            section.key === "dimanche" && notesOnNextWeek ? (
+            section.key === "budget" ? (
+              <FinanceAccountFreshnessCard embedded />
+            ) : section.key === "dimanche" && notesOnNextWeek ? (
               <label className="stacked-field">
                 <span>
                   {t("weekly.ritual.nextWeekNotesLabel", {

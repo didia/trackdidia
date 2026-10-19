@@ -15,9 +15,15 @@ export type { FinanceDateFormat } from "../../domain/finance";
 /**
  * Builds a stable signature for a CSV header row: lowercase, trim, strip
  * accents/punctuation, join with "|", then hash with the 128-bit hash. Used to
- * auto-recognize a repeat export and store on the saved import profile.
+ * auto-recognize a repeat export and store on the saved import profile. A file
+ * without a header line has no titles to hash, so its signature is the column
+ * count (kept apart from any real header's signature).
  */
-export const buildHeaderSignature = (header: string[]): string => {
+export const buildHeaderSignature = (header: string[], hasHeader = true): string => {
+  if (!hasHeader) {
+    return hash128(`noheader:${header.length}`);
+  }
+
   const normalized = header
     .map(
       (column) =>
@@ -377,6 +383,14 @@ export const mapImportRowToTransaction = (
   };
 };
 
+/**
+ * `FinanceImportProfile.signConvention` value for exports that print money *out* as a positive
+ * number (typically credit-card statements, where a purchase is positive and a payment is
+ * negative). Only `single_signed` mode honours it; the other modes derive the sign from
+ * columns. `null` keeps the file's own signs.
+ */
+export const INVERTED_SIGN_CONVENTION = "inverted";
+
 type AmountResult = { ok: true; amountMinor: number } | { ok: false; reason: string };
 
 const resolveAmountMinor = (
@@ -400,7 +414,11 @@ const resolveAmountMinor = (
     if (!parsed.ok) {
       return { ok: false, reason: parsed.reason };
     }
-    return { ok: true, amountMinor: parsed.amountMinor };
+    const inverted = profile.signConvention === INVERTED_SIGN_CONVENTION;
+    return {
+      ok: true,
+      amountMinor: inverted && parsed.amountMinor !== 0 ? -parsed.amountMinor : parsed.amountMinor,
+    };
   }
 
   if (mode === "debit_credit_columns") {
@@ -409,20 +427,28 @@ const resolveAmountMinor = (
     const debitText = debitIndex === undefined ? "" : (row[debitIndex] ?? "").trim();
     const creditText = creditIndex === undefined ? "" : (row[creditIndex] ?? "").trim();
 
-    if (debitText.length > 0) {
-      const parsed = parseAmountToMinor(debitText, amountOptions);
+    // Banks often print "0" / "0.00" in the unused column instead of leaving it blank, so a
+    // non-empty cell is not enough: the non-zero side wins.
+    let sawValue = false;
+    for (const [text, sign] of [
+      [debitText, -1],
+      [creditText, 1],
+    ] as const) {
+      if (text.length === 0) {
+        continue;
+      }
+      const parsed = parseAmountToMinor(text, amountOptions);
       if (!parsed.ok) {
         return { ok: false, reason: parsed.reason };
       }
-      return { ok: true, amountMinor: -Math.abs(parsed.amountMinor) };
+      sawValue = true;
+      if (parsed.amountMinor !== 0) {
+        return { ok: true, amountMinor: sign * Math.abs(parsed.amountMinor) };
+      }
     }
 
-    if (creditText.length > 0) {
-      const parsed = parseAmountToMinor(creditText, amountOptions);
-      if (!parsed.ok) {
-        return { ok: false, reason: parsed.reason };
-      }
-      return { ok: true, amountMinor: Math.abs(parsed.amountMinor) };
+    if (sawValue) {
+      return { ok: true, amountMinor: 0 };
     }
 
     return { ok: false, reason: "neither debit nor credit column has a value" };

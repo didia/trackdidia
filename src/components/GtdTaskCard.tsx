@@ -23,6 +23,7 @@ import {
   projectsForAssignment,
 } from "../lib/gtd/engine";
 import { allTaskBuckets, bucketLabelKeys } from "../lib/gtd/labels";
+import { isWebUrl, openExternalUrl } from "../lib/open-external";
 import { TaskContextEditor } from "./gtd/TaskContextEditor";
 import { RichTextarea } from "./RichTextarea";
 
@@ -212,6 +213,16 @@ export const GtdTaskCard = ({
           >
             {expanded ? tCommon("actions.collapse") : tCommon("actions.open")}
           </button>
+          {isWebUrl(task.sourceUrl) ? (
+            <button
+              className="button"
+              type="button"
+              aria-label={t("task.openSourceAria", { title: task.title })}
+              onClick={() => void openExternalUrl(task.sourceUrl as string)}
+            >
+              {t("task.openSource")}
+            </button>
+          ) : null}
           {showPlannedControls && onPromotePlannedTask ? (
             <button
               className="button"

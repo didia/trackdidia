@@ -67,7 +67,7 @@ OAuth uses PKCE and a loopback callback, requesting `calendar.app.created` and t
 non-sensitive `email` scope to identify the account through Google's userinfo endpoint.
 The refresh token lives only in the OS vault's `calendar_credentials` entry; access tokens
 are cached in memory. The shared OAuth lease remains held through profile lookup, calendar
-creation, and the vault/settings commit, preventing a second calendar or email OAuth flow
+creation, and the vault/settings commit, preventing a second calendar OAuth flow
 from interleaving it.
 
 Calendar preference saves, connects, disconnects, and reconciler commits share an ordered
@@ -297,7 +297,7 @@ carry a plain-language `meaning`. Prompt version: `weekly_synthesis.v2`.
 | Type | Accept applies |
 |---|---|
 | `review_section_draft` | Persists the ritual note on the weekly review (a Dimanche draft accepted while reviewing a past week is written on the following week; opening that stored week shows the note even if it is also past), then marks the proposal accepted |
-| `weekly_objective` | Creates a standing `WeeklyObjective` row that starts the Sunday after the reviewed week (idempotent atomic accept) |
+| `weekly_objective` | Creates a standing `WeeklyObjective` row that starts the Sunday after the reviewed week (idempotent atomic accept). A `time` proposal's `rescuetimeThing` is checked when the proposal is created (see below) |
 | `gtd_action` | `scheduleTask`, `moveTask` (`someday_maybe` / `waiting_for`), or `cancelTask` on active tasks only (atomic accept) |
 
 Weekly synthesis messages and proposals persist atomically via `saveCoachPulseEpisode`.
@@ -681,6 +681,32 @@ value stays unless the parser found nothing; a disagreement is shown, never appl
 silently). It only pre-fills or challenges the review form; nothing is written until the
 user clicks "Utiliser comme solde de départ".
 
+### Finance invoice split
+
+The split editor on `/finances/transactions` can propose a category split of one
+transaction from an invoice or receipt the user uploads (see
+[finance.md](finance.md#financetransactionspage-financestransactions)). Like statement
+extraction it is not an `AiSurface`, is not persisted, never runs on its own, and has
+no setting beyond the global gate: `aiEnabled` on, an API key set, and `aiPayloadScope`
+not `metrics` (invoice text is free text). The file is read locally first; the user is
+shown what will be sent and must click "Envoyer à l'IA" — choosing a file sends nothing.
+
+**Sent** (one request): for a **PDF**, its extracted text layer — whitespace
+normalized, capped at 12 000 characters, with grouped card/account numbers, 6+ digit
+runs (invoice numbers included), emails and phone-shaped groups masked as in statement
+extraction; for an **image**, the image itself, re-encoded smaller when large and
+**not maskable** — the preview says so. Alongside it: the transaction's total (magnitude
+only, exact) and currency, and the allowed category ids and names (with their group
+name). **Not a general redactor**: names, postal addresses and line items on the
+invoice are sent as-is.
+
+**Never sent**: account names, institutions, ids, balances, the transaction's date,
+description or merchant string, notes, or other transactions.
+
+The reply is validated (category ids outside the allowed list are dropped, amounts are
+parsed with the transaction currency's decimals and rescaled to the exact total) and
+only pre-fills the editable split rows; nothing is saved until the user confirms.
+
 ### Finance categorization (`finance_categorization`)
 
 Unlike every surface above, `finance_categorization` is not a coach/synthesis
@@ -703,6 +729,8 @@ over-cap batch is split into more requests, never truncated):
   JEAN DUPONT") is sent as-is — see
   `src/lib/ai/context/finance-categorization-snapshot.ts`'s module comment
   for exactly what the sanitizer does and does not catch.
+  A descriptor with no letter left after sanitizing (e.g. a bare account
+  number) is not sent at all.
 - the transaction sign (`-1` | `0` | `1`)
 - an occurrence count
 - an amount **bucket** (`<10`, `10-50`, `50-200`, `200-1000`, `>1000`, in
@@ -832,10 +860,10 @@ Structured `coach_pulse` requests include:
 - a French system prompt with stance context and optional memory block;
 - the redacted daily snapshot plus deterministic commitment resolution when applicable.
 
-Both coach requests and email triage classification use the shared `openrouter-client.ts`
+Coach requests and the finance AI features use the shared `openrouter-client.ts`
 request builder and response parser. Coach surfaces use webview `fetch` to preserve their
-existing retry behavior; email triage uses the native, host-allowlisted
-`provider_http_request` command and makes one attempt. Both send the same bearer,
+existing retry behavior; the other callers use the native, host-allowlisted
+`provider_http_request` command and make one attempt. Both send the same bearer,
 referer, and title headers. The shared timeout helper is also used by RescueTime.
 
 Transport hardening:
@@ -1035,27 +1063,15 @@ and pastor previews skip RescueTime. If either weekly resolution fails, the pane
 shows a non-blocking warning banner and the preview still renders (with missing
 RescueTime data) rather than failing outright.
 
-## Email triage classifier key (optional)
-
-Email triage uses a **separate** OpenRouter key stored in the OS vault (`triage_api_key`),
-not the coach key in SQLite settings. The French `/email-triage` page offers an explicit
-**copy coach key** action; nothing migrates or clears the coach key automatically. Gmail
-refresh tokens live in the same vault under per-account `provider_credentials` entries.
-Access tokens stay in memory only. Browser preview disables vault writes, OAuth, provider
-HTTP, tray, autostart, and live provider mutation. Automatic mutation requires a passed
-evaluation corpus matching the current model and thresholds. See [Email triage](email-triage.md).
-
 ## Calendar sync account (optional)
 
 Calendar sync is a separate, disabled-by-default feature that is not an OpenRouter
 request and carries no task content to Google beyond the mirrored event's title.
 Its Google refresh token lives in the OS vault under its own fixed
-`calendar_credentials` kind (not the per-account `provider_credentials` entries
-email triage uses); the access token stays in memory only. Email triage's Gmail/
-Microsoft Graph OAuth and calendar sync's Google OAuth share one native loopback
-listener, so a shared in-memory guard lets only one of the two flows run at a time
-and rejects the other with a clear error instead of silently losing its callback.
-See [Calendar sync](calendar-sync.md).
+`calendar_credentials` kind, the only kind the vault resolves; the access token stays in
+memory only. The native OAuth loopback listener holds one session, so a shared in-memory
+guard lets only one connect run at a time and rejects the other with a clear error instead
+of silently losing its callback. See [Calendar sync](calendar-sync.md).
 
 ## Related documentation
 

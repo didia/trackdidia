@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppContext } from "../app/app-context";
+import { useAsyncResource } from "../app/use-latest-request";
 import { FinanceTabs } from "../components/finance/FinanceTabs";
 import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
@@ -11,7 +12,8 @@ import type { FinanceAlert, FinanceAlertSeverity } from "../domain/finance/forec
 import type { FinanceNetWorthSnapshot } from "../domain/finance/net-worth";
 import type { FinanceCategorySpendRow, FinanceTrendPoint } from "../domain/finance/reports";
 import { getMonthEndDate, getMonthKey, getMonthStartDate } from "../domain/monthly-review";
-import { formatDateShort, getTodayDate } from "../lib/date";
+import { formatDateMedium, formatDateShort, getTodayDate } from "../lib/date";
+import { loadFinanceAccountFreshness } from "../lib/finance/account-freshness-loader";
 import { formatMoney } from "../lib/finance/money";
 
 const ALERT_SEVERITY_ORDER: FinanceAlertSeverity[] = ["critical", "warning", "info"];
@@ -91,18 +93,37 @@ export const FinanceOverviewPage = () => {
     void load();
   }, [load]);
 
+  // A discreet hint on the account rows. It has its own latest-response guard so a slow load from
+  // before a local-day rollover cannot erase the badges the new day computed, and a failure just
+  // leaves the badges out instead of breaking the overview.
+  const freshnessKey = useMemo(() => ({ repository, today }), [repository, today]);
+  const freshness = useAsyncResource(
+    freshnessKey,
+    ({ repository: currentRepository, today: currentToday }) =>
+      loadFinanceAccountFreshness(currentRepository, currentToday),
+    { refreshing: true },
+  );
+  const accountFreshnessById = useMemo(
+    () => new Map((freshness.data ?? []).map((row) => [row.accountId, row])),
+    [freshness.data],
+  );
+
   const categoryNameById = useMemo(
     () => new Map(categories.map((category) => [category.id, category.name])),
     [categories],
   );
 
-  const upcomingRecurring = useMemo(
-    () =>
-      [...recurringSeries]
-        .sort((a, b) => a.nextExpectedDate.localeCompare(b.nextExpectedDate))
-        .slice(0, UPCOMING_RECURRING_COUNT),
-    [recurringSeries],
-  );
+  const upcomingRecurring = useMemo(() => {
+    const sorted = [...recurringSeries].sort((a, b) =>
+      a.nextExpectedDate.localeCompare(b.nextExpectedDate),
+    );
+    const take = (matches: (series: FinanceRecurringSeries) => boolean) =>
+      sorted.filter(matches).slice(0, UPCOMING_RECURRING_COUNT);
+    return {
+      bills: take((series) => series.expectedAmountMinor < 0),
+      income: take((series) => series.expectedAmountMinor > 0),
+    };
+  }, [recurringSeries]);
 
   // One column per month of the six-month span, zero when the month has no spending.
   const trendColumns = useMemo(() => {
@@ -190,7 +211,63 @@ export const FinanceOverviewPage = () => {
     cashFlow && cashFlow.incomeMinor > 0
       ? Math.round((cashFlow.expenseMinor / cashFlow.incomeMinor) * 100)
       : null;
+  // Short-term debt as a share of liquid cash; null when there is no positive cash to compare against.
+  const debtCoveragePercent =
+    netWorth && netWorth.liquidAssetsMinor > 0
+      ? Math.round((netWorth.shortTermDebtMinor / netWorth.liquidAssetsMinor) * 100)
+      : null;
   const maxCategoryMinor = Math.max(1, ...topCategories.map((row) => row.totalMinor));
+
+  const renderRecurringCard = (
+    title: string,
+    seriesList: FinanceRecurringSeries[],
+    emptyLabel: string | null,
+  ) => (
+    <SectionCard title={title}>
+      {!loading && seriesList.length === 0 && emptyLabel ? (
+        <p className="finance-empty finance-empty--neutral">
+          <span className="finance-empty__icon" aria-hidden="true">
+            –
+          </span>
+          <span>{emptyLabel}</span>
+        </p>
+      ) : null}
+      <div className="finance-rows">
+        {seriesList.map((series) => (
+          <article key={series.id} className="finance-row">
+            <span className="finance-row__avatar" aria-hidden="true">
+              {accountInitial(series.merchantKey)}
+            </span>
+            <div className="finance-row__main">
+              <h3 className="finance-row__title">{series.merchantKey}</h3>
+              <span className="finance-row__meta">
+                {t("overview.recurringNextDate", { date: series.nextExpectedDate })}
+              </span>
+            </div>
+            <span className="finance-row__amount">
+              {formatMoney({
+                amountMinor: series.expectedAmountMinor,
+                currency: accountById.get(series.accountId)?.currency ?? baseCurrency,
+              })}
+            </span>
+            <div className="finance-row__actions">
+              {!series.confirmedByUser ? (
+                <button type="button" onClick={() => void confirmRecurring(series)}>
+                  {t("overview.recurringConfirm")}
+                </button>
+              ) : null}
+              <button type="button" onClick={() => void pauseRecurring(series)}>
+                {t("overview.recurringPause")}
+              </button>
+              <button type="button" onClick={() => void endRecurring(series)}>
+                {t("overview.recurringEnd")}
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </SectionCard>
+  );
 
   return (
     <div className="page finance-page">
@@ -331,6 +408,79 @@ export const FinanceOverviewPage = () => {
         </SectionCard>
       </div>
 
+      <SectionCard title={t("overview.liquidityTitle")} subtitle={t("overview.liquiditySubtitle")}>
+        {netWorth ? (
+          <>
+            <div className="finance-stats">
+              <div className="finance-stat finance-stat--income">
+                <span className="finance-stat__label">
+                  <span className="finance-stat__icon" aria-hidden="true">
+                    ↓
+                  </span>
+                  {t("overview.liquidCashLabel")}
+                </span>
+                <span className="finance-stat__value">
+                  {formatMoney({ amountMinor: netWorth.liquidAssetsMinor, currency: baseCurrency })}
+                </span>
+              </div>
+              <div className="finance-stat finance-stat--expense">
+                <span className="finance-stat__label">
+                  <span className="finance-stat__icon" aria-hidden="true">
+                    ↑
+                  </span>
+                  {t("overview.shortTermDebtLabel")}
+                </span>
+                <span className="finance-stat__value">
+                  {formatMoney({
+                    amountMinor: netWorth.shortTermDebtMinor,
+                    currency: baseCurrency,
+                  })}
+                </span>
+              </div>
+              <div
+                className={`finance-stat finance-stat--net${
+                  netWorth.netLiquidityMinor > 0
+                    ? " finance-stat--positive"
+                    : netWorth.netLiquidityMinor < 0
+                      ? " finance-stat--negative"
+                      : ""
+                }`}
+                data-testid="finance-net-liquidity"
+              >
+                <span className="finance-stat__label">
+                  <span className="finance-stat__icon" aria-hidden="true">
+                    =
+                  </span>
+                  {t("overview.netLiquidityLabel")}
+                </span>
+                <span className="finance-stat__value">
+                  {formatMoney({ amountMinor: netWorth.netLiquidityMinor, currency: baseCurrency })}
+                </span>
+              </div>
+            </div>
+            <div className="finance-meter">
+              <div className="finance-meter__caption">
+                <span>
+                  {debtCoveragePercent === null
+                    ? netWorth.shortTermDebtMinor > 0
+                      ? t("overview.noLiquidCash")
+                      : t("overview.noShortTermDebt")
+                    : t("overview.debtShareOfCash", { percent: debtCoveragePercent })}
+                </span>
+              </div>
+              <div className="finance-meter__track">
+                <div
+                  className={`finance-meter__fill${
+                    netWorth.netLiquidityMinor < 0 ? " finance-meter__fill--over" : ""
+                  }`}
+                  style={{ width: `${Math.min(100, debtCoveragePercent ?? 0)}%` }}
+                />
+              </div>
+            </div>
+          </>
+        ) : null}
+      </SectionCard>
+
       <SectionCard title={t("alerts.title")} subtitle={t("alerts.subtitle")}>
         {alerts.length === 0 ? (
           <p className="finance-empty">
@@ -412,50 +562,20 @@ export const FinanceOverviewPage = () => {
       </div>
 
       <div className="finance-columns">
-        <SectionCard title={t("overview.recurringTitle")}>
-          {!loading && upcomingRecurring.length === 0 ? (
-            <p className="finance-empty finance-empty--neutral">
-              <span className="finance-empty__icon" aria-hidden="true">
-                –
-              </span>
-              <span>{t("overview.noRecurring")}</span>
-            </p>
-          ) : null}
-          <div className="finance-rows">
-            {upcomingRecurring.map((series) => (
-              <article key={series.id} className="finance-row">
-                <span className="finance-row__avatar" aria-hidden="true">
-                  {accountInitial(series.merchantKey)}
-                </span>
-                <div className="finance-row__main">
-                  <h3 className="finance-row__title">{series.merchantKey}</h3>
-                  <span className="finance-row__meta">
-                    {t("overview.recurringNextDate", { date: series.nextExpectedDate })}
-                  </span>
-                </div>
-                <span className="finance-row__amount">
-                  {formatMoney({
-                    amountMinor: series.expectedAmountMinor,
-                    currency: accountById.get(series.accountId)?.currency ?? baseCurrency,
-                  })}
-                </span>
-                <div className="finance-row__actions">
-                  {!series.confirmedByUser ? (
-                    <button type="button" onClick={() => void confirmRecurring(series)}>
-                      {t("overview.recurringConfirm")}
-                    </button>
-                  ) : null}
-                  <button type="button" onClick={() => void pauseRecurring(series)}>
-                    {t("overview.recurringPause")}
-                  </button>
-                  <button type="button" onClick={() => void endRecurring(series)}>
-                    {t("overview.recurringEnd")}
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-        </SectionCard>
+        <div className="finance-recurring-column">
+          {renderRecurringCard(
+            t("overview.recurringTitle"),
+            upcomingRecurring.bills,
+            t("overview.noRecurring"),
+          )}
+          {upcomingRecurring.income.length > 0
+            ? renderRecurringCard(
+                t("overview.recurringIncomeTitle"),
+                upcomingRecurring.income,
+                null,
+              )
+            : null}
+        </div>
 
         <SectionCard title={t("overview.accountsTitle")}>
           {loading ? <p>{t("overview.loading")}</p> : null}
@@ -474,6 +594,7 @@ export const FinanceOverviewPage = () => {
               if (!account) {
                 return null;
               }
+              const accountFreshness = accountFreshnessById.get(account.id);
               return (
                 <article
                   key={account.id}
@@ -487,6 +608,26 @@ export const FinanceOverviewPage = () => {
                       {account.name}
                       {account.closed ? ` ${t("overview.closedAccount")}` : ""}
                     </h3>
+                    {accountFreshness ? (
+                      <div className="finance-row__status">
+                        {accountFreshness.status !== "fresh" ? (
+                          <span
+                            className="finance-row__update"
+                            data-testid={`finance-account-update-${account.id}`}
+                          >
+                            {t("freshness.status.due")}
+                          </span>
+                        ) : null}
+                        <span
+                          className="finance-row__meta"
+                          data-testid={`finance-account-data-date-${account.id}`}
+                        >
+                          {t(`freshness.${accountFreshness.dataThroughSource}Through`, {
+                            date: formatDateMedium(accountFreshness.dataThroughDate),
+                          })}
+                        </span>
+                      </div>
+                    ) : null}
                   </div>
                   <span
                     className={`finance-row__amount${
