@@ -71,8 +71,13 @@ step was done). The Dimanche card always shows the **opened week's stored
 kickoff**, including when that week and the following week are both already
 past — opening a stored week does not hide its text behind a further shift.
 
-Reviewing a past week also edits the following week's kickoff in a separate
-field. That text is saved on the next Sunday and appears in that week's
+While living the current (or a future) week, the Dimanche card's field is
+"Intentions pour cette semaine" and is editable. When the opened week is
+already past (the Sunday retrospective), that field becomes read-only
+("Ce que tu avais posé pour cette semaine"): it recalls what was set
+beforehand and cannot be changed, and the next-week field below it,
+"Intentions pour la semaine du {date}", is the one to write in. That text is
+saved on the next Sunday and appears in that week's
 Dimanche card. The current or a future week edits only its own Dimanche notes,
 so last Sunday's kickoff stays visible while living that week. A local-day
 change reloads the next-week field instead of pointing it at an unloaded
