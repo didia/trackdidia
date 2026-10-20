@@ -588,6 +588,267 @@ describe("resurrecting a tombstone logs the edits it swallowed", () => {
   });
 });
 
+describe("a resurrection dates a removal for every membership it omits", () => {
+  const DELETED = at(50, A);
+  const ids = (outcome: EntityMergeOutcome) =>
+    JSON.parse((outcome.columns.context_ids_json as string | undefined) ?? "[]") as string[];
+  const daily = (metrics: Record<string, unknown>, extra: RawRow = {}): RawRow => ({
+    date: "2026-10-04",
+    status: "s",
+    metrics_json: JSON.stringify(metrics),
+    morning_intention: "",
+    updated_at: "u",
+    ...extra,
+  });
+  const mergeDaily = (local: LocalEntityState, remote: SyncEntity) =>
+    mergeFieldClockEntity(input("daily_entries", DAILY_COLUMNS, local, remote));
+  const asState = (outcome: EntityMergeOutcome, row: RawRow): LocalEntityState => ({
+    row,
+    meta: outcome.meta,
+  });
+
+  // A: task with `work` at 10, deleted at 50 (the tombstone keeps `work` at 10).
+  const tombstone = () => tomb({ title: at(10), "context_ids_json.work": at(10) }, DELETED);
+  // B: a row that has no `work` and no clock for it, edited at 90.
+  const resurrecting = () =>
+    remoteLive("gtd_tasks", "t1", task({ context_ids_json: "[]", notes: "after" }), {
+      title: at(10),
+      notes: at(90, B),
+    });
+
+  it("dates a removal at the tombstone's deletedAt, taken from the data and not issued locally", () => {
+    const result = mergeTask(tombstone(), resurrecting());
+    expect(result.rowAction).toBe("insert");
+    expect(result.meta.fieldClocks["context_ids_json.work"]).toBe(DELETED);
+    expect(result.meta.rowHlc).toBe(at(90, B));
+  });
+
+  it("an older replica that still holds the id cannot put it back", () => {
+    const resurrected = mergeTask(tombstone(), resurrecting());
+    const stale = remoteLive("gtd_tasks", "t1", task({ context_ids_json: '["work"]' }), {
+      title: at(10),
+      "context_ids_json.work": at(10),
+    });
+    const after = mergeTask(asState(resurrected, resurrecting().row as RawRow), stale);
+    expect(ids(after)).toEqual([]);
+    expect(after.rowAction).toBe("none");
+  });
+
+  it("an add made after the delete still beats the removal", () => {
+    const resurrected = mergeTask(tombstone(), resurrecting());
+    const readded = remoteLive("gtd_tasks", "t1", task({ context_ids_json: '["work"]' }), {
+      "context_ids_json.work": at(70, C),
+    });
+    expect(ids(mergeTask(asState(resurrected, resurrecting().row as RawRow), readded))).toEqual([
+      "work",
+    ]);
+  });
+
+  it("keeps an incoming removal that is already later", () => {
+    const later = remoteLive("gtd_tasks", "t1", task({ context_ids_json: "[]" }), {
+      notes: at(90, B),
+      "context_ids_json.work": at(80, B),
+    });
+    expect(mergeTask(tombstone(), later).meta.fieldClocks["context_ids_json.work"]).toBe(at(80, B));
+  });
+
+  it("does not invent a removal for a key the tombstone never had, or one the row holds", () => {
+    const holding = remoteLive("gtd_tasks", "t1", task({ context_ids_json: '["work","home"]' }), {
+      notes: at(90, B),
+      "context_ids_json.work": at(60, B),
+      "context_ids_json.home": at(60, B),
+    });
+    const result = mergeTask(tombstone(), holding);
+    expect(result.meta.fieldClocks).toEqual({
+      notes: at(90, B),
+      "context_ids_json.work": at(60, B),
+      "context_ids_json.home": at(60, B),
+    });
+    const noTombstoneKeys = mergeTask(tomb({ title: at(10) }, DELETED), resurrecting());
+    expect(
+      Object.keys(noTombstoneKeys.meta.fieldClocks).some((key) =>
+        key.startsWith("context_ids_json."),
+      ),
+    ).toBe(false);
+  });
+
+  it("does the same for a map key", () => {
+    const result = mergeDaily(
+      tomb({ "metrics_json.course": at(10), "metrics_json.marche": at(10) }, DELETED),
+      remoteLive("daily_entries", "2026-10-04", daily({ marche: 4 }), {
+        "metrics_json.marche": at(60, B),
+        morning_intention: at(90, B),
+      }),
+    );
+    expect(result.meta.fieldClocks).toMatchObject({
+      "metrics_json.course": DELETED,
+      "metrics_json.marche": at(60, B),
+    });
+  });
+
+  it("leaves an atomic field alone: a bare clock has no per-key removals to invent", () => {
+    const bareIncoming = mergeDaily(
+      tomb({ "metrics_json.course": at(10) }, DELETED),
+      remoteLive("daily_entries", "2026-10-04", daily({}), { metrics_json: at(60, B) }),
+    );
+    expect(bareIncoming.meta.fieldClocks).toEqual({ metrics_json: at(60, B) });
+    const bareTombstone = mergeDaily(
+      tomb({ metrics_json: at(10) }, DELETED),
+      remoteLive("daily_entries", "2026-10-04", daily({}), { morning_intention: at(90, B) }),
+    );
+    expect(bareTombstone.meta.fieldClocks).toEqual({ morning_intention: at(90, B) });
+    const unmergeable = mergeDaily(
+      tomb({ "metrics_json.course": at(10) }, DELETED),
+      remoteLive("daily_entries", "2026-10-04", daily({}, { metrics_json: "[1,2]" }), {
+        morning_intention: at(90, B),
+      }),
+    );
+    expect(Object.keys(unmergeable.meta.fieldClocks)).toEqual(["morning_intention"]);
+  });
+
+  it("still logs the dropped membership as an overwritten edit, now alongside its removal clock", () => {
+    const result = mergeTask(tombstone(), resurrecting());
+    expect(result.overwritten).toEqual([
+      {
+        field: "context_ids_json.work",
+        local: { unknown: true, clock: at(10) },
+        remote: { deleted: true, clock: null },
+      },
+    ]);
+    expect(result.meta.fieldClocks["context_ids_json.work"]).toBe(DELETED);
+  });
+
+  it("a live row meeting an older tombstone gets the same removals, once", () => {
+    const row = task({ context_ids_json: "[]", notes: "after" });
+    const liveLocal = live(row, { title: at(10), notes: at(90, B) });
+    const olderTombstone = remoteTomb(
+      "gtd_tasks",
+      "t1",
+      { title: at(10), "context_ids_json.work": at(10) },
+      DELETED,
+    );
+    const first = mergeTask(liveLocal, olderTombstone);
+    expect(first.rowAction).toBe("none");
+    expect(first.metaChanged).toBe(true);
+    expect(first.meta.fieldClocks["context_ids_json.work"]).toBe(DELETED);
+    expect(first.meta.rowHlc).toBe(at(90, B));
+    const again = mergeTask(asState(first, row), olderTombstone);
+    expect(again.metaChanged).toBe(false);
+    // Both arrival orders store the same clocks.
+    const other = mergeTask(tombstone(), resurrecting());
+    expect(first.meta.fieldClocks).toEqual(other.meta.fieldClocks);
+  });
+
+  describe("a membership the survivor holds keeps its own clock, even an older one", () => {
+    // The guard that matters: the survivor's clock for `work` (10) is OLDER than the tombstone's
+    // deletedAt (50), so only "the survivor holds it" keeps the removal from being dated.
+    const tombstoneKnowingWork = () => tomb({ "context_ids_json.work": at(10) }, DELETED);
+
+    it("a resurrecting row that holds the id at an older clock", () => {
+      const result = mergeTask(
+        tombstoneKnowingWork(),
+        remoteLive("gtd_tasks", "t1", task({ context_ids_json: '["work"]', notes: "after" }), {
+          notes: at(90, B),
+          "context_ids_json.work": at(10),
+        }),
+      );
+      expect(result.rowAction).toBe("insert");
+      expect(JSON.parse(result.columns.context_ids_json as string)).toEqual(["work"]);
+      expect(result.meta.fieldClocks["context_ids_json.work"]).toBe(at(10));
+    });
+
+    it("a resurrecting row that holds the id with no clock at all (baseline)", () => {
+      const result = mergeTask(
+        tombstoneKnowingWork(),
+        remoteLive("gtd_tasks", "t1", task({ context_ids_json: '["work"]', notes: "after" }), {
+          notes: at(90, B),
+        }),
+      );
+      expect(JSON.parse(result.columns.context_ids_json as string)).toEqual(["work"]);
+      expect(Object.keys(result.meta.fieldClocks)).toEqual(["notes"]);
+    });
+
+    it("a resurrecting row that holds a map key at an older clock", () => {
+      const result = mergeFieldClockEntity(
+        input(
+          "daily_entries",
+          DAILY_COLUMNS,
+          tomb({ "metrics_json.course": at(10) }, DELETED),
+          remoteLive(
+            "daily_entries",
+            "2026-10-04",
+            {
+              date: "2026-10-04",
+              status: "s",
+              metrics_json: JSON.stringify({ course: 5 }),
+              morning_intention: "",
+              updated_at: "u",
+            },
+            { "metrics_json.course": at(10), morning_intention: at(90, B) },
+          ),
+        ),
+      );
+      expect(JSON.parse(result.columns.metrics_json as string)).toEqual({ course: 5 });
+      expect(result.meta.fieldClocks["metrics_json.course"]).toBe(at(10));
+    });
+
+    it("a live row that holds the id at an older clock meets an older tombstone that knows it", () => {
+      const row = task({ context_ids_json: '["work"]', notes: "after" });
+      const result = mergeTask(
+        live(row, { notes: at(90, B), "context_ids_json.work": at(10) }),
+        remoteTomb("gtd_tasks", "t1", { "context_ids_json.work": at(10) }, DELETED),
+      );
+      expect(result.rowAction).toBe("none");
+      expect(result.metaChanged).toBe(false);
+      expect(result.meta.fieldClocks["context_ids_json.work"]).toBe(at(10));
+    });
+
+    it("a live row that holds the id with no clock (baseline) is left alone too", () => {
+      const row = task({ context_ids_json: '["work"]', notes: "after" });
+      const result = mergeTask(
+        live(row, { notes: at(90, B) }),
+        remoteTomb("gtd_tasks", "t1", { "context_ids_json.work": at(10) }, DELETED),
+      );
+      expect(result.rowAction).toBe("none");
+      expect(result.metaChanged).toBe(false);
+      expect(Object.keys(result.meta.fieldClocks)).toEqual(["notes"]);
+    });
+
+    it("a live row that holds a map key at an older clock is left alone", () => {
+      const result = mergeFieldClockEntity(
+        input(
+          "daily_entries",
+          DAILY_COLUMNS,
+          live(
+            {
+              date: "2026-10-04",
+              status: "s",
+              metrics_json: JSON.stringify({ course: 5 }),
+              morning_intention: "after",
+              updated_at: "u",
+            },
+            { "metrics_json.course": at(10), morning_intention: at(90, B) },
+          ),
+          remoteTomb("daily_entries", "2026-10-04", { "metrics_json.course": at(10) }, DELETED),
+        ),
+      );
+      expect(result.metaChanged).toBe(false);
+      expect(result.meta.fieldClocks["metrics_json.course"]).toBe(at(10));
+    });
+  });
+
+  it("a live row that holds the id is left alone by an older tombstone", () => {
+    const result = mergeTask(
+      live(task({ context_ids_json: '["work"]' }), {
+        notes: at(90, B),
+        "context_ids_json.work": at(60, B),
+      }),
+      remoteTomb("gtd_tasks", "t1", { "context_ids_json.work": at(10) }, DELETED),
+    );
+    expect(result.metaChanged).toBe(false);
+  });
+});
+
 describe("OR-set columns", () => {
   const ids = (outcome: EntityMergeOutcome) =>
     JSON.parse((outcome.columns.context_ids_json as string | undefined) ?? "[]") as string[];

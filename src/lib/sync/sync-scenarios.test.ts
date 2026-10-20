@@ -843,6 +843,104 @@ describe("domain isolation", () => {
   });
 });
 
+describe("a resurrection removes the memberships the tombstone knew and the row omits", () => {
+  /**
+   * A and D hold task t1 with context `work` at T1 (A created it, D synced it). B created its own
+   * t1 without `work` and never removed it, so B has no clock for it. A deletes t1 at T5 (the
+   * tombstone keeps `context_ids_json.work` at T1); B edits notes at T10, which beats the delete.
+   * A fresh replica receives the three final states in every order.
+   */
+  const build = async (offsets: { create: number; remove: number; edit: number }) => {
+    // Absolute offsets from the start: B's edit lands at `edit`, after A's delete at create + remove.
+    expect(offsets.edit).toBeGreaterThan(offsets.create + offsets.remove);
+    const sim = await createSyncHarness(["A", "B", "D"]);
+    const [a, b, d] = sim.devices as [SyncDevice, SyncDevice, SyncDevice];
+    a.clock.advance(offsets.create);
+    await a.repo.createTask({ id: "t1", title: "Plan", bucket: "inbox", contextIds: ["work"] });
+    await sim.exchange(a, d, "gtd");
+    b.clock.advance(offsets.create / 2);
+    await b.repo.createTask({ id: "t1", title: "Plan", bucket: "inbox", contextIds: [] });
+    a.clock.advance(offsets.remove);
+    await a.db.execute("DELETE FROM gtd_tasks WHERE id = 't1'");
+    await a.stamp();
+    b.clock.set(HARNESS_START_MS + offsets.edit);
+    await editTask(b, "t1", { notes: "Edited after the delete" });
+    const bundles = {
+      A: await a.repo.listSyncChanges("gtd"),
+      B: await b.repo.listSyncChanges("gtd"),
+      D: await d.repo.listSyncChanges("gtd"),
+    };
+    return bundles;
+  };
+  const permutations = [
+    ["A", "B", "D"],
+    ["A", "D", "B"],
+    ["B", "A", "D"],
+    ["D", "A", "B"],
+    ["B", "D", "A"],
+    ["D", "B", "A"],
+  ] as const;
+
+  const runOrders = async (bundles: Awaited<ReturnType<typeof build>>) => {
+    const replicas = await createSyncHarness(permutations.length, {
+      deviceIndexOffset: 10,
+      startMs: HARNESS_START_MS - 3_600_000,
+    });
+    const results: { order: readonly string[]; contexts: string[]; dump: string }[] = [];
+    for (const [index, order] of permutations.entries()) {
+      const replica = replicas.devices[index] as SyncDevice;
+      for (const name of [...order, ...order]) {
+        await replica.repo.applySyncBundle(
+          "gtd",
+          JSON.parse(JSON.stringify(bundles[name as "A" | "B" | "D"])),
+        );
+      }
+      const task = (await replica.repo.listTasks({ includeCompleted: true })).find(
+        (t) => t.id === "t1",
+      );
+      results.push({
+        order,
+        contexts: task?.contextIds ?? ["<task missing>"],
+        dump: JSON.stringify(await replicas.dump(replica, "gtd", { snapshots: true, exact: true })),
+      });
+    }
+    return results;
+  };
+
+  it("an older replica holding the omitted id cannot put it back, whenever the tombstone arrives before both live replicas have merged", async () => {
+    const results = await runOrders(await build({ create: 1_000, remove: 4_000, edit: 9_000 }));
+    const tombstoneFirst = results.filter(({ order }) => order[2] !== "A");
+    expect(tombstoneFirst).toHaveLength(4);
+    for (const { order, contexts } of tombstoneFirst) {
+      expect(contexts, order.join(",")).toEqual([]);
+    }
+    // Byte-identical state (rows, clocks, snapshots), including the removal clock.
+    expect(new Set(tombstoneFirst.map(({ dump }) => dump)).size).toBe(1);
+  });
+
+  it("the residual non-join: if both live replicas merged before the older tombstone arrived, the id stays", async () => {
+    // A live row that already merged D's add holds `work` at T1, and the tombstone only knows T1: it
+    // cannot tell "B omitted it" from "B kept it". Documented in the storage docs.
+    const results = await runOrders(await build({ create: 1_000, remove: 4_000, edit: 9_000 }));
+    for (const { order, contexts } of results.filter(({ order }) => order[2] === "A")) {
+      expect(contexts, order.join(",")).toEqual(["work"]);
+    }
+  });
+
+  for (const [create, remove, edit] of [
+    [500, 2_000, 30_000],
+    [7_000, 100, 7_101],
+    [60_000, 3_600, 63_601],
+  ] as const) {
+    it(`holds for other timings (${create}/${remove}/${edit})`, async () => {
+      const results = await runOrders(await build({ create, remove, edit }));
+      const tombstoneFirst = results.filter(({ order }) => order[2] !== "A");
+      for (const { contexts } of tombstoneFirst) expect(contexts).toEqual([]);
+      expect(new Set(tombstoneFirst.map(({ dump }) => dump)).size).toBe(1);
+    });
+  }
+});
+
 describe("foreign keys are enforced (as in production)", () => {
   const objective = (id: string) => ({
     id,

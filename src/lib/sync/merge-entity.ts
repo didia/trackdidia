@@ -9,6 +9,7 @@ import {
   fieldClockKey,
   getOwn,
   jsonDeepEqual,
+  type JsonRecord,
   mergeFieldClocks,
   rowHlc as maxFieldClock,
   setOwn,
@@ -404,6 +405,58 @@ const insertColumns = (input: MergeEntityInput): Record<string, unknown> => {
 };
 
 /**
+ * Removal clocks for the memberships a tombstone knew about and a surviving row left out.
+ *
+ * When an edit later than a delete keeps (or brings back) an entity, the survivor's clocks replace
+ * the tombstone's retained ones. A map key or OR-set id that the tombstone held and the survivor's
+ * value does not, with no clock of its own on the survivor, would then look like "never heard of
+ * it", and an older replica that still holds it would add it back unopposed (a missing clock is
+ * not a removal). So each such key gets a removal clock: the tombstone's `deletedAt` (or, for a
+ * tombstone without one, the key's own retained clock), or the survivor's existing clock for the
+ * key if that is later. The delete is exactly what removed the key, `deletedAt` is later than every
+ * clock the tombstone retained (it only wins over clocks that are earlier), and an add made after
+ * the delete, by anyone, still beats it. The value comes only from the tombstone and the survivor,
+ * never from local issuance, and is the same whichever of the two reached this device first.
+ *
+ * Not invented: keys the tombstone never had; keys the survivor holds; any key of an atomic field
+ * (a bare clock on either side, or a value that cannot be merged per key) which has no per-key
+ * removals to speak of; live-live merges (this runs for a resurrection, or for a live row meeting
+ * an older tombstone, never for two live entities).
+ */
+const omittedKeyRemovals = (
+  codec: FieldCodec,
+  survivorRecord: JsonRecord,
+  survivorClocks: FieldClocks,
+  tombstoneClocks: FieldClocks,
+  deletedAt: string | null,
+): FieldClocks => {
+  const added: FieldClocks = {};
+  const fields = [...(codec.spec.maps ?? []), ...(codec.spec.sets ?? [])];
+  const maps = new Set(codec.spec.maps);
+  for (const field of fields) {
+    if (hasBareClock(survivorClocks, field) || hasBareClock(tombstoneClocks, field)) continue;
+    let held: Set<string>;
+    if (maps.has(field)) {
+      const entries = mapEntriesOf(survivorRecord[field], field, {});
+      if (entries === null) continue;
+      held = new Set(Object.keys(entries));
+    } else {
+      held = new Set(stringIds(survivorRecord[field]));
+    }
+    for (const key of Object.keys(tombstoneClocks)) {
+      const split = splitFieldClockKey(key);
+      if (split.field !== field || split.key === null || held.has(split.key)) continue;
+      const removal = maxHlc(
+        clockAt(survivorClocks, key),
+        deletedAt ?? clockAt(tombstoneClocks, key),
+      );
+      if (removal !== null && removal !== clockAt(survivorClocks, key)) setOwn(added, key, removal);
+    }
+  }
+  return added;
+};
+
+/**
  * A resurrection replaces the tombstone's retained clocks with the incoming entity's. A retained
  * clock NEWER than the incoming one for the same field, key or element is an edit the tombstone
  * swallowed and the resurrected row does not hold (the tombstone has no value to give back). Each
@@ -498,12 +551,27 @@ export const mergeFieldClockEntity = (input: MergeEntityInput): EntityMergeOutco
 
   // --- The entity is live from here on. ---------------------------------------------------------
   if (remote.row === null) {
-    // A tombstone older than a local edit: the local state stands, the tombstone is ignored.
+    // A tombstone older than a local edit: the local row stands. The edit still survives the
+    // delete, so the memberships the tombstone knew and the row left out get their removals,
+    // exactly as if the tombstone had been here first (see `omittedKeyRemovals`).
+    const removals =
+      localHasRow && local.meta !== null
+        ? omittedKeyRemovals(
+            codec,
+            codec.decode(local.row as RawRow),
+            local.meta.fieldClocks,
+            remoteClocks,
+            remote.deletedAt,
+          )
+        : {};
+    const meta: EntityMeta = local.meta
+      ? { ...local.meta, fieldClocks: { ...local.meta.fieldClocks, ...removals } }
+      : { fieldClocks: {}, rowHlc: remote.rowHlc, deletedAt: null };
     return {
       rowAction: "none",
       columns: {},
-      meta: local.meta ?? { fieldClocks: {}, rowHlc: remote.rowHlc, deletedAt: null },
-      metaChanged: false,
+      meta,
+      metaChanged: Object.keys(removals).length > 0,
       tombstoneApplied: false,
       overwritten: [],
     };
@@ -512,7 +580,23 @@ export const mergeFieldClockEntity = (input: MergeEntityInput): EntityMergeOutco
   if (!localHasRow) {
     // New entity, or a resurrection: the remote values and clocks are the whole truth.
     const rowHlc = maxFieldClock(remoteClocks) ?? remote.rowHlc;
-    const meta: EntityMeta = { fieldClocks: remoteClocks, rowHlc, deletedAt: null };
+    // A resurrection (local tombstone, no row) also dates a removal for every membership the
+    // tombstone knew and the incoming row omits; a brand-new entity has no tombstone to consult.
+    const removals =
+      local.meta !== null && local.meta.deletedAt !== null
+        ? omittedKeyRemovals(
+            codec,
+            codec.decode(remote.row as RawRow),
+            remoteClocks,
+            local.meta.fieldClocks,
+            local.meta.deletedAt,
+          )
+        : {};
+    const meta: EntityMeta = {
+      fieldClocks: { ...remoteClocks, ...removals },
+      rowHlc,
+      deletedAt: null,
+    };
     return {
       rowAction: "insert",
       columns: insertColumns(input),

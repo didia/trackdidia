@@ -701,9 +701,18 @@ Merge rules (`src/lib/sync/merge-entity.ts`, built from the `merge-primitives.ts
   leave the surviving values depending on arrival order, because the resurrected row holds the
   incoming side's values only. The loss is logged, not silent: on a resurrection, every field, key or
   element for which the tombstone held a newer clock than the incoming entity is recorded as an
-  overwritten edit whose local value is unknown. Open item for a later slice: tombstones should carry
-  the last field values (in the change set and in the local meta), which would make resurrection a
-  join too;
+  overwritten edit whose local value is unknown. Every map key or id-list element that the
+  tombstone held and the surviving row omits also gets a removal clock equal to the tombstone's
+  `deletedAt`, copied from the data (never issued locally) and kept if the incoming clocks already
+  hold a later removal; without it an older replica that still holds the id would add it back,
+  because a missing clock is not a removal. A later add by anyone still beats it, keys the tombstone
+  never had get nothing, and an atomic field (a bare clock on either side, or a value that cannot be
+  merged per key) has no per-key removals to date. The same removals are dated when a live row meets
+  an older tombstone, so every arrival order gives the same clocks as long as the tombstone reaches
+  a replica before both live versions have merged; once two live versions merged without it, the
+  tombstone cannot tell an omitted id from a kept one and the id stays (the residual non-join). Open
+  item for a later slice: tombstones should carry the last field values (in the change set and in the
+  local meta), which would make resurrection a join too;
 - grow-only-union tables: `INSERT ... ON CONFLICT DO NOTHING`, never an update, so a collision on
   `dedupe_key` keeps the first row;
 - settings: per key by the settings registry rule (`lww` by key clock, `monotonic-max`,
