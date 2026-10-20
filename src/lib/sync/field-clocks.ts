@@ -142,7 +142,7 @@ export class FieldClockShapeError extends Error {
  *   travels in the items' own fields (`sortOrder`). Duplicate ids throw;
  * - anything else throws {@link FieldClockShapeError}.
  */
-const asMap = (value: unknown, field: string): Record<string, unknown> => {
+export const asMap = (value: unknown, field: string): Record<string, unknown> => {
   const result: Record<string, unknown> = {};
   if (value === null || value === undefined) {
     return result;

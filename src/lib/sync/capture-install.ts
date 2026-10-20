@@ -75,7 +75,7 @@ export interface LiveTableSchema {
 
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-const quoteIdent = (name: string): string => {
+export const quoteIdent = (name: string): string => {
   if (!IDENTIFIER.test(name)) {
     throw new Error(`Unsafe SQL identifier "${name}"`);
   }
@@ -173,10 +173,12 @@ const keySql = (row: "NEW" | "OLD", primaryKey: readonly string[]): string =>
  * `applying = 1` (set by the merge-apply transaction) means the write is a remote change that must
  * not be captured back, which would ping-pong between two laptops forever.
  *
- * Forward constraint for the merge-apply slice: it must drain local marks with
- * `stampDirtyEntities` BEFORE setting `applying = 1`, and it must write the snapshot and the meta
- * row for every row it applies. Otherwise a leftover local mark on a row the merge then overwrites
- * is stamped later with a fresh local clock and the remote content.
+ * Contract honoured by `applyChangeSet` (`apply-bundle.ts`): it drains local marks with
+ * `stampDirtyEntities` BEFORE setting `applying = 1`, and it writes the snapshot and the meta row
+ * for every row it applies. Otherwise a leftover local mark on a row the merge then overwrites
+ * would be stamped later with a fresh local clock and the remote content (ping-pong), and a meta
+ * row without a snapshot would restamp every field on the next local edit. Any other code that
+ * sets `applying = 1` must keep both halves of that contract and reset the flag before COMMIT.
  */
 const WHEN_CAPTURING = "WHEN (SELECT applying FROM sync_identity WHERE id = 1) = 0";
 

@@ -128,6 +128,29 @@ export interface TableRegistration {
    * entity a row describes, which decides the bundle the row travels in.
    */
   entityTypeColumn?: string;
+  /**
+   * TEMPORARY. The table's lifecycle columns (status, bucket, scheduled/completed dates, planned
+   * order, recurrence cursor...) form tuples that must change together, but the generic
+   * field-clock merge (`merge-entity.ts`) resolves every column independently, so two peers editing
+   * different lifecycle fields of one row can produce a combination no user ever saw (for example
+   * `status = completed` with `bucket = inbox`). The lifecycle-tuple / terminal-status / planned
+   * order merge of the GTD slice replaces the generic merge for these tables and must delete this
+   * flag. `registry.test.ts` pins both the flag and its absence elsewhere, so that slice cannot be
+   * forgotten, and sync must not be user-enabled while it is set.
+   */
+  lifecycleMergePending?: true;
+  /**
+   * TEMPORARY. The table takes part in a declared SQL foreign key (`PRAGMA foreign_key_list`) whose
+   * parent can be deleted: production enforces foreign keys, so deleting a parent cascades to its
+   * children inside the database. A merge that tombstones the parent would silently delete child
+   * rows the sync engine never saw go (apply runs with the capture triggers off), and a child
+   * arriving for a deleted parent would abort the whole bundle. Until the references slice (natural
+   * keys, aliases, declared references) defines a convergent rule, `merge-strategies.ts` neither
+   * publishes nor merges these tables and `applySyncBundle` refuses them. That slice removes the
+   * flag; `registry.test.ts` derives the expected set from the migrated schema, so a new foreign
+   * key cannot appear unnoticed either.
+   */
+  referencesMergePending?: true;
   notes?: string;
 }
 
@@ -166,6 +189,7 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
       contextIdList(),
     ],
     orSetColumns: ["context_ids_json"],
+    lifecycleMergePending: true,
     notes:
       "Rows with is_recurring_instance = 1 follow the recurring-occurrence rules (sync_recurrence_occurrences), not plain field clocks. recurrence_group_id is an opaque group label from imported recurring tasks, not a reference. Relationship-draw tasks and task notes are shared by design.",
   },
@@ -222,6 +246,7 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
     naturalKeys: noKeys,
     references: [{ column: "project_id", table: "gtd_projects", kind: "soft" }, contextIdList()],
     orSetColumns: ["context_ids_json"],
+    lifecycleMergePending: true,
   },
   {
     table: "pomodoro_sessions",
@@ -330,6 +355,9 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
     primaryKey: ["id"],
     naturalKeys: noKeys,
     references: noRefs,
+    referencesMergePending: true,
+    notes:
+      "Parent of weekly_objective_results (ON DELETE CASCADE): not merged until the references slice.",
   },
   {
     table: "weekly_objective_results",
@@ -338,6 +366,7 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
     primaryKey: ["week_start_date", "objective_id"],
     naturalKeys: noKeys,
     references: [{ column: "objective_id", table: "weekly_objectives", kind: "foreign-key" }],
+    referencesMergePending: true,
   },
   {
     table: "ai_messages",
@@ -352,6 +381,7 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
     table: "ai_proposals",
     domain: "personal",
     mergeClass: "monotonic-status",
+    referencesMergePending: true,
     primaryKey: ["id"],
     naturalKeys: [
       {

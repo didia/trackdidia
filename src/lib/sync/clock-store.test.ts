@@ -5,6 +5,8 @@ import { createNodeSqliteDatabase } from "../../test/mocks/node-sqlite-database"
 import { runMigrations } from "../storage/migrations";
 import type { Database } from "../storage/sqlite-db";
 import {
+  absorbRemoteHlc,
+  assertRemoteClockAcceptable,
   createHlcBatch,
   HLC_REMOTE_MAX_AHEAD_MS,
   issueHlc,
@@ -323,5 +325,62 @@ describe("createHlcBatch", () => {
     await batch.next();
     expect(await batch.flush()).toBe(2);
     expect(await readState(db)).toEqual({ physical_ms: NOW, counter: 2 });
+  });
+});
+
+describe("assertRemoteClockAcceptable", () => {
+  it("accepts a clock within the window, ahead or behind", () => {
+    expect(() => assertRemoteClockAcceptable(encodeHlc(NOW, 0, PEER), NOW)).not.toThrow();
+    expect(() =>
+      assertRemoteClockAcceptable(encodeHlc(NOW + HLC_REMOTE_MAX_AHEAD_MS, 0, PEER), NOW),
+    ).not.toThrow();
+    expect(() => assertRemoteClockAcceptable(encodeHlc(1, 0, PEER), NOW)).not.toThrow();
+  });
+
+  it("rejects a malformed clock and one too far ahead, with typed codes", () => {
+    expect(() => assertRemoteClockAcceptable("zzz", NOW)).toThrow(
+      expect.objectContaining({ code: "remote_malformed" }),
+    );
+    expect(() =>
+      assertRemoteClockAcceptable(encodeHlc(NOW + HLC_REMOTE_MAX_AHEAD_MS + 1, 0, PEER), NOW),
+    ).toThrow(expect.objectContaining({ code: "remote_too_far_ahead" }));
+  });
+});
+
+describe("absorbRemoteHlc", () => {
+  it("folds a clock ahead of the local state in, and reports it", async () => {
+    const db = await createDb();
+    await issueHlc(db, NOW);
+    const remote = encodeHlc(NOW + 5_000, 3, PEER);
+    await expect(absorbRemoteHlc(db, remote, NOW)).resolves.toBe(true);
+    const next = await issueHlc(db, NOW);
+    expect(compareHlc(next, remote)).toBe(1);
+  });
+
+  it("leaves the state alone when it is already past the remote clock", async () => {
+    const db = await createDb();
+    await issueHlc(db, NOW + 10_000);
+    const before = await readState(db);
+    await expect(absorbRemoteHlc(db, encodeHlc(NOW, 9, PEER), NOW)).resolves.toBe(false);
+    await expect(absorbRemoteHlc(db, encodeHlc(NOW + 10_000, 0, PEER), NOW)).resolves.toBe(false);
+    expect(await readState(db)).toEqual(before);
+  });
+
+  it("still validates a clock it would not need to absorb", async () => {
+    const db = await createDb();
+    await issueHlc(db, NOW);
+    expect(await clockCode(absorbRemoteHlc(db, "nope", NOW))).toBe("remote_malformed");
+    expect(
+      await clockCode(
+        absorbRemoteHlc(db, encodeHlc(NOW + HLC_REMOTE_MAX_AHEAD_MS + 1, 0, PEER), NOW),
+      ),
+    ).toBe("remote_too_far_ahead");
+  });
+
+  it("needs an identity row", async () => {
+    const db = await createDb(false);
+    expect(await clockCode(absorbRemoteHlc(db, encodeHlc(NOW, 0, PEER), NOW))).toBe(
+      "identity_missing",
+    );
   });
 });

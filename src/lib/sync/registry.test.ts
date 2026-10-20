@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { defaultAppSettings } from "../../domain/settings";
 import { createNodeSqliteDatabase } from "../../test/mocks/node-sqlite-database";
 import { runMigrations } from "../storage/migrations";
+import { isTableSyncSupported, strategyForTable } from "./merge-strategies";
 import {
   assertSettingPublishable,
   assertSidecarPublishable,
@@ -50,6 +51,7 @@ interface IndexInfoRow {
 interface ForeignKeyRow {
   table: string;
   from: string;
+  on_delete: string;
 }
 
 interface SchemaTable {
@@ -454,6 +456,72 @@ describe("domain and merge-class sanity", () => {
     expect(filtered.sort()).toEqual(
       ["finance_account_balance_snapshots", "pomodoro_segments", "pomodoro_sessions"].sort(),
     );
+  });
+
+  it("flags exactly the tables whose lifecycle merge is still pending (the GTD lifecycle slice removes it)", () => {
+    // gtd_tasks and recurring_task_templates are merged field by field for now, which can yield a
+    // combination of lifecycle fields no user produced. The GTD lifecycle slice replaces that merge
+    // and must delete the flag, which makes this test fail on purpose.
+    const pending = TABLE_REGISTRY.filter((entry) => entry.lifecycleMergePending).map(
+      (entry) => entry.table,
+    );
+    expect(pending.sort()).toEqual(["gtd_tasks", "recurring_task_templates"]);
+    for (const table of pending) {
+      expect(registration(table).domain).toBe("gtd");
+      expect(registration(table).mergeClass).toBe("field-clock");
+    }
+  });
+
+  describe("declared foreign keys (production enforces them)", () => {
+    // Every table in a declared foreign key, as the migrated schema reports it. A parent that can
+    // be deleted by a merge (anything but an insert-only grow-only-union table) is as much a
+    // hazard as a child: deleting it cascades inside the database where the capture triggers are
+    // off, and a child for a deleted parent aborts the whole bundle.
+    const involved = (): string[] => {
+      const tables = new Set<string>();
+      for (const [table, info] of schema) {
+        for (const fk of info.foreignKeys) {
+          tables.add(table);
+          if (registration(fk.table).mergeClass !== "grow-only-union") tables.add(fk.table);
+        }
+      }
+      return [...tables].sort();
+    };
+
+    it("flags exactly the tables the schema's foreign keys involve as referencesMergePending", () => {
+      // Derived from PRAGMA foreign_key_list, so a migration that adds a foreign key fails here
+      // until the table is flagged (or the references slice replaces the whole rule).
+      const flagged = TABLE_REGISTRY.filter((entry) => entry.referencesMergePending).map(
+        (entry) => entry.table,
+      );
+      expect(flagged.sort()).toEqual(involved());
+      expect(involved()).toEqual(["ai_proposals", "weekly_objective_results", "weekly_objectives"]);
+    });
+
+    it("never supports a flagged table", () => {
+      for (const table of involved()) {
+        expect(isTableSyncSupported(table), table).toBe(false);
+        expect(strategyForTable(table), table).toBeNull();
+      }
+    });
+
+    it("leaves no supported table with a foreign key of its own or a deletable foreign-key parent", () => {
+      for (const entry of TABLE_REGISTRY) {
+        if (strategyForTable(entry.table) === null) continue;
+        expect(schema.get(entry.table)?.foreignKeys ?? [], `${entry.table} references`).toEqual([]);
+        for (const [child, info] of schema) {
+          for (const fk of info.foreignKeys) {
+            if (fk.table !== entry.table) continue;
+            // Only an insert-only table may be a parent: a merge never deletes from it.
+            expect({ child, parent: entry.table, mergeClass: entry.mergeClass }).toEqual({
+              child,
+              parent: entry.table,
+              mergeClass: "grow-only-union",
+            });
+          }
+        }
+      }
+    });
   });
 
   it("marks JSON-map and OR-set columns from the spec", () => {
