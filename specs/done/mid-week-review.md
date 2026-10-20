@@ -33,7 +33,7 @@ week-to-date `actualHours` against a full-week `weeklyTargetHours`. On a Wednesd
 | Rollout | Deterministic page first. AI steering (PR D) follows. |
 | Persist decisions | Yes, in a new table (migration 36). Never `tempsEtPlan` and never a new `WeeklyRitualSectionKey`. |
 | Wednesday snapshot | Yes. Saving decisions also stores the lagging list at that moment, so Sunday can compare before and after. |
-| RescueTime cache | Yes. Same cache and key as the weekly review: `(week_start_date, kind, credential_fingerprint)` from [`weekly-review-caching.md`](../todo/weekly-review-caching.md) §1. |
+| RescueTime cache | Yes. Same cache and key as the weekly review: `(week_start_date, kind, credential_fingerprint)` from [`weekly-review-caching.md`](weekly-review-caching.md) §1. |
 | Thresholds | Start at `0.1` (tolerance) and `0.25` (lagging). The owner tunes them later. |
 | Journal feed (PR C) | **Optional, not approved.** Ship only if the owner confirms. |
 
@@ -86,7 +86,7 @@ in `todo/` until PR D ships. PR C is optional and does not block the move to `do
 
 ## PR A — RescueTime snapshot cache and freshness window
 
-Implement [`weekly-review-caching.md`](../todo/weekly-review-caching.md) §1 as written, with the
+Implement [`weekly-review-caching.md`](weekly-review-caching.md) §1 as written, with the
 clarifications below. §2 (compact goal lines) and §3 (weekly coach last-good cache) remain
 unshipped.
 

@@ -279,6 +279,10 @@ from the Analytic Data API for the selected Sunday–Saturday week. These scores
 the optional RescueTime axes above. They are not part of the repository weekly summary,
 but each successful pull is cached (see [Snapshot cache](#rescuetime-snapshot-cache)).
 
+On `/semaine`, each enabled goal appears on **one compact line**: the goal name,
+actual / weekly target hours with **≥** (more time) or **≤** (less time), and the
+achievement as a percent. The schedule label is not shown on that line.
+
 Each goal is worth at most **1 point**:
 
 | Direction | Achievement |
@@ -366,8 +370,10 @@ Once a week has a stored `ok` result, opening `/semaine` only shows it; a new as
 needs an explicit **Régénérer** / **« Demander au coach »**. Successful AI results
 (`status = ok`) cache on `(surface, weekStartDate, input_hash)`.
 `skipped` rows cache while AI is off. `fallback` and `error` rows are retryable and
-are not treated as sticky cache hits when AI is configured. Regenerating always appends
-a new message episode.
+are not treated as sticky cache hits when AI is configured. When a new generation fails
+but an earlier `ok` synthesis for the week still parses, the review reuses that
+last-good coach output (see [AI settings](ai-settings-and-privacy.md#weekly-synthesis-weekly_synthesis)).
+Regenerating always appends a new message episode.
 
 When AI is off, the local deterministic brief still renders from weekly insight findings.
 

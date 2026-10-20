@@ -350,8 +350,12 @@ describe("WeeklyReviewPage", () => {
 
     await waitFor(() => {
       expect(screen.getByText("more than 2h on Personal (24x7)")).toBeInTheDocument();
-      expect(screen.getByText("0.25/1")).toBeInTheDocument();
+      expect(screen.getByText("3.50 h / 14.00 h ≥")).toBeInTheDocument();
     });
+    const goalLine = screen.getByText("more than 2h on Personal (24x7)").closest("li");
+    expect(goalLine).not.toBeNull();
+    expect(within(goalLine as HTMLElement).getByText(formatPercent(0.25))).toBeInTheDocument();
+    expect(document.querySelectorAll(".rescue-goal-lines li")).toHaveLength(1);
   });
 
   it("shows the goals list with a cached notice when the snapshot comes from the cache", async () => {
@@ -715,7 +719,9 @@ describe("WeeklyReviewPage", () => {
 
     await waitFor(() => {
       expect(screen.getByText("pending-pulse goal")).toBeInTheDocument();
-      expect(screen.getByText("0.50/1")).toBeInTheDocument();
+      expect(screen.getByText("1.00 h / 2.00 h ≥")).toBeInTheDocument();
+      const goalLine = screen.getByText("pending-pulse goal").closest("li");
+      expect(within(goalLine as HTMLElement).getByText(formatPercent(0.5))).toBeInTheDocument();
     });
 
     const refreshButton = screen.getByRole("button", { name: /rafraîchir rescuetime/i });

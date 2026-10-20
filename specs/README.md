@@ -26,9 +26,6 @@ current-product behavior remains documented in [`docs/`](../docs/).
   prompts for the user's own Claude client (no OpenRouter).
 - [`todo/duplication.md`](todo/duplication.md) — draft, awaiting review: duplicate a single task
   or an entire project; project copies are fresh entities whose tasks all land in Planned.
-- [`todo/weekly-review-caching.md`](todo/weekly-review-caching.md) — §1 shipped (RescueTime
-  snapshot cache); §2 compact weekly RescueTime goal lines and §3 last-good weekly coach
-  synthesis fallback not implemented.
 - [`done/calendar-sync.md`](done/calendar-sync.md) — implemented one-way Google Calendar sync
   of Scheduled and Planned tasks with a date (disabled by default).
 - [`done/finance.md`](done/finance.md) — implemented household finances: CSV import,
@@ -42,3 +39,6 @@ current-product behavior remains documented in [`docs/`](../docs/).
 - [`done/email-triage.md`](done/email-triage.md) — multi-account email triage (implemented, then removed on 2026-10-12 in favor of the MCP bridge).
 - [`done/project-planned-tasks.md`](done/project-planned-tasks.md) — implemented Project
   Planned Tasks feature.
+- [`done/weekly-review-caching.md`](done/weekly-review-caching.md) — §1 RescueTime snapshot
+  cache, §2 compact weekly RescueTime goal lines, and §3 last-good weekly coach synthesis
+  fallback (all shipped).

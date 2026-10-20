@@ -1,6 +1,6 @@
 # Weekly review: RescueTime cache, compact goal lines, weekly coach cache
 
-Status: §1 shipped; §2 and §3 not implemented. Reviewed by a planner/validator loop
+Status: §1, §2, and §3 shipped. Reviewed by a planner/validator loop
 (1 revision round, `PLAN_APPROVED`).
 
 Requests:
