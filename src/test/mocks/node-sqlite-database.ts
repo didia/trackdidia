@@ -10,6 +10,17 @@ import type { Database as SqliteDatabase } from "../../lib/storage/sqlite-db";
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
 
+export interface NodeSqliteDatabaseOptions {
+  /**
+   * Enforce declared foreign keys (`PRAGMA foreign_keys = ON`). Production enforces them (sqlx's
+   * `SqliteConnectOptions` turns them on by default and `src-tauri/src/db.rs` keeps that default),
+   * so tests whose behavior depends on `ON DELETE CASCADE` must pass `true`. The default stays
+   * `false` so the large existing suite, which was written against the lenient adapter, is
+   * unchanged.
+   */
+  foreignKeys?: boolean;
+}
+
 /**
  * Node-side `SqliteDatabase` adapter backed by `node:sqlite`'s in-process engine, used to run
  * `TauriSqliteRepository` against a real SQLite engine in tests instead of the Tauri
@@ -25,11 +36,16 @@ const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
  * rather than positionally — this also correctly handles a placeholder repeated within the same
  * query (unlike plain positional binding).
  */
-export const createNodeSqliteDatabase = (path = ":memory:"): SqliteDatabase => {
-  // `node:sqlite` enables `PRAGMA foreign_keys` by default; the Rust/rusqlite connection the
-  // production `Database` wrapper opens does not turn it on. Match production so this adapter
-  // doesn't enforce constraints the real app never enforces.
-  const db = new DatabaseSync(path, { enableForeignKeyConstraints: false });
+export const createNodeSqliteDatabase = (
+  path = ":memory:",
+  options: NodeSqliteDatabaseOptions = {},
+): SqliteDatabase => {
+  // `node:sqlite` enables `PRAGMA foreign_keys` by default. Production enforces foreign keys too
+  // (see `foreignKeys` above), but most tests here predate that finding and insert rows without
+  // their parents, so enforcement is opt-in per database.
+  const db = new DatabaseSync(path, {
+    enableForeignKeyConstraints: options.foreignKeys === true,
+  });
 
   const toNamedParams = (bindValues: unknown[]): Record<string, SQLInputValue> => {
     const params: Record<string, SQLInputValue> = {};

@@ -252,6 +252,111 @@ describe("stampDirtyEntities: field-clock tables", () => {
     expect(after.milestones_json).not.toBe(created.milestones_json);
   });
 
+  it("keeps a field either atomic or per key across valid -> unmergeable -> valid shapes", async () => {
+    const db = await createCaptureDb();
+    const setMilestones = (json: string) =>
+      stamp(db, () => db.execute("UPDATE annual_goals SET milestones_json = $1", [json]));
+    await stamp(db, async () => {
+      await db.execute(
+        `INSERT INTO annual_goals (id, title, dimension, description, unit, evaluations_json, milestones_json, created_at, updated_at)
+         VALUES ('g1', 'Goal', 'body', '', 'kg', '{}', '[{"id":"m1","done":false}]', '${T0}', '${T0}')`,
+      );
+    });
+    const first = clocksOf(await readMetaOf(db, "annual_goals", "g1"));
+    expect(first["milestones_json.m1"]).toBeDefined();
+    expect(first.milestones_json).toBeUndefined();
+
+    // Valid -> unmergeable: one atomic clock, and the per-id clocks are gone (no contradiction).
+    await setMilestones('[{"label":"no id"}]');
+    const broken = await readMetaOf(db, "annual_goals", "g1");
+    const brokenClocks = clocksOf(broken);
+    expect(brokenClocks.milestones_json).toBe(broken?.row_hlc);
+    expect(Object.keys(brokenClocks).some((key) => key.startsWith("milestones_json."))).toBe(false);
+
+    // Unmergeable -> valid: per-id clocks again, the bare clock is dropped, and the repair is a
+    // per-id add of m1 at the new clock.
+    await setMilestones('[{"id":"m1","done":true}]');
+    const repaired = await readMetaOf(db, "annual_goals", "g1");
+    const repairedClocks = clocksOf(repaired);
+    expect(repairedClocks["milestones_json.m1"]).toBe(repaired?.row_hlc);
+    expect(repairedClocks.milestones_json).toBeUndefined();
+    expect(compareHlc(broken?.row_hlc as string, repaired?.row_hlc as string)).toBe(-1);
+
+    // And a later per-id edit stays per key.
+    await setMilestones('[{"id":"m1","done":true},{"id":"m2"}]');
+    const later = clocksOf(await readMetaOf(db, "annual_goals", "g1"));
+    expect(later["milestones_json.m2"]).toBeDefined();
+    expect(later.milestones_json).toBeUndefined();
+    expect(later["milestones_json.m1"]).toBe(repairedClocks["milestones_json.m1"]);
+  });
+
+  describe("repairing an unmergeable map column", () => {
+    const seedBroken = async (db: Db) => {
+      await stamp(db, async () => {
+        await db.execute(
+          `INSERT INTO annual_goals (id, title, dimension, description, unit, evaluations_json, milestones_json, created_at, updated_at)
+           VALUES ('g1', 'Goal', 'body', '', 'kg', '{}', '[{"x":1}]', '${T0}', '${T0}')`,
+        );
+      });
+    };
+    const snapshotMilestones = async (db: Db) =>
+      JSON.parse((await snapshotOf(db, "annual_goals", "g1"))?.snapshot_json ?? "{}")
+        .milestones_json;
+
+    it("counts broken -> [] as a change on its own: clock, counter and snapshot all move", async () => {
+      const db = await createCaptureDb();
+      await seedBroken(db);
+      const before = await readMetaOf(db, "annual_goals", "g1");
+      const counter = (await readIdentity(db))?.change_counter;
+      expect(clocksOf(before).milestones_json).toBe(before?.row_hlc);
+      expect(await snapshotMilestones(db)).toEqual([{ x: 1 }]);
+
+      await stamp(db, () => db.execute("UPDATE annual_goals SET milestones_json = '[]'"));
+
+      const after = await readMetaOf(db, "annual_goals", "g1");
+      expect(compareHlc(before?.row_hlc as string, after?.row_hlc as string)).toBe(-1);
+      expect(clocksOf(after).milestones_json).toBe(after?.row_hlc);
+      expect(Object.keys(clocksOf(after)).some((key) => key.startsWith("milestones_json."))).toBe(
+        false,
+      );
+      expect((await readIdentity(db))?.change_counter).toBe((counter ?? 0) + 1);
+      expect(await snapshotMilestones(db)).toEqual([]);
+      // And the repaired value is now stable: re-saving it is a no-op.
+      const state = await syncState(db);
+      await stamp(db, () => db.execute("UPDATE annual_goals SET milestones_json = '[]'"));
+      expect(await syncState(db)).toEqual(state);
+    });
+
+    it("also works for an empty object", async () => {
+      const db = await createCaptureDb();
+      await seedBroken(db);
+      const counter = (await readIdentity(db))?.change_counter ?? 0;
+      await stamp(db, () => db.execute("UPDATE annual_goals SET milestones_json = '{}'"));
+      expect((await readIdentity(db))?.change_counter).toBe(counter + 1);
+      expect(await snapshotMilestones(db)).toEqual({});
+    });
+
+    it("never keeps a bare clock beside per-key clocks: broken -> [] plus a title edit, then an added id", async () => {
+      const db = await createCaptureDb();
+      await seedBroken(db);
+      await stamp(db, () =>
+        db.execute("UPDATE annual_goals SET milestones_json = '[]', title = 'Renamed'"),
+      );
+      const repaired = clocksOf(await readMetaOf(db, "annual_goals", "g1"));
+      expect(repaired.milestones_json).toBeDefined();
+      expect(Object.keys(repaired).some((key) => key.startsWith("milestones_json."))).toBe(false);
+
+      await stamp(db, () =>
+        db.execute(`UPDATE annual_goals SET milestones_json = '[{"id":"m2","done":false}]'`),
+      );
+      const later = await readMetaOf(db, "annual_goals", "g1");
+      const laterClocks = clocksOf(later);
+      expect(laterClocks["milestones_json.m2"]).toBe(later?.row_hlc);
+      expect(laterClocks.milestones_json).toBeUndefined();
+      expect(laterClocks.title).toBe(repaired.title);
+    });
+  });
+
   it("stamps milestones (an array of {id}) per id", async () => {
     const db = await createCaptureDb();
     await stamp(db, async () => {
@@ -333,6 +438,73 @@ describe("stampDirtyEntities: deletes, tombstones and resurrection", () => {
     ).toMatchObject({
       title: "Second life",
     });
+  });
+
+  it("re-stamps map keys and OR-set elements the new life no longer holds as removals", async () => {
+    const db = await createCaptureDb();
+    await stamp(db, () => insertTask(db, "t1", { context_ids_json: '["home","work"]' }));
+    const first = clocksOf(await readMetaOf(db, "gtd_tasks", "t1"));
+    await stamp(db, () => db.execute("DELETE FROM gtd_tasks WHERE id = 't1'"));
+    await stamp(db, () => insertTask(db, "t1", { context_ids_json: '["work"]' }));
+    const revived = await readMetaOf(db, "gtd_tasks", "t1");
+    const clocks = clocksOf(revived);
+    expect(revived?.deleted_at).toBeNull();
+    // The omitted element is a removal dated at the recreation, not at its last edit.
+    expect(clocks["context_ids_json.home"]).toBe(revived?.row_hlc);
+    expect(clocks["context_ids_json.work"]).toBe(revived?.row_hlc);
+    expect(
+      compareHlc(
+        first["context_ids_json.home"] as string,
+        clocks["context_ids_json.home"] as string,
+      ),
+    ).toBe(-1);
+    expect(new Set(Object.values(clocks))).toEqual(new Set([revived?.row_hlc]));
+  });
+
+  it("does the same for JSON-map columns (metrics) and id-array maps (milestones)", async () => {
+    const db = await createCaptureDb();
+    await stamp(db, async () => {
+      await db.execute(
+        `INSERT INTO daily_entries (date, status, metrics_json, principles_json, morning_intention, night_reflection, tomorrow_focus, updated_at)
+         VALUES ('2026-10-01', 'in_progress', '{"pushups":10,"marche":3}', '{}', '', '', '', '${T0}')`,
+      );
+      await db.execute(
+        `INSERT INTO annual_goals (id, title, dimension, description, unit, evaluations_json, milestones_json, created_at, updated_at)
+         VALUES ('g1', 'Goal', 'body', '', 'kg', '{}', '[{"id":"m1"},{"id":"m2"}]', '${T0}', '${T0}')`,
+      );
+    });
+    await stamp(db, async () => {
+      await db.execute("DELETE FROM daily_entries");
+      await db.execute("DELETE FROM annual_goals");
+    });
+    await stamp(db, async () => {
+      await db.execute(
+        `INSERT INTO daily_entries (date, status, metrics_json, principles_json, morning_intention, night_reflection, tomorrow_focus, updated_at)
+         VALUES ('2026-10-01', 'in_progress', '{"pushups":10}', '{}', '', '', '', '${T0}')`,
+      );
+      await db.execute(
+        `INSERT INTO annual_goals (id, title, dimension, description, unit, evaluations_json, milestones_json, created_at, updated_at)
+         VALUES ('g1', 'Goal', 'body', '', 'kg', '{}', '[{"id":"m1"}]', '${T0}', '${T0}')`,
+      );
+    });
+    const entry = await readMetaOf(db, "daily_entries", "2026-10-01");
+    expect(clocksOf(entry)["metrics_json.marche"]).toBe(entry?.row_hlc);
+    const goal = await readMetaOf(db, "annual_goals", "g1");
+    expect(clocksOf(goal)["milestones_json.m2"]).toBe(goal?.row_hlc);
+  });
+
+  it("keeps a same-transaction delete + insert a plain update (the omitted element is stamped once)", async () => {
+    const db = await createCaptureDb();
+    await stamp(db, () => insertTask(db, "t1", { context_ids_json: '["home","work"]' }));
+    const created = clocksOf(await readMetaOf(db, "gtd_tasks", "t1"));
+    await stamp(db, async () => {
+      await db.execute("DELETE FROM gtd_tasks WHERE id = 't1'");
+      await insertTask(db, "t1", { context_ids_json: '["work"]' });
+    });
+    const after = clocksOf(await readMetaOf(db, "gtd_tasks", "t1"));
+    expect(Object.keys(after).filter((key) => after[key] !== created[key])).toEqual([
+      "context_ids_json.home",
+    ]);
   });
 
   it("treats delete + identical re-insert in one transaction as no change, and a changed re-insert as only the changed fields", async () => {

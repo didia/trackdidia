@@ -29,8 +29,8 @@ interface Recorded {
 }
 
 /** An in-memory database that records every statement, from the first one. */
-const recordingDatabase = (): Recorded => {
-  const database = createNodeSqliteDatabase();
+const recordingDatabase = (foreignKeys = false): Recorded => {
+  const database = createNodeSqliteDatabase(":memory:", { foreignKeys });
   const queries: string[] = [];
   const execute = database.execute.bind(database);
   const select = database.select.bind(database);
@@ -45,8 +45,8 @@ const recordingDatabase = (): Recorded => {
   return { database, queries };
 };
 
-const open = async (options: { enable?: boolean } = {}) => {
-  const recorded = recordingDatabase();
+const open = async (options: { enable?: boolean; foreignKeys?: boolean } = {}) => {
+  const recorded = recordingDatabase(options.foreignKeys === true);
   const repository = new TauriSqliteRepository("sqlite::memory:", async () => recorded.database);
   await repository.initialize();
   await repository.ensureSyncIdentity({ deviceId: DEVICE, deviceName: "Portable" });
@@ -244,6 +244,123 @@ describe("enableSyncCapture", () => {
     expect(await triggerNames(database)).toEqual([]);
     expect(await readMeta(database)).toEqual([]);
     expect(await repository.getSyncStatus()).toMatchObject({ captureEnabled: false });
+  });
+});
+
+// Production enforces foreign keys (sqlx turns `PRAGMA foreign_keys` on by default), and two
+// migrations declare `ON DELETE CASCADE`: weekly_objective_results -> weekly_objectives and
+// ai_proposals -> ai_messages. SQLite fires the child table's DELETE triggers for rows removed by
+// an FK action, so cascaded rows are still marked and tombstoned.
+describe("with foreign keys enforced, as in production", () => {
+  const objective = {
+    id: "objective-1",
+    title: "Deep work",
+    kind: "manual",
+    targetHours: null,
+    rescuetimeKind: null,
+    rescuetimeThing: null,
+    sortOrder: 0,
+    startsOnWeekStartDate: "2026-03-29",
+    endsOnWeekStartDate: null,
+    createdAt: "2026-03-29T00:00:00.000Z",
+    updatedAt: "2026-03-29T00:00:00.000Z",
+  } as never;
+  const resultId = '["2026-03-29","objective-1"]';
+
+  const seedObjective = async (opened: Opened) => {
+    await opened.repository.saveWeeklyObjective(objective);
+    await opened.repository.saveWeeklyObjectiveResult({
+      weekStartDate: "2026-03-29",
+      objectiveId: "objective-1",
+      achieved: true,
+      updatedAt: "",
+    });
+    expect(
+      (await metaFor(opened.database, "weekly_objective_results", resultId))?.deleted_at,
+    ).toBeNull();
+  };
+
+  it("really enforces them in this adapter (and not by default)", async () => {
+    const on = await open({ foreignKeys: true });
+    expect(await on.database.select("PRAGMA foreign_keys")).toEqual([{ foreign_keys: 1 }]);
+    const off = await open();
+    expect(await off.database.select("PRAGMA foreign_keys")).toEqual([{ foreign_keys: 0 }]);
+  });
+
+  it("marks and tombstones results removed by the ON DELETE CASCADE of their objective", async () => {
+    const opened = await open({ foreignKeys: true });
+    await seedObjective(opened);
+    // A raw delete of the parent: the repository path deletes the results explicitly first, this
+    // one leaves the removal of the child entirely to the foreign key action.
+    await opened.database.execute("DELETE FROM weekly_objectives WHERE id = 'objective-1'");
+    expect(
+      await opened.database.select("SELECT COUNT(*) AS n FROM weekly_objective_results"),
+    ).toEqual([{ n: 0 }]);
+    expect(await readMarks(opened.database)).toEqual([
+      { entity_type: "weekly_objective_results", entity_id: resultId, op: "delete" },
+      { entity_type: "weekly_objectives", entity_id: "objective-1", op: "delete" },
+    ]);
+    // The next repository write stamps the leftover marks.
+    await opened.repository.createTask({ id: "t1", title: "x", bucket: "inbox" });
+    expect(
+      (await metaFor(opened.database, "weekly_objective_results", resultId))?.deleted_at,
+    ).toBeTruthy();
+    expect(
+      (await metaFor(opened.database, "weekly_objectives", "objective-1"))?.deleted_at,
+    ).toBeTruthy();
+    expect(await readMarks(opened.database)).toEqual([]);
+  });
+
+  it("tombstones objective and results through deleteWeeklyObjective", async () => {
+    const opened = await open({ foreignKeys: true });
+    await seedObjective(opened);
+    await opened.repository.deleteWeeklyObjective("objective-1");
+    expect(
+      (await metaFor(opened.database, "weekly_objective_results", resultId))?.deleted_at,
+    ).toBeTruthy();
+    expect(
+      (await metaFor(opened.database, "weekly_objectives", "objective-1"))?.deleted_at,
+    ).toBeTruthy();
+    expect(await readMarks(opened.database)).toEqual([]);
+  });
+
+  it("marks and tombstones ai_proposals removed by the cascade of their ai_messages row", async () => {
+    const opened = await open({ foreignKeys: true });
+    const { database, repository } = opened;
+    await database.execute(
+      `INSERT INTO ai_messages (id, surface, scope_key, stance, kind, input_hash, prompt_version, model, status, body_json, body_text, delta_class, notified, tokens_prompt, tokens_completion, latency_ms, created_at)
+       VALUES ('m1', 's', 'k', 'x', 'k', 'h', 'v', 'm', 'ok', '{}', '', 'none', 0, 0, 0, 0, 't')`,
+    );
+    await database.execute(
+      `INSERT INTO ai_proposals (id, message_id, type, payload_json, status, created_at)
+       VALUES ('p1', 'm1', 'memory', '{}', 'pending', 't')`,
+    );
+    await repository.createTask({ id: "t0", title: "stamp", bucket: "inbox" });
+    expect((await metaFor(database, "ai_proposals", "p1"))?.deleted_at).toBeNull();
+    await database.execute("DELETE FROM ai_messages WHERE id = 'm1'");
+    expect(await readMarks(database)).toEqual([
+      { entity_type: "ai_proposals", entity_id: "p1", op: "delete" },
+    ]);
+    await repository.createTask({ id: "t1", title: "stamp", bucket: "inbox" });
+    expect((await metaFor(database, "ai_proposals", "p1"))?.deleted_at).toBeTruthy();
+    // The union table itself is still never clocked.
+    expect((await readMeta(database)).some((row) => row.entity_type === "ai_messages")).toBe(false);
+  });
+
+  it("captures a full random-looking workload with foreign keys on", async () => {
+    const opened = await open({ foreignKeys: true });
+    await seedObjective(opened);
+    await opened.repository.saveAnnualGoal(goal());
+    await opened.repository.saveFinanceAccount(account());
+    await opened.repository.importFinanceTransactions({
+      accountId: "account-1",
+      profileId: null,
+      fileName: "a.csv",
+      fileHash: "h",
+      rows: [importRow()],
+    });
+    expect(await readMarks(opened.database)).toEqual([]);
+    expect((await readMeta(opened.database, "finance_transactions")).length).toBe(1);
   });
 });
 
@@ -457,7 +574,7 @@ describe("end to end through the repository methods", () => {
   });
 
   it("weekly objectives: deleting the objective tombstones it and its results", async () => {
-    const { database, repository } = await open();
+    const { database, repository } = await open({ foreignKeys: true });
     const objective = await repository.saveWeeklyObjective({
       id: "objective-1",
       title: "Deep work",

@@ -304,8 +304,11 @@ for field ownership and form behavior.
 | Planned queue | `planned_order` (meaningful only for an active, Planned, project-attached row; see [GTD workspace](gtd.md#planned-bucket-project-only-queue)) |
 | Provenance | `source`, unique `source_external_id`, nullable `source_url` |
 
-There are no declared SQL foreign keys. Referential consistency is enforced by
-repository/domain behavior.
+`gtd_tasks` declares no SQL foreign keys; its references are enforced by repository/domain
+behavior. Foreign keys that other tables do declare (for example
+`weekly_objective_results.objective_id` and `ai_proposals.message_id`, both `ON DELETE CASCADE`)
+are enforced: the native host opens SQLite through sqlx, whose connection options turn
+`PRAGMA foreign_keys` on by default.
 
 ### `gtd_task_events`
 
@@ -504,7 +507,11 @@ entities.
   column names. `updated_at` is stamped as an ordinary scalar (a save that only bumps it is a
   change; the merge slice must not report an `updated_at`-only difference as a conflict). Other
   `*_json` columns are atomic fields compared by parsed value. A map column whose JSON cannot be
-  merged per key is stamped as one atomic field rather than failing the user's save. An update that
+  merged per key is stamped as one atomic field rather than failing the user's save; a field is
+  either atomic (one bare clock) or per key (`field.<key>` clocks), never both, so demoting drops
+  the per-key clocks, and a later valid shape stamps every current key as an add and drops the
+  bare clock (a broken value that becomes an empty map is stamped atomically, so it still counts as
+  a change). An update that
   sets identical values, or only reorders an id list, writes nothing and moves no counter.
 - Row-clock, monotonic-status, child-set and Pomodoro tables: a content hash (128-bit,
   `src/lib/finance/hash.ts`; `src/lib/hash.ts` is only 32-bit) is compared; when it differs the
@@ -515,7 +522,9 @@ entities.
   is a later slice.
 - Deletes write a tombstone (`deleted_at` = `row_hlc` = a fresh clock, field clocks kept) and drop
   the snapshot. An entity that never had a meta row was never published and gets nothing. A row
-  that exists again after a tombstone restarts as a creation and clears `deleted_at`.
+  that exists again after a tombstone restarts as a creation with clean clocks and clears
+  `deleted_at`; every map key or OR-set element of the previous life that the new row no longer
+  holds is stamped as a removal at the recreation clock, so an older peer add of it cannot win.
 - `app_settings`: one `setting` entity per synced key; device-scope keys and secrets never get a
   meta row or a snapshot. A key with no snapshot is compared with its default value, so keys left
   at their defaults are never stamped.
@@ -552,8 +561,11 @@ up:
   `writeExclusive` covers the rest without touching the finance store.
 - *Cascades and hard deletes.* `DELETE` triggers fire for every explicit delete (task collapse,
   annual goal and weekly objective delete with its results, import undo, rules, merchant memory),
-  and tombstones are written regardless of the code path. Foreign keys are off in production, so
-  there are no cascades; if they were on, SQLite fires the child's triggers too.
+  and tombstones are written regardless of the code path. Production enforces foreign keys
+  (sqlx turns them on by default), and two migrations declare `ON DELETE CASCADE`
+  (`weekly_objective_results` -> `weekly_objectives`, `ai_proposals` -> `ai_messages`). SQLite fires
+  the child table's DELETE triggers for rows removed by a foreign-key action, so cascaded children
+  are marked and tombstoned too; a test with enforcement on checks both cascades.
 - *Writer queue and transactions.* Enabling is one writer slot (`…Internal` helpers, no nested
   public call), concurrent writes queue behind it, and a failed stamp rolls the whole
   `writeTransaction` back.

@@ -16,12 +16,13 @@ import {
   buildFieldClockUpdates,
   canonicalJson,
   type FieldClocks,
-  FieldClockShapeError,
   type FieldClockSpec,
+  getOwn,
   jsonDeepEqual,
   type JsonRecord,
   rowHlc,
   setOwn,
+  splitFieldClockKey,
 } from "./field-clocks";
 import { encodeHlc } from "./hlc";
 import { getTableRegistration, SETTING_ENTITY_TYPE, settingKeys, settingRule } from "./registry";
@@ -144,9 +145,49 @@ const parseSnapshot = (json: string | null | undefined): JsonRecord | null => {
 };
 
 /**
- * `buildFieldClockUpdates` that survives user data it cannot merge per key: a map column whose JSON
- * has the wrong shape is demoted to one atomic scalar instead of throwing, because a throw here
- * would roll back the user's own save.
+ * True when a map column's decoded JSON can be merged per key: absent, a plain object, or an array
+ * of objects with unique string ids. Mirrors what `buildFieldClockUpdates` accepts, so it never
+ * throws `FieldClockShapeError`.
+ */
+const isMergeableMap = (value: unknown): boolean => {
+  if (value === null || value === undefined) return true;
+  if (Array.isArray(value)) {
+    const ids = new Set<string>();
+    for (const item of value) {
+      if (!isPlainRecord(item) || typeof item.id !== "string" || ids.has(item.id)) return false;
+      ids.add(item.id);
+    }
+    return true;
+  }
+  return isPlainRecord(value);
+};
+
+const withoutKeys = (clocks: FieldClocks, drop: (key: string) => boolean): FieldClocks => {
+  const result: FieldClocks = {};
+  for (const key of Object.keys(clocks)) {
+    const value = clocks[key];
+    if (!drop(key) && value !== undefined) setOwn(result, key, value);
+  }
+  return result;
+};
+
+/**
+ * `buildFieldClockUpdates` that survives user data it cannot merge per key, because a throw here
+ * would roll back the user's own save, and keeps the clock map consistent with the stored shape of
+ * every map column. A field is either atomic (one bare clock `field`) or per key (`field.<key>`
+ * clocks), never both:
+ *
+ * - next value unmergeable: the field is demoted to one atomic scalar for this stamp. When that
+ *   scalar is stamped, the field's per-key clocks are dropped.
+ * - next value mergeable but the stored previous value was not (the snapshot holds a broken
+ *   shape): the previous map is treated as empty so every current key is an add. If that yields no
+ *   per-key stamp (the new value is empty) the field is stamped atomically instead, so the repair
+ *   is still a change. Whenever per-key clocks of a field are stamped, its bare clock is dropped.
+ * - `stale` (clocks of a previous life of a re-created row): every per-key or per-element clock of
+ *   a map / OR-set field that the new row no longer holds is stamped at `hlc`, which is a removal
+ *   dated after the delete, instead of keeping the older clock of the key's last edit.
+ *
+ * Returns `clocks` itself (same reference) when nothing needs stamping.
  */
 const computeClocks = (
   previous: JsonRecord | null,
@@ -154,24 +195,69 @@ const computeClocks = (
   hlc: string,
   spec: FieldClockSpec,
   clocks: FieldClocks,
+  stale: FieldClocks = {},
 ): FieldClocks => {
-  let current = spec;
-  for (let attempt = 0; attempt <= (spec.maps?.length ?? 0); attempt += 1) {
-    try {
-      return buildFieldClockUpdates(previous, next, hlc, { ...current, clocks });
-    } catch (error) {
-      if (error instanceof FieldClockShapeError && current.maps?.includes(error.field)) {
-        current = {
-          scalars: [...(current.scalars ?? []), error.field],
-          maps: current.maps.filter((field) => field !== error.field),
-          sets: current.sets,
-        };
-        continue;
-      }
-      throw error;
+  const scalars = [...(spec.scalars ?? [])];
+  const maps: string[] = [];
+  const demoted: string[] = [];
+  const repaired: string[] = [];
+  let effectivePrevious = previous;
+  for (const field of spec.maps ?? []) {
+    if (!isMergeableMap(next[field])) {
+      demoted.push(field);
+      scalars.push(field);
+      continue;
+    }
+    maps.push(field);
+    if (previous !== null && !isMergeableMap(previous[field])) {
+      repaired.push(field);
+      effectivePrevious = { ...effectivePrevious, [field]: null };
     }
   }
-  throw new Error("unreachable: map demotion exhausted");
+
+  let result = buildFieldClockUpdates(effectivePrevious, next, hlc, {
+    scalars,
+    maps,
+    sets: spec.sets,
+    clocks,
+  });
+
+  const staleKeys: string[] = [];
+  const perKeyFields = new Set([...maps, ...(spec.sets ?? [])]);
+  for (const key of Object.keys(stale)) {
+    const { field, key: nested } = splitFieldClockKey(key);
+    if (nested !== null && perKeyFields.has(field) && getOwn(result, key) === undefined) {
+      staleKeys.push(key);
+    }
+  }
+  if (staleKeys.length > 0) {
+    result = { ...result };
+    for (const key of staleKeys) setOwn(result, key, hlc);
+  }
+
+  const isStamped = (key: string): boolean =>
+    getOwn(result, key) === hlc && getOwn(clocks, key) !== hlc;
+  const perKeyStamped = (field: string): boolean =>
+    Object.keys(result).some((key) => key.startsWith(`${field}.`) && isStamped(key));
+
+  // A repaired field whose new value yields no per-key stamp (the broken value became an empty
+  // map) still changed: stamp it atomically so the change is captured instead of lost.
+  for (const field of repaired) {
+    if (!perKeyStamped(field)) {
+      result = { ...result };
+      setOwn(result, field, hlc);
+    }
+  }
+
+  if (result === clocks) return clocks;
+  const prefixes = demoted.filter(isStamped).map((field) => `${field}.`);
+  // Atomic or per key, never both: once per-key clocks of a field are stamped, its bare clock goes.
+  const bare = maps.filter((field) => getOwn(result, field) !== undefined && perKeyStamped(field));
+  if (prefixes.length === 0 && bare.length === 0) return result;
+  return withoutKeys(
+    result,
+    (key) => prefixes.some((prefix) => key.startsWith(prefix)) || bare.includes(key),
+  );
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -338,7 +424,12 @@ const stampTableMarks = async (
 
       if (codec.kind === "field") {
         const previous = liveMeta ? parseSnapshot(snapshot?.snapshot_json) : null;
-        const existing = meta ? parseClocks(meta.field_clocks_json) : {};
+        const known = meta ? parseClocks(meta.field_clocks_json) : {};
+        // A creation (new row, or a row that exists again after its tombstone) starts from clean
+        // clocks: carrying the old map over would leave an omitted key dated at its last edit,
+        // which an older peer add could beat. The old clocks only feed removal stamps.
+        const existing = previous === null ? {} : known;
+        const stale = previous === null ? known : {};
         if (previous !== null) {
           if (jsonDeepEqual(previous, record)) continue;
           // Would a clock move at all? (A set that was only reordered would not.)
@@ -347,7 +438,7 @@ const stampTableMarks = async (
           }
         }
         const hlc = await issuer.next();
-        const clocks = computeClocks(previous, record, hlc, codec.spec, existing);
+        const clocks = computeClocks(previous, record, hlc, codec.spec, existing, stale);
         outcome.metaWrites.push({
           entityId: id,
           fieldClocksJson: canonicalJson(clocks),
