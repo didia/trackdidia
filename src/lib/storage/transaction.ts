@@ -17,11 +17,19 @@ export const transactionDb = (tx: TxContext): Database => {
   return tx.db;
 };
 
-/** Caller owns connection serialization; this owns commit/rollback and context lifetime. */
+/**
+ * Caller owns connection serialization; this owns commit/rollback and context lifetime.
+ *
+ * `beforeCommit` (optional) runs inside the transaction after `work` succeeded and right before
+ * `COMMIT`, with the same connection. If it throws, the transaction rolls back, so anything it
+ * wrote (multi-device sync capture stamps its clocks here) commits or disappears together with the
+ * work. Migrations and every caller that omits it behave exactly as before.
+ */
 export const runSqliteTransaction = async <T>(
   db: Database,
   work: (tx: TxContext) => Promise<T>,
   onRollbackError?: (error: unknown) => void,
+  beforeCommit?: (db: Database) => Promise<void>,
 ): Promise<T> => {
   if (activeConnections.has(db)) throw new Error("Nested SQLite transaction is not allowed");
   activeConnections.add(db);
@@ -38,6 +46,7 @@ export const runSqliteTransaction = async <T>(
     active = true;
     try {
       const value = await work(tx);
+      if (beforeCommit) await beforeCommit(db);
       await db.execute("COMMIT");
       return value;
     } catch (error) {

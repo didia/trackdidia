@@ -120,8 +120,9 @@ It groups:
 - Pomodoro sessions and segments;
 - AI messages, proposals, and memories;
 - standing weekly objectives and per-week manual results;
-- the inert multi-device sync foundation: `getSyncStatus()` and `ensureSyncIdentity()`
-  (see [Multi-device sync sidecar tables](#multi-device-sync-sidecar-tables)).
+- the inert multi-device sync foundation: `getSyncStatus()`, `ensureSyncIdentity()` and
+  `enableSyncCapture()` (see [Multi-device sync sidecar tables](#multi-device-sync-sidecar-tables)
+  and [Multi-device sync change capture](#multi-device-sync-change-capture)).
 
 Repository helpers include `listDailyEntriesOnOrBefore(endDate, limit)` for bounded
 history ending at a calendar date, `listDailyEntriesInRange(startDate, endDate)`
@@ -132,7 +133,8 @@ the [atomic AI proposal acceptance operation](#atomic-ai-proposal-acceptance)
 
 The SQLite and memory implementations must remain behaviorally aligned, except for
 native-only storage information, backup creation, and multi-device sync (memory reports
-`{ supported: false }` from `getSyncStatus` and rejects `ensureSyncIdentity`).
+`{ supported: false }` from `getSyncStatus` and rejects `ensureSyncIdentity` and
+`enableSyncCapture`).
 
 ## Atomic AI proposal acceptance
 
@@ -225,6 +227,7 @@ its existing idempotent `dimancheNotesRelocatedAt` marker.
 | 40 | `create_calendar_sync` | Creates `calendar_sync_settings` (singleton `id = 'global'`) and `calendar_sync_links` (composite primary key `(task_id, occurrence_key)`, nullable `event_id`, unique index on `(calendar_id, event_id)`, index on `state`) for the one-way TrackDidia -> Google Calendar sync model, planner, and reconciler |
 | 41 | `add_finance_account_update_cadence` | Adds nullable `update_cadence_days` to `finance_accounts` via a guarded, idempotent `ALTER TABLE` (null = default cadence: weekly for on-budget accounts, monthly for the rest) |
 | 42 | `add_multi_device_sync_sidecars` | Creates the seven inert `sync_*` sidecar tables and an index on `sync_entity_meta.row_hlc` with `CREATE ... IF NOT EXISTS` only: no `ALTER TABLE`, no data change, no seed rows. See [Multi-device sync sidecar tables](#multi-device-sync-sidecar-tables) |
+| 43 | `add_sync_capture_state` | Creates the three device-local change-capture tables `sync_dirty`, `sync_entity_snapshot` and `sync_capture_state` with `CREATE TABLE IF NOT EXISTS` only: no `ALTER TABLE`, no trigger, no data change, no seed rows. See [Multi-device sync change capture](#multi-device-sync-change-capture) |
 
 ## Table reference
 
@@ -301,8 +304,11 @@ for field ownership and form behavior.
 | Planned queue | `planned_order` (meaningful only for an active, Planned, project-attached row; see [GTD workspace](gtd.md#planned-bucket-project-only-queue)) |
 | Provenance | `source`, unique `source_external_id`, nullable `source_url` |
 
-There are no declared SQL foreign keys. Referential consistency is enforced by
-repository/domain behavior.
+`gtd_tasks` declares no SQL foreign keys; its references are enforced by repository/domain
+behavior. Foreign keys that other tables do declare (for example
+`weekly_objective_results.objective_id` and `ai_proposals.message_id`, both `ON DELETE CASCADE`)
+are enforced: the native host opens SQLite through sqlx, whose connection options turn
+`PRAGMA foreign_keys` on by default.
 
 ### `gtd_task_events`
 
@@ -404,8 +410,10 @@ edit on an event that already exists becomes a planner update (not a create).
 Migration 42 (`add_multi_device_sync_sidecars`) adds the storage foundation for the planned
 multi-laptop sync (design: [`specs/todo/multi-laptop-sync.md`](../specs/todo/multi-laptop-sync.md)).
 **Multi-device sync is not shipped.** The tables are created empty on every database and
-nothing reads or writes them except the two repository methods below; no existing table was
-altered, no setting enables the feature, and users who never use sync see no behavior change.
+nothing reads or writes them except the repository methods below and, once a database has
+change capture enabled (see [Multi-device sync change capture](#multi-device-sync-change-capture)),
+the capture stamper; no existing table was altered, no setting enables the feature, and users
+who never use sync see no behavior change.
 
 | Table | Purpose |
 |---|---|
@@ -433,8 +441,9 @@ is touched, and throws a typed `SyncClockError` when no identity row exists.
 Repository surface (both implementations):
 
 - `getSyncStatus()` returns `{ supported: false }` from `MemoryRepository`. On SQLite it
-  returns the identity (or `null`), `changeCounter`, `lastPublishCounter`, `pendingChanges`,
-  and the peers, parsing the peer JSON columns defensively.
+  returns the identity (or `null`), `changeCounter`, `lastPublishCounter`, `pendingChanges`
+  (`changeCounter - lastPublishCounter`, never negative), `captureEnabled`, and the peers,
+  parsing the peer JSON columns defensively.
 - `ensureSyncIdentity({ deviceId, deviceName })` creates the `sync_identity` row inside the
   normal writer transaction. The device-id file is the authority: if the row exists with a
   different `device_id` (a backup restored from another laptop, see [Recovery](#recovery)),
@@ -445,6 +454,128 @@ Repository surface (both implementations):
 
 Sidecar rows are included in backups like any other table; a restored `sync_identity` is
 exactly what the repair rule above exists for.
+
+### Multi-device sync change capture
+
+Migration 43 (`add_sync_capture_state`) adds three device-local tables and
+`AppRepository.enableSyncCapture()` turns capture on. **Sync and capture are not user-enabled
+yet**: nothing in the app calls `enableSyncCapture`, so on every real database the tables stay
+empty, no trigger exists, and no write path runs any sync query.
+
+| Table | Purpose |
+|---|---|
+| `sync_dirty` | `(entity_type, entity_id)` marks of what a statement touched, with `op` `upsert` or `delete`. Written by the capture triggers. Drained inside the same transaction for `writeTransaction` writes, and in a follow-up transaction right after the operation for `writeExclusive` writes; after a failed stamp the marks stay durable until the next write or backfill scan |
+| `sync_entity_snapshot` | The last stamped content of an entity: the decoded record for field-clock tables (`snapshot_json`), a content hash for the other classes (`content_hash`), the value for a setting key. Rebuildable; never published |
+| `sync_capture_state` | Single row (`id = 1`), present only while capture is enabled: `installed_hash` of the trigger set and `installed_at` |
+
+All three are classified device-local in `src/lib/sync/registry.ts` and never leave the machine.
+
+**Triggers record what, TypeScript computes the clocks.**
+
+- `installSyncCapture` (`src/lib/sync/capture-install.ts`) generates `AFTER INSERT / UPDATE /
+  DELETE` triggers named `trg_sync_cap_<table>_ai|au|ad` for every registry table of the
+  `gtd`, `personal` and `finance` domains except grow-only-union tables (`gtd_task_events`,
+  `ai_messages`: published as full sets by id / dedupe key, no triggers, no meta) and sidecars,
+  plus insert/update triggers on `app_settings` for per-key setting capture. The SQL is generated
+  from the registry and the live `pragma_table_info`, never written per table, and installation
+  fails loudly if the registry primary key differs from the real one.
+- Every trigger has `WHEN (SELECT applying FROM sync_identity WHERE id = 1) = 0`, so without an
+  identity row nothing is captured and a merge-apply transaction that sets `applying = 1` is not
+  captured back (no ping-pong). The body is `INSERT OR REPLACE INTO sync_dirty`, so the last
+  operation on an entity wins: a delete after an upsert is `delete`, a re-insert after a delete is
+  `upsert`; an update that rewrites the key marks the old key deleted.
+- The entity id is the primary key as text for a single-column key and a JSON array of the key
+  values (registry order, integers as numbers) for a composite one, built by `entityIdOf`
+  (`src/lib/sync/entity-id.ts`) and by the triggers in SQL; a test checks the two agree on
+  awkward strings.
+- The installed set is identified by a hash of the generated SQL plus the live column lists and
+  keys. `ensureSyncCapture` (one query when capture was never enabled) reinstalls when that hash
+  differs or when the installed trigger names are not the expected set, which also covers a
+  migration that rebuilt a table and silently dropped its triggers. The helper `disableSyncCapture` (no repository method yet)
+  drops the triggers, the marks and the state row and keeps clocks and snapshots. The repository runs
+  `ensureSyncCapture` at `initialize()` only when `sync_capture_state` already has a row.
+
+**Stamping** (`stampDirtyEntities`, `src/lib/sync/capture-stamp.ts`) reads `sync_dirty` and decides
+what really changed. The live row, not the mark's `op`, is the truth, so statement order inside a
+transaction does not matter. One clock per stamped entity comes from one read and one write of
+`sync_identity` (`createHlcBatch`); `sync_identity.change_counter` grows by the number of stamped
+entities.
+
+- Field-clock tables: the row is decoded by column name, compared with the snapshot and
+  `buildFieldClockUpdates` stamps only the changed scalars, JSON-map keys (`metrics_json.<key>`,
+  `milestones_json.<id>`) and OR-set elements (`context_ids_json.<id>`). Clock keys use database
+  column names. `updated_at` is stamped as an ordinary scalar (a save that only bumps it is a
+  change; the merge slice must not report an `updated_at`-only difference as a conflict). Other
+  `*_json` columns are atomic fields compared by parsed value. A map column whose JSON cannot be
+  merged per key is stamped as one atomic field rather than failing the user's save; a field is
+  either atomic (one bare clock) or per key (`field.<key>` clocks), never both, so demoting drops
+  the per-key clocks, and a later valid shape stamps every current key as an add and drops the
+  bare clock (a broken value that becomes an empty map is stamped atomically, so it still counts as
+  a change). An update that
+  sets identical values, or only reorders an id list, writes nothing and moves no counter.
+- Row-clock, monotonic-status, child-set and Pomodoro tables: a content hash (128-bit,
+  `src/lib/finance/hash.ts`; `src/lib/hash.ts` is only 32-bit) is compared; when it differs the
+  row clock is set to a fresh clock. `finance_transaction_splits` are stamped as row-clock entities
+  of their own: they are not yet reflected in the parent transaction's categorization-unit clock,
+  which belongs to the merge slice. Rows excluded from publishing by a registry `rowFilter`
+  (non-terminal Pomodoro sessions, derived balance snapshots) are still captured; publish filtering
+  is a later slice.
+- Deletes write a tombstone (`deleted_at` = `row_hlc` = a fresh clock, field clocks kept) and drop
+  the snapshot. An entity that never had a meta row was never published and gets nothing. A row
+  that exists again after a tombstone restarts as a creation with clean clocks and clears
+  `deleted_at`; every map key or OR-set element of the previous life that the new row no longer
+  holds is stamped as a removal at the recreation clock, so an older peer add of it cannot win.
+- `app_settings`: one `setting` entity per synced key; device-scope keys and secrets never get a
+  meta row or a snapshot. A key with no snapshot is compared with its default value, so keys left
+  at their defaults are never stamped.
+- Generators and reads that find nothing to do write nothing, so they leave `sync_dirty`, meta,
+  snapshots and the counter untouched.
+
+**Where stamping runs.** `runSqliteTransaction` takes an optional `beforeCommit` hook that runs
+after the work and right before `COMMIT`; if it throws, everything rolls back, marks, clocks and
+the user's write together. `TauriSqliteRepository.writeTransaction` passes it only while capture
+is enabled (a boolean loaded at `initialize()`, set by `enableSyncCapture`). Not every write goes
+through `writeTransaction`: the finance store runs its own `BEGIN IMMEDIATE` / `COMMIT` and many
+other writers are single autocommit statements. The triggers fire for those too, so `writeExclusive`
+stamps the leftover marks in a transaction of its own right after the operation, still inside the
+writer slot. A failure there is logged and leaves the marks durable for the next write or scan.
+With capture disabled both paths issue no sync query at all.
+
+**Backfill / self-healing scan** (`backfillSyncCapture`) marks and stamps every synced row with no
+live meta row, tombstones every live meta row whose row is gone, and re-checks the settings blob;
+with `verify` it re-checks every row against its snapshot or hash (needed when capture was off
+for a while). It is idempotent: a second run stamps nothing. `enableSyncCapture()` requires an
+existing sync identity, installs the triggers and runs the verifying backfill in one
+`writeTransaction` and returns `{ installed, backfilled }`. Known limit for the startup slice: a
+future migration that rewrites synced rows or rebuilds a synced table should be followed by a
+verifying backfill, because the rewritten rows have no marks (a rebuild also drops the triggers
+until `ensureSyncCapture` runs).
+
+**Decision record (trigger spike).** Triggers that record marks plus pure TypeScript stamping held
+up:
+
+- *Finance import bulk path.* A 1000-row import takes about 290 ms without capture and about
+  390 ms with it (in-memory SQLite in the test), including one extra transaction that stamps the
+  1000 rows in batched statements. The finance store does not use `runSqliteTransaction`, so the
+  "stamp right before COMMIT" premise only holds for `writeTransaction`; the post-operation flush in
+  `writeExclusive` covers the rest without touching the finance store.
+- *Cascades and hard deletes.* `DELETE` triggers fire for every explicit delete (task collapse,
+  annual goal and weekly objective delete with its results, import undo, rules, merchant memory),
+  and tombstones are written regardless of the code path. Production enforces foreign keys
+  (sqlx turns them on by default), and two migrations declare `ON DELETE CASCADE`
+  (`weekly_objective_results` -> `weekly_objectives`, `ai_proposals` -> `ai_messages`). SQLite fires
+  the child table's DELETE triggers for rows removed by a foreign-key action, so cascaded children
+  are marked and tombstoned too; a test with enforcement on checks both cascades.
+- *Writer queue and transactions.* Enabling is one writer slot (`…Internal` helpers, no nested
+  public call), concurrent writes queue behind it, and a failed stamp rolls the whole
+  `writeTransaction` back.
+- *Upserts.* `INSERT ... ON CONFLICT DO UPDATE` fires the INSERT trigger for a new row and the
+  UPDATE trigger for an existing one; `INSERT OR IGNORE` and `ON CONFLICT DO NOTHING` fire
+  nothing. The repository uses no `REPLACE`. With `recursive_triggers` off, `INSERT OR REPLACE`
+  fires the INSERT trigger but not the DELETE trigger of a row replaced through another unique
+  key; the backfill scan tombstones that victim.
+- *Performance.* See the finance import numbers above; stamping 1000 inserted rows in a
+  transaction costs about 100 ms, and a write with nothing dirty costs one `SELECT ... LIMIT 1`.
 
 ### Legacy email triage tables (unused)
 

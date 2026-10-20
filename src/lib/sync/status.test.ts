@@ -110,8 +110,10 @@ describe("buildSupportedSyncStatus", () => {
       changeCounter: 0,
       lastPublishCounter: 0,
       pendingChanges: 0,
+      captureEnabled: false,
       peers: [],
     });
+    expect(buildSupportedSyncStatus(null, [], true)).toMatchObject({ captureEnabled: true });
   });
 
   it("derives pending changes and tolerates garbage counters", () => {

@@ -4,7 +4,13 @@ import { describe, expect, it } from "vitest";
 import { createNodeSqliteDatabase } from "../../test/mocks/node-sqlite-database";
 import { runMigrations } from "../storage/migrations";
 import type { Database } from "../storage/sqlite-db";
-import { HLC_REMOTE_MAX_AHEAD_MS, issueHlc, receiveRemoteHlc, SyncClockError } from "./clock-store";
+import {
+  createHlcBatch,
+  HLC_REMOTE_MAX_AHEAD_MS,
+  issueHlc,
+  receiveRemoteHlc,
+  SyncClockError,
+} from "./clock-store";
 import { compareHlc, encodeHlc, HLC_MAX_COUNTER, parseHlc } from "./hlc";
 
 const DEVICE = "dev:0b9c7c1e-6a3f-4b8e-9d2a-1f2e3d4c5b6a";
@@ -243,5 +249,79 @@ describe("receiveRemoteHlc", () => {
       expect(compareHlc(previous, next)).toBe(-1);
       previous = next;
     }
+  });
+});
+
+describe("createHlcBatch", () => {
+  it("issues strictly increasing clocks from one read and one write", async () => {
+    const db = await createDb();
+    const selects: string[] = [];
+    const executes: string[] = [];
+    const select = db.select.bind(db);
+    const execute = db.execute.bind(db);
+    db.select = ((query: string, values?: unknown[]) => {
+      selects.push(query);
+      return select(query, values);
+    }) as typeof db.select;
+    db.execute = ((query: string, values?: unknown[]) => {
+      executes.push(query);
+      return execute(query, values);
+    }) as typeof db.execute;
+
+    const batch = createHlcBatch(db, NOW);
+    const issued: string[] = [];
+    for (let i = 0; i < 50; i += 1) issued.push(await batch.next());
+    expect(executes.filter((query) => query.startsWith("UPDATE sync_identity"))).toHaveLength(0);
+    expect(await batch.flush()).toBe(50);
+    const identityReads = selects.filter((query) => query.includes("sync_identity")).length;
+
+    for (let i = 1; i < issued.length; i += 1) {
+      expect(compareHlc(issued[i - 1] as string, issued[i] as string)).toBe(-1);
+    }
+    expect(parseHlc(issued[0] as string)).toEqual({
+      physicalMs: NOW,
+      counter: 0,
+      deviceId: DEVICE,
+    });
+    expect(await readState(db)).toEqual({ physical_ms: NOW, counter: 49 });
+    expect(identityReads).toBe(1);
+    expect(executes.filter((query) => query.startsWith("UPDATE sync_identity"))).toHaveLength(1);
+  });
+
+  it("continues past clocks issued before it, and later single issues continue past the batch", async () => {
+    const db = await createDb();
+    const first = await issueHlc(db, NOW);
+    const batch = createHlcBatch(db, NOW);
+    const second = await batch.next();
+    await batch.flush();
+    const third = await issueHlc(db, NOW);
+    expect(compareHlc(first, second)).toBe(-1);
+    expect(compareHlc(second, third)).toBe(-1);
+  });
+
+  it("touches nothing when no clock was issued", async () => {
+    const db = await createDb();
+    const batch = createHlcBatch(db, NOW);
+    expect(await batch.flush()).toBe(0);
+    expect(await readState(db)).toEqual({ physical_ms: 0, counter: 0 });
+    // Not even a read happens before the first next(), so a missing identity is not an error here.
+    const noIdentity = await createDb(false);
+    expect(await createHlcBatch(noIdentity, NOW).flush()).toBe(0);
+  });
+
+  it("throws the typed identity error on first use", async () => {
+    const db = await createDb(false);
+    expect(await clockCode(createHlcBatch(db, NOW).next())).toBe("identity_missing");
+  });
+
+  it("can flush in several rounds", async () => {
+    const db = await createDb();
+    const batch = createHlcBatch(db, NOW);
+    await batch.next();
+    expect(await batch.flush()).toBe(1);
+    await batch.next();
+    await batch.next();
+    expect(await batch.flush()).toBe(2);
+    expect(await readState(db)).toEqual({ physical_ms: NOW, counter: 2 });
   });
 });

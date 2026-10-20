@@ -654,6 +654,36 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
     notes: "What this machine last read from each peer. Meaningless on any other machine.",
   },
   {
+    table: "sync_dirty",
+    domain: "device",
+    mergeClass: "device-local",
+    primaryKey: ["entity_type", "entity_id"],
+    naturalKeys: noKeys,
+    references: noRefs,
+    notes:
+      "Change-capture marks written by this machine's capture triggers. The stamper drains them inside the same transaction when the write went through writeTransaction, or in a follow-up transaction right after a writeExclusive write; after a failed stamp they stay durable until the next write or backfill scan. Meaningless on any other machine.",
+  },
+  {
+    table: "sync_entity_snapshot",
+    domain: "device",
+    mergeClass: "device-local",
+    primaryKey: ["entity_type", "entity_id"],
+    naturalKeys: noKeys,
+    references: noRefs,
+    notes:
+      "The last stamped content of an entity (decoded record for field-clock tables, content hash for the rest, the value for a setting key). Rebuildable; it holds row contents, so it must never be published.",
+  },
+  {
+    table: "sync_capture_state",
+    domain: "device",
+    mergeClass: "device-local",
+    primaryKey: ["id"],
+    naturalKeys: noKeys,
+    references: noRefs,
+    notes:
+      "Single row, present only while change capture is enabled: the hash of the installed capture-trigger set.",
+  },
+  {
     table: "schema_migrations",
     domain: "device",
     mergeClass: "device-local",

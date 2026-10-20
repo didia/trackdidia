@@ -566,6 +566,15 @@ export interface AppRepository {
    * preview.
    */
   ensureSyncIdentity(input: { deviceId: string; deviceName: string }): Promise<SyncIdentityResult>;
+  /**
+   * Turns on change capture for this database: installs the capture triggers and stamps every
+   * existing synced row that has no clock yet (and re-checks the ones that do, so edits made while
+   * capture was off are not lost), all in one write transaction. Idempotent. Requires an existing
+   * sync identity (`ensureSyncIdentity`) and rejects otherwise. Returns whether the trigger set was
+   * (re)installed by this call and how many entities were stamped by the backfill. Memory rejects:
+   * sync is unavailable in browser preview. Nothing in the app calls this yet.
+   */
+  enableSyncCapture(): Promise<{ installed: boolean; backfilled: number }>;
 }
 
 export type {
