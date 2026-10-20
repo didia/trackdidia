@@ -33,6 +33,7 @@ const base = (): SyncChangeSet =>
     entities: [validEntity()],
     unionRows: {},
     settings: [],
+    recurrence: { occurrences: [], clears: [] },
   }) as SyncChangeSet;
 
 /** Builds a change set from the valid base with `mutate` applied to a deep copy. */
@@ -111,7 +112,7 @@ describe("validateChangeSet accepts", () => {
 
   it("an own __proto__ key from JSON without polluting anything", () => {
     const parsed = JSON.parse(
-      `{"formatVersion":1,"deviceId":"${DEVICE}","domain":"gtd","schemaVersion":43,"hlcHigh":"${hlc(2000)}","entities":[{"table":"gtd_contexts","entityId":"c","row":{"id":"c","__proto__":"x"},"fieldClocks":{"__proto__":"${hlc(1000)}"},"rowHlc":"${hlc(1000)}","deletedAt":null}],"unionRows":{},"settings":[]}`,
+      `{"formatVersion":1,"deviceId":"${DEVICE}","domain":"gtd","schemaVersion":43,"hlcHigh":"${hlc(2000)}","entities":[{"table":"gtd_contexts","entityId":"c","row":{"id":"c","__proto__":"x"},"fieldClocks":{"__proto__":"${hlc(1000)}"},"rowHlc":"${hlc(1000)}","deletedAt":null}],"unionRows":{},"settings":[],"recurrence":{"occurrences":[],"clears":[]}}`,
     );
     const result = validateChangeSet(parsed);
     expect(Object.hasOwn(result.entities[0]?.fieldClocks ?? {}, "__proto__")).toBe(true);
@@ -401,6 +402,111 @@ describe("validateChangeSet rejects", () => {
       d.settings = [{ key: "language", value: "en", rowHlc: hlc(1000) }];
     });
     expect(codeOf(withLanguage)).toBe("no error");
+  });
+});
+
+describe("the recurrence sidecars", () => {
+  const occurrence = (overrides: Record<string, unknown> = {}) => ({
+    template_id: "tpl-1",
+    due_date: "2026-10-15",
+    outcome: "completed",
+    outcome_hlc: hlc(1500),
+    device_id: DEVICE,
+    ...overrides,
+  });
+  const withRecurrence = (recurrence: unknown, domain = "gtd") =>
+    variant((d) => {
+      d.domain = domain;
+      if (domain !== "gtd") d.entities = [];
+      d.recurrence = recurrence;
+    });
+
+  it("accepts occurrences and clears in a gtd change set and counts their clocks in hlcHigh", () => {
+    const input = withRecurrence({
+      occurrences: [occurrence(), occurrence({ due_date: "2026-10-16", outcome: "active" })],
+      clears: [{ template_id: "tpl-1", cleared_through_date: "2026-10-14" }],
+    });
+    const result = validateChangeSet(input);
+    expect(result.recurrence.occurrences).toHaveLength(2);
+    expect(clocksOfChangeSet(result)).toContain(hlc(1500));
+    expect(
+      codeOf(variant((d) => (d.recurrence.occurrences = [occurrence({ outcome_hlc: hlc(2500) })]))),
+    ).toBe("hlc_high_too_low");
+  });
+
+  it("requires the key, even when empty", () => {
+    expect(codeOf(variant((d) => delete d.recurrence))).toBe("invalid_shape");
+    expect(codeOf(variant((d) => (d.recurrence = { occurrences: [] })))).toBe("invalid_shape");
+    expect(codeOf(variant((d) => (d.recurrence = { occurrences: [], clears: [], extra: 1 })))).toBe(
+      "invalid_shape",
+    );
+  });
+
+  it.each([
+    [
+      "an unknown outcome",
+      { occurrences: [occurrence({ outcome: "done" })], clears: [] },
+      "invalid_row",
+    ],
+    [
+      "an impossible date",
+      { occurrences: [occurrence({ due_date: "2026-02-30" })], clears: [] },
+      "invalid_row",
+    ],
+    [
+      "a non-canonical clock",
+      { occurrences: [occurrence({ outcome_hlc: "later" })], clears: [] },
+      "invalid_clock",
+    ],
+    [
+      "a malformed device id",
+      { occurrences: [occurrence({ device_id: "laptop" })], clears: [] },
+      "invalid_row",
+    ],
+    [
+      "an empty template id",
+      { occurrences: [occurrence({ template_id: "" })], clears: [] },
+      "invalid_row",
+    ],
+    ["an extra column", { occurrences: [occurrence({ note: "x" })], clears: [] }, "invalid_shape"],
+    [
+      "a duplicate occurrence",
+      { occurrences: [occurrence(), occurrence({ outcome: "cancelled" })], clears: [] },
+      "duplicate_entity",
+    ],
+    [
+      "a bad clear date",
+      { occurrences: [], clears: [{ template_id: "tpl-1", cleared_through_date: "yesterday" }] },
+      "invalid_row",
+    ],
+    [
+      "a duplicate clear",
+      {
+        occurrences: [],
+        clears: [
+          { template_id: "tpl-1", cleared_through_date: "2026-10-14" },
+          { template_id: "tpl-1", cleared_through_date: "2026-10-15" },
+        ],
+      },
+      "duplicate_entity",
+    ],
+  ])("rejects %s", (_name, recurrence, code) => {
+    expect(codeOf(withRecurrence(recurrence))).toBe(code);
+  });
+
+  it("belongs to the gtd domain only", () => {
+    const rows = { occurrences: [occurrence()], clears: [] };
+    expect(codeOf(withRecurrence(rows, "personal"))).toBe("table_not_in_domain");
+    expect(codeOf(withRecurrence(rows, "finance"))).toBe("table_not_in_domain");
+    expect(
+      codeOf(
+        withRecurrence(
+          { occurrences: [], clears: [{ template_id: "t", cleared_through_date: "2026-10-14" }] },
+          "personal",
+        ),
+      ),
+    ).toBe("table_not_in_domain");
+    expect(codeOf(withRecurrence({ occurrences: [], clears: [] }, "personal"))).toBe("no error");
   });
 });
 

@@ -3,9 +3,15 @@ import { SyncApplyError, SyncChangeSetError, type SyncChangeSetErrorCode } from 
 import { getOwn } from "./field-clocks";
 import { compareHlc, isValidHlc } from "./hlc";
 import {
+  isCalendarDateKey,
+  isOccurrenceOutcome,
+  type OccurrenceOutcome,
+} from "./recurrence-occurrences";
+import {
   getTableRegistration,
   isRegisteredTable,
   isSettingPublishable,
+  isSidecarPublishable,
   SYNC_DOMAINS,
   type SyncDomain,
 } from "./registry";
@@ -21,6 +27,12 @@ import { isValidDeviceId } from "./status";
  * columns stay text), exactly what the capture stamper decodes. A reader ignores columns it does not
  * have and keeps its own value for columns the row lacks, which is what lets an older and a newer
  * schema exchange state (spec: "Schema and version skew").
+ *
+ * The `gtd` domain also carries the recurrence sidecars (`recurrence`): the outcome of each
+ * occurrence of a recurring task and the clear watermark of its missed backlog. They are not
+ * entities (no field clocks, no tombstones): they are joins, merged by `recurrence-occurrences.ts`.
+ * Rows are keyed by column name like every other row. The key is always present; outside the `gtd`
+ * domain both lists must be empty.
  *
  * `validateChangeSet` is the gate every bundle passes before anything touches a database. It is
  * strict about shape and clock canonicality, and it enforces the privacy boundary on the receiving
@@ -60,6 +72,31 @@ export interface SyncSettingEntry {
   rowHlc: string;
 }
 
+/** One `sync_recurrence_occurrences` row: what happened to the occurrence due on `due_date`. */
+export interface SyncRecurrenceOccurrence {
+  template_id: string;
+  /** Local calendar date `YYYY-MM-DD`. */
+  due_date: string;
+  outcome: OccurrenceOutcome;
+  /** Clock of the stamp that recorded the outcome. Counted by `hlcHigh`. */
+  outcome_hlc: string;
+  /** `dev:<uuid>` of the device that produced the outcome. */
+  device_id: string;
+}
+
+/** One `sync_recurrence_clears` row: the latest due date whose missed backlog was cleared. */
+export interface SyncRecurrenceClear {
+  template_id: string;
+  cleared_through_date: string;
+}
+
+export interface SyncRecurrence {
+  occurrences: SyncRecurrenceOccurrence[];
+  clears: SyncRecurrenceClear[];
+}
+
+export const emptyRecurrence = (): SyncRecurrence => ({ occurrences: [], clears: [] });
+
 export interface SyncChangeSet {
   formatVersion: typeof SYNC_FORMAT_VERSION;
   deviceId: string;
@@ -72,6 +109,8 @@ export interface SyncChangeSet {
   /** Full row sets of the grow-only-union tables, by table name. */
   unionRows: Record<string, SyncRow[]>;
   settings: SyncSettingEntry[];
+  /** Recurrence sidecars; empty outside the `gtd` domain. */
+  recurrence: SyncRecurrence;
 }
 
 export interface SyncApplyResult {
@@ -346,6 +385,98 @@ const validateSettings = (raw: unknown, domain: SyncDomain): SyncSettingEntry[] 
   });
 };
 
+const expectTemplateId = (value: unknown, path: string): string => {
+  if (typeof value !== "string" || value.length === 0) {
+    return fail("invalid_row", path, "expected a non-empty template id");
+  }
+  if (value.length > MAX_ENTITY_ID_LENGTH) {
+    fail("entity_id_too_long", path, `longer than ${MAX_ENTITY_ID_LENGTH} characters`);
+  }
+  return value;
+};
+
+const expectDateKey = (value: unknown, path: string): string => {
+  if (!isCalendarDateKey(value)) {
+    return fail("invalid_row", path, "expected a YYYY-MM-DD calendar date");
+  }
+  return value;
+};
+
+const validateRecurrence = (raw: unknown, domain: SyncDomain): SyncRecurrence => {
+  const root = expectRecord(raw, "recurrence", ["occurrences", "clears"]);
+  if (!Array.isArray(root.occurrences)) {
+    return fail("invalid_shape", "recurrence.occurrences", "expected an array");
+  }
+  if (!Array.isArray(root.clears)) {
+    return fail("invalid_shape", "recurrence.clears", "expected an array");
+  }
+  const occurrenceRows = root.occurrences as unknown[];
+  const clearRows = root.clears as unknown[];
+  for (const [table, rows] of [
+    ["sync_recurrence_occurrences", occurrenceRows],
+    ["sync_recurrence_clears", clearRows],
+  ] as const) {
+    if (rows.length > 0 && !isSidecarPublishable(table, domain)) {
+      fail(
+        "table_not_in_domain",
+        `recurrence.${table === "sync_recurrence_clears" ? "clears" : "occurrences"}`,
+        `"${table}" belongs to the "gtd" domain, not to a "${domain}" change set`,
+      );
+    }
+  }
+
+  const seenOccurrences = new Set<string>();
+  const occurrences = occurrenceRows.map((item, index) => {
+    const path = `recurrence.occurrences[${index}]`;
+    const entry = expectRecord(item, path, [
+      "template_id",
+      "due_date",
+      "outcome",
+      "outcome_hlc",
+      "device_id",
+    ]);
+    const template_id = expectTemplateId(entry.template_id, `${path}.template_id`);
+    const due_date = expectDateKey(entry.due_date, `${path}.due_date`);
+    if (!isOccurrenceOutcome(entry.outcome)) {
+      fail("invalid_row", `${path}.outcome`, "expected active, completed, cancelled or missed");
+    }
+    if (!isValidDeviceId(entry.device_id)) {
+      fail("invalid_row", `${path}.device_id`, "expected dev:<uuid v4>");
+    }
+    const identity = `${template_id}\u0000${due_date}`;
+    if (seenOccurrences.has(identity)) {
+      fail("duplicate_entity", path, `duplicate occurrence ${template_id} ${due_date}`);
+    }
+    seenOccurrences.add(identity);
+    return {
+      template_id,
+      due_date,
+      outcome: entry.outcome as OccurrenceOutcome,
+      outcome_hlc: expectClock(entry.outcome_hlc, `${path}.outcome_hlc`),
+      device_id: entry.device_id as string,
+    };
+  });
+
+  const seenClears = new Set<string>();
+  const clears = clearRows.map((item, index) => {
+    const path = `recurrence.clears[${index}]`;
+    const entry = expectRecord(item, path, ["template_id", "cleared_through_date"]);
+    const template_id = expectTemplateId(entry.template_id, `${path}.template_id`);
+    if (seenClears.has(template_id)) {
+      fail("duplicate_entity", path, `duplicate clear watermark ${template_id}`);
+    }
+    seenClears.add(template_id);
+    return {
+      template_id,
+      cleared_through_date: expectDateKey(
+        entry.cleared_through_date,
+        `${path}.cleared_through_date`,
+      ),
+    };
+  });
+  return { occurrences, clears };
+};
+
 /** Every clock a change set carries, `hlcHigh` excluded. */
 export const clocksOfChangeSet = (changeSet: SyncChangeSet): string[] => {
   const clocks: string[] = [];
@@ -358,6 +489,9 @@ export const clocksOfChangeSet = (changeSet: SyncChangeSet): string[] => {
   for (const setting of changeSet.settings) {
     clocks.push(setting.rowHlc);
   }
+  for (const occurrence of changeSet.recurrence.occurrences) {
+    clocks.push(occurrence.outcome_hlc);
+  }
   return clocks;
 };
 
@@ -368,7 +502,8 @@ export const clocksOfChangeSet = (changeSet: SyncChangeSet): string[] => {
  * Rejected: a wrong shape or unknown key; a `formatVersion` this build does not know; any clock that
  * is not a canonical HLC; a `hlcHigh` below a carried clock; a table that is unknown, device-local,
  * a by-entity-type sidecar or outside the declared domain; a non-canonical, empty or oversized
- * entity id; duplicate entities, union rows or settings; a row whose key columns disagree with its
+ * entity id; duplicate entities, union rows, settings or recurrence rows; a recurrence row outside
+ * the `gtd` domain, with a bad date, outcome, clock or device id; a row whose key columns disagree with its
  * entity id; a setting that is unknown, device-scoped, secret, or of another domain.
  *
  * Tolerated: extra columns in a row (ignored on apply) and missing columns (the local value is
@@ -384,6 +519,7 @@ export const validateChangeSet = (input: unknown): SyncChangeSet => {
     "entities",
     "unionRows",
     "settings",
+    "recurrence",
   ]);
   if (root.formatVersion !== SYNC_FORMAT_VERSION) {
     fail(
@@ -438,6 +574,7 @@ export const validateChangeSet = (input: unknown): SyncChangeSet => {
     entities,
     unionRows: validateUnionRows(root.unionRows, domain),
     settings: validateSettings(root.settings, domain),
+    recurrence: validateRecurrence(root.recurrence, domain),
   };
 
   for (const clock of clocksOfChangeSet(changeSet)) {

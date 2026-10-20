@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  fieldClockRuleOf,
   isTableSyncSupported,
   strategyForRegistration,
   strategyForTable,
@@ -64,7 +65,7 @@ describe("merge strategies", () => {
   it("derives a supported table's strategy from the registry's merge class", () => {
     for (const domain of SYNC_DOMAINS) {
       for (const table of supportedEntityTables(domain)) {
-        expect(strategyForTable(table)).toEqual({ kind: "field-clock" });
+        expect(strategyForTable(table)).toMatchObject({ kind: "field-clock" });
       }
       for (const table of supportedUnionTables(domain)) {
         expect(strategyForTable(table)).toEqual({ kind: "grow-only-union" });
@@ -72,8 +73,18 @@ describe("merge strategies", () => {
     }
   });
 
-  it("has no per-table override yet", () => {
-    expect(Object.keys(TABLE_STRATEGY_OVERRIDES)).toEqual([]);
+  it("layers the GTD rules on exactly the task and the recurring template", () => {
+    expect(TABLE_STRATEGY_OVERRIDES).toEqual({
+      gtd_tasks: { kind: "field-clock", rule: "gtd-task" },
+      recurring_task_templates: { kind: "field-clock", rule: "recurring-template" },
+    });
+    expect(fieldClockRuleOf("gtd_tasks")).toBe("gtd-task");
+    expect(fieldClockRuleOf("recurring_task_templates")).toBe("recurring-template");
+    expect(fieldClockRuleOf("gtd_projects")).toBeUndefined();
+    expect(fieldClockRuleOf("daily_entries")).toBeUndefined();
+    // They stay entity tables: published and applied through the field-clock path.
+    expect(supportedEntityTables("gtd")).toContain("gtd_tasks");
+    expect(supportedEntityTables("gtd")).toContain("recurring_task_templates");
   });
 
   it("never supports a table with a rowFilter, even one that would otherwise merge generically", () => {
@@ -97,12 +108,9 @@ describe("merge strategies", () => {
     ).toBeNull();
   });
 
-  it("does not support a table whose foreign key handling is pending, but still merges one whose lifecycle merge is", () => {
+  it("does not support a table whose foreign key handling is pending", () => {
     const plain = getTableRegistration("gtd_projects");
     expect(strategyForRegistration({ ...plain, referencesMergePending: true })).toBeNull();
-    expect(strategyForRegistration({ ...plain, lifecycleMergePending: true })).toEqual({
-      kind: "field-clock",
-    });
     expect(isTableSyncSupported("weekly_objectives")).toBe(false);
     expect(isTableSyncSupported("weekly_objective_results")).toBe(false);
     expect(isTableSyncSupported("gtd_tasks")).toBe(true);

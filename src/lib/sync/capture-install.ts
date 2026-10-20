@@ -182,12 +182,18 @@ const keySql = (row: "NEW" | "OLD", primaryKey: readonly string[]): string =>
  */
 const WHEN_CAPTURING = "WHEN (SELECT applying FROM sync_identity WHERE id = 1) = 0";
 
+// The conflict handling is an UPSERT clause, not `INSERT OR REPLACE`: SQLite lets the OUTER
+// statement's conflict algorithm override a trigger body's `OR` clause, so under an outer
+// `INSERT ... ON CONFLICT DO UPDATE` (every repository upsert) a second mark for the same entity in
+// one transaction used to fail with a UNIQUE error and roll the user's write back.
+const ON_MARK_CONFLICT = "ON CONFLICT (entity_type, entity_id) DO UPDATE SET op = excluded.op";
+
 const markSql = (table: string, key: string, op: "upsert" | "delete"): string =>
-  `INSERT OR REPLACE INTO sync_dirty (entity_type, entity_id, op) VALUES ('${table}', ${key}, '${op}')`;
+  `INSERT INTO sync_dirty (entity_type, entity_id, op) VALUES ('${table}', ${key}, '${op}') ${ON_MARK_CONFLICT}`;
 
 /**
  * Triggers of one table. The marks are last-writer-wins on `(entity_type, entity_id)` thanks to
- * `INSERT OR REPLACE`: a later delete turns an earlier upsert mark into `delete`, and a later
+ * an upsert clause: a later delete turns an earlier upsert mark into `delete`, and a later
  * re-insert turns it back into `upsert`. An UPDATE that changes the key marks the old key deleted.
  * `SELECT ... WHERE` inside the trigger body carries no table, so an unchanged key adds nothing.
  */
@@ -221,7 +227,7 @@ export const buildTableCaptureTriggers = (
     const oldKey = keySql("OLD", primaryKey);
     const newKey = keySql("NEW", primaryKey);
     add("au", "UPDATE", [
-      `INSERT OR REPLACE INTO sync_dirty (entity_type, entity_id, op) SELECT '${table}', ${oldKey}, 'delete' WHERE ${oldKey} IS NOT ${newKey}`,
+      `INSERT INTO sync_dirty (entity_type, entity_id, op) SELECT '${table}', ${oldKey}, 'delete' WHERE ${oldKey} IS NOT ${newKey} ${ON_MARK_CONFLICT}`,
       markSql(table, newKey, "upsert"),
     ]);
   }

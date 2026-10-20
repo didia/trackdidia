@@ -10,6 +10,7 @@ import {
   SETTINGS_TABLE,
 } from "./capture-install";
 import { buildEntityCodec, contentHash, type RawRow } from "./capture-decode";
+import { captureRecurringInstance, ensureInstanceOccurrences } from "./capture-recurrence";
 import { createHlcBatch, type HlcBatch, SyncClockError } from "./clock-store";
 import { entityIdOf, parseEntityId, type PrimaryKeyValue } from "./entity-id";
 import {
@@ -44,6 +45,8 @@ import { getTableRegistration, SETTING_ENTITY_TYPE, settingKeys, settingRule } f
  *   (`buildFieldClockUpdates`), store the new clocks and snapshot.
  * - everything else captured (row-clock, monotonic-status, child-set, pomodoro): compare a content
  *   hash with the stored one and, only when different, set `row_hlc` to a fresh clock.
+ * - `gtd_tasks` rows that are recurring instances also feed the recurrence sidecars
+ *   (`capture-recurrence.ts`), derived from the same snapshot diff.
  * - delete: tombstone an entity that has a live meta row (`deleted_at` = `row_hlc` = a fresh clock;
  *   the field clocks are kept) and drop its snapshot. An entity that never had a meta row was never
  *   published, so nothing is written for it.
@@ -447,6 +450,11 @@ const stampTableMarks = async (
         }
         const hlc = await issuer.next();
         const clocks = computeClocks(previous, record, hlc, codec.spec, existing, stale);
+        if (table === "gtd_tasks") {
+          // A recurring instance is a sequence of occurrences: record what this stamp changed in
+          // the gtd sidecars, in the same transaction (see capture-recurrence.ts).
+          await captureRecurringInstance(db, previous, record, hlc);
+        }
         outcome.metaWrites.push({
           entityId: id,
           fieldClocksJson: canonicalJson(clocks),
@@ -683,5 +691,14 @@ export const backfillSyncCapture = async (
     `INSERT OR REPLACE INTO sync_dirty (entity_type, entity_id, op)
      SELECT '${SETTINGS_TABLE}', CAST(id AS TEXT), 'upsert' FROM app_settings`,
   );
-  return stampDirtyEntities(db, nowMs);
+  const stamped = await stampDirtyEntities(db, nowMs);
+  // Recurring instances stamped before the occurrence sidecars existed (or while capture was off)
+  // get their baseline record. Idle when every instance already has one.
+  const issuer = createHlcBatch(db, nowMs);
+  const baselined = await ensureInstanceOccurrences(db, () => issuer.next());
+  if (baselined > 0) {
+    await issuer.flush();
+    await db.execute("UPDATE sync_identity SET change_counter = change_counter + 1 WHERE id = 1");
+  }
+  return stamped + (baselined > 0 ? 1 : 0);
 };
