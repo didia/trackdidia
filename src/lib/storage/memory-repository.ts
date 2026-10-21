@@ -143,6 +143,8 @@ import {
   syncTemplateStatusChange,
 } from "../recurring/engine";
 import { buildDailyRelationshipDrawPlan } from "../relationship-draws";
+import type { SyncApplyResult, SyncChangeSet } from "../sync/change-set";
+import type { SyncDomain } from "../sync/registry";
 import { SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE, type SyncStatus } from "../sync/status";
 import type { AppRepository, PomodoroStartOptions, StorageInfo } from "./repository";
 import { CalendarSyncMemoryStore } from "./calendar-sync-memory-store";
@@ -2206,6 +2208,14 @@ export class MemoryRepository implements AppRepository {
   }
 
   async enableSyncCapture(): Promise<{ installed: boolean; backfilled: number }> {
+    throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
+  }
+
+  async listSyncChanges(_domain: SyncDomain): Promise<SyncChangeSet> {
+    throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
+  }
+
+  async applySyncBundle(_domain: SyncDomain, _changeSet: SyncChangeSet): Promise<SyncApplyResult> {
     throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
   }
 }

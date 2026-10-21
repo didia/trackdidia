@@ -6577,6 +6577,43 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         expect(typeof repository.getSyncStatus).toBe("function");
         expect(typeof repository.ensureSyncIdentity).toBe("function");
         expect(typeof repository.enableSyncCapture).toBe("function");
+        expect(typeof repository.listSyncChanges).toBe("function");
+        expect(typeof repository.applySyncBundle).toBe("function");
+      });
+
+      it("lists and applies change sets only where sync is supported", async () => {
+        const repository = await factory();
+        const supported = (await repository.getSyncStatus()).supported;
+        if (!supported) {
+          await expect(repository.listSyncChanges("gtd")).rejects.toThrow(
+            /unavailable in browser preview/,
+          );
+          await expect(repository.applySyncBundle("gtd", {} as never)).rejects.toThrow(
+            /unavailable in browser preview/,
+          );
+          return;
+        }
+        await expect(repository.listSyncChanges("gtd")).rejects.toThrow(
+          /sync identity has not been created/,
+        );
+        await repository.ensureSyncIdentity({ deviceId: DEVICE, deviceName: "Laptop" });
+        await repository.enableSyncCapture();
+        await repository.createTask({ id: "task-listed", title: "Listed", bucket: "inbox" });
+
+        const changeSet = await repository.listSyncChanges("gtd");
+        expect(changeSet).toMatchObject({ formatVersion: 1, domain: "gtd", deviceId: DEVICE });
+        expect(changeSet.entities.map((entity) => entity.entityId)).toContain("task-listed");
+        // Its own state is a no-op, and a domain mismatch is refused.
+        await expect(repository.applySyncBundle("gtd", changeSet)).resolves.toMatchObject({
+          applied: 0,
+          tombstonesApplied: 0,
+          conflictsLogged: 0,
+          hlcAdvanced: false,
+        });
+        await expect(repository.applySyncBundle("personal", changeSet)).rejects.toThrow(
+          /"gtd" domain but "personal" was requested/,
+        );
+        await expect(repository.listTasks({})).resolves.toHaveLength(1);
       });
 
       it("enables change capture only where sync is supported, and only after an identity exists", async () => {

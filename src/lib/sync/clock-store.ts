@@ -153,16 +153,11 @@ export const createHlcBatch = (db: Database, nowMs: number): HlcBatch => {
 };
 
 /**
- * Folds a clock received from a peer into the persisted state and returns the new local clock
- * (causally after `remote`). A malformed clock, or one more than `HLC_REMOTE_MAX_AHEAD_MS` ahead
- * of `nowMs`, is rejected with a `SyncClockError` before touching the state, so a corrupt bundle
- * can neither wedge the clock nor reach `receiveHlc` and crash it with a `RangeError`.
+ * Pure check that a clock received from a peer may be folded into local state: it must be a valid
+ * HLC and at most `HLC_REMOTE_MAX_AHEAD_MS` ahead of `nowMs`. Throws a `SyncClockError`. Callers run
+ * it before opening a write transaction so a corrupt bundle is refused with nothing written.
  */
-export const receiveRemoteHlc = async (
-  db: Database,
-  remote: string,
-  nowMs: number,
-): Promise<string> => {
+export const assertRemoteClockAcceptable = (remote: string, nowMs: number): void => {
   const parsed = parseHlc(remote);
   if (!parsed) {
     throw new SyncClockError("remote_malformed", "The remote clock is not a valid HLC");
@@ -176,8 +171,47 @@ export const receiveRemoteHlc = async (
       `The remote clock is more than ${HLC_REMOTE_MAX_AHEAD_MS / 3_600_000} hours ahead of local time`,
     );
   }
+};
+
+/**
+ * Folds a clock received from a peer into the persisted state and returns the new local clock
+ * (causally after `remote`). A malformed clock, or one more than `HLC_REMOTE_MAX_AHEAD_MS` ahead
+ * of `nowMs`, is rejected with a `SyncClockError` before touching the state, so a corrupt bundle
+ * can neither wedge the clock nor reach `receiveHlc` and crash it with a `RangeError`.
+ */
+export const receiveRemoteHlc = async (
+  db: Database,
+  remote: string,
+  nowMs: number,
+): Promise<string> => {
+  assertRemoteClockAcceptable(remote, nowMs);
   const { deviceId, state } = await loadClock(db);
   const step = receiveHlc(state, remote, nowMs, deviceId);
   await saveClock(db, state, step.state);
   return step.hlc;
+};
+
+/**
+ * `receiveRemoteHlc` that leaves the state alone when it is already past `remote`: every clock the
+ * next `issueHlc` hands out is then greater than `remote` anyway, so re-applying a bundle that was
+ * absorbed before does not move the clock. The same validation runs either way. Returns whether the
+ * persisted state changed.
+ */
+export const absorbRemoteHlc = async (
+  db: Database,
+  remote: string,
+  nowMs: number,
+): Promise<boolean> => {
+  assertRemoteClockAcceptable(remote, nowMs);
+  const parsed = parseHlc(remote);
+  const { state } = await loadClock(db);
+  if (
+    parsed !== null &&
+    (parsed.physicalMs < state.physicalMs ||
+      (parsed.physicalMs === state.physicalMs && parsed.counter <= state.counter))
+  ) {
+    return false;
+  }
+  await receiveRemoteHlc(db, remote, nowMs);
+  return true;
 };

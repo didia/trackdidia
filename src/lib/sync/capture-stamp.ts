@@ -69,41 +69,45 @@ interface DirtyMark {
   op: string;
 }
 
-interface MetaRow {
+export interface MetaRow {
   entity_id: string;
   field_clocks_json: string;
   row_hlc: string;
   deleted_at: string | null;
 }
 
-interface SnapshotRow {
+export interface SnapshotRow {
   entity_id: string;
   snapshot_json: string | null;
   content_hash: string | null;
 }
 
-interface MetaWrite {
+export interface MetaWrite {
   entityId: string;
   fieldClocksJson: string;
   rowHlc: string;
   deletedAt: string | null;
 }
 
-interface SnapshotWrite {
+export interface SnapshotWrite {
   entityId: string;
   snapshotJson: string | null;
   contentHash: string | null;
 }
 
-interface Outcome {
+export interface Outcome {
   metaWrites: MetaWrite[];
   snapshotWrites: SnapshotWrite[];
   snapshotDeletes: string[];
 }
 
-const emptyOutcome = (): Outcome => ({ metaWrites: [], snapshotWrites: [], snapshotDeletes: [] });
+export const emptyOutcome = (): Outcome => ({
+  metaWrites: [],
+  snapshotWrites: [],
+  snapshotDeletes: [],
+});
 
-const chunked = <T>(items: readonly T[], size = CHUNK): T[][] => {
+export const chunked = <T>(items: readonly T[], size = CHUNK): T[][] => {
   const chunks: T[][] = [];
   for (let index = 0; index < items.length; index += size) {
     chunks.push(items.slice(index, index + size));
@@ -111,13 +115,13 @@ const chunked = <T>(items: readonly T[], size = CHUNK): T[][] => {
   return chunks;
 };
 
-const placeholders = (count: number, start = 1): string =>
+export const placeholders = (count: number, start = 1): string =>
   Array.from({ length: count }, (_, index) => `$${start + index}`).join(", ");
 
-const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
+export const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const parseClocks = (json: string | null | undefined): FieldClocks => {
+export const parseClocks = (json: string | null | undefined): FieldClocks => {
   try {
     const parsed: unknown = JSON.parse(json ?? "{}");
     if (!isPlainRecord(parsed)) return {};
@@ -264,7 +268,7 @@ const computeClocks = (
 // Batched reads and writes
 // ---------------------------------------------------------------------------------------------
 
-const fetchRows = async (
+export const fetchRows = async (
   db: Database,
   table: string,
   primaryKey: readonly string[],
@@ -285,7 +289,7 @@ const fetchRows = async (
   );
 };
 
-const fetchMeta = async (
+export const fetchMeta = async (
   db: Database,
   entityType: string,
   ids: readonly string[],
@@ -301,7 +305,7 @@ const fetchMeta = async (
   return found;
 };
 
-const fetchSnapshots = async (
+export const fetchSnapshots = async (
   db: Database,
   entityType: string,
   ids: readonly string[],
@@ -317,7 +321,11 @@ const fetchSnapshots = async (
   return found;
 };
 
-const writeOutcome = async (db: Database, entityType: string, outcome: Outcome): Promise<void> => {
+export const writeOutcome = async (
+  db: Database,
+  entityType: string,
+  outcome: Outcome,
+): Promise<void> => {
   for (const batch of chunked(outcome.metaWrites)) {
     const values = batch.map((_, row) => `(${placeholders(5, row * 5 + 1)})`).join(", ");
     await db.execute(

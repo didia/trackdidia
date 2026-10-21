@@ -1,5 +1,7 @@
 import type { AcceptEffect, AiProposalAcceptResult } from "../ai/proposals/accept-effect";
 import type { ReconcileDayResult } from "../gtd/reconcile";
+import type { SyncApplyResult, SyncChangeSet } from "../sync/change-set";
+import type { SyncDomain } from "../sync/registry";
 import type { SyncIdentityResult, SyncStatus } from "../sync/status";
 import type {
   CalendarSyncDetachReason,
@@ -575,8 +577,28 @@ export interface AppRepository {
    * sync is unavailable in browser preview. Nothing in the app calls this yet.
    */
   enableSyncCapture(): Promise<{ installed: boolean; backfilled: number }>;
+  /**
+   * The full synced state of one domain (not a log): every live entity of the tables this build can
+   * merge with its field clocks, tombstones, the full row sets of grow-only-union tables, and the
+   * synced settings of the domain with their clocks. Read only, and consistent: it runs inside the
+   * writer slot. Tables whose merge class is not implemented yet, and rows excluded by a registry
+   * row filter, are never published. Requires the sync identity. Memory rejects: sync is unavailable
+   * in browser preview. Nothing in the app calls this yet.
+   */
+  listSyncChanges(domain: SyncDomain): Promise<SyncChangeSet>;
+  /**
+   * Merges a peer's change set of `domain` into this database in ONE write transaction, or throws
+   * and changes nothing: a malformed or oversized bundle (`SyncChangeSetError`), a domain mismatch,
+   * a table this build cannot merge (`unsupported_merge_class`), a schema newer than ours, capture
+   * not enabled, a unique-key collision or any SQL error (`SyncApplyError`), a bad remote clock
+   * (`SyncClockError`). Idempotent and order independent for the supported classes; merge-applied
+   * writes are not captured back and do not touch `change_counter`. Memory rejects. Nothing in the
+   * app calls this yet.
+   */
+  applySyncBundle(domain: SyncDomain, changeSet: SyncChangeSet): Promise<SyncApplyResult>;
 }
 
+export type { SyncApplyResult, SyncChangeSet } from "../sync/change-set";
 export type {
   SyncIdentity,
   SyncIdentityResult,

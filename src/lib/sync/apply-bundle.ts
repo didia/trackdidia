@@ -1,0 +1,693 @@
+import type { AppSettings } from "../../domain/types/settings";
+import type { Database } from "../storage/sqlite-db";
+import { buildEntityCodec, type FieldCodec, type RawRow } from "./capture-decode";
+import { quoteIdent } from "./capture-install";
+import {
+  chunked,
+  emptyOutcome,
+  fetchMeta,
+  fetchRows,
+  fetchSnapshots,
+  parseClocks,
+  placeholders,
+  stampDirtyEntities,
+  writeOutcome,
+} from "./capture-stamp";
+import { assertRemoteClockAcceptable, absorbRemoteHlc, SyncClockError } from "./clock-store";
+import {
+  type SyncApplyResult,
+  type SyncChangeSet,
+  type SyncEntity,
+  type SyncRow,
+  validateChangeSet,
+} from "./change-set";
+import { entityIdOf, parseEntityId, type PrimaryKeyValue } from "./entity-id";
+import { SyncApplyError } from "./errors";
+import { canonicalJson, getOwn, setOwn } from "./field-clocks";
+import {
+  type EntityMergeOutcome,
+  mergeFieldClockEntity,
+  mergeSettingEntry,
+  type OverwrittenField,
+  overwrittenConflictId,
+} from "./merge-entity";
+import { strategyForTable, tableOrder } from "./merge-strategies";
+import {
+  assertSettingPublishable,
+  getTableRegistration,
+  SETTING_ENTITY_TYPE,
+  type SyncDomain,
+  settingRule,
+} from "./registry";
+import { readTableInfo, type TableInfo } from "./table-info";
+
+/**
+ * Applying a change set to the local database: the write side of multi-device sync.
+ *
+ * Everything here takes an OPEN write transaction's `Database` and never touches the repository's
+ * writer queue (`applySyncBundle` in `TauriSqliteRepository` wraps the call in `writeTransaction`).
+ * Re-entering the queue from here would deadlock behind the 15-second watchdog.
+ *
+ * The safety properties, in the order they are established:
+ * 1. Before anything else: schema gate, then the HLC check (pure, in `prepareApply`, before the
+ *    transaction is even opened).
+ * 2. Local capture marks are DRAINED (`stampDirtyEntities`) before `applying` is raised. A pending
+ *    local edit is therefore stamped with a local clock and its own content first, and then
+ *    competes with the remote value on equal terms. Without this the leftover mark would be
+ *    stamped after the merge with a fresh clock and the REMOTE content (ping-pong), and the local
+ *    edit would vanish unstamped. See the note above `WHEN_CAPTURING` in `capture-install.ts`.
+ * 3. The bundle's `hlcHigh` is folded into the local clock, so every clock issued afterwards is
+ *    causally after everything applied.
+ * 4. `sync_identity.applying = 1` for the rest of the transaction: the capture triggers stay quiet,
+ *    so a merge-applied write leaves no `sync_dirty` mark, stamps no local clock and does not bump
+ *    `change_counter`. It is reset to 0 before COMMIT on success; on failure the transaction rolls
+ *    the flag back with everything else (a best-effort reset also runs, in case the rollback
+ *    itself fails).
+ * 5. Every applied row also gets its `sync_entity_snapshot` (the row as the capture decoder reads it
+ *    back from the database) and its `sync_entity_meta`, so the next local edit diffs against the
+ *    merged state and only changed fields get new clocks.
+ *
+ * Why a generic SQL upsert and not the repository's `persist*` / `save*Internal` helpers: those take
+ * domain objects, normalize and default them, may stamp `updated_at`, emit task events and reconcile
+ * projects. A merge must store exactly the merged columns, byte for byte, and must not run domain
+ * side effects, so it writes the merged raw columns with statements built from `pragma_table_info`
+ * (only columns that exist here, the primary key never changed). JSON columns keep the repository's
+ * format (compact JSON text); the per-key and per-element columns only add key sorting.
+ */
+
+export interface SyncSettingsAccess {
+  /** The stored settings, normalized (defaults filled in). */
+  read(db: Database): Promise<AppSettings>;
+  /** Persists through the repository's settings writer; returns what was stored. */
+  write(db: Database, settings: AppSettings): Promise<AppSettings>;
+}
+
+export interface ApplyContext {
+  nowMs: number;
+  settings: SyncSettingsAccess;
+}
+
+const CONFLICT_KIND = "overwritten_edit";
+const INSERT_PARAM_BUDGET = 500;
+
+// ---------------------------------------------------------------------------------------------
+// Pure preparation (before any transaction)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Validates everything that can be decided without the database, so a bad bundle is refused before
+ * it takes a writer slot: shape and clocks (`validateChangeSet`), the domain, tables this build
+ * cannot merge, and the 24-hour clock guard. Returns the validated change set.
+ */
+export const prepareApply = (domain: SyncDomain, input: unknown, nowMs: number): SyncChangeSet => {
+  const changeSet = validateChangeSet(input);
+  if (changeSet.domain !== domain) {
+    throw new SyncApplyError(
+      "domain_mismatch",
+      `The change set is for the "${changeSet.domain}" domain but "${domain}" was requested`,
+    );
+  }
+  for (const entity of changeSet.entities) {
+    assertSupported(entity.table, "field-clock");
+  }
+  for (const table of Object.keys(changeSet.unionRows)) {
+    assertSupported(table, "grow-only-union");
+  }
+  assertRemoteClockAcceptable(changeSet.hlcHigh, nowMs);
+  return changeSet;
+};
+
+const assertSupported = (table: string, kind: "field-clock" | "grow-only-union"): void => {
+  const strategy = strategyForTable(table);
+  if (strategy === null || strategy.kind !== kind) {
+    const registration = getTableRegistration(table);
+    const reason = registration.referencesMergePending
+      ? "it takes part in a foreign key and reference handling is not implemented yet"
+      : `merge class ${registration.mergeClass}`;
+    throw new SyncApplyError(
+      "unsupported_merge_class",
+      `This version cannot merge "${table}" (${reason}); the whole bundle is refused`,
+      { table },
+    );
+  }
+};
+
+// ---------------------------------------------------------------------------------------------
+// SQL errors
+// ---------------------------------------------------------------------------------------------
+
+const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+/** The name of the unique index that covers exactly these columns of a table, when it can be found. */
+const findUniqueIndex = async (
+  db: Database,
+  table: string,
+  columns: readonly string[],
+): Promise<string | null> => {
+  try {
+    const wanted = [...columns].sort().join(",");
+    const indexes = await db.select<{ name: string }[]>(
+      `SELECT name FROM pragma_index_list($1) WHERE "unique" = 1`,
+      [table],
+    );
+    for (const index of indexes) {
+      const parts = await db.select<{ name: string | null }[]>(
+        "SELECT name FROM pragma_index_info($1) ORDER BY seqno",
+        [index.name],
+      );
+      if (
+        parts
+          .map((part) => part.name ?? "")
+          .sort()
+          .join(",") === wanted
+      ) {
+        return index.name;
+      }
+    }
+  } catch {
+    /* naming the index is best effort */
+  }
+  return null;
+};
+
+/**
+ * Turns a failed statement into a `SyncApplyError` that names the table and, for a unique-key
+ * violation, the index. A key the registry declares as a natural key is a `natural_key_collision`
+ * (canonical identity is a later slice); any other unique key is an `unique_violation`. Never
+ * swallowed: the caller rethrows, which rolls the whole bundle back.
+ */
+const toSqlApplyError = async (
+  db: Database,
+  table: string,
+  entityId: string | null,
+  error: unknown,
+): Promise<SyncApplyError> => {
+  if (error instanceof SyncApplyError) {
+    return error;
+  }
+  const message = messageOf(error);
+  if (/UNIQUE constraint failed/i.test(message)) {
+    const detail =
+      message
+        .slice(message.search(/UNIQUE constraint failed/i))
+        .split(":")[1]
+        ?.trim() ?? "";
+    const named = /^index '([^']+)'/.exec(detail)?.[1] ?? null;
+    const columns = named
+      ? []
+      : detail
+          .split(",")
+          .map((part) => part.trim().replace(/^[^.]+\./, ""))
+          .filter((part) => part.length > 0);
+    const index =
+      named ?? (await findUniqueIndex(db, table, columns)) ?? (columns.join(",") || detail);
+    const declared = getTableRegistration(table).naturalKeys.find(
+      (key) =>
+        (key.index !== undefined && key.index === named) ||
+        (columns.length > 0 &&
+          key.where === undefined &&
+          [...key.columns].sort().join(",") === [...columns].sort().join(",")),
+    );
+    return new SyncApplyError(
+      declared ? "natural_key_collision" : "unique_violation",
+      `${declared ? `Natural key "${declared.name}"` : "Unique key"} of "${table}" collided (${index}) while applying ${entityId ?? "a row"}; the bundle was not applied`,
+      { table, entityId, index, cause: error },
+    );
+  }
+  return new SyncApplyError("sql_error", `SQL error on "${table}": ${message}`, {
+    table,
+    entityId,
+    cause: error,
+  });
+};
+
+// ---------------------------------------------------------------------------------------------
+// Field-clock entities
+// ---------------------------------------------------------------------------------------------
+
+interface Totals {
+  applied: number;
+  skipped: number;
+  tombstonesApplied: number;
+}
+
+interface PendingConflict {
+  id: string;
+  entityType: string;
+  entityId: string;
+  localJson: string;
+  remoteJson: string;
+}
+
+const keyConditions = (
+  primaryKey: readonly string[],
+  startAt: number,
+): { sql: string; next: number } => ({
+  sql: primaryKey
+    .map((column, index) => `${quoteIdent(column)} = $${startAt + index}`)
+    .join(" AND "),
+  next: startAt + primaryKey.length,
+});
+
+const conflictOf = (table: string, entityId: string, field: OverwrittenField): PendingConflict => ({
+  id: overwrittenConflictId(table, entityId, field.field, field.local.clock, field.remote.clock),
+  entityType: table,
+  entityId,
+  localJson: canonicalJson(setOwn({}, field.field, field.local)),
+  remoteJson: canonicalJson(setOwn({}, field.field, field.remote)),
+});
+
+const writeRow = async (
+  db: Database,
+  table: string,
+  info: TableInfo,
+  key: readonly PrimaryKeyValue[],
+  outcome: EntityMergeOutcome,
+): Promise<void> => {
+  const t = quoteIdent(table);
+  if (outcome.rowAction === "insert") {
+    const columns = info.columns.filter((column) => Object.hasOwn(outcome.columns, column));
+    await db.execute(
+      `INSERT INTO ${t} (${columns.map(quoteIdent).join(", ")}) VALUES (${placeholders(columns.length)})`,
+      columns.map((column) => getOwn(outcome.columns, column)),
+    );
+  } else if (outcome.rowAction === "update") {
+    const columns = Object.keys(outcome.columns);
+    const where = keyConditions(info.primaryKey, columns.length + 1);
+    await db.execute(
+      `UPDATE ${t} SET ${columns.map((column, index) => `${quoteIdent(column)} = $${index + 1}`).join(", ")} WHERE ${where.sql}`,
+      [...columns.map((column) => getOwn(outcome.columns, column)), ...key],
+    );
+  } else if (outcome.rowAction === "delete") {
+    await db.execute(`DELETE FROM ${t} WHERE ${keyConditions(info.primaryKey, 1).sql}`, [...key]);
+  }
+};
+
+const rowsById = (table: string, info: TableInfo, rows: readonly RawRow[]): Map<string, RawRow> => {
+  const byId = new Map<string, RawRow>();
+  for (const row of rows) {
+    try {
+      byId.set(
+        entityIdOf(
+          table,
+          info.primaryKey.map((column) => row[column]),
+        ),
+        row,
+      );
+    } catch {
+      /* a row with a NULL key cannot be addressed */
+    }
+  }
+  return byId;
+};
+
+const applyEntityTable = async (
+  db: Database,
+  table: string,
+  entities: readonly SyncEntity[],
+  totals: Totals,
+  conflicts: PendingConflict[],
+): Promise<void> => {
+  const info = await readTableInfo(db, table);
+  const codec = buildEntityCodec(table, info.columns);
+  if (codec.kind !== "field") {
+    throw new SyncApplyError("unsupported_merge_class", `"${table}" has no field-clock codec`, {
+      table,
+    });
+  }
+
+  for (const batch of chunked(entities)) {
+    const keys = new Map<string, PrimaryKeyValue[]>();
+    for (const entity of batch) {
+      keys.set(entity.entityId, parseEntityId(table, entity.entityId) as PrimaryKeyValue[]);
+    }
+    const ids = batch.map((entity) => entity.entityId);
+    const rows = rowsById(
+      table,
+      info,
+      await fetchRows(db, table, info.primaryKey, [...keys.values()]),
+    );
+    const metas = await fetchMeta(db, table, ids);
+    const snapshots = await fetchSnapshots(db, table, ids);
+
+    const outcome = emptyOutcome();
+    const results = new Map<string, EntityMergeOutcome>();
+
+    for (const entity of batch) {
+      const key = keys.get(entity.entityId) as PrimaryKeyValue[];
+      const meta = metas.get(entity.entityId);
+      let merged: EntityMergeOutcome;
+      try {
+        merged = mergeFieldClockEntity({
+          codec: codec as FieldCodec,
+          columns: info.columns,
+          primaryKey: info.primaryKey,
+          notNullColumns: info.notNull,
+          local: {
+            row: rows.get(entity.entityId) ?? null,
+            meta: meta
+              ? {
+                  fieldClocks: parseClocks(meta.field_clocks_json),
+                  rowHlc: meta.row_hlc,
+                  deletedAt: meta.deleted_at,
+                }
+              : null,
+          },
+          remote: entity,
+        });
+      } catch (error) {
+        throw new SyncApplyError(
+          "merge_failed",
+          `Could not merge ${table} ${entity.entityId}: ${messageOf(error)}`,
+          { table, entityId: entity.entityId, cause: error },
+        );
+      }
+      results.set(entity.entityId, merged);
+
+      try {
+        await writeRow(db, table, info, key, merged);
+      } catch (error) {
+        throw await toSqlApplyError(db, table, entity.entityId, error);
+      }
+
+      if (merged.metaChanged) {
+        outcome.metaWrites.push({
+          entityId: entity.entityId,
+          fieldClocksJson: canonicalJson(merged.meta.fieldClocks),
+          rowHlc: merged.meta.rowHlc,
+          deletedAt: merged.meta.deletedAt,
+        });
+      }
+      if (merged.rowAction !== "none" || merged.metaChanged) {
+        totals.applied += 1;
+      } else {
+        totals.skipped += 1;
+      }
+      if (merged.tombstoneApplied) {
+        totals.tombstonesApplied += 1;
+      }
+      for (const field of merged.overwritten) {
+        conflicts.push(conflictOf(table, entity.entityId, field));
+      }
+    }
+
+    // The snapshot is the row as the stamper will decode it next time, so read it back after the
+    // writes: SQLite column affinity may have changed a value on the way in.
+    const final = rowsById(
+      table,
+      info,
+      await fetchRows(db, table, info.primaryKey, [...keys.values()]),
+    );
+    for (const entity of batch) {
+      const merged = results.get(entity.entityId) as EntityMergeOutcome;
+      const snapshot = snapshots.get(entity.entityId);
+      const row = final.get(entity.entityId);
+      if (merged.meta.deletedAt !== null || row === undefined) {
+        if (snapshot) {
+          outcome.snapshotDeletes.push(entity.entityId);
+        }
+        continue;
+      }
+      const wanted = canonicalJson(codec.decode(row));
+      if (snapshot?.snapshot_json !== wanted) {
+        outcome.snapshotWrites.push({
+          entityId: entity.entityId,
+          snapshotJson: wanted,
+          contentHash: null,
+        });
+      }
+    }
+    await writeOutcome(db, table, outcome);
+  }
+};
+
+// ---------------------------------------------------------------------------------------------
+// Grow-only-union tables
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Insert-if-absent. `ON CONFLICT DO NOTHING` without a target also absorbs a collision on a unique
+ * key other than the primary key (`gtd_task_events.dedupe_key`): for a union that is the same row
+ * seen under two ids, and the first one stays. Other failures (a NOT NULL column the sender did not
+ * provide, for instance) still abort the bundle.
+ */
+const applyUnionTable = async (
+  db: Database,
+  table: string,
+  rows: readonly SyncRow[],
+  totals: Totals,
+): Promise<void> => {
+  const info = await readTableInfo(db, table);
+  const bySignature = new Map<string, { columns: string[]; rows: SyncRow[] }>();
+  const ordered = [...rows].sort((a, b) => {
+    const left = entityIdOf(
+      table,
+      info.primaryKey.map((column) => getOwn(a, column)),
+    );
+    const right = entityIdOf(
+      table,
+      info.primaryKey.map((column) => getOwn(b, column)),
+    );
+    return left < right ? -1 : left > right ? 1 : 0;
+  });
+  for (const row of ordered) {
+    const columns = info.columns.filter((column) => Object.hasOwn(row, column));
+    const signature = columns.join(",");
+    const group = bySignature.get(signature) ?? { columns, rows: [] };
+    group.rows.push(row);
+    bySignature.set(signature, group);
+  }
+
+  for (const { columns, rows: group } of bySignature.values()) {
+    const perChunk = Math.max(1, Math.floor(INSERT_PARAM_BUDGET / columns.length));
+    for (const batch of chunked(group, perChunk)) {
+      const values = batch
+        .map((_, index) => `(${placeholders(columns.length, index * columns.length + 1)})`)
+        .join(", ");
+      try {
+        const result = await db.execute(
+          `INSERT INTO ${quoteIdent(table)} (${columns.map(quoteIdent).join(", ")}) VALUES ${values} ON CONFLICT DO NOTHING`,
+          batch.flatMap((row) => columns.map((column) => getOwn(row, column))),
+        );
+        const inserted = Math.min(result.rowsAffected, batch.length);
+        totals.applied += inserted;
+        totals.skipped += batch.length - inserted;
+      } catch (error) {
+        throw await toSqlApplyError(db, table, null, error);
+      }
+    }
+  }
+};
+
+// ---------------------------------------------------------------------------------------------
+// Settings
+// ---------------------------------------------------------------------------------------------
+
+const applySettings = async (
+  db: Database,
+  changeSet: SyncChangeSet,
+  context: ApplyContext,
+  totals: Totals,
+): Promise<void> => {
+  if (changeSet.settings.length === 0) {
+    return;
+  }
+  const entries = [...changeSet.settings].sort((a, b) =>
+    a.key < b.key ? -1 : a.key > b.key ? 1 : 0,
+  );
+  for (const entry of entries) {
+    // Defence in depth behind validateChangeSet: a bundle can never write a secret, a device key or
+    // a key of another domain, whatever path got it here.
+    try {
+      assertSettingPublishable(entry.key, changeSet.domain);
+    } catch (error) {
+      throw new SyncApplyError("setting_not_syncable", messageOf(error), {
+        table: SETTING_ENTITY_TYPE,
+        entityId: entry.key,
+      });
+    }
+  }
+
+  const keys = entries.map((entry) => entry.key);
+  const metas = await fetchMeta(db, SETTING_ENTITY_TYPE, keys);
+  const snapshots = await fetchSnapshots(db, SETTING_ENTITY_TYPE, keys);
+  const current = (await context.settings.read(db)) as unknown as Record<string, unknown>;
+  const next: Record<string, unknown> = { ...current };
+
+  const merges = entries.map((entry) => {
+    const rule = settingRule(entry.key);
+    if (rule.scope === "device") {
+      throw new SyncApplyError("setting_not_syncable", `Setting "${entry.key}" is device-local`, {
+        entityId: entry.key,
+      });
+    }
+    try {
+      const merged = mergeSettingEntry(
+        rule,
+        { value: getOwn(current, entry.key) ?? null, clock: metas.get(entry.key)?.row_hlc ?? null },
+        entry,
+      );
+      if (merged.valueChanged) {
+        setOwn(next, entry.key, merged.value);
+      }
+      return { entry, merged };
+    } catch (error) {
+      throw new SyncApplyError(
+        "invalid_setting_value",
+        `Could not merge setting "${entry.key}": ${messageOf(error)}`,
+        { entityId: entry.key, cause: error },
+      );
+    }
+  });
+
+  const stored = merges.some(({ merged }) => merged.valueChanged)
+    ? ((await context.settings.write(db, next as unknown as AppSettings)) as unknown as Record<
+        string,
+        unknown
+      >)
+    : current;
+
+  const outcome = emptyOutcome();
+  for (const { entry, merged } of merges) {
+    const meta = metas.get(entry.key);
+    const finalValue = getOwn(stored, entry.key) ?? null;
+    if (merged.clockChanged || meta === undefined) {
+      outcome.metaWrites.push({
+        entityId: entry.key,
+        fieldClocksJson: "{}",
+        rowHlc: merged.clock as string,
+        deletedAt: null,
+      });
+    }
+    const wanted = canonicalJson(finalValue);
+    if (snapshots.get(entry.key)?.snapshot_json !== wanted) {
+      outcome.snapshotWrites.push({ entityId: entry.key, snapshotJson: wanted, contentHash: null });
+    }
+    if (merged.valueChanged || merged.clockChanged || meta === undefined) {
+      totals.applied += 1;
+    } else {
+      totals.skipped += 1;
+    }
+  }
+  await writeOutcome(db, SETTING_ENTITY_TYPE, outcome);
+};
+
+// ---------------------------------------------------------------------------------------------
+// Conflicts
+// ---------------------------------------------------------------------------------------------
+
+const insertConflicts = async (
+  db: Database,
+  conflicts: readonly PendingConflict[],
+  nowMs: number,
+): Promise<number> => {
+  let logged = 0;
+  const detectedAt = new Date(nowMs).toISOString();
+  for (const batch of chunked(conflicts, 50)) {
+    const values = batch.map((_, index) => `(${placeholders(7, index * 7 + 1)})`).join(", ");
+    const result = await db.execute(
+      `INSERT INTO sync_conflicts
+         (id, entity_type, entity_id, kind, local_json, remote_json, detected_at)
+       VALUES ${values} ON CONFLICT(id) DO NOTHING`,
+      batch.flatMap((conflict) => [
+        conflict.id,
+        conflict.entityType,
+        conflict.entityId,
+        CONFLICT_KIND,
+        conflict.localJson,
+        conflict.remoteJson,
+        detectedAt,
+      ]),
+    );
+    logged += Math.min(result.rowsAffected, batch.length);
+  }
+  return logged;
+};
+
+// ---------------------------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------------------------
+
+const mergeAll = async (
+  db: Database,
+  changeSet: SyncChangeSet,
+  context: ApplyContext,
+): Promise<Omit<SyncApplyResult, "hlcAdvanced">> => {
+  const totals: Totals = { applied: 0, skipped: 0, tombstonesApplied: 0 };
+  const conflicts: PendingConflict[] = [];
+
+  const byTable = new Map<string, SyncEntity[]>();
+  for (const entity of changeSet.entities) {
+    byTable.set(entity.table, [...(byTable.get(entity.table) ?? []), entity]);
+  }
+  const entityTables = [...byTable.keys()].sort((a, b) => tableOrder(a) - tableOrder(b));
+  for (const table of entityTables) {
+    const entities = (byTable.get(table) as SyncEntity[]).sort((a, b) =>
+      a.entityId < b.entityId ? -1 : a.entityId > b.entityId ? 1 : 0,
+    );
+    await applyEntityTable(db, table, entities, totals, conflicts);
+  }
+
+  const unionTables = Object.keys(changeSet.unionRows).sort(
+    (a, b) => tableOrder(a) - tableOrder(b),
+  );
+  for (const table of unionTables) {
+    await applyUnionTable(db, table, getOwn(changeSet.unionRows, table) as SyncRow[], totals);
+  }
+
+  await applySettings(db, changeSet, context, totals);
+  const conflictsLogged = await insertConflicts(db, conflicts, context.nowMs);
+  return { ...totals, conflictsLogged };
+};
+
+/**
+ * Applies a change set prepared by {@link prepareApply} inside the caller's open write transaction.
+ * Throws a `SyncApplyError` (or a `SyncClockError`) without leaving anything behind once the
+ * caller's transaction rolls back; on success `applying` is back to 0 when this returns.
+ */
+export const applyChangeSet = async (
+  db: Database,
+  changeSet: SyncChangeSet,
+  context: ApplyContext,
+): Promise<SyncApplyResult> => {
+  const identity = await db.select<{ device_id: string }[]>(
+    "SELECT device_id FROM sync_identity WHERE id = 1",
+  );
+  if (identity.length === 0) {
+    throw new SyncClockError(
+      "identity_missing",
+      "Multi-device sync identity has not been created on this device",
+    );
+  }
+
+  const localSchema = await db.select<{ version: number | null }[]>(
+    "SELECT MAX(id) AS version FROM schema_migrations",
+  );
+  if (changeSet.schemaVersion > Number(localSchema[0]?.version ?? 0)) {
+    throw new SyncApplyError(
+      "schema_newer_than_local",
+      `The change set comes from schema ${changeSet.schemaVersion}, newer than this device's ${localSchema[0]?.version ?? 0}; update TrackDidia to merge it`,
+    );
+  }
+
+  // Constraint A: stamp pending local edits BEFORE `applying` is raised.
+  await stampDirtyEntities(db, context.nowMs);
+  const hlcAdvanced = await absorbRemoteHlc(db, changeSet.hlcHigh, context.nowMs);
+
+  await db.execute("UPDATE sync_identity SET applying = 1 WHERE id = 1");
+  let merged: Omit<SyncApplyResult, "hlcAdvanced">;
+  try {
+    merged = await mergeAll(db, changeSet, context);
+  } catch (error) {
+    try {
+      await db.execute("UPDATE sync_identity SET applying = 0 WHERE id = 1");
+    } catch {
+      /* the caller's ROLLBACK undoes the flag; keep the original failure */
+    }
+    throw error;
+  }
+  // Not best effort: if this fails the transaction must not commit with the flag raised.
+  await db.execute("UPDATE sync_identity SET applying = 0 WHERE id = 1");
+  return { ...merged, hlcAdvanced };
+};

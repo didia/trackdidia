@@ -120,9 +120,11 @@ It groups:
 - Pomodoro sessions and segments;
 - AI messages, proposals, and memories;
 - standing weekly objectives and per-week manual results;
-- the inert multi-device sync foundation: `getSyncStatus()`, `ensureSyncIdentity()` and
-  `enableSyncCapture()` (see [Multi-device sync sidecar tables](#multi-device-sync-sidecar-tables)
-  and [Multi-device sync change capture](#multi-device-sync-change-capture)).
+- the inert multi-device sync foundation: `getSyncStatus()`, `ensureSyncIdentity()`,
+  `enableSyncCapture()`, `listSyncChanges()` and `applySyncBundle()` (see
+  [Multi-device sync sidecar tables](#multi-device-sync-sidecar-tables),
+  [Multi-device sync change capture](#multi-device-sync-change-capture) and
+  [Multi-device sync change sets and apply](#multi-device-sync-change-sets-and-apply)).
 
 Repository helpers include `listDailyEntriesOnOrBefore(endDate, limit)` for bounded
 history ending at a calendar date, `listDailyEntriesInRange(startDate, endDate)`
@@ -133,8 +135,8 @@ the [atomic AI proposal acceptance operation](#atomic-ai-proposal-acceptance)
 
 The SQLite and memory implementations must remain behaviorally aligned, except for
 native-only storage information, backup creation, and multi-device sync (memory reports
-`{ supported: false }` from `getSyncStatus` and rejects `ensureSyncIdentity` and
-`enableSyncCapture`).
+`{ supported: false }` from `getSyncStatus` and rejects `ensureSyncIdentity`,
+`enableSyncCapture`, `listSyncChanges` and `applySyncBundle`).
 
 ## Atomic AI proposal acceptance
 
@@ -412,7 +414,7 @@ multi-laptop sync (design: [`specs/todo/multi-laptop-sync.md`](../specs/todo/mul
 **Multi-device sync is not shipped.** The tables are created empty on every database and
 nothing reads or writes them except the repository methods below and, once a database has
 change capture enabled (see [Multi-device sync change capture](#multi-device-sync-change-capture)),
-the capture stamper; no existing table was altered, no setting enables the feature, and users
+the capture stamper and `applySyncBundle`; no existing table was altered, no setting enables the feature, and users
 who never use sync see no behavior change.
 
 | Table | Purpose |
@@ -576,6 +578,176 @@ up:
   key; the backfill scan tombstones that victim.
 - *Performance.* See the finance import numbers above; stamping 1000 inserted rows in a
   transaction costs about 100 ms, and a write with nothing dirty costs one `SELECT ... LIMIT 1`.
+
+### Multi-device sync change sets and apply
+
+`AppRepository.listSyncChanges(domain)` and `AppRepository.applySyncBundle(domain, changeSet)`
+are the read and write halves of multi-laptop sync (design:
+[`specs/todo/multi-laptop-sync.md`](../specs/todo/multi-laptop-sync.md)). **Sync is still not
+user-enabled**: nothing in the app calls either method (no folder transport, bundle file, setting,
+UI or startup step exists yet), and `MemoryRepository` rejects both with the browser-preview error.
+Only tests exercise them, through a two-laptop harness (`src/lib/sync/test-support/`) built from
+independent `TauriSqliteRepository` instances over real in-memory SQLite.
+
+**Change set** (`src/lib/sync/change-set.ts`): the FULL synced state of one domain, not a log.
+
+```text
+SyncChangeSet = {
+  formatVersion: 1, deviceId, domain: "gtd" | "personal" | "finance",
+  schemaVersion,            // highest applied migration id of the sender
+  hlcHigh,                  // an upper bound of every clock carried
+  entities:  [{ table, entityId, row | null, fieldClocks, rowHlc, deletedAt | null }],
+  unionRows: { <table>: [row, ...] },
+  settings:  [{ key, value, rowHlc }],
+}
+```
+
+Rows are keyed by database column name with the raw stored values (JSON columns stay text). An
+entity with `row: null` is a tombstone and carries `deletedAt`. A reader ignores columns it does not
+have and keeps its own value for columns the row lacks (schema skew). `validateChangeSet` is the
+gate every change set passes (typed `SyncChangeSetError`): strict shape, a known `formatVersion`,
+every clock a canonical HLC and no larger than `hlcHigh`, entities only from tables of the declared
+domain (unknown, device-local and by-entity-type sidecar tables are rejected), canonical and bounded
+entity ids, no duplicates, rows whose key columns match the entity id, and settings that are synced,
+of the declared domain and not secret. `assertDomainAllowed(domain, allowedDomains)` is the pure
+guard the later work-profile slice will call.
+
+**What is merged and what is refused.** `src/lib/sync/merge-strategies.ts` is the seam between the
+registry and the engine. This build merges the `field-clock` tables (the `gtd` ones and the `personal`
+ones except the foreign-key tables below) and the `grow-only-union` tables (`gtd_task_events`, `ai_messages`). Every other class
+(row-clock, monotonic-status, child-set, Pomodoro, the recurrence sidecars, all of `finance`),
+every table with a registry `rowFilter` and every table flagged `referencesMergePending` is not
+published by `listSyncChanges` and makes `applySyncBundle` throw
+`SyncApplyError("unsupported_merge_class")` naming the table, for the whole bundle. A `finance`
+change set therefore carries only finance settings today.
+
+**Foreign keys.** Production enforces SQL foreign keys, and apply runs with the capture triggers off,
+so a merge that tombstoned a parent would cascade-delete child rows the engine never sees go, and a
+child arriving for a deleted parent would abort the whole bundle. The schema declares two foreign
+keys, `weekly_objective_results.objective_id -> weekly_objectives` and
+`ai_proposals.message_id -> ai_messages` (both `ON DELETE CASCADE`). Until the references slice
+(natural keys, aliases, declared references) defines a convergent rule, `weekly_objectives`,
+`weekly_objective_results` and `ai_proposals` carry `referencesMergePending: true` and are neither
+published nor merged (a deleted objective therefore does not propagate; each laptop keeps its own
+objectives and results). `ai_messages` is only inserted by a merge, never deleted, so being a foreign-key
+parent is harmless there. `registry.test.ts` derives the expected flag set from
+`PRAGMA foreign_key_list` on the migrated schema and checks that no supported table has a foreign key of
+its own or a deletable foreign-key parent, so a new foreign key cannot slip in. The two-laptop test
+harness runs every scenario with foreign keys on.
+
+**`listSyncChanges(domain)`** runs inside the repository writer slot (so no write transaction can
+interleave between its SELECTs), issues only SELECTs and never writes. It returns every live entity
+of the supported tables with its `sync_entity_meta` clocks, tombstones, the full row sets of the union
+tables and the stamped synced settings of the domain (a key nobody changed has no clock and is not
+listed). Tables go through the registry's publish guards, the result is passed through
+`validateChangeSet`, and a row without a meta row (never stamped) is not published until
+`enableSyncCapture`'s scan stamps it. It needs the sync identity.
+
+**`applySyncBundle(domain, changeSet)`** validates and refuses before taking a writer slot (shape,
+domain match with the bundle, unsupported tables, a remote clock malformed or more than 24 hours ahead
+of the local clock), requires change capture to be enabled, then runs ONE `writeTransaction` that only
+calls internal helpers (never a public repository method, which would re-enter the writer queue). Any
+error rolls back every row, meta row, snapshot, conflict and clock change, including a bad row halfway
+through. Inside the transaction, in order:
+
+1. Schema gate: a change set from a newer schema than the local one is refused
+   (`schema_newer_than_local`).
+2. Local capture marks are drained with `stampDirtyEntities` BEFORE `applying` is raised, so a pending
+   local edit gets a local clock and its own content first and then competes with the remote value on
+   equal terms.
+3. `hlcHigh` is absorbed into the local clock (`absorbRemoteHlc`; a no-op when the local state is
+   already past it), so every clock issued afterwards is causally after everything applied.
+4. `sync_identity.applying = 1`: the capture triggers stay quiet, so merge-applied writes leave no
+   `sync_dirty` mark, stamp no local clock and do not touch `change_counter`. The flag is reset to 0
+   before COMMIT and is rolled back with everything else on failure.
+5. Entities are merged table by table (registry order, entity id order), union rows are inserted, the
+   settings are merged, overwritten edits are logged.
+
+Every applied row also gets its `sync_entity_snapshot` (the row as the capture decoder reads it back
+from the database) and `sync_entity_meta`, so the next local edit diffs against the merged state and
+only the fields it really changes get new clocks. Re-applying a bundle changes nothing (not even the
+clock or the counters) and bundles can arrive in any order and repeat: for the supported classes the
+merge is a join, except across a tombstone that is later resurrected (see below).
+
+Rows are written by generic SQL built from `pragma_table_info` (only columns that exist locally, the
+primary key never changed), not by the repository's `save*`/`persist*` helpers, because those take
+domain objects, normalize them, may stamp `updated_at`, emit task events and reconcile projects; a
+merge must store exactly the merged columns. JSON columns keep the repository's compact JSON text; a
+per-key, per-id or per-element merge writes its result with sorted object keys, arrays of `{ id }`
+items ordered by their `sortOrder` then id, and id lists sorted, so replicas that merged the same
+writes store the same text. A column whose merge changes nothing keeps the local text, so two laptops
+can hold different formatting or list order for the same state.
+
+Merge rules (`src/lib/sync/merge-entity.ts`, built from the `merge-primitives.ts` joins):
+
+- scalar columns, including atomic `*_json` columns: last writer wins by field clock;
+- JSON-map columns (`metrics_json`, `milestones_json`, ...): per key, a removed key is a clock without a
+  value. Capture keeps a map field either atomic (one bare clock `metrics_json`, for a value that
+  cannot be merged per key or a repaired one) or per key (`metrics_json.<key>` clocks), never both. When
+  the two sides disagree about the form, or either holds a bare clock, the field is merged as one
+  scalar: the side with the newer field clock wins the whole column and brings its own clocks, the
+  other side's clocks for that field are dropped (tombstones keep the newer form's clocks the same
+  way). That rule is not associative across three replicas that mix forms; only a corrupt map value
+  gets there;
+- id lists (`context_ids_json`): OR-set per element. A present element with no clock (a never-stamped
+  row) is given a baseline clock, `000000000000000-000000-baseline`: a valid HLC that sorts below every
+  real clock, so the element survives every merge except an explicit clocked remove. It is persisted in
+  `sync_entity_meta.field_clocks_json` and published to peers like any other clock, and parses as a
+  clock of a device named `baseline`;
+- whole entity: edit wins over delete. A later delete removes the local row and its snapshot and keeps
+  the tombstone meta; a later edit resurrects it; a tombstone for a row never seen is recorded as meta
+  only. A tombstone carries no field values, so the merge is a join everywhere except across a
+  tombstone that is later resurrected: a delete racing two different editors of the same entity can
+  leave the surviving values depending on arrival order, because the resurrected row holds the
+  incoming side's values only. The loss is logged, not silent: on a resurrection, every field, key or
+  element for which the tombstone held a newer clock than the incoming entity is recorded as an
+  overwritten edit whose local value is unknown. Every map key or id-list element that the
+  tombstone held and the surviving row omits also gets a removal clock equal to the tombstone's
+  `deletedAt`, copied from the data (never issued locally) and kept if the incoming clocks already
+  hold a later removal; without it an older replica that still holds the id would add it back,
+  because a missing clock is not a removal. A later add by anyone still beats it, keys the tombstone
+  never had get nothing, and an atomic field (a bare clock on either side, or a value that cannot be
+  merged per key) has no per-key removals to date. The same removals are dated when a live row meets
+  an older tombstone, so every arrival order gives the same clocks as long as the tombstone reaches
+  a replica before both live versions have merged; once two live versions merged without it, the
+  tombstone cannot tell an omitted id from a kept one and the id stays (the residual non-join). Open
+  item for a later slice: tombstones should carry the last field values (in the change set and in the
+  local meta), which would make resurrection a join too;
+- grow-only-union tables: `INSERT ... ON CONFLICT DO NOTHING`, never an update, so a collision on
+  `dedupe_key` keeps the first row;
+- settings: per key by the settings registry rule (`lww` by key clock, `monotonic-max`,
+  `non-empty-wins` by value), written through the same settings writer as `updateSettings` so device keys
+  are untouched. Secrets, device-scoped keys, unknown keys and keys of another domain are rejected by
+  validation and re-checked by the apply step (`setting_not_syncable`).
+
+A unique-key violation aborts the whole bundle with a `SyncApplyError` naming the table and the index:
+`natural_key_collision` for a key the registry declares (canonical identity and aliasing come in a
+later slice), `unique_violation` for any other. Any other SQL error is `sql_error`. Nothing is skipped
+silently.
+
+**Overwritten-edit log.** When a merge replaces a local value with a remote one, and the sender cannot
+be shown to have seen the local value, a `sync_conflicts` row (`kind = 'overwritten_edit'`) is inserted
+with the local and remote value and clock of that field or map key (`updated_at` and `created_at` are
+never reported; a local side recorded as `"unknown": true` carries a clock only, see resurrection above). The id is derived from the entity, the field and both clocks, so applying the same
+state again never duplicates it. Clocks alone cannot prove two edits were concurrent, so this is an
+informational "may have overwritten" log: the sender "had seen" the local value when its entity carries
+a clock of the same author at or after the local clock, which is how an ordinary later edit by a peer
+that had synced is told apart. A peer that has overwritten every field of an entity leaves no such
+evidence and is logged as possibly concurrent. Only the device whose value was replaced logs it; a
+value that merely loses to a newer local one is not an overwrite. Overwritten setting values are not
+logged (a setting entry carries no evidence of what the sender had seen).
+
+**Known limitation until the GTD lifecycle slice.** `gtd_tasks` and `recurring_task_templates` are
+merged field by field, so concurrent edits of different lifecycle fields (for example completing a task
+on one laptop and cancelling it on another) can produce a combination no user produced (`cancelled` with
+a completion date). Both tables carry `lifecycleMergePending: true` in the registry; the lifecycle slice
+replaces their merge and removes the flag, and a registry test fails until it does. Recurring-instance
+rows (`is_recurring_instance = 1`) also still merge generically. Sync must not be user-enabled before
+that slice.
+
+Test-only clock: `TauriSqliteRepository` takes an optional third constructor argument, the wall clock
+(epoch milliseconds) behind every sync clock it issues (default `Date.now`). Production never passes it;
+the harness gives each simulated laptop its own.
 
 ### Legacy email triage tables (unused)
 

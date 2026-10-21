@@ -162,8 +162,13 @@ import {
 } from "../recurring/engine";
 import { buildDailyRelationshipDrawPlan } from "../relationship-draws";
 import { CalendarSyncSqliteStore } from "./calendar-sync-sqlite-store";
+import { applyChangeSet, prepareApply, type SyncSettingsAccess } from "../sync/apply-bundle";
 import { ensureSyncCapture, installSyncCapture } from "../sync/capture-install";
 import { backfillSyncCapture, stampDirtyEntities } from "../sync/capture-stamp";
+import type { SyncApplyResult, SyncChangeSet } from "../sync/change-set";
+import { SyncApplyError } from "../sync/errors";
+import { readChangeSet } from "../sync/list-changes";
+import { SYNC_DOMAINS, type SyncDomain } from "../sync/registry";
 import {
   assertValidDeviceId,
   buildSupportedSyncStatus,
@@ -232,6 +237,12 @@ export class TauriSqliteRepository implements AppRepository {
   constructor(
     private readonly connectionString = "sqlite:trackdidia.db",
     private readonly openDb: (path: string) => Promise<SqliteDatabase> = Database.load,
+    /**
+     * Wall clock (epoch ms) behind every multi-device sync clock issued by this repository.
+     * Production always uses the default; the two-device test harness gives each simulated laptop
+     * its own controllable clock.
+     */
+    private readonly now: () => number = Date.now,
   ) {}
 
   private getCalendarSyncStore(): CalendarSyncSqliteStore {
@@ -294,7 +305,7 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   private readonly stampCaptureMarks = async (db: SqliteDatabase): Promise<void> => {
-    await stampDirtyEntities(db, Date.now());
+    await stampDirtyEntities(db, this.now());
   };
 
   /**
@@ -973,7 +984,10 @@ export class TauriSqliteRepository implements AppRepository {
   }
 
   async getSettings(): Promise<AppSettings> {
-    const db = await this.getDb();
+    return this.readSettingsRow(await this.getDb());
+  }
+
+  private async readSettingsRow(db: SqliteDatabase): Promise<AppSettings> {
     const rows = await db.select<SettingsRow[]>("SELECT value FROM app_settings WHERE id = 1");
 
     if (rows.length === 0) {
@@ -3342,7 +3356,45 @@ export class TauriSqliteRepository implements AppRepository {
     if (ensured.state === "disabled") {
       await installSyncCapture(db);
     }
-    const backfilled = await backfillSyncCapture(db, Date.now(), { verify: true });
+    const backfilled = await backfillSyncCapture(db, this.now(), { verify: true });
     return { installed, backfilled };
+  }
+
+  /** The settings reader / writer the sync read and apply paths share with the normal settings path. */
+  private syncSettingsAccess(): SyncSettingsAccess {
+    return {
+      read: (db) => this.readSettingsRow(db),
+      write: (db, settings) => this.writeSettingsRow(db, settings),
+    };
+  }
+
+  async listSyncChanges(domain: SyncDomain): Promise<SyncChangeSet> {
+    if (!(SYNC_DOMAINS as readonly string[]).includes(domain)) {
+      throw new Error(`Unknown sync domain "${String(domain)}"`);
+    }
+    // The writer slot is what makes this a consistent read: no write transaction can interleave
+    // between the SELECTs below. Nothing is written.
+    return this.writeQueue.run(async () =>
+      readChangeSet(await this.getDb(), domain, this.syncSettingsAccess()),
+    );
+  }
+
+  async applySyncBundle(domain: SyncDomain, changeSet: SyncChangeSet): Promise<SyncApplyResult> {
+    // Everything that needs no database is decided before a writer slot is taken.
+    const prepared = prepareApply(domain, changeSet, this.now());
+    if (!this.captureEnabled) {
+      throw new SyncApplyError(
+        "capture_disabled",
+        "Change capture is not enabled on this device (call enableSyncCapture first): without it a local edit could not be told apart from a remote one",
+      );
+    }
+    // One transaction, internal helpers only: re-entering the writer queue from inside it would
+    // deadlock. Any error rolls back every row, meta, snapshot, conflict and the `applying` flag.
+    return this.writeTransaction((tx) =>
+      applyChangeSet(transactionDb(tx), prepared, {
+        nowMs: this.now(),
+        settings: this.syncSettingsAccess(),
+      }),
+    );
   }
 }
