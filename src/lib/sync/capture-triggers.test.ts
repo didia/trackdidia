@@ -130,6 +130,32 @@ describe("capture triggers write dirty marks", () => {
     expect(await readMarks(db)).toEqual([]);
   });
 
+  it("marks the same row twice under an outer ON CONFLICT DO UPDATE without a UNIQUE failure", async () => {
+    // The repository upserts every row this way, and one transaction can write a row twice (a save,
+    // then the project reconciliation promoting it). A trigger's own OR REPLACE is overridden by
+    // the outer statement, so the mark has to be an UPSERT clause.
+    const db = await createCaptureDb();
+    const upsert = (name: string) =>
+      db.execute(
+        `INSERT INTO gtd_contexts (id, name, created_at, updated_at) VALUES ('c1', $1, 't', 't')
+         ON CONFLICT(id) DO UPDATE SET name = excluded.name`,
+        [name],
+      );
+    await upsert("first");
+    await db.execute("DELETE FROM sync_dirty");
+    await upsert("second");
+    await upsert("third");
+    expect(await readMarks(db)).toEqual([
+      { entity_type: "gtd_contexts", entity_id: "c1", op: "upsert" },
+    ]);
+    await db.execute("DELETE FROM gtd_contexts WHERE id = 'c1'");
+    await upsert("again");
+    await db.execute("DELETE FROM gtd_contexts WHERE id = 'c1'");
+    expect(await readMarks(db)).toEqual([
+      { entity_type: "gtd_contexts", entity_id: "c1", op: "delete" },
+    ]);
+  });
+
   describe("INSERT OR REPLACE / REPLACE INTO (recursive_triggers is OFF, as in production)", () => {
     it("marks the replaced row as an upsert when the conflict is on the primary key", async () => {
       const db = await createCaptureDb();

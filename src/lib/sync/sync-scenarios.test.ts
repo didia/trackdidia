@@ -1016,31 +1016,52 @@ describe("foreign keys are enforced (as in production)", () => {
   });
 });
 
-describe("gtd_tasks lifecycle (KNOWN LIMITATION until the GTD lifecycle slice)", () => {
-  it("is flagged in the registry as still needing lifecycle-tuple semantics", () => {
-    expect(getTableRegistration("gtd_tasks").lifecycleMergePending).toBe(true);
-    expect(getTableRegistration("recurring_task_templates").lifecycleMergePending).toBe(true);
+describe("gtd_tasks lifecycle: complete on one laptop, cancel on the other", () => {
+  // This was the labelled KNOWN LIMITATION of the generic merge (a cancelled task that still had a
+  // completion date). The lifecycle tuple merges as one unit now: the full rules are in
+  // gtd-semantics.scenarios.test.ts.
+  it("is no longer flagged: the task and template merge by their own rules", () => {
+    for (const table of ["gtd_tasks", "recurring_task_templates"]) {
+      expect(Object.keys(getTableRegistration(table))).not.toContain("lifecycleMergePending");
+    }
   });
 
-  it("merges status and completed_at independently, so complete-vs-cancel can yield an impossible state", async () => {
-    // Lifecycle-tuple semantics (status + completedAt + bucket + ...) are NOT implemented yet: the
-    // generic per-field merge below produces `cancelled` with a completion date. The GTD lifecycle
-    // slice replaces this merge for gtd_tasks and must delete lifecycleMergePending; when it does,
-    // this test is expected to fail and must be rewritten to assert the real tuple rules. Sync must
-    // not be user-enabled before then.
+  it("yields one deterministic winner, a terminal_divergence conflict and a consistent completed_at", async () => {
     const { sim, a, b } = await twoDevices();
     await a.repo.createTask({ id: "t1", title: "Plan", bucket: "next_action" });
     await sim.syncAll("gtd");
 
     a.clock.advance(1_000);
-    await a.repo.completeTask("t1");
+    await a.repo.completeTask("t1", "2026-10-02T10:00:00.000Z");
     b.clock.advance(5_000);
     await b.repo.cancelTask("t1");
     await sim.syncAll("gtd");
 
-    const merged = await findTask(a, "t1");
-    expect(merged.status).toBe("cancelled");
-    expect(merged.completedAt).not.toBeNull(); // an impossible combination: cancelled AND completed
-    await sim.expectConverged("gtd");
+    // The later decision (B's cancel) is the provisional winner on both laptops ...
+    for (const device of [a, b]) {
+      const merged = await findTask(device, "t1");
+      expect(merged.status).toBe("cancelled");
+      expect(merged.completedAt).toBeNull(); // ... with a completion date that agrees with it
+    }
+    await sim.expectConverged("gtd", { snapshots: true });
+
+    // ... and the user is asked, on both, with the same conflict and both sides' tuples.
+    const [onA, onB] = await Promise.all(
+      [a, b].map(async (device) =>
+        (await readConflicts(device)).filter((row) => row.kind === "terminal_divergence"),
+      ),
+    );
+    expect(onA).toHaveLength(1);
+    expect(onB).toHaveLength(1);
+    expect(onA?.[0]?.id).toBe(onB?.[0]?.id);
+    expect(onA?.[0]).toMatchObject({
+      entity_type: "gtd_tasks",
+      entity_id: "t1",
+      resolved_at: null,
+    });
+    const sides = [onA?.[0]?.local_json, onA?.[0]?.remote_json].map((json) =>
+      JSON.parse(String(json)),
+    );
+    expect(sides.map((side) => side.status).sort()).toEqual(["cancelled", "completed"]);
   });
 });

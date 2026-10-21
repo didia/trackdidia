@@ -129,17 +129,6 @@ export interface TableRegistration {
    */
   entityTypeColumn?: string;
   /**
-   * TEMPORARY. The table's lifecycle columns (status, bucket, scheduled/completed dates, planned
-   * order, recurrence cursor...) form tuples that must change together, but the generic
-   * field-clock merge (`merge-entity.ts`) resolves every column independently, so two peers editing
-   * different lifecycle fields of one row can produce a combination no user ever saw (for example
-   * `status = completed` with `bucket = inbox`). The lifecycle-tuple / terminal-status / planned
-   * order merge of the GTD slice replaces the generic merge for these tables and must delete this
-   * flag. `registry.test.ts` pins both the flag and its absence elsewhere, so that slice cannot be
-   * forgotten, and sync must not be user-enabled while it is set.
-   */
-  lifecycleMergePending?: true;
-  /**
    * TEMPORARY. The table takes part in a declared SQL foreign key (`PRAGMA foreign_key_list`) whose
    * parent can be deleted: production enforces foreign keys, so deleting a parent cascades to its
    * children inside the database. A merge that tombstones the parent would silently delete child
@@ -189,9 +178,8 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
       contextIdList(),
     ],
     orSetColumns: ["context_ids_json"],
-    lifecycleMergePending: true,
     notes:
-      "Rows with is_recurring_instance = 1 follow the recurring-occurrence rules (sync_recurrence_occurrences), not plain field clocks. recurrence_group_id is an opaque group label from imported recurring tasks, not a reference. Relationship-draw tasks and task notes are shared by design.",
+      "The lifecycle tuple {status, bucket, completed_at, scheduled_for, planned_order, project_id} merges as one unit (merge-task.ts). Rows with is_recurring_instance = 1 follow the recurring-occurrence rules (sync_recurrence_occurrences), not plain field clocks. recurrence_group_id is an opaque group label from imported recurring tasks, not a reference. Relationship-draw tasks and task notes are shared by design.",
   },
   {
     table: "gtd_projects",
@@ -246,7 +234,8 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
     naturalKeys: noKeys,
     references: [{ column: "project_id", table: "gtd_projects", kind: "soft" }, contextIdList()],
     orSetColumns: ["context_ids_json"],
-    lifecycleMergePending: true,
+    notes:
+      "Generic per-field merge, except last_generated_for_date, which is derived from the latest recurring occurrence (merge-task.ts).",
   },
   {
     table: "pomodoro_sessions",
@@ -286,7 +275,7 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
     naturalKeys: noKeys,
     references: [{ column: "template_id", table: "recurring_task_templates", kind: "soft" }],
     notes:
-      "Outcome of one recurring occurrence (template_id, due_date). device_id is the device that produced the outcome, not a reference.",
+      "Outcome of one recurring occurrence (template_id, due_date); a join (a user outcome beats missed and active, then the later outcome_hlc). device_id is the device that produced the outcome, not a reference. Travels in SyncChangeSet.recurrence, not as an entity.",
   },
   {
     table: "sync_recurrence_clears",
@@ -295,6 +284,8 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
     primaryKey: ["template_id"],
     naturalKeys: noKeys,
     references: [{ column: "template_id", table: "recurring_task_templates", kind: "soft" }],
+    notes:
+      "Latest due date whose missed backlog was cleared; a max. Travels in SyncChangeSet.recurrence, not as an entity.",
   },
 
   // ----- personal: never reaches the work laptop --------------------------------------------

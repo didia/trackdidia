@@ -458,7 +458,24 @@ export const buildLifecycleEvents = (previous: Task | null, next: Task): TaskEve
     );
   }
 
-  return events;
+  // A recurring instance pulled BACK to an earlier due date (`prepareRecurringGeneration` on a laptop
+  // whose local day is behind another's) reopens that day for this device. The ledger is grow-only and
+  // syncs, and a pull-back can repeat once per exchange, so its events get a stable key: the first one
+  // is kept (single-device behavior is unchanged) and the repeats are dropped by `persistEvents`
+  // instead of piling up and resetting the task's age every time.
+  const pulledBack =
+    next.isRecurringInstance &&
+    previous.isRecurringInstance &&
+    Boolean(previous.recurrenceDueDate) &&
+    Boolean(next.recurrenceDueDate) &&
+    (next.recurrenceDueDate as string) < (previous.recurrenceDueDate as string);
+  return pulledBack
+    ? events.map((event) =>
+        event.type === "task_completed"
+          ? event
+          : { ...event, dedupeKey: `${event.type}:pullback:${next.id}:${next.recurrenceDueDate}` },
+      )
+    : events;
 };
 
 export const buildCarryoverEvents = (

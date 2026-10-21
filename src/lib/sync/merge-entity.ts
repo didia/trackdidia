@@ -142,7 +142,8 @@ type Json = Record<string, unknown>;
 
 const clockAt = (clocks: FieldClocks, key: string): string | null => getOwn(clocks, key) ?? null;
 
-const knownClocks = (clocks: FieldClocks, fields: ReadonlySet<string>): FieldClocks => {
+/** Clocks of the fields this table knows; a peer's clocks for columns we lack are dropped. */
+export const knownClocks = (clocks: FieldClocks, fields: ReadonlySet<string>): FieldClocks => {
   const kept: FieldClocks = {};
   for (const key of Object.keys(clocks)) {
     if (fields.has(splitFieldClockKey(key).field)) {
@@ -155,7 +156,7 @@ const knownClocks = (clocks: FieldClocks, fields: ReadonlySet<string>): FieldClo
 const editClock = (clocks: FieldClocks, rowClock: string | null, live: boolean): string | null =>
   maxFieldClock(clocks) ?? (live ? rowClock : null);
 
-const sameMeta = (a: EntityMeta | null, b: EntityMeta): boolean =>
+export const sameMeta = (a: EntityMeta | null, b: EntityMeta): boolean =>
   a !== null &&
   a.rowHlc === b.rowHlc &&
   a.deletedAt === b.deletedAt &&
@@ -169,7 +170,10 @@ const sameMeta = (a: EntityMeta | null, b: EntityMeta): boolean =>
  * have been concurrent". This is what separates an ordinary later edit from a lost one without any
  * extra field in the change set.
  */
-const senderHasSeen = (clock: string | null, senderClocks: Record<string, string>): boolean => {
+export const senderHasSeen = (
+  clock: string | null,
+  senderClocks: Record<string, string>,
+): boolean => {
   if (clock === null) {
     return false;
   }

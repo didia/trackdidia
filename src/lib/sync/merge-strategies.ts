@@ -22,19 +22,32 @@ import {
  * lifecycle tuple) is routed through {@link TABLE_STRATEGY_OVERRIDES} instead.
  */
 
+/**
+ * Extra rules a field-clock table layers on top of the class (`merge-task.ts`). No rule means the
+ * generic merge of `merge-entity.ts`.
+ *
+ * - `gtd-task`: the lifecycle tuple as one unit, save-time normalization, recurring instances
+ *   recomputed from their occurrences, the Planned queue repaired after the merge;
+ * - `recurring-template`: generic, except `last_generated_for_date` derived from the occurrences.
+ */
+export type FieldClockRule = "gtd-task" | "recurring-template";
+
 export type TableStrategy =
   /** Per-column / per-key / per-element clocks with whole-entity edit-wins-over-delete. */
-  | { kind: "field-clock" }
+  | { kind: "field-clock"; rule?: FieldClockRule }
   /** Insert-if-absent by primary key (and any unique key); never updated, never deleted. */
   | { kind: "grow-only-union" };
 
 export type TableStrategyKind = TableStrategy["kind"];
 
 /**
- * Per-table replacements for the class default. Empty today. The GTD lifecycle slice registers
- * `gtd_tasks` and `recurring_task_templates` here and removes their `lifecycleMergePending` flag.
+ * Per-table replacements for the class default: the GTD task and the recurring template have their
+ * own rules on top of the field-clock class.
  */
-export const TABLE_STRATEGY_OVERRIDES: Readonly<Record<string, TableStrategy>> = {};
+export const TABLE_STRATEGY_OVERRIDES: Readonly<Record<string, TableStrategy>> = {
+  gtd_tasks: { kind: "field-clock", rule: "gtd-task" },
+  recurring_task_templates: { kind: "field-clock", rule: "recurring-template" },
+};
 
 /**
  * The strategy for a registration, or `null` when this build cannot merge it. Not supported:
@@ -46,9 +59,6 @@ export const TABLE_STRATEGY_OVERRIDES: Readonly<Record<string, TableStrategy>> =
  * - a table with `referencesMergePending` (it takes part in a declared foreign key that can cascade
  *   or abort a bundle);
  * - any merge class without a strategy yet.
- *
- * `lifecycleMergePending` does NOT block merging: it marks tables merged generically on purpose
- * until the GTD lifecycle slice replaces the rule.
  */
 export const strategyForRegistration = (entry: TableRegistration): TableStrategy | null => {
   if (!(SYNC_DOMAINS as readonly string[]).includes(entry.domain)) {
@@ -98,6 +108,12 @@ export const unsupportedTablesInDomain = (domain: SyncDomain): string[] =>
     (entry) => entry.domain === domain && strategyForTable(entry.table) === null,
   ).map((entry) => entry.table);
 
-/** Position of a table in the registry; the order tables are applied in. */
+/** The extra rule of a supported field-clock table, if any. */
+export const fieldClockRuleOf = (table: string): FieldClockRule | undefined => {
+  const strategy = strategyForTable(table);
+  return strategy?.kind === "field-clock" ? strategy.rule : undefined;
+};
+
+/** Position of a table in the registry; the order tables are published in. */
 export const tableOrder = (table: string): number =>
   TABLE_REGISTRY.findIndex((entry) => entry.table === table);

@@ -3,9 +3,11 @@ import { capturedSettingKeys, fetchMeta, parseClocks } from "./capture-stamp";
 import { SyncClockError } from "./clock-store";
 import {
   clocksOfChangeSet,
+  emptyRecurrence,
   SYNC_FORMAT_VERSION,
   type SyncChangeSet,
   type SyncEntity,
+  type SyncRecurrence,
   type SyncRow,
   type SyncSettingEntry,
   validateChangeSet,
@@ -14,9 +16,11 @@ import { entityIdOf } from "./entity-id";
 import { getOwn } from "./field-clocks";
 import { encodeHlc, maxHlcOf } from "./hlc";
 import { supportedEntityTables, supportedUnionTables, tableOrder } from "./merge-strategies";
+import { type ClearRow, type OccurrenceRow, occurrenceFromRow } from "./recurrence-store";
 import {
   assertTablePublishable,
   isSettingPublishable,
+  isSidecarPublishable,
   SETTING_ENTITY_TYPE,
   type SyncDomain,
 } from "./registry";
@@ -126,6 +130,43 @@ const readUnionRows = async (
   return result;
 };
 
+/**
+ * The recurrence sidecars of the `gtd` domain, ordered by key. A row this build cannot read is left
+ * out (it could not be merged on the other side either); the registry decides who may publish them.
+ */
+const readRecurrence = async (db: Database, domain: SyncDomain): Promise<SyncRecurrence> => {
+  if (!isSidecarPublishable("sync_recurrence_occurrences", domain)) {
+    return emptyRecurrence();
+  }
+  const occurrences = await db.select<OccurrenceRow[]>(
+    `SELECT template_id, due_date, outcome, outcome_hlc, device_id
+     FROM sync_recurrence_occurrences ORDER BY template_id, due_date`,
+  );
+  const clears = await db.select<ClearRow[]>(
+    "SELECT template_id, cleared_through_date FROM sync_recurrence_clears ORDER BY template_id",
+  );
+  return {
+    occurrences: occurrences.flatMap((row) => {
+      const record = occurrenceFromRow(row);
+      return record === null
+        ? []
+        : [
+            {
+              template_id: record.templateId,
+              due_date: record.dueDate,
+              outcome: record.outcome,
+              outcome_hlc: record.outcomeHlc,
+              device_id: record.deviceId,
+            },
+          ];
+    }),
+    clears: clears.map((row) => ({
+      template_id: row.template_id,
+      cleared_through_date: row.cleared_through_date,
+    })),
+  };
+};
+
 const readSettings = async (
   db: Database,
   domain: SyncDomain,
@@ -176,6 +217,7 @@ export const readChangeSet = async (
     entities: await readEntities(db, domain),
     unionRows: await readUnionRows(db, domain),
     settings: await readSettings(db, domain, settings),
+    recurrence: await readRecurrence(db, domain),
   };
   // The newest clock included; an empty change set reports the clock the device itself has reached.
   draft.hlcHigh =

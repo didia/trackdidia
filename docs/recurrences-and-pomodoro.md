@@ -70,6 +70,19 @@ Completing the current recurring task resets the template's pending missed count
 Cancelling it also clears that count. The task card can explicitly clear the task's
 displayed past count.
 
+### Occurrence sidecars (groundwork for multi-device sync)
+
+Because the generated task is one row advanced in place, its id is not an occurrence. On a
+database with sync change capture enabled, each write of that row also records what happened to
+its occurrences in the `gtd`-domain sidecars `sync_recurrence_occurrences` (outcome `active`,
+`missed`, `completed` or `cancelled` per due date) and `sync_recurrence_clears` (the latest due date
+whose missed backlog the user cleared). The records are derived from the row's change, not from the
+generators, and generation behavior is unchanged: the missed dates between two generated due dates
+are the template's due dates strictly between them. Sync is not user-enabled, so on a normal
+install the sidecars stay empty. How they merge, and how the row and the template's
+`lastGeneratedForDate` are recomputed from them, is described in
+[Storage and backups](storage-and-backups.md#gtd-task-and-recurring-template-rules).
+
 The generation algorithm is not implemented in the repositories. `src/lib/recurring/engine.ts`
 owns pure planners that return data, and `TauriSqliteRepository` and `MemoryRepository` only
 persist their results:

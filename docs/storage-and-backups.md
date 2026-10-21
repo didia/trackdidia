@@ -423,8 +423,8 @@ who never use sync see no behavior change.
 | `sync_identity` | Single row (`id = 1` enforced by `CHECK`): `device_id`, `device_name`, HLC state (`physical_ms`, `counter`), `change_counter`, `last_publish_counter`, and `applying` (the transaction-scoped "merge in progress" switch for later slices) |
 | `sync_peers` | Per-peer last manifest, last sync time, and last applied content hash per domain |
 | `sync_id_aliases` | `(entity_type, alias_id)` to `canonical_id` with `recorded_hlc` |
-| `sync_recurrence_occurrences` | `(template_id, due_date)` outcome with `outcome_hlc` and the producing `device_id` |
-| `sync_recurrence_clears` | `template_id` to `cleared_through_date` |
+| `sync_recurrence_occurrences` | `(template_id, due_date)` outcome with `outcome_hlc` and the producing `device_id`; written by change capture for recurring instances, joined on apply |
+| `sync_recurrence_clears` | `template_id` to `cleared_through_date` (a maximum); written by change capture, joined on apply |
 | `sync_conflicts` | Detected conflicts and overwritten edits (`local_json`, `remote_json`, resolution) |
 
 Classification lives in `src/lib/sync/registry.ts` (checked against the migrated schema by
@@ -483,7 +483,8 @@ All three are classified device-local in `src/lib/sync/registry.ts` and never le
   fails loudly if the registry primary key differs from the real one.
 - Every trigger has `WHEN (SELECT applying FROM sync_identity WHERE id = 1) = 0`, so without an
   identity row nothing is captured and a merge-apply transaction that sets `applying = 1` is not
-  captured back (no ping-pong). The body is `INSERT OR REPLACE INTO sync_dirty`, so the last
+  captured back (no ping-pong). The body is `INSERT INTO sync_dirty ... ON CONFLICT DO UPDATE` (an
+  UPSERT clause: a trigger's own `OR REPLACE` is overridden by an outer upsert), so the last
   operation on an entity wins: a delete after an upsert is `delete`, a re-insert after a delete is
   `upsert`; an update that rewrites the key marks the old key deleted.
 - The entity id is the primary key as text for a single-column key and a JSON array of the key
@@ -599,6 +600,10 @@ SyncChangeSet = {
   entities:  [{ table, entityId, row | null, fieldClocks, rowHlc, deletedAt | null }],
   unionRows: { <table>: [row, ...] },
   settings:  [{ key, value, rowHlc }],
+  recurrence: {             // always present; both lists empty outside the gtd domain
+    occurrences: [{ template_id, due_date, outcome, outcome_hlc, device_id }],
+    clears:      [{ template_id, cleared_through_date }],
+  },
 }
 ```
 
@@ -612,10 +617,21 @@ entity ids, no duplicates, rows whose key columns match the entity id, and setti
 of the declared domain and not secret. `assertDomainAllowed(domain, allowedDomains)` is the pure
 guard the later work-profile slice will call.
 
+`recurrence` carries the two recurrence sidecars of the `gtd` domain (rows keyed by column name, like
+every row). They are not entities (no field clocks, no tombstones): they are joins. Validation is
+strict: exact keys, a non-empty bounded `template_id`, a real `YYYY-MM-DD` `due_date` /
+`cleared_through_date`, an `outcome` of `active`, `completed`, `cancelled` or `missed`, a canonical
+`outcome_hlc` (counted by `hlcHigh`), a `dev:<uuid>` `device_id`, no duplicate `(template_id, due_date)`
+or `template_id`, and any row in a non-`gtd` change set is rejected (`table_not_in_domain`). The format
+version stays 1 (sync is not shipped, so no change set from before this key exists).
+
 **What is merged and what is refused.** `src/lib/sync/merge-strategies.ts` is the seam between the
 registry and the engine. This build merges the `field-clock` tables (the `gtd` ones and the `personal`
-ones except the foreign-key tables below) and the `grow-only-union` tables (`gtd_task_events`, `ai_messages`). Every other class
-(row-clock, monotonic-status, child-set, Pomodoro, the recurrence sidecars, all of `finance`),
+ones except the foreign-key tables below) and the `grow-only-union` tables (`gtd_task_events`, `ai_messages`).
+`gtd_tasks` and `recurring_task_templates` are field-clock tables with their own rules on top
+(`TABLE_STRATEGY_OVERRIDES`, [below](#gtd-task-and-recurring-template-rules)). The recurrence sidecars
+travel in `recurrence`, never as entities (an entity of those tables is refused). Every other class
+(row-clock, monotonic-status, child-set, Pomodoro, all of `finance`),
 every table with a registry `rowFilter` and every table flagged `referencesMergePending` is not
 published by `listSyncChanges` and makes `applySyncBundle` throw
 `SyncApplyError("unsupported_merge_class")` naming the table, for the whole bundle. A `finance`
@@ -660,8 +676,10 @@ through. Inside the transaction, in order:
 4. `sync_identity.applying = 1`: the capture triggers stay quiet, so merge-applied writes leave no
    `sync_dirty` mark, stamp no local clock and do not touch `change_counter`. The flag is reset to 0
    before COMMIT and is rolled back with everything else on failure.
-5. Entities are merged table by table (registry order, entity id order), union rows are inserted, the
-   settings are merged, overwritten edits are logged.
+5. In the `gtd` domain the recurrence sidecars are joined first (`apply-recurrence.ts`).
+6. Entities are merged table by table (registry order, entity id order; `gtd_tasks` last, so the
+   project tombstones it consults are applied), union rows are inserted, the settings are merged,
+   overwritten edits and divergences are logged.
 
 Every applied row also gets its `sync_entity_snapshot` (the row as the capture decoder reads it back
 from the database) and `sync_entity_meta`, so the next local edit diffs against the merged state and
@@ -737,13 +755,122 @@ evidence and is logged as possibly concurrent. Only the device whose value was r
 value that merely loses to a newer local one is not an overwrite. Overwritten setting values are not
 logged (a setting entry carries no evidence of what the sender had seen).
 
-**Known limitation until the GTD lifecycle slice.** `gtd_tasks` and `recurring_task_templates` are
-merged field by field, so concurrent edits of different lifecycle fields (for example completing a task
-on one laptop and cancelling it on another) can produce a combination no user produced (`cancelled` with
-a completion date). Both tables carry `lifecycleMergePending: true` in the registry; the lifecycle slice
-replaces their merge and removes the flag, and a registry test fails until it does. Recurring-instance
-rows (`is_recurring_instance = 1`) also still merge generically. Sync must not be user-enabled before
-that slice.
+#### GTD task and recurring template rules
+
+`gtd_tasks` and `recurring_task_templates` keep the generic per-field / OR-set merge for everything
+that is not lifecycle (`title`, `notes`, `context_ids_json`, `deadline`, ...) and replace it for the
+lifecycle (`src/lib/sync/merge-task.ts`; glue in `apply-gtd.ts`). The rules are pure and order
+independent (`merge-task.test.ts` checks commutativity, idempotence and three-way associativity over
+random states).
+
+- **Lifecycle tuple.** `{status, bucket, completed_at, scheduled_for, planned_order, project_id}` merges as
+  ONE unit; its clock is the newest clock of any member and the winner's member clocks (not a maximum)
+  are kept. `project_id` is in the unit although the mobile spec lists it as an independent field: a
+  planned task's order only means something inside its project, and with `project_id` merged on its
+  own the "planned task lost its project" demotion fires in one merge order and not in another. The cost: a
+  project re-filing racing a bucket change competes with it as a whole (the loser is logged). Order of
+  the unit: (1) a terminal tuple (`completed`/`cancelled`) beats an active one whatever the clocks (terminal
+  is absorbing: nothing in the app reopens a task), (2) the later tuple clock, (3) the smaller canonical
+  JSON. The device whose bucket/schedule move lost logs an `overwritten_edit` with `field = "lifecycle"`
+  (both tuples). A planned-order change alone, and two completions of the same task, are never logged.
+- **Complete against cancel.** The later decision (tuple clock) is the provisional winner, the same on
+  every replica, and `completed_at` is the winner's (a cancelled task has none). Each device also writes
+  a `sync_conflicts` row `kind = 'terminal_divergence'` (`entity_type = 'gtd_tasks'`) with both tuples,
+  unresolved. Its id is derived from the task alone (and the due date for an occurrence), so re-applying,
+  republishing, or resolving later never creates a second one. Resolving it is UI (a later slice); a
+  resolution must write a newer tuple.
+- **Normalization.** After the merge the row gets the save-time invariants of the app, as a pure function
+  of the merged row so every replica agrees; it writes no clock and is re-derived by every merge: an
+  active `planned` task needs a `project_id` that is not known to be deleted (a tombstone in
+  `sync_entity_meta`; a project that has not arrived yet is NOT gone), else it is demoted as the desktop
+  does (`next_action`, no scheduled date, no order); an active `scheduled` task needs `scheduled_for`,
+  else `next_action`; `planned_order` exists only in the `planned` bucket. A completed planned task keeps
+  its order, as on the desktop (`adjustPlannedFieldsForSave` retains it).
+- **Planned queue.** Tasks merge one by one, so two laptops that reordered (or both appended) can leave
+  duplicate `planned_order` values. When a project's active queue has a duplicate or missing order, the whole
+  queue is renumbered `0..n-1` with `compactPlannedOrders` (same function and tie rules as the desktop),
+  in memory before anything is written, so a re-applied bundle writes nothing. Gaps are left alone.
+  Renumbering writes orders without a clock, so it is not a join: replicas that repaired different
+  intermediate states can hold different orders until the next exchange, which resolves the tie by the
+  smaller tuple and repairs again. The order is cosmetic; no edit is lost.
+- **Recurring instances** (`is_recurring_instance = 1`, id `recurring-task:<templateId>`, advanced in
+  place). `recurrence_due_date`, the lifecycle tuple and `pending_past_recurrences` are scoped to an
+  occurrence and RECOMPUTED after the occurrences merged, never merged: the due date is the latest
+  occurrence; the tuple comes from the row(s) at that epoch whose status agrees with the merged outcome
+  (a row from an older epoch contributes no lifecycle); the backlog is the number of `missed`
+  occurrences after `cleared_through_date`. Title, notes, contexts and project merge per field. A
+  template touched by the bundle's sidecars is recomputed even when the bundle carries no entity for it.
+- **Occurrences** (`recurrence-occurrences.ts`). Per `(template_id, due_date)` a record has an outcome
+  `active`, `missed`, `completed` or `cancelled`. Join: a user outcome beats `missed`, which beats `active`,
+  whatever the clocks; then the later `outcome_hlc`; at an exact tie `completed`, then the larger device
+  id. Complete against cancel is the same provisional-winner-plus-`terminal_divergence` rule. The clear
+  watermark is a plain maximum.
+- **Template.** Generic per field, except `last_generated_for_date`, which is the latest occurrence
+  (when the template has any). `pending_missed_occurrences` stays a per-field value: it is a write-only
+  mirror nothing reads.
+
+Capture of the sidecars (`capture-recurrence.ts`, called by the stamper inside the same transaction,
+derived from the snapshot diff of the instance row, not from the generators; the sidecars have no capture
+triggers, so nothing is marked dirty and `change_counter` still grows once per stamped entity): a new
+instance records its due date with the outcome its status shows, and an existing backlog of N as the N
+due dates of the template's schedule before it, `missed`; a due date that moves forward `D1 -> D2` records
+`D1` as `completed`/`cancelled` (if the row was in that state), then marks `missed` the passed-over dates
+(`D1` itself when it was still active, plus every due date of the template strictly between them;
+generation collapses a gap into one instance), bounded by the row's own backlog growth (see the limits
+below), and `D2` as `active`;
+leaving a terminal state also moves the clear watermark to `D1` (the desktop forgets the older backlog
+when it generates the next instance). A due date that moves backwards (an early generation pulled back)
+records only the new date. Same due date: a status that turns terminal records the outcome; a backlog that
+goes from `N > 0` to `0` moves the watermark to the latest known `missed` date. Writes are joins, so an
+unchanged outcome is not rewritten. `backfillSyncCapture` also records the baseline for instances that
+have no record (stamped before the sidecars existed), once, bumping `change_counter` by one.
+
+Time zones. Generation reads the device's local day, so a laptop whose day is behind another's sees
+an instance the other one generated as "from the future". `prepareRecurringGeneration` then either pulls
+it back to an earlier due date or, when there is none (the first occurrence), cancels the row and clears
+the template's `last_generated_for_date`. That cancellation is bookkeeping, not a decision. Capture
+recognizes it by its signature, a `cancelled` instance whose template watermark is cleared. The watermark
+alone is not proof, because it is also `null` after a STALE editor (a template card loaded before the
+template's first generation) saves the template with the `lastGeneratedForDate: null` it holds; pause /
+resume and a fresh card keep it, and a user's own cancel leaves it set. So the two evidences are used
+where they are sound: the stamp of a status that has just turned `cancelled` must also be due AFTER the
+capturing laptop's local today (`getTodayDate()`, the generator's own source; branch 1 only runs then),
+so a user's cancel of an instance that is due today or earlier is always recorded; residue already in a
+snapshot or a row (a first stamp, the baseline pass, the forward advance below) is decided by the cleared
+watermark alone, on, before or after its due date. A user CAN cancel a future-dated instance that reached
+a lagging laptop through a merge; combined with a stale-editor null watermark that rare case is dropped
+as a pull-back, and so is a user's cancel first seen by the stamper or the baseline pass while the
+watermark is null (documented limits). A dropped or detected pull-back records no outcome and no clear.
+When that laptop's generator later builds the next instance on the same row id,
+the stamp sees a `cancelled` snapshot whose occurrence was left `active` or unrecorded: the date is
+passed over (`missed`, counted in the backlog) like any active one, never upgraded to a user cancel.
+The recorded occurrence stays `active` (or whatever a peer recorded, such as a completion), and the
+merge trusts a recorded occurrence over a row's own status (a row's status only stands in when no record
+exists), so a cancelled residue row is outvoted and every laptop ends with the occurrence it should. A
+pull-back to an EARLIER due date is not undone the same way: the occurrence of the later date stays
+`active`, so every merge restores the later date on the lagging laptop and its next generation pass
+pulls it back again, until its local day catches up. That churn rewrites the row each sync (cosmetic),
+and used to append a task event every time. `buildLifecycleEvents` now gives the events of a recurring
+instance whose due date moved backwards a stable `dedupe_key`
+(`<type>:pullback:<taskId>:<dueDate>`), so the first pull-back records its one event exactly as before
+and the repeats are dropped by `persistEvents`' existing `ON CONFLICT(dedupe_key) DO NOTHING` (also in
+the union apply). This touches product code that exists independent of sync
+(`src/lib/gtd/engine.ts`); behavior for every other write is unchanged.
+
+Other known limits:
+- An advance records as `missed` only as many of the passed-over due dates as the row's own
+  `pending_past_recurrences` grew (moving on from a completed or cancelled occurrence counts the whole new
+  backlog), the latest ones first. Several advances collapsed into one stamp (capture disabled for a while,
+  a failed flush) therefore cannot record an occurrence the user completed in between as missed; the dates
+  before are simply not recorded. A gap longer than 3660 days is not expanded.
+- The occurrence sidecars grow by about 365 rows a year per daily template, and the whole set travels in
+  every `gtd` bundle; the size is to be measured in the transport slices.
+- Merging does not run `reconcileProjectPlannedTasks` (the desktop's "promote the first planned task when a
+  project has no next action"), so a merged project can sit without a next action until the next local
+  mutation of that project.
+
+Sync must still not be user-enabled before the remaining slices (Pomodoro, monotonic-status and reference
+tables, row-clock tables, canonical identity, engine and UI) land.
 
 Test-only clock: `TauriSqliteRepository` takes an optional third constructor argument, the wall clock
 (epoch milliseconds) behind every sync clock it issues (default `Date.now`). Production never passes it;

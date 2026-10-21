@@ -1,5 +1,14 @@
 import type { AppSettings } from "../../domain/types/settings";
 import type { Database } from "../storage/sqlite-db";
+import { applyRecurrenceSidecars } from "./apply-recurrence";
+import {
+  type GtdApplyState,
+  loadGtdApplyState,
+  mergeTaskBatch,
+  mergeTemplateBatch,
+  type StagedEntity,
+  touchedTemplatesOf,
+} from "./apply-gtd";
 import { buildEntityCodec, type FieldCodec, type RawRow } from "./capture-decode";
 import { quoteIdent } from "./capture-install";
 import {
@@ -31,7 +40,8 @@ import {
   type OverwrittenField,
   overwrittenConflictId,
 } from "./merge-entity";
-import { strategyForTable, tableOrder } from "./merge-strategies";
+import { fieldClockRuleOf, strategyForTable, tableOrder } from "./merge-strategies";
+import type { ExtraConflict } from "./merge-task";
 import {
   assertSettingPublishable,
   getTableRegistration,
@@ -87,7 +97,7 @@ export interface ApplyContext {
   settings: SyncSettingsAccess;
 }
 
-const CONFLICT_KIND = "overwritten_edit";
+const OVERWRITTEN_EDIT = "overwritten_edit";
 const INSERT_PARAM_BUDGET = 500;
 
 // ---------------------------------------------------------------------------------------------
@@ -234,6 +244,7 @@ interface Totals {
 
 interface PendingConflict {
   id: string;
+  kind: string;
   entityType: string;
   entityId: string;
   localJson: string;
@@ -250,8 +261,18 @@ const keyConditions = (
   next: startAt + primaryKey.length,
 });
 
+const extraConflictOf = (conflict: ExtraConflict): PendingConflict => ({
+  id: conflict.id,
+  kind: conflict.kind,
+  entityType: conflict.entityType,
+  entityId: conflict.entityId,
+  localJson: canonicalJson(conflict.local),
+  remoteJson: canonicalJson(conflict.remote),
+});
+
 const conflictOf = (table: string, entityId: string, field: OverwrittenField): PendingConflict => ({
   id: overwrittenConflictId(table, entityId, field.field, field.local.clock, field.remote.clock),
+  kind: OVERWRITTEN_EDIT,
   entityType: table,
   entityId,
   localJson: canonicalJson(setOwn({}, field.field, field.local)),
@@ -302,12 +323,57 @@ const rowsById = (table: string, info: TableInfo, rows: readonly RawRow[]): Map<
   return byId;
 };
 
+/** The generic merge of `merge-entity.ts`, entity by entity. */
+const mergeBatchGenerically = (
+  table: string,
+  info: TableInfo,
+  codec: FieldCodec,
+  batch: readonly SyncEntity[],
+  rows: Map<string, RawRow>,
+  metas: Map<string, { field_clocks_json: string; row_hlc: string; deleted_at: string | null }>,
+): StagedEntity[] =>
+  batch.map((entity) => {
+    const meta = metas.get(entity.entityId);
+    try {
+      const outcome = mergeFieldClockEntity({
+        codec,
+        columns: info.columns,
+        primaryKey: info.primaryKey,
+        notNullColumns: info.notNull,
+        local: {
+          row: rows.get(entity.entityId) ?? null,
+          meta: meta
+            ? {
+                fieldClocks: parseClocks(meta.field_clocks_json),
+                rowHlc: meta.row_hlc,
+                deletedAt: meta.deleted_at,
+              }
+            : null,
+        },
+        remote: entity,
+      });
+      return {
+        entityId: entity.entityId,
+        key: parseEntityId(table, entity.entityId) as PrimaryKeyValue[],
+        outcome,
+        conflicts: [],
+      };
+    } catch (error) {
+      throw new SyncApplyError(
+        "merge_failed",
+        `Could not merge ${table} ${entity.entityId}: ${messageOf(error)}`,
+        { table, entityId: entity.entityId, cause: error },
+      );
+    }
+  });
+
 const applyEntityTable = async (
   db: Database,
   table: string,
   entities: readonly SyncEntity[],
   totals: Totals,
   conflicts: PendingConflict[],
+  gtd: GtdApplyState | null,
 ): Promise<void> => {
   const info = await readTableInfo(db, table);
   const codec = buildEntityCodec(table, info.columns);
@@ -316,8 +382,11 @@ const applyEntityTable = async (
       table,
     });
   }
+  const rule = fieldClockRuleOf(table);
 
-  for (const batch of chunked(entities)) {
+  // A table with a GTD rule is also visited with no entity at all when the bundle's recurrence
+  // sidecars changed what its rows must say.
+  for (const batch of entities.length === 0 ? [[]] : chunked(entities)) {
     const keys = new Map<string, PrimaryKeyValue[]>();
     for (const entity of batch) {
       keys.set(entity.entityId, parseEntityId(table, entity.entityId) as PrimaryKeyValue[]);
@@ -329,51 +398,40 @@ const applyEntityTable = async (
       await fetchRows(db, table, info.primaryKey, [...keys.values()]),
     );
     const metas = await fetchMeta(db, table, ids);
-    const snapshots = await fetchSnapshots(db, table, ids);
+
+    let staged: StagedEntity[];
+    try {
+      if (rule !== undefined && gtd === null) {
+        throw new Error(`"${table}" is merged by the ${rule} rule, which needs the gtd domain`);
+      }
+      const env = { db, table, info, codec: codec as FieldCodec };
+      staged =
+        rule === "gtd-task"
+          ? await mergeTaskBatch(env, gtd as GtdApplyState, batch, rows, metas)
+          : rule === "recurring-template"
+            ? await mergeTemplateBatch(env, gtd as GtdApplyState, batch, rows, metas)
+            : mergeBatchGenerically(table, info, codec as FieldCodec, batch, rows, metas);
+    } catch (error) {
+      if (error instanceof SyncApplyError) throw error;
+      throw new SyncApplyError(
+        "merge_failed",
+        `Could not merge ${table} ${ids[0] ?? ""}: ${messageOf(error)}`,
+        { table, entityId: ids[0] ?? null, cause: error },
+      );
+    }
 
     const outcome = emptyOutcome();
-    const results = new Map<string, EntityMergeOutcome>();
-
-    for (const entity of batch) {
-      const key = keys.get(entity.entityId) as PrimaryKeyValue[];
-      const meta = metas.get(entity.entityId);
-      let merged: EntityMergeOutcome;
-      try {
-        merged = mergeFieldClockEntity({
-          codec: codec as FieldCodec,
-          columns: info.columns,
-          primaryKey: info.primaryKey,
-          notNullColumns: info.notNull,
-          local: {
-            row: rows.get(entity.entityId) ?? null,
-            meta: meta
-              ? {
-                  fieldClocks: parseClocks(meta.field_clocks_json),
-                  rowHlc: meta.row_hlc,
-                  deletedAt: meta.deleted_at,
-                }
-              : null,
-          },
-          remote: entity,
-        });
-      } catch (error) {
-        throw new SyncApplyError(
-          "merge_failed",
-          `Could not merge ${table} ${entity.entityId}: ${messageOf(error)}`,
-          { table, entityId: entity.entityId, cause: error },
-        );
-      }
-      results.set(entity.entityId, merged);
-
+    for (const entry of staged) {
+      const { entityId, key, outcome: merged } = entry;
       try {
         await writeRow(db, table, info, key, merged);
       } catch (error) {
-        throw await toSqlApplyError(db, table, entity.entityId, error);
+        throw await toSqlApplyError(db, table, entityId, error);
       }
 
       if (merged.metaChanged) {
         outcome.metaWrites.push({
-          entityId: entity.entityId,
+          entityId,
           fieldClocksJson: canonicalJson(merged.meta.fieldClocks),
           rowHlc: merged.meta.rowHlc,
           deletedAt: merged.meta.deletedAt,
@@ -388,31 +446,35 @@ const applyEntityTable = async (
         totals.tombstonesApplied += 1;
       }
       for (const field of merged.overwritten) {
-        conflicts.push(conflictOf(table, entity.entityId, field));
+        conflicts.push(conflictOf(table, entityId, field));
+      }
+      for (const conflict of entry.conflicts) {
+        conflicts.push(extraConflictOf(conflict));
       }
     }
 
     // The snapshot is the row as the stamper will decode it next time, so read it back after the
     // writes: SQLite column affinity may have changed a value on the way in.
-    const final = rowsById(
+    const allKeys = staged.map((entry) => entry.key);
+    const final = rowsById(table, info, await fetchRows(db, table, info.primaryKey, allKeys));
+    const snapshots = await fetchSnapshots(
+      db,
       table,
-      info,
-      await fetchRows(db, table, info.primaryKey, [...keys.values()]),
+      staged.map((entry) => entry.entityId),
     );
-    for (const entity of batch) {
-      const merged = results.get(entity.entityId) as EntityMergeOutcome;
-      const snapshot = snapshots.get(entity.entityId);
-      const row = final.get(entity.entityId);
-      if (merged.meta.deletedAt !== null || row === undefined) {
+    for (const entry of staged) {
+      const snapshot = snapshots.get(entry.entityId);
+      const row = final.get(entry.entityId);
+      if (entry.outcome.meta.deletedAt !== null || row === undefined) {
         if (snapshot) {
-          outcome.snapshotDeletes.push(entity.entityId);
+          outcome.snapshotDeletes.push(entry.entityId);
         }
         continue;
       }
       const wanted = canonicalJson(codec.decode(row));
       if (snapshot?.snapshot_json !== wanted) {
         outcome.snapshotWrites.push({
-          entityId: entity.entityId,
+          entityId: entry.entityId,
           snapshotJson: wanted,
           contentHash: null,
         });
@@ -594,7 +656,7 @@ const insertConflicts = async (
         conflict.id,
         conflict.entityType,
         conflict.entityId,
-        CONFLICT_KIND,
+        conflict.kind,
         conflict.localJson,
         conflict.remoteJson,
         detectedAt,
@@ -617,16 +679,34 @@ const mergeAll = async (
   const totals: Totals = { applied: 0, skipped: 0, tombstonesApplied: 0 };
   const conflicts: PendingConflict[] = [];
 
+  // The recurrence sidecars merge first: the instance rows and templates are recomputed from them.
+  let gtd: GtdApplyState | null = null;
+  if (changeSet.domain === "gtd") {
+    const sidecars = await applyRecurrenceSidecars(db, changeSet.recurrence);
+    totals.applied += sidecars.applied;
+    totals.skipped += sidecars.skipped;
+    conflicts.push(...sidecars.conflicts.map(extraConflictOf));
+    gtd = await loadGtdApplyState(db, touchedTemplatesOf(changeSet, sidecars.templates));
+  }
+
   const byTable = new Map<string, SyncEntity[]>();
   for (const entity of changeSet.entities) {
     byTable.set(entity.table, [...(byTable.get(entity.table) ?? []), entity]);
   }
-  const entityTables = [...byTable.keys()].sort((a, b) => tableOrder(a) - tableOrder(b));
+  if (gtd !== null && gtd.touchedTemplates.size > 0) {
+    for (const table of ["gtd_tasks", "recurring_task_templates"]) {
+      if (!byTable.has(table)) byTable.set(table, []);
+    }
+  }
+  // Tasks last: whether a planned task's project is gone is read from the project tombstones, which
+  // must have been applied by then.
+  const rank = (table: string): number => tableOrder(table) + (table === "gtd_tasks" ? 1000 : 0);
+  const entityTables = [...byTable.keys()].sort((a, b) => rank(a) - rank(b));
   for (const table of entityTables) {
     const entities = (byTable.get(table) as SyncEntity[]).sort((a, b) =>
       a.entityId < b.entityId ? -1 : a.entityId > b.entityId ? 1 : 0,
     );
-    await applyEntityTable(db, table, entities, totals, conflicts);
+    await applyEntityTable(db, table, entities, totals, conflicts, gtd);
   }
 
   const unionTables = Object.keys(changeSet.unionRows).sort(

@@ -458,15 +458,13 @@ describe("domain and merge-class sanity", () => {
     );
   });
 
-  it("flags exactly the tables whose lifecycle merge is still pending (the GTD lifecycle slice removes it)", () => {
-    // gtd_tasks and recurring_task_templates are merged field by field for now, which can yield a
-    // combination of lifecycle fields no user produced. The GTD lifecycle slice replaces that merge
-    // and must delete the flag, which makes this test fail on purpose.
-    const pending = TABLE_REGISTRY.filter((entry) => entry.lifecycleMergePending).map(
-      (entry) => entry.table,
-    );
-    expect(pending.sort()).toEqual(["gtd_tasks", "recurring_task_templates"]);
-    for (const table of pending) {
+  it("has no lifecycle-pending table left: the GTD task and template merge by their own rules", () => {
+    // The temporary `lifecycleMergePending` flag is gone; its replacement is a strategy rule
+    // (merge-strategies.ts), pinned by merge-strategies.test.ts and merge-task.test.ts.
+    for (const entry of TABLE_REGISTRY) {
+      expect(Object.keys(entry), entry.table).not.toContain("lifecycleMergePending");
+    }
+    for (const table of ["gtd_tasks", "recurring_task_templates"]) {
       expect(registration(table).domain).toBe("gtd");
       expect(registration(table).mergeClass).toBe("field-clock");
     }
