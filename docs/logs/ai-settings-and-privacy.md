@@ -1,3 +1,4 @@
+- 2026-10-21: The weekly invalid-JSON compatibility snapshot now records the configured model and null usage. Weekly synthesis writes that fallback row itself, so it does not keep the failed calls' model or summed usage.
 - 2026-10-19: Weekly synthesis provider failures and unparseable responses reuse the latest successful `ok` synthesis for that week (`source: cache` plus a warning), append a proposal-less `fallback` row so input-hash lookup does not treat the failure as an `ok` hit, and fall back to the local brief with proposals only when no reusable `ok` row exists; `buildSynthesis` with AI off still returns the local skipped synthesis and skips the last-good path.
 - 2026-10-12: Removed the email triage classifier key section (the separate `triage_api_key` vault entry no longer exists in code) and the cross-references to email OAuth.
 

@@ -228,10 +228,11 @@ The services pass their existing policies explicitly:
   temporary local paint and failed explicit regeneration do not enter history.
   Accepted Pastor bodies store validated JSON; other services retain raw provider JSON.
 
-A second invalid response records both calls' usage. A thrown provider, repair or
-persistence error follows the existing fallback policy: the configured model and
-null usage are recorded. Cache hashes, prompt versions and surface-specific parsing
-remain unchanged.
+A second invalid response records both calls' usage, except weekly synthesis, which
+persists its own fallback row with the configured model and null usage. A thrown
+provider, repair or persistence error follows the existing fallback policy: the
+configured model and null usage are recorded. Cache hashes, prompt versions and
+surface-specific parsing remain unchanged.
 
 ### Structured output and accept-step
 
@@ -364,10 +365,10 @@ last-good assessment (`source: cache`) and shows the failure as a warning line. 
 best-effort `fallback` row (local synthesis body, no proposals) is still appended so a
 later input-hash lookup does not treat the failed run as an `ok` cache hit (auto-load on
 `/semaine` is unchanged: a current-prompt stored `ok` row is shown without calling the
-provider). If no reusable `ok` row exists, behavior is unchanged: the local brief
-is persisted as `fallback` with proposals. When AI is disabled or the API key is empty,
-`buildSynthesis` returns the local skipped synthesis and does not apply this last-good
-path. Other coach surfaces do not use this last-good fallback.
+provider). If no reusable `ok` row exists, the local brief is persisted as `fallback`
+with proposals, using the configured model and null usage. When AI is disabled or the
+API key is empty, `buildSynthesis` returns the local skipped synthesis and does not
+apply this last-good path. Other coach surfaces do not use this last-good fallback.
 
 ### Monthly synthesis (`monthly_synthesis`)
 
