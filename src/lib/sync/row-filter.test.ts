@@ -145,4 +145,40 @@ describe("assertEntitiesPublishable", () => {
     const tombstone: SyncEntity = { ...done, row: null, deletedAt: done.rowHlc };
     expect(() => assertEntitiesPublishable([tombstone], "apply")).not.toThrow();
   });
+
+  describe("statement balance snapshots (the finance filter)", () => {
+    const snapshot = (source: string) =>
+      live("finance_account_balance_snapshots", '["acc","2026-09-30"]', {
+        account_id: "acc",
+        as_of_date: "2026-09-30",
+        source,
+      });
+
+    it("accepts a statement snapshot in both modes", () => {
+      expect(() => assertEntitiesPublishable([snapshot("statement")], "apply")).not.toThrow();
+      expect(() => assertEntitiesPublishable([snapshot("statement")], "publish")).not.toThrow();
+    });
+
+    it("refuses a derived (or any other) snapshot the same way in both modes", () => {
+      for (const source of ["derived", "manual", ""]) {
+        expect(() => assertEntitiesPublishable([snapshot(source)], "apply")).toThrowError(
+          expect.objectContaining({
+            code: "row_filter_violation",
+            table: "finance_account_balance_snapshots",
+          }),
+        );
+        expect(() => assertEntitiesPublishable([snapshot(source)], "publish")).toThrow(
+          /Row filter breach/,
+        );
+      }
+    });
+
+    it("judges a snapshot on its own row, not against any other entity of the set", () => {
+      const other = live("finance_accounts", "acc", { id: "acc" });
+      expect(() =>
+        assertEntitiesPublishable([other, snapshot("statement")], "apply"),
+      ).not.toThrow();
+      expect(() => assertEntitiesPublishable([other, snapshot("derived")], "apply")).toThrow();
+    });
+  });
 });

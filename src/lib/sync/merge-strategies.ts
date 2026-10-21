@@ -15,12 +15,16 @@ import {
  * - `applySyncBundle` refuses (`unsupported_merge_class`) a bundle that mentions any other table
  *   instead of half-merging it.
  *
- * A later slice that implements another class (generic row-clock, child-set, the finance
- * categorization unit) adds its `kind` to {@link TableStrategy}, a branch in `strategyForTable`, and
- * a case in the dispatcher of `apply-bundle.ts` / `list-changes.ts`; the compiler then points at
- * every place that must handle it. A table that needs its own rules on top of a class (the GTD task
- * lifecycle tuple, the Pomodoro tables, AI proposals) is routed through
- * {@link TABLE_STRATEGY_OVERRIDES} instead.
+ * A later slice that implements another class adds its `kind` to {@link TableStrategy}, a branch in
+ * `strategyForTable`, and a case in the dispatcher of `apply-bundle.ts` / `list-changes.ts`; the
+ * compiler then points at every place that must handle it. A table that needs its own rules on top
+ * of a class (the GTD task lifecycle tuple, the Pomodoro tables, AI proposals, the finance
+ * categorization unit) is routed through {@link TABLE_STRATEGY_OVERRIDES} instead.
+ *
+ * Still refused after the finance slice: nothing in the three bundle domains except the gtd
+ * recurrence sidecars (they travel in `SyncChangeSet.recurrence`, never as entities). Natural-key
+ * canonicalization (`sync_id_aliases`) is a later slice: a declared natural-key collision still
+ * aborts the bundle with `natural_key_collision`.
  */
 
 /**
@@ -41,11 +45,29 @@ export type FieldClockRule = "gtd-task" | "recurring-template";
  *   session is never touched; whole-row last-writer-wins (`merge-pomodoro.ts`);
  * - `pomodoro-segment`: only segments of a terminal session; `ended_at` joined (non-null beats null);
  * - `ai-proposal`: terminal status beats pending, divergent terminals logged, one pending proposal
- *   per natural key (`merge-proposal.ts`, `apply-proposals.ts`).
- *
- * There is no generic row-clock rule yet: `row-clock` finance tables arrive with the next slice.
+ *   per natural key (`merge-proposal.ts`, `apply-proposals.ts`);
+ * - `generic-row`: plain whole-row last-writer-wins, the loser logged (`merge-finance.ts`): every
+ *   other `row-clock` table (the finance people, accounts, categories, rules, merchant memory,
+ *   budget, recurring series, import profiles and batches, and `ai_memories`);
+ * - `finance-transaction`: the row merges by row clock, its categorization unit
+ *   (`{category_id, category_source, has_splits}` + the splits) by the unit order
+ *   (`merge-finance.ts`, `apply-finance.ts`);
+ * - `finance-split`: a child of the transaction's unit, applied together with its transaction
+ *   (never merged on its own);
+ * - `finance-suggestion`: monotonic status, one pending suggestion per transaction
+ *   (`merge-finance.ts`, `apply-proposals.ts`);
+ * - `finance-balance-snapshot`: only `source = 'statement'` rows are published or accepted
+ *   (registry `rowFilter`), at most one standing anchor per account (`apply-finance.ts`).
  */
-export type RowClockRule = "pomodoro-session" | "pomodoro-segment" | "ai-proposal";
+export type RowClockRule =
+  | "pomodoro-session"
+  | "pomodoro-segment"
+  | "ai-proposal"
+  | "generic-row"
+  | "finance-transaction"
+  | "finance-split"
+  | "finance-suggestion"
+  | "finance-balance-snapshot";
 
 export type TableStrategy =
   /** Per-column / per-key / per-element clocks with whole-entity edit-wins-over-delete. */
@@ -59,8 +81,10 @@ export type TableStrategyKind = TableStrategy["kind"];
 
 /**
  * Per-table replacements for the class default: the GTD task and the recurring template have their
- * own rules on top of the field-clock class; the Pomodoro tables and AI proposals are the only
- * row-clock tables this build merges, each through its own rule.
+ * own rules on top of the field-clock class; the Pomodoro tables, AI proposals and the finance
+ * tables that need more than whole-row last-writer-wins (transactions and their splits, category
+ * suggestions, statement snapshots) are routed through their own row-clock rule. Every other
+ * `row-clock` table takes the `generic-row` rule from its merge class.
  */
 export const TABLE_STRATEGY_OVERRIDES: Readonly<Record<string, TableStrategy>> = {
   gtd_tasks: { kind: "field-clock", rule: "gtd-task" },
@@ -68,6 +92,10 @@ export const TABLE_STRATEGY_OVERRIDES: Readonly<Record<string, TableStrategy>> =
   pomodoro_sessions: { kind: "row-clock", rule: "pomodoro-session" },
   pomodoro_segments: { kind: "row-clock", rule: "pomodoro-segment" },
   ai_proposals: { kind: "row-clock", rule: "ai-proposal" },
+  finance_transactions: { kind: "row-clock", rule: "finance-transaction" },
+  finance_transaction_splits: { kind: "row-clock", rule: "finance-split" },
+  finance_category_suggestions: { kind: "row-clock", rule: "finance-suggestion" },
+  finance_account_balance_snapshots: { kind: "row-clock", rule: "finance-balance-snapshot" },
 };
 
 /**
@@ -77,7 +105,8 @@ export const TABLE_STRATEGY_OVERRIDES: Readonly<Record<string, TableStrategy>> =
  * - a table with a `rowFilter` (a subset is published, the rest stays local) unless its strategy
  *   is a row-clock rule that owns the filter, so a registry change cannot make filtered-out rows
  *   leak through a generic path;
- * - any merge class without a strategy yet.
+ * - any merge class without a strategy yet (`monotonic-status`, `child-set` and `pomodoro` tables
+ *   need an override; there is no other class left without one).
  *
  * Declared foreign keys are not a reason to refuse a table: `apply-references.ts` orders the
  * tables, keeps children off deleted parents and tombstones what a cascade removes, derived from
@@ -100,6 +129,8 @@ export const strategyForRegistration = (entry: TableRegistration): TableStrategy
   switch (entry.mergeClass) {
     case "field-clock":
       return { kind: "field-clock" };
+    case "row-clock":
+      return { kind: "row-clock", rule: "generic-row" };
     case "grow-only-union":
       return { kind: "grow-only-union" };
     default:

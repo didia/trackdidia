@@ -201,27 +201,33 @@ describe("listSyncChanges: privacy guards", () => {
     }
   });
 
-  it("does not publish tables whose merge class is not implemented yet, even though they hold clocked data", async () => {
+  it("publishes the finance tables and AI memories, but never a device-local table or a derived snapshot", async () => {
     const a = await fullLaptop();
-    // The data exists and is stamped ...
-    expect(
-      await a.db.select("SELECT 1 FROM sync_entity_meta WHERE entity_type = 'finance_accounts'"),
-    ).not.toEqual([]);
-    expect(
-      await a.db.select("SELECT 1 FROM sync_entity_meta WHERE entity_type = 'ai_memories'"),
-    ).not.toEqual([]);
-    // ... but is not published.
     const finance = await a.repo.listSyncChanges("finance");
-    expect(finance.entities).toEqual([]);
-    expect(finance.unionRows).toEqual({});
+    expect(tablesOf(finance)).toEqual(
+      expect.arrayContaining([
+        "finance_accounts",
+        "finance_transactions",
+        "finance_import_batches",
+      ]),
+    );
     const personal = await a.repo.listSyncChanges("personal");
-    expect(tablesOf(personal)).not.toContain("ai_memories");
+    expect(tablesOf(personal)).toContain("ai_memories");
     const gtd = await a.repo.listSyncChanges("gtd");
     for (const changeSet of [finance, personal, gtd]) {
       for (const table of tablesOf(changeSet)) {
         expect(strategyForTable(table), table).not.toBeNull();
       }
     }
+    // The device-local notification table is never read, and the derived snapshots stay home.
+    await a.repo.snapshotFinanceAccountBalances("2026-04-02");
+    const derived = await a.db.select(
+      "SELECT 1 FROM finance_account_balance_snapshots WHERE source = 'derived'",
+    );
+    expect(derived).not.toEqual([]);
+    const again = await a.repo.listSyncChanges("finance");
+    expect(tablesOf(again)).not.toContain("finance_account_balance_snapshots");
+    expect(tablesOf(again)).not.toContain("finance_alert_notifications");
   });
 
   it("publishes the personal field-clock tables and the union tables of each domain", async () => {
@@ -264,7 +270,15 @@ describe("listSyncChanges: shape and consistency", () => {
     const sim = await createSyncHarness(["A"]);
     const a = sim.device("A");
     const empty = await a.repo.listSyncChanges("finance");
-    expect(empty).toMatchObject({ entities: [], unionRows: {}, settings: [] });
+    // A fresh database holds only the three system categories migration 37 inserts.
+    expect(empty).toMatchObject({ unionRows: {}, settings: [] });
+    expect(empty.entities.map((entity) => [entity.table, entity.entityId])).toEqual(
+      [
+        ["finance_categories", "fincat:non-categorise"],
+        ["finance_categories", "fincat:transfert"],
+        ["finance_categories", "fincat:split"],
+      ].sort((x, y) => ((x[1] as string) < (y[1] as string) ? -1 : 1)),
+    );
     expect(parseHlc(empty.hlcHigh)?.deviceId).toBe(a.deviceId);
   });
 

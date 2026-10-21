@@ -1,5 +1,6 @@
 import type { AppSettings } from "../../domain/types/settings";
 import type { Database } from "../storage/sqlite-db";
+import { applyFinanceSplits, applyFinanceTransactions, buildFinanceContext } from "./apply-finance";
 import { orderByReferences, type ParentStatus, ReferenceGuard } from "./apply-references";
 import { applyRecurrenceSidecars } from "./apply-recurrence";
 import { applyRowClockTable } from "./apply-rows";
@@ -52,7 +53,7 @@ import {
   type OverwrittenField,
   overwrittenConflictId,
 } from "./merge-entity";
-import { fieldClockRuleOf, strategyForTable, tableOrder } from "./merge-strategies";
+import { fieldClockRuleOf, rowClockRuleOf, strategyForTable, tableOrder } from "./merge-strategies";
 import { type ExtraConflict, orphanedChildId } from "./conflicts";
 import { assertEntitiesPublishable } from "./row-filter";
 import {
@@ -646,13 +647,19 @@ const mergeAll = async (
       .filter((entity) => entity.table === "pomodoro_sessions" && entity.row !== null)
       .map((entity) => entity.entityId),
   );
+  const financeContext = buildFinanceContext(changeSet.entities);
   const order = orderByReferences([...entityTables, ...unionTables], guard.edges);
   for (const table of order) {
     if (byTable.has(table)) {
       const entities = (byTable.get(table) as SyncEntity[]).sort((a, b) =>
         a.entityId < b.entityId ? -1 : a.entityId > b.entityId ? 1 : 0,
       );
-      if (strategyForTable(table)?.kind === "row-clock") {
+      const rowRule = rowClockRuleOf(table);
+      if (rowRule === "finance-transaction") {
+        await applyFinanceTransactions(db, entities, financeContext, totals, conflicts);
+      } else if (rowRule === "finance-split") {
+        await applyFinanceSplits(entities, financeContext, totals, conflicts);
+      } else if (strategyForTable(table)?.kind === "row-clock") {
         await applyRowClockTable(db, table, entities, totals, conflicts, guard, bundleSessionIds);
       } else {
         await applyEntityTable(db, table, entities, totals, conflicts, gtd, guard);

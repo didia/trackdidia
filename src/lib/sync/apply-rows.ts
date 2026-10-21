@@ -25,6 +25,15 @@ import {
   type Totals,
   writeRow,
 } from "./apply-support";
+import { competingAnchors, dropAnchors, readLocalDeviceId } from "./apply-finance";
+import {
+  compareAnchors,
+  FINANCE_SNAPSHOTS,
+  GENERIC_ROW_RULES,
+  isTerminalSuggestionStatus,
+  SNAPSHOT_RULES,
+  SUGGESTION_RULES,
+} from "./merge-finance";
 import { isTerminalProposalStatus, PROPOSAL_RULES } from "./merge-proposal";
 import { SEGMENT_RULES, SESSION_RULES } from "./merge-pomodoro";
 import { mergeRowEntity, type RowMergeOutcome, type RowRules } from "./merge-row";
@@ -34,8 +43,11 @@ import { readTableInfo } from "./table-info";
 import { overwrittenConflictId } from "./merge-entity";
 
 /**
- * Applying the row-clock tables this build merges: the two Pomodoro tables and `ai_proposals`.
- * The pure rules live in `merge-row.ts` (+ `merge-pomodoro.ts`, `merge-proposal.ts`); this module
+ * Applying the row-clock tables this build merges: the two Pomodoro tables, `ai_proposals`, the
+ * finance tables (category suggestions, statement snapshots, and every plain finance row) and
+ * `ai_memories`. The transactions and their splits are applied together by `apply-finance.ts`.
+ * The pure rules live in `merge-row.ts` (+ `merge-pomodoro.ts`, `merge-proposal.ts`,
+ * `merge-finance.ts`); this module
  * reads the local state, enforces what only the database can decide, writes, and keeps the meta
  * and the snapshot exactly as the stamper would (`content_hash` of the decoded row, `{}` clocks), so
  * the verifying scan restamps nothing.
@@ -48,14 +60,27 @@ import { overwrittenConflictId } from "./merge-entity";
  * - Foreign keys (`ai_proposals.message_id`): a proposal whose message is not here yet is skipped
  *   with an `orphaned_child` conflict, nothing written, so the bundle that brings the message lets it
  *   apply; the bundle is never aborted for it. A message is never deleted, so a parent is never gone.
- * - Pending proposals that claim one natural key: `apply-proposals.ts`.
+ * - Pending proposals / suggestions that claim one natural key: `apply-proposals.ts`.
+ * - Statement balance snapshots: at most one standing anchor per account (`apply-finance.ts`).
+ * - Finance rows have no foreign keys: a suggestion whose transaction has not arrived yet is stored
+ *   as it is (a soft reference), exactly like every other finance row that names a missing id.
  */
 
-const RULES: Readonly<Record<RowClockRule, RowRules>> = {
+/** The transactions and their splits are applied together by `apply-finance.ts`, never here. */
+type OwnRule = Exclude<RowClockRule, "finance-transaction" | "finance-split">;
+
+const RULES: Readonly<Record<OwnRule, RowRules>> = {
   "pomodoro-session": SESSION_RULES,
   "pomodoro-segment": SEGMENT_RULES,
   "ai-proposal": PROPOSAL_RULES,
+  "generic-row": GENERIC_ROW_RULES,
+  "finance-suggestion": SUGGESTION_RULES,
+  "finance-balance-snapshot": SNAPSHOT_RULES,
 };
+
+/** Rules whose pending rows claim a natural key (one pending row per key). */
+const hasPendingKey = (rule: OwnRule): boolean =>
+  rule === "ai-proposal" || rule === "finance-suggestion";
 
 const CHUNK = 100;
 
@@ -90,7 +115,7 @@ const timerConflict = (table: string, entityId: string, what: string): SyncApply
  */
 const checkPomodoro = async (
   db: Database,
-  rule: RowClockRule,
+  rule: OwnRule,
   table: string,
   batch: readonly SyncEntity[],
   localRows: Map<string, RawRow>,
@@ -162,10 +187,11 @@ const overwrittenConflict = (
  * bundle's own decisions (a replica holding P1 pending that receives {P1 accepted, P2 pending} must
  * not expire P2 against a P1 that is about to stop being pending). Other tables keep id order.
  */
-const orderForApply = (rule: RowClockRule, entities: readonly SyncEntity[]): SyncEntity[] => {
-  if (rule !== "ai-proposal") return [...entities];
+const orderForApply = (rule: OwnRule, entities: readonly SyncEntity[]): SyncEntity[] => {
+  if (!hasPendingKey(rule)) return [...entities];
+  const isTerminal = rule === "ai-proposal" ? isTerminalProposalStatus : isTerminalSuggestionStatus;
   const rank = (entity: SyncEntity): number =>
-    entity.row === null ? 1 : isTerminalProposalStatus(entity.row.status) ? 0 : 2;
+    entity.row === null ? 1 : isTerminal(entity.row.status) ? 0 : 2;
   return [...entities].sort(
     (a, b) => rank(a) - rank(b) || (a.entityId < b.entityId ? -1 : a.entityId > b.entityId ? 1 : 0),
   );
@@ -181,10 +207,12 @@ export const applyRowClockTable = async (
   bundleSessionIds: ReadonlySet<string>,
 ): Promise<void> => {
   const rule = rowClockRuleOf(table);
-  if (rule === undefined) {
-    throw new SyncApplyError("unsupported_merge_class", `"${table}" has no row-clock rule`, {
-      table,
-    });
+  if (rule === undefined || rule === "finance-transaction" || rule === "finance-split") {
+    throw new SyncApplyError(
+      "unsupported_merge_class",
+      `"${table}" has no row-clock rule in this applier`,
+      { table },
+    );
   }
   const info = await readTableInfo(db, table);
   const codec = buildEntityCodec(table, info.columns);
@@ -192,9 +220,10 @@ export const applyRowClockTable = async (
     throw new SyncApplyError("unsupported_merge_class", `"${table}" has no row codec`, { table });
   }
   const rules = RULES[rule];
-  // Pending proposals look at rows an earlier proposal of the same batch wrote or expired, so the
-  // proposal table is applied one entity at a time, reading the database again for each.
-  const size = rule === "ai-proposal" ? 1 : CHUNK;
+  const localDeviceId = await readLocalDeviceId(db);
+  // Pending rows look at rows an earlier pending row of the same batch wrote or expired, so these
+  // tables are applied one entity at a time, reading the database again for each.
+  const size = hasPendingKey(rule) ? 1 : CHUNK;
 
   for (const batch of chunked(orderForApply(rule, entities), size)) {
     const keys = batch.map((entity) => parseEntityId(table, entity.entityId) as PrimaryKeyValue[]);
@@ -235,6 +264,7 @@ export const applyRowClockTable = async (
           },
           remote: entity,
           rules,
+          localDeviceId,
         });
       } catch (error) {
         throw new SyncApplyError(
@@ -254,8 +284,29 @@ export const applyRowClockTable = async (
         }
       }
 
+      // One standing statement anchor per account: an incoming anchor that an older-or-equal local
+      // one does not beat replaces it; one a local anchor beats is not stored at all.
+      let superseded: Awaited<ReturnType<typeof competingAnchors>> = [];
+      if (
+        table === FINANCE_SNAPSHOTS &&
+        merged.finalRow !== null &&
+        merged.meta.deletedAt === null
+      ) {
+        const others = await competingAnchors(
+          db,
+          String(merged.finalRow.account_id),
+          entity.entityId,
+        );
+        const self = { clock: merged.meta.rowHlc, asOfDate: String(merged.finalRow.as_of_date) };
+        if (others.some((other) => compareAnchors(other, self) > 0)) {
+          totals.skipped += 1;
+          continue;
+        }
+        superseded = others;
+      }
+
       let demote: { id: string; row: RawRow }[] = [];
-      if (rule === "ai-proposal") {
+      if (hasPendingKey(rule)) {
         const pending = await resolvePendingKeys(db, table, info, merged, entity.entityId);
         if (pending.expireIncoming) expireIncoming(merged);
         demote = pending.demote;
@@ -268,6 +319,8 @@ export const applyRowClockTable = async (
       } catch (error) {
         throw await toSqlApplyError(db, table, entity.entityId, error);
       }
+      const droppedAnchors = await dropAnchors(db, superseded);
+      totals.applied += droppedAnchors;
 
       if (merged.metaChanged) {
         outcome.metaWrites.push({

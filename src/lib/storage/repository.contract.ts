@@ -5011,6 +5011,54 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         });
       });
 
+      it("a reclassify pass that decides nothing new writes nothing: updatedAt and the rule counters stay", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2026-04-08T12:00:00.000Z"));
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "noop.csv",
+          fileHash: "hash-noop-1",
+          rows: [
+            importRow({ accountId: "account-1", descriptionRaw: "IGA MONTREAL" }),
+            importRow({
+              accountId: "account-1",
+              amountMinor: -777,
+              descriptionRaw: "UNKNOWN SHOP",
+              merchantKey: "UNKNOWN SHOP",
+            }),
+          ],
+        });
+        const rule = await repository.saveFinanceRule({
+          id: "",
+          name: "Épicerie IGA",
+          priority: 0,
+          enabled: true,
+          matcher: { descriptionContains: "IGA" },
+          actions: { categoryId: "fincat:alimentation.epicerie" },
+          createdAt: "",
+          updatedAt: "",
+          lastAppliedAt: null,
+          appliedCount: 0,
+        });
+        const first = await repository.reclassifyFinancePending();
+        expect(first.reclassified).toBe(1);
+        const transactions = await repository.listFinanceTransactions({});
+        const rules = await repository.listFinanceRules();
+        const suggestions = await repository.listFinanceCategorySuggestions();
+
+        // Let the wall clock move so a pointless write would show in `updatedAt`.
+        vi.setSystemTime(new Date(Date.now() + 60_000));
+        const again = await repository.reclassifyFinancePending();
+        expect(again.reclassified).toBe(0);
+        expect(await repository.listFinanceTransactions({})).toEqual(transactions);
+        expect(await repository.listFinanceRules()).toEqual(rules);
+        expect(await repository.listFinanceCategorySuggestions()).toEqual(suggestions);
+        expect(rules.find((candidate) => candidate.id === rule.id)?.appliedCount).toBe(1);
+      });
+
       it("retires a pending suggestion when a rule supersedes it, and a repeated decision is a no-op", async () => {
         const repository = await factory();
         await repository.saveFinanceAccount(account({ id: "account-1" }));
