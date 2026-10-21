@@ -469,6 +469,26 @@ describe("recurring occurrences", () => {
     expect(await clears()).toEqual([{ cleared_through_date: "2026-03-19" }]);
   });
 
+  it("a stale template card that nulled the watermark does not turn the user's cancel into a pull-back", async () => {
+    const { sim, a, b } = await recurringPair();
+    // The card was loaded before the first generation, so it still holds `lastGeneratedForDate: null`.
+    a.clock.advance(1_000);
+    await a.repo.saveRecurringTaskTemplate(template({ title: "Water (edited)" }));
+    expect((await a.repo.listRecurringTaskTemplates())[0]?.lastGeneratedForDate).toBeNull();
+
+    a.clock.advance(1_000);
+    await a.repo.cancelTask(INSTANCE_ID);
+    expect(await occurrences(a)).toEqual({ "2026-03-15": "cancelled" });
+
+    await sim.syncAll("gtd");
+    await sim.syncAll("gtd");
+    for (const device of [a, b]) {
+      expect(await occurrences(device)).toEqual({ "2026-03-15": "cancelled" });
+      expect(await findTask(device, INSTANCE_ID)).toMatchObject({ status: "cancelled" });
+    }
+    await sim.expectConverged("gtd", { snapshots: true });
+  });
+
   it("complete against missed for one occurrence: the user's outcome wins whatever the clocks", async () => {
     const { sim, a, b } = await recurringPair();
     b.clock.advance(120_000); // B's generation carries the LATER clock
@@ -635,5 +655,80 @@ describe("time zones: a laptop whose local day is behind", () => {
         recurrenceDueDate: "2026-10-21",
       });
     }
+  });
+
+  it("generating forward from the pull-back residue on a later day does not turn the date into a user cancel", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const { sim, a: y, b: x } = await twoDevices();
+    vi.setSystemTime(new Date(2026, 9, 21, 1, 0, 0));
+    await y.repo.saveRecurringTaskTemplate(template({ startDate: "2026-10-21" }));
+    await sim.syncAll("gtd");
+    y.clock.advance(1_000);
+    await y.repo.generateDueRecurringTasks("2026-10-21");
+    await sim.exchange(y, x, "gtd");
+
+    // X pulls the premature instance back and does NOT sync again ...
+    vi.setSystemTime(new Date(2026, 9, 20, 23, 0, 0));
+    x.clock.advance(60_000);
+    await x.repo.generateDueRecurringTasks("2026-10-20");
+    expect(await findTask(x, INSTANCE_ID)).toMatchObject({ status: "cancelled" });
+    // ... Y completes the occurrence meanwhile ...
+    y.clock.advance(120_000);
+    await y.repo.completeTask(INSTANCE_ID, "2026-10-21T09:00:00.000Z");
+    // ... and two days later X's generator builds the next instance on the same row id.
+    vi.setSystemTime(new Date(2026, 9, 22, 7, 0, 0));
+    x.clock.advance(600_000); // X's clocks are the later ones
+    await x.repo.generateDueRecurringTasks("2026-10-22");
+    expect(await findTask(x, INSTANCE_ID)).toMatchObject({
+      status: "active",
+      recurrenceDueDate: "2026-10-22",
+    });
+    expect(await occurrences(x)).toEqual({ "2026-10-21": "missed", "2026-10-22": "active" });
+
+    await sim.syncAll("gtd");
+    await sim.syncAll("gtd");
+    for (const device of [y, x]) {
+      // The completion survives: X's residue never became a cancel that could outrank it.
+      expect(await occurrences(device)).toEqual({
+        "2026-10-21": "completed",
+        "2026-10-22": "active",
+      });
+      expect(await kinds(device, "terminal_divergence")).toEqual([]);
+      expect(await findTask(device, INSTANCE_ID)).toMatchObject({
+        status: "active",
+        recurrenceDueDate: "2026-10-22",
+      });
+    }
+    await sim.expectConverged("gtd", { snapshots: true });
+  });
+
+  it("a pull-back to an earlier due date adds one event, not one per exchange", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const { sim, a: y, b: x } = await twoDevices();
+    vi.setSystemTime(new Date(2026, 9, 21, 1, 0, 0));
+    await y.repo.saveRecurringTaskTemplate(template({ startDate: "2026-10-15" }));
+    await sim.syncAll("gtd");
+    y.clock.advance(1_000);
+    await y.repo.generateDueRecurringTasks("2026-10-21");
+    await sim.syncAll("gtd");
+    const opened = async (device: SyncDevice) =>
+      (await device.repo.listTaskEvents({ types: ["task_moved_to_next_action"] })).filter(
+        (event) => event.taskId === INSTANCE_ID,
+      );
+    const baseline = (await opened(x)).length;
+
+    // X is still on Oct 20: its generator pulls the instance back to Oct 20, over and over as every
+    // exchange restores Oct 21.
+    vi.setSystemTime(new Date(2026, 9, 20, 23, 0, 0));
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      x.clock.advance(60_000);
+      await x.repo.generateDueRecurringTasks("2026-10-20");
+      expect(await findTask(x, INSTANCE_ID)).toMatchObject({ recurrenceDueDate: "2026-10-20" });
+      await sim.syncAll("gtd");
+    }
+    for (const device of [y, x]) {
+      expect(await opened(device)).toHaveLength(baseline + 1);
+    }
+    expect((await opened(x)).filter((event) => event.eventDate === "2026-10-20")).toHaveLength(1);
   });
 });

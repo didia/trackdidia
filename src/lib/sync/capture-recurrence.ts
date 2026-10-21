@@ -99,22 +99,32 @@ const dueDatesBefore = (template: RecurringTaskTemplate, due: string, count: num
 
 /**
  * True when a `cancelled` instance row is the generator's pull-back and not a decision of the user.
- * `prepareRecurringGeneration` cancels an instance whose due date is after the device's local today
- * and that has no earlier due date to fall back to (another laptop, whose local day is ahead, had
- * generated it), and clears the template's `last_generated_for_date` in the same pass. A user can
- * cancel a future-dated instance too (it reaches a laptop that is behind through a merge), but that
- * leaves the watermark set, so the combination "cancelled, due after today, watermark cleared" only
- * comes from the generator. Recording it as a user outcome would cancel the occurrence on every
- * laptop for good.
+ * `prepareRecurringGeneration` cancels an instance that another laptop (whose local day is ahead)
+ * generated and that has no earlier due date to fall back to, and clears the template's
+ * `last_generated_for_date` in the same pass. Recording that as a user outcome would cancel the
+ * occurrence on every laptop for good.
+ *
+ * The watermark alone is NOT proof: it is `null` there, but also after a stale editor (a
+ * `RecurringTemplateCard` loaded before the template's first generation) saves the template with
+ * the `lastGeneratedForDate: null` it holds. Two evidences, for two situations:
+ * - `liveDueAfter` given: the stamp of a status that has just turned `cancelled` on this device.
+ *   Branch 1 only runs for an instance due AFTER the device's local day (`today`), so a user's
+ *   cancel of an instance due today or earlier is never mistaken for it, whatever the watermark.
+ *   (A user CAN cancel a future-dated instance that reached a lagging laptop through a merge;
+ *   with a watermark nulled by a stale save as well, that rare combination is dropped.)
+ * - `liveDueAfter` omitted: residue already in a snapshot or a row (creation, forward advance from
+ *   a cancelled snapshot, the baseline pass). The stamp that wrote it has already been classified
+ *   or is not available, and by now the due date may have arrived, so the cleared watermark
+ *   decides.
  */
 export const isGeneratorPullBack = async (
   db: Database,
   templateId: string,
-  due: string,
   status: unknown,
-  today: string,
+  liveDueAfter?: { due: string; today: string },
 ): Promise<boolean> => {
-  if (status !== "cancelled" || due <= today) return false;
+  if (status !== "cancelled") return false;
+  if (liveDueAfter !== undefined && liveDueAfter.due <= liveDueAfter.today) return false;
   const template = await readTemplate(db, templateId);
   return template !== null && template.lastGeneratedForDate === null;
 };
@@ -150,8 +160,9 @@ export const captureRecurringInstance = async (
     }
   };
   // What the row's status says about the current occurrence. A generator pull-back is not an outcome.
-  const currentOutcome = async (): Promise<OccurrenceOutcome> =>
-    (await isGeneratorPullBack(db, templateId, due, next.status, today))
+  // `live` is a status that turned `cancelled` in this very stamp; otherwise the row is residue.
+  const currentOutcome = async (live: boolean): Promise<OccurrenceOutcome> =>
+    (await isGeneratorPullBack(db, templateId, next.status, live ? { due, today } : undefined))
       ? "active"
       : outcomeOfStatus(next.status);
 
@@ -164,7 +175,7 @@ export const captureRecurringInstance = async (
       : null;
 
   if (previousDue === null) {
-    await put(due, await currentOutcome());
+    await put(due, await currentOutcome(false));
     const backlog = intOr0(next.pending_past_recurrences);
     if (backlog > 0) {
       const template = await readTemplate(db, templateId);
@@ -178,7 +189,16 @@ export const captureRecurringInstance = async (
   const previousStatus = (previous as JsonRecord).status;
   if (due !== previousDue) {
     if (due > previousDue) {
-      const previousTerminal = isTerminal(previousStatus);
+      // A snapshot that is already `cancelled` was classified by the stamp that wrote it. If that
+      // stamp left the occurrence unrecorded or `active`, the cancel was the generator's pull-back:
+      // moving on from it passed the date over like an active one, it does not make it a user outcome
+      // (the watermark is no evidence any more: this very pass has set it again).
+      const previousOutcome =
+        previousStatus === "cancelled" ? await readOccurrence(db, templateId, previousDue) : null;
+      const previousTerminal =
+        isTerminal(previousStatus) &&
+        (previousStatus !== "cancelled" ||
+          (previousOutcome !== null && isUserOutcome(previousOutcome.outcome)));
       if (previousTerminal) await put(previousDue, previousStatus);
       // The dates this advance passed over, oldest first: the previous due date itself when it was
       // still active, then every due date of the template strictly between the two.
@@ -211,12 +231,12 @@ export const captureRecurringInstance = async (
         written += 1;
       }
     }
-    await put(due, await currentOutcome());
+    await put(due, await currentOutcome(true));
     return written;
   }
 
   if (isTerminal(next.status) && next.status !== previousStatus) {
-    if ((await currentOutcome()) !== "active") await put(due, next.status);
+    if ((await currentOutcome(true)) !== "active") await put(due, next.status);
   }
   if (
     intOr0((previous as JsonRecord).pending_past_recurrences) > 0 &&
@@ -252,7 +272,6 @@ interface InstanceRow {
 export const ensureInstanceOccurrences = async (
   db: Database,
   nextHlc: () => Promise<string>,
-  today: string = getTodayDate(),
 ): Promise<number> => {
   const instances = await db.select<InstanceRow[]>(
     `SELECT recurring_template_id, recurrence_due_date, status, pending_past_recurrences
@@ -265,13 +284,7 @@ export const ensureInstanceOccurrences = async (
   for (const instance of instances) {
     if (!isCalendarDateKey(instance.recurrence_due_date)) continue;
     const templateId = instance.recurring_template_id;
-    const outcome = (await isGeneratorPullBack(
-      db,
-      templateId,
-      instance.recurrence_due_date,
-      instance.status,
-      today,
-    ))
+    const outcome = (await isGeneratorPullBack(db, templateId, instance.status))
       ? "active"
       : outcomeOfStatus(instance.status);
     const existing = await readOccurrence(db, templateId, instance.recurrence_due_date);

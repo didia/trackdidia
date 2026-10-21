@@ -828,17 +828,34 @@ have no record (stamped before the sidecars existed), once, bumping `change_coun
 Time zones. Generation reads the device's local day, so a laptop whose day is behind another's sees
 an instance the other one generated as "from the future". `prepareRecurringGeneration` then either pulls
 it back to an earlier due date or, when there is none (the first occurrence), cancels the row and clears
-the template's `last_generated_for_date`. That cancellation is bookkeeping, not a decision: capture
-recognizes it (a `cancelled` row, due after the capturing device's local today, with the template
-watermark cleared; a user's own cancel leaves the watermark set, and a user CAN cancel a future-dated
-instance after a merge) and records no outcome and no clear. The recorded occurrence stays `active`, and
-the merge trusts a recorded occurrence over a row's own status (a row's status only stands in when no
-record exists), so the cancelled row is outvoted and both laptops end with the occurrence active. On the
-lagging laptop each of its own generation passes re-cancels the row locally until the next merge or its
-local morning (nothing propagates and a cancellation emits no lifecycle event). The
+the template's `last_generated_for_date`. That cancellation is bookkeeping, not a decision. Capture
+recognizes it by its signature, a `cancelled` instance whose template watermark is cleared. The watermark
+alone is not proof, because it is also `null` after a STALE editor (a template card loaded before the
+template's first generation) saves the template with the `lastGeneratedForDate: null` it holds; pause /
+resume and a fresh card keep it, and a user's own cancel leaves it set. So the two evidences are used
+where they are sound: the stamp of a status that has just turned `cancelled` must also be due AFTER the
+capturing laptop's local today (`getTodayDate()`, the generator's own source; branch 1 only runs then),
+so a user's cancel of an instance that is due today or earlier is always recorded; residue already in a
+snapshot or a row (a first stamp, the baseline pass, the forward advance below) is decided by the cleared
+watermark alone, on, before or after its due date. A user CAN cancel a future-dated instance that reached
+a lagging laptop through a merge; combined with a stale-editor null watermark that rare case is dropped
+as a pull-back, and so is a user's cancel first seen by the stamper or the baseline pass while the
+watermark is null (documented limits). A dropped or detected pull-back records no outcome and no clear.
+When that laptop's generator later builds the next instance on the same row id,
+the stamp sees a `cancelled` snapshot whose occurrence was left `active` or unrecorded: the date is
+passed over (`missed`, counted in the backlog) like any active one, never upgraded to a user cancel.
+The recorded occurrence stays `active` (or whatever a peer recorded, such as a completion), and the
+merge trusts a recorded occurrence over a row's own status (a row's status only stands in when no record
+exists), so a cancelled residue row is outvoted and every laptop ends with the occurrence it should. A
 pull-back to an EARLIER due date is not undone the same way: the occurrence of the later date stays
-`active`, so every merge restores the later date on the lagging laptop and its next generation pass pulls
-it back again, until its local day catches up (a cosmetic churn that writes the row each sync).
+`active`, so every merge restores the later date on the lagging laptop and its next generation pass
+pulls it back again, until its local day catches up. That churn rewrites the row each sync (cosmetic),
+and used to append a task event every time. `buildLifecycleEvents` now gives the events of a recurring
+instance whose due date moved backwards a stable `dedupe_key`
+(`<type>:pullback:<taskId>:<dueDate>`), so the first pull-back records its one event exactly as before
+and the repeats are dropped by `persistEvents`' existing `ON CONFLICT(dedupe_key) DO NOTHING` (also in
+the union apply). This touches product code that exists independent of sync
+(`src/lib/gtd/engine.ts`); behavior for every other write is unchanged.
 
 Other known limits:
 - An advance records as `missed` only as many of the passed-over due dates as the row's own

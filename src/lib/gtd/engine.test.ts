@@ -54,6 +54,66 @@ describe("buildLifecycleEvents", () => {
   });
 });
 
+describe("buildLifecycleEvents for a recurring instance", () => {
+  const instance = (overrides: Partial<Task> = {}): Task => ({
+    ...createTaskFromInput({ title: "Habit", bucket: "next_action" }),
+    id: "recurring-task:tpl",
+    isRecurringInstance: true,
+    recurringTemplateId: "tpl",
+    recurrenceDueDate: "2026-10-20",
+    createdAt: "2026-10-19T10:00:00.000Z",
+    updatedAt: "2026-10-20T10:00:00.000Z",
+    ...overrides,
+  });
+
+  it("opens the task when the due date advances", () => {
+    const events = buildLifecycleEvents(
+      instance(),
+      instance({ recurrenceDueDate: "2026-10-21", updatedAt: "2026-10-21T10:00:00.000Z" }),
+    );
+    expect(events.map((event) => event.type)).toEqual(["task_moved_to_next_action"]);
+    expect(events[0]).toMatchObject({ eventDate: "2026-10-21", metadata: { recurring: "true" } });
+  });
+
+  it("gives a pull-back to an earlier due date a stable key so repeats cannot pile up", () => {
+    const rewound = instance({
+      recurrenceDueDate: "2026-10-20",
+      updatedAt: "2026-10-20T23:00:00.000Z",
+    });
+    const first = buildLifecycleEvents(instance({ recurrenceDueDate: "2026-10-21" }), rewound);
+    const again = buildLifecycleEvents(instance({ recurrenceDueDate: "2026-10-21" }), rewound);
+    expect(first.map((event) => event.type)).toEqual(["task_moved_to_next_action"]);
+    expect(first[0]).toMatchObject({ eventDate: "2026-10-20", metadata: { recurring: "true" } });
+    expect(first[0]?.dedupeKey).toBe(
+      "task_moved_to_next_action:pullback:recurring-task:tpl:2026-10-20",
+    );
+    expect(again[0]?.dedupeKey).toBe(first[0]?.dedupeKey);
+    // An advance keeps its unkeyed event: one per real day.
+    expect(
+      buildLifecycleEvents(instance(), instance({ recurrenceDueDate: "2026-10-21" }))[0]?.dedupeKey,
+    ).toBeNull();
+  });
+
+  it("keys every event of a pulled-back scheduled instance except a completion", () => {
+    const scheduled = (due: string, extra: Partial<Task> = {}) =>
+      instance({
+        bucket: "scheduled",
+        recurrenceDueDate: due,
+        scheduledFor: `${due}T12:00:00.000Z`,
+        updatedAt: `${due}T12:00:00.000Z`,
+        ...extra,
+      });
+    const events = buildLifecycleEvents(scheduled("2026-10-21"), scheduled("2026-10-20"));
+    expect(events.length).toBeGreaterThan(0);
+    expect(events.every((event) => event.dedupeKey?.includes(":pullback:"))).toBe(true);
+    const done = buildLifecycleEvents(
+      scheduled("2026-10-21"),
+      scheduled("2026-10-20", { status: "completed", completedAt: "2026-10-20T12:00:00.000Z" }),
+    );
+    expect(done.find((event) => event.type === "task_completed")?.dedupeKey).toBeNull();
+  });
+});
+
 describe("createTaskFromInput", () => {
   it("honors an explicitly requested bucket even when scheduledFor is also supplied", () => {
     const task = createTaskFromInput({

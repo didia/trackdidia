@@ -83,7 +83,10 @@ describe("a generator pull-back is not a user outcome", () => {
     await captureRecurringInstance(db, previous, instance("2026-10-21", "cancelled"), HLC, TODAY);
     expect(await outcomes(db)).toEqual({});
     expect(await clears(db)).toEqual([]);
-    expect(await isGeneratorPullBack(db, TEMPLATE, "2026-10-21", "cancelled", TODAY)).toBe(true);
+    expect(await isGeneratorPullBack(db, TEMPLATE, "cancelled")).toBe(true);
+    expect(
+      await isGeneratorPullBack(db, TEMPLATE, "cancelled", { due: "2026-10-21", today: TODAY }),
+    ).toBe(true);
   });
 
   it("a user's cancel of a future-dated instance (watermark still set) is recorded", async () => {
@@ -98,8 +101,39 @@ describe("a generator pull-back is not a user outcome", () => {
     expect(await outcomes(db)).toEqual({ "2026-10-21": "cancelled" });
   });
 
-  it("a cancel on or before local today is a user outcome even with the watermark cleared", async () => {
+  it("a stale editor nulled the watermark: the user's cancel of an instance due today is still recorded", async () => {
+    // A template card loaded before the first generation saves `lastGeneratedForDate: null`; the
+    // watermark is no proof of a pull-back for a live cancel of an instance that is already due.
     const db = await seed({ lastGeneratedForDate: null });
+    await captureRecurringInstance(
+      db,
+      instance("2026-10-20"),
+      instance("2026-10-20", "cancelled"),
+      HLC,
+      TODAY,
+    );
+    expect(await outcomes(db)).toEqual({ "2026-10-20": "cancelled" });
+    const earlier = await seed({ lastGeneratedForDate: null });
+    await captureRecurringInstance(
+      earlier,
+      instance("2026-10-18"),
+      instance("2026-10-18", "cancelled"),
+      HLC,
+      TODAY,
+    );
+    expect(await outcomes(earlier)).toEqual({ "2026-10-18": "cancelled" });
+  });
+
+  it("residue already in a snapshot (creation) is bookkeeping on and after its due date", async () => {
+    // The lagging laptop's day caught up before the row was first stamped: only the cleared
+    // watermark can tell, and it decides.
+    const db = await seed({ lastGeneratedForDate: null });
+    await captureRecurringInstance(db, null, instance("2026-10-20", "cancelled"), HLC, TODAY);
+    expect(await outcomes(db)).toEqual({ "2026-10-20": "active" });
+  });
+
+  it("a user's cancel on or before today (watermark set) is recorded", async () => {
+    const db = await seed({ lastGeneratedForDate: "2026-10-20" });
     await captureRecurringInstance(
       db,
       instance("2026-10-20"),
@@ -110,6 +144,51 @@ describe("a generator pull-back is not a user outcome", () => {
     expect(await outcomes(db)).toEqual({ "2026-10-20": "cancelled" });
   });
 
+  it("generating forward from the residue passes the date over; it is not a user cancel", async () => {
+    // Snapshot: cancelled by the pull-back, occurrence left active. Two days later the generator
+    // builds a new active instance on the same row id.
+    const db = await seed({ lastGeneratedForDate: "2026-10-22", startDate: "2026-10-21" });
+    await db.execute(
+      "INSERT INTO sync_recurrence_occurrences (template_id, due_date, outcome, outcome_hlc, device_id) VALUES ($1, '2026-10-21', 'active', $2, $3)",
+      [TEMPLATE, HLC, CAPTURE_DEVICE],
+    );
+    await captureRecurringInstance(
+      db,
+      instance("2026-10-21", "cancelled", 0),
+      instance("2026-10-22", "active", 1),
+      HLC,
+    );
+    expect(await outcomes(db)).toEqual({ "2026-10-21": "missed", "2026-10-22": "active" });
+    expect(await clears(db)).toEqual([]);
+  });
+
+  it("generating forward from a residue that was never recorded behaves the same", async () => {
+    const db = await seed({ lastGeneratedForDate: "2026-10-22", startDate: "2026-10-21" });
+    await captureRecurringInstance(
+      db,
+      instance("2026-10-21", "cancelled", 0),
+      instance("2026-10-22", "active", 1),
+      HLC,
+    );
+    expect(await outcomes(db)).toEqual({ "2026-10-21": "missed", "2026-10-22": "active" });
+  });
+
+  it("generating forward from a cancel the user made keeps it cancelled and clears the old backlog", async () => {
+    const db = await seed({ lastGeneratedForDate: "2026-10-22", startDate: "2026-10-21" });
+    await db.execute(
+      "INSERT INTO sync_recurrence_occurrences (template_id, due_date, outcome, outcome_hlc, device_id) VALUES ($1, '2026-10-21', 'cancelled', $2, $3)",
+      [TEMPLATE, HLC, CAPTURE_DEVICE],
+    );
+    await captureRecurringInstance(
+      db,
+      instance("2026-10-21", "cancelled", 0),
+      instance("2026-10-22", "active", 0),
+      HLC,
+    );
+    expect(await outcomes(db)).toEqual({ "2026-10-21": "cancelled", "2026-10-22": "active" });
+    expect(await clears(db)).toEqual(["2026-10-21"]);
+  });
+
   it("a completion is never mistaken for a pull-back", async () => {
     const db = await seed({ lastGeneratedForDate: null });
     await captureRecurringInstance(
@@ -117,7 +196,6 @@ describe("a generator pull-back is not a user outcome", () => {
       instance("2026-10-21"),
       instance("2026-10-21", "completed"),
       HLC,
-      TODAY,
     );
     expect(await outcomes(db)).toEqual({ "2026-10-21": "completed" });
   });
@@ -129,7 +207,7 @@ describe("a generator pull-back is not a user outcome", () => {
          recurring_template_id, recurrence_due_date, is_recurring_instance, pending_past_recurrences)
        VALUES ('recurring-task:${TEMPLATE}', 't', '', 'cancelled', 'next_action', '[]', 'manual', 't', 't', '${TEMPLATE}', '2026-10-21', 1, 0)`,
     );
-    await ensureInstanceOccurrences(db, async () => HLC, TODAY);
+    await ensureInstanceOccurrences(db, async () => HLC);
     expect(await outcomes(db)).toEqual({ "2026-10-21": "active" });
   });
 });
@@ -142,7 +220,6 @@ describe("what an advance records is bounded by the row's own backlog", () => {
       instance("2026-03-15"),
       instance("2026-03-18", "active", 3),
       HLC,
-      "2026-03-18",
     );
     expect(await outcomes(db)).toEqual({
       "2026-03-15": "missed",
@@ -161,7 +238,6 @@ describe("what an advance records is bounded by the row's own backlog", () => {
       instance("2026-03-15"),
       instance("2026-03-18", "active", 1),
       HLC,
-      "2026-03-18",
     );
     expect(await outcomes(db)).toEqual({ "2026-03-17": "missed", "2026-03-18": "active" });
   });
@@ -173,7 +249,6 @@ describe("what an advance records is bounded by the row's own backlog", () => {
       instance("2026-03-15"),
       instance("2026-03-18", "active", 0),
       HLC,
-      "2026-03-18",
     );
     expect(await outcomes(db)).toEqual({ "2026-03-18": "active" });
   });
@@ -185,7 +260,6 @@ describe("what an advance records is bounded by the row's own backlog", () => {
       instance("2026-03-15", "completed", 4),
       instance("2026-03-18", "active", 2),
       HLC,
-      "2026-03-18",
     );
     expect(await outcomes(db)).toEqual({
       "2026-03-15": "completed",

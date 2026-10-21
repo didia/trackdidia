@@ -238,8 +238,8 @@ Task writes can emit:
 | Event | When |
 |---|---|
 | `task_created` | A task is first persisted |
-| `task_moved_to_next_action` | Created/moved into Next Actions, including a new recurrence date |
-| `task_scheduled_for_day` | Created/moved into Scheduled for the event's local date |
+| `task_moved_to_next_action` | Created/moved into Next Actions, including a new recurrence date. A recurring instance pulled back to an EARLIER due date (a laptop whose local day is behind another's) emits it once, with a stable `dedupe_key` `task_moved_to_next_action:pullback:<taskId>:<dueDate>`, so repeated pull-backs do not add events |
+| `task_scheduled_for_day` | Created/moved into Scheduled for the event's local date. A pull-back of a scheduled-target recurring instance to an earlier due date keys it the same way (`task_scheduled_for_day:pullback:<taskId>:<dueDate>`) |
 | `task_completed` | Status transitions into completed |
 | `weekly_carryover` | Active actionable work exists before a Sunday boundary |
 
