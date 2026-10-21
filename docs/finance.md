@@ -1028,7 +1028,8 @@ CRUD for `finance_rules`: name, priority, a single `descriptionContains`
 matcher field (the full matcher shape — `descriptionRegex`, `accountIds`,
 `personId`, amount bounds, `sign` — is supported by the engine and the
 repository but not yet exposed in this form), and a category action. Each rule
-card shows its applied count and enable/disable and delete actions
+card shows its applied count (counted when a rule changes a transaction; a re-run
+that finds nothing new neither rewrites the transaction nor counts) and enable/disable and delete actions
 (`saveFinanceRule`/`deleteFinanceRule`). "Appliquer aux transactions
 existantes" calls the same `reclassifyFinancePending()` as the review page's
 "Réappliquer les règles" — the two buttons are the same action surfaced on two

@@ -13,7 +13,8 @@ import { keyConditions } from "./apply-support";
 import type { TableInfo } from "./table-info";
 
 /**
- * One pending `ai_proposals` row per natural key, without the alias engine.
+ * One pending row per natural key, without the alias engine: `ai_proposals` (per message and type or
+ * goal) and `finance_category_suggestions` (per transaction); the logic below is the same for both.
  *
  * The registry declares two partial unique indexes on pending proposals (one per message and type,
  * one per message and goal). Two laptops that each create a pending proposal for the same message
@@ -35,6 +36,12 @@ import type { TableInfo } from "./table-info";
 
 export const PENDING_STATUS = "pending";
 export const EXPIRED_STATUS = "expired";
+
+/** What a `pending_collision` records about the row that lost its slot. */
+const describeContender = (table: string, row: RawRow): Record<string, unknown> =>
+  table === "finance_category_suggestions"
+    ? { transactionId: row.transaction_id, suggestedCategoryId: row.suggested_category_id }
+    : { type: row.type, messageId: row.message_id };
 
 const pendingKeys = (table: string): NaturalKey[] =>
   getTableRegistration(table).naturalKeys.filter(
@@ -135,7 +142,7 @@ export const resolvePendingKeys = async (
       entityType: table,
       entityId: loserId,
       local: { expired: loserId, kept: winner.id },
-      remote: { type: loserRow.type, messageId: loserRow.message_id },
+      remote: describeContender(table, loserRow),
     });
   };
   const demote = others

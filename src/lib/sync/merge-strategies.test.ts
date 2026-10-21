@@ -13,7 +13,7 @@ import {
 import { getTableRegistration, SYNC_DOMAINS, TABLE_REGISTRY, tablesInDomain } from "./registry";
 
 describe("merge strategies", () => {
-  it("supports exactly the field-clock, grow-only-union and the three ruled row-clock tables", () => {
+  it("supports every field-clock, grow-only-union and row-clock table, each through its rule", () => {
     expect(supportedEntityTables("gtd")).toEqual([
       "gtd_tasks",
       "gtd_projects",
@@ -32,19 +32,42 @@ describe("merge strategies", () => {
       "weekly_objectives",
       "weekly_objective_results",
       "ai_proposals",
+      "ai_memories",
     ]);
     expect(supportedUnionTables("personal")).toEqual(["ai_messages"]);
-    expect(supportedEntityTables("finance")).toEqual([]);
+    expect(supportedEntityTables("finance")).toEqual([
+      "finance_people",
+      "finance_accounts",
+      "finance_categories",
+      "finance_transactions",
+      "finance_transaction_splits",
+      "finance_category_suggestions",
+      "finance_rules",
+      "finance_merchant_memory",
+      "finance_budget_entries",
+      "finance_budget_months",
+      "finance_recurring_series",
+      "finance_import_profiles",
+      "finance_import_batches",
+      "finance_account_balance_snapshots",
+    ]);
     expect(supportedUnionTables("finance")).toEqual([]);
   });
 
-  it("refuses every other merge class, naming the tables a later slice must add", () => {
+  it("refuses only the recurrence sidecars, which travel in SyncChangeSet.recurrence", () => {
     expect(unsupportedTablesInDomain("gtd")).toEqual([
       "sync_recurrence_occurrences",
       "sync_recurrence_clears",
     ]);
-    expect(unsupportedTablesInDomain("personal")).toEqual(["ai_memories"]);
-    expect(unsupportedTablesInDomain("finance")).toEqual(tablesInDomain("finance"));
+    expect(unsupportedTablesInDomain("personal")).toEqual([]);
+    expect(unsupportedTablesInDomain("finance")).toEqual([]);
+    // Every other table of every bundle domain has a strategy, none is half-handled.
+    for (const domain of SYNC_DOMAINS) {
+      for (const table of tablesInDomain(domain)) {
+        if (getTableRegistration(table).mergeClass === "sidecar") continue;
+        expect(isTableSyncSupported(table), table).toBe(true);
+      }
+    }
   });
 
   it("never supports device-local tables, by-entity-type sidecars or unknown tables", () => {
@@ -61,10 +84,12 @@ describe("merge strategies", () => {
   it("supports a table with a rowFilter only through a row-clock rule that owns the filter", () => {
     for (const entry of TABLE_REGISTRY.filter((candidate) => candidate.rowFilter)) {
       const strategy = strategyForTable(entry.table);
-      // The finance snapshot filter has no rule yet (next slice): refused.
-      expect(strategy === null || strategy.kind === "row-clock", entry.table).toBe(true);
+      expect(strategy?.kind, entry.table).toBe("row-clock");
     }
-    expect(strategyForTable("finance_account_balance_snapshots")).toBeNull();
+    expect(strategyForTable("finance_account_balance_snapshots")).toEqual({
+      kind: "row-clock",
+      rule: "finance-balance-snapshot",
+    });
     expect(strategyForTable("pomodoro_sessions")).toEqual({
       kind: "row-clock",
       rule: "pomodoro-session",
@@ -85,14 +110,27 @@ describe("merge strategies", () => {
     }
   });
 
-  it("layers the GTD rules on exactly the task and the recurring template", () => {
+  it("layers rules on exactly the tables that need more than their merge class", () => {
     expect(TABLE_STRATEGY_OVERRIDES).toEqual({
       gtd_tasks: { kind: "field-clock", rule: "gtd-task" },
       recurring_task_templates: { kind: "field-clock", rule: "recurring-template" },
       pomodoro_sessions: { kind: "row-clock", rule: "pomodoro-session" },
       pomodoro_segments: { kind: "row-clock", rule: "pomodoro-segment" },
       ai_proposals: { kind: "row-clock", rule: "ai-proposal" },
+      finance_transactions: { kind: "row-clock", rule: "finance-transaction" },
+      finance_transaction_splits: { kind: "row-clock", rule: "finance-split" },
+      finance_category_suggestions: { kind: "row-clock", rule: "finance-suggestion" },
+      finance_account_balance_snapshots: { kind: "row-clock", rule: "finance-balance-snapshot" },
     });
+    // Every other row-clock table takes the generic whole-row rule from its merge class.
+    for (const table of [
+      "finance_accounts",
+      "finance_rules",
+      "finance_import_batches",
+      "ai_memories",
+    ]) {
+      expect(rowClockRuleOf(table), table).toBe("generic-row");
+    }
     expect(rowClockRuleOf("ai_proposals")).toBe("ai-proposal");
     expect(rowClockRuleOf("gtd_tasks")).toBeUndefined();
     expect(fieldClockRuleOf("gtd_tasks")).toBe("gtd-task");

@@ -120,6 +120,35 @@ describe("whole-row merge", () => {
     expect(stale).toMatchObject({ rowAction: "none", metaChanged: false, overwritten: [] });
   });
 
+  it("reports an overwrite only when the replaced version was issued by the applying device", () => {
+    const peer = "dev:00000000-0000-4000-8000-000000000002";
+    const local = {
+      row: row({ cycle_index: 1 }),
+      meta: { fieldClocks: {}, rowHlc: clock(1), deletedAt: null },
+    };
+    const remote = remoteOf("x", "t", { row: row({ cycle_index: 2 }), clock: clock(2) });
+    // The local version carries this device's clock: a lost local edit.
+    const mine = mergeRowEntity({
+      columns: SESSION_COLUMNS,
+      local,
+      remote,
+      rules: SESSION_RULES,
+      localDeviceId: DEV,
+    });
+    expect(mine.overwritten).toHaveLength(1);
+    // The local version itself came from the peer and is replaced by that peer's later edit:
+    // ordinary propagation, nothing was lost, nothing is logged.
+    const propagated = mergeRowEntity({
+      columns: SESSION_COLUMNS,
+      local,
+      remote,
+      rules: SESSION_RULES,
+      localDeviceId: peer,
+    });
+    expect(propagated).toMatchObject({ rowAction: "update", columns: { cycle_index: 2 } });
+    expect(propagated.overwritten).toEqual([]);
+  });
+
   it("is a no-op for the same version (idempotent)", () => {
     const local = { row: row(), meta: { fieldClocks: {}, rowHlc: clock(1), deletedAt: null } };
     const outcome = mergeRowEntity({

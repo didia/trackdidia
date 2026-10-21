@@ -1872,29 +1872,46 @@ export class FinanceSqliteStore {
     const categoryChanged =
       !keepExistingCategory &&
       (row.category_id !== outcome.categoryId || row.category_source !== outcome.categorySource);
-    await db.execute(
-      `UPDATE finance_transactions SET
-        category_id = $2, category_source = $3, category_confidence = $4,
-        categorized_at = CASE WHEN $5 = 1 THEN $6 ELSE categorized_at END,
-        merchant_display = $7, person_id = $8, excluded_from_budget = $9,
-        excluded_from_reports = $10, is_transfer = $11, labels_json = $12, updated_at = $6
-      WHERE id = $1`,
-      [
-        transactionId,
-        finalCategoryId,
-        finalCategorySource,
-        finalCategoryConfidence,
-        categoryChanged && outcome.categorySource !== "default" ? 1 : 0,
-        now,
-        actions.merchantDisplay,
-        actions.personId,
-        actions.excludedFromBudget ? 1 : 0,
-        actions.excludedFromReports ? 1 : 0,
-        actions.isTransfer ? 1 : 0,
-        actions.labelsJson,
-      ],
-    );
-    if (outcome.matchedRule) {
+    const finalCategorizedAt =
+      categoryChanged && outcome.categorySource !== "default" ? now : row.categorized_at;
+    // A pass that decides exactly what the row already says writes nothing: no `updated_at` bump
+    // (which would make a pointless whole-row write for multi-device sync) and no rule counter.
+    const rowChanged =
+      row.category_id !== finalCategoryId ||
+      row.category_source !== finalCategorySource ||
+      row.category_confidence !== finalCategoryConfidence ||
+      row.categorized_at !== finalCategorizedAt ||
+      row.merchant_display !== actions.merchantDisplay ||
+      row.person_id !== actions.personId ||
+      Boolean(row.excluded_from_budget) !== actions.excludedFromBudget ||
+      Boolean(row.excluded_from_reports) !== actions.excludedFromReports ||
+      Boolean(row.is_transfer) !== actions.isTransfer ||
+      row.labels_json !== actions.labelsJson;
+    if (rowChanged) {
+      await db.execute(
+        `UPDATE finance_transactions SET
+          category_id = $2, category_source = $3, category_confidence = $4,
+          categorized_at = $5,
+          merchant_display = $6, person_id = $7, excluded_from_budget = $8,
+          excluded_from_reports = $9, is_transfer = $10, labels_json = $11, updated_at = $12
+        WHERE id = $1`,
+        [
+          transactionId,
+          finalCategoryId,
+          finalCategorySource,
+          finalCategoryConfidence,
+          finalCategorizedAt,
+          actions.merchantDisplay,
+          actions.personId,
+          actions.excludedFromBudget ? 1 : 0,
+          actions.excludedFromReports ? 1 : 0,
+          actions.isTransfer ? 1 : 0,
+          actions.labelsJson,
+          now,
+        ],
+      );
+    }
+    if (outcome.matchedRule && rowChanged) {
       await db.execute(
         "UPDATE finance_rules SET applied_count = applied_count + 1, last_applied_at = $2 WHERE id = $1",
         [outcome.matchedRule.id, now],

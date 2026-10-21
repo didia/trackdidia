@@ -1101,7 +1101,7 @@ export class FinanceMemoryStore {
       !keepExistingCategory &&
       (withActions.categoryId !== outcome.categoryId ||
         withActions.categorySource !== outcome.categorySource);
-    this.transactions.set(transactionId, {
+    const decided: FinanceTransaction = {
       ...withActions,
       categoryId: keepExistingCategory ? withActions.categoryId : outcome.categoryId,
       categorySource: keepExistingCategory ? withActions.categorySource : outcome.categorySource,
@@ -1111,8 +1111,16 @@ export class FinanceMemoryStore {
       categorizedAt:
         categoryChanged && outcome.categorySource !== "default" ? now : withActions.categorizedAt,
       updatedAt: now,
-    });
-    if (outcome.matchedRule) {
+    };
+    // A pass that decides exactly what the row already says writes nothing (no `updated_at` bump,
+    // no rule counter), like the SQLite store.
+    const rowChanged = (Object.keys(decided) as (keyof FinanceTransaction)[]).some(
+      (key) => key !== "updatedAt" && decided[key] !== txn[key],
+    );
+    if (rowChanged) {
+      this.transactions.set(transactionId, decided);
+    }
+    if (outcome.matchedRule && rowChanged) {
       const rule = this.rules.get(outcome.matchedRule.id);
       if (rule) {
         this.rules.set(rule.id, {

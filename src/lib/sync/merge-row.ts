@@ -2,7 +2,7 @@ import type { RawRow } from "./capture-decode";
 import type { SyncEntity } from "./change-set";
 import type { ExtraConflict } from "./conflicts";
 import { canonicalJson, getOwn, jsonDeepEqual, setOwn } from "./field-clocks";
-import { compareHlc, maxHlc } from "./hlc";
+import { compareHlc, maxHlc, parseHlc } from "./hlc";
 import {
   BOOKKEEPING_FIELDS,
   type EntityMergeOutcome,
@@ -77,6 +77,13 @@ export interface RowMergeInput {
   local: LocalEntityState;
   remote: SyncEntity;
   rules?: RowRules;
+  /**
+   * The device applying the bundle. When given, a replaced local version is reported as an
+   * overwritten edit only if its clock was ISSUED by this device: a version that itself arrived from
+   * a peer and is now replaced by a later edit of that peer is ordinary propagation, not a lost
+   * local edit (without this, whole-row last-writer-wins would log every propagated edit).
+   */
+  localDeviceId?: string;
 }
 
 export interface RowMergeOutcome extends EntityMergeOutcome {
@@ -250,8 +257,12 @@ export const mergeRowEntity = (input: RowMergeInput): RowMergeOutcome => {
       Object.hasOwn(remoteRow, column) &&
       !sameCell(localRow[column], remoteRow[column]),
   );
+  const authoredHere =
+    input.localDeviceId === undefined ||
+    localVersion.clock === null ||
+    parseHlc(localVersion.clock)?.deviceId === input.localDeviceId;
   const overwritten: OverwrittenField[] =
-    rules.reportOverwrites === true && remoteWins && differs
+    rules.reportOverwrites === true && remoteWins && differs && authoredHere
       ? [
           {
             field: ROW_CONFLICT_FIELD,
