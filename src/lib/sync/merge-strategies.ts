@@ -15,11 +15,12 @@ import {
  * - `applySyncBundle` refuses (`unsupported_merge_class`) a bundle that mentions any other table
  *   instead of half-merging it.
  *
- * A later slice that implements another class (row-clock, monotonic-status, Pomodoro, the finance
+ * A later slice that implements another class (generic row-clock, child-set, the finance
  * categorization unit) adds its `kind` to {@link TableStrategy}, a branch in `strategyForTable`, and
  * a case in the dispatcher of `apply-bundle.ts` / `list-changes.ts`; the compiler then points at
  * every place that must handle it. A table that needs its own rules on top of a class (the GTD task
- * lifecycle tuple) is routed through {@link TABLE_STRATEGY_OVERRIDES} instead.
+ * lifecycle tuple, the Pomodoro tables, AI proposals) is routed through
+ * {@link TABLE_STRATEGY_OVERRIDES} instead.
  */
 
 /**
@@ -32,9 +33,25 @@ import {
  */
 export type FieldClockRule = "gtd-task" | "recurring-template";
 
+/**
+ * Rules of the tables stamped as a WHOLE ROW (`row_hlc` only, no per-field clocks), merged by
+ * `merge-row.ts` plus the table's own rule:
+ *
+ * - `pomodoro-session`: terminal sessions only (registry `rowFilter`); a running or paused local
+ *   session is never touched; whole-row last-writer-wins (`merge-pomodoro.ts`);
+ * - `pomodoro-segment`: only segments of a terminal session; `ended_at` joined (non-null beats null);
+ * - `ai-proposal`: terminal status beats pending, divergent terminals logged, one pending proposal
+ *   per natural key (`merge-proposal.ts`, `apply-proposals.ts`).
+ *
+ * There is no generic row-clock rule yet: `row-clock` finance tables arrive with the next slice.
+ */
+export type RowClockRule = "pomodoro-session" | "pomodoro-segment" | "ai-proposal";
+
 export type TableStrategy =
   /** Per-column / per-key / per-element clocks with whole-entity edit-wins-over-delete. */
   | { kind: "field-clock"; rule?: FieldClockRule }
+  /** One clock per row with whole-entity edit-wins-over-delete; always carries a table rule. */
+  | { kind: "row-clock"; rule: RowClockRule }
   /** Insert-if-absent by primary key (and any unique key); never updated, never deleted. */
   | { kind: "grow-only-union" };
 
@@ -42,34 +59,41 @@ export type TableStrategyKind = TableStrategy["kind"];
 
 /**
  * Per-table replacements for the class default: the GTD task and the recurring template have their
- * own rules on top of the field-clock class.
+ * own rules on top of the field-clock class; the Pomodoro tables and AI proposals are the only
+ * row-clock tables this build merges, each through its own rule.
  */
 export const TABLE_STRATEGY_OVERRIDES: Readonly<Record<string, TableStrategy>> = {
   gtd_tasks: { kind: "field-clock", rule: "gtd-task" },
   recurring_task_templates: { kind: "field-clock", rule: "recurring-template" },
+  pomodoro_sessions: { kind: "row-clock", rule: "pomodoro-session" },
+  pomodoro_segments: { kind: "row-clock", rule: "pomodoro-segment" },
+  ai_proposals: { kind: "row-clock", rule: "ai-proposal" },
 };
 
 /**
  * The strategy for a registration, or `null` when this build cannot merge it. Not supported:
  *
  * - device-local and by-entity-type tables;
- * - a table with a `rowFilter` (a subset is published, the rest stays local) until the strategy
- *   that owns the filter exists, so a registry change cannot make filtered-out rows leak through a
- *   generic path;
- * - a table with `referencesMergePending` (it takes part in a declared foreign key that can cascade
- *   or abort a bundle);
+ * - a table with a `rowFilter` (a subset is published, the rest stays local) unless its strategy
+ *   is a row-clock rule that owns the filter, so a registry change cannot make filtered-out rows
+ *   leak through a generic path;
  * - any merge class without a strategy yet.
+ *
+ * Declared foreign keys are not a reason to refuse a table: `apply-references.ts` orders the
+ * tables, keeps children off deleted parents and tombstones what a cascade removes, derived from
+ * `PRAGMA foreign_key_list`; `registry.test.ts` fails when a migration adds a key it does not cover.
  */
 export const strategyForRegistration = (entry: TableRegistration): TableStrategy | null => {
   if (!(SYNC_DOMAINS as readonly string[]).includes(entry.domain)) {
     return null;
   }
-  if (entry.rowFilter || entry.referencesMergePending) {
-    return null;
-  }
   const override = Object.hasOwn(TABLE_STRATEGY_OVERRIDES, entry.table)
     ? TABLE_STRATEGY_OVERRIDES[entry.table]
     : undefined;
+  if (entry.rowFilter) {
+    // A filtered table is supported only through a rule that implements its filter.
+    return override?.kind === "row-clock" ? override : null;
+  }
   if (override) {
     return override;
   }
@@ -96,7 +120,10 @@ const tablesOfKind = (domain: SyncDomain, kind: TableStrategyKind): string[] =>
 
 /** Tables of `domain` published as entities (with a `sync_entity_meta` row), in registry order. */
 export const supportedEntityTables = (domain: SyncDomain): string[] =>
-  tablesOfKind(domain, "field-clock");
+  TABLE_REGISTRY.filter((entry) => {
+    const kind = entry.domain === domain ? strategyForTable(entry.table)?.kind : undefined;
+    return kind === "field-clock" || kind === "row-clock";
+  }).map((entry) => entry.table);
 
 /** Tables of `domain` published as full row sets, in registry order. */
 export const supportedUnionTables = (domain: SyncDomain): string[] =>
@@ -112,6 +139,12 @@ export const unsupportedTablesInDomain = (domain: SyncDomain): string[] =>
 export const fieldClockRuleOf = (table: string): FieldClockRule | undefined => {
   const strategy = strategyForTable(table);
   return strategy?.kind === "field-clock" ? strategy.rule : undefined;
+};
+
+/** The rule of a supported row-clock table. */
+export const rowClockRuleOf = (table: string): RowClockRule | undefined => {
+  const strategy = strategyForTable(table);
+  return strategy?.kind === "row-clock" ? strategy.rule : undefined;
 };
 
 /** Position of a table in the registry; the order tables are published in. */

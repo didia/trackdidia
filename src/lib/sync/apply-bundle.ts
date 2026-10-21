@@ -1,6 +1,17 @@
 import type { AppSettings } from "../../domain/types/settings";
 import type { Database } from "../storage/sqlite-db";
+import { orderByReferences, type ParentStatus, ReferenceGuard } from "./apply-references";
 import { applyRecurrenceSidecars } from "./apply-recurrence";
+import { applyRowClockTable } from "./apply-rows";
+import {
+  extraConflictOf,
+  messageOf,
+  type PendingConflict,
+  rowsById,
+  toSqlApplyError,
+  type Totals,
+  writeRow,
+} from "./apply-support";
 import {
   type GtdApplyState,
   loadGtdApplyState,
@@ -35,13 +46,15 @@ import { SyncApplyError } from "./errors";
 import { canonicalJson, getOwn, setOwn } from "./field-clocks";
 import {
   type EntityMergeOutcome,
+  type EntityMeta,
   mergeFieldClockEntity,
   mergeSettingEntry,
   type OverwrittenField,
   overwrittenConflictId,
 } from "./merge-entity";
 import { fieldClockRuleOf, strategyForTable, tableOrder } from "./merge-strategies";
-import type { ExtraConflict } from "./merge-task";
+import { type ExtraConflict, orphanedChildId } from "./conflicts";
+import { assertEntitiesPublishable } from "./row-filter";
 import {
   assertSettingPublishable,
   getTableRegistration,
@@ -118,157 +131,36 @@ export const prepareApply = (domain: SyncDomain, input: unknown, nowMs: number):
     );
   }
   for (const entity of changeSet.entities) {
-    assertSupported(entity.table, "field-clock");
+    assertSupported(entity.table, ["field-clock", "row-clock"]);
   }
   for (const table of Object.keys(changeSet.unionRows)) {
-    assertSupported(table, "grow-only-union");
+    assertSupported(table, ["grow-only-union"]);
   }
+  // A row its table never publishes (a running Pomodoro session) is never applied, not even
+  // partially: checked here, before a writer slot is taken.
+  assertEntitiesPublishable(changeSet.entities, "apply");
   assertRemoteClockAcceptable(changeSet.hlcHigh, nowMs);
   return changeSet;
 };
 
-const assertSupported = (table: string, kind: "field-clock" | "grow-only-union"): void => {
+const assertSupported = (
+  table: string,
+  kinds: readonly ("field-clock" | "row-clock" | "grow-only-union")[],
+): void => {
   const strategy = strategyForTable(table);
-  if (strategy === null || strategy.kind !== kind) {
+  if (strategy === null || !kinds.includes(strategy.kind)) {
     const registration = getTableRegistration(table);
-    const reason = registration.referencesMergePending
-      ? "it takes part in a foreign key and reference handling is not implemented yet"
-      : `merge class ${registration.mergeClass}`;
     throw new SyncApplyError(
       "unsupported_merge_class",
-      `This version cannot merge "${table}" (${reason}); the whole bundle is refused`,
+      `This version cannot merge "${table}" (merge class ${registration.mergeClass}); the whole bundle is refused`,
       { table },
     );
   }
 };
 
 // ---------------------------------------------------------------------------------------------
-// SQL errors
-// ---------------------------------------------------------------------------------------------
-
-const messageOf = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
-
-/** The name of the unique index that covers exactly these columns of a table, when it can be found. */
-const findUniqueIndex = async (
-  db: Database,
-  table: string,
-  columns: readonly string[],
-): Promise<string | null> => {
-  try {
-    const wanted = [...columns].sort().join(",");
-    const indexes = await db.select<{ name: string }[]>(
-      `SELECT name FROM pragma_index_list($1) WHERE "unique" = 1`,
-      [table],
-    );
-    for (const index of indexes) {
-      const parts = await db.select<{ name: string | null }[]>(
-        "SELECT name FROM pragma_index_info($1) ORDER BY seqno",
-        [index.name],
-      );
-      if (
-        parts
-          .map((part) => part.name ?? "")
-          .sort()
-          .join(",") === wanted
-      ) {
-        return index.name;
-      }
-    }
-  } catch {
-    /* naming the index is best effort */
-  }
-  return null;
-};
-
-/**
- * Turns a failed statement into a `SyncApplyError` that names the table and, for a unique-key
- * violation, the index. A key the registry declares as a natural key is a `natural_key_collision`
- * (canonical identity is a later slice); any other unique key is an `unique_violation`. Never
- * swallowed: the caller rethrows, which rolls the whole bundle back.
- */
-const toSqlApplyError = async (
-  db: Database,
-  table: string,
-  entityId: string | null,
-  error: unknown,
-): Promise<SyncApplyError> => {
-  if (error instanceof SyncApplyError) {
-    return error;
-  }
-  const message = messageOf(error);
-  if (/UNIQUE constraint failed/i.test(message)) {
-    const detail =
-      message
-        .slice(message.search(/UNIQUE constraint failed/i))
-        .split(":")[1]
-        ?.trim() ?? "";
-    const named = /^index '([^']+)'/.exec(detail)?.[1] ?? null;
-    const columns = named
-      ? []
-      : detail
-          .split(",")
-          .map((part) => part.trim().replace(/^[^.]+\./, ""))
-          .filter((part) => part.length > 0);
-    const index =
-      named ?? (await findUniqueIndex(db, table, columns)) ?? (columns.join(",") || detail);
-    const declared = getTableRegistration(table).naturalKeys.find(
-      (key) =>
-        (key.index !== undefined && key.index === named) ||
-        (columns.length > 0 &&
-          key.where === undefined &&
-          [...key.columns].sort().join(",") === [...columns].sort().join(",")),
-    );
-    return new SyncApplyError(
-      declared ? "natural_key_collision" : "unique_violation",
-      `${declared ? `Natural key "${declared.name}"` : "Unique key"} of "${table}" collided (${index}) while applying ${entityId ?? "a row"}; the bundle was not applied`,
-      { table, entityId, index, cause: error },
-    );
-  }
-  return new SyncApplyError("sql_error", `SQL error on "${table}": ${message}`, {
-    table,
-    entityId,
-    cause: error,
-  });
-};
-
-// ---------------------------------------------------------------------------------------------
 // Field-clock entities
 // ---------------------------------------------------------------------------------------------
-
-interface Totals {
-  applied: number;
-  skipped: number;
-  tombstonesApplied: number;
-}
-
-interface PendingConflict {
-  id: string;
-  kind: string;
-  entityType: string;
-  entityId: string;
-  localJson: string;
-  remoteJson: string;
-}
-
-const keyConditions = (
-  primaryKey: readonly string[],
-  startAt: number,
-): { sql: string; next: number } => ({
-  sql: primaryKey
-    .map((column, index) => `${quoteIdent(column)} = $${startAt + index}`)
-    .join(" AND "),
-  next: startAt + primaryKey.length,
-});
-
-const extraConflictOf = (conflict: ExtraConflict): PendingConflict => ({
-  id: conflict.id,
-  kind: conflict.kind,
-  entityType: conflict.entityType,
-  entityId: conflict.entityId,
-  localJson: canonicalJson(conflict.local),
-  remoteJson: canonicalJson(conflict.remote),
-});
 
 const conflictOf = (table: string, entityId: string, field: OverwrittenField): PendingConflict => ({
   id: overwrittenConflictId(table, entityId, field.field, field.local.clock, field.remote.clock),
@@ -279,85 +171,60 @@ const conflictOf = (table: string, entityId: string, field: OverwrittenField): P
   remoteJson: canonicalJson(setOwn({}, field.field, field.remote)),
 });
 
-const writeRow = async (
-  db: Database,
-  table: string,
-  info: TableInfo,
-  key: readonly PrimaryKeyValue[],
-  outcome: EntityMergeOutcome,
-): Promise<void> => {
-  const t = quoteIdent(table);
-  if (outcome.rowAction === "insert") {
-    const columns = info.columns.filter((column) => Object.hasOwn(outcome.columns, column));
-    await db.execute(
-      `INSERT INTO ${t} (${columns.map(quoteIdent).join(", ")}) VALUES (${placeholders(columns.length)})`,
-      columns.map((column) => getOwn(outcome.columns, column)),
-    );
-  } else if (outcome.rowAction === "update") {
-    const columns = Object.keys(outcome.columns);
-    const where = keyConditions(info.primaryKey, columns.length + 1);
-    await db.execute(
-      `UPDATE ${t} SET ${columns.map((column, index) => `${quoteIdent(column)} = $${index + 1}`).join(", ")} WHERE ${where.sql}`,
-      [...columns.map((column) => getOwn(outcome.columns, column)), ...key],
-    );
-  } else if (outcome.rowAction === "delete") {
-    await db.execute(`DELETE FROM ${t} WHERE ${keyConditions(info.primaryKey, 1).sql}`, [...key]);
-  }
-};
+/** A no-op outcome: nothing is written for an entity that cannot be applied yet. */
+const skippedOutcome = (
+  local: { row: RawRow | null; meta: EntityMeta | null },
+  remote: SyncEntity,
+): EntityMergeOutcome => ({
+  rowAction: "none",
+  columns: {},
+  meta: local.meta ?? { fieldClocks: {}, rowHlc: remote.rowHlc, deletedAt: null },
+  metaChanged: false,
+  tombstoneApplied: false,
+  overwritten: [],
+});
 
-const rowsById = (table: string, info: TableInfo, rows: readonly RawRow[]): Map<string, RawRow> => {
-  const byId = new Map<string, RawRow>();
-  for (const row of rows) {
-    try {
-      byId.set(
-        entityIdOf(
-          table,
-          info.primaryKey.map((column) => row[column]),
-        ),
-        row,
-      );
-    } catch {
-      /* a row with a NULL key cannot be addressed */
-    }
-  }
-  return byId;
-};
-
-/** The generic merge of `merge-entity.ts`, entity by entity. */
-const mergeBatchGenerically = (
+/**
+ * The generic merge of `merge-entity.ts`, entity by entity, with the foreign-key rules of
+ * `apply-references.ts` for a child row: a parent that is gone forces a tombstone, an unknown
+ * parent skips an entity that would have to be inserted.
+ */
+const mergeBatchGenerically = async (
   table: string,
   info: TableInfo,
   codec: FieldCodec,
   batch: readonly SyncEntity[],
   rows: Map<string, RawRow>,
   metas: Map<string, { field_clocks_json: string; row_hlc: string; deleted_at: string | null }>,
-): StagedEntity[] =>
-  batch.map((entity) => {
+  guard: ReferenceGuard,
+): Promise<StagedEntity[]> => {
+  const staged: StagedEntity[] = [];
+  for (const entity of batch) {
     const meta = metas.get(entity.entityId);
+    const localRow = rows.get(entity.entityId) ?? null;
+    const local = {
+      row: localRow,
+      meta: meta
+        ? {
+            fieldClocks: parseClocks(meta.field_clocks_json),
+            rowHlc: meta.row_hlc,
+            deletedAt: meta.deleted_at,
+          }
+        : null,
+    };
+    const parent: ParentStatus =
+      entity.row === null ? { state: "present" } : await guard.statusOf(table, entity.row);
+    let outcome: EntityMergeOutcome;
     try {
-      const outcome = mergeFieldClockEntity({
+      outcome = mergeFieldClockEntity({
         codec,
         columns: info.columns,
         primaryKey: info.primaryKey,
         notNullColumns: info.notNull,
-        local: {
-          row: rows.get(entity.entityId) ?? null,
-          meta: meta
-            ? {
-                fieldClocks: parseClocks(meta.field_clocks_json),
-                rowHlc: meta.row_hlc,
-                deletedAt: meta.deleted_at,
-              }
-            : null,
-        },
+        local,
         remote: entity,
+        ...(parent.state === "gone" ? { orphaned: { deletedAt: parent.deletedAt } } : {}),
       });
-      return {
-        entityId: entity.entityId,
-        key: parseEntityId(table, entity.entityId) as PrimaryKeyValue[],
-        outcome,
-        conflicts: [],
-      };
     } catch (error) {
       throw new SyncApplyError(
         "merge_failed",
@@ -365,7 +232,44 @@ const mergeBatchGenerically = (
         { table, entityId: entity.entityId, cause: error },
       );
     }
-  });
+    const conflicts: ExtraConflict[] = [];
+    if (outcome.forcedByParent === true && entity.row !== null) {
+      conflicts.push({
+        id: orphanedChildId(table, entity.entityId),
+        kind: "orphaned_child",
+        entityType: table,
+        entityId: entity.entityId,
+        local: localRow,
+        remote: entity.row,
+      });
+    }
+    // The parent was never heard of: inserting would violate the key and abort the bundle. Write
+    // nothing, so the bundle that brings the parent applies the child.
+    if (
+      parent.state === "missing" &&
+      localRow === null &&
+      outcome.meta.deletedAt === null &&
+      entity.row !== null
+    ) {
+      conflicts.push({
+        id: orphanedChildId(table, entity.entityId),
+        kind: "orphaned_child",
+        entityType: table,
+        entityId: entity.entityId,
+        local: { parent: "unknown" },
+        remote: entity.row,
+      });
+      outcome = skippedOutcome(local, entity);
+    }
+    staged.push({
+      entityId: entity.entityId,
+      key: parseEntityId(table, entity.entityId) as PrimaryKeyValue[],
+      outcome,
+      conflicts,
+    });
+  }
+  return staged;
+};
 
 const applyEntityTable = async (
   db: Database,
@@ -374,6 +278,7 @@ const applyEntityTable = async (
   totals: Totals,
   conflicts: PendingConflict[],
   gtd: GtdApplyState | null,
+  guard: ReferenceGuard,
 ): Promise<void> => {
   const info = await readTableInfo(db, table);
   const codec = buildEntityCodec(table, info.columns);
@@ -410,7 +315,15 @@ const applyEntityTable = async (
           ? await mergeTaskBatch(env, gtd as GtdApplyState, batch, rows, metas)
           : rule === "recurring-template"
             ? await mergeTemplateBatch(env, gtd as GtdApplyState, batch, rows, metas)
-            : mergeBatchGenerically(table, info, codec as FieldCodec, batch, rows, metas);
+            : await mergeBatchGenerically(
+                table,
+                info,
+                codec as FieldCodec,
+                batch,
+                rows,
+                metas,
+                guard,
+              );
     } catch (error) {
       if (error instanceof SyncApplyError) throw error;
       throw new SyncApplyError(
@@ -424,7 +337,12 @@ const applyEntityTable = async (
     for (const entry of staged) {
       const { entityId, key, outcome: merged } = entry;
       try {
-        await writeRow(db, table, info, key, merged);
+        if (merged.rowAction === "delete" && guard.isCascadeParent(table)) {
+          // Children first: the delete runs in `guard.flush`, after every table was applied.
+          guard.deferDelete(table, entityId, key, merged.meta.deletedAt as string);
+        } else {
+          await writeRow(db, table, info, key, merged);
+        }
       } catch (error) {
         throw await toSqlApplyError(db, table, entityId, error);
       }
@@ -702,19 +620,35 @@ const mergeAll = async (
   // must have been applied by then.
   const rank = (table: string): number => tableOrder(table) + (table === "gtd_tasks" ? 1000 : 0);
   const entityTables = [...byTable.keys()].sort((a, b) => rank(a) - rank(b));
-  for (const table of entityTables) {
-    const entities = (byTable.get(table) as SyncEntity[]).sort((a, b) =>
-      a.entityId < b.entityId ? -1 : a.entityId > b.entityId ? 1 : 0,
-    );
-    await applyEntityTable(db, table, entities, totals, conflicts, gtd);
-  }
-
   const unionTables = Object.keys(changeSet.unionRows).sort(
     (a, b) => tableOrder(a) - tableOrder(b),
   );
-  for (const table of unionTables) {
-    await applyUnionTable(db, table, getOwn(changeSet.unionRows, table) as SyncRow[], totals);
+
+  // Parents before children, derived from the declared foreign keys: a proposal needs its message
+  // (a union table), a result its objective. Otherwise the order above stands.
+  const guard = await ReferenceGuard.create(db);
+  const bundleSessionIds = new Set(
+    changeSet.entities
+      .filter((entity) => entity.table === "pomodoro_sessions" && entity.row !== null)
+      .map((entity) => entity.entityId),
+  );
+  const order = orderByReferences([...entityTables, ...unionTables], guard.edges);
+  for (const table of order) {
+    if (byTable.has(table)) {
+      const entities = (byTable.get(table) as SyncEntity[]).sort((a, b) =>
+        a.entityId < b.entityId ? -1 : a.entityId > b.entityId ? 1 : 0,
+      );
+      if (strategyForTable(table)?.kind === "row-clock") {
+        await applyRowClockTable(db, table, entities, totals, conflicts, guard, bundleSessionIds);
+      } else {
+        await applyEntityTable(db, table, entities, totals, conflicts, gtd, guard);
+      }
+    } else {
+      await applyUnionTable(db, table, getOwn(changeSet.unionRows, table) as SyncRow[], totals);
+    }
   }
+  // The deletes of parents the bundle removed run last, children first (apply-references.ts).
+  await guard.flush(totals);
 
   await applySettings(db, changeSet, context, totals);
   const conflictsLogged = await insertConflicts(db, conflicts, context.nowMs);

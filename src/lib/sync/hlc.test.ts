@@ -14,6 +14,7 @@ import {
   maxHlcOf,
   parseHlc,
   receiveHlc,
+  successorHlc,
   tickHlc,
 } from "./hlc";
 
@@ -249,6 +250,22 @@ describe("tickHlc", () => {
     const stepB = tickHlc(INITIAL_HLC_STATE, NOW, B);
     expect(stepA.hlc).not.toBe(stepB.hlc);
     expect(compareHlc(stepA.hlc, stepB.hlc)).toBe(-1);
+  });
+});
+
+describe("successorHlc", () => {
+  it("is the same author's next counter, strictly greater, and issues nothing", () => {
+    const clock = encodeHlc(NOW, 4, A);
+    expect(successorHlc(clock)).toBe(encodeHlc(NOW, 5, A));
+    expect(compareHlc(successorHlc(clock), clock)).toBe(1);
+  });
+
+  it("rolls to the next millisecond when the counter is exhausted", () => {
+    expect(successorHlc(encodeHlc(NOW, HLC_MAX_COUNTER, B))).toBe(encodeHlc(NOW + 1, 0, B));
+  });
+
+  it("rejects a malformed clock", () => {
+    expect(() => successorHlc("zzzz")).toThrow("hlc_malformed");
   });
 });
 

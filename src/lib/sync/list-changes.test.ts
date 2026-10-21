@@ -210,18 +210,13 @@ describe("listSyncChanges: privacy guards", () => {
     expect(
       await a.db.select("SELECT 1 FROM sync_entity_meta WHERE entity_type = 'ai_memories'"),
     ).not.toEqual([]);
-    expect(
-      await a.db.select("SELECT 1 FROM sync_entity_meta WHERE entity_type = 'pomodoro_sessions'"),
-    ).not.toEqual([]);
     // ... but is not published.
     const finance = await a.repo.listSyncChanges("finance");
     expect(finance.entities).toEqual([]);
     expect(finance.unionRows).toEqual({});
     const personal = await a.repo.listSyncChanges("personal");
     expect(tablesOf(personal)).not.toContain("ai_memories");
-    expect(tablesOf(personal)).not.toContain("ai_proposals");
     const gtd = await a.repo.listSyncChanges("gtd");
-    expect(tablesOf(gtd).some((table) => table.startsWith("pomodoro_"))).toBe(false);
     for (const changeSet of [finance, personal, gtd]) {
       for (const table of tablesOf(changeSet)) {
         expect(strategyForTable(table), table).not.toBeNull();

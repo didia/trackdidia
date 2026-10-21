@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   fieldClockRuleOf,
   isTableSyncSupported,
+  rowClockRuleOf,
   strategyForRegistration,
   strategyForTable,
   supportedEntityTables,
@@ -12,12 +13,14 @@ import {
 import { getTableRegistration, SYNC_DOMAINS, TABLE_REGISTRY, tablesInDomain } from "./registry";
 
 describe("merge strategies", () => {
-  it("supports exactly the field-clock and grow-only-union tables of the three domains", () => {
+  it("supports exactly the field-clock, grow-only-union and the three ruled row-clock tables", () => {
     expect(supportedEntityTables("gtd")).toEqual([
       "gtd_tasks",
       "gtd_projects",
       "gtd_contexts",
       "recurring_task_templates",
+      "pomodoro_sessions",
+      "pomodoro_segments",
     ]);
     expect(supportedUnionTables("gtd")).toEqual(["gtd_task_events"]);
     expect(supportedEntityTables("personal")).toEqual([
@@ -26,6 +29,9 @@ describe("merge strategies", () => {
       "monthly_reviews",
       "mid_week_decisions",
       "annual_goals",
+      "weekly_objectives",
+      "weekly_objective_results",
+      "ai_proposals",
     ]);
     expect(supportedUnionTables("personal")).toEqual(["ai_messages"]);
     expect(supportedEntityTables("finance")).toEqual([]);
@@ -34,26 +40,16 @@ describe("merge strategies", () => {
 
   it("refuses every other merge class, naming the tables a later slice must add", () => {
     expect(unsupportedTablesInDomain("gtd")).toEqual([
-      "pomodoro_sessions",
-      "pomodoro_segments",
       "sync_recurrence_occurrences",
       "sync_recurrence_clears",
     ]);
-    expect(unsupportedTablesInDomain("personal")).toEqual([
-      "weekly_objectives",
-      "weekly_objective_results",
-      "ai_proposals",
-      "ai_memories",
-    ]);
+    expect(unsupportedTablesInDomain("personal")).toEqual(["ai_memories"]);
     expect(unsupportedTablesInDomain("finance")).toEqual(tablesInDomain("finance"));
   });
 
-  it("never supports device-local tables, by-entity-type sidecars, unknown tables or filtered tables", () => {
+  it("never supports device-local tables, by-entity-type sidecars or unknown tables", () => {
     for (const entry of TABLE_REGISTRY) {
       if (entry.domain === "device" || entry.domain === "by-entity-type") {
-        expect(isTableSyncSupported(entry.table), entry.table).toBe(false);
-      }
-      if (entry.rowFilter) {
         expect(isTableSyncSupported(entry.table), entry.table).toBe(false);
       }
     }
@@ -62,10 +58,26 @@ describe("merge strategies", () => {
     expect(strategyForTable("sync_conflicts")).toBeNull();
   });
 
-  it("derives a supported table's strategy from the registry's merge class", () => {
+  it("supports a table with a rowFilter only through a row-clock rule that owns the filter", () => {
+    for (const entry of TABLE_REGISTRY.filter((candidate) => candidate.rowFilter)) {
+      const strategy = strategyForTable(entry.table);
+      // The finance snapshot filter has no rule yet (next slice): refused.
+      expect(strategy === null || strategy.kind === "row-clock", entry.table).toBe(true);
+    }
+    expect(strategyForTable("finance_account_balance_snapshots")).toBeNull();
+    expect(strategyForTable("pomodoro_sessions")).toEqual({
+      kind: "row-clock",
+      rule: "pomodoro-session",
+    });
+  });
+
+  it("derives a supported table's strategy from the registry's merge class or its override", () => {
     for (const domain of SYNC_DOMAINS) {
       for (const table of supportedEntityTables(domain)) {
-        expect(strategyForTable(table)).toMatchObject({ kind: "field-clock" });
+        expect(strategyForTable(table)).toMatchObject({
+          kind:
+            getTableRegistration(table).mergeClass === "field-clock" ? "field-clock" : "row-clock",
+        });
       }
       for (const table of supportedUnionTables(domain)) {
         expect(strategyForTable(table)).toEqual({ kind: "grow-only-union" });
@@ -77,7 +89,12 @@ describe("merge strategies", () => {
     expect(TABLE_STRATEGY_OVERRIDES).toEqual({
       gtd_tasks: { kind: "field-clock", rule: "gtd-task" },
       recurring_task_templates: { kind: "field-clock", rule: "recurring-template" },
+      pomodoro_sessions: { kind: "row-clock", rule: "pomodoro-session" },
+      pomodoro_segments: { kind: "row-clock", rule: "pomodoro-segment" },
+      ai_proposals: { kind: "row-clock", rule: "ai-proposal" },
     });
+    expect(rowClockRuleOf("ai_proposals")).toBe("ai-proposal");
+    expect(rowClockRuleOf("gtd_tasks")).toBeUndefined();
     expect(fieldClockRuleOf("gtd_tasks")).toBe("gtd-task");
     expect(fieldClockRuleOf("recurring_task_templates")).toBe("recurring-template");
     expect(fieldClockRuleOf("gtd_projects")).toBeUndefined();
@@ -87,7 +104,7 @@ describe("merge strategies", () => {
     expect(supportedEntityTables("gtd")).toContain("recurring_task_templates");
   });
 
-  it("never supports a table with a rowFilter, even one that would otherwise merge generically", () => {
+  it("never gives a filtered table a generic path, even one that would otherwise merge generically", () => {
     // The guard is what keeps filtered-out rows (a running Pomodoro) from leaking through a
     // generic path if a registry edit ever gave such a table a generic merge class.
     const plain = getTableRegistration("gtd_projects");
@@ -108,11 +125,10 @@ describe("merge strategies", () => {
     ).toBeNull();
   });
 
-  it("does not support a table whose foreign key handling is pending", () => {
-    const plain = getTableRegistration("gtd_projects");
-    expect(strategyForRegistration({ ...plain, referencesMergePending: true })).toBeNull();
-    expect(isTableSyncSupported("weekly_objectives")).toBe(false);
-    expect(isTableSyncSupported("weekly_objective_results")).toBe(false);
+  it("supports the former foreign-key tables: references are handled by apply-references.ts", () => {
+    for (const table of ["weekly_objectives", "weekly_objective_results", "ai_proposals"]) {
+      expect(isTableSyncSupported(table), table).toBe(true);
+    }
     expect(isTableSyncSupported("gtd_tasks")).toBe(true);
   });
 });

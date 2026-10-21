@@ -5,7 +5,7 @@ import type { AnnualGoal, Task } from "../../domain/types";
 import { clocksOf, readIdentity, readMarks, readMetaOf, syncState } from "./capture-test-utils";
 import { stampDirtyEntities } from "./capture-stamp";
 import { compareHlc } from "./hlc";
-import { supportedEntityTables } from "./merge-strategies";
+import { supportedEntityTables, supportedUnionTables } from "./merge-strategies";
 import { getTableRegistration } from "./registry";
 import {
   createSyncHarness,
@@ -974,44 +974,50 @@ describe("foreign keys are enforced (as in production)", () => {
     ).rejects.toThrow(/FOREIGN KEY/i);
   });
 
-  it("an objective deleted on A and its result edited later on B cannot abort or cascade a merge, in either direction", async () => {
-    // weekly_objectives and weekly_objective_results are not merged until the references slice
-    // (referencesMergePending): the parent delete never reaches B as a tombstone, so nothing
-    // cascades through apply and no child can arrive for a deleted parent.
+  it("an objective deleted on A and its result edited later on B cannot abort a merge, in either direction", async () => {
+    // The objective and its results merge now (apply-references.ts): the parent tombstone reaches B
+    // and removes the result there with a tombstone of its own; the result edit arriving at A for a
+    // deleted objective is kept off the table instead of aborting the bundle. The full matrix
+    // (every order, three replicas) is in references.convergence.test.ts.
     const { sim, a, b } = await twoDevices();
     await a.repo.saveWeeklyObjective(objective("obj-1"));
     await a.repo.saveWeeklyObjectiveResult(result("obj-1", false));
     await b.repo.saveWeeklyObjective(objective("obj-1"));
     await b.repo.saveWeeklyObjectiveResult(result("obj-1", false));
     await a.repo.saveAnnualGoal(goal());
+    await sim.syncAll("personal");
 
     a.clock.advance(1_000);
     await a.repo.deleteWeeklyObjective("obj-1"); // cascades to A's result, captured by A's triggers
     b.clock.advance(60_000);
-    await b.repo.saveWeeklyObjectiveResult(result("obj-1", true));
+    // A raw edit: saving an achieved result through the repository also ends a manual objective,
+    // which would be an edit of the PARENT (and resurrect it, as it should).
+    await b.db.execute("UPDATE weekly_objective_results SET achieved = 1");
+    await b.stamp();
 
     await sim.exchange(a, b, "personal");
     await sim.exchange(b, a, "personal");
     await sim.syncAll("personal");
 
-    // Unrelated personal data still flows ...
     expect((await b.repo.listAnnualGoals()).map((g) => g.id)).toEqual(["goal-1"]);
-    // ... and neither laptop's objective rows were touched by the merge.
-    expect(await a.repo.listWeeklyObjectives()).toEqual([]);
-    expect((await b.repo.listWeeklyObjectives()).map((o) => o.id)).toEqual(["obj-1"]);
-    expect(await b.repo.getWeeklyObjectiveResults("2026-10-04")).toHaveLength(1);
     for (const device of [a, b]) {
-      const personal = await device.repo.listSyncChanges("personal");
-      expect(personal.entities.map((e) => e.table)).not.toContain("weekly_objectives");
-      expect(personal.entities.map((e) => e.table)).not.toContain("weekly_objective_results");
+      expect(await device.repo.listWeeklyObjectives()).toEqual([]);
+      expect(await device.repo.getWeeklyObjectiveResults("2026-10-04")).toEqual([]);
     }
+    await sim.expectConverged("personal", { snapshots: true });
   });
 
-  it("every scenario above passes with enforcement on: no supported table has a foreign key", async () => {
+  it("every foreign key of a synced table is covered by a reference rule", async () => {
     const { a } = await twoDevices();
-    for (const table of [...supportedEntityTables("gtd"), ...supportedEntityTables("personal")]) {
-      const keys = await a.db.select(`SELECT * FROM pragma_foreign_key_list('${table}')`);
-      expect(keys, table).toEqual([]);
+    const keys = await a.db.select<{ table: string; on_delete: string }[]>(
+      `SELECT m.name AS child, f."table" AS "table", f.on_delete AS on_delete
+       FROM sqlite_master m JOIN pragma_foreign_key_list(m.name) f WHERE m.type = 'table'`,
+    );
+    for (const key of keys) {
+      expect(key.on_delete).toBe("CASCADE");
+      expect(supportedEntityTables("personal").concat(supportedUnionTables("personal"))).toContain(
+        key.table,
+      );
     }
   });
 });

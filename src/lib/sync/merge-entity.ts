@@ -15,7 +15,7 @@ import {
   setOwn,
   splitFieldClockKey,
 } from "./field-clocks";
-import { encodeHlc, maxHlc, parseHlc } from "./hlc";
+import { encodeHlc, maxHlc, maxHlcOf, parseHlc, successorHlc } from "./hlc";
 import {
   type MapEntry,
   mergeJsonMapPerKey,
@@ -75,7 +75,7 @@ export const BASELINE_CLOCK = encodeHlc(0, 0, "baseline");
  * `updated_at` moves on every save (slice-5 decision) and `created_at` differs whenever two devices
  * independently create the same deterministic id.
  */
-const BOOKKEEPING_FIELDS: ReadonlySet<string> = new Set(["created_at", "updated_at"]);
+export const BOOKKEEPING_FIELDS: ReadonlySet<string> = new Set(["created_at", "updated_at"]);
 
 export interface LocalEntityState {
   /** The stored row, or `null` when the entity has no row here. */
@@ -92,6 +92,12 @@ export interface MergeEntityInput {
   notNullColumns: ReadonlySet<string>;
   local: LocalEntityState;
   remote: SyncEntity;
+  /**
+   * Set when the entity's parent row (a declared foreign key) is deleted here. The child must not
+   * survive its parent: if the ordinary merge would keep it alive, it ends as a tombstone instead
+   * (see {@link mergeFieldClockEntity}). `deletedAt` is the parent's tombstone clock.
+   */
+  orphaned?: { deletedAt: string };
 }
 
 export type RowAction = "none" | "insert" | "update" | "delete";
@@ -132,6 +138,8 @@ export interface EntityMergeOutcome {
   /** A tombstone removed a local row, or was recorded or advanced in the meta. */
   tombstoneApplied: boolean;
   overwritten: OverwrittenField[];
+  /** The ordinary merge would have kept the entity alive; its deleted parent forced a tombstone. */
+  forcedByParent?: true;
 }
 
 type Json = Record<string, unknown>;
@@ -535,8 +543,24 @@ export const mergeFieldClockEntity = (input: MergeEntityInput): EntityMergeOutco
   );
 
   // --- The latest delete beats every edit: the row goes, the tombstone and clocks stay. --------
-  if (tombstone.deleted) {
-    const deletedAt = tombstone.deletedAt as string;
+  // A child of a deleted parent is deleted too, even when an edit is later than every delete it has
+  // seen: the foreign key forbids the row, and "edit wins over delete" applies to the PARENT (its
+  // own edit resurrects it). The forced tombstone is later than the parent's, than any delete the
+  // child already had and than the newest edit it retains, so it is a valid, effective tombstone
+  // (a tombstone older than a retained edit would read as "alive, but without a row"), and a
+  // derived delete is a function of the child's own state. Known limit (docs): when the parent is
+  // deleted only TRANSIENTLY (a later parent edit resurrects it) the child edit is lost on the
+  // replicas that applied it during that window; all replicas still converge.
+  const forced = !tombstone.deleted && input.orphaned !== undefined;
+  if (tombstone.deleted || forced) {
+    const deletedAt = tombstone.deleted
+      ? (tombstone.deletedAt as string)
+      : (maxHlcOf([
+          localDeletedAt,
+          remote.deletedAt,
+          input.orphaned?.deletedAt,
+          tombstone.rowClock === null ? null : successorHlc(tombstone.rowClock),
+        ]) as string);
     const meta: EntityMeta = {
       fieldClocks: mergeClocksByForm(localClocks, remoteClocks, maps),
       rowHlc: deletedAt,
@@ -550,6 +574,7 @@ export const mergeFieldClockEntity = (input: MergeEntityInput): EntityMergeOutco
       metaChanged,
       tombstoneApplied: localHasRow || metaChanged,
       overwritten: [],
+      ...(forced ? { forcedByParent: true as const } : {}),
     };
   }
 
