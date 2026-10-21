@@ -1314,3 +1314,75 @@ describe("mergeSettingEntry", () => {
     }
   });
 });
+
+describe("a child kept off a deleted parent (orphaned)", () => {
+  const RESULT_COLUMNS = ["week_start_date", "objective_id", "achieved", "updated_at"];
+  const KEY = JSON.stringify(["2026-10-04", "o1"]);
+  const resultRow = (achieved: number): RawRow => ({
+    week_start_date: "2026-10-04",
+    objective_id: "o1",
+    achieved,
+    updated_at: "t",
+  });
+  const mergeResult = (
+    local: LocalEntityState,
+    remote: SyncEntity,
+    orphaned: { deletedAt: string; freshClock?: string },
+  ) =>
+    mergeFieldClockEntity({
+      ...input("weekly_objective_results", RESULT_COLUMNS, local, remote),
+      orphaned,
+    });
+
+  const editByB = remoteLive("weekly_objective_results", KEY, resultRow(1), {
+    achieved: at(50, B, 5),
+    updated_at: at(50, B, 5),
+  });
+  const localOld = live(resultRow(0), { achieved: at(1, A), updated_at: at(1, A) });
+
+  it("never derives a clock from the child's author: it asks for one of the applying device", () => {
+    const parentDeletedAt = at(10, A); // earlier than B's edit
+    const first = mergeResult(localOld, editByB, { deletedAt: parentDeletedAt });
+    expect(first.forcedByParent).toBe(true);
+    expect(first.needsFreshClock).toBe(true);
+
+    const fresh = at(60, C);
+    const second = mergeResult(localOld, editByB, {
+      deletedAt: parentDeletedAt,
+      freshClock: fresh,
+    });
+    expect(second.needsFreshClock).toBeUndefined();
+    expect(second.meta.deletedAt).toBe(fresh);
+    expect(second.meta.rowHlc).toBe(fresh);
+    expect(second.rowAction).toBe("delete");
+    // Later than the edit it retains, and not B's next clock (counter 6 of B).
+    expect(fresh > at(50, B, 5)).toBe(true);
+    expect(second.meta.deletedAt).not.toBe(at(50, B, 6));
+  });
+
+  it("an equal or older tombstone does not count as outranking the edit", () => {
+    for (const known of [at(50, B, 5), at(40, A)]) {
+      const outcome = mergeResult(tomb({ achieved: at(1, A) }, known), editByB, {
+        deletedAt: known,
+      });
+      expect(outcome.needsFreshClock).toBe(true);
+    }
+  });
+
+  it("rejects a fresh clock that is not later than the child's edits", () => {
+    expect(() =>
+      mergeResult(localOld, editByB, { deletedAt: at(10, A), freshClock: at(50, B, 5) }),
+    ).toThrow(/must be later/);
+  });
+
+  it("issues nothing when a delete the entity or its parent already has is later than the edit (re-apply)", () => {
+    const stored = tomb({ achieved: at(50, B, 5), updated_at: at(50, B, 5) }, at(70, C));
+    const again = mergeResult(stored, editByB, { deletedAt: at(10, A) });
+    expect(again.needsFreshClock).toBeUndefined();
+    expect(again.meta.deletedAt).toBe(at(70, C));
+    expect(again).toMatchObject({ metaChanged: false, rowAction: "none" });
+    const parentLater = mergeResult(localOld, editByB, { deletedAt: at(80, A) });
+    expect(parentLater.needsFreshClock).toBeUndefined();
+    expect(parentLater.meta.deletedAt).toBe(at(80, A));
+  });
+});

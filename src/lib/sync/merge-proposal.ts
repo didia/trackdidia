@@ -18,8 +18,9 @@ import type { LiveVersion, RowRules } from "./merge-row";
  *   proposal already changed data), and an unresolved `terminal_divergence` conflict with a
  *   deterministic id records both rows for the user;
  * - the same status on both sides, or two pending rows: the later clock, then the smaller JSON;
- * - a terminal row also beats any tombstone, whatever the clocks (`survivesDelete`): the app only
- *   ever deletes pending proposals, so a delete racing a decision means the decision was not seen.
+ * - a terminal row (`accepted`, `dismissed`, `expired`) also beats any tombstone, whatever the
+ *   clocks (`survivesDelete`): the app only ever deletes pending proposals, so a delete racing a
+ *   decision means the decision was not seen.
  *
  * Pending proposals that claim one natural key are handled by the apply layer
  * (`apply-proposals.ts`), because it needs the database; {@link keepsPending} is its pure order.
@@ -33,8 +34,13 @@ export const isTerminalProposalStatus = (status: unknown): boolean =>
 const statusOf = (row: RawRow): string => String(row.status ?? "");
 
 export const PROPOSAL_RULES: RowRules = {
-  // A decided proposal is a user decision that already had effects: a delete (which only ever
-  // targets pending rows) must not erase it, whatever the clocks say.
+  // A decided or otherwise terminal proposal beats a delete whatever the clocks say: the app only
+  // ever deletes pending rows, so a delete racing a decision means the decision was not seen.
+  // `expired` is included on purpose (it must sit above `pending` and above a tombstone alike):
+  // with `expired` following the clocks the order would be cyclic (expired < tombstone < pending <
+  // expired). Rows the engine derives as `expired` for a pending collision therefore also survive
+  // a later delete of the pending row they came from; whether a replica derived one before or after
+  // the delete arrived can differ for a single pass, and replicas converge once they exchange.
   survivesDelete: (row) => isTerminalProposalStatus(row.status),
   rank: (a: LiveVersion, b: LiveVersion): number => {
     const left = statusOf(a.row);

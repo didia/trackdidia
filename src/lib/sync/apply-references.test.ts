@@ -4,7 +4,9 @@ import type { WeeklyObjective } from "../../domain/types";
 import { createNodeSqliteDatabase } from "../../test/mocks/node-sqlite-database";
 import { runMigrations } from "../storage/migrations";
 import { orderByReferences, readForeignKeyEdges, ReferenceGuard } from "./apply-references";
+import { readIdentity, readMarks } from "./capture-test-utils";
 import type { SyncChangeSet } from "./change-set";
+import { encodeHlc, parseHlc } from "./hlc";
 import { SyncApplyError } from "./errors";
 import {
   createSyncHarness,
@@ -67,7 +69,7 @@ describe("foreign key edges", () => {
          updated_at TEXT NOT NULL, PRIMARY KEY (week_start_date, objective_id),
          FOREIGN KEY (objective_id) REFERENCES weekly_objectives(id) ON DELETE SET NULL)`,
     );
-    await expect(ReferenceGuard.create(db)).rejects.toMatchObject({
+    await expect(ReferenceGuard.create(db, 1_800_000_000_000)).rejects.toMatchObject({
       name: "SyncApplyError",
       code: "unsupported_foreign_key",
     });
@@ -318,5 +320,150 @@ describe("objectives and results through applySyncBundle (foreign keys on)", () 
     await sim.exchange(a, b, "personal");
     expect(await (b as SyncDevice).db.select("PRAGMA foreign_key_check")).toEqual([]);
     expect(await b.db.select("SELECT 1 FROM weekly_objective_results")).toEqual([]);
+  });
+
+  describe("tombstones invented while applying are clocks of the applying device", () => {
+    // B edits a result at B5, later than A's delete of its objective. C holds B's edit and receives
+    // A's delete. The tombstone C must write has to be later than B5; it must not be a value derived
+    // from B's clock (B6 = counter + 1 on B's id), which B itself issues for its next edit.
+    const threeDevices = async () => {
+      const sim = await createSyncHarness(["A", "B", "C"]);
+      const [a, b, c] = sim.devices as [SyncDevice, SyncDevice, SyncDevice];
+      await a.repo.saveWeeklyObjective(objective("o1"));
+      await a.repo.saveWeeklyObjectiveResult({
+        weekStartDate: W1,
+        objectiveId: "o1",
+        achieved: false,
+        updatedAt: "",
+      });
+      await sim.syncAll("personal");
+      a.clock.advance(1_000);
+      await a.repo.deleteWeeklyObjective("o1"); // A's delete, earlier than B's edit in clock time
+      b.clock.advance(120_000);
+      await b.db.execute("UPDATE weekly_objective_results SET achieved = 1");
+      await b.stamp();
+      await sim.exchange(b, c, "personal"); // C holds B's edit B5
+      return { sim, a, b, c };
+    };
+
+    /** The clock its author issues right after `clock`: same device id, counter + 1. */
+    const nextClockOf = (clock: string): string => {
+      const parsed = parseHlc(clock);
+      if (!parsed) throw new Error("bad clock");
+      return encodeHlc(parsed.physicalMs, parsed.counter + 1, parsed.deviceId);
+    };
+
+    const newestClock = async (device: SyncDevice): Promise<string> =>
+      Object.values(
+        JSON.parse((await resultMeta(device))?.field_clocks_json as string) as Record<
+          string,
+          string
+        >,
+      )
+        .sort()
+        .at(-1) as string;
+
+    const resultMeta = async (device: SyncDevice) =>
+      (
+        await device.db.select<{ deleted_at: string | null; field_clocks_json: string }[]>(
+          "SELECT deleted_at, field_clocks_json FROM sync_entity_meta WHERE entity_type = 'weekly_objective_results'",
+        )
+      )[0];
+
+    const expectOwnClock = async (
+      device: SyncDevice,
+      bEdit: string,
+      before: Awaited<ReturnType<typeof readIdentity>>,
+    ) => {
+      const tombstone = (await resultMeta(device))?.deleted_at as string;
+      expect(tombstone).not.toBeNull();
+      expect(tombstone > bEdit).toBe(true);
+      expect(parseHlc(tombstone)?.deviceId).toBe(device.deviceId);
+      // Drawn from the applying device's clock store: its clock state moved past the tombstone,
+      // and nothing else was stamped (no dirty mark, no change counter).
+      const after = await readIdentity(device.db);
+      expect(after?.change_counter).toBe(before?.change_counter);
+      expect(await readMarks(device.db)).toEqual([]);
+      // The clock was really drawn from this device's clock store and persisted: its stored state is
+      // at or past the tombstone, so its next local tick is later than it.
+      const persisted = encodeHlc(after?.physical_ms ?? 0, after?.counter ?? 0, device.deviceId);
+      expect(persisted >= tombstone).toBe(true);
+      const beforeState = encodeHlc(
+        before?.physical_ms ?? 0,
+        before?.counter ?? 0,
+        device.deviceId,
+      );
+      expect(beforeState < tombstone).toBe(true);
+      return tombstone;
+    };
+
+    it("a cascade of a child edited after the parent's delete (the bundle does not mention the child)", async () => {
+      const { a, b, c } = await threeDevices();
+      const bEdit = await newestClock(b);
+      const bundle = jsonRoundTrip(await a.repo.listSyncChanges("personal")) as unknown as Draft;
+      bundle.entities = bundle.entities.filter((e: Draft) => e.table === "weekly_objectives");
+      const before = await readIdentity(c.db);
+      await c.repo.applySyncBundle("personal", bundle as unknown as SyncChangeSet);
+      const tombstone = await expectOwnClock(c, bEdit, before);
+      expect(tombstone).not.toBe(nextClockOf(bEdit)); // B's next clock: B5 + 1 counter
+
+      // Re-applying the same bundle issues nothing and changes nothing, `sync_identity` included.
+      const settled = await readIdentity(c.db);
+      const again = await c.repo.applySyncBundle("personal", bundle as unknown as SyncChangeSet);
+      expect(again).toMatchObject({ applied: 0, tombstonesApplied: 0 });
+      expect(await readIdentity(c.db)).toEqual(settled);
+      expect((await resultMeta(c))?.deleted_at).toBe(tombstone);
+    });
+
+    it("a child edit meeting the parent's tombstone (the bundle carries the edited child)", async () => {
+      const { sim, a, b } = await threeDevices();
+      // A holds both tombstones (its own delete); B's whole bundle brings the edited result, which
+      // the merge of that result itself must keep off the deleted objective with a tombstone later
+      // than the edit.
+      const bEdit = await newestClock(b);
+      const before = await readIdentity(a.db);
+      await sim.exchange(b, a, "personal");
+      const tombstone = await expectOwnClock(a, bEdit, before);
+      expect(tombstone).not.toBe(nextClockOf(bEdit));
+      expect(await a.db.select("SELECT 1 FROM weekly_objective_results")).toEqual([]);
+
+      const settled = await readIdentity(a.db);
+      const again = await sim.exchange(b, a, "personal");
+      expect(again).toMatchObject({ applied: 0, tombstonesApplied: 0 });
+      expect(await readIdentity(a.db)).toEqual(settled);
+      expect((await resultMeta(a))?.deleted_at).toBe(tombstone);
+    });
+
+    it("B ticking between the stamp and the apply cannot tie with the tombstone: everything ends deleted", async () => {
+      const { sim, a, b, c } = await threeDevices();
+      const bEditClock = await newestClock(b);
+      // C applies A's delete and writes its tombstone ...
+      await sim.exchange(a, c, "personal");
+      const onC = (await resultMeta(c))?.deleted_at as string;
+      // ... meanwhile B (which has not heard of the delete) edits the result again. Its next clock is
+      // exactly "B5 + 1 counter", the value the old derivation gave the tombstone.
+      await b.db.execute("UPDATE weekly_objective_results SET achieved = 0");
+      await b.stamp();
+      const bNext = await newestClock(b);
+      expect(bNext).toBe(nextClockOf(bEditClock)); // B's next clock IS "B5 + 1 counter" ...
+      expect(onC).not.toBe(bNext); // ... and the tombstone is not that value
+      expect(parseHlc(onC)?.deviceId).toBe(c.deviceId);
+
+      await sim.syncAll("personal");
+      await sim.expectConverged("personal", { snapshots: true });
+      for (const device of [a, b, c]) {
+        expect(await device.db.select("SELECT 1 FROM weekly_objective_results")).toEqual([]);
+        expect(await device.db.select("SELECT 1 FROM weekly_objectives")).toEqual([]);
+        expect(await device.db.select("PRAGMA foreign_key_check")).toEqual([]);
+        const meta = await resultMeta(device);
+        expect(meta?.deleted_at).not.toBeNull();
+        // A tombstone is later than every clock it retains, so an equal clock cannot keep an edit.
+        for (const clock of Object.values(
+          JSON.parse(meta?.field_clocks_json as string) as Record<string, string>,
+        )) {
+          expect((meta?.deleted_at as string) > clock).toBe(true);
+        }
+      }
+    });
   });
 });

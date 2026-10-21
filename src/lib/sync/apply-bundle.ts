@@ -216,15 +216,29 @@ const mergeBatchGenerically = async (
       entity.row === null ? { state: "present" } : await guard.statusOf(table, entity.row);
     let outcome: EntityMergeOutcome;
     try {
-      outcome = mergeFieldClockEntity({
-        codec,
-        columns: info.columns,
-        primaryKey: info.primaryKey,
-        notNullColumns: info.notNull,
-        local,
-        remote: entity,
-        ...(parent.state === "gone" ? { orphaned: { deletedAt: parent.deletedAt } } : {}),
-      });
+      const merge = (freshClock?: string) =>
+        mergeFieldClockEntity({
+          codec,
+          columns: info.columns,
+          primaryKey: info.primaryKey,
+          notNullColumns: info.notNull,
+          local,
+          remote: entity,
+          ...(parent.state === "gone"
+            ? {
+                orphaned: {
+                  deletedAt: parent.deletedAt,
+                  ...(freshClock === undefined ? {} : { freshClock }),
+                },
+              }
+            : {}),
+        });
+      outcome = merge();
+      // The child's own edit is later than every delete it or its parent has: the tombstone gets a
+      // clock of THIS device (see `ReferenceGuard.freshClock`), only when one is really needed.
+      if (outcome.needsFreshClock === true) {
+        outcome = merge(await guard.freshClock());
+      }
     } catch (error) {
       throw new SyncApplyError(
         "merge_failed",
@@ -626,7 +640,7 @@ const mergeAll = async (
 
   // Parents before children, derived from the declared foreign keys: a proposal needs its message
   // (a union table), a result its objective. Otherwise the order above stands.
-  const guard = await ReferenceGuard.create(db);
+  const guard = await ReferenceGuard.create(db, context.nowMs);
   const bundleSessionIds = new Set(
     changeSet.entities
       .filter((entity) => entity.table === "pomodoro_sessions" && entity.row !== null)

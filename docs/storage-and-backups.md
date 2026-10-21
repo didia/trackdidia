@@ -849,9 +849,11 @@ the laptop it runs on and never leaves it, and neither do its segments or their 
 - Deletes. No current code path deletes a synced proposal: `clearPendingAiProposals` has no callers, and
   `saveCoachPulseEpisode` only deletes pending rows of the message it has just inserted. The merge still
   handles tombstones: a pending proposal follows the clocks (a later delete removes it everywhere, a
-  later edit keeps it), and a DECIDED proposal beats any tombstone whatever the clocks
-  (`survivesDelete`; still a total order), because the app only ever deletes pending rows, so a delete
-  racing a decision means the deleter had not seen it.
+  later edit keeps it), and every terminal proposal (`accepted`, `dismissed`, `expired`) beats any tombstone whatever the clocks
+  (`survivesDelete`), because the app only ever deletes pending rows, so a delete racing a decision means
+  the deleter had not seen it. A row the engine itself expired for a pending collision is terminal too, so
+  it also survives a later delete of the pending row it came from; whether a replica derived it before or
+  after the delete arrived can differ in a single pass, and replicas agree exactly once they exchange.
 
 **Objectives and results** (field-clock, `weekly_objective_results` is `ON DELETE CASCADE` of
 `weekly_objectives`; `apply-references.ts`). Merged per field like the other personal tables, plus:
@@ -859,24 +861,44 @@ the laptop it runs on and never leaves it, and neither do its segments or their 
 - Parents are applied before children; deletes of parents run after every table was applied (so
   children are deleted first). The parent row a bundle deletes stays until then.
 - Parent tombstone wins, local children exist: the apply deletes the children itself and writes their
-  tombstone meta in the same transaction (`deleted_at = row_hlc` = the parent's `deletedAt`, or just after
-  the child's newest clock if the child was edited later, field clocks kept, snapshot dropped).
-  Replicas therefore agree, and capture-off cascades never leave "live meta, no row".
+  tombstone meta in the same transaction (`deleted_at = row_hlc` = the parent's `deletedAt` when that is
+  later than every clock the child retains, otherwise a clock issued by the APPLYING device; field clocks
+  kept, snapshot dropped). Capture-off cascades therefore never leave "live meta, no row".
 - A child edit that arrives for a parent that is deleted (here, or in this bundle) is not inserted: the
-  child ends as a tombstone, later than the parent's delete, any delete the child already had and its
-  own newest edit, and an `orphaned_child` conflict (informational, one per child) records the
+  child ends as a tombstone STRICTLY later than its own newest edit (an equal clock would keep the
+  edit): the latest delete the child or its parent already has when that is later than the edit,
+  otherwise a clock issued by the applying device, and an `orphaned_child` conflict (informational, one per child) records the
   discarded row. "Edit wins over delete" applies to the PARENT: a parent edit later than its delete
   resurrects it, and children whose own edit is later than their tombstone come back with it. A
   child whose parent was never heard of is skipped (nothing written, `orphaned_child`) and applied by the
   bundle that brings the parent. A child listed before its parent in a bundle is fine.
-- Known limit: when the parent is deleted only transiently (a later parent edit brings it back) and a
-  child edit is applied inside that window, the replicas that saw that order drop the child edit (their
-  forced tombstone is later than it); the others keep it. Once any replica has seen the window, its
-  later tombstone wins everywhere as replicas exchange, so the edit is then lost on every laptop. It can
-  happen with just two laptops (A deletes the objective; B edits a result and A applies that bundle; B
-  then edits the objective and A applies the new bundle: the result was dropped while the objective
-  was gone). Deleting an objective is rare and results are small, so this was
-  accepted rather than carrying orphaned child values.
+- The tombstone clocks the apply invents are never derived from another device's clock (for example
+  "the child author's counter + 1", a value that author issues itself next and that would tie with its
+  own edit). They are drawn from the applying device's clock store inside the apply transaction, after
+  the bundle's clock was absorbed, so they are unique to that device and later than everything in the
+  bundle; only `sync_identity`'s clock state moves (no dirty mark, no `change_counter`), and nothing is
+  issued when a delete that outranks the edit already exists, so re-applying a bundle changes nothing.
+  Consequence: replicas that each had to invent the tombstone of the same child hold different, all
+  valid, clocks until they exchange; tombstone against tombstone keeps the later, so they converge
+  (`references.convergence.test.ts` and `classes.convergence.test.ts` compare tombstone clocks masked in
+  one pass and exactly after the exchange).
+- Known limit: an invented tombstone (the forced one for a child edit that arrives for a deleted parent,
+  or the cascade tombstone of a child edited after the parent's delete) is dated at the APPLYING
+  device's clock when it applies. Every concurrent child edit dated before that tombstone is lost once
+  the parent comes back (a later parent edit resurrects it, and the child tombstone outranks the older
+  edit), including edits made after the parent's delete that this device never applied inside the
+  window, and wall-clock skew on the applying device widens this. The replicas that applied the child
+  edit while the parent was gone drop it; the others keep it until they hear the tombstone, which then
+  wins everywhere. It can happen with just two laptops (A deletes the objective; B edits a result and A
+  applies that bundle; B then edits the objective and A applies the new bundle: the result was dropped
+  while the objective was gone). Deleting an objective is rare and results are small, so this was
+  accepted (the dating rule is deliberate) rather than carrying orphaned child values.
+- What the fresh clock fixes. An earlier version dated these tombstones as "the child author's newest
+  clock + 1 counter". The scenario a review described for it (a child that survives its deleted parent
+  forever) does not reproduce: foreign keys are enforced and the forced-orphan rule tombstones any
+  child whose parent is gone, so such a child cannot stay. The real flaw was a duplicate clock: the
+  invented tombstone could equal a clock the child's author issues itself next, and an equal clock ties
+  with that edit. The tombstone is now drawn from the applying device's own clock store.
 
 #### GTD task and recurring template rules
 

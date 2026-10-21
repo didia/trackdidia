@@ -231,8 +231,20 @@ const TABLES = [
   "weekly_objective_results",
 ];
 
-/** The rows of these tables that are published, with their clocks and snapshots. */
-const stateOf = async (sim: SyncHarness, device: SyncDevice): Promise<string> => {
+/**
+ * The rows of these tables that are published, with their clocks and snapshots. With
+ * `maskTombstones` the clock of a tombstone is hidden: a tombstone a replica had to invent (a child
+ * edited later than its parent's delete) carries a clock of THAT replica, so replicas hold different,
+ * all valid, tombstone clocks until they exchange. `withProposals: false` leaves `ai_proposals`
+ * out: which pending proposals a replica expired (and whether it did before or after a delete
+ * arrived) can differ in a single pass, and the proposals are compared after the exchange only.
+ */
+const stateOf = async (
+  sim: SyncHarness,
+  device: SyncDevice,
+  maskTombstones = false,
+  withProposals = true,
+): Promise<string> => {
   const parts: Record<string, unknown> = {};
   const terminal = new Set(
     (
@@ -257,6 +269,7 @@ const stateOf = async (sim: SyncHarness, device: SyncDevice): Promise<string> =>
   const entityPublished = (row: Record<string, unknown>): boolean => {
     const table = String(row.entity_type);
     if (!TABLES.includes(table)) return false;
+    if (table === "ai_proposals" && !withProposals) return false;
     const id = String(row.entity_id);
     if (table === "pomodoro_sessions") return terminal.has(id);
     if (table === "pomodoro_segments") return terminal.has(segmentSession.get(id) ?? "");
@@ -265,11 +278,18 @@ const stateOf = async (sim: SyncHarness, device: SyncDevice): Promise<string> =>
   for (const domain of ["gtd", "personal"] as SyncDomain[]) {
     const dump = await sim.dump(device, domain, { snapshots: true, exact: true });
     for (const table of TABLES) {
+      if (table === "ai_proposals" && !withProposals) continue;
       if (dump.tables[table]) {
         parts[table] = dump.tables[table].filter((row) => published(table, row));
       }
     }
-    parts[`${domain}-meta`] = dump.meta.filter(entityPublished);
+    parts[`${domain}-meta`] = dump.meta
+      .filter(entityPublished)
+      .map((row) =>
+        maskTombstones && row.deleted_at !== null
+          ? { ...row, row_hlc: "<tombstone>", deleted_at: "<tombstone>" }
+          : row,
+      );
     parts[`${domain}-snapshots`] = (dump.snapshots ?? []).filter(entityPublished);
   }
   return JSON.stringify(parts);
@@ -315,7 +335,7 @@ describe("pomodoro, proposals and objectives converge in any application order",
           await replica.repo.applySyncBundle(domain, changeSet);
         }
         expect(await replica.db.select("PRAGMA foreign_key_check")).toEqual([]);
-        states.push(await stateOf(replicas, replica));
+        states.push(await stateOf(replicas, replica, true, false));
       }
       for (const state of states.slice(1)) expect(state).toBe(states[0]);
 
@@ -329,6 +349,13 @@ describe("pomodoro, proposals and objectives converge in any application order",
       }
       expect(await first.repo.enableSyncCapture()).toEqual({ installed: false, backfilled: 0 });
 
+      // Replicas converge exactly once they exchange: the tombstones they invented differ in
+      // clock only, and tombstone against tombstone keeps the later.
+      for (const domain of DOMAINS) await replicas.syncAll(domain);
+      const settled = await stateOf(replicas, first);
+      for (const replica of replicas.devices)
+        expect(await stateOf(replicas, replica)).toBe(settled);
+
       // The laptops converge to the same state once they exchange everything.
       for (const domain of DOMAINS) {
         await sim.syncAll(domain);
@@ -337,7 +364,26 @@ describe("pomodoro, proposals and objectives converge in any application order",
       // `stateOf`, which keeps only what is published; personal data has no such local-only rows.
       await sim.expectConverged("personal", { snapshots: true });
       for (const device of sim.devices) {
-        expect(await stateOf(sim, device)).toBe(states[0]);
+        expect(await stateOf(sim, device, true, false)).toBe(states[0]);
+      }
+
+      // Everything, proposals included: after a full exchange among ALL the laptops and the
+      // replicas, every device holds exactly the same published state.
+      const everyone = [...sim.devices, ...replicas.devices];
+      for (let round = 0; round < 3; round += 1) {
+        for (const domain of DOMAINS) {
+          for (const from of everyone) {
+            for (const to of everyone) {
+              if (from !== to)
+                await to.repo.applySyncBundle(domain, await from.repo.listSyncChanges(domain));
+            }
+          }
+        }
+      }
+      const finalState = await stateOf(sim, everyone[0] as SyncDevice);
+      for (const device of everyone) {
+        expect(await stateOf(sim, device), device.name).toBe(finalState);
+        expect(await device.db.select("PRAGMA foreign_key_check")).toEqual([]);
       }
     });
   }

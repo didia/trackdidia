@@ -53,16 +53,51 @@ const ORDERS = [
   [2, 1, 0],
 ];
 
-const scenarioState = async (sim: SyncHarness, device: SyncDevice): Promise<string> => {
+/**
+ * The rows, clocks and snapshots of the two tables. With `maskTombstones` the clock of a tombstone
+ * is hidden: a tombstone a replica had to invent (a child edited later than its parent's delete)
+ * carries a clock of THAT replica, so replicas hold different, all valid, tombstone clocks until
+ * they exchange (then tombstone-vs-tombstone max makes them identical).
+ */
+const scenarioState = async (
+  sim: SyncHarness,
+  device: SyncDevice,
+  maskTombstones = false,
+): Promise<string> => {
   const dump = await sim.dump(device, "personal", { snapshots: true, exact: true });
   const mine = (row: Record<string, unknown>) =>
     row.entity_type === "weekly_objectives" || row.entity_type === "weekly_objective_results";
   return JSON.stringify({
     objectives: dump.tables.weekly_objectives,
     results: dump.tables.weekly_objective_results,
-    meta: dump.meta.filter(mine),
+    meta: dump.meta
+      .filter(mine)
+      .map((row) =>
+        maskTombstones && row.deleted_at !== null
+          ? { ...row, row_hlc: "<tombstone>", deleted_at: "<tombstone>" }
+          : row,
+      ),
     snapshots: (dump.snapshots ?? []).filter(mine),
   });
+};
+
+/** A tombstone is later than every clock it retains: an equal clock would keep the edit. */
+const expectTombstonesOutrankClocks = async (device: SyncDevice): Promise<void> => {
+  const metas = await device.db.select<
+    { entity_type: string; entity_id: string; field_clocks_json: string; deleted_at: string }[]
+  >(
+    "SELECT entity_type, entity_id, field_clocks_json, deleted_at FROM sync_entity_meta WHERE deleted_at IS NOT NULL AND entity_type LIKE 'weekly%'",
+  );
+  for (const meta of metas) {
+    for (const clock of Object.values(
+      JSON.parse(meta.field_clocks_json) as Record<string, string>,
+    )) {
+      expect(
+        meta.deleted_at > clock,
+        `${device.name}: ${meta.entity_type} ${meta.entity_id} tombstone ${meta.deleted_at} vs retained ${clock}`,
+      ).toBe(true);
+    }
+  }
 };
 
 const foreignKeyViolations = (device: SyncDevice) => device.db.select("PRAGMA foreign_key_check");
@@ -94,8 +129,8 @@ const expectEveryOrderConverges = async (
   if (options.settle === true) {
     // The parent was deleted only transiently (a later parent edit brought it back): a child edit
     // applied inside that window is dropped by the replicas that saw that order (a tombstone later
-    // than the edit), kept by the others. Replicas still converge once they exchange; WHICH way is
-    // not fixed (documented limit), so the laptops are not compared with the replicas here.
+    // than the edit), kept by the others. Replicas still converge once they exchange; the laptops
+    // are not compared with the replicas here (the window can differ).
     await replicas.syncAll("personal");
     states.length = 0;
     for (const replica of replicas.devices) states.push(await scenarioState(replicas, replica));
@@ -104,18 +139,31 @@ const expectEveryOrderConverges = async (
     await sim.expectConverged("personal", { snapshots: true });
     for (const device of [...replicas.devices, ...sim.devices]) {
       expect(await foreignKeyViolations(device)).toEqual([]);
+      await expectTombstonesOutrankClocks(device);
     }
     return states[0] as string;
   }
-  expect(new Set(states).size, "every application order").toBe(1);
+  // One pass: the same rows and live metadata in every order. A tombstone invented by a replica
+  // has a clock of that replica, so those clocks are masked here ...
+  const masked: string[] = [];
+  for (const replica of replicas.devices) masked.push(await scenarioState(replicas, replica, true));
+  expect(new Set(masked).size, "every application order").toBe(1);
+  for (const replica of replicas.devices) await expectTombstonesOutrankClocks(replica);
 
-  // The laptops themselves, after exchanging everything, hold the same state as the replicas.
+  // ... and are identical once the replicas exchange (tombstone against tombstone: the later).
+  await replicas.syncAll("personal");
+  states.length = 0;
+  for (const replica of replicas.devices) states.push(await scenarioState(replicas, replica));
+  expect(new Set(states).size, "replicas after exchange").toBe(1);
+
+  // The laptops themselves, after exchanging everything, hold the same rows and live metadata.
   await sim.syncAll("personal");
   await sim.expectConverged("personal", { snapshots: true });
   for (const device of sim.devices) {
     expect(await foreignKeyViolations(device)).toEqual([]);
+    await expectTombstonesOutrankClocks(device);
   }
-  expect(await scenarioState(sim, sim.devices[0] as SyncDevice)).toBe(states[0]);
+  expect(await scenarioState(sim, sim.devices[0] as SyncDevice, true)).toBe(masked[0]);
   return states[0] as string;
 };
 

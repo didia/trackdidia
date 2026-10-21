@@ -367,6 +367,21 @@ describe("proposals: terminal beats pending", () => {
     ).toEqual(lateDelete);
   });
 
+  it("expired, a later pending and an in-between delete give one result in every order (no cycle)", () => {
+    // expired beats pending by rank, pending beats the tombstone by clock, and expired beats the
+    // tombstone because a terminal row survives deletes: a total order, not a cycle.
+    const expired: State = { row: proposal("expired"), clock: clock(1) };
+    const lateDelete: State = { deletedAt: clock(5) };
+    const pending: State = { row: proposal("pending"), clock: clock(10) };
+    const results = new Set(
+      permutations([expired, lateDelete, pending]).map((order) =>
+        canon(fold(PROPOSAL_COLUMNS, PROPOSAL_RULES, order)),
+      ),
+    );
+    expect(results.size).toBe(1);
+    expect([...results][0]).toContain('"status":"expired"');
+  });
+
   it("compareVersions is antisymmetric", () => {
     const a = { row: proposal("pending"), clock: clock(1) };
     const b = { row: proposal("accepted"), clock: clock(0) };

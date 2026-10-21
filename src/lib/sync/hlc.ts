@@ -182,22 +182,6 @@ export const tickHlc = (state: HlcState, nowMs: number, deviceId: string): HlcSt
 };
 
 /**
- * The clock immediately after `clock` in the same author's sequence (counter + 1; on exhaustion the
- * next millisecond with counter 0). Pure and issues nothing: the sync apply path uses it to date a
- * delete it has to derive (a cascade it performs itself, a child kept off a deleted parent) just
- * after the newest clock the deleted row carries, so the tombstone is later than every edit it
- * retains and a derived delete is a function of the row's own state. Throws `Error("hlc_malformed")`
- * for a non-canonical clock.
- */
-export const successorHlc = (clock: string): string => {
-  const parsed = parseHlc(clock);
-  if (!parsed) {
-    throw new Error("hlc_malformed");
-  }
-  return finishStep(parsed.physicalMs, parsed.counter + 1, parsed.deviceId).hlc;
-};
-
-/**
  * Merges a remote clock. The returned state is strictly past the remote `(physicalMs, counter)`
  * and past the previous local state, so the next local tick is causally after the remote event
  * whatever the device ids are. A remote clock far ahead of local time pulls this device's clock

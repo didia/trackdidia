@@ -11,7 +11,8 @@ import {
 } from "./capture-stamp";
 import { entityIdOf, type PrimaryKeyValue } from "./entity-id";
 import { SyncApplyError } from "./errors";
-import { maxHlcOf, successorHlc } from "./hlc";
+import { type HlcBatch, createHlcBatch } from "./clock-store";
+import { compareHlc, maxHlcOf } from "./hlc";
 import { strategyForTable, tableOrder } from "./merge-strategies";
 import { getTableRegistration, SYNC_DOMAINS, TABLE_REGISTRY } from "./registry";
 import { keyConditions, type Totals } from "./apply-support";
@@ -46,10 +47,13 @@ import { readTableInfo } from "./table-info";
  *      never aborted for it.
  * 4. CASCADE. {@link ReferenceGuard.flush} deletes the local children of every deferred parent
  *    delete itself (recursively) and tombstones each child that has a live `sync_entity_meta` row:
- *    `deleted_at = row_hlc` = the parent's `deletedAt` (raised to just after the child's newest
- *    clock when the child was edited later than the delete: a tombstone must be later than the
- *    clocks it retains), field clocks kept, snapshot dropped. Replicas therefore agree, and a
- *    cascade with capture off never leaves "live meta, no row".
+ *    `deleted_at = row_hlc` = the parent's `deletedAt` when that is later than every clock the
+ *    child retains (a tombstone must be STRICTLY later than them: an equal clock keeps the edit),
+ *    otherwise a clock issued by the applying device ({@link ReferenceGuard.freshClock}); never a
+ *    value derived from the child author's clock, which that device could issue itself next. Field
+ *    clocks kept, snapshot dropped. A cascade with capture off never leaves "live meta, no row".
+ *    Replicas that had to invent a tombstone hold different (all valid) clocks for it until they
+ *    exchange; tombstone against tombstone keeps the later, so they converge.
  */
 
 export interface ForeignKeyEdge {
@@ -149,9 +153,15 @@ export class ReferenceGuard {
   private constructor(
     private readonly db: Database,
     readonly edges: readonly ForeignKeyEdge[],
+    private readonly clocks: HlcBatch,
   ) {}
 
-  static async create(db: Database): Promise<ReferenceGuard> {
+  /**
+   * `nowMs` is the clock of the applying device: the guard draws the clocks of the tombstones it
+   * has to invent from this device's own clock store ({@link freshClock}), never from another
+   * device's clock.
+   */
+  static async create(db: Database, nowMs: number): Promise<ReferenceGuard> {
     const edges = await readForeignKeyEdges(db);
     for (const edge of edges) {
       // A parent that sync can delete must cascade: that is the only delete action with a rule.
@@ -168,7 +178,17 @@ export class ReferenceGuard {
         );
       }
     }
-    return new ReferenceGuard(db, edges);
+    return new ReferenceGuard(db, edges, createHlcBatch(db, nowMs));
+  }
+
+  /**
+   * A clock issued by this device inside the apply transaction. The bundle's clock was absorbed
+   * before the merge, so it is strictly later than every clock the bundle (and the local database)
+   * carries, and unique to this device. Only `sync_identity`'s clock state moves: no dirty mark, no
+   * `change_counter`. Persisted by {@link flush}; a merge that issues none leaves the state untouched.
+   */
+  freshClock(): Promise<string> {
+    return this.clocks.next();
   }
 
   edgesOfChild(table: string): ForeignKeyEdge[] {
@@ -248,6 +268,7 @@ export class ReferenceGuard {
       );
     }
     this.deferred.clear();
+    await this.clocks.flush();
   }
 
   private async cascade(
@@ -282,16 +303,18 @@ export class ReferenceGuard {
         for (const id of batch) {
           const meta = metas.get(id);
           if (!meta || meta.deleted_at !== null) continue;
-          // The parent's delete clock, raised to just after the child's newest clock when the child
-          // was edited later (a tombstone must be later than the clocks it retains).
+          // The parent's delete clock when it is later than everything the child retains (a tombstone
+          // must be later than its clocks, and an equal one keeps the edit); otherwise a clock this
+          // device issues now. Never derived from the child author's clock: that device could issue
+          // the same value next and tie with its own edit.
           const newest = maxHlcOf([
             meta.row_hlc,
             ...Object.values(parseClocks(meta.field_clocks_json)),
           ]);
-          const tombstoneAt = maxHlcOf([
-            deletedAt,
-            newest === null ? null : successorHlc(newest),
-          ]) as string;
+          const tombstoneAt =
+            newest === null || compareHlc(deletedAt, newest) > 0
+              ? deletedAt
+              : await this.clocks.next();
           outcome.metaWrites.push({
             entityId: id,
             fieldClocksJson: meta.field_clocks_json,
